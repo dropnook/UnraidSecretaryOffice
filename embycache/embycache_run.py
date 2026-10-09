@@ -51,6 +51,9 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
   EMBYCACHE_CACHE_BUDGET      z.B. "2.5T" (überschreibt cache_budget; "" = Zähl-Modus)
   EMBYCACHE_REPORT_USER       wie --user
   EMBYCACHE_STATUS            JSON-Datei für das Ergebnis des Laufs (siehe embycache_lib.py)
+  EMBYCACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
+                              Kopie); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
+                              «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete)
 
 Beispiel User Scripts (Unraid):  cd /mnt/user/system/scripts/embycache && python3 embycache_run.py --run
 """
@@ -59,6 +62,13 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+STOP_FILE = os.environ.get("EMBYCACHE_STOP") or ""
+
+
+def stop_requested():
+    """EMBYCACHE_STOP: gibt es die Datei, hört der Lauf nach der aktuellen Datei auf."""
+    return bool(STOP_FILE) and os.path.exists(STOP_FILE)
 
 from embycache_lib import (
     ConfigError, EmbyApi, Locations, acquire_lock, array_location, collect_sessions, detect_mover_bin,
@@ -476,6 +486,15 @@ class Runner:
         self.to_origin = 0                # davon zurück auf ihre Herkunfts-Disk
         self.status = {"mode": mode}      # für $EMBYCACHE_STATUS
         self.origin = read_origin()       # Cache-Pfad -> diskN
+        self.stopped = False              # EMBYCACHE_STOP: nach der aktuellen Datei aufgehört
+
+    def halt(self):
+        """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
+        if not self.stopped and self.run_mode and stop_requested():
+            self.stopped = True
+            log.warning("Anhalten verlangt (EMBYCACHE_STOP – das Office: der Unraid-Mover startete): "
+                        "nach der aktuellen Datei ist Schluss, was noch auf dem Cache liegt, bleibt geschützt")
+        return self.stopped
 
     def share_mode_ok(self, share, checked):
         """Prüft einmal pro Share, ob das move-Binary Cache → Array kann, und schreibt das Ergebnis ins Log."""
@@ -505,6 +524,9 @@ class Runner:
         sizes = {str(loc.cache / r): sz for r, sz in listing}
         failures = 0
         for p in candidates:
+            if self.halt():
+                protected.add(p)  # bleibt auf dem Cache und in der Liste
+                continue
             src = Path(p)
             rel = src.relative_to(loc.cache)
             dst = loc.on_array(rel)
@@ -547,6 +569,9 @@ class Runner:
         sizes = {str(loc.cache / r): sz for r, sz in listing}
         rest, failures = [], 0
         for p in candidates:
+            if self.halt():
+                protected.add(p)  # bleibt auf dem Cache und in der Liste
+                continue
             disk = self.origin.get(p)
             if not disk:
                 rest.append(p)
@@ -669,6 +694,9 @@ class Runner:
             candidates = self.cleanup_to_origin(loc, candidates, listing, protected, checked)
             if not candidates:
                 return
+        if self.halt():
+            protected.update(candidates)
+            return
         if self.cfg["cleanup_tool"] == "rsync":
             log.info("Cleanup-Werkzeug: rsync nach " + str(loc.array))
             self.cleanup_with_rsync(loc, candidates, listing, protected)
@@ -721,6 +749,8 @@ class Runner:
         for f in sorted(files, key=lambda x: str(x.rel)):
             if f.on_cache:
                 continue
+            if self.halt():
+                break
             if failures >= 3:
                 log.error("Drei rsync-Fehler in Folge – Befüllen abgebrochen, Ursache im Log prüfen")
                 break
@@ -795,7 +825,7 @@ class Runner:
                 # (Split-Level «nur oberste Ebene»: Unraid legt Dateien dorthin, wo ihr Ordner ist)
                 remove_empty_parents(src.parent, self._disk_root(src, loc, bool(sources)), log)
 
-        if mover_batch:
+        if mover_batch and not self.halt():
             self.fill_with_mover(loc, mover_batch)
 
     def fill_with_mover(self, loc, batch):
@@ -961,7 +991,9 @@ class Runner:
                                "bytes_planned": self.to_cache, "bytes_done": self.copied_bytes}
         self.status["protected"] = len(protected)
         self.status["incomplete"] = bool(planner.errors or not sessions_ok)
-        return 0
+        if self.stopped:
+            log.info("Angehalten nach der aktuellen Datei (EMBYCACHE_STOP) – der nächste Lauf macht weiter")
+        return 3 if self.stopped else 0
 
 
     def release(self, sessions, sessions_ok):
@@ -989,7 +1021,7 @@ class Runner:
         self.status["fill"] = {"planned": 0, "done": 0, "bytes_planned": 0, "bytes_done": 0}
         self.status["protected"] = len(left)
         self.status["incomplete"] = not sessions_ok
-        return 0
+        return 3 if self.stopped else 0
 
 
 def main():
@@ -1032,7 +1064,7 @@ def main():
     result, code = "failed", 1
     try:
         code = runner.execute()
-        result = "ok"
+        result = "stopped" if runner.stopped else "ok"
         return code
     except Exception:
         log.exception("Unerwarteter Fehler")

@@ -57,7 +57,12 @@ define('GATHER_DATA', DATA_DIR . '/gather');
 desk('emby', [
     'fit'     => function (): array {
         $emby = embyContainers();
-        return $emby ? fit(true, 'yes', ['name' => $emby[0]['name']]) : fit(false, 'no_emby');
+        if (!$emby) {
+            return fit(false, 'no_emby');
+        }
+        // real runs only while the mover leaves EmbyCache's files alone (emby-mover.php) — his list he enters into Mover Tuning once hired
+        $rule = embyMoverRule(false);
+        return fit(true, !$rule['ok'] && $rule['why'] !== 'tuning_list' ? 'yes_dry' : 'yes', ['name' => $emby[0]['name']]);
     },
     'start'   => fn () => embyScan(),
     'actions' => [
@@ -151,6 +156,9 @@ function embyScan(): array
         'share_info' => embyShareInfo(),
         'pool_dirs'  => embyPoolDirs(),
         'old_clone'  => is_dir(EMBY_DATA . '/app/.git'),
+        // Unraid's mover: may real runs go (its schedule «Disabled», or Mover Tuning with his list — entered here when it isn't), is it at work
+        'mover'      => embyMoverState(),
+        'waiting'    => ['embycache' => embyRunWaiting('embycache'), 'gather' => embyRunWaiting('gather')],
         'letgo'      => embyLetGoNote(),       // hired again: what he switched off when he was let go (said once)
     ];
     writeAtomic(deskFile('emby'), jsonEncode($state));
@@ -1961,39 +1969,49 @@ function embyWatchProblem(array $look): ?Problem
 }
 
 /**
- * Before a real gather (php agent.php job gather run): may it start? Someone watching, from the
- * page → refused. On schedule → wait: look again every EMBY_WATCH_EVERY seconds up to
- * EMBY_WATCH_MAX, then skip. While waiting it holds only its own wait lock (never the gather's or
- * EmbyCache's) and shows itself in emby-gather-wait.json — both in RAM (RUN_DIR), so a wait of
- * hours keeps nothing open on the pool; a second scheduled start meanwhile adds nothing (result
- * `already`). A real gather that started meanwhile (from the page) ends the wait, so does the
- * array stopping (`array`), so does its schedule being switched off meanwhile (`off` — Jack let go).
- * $o: look, sleep, now, array, scheduled (callables), dir (the gather's data), waitdir, every, max — for the tests.
+ * Before a real run (php agent.php job gather run, embycache run|release): may it start? Unraid's mover at work (any
+ * real run — emby-mover.php) or, before a real gather, someone watching Emby: from the page (or the let-go) → refused.
+ * On schedule → wait: look again every EMBY_WATCH_EVERY (mover: EMBY_MOVER_EVERY) seconds up to EMBY_WATCH_MAX
+ * (EMBY_MOVER_MAX), then skip. While waiting it holds only its own wait lock (never the gather's or EmbyCache's) and
+ * shows itself in emby-<tool>-wait.json (`why`: watching | mover) — both in RAM (RUN_DIR), so a wait of hours keeps
+ * nothing open on the pool; a second scheduled start meanwhile adds nothing (result `already`). A real run of this tool
+ * that started meanwhile (from the page) ends the wait, so does the array stopping (`array`), so does its schedule being
+ * switched off meanwhile (`off` — Jack let go).
+ * $o: look, mover, sleep, now, array, scheduled (callables), watch (ask Emby's watchers: a real gather), dir (the tool's
+ * data), waitdir, every, max — for the tests.
  *
  * @return array{go: bool, result?: string, why?: string, look: array, waited: int, lock: mixed}
  *   go true: start now; `lock` is the wait lock (or null) — release it with embyWaitEnd() once the run shows as running
  */
-function embyGatherGate(string $by, array $o = []): array
+function embyRunGate(string $tool, string $by, array $o = []): array
 {
-    $look = $o['look'] ?? fn () => embyWatching();
+    $watch = (bool) ($o['watch'] ?? ($tool === 'gather'));
+    $ask = $o['look'] ?? fn () => embyWatching();
+    $mover = $o['mover'] ?? fn (): bool => embyMoverRunning();
+    $look = function () use ($watch, $ask, $mover): array {
+        if ($mover()) {
+            return ['state' => 'mover', 'who' => []];
+        }
+        return $watch ? $ask() : ['state' => 'free', 'who' => []];
+    };
     $sleep = $o['sleep'] ?? fn (int $s) => sleep($s);
     $now = $o['now'] ?? fn () => time();
-    $dir = $o['dir'] ?? GATHER_DATA;
+    $dir = $o['dir'] ?? embyToolDir($tool);
     $waitDir = $o['waitdir'] ?? RUN_DIR;
     $started = $o['array'] ?? fn () => (readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') === 'Started';
-    $scheduled = $o['scheduled'] ?? fn () => officeJobSchedule('gather')['enabled'];
-    $every = (int) ($o['every'] ?? EMBY_WATCH_EVERY);
-    $max = (int) ($o['max'] ?? EMBY_WATCH_MAX);
+    $scheduled = $o['scheduled'] ?? fn () => officeJobSchedule($tool)['enabled'];
+    $blocked = fn (array $w): bool => in_array($w['state'], ['watching', 'mover'], true);
+    $whyOf = fn (array $w): string => $w['state'] === 'mover' ? 'emby_mover_running' : 'emby_watching';
 
     $w = $look();
-    if ($w['state'] !== 'watching') {
+    if (!$blocked($w)) {
         return embyGateVerdict($w, 0, null);
     }
     if ($by !== 'schedule') {
-        return ['go' => false, 'result' => 'refused', 'why' => 'emby_watching', 'look' => $w, 'waited' => 0, 'lock' => null];
+        return ['go' => false, 'result' => 'refused', 'why' => $whyOf($w), 'look' => $w, 'waited' => 0, 'lock' => null];
     }
     @mkdir($waitDir, 0700, true);
-    $lock = @fopen("$waitDir/emby-gather-wait.lock", 'c');
+    $lock = @fopen("$waitDir/emby-$tool-wait.lock", 'c');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
         if ($lock) {
             fclose($lock);
@@ -2001,39 +2019,46 @@ function embyGatherGate(string $by, array $o = []): array
         return ['go' => false, 'result' => 'already', 'look' => $w, 'waited' => 0, 'lock' => null];
     }
     $since = $now();
-    $until = $since + $max;
     while (true) {
-        $next = min($now() + $every, $until);
-        writeAtomic("$waitDir/emby-gather-wait.json", jsonEncode(['pid' => getmypid(), 'since' => $since, 'until' => $until, 'next' => $next,
-                                                                 'looked' => $now(), 'who' => $w['who']]), 0600, 0, 0);
+        $mov = $w['state'] === 'mover';
+        $until = $since + (int) ($o['max'] ?? ($mov ? EMBY_MOVER_MAX : EMBY_WATCH_MAX));
+        $next = min($now() + (int) ($o['every'] ?? ($mov ? EMBY_MOVER_EVERY : EMBY_WATCH_EVERY)), $until);
+        writeAtomic("$waitDir/emby-$tool-wait.json", jsonEncode(['pid' => getmypid(), 'since' => $since, 'until' => $until, 'next' => $next,
+                                                                 'looked' => $now(), 'who' => $w['who'], 'why' => $mov ? 'mover' : 'watching']), 0600, 0, 0);
         if ($now() >= $until) {
-            embyWaitEnd($lock, $waitDir);
-            return ['go' => false, 'result' => 'skipped', 'why' => 'emby_watching', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
+            embyWaitEnd($lock, $waitDir, $tool);
+            return ['go' => false, 'result' => 'skipped', 'why' => $whyOf($w), 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
         }
         $sleep(max(1, $next - $now()));
         if (!$started()) {
-            embyWaitEnd($lock, $waitDir);     // the array stopped meanwhile: no data folder, no gather tonight
+            embyWaitEnd($lock, $waitDir, $tool);     // the array stopped meanwhile: no data folder, no run now
             return ['go' => false, 'result' => 'array', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
         }
         if (!$scheduled()) {
-            embyWaitEnd($lock, $waitDir);     // its schedule was switched off meanwhile (Jack let go): no gather tonight
+            embyWaitEnd($lock, $waitDir, $tool);     // its schedule was switched off meanwhile (Jack let go): no run now
             return ['go' => false, 'result' => 'off', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
         }
         $run = readJson("$dir/office-run.json") ?? [];
         if (($run['mode'] ?? '') === 'run' && (int) ($run['started'] ?? 0) >= $since) {
-            embyWaitEnd($lock, $waitDir);     // a real gather started from the page meanwhile: tonight's is done
+            embyWaitEnd($lock, $waitDir, $tool);     // a real run started from the page meanwhile: this one is done
             return ['go' => false, 'result' => 'meanwhile', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
         }
         $w = $look();
-        if ($w['state'] !== 'watching') {
+        if (!$blocked($w)) {
             $v = embyGateVerdict($w, $now() - $since, $lock);
             if (!$v['go']) {
-                embyWaitEnd($lock, $waitDir);
+                embyWaitEnd($lock, $waitDir, $tool);
                 $v['lock'] = null;
             }
             return $v;
         }
     }
+}
+
+/** A real gather's gate (embyRunGate() for the gather) — kept by its name */
+function embyGatherGate(string $by, array $o = []): array
+{
+    return embyRunGate('gather', $by, $o);
 }
 
 /** The look that isn't «watching»: free/down/unknown → go; error → refused, why */
@@ -2046,46 +2071,72 @@ function embyGateVerdict(array $w, int $waited, mixed $lock): array
 }
 
 /** The wait is over: its file goes, its lock is let go */
-function embyWaitEnd(mixed $lock, string $waitDir = RUN_DIR): void
+function embyWaitEnd(mixed $lock, string $waitDir = RUN_DIR, string $tool = 'gather'): void
 {
-    @unlink("$waitDir/emby-gather-wait.json");
+    if ($lock === null) {
+        return;                            // no wait: nothing of a wait to remove (another start may be waiting)
+    }
+    @unlink("$waitDir/emby-$tool-wait.json");
     if (is_resource($lock)) {
         flock($lock, LOCK_UN);
         fclose($lock);
     }
 }
 
-/** A scheduled gather waiting for Emby to be free (for the page), or null */
+/** A scheduled gather waiting for Emby to be free or the mover to finish (for the page), or null */
 function embyGatherWaiting(string $waitDir = RUN_DIR): ?array
 {
-    $w = readJson("$waitDir/emby-gather-wait.json");
-    if (!$w || !flockHeld("$waitDir/emby-gather-wait.lock")) {
+    return embyRunWaiting('gather', $waitDir);
+}
+
+/** A scheduled run of $tool that waits (why: watching | mover), or null */
+function embyRunWaiting(string $tool, string $waitDir = RUN_DIR): ?array
+{
+    $w = readJson("$waitDir/emby-$tool-wait.json");
+    if (!$w || !flockHeld("$waitDir/emby-$tool-wait.lock")) {
         return null;                       // a wait whose job is gone (reboot, killed) is no wait
     }
-    return array_intersect_key($w, ['since' => 1, 'until' => 1, 'next' => 1, 'looked' => 1, 'who' => 1]);
+    return array_intersect_key($w, ['since' => 1, 'until' => 1, 'next' => 1, 'looked' => 1, 'who' => 1]) + ['why' => ($w['why'] ?? '') === 'mover' ? 'mover' : 'watching'];
 }
 
 /**
- * While a real gather runs: asks Emby every $every seconds; someone watching → the stop request
- * (CONSOLIDATE_STOP) is written and the gather ends after the folder it is on (exit 3, result
- * `stopped`). Down or an unusable answer changes nothing during a run. Returns the exit code and
- * who was watching when it asked to stop.
+ * While a real run goes: is Unraid's mover at work? every $moverEvery seconds (any real run — emby-mover.php); and,
+ * with $watchers (a real gather), Emby every $every seconds. The mover started, or someone watching → the stop request
+ * ($stopFile: CONSOLIDATE_STOP, EMBYCACHE_STOP) is written once and the tool ends after the folder (the gather) or the
+ * file (EmbyCache) it is on (exit 3, result `stopped`). Emby down or an unusable answer changes nothing during a run.
+ * Returns the exit code, why it was asked to stop and who was watching then.
  *
  * @param resource $proc
- * @return array{exit: int, stopped_for: ?array}
+ * @return array{exit: int, stopped_for: ?array, stopped_why: ?string}
  */
-function embyGatherWatch($proc, string $stopFile, ?callable $look = null, int $every = EMBY_WATCH_DURING): array
+function embyRunWatch($proc, string $stopFile, bool $watchers, ?callable $look = null, ?callable $mover = null,
+                      int $every = EMBY_WATCH_DURING, int $moverEvery = EMBY_MOVER_LOOK): array
 {
     $look ??= fn () => embyWatching();
+    $mover ??= fn (): bool => embyMoverRunning(null, getmypid());
     $asked = null;
-    $last = time();
+    $why = null;
+    $last = $lastMover = time();
     while (true) {
         $st = proc_get_status($proc);
         if (!$st['running']) {
             proc_close($proc);
-            return ['exit' => (int) $st['exitcode'], 'stopped_for' => $asked];
+            return ['exit' => (int) $st['exitcode'], 'stopped_for' => $why === 'watching' ? $asked : null, 'stopped_why' => $why];
         }
-        if ($asked === null && time() - $last >= $every) {
+        if ($why === null && time() - $lastMover >= $moverEvery) {
+            $lastMover = time();
+            try {
+                $on = $mover();
+            } catch (Throwable) {
+                $on = false;
+            }
+            if ($on) {
+                $why = 'mover';
+                writeAtomic($stopFile, jsonEncode(['time' => time(), 'why' => 'mover']), 0600, 0, 0);
+                logLine('Jack Emby: Unraid\'s mover started — the ' . ($watchers ? 'gather stops after the current folder' : 'run stops after the current file'));
+            }
+        }
+        if ($watchers && $why === null && time() - $last >= $every) {
             $last = time();
             try {
                 $w = $look();
@@ -2093,13 +2144,20 @@ function embyGatherWatch($proc, string $stopFile, ?callable $look = null, int $e
                 $w = ['state' => 'error'];
             }
             if ($w['state'] === 'watching') {
+                $why = 'watching';
                 $asked = $w['who'];
-                writeAtomic($stopFile, jsonEncode(['time' => time(), 'who' => $asked]), 0600, 0, 0);
+                writeAtomic($stopFile, jsonEncode(['time' => time(), 'who' => $asked, 'why' => 'watching']), 0600, 0, 0);
                 logLine('Jack Emby: someone started watching Emby — the gather stops after the current folder (' . embyWatchersLine($asked) . ')');
             }
         }
         usleep(500000);
     }
+}
+
+/** While a real gather runs (embyRunWatch() with Emby's watchers) — kept by its name */
+function embyGatherWatch($proc, string $stopFile, ?callable $look = null, int $every = EMBY_WATCH_DURING, ?callable $mover = null): array
+{
+    return embyRunWatch($proc, $stopFile, true, $look, $mover, $every);
 }
 
 // ===================================================================== runs
@@ -2117,6 +2175,10 @@ function embyStart(string $tool, string $mode): array
         throw new Problem('unknown_target', ['target' => $mode]);      // only his let-go brings everything back (emby.letgo)
     }
     embyRunCheck($tool, $mode);
+    if ($mode === 'run' && embyMoverRunning()) {
+        logLine("Jack Emby: $tool (run) not started — Unraid's mover is at work");
+        throw new Problem('emby_mover_running');
+    }
     if ($tool === 'gather' && in_array($mode, ['run', 'measure'], true)) {      // a measurement reads every disk of the shares: not while someone watches either
         // asked in the agent's own loop: a short look (an Emby that is slow counts as down here — the job asks again, fully)
         $look = embyWatching(null, fn (string $url, string $key) => embyWatchFetch($url, $key, EMBY_WATCH_PAGE));
@@ -2161,6 +2223,10 @@ function embyRunCheck(string $tool, string $mode): void
         || flockHeld(EMBY_DATA . '/embycache.lock') || flockHeld(GATHER_LOCK)) {
         throw new Problem('emby_running');
     }
+    // real runs only while the mover leaves EmbyCache's files alone (emby-mover.php): its schedule «Disabled», or Mover Tuning with his list
+    if ($mode === 'run' && ($p = embyMoverProblem(embyMoverRule()))) {
+        throw $p;
+    }
 }
 
 function embyAnyRunning(): bool
@@ -2202,7 +2268,11 @@ function embyJob(string $tool, array $args): int
         embyRunCheck($tool, $mode);
     } catch (Problem $p) {
         if (!in_array($p->key, ['emby_not_configured', 'emby_gather_not_configured', 'emby_measure_none'], true)) {
-            embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]);
+            embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
+                + array_intersect_key($p->params, ['schedule' => 1, 'shares' => 1, 'file' => 1, 'detail' => 1]));
+            if (str_starts_with($p->key, 'emby_mover_')) {
+                logLine("Jack Emby: $tool ($mode) not started — the mover could take EmbyCache's files ($p->key); only dry runs go");
+            }
         }
         if ($mode === 'release') {
             embyReleaseRefusedTell($p->key);
@@ -2210,15 +2280,17 @@ function embyJob(string $tool, array $args): int
         fwrite(STDERR, "$tool: not started ($p->key)\n");
         return 1;
     }
-    // a real gather: never while someone watches Emby (Benj's rule) — asked before any lock is taken
+    // a real run: never while Unraid's mover is at work; a real gather never while someone watches Emby (Benj's rule) —
+    // asked before any lock is taken
     $wait = null;
     $note = [];
-    if ($tool === 'gather' && $mode === 'run') {
+    $real = ($tool === 'gather' && $mode === 'run') || ($tool === 'embycache' && in_array($mode, ['run', 'release'], true));
+    if ($real) {
         $asked = time();
-        $gate = embyGatherGate($by);
+        $gate = embyRunGate($tool, $by);
         $look = $gate['look'];
         if (!$gate['go']) {
-            return embyGateRefused($gate, $by, $asked);
+            return embyGateRefused($gate, $tool, $mode, $by, $asked);
         }
         $wait = $gate['lock'];
         if ($gate['waited'] > 0) {
@@ -2232,8 +2304,11 @@ function embyJob(string $tool, array $args): int
         try {
             embyRunCheck($tool, $mode);           // after a wait: still nothing else at work?
         } catch (Problem $p) {
-            embyWaitEnd($wait);
+            embyWaitEnd($wait, RUN_DIR, $tool);
             embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key] + $note);
+            if ($mode === 'release') {
+                embyReleaseRefusedTell($p->key);
+            }
             return 1;
         }
     }
@@ -2265,7 +2340,7 @@ function embyJob(string $tool, array $args): int
     if (in_array($mode, ['run', 'measure', 'release'], true)) {
         $hold = @fopen($tool === 'gather' ? EMBY_DATA . '/embycache.lock' : GATHER_LOCK, 'c');
         if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
-            embyWaitEnd($wait);
+            embyWaitEnd($wait, RUN_DIR, $tool);
             embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'emby_running']);
             if ($mode === 'release') {
                 embyReleaseRefusedTell('emby_running');
@@ -2277,7 +2352,7 @@ function embyJob(string $tool, array $args): int
     $started = time();
     $run = ['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid()];
     writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
-    embyWaitEnd($wait);                          // the run shows as running now: a second start is refused by that
+    embyWaitEnd($wait, RUN_DIR, $tool);          // the run shows as running now: a second start is refused by that
     @unlink("$dir/status.json");
     @unlink("$dir/office-stop.json");
 
@@ -2293,17 +2368,18 @@ function embyJob(string $tool, array $args): int
         $cwd = '/';
     } else {
         $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
-        $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"];
+        $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = EMBY_APP;
     }
     $out = fopen("$dir/office-output.txt", 'w');
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'HOME' => '/root', 'LANG' => 'C.UTF-8'] + $env;
     $proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env);
-    $stoppedFor = null;
+    $stoppedFor = $stoppedWhy = null;
     if (!is_resource($proc)) {
         $exit = 127;
-    } elseif ($tool === 'gather' && $mode === 'run') {
-        ['exit' => $exit, 'stopped_for' => $stoppedFor] = embyGatherWatch($proc, "$dir/office-stop.json");   // stops after a folder when someone starts watching
+    } elseif ($real) {
+        // stops after a folder (the gather) or a file (EmbyCache) when the mover starts — or someone starts watching (the gather)
+        ['exit' => $exit, 'stopped_for' => $stoppedFor, 'stopped_why' => $stoppedWhy] = embyRunWatch($proc, "$dir/office-stop.json", $tool === 'gather');
     } else {
         $exit = proc_close($proc);
     }
@@ -2333,13 +2409,17 @@ function embyJob(string $tool, array $args): int
             . $result . ', ' . (int) ($status['protected'] ?? 0) . ' still on the pool)');
     }
     if ($result === 'stopped') {
-        $note['who'] = $stoppedFor ?? [];
-        logLine('Jack Emby: the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders — someone watches Emby');
+        $note['why'] = $stoppedWhy === 'mover' ? 'mover' : 'watching';
+        if ($note['why'] === 'watching') {
+            $note['who'] = $stoppedFor ?? [];
+        }
+        logLine('Jack Emby: ' . ($tool === 'gather' ? 'the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders'
+            : "EmbyCache ($mode) stopped after the file it was on") . ' — ' . ($note['why'] === 'mover' ? "Unraid's mover started" : 'someone watches Emby'));
     }
     embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(),
                   'exit' => $exit, 'result' => $result, 'status' => embyStatusShort($status)] + $note);
     try {
-        embyNotify($tool, $mode, $result, $status, $exit);
+        embyNotify($tool, $mode, $result, $status, $exit, $note['why'] ?? null);
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
@@ -2347,42 +2427,52 @@ function embyJob(string $tool, array $args): int
 }
 
 /**
- * A real gather that doesn't start because of Emby: refused (someone watches, from the page; Emby's
- * answer unusable), skipped (watched for EMBY_WATCH_MAX on schedule), or nothing new (another
- * scheduled start already waits; a gather from the page ran meanwhile). Logged; the first two
- * also in Jack's list of runs, with who watched — the page says it was skipped and why.
+ * A real run that doesn't start because of its gate (embyRunGate()): refused (Unraid's mover at work or someone watches,
+ * from the page or the let-go; Emby's answer unusable), skipped (blocked for the gate's whole wait on schedule), or
+ * nothing new (another scheduled start already waits; a real run from the page went meanwhile; the array stopped; the
+ * schedule switched off). Logged; refused and skipped also in Jack's list of runs, with who watched — the page says it
+ * was skipped and why; a refused release (his let-go) is told to Unraid's notifications too.
  */
-function embyGateRefused(array $gate, string $by, int $asked): int
+function embyGateRefused(array $gate, string $tool, string $mode, string $by, int $asked): int
 {
     $look = $gate['look'];
     $who = $look['who'] ?? [];
+    $name = $tool === 'gather' ? 'gather' : 'EmbyCache';
     switch ($gate['result']) {
         case 'already':
-            logLine('Jack Emby: a scheduled gather already waits for Emby to be free — nothing new');
+            logLine("Jack Emby: a scheduled $tool run already waits — nothing new");
             return 0;
         case 'meanwhile':
-            logLine('Jack Emby: the scheduled gather stops waiting — a real gather was started from the page meanwhile');
+            logLine("Jack Emby: the scheduled $tool run stops waiting — a real run was started from the page meanwhile");
             return 0;
         case 'array':
-            logLine('Jack Emby: the scheduled gather stops waiting for Emby — the array was stopped');
+            logLine("Jack Emby: the scheduled $tool run stops waiting — the array was stopped");
             return 0;
         case 'off':
-            logLine('Jack Emby: the scheduled gather stops waiting for Emby — its schedule was switched off');
+            logLine("Jack Emby: the scheduled $tool run stops waiting — its schedule was switched off");
             return 0;
         case 'skipped':
-            logLine('Jack Emby: the scheduled gather is skipped tonight — someone watched Emby for ' . intdiv($gate['waited'], 60) . ' min (' . embyWatchersLine($who) . ')');
-            fwrite(STDERR, "gather: skipped (emby_watching)\n");
-            embyRemember(['tool' => 'gather', 'mode' => 'run', 'by' => $by, 'started' => $asked, 'finished' => time(), 'result' => 'skipped',
-                          'why' => 'emby_watching', 'who' => $who, 'waited' => $gate['waited']]);
+            $what = ($gate['why'] ?? '') === 'emby_mover_running' ? "Unraid's mover was at work" : 'someone watched Emby';
+            logLine("Jack Emby: the scheduled $tool run is skipped — $what for " . intdiv($gate['waited'], 60) . ' min'
+                . ($who ? ' (' . embyWatchersLine($who) . ')' : ''));
+            fwrite(STDERR, "$tool: skipped ({$gate['why']})\n");
+            embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $asked, 'finished' => time(), 'result' => 'skipped',
+                          'why' => $gate['why'], 'who' => $who, 'waited' => $gate['waited']]);
             return 0;
     }
     $why = (string) ($gate['why'] ?? 'emby_watching');
-    logLine('Jack Emby: gather (run) not started — ' . ($why === 'emby_watching' ? 'someone watches Emby: ' . embyWatchersLine($who)
-        : "Emby's answer: $why " . ($look['detail'] ?? '')));
-    fwrite(STDERR, "gather: not started ($why)\n");
-    embyRemember(['tool' => 'gather', 'mode' => 'run', 'by' => $by, 'started' => $asked, 'finished' => time(), 'result' => 'refused', 'why' => $why]
-        + ($why === 'emby_watching' ? ['who' => $who] : ['detail' => (string) ($look['detail'] ?? '')])
+    logLine("Jack Emby: $name ($mode) not started — " . match ($why) {
+        'emby_watching'      => 'someone watches Emby: ' . embyWatchersLine($who),
+        'emby_mover_running' => "Unraid's mover is at work",
+        default              => "Emby's answer: $why " . ($look['detail'] ?? ''),
+    });
+    fwrite(STDERR, "$tool: not started ($why)\n");
+    embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $asked, 'finished' => time(), 'result' => 'refused', 'why' => $why]
+        + ($why === 'emby_watching' ? ['who' => $who] : ($why === 'emby_mover_running' ? [] : ['detail' => (string) ($look['detail'] ?? '')]))
         + ($gate['waited'] > 0 ? ['waited' => $gate['waited']] : []));
+    if ($mode === 'release') {
+        embyReleaseRefusedTell($why);
+    }
     return 1;
 }
 
@@ -2390,10 +2480,14 @@ function embyGateRefused(array $gate, string $by, int $asked): int
  * How a real run ended, if Unraid should hear of it: failed, aborted, config
  * (EmbyCache didn't accept its settings) or errors (done, with problems).
  * Report and dry runs stay quiet, so do runs that never started (refused)
- * and EmbyCache's "busy" (another EmbyCache was at work).
+ * and EmbyCache's "busy" (another EmbyCache was at work). A real run stopped
+ * because Unraid's mover started ($why `mover`) is told (`stopped_mover`, normal).
  */
-function embyNotifyOutcome(string $mode, string $result, array $status): ?string
+function embyNotifyOutcome(string $mode, string $result, array $status, ?string $why = null): ?string
 {
+    if ($result === 'stopped' && $why === 'mover' && in_array($mode, ['run', 'release'], true)) {
+        return 'stopped_mover';
+    }
     if ($mode === 'release') {
         // bringing everything back when he was let go: his page is gone, so a good end is told too (`ok`, normal)
         if (in_array($result, ['failed', 'aborted', 'config', 'busy'], true)) {
@@ -2412,9 +2506,9 @@ function embyNotifyOutcome(string $mode, string $result, array $status): ?string
 }
 
 /** A real run that went wrong goes to Unraid's notifications (warning) — from the tool's status file, never its log lines */
-function embyNotify(string $tool, string $mode, string $result, array $status, int $exit): bool
+function embyNotify(string $tool, string $mode, string $result, array $status, int $exit, ?string $why = null): bool
 {
-    $outcome = embyNotifyOutcome($mode, $result, $status);
+    $outcome = embyNotifyOutcome($mode, $result, $status, $why);
     if ($outcome === null) {
         return false;
     }
@@ -2423,7 +2517,13 @@ function embyNotify(string $tool, string $mode, string $result, array $status, i
               + ($tool === 'gather' ? (int) ($status['conflicts'] ?? 0) + (int) ($status['full'] ?? 0) + (int) ($status['dirs_failed'] ?? 0) : 0);
     $message = trim((string) ($status['message'] ?? ''));
     $c = (array) ($status['cleanup'] ?? []);
-    if ($mode === 'release' && $status && in_array($outcome, ['ok', 'errors'], true)) {
+    if ($outcome === 'stopped_mover') {
+        $f = (array) ($status['fill'] ?? []);
+        $detail = officeNotifyText('emby', $tool === 'gather' ? 'notify.stopped_mover_gather' : ($mode === 'release' ? 'notify.stopped_mover_release' : 'notify.stopped_mover'),
+            $tool === 'gather' ? ['done' => (int) ($status['folders_done'] ?? 0), 'total' => (int) ($status['folders'] ?? 0)]
+                               : ['n' => (int) ($c['done'] ?? 0) + (int) ($f['done'] ?? 0)], $lang)
+                . ($problems > 0 ? ' ' . officeNotifyText('emby', 'notify.problems', ['n' => $problems], $lang) : '');
+    } elseif ($mode === 'release' && $status && in_array($outcome, ['ok', 'errors'], true)) {
         $left = (int) ($status['protected'] ?? 0);
         $detail = officeNotifyText('emby', 'notify.released', ['n' => (int) ($c['done'] ?? 0)], $lang)
                 . ($left > 0 ? ' ' . officeNotifyText('emby', 'notify.released_left', ['n' => $left], $lang) : '')
@@ -2440,7 +2540,7 @@ function embyNotify(string $tool, string $mode, string $result, array $status, i
         officeNotifyText('emby', $release ? 'notify.subject_release' : 'notify.subject', ['tool' => officeNotifyText('emby', "notify.tool.$tool", [], $lang),
                                                      'result' => officeNotifyText('emby', "result.$outcome", [], $lang)], $lang),
         trim($detail . ($release ? '' : ' ' . officeNotifyText('emby', 'notify.see', [], $lang))),
-        $release && $outcome === 'ok' ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/emby'));
+        ($release && $outcome === 'ok') || $outcome === 'stopped_mover' ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/emby'));
     if ($sent) {
         logLine("Jack Emby: told Unraid's notifications — $tool ($mode) $outcome");
     }
@@ -2486,7 +2586,15 @@ function embyRemember(array $entry, string $dir = EMBY_DATA): void
     embyDataDir($dir);
     $lock = fopen("$dir/office-history.lock", 'c');
     flock($lock, LOCK_EX);
-    $runs = array_slice(array_merge([$entry], embyHistory($dir)), 0, EMBY_HISTORY);
+    $runs = embyHistory($dir);
+    $top = $runs[0] ?? null;
+    // a scheduled run refused again for the same reason (the mover's rule, every hour): one line, counted — not 40
+    if (($entry['result'] ?? '') === 'refused' && ($entry['by'] ?? '') === 'schedule' && is_array($top)
+        && array_intersect_key($top, array_flip(['tool', 'mode', 'by', 'result', 'why'])) == array_intersect_key($entry, array_flip(['tool', 'mode', 'by', 'result', 'why']))) {
+        $entry += ['first' => (int) ($top['first'] ?? $top['started'] ?? 0), 'times' => (int) ($top['times'] ?? 1) + 1];
+        array_shift($runs);
+    }
+    $runs = array_slice(array_merge([$entry], $runs), 0, EMBY_HISTORY);
     writeAtomic("$dir/office-history.json", jsonEncode(['runs' => $runs]), 0600, 0, 0);
     flock($lock, LOCK_UN);
     fclose($lock);
@@ -2645,6 +2753,30 @@ function embyActiveText(string $text): string
 
 // ===================================================================== checks (for the caretaker)
 
+/**
+ * The Team Lead's point about the mover: `mover` (Mover Tuning not installed: its two ways — install it through the
+ * Consultant, or Unraid's schedule «Disabled»; ok once one holds), else what keeps Mover Tuning from protecting his
+ * files: `mover_tuning` (his list couldn't be entered), `mover_unraid` (Unraid's own schedule still on), `mover_force`
+ * (its forced move on a schedule), `mover_override` (a share's override). Required: without it no real run goes.
+ */
+function embyMoverFinding(array $rule): array
+{
+    $id = match ($rule['why']) {
+        'tuning_list'     => 'mover_tuning',
+        'tuning_schedule' => 'mover_unraid',
+        'tuning_force'    => 'mover_force',
+        'tuning_override' => 'mover_override',
+        default           => 'mover',
+    };
+    $t = $rule['tuning'];
+    return finding($id, 'required', $rule['ok'], array_filter([
+        'file'     => $id === 'mover_tuning' ? (string) ($t['file'] ?? '') : null,
+        'detail'   => $id === 'mover_tuning' ? (string) ($t['error'] ?? '') : null,
+        'shares'   => $id === 'mover_override' ? implode(', ', $t['overrides'] ?? []) : null,
+        'schedule' => $id === 'mover_unraid' ? (string) ($rule['schedule'] ?? '') : null,
+    ], fn ($v) => $v !== null), '#/emby');
+}
+
 function embyChecks(): array
 {
     $out = [];
@@ -2670,9 +2802,7 @@ function embyChecks(): array
     $out[] = finding('gather_schedule', 'recommended', officeJobSchedule('gather')['enabled'], [], '#/emby/gather-schedule');
     $foreign = array_filter(embyForeignSchedules(), fn ($f) => $f['enabled']);
     $out[] = finding('foreign', 'recommended', !$foreign, ['where' => implode(', ', array_column($foreign, 'where'))], 'userscripts');
-    // Mover Tuning should leave EmbyCache's files on the pool alone
-    $tuning = (string) @file_get_contents('/boot/config/plugins/ca.mover.tuning/ca.mover.tuning.cfg');
-    $out[] = finding('mover_tuning', 'recommended', str_contains($tuning, 'embycache_exclude.txt'),
-        ['file' => EMBY_DATA . '/embycache_exclude.txt'], 'settings');
+    // Unraid's mover must leave EmbyCache's files alone, else only dry runs go (emby-mover.php): one point, named by what is missing
+    $out[] = embyMoverFinding(embyMoverRule());
     return $out;
 }

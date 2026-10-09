@@ -135,13 +135,21 @@ function showError(box, error) {
 /** One line about how a run went, from the tool's status */
 function runSummary(r) {
   const s = r.status || r;
-  if (r.result === 'refused') return T('refused', { why: Office.errorText({ key: r.why, params: { detail: r.detail || '' } }, ID) }) + whoText(r.who);
-  if (r.result === 'skipped') return T('gather_skipped_summary', { min: Math.round((r.waited || 0) / 60) }) + whoText(r.who);
+  if (r.result === 'refused') {
+    return T('refused', { why: Office.errorText({ key: r.why, params: { detail: r.detail || '', shares: r.shares || '', file: r.file || '' } }, ID) }) + whoText(r.who)
+      + (Number(r.times) > 1 ? ' · ' + T('refused_times', { n: Number(r.times) }) : '');
+  }
+  if (r.result === 'skipped') {
+    return T(r.why === 'emby_mover_running' ? 'skipped_mover_summary' : 'gather_skipped_summary', { min: Math.round((r.waited || 0) / 60) }) + whoText(r.who);
+  }
   if (r.tool === 'gather') {
     if (s.result === 'failed') return s.message || T('result.failed');
     if (r.mode === 'measure') return T('measure_summary', { n: Number(s.measured) || 0 });
     const notes = [];
-    if (s.result === 'stopped') notes.push(T('gather_stopped', { done: s.folders_done || 0, total: s.folders || 0 }) + whoText(r.who));
+    if (s.result === 'stopped') {
+      notes.push(r.why === 'mover' ? T('gather_stopped_mover', { done: s.folders_done || 0, total: s.folders || 0 })
+        : T('gather_stopped', { done: s.folders_done || 0, total: s.folders || 0 }) + whoText(r.who));
+    }
     notes.push(gatherSummary(s));
     if (r.waited) notes.push(T('watch_note.waited', { min: Math.round(r.waited / 60) }));
     if (r.emby) notes.push(T('watch_note.' + r.emby));
@@ -151,12 +159,61 @@ function runSummary(r) {
   if (s.result === 'config') return s.message || T('result.config');
   if (s.mode === 'report' || r.mode === 'report') return s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '';
   const c = s.cleanup || {}; const f = s.fill || {};
+  // stopped after the file it was on: Unraid's mover started (emby-mover.php)
+  const stopped = s.result === 'stopped' ? T('stopped_mover_summary') + ' · ' : '';
   // everything back to the array when he was let go (emby-letgo.php)
-  if ((s.mode || r.mode) === 'release') return T('release_summary', { back: c.done || 0, planned: c.planned || 0, origin: c.to_origin || 0, left: s.protected || 0 });
+  if ((s.mode || r.mode) === 'release') return stopped + T('release_summary', { back: c.done || 0, planned: c.planned || 0, origin: c.to_origin || 0, left: s.protected || 0 });
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
-  return T(key, { back: c.done || 0, back_planned: files(c.planned), origin: c.to_origin || 0,
+  return stopped + T(key, { back: c.done || 0, back_planned: files(c.planned), origin: c.to_origin || 0,
     fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) });
+}
+
+/** Unraid's mover as the agent sees it (emby-mover.php) — an older agent's state has none: nothing refused, nothing said */
+const mover = () => (state && state.mover) || null;
+const moverOk = () => { const m = mover(); return !m || !!m.ok; };
+/** Why real runs don't go now, in words (the agent's refusal) */
+function moverWhy(m) {
+  const t = m.tuning || {};
+  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: t.file || '', detail: t.error || '', shares: (t.overrides || []).join(', ') } }, ID);
+}
+
+/**
+ * Unraid's mover and EmbyCache's files on the pool: real runs only while one of two ways holds — its schedule
+ * «Disabled», or Mover Tuning with his list (he enters it there himself). Not met: why, and the ways (the Consultant
+ * installs Mover Tuning; Unraid's ⟦Mover Settings⟧). Met: which way, and what still moves them (Unraid's own «Move now»
+ * — his run stops after the current file then). Mover Tuning's «Move All» threshold, the mover at work right now.
+ */
+function moverNotice() {
+  const m = mover();
+  if (!m) return null;
+  const t = m.tuning || {};
+  const box = el('div', m.ok ? 'jo-mover' : 'callout warn jo-mover');
+  if (!m.ok) {
+    box.appendChild(el('p', '', moverWhy(m)));
+    const bar = el('div', 'toolbar');
+    if (!t.installed) {
+      const b = button(T('mover.to_advisor'), 'small', () => Office.go('#/advisor'));
+      bar.appendChild(b);
+    }
+    if (!t.installed || m.why === 'tuning_schedule') {
+      const a = el('a', 'btn small plain', T('mover.to_settings'));
+      a.href = '/Settings/MoverSettings';
+      bar.appendChild(a);
+    }
+    if (bar.children.length) box.appendChild(bar);
+  } else {
+    box.appendChild(el('p', 'role', T('mover.ok.' + (m.way === 'tuning' ? 'tuning' : 'disabled'), { file: t.file || '' })));
+  }
+  if (t.changed) box.appendChild(el('p', 'role', T('mover.changed', { file: t.file || '' })));
+  if (t.installed && t.move_all) box.appendChild(el('p', 'role', T('mover.move_all', { pct: String(t.move_all) })));
+  if (m.running) box.appendChild(el('p', 'role', T('mover.running')));
+  return box;
+}
+
+/** A scheduled run that waits for Unraid's mover to finish (state.waiting / the gather's wait with why «mover») */
+function moverWaitLine(w) {
+  return el('div', 'callout', T('waiting_mover', { next: fmt.time(w.next), until: fmt.time(w.until) }));
 }
 
 /** What a gather did, each count in its own words (count.*) */
@@ -173,7 +230,8 @@ function bubbleText() {
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (state.jobs.gather.running) return T('bubble.gathering');
   if (state.jobs.embycache.running) return T('bubble.running');
-  if (state.gather.waiting) return T('bubble.gather_waiting');
+  if (state.gather.waiting) return T(state.gather.waiting.why === 'mover' ? 'bubble.mover_waiting' : 'bubble.gather_waiting');
+  if (!moverOk()) return T('bubble.mover_dry');
   if (!state.gather.ready) return T('bubble.gather_first');
   const c = state.cache;
   const parts = [c.files ? T('bubble.on_pool', { n: c.files, size: fmt.size(c.bytes) }) : T('bubble.nothing_yet')];
@@ -220,6 +278,8 @@ function render() {
   if (foreign.length) root.appendChild(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
   const back = letGoNotice();
   if (back) root.appendChild(back);
+  const mv = state.configured ? moverNotice() : null;
+  if (mv) root.appendChild(mv);
   if (running()) {
     const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
     p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
@@ -289,6 +349,8 @@ function overview() {
     !sc.enabled, () => scheduleDialog('embycache'));
   s.appendChild(stats);
 
+  const wait = (state.waiting || {}).embycache;
+  if (wait) s.appendChild(moverWaitLine(wait));
   if (last && last.result) {
     const box = el('div', 'box jo-results');
     box.appendChild(el('div', '', runSummary({ tool: 'embycache', mode: last.mode, status: last, result: last.result })));
@@ -368,14 +430,18 @@ function gatherSection() {
     return s;
   }
   if (!g.ready) s.appendChild(el('p', 'callout', T('gather_first')));
-  if (g.waiting) {
+  if (g.waiting && g.waiting.why === 'mover') {
+    s.appendChild(moverWaitLine(g.waiting));
+  } else if (g.waiting) {
     const c = el('div', 'callout');
     c.append(el('div', '', T('gather_waiting', { next: fmt.time(g.waiting.next), until: fmt.time(g.waiting.until) })), watchList(g.waiting.who),
       el('div', '', endSessionText('watch.end_then_wait')));
     s.appendChild(c);
   } else {
     const lastRun = (state.history || []).find((r) => r.tool === 'gather' && r.mode === 'run');
-    if (lastRun && lastRun.result === 'skipped') {
+    if (lastRun && lastRun.result === 'skipped' && lastRun.why === 'emby_mover_running') {
+      s.appendChild(el('div', 'callout', T('skipped_mover', { date: fmt.date(lastRun.started) })));
+    } else if (lastRun && lastRun.result === 'skipped') {
       const c = el('div', 'callout');
       c.append(el('div', '', T('gather_skipped', { date: fmt.date(lastRun.started) })), watchList(lastRun.who, true),
         el('div', '', T('gather_skipped_again') + ' ' + endSessionText()));
@@ -398,6 +464,10 @@ function gatherSection() {
   const b1 = button(T('mode.dry'), 'small plain', () => startRun('gather', 'dry'));
   const b2 = button(T('gather_run'), 'small', gatherRunDialog);
   b1.disabled = b2.disabled = dis;
+  if (!moverOk()) {
+    b2.disabled = true;                    // only dry runs while the mover could take EmbyCache's files (said above)
+    b2.dataset.tip = moverWhy(mover());
+  }
   const b3 = button(T('gather_cfg_open'), 'small plain', gatherSettingsDialog);
   b3.disabled = dis;
   bar.append(b1, b2, b3);
@@ -574,9 +644,10 @@ async function chooseRun() {
   if (!(await Office.freshState(ID))) return;
   let mode = 'dry';
   const ready = state.gather.ready;
+  const free = moverOk();
   const box = radioList('jo-mode', [
     ['dry', T('mode.dry'), T('mode_hint.dry')],
-    ['run', T('mode.run'), ready ? T('mode_hint.run') : T('mode_hint.run_gather'), !ready],
+    ['run', T('mode.run'), !free ? T('mode_hint.run_mover') : ready ? T('mode_hint.run') : T('mode_hint.run_gather'), !ready || !free],
   ], mode, (m) => { mode = m; });
   Office.dialog({
     title: T('start_title'),
@@ -1370,9 +1441,10 @@ async function saveSetup() {
  * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo; agent/desks/emby-letgo.php). He looks
  * first what letting him go does here (emby.letgo_look): both schedules go off — always, no tick; a run that is going
  * finishes; one tick «Also bring the prepared films back to the array», off by default and only when that can be done
- * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool; Mover Tuning
- * is the user's (named when it holds his list). «Let go» — while he is still hired — sends emby.letgo {confirm, release}
- * once; he is let go whatever came of it, then a dialog says what he did.
+ * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool; when Mover
+ * Tuning ignores his list, a second tick, on by default: «Also take my list out of Mover Tuning again» (then Mover
+ * Tuning moves what is left back on its own). «Let go» — while he is still hired — sends emby.letgo {confirm, release,
+ * unlist} once; he is let go whatever came of it, then a dialog says what he did.
  */
 function letGoPart(box) {
   const wrap = el('div', 'jo-letgo');
@@ -1387,7 +1459,17 @@ function letGoPart(box) {
   label.append(cb, text);
   label.hidden = true;
   const more = el('div', 'jo-letgo-more');
-  wrap.append(lines, label, more);
+  // his list out of Mover Tuning again — on by default, only when its cfg names it
+  const label2 = el('label', 'check');
+  const cb2 = el('input');
+  cb2.type = 'checkbox';
+  cb2.checked = true;
+  const text2 = el('span', '', T('letgo.unlist'));
+  const hint2 = el('small', '', '');
+  text2.appendChild(hint2);
+  label2.append(cb2, text2);
+  label2.hidden = true;
+  wrap.append(lines, label, more, label2);
   box.appendChild(wrap);
   let button = null;
   let sent = null;
@@ -1401,6 +1483,8 @@ function letGoPart(box) {
     if (cb.disabled) cb.checked = false;
     hint.textContent = v.hint;
     more.replaceChildren(...v.more.map(letGoLine));
+    label2.hidden = !v.unlist;
+    if (v.unlist) hint2.textContent = T('letgo.unlist_hint', { file: v.file });
     sync();
   };
   let asked = null;
@@ -1415,8 +1499,9 @@ function letGoPart(box) {
     before() {                   // once, even if «Let go» is pressed again
       if (!sent) {
         const release = cb.checked && !cb.disabled;
-        cb.disabled = true;
-        sent = Office.api.post(`${ID}.letgo`, { confirm: true, release });
+        const unlist = !label2.hidden && cb2.checked;
+        cb.disabled = cb2.disabled = true;
+        sent = Office.api.post(`${ID}.letgo`, { confirm: true, release, unlist });
       }
       return sent;
     },
@@ -1434,9 +1519,12 @@ function letGoList(jobs, cron) {
   return (jobs || []).map((job) => (cron && cron[job] ? T('letgo.sched_item', { tool: T('tool.' + job), when: fmt.cron(cron[job]) }) : T('tool.' + job))).join(', ');
 }
 
-/** What the look says: lines above the tick, whether there is one and may be ticked, its hint, lines below it (pure) */
+/**
+ * What the look says: lines above the tick, whether there is one and may be ticked, its hint, lines below it, whether
+ * Mover Tuning names his list (the second tick) and its file (pure)
+ */
 function letGoView(j) {
-  if (!j.ok) return { lines: [['callout warn', Office.errorText(j.error, ID)], ['role', T('letgo.agent_away')]], tick: false, tickable: false, hint: '', more: [] };
+  if (!j.ok) return { lines: [['callout warn', Office.errorText(j.error, ID)], ['role', T('letgo.agent_away')]], tick: false, tickable: false, hint: '', more: [], unlist: false, file: '' };
   const lines = [];
   const sch = j.schedules || {};
   const on = Object.keys(sch).filter((k) => sch[k]);
@@ -1455,10 +1543,9 @@ function letGoView(j) {
     more.push(['role', T('letgo.tick_off')]);
   }
   const mt = j.mover_tuning || {};
-  if (mt.listed) more.push(['callout', T('letgo.mover_listed', { file: mt.file || '' })]);
-  else if (tick) more.push(['role', T('letgo.mover')]);
   more.push(['role', T('letgo.stays')]);
-  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more };
+  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more,
+    unlist: !!mt.listed, file: mt.listed ? mt.file || '' : '' };
 }
 
 /** After he was let go: what he did — the schedules switched off (or not), the release started (or why not) */
@@ -1475,6 +1562,9 @@ function letGoDoneLines(r) {
     out.push(['callout warn', T('letgo.done_release_not', { error: Office.errorText(rel.error || { key: 'internal' }, ID) })]);
     if (rel.error && rel.error.key === 'emby_release_watching') out.push(['who', rel.error.params.who || []]);
   }
+  const un = r.unlist;
+  if (un && un.done) out.push(['', T('letgo.done_unlisted')]);
+  else if (un) out.push(['callout warn', T('letgo.done_unlist_not', { error: Office.errorText(un.error || { key: 'internal' }, ID) })]);
   return out;
 }
 function letGoDone(r) {
@@ -1590,6 +1680,6 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection,
-    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary };
+    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk };
 }
 })();

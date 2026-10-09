@@ -128,5 +128,19 @@
    "system"
   ]
  },
- "old_clone": false
+ "old_clone": false,
+ "mover": {
+  "ok": false,
+  "way": null,
+  "why": "schedule",
+  "schedule": "40 3 * * *",
+  "running": false,
+  "tuning": {
+   "installed": false
+  }
+ },
+ "waiting": {
+  "embycache": null,
+  "gather": null
+ }
 }

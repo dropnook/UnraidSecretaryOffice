@@ -20,6 +20,9 @@
 >   way (origin disk first, then `cleanup_tool`), nothing is filled; what is playing stays. Afterwards the
 >   list (and the origins) name only what is still on the pool. Jack runs it once when he is let go and
 >   the user ticks «bring the films back».
+> * `EMBYCACHE_STOP` (a file): once it exists, a real run (`--run`, `--release`) stops after the file it is on — never
+>   in the middle of a copy; what is still on the pool stays on the exclude list; result `stopped`, exit code 3. Jack
+>   writes it when Unraid's mover starts during a run (the mover would move the same files).
 > * Not taken over: `embycache_setup.py` (Jack is the setup) and `embycache_cleaner.py`
 >   (on a share whose primary is the pool it would take every new film for an orphan).
 >

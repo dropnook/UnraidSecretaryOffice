@@ -937,7 +937,7 @@ function testEmbyWatch(): void
         $r = embyGatherGate($by, ['dir' => $dir, 'waitdir' => "$dir/run", 'array' => fn () => !file_exists("$dir/array-stopped"),
             'scheduled' => fn () => !file_exists("$dir/schedule-off"), 'now' => function () use (&$t) { return $t; },
             'sleep' => function (int $s) use (&$t, &$slept, $during, $dir) { $slept[] = $s; $t += $s; if ($during) { $during($t, $dir); } },
-            'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }]);
+            'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }, 'mover' => fn () => false]);
         return $r + ['slept' => $slept, 'looks' => $n];
     };
     $r = $gate('office', [$W]);
@@ -992,13 +992,13 @@ function testEmbyWatch(): void
     $stop = "$tmp/stop.json";
     $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
     $proc = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', $stop], $null, $pipes);
-    $r = embyGatherWatch($proc, $stop, fn () => $W, 0);
-    same('watch during a run: asked to stop, the run\'s own exit', [3, 'isp3'], [$r['exit'], $r['stopped_for'][0]['user'] ?? null]);
+    $r = embyGatherWatch($proc, $stop, fn () => $W, 0, fn () => false);
+    same('watch during a run: asked to stop, the run\'s own exit', [3, 'isp3', 'watching'], [$r['exit'], $r['stopped_for'][0]['user'] ?? null, $r['stopped_why']]);
     same('watch during a run: the stop request names who', 'Alien', json_decode((string) @file_get_contents($stop), true)['who'][0]['title'] ?? null);
     @unlink($stop);
     $looked = 0;
     $proc = proc_open(['bash', '-c', 'sleep 0.3; exit 0'], $null, $pipes);
-    $r = embyGatherWatch($proc, $stop, function () use (&$looked) { $looked++; return ['state' => 'down', 'who' => []]; }, 0);
+    $r = embyGatherWatch($proc, $stop, function () use (&$looked) { $looked++; return ['state' => 'down', 'who' => []]; }, 0, fn () => false);
     same('watch during a run: Emby down changes nothing', [0, null, false], [$r['exit'], $r['stopped_for'], file_exists($stop)]);
     check('watch during a run: Emby was asked', $looked > 0);
 
@@ -1623,13 +1623,16 @@ function testEmbyLetGo(): void
     officeJobSetSchedule('backup', '0 2 * * *', $cron, false);
     officeJobSetSchedule('embycache', '15 * * * *', $cron, false);
     officeJobSetSchedule('gather', '0 3 * * 0', $cron, false);
-    file_put_contents("$tmp/tuning.cfg", "moverDisabled=\"no\"\nfilelistf=\"/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\"\nfilelistv=\"yes\"\n");
+    // Mover Tuning's cfg as its page writes it (2026.10.03: filelistf «Yes», filelistv the file)
+    $tuningText = "moverDisabled=\"no\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\"\n";
+    file_put_contents("$tmp/tuning.cfg", $tuningText);
+    $lists = ['/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt', "$dir/embycache_exclude.txt"];
     $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
     $W = ['state' => 'watching', 'who' => [['user' => 'isp3', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
     $running = null;
     $look = ['state' => 'free', 'who' => []];
     $launched = [];
-    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir, 'tuning' => "$tmp/tuning.cfg",
+    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir, 'tuning' => "$tmp/tuning.cfg", 'lists' => fn () => $lists,
         'settings' => function () use (&$settings) { return $settings; }, 'running' => function () use (&$running) { return $running; },
         'waiting' => fn () => false, 'look' => function () use (&$look) { return $look; }, 'python' => fn () => true,
         'launch' => function (string $job, array $args) use (&$launched) { $launched[] = [$job, $args]; }];
@@ -1638,7 +1641,7 @@ function testEmbyLetGo(): void
     $l = embyLetGoLook();
     same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, Mover Tuning names his list',
         [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []],
-         ['there' => true, 'listed' => true, 'key' => 'filelistf', 'file' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt']],
+         ['there' => true, 'listed' => true, 'key' => 'filelistv', 'file' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt']],
         [$l['schedules'], $l['running'], $l['pool'], $l['release'], $l['mover_tuning']]);
     $running = 'gather';
     same('let Jack go: a run going — no release now (it finishes; nothing stops it)', 'emby_running', embyLetGoLook()['release']['why']);
@@ -1654,9 +1657,12 @@ function testEmbyLetGo(): void
     $settings = null;
     same('let Jack go: never set up — nothing to bring back', ['emby_not_configured', 0], [embyLetGoLook()['release']['why'], embyLetGoLook()['pool']['files']]);
     $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
-    same('let Jack go: Mover Tuning without his list / not installed', [['there' => true, 'listed' => false], ['there' => false, 'listed' => false]],
-        [embyLetGoTuning("$tmp/office.cron"), embyLetGoTuning("$tmp/none.cfg")]);
-    check('let Jack go: Mover Tuning\'s cfg only read', md5_file("$tmp/tuning.cfg") === md5("moverDisabled=\"no\"\nfilelistf=\"/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\"\nfilelistv=\"yes\"\n"));
+    file_put_contents("$tmp/tuning-off.cfg", "filelistf=\"no\"\nfilelistv=\"{$lists[0]}\"\n");
+    file_put_contents("$tmp/tuning-other.cfg", "filelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/mover_ignore.txt\"\n");
+    same('let Jack go: Mover Tuning without his list (none, switched off, another file) / not installed',
+        [['there' => true, 'listed' => false], ['there' => true, 'listed' => false], ['there' => true, 'listed' => false], ['there' => false, 'listed' => false]],
+        [embyLetGoTuning("$tmp/office.cron", $lists), embyLetGoTuning("$tmp/tuning-off.cfg", $lists), embyLetGoTuning("$tmp/tuning-other.cfg", $lists), embyLetGoTuning("$tmp/none.cfg", $lists)]);
+    check('let Jack go: Mover Tuning\'s cfg only read by the look', md5_file("$tmp/tuning.cfg") === md5($tuningText));
 
     // through the agent's dispatch: the hired gate, then the request's shape — and nothing changed by a refusal
     $staffBefore = $GLOBALS['agentStaffFile'] ?? null;
@@ -1689,6 +1695,28 @@ function testEmbyLetGo(): void
     same('let Jack go again with nothing on: nothing to switch off, the earlier note not yet shown stays', [[], ['embycache', 'gather']],
         [$r['off'] ?? null, embyLetGoNote($dir)['off'] ?? null]);
     same('let Jack go: hired again, his page said it — said once', [['ok' => true], null], [embyLetGoSeen($dir), embyLetGoNote($dir)]);
+    check('let Jack go: without `unlist` (a page from before) Mover Tuning stays as it is', md5_file("$tmp/tuning.cfg") === md5($tuningText)
+        && array_key_exists('unlist', $r) && $r['unlist'] === null);
+    check('let Jack go: a let-go a moment ago keeps his enforcing away (the look between the let-go and «fire»)', embyLetGoRecent($dir));
+
+    // the second tick: his list out of Mover Tuning again — back to what was there before his first change, every other line kept
+    file_put_contents("$dir/office-mover.json", json_encode(['v' => 1, 'entered' => 1, 'last' => 1, 'times' => 1, 'file' => $lists[0],
+        'before' => ['filelistf' => 'yes', 'filelistv' => '/mnt/user/Files/mover_ignore.txt']]));
+    file_put_contents("$tmp/tuning.cfg", "# a comment of the user's\n" . $tuningText);
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
+    same('let Jack go with «take my list out»: done, the user\'s own list back, the comment and every other line kept, his note gone',
+        [['done' => true, 'to' => ['filelistf' => 'yes', 'filelistv' => '/mnt/user/Files/mover_ignore.txt']],
+         "# a comment of the user's\nmoverDisabled=\"no\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/mover_ignore.txt\"\n", false],
+        [$r['unlist'] ?? null, file_get_contents("$tmp/tuning.cfg"), file_exists("$dir/office-mover.json")]);
+    file_put_contents("$tmp/tuning.cfg", $tuningText);
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
+    same('let Jack go with «take my list out», nothing known of before: «No», no file', [['filelistf' => 'no', 'filelistv' => ''], "moverDisabled=\"no\"\nfilelistf=\"no\"\nfilelistv=\"\"\n"],
+        [$r['unlist']['to'] ?? null, file_get_contents("$tmp/tuning.cfg")]);
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
+    same('let Jack go with «take my list out» when it isn\'t there: said, nothing written', [false, 'emby_letgo_unlisted', "moverDisabled=\"no\"\nfilelistf=\"no\"\nfilelistv=\"\"\n"],
+        [$r['unlist']['done'] ?? null, $r['unlist']['error']['key'] ?? null, file_get_contents("$tmp/tuning.cfg")]);
+    same('let Jack go: `unlist` must be a bool when said', 'bad_request', $ask(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => 'yes']));
+    file_put_contents("$tmp/tuning.cfg", $tuningText);
     check('let Jack go: a schedule switched on again also ends the note', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'),
         "if (\$cron !== null) {\n        embyLetGoSeen();"));
 
@@ -1846,6 +1874,23 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   await p2.looked;
   await p2.before();
   out.untickedSent = posts[1];
+  // the second tick: shown and on when Mover Tuning names his list; unticked — unlist false; not listed — hidden, never asked
+  posts.length = 0;
+  const box5 = mk('div');
+  const p5 = e.letGoPart(box5);
+  await p5.looked;
+  const l2 = box5.children[0].children[3];
+  const shown = [l2.hidden, l2.children[0].checked, l2.children[1].text, l2.children[1].children[0].textContent];
+  l2.children[0].checked = false;
+  await p5.before();
+  const sentUnticked = posts[1];
+  answer = (a) => (a === 'emby.letgo_look' ? { ...look, mover_tuning: { there: true, listed: false } } : { ok: true });
+  const box6 = mk('div');
+  const p6 = e.letGoPart(box6);
+  await p6.looked;
+  out.unlistTick = [...shown, sentUnticked, box6.children[0].children[3].hidden];
+  answer = (a) => (a === 'emby.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
+    release: { started: true, files: 2, bytes: 8000 } });
   // busy: the tick there but can't be ticked; «Let go» stays «Let go»
   answer = () => ({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
   const box3 = mk('div');
@@ -1868,6 +1913,9 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
     release: { started: false, error: { key: 'emby_release_watching', params: { who: [{ user: 'isp3' }] } } } });
   out.doneLeft = e.letGoDoneLines({ ok: true, was: { embycache: '15 * * * *', gather: null }, off: [], left: ['embycache'], failed: { key: 'command_failed' }, running: null, release: null });
   out.doneNone = e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null });
+  out.doneUnlist = [e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null, unlist: { done: true } }),
+    e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null,
+      unlist: { done: false, error: { key: 'emby_letgo_unlisted' } } })];
   out.doneErr = e.letGoDoneLines({ ok: false, error: { key: 'agent_away' } });
   // hired again: the note, said once (letgo_seen posted once), kept this visit, gone when the schedules are on again
   posts.length = 0;
@@ -1899,10 +1947,10 @@ JS);
     same('let Jack go: the look\'s lines — the schedules switched off; the tick there and free; its hint; without it they stay, Mover Tuning named, settings stay', [
         'lines' => [['', 'letgo.sched_off {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}']], 'tick' => true, 'tickable' => true,
         'hint' => 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}',
-        'more' => [['role', 'letgo.tick_off'], ['callout', 'letgo.mover_listed {"file":"/x/embycache_exclude.txt"}'], ['role', 'letgo.stays']]], $o['view']);
+        'more' => [['role', 'letgo.tick_off'], ['role', 'letgo.stays']], 'unlist' => true, 'file' => '/x/embycache_exclude.txt'], $o['view']);
     same('let Jack go: a run going — it finishes (said), the tick waits, Mover Tuning in general words',
-        [['callout', 'letgo.running.gather'], false, true, [['callout warn', 'letgo.release_busy'], ['role', 'letgo.tick_off'], ['role', 'letgo.mover'], ['role', 'letgo.stays']]],
-        [$o['busy']['lines'][1] ?? null, $o['busy']['tickable'], $o['busy']['tick'], $o['busy']['more']]);
+        [['callout', 'letgo.running.gather'], false, true, [['callout warn', 'letgo.release_busy'], ['role', 'letgo.tick_off'], ['role', 'letgo.stays']], false],
+        [$o['busy']['lines'][1] ?? null, $o['busy']['tickable'], $o['busy']['tick'], $o['busy']['more'], $o['busy']['unlist']]);
     same('let Jack go: someone watches — who, and the gentler way', [['callout warn', 'letgo.watching'], ['who', [['user' => 'isp3', 'title' => 'Alien', 'device' => 'iPad']]]],
         array_slice($o['watching']['more'], 0, 2));
     same('let Jack go: nothing on, nothing on the pool — no tick, said so', [[['', 'letgo.sched_none'], ['role', 'letgo.nothing']], false, '', [['role', 'letgo.stays']]],
@@ -1910,8 +1958,12 @@ JS);
     same('let Jack go: the part looks at once; the tick shown, off by default, «Let go» as always', [false, false, false, 'office.fire', ['emby.letgo_look'], true,
         ['letgo.tick', 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}']], $o['start']);
     same('let Jack go: ticked — «Let go and bring back»', 'letgo.button', $o['ticked']);
-    same('let Jack go: before() once — schedules off and the release, with confirm', [[['emby.letgo', ['confirm' => true, 'release' => true]]], true, true], $o['sent']);
-    same('let Jack go: unticked — schedules off only', ['emby.letgo', ['confirm' => true, 'release' => false]], $o['untickedSent']);
+    same('let Jack go: before() once — schedules off, the release and his list out of Mover Tuning (on by default), with confirm',
+        [[['emby.letgo', ['confirm' => true, 'release' => true, 'unlist' => true]]], true, true], $o['sent']);
+    same('let Jack go: unticked — schedules off and his list out of Mover Tuning', ['emby.letgo', ['confirm' => true, 'release' => false, 'unlist' => true]], $o['untickedSent']);
+    same('let Jack go: the second tick shown (Mover Tuning names his list), on, its hint names the file; taken off — not asked',
+        [false, true, 'letgo.unlist', 'letgo.unlist_hint {"file":"/x/embycache_exclude.txt"}', ['emby.letgo', ['confirm' => true, 'release' => false, 'unlist' => false]], true],
+        $o['unlistTick']);
     same('let Jack go: a run going — the tick can\'t be ticked, «Let go» stays', [false, true, 'office.fire'], $o['busyPart']);
     same('let Jack go: the agent away — no look, said that the schedules can\'t be switched off', [0, ['letgo.agent_away']], $o['away']);
     same('let Jack go: done — what went off, the run that finishes, the release started', [
@@ -1922,12 +1974,381 @@ JS);
         ['callout warn', 'letgo.done_still {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}'], ['role', 'letgo.done_hire']], $o['doneLeft']);
     same('let Jack go: done — nothing on, nothing asked: no dialog; the request failed: said, still running', [[], [['callout warn', 'letgo.done_error {"error":"err:emby:agent_away"}'], ['role', 'letgo.done_hire']]],
         [$o['doneNone'], $o['doneErr']]);
+    same('let Jack go: done — his list out of Mover Tuning, or why not', [[['', 'letgo.done_unlisted']],
+        [['callout warn', 'letgo.done_unlist_not {"error":"err:emby:emby_letgo_unlisted"}']]], $o['doneUnlist']);
     same('let Jack go: hired again — the note once (seen posted once), kept this visit, a button per schedule still off; gone when they are on',
         ['letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
          ['schedule_title.embycache', 'schedule_title.gather'], 'letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
          ['emby.letgo_seen'], ['schedule_title.gather'], null],
         [...$o['note'], $o['noteOn'], $o['noteGone']]);
     same('let Jack go: the release in his list of runs', ['release_summary {"back":2,"planned":3,"origin":1,"left":1}', 'refused {"why":"err:emby:emby_release_watching"}'], $o['summary']);
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack Emby and Unraid's mover (agent/desks/emby-mover.php, Benj 2026-10-09): real runs only while Unraid's mover schedule
+ * is «Disabled» (share.cfg empty, no mover.cron line) or Mover Tuning ignores his list — entered by him (the real
+ * 2026.10.03 cfg as fixtures: a fresh install's and its default.cfg, which has no last newline), every other line and
+ * comment kept, a backup next to it once, again after it was taken out; what still lets the mover take his files (Unraid's
+ * own schedule beside it from 7.2.1 on, its forced move, a share's override); the refusals' words; the mover at work (pid
+ * file, processes — not his own run's move); the scheduled wait and the refusal from the page; the stop mid-run (EmbyCache
+ * stops after the file it is on, fixture tree, an rsync stand-in that starts «the mover» after the first file); the
+ * notification; a scheduled refusal counted, not repeated; his page under node.
+ */
+function testEmbyMover(): void
+{
+    $tmp = hardeningTmp('embymover');
+    $fx = OFFICE_DIR . '/tests/fixtures/movertuning';
+    foreach (["$tmp/data", "$tmp/tuning/shareOverrideConfig", "$tmp/dynamix", "$tmp/proc"] as $d) {
+        mkdir($d, 0700, true);
+    }
+    $list = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
+    $installed = false;
+    $hired = true;
+    $version = '7.3.3';
+    $shares = ['Filme', 'Serien'];
+    $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'tuning_dir' => "$tmp/tuning",
+        'installed' => function () use (&$installed) { return $installed; }, 'version' => function () use (&$version) { return $version; },
+        'lists' => fn () => [$list, "$tmp/data/embycache_exclude.txt"], 'dir' => "$tmp/data", 'shares' => function () use (&$shares) { return $shares; },
+        'hired' => function () use (&$hired) { return $hired; }, 'pid' => "$tmp/mover.pid", 'proc' => "$tmp/proc"];
+    $cfg = "$tmp/tuning/ca.mover.tuning.cfg";
+    $daily = "# Generated mover schedule:\n40 3 * * * /usr/local/sbin/mover start > /dev/null 2> >(logger -t move)\n\n";
+
+    // way 1: Unraid's own schedule — as Unraid 7.3.3 writes it (Tower: «Daily» writes mover.cron, «Disabled» empties the key, deletes the file)
+    file_put_contents("$tmp/share.cfg", "# Generated settings:\nshareMoverSchedule=\"40 3 * * *\"\nshareMoverLogging=\"no\"\n");
+    file_put_contents("$tmp/dynamix/mover.cron", $daily);
+    $r = embyMoverRule();
+    same('mover: Unraid\'s schedule daily, no Mover Tuning — no real runs, why, its time', [false, null, 'schedule', '40 3 * * *'], [$r['ok'], $r['way'], $r['why'], $r['schedule']]);
+    $p = embyMoverProblem($r);
+    same('mover: … the refusal\'s key', 'emby_mover_schedule', $p?->key);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
+    @unlink("$tmp/dynamix/mover.cron");
+    $r = embyMoverRule();
+    same('mover: «Disabled» — real runs go, way 1', [true, 'disabled', null, null], [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)]);
+    file_put_contents("$tmp/dynamix/mover.cron", $daily);
+    same('mover: the key empty but the cron line still there — it runs: no', [false, 'schedule'], [embyMoverRule()['ok'], embyMoverRule()['why']]);
+    file_put_contents("$tmp/dynamix/mover.cron", "# Generated mover schedule:\n# 40 3 * * * /usr/local/sbin/mover start\n");
+    same('mover: a commented line doesn\'t run', true, embyMoverRule()['ok']);
+    @unlink("$tmp/dynamix/mover.cron");
+
+    // way 2: Mover Tuning — not hired: read only, nothing written
+    $installed = true;
+    $fresh = (string) file_get_contents("$fx/ca.mover.tuning.fresh.cfg");
+    file_put_contents($cfg, $fresh);
+    $hired = false;
+    $r = embyMoverRule();
+    same('mover: Mover Tuning installed, his list not there, not hired — not entered, why', [false, 'tuning_list', $fresh, false],
+        [$r['ok'], $r['why'], file_get_contents($cfg), file_exists($cfg . EMBY_TUNING_BACKUP)]);
+    $hired = true;
+    $r = embyMoverRule();
+    same('mover: hired — his list entered (the fresh install\'s cfg), real runs go, way 2, said changed', [true, 'tuning', true, true, $list],
+        [$r['ok'], $r['way'], $r['tuning']['listed'], $r['tuning']['changed'], $r['tuning']['file']]);
+    same('mover: … written like its page: every line kept, the two keys added at the end', $fresh . "filelistf=\"yes\"\nfilelistv=\"$list\"\n", file_get_contents($cfg));
+    same('mover: … the cfg as it was next to it', $fresh, file_get_contents($cfg . EMBY_TUNING_BACKUP));
+    $note = readJson("$tmp/data/" . EMBY_MOVER_NOTE);
+    same('mover: … his note: what was there before (nothing), the file, once', [1, ['filelistf' => null, 'filelistv' => null], $list, 1],
+        [$note['v'] ?? null, $note['before'] ?? null, $note['file'] ?? null, $note['times'] ?? null]);
+    $r = embyMoverRule();
+    same('mover: looked again — nothing to change', [true, false], [$r['ok'], $r['tuning']['changed']]);
+    check('mover: Mover Tuning reads it as age_mover does (first value) and as Unraid\'s page does (parse_ini: last)',
+        (parse_ini_file($cfg)['filelistv'] ?? null) === $list && (parse_ini_file($cfg)['filelistf'] ?? null) === 'yes');
+
+    // taken out or changed by the user → entered again; the backup stays the first one; the note keeps what was there first
+    $text = (string) file_get_contents($cfg);
+    file_put_contents($cfg, str_replace("filelistv=\"$list\"", 'filelistv="/mnt/user/Files/mover_ignore.txt"', $text));
+    $r = embyMoverRule();
+    same('mover: changed to another file — entered again', [true, true, $text], [$r['ok'], $r['tuning']['changed'], file_get_contents($cfg)]);
+    same('mover: … the backup is still the first one, the note counts, keeps what was there before his first change', [$fresh, 2, null],
+        [file_get_contents($cfg . EMBY_TUNING_BACKUP), readJson("$tmp/data/" . EMBY_MOVER_NOTE)['times'] ?? null, readJson("$tmp/data/" . EMBY_MOVER_NOTE)['before']['filelistv']]);
+    file_put_contents($cfg, str_replace('filelistf="yes"', 'filelistf="no"', $text));
+    same('mover: switched off («No») — entered again', [true, $text], [embyMoverRule()['ok'], file_get_contents($cfg)]);
+
+    // the plugin's default.cfg (every key, no last newline), comments, CRLF, a key twice: only those lines change
+    @unlink("$tmp/data/" . EMBY_MOVER_NOTE);
+    @unlink($cfg . EMBY_TUNING_BACKUP);
+    $def = "# kept as it is\r\n" . (string) file_get_contents("$fx/ca.mover.tuning.default.cfg");
+    $def = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $def)) . "\r\nfilelistv=\"/old/twice.txt\"";
+    file_put_contents($cfg, $def);
+    embyMoverRule();
+    $got = (string) file_get_contents($cfg);
+    $want = str_replace(['filelistf="no"', 'filelistv=""', 'filelistv="/old/twice.txt"'], ['filelistf="yes"', "filelistv=\"$list\"", "filelistv=\"$list\""], $def);
+    same('mover: default.cfg with a comment, CRLF and filelistv twice — those lines only, in place, CRLF kept', $want, $got);
+    same('mover: … his note keeps the first values there were', ['filelistf' => 'no', 'filelistv' => ''], readJson("$tmp/data/" . EMBY_MOVER_NOTE)['before'] ?? null);
+
+    // what keeps Mover Tuning from protecting his files
+    file_put_contents("$tmp/dynamix/mover.cron", $daily);
+    $r = embyMoverRule();
+    same('mover: Mover Tuning plus Unraid\'s own schedule (7.3.3: it runs Unraid\'s mover) — no', [false, 'tuning_schedule', 'emby_mover_tuning_schedule'],
+        [$r['ok'], $r['why'], embyMoverProblem($r)?->key]);
+    $version = '7.1.4';
+    same('mover: below 7.2.1 Unraid\'s schedule runs Mover Tuning\'s mover — fine', true, embyMoverRule()['ok']);
+    $version = '7.3.3';
+    @unlink("$tmp/dynamix/mover.cron");
+    $base = (string) file_get_contents($cfg);
+    file_put_contents($cfg, str_replace('force="no"', 'force="yes"', $base));
+    same('mover: «Force move all files on a schedule» said yes, but no schedule file — fine', true, embyMoverRule()['ok']);
+    file_put_contents("$tmp/tuning/mover.cron", "# Generated schedule for forced move:\n0 5 * * 0 /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start |& logger -t move\n");
+    $r = embyMoverRule();
+    same('mover: … with its schedule — Unraid\'s mover by force: no', [false, 'tuning_force'], [$r['ok'], $r['why']]);
+    file_put_contents($cfg, $base);
+    @unlink("$tmp/tuning/mover.cron");
+    $ov = "$tmp/tuning/shareOverrideConfig/Filme.cfg";
+    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"no\"\nfilelistv=\"\"\n");
+    $r = embyMoverRule();
+    same('mover: an override of one of his shares says «No» — no, the share named', [false, 'tuning_override', ['Filme'], ['shares' => 'Filme']],
+        [$r['ok'], $r['why'], $r['tuning']['overrides'], embyMoverProblem($r)?->params]);
+    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/other.txt\"\n");
+    same('mover: … «Yes» with another file — no', 'tuning_override', embyMoverRule()['why']);
+    foreach (["moverOverride=\"yes\"\nfilelistf=\"\"\n" => '«Use global»', "moverOverride=\"no\"\nfilelistf=\"no\"\n" => 'the override switched off',
+              "moverOverride=\"yes\"\nfilelistf=\"yes\"\nfilelistv=\"$list\"\n" => 'his own list'] as $text => $what) {
+        file_put_contents($ov, $text);
+        same("mover: an override with $what — fine", true, embyMoverRule()['ok']);
+    }
+    file_put_contents("$tmp/tuning/shareOverrideConfig/Musik.cfg", "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
+    same('mover: an override of a share that isn\'t his — fine', true, embyMoverRule()['ok']);
+    file_put_contents($cfg, str_replace(['omovercfg="no"', 'omoverthresh=""'], ['omovercfg="yes"', 'omoverthresh="90"'], $base));
+    $r = embyMoverRule();
+    same('mover: Mover Tuning\'s «Move All» from 90 % — said, not refused', [true, '90'], [$r['ok'], $r['tuning']['move_all']]);
+    file_put_contents($cfg, $base);
+
+    // a cfg he can't write: a link — refused, said; a let-go a moment ago — not entered
+    @unlink($cfg);
+    symlink("$tmp/elsewhere.cfg", $cfg);
+    file_put_contents("$tmp/elsewhere.cfg", $fresh);
+    $r = embyMoverRule();
+    same('mover: the cfg a link — not written through it, refused with why', [false, 'tuning_list', $fresh, 'emby_mover_tuning_list', $list],
+        [$r['ok'], $r['why'], file_get_contents("$tmp/elsewhere.cfg"), embyMoverProblem($r)?->key, embyMoverProblem($r)?->params['file'] ?? null]);
+    unlink($cfg);
+    file_put_contents($cfg, $fresh);
+    file_put_contents("$tmp/data/" . EMBY_LETGO_NOTE, json_encode(['time' => time(), 'at' => time(), 'off' => [], 'shown' => false]));
+    same('mover: let go a moment ago — not entered again meanwhile', [false, $fresh], [embyMoverRule()['ok'], file_get_contents($cfg)]);
+    file_put_contents("$tmp/data/" . EMBY_LETGO_NOTE, json_encode(['time' => time() - 4000, 'at' => time() - 4000, 'off' => [], 'shown' => true]));
+    same('mover: … an hour later (hired again) — entered', true, embyMoverRule()['ok']);
+    @unlink("$tmp/tuning/shareOverrideConfig/Musik.cfg");
+
+    // the Team Lead's point, the page's state
+    $ids = [];
+    file_put_contents("$tmp/dynamix/mover.cron", $daily);
+    $ids[] = embyMoverFinding(embyMoverRule());
+    @unlink("$tmp/dynamix/mover.cron");
+    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
+    $ids[] = embyMoverFinding(embyMoverRule());
+    @unlink($ov);
+    $ids[] = embyMoverFinding(embyMoverRule());
+    $installed = false;
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
+    $ids[] = embyMoverFinding(embyMoverRule());
+    same('mover: the Team Lead\'s point — what is missing, required, his page',
+        [['mover_unraid', false, ['schedule' => '40 3 * * *']], ['mover_override', false, ['shares' => 'Filme']], ['mover', true, []], ['mover', false, []]],
+        array_map(fn ($f) => [$f['id'], $f['ok'], $f['params']], $ids));
+    check('mover: … required, linking his page', !array_filter($ids, fn ($f) => $f['level'] !== 'required' || $f['link'] !== '#/emby'));
+    $st = embyMoverState(embyMoverRule());
+    same('mover: his page\'s state without Mover Tuning', ['ok' => false, 'way' => null, 'why' => 'schedule', 'schedule' => '0 */4 * * *', 'running' => false, 'tuning' => ['installed' => false]], $st);
+
+    // is the mover at work? the pid file (a living mover), processes named mover/age_mover/move — not one below his own run
+    $proc = function (int $pid, string $comm, int $ppid, string $cmd = '') use ($tmp) {
+        @mkdir("$tmp/proc/$pid", 0700, true);
+        file_put_contents("$tmp/proc/$pid/comm", "$comm\n");
+        file_put_contents("$tmp/proc/$pid/stat", "$pid ($comm) S $ppid 1 1");
+        file_put_contents("$tmp/proc/$pid/cmdline", $cmd !== '' ? $cmd : $comm);
+    };
+    $proc(100, 'php', 1, "php\0agent.php\0job\0embycache\0run");
+    $proc(150, 'python3', 100);
+    $proc(200, 'bash', 1);
+    same('mover at work: nothing', false, embyMoverRunning());
+    file_put_contents("$tmp/mover.pid", "200\n");
+    same('mover at work: a pid file naming a process that isn\'t a mover (reused pid) — no', false, embyMoverRunning());
+    file_put_contents("$tmp/mover.pid", "4242\n");
+    same('mover at work: a pid file of a gone process — no', false, embyMoverRunning());
+    $proc(4242, 'mover', 1, "/bin/bash\0/usr/local/sbin/mover\0start");
+    same('mover at work: Unraid\'s mover by its pid file — yes', true, embyMoverRunning());
+    @unlink("$tmp/mover.pid");
+    same('mover at work: … its process alone — yes', true, embyMoverRunning());
+    exec('rm -rf ' . escapeshellarg("$tmp/proc/4242"));
+    $proc(300, 'move', 150);
+    same('mover at work: the move binary under his own run (EmbyCache\'s cleanup_tool) — not the mover; asked without himself — yes', [false, true],
+        [embyMoverRunning(null, 100), embyMoverRunning()]);
+    $proc(400, 'age_mover', 1);
+    same('mover at work: Mover Tuning\'s age_mover — yes', true, embyMoverRunning(null, 100));
+    exec('rm -rf ' . escapeshellarg("$tmp/proc") . '/*');
+
+    // the gate: the mover at work refuses a real run from the page (and the let-go), a scheduled one waits 5 min at a time
+    $gdir = "$tmp/gate";
+    @mkdir($gdir, 0700, true);
+    $gate = function (string $tool, string $by, array $movers, array $looks = [['state' => 'free', 'who' => []]], int $max = 7200) use ($gdir): array {
+        $t = 1000000;
+        $slept = [];
+        $m = $n = 0;
+        $seen = null;
+        $r = embyRunGate($tool, $by, ['dir' => $gdir, 'waitdir' => "$gdir/run", 'array' => fn () => true, 'scheduled' => fn () => true, 'max' => $max,
+            'now' => function () use (&$t) { return $t; },
+            'sleep' => function (int $s) use (&$t, &$slept, &$seen, $tool, $gdir) { $slept[] = $s; $t += $s; $seen ??= embyRunWaiting($tool, "$gdir/run"); },
+            'mover' => function () use (&$m, $movers) { return $movers[min($m++, count($movers) - 1)]; },
+            'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }]);
+        embyWaitEnd($r['lock'], "$gdir/run", $tool);
+        return $r + ['slept' => $slept, 'seen' => $seen];
+    };
+    $r = $gate('embycache', 'office', [true]);
+    same('gate: the mover at work, from the page — refused at once, why', [false, 'refused', 'emby_mover_running', []], [$r['go'], $r['result'], $r['why'], $r['slept']]);
+    $r = $gate('embycache', 'letgo', [true]);
+    same('gate: … the let-go\'s release too', [false, 'refused', 'emby_mover_running'], [$r['go'], $r['result'], $r['why']]);
+    $r = $gate('embycache', 'schedule', [true, true, false]);
+    same('gate: on schedule — waits 5 min at a time until the mover is done, its wait says why', [true, [300, 300], 600, 'mover'],
+        [$r['go'], $r['slept'], $r['waited'], $r['seen']['why'] ?? null]);
+    $r = $gate('embycache', 'schedule', [true], [], 900);
+    same('gate: on schedule, the mover at work the whole time — skipped, why', [false, 'skipped', 'emby_mover_running', 900], [$r['go'], $r['result'], $r['why'], $r['waited']]);
+    $W = ['state' => 'watching', 'who' => [['user' => 'isp3', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
+    $r = $gate('gather', 'schedule', [true, false, false], [$W, ['state' => 'free', 'who' => []]]);
+    same('gate: a real gather — the mover first (5 min), then someone watching (15 min), then go', [true, [300, 900], 'mover'],
+        [$r['go'], $r['slept'], $r['seen']['why'] ?? null]);
+    $r = $gate('embycache', 'schedule', [false], [$W]);
+    same('gate: EmbyCache never asks Emby\'s watchers', [true, []], [$r['go'], $r['slept']]);
+    check('gate: nothing left behind', !file_exists("$gdir/run/emby-embycache-wait.json") && !flockHeld("$gdir/run/emby-embycache-wait.lock"));
+
+    // during a run: the mover starts → the stop request with why, the run's own exit
+    $stop = "$tmp/stop.json";
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $p = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', $stop], $null, $pipes);
+    $asked = 0;
+    $r = embyRunWatch($p, $stop, false, function () use (&$asked) { $asked++; return ['state' => 'free', 'who' => []]; }, fn () => true, 0, 0);
+    same('watch: the mover starts during EmbyCache\'s run — asked to stop, why mover, Emby never asked', [3, 'mover', null, 'mover', 0],
+        [$r['exit'], $r['stopped_why'], $r['stopped_for'], json_decode((string) file_get_contents($stop), true)['why'] ?? null, $asked]);
+    @unlink($stop);
+    $p = proc_open(['bash', '-c', 'sleep 0.3; exit 0'], $null, $pipes);
+    $r = embyRunWatch($p, $stop, false, null, fn () => false, 0, 0);
+    same('watch: no mover — the run goes to its end', [0, null, false], [$r['exit'], $r['stopped_why'], file_exists($stop)]);
+
+    // the job's words: the result in his list of runs, Unraid's notification (normal), a scheduled refusal counted
+    same('mover stop: Unraid hears it — normal, not a failure (a run and the let-go\'s release; a gather stopped for a watcher stays quiet)',
+        ['stopped_mover', 'stopped_mover', null], [embyNotifyOutcome('run', 'stopped', [], 'mover'), embyNotifyOutcome('release', 'stopped', [], 'mover'),
+         embyNotifyOutcome('run', 'stopped', ['errors' => 0], 'watching')]);
+    $bin = "$tmp/notify";
+    file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod($bin, 0755);
+    $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$bin");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    embyNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 2], 'errors' => 0], 3, 'mover');
+    $sent = (string) @file_get_contents("$tmp/notified");
+    check('mover stop: the notification — normal, «stopped (the mover started)», how many moved by then', str_contains($sent, "-i\nnormal")
+        && str_contains($sent, 'stopped (the mover started)') && str_contains($sent, "Unraid's mover started (3 files moved by then)"), $sent);
+    @unlink("$tmp/notified");
+    embyNotify('gather', 'run', 'stopped', ['result' => 'stopped', 'folders_done' => 4, 'folders' => 9], 3, 'mover');
+    check('mover stop: … the gather\'s', str_contains((string) @file_get_contents("$tmp/notified"), 'Stopped after 4 of 9 folders'), (string) @file_get_contents("$tmp/notified"));
+    putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
+    putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
+    $hdir = "$tmp/hist";
+    foreach ([100, 3700, 7300] as $t) {
+        embyRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => $t, 'finished' => $t, 'result' => 'refused', 'why' => 'emby_mover_schedule'], $hdir);
+    }
+    embyRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'office', 'started' => 8000, 'finished' => 8000, 'result' => 'refused', 'why' => 'emby_mover_schedule'], $hdir);
+    $h = embyHistory($hdir);
+    same('mover: refused on schedule every hour for the same reason — one line, counted; one from the page stays apart',
+        [2, 'office', 'schedule', 3, 100, 7300], [count($h), $h[0]['by'] ?? null, $h[1]['by'] ?? null, $h[1]['times'] ?? null, $h[1]['first'] ?? null, $h[1]['started'] ?? null]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('mover: real runs ask the rule (embyRunCheck: run only), the page and the job refuse while the mover works, EmbyCache gets its stop file',
+        str_contains($src, "if (\$mode === 'run' && (\$p = embyMoverProblem(embyMoverRule()))) {")
+        && str_contains($src, "if (\$mode === 'run' && embyMoverRunning()) {")
+        && str_contains($src, "(\$real ? ['EMBYCACHE_STOP' => \"\$dir/office-stop.json\"] : [])")
+        && str_contains($src, "\$real = (\$tool === 'gather' && \$mode === 'run') || (\$tool === 'embycache' && in_array(\$mode, ['run', 'release'], true));"));
+
+    // EmbyCache stops after the file it is on (--release on a fixture tree; an rsync stand-in «starts the mover» after its first file)
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        check('mover stop: python3 is missing here - skipped', true);
+    } else {
+        $py = "$tmp/py";
+        foreach (["$py/data", "$py/pool/Filme/A", "$py/pool/Filme/B", "$py/pool/Filme/C", "$py/user0/Filme", "$py/user/Filme", "$py/shares", "$py/bin"] as $d) {
+            mkdir($d, 0700, true);
+        }
+        foreach (['A/a.mkv', 'B/b.mkv', 'C/c.mkv'] as $f) {
+            file_put_contents("$py/pool/Filme/$f", str_repeat('x', 1000));
+        }
+        file_put_contents("$py/data/embycache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.mkv\n$py/pool/Filme/C/c.mkv\n");
+        file_put_contents("$py/data/embycache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
+            'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares", 'api_timeout' => 2,
+            'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]]));
+        $rsync = trim((string) shell_exec('command -v rsync'));
+        file_put_contents("$py/bin/rsync", "#!/bin/bash\n" . escapeshellarg($rsync) . " \"\$@\"; rc=\$?; touch " . escapeshellarg("$py/stop") . "; exit \$rc\n");
+        chmod("$py/bin/rsync", 0755);
+        [$exit, $out, $err] = run(['env', "PATH=$py/bin:" . getenv('PATH'), "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", "EMBYCACHE_STOP=$py/stop",
+                                   'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/embycache/embycache_run.py', '--release'], 120);
+        $st = readJson("$py/data/status.json") ?? [];
+        same('mover stop: EmbyCache stops after the first file — exit 3, result stopped, 1 of 3 back, 2 stay protected',
+            [3, 'stopped', 3, 1, 2], [$exit, $st['result'] ?? null, $st['cleanup']['planned'] ?? null, $st['cleanup']['done'] ?? null, $st['protected'] ?? null]);
+        same('mover stop: … the one moved is on the array, the other two still on the pool and on the list (never half a copy)',
+            [true, false, true, true, ["$py/pool/Filme/B/b.mkv", "$py/pool/Filme/C/c.mkv"]],
+            [is_file("$py/user0/Filme/A/a.mkv"), file_exists("$py/pool/Filme/A/a.mkv"), is_file("$py/pool/Filme/B/b.mkv"), is_file("$py/pool/Filme/C/c.mkv"),
+             file("$py/data/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)]);
+        check('mover stop: … nothing half-copied on the array', !file_exists("$py/user0/Filme/B") && !file_exists("$py/user0/Filme/C"));
+        @unlink("$py/stop");
+        [$exit] = run(['env', "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", "EMBYCACHE_STOP=$py/stop", 'PYTHONDONTWRITEBYTECODE=1',
+                       'python3', OFFICE_DIR . '/embycache/embycache_run.py', '--release'], 120);
+        same('mover stop: without the stop file the next run goes on to the end', [0, 'ok', 0], [$exit, readJson("$py/data/status.json")['result'] ?? null,
+            count(file("$py/data/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
+    }
+    unset($GLOBALS['embyMoverHost']);
+
+    // his page under node: the notice (why, the two ways; which way holds), the real run not offered, the run list's words
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('mover: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key + ':' + JSON.stringify(e.params || {}) };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+const base = { configured: true, schedules: {}, jobs: { embycache: {}, gather: {} } };
+e.setState({ ...base, mover: { ok: false, way: null, why: 'schedule', schedule: '40 3 * * *', running: false, tuning: { installed: false } } });
+let n = e.moverNotice();
+out.schedule = [n.cls, texts(n), n.children[1].children.map((c) => [c.tag, c.href || null]), e.moverOk()];
+e.setState({ ...base, mover: { ok: false, way: null, why: 'tuning_override', running: true, tuning: { installed: true, listed: true, file: '/x/l.txt', overrides: ['Filme'], move_all: false } } });
+n = e.moverNotice();
+out.override = [texts(n), n.children.length];
+e.setState({ ...base, mover: { ok: true, way: 'tuning', why: null, running: false, tuning: { installed: true, listed: true, changed: true, file: '/x/l.txt', move_all: '90' } } });
+n = e.moverNotice();
+out.tuning = [n.cls, texts(n), e.moverOk()];
+e.setState({ ...base });
+out.old = [e.moverNotice(), e.moverOk()];
+out.runs = [
+  e.runSummary({ tool: 'embycache', mode: 'run', result: 'refused', why: 'emby_mover_schedule', times: 3 }),
+  e.runSummary({ tool: 'gather', mode: 'run', result: 'skipped', why: 'emby_mover_running', waited: 7200 }),
+  e.runSummary({ tool: 'gather', mode: 'run', result: 'stopped', why: 'mover', status: { result: 'stopped', folders_done: 4, folders: 9 } }),
+  e.runSummary({ tool: 'embycache', mode: 'run', result: 'stopped', why: 'mover', status: { mode: 'run', result: 'stopped', cleanup: { done: 1, planned: 3 }, fill: { done: 0, planned: 2, bytes_planned: 5 } } }),
+];
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
+    $o = json_decode($raw, true);
+    if (!is_array($o)) {
+        check('mover: page ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('mover page: Unraid\'s schedule on — a warning with why, the Consultant\'s button and Unraid\'s Mover Settings; no real run',
+        ['callout warn jo-mover', ['err:emby_mover_schedule:{"file":"","detail":"","shares":""}', 'mover.to_advisor', 'mover.to_settings'],
+         [['button', null], ['a', '/Settings/MoverSettings']], false], $o['schedule']);
+    same('mover page: an override — why with the share, no buttons; the mover at work said', [['err:emby_mover_tuning_override:{"file":"/x/l.txt","detail":"","shares":"Filme"}', 'mover.running'], 2],
+        $o['override']);
+    same('mover page: Mover Tuning holds — a quiet line, the list entered again, «Move All» said', ['jo-mover', ['mover.ok.tuning {"file":"/x/l.txt"}',
+        'mover.changed {"file":"/x/l.txt"}', 'mover.move_all {"pct":"90"}'], true], $o['tuning']);
+    same('mover page: an older agent\'s state — nothing said, nothing refused', [null, true], $o['old']);
+    same('mover page: his list of runs — refused (counted), skipped, the gather and EmbyCache stopped by the mover', [
+        'refused {"why":"err:emby_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\"}"} · refused_times {"n":3}',
+        'skipped_mover_summary {"min":120}',
+        'gather_stopped_mover {"done":4,"total":9} · gather_summary {"moved":"count.moved {\"n\":0}","dups":"count.dups {\"n\":0}","conflicts":"count.conflicts {\"n\":0}","dirs":"count.empty_dirs {\"n\":0}","kept":"count.kept {\"n\":0}"}',
+        'stopped_mover_summary · run_summary {"back":1,"back_planned":3,"origin":0,"fill":0,"fill_planned":2,"fill_size":"5 B"}'], $o['runs']);
     hardeningRm($tmp);
 }
 
@@ -24650,7 +25071,7 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
