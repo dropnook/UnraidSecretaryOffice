@@ -19892,7 +19892,7 @@ function testReport(): void
     check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-2›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
     same('report: … ticked by default (a problem: the log too)', ['versions', 'unraid', 'language', 'team', 'error', 'log'], $pv['ticked']);
     same('report: … what was hidden, and a hint at the address in the text', [['‹pool-2›' => 'hive', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
-    same('report: … the cap', [0, 2, 2, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
+    same('report: … the cap', [0, REPORT_CAP_DAY, REPORT_CAP_DAY, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
     $kept = "$tmp/run/{$pv['token']}.json";
     same('report: … kept in RAM under its token, 0600', [true, '600', '700'], [is_file($kept), decoct(fileperms($kept) & 0777), decoct(fileperms("$tmp/run") & 0777)]);
     check('report: … the engine\'s version only for Mr. Backupsy and Mr. Restori', isset(reportPreview(['desk' => 'backup'] + $ask, $ctx + ['now' => 1760000100])['parts']['versions']['engine']));
@@ -19926,7 +19926,7 @@ function testReport(): void
 
     // the Worker's answers in the office's words — by `error` (or its `key`), never by the HTTP status
     $a = fn (int $code, array $body, int $exit = 0) => reportAnswer($exit, json_encode($body) . "\n$code", 1760000000);
-    same('report: answers mapped', ['ok', 'ok', 'report_closed', 'report_week', 'report_busy', 'report_refused', 'report_refused', 'report_failed', 'report_failed', 'report_failed', 'report_failed', 'report_busy', 'report_offline', 'report_offline'],
+    same('report: answers mapped', ['ok', 'ok', 'report_closed', 'report_day', 'report_busy', 'report_refused', 'report_refused', 'report_failed', 'report_failed', 'report_failed', 'report_failed', 'report_busy', 'report_offline', 'report_offline'],
         array_map(fn ($r) => $r['ok'] ? 'ok' : $r['key'], [$a(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]),
             $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'again' => true]),
             $a(403, ['ok' => false, 'error' => 'closed', 'key' => 'report_closed', 'by' => 'switch']), $a(429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 500000]),
@@ -19934,8 +19934,12 @@ function testReport(): void
             $a(413, ['ok' => false, 'error' => 'refused', 'why' => 'too_big']), $a(502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed']),
             $a(503, ['ok' => false, 'error' => 'config', 'key' => 'report_failed']), $a(500, []), $a(429, []),
             $a(200, ['ok' => false, 'error' => 'x', 'key' => 'report_busy']), reportAnswer(7, '', 1), reportAnswer(0, "\n000", 1)]));
-    same('report: … the week\'s next from the Worker', ['n' => 2, 'next' => strtotime('2025-10-16T09:00:00Z')],
+    same('report: … the cap\'s next from the Worker (its old name `week`; no cap said: ours)', ['n' => REPORT_CAP_DAY, 'next' => strtotime('2025-10-16T09:00:00Z')],
         $a(429, ['ok' => false, 'error' => 'week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 500000])['params']);
+    same('report: … the Worker\'s cap and key as it answers now; only retry_after: now + it; a «day» too', [['report_day', ['n' => 30, 'next' => 1760000000 + 3600]], ['report_day', ['n' => REPORT_CAP_DAY, 'next' => 1760000000 + 600]], 'report_day', 'report_day'],
+        [[($w = $a(429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'retry_after' => 3600, 'cap' => 30]))['key'], $w['params']],
+         [($w = $a(429, ['ok' => false, 'error' => 'week', 'retry_after' => 600, 'cap' => 'lots']))['key'], $w['params']],
+         $a(429, ['ok' => false, 'error' => 'day'])['key'], $a(429, ['ok' => false, 'error' => 'x', 'key' => 'report_day'])['key']]);
     same('report: … a link only to a GitHub issue', ['', 'https://github.com/dropnook/uso-inbox/issues/41'],
         [$a(201, ['ok' => true, 'number' => 41, 'url' => 'javascript:alert(1)'])['url'], $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41'])['url']]);
 
@@ -19991,7 +19995,7 @@ ROUTER);
     };
     $t0 = 1760000100;
     $r = $send($pv, ['versions', 'unraid', 'language', 'team', 'error', 'log'], $t0 + 5);
-    same('report: sent — the number, the link, one left', [true, 41, 'https://github.com/dropnook/uso-inbox/issues/41', 1], [$r['ok'], $r['number'] ?? null, $r['url'] ?? null, $r['left'] ?? null]);
+    same('report: sent — the number, the link, 24 left', [true, 41, 'https://github.com/dropnook/uso-inbox/issues/41', REPORT_CAP_DAY - 1], [$r['ok'], $r['number'] ?? null, $r['url'] ?? null, $r['left'] ?? null]);
     $req = json_decode((string) @file_get_contents("$tmp/request-1.json"), true) ?? [];
     $body = json_decode($req['body'] ?? '', true) ?? [];
     same('report: … one POST to /api/report, JSON, the office\'s User-Agent, no Origin, no Referer', ['/api/report', 'POST', 'UnraidSecretaryOffice/' . AGENT_VERSION, 'application/json', null, null],
@@ -20005,7 +20009,7 @@ ROUTER);
         [array_keys($rj), array_keys($rj['reports'][0] ?? []), $rj['reports'][0]['number'] ?? null, decoct(@fileperms("$tmp/office/reports.json") & 0777)]);
     same('report: … logged without its words', ['Office: sent a report (#41, bug, snapshot)'], $logged);
     $r = $send($pv, ['versions'], $t0 + 6);
-    same('report: the same token again — the first answer, no second POST', [true, 41, true, 1], [$r['ok'], $r['number'] ?? null, $r['again'] ?? null, $count()]);
+    same('report: the same token again — the first answer, no second POST', [true, 41, true, 1, REPORT_CAP_DAY - 1], [$r['ok'], $r['number'] ?? null, $r['again'] ?? null, $count(), $r['left'] ?? null]);
 
     // the stale preview, a changed word
     $pv2 = reportPreview($ask, $ctx + ['now' => $t0]);
@@ -20015,7 +20019,7 @@ ROUTER);
 
     // every answer the Worker may give: the office's key, the preview kept (the text too: the page keeps it)
     foreach ([[502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed'], 'report_failed'], [400, ['ok' => false, 'error' => 'refused', 'key' => 'report_refused', 'why' => 'bad', 'field' => 'desk'], 'report_refused'],
-              [429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 600], 'report_busy'], [429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 9000], 'report_week'],
+              [429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 600], 'report_busy'], [429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 9000], 'report_day'],
               [500, ['oops'], 'report_failed']] as [$code, $b, $key]) {
         $answer($code, $b);
         $r = $send($pv2, ['versions'], $t0 + 20);
@@ -20040,24 +20044,36 @@ ROUTER);
         [$send($pv2, ['versions'], $t0 + 40)['key'] ?? 'ok', $count(), reportsAnswer(['now' => $t0 + 40] + $ctx)['closed']]);
     $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
     $rj['closed_until'] = null;
+    // 23 more within the day (after #41), and two that don't count: a day old (the 7 days kept up to 1.47 count only
+    // for their last 24 h), and one of another shape
+    $entry = fn (int $n, int $sent) => ['number' => $n, 'url' => '', 'kind' => 'bug', 'title' => "t$n", 'desk' => 'office', 'sent' => $sent, 'rid' => ''];
+    array_unshift($rj['reports'], $entry(31, $t0 - 3 * 86400), $entry(32, $t0 + 5 - REPORT_DAY), ['number' => 33, 'sent' => $t0]);
+    for ($i = 1; $i <= REPORT_CAP_DAY - 2; $i++) {
+        $rj['reports'][] = $entry(100 + $i, $t0 + 5 + $i);
+    }
     file_put_contents("$tmp/office/reports.json", json_encode($rj));
+    $cap = reportsAnswer(['now' => $t0 + 45] + $ctx);
+    same('report: the cap counts the last 24 h only', [REPORT_CAP_DAY - 1, 1, REPORT_CAP_DAY], [$cap['n'], $cap['left'], $cap['cap']]);
 
-    // the second report of the week goes, the third is refused before any request
+    // the 25th of the day goes, the 26th is refused before any request
     $answer(201, ['ok' => true, 'number' => 42, 'url' => 'https://github.com/dropnook/uso-inbox/issues/42', 'ticket' => 'USO-42', 'left' => 0, 'next' => '2025-10-16T09:00:00Z']);
     $pv3 = reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => $t0 + 50]);
     $r = $send($pv3, [], $t0 + 60, ['kind' => 'wish']);
-    same('report: the second this week — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
+    same('report: the 25th today — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
     $body = json_decode(json_decode((string) @file_get_contents("$tmp/request-{$count()}.json"), true)['body'] ?? '', true) ?? [];
     same('report: … nothing ticked — only the words and the ID', [['v', 'rid', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'parts'], [], []],
         [array_keys($body), $body['facts'] ?? null, $body['parts'] ?? null]);
     $before = $count();
     $pv4 = reportPreview($ask, $ctx + ['now' => $t0 + 70]);
-    same('report: the preview says none are left, and from when', [0, $t0 + 5 + REPORT_WEEK], [$pv4['left'], $pv4['next']]);
+    same('report: the preview says none are left, and from when', [0, $t0 + 5 + REPORT_DAY], [$pv4['left'], $pv4['next']]);
     $r = $send($pv4, ['log'], $t0 + 80);
-    same('report: a third within 7 days — report_week, nobody asked', ['report_week', ['n' => 2, 'next' => $t0 + 5 + REPORT_WEEK], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
-    same('report: … a week after the first, one goes again', 1, reportsAnswer(['now' => $t0 + 6 + REPORT_WEEK] + $ctx)['left']);
+    same('report: a 26th within 24 h — report_day, nobody asked', ['report_day', ['n' => REPORT_CAP_DAY, 'next' => $t0 + 5 + REPORT_DAY], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
+    same('report: … a day after the first, one goes again', 1, reportsAnswer(['now' => $t0 + 5 + REPORT_DAY] + $ctx)['left']);
     $list = reportsAnswer(['now' => $t0 + 100] + $ctx);
-    same('report: «Your reports» — newest first, as kept', [[42, 41], ['number', 'url', 'kind', 'title', 'desk', 'sent']], [array_column($list['reports'], 'number'), array_keys($list['reports'][0] ?? [])]);
+    same('report: «Your reports» — newest first, as kept (an entry of another shape is none)', [[42, 123, 122], ['number', 'url', 'kind', 'title', 'desk', 'sent'], [41, 32, 31]],
+        [array_slice(array_column($list['reports'], 'number'), 0, 3), array_keys($list['reports'][0] ?? []), array_slice(array_column($list['reports'], 'number'), -3)]);
+    $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
+    same('report: … kept as it stood (a tolerant writer)', ['number' => 33, 'sent' => $t0], $rj['reports'][2] ?? null);
 
     // what the stand-in got matches the Worker's rules (uso-support/feedback/worker.js: FIELDS, FACT_FIELDS, PART_RE …)
     $bad = [];
@@ -20091,7 +20107,7 @@ ROUTER);
  * «Report a problem or a wish…» on the page (core.js Office.reportDialog()) under node, on a stand-in page: it opens
  * with the desk shown, asks only for «Your reports», «Send» stays off until the preview was looked at; the preview
  * request carries the words, the languages and the desk's last error; a word changed takes the preview (and «Send")
- * away; the unticked parts stay home; the answer shows the number and clears the draft; report_week says its day and
+ * away; the unticked parts stay home; the answer shows the number and clears the draft; report_day says its time and
  * leaves «Send» off; the draft survives a close. The ⋯ menu's item and the team lead's button.
  */
 function testReportDialog(): void
@@ -20156,7 +20172,7 @@ const one = (f) => walk(body(), f)[0];
 const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
 (async () => {
   await sleep(30);
-  O.strings = { 'office.report_sent': 'Sent — report #{number}.', 'office.report_hidden': 'Hidden: {list}', 'errors.report_week': { one: '{n} this week; next on {day}.', other: '{n} this week; next on {day}.' } };
+  O.strings = { 'office.report_sent': 'Sent — report #{number}.', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' } };
   O.agent = { running: true };
   O.desk({ id: 'snapshot' });
   O.desk({ id: 'caretaker' });
@@ -20204,7 +20220,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   out.classesGone = byId['sso-dialog'].className;
 
   // the week is full: its day said, «Send» stays off
-  answers['office.report_send'] = { ok: false, error: { key: 'report_week', params: { n: 2, next: 1760600000 } } };
+  answers['office.report_send'] = { ok: false, error: { key: 'report_day', params: { n: 25, next: 1760600000 } } };
   const dlg2 = O.reportDialog();
   await sleep(20);
   const [t2] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
@@ -20254,7 +20270,7 @@ JS);
     same('report dialog: … the number and the link, the draft gone, «Send» gone, «Close»', ['Sent — report #41.', ['https://github.com/dropnook/uso-inbox/issues/41'], true, 'common.close', null, true],
         [$s['shown'], $s['link'], $s['sendHidden'], $s['closeText'], $s['draft'], $s['formHidden']]);
     check('report dialog: … its classes go with it', !str_contains($r['classesGone'], 'sso-report-dialog'));
-    check('report dialog: report_week says its day, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '2 this week; next on ') && !str_contains($r['week']['msg'], '{day}')
+    check('report dialog: report_day says its time, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '25 in 24 hours; next from ') && !str_contains($r['week']['msg'], '{when}')
         && $r['week']['sendOff'] === true && $r['week']['desk'] === 'office', json_encode($r['week']));
     same('report dialog: closed without sending — the draft stays and comes back', ['Another', 'Another'], [$r['keptDraft'], $r['reopened']]);
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');

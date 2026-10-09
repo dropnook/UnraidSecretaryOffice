@@ -624,13 +624,14 @@ with an inbox (`CONFIG.report`). The agent answers `office.report_preview|report
 unticked parts dropped, one send per token — a second gets the first's answer); **the scrubber** (`reportScrub()`) over
 every log line and error param — secrets → •••, mails, paths by structure (`logsNormalizePaths()` with a replacement;
 Unraid's own shares stay, others ‹share-N›, pools ‹pool-N›), the server, partners, users, addresses, MACs, tokens,
-UUIDs; idempotent; the user's own words never scrubbed, only hinted at; **the caps**: `REPORT_CAP_WEEK` (2) in 7 days
-from `data/office/reports.json` (0600, `{v, reports:[{number, url, kind, title, desk, sent, rid}], closed_until}`, a
+UUIDs; idempotent; the user's own words never scrubbed, only hinted at; **the caps**: `REPORT_CAP_DAY` (25) in 24 hours, rolling (Benj,
+2026-10-09; was 2 in 7 days) from `data/office/reports.json` (0600, `{v, reports:[{number, url, kind, title, desk, sent, rid}], closed_until}`, a
 tolerant writer) before any request, a «closed» answer remembered a day — the Worker is binding; **the inbox**:
 `OFFICE_FEEDBACK_URL` (src/place.php, shared), overridable by `FEEDBACK_URL="http://…"` in the plugin's .cfg
 (`officeFeedbackUrl()`: scheme, host, port only; http only then) — curl through `hostNet()`, https only otherwise, 20 s,
 no redirects, the body from a 0600 file; the Worker (dropnook/uso-support `feedback/`) answers by `error` — mapped to
-`errors.report_closed|week|busy|refused|failed` + `report_offline`, `report_stale`, `report_incomplete`, never its
+`errors.report_closed|day|busy|refused|failed` + `report_offline` (the Worker's `week` = `report_day`: the name
+stays for the offices up to 1.47, which count 2 a week themselves), `report_stale`, `report_incomplete`, never its
 text; **the ID**: `sha256("uso-report:" + GUID)` in `data/office/report-id` (0600, made once) — never the supporter
 ID. **A desk's log lines** come by its labels (`REPORT_LOG_LABELS`, the start of a line's text, plus «<id>:»): a new
 `logLine()` of a desk starts with one of them (`testReport` greps every one). Tests: `testReport`, `testReportDialog`.

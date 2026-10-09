@@ -223,7 +223,7 @@ cleaned of share, pool, server, partner and user names, paths, addresses, MAC ad
 (you see what was hidden). Untick what you'd rather keep. Nothing leaves the server before you click *Send*.
 
 It goes to the office's makers, into a private inbox on GitHub — not public; the makers, GitHub and Cloudflare (who
-carries it) can read it. Each office can send two reports a week; you get a number, and *Your reports* keeps the list.
+carries it) can read it. Each office can send 25 reports a day; you get a number, and *Your reports* keeps the list.
 
 ## Thanks
 

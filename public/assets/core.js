@@ -1309,11 +1309,11 @@ function reportLastError(desk) {
   return { key: e.key, params, at: e.at };
 }
 
-/** An error of the report's in the office's words — report_week with its day */
+/** An error of the report's in the office's words — report_day with the time the next may go */
 function reportError(error) {
   const p = (error && error.params) || {};
-  if (error && error.key === 'report_week') {
-    return t('errors.report_week', { n: Number(p.n) || 2, day: typeof p.next === 'number' ? Office.fmt.date(p.next) : '?' });
+  if (error && error.key === 'report_day') {
+    return t('errors.report_day', { n: Number(p.n) || 25, when: typeof p.next === 'number' ? Office.fmt.date(p.next) : '?' });
   }
   return Office.errorText(error);
 }
@@ -1437,7 +1437,7 @@ Office.reportDialog = function reportDialog(deskId) {
     if (state.closed) {
       capLine.textContent = t('office.report_closed_note');
     } else if (c && c.left <= 0) {
-      capLine.textContent = t('office.report_none_left', { day: c.next ? Office.fmt.date(c.next) : '?' });
+      capLine.textContent = t('office.report_none_left', { when: c.next ? Office.fmt.date(c.next) : '?' });
     } else if (c) {
       capLine.textContent = t('office.report_left', { n: c.left, cap: c.cap });
     }
@@ -1461,7 +1461,7 @@ Office.reportDialog = function reportDialog(deskId) {
     yours.appendChild(ul);
   }
   function takeCap(j) {
-    if (typeof j.left === 'number') state.cap = { n: j.n, left: j.left, cap: j.cap || 2, next: j.next || null };
+    if (typeof j.left === 'number') state.cap = { n: j.n, left: j.left, cap: j.cap || 25, next: j.next || null };
     if (typeof j.closed === 'boolean') state.closed = j.closed;
     paintCap();
   }
@@ -1557,7 +1557,10 @@ Office.reportDialog = function reportDialog(deskId) {
       say(reportError(j.error));
       if (j.error && j.error.key === 'report_stale') changed();
       if (j.error && j.error.key === 'report_closed') state.closed = true;
-      if (j.error && j.error.key === 'report_week') state.cap = { n: 2, left: 0, cap: 2, next: j.error.params && j.error.params.next };
+      if (j.error && j.error.key === 'report_day') {
+        const n = Number(j.error.params && j.error.params.n) || 25;
+        state.cap = { n, left: 0, cap: n, next: j.error.params && j.error.params.next };
+      }
       paintCap();
       setTimeout(() => { send.disabled = !sendable(); }, 0);     // after the dialog gave the buttons back
       return false;
