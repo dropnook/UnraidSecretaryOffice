@@ -27,7 +27,8 @@ declare(strict_types=1);
  */
 
 const EMBY_LOG_TAIL = 96 * 1024;
-const EMBY_MODES    = ['report' => ['--show-on-deck', '--compact'], 'dry' => [], 'run' => ['--run']];
+// release: everything on the exclude list back to the array — only when he is let go (agent/desks/emby-letgo.php)
+const EMBY_MODES    = ['report' => ['--show-on-deck', '--compact'], 'dry' => [], 'run' => ['--run'], 'release' => ['--release']];
 // measure: a dry run over the shares of the chosen libraries, only for what lies where (#8) — asked from the page only
 const GATHER_MODES  = ['dry' => ['--dryrun'], 'run' => ['--run'], 'measure' => ['--dryrun']];
 const EMBY_SIZES_SHARES = 200;     // shares kept in sizes.json
@@ -71,6 +72,10 @@ desk('emby', [
         'log'          => fn (array $r) => embyLog(textField($r, 'tool')),
         'import_preview' => fn (array $r) => embyImportPreview($r),     // taking over an earlier install: what would come over
         'import_apply'   => fn (array $r) => embyImportDo($r),          // … and doing it, with the preview's token
+        // his let-go dialog (agent/desks/emby-letgo.php): the look, then — still hired — schedules off and the tick's release
+        'letgo_look'     => fn (array $r) => embyLetGoLook(),
+        'letgo'          => fn (array $r) => embyLetGo($r),
+        'letgo_seen'     => fn (array $r) => embyLetGoSeen(),
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => embyJob('embycache', $args),
@@ -146,6 +151,7 @@ function embyScan(): array
         'share_info' => embyShareInfo(),
         'pool_dirs'  => embyPoolDirs(),
         'old_clone'  => is_dir(EMBY_DATA . '/app/.git'),
+        'letgo'      => embyLetGoNote(),       // hired again: what he switched off when he was let go (said once)
     ];
     writeAtomic(deskFile('emby'), jsonEncode($state));
     return $state;
@@ -1961,8 +1967,8 @@ function embyWatchProblem(array $look): ?Problem
  * EmbyCache's) and shows itself in emby-gather-wait.json — both in RAM (RUN_DIR), so a wait of
  * hours keeps nothing open on the pool; a second scheduled start meanwhile adds nothing (result
  * `already`). A real gather that started meanwhile (from the page) ends the wait, so does the
- * array stopping (`array`).
- * $o: look, sleep, now, array (callables), dir (the gather's data), waitdir, every, max — for the tests.
+ * array stopping (`array`), so does its schedule being switched off meanwhile (`off` — Jack let go).
+ * $o: look, sleep, now, array, scheduled (callables), dir (the gather's data), waitdir, every, max — for the tests.
  *
  * @return array{go: bool, result?: string, why?: string, look: array, waited: int, lock: mixed}
  *   go true: start now; `lock` is the wait lock (or null) — release it with embyWaitEnd() once the run shows as running
@@ -1975,6 +1981,7 @@ function embyGatherGate(string $by, array $o = []): array
     $dir = $o['dir'] ?? GATHER_DATA;
     $waitDir = $o['waitdir'] ?? RUN_DIR;
     $started = $o['array'] ?? fn () => (readCfg('/var/local/emhttp/var.ini')['fsState'] ?? '') === 'Started';
+    $scheduled = $o['scheduled'] ?? fn () => officeJobSchedule('gather')['enabled'];
     $every = (int) ($o['every'] ?? EMBY_WATCH_EVERY);
     $max = (int) ($o['max'] ?? EMBY_WATCH_MAX);
 
@@ -2007,6 +2014,10 @@ function embyGatherGate(string $by, array $o = []): array
         if (!$started()) {
             embyWaitEnd($lock, $waitDir);     // the array stopped meanwhile: no data folder, no gather tonight
             return ['go' => false, 'result' => 'array', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
+        }
+        if (!$scheduled()) {
+            embyWaitEnd($lock, $waitDir);     // its schedule was switched off meanwhile (Jack let go): no gather tonight
+            return ['go' => false, 'result' => 'off', 'look' => $w, 'waited' => $now() - $since, 'lock' => null];
         }
         $run = readJson("$dir/office-run.json") ?? [];
         if (($run['mode'] ?? '') === 'run' && (int) ($run['started'] ?? 0) >= $since) {
@@ -2102,6 +2113,9 @@ function embyGatherWatch($proc, string $stopFile, ?callable $look = null, int $e
  */
 function embyStart(string $tool, string $mode): array
 {
+    if ($mode === 'release') {
+        throw new Problem('unknown_target', ['target' => $mode]);      // only his let-go brings everything back (emby.letgo)
+    }
     embyRunCheck($tool, $mode);
     if ($tool === 'gather' && in_array($mode, ['run', 'measure'], true)) {      // a measurement reads every disk of the shares: not while someone watches either
         // asked in the agent's own loop: a short look (an Emby that is slow counts as down here — the job asks again, fully)
@@ -2180,7 +2194,7 @@ function embyJobInfo(string $tool): array
  */
 function embyJob(string $tool, array $args): int
 {
-    $by = in_array('--office', $args, true) ? 'office' : 'schedule';
+    $by = in_array('--letgo', $args, true) ? 'letgo' : (in_array('--office', $args, true) ? 'office' : 'schedule');
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     $dir = embyToolDir($tool);
@@ -2189,6 +2203,9 @@ function embyJob(string $tool, array $args): int
     } catch (Problem $p) {
         if (!in_array($p->key, ['emby_not_configured', 'emby_gather_not_configured', 'emby_measure_none'], true)) {
             embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]);
+        }
+        if ($mode === 'release') {
+            embyReleaseRefusedTell($p->key);
         }
         fwrite(STDERR, "$tool: not started ($p->key)\n");
         return 1;
@@ -2231,13 +2248,28 @@ function embyJob(string $tool, array $args): int
             return 1;
         }
     }
+    // bringing everything back when he is let go (emby-letgo.php): never while someone watches — asked again here, fully
+    if ($tool === 'embycache' && $mode === 'release') {
+        $look = embyWatching();
+        if ($p = embyLetGoWatchProblem($look)) {
+            logLine('Jack Emby: the films are not brought back — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . embyWatchersLine($look['who'])
+                : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
+            embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
+                + ($look['state'] === 'watching' ? ['who' => $look['who']] : ['detail' => (string) ($look['detail'] ?? '')]));
+            embyReleaseRefusedTell($p->key);
+            return 1;
+        }
+    }
     // the other tool's lock, held for the whole run, so it can't start meanwhile (a measurement too: EmbyCache moves files)
     $hold = null;
-    if ($mode === 'run' || $mode === 'measure') {
+    if (in_array($mode, ['run', 'measure', 'release'], true)) {
         $hold = @fopen($tool === 'gather' ? EMBY_DATA . '/embycache.lock' : GATHER_LOCK, 'c');
         if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
             embyWaitEnd($wait);
             embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => 'emby_running']);
+            if ($mode === 'release') {
+                embyReleaseRefusedTell('emby_running');
+            }
             return 1;
         }
     }
@@ -2295,6 +2327,11 @@ function embyJob(string $tool, array $args): int
             fwrite(STDERR, "gather: sizes not kept: {$e->getMessage()}\n");
         }
     }
+    if ($mode === 'release') {
+        $c = (array) ($status['cleanup'] ?? []);
+        logLine('Jack Emby: brought ' . (int) ($c['done'] ?? 0) . ' of ' . (int) ($c['planned'] ?? 0) . ' files back to the array ('
+            . $result . ', ' . (int) ($status['protected'] ?? 0) . ' still on the pool)');
+    }
     if ($result === 'stopped') {
         $note['who'] = $stoppedFor ?? [];
         logLine('Jack Emby: the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders — someone watches Emby');
@@ -2329,6 +2366,9 @@ function embyGateRefused(array $gate, string $by, int $asked): int
         case 'array':
             logLine('Jack Emby: the scheduled gather stops waiting for Emby — the array was stopped');
             return 0;
+        case 'off':
+            logLine('Jack Emby: the scheduled gather stops waiting for Emby — its schedule was switched off');
+            return 0;
         case 'skipped':
             logLine('Jack Emby: the scheduled gather is skipped tonight — someone watched Emby for ' . intdiv($gate['waited'], 60) . ' min (' . embyWatchersLine($who) . ')');
             fwrite(STDERR, "gather: skipped (emby_watching)\n");
@@ -2354,6 +2394,13 @@ function embyGateRefused(array $gate, string $by, int $asked): int
  */
 function embyNotifyOutcome(string $mode, string $result, array $status): ?string
 {
+    if ($mode === 'release') {
+        // bringing everything back when he was let go: his page is gone, so a good end is told too (`ok`, normal)
+        if (in_array($result, ['failed', 'aborted', 'config', 'busy'], true)) {
+            return $result;
+        }
+        return $result === 'errors' || (int) ($status['errors'] ?? 0) > 0 ? 'errors' : ($result === 'ok' ? 'ok' : 'failed');
+    }
     if ($mode !== 'run') {
         return null;
     }
@@ -2375,22 +2422,46 @@ function embyNotify(string $tool, string $mode, string $result, array $status, i
     $problems = (int) ($status['errors'] ?? 0)
               + ($tool === 'gather' ? (int) ($status['conflicts'] ?? 0) + (int) ($status['full'] ?? 0) + (int) ($status['dirs_failed'] ?? 0) : 0);
     $message = trim((string) ($status['message'] ?? ''));
-    if (!$status) {
+    $c = (array) ($status['cleanup'] ?? []);
+    if ($mode === 'release' && $status && in_array($outcome, ['ok', 'errors'], true)) {
+        $left = (int) ($status['protected'] ?? 0);
+        $detail = officeNotifyText('emby', 'notify.released', ['n' => (int) ($c['done'] ?? 0)], $lang)
+                . ($left > 0 ? ' ' . officeNotifyText('emby', 'notify.released_left', ['n' => $left], $lang) : '')
+                . ($problems > 0 ? ' ' . officeNotifyText('emby', 'notify.problems', ['n' => $problems], $lang) : '');
+    } elseif (!$status) {
         $detail = officeNotifyText('emby', 'notify.no_status', ['exit' => $exit], $lang);
     } elseif ($message !== '' && $message !== 'Signal') {
         $detail = $message;
     } else {
         $detail = $problems > 0 ? officeNotifyText('emby', 'notify.problems', ['n' => $problems], $lang) : '';
     }
+    $release = $mode === 'release';
     $sent = officeNotify(
-        officeNotifyText('emby', 'notify.subject', ['tool' => officeNotifyText('emby', "notify.tool.$tool", [], $lang),
+        officeNotifyText('emby', $release ? 'notify.subject_release' : 'notify.subject', ['tool' => officeNotifyText('emby', "notify.tool.$tool", [], $lang),
                                                      'result' => officeNotifyText('emby', "result.$outcome", [], $lang)], $lang),
-        trim($detail . ' ' . officeNotifyText('emby', 'notify.see', [], $lang)),
-        'warning', '', officeNotifyLink('#/emby'));
+        trim($detail . ($release ? '' : ' ' . officeNotifyText('emby', 'notify.see', [], $lang))),
+        $release && $outcome === 'ok' ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/emby'));
     if ($sent) {
         logLine("Jack Emby: told Unraid's notifications — $tool ($mode) $outcome");
     }
     return $sent;
+}
+
+/**
+ * Bringing the films back didn't start (someone watches, a run going…): he was let go, his page is gone — Unraid's
+ * notifications say so (warning), with the reason in words.
+ */
+function embyReleaseRefusedTell(string $why): void
+{
+    try {
+        $lang = officeNotifyLang();
+        officeNotify(
+            officeNotifyText('emby', 'notify.subject_release', ['tool' => officeNotifyText('emby', 'notify.tool.embycache', [], $lang),
+                                                                 'result' => officeNotifyText('emby', 'result.refused', [], $lang)], $lang),
+            officeNotifyText('emby', "errors.$why", [], $lang) . ' ' . officeNotifyText('emby', 'notify.release_stay', [], $lang), 'warning');
+    } catch (Throwable $e) {
+        fwrite(STDERR, "embycache: notification failed: {$e->getMessage()}\n");
+    }
 }
 
 /** A run's status for his list of runs: the sizes stay in sizes.json, the list keeps how many shares were measured */
@@ -2404,18 +2475,19 @@ function embyStatusShort(array $status): array
 }
 
 /** Jack's own list of runs (both tools, newest first) */
-function embyHistory(): array
+function embyHistory(string $dir = EMBY_DATA): array
 {
-    return (array) (readJson(EMBY_DATA . '/office-history.json')['runs'] ?? []);
+    return (array) (readJson("$dir/office-history.json")['runs'] ?? []);
 }
 
-function embyRemember(array $entry): void
+/** A run (or one that didn't start) into his list of runs; $dir: the tests' */
+function embyRemember(array $entry, string $dir = EMBY_DATA): void
 {
-    embyDataDir(EMBY_DATA);
-    $lock = fopen(EMBY_DATA . '/office-history.lock', 'c');
+    embyDataDir($dir);
+    $lock = fopen("$dir/office-history.lock", 'c');
     flock($lock, LOCK_EX);
-    $runs = array_slice(array_merge([$entry], embyHistory()), 0, EMBY_HISTORY);
-    writeAtomic(EMBY_DATA . '/office-history.json', jsonEncode(['runs' => $runs]), 0600, 0, 0);
+    $runs = array_slice(array_merge([$entry], embyHistory($dir)), 0, EMBY_HISTORY);
+    writeAtomic("$dir/office-history.json", jsonEncode(['runs' => $runs]), 0600, 0, 0);
     flock($lock, LOCK_UN);
     fclose($lock);
 }
@@ -2491,6 +2563,9 @@ function embySetSchedule(string $job, ?string $cron): array
     }
     $live = officeJobSetSchedule($job, $cron);
     logLine("Jack Emby: $job schedule " . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
+    if ($cron !== null) {
+        embyLetGoSeen();        // switched on again: his page needn't say any more that the let-go switched it off
+    }
     return ['ok' => true, 'live' => $live, 'state' => embyScan()];
 }
 
