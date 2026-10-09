@@ -10,7 +10,7 @@
    where the bucket keeps it — and a recovery sheet made here in the browser.
    The network (the night watchman's router lines): Unraid's syslog server as
    it is set — a setting he explains and never changes —, the router's side
-   (UniFi) and the neighbours (FireSight, Loki + Alloy, CrowdSec, a SIEM).
+   (UniFi, MikroTik) and the neighbours (FireSight, Loki + Alloy, CrowdSec, a SIEM).
    The agent part lives in agent/desks/advisor.php. */
 (() => {
 'use strict';
@@ -77,9 +77,22 @@ chown -R 99:100 $P`,
   },
   // later (the agent says so): no install button, only why not yet
   loki: { icon: '📜', open: '/Docker', install: null, desk: null, copy: {} },
-  // the network (the agent's group): a setting he explains and never changes, two guides — nothing to install
+  // the network (the agent's group): a setting he explains and never changes, three guides — nothing to install
   syslogserver: { icon: '📡', open: '/Settings/SyslogSettings', install: null, desk: 'watchman', copy: {} },
   unifi: { icon: '🛜', open: null, install: null, desk: null, copy: {} },
+  // RouterOS 7's side: what to paste into the router's terminal ({ip}: this server's address, {tz}: this browser's time zone —
+  // filled in on the page); each line tried on RouterOS 7.24.5 (the lab on Tower, 2026-10-09)
+  mikrotik: {
+    icon: '🔀', open: null, install: null, desk: null,
+    copy: {
+      action: '/system logging action add name=unraid target=remote remote={ip} remote-port=514 remote-protocol=udp remote-log-format=syslog syslog-time-format=bsd-syslog syslog-facility=local0 add-topics-string=yes',
+      rules: '/system logging add topics=info action=unraid; /system logging add topics=warning action=unraid; /system logging add topics=error action=unraid; /system logging add topics=critical action=unraid',
+      drop_wan: '/ip firewall filter add chain=input in-interface-list=WAN connection-state=new action=log log-prefix="drop-wan-in" limit=10,20:packet',
+      drop_server: '/ip firewall filter add chain=forward src-address={ip} connection-state=new action=log log-prefix="drop-from-server" limit=10,20:packet',
+      clock: '/system ntp client set enabled=yes servers=pool.ntp.org; /system clock set time-zone-autodetect=no time-zone-name={tz}',
+      hello: '/log info "hello unraid"',
+    },
+  },
   neighbours: { icon: '🧭', open: null, install: null, desk: null, copy: {} },
 };
 
@@ -447,7 +460,8 @@ function partnerGuide() {
  * the loop, a share that sleeps or is exported, the senders with a file there, the setting step by step (a share `syslog`
  * of its own: the pools here that never sleep, the array when it is all SSDs) and a link to Unraid's page, never a
  * change of his —, the router's side (UniFi: where to click; opening
- * it tells the agent, for the Team Lead's hint) and the neighbours (who does dashboards and stores of a router's log)
+ * it tells the agent, for the Team Lead's hint; MikroTik: the lines to paste, this server's address in them) and the
+ * neighbours (who does dashboards and stores of a router's log)
  */
 function networkEntry(id, x) {
   const e = EXTERNALS[id];
@@ -470,7 +484,7 @@ function networkEntry(id, x) {
     meta.appendChild(chip);
   }
   main.appendChild(meta);
-  const what = { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', neighbours: 'net.neighbours.what' }[id];
+  const what = { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', mikrotik: 'net.mikrotik.what', neighbours: 'net.neighbours.what' }[id];
   if (what) main.appendChild(el('div', 'row-detail', T(what)));
   if (sys) {
     if (sys.on) {
@@ -514,9 +528,19 @@ function networkEntry(id, x) {
     for (let i = 1; Office.has(`${ID}.net.syslog.${i}`); i++) ol.appendChild(Office.place(`net.syslog.${i}`, el('li', '', T(`net.syslog.${i}`, { pools: fit }))));
     guide.appendChild(ol);
     guide.appendChild(callout(T('net.syslog.private'), true));
-  } else if (id === 'unifi') {
-    paragraphs(guide, 'net.unifi', { ip: serverIp() || '<server-ip>' });
-    guide.appendChild(el('p', 'ad-lock-p', T('net.unifi.check')));
+  } else if (id === 'unifi' || id === 'mikrotik') {
+    const ip = serverIp() || '<server-ip>';
+    if (id === 'unifi') paragraphs(guide, 'net.unifi', { ip });
+    else paragraphs(guide, 'net.mikrotik', { ip });
+    if (id === 'mikrotik') {
+      // the lines to paste, this server's address filled in (never a value of the router's: nothing to keep secret)
+      let tz = '';
+      try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
+      const lines = Object.fromEntries(Object.entries(e.copy).map(([k, v]) => [k, v.replaceAll('{ip}', ip)
+        .replace('time-zone-autodetect=no time-zone-name={tz}', /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(tz) ? `time-zone-autodetect=no time-zone-name=${tz}` : 'time-zone-autodetect=yes')]));
+      guide.appendChild(copyLines(lines, 'mikrotik'));
+    }
+    guide.appendChild(el('p', 'ad-lock-p', T(`net.${id}.check`)));
     let told = false;
     det.addEventListener('toggle', () => {
       if (det.open && !told && Office.agent.running && hired()) {
@@ -1296,13 +1320,13 @@ Office.desk({
 // sentence met, marked by paragraphs() and the steps' lists); a group's section and the dashboard only while he shows them
 // (his state known: the groups he lists, the dashboard's address)
 const drawnGroup = (g) => () => !state || group(g).length > 0;
-const GUIDE_PARAS = { syslogserver: 'net.syslog', unifi: 'net.unifi', neighbours: 'net.neighbours' };
+const GUIDE_PARAS = { syslogserver: 'net.syslog', unifi: 'net.unifi', mikrotik: 'net.mikrotik', neighbours: 'net.neighbours' };
 Office.places(ID, [
   { kind: 'section', key: 'externals' },
   { kind: 'section', key: 'monitoring', shown: drawnGroup('monitoring') },
   { kind: 'section', key: 'network', shown: drawnGroup('network') },
   ...Object.keys(EXTERNALS).map((id) => ({ kind: 'guide', key: `ext.${id}.name`, anchor: `ext.${id}`,
-    text: { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', neighbours: 'net.neighbours.what' }[id] || `ext.${id}.what`,
+    text: { syslogserver: 'net.syslog.what', unifi: 'net.unifi.what', mikrotik: 'net.mikrotik.what', neighbours: 'net.neighbours.what' }[id] || `ext.${id}.what`,
     paras: GUIDE_PARAS[id] || `install.${id}`, shown: () => !state || !!(state.externals || {})[id] })),
   { kind: 'guide', key: 'lock.title', paras: 'lock', part: 'ext.kopia' },
   { kind: 'guide', key: 'lock.vgw_title', paras: 'lock.vgw', part: 'ext.kopia' },

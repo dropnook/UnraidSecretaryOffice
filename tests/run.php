@@ -20906,7 +20906,8 @@ function netTestSlice(array $lines, string $from, string $to = ''): array
  * himself, a second loss that day on the same entry making it long, one still away after 30 minutes told while it
  * lasts, one whose closing line never came closed after a day; PPPoE's retries one loss, its carrier port no link
  * entry, «administrator request» none), the router restarted (clean: a plain line a day, unclean: told — and joined with
- * the server's own start as a power loss), their words in every language, the privacy rule, his summary.
+ * the server's own start as a power loss), their words in every language, the privacy rule, the Team Lead's hint for a
+ * MikroTik without topics.
  */
 function testWatchmanNetMikrotikBook(): void
 {
@@ -21148,6 +21149,22 @@ function testWatchmanNetMikrotikBook(): void
     }
     same('mikrotik book: the words filled (no placeholder left) in en/de/fr; links, outages and restarts carry no address (the WAN\'s neither)', [], $loose);
 
+    // ---- the Team Lead: a MikroTik whose newest lines come without topics — a hint; with them again — none
+    $o = ['cfg' => $paths['rsyslog_cfg'], 'shares_ini' => $paths['shares_ini'], 'disks_ini' => $paths['disks_ini'], 'var_ini' => $paths['var_ini'],
+          'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'server' => watchnetServer($paths, []), 'containers' => [], 'link' => '#/advisor',
+          'hired' => true, 'now' => $at('15:00:00')];
+    $hint = fn (array $fmt) => array_values(array_map(fn ($f) => [$f['level'], $f['ok'], $f['params']['router']], array_filter(watchnetChecks($o + ['net' =>
+        ['senders' => ['10.77.3.10' => ['ros' => true, 'meta' => ['host' => 'lab-chr'], 'fmt' => $fmt], '192.0.2.1' => ['cef' => true]]]]),
+        fn ($f) => $f['id'] === 'syslog_mikrotik_format')));
+    same('mikrotik team lead: the default format or no topics lately — a hint naming the router; topics again since, or only long ago — none; not hired — none',
+        [[['hint', false, 'lab-chr']], [['hint', false, 'lab-chr']], [], [], []],
+        [$hint(['default' => $at('14:00:00')]), $hint(['notopics' => $at('14:00:00'), 'syslog' => $at('13:00:00')]),
+         $hint(['notopics' => $at('13:00:00'), 'syslog' => $at('14:00:00')]), $hint(['default' => $at('15:00:00') - 2 * 86400]),
+         array_values(array_filter(watchnetChecks(['hired' => false] + $o + ['net' => ['senders' => ['x' => ['ros' => true, 'fmt' => ['default' => $at('14:00:00')]]]]]),
+             fn ($f) => $f['id'] === 'syslog_mikrotik_format'))]);
+    $ct = langFile(OFFICE_WEB . '/desks/caretaker/lang/en.json');
+    check('mikrotik team lead: the hint\'s words', isset($ct['check.syslog_mikrotik_format'], $ct['check.syslog_mikrotik_format_how']));
+
     // ---- his summary: a MikroTik's version unknown until a line says it, the format hint, prefixes that say no drop
     $sum = watchnetSummary(watchmanLoad($data)['baseline']['net'] ?? null, readJson("$data/net.json"), false, $at('16:10:00') + WATCHNET_OUTAGE_STALE + 600);
     $x = array_column($sum['senders'] ?? [], null, 'sender')['10.77.3.10'] ?? [];
@@ -21158,6 +21175,54 @@ function testWatchmanNetMikrotikBook(): void
 }
 
 // ===================================================================== updates
+
+/**
+ * The Consultant's MikroTik guide (#2, package 4): a guide of the group network like UniFi's; the lines to paste — the
+ * logging action in the syslog format with add-topics-string=yes (RouterOS 7.24 leaves the topics out without it), the
+ * four rules by severity, the two firewall log rules whose prefixes the night watchman reads as drops (limit=10,20:packet),
+ * the clock, a first line — each tried on the lab's RouterOS 7.24.5; their labels and paragraphs in every language, no
+ * «MikroTik: later» left in UniFi's guide, the search's places.
+ */
+function testAdvisorMikrotikGuide(): void
+{
+    $pub = dirname(__DIR__) . '/public';
+    same('mikrotik guide: a guide of the network group, after UniFi\'s', [['guide' => 'mikrotik', 'optional' => true, 'group' => 'network'], ['syslogserver', 'unifi', 'mikrotik', 'neighbours']],
+        [ADVISOR_EXTERNALS['mikrotik'] ?? null, array_values(array_keys(array_filter(ADVISOR_EXTERNALS, fn ($x) => ($x['group'] ?? '') === 'network')))]);
+    $js = (string) file_get_contents("$pub/desks/advisor/desk.js");
+    preg_match("/  mikrotik: \\{.*?copy: \\{(.*?)\\n    \\},/s", $js, $m);
+    preg_match_all("/^      ([a-z_]+): '(.*)',\$/m", (string) ($m[1] ?? ''), $c, PREG_SET_ORDER);
+    $copy = array_column($c, 2, 1);
+    same('mikrotik guide: the lines to paste', ['action', 'rules', 'drop_wan', 'drop_server', 'clock', 'hello'], array_keys($copy));
+    check('mikrotik guide: the action — remote to this server, UDP 514, the syslog format WITH the topics (add-topics-string=yes)',
+        str_contains($copy['action'] ?? '', '/system logging action add name=unraid target=remote remote={ip} remote-port=514 remote-protocol=udp remote-log-format=syslog')
+        && str_contains($copy['action'] ?? '', 'add-topics-string=yes'));
+    same('mikrotik guide: four rules by severity, one line', ['info', 'warning', 'error', 'critical'],
+        preg_match_all('/\/system logging add topics=([a-z]+) action=unraid/', $copy['rules'] ?? '', $r) ? $r[1] : []);
+    $rule = fn (string $s) => preg_match('/log-prefix="([a-z-]+)"/', $s, $x) ? $x[1] : '';
+    same('mikrotik guide: the firewall log rules with limit=10,20:packet — their prefixes are drops to the night watchman (a line of their shape: blocked)',
+        [true, true, 'blocked', 'blocked'],
+        [str_contains($copy['drop_wan'] ?? '', 'limit=10,20:packet') && str_contains($copy['drop_wan'] ?? '', 'chain=input'),
+         str_contains($copy['drop_server'] ?? '', 'limit=10,20:packet') && str_contains($copy['drop_server'] ?? '', 'src-address={ip}'),
+         watchnetRosFirewall($rule($copy['drop_wan'] ?? '') . ' input: in:ether1 out:(unknown 0), proto TCP (SYN), 203.0.113.5:4455->192.0.2.1:22, len 60')['type'],
+         watchnetRosFirewall($rule($copy['drop_server'] ?? '') . ' forward: in:bridge out:ether1, proto UDP, 192.0.2.20:5353->8.8.8.8:53, len 70')['type']]);
+    check('mikrotik guide: the page fills in the server\'s address and the browser\'s time zone (a safe name, else autodetect)',
+        str_contains($js, "v.replaceAll('{ip}', ip)") && str_contains($js, "time-zone-autodetect=no time-zone-name={tz}") && str_contains($js, "'time-zone-autodetect=yes'"));
+    check('mikrotik guide: «hello unraid» proves the path', ($copy['hello'] ?? '') === '/log info "hello unraid"');
+    $en = langFile("$pub/desks/advisor/lang/en.json");
+    $keys = array_merge(['ext.mikrotik.name', 'net.mikrotik.what', 'net.mikrotik.check'], array_map(fn ($i) => "net.mikrotik.$i", range(1, 6)),
+        array_map(fn ($k) => "copy.mikrotik.$k", array_keys($copy)));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $t = langFile("$pub/desks/advisor/lang/$code.json");
+        same("mikrotik guide/$code: every paragraph and label", [], array_values(array_diff($keys, array_keys($t))));
+        check("mikrotik guide/$code: add-topics-string named, UniFi's guide no longer says «MikroTik: later»",
+            str_contains((string) ($t['net.mikrotik.2'] ?? ''), 'add-topics-string=yes') && !str_contains((string) ($t['net.unifi.6'] ?? ''), 'MikroTik'));
+    }
+    check('mikrotik guide: no seventh paragraph by accident', !isset($en['net.mikrotik.7']));
+    $pj = json_decode((string) file_get_contents("$pub/desks/advisor/places.json"), true) ?: [];
+    check('mikrotik guide: the search knows it (places.json: its name, its paragraphs)', in_array('ext.mikrotik.name', $pj['keys'] ?? [], true)
+        && in_array('net.mikrotik.*', $pj['texts'] ?? [], true) && in_array('net.mikrotik.what', $pj['texts'] ?? [], true)
+        && str_contains($js, "mikrotik: 'net.mikrotik'"));
+}
 
 /**
  * The data folder's version marker and the one place for migrations (agent/lib/migrate.php): an old data folder (an
@@ -24061,7 +24126,7 @@ function testHiddenStoreroom(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testWatchmanNetMikrotikBook', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testWatchmanNetMikrotikBook', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testAdvisorMikrotikGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

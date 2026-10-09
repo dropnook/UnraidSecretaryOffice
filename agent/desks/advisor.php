@@ -71,10 +71,11 @@ declare(strict_types=1);
  * shape, a setting he explains and never changes — «Unraid's syslog server» (what rsyslog.cfg says, which pools a share
  * `syslog` of its own belongs on, the loop of ⟦Remote syslog server⟧, which senders have files: agent/lib/watchnet.php's
  * watchnetAdvisor()) —
- * and two guides: the router's side (UniFi: the gateway's Activity Logging to Unraid) and the neighbours (FireSight,
- * Loki + Alloy, CrowdSec, a real SIEM: dashboards and stores of the router's logs are theirs). Nothing installed, no
- * router credential asked for; the page tells the agent when the router guide was opened (network_seen: the Team
- * Lead's syslog_off hint).
+ * and three guides: the router's side (UniFi: the gateway's Activity Logging to Unraid; MikroTik RouterOS 7: a logging
+ * action, four rules, the firewall's log prefixes — lines to paste with this server's address) and the neighbours
+ * (FireSight, Loki + Alloy, CrowdSec, a real SIEM: dashboards and stores of the router's logs are theirs). Nothing
+ * installed, no router credential asked for; the page tells the agent when a router guide was opened (network_seen:
+ * the Team Lead's syslog_off hint).
  *
  * The office never logs into a web page or an HTTP API of an external: it
  * configures them through files and command lines, at install time.
@@ -99,9 +100,10 @@ const ADVISOR_EXTERNALS = [
     'prometheus'   => ['image' => '/^prometheus$/i', 'optional' => true, 'group' => 'monitoring', 'template' => 'prometheus'],
     'grafana'      => ['image' => '/^grafana(-oss|-enterprise)?$/i', 'optional' => true, 'group' => 'monitoring', 'template' => 'Grafana'],
     'loki'         => ['image' => '/^loki$/i', 'optional' => true, 'group' => 'monitoring', 'later' => true],
-    // the network: a setting he explains and never changes, and two guides (no plugin, no container — nothing to install)
+    // the network: a setting he explains and never changes, and three guides (no plugin, no container — nothing to install)
     'syslogserver' => ['setting' => 'syslog', 'optional' => true, 'group' => 'network'],
     'unifi'        => ['guide' => 'unifi', 'optional' => true, 'group' => 'network'],
+    'mikrotik'     => ['guide' => 'mikrotik', 'optional' => true, 'group' => 'network'],
     'neighbours'   => ['guide' => 'neighbours', 'optional' => true, 'group' => 'network'],
 ];
 /** Where the office's own numbers go for the node exporter's textfile collector (RAM; *.prom files, lib/metrics.php writes them) */

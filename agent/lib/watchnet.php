@@ -2317,11 +2317,12 @@ function watchnetFacts(array $o = []): array
 
 /**
  * The Team Lead's checks of Unraid's syslog server for the router (agent/desks/caretaker.php): the share sleeps, no
- * rotation, the share exported, a container holds UDP 514, ⟦Remote syslog server⟧ is this server (a loop), and — a
- * hint — the server off although the night watchman is hired and the Consultant's router guide was opened. Cheap: the
- * flash, emhttp's ini files, `docker ps` (cached) and an inspect of a known syslog image only.
+ * rotation, the share exported, a container holds UDP 514, ⟦Remote syslog server⟧ is this server (a loop), and — hints —
+ * the server off although the night watchman is hired and the Consultant's router guide was opened, a MikroTik sending
+ * without RouterOS's topics (his net.json). Cheap: the flash, emhttp's ini files, his state file, `docker ps` (cached)
+ * and an inspect of a known syslog image only.
  * $o: the tests' paths and stand-ins — facts' paths, server (watchnetServer()), hired (bool), guide (time or null),
- * containers (list of name, image, running), inspect (callable name → docker inspect array), link.
+ * containers (list of name, image, running), inspect (callable name → docker inspect array), link, net (net.json), now.
  *
  * @return list<array>  findings
  */
@@ -2371,6 +2372,17 @@ function watchnetChecks(array $o = []): array
         }
     }
     $out[] = finding('syslog_port_taken', 'recommended', !$holders, ['port' => $cfg['port'], 'names' => implode(', ', $holders) ?: '–'], $holders ? 'docker' : $link);
+    // a MikroTik whose newest lines come without RouterOS's topics (the night watchman's net.json — a state file, nothing read
+    // under /mnt): a hint, the Consultant's MikroTik guide has the action's line
+    if (!empty($o['hired'])) {
+        $ns = array_key_exists('net', $o) ? $o['net'] : (defined('DATA_DIR') ? readJson(DATA_DIR . '/watchman/net.json') : null);
+        foreach ((array) ($ns['senders'] ?? []) as $sender => $x) {
+            if (is_array($x) && !empty($x['ros']) && watchnetRosFormatOff((array) ($x['fmt'] ?? []), (int) ($o['now'] ?? time()))) {
+                $out[] = finding('syslog_mikrotik_format', 'hint', false, ['router' => (string) ($x['meta']['host'] ?? '') ?: (string) $sender,
+                    'sender' => (string) $sender], $link);
+            }
+        }
+    }
     return $out;
 }
 

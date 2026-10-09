@@ -509,5 +509,7 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ no es este servidor",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ es {remote} — este mismo servidor: Unraid se envía sus propias líneas y las vuelve a escribir en el recurso compartido syslog (el sereno se salta ese archivo). Vacía el campo en ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, o indica un SIEM de verdad.",
   "check.syslog_off": "El servidor syslog de Unraid está apagado",
-  "check.syslog_off_how": "El sereno está contratado y abriste la guía del router del consultor, pero ⟦Local syslog server⟧ está apagado — el router no tiene adónde enviar. El consultor muestra el ajuste."
+  "check.syslog_off_how": "El sereno está contratado y abriste la guía del router del consultor, pero ⟦Local syslog server⟧ está apagado — el router no tiene adónde enviar. El consultor muestra el ajuste.",
+  "check.syslog_mikrotik_format": "El router MikroTik {router} envía su registro con los topics de RouterOS",
+  "check.syslog_mikrotik_format_how": "{router} ({sender}) envía sus líneas sin los topics que RouterOS puede anteponer (el formato «default», o «syslog» sin «add-topics-string=yes»): el sereno solo entiende una parte. En WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — la guía MikroTik del consultor muestra todo el ajuste."
 }
