@@ -28,7 +28,11 @@ declare(strict_types=1);
 
 const EMBY_LOG_TAIL = 96 * 1024;
 const EMBY_MODES    = ['report' => ['--show-on-deck', '--compact'], 'dry' => [], 'run' => ['--run']];
-const GATHER_MODES  = ['dry' => ['--dryrun'], 'run' => ['--run']];
+// measure: a dry run over the shares of the chosen libraries, only for what lies where (#8) — asked from the page only
+const GATHER_MODES  = ['dry' => ['--dryrun'], 'run' => ['--run'], 'measure' => ['--dryrun']];
+const EMBY_SIZES_SHARES = 200;     // shares kept in sizes.json
+const EMBY_SIZES_ROOTS  = 64;      // disks/pools per share
+const EMBY_POOL_GROUPS  = 5000;    // what lies on the pool, by film/series folder: the current state, all of it (a bound against a broken list only)
 const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'fill_tool', 'cleanup_tool', 'return_to_origin', 'array_source', 'array_path', 'user_path',
@@ -124,7 +128,7 @@ function embyScan(): array
         'versions'   => embyVersions(),
         'configured' => $settings !== null && !empty($settings['instances']),
         'settings'   => $settings !== null ? embySettingsPublic($settings) : null,
-        'shares'     => $settings !== null ? embyShares($settings) : [],
+        'shares'     => $settings !== null ? embySharesSized(embyShares($settings)) : [],
         'cache'      => embyCacheStats($settings),
         'pool'       => embyPoolUsage($settings),
         'gather'     => [
@@ -354,26 +358,191 @@ function embyShares(array $settings): array
     return $out;
 }
 
+/**
+ * The share rows with what lies where (#8): the gather's last numbers per share — any run that
+ * indexed it, dry or real or a measurement; a share a later run didn't cover keeps its older
+ * numbers with their date — and ZFS's own count of the share's dataset on its awake pools.
+ */
+function embySharesSized(array $rows, ?array $sizes = null, ?array $live = null): array
+{
+    $sizes ??= embyGatherSizes(readJson(GATHER_DATA . '/sizes.json'), readJson(GATHER_DATA . '/status.json'));
+    $live ??= embyShareLive($rows);
+    foreach ($rows as &$row) {
+        $row['sizes'] = embyShareSized($sizes, (string) $row['share']);
+        $row['live'] = $live[$row['share']] ?? [];
+    }
+    unset($row);
+    return $rows;
+}
+
+/**
+ * The kept numbers ($kept: sizes.json — `{v: 1, shares: {<share>: {at, mode, roots: {<disk>: {bytes, files}}}}}`)
+ * with a gather's status on top ($status: its `sizes` / `sizes_at`): every share the run indexed gets the
+ * run's numbers (when newer than the kept ones), the others keep theirs. Only exactly that shape is taken, from either side.
+ */
+function embyGatherSizes(?array $kept, ?array $status, ?string $mode = null): array
+{
+    $out = ['v' => 1, 'shares' => []];
+    $take = function (mixed $roots): ?array {
+        if (!is_array($roots) || count($roots) > EMBY_SIZES_ROOTS) {
+            return null;
+        }
+        $ok = [];
+        foreach ($roots as $name => $r) {
+            if (!is_string($name) || !preg_match('/^[A-Za-z0-9_.-]{1,40}$/D', $name) || !is_array($r)
+                || !is_int($r['bytes'] ?? null) || !is_int($r['files'] ?? null) || $r['bytes'] < 0 || $r['files'] < 0) {
+                return null;
+            }
+            $ok[$name] = ['bytes' => $r['bytes'], 'files' => $r['files']];
+        }
+        return $ok;
+    };
+    $shareOk = fn (mixed $s): bool => is_string($s) && (bool) preg_match('/^[\w.\- ]{1,100}$/uD', $s);
+    if (($kept['v'] ?? null) === 1 && is_array($kept['shares'] ?? null)) {
+        foreach ($kept['shares'] as $share => $e) {
+            $roots = $take($e['roots'] ?? null);
+            if ($shareOk($share) && $roots !== null && is_int($e['at'] ?? null) && is_string($e['mode'] ?? null)) {
+                $out['shares'][$share] = ['at' => $e['at'], 'mode' => $e['mode'], 'roots' => $roots];
+            }
+        }
+    }
+    $at = $status['sizes_at'] ?? null;
+    if (is_array($status['sizes'] ?? null) && is_int($at) && $at > 0) {
+        $mode ??= ($status['mode'] ?? '') === 'run' ? 'run' : 'dry';
+        foreach ($status['sizes'] as $share => $roots) {
+            $roots = $take($roots);
+            if ($shareOk($share) && $roots !== null && $at > ($out['shares'][$share]['at'] ?? 0)) {
+                $out['shares'][$share] = ['at' => $at, 'mode' => $mode, 'roots' => $roots];
+            }
+        }
+    }
+    if (count($out['shares']) > EMBY_SIZES_SHARES) {
+        uasort($out['shares'], fn ($a, $b) => $b['at'] <=> $a['at']);
+        $out['shares'] = array_slice($out['shares'], 0, EMBY_SIZES_SHARES, true);
+    }
+    ksort($out['shares']);
+    return $out;
+}
+
+/** After a gather: its numbers into sizes.json (merged with the kept ones) */
+function embyGatherSizesKeep(array $status, string $mode, string $dir = GATHER_DATA): void
+{
+    if (!isset($status['sizes'])) {
+        return;
+    }
+    $file = "$dir/sizes.json";
+    writeAtomic($file, jsonEncode(embyGatherSizes(readJson($file), $status, $mode)), 0600, 0, 0);
+}
+
+/** One share's numbers for the page: the places holding files, the biggest first; null = never measured */
+function embyShareSized(array $sizes, string $share): ?array
+{
+    $e = $sizes['shares'][$share] ?? null;
+    if (!is_array($e)) {
+        return null;
+    }
+    $roots = [];
+    foreach ($e['roots'] as $name => $r) {
+        if ($r['files'] > 0) {
+            $roots[] = ['name' => (string) $name, 'bytes' => $r['bytes'], 'files' => $r['files']];
+        }
+    }
+    usort($roots, fn ($a, $b) => [$b['bytes'], $a['name']] <=> [$a['bytes'], $b['name']]);
+    return ['at' => $e['at'], 'mode' => $e['mode'], 'roots' => $roots];
+}
+
+/**
+ * ZFS's own count, right now, of each share's dataset on the pools the share lives on (`used`:
+ * with what its snapshots and datasets below hold) — one `zfs list -d 1` per pool, only on awake
+ * pools; btrfs has no cheap count (a du would read every folder), so none there.
+ */
+function embyShareLive(array $rows, ?array $mounts = null, ?array $asleep = null, ?callable $zfs = null): array
+{
+    $mounts ??= mountTable();
+    $asleep ??= sleepingDisks();
+    $zfs ??= function (string $pool): string {
+        [$exit, $out] = run(['zfs', 'list', '-Hp', '-o', 'name,used', '-d', '1', $pool], 10);
+        return $exit === 0 ? $out : '';
+    };
+    $pools = [];
+    foreach ($mounts as $m) {
+        if ($m['fs'] === 'zfs' && preg_match('#^/mnt/([a-z0-9_-]+)$#D', $m['mount'], $x) && preg_match('/^[A-Za-z0-9_.-]+$/D', $m['source'])
+            && !preg_match('/^(disk\d+|user0?|disks|remotes|addons|rootshare)$/D', $x[1])) {
+            $pools[$x[1]] = $m['source'];
+        }
+    }
+    $want = [];
+    foreach ($rows as $row) {
+        if (strtolower((string) ($row['use'] ?? '')) === 'no') {
+            continue;
+        }
+        foreach ([(string) ($row['primary'] ?? ''), (string) ($row['secondary'] ?? '')] as $pool) {
+            if ($pool !== '' && isset($pools[$pool]) && !baseAsleep($pool, $asleep)) {
+                $want[$pool][] = (string) $row['share'];
+            }
+        }
+    }
+    $out = [];
+    foreach ($want as $pool => $shares) {
+        $used = [];
+        foreach (preg_split('/\R/', $zfs($pools[$pool])) as $line) {
+            $f = explode("\t", $line);
+            if (count($f) === 2 && ctype_digit($f[1])) {
+                $used[$f[0]] = (int) $f[1];
+            }
+        }
+        foreach ($shares as $share) {
+            if (isset($used[$pools[$pool] . '/' . $share])) {
+                $out[$share][] = ['pool' => $pool, 'used' => $used[$pools[$pool] . '/' . $share]];
+            }
+        }
+    }
+    return $out;
+}
+
+/** The shares a measurement reads: those behind the chosen libraries, as far as they exist */
+function embyMeasureShares(?array $settings = null, ?array $all = null): array
+{
+    $settings ??= embyReadSettings();
+    return $settings ? array_values(array_intersect(embyMappedShares($settings), $all ?? embyAllShares())) : [];
+}
+
+/** The measurement's own ini (the gather's consolidate.ini stays as it is): the libraries' shares, their pools and EmbyCache's */
+function embyWriteMeasureIni(array $shares, array $emby, string $gatherDir = GATHER_DATA, string $embyDir = EMBY_DATA): void
+{
+    $g = embyGatherSettings() ?? [];
+    $set = ['shares' => $shares, 'min_free_gb' => (int) ($g['min_free_gb'] ?? 256), 'dup_check' => 'size'];
+    writeAtomic("$gatherDir/measure.ini", embyGatherIni($set, embyGatherPools($shares, $emby), "$gatherDir/consolidate.log", "$embyDir/embycache_exclude.txt"), 0600, 0, 0);
+}
+
 // ===================================================================== what's on the pool
 
-/** What EmbyCache keeps on the pool right now (its exclude list: absolute pool paths) */
-function embyCacheStats(?array $settings): array
+/**
+ * What EmbyCache keeps on the pool right now (its exclude list: absolute pool paths), by film or series folder:
+ * files, bytes, the disks they go back to and `since` — when the newest of them came onto the pool (its ctime: the
+ * copy made it; read with the size, one stat). Newest first; the page filters and pages them.
+ */
+function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
 {
-    $list = @file(EMBY_DATA . '/embycache_exclude.txt', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-    $origin = readJson(EMBY_DATA . '/embycache_origin.json') ?? [];
+    $list = @file("$dir/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $origin = readJson("$dir/embycache_origin.json") ?? [];
     $bytes = 0;
     $groups = [];
     $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
     foreach ($list as $path) {
         $size = (int) @filesize($path);
+        $since = (int) @filectime($path);          // PHP's stat cache: the same stat as the size
         $bytes += $size;
         // group by share and the first folder below it (a film folder or a series)
         $rel = $cache !== '' && str_starts_with($path, "$cache/") ? substr($path, strlen($cache) + 1) : ltrim($path, '/');
         $parts = explode('/', $rel);
         $key = $parts[0] . '/' . ($parts[1] ?? '');
-        $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0, 'origin' => []];
+        $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0, 'origin' => [], 'since' => null];
         $groups[$key]['files']++;
         $groups[$key]['bytes'] += $size;
+        if ($since > 0 && $since > (int) $groups[$key]['since']) {
+            $groups[$key]['since'] = $since;
+        }
         if (is_string($origin[$path] ?? null)) {
             $groups[$key]['origin'][$origin[$path]] = true;
         }
@@ -382,9 +551,9 @@ function embyCacheStats(?array $settings): array
         $g['origin'] = array_keys($g['origin']);
     }
     unset($g);
-    usort($groups, fn ($a, $b) => $b['bytes'] <=> $a['bytes']);
-    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, 200),
-            'listed_at' => @filemtime(EMBY_DATA . '/embycache_exclude.txt') ?: null];
+    usort($groups, fn ($a, $b) => [(int) $b['since'], $a['title']] <=> [(int) $a['since'], $b['title']]);
+    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, EMBY_POOL_GROUPS),
+            'listed_at' => @filemtime("$dir/embycache_exclude.txt") ?: null];
 }
 
 /**
@@ -1934,11 +2103,11 @@ function embyGatherWatch($proc, string $stopFile, ?callable $look = null, int $e
 function embyStart(string $tool, string $mode): array
 {
     embyRunCheck($tool, $mode);
-    if ($tool === 'gather' && $mode === 'run') {
+    if ($tool === 'gather' && in_array($mode, ['run', 'measure'], true)) {      // a measurement reads every disk of the shares: not while someone watches either
         // asked in the agent's own loop: a short look (an Emby that is slow counts as down here — the job asks again, fully)
         $look = embyWatching(null, fn (string $url, string $key) => embyWatchFetch($url, $key, EMBY_WATCH_PAGE));
         if ($p = embyWatchProblem($look)) {
-            logLine("Jack Emby: gather (run) not started — " . ($look['state'] === 'watching' ? 'someone watches Emby: ' . embyWatchersLine($look['who'])
+            logLine("Jack Emby: gather ($mode) not started — " . ($look['state'] === 'watching' ? 'someone watches Emby: ' . embyWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
             throw $p;
         }
@@ -1966,7 +2135,11 @@ function embyRunCheck(string $tool, string $mode): void
         if (!isset(GATHER_MODES[$mode])) {
             throw new Problem('unknown_target', ['target' => $mode]);
         }
-        if (!embyGatherSettings() || !embyGatherSettings()['shares']) {
+        if ($mode === 'measure') {
+            if (!embyMeasureShares()) {
+                throw new Problem('emby_measure_none');
+            }
+        } elseif (!embyGatherSettings() || !embyGatherSettings()['shares']) {
             throw new Problem('emby_gather_not_configured');
         }
     }
@@ -2014,7 +2187,7 @@ function embyJob(string $tool, array $args): int
     try {
         embyRunCheck($tool, $mode);
     } catch (Problem $p) {
-        if ($p->key !== 'emby_not_configured' && $p->key !== 'emby_gather_not_configured') {
+        if (!in_array($p->key, ['emby_not_configured', 'emby_gather_not_configured', 'emby_measure_none'], true)) {
             embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]);
         }
         fwrite(STDERR, "$tool: not started ($p->key)\n");
@@ -2047,9 +2220,20 @@ function embyJob(string $tool, array $args): int
             return 1;
         }
     }
-    // the other tool's lock, held for the whole run, so it can't start meanwhile
+    // a measurement from the page: asked again here, fully (Emby down = it goes, like a real gather)
+    if ($tool === 'gather' && $mode === 'measure') {
+        $look = embyWatching();
+        if ($p = embyWatchProblem($look)) {
+            logLine('Jack Emby: measuring not started — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . embyWatchersLine($look['who'])
+                : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
+            embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
+                + ($p->key === 'emby_watching' ? ['who' => $look['who']] : ['detail' => (string) ($look['detail'] ?? '')]));
+            return 1;
+        }
+    }
+    // the other tool's lock, held for the whole run, so it can't start meanwhile (a measurement too: EmbyCache moves files)
     $hold = null;
-    if ($mode === 'run') {
+    if ($mode === 'run' || $mode === 'measure') {
         $hold = @fopen($tool === 'gather' ? EMBY_DATA . '/embycache.lock' : GATHER_LOCK, 'c');
         if (!$hold || !flock($hold, LOCK_EX | LOCK_NB)) {
             embyWaitEnd($wait);
@@ -2066,9 +2250,13 @@ function embyJob(string $tool, array $args): int
     @unlink("$dir/office-stop.json");
 
     if ($tool === 'gather') {
-        embyWriteGatherIni(embyGatherSettings() ?? [], embyReadSettings() ?? []);
+        if ($mode === 'measure') {
+            embyWriteMeasureIni(embyMeasureShares(), embyReadSettings() ?? []);
+        } else {
+            embyWriteGatherIni(embyGatherSettings() ?? [], embyReadSettings() ?? []);
+        }
         $cmd = array_merge(['bash', GATHER_APP . '/consolidate_master.sh'], GATHER_MODES[$mode]);
-        $env = ['CONSOLIDATE_CONFIG' => "$dir/consolidate.ini", 'CONSOLIDATE_STATUS' => "$dir/status.json"]
+        $env = ['CONSOLIDATE_CONFIG' => $mode === 'measure' ? "$dir/measure.ini" : "$dir/consolidate.ini", 'CONSOLIDATE_STATUS' => "$dir/status.json"]
              + ($mode === 'run' ? ['CONSOLIDATE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = '/';
     } else {
@@ -2100,12 +2288,19 @@ function embyJob(string $tool, array $args): int
     if ($tool === 'gather' && $mode === 'run' && in_array($result, ['ok', 'errors'], true)) {
         writeAtomic("$dir/last-real.json", jsonEncode($status + ['by' => $by]), 0600, 0, 0);
     }
+    if ($tool === 'gather') {
+        try {
+            embyGatherSizesKeep($status, $mode, $dir);       // what lies where, for his page (#8)
+        } catch (Throwable $e) {
+            fwrite(STDERR, "gather: sizes not kept: {$e->getMessage()}\n");
+        }
+    }
     if ($result === 'stopped') {
         $note['who'] = $stoppedFor ?? [];
         logLine('Jack Emby: the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders — someone watches Emby');
     }
     embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(),
-                  'exit' => $exit, 'result' => $result, 'status' => $status] + $note);
+                  'exit' => $exit, 'result' => $result, 'status' => embyStatusShort($status)] + $note);
     try {
         embyNotify($tool, $mode, $result, $status, $exit);
     } catch (Throwable $e) {
@@ -2196,6 +2391,16 @@ function embyNotify(string $tool, string $mode, string $result, array $status, i
         logLine("Jack Emby: told Unraid's notifications — $tool ($mode) $outcome");
     }
     return $sent;
+}
+
+/** A run's status for his list of runs: the sizes stay in sizes.json, the list keeps how many shares were measured */
+function embyStatusShort(array $status): array
+{
+    if (is_array($status['sizes'] ?? null)) {
+        $status['measured'] = count($status['sizes']);
+    }
+    unset($status['sizes'], $status['sizes_at']);
+    return $status;
 }
 
 /** Jack's own list of runs (both tools, newest first) */

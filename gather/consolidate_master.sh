@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-#  consolidate_master.sh  —  Unraid Media Consolidator & Cleaner  (V11.3)
+#  consolidate_master.sh  —  Unraid Media Consolidator & Cleaner  (V11.4)
 # =============================================================================
 #  Führt zersplitterte Medienordner (Film-/Serienordner) auf EINER Array-Disk
 #  zusammen, entfernt identische Duplikate und räumt leere Ordner auf.
@@ -42,7 +42,10 @@
 #      Beispiel:  CONSOLIDATE_DUP_CHECK=cmp ./consolidate_master.sh --run
 #    CONSOLIDATE_CONFIG  Pfad der ini (Standard: consolidate.ini neben dem Script)
 #    CONSOLIDATE_STATUS  JSON-Datei, in die am Ende das Ergebnis geschrieben wird
-#                        (Modus, Zähler, Exit-Code) – für Programme, die das Script starten
+#                        (Modus, Zähler, Exit-Code) – für Programme, die das Script starten;
+#                        nach der Indexierung auch "sizes": je Share und Disk/Pool Bytes und
+#                        Dateien (aus dem Index, kein zusätzlicher Disk-Zugriff; im scharfen
+#                        Lauf nachgeführt), "sizes_at": wann diese Zahlen stimmten
 #    CONSOLIDATE_STOP    Datei: sobald es sie gibt, hört das Script nach dem Ordner auf,
 #                        an dem es gerade ist (kein Retry, kein Deep Clean; Ergebnis
 #                        "stopped", Exit 3) – z.B. wenn jemand Emby zu schauen beginnt
@@ -87,18 +90,35 @@ STARTED=$(printf '%(%s)T' -1)
 N_FOLDERS=0; N_FOLDERS_DONE=0
 N_MOVED=0; N_DUP_DELETED=0; N_IGNORED=0; N_SKIPPED_CACHE=0
 N_FULL_FAILED=0; N_RSYNC_ERR=0; N_CONFLICT=0; N_DIRS_DELETED=0; N_DIRS_FAILED=0; N_DIRS_KEPT=0
+declare -A SZ_BYTES=() SZ_FILES=()   # "<base>\t<root>" -> Bytes / Dateien (aus dem Index, im scharfen Lauf nachgeführt)
+SIZES_DONE=false; SIZES_AT=0
 
 json_str() {                 # $1 -> JSON-String (Anführungszeichen, Backslash, Steuerzeichen)
     local s="$1"
     s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/ }"; s="${s//$'\r'/ }"; s="${s//$'\t'/ }"
     printf '"%s"' "$s"
 }
+sizes_json() {               # ,"sizes":{"<share>":{"<disk>":{"bytes":n,"files":n}}},"sizes_at":n  (erst nach dem Index)
+    $SIZES_DONE || return 0
+    local b r k part out=""
+    for b in "${BASE_RELS[@]}"; do
+        part=""
+        for r in "${ALL_ROOTS[@]}"; do
+            k="$b"$'\t'"$r"
+            [[ -n "${SZ_BYTES[$k]-}" ]] || continue
+            part+="${part:+,}$(json_str "${r##*/}"):{\"bytes\":${SZ_BYTES[$k]},\"files\":${SZ_FILES[$k]}}"
+        done
+        out+="${out:+,}$(json_str "${b#/}"):{$part}"
+    done
+    [[ "${DRYRUN:-true}" == false ]] && SIZES_AT=$(printf '%(%s)T' -1)    # scharf: die Zahlen stimmen jetzt, nach den Verschiebungen
+    printf ',"sizes":{%s},"sizes_at":%d' "$out" "$SIZES_AT"
+}
 write_status() {             # $1 result (ok|errors|failed|aborted|stopped), $2 exit code, $3 Meldung
     [[ -n "$STATUS_FILE" ]] || return 0
-    printf '{"version":"V11.3","mode":%s,"result":%s,"exit":%d,"message":%s,"started":%d,"finished":%d,"moved":%d,"duplicates":%d,"ignored":%d,"cache_skipped":%d,"full":%d,"errors":%d,"conflicts":%d,"dirs_deleted":%d,"dirs_failed":%d,"dirs_kept":%d,"folders":%d,"folders_done":%d}\n' \
+    printf '{"version":"V11.4","mode":%s,"result":%s,"exit":%d,"message":%s,"started":%d,"finished":%d,"moved":%d,"duplicates":%d,"ignored":%d,"cache_skipped":%d,"full":%d,"errors":%d,"conflicts":%d,"dirs_deleted":%d,"dirs_failed":%d,"dirs_kept":%d,"folders":%d,"folders_done":%d%s}\n' \
         "$(json_str "$( [[ "${DRYRUN:-true}" == false ]] && echo run || echo dry )")" "$(json_str "$1")" "$2" "$(json_str "${3:-}")" \
         "$STARTED" "$(printf '%(%s)T' -1)" "$N_MOVED" "$N_DUP_DELETED" "$N_IGNORED" "$N_SKIPPED_CACHE" \
-        "$N_FULL_FAILED" "$N_RSYNC_ERR" "$N_CONFLICT" "$N_DIRS_DELETED" "$N_DIRS_FAILED" "$N_DIRS_KEPT" "$N_FOLDERS" "$N_FOLDERS_DONE" > "$STATUS_FILE.tmp" 2>/dev/null \
+        "$N_FULL_FAILED" "$N_RSYNC_ERR" "$N_CONFLICT" "$N_DIRS_DELETED" "$N_DIRS_FAILED" "$N_DIRS_KEPT" "$N_FOLDERS" "$N_FOLDERS_DONE" "$(sizes_json)" > "$STATUS_FILE.tmp" 2>/dev/null \
         && mv -f "$STATUS_FILE.tmp" "$STATUS_FILE"
 }
 
@@ -289,16 +309,18 @@ build_index() {
     echo "========================================"
     echo "🚀 PHASE 1: Indexierung"
     echo "========================================"
-    local root base target entry size path rel rest group n=0 t=0
+    local root base target entry size path rel rest group n=0 t=0 sk sb sf
     local -A seen_group=()
     for root in "${ALL_ROOTS[@]}"; do
         for base in "${BASE_RELS[@]}"; do
             target="$root$base"
             [[ -d "$target" ]] || continue
             ((t++))
+            sk="$base"$'\t'"$root"; sb=0; sf=0
             while IFS= read -r -d '' entry; do
                 size="${entry%%$'\t'*}"; path="${entry#*$'\t'}"
                 rel="${path#"$root"}"
+                sb=$(( sb + size )); ((sf++))
                 PSIZE["$path"]="$size"
                 PROOT["$path"]="$root"
                 if [[ -z "${IDX[$rel]-}" ]]; then
@@ -312,9 +334,11 @@ build_index() {
                 IDX["$rel"]+="$path"$'\n'
                 ((n++))
             done < <(find "$target" -type f -printf '%s\t%p\0' 2>/dev/null)
+            SZ_BYTES["$sk"]=$sb; SZ_FILES["$sk"]=$sf
         done
     done
     [[ $t -gt 0 ]] || die "Keine Ordner auf den Disks gefunden (BASE_DIRS/Schreibweise prüfen)!"
+    SIZES_DONE=true; SIZES_AT=$(printf '%(%s)T' -1)
     echo "ℹ️  ${#ALL_ROOTS[@]} Disks (${#ARRAY_ROOTS[@]} Array, ${#CACHE_ROOTS[@]} Cache/Pool), $t Pfade gescannt."
     if [[ $n -eq 0 ]]; then
         echo "⚠️ Index leer. Keine Dateien gefunden (nur leere Ordner?)."
@@ -379,7 +403,7 @@ remove_duplicate() {         # $1 behaltene Kopie, $2 zu löschende Kopie
         else
             log_console "🗑️" "$dup_root" "" "$dup"
             if rm -f "$dup"; then
-                ((N_DUP_DELETED++)); logf "GELÖSCHT (Duplikat von $keep): $dup"
+                ((N_DUP_DELETED++)); logf "GELÖSCHT (Duplikat von $keep): $dup"; size_shift "${dup#"$dup_root"}" "$dup_root" "" "${PSIZE[$dup]}"
             else
                 ((N_RSYNC_ERR++)); logf "ERROR rm: $dup"
             fi
@@ -413,6 +437,21 @@ ensure_target_dir() {        # $1 Quell-Root, $2 Ziel-Root, $3 rel. Ordnerpfad
 }
 
 # -----------------------
+# 📊 GRÖSSEN NACHFÜHREN (scharf)
+# -----------------------
+size_shift() {               # $1 rel. Pfad, $2 von Disk, $3 auf Disk ('' = gelöscht), $4 Bytes
+    is_dry && return 0
+    local b k
+    for b in "${BASE_RELS[@]}"; do [[ "$1" == "$b/"* ]] && break; b=""; done
+    [[ -n "$b" ]] || return 0
+    k="$b"$'\t'"$2"
+    if [[ -n "${SZ_BYTES[$k]-}" ]]; then SZ_BYTES["$k"]=$(( ${SZ_BYTES[$k]} - $4 )); SZ_FILES["$k"]=$(( ${SZ_FILES[$k]} - 1 )); fi
+    if [[ -n "$3" ]]; then
+        k="$b"$'\t'"$3"; SZ_BYTES["$k"]=$(( ${SZ_BYTES[$k]:-0} + $4 )); SZ_FILES["$k"]=$(( ${SZ_FILES[$k]:-0} + 1 ))
+    fi
+}
+
+# -----------------------
 # 🚚 VERSCHIEBEN
 # -----------------------
 execute_move() {             # $1 Quelle, $2 Ziel-Disk, $3 rel_path, $4 retry?
@@ -443,7 +482,7 @@ execute_move() {             # $1 Quelle, $2 Ziel-Disk, $3 rel_path, $4 retry?
         ((N_RSYNC_ERR++)); logf "ERROR mkdir: ${dest%/*}"; return 1
     fi
     if rsync -a --remove-source-files "$src" "$dest"; then
-        ((N_MOVED++)); reserve_space "$target_disk" "$size"; logf "VERSCHOBEN: $src -> $dest"
+        ((N_MOVED++)); reserve_space "$target_disk" "$size"; logf "VERSCHOBEN: $src -> $dest"; size_shift "$rel_path" "$src_disk" "$target_disk" "$size"
         PROOT["$dest"]="$target_disk"; PSIZE["$dest"]="$size"
         return 0
     else
