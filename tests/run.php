@@ -21486,6 +21486,9 @@ function testWatchBookNoteSome(): void
          $ask(['action' => 'watchman.ack_some', 'ids' => ['x']]), $ask(['action' => 'watchman.ack', 'id' => [$a, $b]])]);
     unset($GLOBALS['agentStaffFile']);
     @unlink($staff);
+}
+
+/**
  * Ms. Dustdevil's storeroom for Docker's volumes (issue #1): where it lies (beside Docker's data), which volumes she can
  * keep, the copy first and the rm only after it (a stand-in docker on a folder of fake volumes), a copy that fails, a
  * full pool, Docker refusing the rm, a volume whose folder is gone (rm -f), one she can't copy (for good), the
