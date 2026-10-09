@@ -1072,7 +1072,7 @@ function snapshotVmUnlist(string $vm): array
     $run['items'][] = ['kind' => 'snapshotdb', 'name' => $vm, 'label' => '', 'from' => $path, 'as' => $as, 'bytes' => $bytes,
                        'by' => 'snapshot', 'entries' => $folder['names']];
     clManifestWrite($run);
-    logLine("Ms. Snapshotini took the entries of the deleted VM $vm out of Unraid's snapshot list (" . implode(', ', $folder['names'])
+    logLine("Ms. Snapshotini: took the entries of the deleted VM $vm out of Unraid's snapshot list (" . implode(', ', $folder['names'])
         . ') — in the storeroom ' . $run['path']);
     return ['ok' => true, 'id' => $run['path'] . "|$as", 'vm' => $vm, 'state' => snapshotScan(false)];
 }
@@ -1117,7 +1117,7 @@ function snapshotVmRelist(string $id): array
     } else {
         clRunTidy($runPath, dirname($runPath));
     }
-    logLine("Ms. Snapshotini put the snapshot list of $vm back into Unraid's list ($home)");
+    logLine("Ms. Snapshotini: put the snapshot list of $vm back into Unraid's list ($home)");
     return ['ok' => true, 'vm' => $vm, 'state' => snapshotScan(false)];
 }
 
