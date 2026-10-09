@@ -1766,7 +1766,7 @@ SH);
     same('run: first seen - the earlier one kept, a new one now', [true, 1000], [($st['folders'][0]['first_seen'] ?? 0) > 1000, $st['folders'][1]['first_seen'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('run: one notification (normal) for the folders seen for the first time', substr_count($notes, "\n") === 1 && str_contains($notes, '2 new folders stay local')
-        && str_contains($notes, 'appdata/b, appdata/we ird[1]') && str_contains($notes, '-i normal') && !str_contains($notes, 'still'), $notes);
+        && str_contains($notes, 'NEW, ONLY LOCAL UNTIL YOU DECIDE\n  appdata/b') && str_contains($notes, '\n  appdata/we ird[1]') && str_contains($notes, '-i normal') && !str_contains($notes, 'still'), $notes);
     $dj = json_decode((string) @file_get_contents("$tmp/data/unraid-backup/state/drift.json"), true);
     same('run: drift.json - a note per new folder (info, code new_waiting)', [['info', 'known_missing', 'docs'], ['info', 'new_waiting', 'appdata/b'], ['info', 'new_waiting', 'appdata/still'], ['info', 'new_waiting', 'appdata/we ird[1]']],
         array_map(fn ($i) => [$i['level'], $i['code'], $i['value']], $dj['items'] ?? []));
@@ -2555,7 +2555,7 @@ SH);
     same('array stop before the snapshots: every Kopia source skipped', $plan, $s['kopia']['skipped'] ?? null);
     $nt = $notes();
     check('array stop before the snapshots: one normal notification naming what stays for the next run', count($nt) === 1 && str_contains($nt[0], '-i normal')
-        && str_contains($nt[0], 'the next run backs up as usual') && str_contains($nt[0], 'VM vmshut, c1, nc, maintenance mode of nc'), json_encode($nt));
+        && str_contains($nt[0], 'the next run backs up as usual') && str_contains($nt[0], 'BROUGHT BACK RIGHT AFTER THE ARRAY START\n  VM vmshut, c1, nc, maintenance mode of nc'), json_encode($nt));
     check('array stop before the snapshots: lock free', $lockFree() && !is_file("$data/state/lock-holder.json"));
 
     // --- the first run after the array start: it brings back what the stopped run left (and backs up)
@@ -2593,7 +2593,7 @@ SH);
     same('array stop while pruning: aborted, the first dataset\'s snapshot gone and noted in pruned.json, the second dataset left',
         ['aborted', 'array_stopping', $before + 1, ['master/appdata@uso-backup-20200101-0100'], false],
         [$s['result'] ?? null, $s['message'] ?? null, count($pr), end($pr)['zfs'] ?? null, in_array('zfs destroy master/docs@uso-backup-20200101-0100', $names(), true)]);
-    check('array stop while pruning: the notification says so', count($nt) === 1 && str_contains($nt[0], 'retention had removed 1 snapshot(s)'), json_encode($nt));
+    check('array stop while pruning: the notification says so', count($nt) === 1 && str_contains($nt[0], 'RETENTION\n  1 snapshot(s) removed when the stop began'), json_encode($nt));
     // --- past its retention (a btrfs disk's old snapshot the last it removed), noticed «while cleaning up»: pruned.json has the
     // run's entry, and the notification says what it says - never «No snapshots were pruned»
     $night('btrfs');
@@ -2609,7 +2609,7 @@ SH);
         ['aborted', 'array_stopping', $before + 1, 2, ["$mnt/disk9/.btrfs-snap/20200101-0100"]],
         [$s['result'] ?? null, $s['message'] ?? null, count($pr), count($last['zfs'] ?? []), $last['btrfs'] ?? null]);
     check('array stop after the retention: the notification says the retention was done and how many it removed, like pruned.json',
-        count($nt) === 1 && str_contains($nt[0], 'retention was done when the stop began: 3 snapshot(s) removed') && !str_contains($nt[0], 'No snapshots were pruned'), json_encode($nt));
+        count($nt) === 1 && str_contains($nt[0], 'RETENTION\n  done when the stop began: 3 snapshot(s) removed') && !str_contains($nt[0], 'no snapshots were pruned'), json_encode($nt));
     check('array stop after the retention: the log says so too', str_contains($log(), 'retention done (3 removed)'), $log());
 
     // --- already stopping when the run starts: it touches nothing - an earlier run's notes stay for after the array start
@@ -2783,7 +2783,7 @@ SH);
         [$sums(), @readlink("$data/logs/latest.log")]);
     $nt = $notes();
     check('recover: one notification «Aborted run repaired», normal after an array stop, naming what came back', count($nt) === 1 && str_contains($nt[0], '-i normal')
-        && str_contains($nt[0], 'Aborted run repaired') && str_contains($nt[0], 'c1 nc maintenance mode nc off VM vmshut started'), json_encode($nt));
+        && str_contains($nt[0], 'Aborted run repaired') && str_contains($nt[0], 'STARTED AGAIN OR RESET\n  Containers started: c1, nc\n  Maintenance mode off: nc\n  VM vmshut started'), json_encode($nt));
     check('recover: its log says what was noted and that it is done', str_contains($recLog(), "- recover ") && str_contains($recLog(), 'containers c1 nc; maintenance mode nc; VMs vmshut')
         && str_contains($recLog(), 'Done - nothing is noted any more'), $recLog());
 
@@ -3795,7 +3795,7 @@ SH);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
     $nt = array_values(preg_grep('/Backup successful/', $notes()));
     check('asleep skip: the notification - successful, «4 shares asleep (left out)» in its summary', count($nt) === 1
-        && str_contains($nt[0], ', 4 shares asleep (left out)') && str_contains($nt[0], 'Asleep, left out (asleep_pools = skip): hive'), json_encode($nt));
+        && str_contains($nt[0], ', 4 shares asleep (left out)') && str_contains($nt[0], 'LEFT OUT, ASLEEP (asleep_pools = skip)\n  Disks:   hive\n'), json_encode($nt));
     same('asleep skip: state/asleep.json - one night each', ['films' => 1, 'media' => 1, 'tm' => 1, 'vmh' => 1], array_map(fn ($x) => $x['nights'] ?? null, $nights()['shares'] ?? []));
 
     // --- the 7th night in a row: one warning; the same day again: none
@@ -4326,7 +4326,7 @@ SH);
         [['docker start vpn', 'docker start pg', 'docker start web'], ['', '', ''], '0 1'], [$events(), $noted(), $counts]);
     $nt = $notes();
     check('recover: all back - «Aborted run repaired» (a warning after a crash), naming them', count($nt) === 1 && str_contains($nt[0], 'Aborted run repaired')
-        && str_contains($nt[0], '-i warning') && str_contains($nt[0], 'vpn pg web'), json_encode($nt));
+        && str_contains($nt[0], '-i warning') && str_contains($nt[0], 'Containers started: vpn, pg, web'), json_encode($nt));
 
     // one doesn't start: only it stays noted, the others came back; the notification is a warning that says so
     $setup($all, [], ['stopped' => ['web', 'pg', 'vpn']], ['needs.web' => 'vpn', 'fail-start' => "pg\n"]);
@@ -4336,7 +4336,7 @@ SH);
     $nt = $notes();
     check('recover: not all back - «Aborted run not fully repaired», a warning naming what stays noted and what came back', count($nt) === 1
         && str_contains($nt[0], 'Aborted run not fully repaired') && str_contains($nt[0], '-i warning')
-        && str_contains($nt[0], 'containers not started (still noted): pg') && str_contains($nt[0], 'Started again or reset: vpn web'), json_encode($nt));
+        && str_contains($nt[0], 'containers not started (still noted): pg') && str_contains($nt[0], 'Containers started: vpn, web\n'), json_encode($nt));
     // running already (Unraid's autostart) or gone: nothing to start, nothing left noted
     $setup(['web' => 'running', 'vpn' => 'running'], [], ['stopped' => ['web', 'old', 'vpn']]);
     $recover();
@@ -8306,6 +8306,112 @@ function testAckContent(): void
     check('posture content: the text is what the page shows (title and why)', isset($w['posture.telnet.title'], $w['posture.telnet.why'])
         && watchmanPostureText('telnet') === substr(sha1(jsonEncode([$w['posture.telnet.title'], $w['posture.telnet.why']])), 0, 16)
         && watchmanPostureText('telnet') !== watchmanPostureText('ftp'));
+}
+
+/**
+ * The notifications' layout (mail-layout, 2026-10-09): Unraid mails -m as plain text split on a literal \n — a blank
+ * line between sections must arrive as \n\n, never as a real newline; the engine's helpers for the backup mail (Kopia's
+ * list trimmed: every failed source, the 4 longest, «N more, each under X»; word lists wrapped at ~70 characters;
+ * human durations and sizes); the desks' lists one item per line, trimmed with «… and N more».
+ */
+function testNotifyLayout(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-notify-layout-' . getmypid();
+    @mkdir("$tmp/ub", 0700, true);
+    $log = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($log) . "\necho >> " . escapeshellarg($log) . "\n");
+    chmod("$tmp/notify", 0755);
+    $calls = function () use ($log): array {
+        $out = [];
+        foreach (array_filter(explode("\x1f\n", (string) @file_get_contents($log))) as $line) {
+            $args = explode("\x1f", $line);
+            $o = [];
+            for ($i = 0; $i + 1 < count($args); $i += 2) {
+                $o[$args[$i]] = $args[$i + 1];
+            }
+            $out[] = $o;
+        }
+        @unlink($log);
+        return $out;
+    };
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = fn (string $code) => (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/ub UB_NOTIFY_BIN=$tmp/notify UB_NOTIFY_STAMP=; source $lib >/dev/null 2>&1; $code") . ' 2>&1');
+
+    // the engine: real newlines become Unraid's \n, a blank line stays one; the description stays one line
+    $sh("ub_notify 'Subject' \$'one\\ntwo' normal \$'Head line\\n\\nSECTION\\n  item one\\n  item two\\n'");
+    $c = $calls();
+    same('layout: ub_notify - the long text\'s lines as Unraid\'s \n, the blank line between sections as \n\n, no trailing one',
+        'Head line\n\nSECTION\n  item one\n  item two', $c[0]['-m'] ?? null);
+    same('layout: ub_notify - the description one line', 'one two', $c[0]['-d'] ?? null);
+    check('layout: ub_notify - no real newline in any argument', !preg_grep("/\n/", array_merge(array_keys($c[0] ?? []), array_values($c[0] ?? []))), json_encode($c));
+    $sh("ub_notify 'Subject' 'short' warning");
+    check('layout: ub_notify - no long text, no -m', !isset($calls()[0]['-m']));
+
+    // durations and sizes for people
+    same('layout: dur_n', ['6 h 4 min', '1 min 26 s', '2 h', '1 min', '9 s', '0 s'],
+        explode('|', trim($sh('printf "%s|" "$(dur_n 21840)" "$(dur_n 86)" "$(dur_n 7200)" "$(dur_n 60)" "$(dur_n 9)" "$(dur_n x)"'), '|')));
+    same('layout: dur_c (lists: minutes from a minute on)', ['5 h 22 min', '20 min', '9 min', '40 s'],
+        explode('|', trim($sh('printf "%s|" "$(dur_c 19320)" "$(dur_c 1213)" "$(dur_c 545)" "$(dur_c 40)"'), '|')));
+    same('layout: human_sp', ['113 MB', '0 B'], explode('|', trim($sh('printf "%s|" "$(human_sp 118489088)" "$(human_sp 0)"'), '|')));
+
+    // wrap: at ~70 characters, a hanging indent under the first item, the separator's comma at the line's end
+    same('layout: wrap_words - the approved shares line',
+        "  Shares:  Filme, Mediathek, Serien, drop, nextcloud_data,\n           timemachine_benj, timemachine_janine, trash\n",
+        $sh('wrap_words "  Shares:  " ", " Filme Mediathek Serien drop nextcloud_data timemachine_benj timemachine_janine trash'));
+    $w = $sh('wrap_words "  Disks:   " " " ' . implode(' ', array_map(fn ($i) => "disk$i", range(1, 30))));
+    check('layout: wrap_words - every line at most 70 characters, nothing lost, no trailing space',
+        max(array_map('strlen', explode("\n", $w))) <= 70 && preg_split('/\s+/', trim(str_replace('Disks:', '', $w))) === array_map(fn ($i) => "disk$i", range(1, 30))
+        && !preg_match('/ $/m', $w), $w);
+    same('layout: wrap_words - nothing to list, nothing printed', '', $sh('wrap_words "  X: " ", "'));
+
+    // Kopia: every failed source always, then the 4 longest, then how many more and under what
+    $k = $sh('kopia_report 7 2 "a|1|5" "big|1|19320" "b|0|0" "mid|1|1213" "c|1|540" "d|1|420" "e|1|30" "f|0|0" "g|1|10"');
+    $row = fn (string $n, string $d) => sprintf('  %-3s   %10s', $n, $d);
+    same('layout: kopia_report - failed first (all of them), the 4 longest, «3 more, each under 1 min»',
+        implode("\n", ['KOPIA   7 ok, 2 failed', $row('b', 'FAILED'), $row('f', 'FAILED'), $row('big', '5 h 22 min'), $row('mid', '20 min'),
+                       $row('c', '9 min'), $row('d', '7 min'), '  3 more, each under 1 min']) . "\n", $k);
+    $k = $sh('kopia_report 5 0 "v|1|600" "w|1|500" "x|1|400" "y|1|300" "z|1|90"');
+    check('layout: kopia_report - one more: «1 more, under 2 min»', str_ends_with($k, "  1 more, under 2 min\n") && substr_count($k, "\n") === 6, $k);
+    $failed = implode(' ', array_map(fn ($i) => "\"f$i|0|0\"", range(1, 9)));
+    $k = $sh("kopia_report 0 9 $failed");
+    check('layout: kopia_report - nine failed: all nine shown, no «more»', substr_count($k, 'FAILED') === 9 && !str_contains($k, 'more'), $k);
+    same('layout: kopia_report - four: no «more» line', 5, substr_count($sh('kopia_report 4 0 "a|1|1" "b|1|2" "c|1|3" "d|1|4"'), "\n"));
+
+    // the office's side: officeNotify keeps the blank line between sections as \n\n
+    $before = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    officeNotify('s', "d\nd", 'normal', "Head\n\nSECTION\n  item\r\n");
+    $c = $calls();
+    same('layout: officeNotify - sections as \n\n, lines as \n, the description one line', ['Head\n\nSECTION\n  item', 'd d'], [$c[0]['-m'] ?? null, $c[0]['-d'] ?? null]);
+
+    // the team lead: items with a «how» get a blank line between them; at most 10, then «… and N more»
+    $f = fn (string $id) => ['desk' => 'backup', 'id' => $id, 'params' => []];
+    caretakerNotifySend([$f('schedule'), $f('drift')], 'en');
+    $m = $calls()[0]['-m'] ?? '';
+    check('layout: team lead - each thing on its own line, its «how» under it, a blank line between', preg_match('/^• Mr\. Backupsy — [^\\\\]+\\\\n  [^•]+\\\\n\\\\n• Mr\. Backupsy — /u', $m) === 1, $m);
+    caretakerNotifySend(array_map(fn ($i) => ['desk' => 'emby', 'id' => "x$i", 'params' => []], range(1, 12)), 'en');
+    $m = $calls()[0]['-m'] ?? '';
+    check('layout: team lead - twelve things: ten listed, «… and 2 more», then the footer', substr_count($m, '• ') === 10 && str_contains($m, '\n… and 2 more\n\n'), $m);
+
+    // Mr. Restori's drill: one failed step per line, at most 8; the names in the bell at most 6 — each with «… and N more»
+    $steps = array_map(fn ($i) => ['name' => "app$i", 'state' => 'failed', 'code' => 'drill_error'], range(1, 10));
+    drillNotify(['steps' => $steps]);
+    $c = $calls()[0] ?? [];
+    check('layout: drill - eight failed steps listed, «… and 2 more»', substr_count($c['-m'] ?? '', '• app') === 8 && str_ends_with($c['-m'] ?? '', '\n' . officeNotifyText('restore', 'notify.more', ['n' => 2], officeNotifyLang())), $c['-m'] ?? '');
+    check('layout: drill - six names in the bell, then «… and 4 more»', str_contains($c['-d'] ?? '', 'app6 ' . officeNotifyText('restore', 'notify.more', ['n' => 4], officeNotifyLang())) && !str_contains($c['-d'] ?? '', 'app7'), $c['-d'] ?? '');
+
+    // Ms. Snapshotini's schedule with problems: in the language of the notifications (English only before), one per line
+    $fails = array_map(fn ($i) => ['key' => 'create_failed', 'params' => ['target' => "pool$i", 'detail' => "line one\nline two"]], range(1, 7));
+    snapPlanNotifyFailures('Daily', $fails, 'en');
+    $c = $calls()[0] ?? [];
+    same('layout: schedule problems - subject', 'Unraid Secretary Office: Schedule "Daily": 7 problems', $c['-s'] ?? null);
+    check('layout: schedule problems - five listed in the page\'s words, each on one line, «… and 2 more»', substr_count($c['-m'] ?? '', '• ') === 5
+        && str_contains($c['-m'] ?? '', 'pool1') && str_contains($c['-m'] ?? '', 'line one line two') && str_ends_with($c['-m'] ?? '', '\n… and 2 more'), $c['-m'] ?? '');
+    snapPlanNotifyFailures('Täglich', array_slice($fails, 0, 1), 'de');
+    same('layout: schedule problems - German, one', 'Unraid Secretary Office: Zeitplan «Täglich»: ein Problem', $calls()[0]['-s'] ?? null);
+
+    putenv($before === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$before");
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 /**
@@ -20681,7 +20787,7 @@ JS);
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testCaretakerAcks', 'testAckContent',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
