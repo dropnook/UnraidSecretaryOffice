@@ -89,6 +89,13 @@ sides — and he reads it on his round: router and VPN logins not seen before, f
 intrusion detections at this server, a new device on the LAN or one using the server's name or address, the router's
 log gone silent. No router password, never a word to the router; other devices only as new ones, the rest are counts.
 
+**Why a parity check runs:** each one gets a plain line with its reason — on schedule, resumed by Parity Check Tuning,
+by hand (when that plugin saw it), a disk rebuild (no check at all), or after an unclean stop: the array didn't stop
+within the *Shutdown time-out* at the last shutdown (what held it up — a busy disk, a VM switched off hard — as far as
+Unraid's diagnostics or its kept syslog show), or the server went off without shutting down. Unraid then checks the
+parity at every start until a stop is clean again; he says so once, and the Team Lead lists which time-out to raise
+(Docker + VMs + a margin) until a later stop is clean. He never starts, pauses or cancels a check.
+
 ![The Night Watchman's watch book](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman.png)
 
 ### The search
@@ -192,7 +199,8 @@ Kopia is the encrypted way.
 What needs you while the office is closed goes to Unraid's notifications (the bell, and mail or push if you set them up
 under *Settings → Notifications*), as *Unraid Secretary Office*: a backup run that failed or had warnings, a drill
 that couldn't prove a restore, a schedule's problem, a new point on the Team Lead's list after half an hour, the
-Night Watchman's new entries (each kind at most once an hour), the messenger silent for ten minutes. The desks write
+Night Watchman's new entries (each kind at most once an hour) and a parity check after an unclean stop, the messenger silent
+for ten minutes. The desks write
 in the language you last used the office in; the backup engine writes English.
 
 ## Monitoring

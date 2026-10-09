@@ -1,0 +1,238 @@
+Oct  9 01:07:49 Tower rc.6: Creating system time correction file /etc/adjtime.
+Oct  9 01:07:49 Tower rc.6: /sbin/hwclock --utc --systohc
+Oct  9 01:07:50 Tower rc.6: Save PCI Configuration.
+Oct  9 01:07:50 Tower savepcidata.: PCI Changes not acknowledged skip save
+Oct  9 01:07:51 Tower rc.local_shutdown: Waiting up to 90 seconds for graceful shutdown...
+Oct  9 01:07:52 Tower kernel: mdcmd (36): nocheck cancel
+Oct  9 01:07:53 Tower emhttpd: Spinning up all drives...
+Oct  9 01:07:53 Tower emhttpd: read SMART /dev/sdd
+Oct  9 01:07:53 Tower emhttpd: read SMART /dev/vda
+Oct  9 01:07:53 Tower emhttpd: read SMART /dev/sde
+Oct  9 01:07:53 Tower emhttpd: read SMART /dev/sdb
+Oct  9 01:07:53 Tower emhttpd: read SMART /dev/sdf
+Oct  9 01:07:53 Tower emhttpd: read SMART /dev/sdc
+Oct  9 01:07:53 Tower emhttpd: read SMART /dev/sda
+Oct  9 01:07:53 Tower emhttpd: Stopping services...
+Oct  9 01:07:53 Tower emhttpd: shcmd (631): /etc/rc.d/rc.libvirt stop
+Oct  9 01:07:53 Tower rc.libvirt: Stopping libvirt daemon...
+Oct  9 01:07:53 Tower rc.libvirt: virsh net-destroy 7e531dc8-581c-4c3c-8514-388db1bf5222
+Oct  9 01:07:53 Tower dnsmasq[217163]: exiting on receipt of SIGTERM
+Oct  9 01:07:54 Tower rc.libvirt: libvirt daemon...  Stopped.
+Oct  9 01:07:54 Tower rc.libvirt: Stopping virtlog daemon...
+Oct  9 01:07:55 Tower rc.libvirt: virtlog daemon...  Stopped.
+Oct  9 01:07:55 Tower rc.libvirt: Stopping virtlock daemon...
+Oct  9 01:07:56 Tower rc.libvirt: virtlock daemon...  Stopped.
+Oct  9 01:07:57 Tower emhttpd: shcmd (632): umount /etc/libvirt
+Oct  9 01:07:57 Tower emhttpd: shcmd (634): /etc/rc.d/rc.docker stop
+Oct  9 01:07:57 Tower rc.docker: Stopping containers...
+Oct  9 01:07:59 Tower rc.docker: Unraid managed containers stopped.
+Oct  9 01:07:59 Tower rc.docker: Stopping network...
+Oct  9 01:07:59 Tower rc.docker: ip -4 addr del 192.168.7.111/24 dev shim-br0 metric 0
+Oct  9 01:07:59 Tower rc.docker: Network stopped.
+Oct  9 01:07:59 Tower rc.docker: Stopping Docker daemon...
+Oct  9 01:07:59 Tower root: Waiting 30 seconds for Docker daemon to die.
+Oct  9 01:08:01 Tower rc.docker: ip link set docker0 down
+Oct  9 01:08:01 Tower rc.docker: ip link del docker0
+Oct  9 01:08:01 Tower rc.docker: Docker daemon...  Stopped.
+Oct  9 01:08:01 Tower emhttpd: shcmd (636): umount --lazy /var/lib/docker
+Oct  9 01:08:01 Tower emhttpd: shcmd (638): /etc/rc.d/rc.samba stop
+Oct  9 01:08:01 Tower rc.samba: Stopping Samba server daemon...
+Oct  9 01:08:02 Tower rc.samba: kill 214794
+Oct  9 01:08:03 Tower rc.samba: Samba server daemon...  Stopped.
+Oct  9 01:08:03 Tower emhttpd: shcmd (639): rm -f /etc/avahi/services/smb.service
+Oct  9 01:08:03 Tower emhttpd: Stopping mover...
+Oct  9 01:08:03 Tower emhttpd: shcmd (641): /usr/local/sbin/mover stop
+Oct  9 01:08:03 Tower root: mover: not running
+Oct  9 01:08:03 Tower emhttpd: Sync filesystems...
+Oct  9 01:08:03 Tower emhttpd: shcmd (642): sync
+Oct  9 01:08:03 Tower rc.rsyslogd: Restarting Syslog server daemon...
+Oct  9 01:08:03 Tower rc.rsyslogd: Stopping Syslog server daemon...
+Oct  9 01:08:03 Tower rc.rsyslogd: killall --ns 2380691 rsyslogd
+Oct  9 01:08:07 Tower rc.rsyslogd: Syslog server daemon...  Started.
+Oct  9 01:08:07 Tower emhttpd: shcmd (643): /usr/sbin/zfs unmount -a
+Oct  9 01:08:07 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:07 Tower root: cannot unmount '/mnt/cache': pool or dataset is busy
+Oct  9 01:08:07 Tower emhttpd: shcmd (643): exit status: 1
+Oct  9 01:08:07 Tower emhttpd: shcmd (644): umount /mnt/user0
+Oct  9 01:08:07 Tower emhttpd: shcmd (645): rmdir /mnt/user0
+Oct  9 01:08:07 Tower emhttpd: shcmd (646): umount /mnt/user
+Oct  9 01:08:07 Tower emhttpd: shcmd (647): rmdir /mnt/user
+Oct  9 01:08:07 Tower emhttpd: shcmd (649): rm -f /boot/config/plugins/dynamix/mover.cron
+Oct  9 01:08:07 Tower emhttpd: shcmd (650): /usr/local/sbin/update_cron
+Oct  9 01:08:07 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:07 Tower emhttpd: shcmd (652): umount /mnt/disk1
+Oct  9 01:08:07 Tower emhttpd: shcmd (653): rmdir /mnt/disk1
+Oct  9 01:08:07 Tower kernel: BTRFS info (device md1p1): last unmount of filesystem 09178805-fdc5-459f-ba3f-77a9b8c51fb0
+Oct  9 01:08:07 Tower emhttpd: shcmd (654): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:07 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:07 Tower emhttpd: shcmd (654): exit status: 1
+Oct  9 01:08:07 Tower emhttpd: shcmd (655): /usr/sbin/zpool export -f big
+Oct  9 01:08:07 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:07 Tower emhttpd: shcmd (655): exit status: 1
+Oct  9 01:08:07 Tower emhttpd: shcmd (656): /usr/sbin/zpool export -f cache
+Oct  9 01:08:07 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:07 Tower emhttpd: shcmd (656): exit status: 1
+Oct  9 01:08:07 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:07 Tower rsyslogd: [origin software="rsyslogd" swVersion="8.2102.0" x-pid="2380756" x-info="https://www.rsyslog.com"] start
+Oct  9 01:08:12 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:12 Tower emhttpd: shcmd (657): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:12 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:12 Tower emhttpd: shcmd (657): exit status: 1
+Oct  9 01:08:12 Tower emhttpd: shcmd (658): /usr/sbin/zpool export -f big
+Oct  9 01:08:12 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:12 Tower emhttpd: shcmd (658): exit status: 1
+Oct  9 01:08:12 Tower emhttpd: shcmd (659): /usr/sbin/zpool export -f cache
+Oct  9 01:08:12 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:12 Tower emhttpd: shcmd (659): exit status: 1
+Oct  9 01:08:12 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:17 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:17 Tower emhttpd: shcmd (660): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:17 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:17 Tower emhttpd: shcmd (660): exit status: 1
+Oct  9 01:08:17 Tower emhttpd: shcmd (661): /usr/sbin/zpool export -f big
+Oct  9 01:08:17 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:17 Tower emhttpd: shcmd (661): exit status: 1
+Oct  9 01:08:17 Tower emhttpd: shcmd (662): /usr/sbin/zpool export -f cache
+Oct  9 01:08:17 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:17 Tower emhttpd: shcmd (662): exit status: 1
+Oct  9 01:08:17 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:22 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:22 Tower emhttpd: shcmd (663): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:22 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:22 Tower emhttpd: shcmd (663): exit status: 1
+Oct  9 01:08:22 Tower emhttpd: shcmd (664): /usr/sbin/zpool export -f big
+Oct  9 01:08:22 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:22 Tower emhttpd: shcmd (664): exit status: 1
+Oct  9 01:08:22 Tower emhttpd: shcmd (665): /usr/sbin/zpool export -f cache
+Oct  9 01:08:22 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:22 Tower emhttpd: shcmd (665): exit status: 1
+Oct  9 01:08:22 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:27 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:27 Tower emhttpd: shcmd (666): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:27 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:27 Tower emhttpd: shcmd (666): exit status: 1
+Oct  9 01:08:27 Tower emhttpd: shcmd (667): /usr/sbin/zpool export -f big
+Oct  9 01:08:27 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:27 Tower emhttpd: shcmd (667): exit status: 1
+Oct  9 01:08:27 Tower emhttpd: shcmd (668): /usr/sbin/zpool export -f cache
+Oct  9 01:08:27 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:27 Tower emhttpd: shcmd (668): exit status: 1
+Oct  9 01:08:27 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:32 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:32 Tower emhttpd: shcmd (669): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:32 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:32 Tower emhttpd: shcmd (669): exit status: 1
+Oct  9 01:08:32 Tower emhttpd: shcmd (670): /usr/sbin/zpool export -f big
+Oct  9 01:08:32 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:32 Tower emhttpd: shcmd (670): exit status: 1
+Oct  9 01:08:32 Tower emhttpd: shcmd (671): /usr/sbin/zpool export -f cache
+Oct  9 01:08:32 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:32 Tower emhttpd: shcmd (671): exit status: 1
+Oct  9 01:08:32 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:37 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:37 Tower emhttpd: shcmd (672): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:37 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:37 Tower emhttpd: shcmd (672): exit status: 1
+Oct  9 01:08:37 Tower emhttpd: shcmd (673): /usr/sbin/zpool export -f big
+Oct  9 01:08:37 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:37 Tower emhttpd: shcmd (673): exit status: 1
+Oct  9 01:08:37 Tower emhttpd: shcmd (674): /usr/sbin/zpool export -f cache
+Oct  9 01:08:37 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:37 Tower emhttpd: shcmd (674): exit status: 1
+Oct  9 01:08:37 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:42 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:42 Tower emhttpd: shcmd (675): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:42 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:42 Tower emhttpd: shcmd (675): exit status: 1
+Oct  9 01:08:42 Tower emhttpd: shcmd (676): /usr/sbin/zpool export -f big
+Oct  9 01:08:42 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:42 Tower emhttpd: shcmd (676): exit status: 1
+Oct  9 01:08:42 Tower emhttpd: shcmd (677): /usr/sbin/zpool export -f cache
+Oct  9 01:08:42 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:42 Tower emhttpd: shcmd (677): exit status: 1
+Oct  9 01:08:42 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:47 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:47 Tower emhttpd: shcmd (678): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:47 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:47 Tower emhttpd: shcmd (678): exit status: 1
+Oct  9 01:08:47 Tower emhttpd: shcmd (679): /usr/sbin/zpool export -f big
+Oct  9 01:08:47 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:47 Tower emhttpd: shcmd (679): exit status: 1
+Oct  9 01:08:47 Tower emhttpd: shcmd (680): /usr/sbin/zpool export -f cache
+Oct  9 01:08:47 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:47 Tower emhttpd: shcmd (680): exit status: 1
+Oct  9 01:08:47 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:52 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:52 Tower emhttpd: shcmd (681): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:52 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:52 Tower emhttpd: shcmd (681): exit status: 1
+Oct  9 01:08:52 Tower emhttpd: shcmd (682): /usr/sbin/zpool export -f big
+Oct  9 01:08:52 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:52 Tower emhttpd: shcmd (682): exit status: 1
+Oct  9 01:08:52 Tower emhttpd: shcmd (683): /usr/sbin/zpool export -f cache
+Oct  9 01:08:52 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:52 Tower emhttpd: shcmd (683): exit status: 1
+Oct  9 01:08:52 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:08:57 Tower emhttpd: Unmounting disks...
+Oct  9 01:08:57 Tower emhttpd: shcmd (684): /usr/sbin/zpool export -f disk2
+Oct  9 01:08:57 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:08:57 Tower emhttpd: shcmd (684): exit status: 1
+Oct  9 01:08:57 Tower emhttpd: shcmd (685): /usr/sbin/zpool export -f big
+Oct  9 01:08:57 Tower root: cannot export 'big': pool is busy
+Oct  9 01:08:57 Tower emhttpd: shcmd (685): exit status: 1
+Oct  9 01:08:57 Tower emhttpd: shcmd (686): /usr/sbin/zpool export -f cache
+Oct  9 01:08:57 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:08:57 Tower emhttpd: shcmd (686): exit status: 1
+Oct  9 01:08:57 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:09:02 Tower emhttpd: Unmounting disks...
+Oct  9 01:09:02 Tower emhttpd: shcmd (687): /usr/sbin/zpool export -f disk2
+Oct  9 01:09:02 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:09:02 Tower emhttpd: shcmd (687): exit status: 1
+Oct  9 01:09:02 Tower emhttpd: shcmd (688): /usr/sbin/zpool export -f big
+Oct  9 01:09:02 Tower root: cannot export 'big': pool is busy
+Oct  9 01:09:02 Tower emhttpd: shcmd (688): exit status: 1
+Oct  9 01:09:02 Tower emhttpd: shcmd (689): /usr/sbin/zpool export -f cache
+Oct  9 01:09:02 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:09:02 Tower emhttpd: shcmd (689): exit status: 1
+Oct  9 01:09:02 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:09:07 Tower emhttpd: Unmounting disks...
+Oct  9 01:09:07 Tower emhttpd: shcmd (690): /usr/sbin/zpool export -f disk2
+Oct  9 01:09:07 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:09:07 Tower emhttpd: shcmd (690): exit status: 1
+Oct  9 01:09:07 Tower emhttpd: shcmd (691): /usr/sbin/zpool export -f big
+Oct  9 01:09:07 Tower root: cannot export 'big': pool is busy
+Oct  9 01:09:07 Tower emhttpd: shcmd (691): exit status: 1
+Oct  9 01:09:07 Tower emhttpd: shcmd (692): /usr/sbin/zpool export -f cache
+Oct  9 01:09:07 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:09:07 Tower emhttpd: shcmd (692): exit status: 1
+Oct  9 01:09:07 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:09:12 Tower emhttpd: Unmounting disks...
+Oct  9 01:09:12 Tower emhttpd: shcmd (693): /usr/sbin/zpool export -f disk2
+Oct  9 01:09:12 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:09:12 Tower emhttpd: shcmd (693): exit status: 1
+Oct  9 01:09:12 Tower emhttpd: shcmd (694): /usr/sbin/zpool export -f big
+Oct  9 01:09:12 Tower root: cannot export 'big': pool is busy
+Oct  9 01:09:12 Tower emhttpd: shcmd (694): exit status: 1
+Oct  9 01:09:12 Tower emhttpd: shcmd (695): /usr/sbin/zpool export -f cache
+Oct  9 01:09:12 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:09:12 Tower emhttpd: shcmd (695): exit status: 1
+Oct  9 01:09:12 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:09:17 Tower emhttpd: Unmounting disks...
+Oct  9 01:09:17 Tower emhttpd: shcmd (696): /usr/sbin/zpool export -f disk2
+Oct  9 01:09:17 Tower root: cannot export 'disk2': pool is busy
+Oct  9 01:09:17 Tower emhttpd: shcmd (696): exit status: 1
+Oct  9 01:09:17 Tower emhttpd: shcmd (697): /usr/sbin/zpool export -f big
+Oct  9 01:09:17 Tower root: cannot export 'big': pool is busy
+Oct  9 01:09:17 Tower emhttpd: shcmd (697): exit status: 1
+Oct  9 01:09:17 Tower emhttpd: shcmd (698): /usr/sbin/zpool export -f cache
+Oct  9 01:09:17 Tower root: cannot unmount '/mnt/cache/system': pool or dataset is busy
+Oct  9 01:09:17 Tower emhttpd: shcmd (698): exit status: 1
+Oct  9 01:09:17 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 01:09:21 Tower rc.local_shutdown: Forcing shutdown...
+Oct  9 01:09:21 Tower rc.local_shutdown: Status of all loop devices
+Oct  9 01:09:21 Tower rc.local_shutdown: losetup -a
+Oct  9 01:09:21 Tower rc.local_shutdown: Active pids left on /mnt/*
+Oct  9 01:09:21 Tower rc.local_shutdown: fuser -mv /mnt/addons /mnt/big /mnt/cache /mnt/disk2
+Oct  9 01:09:21 Tower rc.local_shutdown: Active pids left on /dev/md*
+Oct  9 01:09:21 Tower rc.local_shutdown: fuser -mv /dev/md1p1 /dev/md2p1
+Oct  9 01:09:21 Tower rc.local_shutdown: Generating diagnostics...

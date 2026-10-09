@@ -117,6 +117,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/partnerlook.php';
 require_once __DIR__ . '/../lib/watchnet.php';
+require_once __DIR__ . '/../lib/paritywhy.php';
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -198,6 +199,7 @@ const WATCH_KINDS = [
     'array_stop'           => ['array', false],     // the array was stopped: a plain line, noted by himself (watchmanArrayLines())
     'array_start'          => ['array', false],     // the array was started: likewise
     'server_boot'          => ['array', false],     // the server was started (a new boot id): likewise (watchmanBootLine())
+    'parity_check'         => ['array', false],     // a parity check (or rebuild) began: its reason in plain words, noted by himself (agent/lib/paritywhy.php)
     'partner_paired'       => ['partner', false],   // the office's own door line for a pair, written at the pairing: noted by himself (by office)
     'door_changed'         => ['partner', true],    // a known pair's door line changed (another from=, no restrict, another command or key)
     'door_key_moved'       => ['partner', true],    // a pair's key from another address, or a pair's address with another key
@@ -241,6 +243,8 @@ const WATCH_ATTACK = [
     'array_stop' => 'T1489', 'array_start' => 'T1489',
     // a reboot: System Shutdown/Reboot
     'server_boot' => 'T1529',
+    // a parity check: mostly the trace of a reboot whose stop wasn't clean — System Shutdown/Reboot again
+    'parity_check' => 'T1529',
     // the partner door: a key in authorized_keys (SSH Authorized Keys) — the office's own written at the pairing, or one
     // changed; the pair's key used from elsewhere is a valid account's use; refusals are someone trying the door (SSH)
     'partner_paired' => 'T1098.004', 'door_changed' => 'T1098.004', 'door_key_moved' => 'T1078', 'door_refused' => 'T1021.004',
@@ -374,6 +378,14 @@ function watchmanPaths(): array
         'logrotate'  => '/var/lib/logrotate.status',
         'boot_id'    => '/proc/sys/kernel/random/boot_id',
         'stat'       => '/proc/stat',             // btime: when the server was started (watchmanBootLine())
+        // why a parity check runs (agent/lib/paritywhy.php): the flash's history, Unraid's schedule, Parity Check Tuning's
+        // records, what the shutdown before left in /boot/logs, the time-outs (the syslog, var.ini, rsyslog.cfg: above/below)
+        'parity_log'  => '/boot/config/parity-checks.log',
+        'parity_cron' => '/boot/config/plugins/dynamix/parity-check.cron',
+        'pct_dir'     => PARITYWHY_PCT_DIR,
+        'boot_logs'   => '/boot/logs',
+        'domain_cfg'  => '/boot/config/domain.cfg',
+        'docker_cfg'  => '/boot/config/docker.cfg',
         'port_range' => '/proc/sys/net/ipv4/ip_local_port_range',
         'ss'         => 'ss',
         'connect'    => '/boot/config/plugins/dynamix.my.servers/configs/connect.json',
@@ -722,7 +734,7 @@ function watchmanNightPaths(): array
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'drill_record', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
-        'rsyslog_cfg', 'shares_ini', 'arp']));
+        'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -1277,9 +1289,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $snapRes = $snaps ? watchmanSnaps($paths, $fresh ? null : $snapKnown, $fresh ? [] : (array) ($snap['baseline']['snaps']['series'] ?? []), $now) : null;
 
     $btime = $boot !== '' && isset($paths['stat']) ? watchmanBootTime((string) $paths['stat']) : null;
+    // why a parity check runs (agent/lib/paritywhy.php) — the day's rounds only (the night shift has no parity paths)
+    $parity = paritywhyLook($paths, is_array($snap['state']['parity'] ?? null) ? $snap['state']['parity'] : null, $boot, $btime, $now);
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office, $paths, $boot, $btime, $netLook, $netServer): array {
+                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1378,6 +1392,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         } elseif (isset($paths['array_events'])) {
             watchmanArrayLines($book, $st, (string) $paths['array_events'], $now);
         }
+        // a parity check began: its reason; an unclean stop: the team lead's to-do and one notification (normal) — his switch counts
+        $tell = $notify && ($st['notify'] ?? true) !== false
+            ? fn (array $v): bool => ($v['btime'] === null || $now - (int) $v['btime'] <= 86400) && paritywhyNotify($v, officeNotifyLang()) : null;
+        $added = array_merge($added, paritywhyCompare($book, $st, $parity, (array) ($st['logins'] ?? []), $now, $fresh,
+            isset($paths['array_events']) ? (string) $paths['array_events'] : null, $tell));
         // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
         $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
         $old['posture'] = readJson("$dir/posture.json");
@@ -6949,6 +6968,7 @@ function watchmanText(array $e, ?string $lang = null): array
         'api_key_new', 'api_key_changed'
                          => ['name' => (string) ($p['name'] ?? ''), 'roles' => $list('roles') ?: '–', 'perms' => (int) ($p['perms'] ?? 0)],
         'array_stop', 'array_start', 'server_boot' => ['who' => watchmanArrayWho((array) ($p['logins'] ?? []))],
+        'parity_check'   => ['why' => $lang === null ? '' : paritywhyWhy($p, $lang)],     // the page words it itself (desk.js parityWhy())
         'partner_paired' => ['name' => (string) ($p['name'] ?? ''), 'address' => (string) ($p['address'] ?? '')],
         'door_changed'   => ['name' => (string) ($p['name'] ?? ''), 'what' => $lang === null ? '' : implode(', ', array_map(
                                  fn ($w) => officeNotifyText('watchman', WATCH_DOOR_WHAT[$w] ?? 'door_what.options', [], $lang), (array) ($p['what'] ?? [])))],
@@ -7089,6 +7109,13 @@ function watchmanChecks(?string $dir = null): array
         $out[] = finding('posture', 'hint', null, ['n' => $posture['open']], '#/watchman');
     }
     return $out;
+}
+
+/** The team lead's to-do after an unclean stop (agent/lib/paritywhy.php) — his state file only; null: none, or not on watch */
+function watchmanParityFinding(?string $dir = null): ?array
+{
+    $d = watchmanLoad($dir ?? watchmanDir());
+    return is_array($d['baseline']) ? paritywhyFinding($d['state']) : null;
 }
 
 /**

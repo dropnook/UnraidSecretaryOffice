@@ -1,0 +1,105 @@
+Oct  9 09:10:43 Tower rc.6: Running shutdown script /etc/rc.d/rc.6:
+Oct  9 09:10:43 Tower init: Trying to re-exec init
+Oct  9 09:10:43 Tower rc.6: Saving system time to the hardware clock (UTC).
+Oct  9 09:10:43 Tower rc.6: Creating system time correction file /etc/adjtime.
+Oct  9 09:10:43 Tower rc.6: /sbin/hwclock --utc --systohc
+Oct  9 09:10:43 Tower rc.6: Save PCI Configuration.
+Oct  9 09:10:43 Tower savepcidata.: PCI Changes not acknowledged skip save
+Oct  9 09:10:44 Tower rc.local_shutdown: Waiting up to 45 seconds for graceful shutdown...
+Oct  9 09:10:45 Tower kernel: mdcmd (40): nocheck cancel
+Oct  9 09:10:46 Tower emhttpd: Spinning up all drives...
+Oct  9 09:10:46 Tower emhttpd: Stopping services...
+Oct  9 09:10:46 Tower emhttpd: shcmd (95): /etc/rc.d/rc.libvirt stop
+Oct  9 09:10:46 Tower rc.libvirt: Stopping libvirt daemon...
+Oct  9 09:10:46 Tower rc.libvirt: virsh net-destroy 7e531dc8-581c-4c3c-8514-388db1bf5222
+Oct  9 09:10:46 Tower dnsmasq[8246]: exiting on receipt of SIGTERM
+Oct  9 09:10:47 Tower rc.libvirt: libvirt daemon...  Stopped.
+Oct  9 09:10:47 Tower rc.libvirt: Stopping virtlog daemon...
+Oct  9 09:10:48 Tower rc.libvirt: virtlog daemon...  Stopped.
+Oct  9 09:10:48 Tower rc.libvirt: Stopping virtlock daemon...
+Oct  9 09:10:49 Tower rc.libvirt: virtlock daemon...  Stopped.
+Oct  9 09:10:50 Tower emhttpd: shcmd (96): umount /etc/libvirt
+Oct  9 09:10:50 Tower emhttpd: shcmd (98): /etc/rc.d/rc.docker stop
+Oct  9 09:10:50 Tower rc.docker: Stopping containers...
+Oct  9 09:10:51 Tower rc.docker: Unraid managed containers stopped.
+Oct  9 09:10:51 Tower rc.docker: Stopping network...
+Oct  9 09:10:52 Tower rc.docker: ip -4 addr del 192.168.7.111/24 dev shim-br0 metric 0
+Oct  9 09:10:52 Tower rc.docker: Network stopped.
+Oct  9 09:10:52 Tower rc.docker: Stopping Docker daemon...
+Oct  9 09:10:52 Tower root: Waiting 30 seconds for Docker daemon to die.
+Oct  9 09:10:52 Tower kernel: BTRFS info (device loop2): last unmount of filesystem a871ca98-78c9-48da-ab49-1256d0c2d366
+Oct  9 09:10:54 Tower rc.docker: ip link set docker0 down
+Oct  9 09:10:54 Tower rc.docker: ip link del docker0
+Oct  9 09:10:54 Tower rc.docker: Docker daemon...  Stopped.
+Oct  9 09:10:54 Tower emhttpd: shcmd (100): umount --lazy /var/lib/docker
+Oct  9 09:10:54 Tower emhttpd: shcmd (102): /etc/rc.d/rc.samba stop
+Oct  9 09:10:54 Tower rc.samba: Stopping Samba server daemon...
+Oct  9 09:10:54 Tower rc.samba: kill 2165
+Oct  9 09:10:56 Tower rc.samba: Samba server daemon...  Stopped.
+Oct  9 09:10:56 Tower emhttpd: shcmd (103): rm -f /etc/avahi/services/smb.service
+Oct  9 09:10:56 Tower emhttpd: Stopping mover...
+Oct  9 09:10:56 Tower emhttpd: shcmd (105): /usr/local/sbin/mover stop
+Oct  9 09:10:56 Tower root: mover: not running
+Oct  9 09:10:56 Tower emhttpd: Sync filesystems...
+Oct  9 09:10:56 Tower emhttpd: shcmd (106): sync
+Oct  9 09:10:56 Tower rc.rsyslogd: Restarting Syslog server daemon...
+Oct  9 09:10:56 Tower rc.rsyslogd: Stopping Syslog server daemon...
+Oct  9 09:10:56 Tower rc.rsyslogd: killall --ns 1448304 rsyslogd
+Oct  9 09:10:59 Tower rc.rsyslogd: Syslog server daemon...  Started.
+Oct  9 09:10:59 Tower emhttpd: shcmd (107): /usr/sbin/zfs unmount -a
+Oct  9 09:10:59 Tower emhttpd: shcmd (108): umount /mnt/user0
+Oct  9 09:10:59 Tower emhttpd: shcmd (109): rmdir /mnt/user0
+Oct  9 09:10:59 Tower emhttpd: shcmd (110): umount /mnt/user
+Oct  9 09:10:59 Tower emhttpd: shcmd (111): rmdir /mnt/user
+Oct  9 09:10:59 Tower emhttpd: shcmd (113): rm -f /boot/config/plugins/dynamix/mover.cron
+Oct  9 09:10:59 Tower emhttpd: shcmd (114): /usr/local/sbin/update_cron
+Oct  9 09:10:59 Tower emhttpd: Unmounting disks...
+Oct  9 09:10:59 Tower emhttpd: shcmd (116): umount /mnt/disk1
+Oct  9 09:10:59 Tower root: umount: /mnt/disk1: target is busy.
+Oct  9 09:10:59 Tower emhttpd: shcmd (116): exit status: 32
+Oct  9 09:10:59 Tower emhttpd: shcmd (117): /usr/sbin/zpool export -f disk2
+Oct  9 09:10:59 Tower emhttpd: shcmd (118): rmdir /mnt/disk2
+Oct  9 09:10:59 Tower emhttpd: shcmd (119): /usr/sbin/zpool export -f big
+Oct  9 09:10:59 Tower emhttpd: shcmd (120): rmdir /mnt/big
+Oct  9 09:10:59 Tower emhttpd: shcmd (121): /usr/sbin/zpool export -f cache
+Oct  9 09:10:59 Tower emhttpd: shcmd (122): rmdir /mnt/cache
+Oct  9 09:10:59 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 09:11:00 Tower rsyslogd: [origin software="rsyslogd" swVersion="8.2102.0" x-pid="1448368" x-info="https://www.rsyslog.com"] start
+Oct  9 09:11:04 Tower emhttpd: Unmounting disks...
+Oct  9 09:11:04 Tower emhttpd: shcmd (124): umount /mnt/disk1
+Oct  9 09:11:04 Tower root: umount: /mnt/disk1: target is busy.
+Oct  9 09:11:04 Tower emhttpd: shcmd (124): exit status: 32
+Oct  9 09:11:04 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 09:11:09 Tower emhttpd: Unmounting disks...
+Oct  9 09:11:09 Tower emhttpd: shcmd (126): umount /mnt/disk1
+Oct  9 09:11:09 Tower root: umount: /mnt/disk1: target is busy.
+Oct  9 09:11:09 Tower emhttpd: shcmd (126): exit status: 32
+Oct  9 09:11:09 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 09:11:14 Tower emhttpd: Unmounting disks...
+Oct  9 09:11:14 Tower emhttpd: shcmd (128): umount /mnt/disk1
+Oct  9 09:11:14 Tower root: umount: /mnt/disk1: target is busy.
+Oct  9 09:11:14 Tower emhttpd: shcmd (128): exit status: 32
+Oct  9 09:11:14 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 09:11:19 Tower emhttpd: Unmounting disks...
+Oct  9 09:11:19 Tower emhttpd: shcmd (130): umount /mnt/disk1
+Oct  9 09:11:19 Tower root: umount: /mnt/disk1: target is busy.
+Oct  9 09:11:19 Tower emhttpd: shcmd (130): exit status: 32
+Oct  9 09:11:19 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 09:11:24 Tower emhttpd: Unmounting disks...
+Oct  9 09:11:24 Tower emhttpd: shcmd (132): umount /mnt/disk1
+Oct  9 09:11:24 Tower root: umount: /mnt/disk1: target is busy.
+Oct  9 09:11:24 Tower emhttpd: shcmd (132): exit status: 32
+Oct  9 09:11:24 Tower emhttpd: Retry unmounting disk share(s)...
+Oct  9 09:11:29 Tower rc.local_shutdown: Forcing shutdown...
+Oct  9 09:11:29 Tower rc.local_shutdown: Status of all loop devices
+Oct  9 09:11:29 Tower rc.local_shutdown: losetup -a
+Oct  9 09:11:29 Tower rc.local_shutdown: Active pids left on /mnt/*
+Oct  9 09:11:29 Tower rc.local_shutdown: fuser -mv /mnt/addons /mnt/disk1
+Oct  9 09:11:29 Tower rc.local_shutdown: Active pids left on /dev/md*
+Oct  9 09:11:29 Tower rc.local_shutdown: fuser -mv /dev/md1p1 /dev/md2p1
+Oct  9 09:11:29 Tower rc.local_shutdown: Generating diagnostics...
+Oct  9 09:11:29 Tower emhttpd: Unmounting disks...
+Oct  9 09:11:29 Tower emhttpd: shcmd (134): umount /mnt/disk1
+Oct  9 09:11:29 Tower root: umount: /mnt/disk1: target is busy.
+Oct  9 09:11:29 Tower emhttpd: shcmd (134): exit status: 32
+Oct  9 09:11:29 Tower emhttpd: Retry unmounting disk share(s)...

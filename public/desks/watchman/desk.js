@@ -228,6 +228,7 @@ function render() {
     [T('help.siem'), T('help.siem_text')],
     [T('help.chain'), T('help.chain_text')],
     [T('help.night'), T('help.night_text')],
+    [T('help.parity'), T('help.parity_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -817,12 +818,31 @@ function entryParams(e) {
   if (e.kind === 'door_new') t.door = doorWords(p);
   if (e.kind === 'door_changed') t.what = doorWhat(p.what);
   if (e.kind === 'net_firewall_change') t.area = T('net_area.' + (['firewall', 'nat', 'port_forward', 'policy'].includes(p.area) ? p.area : 'firewall'));
+  if (e.kind === 'parity_check') t.why = parityWhy(p);
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
   if (e.kind === 'flow_gone') t.more = goneMore(p);
   if (Array.isArray(p.hours)) t.hours = p.hours.map(hourName).join(', ');
   return t;
+}
+
+/**
+ * Why a parity check runs (agent/lib/paritywhy.php paritywhyWhy()): its reason in words — after an unclean stop how it
+ * ended and what held up the array, as far as Unraid's log shows it; a tip to keep the syslog when nothing was kept
+ */
+function parityWhy(p) {
+  const reason = ['unclean', 'schedule', 'tuning', 'manual', 'rebuild'].includes(p.reason) ? p.reason : 'unknown';
+  if (reason !== 'unclean') {
+    const who = (p.logins || []).map((l) => `${l.user ? l.user + '@' : ''}${l.ip} (${loginService(l.service)})`);
+    return T('parity.why.' + reason, { action: p.action || '', who: who.length ? [...new Set(who)].join(', ') : '–' });
+  }
+  const stop = ['timeout', 'late', 'crash'].includes(p.stop) ? p.stop : 'unknown';
+  let out = T('parity.why.unclean_' + stop, { timeout: Number(p.timeout) || 90 });
+  if (stop === 'timeout') out += p.held ? T('parity.held', { held: p.held }) : T('parity.held_none');
+  if (!p.kept && (stop === 'timeout' || stop === 'unknown') && p.from !== 'previous' && !p.held) out += T('parity.keep_syslog');
+  if ((Number(p.streak) || 0) >= 2) out += T('parity.repeat', { n: Number(p.streak) });
+  return out;
 }
 
 /** What of a partner's door line changed (agent: watchmanPartnerCompare()), in words */
@@ -913,7 +933,28 @@ function details(e) {
   add(T('detail.first'), fmt.date(e.time));
   if (e.last !== e.time) add(T('detail.last'), fmt.date(e.last));
   if (e.count > 1 && e.group !== 'snap') add(T('detail.count'), T('times', { n: e.count }));
-  if (e.group === 'array') {
+  if (e.kind === 'parity_check') {
+    // the operation, how far it is, and where the reason was seen (Unraid's diagnostics, the syslog it kept, its own line)
+    add(T('detail.parity_action'), p.action, true);
+    const errors = T('parity.errors', { n: Number(p.errors) || 0 });
+    add(T('detail.parity_state'), p.end ? T(Number(p.exit) === 0 ? 'parity.state_done' : 'parity.state_failed', { when: fmt.date(p.end), code: p.exit, errors })
+      : T('parity.state_running'));
+    const from = [];
+    if (p.evidence && Office.has(`${ID}.parity.from_${p.evidence}`)) from.push(T('parity.from_' + p.evidence));
+    if (p.from === 'diag' && p.diag) from.push(T('parity.from_diag', { name: p.diag }));
+    else if (p.from === 'previous') from.push(T('parity.from_previous'));
+    if (from.length) {
+      const box = el('div', '');
+      from.forEach((x) => box.appendChild(el('div', '', x)));
+      add(T('detail.parity_from'), box);
+    }
+    if (p.reason === 'unclean' && !p.kept) {
+      const a = el('a', '', T('parity.to_syslog'));
+      a.href = '/Settings/SyslogSettings';      // into Unraid, in the same tab like its own links
+      add(T('detail.parity_keep'), a);
+    }
+    if ((p.logins || []).length) add(T('detail.logins'), lines(p.logins.map((l) => `${fmt.time(l.t)} · ${l.user ? l.user + '@' : ''}${l.ip} · ${loginService(l.service)}`)));
+  } else if (e.group === 'array') {
     // who had logged in around then (the syslog never says who clicked)
     const who = (p.logins || []).map((l) => `${fmt.time(l.t)} · ${l.user ? l.user + '@' : ''}${l.ip} · ${loginService(l.service)}`);
     add(T('detail.logins'), who.length ? lines(who) : T('detail.logins_none'));
@@ -1075,7 +1116,7 @@ function details(e) {
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'schedule', 'array', 'unraid', 'plugin', 'router'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'schedule', 'array', 'unraid', 'plugin', 'router', 'parity'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
@@ -1542,7 +1583,7 @@ Office.places(ID, [
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
-    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'grafana', 'notify', 'safe']
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'grafana', 'notify', 'safe']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 

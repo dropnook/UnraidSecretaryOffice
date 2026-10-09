@@ -11288,6 +11288,349 @@ function testWatchmanBoot(): void
 }
 
 /**
+ * Why a parity check runs (agent/lib/paritywhy.php, 2026-10-09): Unraid 7.3.3's traces read from fixtures — the flash's
+ * parity history, Unraid's schedule, Parity Check Tuning's progress file, a real diagnostics syslog of a shutdown that ran
+ * out of time (Tower 2026-10-09 01:09, zipped here as rc.local_shutdown writes it), the boot's syslog — and the night
+ * watchman's rounds through boots: once per boot a verdict about the stop before (Unraid's «unclean shutdown detected»,
+ * or a check that began with the array), a plain line per check with its reason (unclean with what held the array,
+ * schedule, Parity Check Tuning, by hand, unknown with who was logged in, a rebuild), one notification (normal, the
+ * readable layout) per unclean stop, the team lead's to-do with the numbers — gone after a clean boot or an array
+ * stopped and started again; repeated unclean stops counted; nothing in the night shift; read only.
+ */
+function testParityWhy(): void
+{
+    $fx = __DIR__ . '/fixtures/parity';
+    $now = strtotime('2026-10-09 12:00:00');
+
+    // ---- the pure parts
+    same('parity: var.ini read in its shape', [true, 'check P', true, false, 1791501076],
+        array_values(array_intersect_key(paritywhyVar(['fsState' => 'Started', 'mdResyncAction' => 'check P', 'mdResyncPos' => '1024', 'mdResync' => '5',
+            'sbSynced' => '1791501076']), array_flip(['action', 'running', 'paused', 'started', 'synced']))));
+    same('parity: paused = mdResync 0 with a position; stopped array; odd action dropped', [true, false, ''],
+        [paritywhyVar(['mdResyncPos' => '5', 'mdResync' => '0'])['paused'], paritywhyVar(['fsState' => 'Stopped'])['started'],
+         paritywhyVar(['mdResyncAction' => "check P\nx"])['action']]);
+    same('parity: kinds', ['check', 'rebuild', 'clear', 'none'], array_map('paritywhyKind', ['check P', 'recon P', 'clear', '']));
+    $h = paritywhyHistory((string) file_get_contents("$fx/parity-checks.log") . "garbage|x\n2026 Oct 33 99:99:99|5|1|0|0\n");
+    same('parity: parity-checks.log (Tower) — local time, the start from its seconds, nothing odd', [2, 17, 'check P', 0, mktime(1, 11, 33, 10, 9, 2026), mktime(1, 11, 16, 10, 9, 2026)],
+        [count($h), $h[1]['seconds'], $h[1]['action'], $h[1]['errors'], $h[1]['end'], $h[1]['start']]);
+    $cron = (string) file_get_contents("$fx/parity-check.cron");
+    same('parity: Unraid\'s schedule names the minute (or the one before), nothing else', [true, true, false, false],
+        [paritywhyScheduled($cron, mktime(3, 0, 20, 11, 1, 2026)), paritywhyScheduled($cron, mktime(3, 1, 5, 11, 1, 2026)),
+         paritywhyScheduled($cron, mktime(3, 0, 0, 11, 2, 2026)), paritywhyScheduled("0 3 * * * /usr/local/sbin/mover start\n", mktime(3, 0, 0, 11, 2, 2026))]);
+    $pct = hardeningTmp('paritypct');
+    file_put_contents("$pct/parity.check.tuning.progress", strtr((string) file_get_contents("$fx/parity.check.tuning.progress.tpl"),
+        ['@MANUAL@' => (string) ($now - 3600), '@PAUSE@' => (string) ($now - 1800), '@RESUME@' => (string) ($now - 60)]));
+    $p = paritywhyPct($pct, true);
+    same('parity: Parity Check Tuning\'s progress file — types and times, the header left out; not installed: nothing read',
+        [['MANUAL', 'PAUSE (RESTART)', 'RESUME (RESTART)'], $now - 60, false, []],
+        [array_column($p['progress'], 'type'), $p['progress'][2]['t'], $p['restart'], paritywhyPct($pct, false)['progress']]);
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    $boot = $line($now - 100, 'emhttpd: Unraid(tm) System Management Utility version 7.3.3')
+          . $line($now - 99, 'emhttpd: unclean shutdown detected')
+          . $line($now - 80, 'kernel: mdcmd (35): start STOPPED')
+          . $line($now - 79, 'emhttpd: shcmd (39): touch /boot/config/forcesync')
+          . $line($now - 78, 'kernel: mdcmd (36): check ')
+          . $line($now - 78, 'kernel: md: recovery thread: check P ...')
+          . $line($now - 20, 'uso-watchman: {"text":"unclean shutdown detected"}');
+    same('parity: the boot\'s syslog — Unraid\'s line, the array\'s start; his own SIEM lines never count',
+        ['unclean' => $now - 99, 'start' => $now - 80, 'pct_restart' => null, 'pct_unclean' => null], paritywhyBootLog($boot, $now));
+    same('parity: Parity Check Tuning\'s lines are its own', [null, $now - 5, $now - 6],
+        array_values(array_intersect_key(paritywhyBootLog($line($now - 6, 'Parity Check Tuning: Unclean shutdown detected') . $line($now - 5, 'Parity Check Tuning: restart to be attempted'), $now),
+            array_flip(['unclean', 'pct_restart', 'pct_unclean']))));
+    $real = (string) file_get_contents("$fx/tower-20261009-0109-timeout.syslog");
+    $b = paritywhyBlockers($real, $now);
+    same('parity: Tower\'s real shutdown (7.3.2, 2026-10-09 01:09) — the time-out ran out, the busy pools (a dataset under one said by the pool), the retries, the containers\' 2 s',
+        [true, 90, ['/mnt/cache', '/mnt/disk2', '/mnt/big'], 15, [], 2], [$b['forced'], $b['timeout'], $b['busy'], $b['retries'], $b['vms'], $b['containers_s']]);
+    $b2 = paritywhyBlockers($line($now - 300, 'rc.local_shutdown: Waiting up to 30 seconds for graceful shutdown...')
+        . $line($now - 299, 'rc.docker: Stopping containers...') . $line($now - 289, 'rc.docker: Unraid managed containers stopped.')
+        . $line($now - 288, 'rc.libvirt: Shutting down VM: Windows 11') . $line($now - 228, 'rc.libvirt: Forced shutting down VM: Windows 11')
+        . $line($now - 227, 'umount: /mnt/disk1: target is busy.') . $line($now - 226, 'emhttpd: Retry unmounting disk share(s)...')
+        . $line($now - 225, 'rc.docker: dockerd will not die!') . $line($now - 200, 'rc.local_shutdown: Forcing shutdown...'), $now);
+    same('parity: an XFS/btrfs disk busy, a VM switched off hard, containers to their time-out, a service that would not die',
+        [true, 30, ['/mnt/disk1'], ['Windows 11'], ['Windows 11'], 10, ['dockerd'], '/mnt/disk1, VM «Windows 11», dockerd'],
+        [$b2['forced'], $b2['timeout'], $b2['busy'], $b2['vms'], $b2['vms_waited'], $b2['containers_s'], $b2['stuck'], paritywhyHeld($b2)]);
+    // the live test on Tower (7.3.3, 2026-10-09): a program in /mnt/disk1 (btrfs) with a 45 s time-out — the time-out ran out, yet
+    // rc.6 killed the holder and the stop ended clean (no unclean line at the next boot); then one in /mnt/disk2 (ZFS) — unclean,
+    // and the next boot's lines: Unraid's own, the array's start, a correcting check 15 s after it
+    $b3 = paritywhyBlockers((string) file_get_contents("$fx/tower-20261009-0911-timeout-clean.syslog"), $now);
+    same('parity: Tower 09:11 — «root: umount: /mnt/disk1: target is busy.», the 45 s time-out, Unraid\'s containers in 1 s',
+        [true, 45, ['/mnt/disk1'], 1], [$b3['forced'], $b3['timeout'], $b3['busy'], $b3['containers_s']]);
+    $bl = paritywhyBootLog((string) file_get_contents("$fx/tower-20261009-0915-boot.syslog"), $now);
+    same('parity: Tower 09:15 — the boot after the unclean stop: Unraid\'s line, then the array\'s start', [mktime(9, 15, 56, 10, 9, 2026), mktime(9, 16, 3, 10, 9, 2026)],
+        [$bl['unclean'], $bl['start']]);
+    same('parity: … and its check (15 s after the start) has the reason «unclean»', 'unclean',
+        paritywhyReason(['start' => mktime(9, 16, 18, 10, 9, 2026), 'action' => 'check P', 'log' => $bl, 'pct' => [], 'array_start' => $bl['start'], 'cron' => '', 'unclean' => true]));
+    same('parity: how the stop ended — diagnostics: the time-out; a kept syslog without «Forcing»: late; nothing kept while the copy is on: a crash; else unknown',
+        ['timeout', 'diag', 'late', 'crash', 'unknown', 'unknown', 'timeout'],
+        [paritywhyStop(['syslog' => $real], '', false, false, $now)['stop'], paritywhyStop(['syslog' => $real], '', false, false, $now)['from'],
+         paritywhyStop(null, $line($now - 400, 'rc.6: Running shutdown script'), true, false, $now)['stop'],
+         paritywhyStop(null, '', true, false, $now)['stop'], paritywhyStop(null, '', false, false, $now)['stop'],
+         paritywhyStop(null, '', true, true, $now)['stop'], paritywhyStop(null, $real, true, false, $now)['stop']]);
+    same('parity: the times — Docker + VMs + the margin; services off count nothing; empty = Unraid\'s defaults',
+        [['disk' => 90, 'vm' => 60, 'docker' => 10, 'need' => 100, 'fits' => false], ['disk' => 200, 'vm' => 0, 'docker' => 0, 'need' => 30, 'fits' => true],
+         ['disk' => 300, 'vm' => 120, 'docker' => 45, 'need' => 195, 'fits' => true]],
+        [paritywhyTimes([], ['SERVICE' => 'enable'], ['DOCKER_ENABLED' => 'yes']), paritywhyTimes(['shutdownTimeout' => '200'], [], []),
+         paritywhyTimes(['shutdownTimeout' => '300'], ['SERVICE' => 'enable', 'TIMEOUT' => '120'], ['DOCKER_ENABLED' => 'yes', 'DOCKER_TIMEOUT' => '45'])]);
+    $r = fn (array $f) => paritywhyReason($f + ['start' => $now, 'action' => 'check P', 'log' => [], 'pct' => [], 'array_start' => null, 'cron' => '', 'unclean' => false]);
+    same('parity: the reasons, from the evidence only',
+        ['rebuild', 'rebuild', 'tuning', 'tuning', 'unclean', 'unclean', 'unknown', 'schedule', 'schedule', 'manual', 'unknown'],
+        [$r(['action' => 'recon P']), $r(['action' => 'clear']), $r(['log' => ['pct_restart' => $now - 30]]),
+         $r(['pct' => ['progress' => [['type' => 'RESUME (RESTART)', 't' => $now + 5]]]]),
+         $r(['array_start' => $now - 20, 'unclean' => true]), $r(['array_start' => $now - 20, 'pct' => ['progress' => [['type' => 'AUTOMATIC', 't' => $now]]]]),
+         $r(['array_start' => $now - 3600, 'unclean' => true]), $r(['start' => mktime(3, 0, 10, 11, 1, 2026), 'cron' => $cron]),
+         $r(['pct' => ['progress' => [['type' => 'SCHEDULED', 't' => $now]]]]), $r(['pct' => ['progress' => [['type' => 'MANUAL', 't' => $now - 100]]]]),
+         $r(['pct' => ['progress' => [['type' => 'MANUAL', 't' => $now - 3600]]]])]);
+    // the diagnostics as rc.local_shutdown writes them: <name>-diagnostics-<date>-<time>.zip in /boot/logs, its logs/syslog.txt
+    $logs = hardeningTmp('paritylogs');
+    $zipFile = "$logs/tower-diagnostics-20261009-1150.zip";
+    $z = new ZipArchive();
+    $z->open($zipFile, ZipArchive::CREATE);
+    $z->addFromString('tower-diagnostics-20261009-1150/logs/syslog.txt', $real);
+    $z->addFromString('tower-diagnostics-20261009-1150/system/lsof.txt', "COMMAND PID\n");
+    $z->close();
+    touch($zipFile, $now - 700);
+    file_put_contents("$logs/old-diagnostics-20261001-0000.zip", 'x');
+    touch("$logs/old-diagnostics-20261001-0000.zip", $now - 9 * 86400);
+    @symlink($zipFile, "$logs/link-diagnostics-20261009-1151.zip");
+    $d = paritywhyDiag($logs, $now - 600);
+    same('parity: the shutdown\'s diagnostics — the newest within PARITYWHY_DIAG_BEFORE before the boot, plain files only; none before an older boot, none of the boot before',
+        ['tower-diagnostics-20261009-1150.zip', null, null], [$d['name'] ?? null, paritywhyDiag($logs, $now + 7200), paritywhyDiag($logs, $now - 600, $now - 650)]);
+    same('parity: its syslog read from the zip in memory', $real, paritywhyDiagSyslog((array) $d));
+    hardeningRm($pct);
+
+    // ---- the night watchman's rounds through boots
+    $tmp = hardeningTmp('paritywhy');
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    foreach (['plugins', 'extra', 'ssh/root', 'logs', 'pct'] as $dd) {
+        @mkdir("$src/$dd", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'boot_id' => "$tmp/boot_id", 'stat' => "$tmp/stat", 'var_ini' => "$src/var.ini",
+              'parity_log' => "$src/parity-checks.log", 'parity_cron' => "$src/parity-check.cron", 'pct_dir' => "$src/pct", 'boot_logs' => "$src/logs",
+              'domain_cfg' => "$src/domain.cfg", 'docker_cfg' => "$src/docker.cfg", 'rsyslog_cfg' => "$src/rsyslog.cfg", 'array_events' => "$src/array-events"];
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    foreach (['sec', 'sec_nfs', 'share_cfg', 'parity_log', 'array_events'] as $k) {
+        file_put_contents($paths[$k], '');
+    }
+    file_put_contents($paths['parity_cron'], $cron);
+    file_put_contents($paths['domain_cfg'], "SERVICE=\"enable\"\nTIMEOUT=\"60\"\n");
+    file_put_contents($paths['docker_cfg'], "DOCKER_ENABLED=\"yes\"\nDOCKER_TIMEOUT=\"10\"\n");
+    file_put_contents($paths['rsyslog_cfg'], "local_server=\"\"\nsyslog_flash=\"\"\nsyslog_shutdown=\"1\"\nremote_server=\"\"\n");
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $calls = function () use ($notified): array {
+        $out = [];
+        foreach (array_filter(explode("\n", (string) @file_get_contents($notified))) as $l) {
+            $a = explode("\x1f", rtrim($l, "\x1f"));
+            $o = [];
+            for ($i = 0; $i + 1 < count($a); $i += 2) {
+                $o[$a[$i]] = $a[$i + 1];
+            }
+            if (str_contains($o['-s'] ?? '', 'parity check')) {
+                $out[] = $o;                // his notifications about parity checks (a new login or plugin of a fixture is told as well)
+            }
+        }
+        return $out;
+    };
+    $entries = fn () => array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => $e['kind'] === 'parity_check'));
+    $parity = fn () => watchmanLoad($day)['state']['parity'] ?? null;
+    $setBoot = function (string $id, int $btime) use ($tmp): void {
+        file_put_contents("$tmp/boot_id", "$id\n");
+        file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime $btime\nprocesses 9\n");
+    };
+    $setVar = function (int $synced, int $synced2, string $action = 'check P', int $pos = 0, string $fs = 'Started') use ($paths): void {
+        file_put_contents($paths['var_ini'], "fsState=\"$fs\"\nmdResyncAction=\"$action\"\nmdResyncPos=\"$pos\"\nmdResync=\"" . ($pos ? 5 : 0)
+            . "\"\nsbSynced=\"$synced\"\nsbSynced2=\"$synced2\"\nsbSyncExit=\"0\"\nsbSyncErrs=\"0\"\nshutdownTimeout=\"90\"\n");
+    };
+    $bootLog = fn (int $up, bool $unclean, string $more = '') => $line($up + 20, 'emhttpd: Unraid(tm) System Management Utility version 7.3.3')
+        . ($unclean ? $line($up + 20, 'emhttpd: unclean shutdown detected') : '') . $line($up + 40, 'kernel: mdcmd (35): start STOPPED') . $more;
+    $A = 'aaaaaaaa-0000-4000-8000-00000000000a';
+    $B = 'aaaaaaaa-0000-4000-8000-00000000000b';
+    $C = 'aaaaaaaa-0000-4000-8000-00000000000c';
+    $D = 'aaaaaaaa-0000-4000-8000-00000000000d';
+    $E = 'aaaaaaaa-0000-4000-8000-00000000000e';
+    $F = 'aaaaaaaa-0000-4000-8000-00000000000f';
+
+    // hired in boot A with an old check behind: remembered, nothing written
+    $t0 = $now - 86400 * 5;
+    $setBoot($A, $t0 - 3600);
+    $setVar($t0 - 86400, $t0 - 86000);
+    file_put_contents($paths['syslog'], $bootLog($t0 - 3600, true));
+    watchmanRound($paths, $day, 1000, $t0, $docker, true, $acks);
+    same('parity: his first round — an old check and an old unclean stop only remembered, nobody told', [[], $t0 - 86400, [], null],
+        [$entries(), $parity()['synced'] ?? null, $calls(), $parity()['todo'] ?? null]);
+
+    // boot B, clean: the array started, no check — after PARITYWHY_SETTLE the verdict «clean», no line, no to-do. The stop
+    // before ran out of time but still ended clean (Tower 09:11: a program in /mnt/disk1, btrfs — rc.6 killed it and the md
+    // driver stopped): its diagnostics are there, Unraid found nothing unclean — nothing to say
+    $up = $t0 + 3600;
+    $setBoot($B, $up);
+    copy($zipFile, "$src/logs/tower-diagnostics-20261005-1259.zip");
+    touch("$src/logs/tower-diagnostics-20261005-1259.zip", $up - 60);
+    file_put_contents($paths['syslog'], $bootLog($up, false));
+    watchmanRound($paths, $day, 1000, $up + 120, $docker, true, $acks);
+    same('parity: a clean boot — still waiting while the array runs less than PARITYWHY_SETTLE', [$A, []], [$parity()['verdict']['boot'] ?? null, $entries()]);
+    watchmanRound($paths, $day, 1000, $up + 40 + PARITYWHY_SETTLE + 5, $docker, true, $acks);
+    same('parity: a clean boot — the verdict, no line, no to-do, nobody told', [$B, false, [], null, [], null],
+        [$parity()['verdict']['boot'] ?? null, $parity()['verdict']['unclean'] ?? null, $entries(), $parity()['todo'] ?? null, $calls(), watchmanParityFinding($day)]);
+
+    // boot C, unclean: the shutdown's time-out ran out (its diagnostics), the check began with the array
+    $up = $t0 + 86400;
+    $setBoot($C, $up);
+    $setVar($up + 42, 0, 'check P', 1024);
+    file_put_contents($paths['syslog'], $bootLog($up, true, $line($up + 42, 'kernel: mdcmd (36): check ')));
+    copy($zipFile, "$src/logs/tower-diagnostics-20261010-1149.zip");
+    touch("$src/logs/tower-diagnostics-20261010-1149.zip", $up - 90);
+    $res = watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
+    $e = $entries();
+    same('parity: an unclean stop — one plain line, its reason with the stop and what held the array, noted by himself',
+        [1, "parity_check:" . ($up + 42), 'unclean', 'timeout', 'diag', '/mnt/cache, /mnt/disk2, /mnt/big', 90, 1, false, 'parity', true, 'array', 'T1529', ['parity_check']],
+        [count($e), $e[0]['key'] ?? null, $e[0]['p']['reason'] ?? null, $e[0]['p']['stop'] ?? null, $e[0]['p']['from'] ?? null, $e[0]['p']['held'] ?? null,
+         $e[0]['p']['timeout'] ?? null, $e[0]['p']['streak'] ?? null, $e[0]['p']['kept'] ?? null, $e[0]['by'] ?? null, !empty($e[0]['noted']),
+         WATCH_KINDS['parity_check'][0], WATCH_ATTACK['parity_check'], array_values(array_filter($res['added'], fn ($k) => $k === 'parity_check'))]);
+    same('parity: its words (en, de)',
+        ['Parity check after an unclean stop: at the last shutdown the array didn\'t stop within 90 s, and Unraid switched the server off anyway — held up by: /mnt/cache, /mnt/disk2, /mnt/big (as far as can be seen)',
+         'Paritätsprüfung nach unsauberem Stopp: Beim letzten Herunterfahren hat das Array nicht in 90 s gestoppt, und Unraid hat den Server trotzdem ausgeschaltet — blockiert von: /mnt/cache, /mnt/disk2, /mnt/big (so weit erkennbar)'],
+        [officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[0], 'en'), 'en'), officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[0], 'de'), 'de')]);
+    $c = $calls();
+    $m = str_replace('\n', "\n", (string) ($c[0]['-m'] ?? ''));
+    same('parity: one notification, normal, to the team lead\'s page — headline, a blank line, sections with one item per line',
+        [1, 'normal', 'Unraid Secretary Office: Night watchman: parity check after an unclean stop', 'The array didn\'t stop within 90 s at the last shutdown; Unraid is checking the parity now.',
+         true, true, true, true, true],
+        [count($c), $c[0]['-i'] ?? null, $c[0]['-s'] ?? null, $c[0]['-d'] ?? null, str_starts_with($m, "Parity check after an unclean stop\n\nWHAT HAPPENED\n  At the last shutdown"),
+         str_contains($m, "\n\nHELD UP BY (AS FAR AS CAN BE SEEN)\n  /mnt/cache: still busy — a program had a file or folder open there (a terminal, a container Unraid doesn't manage, a script)\n  /mnt/disk2: still busy"),
+         str_contains($m, "  Settings → Disk Settings → «Shutdown time-out» at least 100 s (now 90 s): Docker 10 s + VMs 60 s + 30 s for the disks\n"),
+         str_contains($m, "So the reason shows next time"), str_ends_with((string) ($c[0]['-l'] ?? ''), '#/caretaker')]);
+    $f = watchmanParityFinding($day);
+    same('parity: the team lead\'s to-do with the numbers (recommended, into Disk Settings)',
+        ['parity_unclean', 'recommended', false, 'disks', ['n' => 1, 'held' => '/mnt/cache, /mnt/disk2, /mnt/big', 'disk' => 90, 'need' => 100, 'docker' => 10, 'vm' => 60, 'margin' => 30]],
+        [$f['id'] ?? null, $f['level'] ?? null, $f['ok'] ?? null, $f['link'] ?? null, $f['params'] ?? null]);
+    same('parity: its words (de)', 'Der letzte Stopp war nicht sauber — Unraid prüft beim Start die Parität',
+        officeNotifyText('caretaker', 'check.parity_unclean', $f['params'], 'de'));
+    // the next rounds: nothing twice; the check done — its end into the line
+    $setVar($up + 42, $up + 1500);
+    watchmanRound($paths, $day, 1000, $up + 1800, $docker, true, $acks);
+    $e = $entries();
+    same('parity: the next round — no second line, nobody told again; the check\'s end written into its line', [1, 1, $up + 1500, 0, $up + 1500],
+        [count($e), count($calls()), $e[0]['p']['end'] ?? null, $e[0]['p']['errors'] ?? null, $e[0]['last']]);
+
+    // boot D, unclean again — no shutdown at all (the copy at shutdown on, nothing kept): a crash; two in a row
+    $up = $t0 + 2 * 86400;
+    $setBoot($D, $up);
+    file_put_contents($paths['rsyslog_cfg'], "local_server=\"\"\nsyslog_flash=\"\"\nsyslog_shutdown=\"\"\nremote_server=\"\"\n");
+    $setVar($up + 41, 0, 'check P', 512);
+    file_put_contents($paths['syslog'], $bootLog($up, true));
+    file_put_contents($paths['array_events'], ($up + 55) . " start\n");       // boot D's own array start: no «stopped and started again» of boot C
+    watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
+    $e = $entries();
+    $f = watchmanParityFinding($day);
+    same('parity: two unclean stops in a row, the second a crash — counted, the team lead\'s point about power and crashes',
+        [2, 'crash', 2, 'parity_crash', 2, 'ups', 2],
+        [count($e), $e[1]['p']['stop'] ?? null, $e[1]['p']['streak'] ?? null, $f['id'] ?? null, $f['params']['n'] ?? null, $f['link'] ?? null, count($calls())]);
+    same('parity: … in words (en)', 'Parity check after an unclean stop: the server went off without shutting down — a crash, a power cut or a hard reset (Unraid wrote nothing at the end) — 2 times in a row: the check starts over at every restart as long as the array doesn\'t stop cleanly',
+        officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[1], 'en'), 'en'));
+    same('parity: the second notification says «in a row» and has no time-outs to raise', ['Unraid Secretary Office: Night watchman: parity check after an unclean stop, 2 in a row', false, true],
+        [$calls()[1]['-s'] ?? null, str_contains((string) ($calls()[1]['-m'] ?? ''), 'Shutdown time-out'), str_contains((string) ($calls()[1]['-m'] ?? ''), 'UPS')]);
+    // the array stopped and started again in boot D: that stop was clean — the to-do goes
+    file_put_contents($paths['array_events'], ($up + 55) . " start\n" . ($up + 3000) . " stop\n" . ($up + 3100) . " start\n");
+    $setVar($up + 41, $up + 900);
+    watchmanRound($paths, $day, 1000, $up + 3200, $docker, true, $acks);
+    same('parity: the array stopped and started again — that stop was clean: no to-do', [null, 'array', null],
+        [$parity()['todo'] ?? null, $parity()['cleared']['by'] ?? null, watchmanParityFinding($day)]);
+
+    // boot E: unclean, the syslog of then kept (syslog-previous) — the time-out ran out, a VM switched off hard
+    $up = $t0 + 3 * 86400;
+    $setBoot($E, $up);
+    @unlink("$src/logs/tower-diagnostics-20261010-1149.zip");
+    file_put_contents("$src/logs/syslog-previous", $line($up - 300, 'rc.local_shutdown: Waiting up to 90 seconds for graceful shutdown...')
+        . $line($up - 290, 'rc.libvirt: Shutting down VM: Win11') . $line($up - 230, 'rc.libvirt: Forced shutting down VM: Win11')
+        . $line($up - 200, 'umount: /mnt/disk1: target is busy.') . $line($up - 210, 'rc.local_shutdown: Forcing shutdown...'));
+    touch("$src/logs/syslog-previous", $up - 200);
+    $setVar($up + 43, 0, 'check P', 64);
+    file_put_contents($paths['syslog'], $bootLog($up, true));
+    file_put_contents($paths['array_events'], ($up + 55) . " start\n");       // this boot's own array start (event/started)
+    watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
+    $e = $entries();
+    same('parity: the kept syslog of then — the time-out, the busy disk, the VM switched off hard; a clean stop between: not «in a row»',
+        ['timeout', 'previous', '/mnt/disk1, VM «Win11»', ['Win11'], 1, true],
+        [$e[2]['p']['stop'] ?? null, $e[2]['p']['from'] ?? null, $e[2]['p']['held'] ?? null, $e[2]['p']['vms'] ?? null, $e[2]['p']['streak'] ?? null, $e[2]['p']['kept'] ?? null]);
+    same('parity: the boot\'s own array start is no «stopped and started again» — the to-do stays', ['parity_unclean', 1],
+        [watchmanParityFinding($day)['id'] ?? null, watchmanParityFinding($day)['params']['n'] ?? null]);
+    check('parity: the notification names the VM switched off hard', str_contains((string) ($calls()[2]['-m'] ?? ''), 'VM «Win11»: didn\'t shut down within 60 s, switched off hard'));
+
+    // boot F, clean: the to-do goes; later a check on schedule, one by hand (Parity Check Tuning saw it), one unknown, a rebuild
+    $up = $t0 + 4 * 86400;
+    $setBoot($F, $up);
+    @unlink("$src/logs/syslog-previous");
+    $setVar($up + 43 - 86400, $up + 900 - 86400);
+    file_put_contents($paths['syslog'], $bootLog($up, false, $line($up + 300, 'webgui: Successful login user root from 192.168.7.10')));
+    watchmanRound($paths, $day, 1000, $up + PARITYWHY_SETTLE + 100, $docker, true, $acks);
+    same('parity: a clean boot after an unclean stop — the to-do goes, nobody told', [null, 'boot', 3, 3],
+        [$parity()['todo'] ?? null, $parity()['cleared']['by'] ?? null, count($calls()), count($entries())]);
+    $odd = $up + PARITYWHY_SETTLE + 400;
+    $setVar($odd, 0, 'check P', 100);
+    watchmanRound($paths, $day, 1000, $odd + 120, $docker, true, $acks);
+    $e = $entries();
+    same('parity: a check of no known reason — who was logged in then', ['unknown', 'Parity check, reason unknown: not after an unclean stop, not on schedule — Unraid doesn\'t note who starts one (Check on Main, or a script); logged in around then: root@192.168.7.10 (WebGUI)'],
+        [$e[3]['p']['reason'] ?? null, officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[3], 'en'), 'en')]);
+    file_put_contents("$src/plugins/parity.check.tuning.plg", '<PLUGIN/>');
+    file_put_contents("$src/pct/parity.check.tuning.progress", "type|date|time|x\nMANUAL|2026 Oct 13 10:00:00|" . ($odd + 1000) . "|x|\n");
+    $setVar($odd + 1001, 0, 'check P', 100);
+    watchmanRound($paths, $day, 1000, $odd + 1200, $docker, true, $acks);
+    $setVar($odd + 2000, 0, 'recon P', 100);
+    watchmanRound($paths, $day, 1000, $odd + 2100, $docker, true, $acks);
+    $e = $entries();
+    same('parity: by hand (Parity Check Tuning noted it), a rebuild (no check at all); nobody told for any of them', ['manual', 'rebuild', 3],
+        [$e[4]['p']['reason'] ?? null, $e[5]['p']['reason'] ?? null, count($calls())]);
+    $sched = mktime(3, 0, 12, (int) date('n', $up), 1, (int) date('Y', $up));
+    $sched = $sched > $up ? $sched : mktime(3, 0, 12, (int) date('n', $up) + 1, 1, (int) date('Y', $up));
+    $setVar($sched, 0, 'check P', 100);
+    watchmanRound($paths, $day, 1000, $sched + 200, $docker, true, $acks);
+    $e = $entries();
+    same('parity: a check on Unraid\'s schedule', ['schedule', 'Parity check on schedule (Settings → Scheduler → Parity Check)'],
+        [$e[6]['p']['reason'] ?? null, officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[6], 'en'), 'en')]);
+    same('parity: the plain line\'s words on his page exist in all five', true,
+        (bool) array_product(array_map(fn ($l) => officeNotifyText('watchman', 'noted.parity', ['when' => 'x'], $l) !== 'noted.parity', ['en', 'de', 'it', 'fr', 'es'])));
+
+    // the notify switch off: the verdict and the to-do, no notification; the night shift never looks
+    $st = watchmanLoad($day)['state'];
+    $st['notify'] = false;
+    writeAtomic("$day/state.json", jsonEncode($st));
+    $up = $t0 + 5 * 86400;
+    $setBoot('aaaaaaaa-0000-4000-8000-000000000010', $up);
+    $setVar($up + 41, 0, 'check P', 100);
+    file_put_contents($paths['syslog'], $bootLog($up, true));
+    watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
+    same('parity: his notify switch off — the line and the to-do, no notification', ['unclean', 'parity_crash', 3],
+        [$entries()[7]['p']['reason'] ?? null, watchmanParityFinding($day)['id'] ?? null, count($calls())]);
+    same('parity: the night shift has none of his parity paths (it never looks)', [],
+        array_values(array_intersect(array_keys(watchmanNightPaths()), ['parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg'])));
+    $np = $paths;
+    unset($np['parity_log']);
+    same('parity: no parity paths, or the array not started — not looked at', [null, null],
+        [paritywhyLook($np, null, 'x', $now, $now), (function () use ($paths, $setVar, $now) { $setVar(1, 1, 'check P', 0, 'Stopped'); return paritywhyLook($paths, null, 'x', $now, $now); })()]);
+    // read only: the library runs no command and writes no file (the book and the state are his round's)
+    $srcText = (string) file_get_contents(dirname(__DIR__) . '/agent/lib/paritywhy.php');
+    same('parity: read only — no command, no file written by the library', [],
+        array_values(array_filter(['run(', 'runAll(', 'exec(', 'proc_open(', 'popen(', 'writeAtomic(', 'file_put_contents(', 'unlink('], fn ($w) => str_contains($srcText, $w))));
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($day, 'book'));
+    @unlink(watchmanLockFile($day, 'round'));
+    hardeningRm($tmp);
+    hardeningRm($logs);
+}
+
+/**
  * Unraid's API as a door (2026-10-07): the watchman reads the API's key files — only id, name, roles, permissions, never
  * the key's value — a new key or more rights for one is an important entry (T1098), a key revoked is normal by itself,
  * api.json's sandbox, extra origins and Unraid.net logins are doors; the first look after the update is his baseline;
@@ -21149,7 +21492,7 @@ function testWatchBookNoteSome(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

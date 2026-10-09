@@ -1,0 +1,8 @@
+Oct  9 09:15:56 Tower emhttpd: Unraid(tm) System Management Utility version 7.3.3
+Oct  9 09:15:56 Tower emhttpd: unclean shutdown detected
+Oct  9 09:16:03 Tower kernel: mdcmd (35): start STOPPED
+Oct  9 09:16:04 Tower emhttpd: shcmd (39): touch /boot/config/forcesync
+Oct  9 09:16:18 Tower kernel: mdcmd (36): check correct
+Oct  9 09:16:18 Tower kernel: md: recovery thread: check P ...
+Oct  9 09:16:35 Tower kernel: md: sync done. time=17sec
+Oct  9 09:16:35 Tower kernel: md: recovery thread: exit status: 0
