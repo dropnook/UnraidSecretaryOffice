@@ -1,0 +1,180 @@
+{
+ "time": 1791551073,
+ "gui": "http://192.168.1.111",
+ "ip": "192.168.1.111",
+ "media": "Emby",
+ "metrics_dir": "/mnt/addons/UnraidSecretaryOffice/metrics",
+ "metrics_there": true,
+ "dashboard": "https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/monitoring/grafana-dashboard.json",
+ "prometheus_yml": "global:\n  scrape_interval: 60s\n\nscrape_configs:\n  - job_name: prometheus\n    static_configs:\n      - targets: ['localhost:9090']\n  - job_name: node\n    static_configs:\n      - targets: ['{ip}:9100']",
+ "externals": {
+  "fcp": {
+   "kind": "plugin",
+   "there": true,
+   "version": "2026.05.16",
+   "icon": "/plugins/fix.common.problems/images/fix.common.problems.png",
+   "optional": false
+  },
+  "filesviewer": {
+   "kind": "plugin",
+   "there": true,
+   "version": "2026.08.24",
+   "icon": "/plugins/filesviewer/img/filesviewerplugin.png",
+   "optional": false
+  },
+  "kopia": {
+   "kind": "container",
+   "there": true,
+   "name": "kopia",
+   "image": "ghcr.io/imagegenius/kopia",
+   "running": false,
+   "icon": null,
+   "optional": false,
+   "webui": "http://192.168.1.111:51515",
+   "by_consultant": true,
+   "kopia": {
+    "config": "/mnt/cache/appdata/kopia",
+    "sources": {
+     "host": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+     "target": "/uso",
+     "rw": false
+    },
+    "restore": {
+     "host": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+     "target": "/uso-restore"
+    },
+    "folders": [],
+    "root": true,
+    "repo": null
+   }
+  },
+  "streamviewer": {
+   "kind": "plugin",
+   "there": false,
+   "version": null,
+   "icon": null,
+   "optional": false,
+   "offer": true,
+   "author": "Lazaros Chalkidis",
+   "plg": "https://github.com/Lazaros-Chalkidis/unraid-streamviewer/raw/main/streamviewer.plg"
+  },
+  "unbalanced": {
+   "kind": "plugin",
+   "there": false,
+   "version": null,
+   "icon": null,
+   "optional": true
+  },
+  "nodeexporter": {
+   "kind": "container",
+   "there": true,
+   "name": "Node-Exporter",
+   "image": "quay.io/prometheus/node-exporter:latest-distroless",
+   "running": false,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "webui": "http://192.168.1.111:9100/metrics",
+   "by_consultant": true,
+   "textfile": true
+  },
+  "prometheus": {
+   "kind": "container",
+   "there": true,
+   "name": "prometheus",
+   "image": "prom/prometheus",
+   "running": false,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "webui": "http://192.168.1.111:9090",
+   "by_consultant": true
+  },
+  "grafana": {
+   "kind": "container",
+   "there": true,
+   "name": "Grafana",
+   "image": "grafana/grafana",
+   "running": false,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "webui": "http://192.168.1.111:3000/",
+   "by_consultant": true,
+   "grafana": {
+    "provisioning": "/var/lib/grafana/provisioning",
+    "points": true,
+    "host": "/mnt/user/appdata/grafana/provisioning",
+    "want": "/var/lib/grafana/provisioning",
+    "done": null
+   }
+  },
+  "loki": {
+   "kind": "container",
+   "there": false,
+   "name": null,
+   "image": null,
+   "running": false,
+   "icon": null,
+   "optional": true,
+   "group": "monitoring",
+   "later": true
+  },
+  "syslogserver": {
+   "kind": "setting",
+   "there": true,
+   "syslog": {
+    "on": true,
+    "local": true,
+    "there": true,
+    "folder": "/mnt/user/syslog",
+    "share": "syslog",
+    "ident": "ip",
+    "protocol": "udp",
+    "port": 514,
+    "rotation": true,
+    "size": 52428800,
+    "files": 4,
+    "remote": null,
+    "loop": false,
+    "sleepy": [],
+    "exported": [],
+    "pools": [
+     "big",
+     "cache"
+    ],
+    "array_ssd": false,
+    "asleep": false,
+    "senders": [
+     {
+      "sender": "192.168.1.190",
+      "mtime": 1791459040,
+      "size": 5866
+     }
+    ]
+   },
+   "optional": true,
+   "group": "network"
+  },
+  "unifi": {
+   "kind": "guide",
+   "there": null,
+   "optional": true,
+   "group": "network"
+  },
+  "neighbours": {
+   "kind": "guide",
+   "there": null,
+   "optional": true,
+   "group": "network"
+  },
+  "mikrotik": {
+   "kind": "guide",
+   "there": null,
+   "optional": true,
+   "group": "network"
+  }
+ },
+ "server": "Tower",
+ "job": null
+}

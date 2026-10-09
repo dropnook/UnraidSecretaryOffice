@@ -1,0 +1,132 @@
+{
+ "time": 1791551074,
+ "python": "3.11.15",
+ "emby": [
+  {
+   "name": "EmbyServer",
+   "image": "emby/embyserver:latest",
+   "running": true,
+   "url": "http://192.168.1.111:8096",
+   "mounts": {
+    "/mnt/media": "/mnt/user/media"
+   }
+  }
+ ],
+ "versions": {
+  "embycache": "7.3.0 (2026-10-04)",
+  "gather": "V11.4"
+ },
+ "configured": false,
+ "settings": null,
+ "shares": [],
+ "cache": {
+  "files": 0,
+  "bytes": 0,
+  "groups": [],
+  "listed_at": null
+ },
+ "pool": null,
+ "gather": {
+  "settings": null,
+  "ready": false,
+  "last": null,
+  "waiting": null
+ },
+ "jobs": {
+  "embycache": {
+   "running": false,
+   "size": 0,
+   "updated": null
+  },
+  "gather": {
+   "running": false,
+   "size": 0,
+   "updated": null
+  }
+ },
+ "last": null,
+ "history": [],
+ "schedules": {
+  "embycache": {
+   "script": true,
+   "frequency": "disabled",
+   "custom": null,
+   "enabled": false
+  },
+  "gather": {
+   "script": true,
+   "frequency": "disabled",
+   "custom": null,
+   "enabled": false
+  }
+ },
+ "foreign": [],
+ "pools": [
+  "/mnt/big",
+  "/mnt/cache"
+ ],
+ "share_info": {
+  "UnraidSecretaryOffice": {
+   "use": "only",
+   "primary": "big",
+   "secondary": ""
+  },
+  "appdata": {
+   "use": "only",
+   "primary": "cache",
+   "secondary": ""
+  },
+  "domains": {
+   "use": "only",
+   "primary": "cache",
+   "secondary": ""
+  },
+  "isos": {
+   "use": "no",
+   "primary": "",
+   "secondary": ""
+  },
+  "media": {
+   "use": "only",
+   "primary": "big",
+   "secondary": ""
+  },
+  "nextcloud": {
+   "use": "only",
+   "primary": "big",
+   "secondary": ""
+  },
+  "photos": {
+   "use": "only",
+   "primary": "big",
+   "secondary": ""
+  },
+  "syslog": {
+   "use": "only",
+   "primary": "big",
+   "secondary": ""
+  },
+  "system": {
+   "use": "only",
+   "primary": "cache",
+   "secondary": ""
+  }
+ },
+ "pool_dirs": {
+  "/mnt/big": [
+   "media",
+   "nextcloud",
+   "photos",
+   "syslog",
+   "UnraidSecretaryOffice"
+  ],
+  "/mnt/cache": [
+   "appdata",
+   "domains",
+   "nextcloud",
+   "speedtest",
+   "system"
+  ]
+ },
+ "old_clone": false
+}
