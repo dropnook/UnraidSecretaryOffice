@@ -523,8 +523,9 @@ function paritywhyCompare(array &$book, array &$st, ?array $look, array $logins,
 {
     $p = is_array($st['parity'] ?? null) ? $st['parity'] : [];
     $added = [];
-    // the array stopped and started again since the unclean stop's verdict: that stop was clean
-    if (is_array($p['todo'] ?? null) && $arrayEvents !== null) {
+    // the array stopped and started again in the boot of the unclean stop's verdict, after it: that stop was clean (the event
+    // scripts' lines lie in RAM — a start of another boot is that boot's verdict's)
+    if (is_array($p['todo'] ?? null) && $arrayEvents !== null && $look !== null && ($p['todo']['boot'] ?? null) === $look['boot']) {
         foreach (watchmanArrayEvents($arrayEvents) as [$t, $what]) {
             if ($what === 'start' && $t > (int) ($p['todo']['array_start'] ?? $p['todo']['t'] ?? $now) + 60 && $t > (int) ($p['todo']['t'] ?? 0)) {
                 $p['todo'] = null;

@@ -11098,6 +11098,17 @@ function testParityWhy(): void
     same('parity: an XFS/btrfs disk busy, a VM switched off hard, containers to their time-out, a service that would not die',
         [true, 30, ['/mnt/disk1'], ['Windows 11'], ['Windows 11'], 10, ['dockerd'], '/mnt/disk1, VM «Windows 11», dockerd'],
         [$b2['forced'], $b2['timeout'], $b2['busy'], $b2['vms'], $b2['vms_waited'], $b2['containers_s'], $b2['stuck'], paritywhyHeld($b2)]);
+    // the live test on Tower (7.3.3, 2026-10-09): a program in /mnt/disk1 (btrfs) with a 45 s time-out — the time-out ran out, yet
+    // rc.6 killed the holder and the stop ended clean (no unclean line at the next boot); then one in /mnt/disk2 (ZFS) — unclean,
+    // and the next boot's lines: Unraid's own, the array's start, a correcting check 15 s after it
+    $b3 = paritywhyBlockers((string) file_get_contents("$fx/tower-20261009-0911-timeout-clean.syslog"), $now);
+    same('parity: Tower 09:11 — «root: umount: /mnt/disk1: target is busy.», the 45 s time-out, Unraid\'s containers in 1 s',
+        [true, 45, ['/mnt/disk1'], 1], [$b3['forced'], $b3['timeout'], $b3['busy'], $b3['containers_s']]);
+    $bl = paritywhyBootLog((string) file_get_contents("$fx/tower-20261009-0915-boot.syslog"), $now);
+    same('parity: Tower 09:15 — the boot after the unclean stop: Unraid\'s line, then the array\'s start', [mktime(9, 15, 56, 10, 9, 2026), mktime(9, 16, 3, 10, 9, 2026)],
+        [$bl['unclean'], $bl['start']]);
+    same('parity: … and its check (15 s after the start) has the reason «unclean»', 'unclean',
+        paritywhyReason(['start' => mktime(9, 16, 18, 10, 9, 2026), 'action' => 'check P', 'log' => $bl, 'pct' => [], 'array_start' => $bl['start'], 'cron' => '', 'unclean' => true]));
     same('parity: how the stop ended — diagnostics: the time-out; a kept syslog without «Forcing»: late; nothing kept while the copy is on: a crash; else unknown',
         ['timeout', 'diag', 'late', 'crash', 'unknown', 'unknown', 'timeout'],
         [paritywhyStop(['syslog' => $real], '', false, false, $now)['stop'], paritywhyStop(['syslog' => $real], '', false, false, $now)['from'],
@@ -11267,6 +11278,7 @@ function testParityWhy(): void
     file_put_contents($paths['rsyslog_cfg'], "local_server=\"\"\nsyslog_flash=\"\"\nsyslog_shutdown=\"\"\nremote_server=\"\"\n");
     $setVar($up + 41, 0, 'check P', 512);
     file_put_contents($paths['syslog'], $bootLog($up, true));
+    file_put_contents($paths['array_events'], ($up + 55) . " start\n");       // boot D's own array start: no «stopped and started again» of boot C
     watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
     $e = $entries();
     $f = watchmanParityFinding($day);
@@ -11278,7 +11290,7 @@ function testParityWhy(): void
     same('parity: the second notification says «in a row» and has no time-outs to raise', ['Unraid Secretary Office: Night watchman: parity check after an unclean stop, 2 in a row', false, true],
         [$calls()[1]['-s'] ?? null, str_contains((string) ($calls()[1]['-m'] ?? ''), 'Shutdown time-out'), str_contains((string) ($calls()[1]['-m'] ?? ''), 'UPS')]);
     // the array stopped and started again in boot D: that stop was clean — the to-do goes
-    file_put_contents($paths['array_events'], ($up + 3000) . " stop\n" . ($up + 3100) . " start\n");
+    file_put_contents($paths['array_events'], ($up + 55) . " start\n" . ($up + 3000) . " stop\n" . ($up + 3100) . " start\n");
     $setVar($up + 41, $up + 900);
     watchmanRound($paths, $day, 1000, $up + 3200, $docker, true, $acks);
     same('parity: the array stopped and started again — that stop was clean: no to-do', [null, 'array', null],
@@ -11294,11 +11306,14 @@ function testParityWhy(): void
     touch("$src/logs/syslog-previous", $up - 200);
     $setVar($up + 43, 0, 'check P', 64);
     file_put_contents($paths['syslog'], $bootLog($up, true));
+    file_put_contents($paths['array_events'], ($up + 55) . " start\n");       // this boot's own array start (event/started)
     watchmanRound($paths, $day, 1000, $up + 90, $docker, true, $acks);
     $e = $entries();
     same('parity: the kept syslog of then — the time-out, the busy disk, the VM switched off hard; a clean stop between: not «in a row»',
         ['timeout', 'previous', '/mnt/disk1, VM «Win11»', ['Win11'], 1, true],
         [$e[2]['p']['stop'] ?? null, $e[2]['p']['from'] ?? null, $e[2]['p']['held'] ?? null, $e[2]['p']['vms'] ?? null, $e[2]['p']['streak'] ?? null, $e[2]['p']['kept'] ?? null]);
+    same('parity: the boot\'s own array start is no «stopped and started again» — the to-do stays', ['parity_unclean', 1],
+        [watchmanParityFinding($day)['id'] ?? null, watchmanParityFinding($day)['params']['n'] ?? null]);
     check('parity: the notification names the VM switched off hard', str_contains((string) ($calls()[2]['-m'] ?? ''), 'VM «Win11»: didn\'t shut down within 60 s, switched off hard'));
 
     // boot F, clean: the to-do goes; later a check on schedule, one by hand (Parity Check Tuning saw it), one unknown, a rebuild
