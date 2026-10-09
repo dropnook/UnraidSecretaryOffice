@@ -1483,8 +1483,13 @@ function setupDraftKeep() {
 
 /** Keys whose values differ between two sets of settings (nothing and empty count the same) */
 const empty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
+// lists that are sets: their order is Docker's of the moment (it changes when a container is made anew) — never a change
+// in itself (Benj, 2026-10-09: «2 Änderungen» every time he opened the setup, the same containers in another order)
+const SET_KEYS = /^docker\|(no_stop|known|skip)$/;
+const asSet = (k, v) => (SET_KEYS.test(k) && Array.isArray(v) ? [...v].map(String).sort() : v);
 function diffKeys(a, b) {
-  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => !same(a[k], b[k]) && !(empty(a[k]) && empty(b[k]))).sort();
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .filter((k) => !same(asSet(k, a[k]), asSet(k, b[k])) && !(empty(a[k]) && empty(b[k]))).sort();
 }
 
 /**
@@ -1536,6 +1541,19 @@ function setupApplyChanges(saved) {
   const view = { ...setup.draft };
   ONLY_CHOSEN.forEach((k) => { if (!(k in sent)) { if (saved[k] === undefined) delete view[k]; else view[k] = saved[k]; } });
   return { view, keys: setupChanges(saved, view) };
+}
+
+/** A list's change in the apply dialog: only what comes and what goes («dazu: drop · weg: Grafana»), not both lists whole
+ * (Benj, 2026-10-09: «wenn ich immer alles sehe, sehe ich nicht, welche 2 Apps geändert wurden»); order alone is none */
+function listChangeText(was, is) {
+  const a = was.map(String);
+  const b = is.map(String);
+  const add = b.filter((x) => !a.includes(x));
+  const gone = a.filter((x) => !b.includes(x));
+  const parts = [];
+  if (add.length) parts.push(T('setup.list_added', { list: add.join(', ') }));
+  if (gone.length) parts.push(T('setup.list_removed', { list: gone.join(', ') }));
+  return parts.length ? parts.join(' · ') : T('setup.list_order');
 }
 
 /** What Apply changes against the saved settings: the differences, and a share's first record of its folders (even none) */
@@ -1678,7 +1696,9 @@ function setupApply() {
       const general = (k) => (k.startsWith('general|') ? 0 : 1);
       [...changes].sort((a, b) => general(a) - general(b)).slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
-        li.appendChild(el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], view[k]) : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
+        li.appendChild(el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
+          : Array.isArray(saved[k]) && Array.isArray(view[k]) ? listChangeText(saved[k], view[k])
+          : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
         ul.appendChild(li);
       });
       box.appendChild(ul);
