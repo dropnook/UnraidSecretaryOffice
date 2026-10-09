@@ -311,8 +311,9 @@ desk('watchman', [
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => watchmanPageState()],
         'round'   => fn (array $r) => watchmanRoundNow(),
-        'ack'     => fn (array $r) => watchmanAck($r['id'] ?? null),
+        'ack'     => fn (array $r) => watchmanAck(is_array($r['id'] ?? null) ? null : ($r['id'] ?? null)),      // one id; a list is ack_some's
         'ack_all' => fn (array $r) => watchmanAck('*'),
+        'ack_some' => fn (array $r) => watchmanAck(idList($r, 'ids')),       // a folded row of his page: «All n: I know, thanks»
         'notify_set' => fn (array $r) => watchmanNotifySet($r['on'] ?? null),
         'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
@@ -6713,13 +6714,18 @@ function watchmanFlowAdopt(array &$b, array $e, int $now): void
     }
 }
 
-/** «I know, thanks» for one entry (its id) or all open ones ('*') */
+/**
+ * «I know, thanks» for one entry (its id), several (a list of ids — those still open; none of them open: watch_gone) or
+ * all open ones ('*')
+ */
 function watchmanAck(mixed $id, ?string $dir = null, ?int $now = null, bool $page = true): array
 {
     $all = $id === '*';
-    if (!$all && (!is_string($id) || !preg_match(WATCH_ID, $id))) {
+    $ids = is_array($id) ? array_values($id) : [$id];
+    if (!$all && (!$ids || count($ids) > WATCH_BOOK_MAX || array_filter($ids, fn ($x) => !is_string($x) || !preg_match(WATCH_ID, $x)))) {
         throw new Problem('bad_request');
     }
+    $id = array_flip($ids);
     $dir ??= watchmanDir();
     $now ??= time();
     $noted = watchmanLocked($dir, function () use ($dir, $id, $all, $now): array {
@@ -6732,7 +6738,7 @@ function watchmanAck(mixed $id, ?string $dir = null, ?int $now = null, bool $pag
         $book = $d['book'];
         $noted = [];
         foreach ($book as $i => $e) {
-            if (!watchmanOpen($e) || (!$all && $e['id'] !== $id)) {
+            if (!watchmanOpen($e) || (!$all && !isset($id[$e['id']]))) {
                 continue;
             }
             watchmanAdopt($b, $e, $seen, $now);

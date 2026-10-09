@@ -20925,12 +20925,104 @@ JS);
     hardeningRm($tmp);
 }
 
+/**
+ * The watch book as his page shows it (2026-10-09, Benj: «JA los GENIAL!» — 31 entries after one day on Tower): desk.js
+ * bookView() under node (tests/watchbook.js — skipped where node is missing; it runs on the Mac as it is): entries of one
+ * kind and area on one day fold into one row (members newest first, open counted, the newest time, chain and night
+ * shift), day headings, «show more» by rows, the area filter and its counts, the filter's words over the whole book
+ * (params: MAC, IP, names; area, kind; accents folded) combined with «only open», the entry a link asks for inside its
+ * row (and hidden behind the switches), a 500-entry book. Then the page's side: a folded row's text for every kind in
+ * five languages (`fold.<kind>`; a new kind brings its own — `fold.any` is only the page's fallback), the batch note.
+ */
+function testWatchBookView(): void
+{
+    $en = langFile(OFFICE_WEB . '/desks/watchman/lang/en.json');
+    $missing = array_values(array_filter(array_merge(array_keys(WATCH_KINDS), ['watch', 'net_too_much', 'any']), fn ($k) => !isset($en["fold.$k"])));
+    same('watch book: a folded row\'s text for every kind (fold.<kind>), the take-over line, a router\'s long log and the fallback', [], $missing);
+    same('watch book: folded rows are counts of two or more — plain texts with {n} (fold.any also names the area)', [],
+        array_keys(array_filter($en, fn ($v, $k) => str_starts_with($k, 'fold.') && (!is_string($v) || !str_contains($v, '{n}')), ARRAY_FILTER_USE_BOTH)));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    check('watch book: «All n: I know, thanks» notes a folded row\'s open entries in one request (ack_some with their ids)',
+        str_contains($js, "Office.api.post(`\${ID}.ack_some`, { ids: list.map((e) => e.id) })"));
+    check('watch book: the area is kept per browser, the filter\'s words are not',
+        str_contains($js, "Office.store('watchman.area', area || null)") && !preg_match("/Office\\.store\\('watchman\\.(filter|search|words)/", $js));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('watch book view: node is missing here - skipped', true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/watchbook.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/watchman/desk.js') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check('watch book view: ran under node', false, $raw);
+        return;
+    }
+    check("watch book view: the page's view of the book under node ({$r['pass']} checks)", $r['pass'] >= 50 && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check('watch book view: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * «All n: I know, thanks» on a folded row (the action ack_some, `watchmanAck()` with a list of ids): exactly the listed
+ * entries still open are noted (their state adopted like one «I know, thanks» each), the rest of the book untouched; none
+ * of them open = watch_gone; ids are WATCH_ID's shape, at most WATCH_BOOK_MAX, read with idList(); the single «ack» still
+ * takes one id only; an unhired watchman refuses it at the dispatch like every other write.
+ */
+function testWatchBookNoteSome(): void
+{
+    $data = hardeningTmp('watch-some');
+    exec('rm -rf ' . escapeshellarg($data) . '/*');
+    $now = time();
+    file_put_contents("$data/baseline.json", json_encode(['hired' => 1, 'time' => $now - 9000, 'ips' => []]));
+    $entry = fn (string $id, string $ip, ?int $noted = null): array => array_merge(
+        watchmanEntry('login_new_ip', "login_new_ip:$ip", $now - 600, ['ip' => $ip, 'users' => ['root'], 'services' => ['ssh']]), ['id' => $id, 'noted' => $noted]);
+    [$a, $b, $c, $d] = ['w00000000a1', 'w00000000b2', 'w00000000c3', 'w00000000d4'];
+    file_put_contents("$data/book.json", json_encode(['entries' => [$entry($a, '203.0.113.1'), $entry($b, '203.0.113.2'), $entry($c, '203.0.113.3'),
+        $entry($d, '203.0.113.4', $now - 300)]]));
+    $open = fn (): array => array_column(array_filter(watchmanLoad($data)['book'], 'watchmanOpen'), 'id');
+    same('note some: two of three open entries noted', ['ok' => true, 'noted' => 2], watchmanAck([$a, $b], $data, $now, false));
+    $l = watchmanLoad($data);
+    same('note some: … only those — the third stays open, «by» the page, their addresses known now', [[$c], 'page', true, true, false],
+        [$open(), array_column($l['book'], 'by', 'id')[$a] ?? null, isset($l['baseline']['ips']['203.0.113.1']), isset($l['baseline']['ips']['203.0.113.2']),
+         isset($l['baseline']['ips']['203.0.113.3'])]);
+    same('note some: the open counts follow', ['login_new_ip' => 1], $l['state']['open'] ?? null);
+    $err = function (mixed $ids) use ($data, $now): string {
+        try {
+            watchmanAck($ids, $data, $now + 10, false);
+            return 'ok';
+        } catch (Problem $e) {
+            return $e->key;
+        }
+    };
+    same('note some: none of them open any more — watch_gone; one open among noted ones — noted', ['watch_gone', 'ok', []],
+        [$err([$a, $b, $d]), $err([$c, $d]), $open()]);
+    same('note some: ids of the wrong shape, none, more than the book holds — bad_request', ['bad_request', 'bad_request', 'bad_request', 'bad_request', 'bad_request'],
+        [$err(['nope']), $err([]), $err([123]), $err([$a, "$b\n"]), $err(array_fill(0, WATCH_BOOK_MAX + 1, $a))]);
+    exec('rm -rf ' . escapeshellarg($data));
+
+    // through the agent's dispatch: hired or not, the request's shape
+    $staff = TESTS_RUN_DIR . '/watch-some-staff.json';
+    $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
+    file_put_contents($staff, json_encode(['hired' => ['backup' => 1]]));
+    $GLOBALS['agentStaffFile'] = $staff;
+    same('note some: an unhired watchman refuses it (not_hired)', 'not_hired', $ask(['action' => 'watchman.ack_some', 'ids' => [$a]]));
+    file_put_contents($staff, json_encode(['hired' => ['watchman' => 1]]));
+    same('note some: hired — ids missing, not a list, not strings, of the wrong shape; the single ack with a list', ['no_selection', 'no_selection', 'invalid_selection', 'bad_request', 'bad_request'],
+        [$ask(['action' => 'watchman.ack_some']), $ask(['action' => 'watchman.ack_some', 'ids' => $a]), $ask(['action' => 'watchman.ack_some', 'ids' => [5]]),
+         $ask(['action' => 'watchman.ack_some', 'ids' => ['x']]), $ask(['action' => 'watchman.ack', 'id' => [$a, $b]])]);
+    unset($GLOBALS['agentStaffFile']);
+    @unlink($staff);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

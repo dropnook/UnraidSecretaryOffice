@@ -2,8 +2,10 @@
    round (when, the next one, what is open); how secure it stands (his posture
    tips: what he would set differently, with why, a link into Unraid and «I
    know, thanks» kept on the server); what changed — the watch book (newest
-   first; a row unfolds to its details; «I know, thanks» per entry and «Note
-   all») and what he keeps an eye on (what is normal, summarised; also what
+   first, under day headings; entries of one kind and area on one day fold into
+   one row; a filter for its words and one for its area over the whole book; a
+   row unfolds to its details; «I know, thanks» per entry, per folded row and
+   «Note all») and what he keeps an eye on (what is normal, summarised; also what
    starts on its own: crontabs, the plugins' .cron files, User Scripts, at,
    notification agents; the data flow: who pulls how much, containers, what is
    written into ZFS shares, SMB's users and machines — with a link to its
@@ -37,6 +39,10 @@ let timer = null;
 let before = null;              // entry ids before a round this page asked for: say how many came
 let shown = PAGE;
 let onlyOpen = Office.store('watchman.only_open') === '1';
+let area = Office.store('watchman.area') || '';    // the book's area filter ('' = all areas), kept in this browser
+let filterText = '';            // the book's filter words (not kept: a new visit starts with the whole book)
+const foldsOpen = new Set();    // rows of the book that fold several entries, unfolded on this visit (their keys)
+const foldsShut = new Set();    // … folded again by hand while filter words unfold them all
 const openGroups = Office.storeJson('watchman.groups') || {};     // groups of «What I keep an eye on» that are open
 const unfolded = new Set();     // entries unfolded on this visit
 let bookRows = [];              // the book's unfoldable rows: {open(), set(open)}
@@ -108,6 +114,22 @@ async function ack(e, b) {
   mood();
   renderKeeping(e.id);
   Office.toast(T('acked'));
+}
+
+/** «All n: I know, thanks» on a row that folds several entries: those of it still open, in one request (ack_some) */
+async function ackSome(list, b, key) {
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.ack_some`, { ids: list.map((e) => e.id) });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    if (j.error && j.error.key === 'watch_gone') await load(true);
+    else b.disabled = false;
+    return;
+  }
+  if (j.state) state = j.state;
+  mood();
+  renderAt(`.wm-fold-head[data-fold="${CSS.escape(key)}"]`, '.wm-book');
+  Office.toast(T('acked_all', { n: Number(j.noted) || list.length }));
 }
 
 async function ackAll() {
@@ -395,14 +417,102 @@ async function postureAck(x, on, b) {
 }
 
 // ------------------------------------------------------------------ the watch book
+/** The area an entry is filtered by: its group; a router's log too long for a round counts to the network */
+const entryArea = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net' : e.group || 'watch');
+/** What folds with what (beside the area and the day): the same kind — a router's log too long is a kind of its own */
+const foldKind = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net_too_much' : e.kind);
+/** Words as the filter compares them: lower case, without accents */
+const plainWords = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * The watch book as his page shows it — no DOM, nothing of the page's state (tests/watchbook.js runs it under node).
+ * book: the entries newest first, as his state has them. o: {onlyOpen, area ('' = every area), words (plainWords, [] =
+ * none), hay(e) → the entry's words (plainWords), day(seconds) → 'YYYY-MM-DD', chains ([{ids}]), shown, page, wanted (an
+ * entry's id or null)}. Entries of the same kind and area on the same day (of their last time) fold into one row.
+ * Returns {
+ *   areas: [[area, n], …] — the entries per area that «only open» leaves (the words and the area itself not counted),
+ *   rows: every row the switches and words leave: {key, day, kind, area, members (newest first — one member: the entry
+ *     itself), total (the members without the words), open (members not noted), last, night, chain},
+ *   items: what to draw — {day} before the first row of each day, then the rows, the first `shown` of them,
+ *   shown: rows drawn (more when the entry asked for lies further down),
+ *   wanted: {row, key, entry} where the entry asked for is, or null; hidden: it is in the book but the switches hide it }
+ */
+function bookView(book, o) {
+  const list = (book || []).filter((e) => e && typeof e.id === 'string');
+  const page = o.page || PAGE;
+  const chained = new Set();
+  (o.chains || []).forEach((c) => (c.ids || []).forEach((id) => chained.add(id)));
+  const counts = new Map();
+  list.forEach((e) => { if (!o.onlyOpen || e.open) counts.set(entryArea(e), (counts.get(entryArea(e)) || 0) + 1); });
+  const areas = [...counts.entries()];
+  const base = list.filter((e) => (!o.onlyOpen || e.open) && (!o.area || entryArea(e) === o.area));
+  const keyOf = (e) => `${o.day(e.last)}|${entryArea(e)}|${foldKind(e)}`;
+  const totals = new Map();
+  base.forEach((e) => totals.set(keyOf(e), (totals.get(keyOf(e)) || 0) + 1));
+  const words = o.words || [];
+  const hits = words.length ? base.filter((e) => { const h = o.hay(e); return words.every((w) => h.includes(w)); }) : base;
+  const byKey = new Map();
+  const rows = [];
+  hits.forEach((e) => {
+    const key = keyOf(e);
+    let r = byKey.get(key);
+    if (!r) {
+      r = { key, day: o.day(e.last), kind: foldKind(e), area: entryArea(e), members: [], total: totals.get(key), open: 0, last: e.last, night: false, chain: false };
+      byKey.set(key, r);
+      rows.push(r);
+    }
+    r.members.push(e);
+    if (e.open) r.open++;
+    if (e.last > r.last) r.last = e.last;
+    if (e.night) r.night = true;
+    if (chained.has(e.id)) r.chain = true;
+  });
+  let shown = Math.max(0, o.shown || page);
+  let wanted = null;
+  let hidden = false;
+  if (o.wanted) {
+    const at = rows.findIndex((r) => r.members.some((e) => e.id === o.wanted));
+    if (at >= 0) {
+      const r = rows[at];
+      wanted = { row: at, key: r.key, entry: o.wanted };
+      shown = Math.max(shown, Math.ceil((at + 1) / page) * page);
+    } else hidden = list.some((e) => e.id === o.wanted);
+  }
+  const items = [];
+  let day = null;
+  rows.slice(0, shown).forEach((r) => {
+    if (r.day !== day) { day = r.day; items.push({ day }); }
+    items.push(r);
+  });
+  return { areas, rows, items, shown, wanted, hidden };
+}
+
+/** An entry's words for the filter: its text, its area and kind, what it names (addresses, MACs, names …) */
+function entryHay(e) {
+  const out = [entryName(e), areaName(entryArea(e)), e.kind, foldKind(e)];
+  const add = (v, depth) => {
+    if (v === null || v === undefined || depth > 3) return;
+    if (typeof v === 'string' || typeof v === 'number') out.push(String(v));
+    else if (Array.isArray(v)) v.forEach((x) => add(x, depth + 1));
+    else if (typeof v === 'object') Object.values(v).forEach((x) => add(x, depth + 1));
+  };
+  add(e.p, 0);
+  add(e.t, 0);
+  return plainWords(out.join(' \u0001 '));
+}
+
+/** An area's name for the select (the take-over lines have no group chip: «His watch») */
+const areaName = (a) => (a === 'watch' ? T('book.area_watch') : T('group.' + a));
+
+/** The text of a row that folds several entries: «8 devices never seen on the LAN» — or «{n} × <area>» for a kind without one */
+function foldName(r) {
+  return Office.has(`${ID}.fold.${r.kind}`) ? T('fold.' + r.kind, { n: r.members.length })
+    : T('fold.any', { n: r.members.length, area: areaName(r.area) });
+}
+
 function bookSection() {
   const s = el('section', 'section');
-  const sw = el('label', 'switch');
-  const cb = el('input');
-  cb.type = 'checkbox';
-  cb.checked = onlyOpen;
-  sw.append(cb, el('span', '', T('book.only_open')));
-  const extras = [sw];
+  const extras = [];
   if (openCount()) {
     const all = el('button', 'btn small', T('ack_all'));
     all.type = 'button';
@@ -411,10 +521,29 @@ function bookSection() {
     all.onclick = ackAll;
     extras.push(all);
   }
+  s.appendChild(Office.sectionHead(T('book.title'), T('book.sub'), ...extras, { place: 'book.title' }));
+
+  // the bar: the filter's words, the area (counts per area), «only open», «unfold all» — the words and the area work on
+  // the whole book, not only on the rows shown
+  const bar = el('div', 'toolbar wm-bookbar');
+  const search = el('input', 'search');
+  search.type = 'search';
+  search.placeholder = Office.t('common.filter');
+  search.setAttribute('aria-label', T('book.filter_label'));
+  search.autocomplete = 'off';
+  search.spellcheck = false;
+  search.value = filterText;
+  const pick = el('select', 'picker');
+  pick.setAttribute('aria-label', T('book.area_label'));
+  const sw = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = onlyOpen;
+  sw.append(cb, el('span', '', T('book.only_open')));
   const unfold = el('button', 'btn small plain');
   unfold.type = 'button';
-  extras.push(unfold);
-  s.appendChild(Office.sectionHead(T('book.title'), T('book.sub'), ...extras, { place: 'book.title' }));
+  bar.append(search, pick, sw, unfold);
+  s.appendChild(bar);
 
   const box = el('div', 'box wm-book');
   bookLabel = () => {
@@ -423,25 +552,71 @@ function bookSection() {
   };
   unfold.onclick = () => {
     const open = bookRows.some((x) => !x.open());
-    Office.keepInPlace(unfold, () => bookRows.forEach((x) => x.set(open)));
+    Office.keepInPlace(unfold, () => {
+      bookRows.filter((x) => x.fold).forEach((x) => x.set(open));       // the folded rows first: their entries come or go
+      bookRows.filter((x) => !x.fold).forEach((x) => x.set(open));
+    });
     bookLabel();
+  };
+  const look = (asked) => bookView(state.book, {
+    onlyOpen, area, words: plainWords(filterText).split(/\s+/).filter(Boolean), hay: entryHay, day: fmt.dayKey,
+    chains: state.chains, shown, page: PAGE, wanted: asked,
+  });
+  const fillAreas = (v) => {
+    pick.innerHTML = '';
+    pick.appendChild(new Option(T('book.area_all'), ''));
+    const list = v.areas.map(([a, n]) => [a, n, areaName(a)]);
+    if (area && !list.some(([a]) => a === area)) list.push([area, 0, areaName(area)]);     // chosen, none left now: it stays
+    list.sort((x, y) => x[2].localeCompare(y[2], Office.locale))
+      .forEach(([a, n, name]) => pick.appendChild(new Option(T('book.area_n', { area: name, n }), a)));
+    pick.value = area;
   };
   const fill = () => {
     box.innerHTML = '';
     bookRows = [];
-    const list = (state.book || []).filter((e) => !onlyOpen || e.open);
-    const at = wanted ? list.findIndex((e) => e.id === wanted) : -1;
-    if (at >= 0) { shown = Math.max(shown, Math.ceil((at + 1) / PAGE) * PAGE); wanted = null; }
-    (state.chains || []).forEach((c) => box.appendChild(chainCallout(c)));
-    list.slice(0, shown).forEach((e) => box.appendChild(entryRow(e)));
-    if (!list.length) box.appendChild(el('p', 'empty', onlyOpen ? T('book.empty_open') : T('book.empty')));
-    if (list.length > shown) {
-      const more = el('button', 'btn small plain wm-more', T('book.more', { n: Math.min(PAGE, list.length - shown) }));
+    let v = look(wanted);
+    if (v.hidden) {          // the entry asked for (the search, a link) hides behind the words or the area: the whole book
+      filterText = '';
+      search.value = '';
+      area = '';
+      if (onlyOpen && !(state.book || []).some((e) => e.id === wanted && e.open)) { onlyOpen = false; cb.checked = false; }
+      v = look(wanted);
+    }
+    if (v.wanted) {
+      shown = v.shown;
+      if (v.wanted.key) { foldsOpen.add(v.wanted.key); foldsShut.delete(v.wanted.key); }
+      unfolded.add(v.wanted.entry);
+      wanted = null;
+    }
+    fillAreas(v);
+    // what may belong together: always on the whole book; with the words or an area, only a chain with an entry shown
+    const drawn = new Set(v.rows.flatMap((r) => r.members.map((e) => e.id)));
+    const narrowed = !!(filterText.trim() || area);
+    (state.chains || []).filter((c) => !narrowed || (c.ids || []).some((id) => drawn.has(id))).forEach((c) => box.appendChild(chainCallout(c)));
+    v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x) : entryRow(x.members[0])) : dayHead(x.day)));
+    if (!v.rows.length) {
+      const filtered = filterText.trim() || area;
+      box.appendChild(el('p', 'empty', filtered ? T('book.empty_filter') : onlyOpen ? T('book.empty_open') : T('book.empty')));
+    }
+    if (v.rows.length > v.shown) {
+      const more = el('button', 'btn small plain wm-more', T('book.more', { n: Math.min(PAGE, v.rows.length - v.shown) }));
       more.type = 'button';
       more.onclick = () => { shown += PAGE; Office.keepInPlace(null, fill); };
       box.appendChild(more);
     }
     bookLabel();
+  };
+  search.oninput = () => {
+    filterText = search.value;
+    foldsShut.clear();
+    shown = PAGE;
+    fill();
+  };
+  pick.onchange = () => {
+    area = pick.value;
+    Office.store('watchman.area', area || null);
+    shown = PAGE;
+    Office.keepInPlace(pick, fill);
   };
   cb.onchange = () => {
     onlyOpen = cb.checked;
@@ -452,6 +627,87 @@ function bookSection() {
   fill();
   s.appendChild(box);
   return s;
+}
+
+/** A day's heading between the rows: «Today», «Yesterday», then the date */
+function dayHead(day) {
+  const h = el('div', 'wm-day', fmt.dayTitle(day));
+  h.setAttribute('role', 'heading');
+  h.setAttribute('aria-level', '3');
+  return h;
+}
+
+/**
+ * Several entries of one kind and area on one day, as one row: how many, the newest time, the strongest state of its
+ * members (open before noted), «All n: I know, thanks» for those still open; a click unfolds the entries, each as its
+ * own row. While filter words are typed the rows unfold by themselves (only the entries the words meet are in them).
+ */
+function foldRow(x) {
+  const n = x.members.length;
+  const first = x.members[0];
+  const watch = first.kind === 'watch';
+  const words = !!filterText.trim();
+  const wrap = el('div', 'wm-fold');
+  const r = el('div', 'row nocheck wm-entry wm-fold-head unfolds' + (x.open ? ' wm-open' : ''));
+  r.dataset.fold = x.key;
+  const main = el('div', 'row-main');
+  const name = el('div', 'row-name text', foldName(x));
+  name.title = T('fold_title');
+  const meta = el('div', 'row-meta');
+  if (watch) {
+    meta.appendChild(first.p && first.p.too_much ? chip(T('state.too_much'), 'warn', T('state.too_much_title')) : chip(T('state.watch'), 'accent', T('state.watch_title')));
+  } else {
+    meta.appendChild(x.open ? chip(T('book.open_n', { n: x.open }), 'warn', T('state.open_title')) : chip(T('state.noted'), 'quiet', T('state.noted_title')));
+    meta.appendChild(chip(T('group.' + first.group), '', T('group_title.' + first.group)));
+    const tech = attackLink(first.attack);
+    if (tech) meta.appendChild(tech);
+    if (x.chain) meta.appendChild(chip(T('chain_chip'), 'warn', T('chain_title_fold')));
+    if (x.night) meta.appendChild(chip(T('state.night'), 'accent', T('state.night_title')));
+  }
+  const when = el('span', '', fmt.date(x.last));
+  when.dataset.tip = fmt.relative(x.last);
+  meta.appendChild(when);
+  if (words && x.total > n) meta.appendChild(el('span', '', T('book.hits', { n, total: x.total })));
+  main.append(name, meta);
+  r.appendChild(main);
+  const open = x.members.filter((e) => e.open);
+  if (open.length) {
+    const b = el('button', 'btn small plain', open.length > 1 ? T('book.ack_n', { n: open.length }) : T('ack'));
+    b.type = 'button';
+    b.title = T('book.ack_n_title');
+    b.disabled = !Office.agent.running;
+    b.onclick = () => ackSome(open, b, x.key);
+    r.appendChild(b);
+  }
+  const body = el('div', 'wm-members');
+  wrap.append(r, body);
+  let isOpen = false;
+  const set = (on) => {
+    if (on === isOpen) return;
+    isOpen = on;
+    r.classList.toggle('open', on);
+    r.setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (on) {
+      foldsOpen.add(x.key);
+      foldsShut.delete(x.key);
+      x.members.forEach((e) => { const row = entryRow(e, x.key); row.classList.add('wm-member'); body.appendChild(row); });
+    } else {
+      foldsOpen.delete(x.key);
+      if (words) foldsShut.add(x.key);
+      bookRows = bookRows.filter((y) => y.owner !== x.key);
+      body.innerHTML = '';
+    }
+  };
+  r.onclick = (ev) => {
+    if (ev.target.closest('button, a, input, [data-own]')) return;
+    if (String(window.getSelection && window.getSelection()).length) return;     // selecting text
+    Office.keepInPlace(r, () => set(!isOpen));
+    if (bookLabel) bookLabel();
+  };
+  bookRows.push({ open: () => isOpen, set, fold: true });
+  r.setAttribute('aria-expanded', 'false');
+  if (foldsOpen.has(x.key) || (words && !foldsShut.has(x.key))) set(true);
+  return wrap;
 }
 
 /** Entries that may belong together (a SOC's correlation): what came within how many minutes, oldest first */
@@ -475,8 +731,8 @@ function entryName(e) {
   return T('entry.' + e.kind, entryParams(e));
 }
 
-/** One entry: what, when, noted or not; a click unfolds its details */
-function entryRow(e) {
+/** One entry: what, when, noted or not; a click unfolds its details (owner: the folded row it is drawn in, if any) */
+function entryRow(e, owner) {
   const watch = e.kind === 'watch';
   const tooMuch = watch && !!(e.p && e.p.too_much);       // more of a router's log than a round reads (agent: watchnetTooMuch())
   const r = Office.place(`entry:${e.id}`, el('div', 'row nocheck wm-entry' + (watch ? ' wm-watch' : ' unfolds') + (e.open ? ' wm-open' : '')));
@@ -525,7 +781,7 @@ function entryRow(e) {
     Office.keepInPlace(r, () => set(!box));
     if (bookLabel) bookLabel();
   };
-  bookRows.push({ open: () => !!box, set });
+  bookRows.push({ open: () => !!box, set, owner });
   if (unfolded.has(e.id)) set(true);
   return r;
 }
@@ -1309,4 +1565,8 @@ Office.placesFrom(ID, (s) => {
   groups.forEach(([key, words]) => out.push({ text: T('watch.' + key), sub: T('watch.title'), anchor: `watch:${key}`, words }));
   return out;
 });
+
+if (globalThis.OFFICE_DESK_TESTS) {
+  globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName };
+}
 })();

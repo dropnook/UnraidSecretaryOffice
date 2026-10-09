@@ -963,6 +963,18 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 * **Subheadings inside a list** (a compose stack, a group) are a tinted title
   bar (`var(--surface2)`, like `.group-head`), the rows under it slightly
   indented — never just bold text between rows.
+* **A long list stays readable (the watch book, Benj 2026-10-09):** the night watchman's book folds entries of one kind
+  and area on one calendar day (of their `last`) into one row — «8 devices never seen on the LAN» (`fold.<kind>`, a text
+  per kind, a new kind brings its own: `testWatchBookView`; `fold.any` only as the page's fallback), the newest time,
+  «3 open» before «noted», chain and night-shift chips of any member; a click unfolds the members, each as before with its
+  own «I know, thanks»; «All n: I know, thanks» notes the open ones in one request (`watchman.ack_some` {ids},
+  `watchmanAck()` with a list — those still open, none = `watch_gone`). Day headings («Today», «Yesterday», then
+  `fmt.dayTitle()`) between the rows; «Show n more» counts rows. A bar under the section head: filter words (the entry's
+  text, its params — MAC, IP, names —, area, kind; accents folded; not kept), the area select with counts per area (kept
+  per browser, `watchman.area`), «only open», «Unfold all» — all on the whole book; with filter words the rows unfold to
+  their hits («2 of 8 fit the filter»). `bookView()` in desk.js is pure (no DOM): `tests/watchbook.js` runs it under node
+  (also on the Mac). The deep link `#/watchman/entry/<id>` clears a filter that hides the entry, unfolds its row and its
+  details.
 * **Backup protection** is always shown with `Office.backupChip(level)`
   (offsite / only local / not backed up), the level coming from
   `backupProtection()` in agent/lib/backupscript.php.
