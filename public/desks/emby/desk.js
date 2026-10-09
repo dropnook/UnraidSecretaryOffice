@@ -589,7 +589,8 @@ async function scheduleDialog(job) {
   // a schedule of those kinds saved earlier shows as «own schedule»)
   let mode;
   if (!sc.enabled) mode = job === 'gather' ? 'weekly' : 'daily';
-  else if (m2 && (job === 'gather' || m2[3] === '*')) mode = m2[3] === '*' ? 'daily' : 'weekly';
+  else if (m2 && job === 'gather' && m2[3] !== '*') mode = 'weekly';      // every night would wake every disk: not offered
+  else if (m2 && job === 'embycache' && m2[3] === '*') mode = 'daily';
   else mode = 'custom';
 
   const time = el('input', 'input');
@@ -625,9 +626,8 @@ async function scheduleDialog(job) {
     option('daily', T('schedule.nightly'), T('schedule.nightly_hint'), time);
   } else {
     option('weekly', T('schedule.weekly'), T('schedule.weekly_hint'), day, time);
-    option('daily', T('schedule.daily'), T('schedule.daily_hint'));
   }
-  option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
+  option('custom', T('schedule.custom'), T(job === 'gather' ? 'schedule.custom_hint_gather' : 'schedule.custom_hint'), cron);
   option('off', T('schedule.off'), T('schedule_off_hint.' + job));
   const update = () => {
     time.disabled = !['weekly', 'daily'].includes(mode);
