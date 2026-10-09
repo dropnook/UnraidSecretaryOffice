@@ -1038,6 +1038,188 @@ function testEmbyWatch(): void
 }
 
 /**
+ * What lies where (#8): the gather's status carries per share and disk/pool the bytes and files its
+ * index saw (a fixture tree with fake roots: two disks, a pool, a share with a space; a dry run, a
+ * real one that moves and deletes, one that ends before its index), Jack keeps them per share (a
+ * later run that didn't cover a share leaves its numbers and date), ZFS's live count only on awake
+ * ZFS pools, and his page (under node, stand-ins for the office): the numbers biggest first with
+ * the date, ZFS's chip, «not measured yet» for an older state, the button «Measure sizes…».
+ */
+function testEmbySizes(): void
+{
+    $tmp = hardeningTmp('embysizes');
+    foreach (['mnt/disk1/Filme/A', 'mnt/disk2/Filme/A', 'mnt/disk1/Filme/B', 'mnt/disk2/Filme/B', 'mnt/cache/Filme/C', 'mnt/disk2/Se rien/X',
+              'user/Filme', 'user/Se rien', 'user/Leer', 'bin', 'g'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    file_put_contents("$tmp/mnt/disk1/Filme/A/a.mkv", str_repeat('a', 4000));
+    file_put_contents("$tmp/mnt/disk2/Filme/A/a.srt", 'sub');
+    file_put_contents("$tmp/mnt/disk1/Filme/B/b.mkv", str_repeat('b', 3000));
+    file_put_contents("$tmp/mnt/disk2/Filme/B/b.mkv", str_repeat('b', 3000));      // the same copy twice: the real run deletes one
+    file_put_contents("$tmp/mnt/cache/Filme/C/c.mkv", str_repeat('c', 100));
+    file_put_contents("$tmp/mnt/disk2/Se rien/X/x.mkv", str_repeat('x', 50));
+    file_put_contents("$tmp/bin/df", "#!/bin/bash\necho Avail\necho 999999999\n");
+    chmod("$tmp/bin/df", 0755);
+    $ini = fn (string $bases) => "BASE_DIRS=($bases)\nLOGFILE='$tmp/consolidate.log'\nARRAY_PATTERN='$tmp/mnt/disk[0-9]*'\n"
+        . "CACHE_PATTERN='$tmp/mnt/cache'\nEXCLUDE_FILE=''\nDRYRUN=true\nMIN_FREE_GB=0\nDUP_CHECK='size'\n";
+    $gather = function (string $mode, string $bases) use ($tmp, $ini): array {
+        file_put_contents("$tmp/consolidate.ini", $ini($bases));
+        @unlink("$tmp/status.json");
+        $env = ['PATH' => "$tmp/bin:/usr/bin:/bin", 'HOME' => $tmp, 'LANG' => 'C.UTF-8', 'CONSOLIDATE_CONFIG' => "$tmp/consolidate.ini",
+                'CONSOLIDATE_STATUS' => "$tmp/status.json", 'CONSOLIDATE_LOCK' => "$tmp/gather.lock", 'CONSOLIDATE_USER_ROOT' => "$tmp/user"];
+        $p = proc_open(['bash', OFFICE_DIR . '/gather/consolidate_master.sh', $mode], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $tmp, $env);
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        $exit = proc_close($p);
+        return [$exit, readJson("$tmp/status.json") ?? [], $out];
+    };
+    $both = "'$tmp/user/Filme' '$tmp/user/Se rien'";
+    $t0 = time();
+    [$exit, $dry, $out] = $gather('--dryrun', $both);
+    same('gather sizes: a dry run — per share and disk/pool what its index saw (the pool too, a share with a space)', [0, [
+        'Filme' => ['disk1' => ['bytes' => 7000, 'files' => 2], 'disk2' => ['bytes' => 3003, 'files' => 2], 'cache' => ['bytes' => 100, 'files' => 1]],
+        'Se rien' => ['disk2' => ['bytes' => 50, 'files' => 1]]]], [$exit, $dry['sizes'] ?? null], $out);
+    check('gather sizes: a dry run — when the numbers were true (after the index)', is_int($dry['sizes_at'] ?? null) && $dry['sizes_at'] >= $t0 && $dry['sizes_at'] <= ($dry['finished'] ?? 0));
+    check('gather sizes: a dry run changed nothing', is_file("$tmp/mnt/disk2/Filme/B/b.mkv") && is_file("$tmp/mnt/disk2/Filme/A/a.srt"));
+    check('gather sizes: the status as before beside them', ($dry['version'] ?? '') === 'V11.4' && ($dry['mode'] ?? '') === 'dry' && isset($dry['moved'], $dry['folders_done']));
+    [$exit, $real, $out] = $gather('--run', $both);
+    $onDisk = function (string $root, string $share) use ($tmp): array {
+        $b = 0;
+        $n = 0;
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator("$tmp/mnt/$root/$share", FilesystemIterator::SKIP_DOTS)) as $f) {
+            if ($f->isFile()) {
+                $b += $f->getSize();
+                $n++;
+            }
+        }
+        return ['bytes' => $b, 'files' => $n];
+    };
+    same('gather sizes: a real run keeps them up to date (a file moved disk2 → disk1, a duplicate deleted on disk2)',
+        [0, ['disk1' => ['bytes' => 7003, 'files' => 3], 'disk2' => ['bytes' => 0, 'files' => 0], 'cache' => ['bytes' => 100, 'files' => 1]]],
+        [$exit, $real['sizes']['Filme'] ?? null], $out);
+    same('gather sizes: … which is what lies there now', [$onDisk('disk1', 'Filme'), $onDisk('disk2', 'Filme'), $onDisk('cache', 'Filme')],
+        array_values($real['sizes']['Filme'] ?? []));
+    same('gather sizes: a real run — true at its end', $real['finished'] ?? null, $real['sizes_at'] ?? 0);
+    [$exit, $none] = $gather('--dryrun', "'$tmp/user/Leer'");
+    same('gather sizes: a run that ends before its index has none', [1, 'failed', false, false],
+        [$exit, $none['result'] ?? null, array_key_exists('sizes', $none), array_key_exists('sizes_at', $none)]);
+
+    // Jack keeps them per share: a later run over one share leaves the other with its numbers and date
+    $at = $dry['sizes_at'];
+    $kept = embyGatherSizes(null, $dry, 'measure');
+    same('sizes kept: every share the run indexed, with its time and mode', [['Filme', 'Se rien'], $at, 'measure', ['bytes' => 100, 'files' => 1]],
+        [array_keys($kept['shares']), $kept['shares']['Filme']['at'] ?? null, $kept['shares']['Filme']['mode'] ?? null, $kept['shares']['Filme']['roots']['cache'] ?? null]);
+    $later = ['mode' => 'run', 'sizes_at' => $at + 100, 'sizes' => ['Filme' => ['disk1' => ['bytes' => 9, 'files' => 1]]]];
+    $m = embyGatherSizes($kept, $later);
+    same('sizes kept: a later run over Filme only — Filme new, Se rien keeps its numbers and date',
+        [['disk1' => ['bytes' => 9, 'files' => 1]], $at + 100, 'run', $kept['shares']['Se rien']],
+        [$m['shares']['Filme']['roots'], $m['shares']['Filme']['at'], $m['shares']['Filme']['mode'], $m['shares']['Se rien'] ?? null]);
+    same('sizes kept: an older status changes nothing — nor the same one again (its mode stays)', [$m, $kept], [embyGatherSizes($m, $dry), embyGatherSizes($kept, $dry)]);
+    same('sizes kept: an old status without sizes — as kept; nothing kept — none', [$m, ['v' => 1, 'shares' => []]],
+        [embyGatherSizes($m, ['result' => 'ok', 'finished' => $at + 500]), embyGatherSizes(null, ['result' => 'ok'])]);
+    $bad = ['sizes_at' => $at + 200, 'sizes' => ['Bad' => ['disk1' => ['bytes' => '9', 'files' => 1]], 'Neg' => ['disk1' => ['bytes' => -1, 'files' => 1]],
+        '../x' => ['disk1' => ['bytes' => 1, 'files' => 1]], 'Odd' => ['dis k' => ['bytes' => 1, 'files' => 1]], 'Ok' => []]];
+    same('sizes kept: only exactly its shape (a string, a negative, a strange share or disk name left out; a share measured empty kept)',
+        ['Filme', 'Ok', 'Se rien'], array_keys(embyGatherSizes($m, $bad)['shares']));
+    same('sizes kept: a file of another shape is not read', [], embyGatherSizes(['v' => 2, 'shares' => $m['shares']], null)['shares']);
+    embyGatherSizesKeep(['result' => 'ok'], 'dry', "$tmp/g");
+    check('sizes kept: a status without sizes writes nothing', !file_exists("$tmp/g/sizes.json"));
+    embyGatherSizesKeep($dry, 'measure', "$tmp/g");
+    embyGatherSizesKeep($later, 'run', "$tmp/g");
+    $file = readJson("$tmp/g/sizes.json");
+    same('sizes kept: sizes.json after two runs (root only)', [1, ['Filme', 'Se rien'], 'run', 'measure', '600'],
+        [$file['v'] ?? null, array_keys($file['shares'] ?? []), $file['shares']['Filme']['mode'] ?? null, $file['shares']['Se rien']['mode'] ?? null,
+         substr(sprintf('%o', fileperms("$tmp/g/sizes.json")), -3)]);
+    same('sizes: the list of runs keeps only how many shares were measured', ['result' => 'ok', 'measured' => 2],
+        embyStatusShort(['result' => 'ok', 'sizes' => $dry['sizes'], 'sizes_at' => 5]));
+
+    // one share for the page: the places holding files, the biggest first
+    same('sizes for the page: biggest first, empty places left out, never measured = null', [
+        ['at' => $at, 'mode' => 'measure', 'roots' => [['name' => 'disk1', 'bytes' => 7000, 'files' => 2], ['name' => 'disk2', 'bytes' => 3003, 'files' => 2], ['name' => 'cache', 'bytes' => 100, 'files' => 1]]],
+        ['at' => $at + 100, 'mode' => 'run', 'roots' => []], null],
+        [embyShareSized($kept, 'Filme'), embyShareSized(embyGatherSizes(null, ['sizes_at' => $at + 100, 'mode' => 'run', 'sizes' => ['Filme' => ['disk2' => ['bytes' => 0, 'files' => 0]]]]), 'Filme'),
+         embyShareSized($kept, 'Musik')]);
+
+    // ZFS's live count: one zfs list per awake ZFS pool of the shares; never a sleeping pool, never btrfs, never an array-only share
+    $asked = [];
+    $zfs = function (string $pool) use (&$asked): string { $asked[] = $pool; return "master\t100\nmaster/Filme\t5000\nmaster/Other\t1\nmaster/Serien\tx\n"; };
+    $mounts = [['mount' => '/mnt/master', 'fs' => 'zfs', 'source' => 'master'], ['mount' => '/mnt/hive', 'fs' => 'zfs', 'source' => 'hive'],
+               ['mount' => '/mnt/bt', 'fs' => 'btrfs', 'source' => '/dev/sdx1'], ['mount' => '/mnt/disk1', 'fs' => 'zfs', 'source' => 'disk1']];
+    $rows = [['share' => 'Filme', 'use' => 'yes', 'primary' => 'master', 'secondary' => ''], ['share' => 'Serien', 'use' => 'yes', 'primary' => 'master', 'secondary' => 'hive'],
+             ['share' => 'Musik', 'use' => 'no', 'primary' => 'master', 'secondary' => ''], ['share' => 'Doku', 'use' => 'prefer', 'primary' => 'bt', 'secondary' => '']];
+    same('sizes live: ZFS used of <pool>/<share> on awake pools — one look per pool', [['Filme' => [['pool' => 'master', 'used' => 5000]]], ['master']],
+        [embyShareLive($rows, $mounts, ['hive1' => true, 'master1' => false], $zfs), $asked]);
+    $asked = [];
+    same('sizes live: a pool asleep — not asked (the other pool of a share is)', [[], ['hive']], [embyShareLive($rows, $mounts, ['master1' => true], $zfs), $asked]);
+    $sized = embySharesSized([['share' => 'Filme'], ['share' => 'Musik']], $kept, ['Filme' => [['pool' => 'master', 'used' => 5000]]]);
+    same('sizes on the share rows', [3, 5000, null, []], [count($sized[0]['sizes']['roots'] ?? []), $sized[0]['live'][0]['used'] ?? null, $sized[1]['sizes'], $sized[1]['live']]);
+
+    // the measurement: a dry run over the libraries' shares (those that exist), its own ini — consolidate.ini stays
+    same('measure: the shares behind the chosen libraries that exist', ['Filme', 'Serien'],
+        embyMeasureShares(['instances' => [['path_mappings' => ['/data/a' => '/mnt/user/Filme/x', '/data/b' => '/mnt/user/Serien', '/data/c' => '/mnt/user/Weg/y']]]],
+            ['Filme', 'Musik', 'Serien']));
+    same('measure: a dry run, asked like a real gather', ['--dryrun'], GATHER_MODES['measure']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('measure: asked about Emby\'s watchers from the page and again in the job, holding EmbyCache\'s lock, its own ini',
+        str_contains($src, "in_array(\$mode, ['run', 'measure'], true)) {      // a measurement") && str_contains($src, "if (\$tool === 'gather' && \$mode === 'measure') {\n        \$look = embyWatching();")
+        && str_contains($src, "if (\$mode === 'run' || \$mode === 'measure') {") && str_contains($src, '"$dir/measure.ini"'));
+
+    // his page under node (stand-ins for the office): the numbers, the date, ZFS's chip, an older state, the button
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('sizes on his page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $state = ['settings' => ['cache_path' => '/mnt/master'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]], 'shares' => [
+        ['share' => 'Filme', 'fit' => 'ok', 'use' => 'yes', 'primary' => 'master', 'secondary' => '', 'include' => 'disk2,disk5', 'root' => true,
+         'sizes' => ['at' => 1791500000, 'mode' => 'dry', 'roots' => [['name' => 'disk2', 'bytes' => 1800, 'files' => 10], ['name' => 'disk5', 'bytes' => 400, 'files' => 3],
+                                                                    ['name' => 'master', 'bytes' => 120, 'files' => 2]]],
+         'live' => [['pool' => 'master', 'used' => 125]]],
+        ['share' => 'Serien', 'fit' => 'ok', 'use' => 'yes', 'primary' => 'master', 'secondary' => '', 'include' => '', 'root' => true,
+         'sizes' => ['at' => 1791400000, 'mode' => 'measure', 'roots' => []], 'live' => []],
+        ['share' => 'Doku', 'fit' => 'array_only', 'use' => 'no', 'primary' => '', 'secondary' => '', 'include' => '', 'root' => true]]];
+    file_put_contents("$tmp/state.json", json_encode($state));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
+  disabled: false, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}` }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  placesTook: () => {}, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => { n.dataset.place = k; return n; },
+  sectionHead: (title, sub, ...x) => { const h = el('div', 'section-head', title); x.filter((y) => y && y.tag).forEach((y) => h.appendChild(y)); return h; } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...(n.title ? ['@' + n.title] : []), ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+out.rows = state.shares.map((x) => texts(e.sizesLine(x)));
+e.setState(state);
+const sec = e.shareSection();
+const all = (n) => (typeof n === 'string' ? [] : [n, ...n.children.flatMap(all)]);
+const btn = all(sec).find((n) => n.tag === 'button' && n.textContent === 'measure');
+out.button = btn ? [btn.className, btn.disabled] : null;
+out.lines = all(sec).filter((n) => n.className === 'row-meta jo-sizes').length;
+state.jobs.gather.running = true;
+e.setState(state);
+const btn2 = all(e.shareSection()).find((n) => n.tag === 'button' && n.textContent === 'measure');
+out.busy = btn2 ? btn2.disabled : null;
+console.log(JSON.stringify(out));
+JS);
+    $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1';
+    $raw = (string) shell_exec($cmd);
+    $r = json_decode($raw, true);
+    same('sizes on his page: biggest first with the date, ZFS\'s chip; measured empty; an older state: «not measured yet»', [
+        ['disk2 1800B · disk5 400B · master 120B', '@sizes_tip', 'sizes_at {"date":"D1791500000"}', 'sizes_live {"pool":"master","size":"125B"}',
+         '@sizes_live_tip {"share":"Filme","pool":"master"}'],
+        ['sizes_empty', '@sizes_tip', 'sizes_at {"date":"D1791400000"}'],
+        ['sizes_never']], $r['rows'] ?? null, $raw);
+    same('sizes on his page: a line on every share row, the button «Measure sizes…» in the section — off while a run is active',
+        [3, ['btn small plain', false], true], [$r['lines'] ?? null, $r['button'] ?? null, $r['busy'] ?? null], $raw);
+    hardeningRm($tmp);
+}
+
+/**
  * Jack takes over an earlier install of helmi1987's tools (fixtures shaped like EmbyCache 7.2.1
  * and setup_consolidate.sh V11 write them) on a fake server tree: the folder's checks (links,
  * "..", outside, asleep), unknown and new keys, the API key never in an answer to the page, the
@@ -22433,7 +22615,7 @@ SH);
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],

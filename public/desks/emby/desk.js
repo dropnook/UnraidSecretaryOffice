@@ -135,6 +135,7 @@ function runSummary(r) {
   if (r.result === 'skipped') return T('gather_skipped_summary', { min: Math.round((r.waited || 0) / 60) }) + whoText(r.who);
   if (r.tool === 'gather') {
     if (s.result === 'failed') return s.message || T('result.failed');
+    if (r.mode === 'measure') return T('measure_summary', { n: Number(s.measured) || 0 });
     const notes = [];
     if (s.result === 'stopped') notes.push(T('gather_stopped', { done: s.folders_done || 0, total: s.folders || 0 }) + whoText(r.who));
     notes.push(gatherSummary(s));
@@ -200,6 +201,7 @@ function render() {
     [T('gather'), T('help.gather_text')],
     [T('help.watch'), T('help.watch_text')],
     [T('help.shares'), T('help.shares_text')],
+    [T('help.sizes'), T('help.sizes_text')],
     [T('help.pool'), T('help.pool_text')],
     [T('help.schedule'), T('help.schedule_text')],
   ]));
@@ -296,11 +298,34 @@ function peopleText(vu) {
   return n ? T('users_n', { n }) : T('users_all');
 }
 
-/** Do the shares of the chosen libraries suit EmbyCache and its pool? */
+/**
+ * What lies where (#8): «disk2 1.8 TB · disk5 0.4 TB · master 120 GB · measured …» from the gather's last numbers for
+ * this share (its index — any run that covered it, or «Measure sizes…»), and ZFS's own count of the share's dataset
+ * right now. An older agent's state has neither: nothing shown but «not measured yet».
+ */
+function sizesLine(x) {
+  const line = el('div', 'row-meta jo-sizes');
+  const sz = x.sizes;
+  if (sz && typeof sz.at === 'number') {
+    const roots = Array.isArray(sz.roots) ? sz.roots : [];
+    const text = el('span', 'jo-sizes-sum', roots.length ? roots.map((r) => `${r.name} ${fmt.size(r.bytes)}`).join(' · ') : T('sizes_empty'));
+    text.title = T('sizes_tip');
+    line.append(text, el('span', '', T('sizes_at', { date: fmt.date(sz.at) })));
+  } else {
+    line.appendChild(el('span', '', T('sizes_never')));
+  }
+  (Array.isArray(x.live) ? x.live : []).forEach((l) => line.appendChild(chip(T('sizes_live', { pool: l.pool, size: fmt.size(l.used) }), 'quiet',
+    T('sizes_live_tip', { share: x.share, pool: l.pool }))));
+  return line;
+}
+
+/** Do the shares of the chosen libraries suit EmbyCache and its pool? And what lies where */
 function shareSection() {
   const shares = state.shares || [];
   const bad = shares.filter((x) => !['ok', 'array_only'].includes(x.fit) || x.root === false).length;
-  const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'), { place: 'shares' });
+  const measure = button(T('measure'), 'small plain', measureDialog);
+  measure.disabled = !Office.agent.running || running() || !shares.length;
+  const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'), measure, { place: 'shares' });
   const box = el('div', 'box');
   const pool = (state.settings || {}).cache_path || '';
   shares.forEach((x) => {
@@ -312,7 +337,7 @@ function shareSection() {
     if (x.root === false) meta.appendChild(chip(T('root_missing', { pool }), 'danger', T('root_missing_tip', { share: x.share, pool })));
     meta.appendChild(el('span', '', T('share_where', { primary: x.use === 'no' ? T('array') : (x.primary || '–'), secondary: x.use === 'no' ? '–' : (x.secondary || T('array')) })));
     if (x.include) meta.appendChild(el('span', '', T('share_disks', { disks: x.include })));
-    main.appendChild(meta);
+    main.append(meta, sizesLine(x));
     row.appendChild(main);
     box.appendChild(row);
   });
@@ -487,6 +512,31 @@ async function gatherRunDialog() {
     body,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('gather_run_go'), kind: '', act: async () => {
       const j = await Office.api.post(`${ID}.gather_start`, { mode: 'run' });
+      if (!j.ok) { showError(err, j.error); return false; }
+      if (j.state) state = j.state;
+      if (view && page === 'main') render();
+      showOutput('gather', true);
+      return true;
+    } }],
+  });
+}
+
+/**
+ * «Measure sizes…»: a dry run of consolidating over the shares of the chosen libraries — the measurement, it changes
+ * nothing; it reads every disk of those shares (sleeping ones wake), never beside EmbyCache, not while someone watches.
+ */
+async function measureDialog() {
+  if (!(await Office.freshState(ID))) return;
+  const shares = (state.shares || []).map((x) => x.share);
+  const body = el('div');
+  const err = errorLine();
+  body.append(el('p', '', T('measure_text', { shares: shares.join(', ') })), el('p', 'callout warn', T('measure_wake')),
+    el('p', 'role', T('measure_rules')), err);
+  Office.dialog({
+    title: T('measure').replace(/…$/, ''),
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('measure_go'), kind: '', act: async () => {
+      const j = await Office.api.post(`${ID}.gather_start`, { mode: 'measure' });
       if (!j.ok) { showError(err, j.error); return false; }
       if (j.state) state = j.state;
       if (view && page === 'main') render();
@@ -1305,9 +1355,13 @@ Office.places(ID, [
   ...['import.title', 'setup.server', 'setup.libraries', 'setup.users', 'setup.scope', 'setup.more'].map((key) => ({ kind: 'step', key, ...SETUP })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
-  ...['what', 'tools', 'origin', 'watch', 'shares', 'pool', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['what', 'tools', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['import.title', 'import.help'], ['setup.key', 'setup.help_key'], ['setup.mapping', 'setup.help_mapping'], ['setup.users', 'setup.help_users'],
     ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['setup.save', 'setup.help_save']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
+
+if (globalThis.OFFICE_DESK_TESTS) {
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection };
+}
 })();
