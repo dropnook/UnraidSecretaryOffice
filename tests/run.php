@@ -1591,6 +1591,72 @@ function testEmbyImport(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Jack Emby's «also started elsewhere» (inbox #9, 1.51.0: a commented-out line in a User Script kept the warning up and
+ * the user thought the schedule was locked): only lines that really run count — not a comment line (also indented, also
+ * `#   python3 …`), not inside a `: <<'EOF'` block; a User Script whose schedule is off is listed but not enabled
+ * (none, «disabled», «custom» without a line); cron files the same, the office's own left out.
+ */
+function testEmbyForeign(): void
+{
+    $tmp = hardeningTmp('embyforeign');
+    $us = "$tmp/user.scripts";
+    $call = 'python3 /usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py --mode run';
+    $scripts = [
+        'Active'      => "#!/bin/bash\n# description=EmbyCache every 15 minutes\n$call\n",
+        'Commented'   => "#!/bin/bash\n#$call\necho done\n",
+        'Indented'    => "#!/bin/bash\n  \t#   $call\n",
+        'Heredoc'     => "#!/bin/bash\n: <<'EOF'\n$call\nbash /x/consolidate_master.sh\nEOF\necho other\n",
+        'HeredocOpen' => "#!/bin/bash\n: << END\n$call\nEND\nbash /mnt/user/system/consolidate_master.sh\n",
+        'Off'         => "#!/bin/bash\n$call\n",
+        'CustomEmpty' => "#!/bin/bash\n$call\n",
+        'Unplanned'   => "#!/bin/bash\n$call\n",
+        'AtStart'     => "#!/bin/bash\r\n$call\r\n",
+        'Unrelated'   => "#!/bin/bash\necho embycache\n",
+    ];
+    $plans = ['Active' => ['custom', '*/15 * * * *'], 'Commented' => ['custom', '*/15 * * * *'], 'Indented' => ['hourly', ''], 'Heredoc' => ['daily', ''],
+              'HeredocOpen' => ['weekly', ''], 'Off' => ['disabled', ''], 'CustomEmpty' => ['custom', ' '], 'AtStart' => ['start', ''], 'Unrelated' => ['hourly', '']];
+    $sched = [];
+    foreach ($scripts as $name => $text) {
+        @mkdir("$us/scripts/$name", 0700, true);
+        file_put_contents("$us/scripts/$name/script", $text);
+        if (isset($plans[$name])) {
+            $sched["/boot/config/plugins/user.scripts/scripts/$name/script"] = ['script' => "/boot/config/plugins/user.scripts/scripts/$name/script",
+                'frequency' => $plans[$name][0], 'id' => "schedule$name", 'custom' => $plans[$name][1]];
+        }
+    }
+    file_put_contents("$us/schedule.json", json_encode($sched));
+    @mkdir("$tmp/plugins/other", 0700, true);
+    @mkdir("$tmp/plugins/office", 0700, true);
+    file_put_contents("$tmp/plugins/other/other.cron", "# */5 * * * * $call\n   #0 4 * * 0 bash /x/consolidate_master.sh\n0 4 * * 0 bash /x/consolidate_master.sh > /dev/null\n"
+        . "*/10 * * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php $us/scripts/Active/script embycache_run.py\n");
+    file_put_contents("$tmp/plugins/office/office.cron", "0 3 * * * $call\n");
+    $found = embyForeignSchedules($us, "$tmp/plugins/*/*.cron", "$tmp/plugins/office/office.cron");
+    $by = [];
+    foreach ($found as $f) {
+        $by[$f['where']] = [$f['tool'], $f['enabled']];
+    }
+    ksort($by);
+    same('emby foreign: only lines that run count, a schedule that is off is listed but not on', [
+        "$tmp/plugins/other/other.cron" => ['gather', true],
+        'User Scripts: Active'          => ['embycache', true],
+        'User Scripts: AtStart'         => ['embycache', true],
+        'User Scripts: CustomEmpty'     => ['embycache', false],
+        'User Scripts: HeredocOpen'     => ['gather', true],
+        'User Scripts: Off'             => ['embycache', false],
+        'User Scripts: Unplanned'       => ['embycache', false],
+    ], $by);
+    same('emby foreign: the warning and the caretaker name only the enabled ones', ['User Scripts: Active', 'User Scripts: AtStart', 'User Scripts: HeredocOpen', "$tmp/plugins/other/other.cron"],
+        array_column(array_filter($found, fn ($f) => $f['enabled']), 'where'));
+    // the user comments the line out (the report): the next look says nothing more
+    file_put_contents("$us/scripts/Active/script", "#!/bin/bash\n# description=EmbyCache every 15 minutes\n# $call\n");
+    check('emby foreign: commented out, gone at the next look', !in_array('User Scripts: Active', array_column(embyForeignSchedules($us, "$tmp/none/*.cron"), 'where'), true));
+    same('emby active text: comments and a `: <<` block left out, a # later in a line kept', "a # b\nc",
+        embyActiveText("#!/bin/sh\n  # x\na # b\n: <<-\"STOP\"\nhidden\n\tSTOP\nc\n"));
+    same('emby active text: an unclosed block hides the rest (bash does the same)', 'a', embyActiveText("a\n: <<EOF\nb\n"));
+    hardeningRm($tmp);
+}
+
 /** The plugin's cron file against a copy: only the job's own line changes, the order stays */
 function testOfficeCron(): void
 {
@@ -23780,7 +23846,7 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
