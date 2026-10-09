@@ -567,7 +567,7 @@ async function showLog(tool) {
 
 // ------------------------------------------------------------------ schedules
 /**
- * When a tool runs on its own. EmbyCache: every hour or every few hours;
+ * When a tool runs on its own. EmbyCache: once a night (Benj 2026-10-09; default 03:00);
  * the gather: once a week or every night. Or a cron expression, or not at all.
  */
 async function scheduleDialog(job) {
@@ -584,28 +584,22 @@ async function scheduleDialog(job) {
   }
   const cur = (sc.enabled && sc.custom) || '';
   const pad = (n) => String(n).padStart(2, '0');
-  const m1 = /^(\d{1,2}) (\*|\*\/(\d+)) \* \* \*$/.exec(cur);              // hourly / every n hours
   const m2 = /^(\d{1,2}) (\d{1,2}) \* \* (\*|[0-7])$/.exec(cur);           // daily / weekly
+  // EmbyCache once deep in the night, when nobody watches (Benj, 2026-10-09 — no more hourly / every few hours;
+  // a schedule of those kinds saved earlier shows as «own schedule»)
   let mode;
-  if (!sc.enabled) mode = job === 'gather' ? 'weekly' : 'hourly';
-  else if (job === 'embycache' && m1) mode = m1[3] ? 'every' : 'hourly';
-  else if (job === 'gather' && m2) mode = m2[3] === '*' ? 'daily' : 'weekly';
+  if (!sc.enabled) mode = job === 'gather' ? 'weekly' : 'daily';
+  else if (m2 && (job === 'gather' || m2[3] === '*')) mode = m2[3] === '*' ? 'daily' : 'weekly';
   else mode = 'custom';
 
-  const minute = el('input', 'input');
-  minute.type = 'number'; minute.min = 0; minute.max = 59;
-  minute.value = m1 ? m1[1] : '5';
-  const hours = el('select', 'picker');
-  [2, 3, 4, 6, 8, 12].forEach((n) => hours.appendChild(new Option(T('schedule.every_n', { n }), String(n))));
-  hours.value = m1 && m1[3] ? m1[3] : '2';
   const time = el('input', 'input');
   time.type = 'time';
-  time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : '04:00';
+  time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : (job === 'gather' ? '04:00' : '03:00');
   const day = el('select', 'picker');
   [1, 2, 3, 4, 5, 6, 0].forEach((d) => day.appendChild(new Option(T('weekday.' + d), String(d))));
   day.value = m2 && m2[3] !== '*' ? String(Number(m2[3]) % 7) : '0';
   const cron = el('input', 'input mono');
-  cron.value = cur || (job === 'gather' ? '0 4 * * 0' : '5 * * * *');
+  cron.value = cur || (job === 'gather' ? '0 4 * * 0' : '0 3 * * *');
   cron.spellcheck = false;
 
   const box = el('div', 'jo-schedule');
@@ -628,8 +622,7 @@ async function scheduleDialog(job) {
     }
   };
   if (job === 'embycache') {
-    option('hourly', T('schedule.hourly'), T('schedule.hourly_hint'), minute);
-    option('every', T('schedule.every'), null, hours);
+    option('daily', T('schedule.nightly'), T('schedule.nightly_hint'), time);
   } else {
     option('weekly', T('schedule.weekly'), T('schedule.weekly_hint'), day, time);
     option('daily', T('schedule.daily'), T('schedule.daily_hint'));
@@ -637,8 +630,6 @@ async function scheduleDialog(job) {
   option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
   option('off', T('schedule.off'), T('schedule_off_hint.' + job));
   const update = () => {
-    minute.disabled = !['hourly', 'every'].includes(mode);
-    hours.disabled = mode !== 'every';
     time.disabled = !['weekly', 'daily'].includes(mode);
     day.disabled = mode !== 'weekly';
     cron.disabled = mode !== 'custom';
@@ -651,10 +642,7 @@ async function scheduleDialog(job) {
       { text: Office.t('common.cancel') },
       { text: T('schedule.save'), kind: '', act: async () => {
         let expr = '';
-        const mm = Math.min(59, Math.max(0, Number(minute.value) || 0));
-        if (mode === 'hourly') expr = `${mm} * * * *`;
-        else if (mode === 'every') expr = `${mm} */${hours.value} * * *`;
-        else if (mode === 'weekly' || mode === 'daily') {
+        if (mode === 'weekly' || mode === 'daily') {
           if (!/^\d\d:\d\d$/.test(time.value)) { Office.toast(T('schedule.need_time'), true); return false; }
           const [h, m] = time.value.split(':').map(Number);
           expr = `${m} ${h} * * ${mode === 'weekly' ? day.value : '*'}`;
