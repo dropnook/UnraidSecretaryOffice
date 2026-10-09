@@ -3,41 +3,46 @@ declare(strict_types=1);
 
 /*
  * Jack Emby and Unraid's mover (Benj, 2026-10-09 — a manual «mover start» on his server moved three films EmbyCache had
- * put on the pool back to the array). EmbyCache and the gather run for real only when one of two ways keeps the mover
- * away from EmbyCache's files; otherwise only their dry runs go, and real ones (from the page and on schedule) are
- * refused with the reason (embyRunCheck() → embyMoverProblem()).
+ * put on the pool back to the array). EmbyCache and the gather run for real only while Unraid's own mover schedule is
+ * «Disabled» (⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧) — always, one way (Benj's decision, 2026-10-09 evening);
+ * otherwise only their dry runs go, and real ones (from the page and on schedule) are refused with the reason
+ * (embyRunCheck() → embyMoverProblem()). Unraid 7.3.3 keeps «Disabled» as `shareMoverSchedule=""` in
+ * /boot/config/share.cfg and removes /boot/config/plugins/dynamix/mover.cron (verified on Tower: «Daily» writes the file
+ * with «… /usr/local/sbin/mover start …», «Disabled» deletes it; emhttpd deletes it again at every array start while the
+ * key is empty, so «Disabled» lasts). Mover Tuning is no way around it: from Unraid 7.2.1 on Unraid's own schedule and
+ * ⟦Move now⟧ run /usr/local/sbin/mover, which knows no list.
  *
- *   1. Unraid's mover schedule is «Disabled» (⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧). Unraid 7.3.3 keeps it as
- *      `shareMoverSchedule=""` in /boot/config/share.cfg and removes /boot/config/plugins/dynamix/mover.cron (verified
- *      on Tower: «Daily» writes the file with «… /usr/local/sbin/mover start …», «Disabled» deletes it).
- *   2. Mover Tuning (ca.mover.tuning, 2026.10.03 by masterwishx) is installed. Jack enters EmbyCache's exclude list
- *      himself, without asking, and again at every look when it was taken out or changed (embyTuningLook()): the global
- *      cfg /boot/config/plugins/ca.mover.tuning/ca.mover.tuning.cfg, keys `filelistf="yes"` (⟦Ignore files listed inside
- *      of a text file⟧) and `filelistv="<file>"` — written like its own page writes them (Unraid's update.php:
- *      `key="value"` lines), but line by line: every other line, key and comment stays as it was; every line of those
- *      two keys gets the new value (Unraid's parse_ini takes the last of a key, age_mover's cfg() the first); a new file
- *      + rename; the cfg as it was copied next to it once (`<cfg>.before-jack-emby`). Nothing to reload: age_mover reads
- *      the cfg at each run. What still lets the mover take his files with Mover Tuning installed (found in its code and
- *      tried on Tower, 2026-10-09):
- *        - from Unraid 7.2.1 on Mover Tuning no longer replaces Unraid's mover: Unraid's own schedule (mover.cron — its
- *          install renames it to mover.cron.old and takes the time over, but ⟦Apply⟧ in ⟦Mover Settings⟧ writes it
- *          again) runs /usr/local/sbin/mover, which knows no list → `tuning_schedule`;
- *        - its «Force move all files on a schedule» (force="yes", its own mover.cron: «mover.php force start») runs
- *          Unraid's mover too → `tuning_force`;
- *        - a share override (shareOverrideConfig/<share>.cfg with moverOverride="yes") whose own filelistf is «No», or
- *          «Yes» with another file, for one of his shares → `tuning_override`;
- *        - ⟦Move now⟧ in ⟦Mover Settings⟧ and on the Main page start Unraid's mover by hand — with the list in place
- *          the listed file went to the array all the same (Tower, 2026-10-09); Mover Tuning's own «Move now» left it
- *          alone. A hand's doing: the guards below stop his run, his page says so.
- *      Its «Move All from Primary->Secondary» (omovercfg) drops the filters above its threshold: said, not refused.
+ * Switching it off: his page offers «Switch the mover schedule off…» (emby.mover_off, embyMoverOff()) — after a confirm,
+ * the agent does what Unraid's form does with «Disabled» + ⟦Apply⟧: `emcmd "shareMoverSchedule=&shareMoverLogging=<as it
+ * is>&changeMover=Apply"`, then looks that share.cfg says "" and no mover.cron line is left. Or the user sets it himself.
  *
- * Guards while running (both ways): Unraid's mover at work (/var/run/mover.pid alive — Unraid's mover and Mover
- * Tuning's age_mover write it —, or a `mover`, `age_mover` or `move` process that isn't his own run's) → no real run
- * starts; on schedule it waits and looks again (embyRunGate(), like the wait for Emby's watchers); the mover starting
- * during a run → the stop file (EMBYCACHE_STOP, CONSOLIDATE_STOP): EmbyCache stops after the file it is on, the gather
- * after its folder (embyRunWatch()).
+ * Mover Tuning (ca.mover.tuning, 2026.10.03 by masterwishx) stays optional — for those who want other files moved on its
+ * own schedule. While it is installed and he is hired, Jack enters EmbyCache's exclude list there himself, without
+ * asking, and again at every look when it was taken out or changed (embyTuningLook()), so its own schedule leaves his
+ * files alone: the global cfg /boot/config/plugins/ca.mover.tuning/ca.mover.tuning.cfg, keys `filelistf="yes"`
+ * (⟦Ignore files listed inside of a text file⟧) and `filelistv="<file>"` — written like its own page writes them
+ * (Unraid's update.php: `key="value"` lines), but line by line: every other line, key and comment stays as it was; every
+ * line of those two keys gets the new value (Unraid's parse_ini takes the last of a key, age_mover's cfg() the first); a
+ * new file + rename; the cfg as it was copied next to it once (`<cfg>.before-jack-emby`). Nothing to reload: age_mover
+ * reads the cfg at each run. With Unraid's schedule off, what still lets Mover Tuning's own schedule take his files
+ * (found in its code and tried on Tower, 2026-10-09) — each refuses real runs too:
+ *   - his list couldn't be entered → `tuning_list`;
+ *   - its «Force move all files on a schedule» (force="yes", its own mover.cron: «mover.php force start») runs Unraid's
+ *     mover → `tuning_force`;
+ *   - a share override (shareOverrideConfig/<share>.cfg with moverOverride="yes") whose own filelistf is «No», or «Yes»
+ *     with another file, for one of his shares → `tuning_override`.
+ * Its «Move All from Primary->Secondary» (omovercfg) drops the filters above its threshold: said, not refused.
+ * ⟦Move now⟧ in ⟦Mover Settings⟧ and on the Main page start Unraid's mover by hand — a hand's doing: the guards below
+ * stop his run, his page says so.
  *
- * The tests put stand-ins into $GLOBALS['embyMoverHost'] (embyMoverHost()).
+ * Guards while running: Unraid's mover at work (/var/run/mover.pid alive — Unraid's mover and Mover Tuning's age_mover
+ * write it —, or a `mover`, `age_mover` or `move` process that isn't his own run's) → no real run starts; on schedule it
+ * waits and looks again (embyRunGate(), like the wait for Emby's watchers); the mover starting during a run → the stop
+ * file (EMBYCACHE_STOP, CONSOLIDATE_STOP): EmbyCache stops after the file it is on, the gather after its folder
+ * (embyRunWatch()).
+ *
+ * The tests put stand-ins into $GLOBALS['embyMoverHost'] (embyMoverHost()) — emcmd always a stand-in (and
+ * OFFICE_EMCMD_BIN for the whole suite): Unraid's own is never run by a test.
  */
 
 const EMBY_MOVER_SHARE_CFG = '/boot/config/share.cfg';
@@ -47,11 +52,12 @@ const EMBY_MOVER_PROCS     = ['mover', 'age_mover', 'move'];      // Unraid's mo
 const EMBY_TUNING_NAME     = 'ca.mover.tuning';
 const EMBY_TUNING_DIR      = '/boot/config/plugins/ca.mover.tuning';
 const EMBY_TUNING_BACKUP   = '.before-jack-emby';                // the cfg as it was before his first change, next to it
-const EMBY_TUNING_SPLIT    = '7.2.1';                            // from this Unraid on Mover Tuning leaves Unraid's mover as it is
 const EMBY_MOVER_NOTE      = 'office-mover.json';                // in his data folder: what he changed in Mover Tuning, what was there
 const EMBY_MOVER_EVERY     = 300;      // a scheduled run that finds the mover at work looks again every 5 min …
 const EMBY_MOVER_MAX       = 7200;     // … for up to 2 h, then that run is skipped
 const EMBY_MOVER_LOOK      = 5;        // during a real run: is the mover at work? every 5 s
+const EMBY_MOVER_VAR       = '/var/local/emhttp/var.ini';        // emhttpd's live settings (what ⟦Mover Settings⟧ shows)
+const EMBY_EMCMD           = '/usr/local/sbin/emcmd';            // Unraid's way to send emhttpd a form, as its pages do
 
 /** Where the rule reads and writes — the tests' stand-ins in $GLOBALS['embyMoverHost'] */
 function embyMoverHost(): array
@@ -62,7 +68,6 @@ function embyMoverHost(): array
         'mover_cron' => $h['mover_cron'] ?? EMBY_MOVER_CRON,
         'tuning_dir' => $h['tuning_dir'] ?? EMBY_TUNING_DIR,
         'installed'  => $h['installed'] ?? fn (): bool => is_file('/var/log/plugins/' . EMBY_TUNING_NAME . '.plg'),
-        'version'    => $h['version'] ?? fn (): string => reportUnraidVersion(),
         // his list as Mover Tuning gets it (the path as set — what other programs get), and the forms that count as his
         'lists'      => $h['lists'] ?? fn (): array => array_values(array_unique([dataPathUser(EMBY_DATA . '/embycache_exclude.txt'), EMBY_DATA . '/embycache_exclude.txt'])),
         'dir'        => $h['dir'] ?? EMBY_DATA,
@@ -70,6 +75,9 @@ function embyMoverHost(): array
         'hired'      => $h['hired'] ?? fn (): bool => in_array('emby', staffHired($GLOBALS['agentStaffFile'] ?? null), true),
         'pid'        => $h['pid'] ?? EMBY_MOVER_PID,
         'proc'       => $h['proc'] ?? '/proc',
+        'var_ini'    => $h['var_ini'] ?? EMBY_MOVER_VAR,
+        'emcmd'      => $h['emcmd'] ?? (getenv('OFFICE_EMCMD_BIN') ?: EMBY_EMCMD),
+        'wait'       => $h['wait'] ?? fn (int $ms) => usleep($ms * 1000),
     ];
 }
 
@@ -274,9 +282,16 @@ function embyMoverOwn(array $h): array
     return ['set' => $set, 'cron' => $cron];
 }
 
+/** Is Unraid's own schedule «Disabled» — the key empty and no `mover start` line that runs? */
+function embyMoverScheduleOff(array $own): bool
+{
+    return $own['set'] === '' && $own['cron'] === null;
+}
+
 /**
- * The rule: may EmbyCache and the gather run for real? {ok, way: disabled|tuning|null, why: null|schedule|tuning_list|
- * tuning_schedule|tuning_force|tuning_override, schedule: Unraid's own (cron) or null, tuning: embyTuningLook()}.
+ * The rule: may EmbyCache and the gather run for real? {ok, way: disabled|null, why: null|schedule|tuning_list|
+ * tuning_force|tuning_override, schedule: Unraid's own (cron, else as set) or null, tuning: embyTuningLook()}.
+ * Unraid's own schedule «Disabled» always; with Mover Tuning installed also nothing of its own that takes his files.
  * $enforce: his list is entered into Mover Tuning when it isn't (only while he is hired).
  */
 function embyMoverRule(bool $enforce = true, ?array $h = null): array
@@ -284,21 +299,16 @@ function embyMoverRule(bool $enforce = true, ?array $h = null): array
     $h ??= embyMoverHost();
     $own = embyMoverOwn($h);
     $t = embyTuningLook($h, $enforce && ($h['hired'])());
-    if (!$t['installed']) {
-        $ok = $own['set'] === '' && $own['cron'] === null;
-        return ['ok' => $ok, 'way' => $ok ? 'disabled' : null, 'why' => $ok ? null : 'schedule', 'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null),
-                'tuning' => $t];
-    }
-    // below 7.2.1 Mover Tuning's mover is /usr/local/sbin/mover: Unraid's schedule runs it, the list counts
-    $split = version_compare(($h['version'])() ?: '99', EMBY_TUNING_SPLIT, '>=');
     $why = match (true) {
-        !$t['listed']                    => 'tuning_list',
-        $split && $own['cron'] !== null  => 'tuning_schedule',
-        $t['force']                      => 'tuning_force',
-        (bool) $t['overrides']           => 'tuning_override',
-        default                          => null,
+        !embyMoverScheduleOff($own)                  => 'schedule',
+        !$t['installed']                             => null,
+        !$t['listed']                                => 'tuning_list',
+        $t['force']                                  => 'tuning_force',
+        (bool) $t['overrides']                       => 'tuning_override',
+        default                                      => null,
     };
-    return ['ok' => $why === null, 'way' => $why === null ? 'tuning' : null, 'why' => $why, 'schedule' => $own['cron'], 'tuning' => $t];
+    return ['ok' => $why === null, 'way' => $why === null ? 'disabled' : null, 'why' => $why,
+            'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null), 'tuning' => $t];
 }
 
 /** The rule as a refusal of a real run, or null */
@@ -309,7 +319,6 @@ function embyMoverProblem(array $rule): ?Problem
     }
     $key = match ($rule['why']) {
         'tuning_list'     => 'emby_mover_tuning_list',
-        'tuning_schedule' => 'emby_mover_tuning_schedule',
         'tuning_force'    => 'emby_mover_tuning_force',
         'tuning_override' => 'emby_mover_tuning_override',
         default           => 'emby_mover_schedule',
@@ -330,6 +339,65 @@ function embyMoverState(?array $rule = null): array
     return ['ok' => $rule['ok'], 'way' => $rule['way'], 'why' => $rule['why'], 'schedule' => $rule['schedule'], 'running' => embyMoverRunning(),
             'tuning' => $t['installed'] ? array_intersect_key($t, array_flip(['installed', 'listed', 'file', 'changed', 'error', 'force', 'overrides', 'move_all', 'by_jack']))
                                         : ['installed' => false]];
+}
+
+/**
+ * ⟦Mover logging⟧ as it stands — what Unraid's form sends along when it applies the schedule (its select shows emhttpd's
+ * live value, var.ini; share.cfg keeps it): yes | no. Neither says it: «no», Unraid's default. Anything else: null.
+ */
+function embyMoverLogging(array $h): ?string
+{
+    foreach ([$h['var_ini'], $h['share_cfg']] as $file) {
+        $v = readCfg($file)['shareMoverLogging'] ?? null;
+        if ($v !== null) {
+            $v = trim((string) $v, " \t\"");
+            return in_array($v, ['yes', 'no'], true) ? $v : null;
+        }
+    }
+    return 'no';
+}
+
+/**
+ * emby.mover_off {confirm: true} — switches Unraid's own mover schedule off, exactly as ⟦Mover Settings⟧ does with
+ * ⟦Mover schedule⟧ «Disabled» + ⟦Apply⟧: `emcmd "shareMoverSchedule=&shareMoverLogging=<as it is>&changeMover=Apply"`
+ * (the form's fields — its logging kept; emhttpd empties the key in share.cfg and deletes mover.cron). Looked at
+ * afterwards (emhttpd answers when it is done; up to 3 s more): share.cfg says "" and no mover.cron line runs — else
+ * refused with what is still there (`emby_mover_off_failed`). Already off: nothing is sent. Logged. Only while he is
+ * hired (the agent's gate, agentDeskMayAct()). ⟦Move now⟧ by hand stays possible — his guards stop a run then.
+ * {ok, already, was: the schedule it had, or null}
+ */
+function embyMoverOff(array $r, ?array $h = null): array
+{
+    if (($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    $h ??= embyMoverHost();
+    $own = embyMoverOwn($h);
+    if (embyMoverScheduleOff($own)) {
+        return ['ok' => true, 'already' => true, 'was' => null];
+    }
+    $was = $own['cron'] ?? $own['set'];
+    $logging = embyMoverLogging($h);
+    if ($logging === null) {
+        throw new Problem('emby_mover_off_failed', ['detail' => 'shareMoverLogging has a value Unraid\'s form doesn\'t know']);
+    }
+    $bin = $h['emcmd'];
+    if (!is_file($bin) || !is_executable($bin)) {
+        throw new Problem('emby_mover_off_failed', ['detail' => "$bin not found"]);
+    }
+    [$exit, $out, $err] = run([$bin, "shareMoverSchedule=&shareMoverLogging=$logging&changeMover=Apply"], 30);
+    for ($i = 0; $i < 10 && !embyMoverScheduleOff($own = embyMoverOwn($h)); $i++) {
+        ($h['wait'])(300);
+    }
+    $said = mb_substr(trim($out . ' ' . $err), 0, 300);
+    if (!embyMoverScheduleOff($own)) {
+        $left = $own['set'] !== '' ? "share.cfg still says shareMoverSchedule=\"{$own['set']}\"" : "mover.cron still runs «{$own['cron']}»";
+        logLine("Jack Emby: could not switch Unraid's mover schedule off — $left" . ($exit !== 0 ? " (emcmd: exit $exit $said)" : ''));
+        throw new Problem('emby_mover_off_failed', ['detail' => $left . ($exit !== 0 && $said !== '' ? " — $said" : '')]);
+    }
+    logLine("Jack Emby: switched Unraid's mover schedule off (Mover Settings → Disabled; it was «{$was}», mover logging kept: $logging)"
+        . ($exit !== 0 ? " — emcmd said: exit $exit $said" : ''));
+    return ['ok' => true, 'already' => false, 'was' => $was];
 }
 
 /**

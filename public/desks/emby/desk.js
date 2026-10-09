@@ -179,10 +179,11 @@ function moverWhy(m) {
 }
 
 /**
- * Unraid's mover and EmbyCache's files on the pool: real runs only while one of two ways holds — its schedule
- * «Disabled», or Mover Tuning with his list (he enters it there himself). Not met: why, and the ways (the Consultant
- * installs Mover Tuning; Unraid's ⟦Mover Settings⟧). Met: which way, and what still moves them (Unraid's own «Move now»
- * — his run stops after the current file then). Mover Tuning's «Move All» threshold, the mover at work right now.
+ * Unraid's mover and EmbyCache's files on the pool: real runs only while Unraid's own mover schedule is «Disabled»
+ * (Benj, 2026-10-09). Not met: why; for the schedule «Switch the mover schedule off…» (moverOffDialog) and «set it
+ * yourself» (Unraid's ⟦Mover Settings⟧). Met: what still moves them (⟦Move now⟧ by hand — his run stops after the
+ * current file then); Mover Tuning, if installed, keeps his list (he enters it there himself). Mover Tuning's «Move
+ * All» threshold, the mover at work right now.
  */
 function moverNotice() {
   const m = mover();
@@ -191,24 +192,49 @@ function moverNotice() {
   const box = el('div', m.ok ? 'jo-mover' : 'callout warn jo-mover');
   if (!m.ok) {
     box.appendChild(el('p', '', moverWhy(m)));
-    const bar = el('div', 'toolbar');
-    if (!t.installed) {
-      const b = button(T('mover.to_advisor'), 'small', () => Office.go('#/advisor'));
-      bar.appendChild(b);
-    }
-    if (!t.installed || m.why === 'tuning_schedule') {
-      const a = el('a', 'btn small plain', T('mover.to_settings'));
+    if (m.why === 'schedule') {
+      const bar = el('div', 'toolbar');
+      const b = button(T('mover.off'), 'small', moverOffDialog);
+      b.disabled = !Office.agent.running;
+      const a = el('a', 'btn small plain', T('mover.self'));
       a.href = '/Settings/MoverSettings';
-      bar.appendChild(a);
+      bar.append(b, a);
+      box.appendChild(bar);
     }
-    if (bar.children.length) box.appendChild(bar);
   } else {
-    box.appendChild(el('p', 'role', T('mover.ok.' + (m.way === 'tuning' ? 'tuning' : 'disabled'), { file: t.file || '' })));
+    box.appendChild(el('p', 'role', T('mover.ok.disabled')));
+    if (t.installed && t.listed) box.appendChild(el('p', 'role', T('mover.ok.tuning', { file: t.file || '' })));
   }
   if (t.changed) box.appendChild(el('p', 'role', T('mover.changed', { file: t.file || '' })));
   if (t.installed && t.move_all) box.appendChild(el('p', 'role', T('mover.move_all', { pct: String(t.move_all) })));
   if (m.running) box.appendChild(el('p', 'role', T('mover.running')));
   return box;
+}
+
+/**
+ * «Switch the mover schedule off…»: what it does — Unraid's own setting ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ →
+ * ⟦Disabled⟧, ⟦Move now⟧ by hand stays possible, a run of his stops when the mover starts — then emby.mover_off
+ * {confirm: true}; a refusal stays readable in the dialog.
+ */
+async function moverOffDialog() {
+  if (!(await Office.freshState(ID))) return;
+  const m = mover();
+  if (!m || m.why !== 'schedule') { render(); return; }      // off meanwhile: the notice says so
+  const body = el('div');
+  const err = errorLine();
+  body.append(el('p', '', T('mover.off_text')), el('p', 'role', T('mover.off_move_now')), el('p', 'role', T('mover.off_back')), err);
+  Office.dialog({
+    title: T('mover.off_title'),
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('mover.off_go'), kind: '', act: async () => {
+      const j = await Office.api.post(`${ID}.mover_off`, { confirm: true });
+      if (!j.ok) { showError(err, j.error); return false; }
+      if (j.state) state = j.state;
+      Office.toast(T('mover.off_done'));
+      if (view && page === 'main') render();
+      return true;
+    } }],
+  });
 }
 
 /** A scheduled run that waits for Unraid's mover to finish (state.waiting / the gather's wait with why «mover») */
@@ -1544,6 +1570,7 @@ function letGoView(j) {
   }
   const mt = j.mover_tuning || {};
   more.push(['role', T('letgo.stays')]);
+  if (j.mover_off) more.push(['role', T('letgo.mover_stays')]);       // Unraid's mover schedule stays off — where to switch it on
   return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more,
     unlist: !!mt.listed, file: mt.listed ? mt.file || '' : '' };
 }
@@ -1680,6 +1707,6 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection,
-    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk };
+    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog };
 }
 })();

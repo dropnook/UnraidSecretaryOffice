@@ -24,6 +24,8 @@ declare(strict_types=1);
  *     to what they were before his first change (his note office-mover.json), else «No»; every other line stays
  *     (embyLetGoUnlist()). Then Mover Tuning moves what is still on the pool back at its next run. A let-go noted in the
  *     last EMBY_LETGO_QUIET seconds keeps his enforcing away meanwhile (the page's look between the let-go and «fire»).
+ *   - Unraid's mover schedule: whoever switched it off (his page's button, or by hand) — it stays «Disabled»; the dialog
+ *     says so and where it is switched on again (⟦Mover Settings⟧). He never switches it back on.
  *   - His settings stay. What he switched off is noted in data/embycache/office-letgo.json: hired again, his page says
  *     once that the schedules stay off until switched on (embyLetGoNote(); seen → `shown`, also when a schedule is set).
  */
@@ -54,6 +56,8 @@ function embyLetGoHost(): array
         'look'     => $h['look'] ?? fn (?array $s): array => embyWatching($s, fn (string $url, string $key) => embyWatchFetch($url, $key, EMBY_WATCH_PAGE)),
         'python'   => $h['python'] ?? fn (): bool => embyPython() !== null,
         'launch'   => $h['launch'] ?? 'hostLaunch',
+        // Unraid's own mover schedule «Disabled»? (emby-mover.php) — it stays so after the let-go, the dialog says
+        'mover_off' => $h['mover_off'] ?? fn (): bool => embyMoverScheduleOff(embyMoverOwn(embyMoverHost())),
     ];
 }
 
@@ -178,7 +182,10 @@ function embyLetGoWatchProblem(array $look): ?Problem
     return embyWatchProblem($look);
 }
 
-/** emby.letgo_look — what letting him go does here: his schedules, a run going, the films on the pool, Mover Tuning */
+/**
+ * emby.letgo_look — what letting him go does here: his schedules, a run going, the films on the pool, Mover Tuning, and
+ * whether Unraid's mover schedule is off (`mover_off` — it stays off; the dialog says where to switch it on again)
+ */
 function embyLetGoLook(): array
 {
     $h = embyLetGoHost();
@@ -192,7 +199,8 @@ function embyLetGoLook(): array
         $watch = $p->params;
     }
     return ['ok' => true, 'schedules' => embyLetGoSchedules($h['cron']), 'running' => $running, 'waiting' => ($h['waiting'])(),
-            'pool' => $onPool, 'release' => ['ok' => $why === null, 'why' => $why, 'params' => $watch ?? []], 'mover_tuning' => embyLetGoTuning($h['tuning'], ($h['lists'])())];
+            'pool' => $onPool, 'release' => ['ok' => $why === null, 'why' => $why, 'params' => $watch ?? []], 'mover_tuning' => embyLetGoTuning($h['tuning'], ($h['lists'])()),
+            'mover_off' => ($h['mover_off'])()];
 }
 
 /**

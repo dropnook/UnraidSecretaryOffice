@@ -5,7 +5,7 @@
 .jo-poolbar{margin:0 0 8px}
 .jo-poolbar .picker{max-width:100%; min-width:0}
 .jo-more{margin:8px 12px}
-/* Unraid's mover and EmbyCache's files (emby-mover.php): why only dry runs, the two ways — or which way holds */
+/* Unraid's mover and EmbyCache's files (emby-mover.php): why only dry runs and the switch — or that the schedule is off */
 .jo-mover{margin:0 0 12px}
 .jo-mover > p{margin:0 0 4px; overflow-wrap:anywhere}   /* the list's long path */
 .jo-mover .toolbar{margin-top:6px}

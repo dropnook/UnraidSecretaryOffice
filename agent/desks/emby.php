@@ -60,7 +60,7 @@ desk('emby', [
         if (!$emby) {
             return fit(false, 'no_emby');
         }
-        // real runs only while the mover leaves EmbyCache's files alone (emby-mover.php) — his list he enters into Mover Tuning once hired
+        // real runs only while Unraid's mover schedule is «Disabled» (emby-mover.php) — his list he enters into Mover Tuning (if any) once hired
         $rule = embyMoverRule(false);
         return fit(true, !$rule['ok'] && $rule['why'] !== 'tuning_list' ? 'yes_dry' : 'yes', ['name' => $emby[0]['name']]);
     },
@@ -81,6 +81,8 @@ desk('emby', [
         'letgo_look'     => fn (array $r) => embyLetGoLook(),
         'letgo'          => fn (array $r) => embyLetGo($r),
         'letgo_seen'     => fn (array $r) => embyLetGoSeen(),
+        // «Switch the mover schedule off…» (emby-mover.php): Unraid's own ⟦Mover schedule⟧ «Disabled», as its form sets it
+        'mover_off'      => fn (array $r) => embyMoverOff($r) + ['state' => embyScan()],
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => embyJob('embycache', $args),
@@ -156,7 +158,7 @@ function embyScan(): array
         'share_info' => embyShareInfo(),
         'pool_dirs'  => embyPoolDirs(),
         'old_clone'  => is_dir(EMBY_DATA . '/app/.git'),
-        // Unraid's mover: may real runs go (its schedule «Disabled», or Mover Tuning with his list — entered here when it isn't), is it at work
+        // Unraid's mover: may real runs go (its schedule «Disabled»; Mover Tuning, if installed, with his list — entered here when it isn't), is it at work
         'mover'      => embyMoverState(),
         'waiting'    => ['embycache' => embyRunWaiting('embycache'), 'gather' => embyRunWaiting('gather')],
         'letgo'      => embyLetGoNote(),       // hired again: what he switched off when he was let go (said once)
@@ -2223,7 +2225,7 @@ function embyRunCheck(string $tool, string $mode): void
         || flockHeld(EMBY_DATA . '/embycache.lock') || flockHeld(GATHER_LOCK)) {
         throw new Problem('emby_running');
     }
-    // real runs only while the mover leaves EmbyCache's files alone (emby-mover.php): its schedule «Disabled», or Mover Tuning with his list
+    // real runs only while Unraid's mover schedule is «Disabled» (emby-mover.php) — and Mover Tuning, if installed, keeps his list
     if ($mode === 'run' && ($p = embyMoverProblem(embyMoverRule()))) {
         throw $p;
     }
@@ -2754,16 +2756,16 @@ function embyActiveText(string $text): string
 // ===================================================================== checks (for the caretaker)
 
 /**
- * The Team Lead's point about the mover: `mover` (Mover Tuning not installed: its two ways — install it through the
- * Consultant, or Unraid's schedule «Disabled»; ok once one holds), else what keeps Mover Tuning from protecting his
- * files: `mover_tuning` (his list couldn't be entered), `mover_unraid` (Unraid's own schedule still on), `mover_force`
- * (its forced move on a schedule), `mover_override` (a share's override). Required: without it no real run goes.
+ * The Team Lead's point about the mover: `mover` (Unraid's own schedule must be «Disabled» — his page has the switch;
+ * ok once it is and nothing of Mover Tuning's takes his files), else, with Unraid's schedule off, what keeps Mover
+ * Tuning's own schedule from leaving his files alone: `mover_tuning` (his list couldn't be entered), `mover_force` (its
+ * forced move on a schedule), `mover_override` (a share's override). Required: without it no real run goes. Links his
+ * page.
  */
 function embyMoverFinding(array $rule): array
 {
     $id = match ($rule['why']) {
         'tuning_list'     => 'mover_tuning',
-        'tuning_schedule' => 'mover_unraid',
         'tuning_force'    => 'mover_force',
         'tuning_override' => 'mover_override',
         default           => 'mover',
@@ -2773,7 +2775,6 @@ function embyMoverFinding(array $rule): array
         'file'     => $id === 'mover_tuning' ? (string) ($t['file'] ?? '') : null,
         'detail'   => $id === 'mover_tuning' ? (string) ($t['error'] ?? '') : null,
         'shares'   => $id === 'mover_override' ? implode(', ', $t['overrides'] ?? []) : null,
-        'schedule' => $id === 'mover_unraid' ? (string) ($rule['schedule'] ?? '') : null,
     ], fn ($v) => $v !== null), '#/emby');
 }
 
@@ -2802,7 +2803,7 @@ function embyChecks(): array
     $out[] = finding('gather_schedule', 'recommended', officeJobSchedule('gather')['enabled'], [], '#/emby/gather-schedule');
     $foreign = array_filter(embyForeignSchedules(), fn ($f) => $f['enabled']);
     $out[] = finding('foreign', 'recommended', !$foreign, ['where' => implode(', ', array_column($foreign, 'where'))], 'userscripts');
-    // Unraid's mover must leave EmbyCache's files alone, else only dry runs go (emby-mover.php): one point, named by what is missing
+    // Unraid's mover schedule «Disabled» (and Mover Tuning, if any, keeping his list), else only dry runs go (emby-mover.php): one point
     $out[] = embyMoverFinding(embyMoverRule());
     return $out;
 }
