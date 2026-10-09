@@ -340,6 +340,7 @@
   "why.vm_unsure_no_zfs": "La VM non c'è più, ma qui non si può chiedere a ZFS — non so dire se il suo snapshot ZFS ({what}) c'è ancora, quindi le voci restano.",
   "why.vm_unsure_link": "La VM non c'è più, ma il suo elenco {what} è un link — attraverso un link non sposto mai niente.",
   "why.vm_unsure_no_path": "La VM non c'è più, ma la sua voce non dice dove sta il suo snapshot — non so dire cosa resta, quindi le voci restano.",
+  "why.vm_unsure_unreadable": "La VM non c'è più, ma il suo elenco {what} non si può leggere — non so dire cosa nomina, quindi le voci restano.",
   "p.left": "Ancora sul disco",
   "p.left_hint": "Ciò che resta di questo snapshot dopo che la VM è stata eliminata",
   "p.unraid_list": "Elenco di Unraid",

@@ -340,6 +340,7 @@
   "why.vm_unsure_no_zfs": "La VM ya no existe, pero aquí no se puede preguntar a ZFS — no puedo decir si su instantánea ZFS ({what}) sigue ahí, así que las entradas se quedan.",
   "why.vm_unsure_link": "La VM ya no existe, pero su lista {what} es un enlace — nunca muevo nada a través de un enlace.",
   "why.vm_unsure_no_path": "La VM ya no existe, pero su entrada no dice dónde está su instantánea — no puedo decir qué queda, así que las entradas se quedan.",
+  "why.vm_unsure_unreadable": "La VM ya no existe, pero su lista {what} no se puede leer — no puedo decir qué nombra, así que las entradas se quedan.",
   "p.left": "Aún en el disco",
   "p.left_hint": "Lo que queda de esta instantánea después de borrar la VM",
   "p.unraid_list": "Lista de Unraid",

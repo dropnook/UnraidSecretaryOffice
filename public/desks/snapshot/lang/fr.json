@@ -340,6 +340,7 @@
   "why.vm_unsure_no_zfs": "La VM a disparu, mais ZFS ne peut pas être interrogé ici — je ne peux pas dire si son snapshot ZFS ({what}) est encore là, les entrées restent donc.",
   "why.vm_unsure_link": "La VM a disparu, mais sa liste {what} est un lien — je ne déplace jamais rien à travers un lien.",
   "why.vm_unsure_no_path": "La VM a disparu, mais son entrée ne dit pas où se trouve son snapshot — je ne peux pas dire ce qui reste, les entrées restent donc.",
+  "why.vm_unsure_unreadable": "La VM a disparu, mais sa liste {what} ne peut pas être lue — je ne peux pas dire ce qu'elle nomme, les entrées restent donc.",
   "p.left": "Encore sur le disque",
   "p.left_hint": "Ce qui reste de ce snapshot après la suppression de la VM",
   "p.unraid_list": "Liste d'Unraid",

@@ -340,6 +340,7 @@
   "why.vm_unsure_no_zfs": "The VM is gone, but ZFS can't be asked here — I can't tell whether its ZFS snapshot ({what}) is still there, so the entries stay.",
   "why.vm_unsure_link": "The VM is gone, but its list {what} is a link — I never move anything through one.",
   "why.vm_unsure_no_path": "The VM is gone, but its entry doesn't say where its snapshot lies — I can't tell what is left, so the entries stay.",
+  "why.vm_unsure_unreadable": "The VM is gone, but its list {what} can't be read — I can't tell what it names, so the entries stay.",
   "p.left": "Still on disk",
   "p.left_hint": "What of this snapshot is left after the VM was deleted",
   "p.unraid_list": "Unraid's list",

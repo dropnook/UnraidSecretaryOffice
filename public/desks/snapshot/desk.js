@@ -1716,6 +1716,7 @@ function vmUnsureText(u) {
     case 'no_dataset': return T('why.vm_unsure_no_dataset', { what });
     case 'no_zfs': return T('why.vm_unsure_no_zfs', { what });
     case 'link': return T('why.vm_unsure_link', { what });
+    case 'unreadable': return T('why.vm_unsure_unreadable', { what });
     default: return T('why.vm_unsure_no_path');
   }
 }
