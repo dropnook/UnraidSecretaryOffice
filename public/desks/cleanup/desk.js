@@ -1035,6 +1035,8 @@ function vmdefDetail(v) {
 function libvirtMeta(o, meta, figures) {
   meta.appendChild(chip(T('lv.' + o.kind), '', T('lv.' + o.kind + '_text')));
   if (o.snapshot) meta.appendChild(chip(T('lv.snapshot'), 'quiet', T('lv.snapshot_text')));
+  if (o.kind === 'snapshotdb' && o.entries) meta.appendChild(el('span', '', T('lv.entries', { n: o.entries })));
+  if (o.kind === 'snapshotdb' && o.why === null && state && state.vms.ok) meta.appendChild(chip(T('lv.nothing_left'), 'quiet', T('lv.nothing_left_text')));
   if (o.mtime) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(o.mtime) })));
   figures.append(el('b', '', fmt.size(o.bytes)), el('span', '', ''));
 }
@@ -1046,9 +1048,34 @@ function libvirtDetail(o) {
     [T('d.uuid'), o.uuid, true],
     [T('d.changed'), when(o.mtime)],
     [T('d.size'), fmt.size(o.bytes)],
+    [T('lv.d.entries'), o.kind === 'snapshotdb' ? o.names || [] : null, true],
+    [T('lv.d.left'), o.kind === 'snapshotdb' ? (o.left || []).map((x) => x.zfs || x.file) : null, true],
   ]));
   box.appendChild(el('p', 'role', T('lv.' + o.kind + '_text') + ' ' + T('lv.orphan_text')));
+  if (o.kind === 'snapshotdb' && (o.why === 'vm_left' || o.why === 'vm_unsure')) box.appendChild(el('p', 'role', snapshotDbWhy(o)));
   return box;
+}
+
+/**
+ * A VM's snapshot list that can't go yet (issue #3): in Ms. Snapshotini's words, who judges it the same way — what is
+ * still on disk (a ZFS snapshot is a ZFS matter, deleted in her list first), or why it can't be told
+ */
+function snapshotDbWhy(o) {
+  const left = o.left || [];
+  if (left.length) {
+    return Office.t('snapshot.why.vm_left', { left: left.map((x) => x.zfs || x.file).join(', ') }) + ' '
+      + (left.some((x) => x.zfs) ? T('lv.left_zfs') : T('lv.left_files'));
+  }
+  const u = (o.unsure || [])[0] || {};
+  const what = u.what || '?';
+  switch (u.why) {
+    case 'method': return Office.t('snapshot.why.vm_unsure_method', { what: u.what || Office.t('snapshot.vm_method_none') });
+    case 'asleep': return Office.t('snapshot.why.vm_unsure_asleep', { what });
+    case 'no_dataset': return Office.t('snapshot.why.vm_unsure_no_dataset', { what });
+    case 'no_zfs': return Office.t('snapshot.why.vm_unsure_no_zfs', { what });
+    case 'unreadable': return Office.t('snapshot.why.vm_unsure_unreadable', { what });
+    default: return Office.t('snapshot.why.vm_unsure_no_path');
+  }
 }
 
 // ------------------------------------------------------------------ Docker's leftovers

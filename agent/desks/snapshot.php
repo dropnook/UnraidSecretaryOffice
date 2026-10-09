@@ -9,7 +9,8 @@ declare(strict_types=1);
  *           recognised and left alone
  *   btrfs   array disks and pools (snapshots in <disk>/.btrfs-snap like the
  *           unraid-backup script); sleeping disks are only read on request
- *   VMs     Unraid's own snapshot list (snapshotdb) plus libvirt — read only
+ *   VMs     Unraid's own snapshot list (snapshotdb) plus libvirt — read only, but for the entries a deleted VM
+ *           left there with nothing of them on disk: taken out of the list into Ms. Dustdevil's storeroom (issue #3)
  *
  * She can create, delete (unmounting first if asked), rename, hold/release
  * and estimate how much space a deletion frees, and take snapshots on a
@@ -70,6 +71,9 @@ desk('snapshot', [
         'hold'     => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), true, !empty($r['wake'])),
         'release'  => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), false, !empty($r['wake'])),
         'unmount'  => fn (array $r) => snapshotUnmountRequest(snapshotIdField($r, 'id'), !empty($r['wake'])),
+        // the entries a deleted VM left in Unraid's snapshot list (only those with nothing left on disk) — and back (issue #3)
+        'vm_unlist' => fn (array $r) => snapshotVmUnlist(snapshotVmField($r, 'vm')),
+        'vm_relist' => fn (array $r) => snapshotVmRelist(textField($r, 'id')),
         'plan_save'   => fn (array $r) => snapPlanSave($r['plan'] ?? null),
         'plan_toggle' => fn (array $r) => snapPlanToggle(textField($r, 'id'), boolField($r, 'enabled')),
         'plan_delete' => fn (array $r) => snapPlanDelete(textField($r, 'id')),
@@ -183,7 +187,7 @@ function snapshotScan(bool $readBtrfs, bool $wake = false, array $btrfsOnly = []
     $old = $GLOBALS['snapshot'];
 
     $zfs = snapshotPartnerMark(snapshotReadZfs($old, $wake));
-    $vm = snapshotReadVms();
+    $vm = snapshotReadVms($zfs);
     $btrfs = snapshotBtrfsPart($old['btrfs'] ?? null, $readBtrfs, $wake, $btrfsOnly);
 
     // what is mounted where (cheap: /proc only)
@@ -667,36 +671,81 @@ function snapshotBtrfsFromMounts(array $known, array $table): array
 
 // --------------------------------------------------------------------- VMs
 
-/**
- * VM snapshots — read only, Unraid's VM manager is where they are handled.
+/*
+ * VM snapshots — Unraid's VM manager is where they are handled, with one exception (issue #3).
  *
- * Unraid 7 keeps them in its own list (snapshotdb/<VM>/snapshots.db), not in
- * libvirt: external qcow2 overlays (vdiskN.S<time>qcow2) or ZFS. Both sources
- * are read; Unraid's list wins.
+ * Unraid 7 keeps them in its own list (snapshotdb/<VM>/snapshots.db: name => {name, parent, state, desc,
+ * creationtime, method, disks, backing, primarypath}), not in libvirt; both sources are read, Unraid's list wins.
+ * What each of its methods leaves on disk (Unraid 7.3.3, dynamix.vm.manager/include/libvirt_helpers.php:
+ * vm_snapshot(), vm_revert(), vm_snapremove()):
+ *   QEMU   external overlays — the files `disks[].source.@attributes.file` (hda/hdb are CD drives, skipped)
+ *   ZFS    `zfs snapshot <dataset>@<name>`, the dataset `zfs list -H -o name -r <primarypath>` (the one holding
+ *          the VM's folder — and, as Unraid's command reads, any below it)
+ *   both   <primarypath>/<name>.running (the XML of a running VM) and <primarypath>/memory<name>.mem (its memory)
+ *   BTRFS  creates nothing in 7.3.3 (and is never chosen: get_disk_fstype() says ZFS or QEMU) — an entry with that or
+ *          any other method is one she can't judge
+ * Deleting a VM leaves its folder in that list, and Unraid's VM page shows snapshots only of VMs that exist — such
+ * entries can't be removed there. An entry set whose VM is gone (libvirt running, no domain, no XML) and of which
+ * nothing is left on disk is an orphan: «Remove the entries from Unraid's list» moves the folder into Ms. Dustdevil's
+ * storeroom in libvirt.img (same filesystem: a rename), «Put back» returns it — never over a VM of that name created
+ * again meanwhile. Anything unsure (a sleeping disk, a method she doesn't know, no dataset found) is no orphan.
  */
-function snapshotReadVms(): array
+
+/** Unraid's VM snapshot lists, the VMs' XML files, the storeroom in libvirt.img, virsh and libvirt's socket (tests: $GLOBALS['snapshotVm']) */
+function snapshotVmDb(): string
 {
-    $virsh = bin('virsh');
-    $domains = [];
-    $libvirt = $virsh && file_exists('/var/run/libvirt/libvirt-sock');
-    if ($libvirt) {
-        [$exit, $out] = run([$virsh, 'list', '--all', '--name'], 20);
-        $libvirt = $exit === 0;
-        if ($libvirt) {
-            $domains = array_values(array_filter(array_map('trim', explode("\n", $out)), 'strlen'));
-        }
+    return $GLOBALS['snapshotVm']['db'] ?? VM_SNAPSHOT_DB;
+}
+
+function snapshotVmXmlDir(): string
+{
+    return $GLOBALS['snapshotVm']['xml'] ?? VM_XML_DIR;
+}
+
+function snapshotVmTrash(): string
+{
+    return $GLOBALS['snapshotVm']['trash'] ?? CL_LIBVIRT . '/' . CL_TRASH;
+}
+
+/** The VMs libvirt knows (names), null when libvirt isn't running (then nothing about VMs can be told) */
+function snapshotVmDomains(): ?array
+{
+    $host = $GLOBALS['snapshotVm'] ?? [];
+    $virsh = array_key_exists('virsh', $host) ? $host['virsh'] : bin('virsh');
+    if (!$virsh || !file_exists($host['sock'] ?? '/var/run/libvirt/libvirt-sock')) {
+        return null;
     }
+    [$exit, $out] = run([$virsh, 'list', '--all', '--name'], 20);
+    return $exit === 0 ? array_values(array_filter(array_map('trim', explode("\n", $out)), 'strlen')) : null;
+}
+
+/** Is there a VM of that name — libvirt knows it, or its XML file is there? ($domains null: libvirt not asked/running) */
+function snapshotVmExists(string $vm, ?array $domains): bool
+{
+    return ($domains !== null && in_array($vm, $domains, true)) || file_exists(snapshotVmXmlDir() . '/' . basename($vm) . '.xml');
+}
+
+function snapshotReadVms(?array $zfs = null, ?array $sleeping = null): array
+{
+    $domains = snapshotVmDomains();
+    $libvirt = $domains !== null;
+    $domains ??= [];
+    $virsh = $libvirt ? (array_key_exists('virsh', $GLOBALS['snapshotVm'] ?? []) ? $GLOBALS['snapshotVm']['virsh'] : bin('virsh')) : null;
     $base = ['fs' => 'vm', 'pool' => 'VMs', 'used' => null, 'refer' => null, 'written' => null,
              'holds' => [], 'clones' => [], 'path' => null, 'docker' => false];
 
     $snaps = [];
-    foreach (glob(VM_SNAPSHOT_DB . '/*/snapshots.db') ?: [] as $db) {
+    $folders = [];
+    foreach (glob(snapshotVmDb() . '/*/snapshots.db') ?: [] as $db) {
         $vm = basename(dirname($db));
         $entries = json_decode((string) @file_get_contents($db), true);
         if (!is_array($entries)) {
             continue;
         }
+        $gone = $libvirt && !snapshotVmExists($vm, $domains);          // the VM is gone
+        $judged = $gone ? snapshotVmJudge($entries, $zfs, $sleeping) : null;
         $inUse = vmDiskFiles($vm);
+        $ids = [];
         foreach ($entries as $key => $e) {
             if (!is_array($e)) {
                 continue;
@@ -704,20 +753,23 @@ function snapshotReadVms(): array
             $name = (string) ($e['name'] ?? $key);
             $files = [];
             foreach ((array) ($e['disks'] ?? []) as $disk) {
-                $file = $disk['source']['@attributes']['file'] ?? null;
+                $file = is_array($disk) ? ($disk['source']['@attributes']['file'] ?? null) : null;
                 if (is_string($file) && $file !== '') {
                     $files[] = $file;
                 }
             }
             $overlay = null;
-            foreach ($files as $file) {
-                $st = @stat($file);
-                if ($st) {
-                    $overlay = ($overlay ?? 0) + $st['blocks'] * 512;   // really allocated, not nominal
+            if (!$gone) {
+                foreach ($files as $file) {
+                    $st = @stat($file);
+                    if ($st) {
+                        $overlay = ($overlay ?? 0) + $st['blocks'] * 512;   // really allocated, not nominal
+                    }
                 }
             }
-            $snaps["vm:$vm/$name"] = [
-                'id'          => "vm:$vm/$name",
+            $id = "vm:$vm/$name";
+            $snaps[$id] = [
+                'id'          => $id,
                 'vol'         => "vm:$vm",
                 'ds'          => $vm,
                 'name'        => $name,
@@ -729,12 +781,32 @@ function snapshotReadVms(): array
                 'files'       => $files,
                 'overlay'     => $overlay,
                 'active'      => (bool) array_intersect($files, $inUse),     // the VM writes into it right now
-                'orphaned'    => $libvirt && !in_array($vm, $domains, true),  // the VM is gone
+                'orphaned'    => $gone,
             ] + $base;
+            if ($gone) {
+                // what of it is still on disk (then removing that comes first), or why she can't tell
+                $look = $judged['looks'][$name] ?? ['left' => [], 'unsure' => null];
+                $snaps[$id]['left'] = $look['left'];
+                $snaps[$id]['unsure'] = $look['unsure'];
+                $ids[] = $id;
+            }
+        }
+        if ($gone && $ids) {
+            $left = $judged['left'];
+            $unsure = $judged['unsure'];
+            if (is_link(dirname($db))) {
+                $unsure[] = ['why' => 'link', 'what' => dirname($db)];       // never moved through a link
+            }
+            $orphan = !$left && !$unsure;
+            foreach ($ids as $id) {
+                $snaps[$id]['unlistable'] = $orphan;
+            }
+            $folders[] = ['vm' => $vm, 'path' => dirname($db), 'entries' => count($ids), 'names' => array_map(fn ($i) => $snaps[$i]['name'], $ids),
+                          'orphan' => $orphan, 'left' => array_values(array_unique($left, SORT_REGULAR)), 'unsure' => array_values(array_unique($unsure, SORT_REGULAR))];
         }
     }
 
-    if ($libvirt && $domains) {
+    if ($libvirt && $domains && $virsh) {
         $commands = [];
         foreach ($domains as $i => $vm) {
             $commands[$i] = [$virsh, 'snapshot-list', '--domain', $vm];
@@ -760,13 +832,333 @@ function snapshotReadVms(): array
         }
     }
 
-    return ['available' => $libvirt || $snaps, 'domains' => $domains, 'snapshots' => array_values($snaps)];
+    return ['available' => $libvirt || $snaps, 'domains' => $domains, 'snapshots' => array_values($snaps),
+            'folders' => $folders, 'away' => $libvirt ? snapshotVmAway($domains) : []];
+}
+
+/**
+ * A deleted VM's whole list (snapshots.db decoded): every entry looked at (snapshotVmLeft()) — 'looks' by name, all
+ * that is 'left' and every 'unsure' reason (each once). An orphan when both are empty. Shared with Ms. Dustdevil, who
+ * offers to put away such a list only then (clLibvirtOrphans()).
+ */
+function snapshotVmJudge(array $entries, ?array $zfs, ?array $sleeping = null): array
+{
+    $out = ['looks' => [], 'names' => [], 'left' => [], 'unsure' => []];
+    foreach ($entries as $key => $e) {
+        if (!is_array($e)) {
+            continue;
+        }
+        $name = (string) ($e['name'] ?? $key);
+        $look = snapshotVmLeft($e + ['name' => $name], $zfs, $sleeping);
+        $out['looks'][$name] = $look;
+        $out['names'][] = $name;
+        array_push($out['left'], ...$look['left']);
+        if ($look['unsure']) {
+            $out['unsure'][] = $look['unsure'];
+        }
+    }
+    $out['left'] = array_values(array_unique($out['left'], SORT_REGULAR));
+    $out['unsure'] = array_values(array_unique($out['unsure'], SORT_REGULAR));
+    return $out;
+}
+
+/** Does judging this list need ZFS (an entry of the ZFS method)? Ms. Dustdevil lists ZFS only then */
+function snapshotVmNeedsZfs(array $entries): bool
+{
+    foreach ($entries as $e) {
+        if (is_array($e) && ($e['method'] ?? null) === 'ZFS') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * What of a VM snapshot entry is still on disk, by its method (see above): ['left' => [['zfs' => '<ds>@<name>'] |
+ * ['file' => <path>] …], 'unsure' => null | ['why' => method|asleep|no_dataset|no_zfs|no_path|no_files, 'what' => …]].
+ * Unsure is never an orphan. Never wakes a disk: what lies on a sleeping one is unsure.
+ */
+function snapshotVmLeft(array $e, ?array $zfs, ?array $sleeping = null): array
+{
+    $name = (string) ($e['name'] ?? '');
+    $method = is_string($e['method'] ?? null) ? $e['method'] : '';
+    if (!in_array($method, ['QEMU', 'ZFS'], true)) {
+        return ['left' => [], 'unsure' => ['why' => 'method', 'what' => $method]];
+    }
+    if ($name === '' || str_contains($name, '/')) {
+        return ['left' => [], 'unsure' => ['why' => 'no_path', 'what' => $name]];
+    }
+    $left = [];
+    $unsure = null;
+    $look = function (string $path) use (&$left, &$unsure, $sleeping): void {
+        $there = snapshotVmPathThere($path, $sleeping);
+        if ($there === true) {
+            $left[] = ['file' => $path];
+        } elseif ($there === null) {
+            $unsure ??= ['why' => 'asleep', 'what' => $path];
+        }
+    };
+    $primary = is_string($e['primarypath'] ?? null) && str_starts_with($e['primarypath'], '/') && !preg_match('/[\x00-\x1f]/', $e['primarypath'])
+        ? rtrim($e['primarypath'], '/') : null;
+    if ($method === 'QEMU') {
+        $files = [];
+        foreach ((array) ($e['disks'] ?? []) as $disk) {
+            $dev = is_array($disk) ? ($disk['@attributes']['name'] ?? '') : '';
+            $file = is_array($disk) ? ($disk['source']['@attributes']['file'] ?? null) : null;
+            if (!in_array($dev, ['hda', 'hdb'], true) && is_string($file) && str_starts_with($file, '/')) {
+                $files[] = $file;
+            }
+        }
+        if (!$files) {
+            $unsure = ['why' => 'no_files', 'what' => ''];
+        }
+        foreach ($files as $file) {
+            $look($file);
+        }
+    } elseif ($primary === null) {
+        $unsure = ['why' => 'no_path', 'what' => ''];
+    } else {
+        $z = snapshotVmZfsLeft($primary, $name, $zfs);
+        $left = $z['left'];
+        $unsure = $z['unsure'];
+    }
+    if ($primary !== null) {
+        $look("$primary/$name.running");
+        $look("$primary/memory$name.mem");
+    }
+    return ['left' => $left, 'unsure' => $unsure];
+}
+
+/**
+ * A ZFS-method entry: the snapshot <dataset>@<name> on the dataset holding <primarypath> or any below it (Unraid's
+ * `zfs list -r <primarypath>`), from her own ZFS scan — a sleeping pool or no dataset found: unsure.
+ */
+function snapshotVmZfsLeft(string $primary, string $name, ?array $zfs): array
+{
+    if (!$zfs || empty($zfs['available'])) {
+        return ['left' => [], 'unsure' => ['why' => 'no_zfs', 'what' => $primary]];
+    }
+    $paths = [$primary];
+    if (preg_match('#^/mnt/user0?/(.+)$#', $primary, $m)) {          // not transposed: on whichever pool holds the share
+        $paths = array_map(fn ($p) => "/mnt/{$p['name']}/{$m[1]}", array_filter((array) ($zfs['pools'] ?? []), 'is_array'));
+    }
+    $asleep = array_flip(array_map('strval', (array) ($zfs['asleep'] ?? [])));
+    $left = [];
+    $found = false;
+    foreach ($paths as $path) {
+        $holder = null;
+        foreach ((array) ($zfs['volumes'] ?? []) as $v) {
+            $mount = is_array($v) && is_string($v['mount'] ?? null) ? rtrim($v['mount'], '/') : null;
+            if ($mount && ($path === $mount || str_starts_with($path, "$mount/")) && strlen($mount) > strlen((string) ($holder['mount'] ?? ''))) {
+                $holder = $v;
+            }
+        }
+        if ($holder === null) {
+            if (preg_match('#^/mnt/([^/]+)#', $path, $p) && isset($asleep[$p[1]])) {
+                return ['left' => [], 'unsure' => ['why' => 'asleep', 'what' => $p[1]]];
+            }
+            continue;
+        }
+        $found = true;
+        if (!empty($holder['asleep']) || isset($asleep[(string) ($holder['pool'] ?? '')])) {
+            return ['left' => [], 'unsure' => ['why' => 'asleep', 'what' => (string) $holder['pool']]];
+        }
+        $ds = (string) $holder['name'];
+        foreach ((array) ($zfs['snapshots'] ?? []) as $s) {
+            if (is_array($s) && ($s['name'] ?? null) === $name && is_string($s['ds'] ?? null)
+                && ($s['ds'] === $ds || str_starts_with($s['ds'], "$ds/"))) {
+                $left[] = ['zfs' => "{$s['ds']}@$name"];
+            }
+        }
+    }
+    return $found ? ['left' => $left, 'unsure' => null] : ['left' => [], 'unsure' => ['why' => 'no_dataset', 'what' => $primary]];
+}
+
+/**
+ * Is a file there — true/false, null when looking would wake a disk. /mnt/<disk or pool>/…: not when it sleeps;
+ * /mnt/user/<share>/…: looked for on every pool and array disk (a share spreads over them), unsure when one sleeps.
+ */
+function snapshotVmPathThere(string $path, ?array $sleeping = null): ?bool
+{
+    if (!preg_match('#^/mnt/([^/]+)/(.+)$#', $path, $m)) {
+        return file_exists($path);
+    }
+    $sleeping ??= sleepingDisks();
+    if ($m[1] === 'user' || $m[1] === 'user0') {
+        $unsure = false;
+        foreach (glob('/mnt/*', GLOB_ONLYDIR) ?: [] as $base) {
+            $b = basename($base);
+            if (in_array($b, ['user', 'user0', 'disks', 'remotes', 'addons', 'rootshare'], true)) {
+                continue;
+            }
+            if (baseAsleep($b, $sleeping)) {
+                $unsure = true;
+            } elseif (file_exists("$base/{$m[2]}")) {
+                return true;
+            }
+        }
+        return $unsure ? null : false;
+    }
+    return baseAsleep($m[1], $sleeping) ? null : file_exists($path);
+}
+
+/**
+ * The VM snapshot lists in the storeroom in libvirt.img (put away by her or Ms. Dustdevil — kind `snapshotdb`), each
+ * only in exactly the shape the office writes (clTrashAsOk(), «from» the list's own place): id "<run>|snapshotdb/<VM>",
+ * the VM, when, how many entries, `vm_back` (a VM of that name exists again — then it stays), `taken` (Unraid made a
+ * new list of that name meanwhile).
+ */
+function snapshotVmAway(array $domains): array
+{
+    $root = snapshotVmTrash();
+    $out = [];
+    if (!is_dir($root) || is_link($root)) {
+        return [];
+    }
+    foreach (@scandir($root) ?: [] as $stamp) {
+        $run = "$root/$stamp";
+        if (!preg_match('/^\d{8}-\d{6}(-\d+)?$/D', $stamp) || !is_dir($run) || is_link($run)) {
+            continue;
+        }
+        $manifest = readJson("$run/manifest.json") ?? [];
+        foreach ((array) ($manifest['items'] ?? []) as $it) {
+            if (!is_array($it) || ($it['kind'] ?? '') !== 'snapshotdb' || !is_string($it['as'] ?? null) || !clTrashAsOk($it['as'], 'snapshotdb', $stamp)) {
+                continue;
+            }
+            $vm = basename($it['as']);
+            $from = snapshotVmDb() . "/$vm";
+            $dir = "$run/{$it['as']}";
+            if (($it['from'] ?? null) !== $from || !is_dir($dir) || is_link($dir) || !clRunPathOk($run, $it['as'])) {
+                continue;
+            }
+            $entries = json_decode((string) @file_get_contents("$dir/snapshots.db"), true);
+            $out[] = ['id' => "$run|{$it['as']}", 'vm' => $vm, 'time' => is_int($manifest['time'] ?? null) ? $manifest['time'] : clStampTime($stamp, $run),
+                      'entries' => is_array($entries) ? count($entries) : 0,
+                      'vm_back' => snapshotVmExists($vm, $domains), 'taken' => file_exists($from) || is_link($from)];
+        }
+    }
+    usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
+    return $out;
+}
+
+/** No changes while a backup runs (it may be reading libvirt.img) or Mr. Restori restores — like Ms. Dustdevil */
+function snapshotVmGuard(): void
+{
+    if (backupLockHolder() !== null) {
+        throw new Problem('vm_unlist_busy');
+    }
+}
+
+/** A VM's name as her scans give it (SNAPSHOT_ID_NAME: no `/`, no control characters, never `.`/`..`) — else bad_request */
+function snapshotVmField(array $r, string $field): string
+{
+    $vm = textField($r, $field);
+    if (strlen($vm) > 255 || !preg_match('#^' . SNAPSHOT_ID_NAME . '$#Du', $vm)) {
+        throw new Problem('bad_request');
+    }
+    return $vm;
+}
+
+/**
+ * «Remove the entries from Unraid's list»: the VM's folder snapshotdb/<VM> — all its entries at once — into the
+ * storeroom in libvirt.img (a run of Ms. Dustdevil's: manifest, «Put back» there or here). Only an orphan, checked
+ * against a fresh scan: the VM gone, nothing of any entry left on disk, nothing unsure.
+ */
+function snapshotVmUnlist(string $vm): array
+{
+    snapshotVmGuard();
+    $state = snapshotScan(false);
+    $folder = null;
+    foreach ((array) ($state['vm']['folders'] ?? []) as $f) {
+        if ($f['vm'] === $vm) {
+            $folder = $f;
+        }
+    }
+    $path = snapshotVmDb() . "/$vm";
+    if ($folder === null) {
+        $domains = snapshotVmDomains();
+        if ($domains === null) {
+            throw new Problem('vm_unlist_vm_off');
+        }
+        throw new Problem(snapshotVmExists($vm, $domains) ? 'vm_unlist_vm_there' : 'vm_unlist_gone', ['vm' => $vm]);
+    }
+    if (!$folder['orphan']) {
+        throw new Problem('vm_unlist_not_orphan', ['vm' => $vm]);
+    }
+    if (is_link($path) || !is_dir($path)) {
+        throw new Problem('vm_unlist_gone', ['vm' => $vm]);
+    }
+    $as = "snapshotdb/$vm";
+    $run = null;
+    try {
+        $run = clRunCreate(snapshotVmTrash());
+        clMove($path, $run['path'] . "/$as");
+    } catch (Problem $p) {
+        if ($run) {
+            clRunTidy($run['path'], $run['root']);
+        }
+        throw new Problem('vm_unlist_failed', ['vm' => $vm, 'detail' => (string) (($p->params['detail'] ?? '') ?: ($p->params['path'] ?? $p->key))]);
+    }
+    $bytes = 0;
+    foreach (glob($run['path'] . "/$as/*") ?: [] as $f) {
+        $bytes += (int) @filesize($f);
+    }
+    $run['items'][] = ['kind' => 'snapshotdb', 'name' => $vm, 'label' => '', 'from' => $path, 'as' => $as, 'bytes' => $bytes,
+                       'by' => 'snapshot', 'entries' => $folder['names']];
+    clManifestWrite($run);
+    logLine("Ms. Snapshotini: took the entries of the deleted VM $vm out of Unraid's snapshot list (" . implode(', ', $folder['names'])
+        . ') — in the storeroom ' . $run['path']);
+    return ['ok' => true, 'id' => $run['path'] . "|$as", 'vm' => $vm, 'state' => snapshotScan(false)];
+}
+
+/** «Put back»: a list from the storeroom into snapshotdb again — never while a VM of that name exists or Unraid has a list of that name */
+function snapshotVmRelist(string $id): array
+{
+    snapshotVmGuard();
+    $domains = snapshotVmDomains();
+    if ($domains === null) {
+        throw new Problem('vm_unlist_vm_off');
+    }
+    $away = null;
+    foreach (snapshotVmAway($domains) as $a) {
+        if ($a['id'] === $id) {
+            $away = $a;
+        }
+    }
+    if ($away === null) {
+        throw new Problem('vm_relist_gone');
+    }
+    $vm = $away['vm'];
+    if ($away['vm_back']) {
+        throw new Problem('vm_relist_vm_back', ['vm' => $vm]);
+    }
+    if ($away['taken']) {
+        throw new Problem('vm_relist_taken', ['vm' => $vm]);
+    }
+    if (!is_dir(snapshotVmDb()) || is_link(snapshotVmDb())) {
+        throw new Problem('vm_relist_failed', ['vm' => $vm, 'detail' => snapshotVmDb()]);
+    }
+    [$runPath, $as] = explode('|', $id, 2);
+    $home = snapshotVmDb() . "/$vm";
+    if (!@rename("$runPath/$as", $home)) {
+        throw new Problem('vm_relist_failed', ['vm' => $vm, 'detail' => preg_replace('/^rename\([^)]*\):\s*/', '', error_get_last()['message'] ?? '')]);
+    }
+    // out of the run's manifest; a run with nothing left goes (as Ms. Dustdevil's «Put back» does)
+    $manifest = readJson("$runPath/manifest.json") ?? [];
+    $rest = array_values(array_filter((array) ($manifest['items'] ?? []), fn ($m) => !is_array($m) || ($m['as'] ?? null) !== $as));
+    if ($rest) {
+        clManifestWrite(['path' => $runPath, 'time' => (int) ($manifest['time'] ?? time()), 'items' => $rest]);
+    } else {
+        clRunTidy($runPath, dirname($runPath));
+    }
+    logLine("Ms. Snapshotini: put the snapshot list of $vm back into Unraid's list ($home)");
+    return ['ok' => true, 'vm' => $vm, 'state' => snapshotScan(false)];
 }
 
 /** Files a VM currently uses as disks (from its XML) */
 function vmDiskFiles(string $vm): array
 {
-    $xml = (string) @file_get_contents(VM_XML_DIR . '/' . basename($vm) . '.xml');
+    $xml = (string) @file_get_contents(snapshotVmXmlDir() . '/' . basename($vm) . '.xml');
     preg_match_all("#<source file=['\"]([^'\"]+)['\"]#", $xml, $m);
     return $m[1];
 }

@@ -141,7 +141,7 @@ function deletable(s) {
 
 function whyNot(s) {
   if (s.docker) return T('why.docker');
-  if (s.fs === 'vm') return T('why.vm');
+  if (s.fs === 'vm') return vmWhy(s);
   if (partnerLocked(s)) return T('why.partner', { name: s.partner.name || s.partner.id || '' });
   if (usedByBackup(s)) return T('why.backup');
   if (s.holds && s.holds.length) return T('why.held');
@@ -266,7 +266,7 @@ Office.places(ID, [
   { kind: 'section', key: 'plans' },
   { kind: 'section', key: 'snapshots' },
   ...[['held', 'help.held'], ['mounted', 'help.mounted'], ['used_by_backup', 'help.backup'], ['disk_asleep', 'help.asleep'],
-    ['pool_asleep_chip', 'help.pool_asleep'], ['partner.chip', 'help.partner'], ['plans', 'help.plans'], ['docker_layers', 'help.docker']]
+    ['pool_asleep_chip', 'help.pool_asleep'], ['partner.chip', 'help.partner'], ['vm_gone', 'help.vm_gone'], ['plans', 'help.plans'], ['docker_layers', 'help.docker']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
   ...['tiles', 'group', 'select', 'name', 'menu', 'sources', 'scan'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
@@ -323,6 +323,7 @@ function build(root) {
     [el('span', 'chip quiet', '💤 ' + T('disk_asleep')), T('help.asleep')],
     [el('span', 'chip quiet', '💤 ' + T('pool_asleep_chip')), T('help.pool_asleep')],
     [el('span', 'chip outline', T('partner.chip')), T('help.partner')],
+    [el('span', 'chip warn', T('vm_gone')), T('help.vm_gone')],
     [T('plans'), T('help.plans')],
     [T('help.sources'), T('help.sources_text')],
     [T('docker_layers'), T('help.docker')],
@@ -405,9 +406,10 @@ function build(root) {
 
   v.list = el('div');
   v.empty = el('p', 'empty');
+  v.vmAway = el('div');              // a deleted VM's entries taken out of Unraid's list, in the storeroom (issue #3)
   const box = el('div', 'box');
   box.append(v.list, v.empty);
-  list.append(lh, bar, box);
+  list.append(lh, bar, v.vmAway, box);
   root.appendChild(list);
   return v;
 }
@@ -420,6 +422,7 @@ function render() {
   dockerSwitch();
   hideSwitches();
   fillSources();
+  renderVmAway();
   renderList();
   buttons();
 }
@@ -756,8 +759,11 @@ function buildGroup(g) {
     if (zfs.length) meta.push(T('group.uses', { size: fmt.size(zfs.reduce((a, s) => a + (s.used || 0), 0)) }));
   }
   if (g.kind === 'vm') {
+    const f = grouping === 'dataset' ? vmFolder(g.title) : null;
     if (g.items.some((s) => s.orphaned)) meta.push(T('vm_gone'));
     else if (g.items.some((s) => s.active)) meta.push(T('vm_on_newest'));
+    if (f && f.orphan) meta.push(T('vm_nothing_left'));
+    else if (f && f.left.length) meta.push(T('vm_left_count', { n: f.left.length }));
   }
   if (g.kind === 'docker') meta.push(T('docker_meta', { parent: dockerParent() }));
   const mounted = g.items.filter((s) => fixedMounts(s).length).length;
@@ -765,6 +771,15 @@ function buildGroup(g) {
   mid.appendChild(el('div', 'group-meta', meta.join(' · ')));
 
   head.append(cb, arrow, mid);
+  const orphanVm = g.kind === 'vm' && grouping === 'dataset' && vmFolder(g.title)?.orphan;
+  if (orphanVm) {
+    // a deleted VM's entries with nothing left on disk: out of Unraid's list, all at once
+    const b = el('button', 'btn plain small', T('unlist') + '…');
+    b.type = 'button';
+    b.disabled = !Office.agent.running || busy;
+    b.onclick = (e) => { e.stopPropagation(); askUnlist(g.title); };
+    head.appendChild(b);
+  }
   if (grouping === 'dataset' && g.kind !== 'docker' && g.kind !== 'vm') {
     head.appendChild(timeline(g.items));
     const plus = el('button', 'group-plus', '+');
@@ -903,6 +918,12 @@ function buildRow(s) {
       const c = el('span', 'chip warn', T('vm_gone'));
       c.title = T('vm_gone_title');
       meta.appendChild(c);
+      if (s.unlistable) meta.appendChild(el('span', 'chip quiet', T('vm_nothing_left')));
+      else if ((s.left || []).length) {
+        const l = el('span', 'chip outline', T('vm_left_chip'));
+        l.title = leftText(s.left);
+        meta.appendChild(l);
+      }
     }
   }
   if (s.used !== null && s.used !== undefined) meta.appendChild(el('span', 'narrow-only', T('used_short', { size: fmt.size(s.used) })));
@@ -951,6 +972,10 @@ function rowMenu(s) {
   if (fixedMounts(s).length) {
     const locked = usedByBackup(s);
     items.push({ text: locked ? T('unmount_locked') : T('unmount') + '…', act: () => askUnmount(s), disabled: !on || locked });
+  }
+  if (s.unlistable) {
+    items.push({ separator: true });
+    items.push({ text: T('unlist') + '…', act: () => askUnlist(s.ds), disabled: !on });
   }
   if ((s.fs === 'zfs' || s.fs === 'btrfs') && !s.docker) {
     const mounted = fixedMounts(s).length > 0;
@@ -1673,6 +1698,111 @@ function check(text, small) {
   return { label, input };
 }
 
+// ------------------------------------------------------------------ a deleted VM's entries in Unraid's list (issue #3)
+/*
+ * Unraid's VM page shows snapshots only of VMs that exist: the entries a deleted VM left in its list
+ * (snapshotdb/<VM>) can't be removed there. When nothing of them is left on disk (the agent checks every
+ * entry by its method — state.vm.folders, `unlistable` on each), the whole VM's list goes into Ms. Dustdevil's
+ * storeroom; «Put back» returns it (state.vm.away) — never over a VM of that name created again.
+ */
+function vmFolder(vm) { return (state?.vm?.folders || []).find((f) => f.vm === vm) || null; }
+function leftText(left) { return (left || []).map((x) => x.zfs || x.file).join(', '); }
+
+function vmUnsureText(u) {
+  const what = u.what || '?';
+  switch (u.why) {
+    case 'method': return T('why.vm_unsure_method', { what: u.what || T('vm_method_none') });
+    case 'asleep': return T('why.vm_unsure_asleep', { what });
+    case 'no_dataset': return T('why.vm_unsure_no_dataset', { what });
+    case 'no_zfs': return T('why.vm_unsure_no_zfs', { what });
+    case 'link': return T('why.vm_unsure_link', { what });
+    case 'unreadable': return T('why.vm_unsure_unreadable', { what });
+    default: return T('why.vm_unsure_no_path');
+  }
+}
+
+/** Why a VM snapshot can't be deleted here — and for a deleted VM's entries: what is left, or that they can go */
+function vmWhy(s) {
+  if (!s.orphaned) return T('why.vm');
+  if (s.unlistable) return T('why.vm_orphan');
+  if ((s.left || []).length) {
+    return T('why.vm_left', { left: leftText(s.left) }) + ' ' + (s.left.some((x) => x.zfs) ? T('why.vm_left_zfs') : T('why.vm_left_files'));
+  }
+  if (s.unsure) return vmUnsureText(s.unsure);
+  const f = vmFolder(s.ds);
+  return f && !f.orphan ? T('why.vm_folder_left') : T('why.vm');
+}
+
+async function askUnlist(vm) {
+  if (!(await Office.freshState(ID))) return;
+  const f = vmFolder(vm);
+  if (!f || !f.orphan) { Office.toast(T('errors.vm_unlist_not_orphan', { vm }), true); return; }
+  const box = el('div');
+  box.appendChild(el('p', '', T('unlist.intro', { vm })));
+  const ul = el('ul', 'shortlist');
+  snaps.filter((s) => s.fs === 'vm' && s.ds === vm).forEach((s) => {
+    const li = el('li', '', s.name);
+    li.appendChild(el('span', '', s.t ? fmt.date(s.t) : ''));
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  box.appendChild(el('p', 'callout', T('unlist.note', { vm })));
+  const d = Office.dialog({
+    title: T('unlist.title', { vm }),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('unlist.confirm', { n: f.entries }), kind: 'danger', act: () => { unlist(vm); return true; } },
+    ],
+  });
+  d.buttons[0].focus();   // safe default: Enter cancels
+}
+
+async function unlist(vm) {
+  setBusy(true);
+  const j = await Office.api.post(`${ID}.vm_unlist`, { vm });
+  setBusy(false);
+  if (!j.ok) { failed(j); return; }
+  setState(j.state);
+  Office.toast(T('unlist.done', { vm }));
+}
+
+async function relist(a) {
+  setBusy(true);
+  const j = await Office.api.post(`${ID}.vm_relist`, { id: a.id });
+  setBusy(false);
+  if (!j.ok) { failed(j); return; }
+  setState(j.state);
+  Office.toast(T('relist.done', { vm: a.vm }));
+}
+
+/** The lists taken out of Unraid's list, waiting in the storeroom: each with «Put back» (not while a VM of that name exists) */
+function renderVmAway() {
+  const box = view.vmAway;
+  box.innerHTML = '';
+  const away = state?.vm?.away || [];
+  box.hidden = !away.length;
+  if (!away.length) return;
+  const c = el('div', 'callout');
+  c.append(el('strong', '', T('away.title')), ' ', T('away.text'));
+  const ul = el('ul', 'shortlist');
+  ul.style.margin = '8px 0 0';
+  away.forEach((a) => {
+    const li = el('li');
+    const left = el('span', '', `${a.vm} · ${T('away.entries', { n: a.entries })} · ${fmt.date(a.time)}`);
+    if (a.vm_back || a.taken) left.appendChild(el('small', '', ' — ' + (a.vm_back ? T('errors.vm_relist_vm_back', { vm: a.vm }) : T('errors.vm_relist_taken', { vm: a.vm }))));
+    const b = el('button', 'btn plain small', T('relist'));
+    b.type = 'button';
+    b.title = T('relist_title');
+    b.disabled = !Office.agent.running || busy || a.vm_back || a.taken;
+    b.onclick = () => relist(a);
+    li.append(left, b);
+    ul.appendChild(li);
+  });
+  c.appendChild(ul);
+  box.appendChild(c);
+}
+
 // ------------------------------------------------------------------ properties
 function properties(s) {
   const box = el('div');
@@ -1712,6 +1842,7 @@ function properties(s) {
     if (s.overlay !== null && s.overlay !== undefined) line(T('p.overlay'), fmt.size(s.overlay), T('p.overlay_hint'));
     if ((s.files || []).length) line(T('p.files'), s.files.join('\n'), s.active ? T('vm_current_title') : null, true).style.whiteSpace = 'pre-line';
     if (s.orphaned) line('VM', T('vm_gone'), T('vm_gone_title'));
+    if ((s.left || []).length) line(T('p.left'), s.left.map((x) => x.zfs || x.file).join('\n'), T('p.left_hint'), true).style.whiteSpace = 'pre-line';
   }
   if (s.path) {
     const dd = line(T('p.path'), s.path, T('p.path_hint'), true);
@@ -1722,11 +1853,13 @@ function properties(s) {
     dd.appendChild(b);
   }
   if (s.guid) line('GUID', s.guid, null, true);
-  if (!deletable(s)) line(T('delete'), T('p.not_possible'), whyNot(s));
+  if (s.unlistable) line(T('p.unraid_list'), T('p.unlist_possible'), whyNot(s));
+  else if (!deletable(s)) line(T('delete'), T('p.not_possible'), whyNot(s));
   box.appendChild(dl);
 
   const buttons = [{ text: Office.t('common.close') }];
   if (deletable(s) && Office.agent.running) buttons.unshift({ text: T('delete') + '…', kind: 'danger plain', act: () => { setTimeout(() => askDelete([s.id]), 0); } });
+  if (s.unlistable && Office.agent.running) buttons.unshift({ text: T('unlist') + '…', kind: 'danger plain', act: () => { setTimeout(() => askUnlist(s.ds), 0); } });
   Office.dialog({ title: s.docker ? T('kind.docker') : T('p.title'), body: box, buttons });
 }
 })();

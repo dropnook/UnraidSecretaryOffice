@@ -1815,13 +1815,52 @@ function clLibvirtOrphans(array $vms): array
                       'bytes' => clDirBytes($d), 'mtime' => clNewest($d)];
         }
     }
-    foreach (glob(CL_LIBVIRT . '/qemu/snapshotdb/*', GLOB_ONLYDIR) ?: [] as $d) {
+    $zfs = false;                       // listed once, only when a list of the ZFS method asks for it
+    foreach (glob(clSnapshotDbDir() . '/*', GLOB_ONLYDIR) ?: [] as $d) {
         if (!isset($vms['vms'][basename($d)]) && !is_link($d)) {
             $out[] = ['kind' => 'snapshotdb', 'name' => basename($d), 'path' => $d, 'uuid' => null, 'snapshot' => false,
-                      'bytes' => clDirBytes($d), 'mtime' => clNewest($d)];
+                      'bytes' => clDirBytes($d), 'mtime' => clNewest($d)] + clSnapshotDbJudge($d, $zfs);
         }
     }
     return $out;
+}
+
+/** Unraid's VM snapshot lists (tests: Ms. Snapshotini's $GLOBALS['snapshotVm']['db']) */
+function clSnapshotDbDir(): string
+{
+    return function_exists('snapshotVmDb') ? snapshotVmDb() : CL_LIBVIRT . '/qemu/snapshotdb';
+}
+
+/**
+ * A snapshot list without its VM, judged as Ms. Snapshotini does (issue #3, snapshotVmJudge()): put away only when
+ * nothing of any entry is left on disk. Something left (a ZFS snapshot, an overlay, a memory dump): `vm_left` with what;
+ * can't tell (a method she doesn't know, a sleeping disk, no dataset, a list that can't be read): `vm_unsure`. Sleeping
+ * disks are never looked at (her tour's view of what sleeps). $zfs: false until ZFS was listed (null: it can't be).
+ */
+function clSnapshotDbJudge(string $dir, array|false|null &$zfs): array
+{
+    $none = ['entries' => 0, 'names' => [], 'left' => [], 'unsure' => [], 'vm_why' => null];
+    if (!function_exists('snapshotVmJudge')) {
+        return ['unsure' => [['why' => 'no_path', 'what' => '']], 'vm_why' => 'vm_unsure'] + $none;
+    }
+    $db = "$dir/snapshots.db";
+    if (!file_exists($db) && !is_link($db)) {
+        return $none;                   // no list at all: it names nothing
+    }
+    $entries = is_link($db) ? null : json_decode((string) @file_get_contents($db), true);
+    if (!is_array($entries)) {
+        return ['unsure' => [['why' => 'unreadable', 'what' => $db]], 'vm_why' => 'vm_unsure'] + $none;
+    }
+    if ($zfs === false && snapshotVmNeedsZfs($entries)) {
+        try {
+            $zfs = snapshotReadZfs(null, false);
+        } catch (Throwable $e) {
+            $zfs = null;
+        }
+    }
+    $j = snapshotVmJudge($entries, $zfs ?: null, $GLOBALS['clCtx']['asleep'] ?? null);
+    return ['entries' => count($j['names']), 'names' => $j['names'], 'left' => $j['left'], 'unsure' => $j['unsure'],
+            'vm_why' => $j['left'] ? 'vm_left' : ($j['unsure'] ? 'vm_unsure' : null)];
 }
 
 /** Newest change in a small folder */
@@ -2411,8 +2450,11 @@ function clBuild(): array
             }
         }
         foreach ($raw['libvirt'] as $o) {
+            // a VM's snapshot list only when nothing of it is left on disk (vm_left / vm_unsure: shown, nothing offered)
+            $why = $vmf['ok'] ? ($o['vm_why'] ?? null) : 'vm_off';
+            unset($o['vm_why']);
             $vmItems[] = $o + ['id' => "{$o['kind']}:{$o['name']}", 'category' => 'orphan', 'used_by' => [], 'notes' => [],
-                               'why' => $vmf['ok'] ? null : 'vm_off', 'force' => false];
+                               'why' => $why, 'force' => false];
         }
         [$domRefs] = clTopRefs($refs, $raw['domains']['share']);
         $vmItems = array_merge($vmItems, clFolderEntries($raw['domains']['folders']['list'], $domRefs, $vmNamed, 'domain', $vmf['ok'], $vmComplete, $cache, $pending, $space));
@@ -3328,6 +3370,8 @@ function clPark(array $ids, bool $force): array
                 'checking'      => new Problem('cleanup_checking', $p),
                 'vm_off'        => new Problem('cleanup_vm_off', $p),
                 'in_unraid'     => new Problem('cleanup_in_unraid', $p),
+                'vm_left'       => new Problem('cleanup_vm_left', $p + ['left' => implode(', ', array_map(fn ($x) => $x['zfs'] ?? $x['file'] ?? '', $e['left'] ?? []))]),
+                'vm_unsure'     => new Problem('cleanup_vm_unsure', $p),
                 'running'       => new Problem('cleanup_running', $p),
                 'scheduled'     => new Problem('cleanup_scheduled', $p),
                 'measuring'     => new Problem('cleanup_measuring', $p),
@@ -3628,6 +3672,10 @@ function clRestore(array $ids): array
         }
         if (!empty($it['asleep'])) {
             throw new Problem('cleanup_asleep', ['name' => $it['name']]);         // its pool sleeps: never woken on her own
+        }
+        // a VM's snapshot list: never back while a VM of that name exists again (it would take over the old entries) — issue #3
+        if ($it['kind'] === 'snapshotdb' && snapshotVmExists(basename($it['from']), snapshotVmDomains())) {
+            throw new Problem('cleanup_vm_back', ['name' => $it['name']]);
         }
         try {
             if ($zfs !== null && $it['kind'] !== 'partner' && is_dir($it['from']) && !array_diff(@scandir($it['from']) ?: [], ['.', '..'])) {
