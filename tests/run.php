@@ -11131,8 +11131,8 @@ function testParityWhy(): void
     touch("$logs/old-diagnostics-20261001-0000.zip", $now - 9 * 86400);
     @symlink($zipFile, "$logs/link-diagnostics-20261009-1151.zip");
     $d = paritywhyDiag($logs, $now - 600);
-    same('parity: the shutdown\'s diagnostics — the newest within half an hour before the boot, plain files only; none before an older boot',
-        ['tower-diagnostics-20261009-1150.zip', null], [$d['name'] ?? null, paritywhyDiag($logs, $now + 7200)]);
+    same('parity: the shutdown\'s diagnostics — the newest within PARITYWHY_DIAG_BEFORE before the boot, plain files only; none before an older boot, none of the boot before',
+        ['tower-diagnostics-20261009-1150.zip', null, null], [$d['name'] ?? null, paritywhyDiag($logs, $now + 7200), paritywhyDiag($logs, $now - 600, $now - 650)]);
     same('parity: its syslog read from the zip in memory', $real, paritywhyDiagSyslog((array) $d));
     hardeningRm($pct);
 
@@ -11207,9 +11207,13 @@ function testParityWhy(): void
     same('parity: his first round — an old check and an old unclean stop only remembered, nobody told', [[], $t0 - 86400, [], null],
         [$entries(), $parity()['synced'] ?? null, $calls(), $parity()['todo'] ?? null]);
 
-    // boot B, clean: the array started, no check — after PARITYWHY_SETTLE the verdict «clean», no line, no to-do
+    // boot B, clean: the array started, no check — after PARITYWHY_SETTLE the verdict «clean», no line, no to-do. The stop
+    // before ran out of time but still ended clean (Tower 09:11: a program in /mnt/disk1, btrfs — rc.6 killed it and the md
+    // driver stopped): its diagnostics are there, Unraid found nothing unclean — nothing to say
     $up = $t0 + 3600;
     $setBoot($B, $up);
+    copy($zipFile, "$src/logs/tower-diagnostics-20261005-1259.zip");
+    touch("$src/logs/tower-diagnostics-20261005-1259.zip", $up - 60);
     file_put_contents($paths['syslog'], $bootLog($up, false));
     watchmanRound($paths, $day, 1000, $up + 120, $docker, true, $acks);
     same('parity: a clean boot — still waiting while the array runs less than PARITYWHY_SETTLE', [$A, []], [$parity()['verdict']['boot'] ?? null, $entries()]);
@@ -11241,7 +11245,7 @@ function testParityWhy(): void
         [1, 'normal', 'Unraid Secretary Office: Night watchman: parity check after an unclean stop', 'The array didn\'t stop within 90 s at the last shutdown; Unraid is checking the parity now.',
          true, true, true, true, true],
         [count($c), $c[0]['-i'] ?? null, $c[0]['-s'] ?? null, $c[0]['-d'] ?? null, str_starts_with($m, "Parity check after an unclean stop\n\nWHAT HAPPENED\n  At the last shutdown"),
-         str_contains($m, "\n\nHELD UP BY (AS FAR AS CAN BE SEEN)\n  /mnt/cache\n  /mnt/disk2\n  /mnt/big\n\nWHAT HELPS\n"),
+         str_contains($m, "\n\nHELD UP BY (AS FAR AS CAN BE SEEN)\n  /mnt/cache: still busy — a program had a file or folder open there (a terminal, a container Unraid doesn't manage, a script)\n  /mnt/disk2: still busy"),
          str_contains($m, "  Settings → Disk Settings → «Shutdown time-out» at least 100 s (now 90 s): Docker 10 s + VMs 60 s + 30 s for the disks\n"),
          str_contains($m, "So the reason shows next time"), str_ends_with((string) ($c[0]['-l'] ?? ''), '#/caretaker')]);
     $f = watchmanParityFinding($day);

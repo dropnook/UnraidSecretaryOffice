@@ -10,8 +10,11 @@ declare(strict_types=1);
  *   /boot/config/forcesync   emhttpd touches it when it starts the array (syslog «shcmd (N): touch /boot/config/forcesync»)
  *                            and removes it when the array stops; rc.6 removes it too («Clean shutdown») once the md
  *                            driver stopped. Still there at the next boot: emhttpd logs «unclean shutdown detected» as it
- *                            starts, and the array's start begins a parity check (read only) — again after every stop that
- *                            isn't clean.
+ *                            starts, and the array's start begins a parity check — again after every stop that isn't
+ *                            clean (7.3.3: a correcting one, «mdcmd (N): check correct», mdResyncCorr 1). A stop whose
+ *                            time-out ran out can still end clean: rc.6 kills every process, unmounts and stops the md
+ *                            driver — a program holding an XFS/btrfs disk dies with it; an imported ZFS pool keeps the
+ *                            driver busy («Unclean shutdown - Cannot stop md/unraid driver»).
  *   rc.local_shutdown        (run by rc.6) asks emhttpd to stop the array and waits up to var.ini shutdownTimeout (Settings
  *                            → Disk Settings → «Shutdown time-out», empty = 90 s): «Waiting up to N seconds for graceful
  *                            shutdown...». Ran out: «Forcing shutdown...», then /usr/local/sbin/diagnostics writes
@@ -44,7 +47,7 @@ declare(strict_types=1);
  */
 
 const PARITYWHY_DIAG_RE      = '/^[A-Za-z0-9._-]{1,64}-diagnostics-\d{8}-\d{4}\.zip$/D';
-const PARITYWHY_DIAG_BEFORE  = 1800;        // diagnostics written this long before the boot: the shutdown's (rc.local_shutdown)
+const PARITYWHY_DIAG_BEFORE  = 900;         // diagnostics written this long before the boot (and after the boot before): the shutdown's
 const PARITYWHY_AT_START     = 180;         // a check that began this close to the array's start began with it
 const PARITYWHY_SETTLE       = 600;         // no check and no unclean line this long after the array's start: the stop was clean
 const PARITYWHY_READ_MAX     = 4 * 1024 * 1024;     // per syslog file read for the verdict (its start matters)
@@ -246,9 +249,10 @@ function paritywhyBlockers(string $syslog, int $now): array
 
 /**
  * The diagnostics rc.local_shutdown wrote at the shutdown before this boot: the newest <name>-diagnostics-*.zip in /boot/logs
- * whose time lies within PARITYWHY_DIAG_BEFORE before $btime. @return array{name: string, mtime: int, path: string, size: int}|null
+ * whose time lies within PARITYWHY_DIAG_BEFORE before $btime and after $after (the boot before, when known — a stop that
+ * ran out of time but still ended clean leaves one too). @return array{name: string, mtime: int, path: string, size: int}|null
  */
-function paritywhyDiag(string $dir, int $btime): ?array
+function paritywhyDiag(string $dir, int $btime, ?int $after = null): ?array
 {
     $best = null;
     foreach (@scandir($dir) ?: [] as $f) {
@@ -260,7 +264,7 @@ function paritywhyDiag(string $dir, int $btime): ?array
             continue;
         }
         $t = (int) $st['mtime'];
-        if ($t <= $btime + 60 && $t >= $btime - PARITYWHY_DIAG_BEFORE && ($best === null || $t > $best['mtime'])) {
+        if ($t <= $btime + 60 && $t >= $btime - PARITYWHY_DIAG_BEFORE && ($after === null || $t > $after) && ($best === null || $t > $best['mtime'])) {
             $best = ['name' => $f, 'mtime' => $t, 'path' => "$dir/$f", 'size' => (int) $st['size']];
         }
     }
@@ -487,7 +491,8 @@ function paritywhyLook(array $paths, ?array $prev, string $boot, ?int $btime, in
     }
     if ($look['unclean'] === true) {
         $logs = (string) ($paths['boot_logs'] ?? '/boot/logs');
-        $diag = $btime !== null ? paritywhyDiag($logs, $btime) : null;
+        $before = isset($prev['verdict']['btime']) && ($prev['verdict']['boot'] ?? null) !== $boot ? (int) $prev['verdict']['btime'] : null;
+        $diag = $btime !== null ? paritywhyDiag($logs, $btime, $before) : null;
         if ($diag !== null) {
             $diag['syslog'] = paritywhyDiagSyslog($diag);
         }
@@ -665,7 +670,7 @@ function paritywhyNotify(array $v, string $lang): bool
     if ($stop === 'timeout' || $stop === 'late') {
         $lines[] = '';
         $lines[] = $t('parity.notify.held_title');
-        $held = array_merge((array) ($v['busy'] ?? []), array_map(fn ($vm) => $t('parity.notify.held_vm', ['name' => $vm, 'timeout' => $times['vm']]), (array) ($v['vms'] ?? [])));
+        $held = array_merge(array_map(fn ($b) => $t('parity.notify.held_busy', ['path' => $b]), (array) ($v['busy'] ?? [])), array_map(fn ($vm) => $t('parity.notify.held_vm', ['name' => $vm, 'timeout' => $times['vm']]), (array) ($v['vms'] ?? [])));
         if (isset($v['containers_s']) && $v['containers_s'] !== null && $times['docker'] > 0 && $v['containers_s'] >= $times['docker']) {
             $held[] = $t('parity.notify.held_containers', ['s' => (int) $v['containers_s']]);
         }

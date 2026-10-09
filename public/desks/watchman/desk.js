@@ -687,11 +687,15 @@ function details(e) {
     if (p.evidence && Office.has(`${ID}.parity.from_${p.evidence}`)) from.push(T('parity.from_' + p.evidence));
     if (p.from === 'diag' && p.diag) from.push(T('parity.from_diag', { name: p.diag }));
     else if (p.from === 'previous') from.push(T('parity.from_previous'));
-    if (from.length) add(T('detail.parity_from'), lines(from));
+    if (from.length) {
+      const box = el('div', '');
+      from.forEach((x) => box.appendChild(el('div', '', x)));
+      add(T('detail.parity_from'), box);
+    }
     if (p.reason === 'unclean' && !p.kept) {
       const a = el('a', '', T('parity.to_syslog'));
       a.href = '/Settings/SyslogSettings';      // into Unraid, in the same tab like its own links
-      add(T('parity.to_syslog'), a);
+      add(T('detail.parity_keep'), a);
     }
     if ((p.logins || []).length) add(T('detail.logins'), lines(p.logins.map((l) => `${fmt.time(l.t)} · ${l.user ? l.user + '@' : ''}${l.ip} · ${loginService(l.service)}`)));
   } else if (e.group === 'array') {
