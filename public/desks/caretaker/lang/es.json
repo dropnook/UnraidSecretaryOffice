@@ -491,5 +491,13 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ no es este servidor",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ es {remote} — este mismo servidor: Unraid se envía sus propias líneas y las vuelve a escribir en el recurso compartido syslog (el sereno se salta ese archivo). Vacía el campo en ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, o indica un SIEM de verdad.",
   "check.syslog_off": "El servidor syslog de Unraid está apagado",
-  "check.syslog_off_how": "El sereno está contratado y abriste la guía del router del consultor, pero ⟦Local syslog server⟧ está apagado — el router no tiene adónde enviar. El consultor muestra el ajuste."
+  "check.syslog_off_how": "El sereno está contratado y abriste la guía del router del consultor, pero ⟦Local syslog server⟧ está apagado — el router no tiene adónde enviar. El consultor muestra el ajuste.",
+  "check.parity_unclean": {"one": "El último apagado no fue limpio — Unraid comprueba la paridad al iniciar", "other": "Los últimos {n} apagados no fueron limpios — la comprobación de paridad empieza de nuevo en cada inicio"},
+  "check.parity_unclean_how": "Dale al array tiempo para detenerse: ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧» al menos {need} s (ahora {disk} s) — Docker {docker} s («⟦Docker Stop Timeout⟧»), VM {vm} s («⟦VM shutdown time-out⟧»), {margin} s para los discos. Lo que lo retuvo, hasta donde se ve: {held}. Antes de reiniciar, detener VM y contenedores y cerrar terminales y programas en /mnt — o detener primero el array. Este punto se va en cuanto una parada vuelva a ser limpia.",
+  "check.parity_crash": {"one": "El servidor se apagó sin cerrarse — Unraid comprueba la paridad", "other": "El servidor se apagó {n} veces seguidas sin cerrarse — la comprobación de paridad empieza de nuevo en cada inicio"},
+  "check.parity_crash_how": "No es un tiempo de espera: no hubo apagado (un fallo, un corte de luz, un reinicio forzado). Contra los cortes de luz un SAI (⟦Settings⟧ → ⟦UPS Settings⟧); para ver por qué falló, guardar el syslog (⟦Settings⟧ → ⟦Syslog Server⟧). El libro del sereno tiene los detalles. Este punto se va en cuanto una parada vuelva a ser limpia.",
+  "open.disks": "⟦Disk Settings⟧",
+  "open.ups": "⟦UPS Settings⟧",
+  "help.parity_term": "Parada no limpia",
+  "help.parity": "Si el array no se detuvo a tiempo en un apagado (o el servidor se apagó sin cerrarse), Unraid comprueba la paridad en el siguiente inicio — en cada inicio, mientras las paradas no sean limpias. El sereno anota por qué corre una comprobación; yo mantengo en mi lista qué cambiar hasta que una parada vuelva a ser limpia."
 }

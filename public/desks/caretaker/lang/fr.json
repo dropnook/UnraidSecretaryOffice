@@ -491,5 +491,13 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ n'est pas ce serveur",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ est {remote} — ce serveur lui-même : Unraid s'envoie ses propres lignes et les écrit encore dans le partage syslog (le veilleur de nuit saute ce fichier). Vide le champ sous ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, ou indique un vrai SIEM.",
   "check.syslog_off": "Le serveur syslog d'Unraid est désactivé",
-  "check.syslog_off_how": "Le veilleur de nuit est engagé et tu as ouvert le guide du routeur du consultant, mais ⟦Local syslog server⟧ est désactivé — le routeur n'a nulle part où envoyer. Le consultant montre le réglage."
+  "check.syslog_off_how": "Le veilleur de nuit est engagé et tu as ouvert le guide du routeur du consultant, mais ⟦Local syslog server⟧ est désactivé — le routeur n'a nulle part où envoyer. Le consultant montre le réglage.",
+  "check.parity_unclean": {"one": "Le dernier arrêt n'était pas propre — Unraid vérifie la parité au démarrage", "other": "Les {n} derniers arrêts n'étaient pas propres — la vérification de parité recommence à chaque démarrage"},
+  "check.parity_unclean_how": "Laisse à l'array le temps de s'arrêter : ⟦Settings⟧ → ⟦Disk Settings⟧ → « ⟦Shutdown time-out⟧ » au moins {need} s (maintenant {disk} s) — Docker {docker} s (« ⟦Docker Stop Timeout⟧ »), VM {vm} s (« ⟦VM shutdown time-out⟧ »), {margin} s pour les disques. Ce qui l'a retenu, pour autant qu'on le voie : {held}. Avant un redémarrage, arrêter les VM et les conteneurs et fermer les terminaux et programmes dans /mnt — ou arrêter d'abord l'array. Ce point disparaît dès qu'un arrêt est de nouveau propre.",
+  "check.parity_crash": {"one": "Le serveur s'est éteint sans s'arrêter — Unraid vérifie la parité", "other": "Le serveur s'est éteint {n} fois de suite sans s'arrêter — la vérification de parité recommence à chaque démarrage"},
+  "check.parity_crash_how": "Pas un délai : aucun arrêt n'a tourné (un plantage, une coupure de courant, un reset forcé). Contre les coupures de courant un onduleur (⟦Settings⟧ → ⟦UPS Settings⟧) ; pour voir pourquoi il a planté, garder le syslog (⟦Settings⟧ → ⟦Syslog Server⟧). La main courante du veilleur de nuit a les détails. Ce point disparaît dès qu'un arrêt est de nouveau propre.",
+  "open.disks": "⟦Disk Settings⟧",
+  "open.ups": "⟦UPS Settings⟧",
+  "help.parity_term": "Arrêt non propre",
+  "help.parity": "Quand l'array ne s'est pas arrêté à temps lors d'un arrêt (ou que le serveur s'est éteint sans arrêt), Unraid vérifie la parité au démarrage suivant — à chaque démarrage, tant que les arrêts ne sont pas propres. Le veilleur de nuit note pourquoi une vérification tourne ; je garde sur ma liste ce qu'il faut changer jusqu'à ce qu'un arrêt soit de nouveau propre."
 }

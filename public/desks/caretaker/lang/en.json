@@ -491,5 +491,13 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ isn't this server",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ is {remote} — this server itself: Unraid sends its own lines to itself and writes them again into the syslog share (the night watchman skips that file). Empty the field under ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, or name a real SIEM.",
   "check.syslog_off": "Unraid's syslog server is off",
-  "check.syslog_off_how": "The night watchman is hired and you opened the Consultant's router guide, but ⟦Local syslog server⟧ is off — the router has nowhere to send. The Consultant shows the setting."
+  "check.syslog_off_how": "The night watchman is hired and you opened the Consultant's router guide, but ⟦Local syslog server⟧ is off — the router has nowhere to send. The Consultant shows the setting.",
+  "check.parity_unclean": {"one": "The last shutdown wasn't clean — Unraid checks the parity at the start", "other": "The last {n} shutdowns weren't clean — the parity check starts over at every start"},
+  "check.parity_unclean_how": "Give the array time to stop: ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧» at least {need} s (now {disk} s) — Docker {docker} s («⟦Docker Stop Timeout⟧»), VMs {vm} s («⟦VM shutdown time-out⟧»), {margin} s for the disks. What held it up, as far as can be seen: {held}. Before a restart stop VMs and containers and close terminals and programs in /mnt — or stop the array first. This point goes once a stop is clean again.",
+  "check.parity_crash": {"one": "The server went off without shutting down — Unraid checks the parity", "other": "The server went off {n} times in a row without shutting down — the parity check starts over at every start"},
+  "check.parity_crash_how": "Not a time-out: no shutdown ran (a crash, a power cut, a hard reset). Against power cuts a UPS (⟦Settings⟧ → ⟦UPS Settings⟧); to see why it crashed, keep the syslog (⟦Settings⟧ → ⟦Syslog Server⟧). The night watchman's book has the details. This point goes once a stop is clean again.",
+  "open.disks": "⟦Disk Settings⟧",
+  "open.ups": "⟦UPS Settings⟧",
+  "help.parity_term": "Unclean stop",
+  "help.parity": "When the array didn't stop in time at a shutdown (or the server went off without one), Unraid checks the parity at the next start — at every start, as long as the stops aren't clean. The night watchman notes why a check runs; I keep what to change on my list until a stop is clean again."
 }

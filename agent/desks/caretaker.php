@@ -568,6 +568,11 @@ function caretakerChecks(): array
             $out[] = finding('other_backup_script', 'hint', null, ['name' => $name], 'userscripts');
         }
     }
+    // the last stop wasn't clean (the night watchman's verdict, agent/lib/paritywhy.php): what to change so the array stops in
+    // time — while it applies; gone once a later stop was clean
+    if (function_exists('watchmanParityFinding') && in_array('watchman', staffHired(), true) && ($parity = watchmanParityFinding())) {
+        $out[] = $parity;
+    }
     array_push($out, ...caretakerMonitoringChecks());
     array_push($out, ...caretakerPartnerFindings());
     // Unraid's syslog server for the router (agent/lib/watchnet.php): the share, rotation, exports, UDP 514, a loop; the server

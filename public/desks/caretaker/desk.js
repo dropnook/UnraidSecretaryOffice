@@ -19,7 +19,7 @@ const ID = 'caretaker';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
 const LINKS = { plugins: '/Plugins', apps: '/Apps', docker: '/Docker', userscripts: '/Settings/Userscripts', notifications: '/Settings/Notifications', settings: '/Settings',
-  management: '/Settings/ManagementAccess' };
+  management: '/Settings/ManagementAccess', disks: '/Settings/DiskSettings', ups: '/Settings/UPSsettings' };
 
 let state = null;
 let view = null;
@@ -147,6 +147,7 @@ function render() {
     [T('help.open'), T('help.open_text')],
     [T('check_again'), T('help.again')],
     [T('notify_title'), T('help.notify')],
+    [T('help.parity_term'), T('help.parity')],
     [T('partner.title'), T('partner.help')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
@@ -579,7 +580,7 @@ Office.places(ID, [
   ...[['todo', 'help.todo'], ['advice', 'help.advice'], ['hints', 'help.hints'], ['ack', 'help.ack'], ['noted_term', 'help.noted'],
     ['missing', 'help.missing'], ['not_yet', 'help.not_yet'], ['unknown', 'help.unknown'], ['team', 'help.team'],
     ['supporter_term', 'help.supporter'], ['help.open', 'help.open_text'], ['check_again', 'help.again'], ['notify_title', 'help.notify'],
-    ['partner.title', 'partner.help']].map(([key, text]) => ({ kind: 'help', key, text })),
+    ['help.parity_term', 'help.parity'], ['partner.title', 'partner.help']].map(([key, text]) => ({ kind: 'help', key, text })),
 ]);
 
 // what his state holds for the search (core.js «items»): the points still open (as his lists word them), who could work

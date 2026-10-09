@@ -491,5 +491,13 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ non è questo server",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ è {remote} — questo server stesso: Unraid manda le proprie righe a sé e le riscrive nella condivisione syslog (il guardiano notturno salta quel file). Svuota il campo in ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, o indica un vero SIEM.",
   "check.syslog_off": "Il server syslog di Unraid è spento",
-  "check.syslog_off_how": "Il guardiano notturno è assunto e hai aperto la guida del router del consulente, ma ⟦Local syslog server⟧ è spento — il router non ha dove mandare. Il consulente mostra l'impostazione."
+  "check.syslog_off_how": "Il guardiano notturno è assunto e hai aperto la guida del router del consulente, ma ⟦Local syslog server⟧ è spento — il router non ha dove mandare. Il consulente mostra l'impostazione.",
+  "check.parity_unclean": {"one": "L'ultimo spegnimento non è stato pulito — Unraid controlla la parità all'avvio", "other": "Gli ultimi {n} spegnimenti non sono stati puliti — il controllo di parità ricomincia a ogni avvio"},
+  "check.parity_unclean_how": "Dai all'array il tempo di fermarsi: ⟦Settings⟧ → ⟦Disk Settings⟧ → «⟦Shutdown time-out⟧» almeno {need} s (ora {disk} s) — Docker {docker} s («⟦Docker Stop Timeout⟧»), VM {vm} s («⟦VM shutdown time-out⟧»), {margin} s per i dischi. Cosa l'ha trattenuto, per quanto si vede: {held}. Prima di un riavvio fermare VM e container e chiudere terminali e programmi in /mnt — oppure fermare prima l'array. Il punto se ne va appena un arresto è di nuovo pulito.",
+  "check.parity_crash": {"one": "Il server si è spento senza arresto — Unraid controlla la parità", "other": "Il server si è spento {n} volte di fila senza arresto — il controllo di parità ricomincia a ogni avvio"},
+  "check.parity_crash_how": "Non un timeout: non è partito alcun arresto (un crash, un'interruzione di corrente, un reset forzato). Contro le interruzioni di corrente un UPS (⟦Settings⟧ → ⟦UPS Settings⟧); per vedere perché è andato in crash, conservare il syslog (⟦Settings⟧ → ⟦Syslog Server⟧). Il registro del guardiano notturno ha i dettagli. Il punto se ne va appena un arresto è di nuovo pulito.",
+  "open.disks": "⟦Disk Settings⟧",
+  "open.ups": "⟦UPS Settings⟧",
+  "help.parity_term": "Arresto non pulito",
+  "help.parity": "Se allo spegnimento l'array non si è fermato in tempo (o il server si è spento senza arresto), Unraid controlla la parità all'avvio successivo — a ogni avvio, finché gli arresti non sono puliti. Il guardiano notturno annota perché gira un controllo; io tengo sulla mia lista cosa cambiare finché un arresto non è di nuovo pulito."
 }
