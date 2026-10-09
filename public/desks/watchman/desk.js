@@ -823,8 +823,38 @@ function entryParams(e) {
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
   if (e.kind === 'flow_gone') t.more = goneMore(p);
+  if (e.kind === 'flow_written') t.from = srcFrom(p);
   if (Array.isArray(p.hours)) t.hours = p.hours.map(hourName).join(', ');
   return t;
+}
+
+/**
+ * Who wrote into a share (agent: watchmanFlowSources(), watchmanFlowSourceWhat()): a container's writable layer, Docker's
+ * image layers per image, libvirt's dataset, another dataset, the share's own, the rest
+ */
+function srcWhat(x) {
+  const name = x.name || '';
+  switch (x.t) {
+    case 'ct': return T('src.container', { name });
+    case 'img': return T(x.new ? 'src.layers_new' : 'src.layers', { n: Number(x.n) || 1, image: name ? T('src.image', { name }) : T('src.image_unknown') });
+    case 'libvirt': return T('src.libvirt', { name });
+    case 'ds': return T('src.dataset', { name });
+    case 'own': return x.dir !== undefined ? T('src.own_libvirt', { name, folder: [name.split('/').slice(1).join('/'), x.dir].filter(Boolean).join('/') }) : T('src.own', { name });
+    default: return T('src.rest');
+  }
+}
+
+/** One source with its bytes, new or deleted since */
+function srcLine(x) {
+  const key = x.new && x.t !== 'img' ? (x.gone ? 'src.line_new_gone' : 'src.line_new') : (x.gone ? 'src.line_gone' : 'src.line');
+  return T(key, { what: srcWhat(x), size: fmt.size(x.b || 0) });
+}
+
+/** The biggest source behind an entry's line, or that none can be seen ('' without sources: an entry of an older office) */
+function srcFrom(p) {
+  const top = Array.isArray(p.src) ? p.src[0] : null;
+  if (!top || top.t === 'rest') return '';
+  return ' ' + (top.t === 'none' ? T('src.none', { share: p.share || '' }) : T('src.most', { what: srcWhat(top), size: fmt.size(top.b || 0) }));
 }
 
 /**
@@ -1008,6 +1038,11 @@ function details(e) {
       add(T(e.kind === 'flow_written' ? 'detail.written' : e.kind === 'flow_gone' ? 'detail.gone' : e.kind === 'flow_container' ? 'detail.sent' : 'detail.pulled'),
         T('detail.in_minutes', { size: fmt.size(p.bytes), minutes: p.minutes || 1 }));
       if ((e.kind === 'flow_written' || e.kind === 'flow_gone') && p.pct) add(T('detail.part'), `${fmt.number(p.pct)} %`);
+      if (e.kind === 'flow_written' && Array.isArray(p.src) && p.src.length) {
+        const box = el('div', '');
+        p.src.forEach((x) => box.appendChild(el('div', '', x.t === 'none' ? T('src.none', { share: p.share || '' }) : srcLine(x))));
+        add(T('detail.sources'), box);
+      }
       if (e.kind === 'flow_gone' && p.kept) add(T('detail.kept'), fmt.size(p.kept));
       if (e.kind === 'flow_gone' && p.from) add(T('detail.who'), p.from === 'clients' ? (p.clients || []).join(', ') : T('detail.who_server'));
       if (e.kind === 'flow_gone' && (p.asleep || []).length) add(T('detail.asleep'), p.asleep.join(', '));

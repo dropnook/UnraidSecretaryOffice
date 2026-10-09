@@ -293,8 +293,9 @@ const WATCH_SSH_FAIL    = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Failed (\S+) for (invali
 const WATCH_SSH_INVALID = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Invalid user (.*) from (\S+) port \d+/';
 // docker inspect: name, image, HostConfig and mounts as JSON (tabs and newlines inside are escaped), the main process (data flow)
 // and the consultant's label (ADVISOR_LABEL: he prepared Unraid's form) and when it was created — what the office installed itself;
-// last its networks (the network watch: a container's own address and MAC on the LAN are the server's, watchnetServer())
-const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}\t{{json .NetworkSettings.Networks}}\t{{json (index .Config.Labels \"uso.drill\")}}";
+// then its networks (the network watch: a container's own address and MAC on the LAN are the server's, watchnetServer()), last
+// its storage driver's data (Docker on ZFS: the dataset of its writable layer — who wrote into a share, watchmanFlowSources())
+const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}\t{{json .NetworkSettings.Networks}}\t{{json (index .Config.Labels \"uso.drill\")}}\t{{json .GraphDriver.Data}}";
 
 // the night shift (agent.php nightshift, watchmanNightRound()): while the array is stopped, and from boot until the first array
 // start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
@@ -1271,7 +1272,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $netLook = watchnetLook($paths, $fresh ? null : readJson("$dir/net.json"), $netServer, $now);
     }
     if (is_array($containers)) {
-        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true]), $containers);     // the data flow's and the network's only
+        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true]), $containers);     // the data flow's and the network's only
     }
     $seen = [
         'containers' => $containers,
@@ -1937,6 +1938,8 @@ function watchmanContainers(): ?array
         $drill = json_decode($f[8] ?? 'null');
         $created = json_decode($f[6] ?? 'null');
         $created = is_string($created) ? strtotime((string) preg_replace('/\.\d+/', '', $created)) : false;
+        $gd = json_decode($f[9] ?? 'null', true);           // Docker on ZFS: {"Dataset": "<pool>/…/<id>", "Mountpoint": …}
+        $ds = is_array($gd) && is_string($gd['Dataset'] ?? null) && preg_match(WATCH_DATASET, $gd['Dataset']) ? $gd['Dataset'] : null;
         $addrs = $macs = [];
         foreach ((array) (json_decode($f[7] ?? 'null', true) ?: []) as $nw) {
             foreach (['IPAddress', 'GlobalIPv6Address'] as $k) {
@@ -1952,7 +1955,8 @@ function watchmanContainers(): ?array
                        'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8)]
                     + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
                     + (is_string($drill) && preg_match('/^\d{8}-\d{6}-[0-9a-f]{4}$/D', $drill) ? ['drill' => $drill] : [])
-                    + ($created !== false ? ['created' => $created] : []);
+                    + ($created !== false ? ['created' => $created] : [])
+                    + ($ds !== null ? ['ds' => $ds] : []);
     }
     ksort($out);
     return $out;
@@ -4813,6 +4817,12 @@ const WATCH_GONE_NEW      = 100 * 1024 ** 3;    // gone, still learning: one rou
 const WATCH_GONE_PART     = 0.1;                // … or over this part of the share (and at least WATCH_FLOW_WRITE)
 const WATCH_GONE_SNAPS    = 1800;               // a btrfs disk whose snapshots changed this recently: its used space says nothing
 const WATCH_STOREROOM     = '_UnraidSecretaryOffice-trash';     // Ms. Dustdevil's storeroom (folders and datasets)
+const WATCH_DATASET       = '#^[A-Za-z0-9_.:-]+(?:/[^\x00-\x1F@/]+)*$#D';     // a ZFS dataset's name as zfs prints it
+const WATCH_DOCKER_LAYER  = '/^([0-9a-f]{64})(-init)?$/D';      // Docker on ZFS: a layer's or a container's dataset (its -init beside it)
+const WATCH_FLOW_BY       = 40;                 // sources of a share's pull kept (the smallest go into «the rest»)
+const WATCH_FLOW_SOURCES  = 5;                  // sources an entry names, then «the rest»
+const WATCH_FLOW_LAYERS   = 600;                // Docker layers whose image is remembered (per agent run)
+const WATCH_FLOW_LAYERS_AGAIN = 600;            // a layer no image named: asked again after this long
 
 /** The counters of the last round (RAM: they mean nothing after a reboot), per data folder */
 function watchmanFlowCountersFile(string $dir): string
@@ -4890,7 +4900,20 @@ function watchmanFlowLook(array $paths, ?array $containers): array
     $kopia = (string) backupSetting($settings, 'kopia', 'container', '');
     $place = (string) backupSetting($settings, 'general', 'dumps_share', '');
     $snapDirs = array_values(array_unique(['.btrfs-snap', basename((string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'))]));
+    // who wrote into a share (watchmanFlowSources()): every container's writable layer by its dataset (Docker on ZFS), the
+    // image layers named only when an entry asks for them (watchmanFlowLayers()), the folder libvirt's image lies in
+    $dockerDs = null;
+    if (is_array($containers)) {
+        $dockerDs = [];
+        foreach ($containers as $name => $c) {
+            if (is_string($c['ds'] ?? null)) {
+                $dockerDs[$c['ds']] = (string) $name;
+            }
+        }
+    }
     return ['conns' => $conns, 'smb' => $smb, 'containers' => $cts, 'zfs' => watchmanFlowZfs($paths), 'nfs' => ($var['shareNFSEnabled'] ?? 'no') === 'yes',
+            'docker_ds' => $dockerDs, 'layers' => fn (array $ids): array => watchmanFlowLayers($ids),
+            'libvirt' => isset($paths['domain_cfg']) ? watchmanFlowLibvirt(readCfg((string) $paths['domain_cfg'])) : null,
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
             'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
             'disks' => watchmanFlowDisks($paths, $snapDirs), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
@@ -5014,10 +5037,10 @@ function watchmanFlowMover(array $argv): ?string
 }
 
 /**
- * ZFS `written`, `used`, `referenced`, `usedbysnapshots` and `snapshots_changed` of every dataset of the
+ * ZFS `written`, `used`, `referenced`, `usedbysnapshots`, `creation` and `snapshots_changed` of every dataset of the
  * awake ZFS pools and ZFS array disks (disks.ini: a pool sleeps when any of its disks does — those are
  * never asked). Null: no ZFS here.
- * @return array{datasets: array<string, array{w:int, u:int, s:?int, r?:int, b?:int}>, pools: list<string>, asleep: list<string>}|null
+ * @return array{datasets: array<string, array{w:int, u:int, s:?int, r?:int, b?:int, c?:int}>, pools: list<string>, asleep: list<string>}|null
  */
 function watchmanFlowZfs(array $paths): ?array
 {
@@ -5045,10 +5068,11 @@ function watchmanFlowZfs(array $paths): ?array
     if (!$pools) {
         return ['datasets' => [], 'pools' => [], 'asleep' => $asleep];
     }
-    $cmd = ['zfs', 'get', '-H', '-p', '-o', 'name,property,value', '-t', 'filesystem,volume', '-r', 'written,used,referenced,usedbysnapshots,snapshots_changed', ...$pools];
+    $cmd = ['zfs', 'get', '-H', '-p', '-o', 'name,property,value', '-t', 'filesystem,volume', '-r',
+            'written,used,referenced,usedbysnapshots,creation,snapshots_changed', ...$pools];
     [$exit, $out] = run($cmd, 60);
     if ($exit !== 0 && !str_contains($out, "\twritten\t")) {
-        $cmd[9] = 'written,used,referenced,usedbysnapshots';          // an older ZFS without snapshots_changed
+        $cmd[9] = 'written,used,referenced,usedbysnapshots,creation';          // an older ZFS without snapshots_changed
         [, $out] = run($cmd, 60);
     }
     return ['datasets' => watchmanZfsParse($out), 'pools' => $pools, 'asleep' => $asleep];
@@ -5163,13 +5187,16 @@ function watchmanNetDevTx(string $text): ?int
     return $tx;
 }
 
-/** zfs get -Hp -o name,property,value written,used,snapshots_changed → dataset => [w, u, s (null: never a snapshot, or not known)] */
+/**
+ * zfs get -Hp -o name,property,value written,used,referenced,usedbysnapshots,creation,snapshots_changed → dataset =>
+ * [w, u, s (null: never a snapshot, or not known), r, b, c (when it was created)]
+ */
 function watchmanZfsParse(string $text): array
 {
     $out = [];
     foreach (explode("\n", $text) as $line) {
         $f = explode("\t", $line);
-        if (count($f) !== 3 || !preg_match('#^[A-Za-z0-9_.:-]+(?:/[^\x00-\x1F@/]+)*$#D', $f[0])) {
+        if (count($f) !== 3 || !preg_match(WATCH_DATASET, $f[0])) {
             continue;
         }
         if (!isset($out[$f[0]]) && count($out) >= WATCH_FLOW_DATASETS) {
@@ -5178,6 +5205,7 @@ function watchmanZfsParse(string $text): array
         $out[$f[0]] ??= ['w' => 0, 'u' => 0, 's' => null];
         $v = trim($f[2]);
         match ($f[1]) {
+            'creation' => $out[$f[0]]['c'] = ctype_digit($v) ? (int) $v : 0,
             'written' => $out[$f[0]]['w'] = ctype_digit($v) ? (int) $v : 0,
             'used'    => $out[$f[0]]['u'] = ctype_digit($v) ? (int) $v : 0,
             'referenced' => $out[$f[0]]['r'] = ctype_digit($v) ? (int) $v : 0,
@@ -5260,7 +5288,7 @@ function watchmanFlowSeries(int $now, array $more = []): array
  * Bytes of a round into its hour ('h' learned, 'o' the office's own work) and into the pull going on
  * ('run': from the round before its first, as long as every round has some).
  */
-function watchmanFlowAdd(array &$s, int $bytes, int $now, ?int $prevTime, bool $office): void
+function watchmanFlowAdd(array &$s, int $bytes, int $now, ?int $prevTime, bool $office, array $by = []): void
 {
     $idx = intdiv($now, 3600);
     $part = $office ? 'o' : 'h';
@@ -5278,16 +5306,302 @@ function watchmanFlowAdd(array &$s, int $bytes, int $now, ?int $prevTime, bool $
     } else {
         $run = ['from' => $prevTime ?? $now, 'bytes' => $bytes, 'last' => $now];
     }
+    if ($by) {
+        $run['by'] = watchmanFlowByMerge((array) ($run['by'] ?? []), $by);      // a share's: where the pull's bytes were written
+    }
     $s['run'] = $run;
+}
+
+/**
+ * Where a share's bytes were written, added up over a pull (source key => [bytes, new]): `own` (the share's dataset),
+ * `ct:<container>` (its writable layer and its -init), `ly:<path>` (a Docker layer of no container — an image's, named
+ * when an entry asks), `ds:<path>` (any other dataset below the share); at most WATCH_FLOW_BY, the smallest into `*`.
+ */
+function watchmanFlowByMerge(array $a, array $b): array
+{
+    foreach ($b as $k => $v) {
+        $x = is_array($a[$k] ?? null) ? $a[$k] : [0, false];
+        $a[(string) $k] = [(int) $x[0] + (int) ($v[0] ?? 0), !empty($x[1]) || !empty($v[1])];
+    }
+    if (count($a) > WATCH_FLOW_BY) {
+        $rest = (int) ($a['*'][0] ?? 0);
+        unset($a['*']);
+        uasort($a, fn ($x, $y) => (int) $y[0] <=> (int) $x[0]);
+        foreach (array_slice($a, WATCH_FLOW_BY - 1, null, true) as $k => $x) {
+            $rest += (int) $x[0];
+            unset($a[$k]);
+        }
+        $a['*'] = [$rest, false];
+    }
+    return $a;
+}
+
+/**
+ * A dataset below a share as a source key (watchmanFlowByMerge()). $rel: its path below the share ('' = the share's own);
+ * $dockerDs: the containers' writable layers (dataset => container, from docker inspect).
+ */
+function watchmanFlowByKey(string $share, string $rel, array $dockerDs): string
+{
+    if ($rel === '') {
+        return 'own';
+    }
+    if (preg_match(WATCH_DOCKER_LAYER, basename($rel), $m)) {
+        $rw = $share . '/' . (isset($m[2]) ? substr($rel, 0, -5) : $rel);       // a container's -init belongs to it
+        return isset($dockerDs[$rw]) ? 'ct:' . $dockerDs[$rw] : "ly:$rel";
+    }
+    return "ds:$rel";
+}
+
+/**
+ * libvirt's image (domain.cfg IMAGE_FILE, or its folder): the share it lies in and its folder there ('' = the share's top),
+ * or null — so the dataset that holds it is named libvirt's.
+ * @return array{share: string, dir: string}|null
+ */
+function watchmanFlowLibvirt(array $cfg): ?array
+{
+    $path = rtrim(trim((string) ($cfg['IMAGE_FILE'] ?? ''), '"'), '/');
+    if (str_ends_with($path, '.img')) {
+        $path = dirname($path);
+    }
+    if (!preg_match('#^/mnt/[^/]+/([^/]+)(?:/(.+))?$#D', $path, $m) || preg_match('#(?:^|/)\.\.?(?:/|$)|[\x00-\x1F]#', $path)) {
+        return null;
+    }
+    return ['share' => $m[1], 'dir' => (string) ($m[2] ?? '')];
+}
+
+/**
+ * Docker on ZFS: the images whose layers these datasets are (layer id => image name, '' = none known). Asked of Docker
+ * only for ids not known yet (watchmanFlowLayersAsk(): docker image inspect, its layer database) — once in
+ * WATCH_FLOW_LAYERS_AGAIN for ids no image named — and remembered for the agent's run. $ask, $cache: the tests'.
+ */
+function watchmanFlowLayers(array $ids, ?callable $ask = null, ?int $now = null, ?array &$cache = null): array
+{
+    static $mine = ['known' => [], 'asked' => 0];
+    if ($cache === null) {
+        $c = &$mine;
+    } else {
+        $c = &$cache;
+        $c += ['known' => [], 'asked' => 0];
+    }
+    $now ??= time();
+    $want = false;
+    foreach ($ids as $id) {
+        $id = (string) $id;
+        if (preg_match('/^[0-9a-f]{64}$/D', $id) && !isset($c['known'][$id]) && $now - (int) $c['asked'] >= WATCH_FLOW_LAYERS_AGAIN) {
+            $want = true;
+        }
+    }
+    if ($want) {
+        $c['asked'] = $now;
+        $found = ($ask ?? 'watchmanFlowLayersAsk')();
+        if (is_array($found)) {
+            $known = [];
+            foreach ($found as $id => $name) {
+                if (count($known) < WATCH_FLOW_LAYERS && preg_match('/^[0-9a-f]{64}$/D', (string) $id)) {
+                    $known[(string) $id] = (string) $name;
+                }
+            }
+            $c['known'] = $known;           // what Docker has now: removed images go
+        }
+    }
+    $out = [];
+    foreach ($ids as $id) {
+        $out[(string) $id] = (string) ($c['known'][(string) $id] ?? '');
+    }
+    return $out;
+}
+
+/** docker image inspect: id, tags, its layers' diff ids, its top layer's storage data */
+const WATCH_INSPECT_IMAGE = "{{.Id}}\t{{json .RepoTags}}\t{{json .RootFS.Layers}}\t{{json .GraphDriver.Data}}";
+
+/** Every image's layers as Docker on ZFS keeps them (layer id => image), [] on another storage driver, null: Docker didn't answer */
+function watchmanFlowLayersAsk(): ?array
+{
+    [$exit, $info] = run(['docker', 'info', '--format', '{{.Driver}}' . "\t" . '{{.DockerRootDir}}'], 20);
+    $f = explode("\t", trim($info));
+    if ($exit !== 0 || count($f) !== 2) {
+        return null;
+    }
+    if ($f[0] !== 'zfs' || !preg_match('#^/[^\x00-\x1F]{1,200}$#D', $f[1]) || str_contains($f[1], '..')) {
+        return [];
+    }
+    [$exit, $ids] = run(['docker', 'image', 'ls', '-q', '--no-trunc'], 20);
+    if ($exit !== 0) {
+        return null;
+    }
+    $ids = array_slice(array_values(array_unique(array_filter(explode("\n", trim($ids)), fn ($x) => (bool) preg_match('/^sha256:[0-9a-f]{64}$/D', $x)))), 0, 500);
+    if (!$ids) {
+        return [];
+    }
+    [$exit, $text] = run(array_merge(['docker', 'image', 'inspect', '--format', WATCH_INSPECT_IMAGE], $ids), 60);
+    return $exit !== 0 && trim($text) === '' ? null : watchmanFlowLayersParse($text, $f[1]);
+}
+
+/**
+ * docker image inspect (WATCH_INSPECT_IMAGE) and Docker's layer database under its root: each layer's chain id
+ * (sha256 of «parent's chain id + ' ' + its diff id») names a folder whose cache-id is the layer's dataset. A layer
+ * of several images goes to the first tagged one (by name); an image without a tag is named by its short id.
+ */
+function watchmanFlowLayersParse(string $text, string $root): array
+{
+    $imgs = [];
+    foreach (explode("\n", trim($text)) as $line) {
+        $f = explode("\t", $line);
+        if (count($f) < 4 || !preg_match('/^sha256:([0-9a-f]{12})[0-9a-f]{52}$/D', $f[0], $m)) {
+            continue;
+        }
+        $tags = array_values(array_filter((array) (json_decode($f[1], true) ?: []), fn ($t) => is_string($t) && $t !== '' && !str_contains($t, '<none>')));
+        sort($tags);
+        $name = $tags ? watchmanClean((string) preg_replace('/:latest$/D', '', $tags[0]), 120) : $m[1];
+        $imgs[] = ['tagged' => $tags ? 0 : 1, 'name' => $name, 'layers' => json_decode($f[2], true), 'gd' => json_decode($f[3], true)];
+    }
+    usort($imgs, fn ($a, $b) => [$a['tagged'], $a['name']] <=> [$b['tagged'], $b['name']]);
+    $out = [];
+    foreach ($imgs as $img) {
+        $chain = '';
+        foreach (is_array($img['layers']) ? $img['layers'] : [] as $diff) {
+            if (!is_string($diff) || !preg_match('/^sha256:[0-9a-f]{64}$/D', $diff)) {
+                break;
+            }
+            $chain = $chain === '' ? $diff : 'sha256:' . hash('sha256', "$chain $diff");
+            $id = trim((string) @file_get_contents("$root/image/zfs/layerdb/sha256/" . substr($chain, 7) . '/cache-id', false, null, 0, 128));
+            if (preg_match('/^[0-9a-f]{64}$/D', $id)) {
+                $out[$id] ??= $img['name'];
+            }
+        }
+        $top = is_array($img['gd']) && is_string($img['gd']['Dataset'] ?? null) ? basename($img['gd']['Dataset']) : '';
+        if (preg_match('/^[0-9a-f]{64}$/D', $top)) {
+            $out[$top] ??= $img['name'];         // its top layer, also without the layer database
+        }
+    }
+    return $out;
+}
+
+/**
+ * Who wrote a share's pull (its run, watchmanFlowByMerge()), for its entry: the WATCH_FLOW_SOURCES biggest — containers
+ * by name, Docker's image layers per image (asked only now), libvirt's dataset, other datasets, the share's own — and
+ * `rest`. A share of one dataset: `none` (no single source can be seen). Null: nothing known of the pull's sources.
+ * $ctx: single (one dataset), datasets (those there now, as keys: what went since is said), layers (callable), libvirt.
+ * @return list<array{t: string, b: int, name?: string, n?: int, new?: true, gone?: true, dir?: string}>|null
+ */
+function watchmanFlowSources(array $run, string $share, array $ctx): ?array
+{
+    $total = (int) ($run['bytes'] ?? 0);
+    if (!empty($ctx['single'])) {
+        return [['t' => 'none', 'b' => $total]];
+    }
+    $by = (array) ($run['by'] ?? []);
+    unset($by['*']);
+    if (!$by) {
+        return null;
+    }
+    $have = (array) ($ctx['datasets'] ?? []);
+    $hex = fn (string $rel) => substr(basename($rel), 0, 64);
+    $ly = [];
+    foreach (array_keys($by) as $k) {
+        if (str_starts_with((string) $k, 'ly:')) {
+            $ly[] = $hex(substr((string) $k, 3));
+        }
+    }
+    $images = $ly && is_callable($ctx['layers'] ?? null) ? (array) ($ctx['layers'])(array_values(array_unique($ly))) : [];
+    $lv = is_array($ctx['libvirt'] ?? null) && $ctx['libvirt']['share'] === (explode('/', $share, 3)[1] ?? '') ? (string) $ctx['libvirt']['dir'] : null;
+    $holds = fn (string $rel) => $lv !== null && $rel !== '' && ($lv === $rel || str_starts_with($lv, "$rel/"));
+    $groups = [];
+    foreach ($by as $k => $v) {
+        [$t, $name] = explode(':', (string) $k, 2) + [1 => ''];
+        $bytes = (int) ($v[0] ?? 0);
+        $new = !empty($v[1]);
+        if ($bytes <= 0) {
+            continue;
+        }
+        switch ($t) {
+            case 'ly':
+                $img = (string) ($images[$hex($name)] ?? '');
+                $g = 'img:' . ($new ? 'new' : 'old') . ":$img";
+                $x = $groups[$g] ?? ['t' => 'img', 'name' => $img, 'n' => 0, 'b' => 0, 'new' => $new, 'gone' => true];
+                $x['n']++;
+                $x['b'] += $bytes;
+                $x['gone'] = $x['gone'] && !isset($have["$share/$name"]);
+                $groups[$g] = $x;
+                break;
+            case 'ct':
+                $groups[$k] = ['t' => 'ct', 'name' => $name, 'b' => $bytes, 'new' => $new, 'gone' => false];
+                break;
+            case 'ds':
+                $groups[$k] = ['t' => $holds($name) ? 'libvirt' : 'ds', 'name' => "$share/$name", 'b' => $bytes, 'new' => $new, 'gone' => !isset($have["$share/$name"])];
+                break;
+            case 'own':
+                $inOwn = $lv !== null && !array_filter(array_keys($have), fn ($d) => str_starts_with((string) $d, "$share/") && $holds(substr((string) $d, strlen($share) + 1)));
+                $groups[$k] = ['t' => 'own', 'name' => $share, 'b' => $bytes, 'new' => false, 'gone' => false] + ($inOwn ? ['dir' => $lv] : []);
+                break;
+        }
+    }
+    usort($groups, fn ($a, $b) => [$b['b'], $a['t'], $a['name']] <=> [$a['b'], $b['t'], $b['name']]);
+    $out = [];
+    $sum = 0;
+    foreach (array_slice($groups, 0, WATCH_FLOW_SOURCES) as $x) {
+        $sum += $x['b'];
+        if ($x['t'] !== 'img') {
+            unset($x['n']);
+        }
+        $out[] = array_filter($x, fn ($v) => $v !== false);
+    }
+    if ($total - $sum > 0) {
+        $out[] = ['t' => 'rest', 'b' => $total - $sum];
+    }
+    return $out;
+}
+
+/** A source of written bytes (watchmanFlowSources()) in words — the page has the same (desk.js srcWhat()) */
+function watchmanFlowSourceWhat(array $x, string $lang): string
+{
+    $t = fn (string $k, array $p = []) => officeNotifyText('watchman', $k, $p, $lang);
+    $name = (string) ($x['name'] ?? '');
+    return match ((string) ($x['t'] ?? '')) {
+        'ct'      => $t('src.container', ['name' => $name]),
+        'img'     => $t(!empty($x['new']) ? 'src.layers_new' : 'src.layers', ['n' => (int) ($x['n'] ?? 1),
+                         'image' => $name !== '' ? $t('src.image', ['name' => $name]) : $t('src.image_unknown')]),
+        'libvirt' => $t('src.libvirt', ['name' => $name]),
+        'ds'      => $t('src.dataset', ['name' => $name]),
+        'own'     => isset($x['dir']) ? $t('src.own_libvirt', ['name' => $name, 'folder' => trim((explode('/', $name, 2)[1] ?? '') . '/' . $x['dir'], '/')])
+                                      : $t('src.own', ['name' => $name]),
+        default   => $t('src.rest'),
+    };
+}
+
+/** One source with its bytes: «Container EmbyServer (its writable layer) — new: 3.1 GB» */
+function watchmanFlowSourceLine(array $x, string $lang): string
+{
+    $key = !empty($x['new']) && ($x['t'] ?? '') !== 'img' ? (!empty($x['gone']) ? 'src.line_new_gone' : 'src.line_new') : (!empty($x['gone']) ? 'src.line_gone' : 'src.line');
+    return officeNotifyText('watchman', $key, ['what' => watchmanFlowSourceWhat($x, $lang), 'size' => watchmanSize((int) ($x['b'] ?? 0), $lang)], $lang);
+}
+
+/** The biggest source behind its entry's line (' Most of it: …'), or that none can be seen; '' for the page (it words it itself) */
+function watchmanFlowFrom(array $p, ?string $lang): string
+{
+    $src = is_array($p['src'] ?? null) ? $p['src'] : [];
+    $top = $src[0] ?? null;
+    if ($lang === null || !is_array($top) || ($top['t'] ?? '') === 'rest') {
+        return '';
+    }
+    if ($top['t'] === 'none') {
+        return ' ' . officeNotifyText('watchman', 'src.none', ['share' => (string) ($p['share'] ?? '')], $lang);
+    }
+    return ' ' . officeNotifyText('watchman', 'src.most', ['what' => watchmanFlowSourceWhat($top, $lang), 'size' => watchmanSize((int) ($top['b'] ?? 0), $lang)], $lang);
 }
 
 /**
  * An unusual pull (or one going on) in the book: one open entry per key. A round right after the
  * entry's last one brings it up to date (the same pull, still going); a later unusual one starts a
- * new episode in it (count + 1). $who: what it is about (ip/service, name, share).
+ * new episode in it (count + 1). $who: what it is about (ip/service, name, share) — or a closure giving it, called only
+ * when the entry is written.
  */
-function watchmanFlowNote(array &$book, string $kind, string $key, int $now, array $run, int $hour, ?array $judged, array $who): ?string
+function watchmanFlowNote(array &$book, string $kind, string $key, int $now, array $run, int $hour, ?array $judged, array|Closure $who): ?string
 {
+    if (!$who instanceof Closure) {         // a closure is asked only when the entry is written (into a share: who wrote it — maybe Docker)
+        $known = $who;
+        $who = fn (): array => $known;
+    }
     $minutes = max(1, (int) ceil(($now - (int) $run['from']) / 60));
     foreach ($book as $i => $e) {
         if (($e['key'] ?? '') !== $key || !watchmanOpen($e)) {
@@ -5295,7 +5609,7 @@ function watchmanFlowNote(array &$book, string $kind, string $key, int $now, arr
         }
         $p = (array) $e['p'];
         if ($now - (int) $e['last'] <= WATCH_FLOW_GOING) {
-            $p = $who + $p;
+            $p = $who() + $p;
             $p['bytes'] = (int) $run['bytes'];
             $p['minutes'] = $minutes;
             $p['peak'] = max((int) ($p['peak'] ?? 0), $hour, (int) $run['bytes']);
@@ -5307,7 +5621,7 @@ function watchmanFlowNote(array &$book, string $kind, string $key, int $now, arr
             return null;
         }
         $book[$i]['count'] = (int) $e['count'] + 1;
-        $book[$i]['p'] = $who + ['bytes' => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'], 'limit' => $judged['limit'],
+        $book[$i]['p'] = $who() + ['bytes' => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'], 'limit' => $judged['limit'],
                                  'learning' => $judged['learning'], 'peak' => max((int) ($p['peak'] ?? 0), $judged['hour'], (int) $run['bytes'])];
         $book[$i]['last'] = $now;
         return null;
@@ -5315,7 +5629,7 @@ function watchmanFlowNote(array &$book, string $kind, string $key, int $now, arr
     if ($judged === null) {
         return null;
     }
-    $book[] = watchmanEntry($kind, $key, $now, $who + ['bytes' => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'],
+    $book[] = watchmanEntry($kind, $key, $now, $who() + ['bytes' => (int) $run['bytes'], 'minutes' => $minutes, 'usual' => $judged['usual'],
         'limit' => $judged['limit'], 'learning' => $judged['learning'], 'peak' => max($judged['hour'], (int) $run['bytes'])]);
     return $kind;
 }
@@ -5509,6 +5823,11 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             }
         }
         $per = [];
+        $pools = [];                    // the pools counted last round: a dataset new there was made since
+        foreach (is_array($was) ? array_keys($was) : [] as $ds) {
+            $pools[strtok((string) $ds, '/')] = true;
+        }
+        $dockerDs = is_array($look['docker_ds'] ?? null) ? $look['docker_ds'] : [];
         foreach ((array) $z['datasets'] as $ds => $v) {
             $parts = explode('/', (string) $ds, 3);
             if (count($parts) < 2) {
@@ -5516,23 +5835,38 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             }
             $share = "$parts[0]/$parts[1]";
             $next['ds'][$ds] = [(int) $v['w'], $v['s']];
-            $a = $per[$share] ?? ['d' => 0, 'w' => 0, 'u' => 0, 's' => null, 'snap' => false];
+            $a = $per[$share] ?? ['d' => 0, 'w' => 0, 'u' => 0, 's' => null, 'snap' => false, 'n' => 0, 'by' => []];
             $a['w'] += (int) $v['w'];
+            $a['n']++;
             if (count($parts) === 2) {
                 $a['u'] = (int) $v['u'];
                 $a['s'] = $v['s'];
             }
             $a['snap'] = $a['snap'] || $v['s'] !== null;
+            $d = 0;
+            $new = false;
             if (is_array($was) && is_array($was[$ds] ?? null)) {
                 [$pw, $ps] = $was[$ds];
                 if ($ps === $v['s']) {
-                    $a['d'] += max(0, (int) $v['w'] - (int) $pw);
+                    $d = max(0, (int) $v['w'] - (int) $pw);
                 } elseif ((int) $v['w'] < (int) $pw) {
-                    $a['d'] += (int) $v['w'];       // a new snapshot: what was written since it
+                    $d = (int) $v['w'];             // a new snapshot: what was written since it
                 }                                    // snapshots went and it grew: can't be told — this round left out
+            } elseif (is_array($was) && isset($pools[$parts[0]]) && $prevTime !== null && (int) ($v['c'] ?? 0) >= $prevTime
+                      && !str_contains((string) $ds, '/' . WATCH_STOREROOM)) {
+                $d = (int) $v['w'];                 // made since the last round (a new Docker layer, a container): all it holds was written now
+                $new = true;                         // (one renamed keeps its old creation — no writing)
+            }
+            if ($d > 0) {
+                $a['d'] += $d;
+                $k = watchmanFlowByKey($share, (string) ($parts[2] ?? ''), $dockerDs);
+                $a['by'][$k] = [(int) ($a['by'][$k][0] ?? 0) + $d, !empty($a['by'][$k][1]) || $new];
             }
             $per[$share] = $a;
         }
+        // who wrote it, for an entry (watchmanFlowSources()): the datasets there now, Docker's image layers asked only then
+        $srcCtx = ['datasets' => array_fill_keys(array_map('strval', array_keys((array) $z['datasets'])), true),
+                   'layers' => is_callable($look['layers'] ?? null) ? $look['layers'] : null, 'libvirt' => $look['libvirt'] ?? null];
         foreach ($per as $share => $a) {
             if (!isset($flow['shares'][$share]) && count($flow['shares']) >= WATCH_FLOW_SHARES) {
                 continue;
@@ -5547,13 +5881,14 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                 $flow['totals']['written'][$share] = (int) ($flow['totals']['written'][$share] ?? 0) + $a['d'];
                 $mine = $office && ($restore || isset($officeShares[explode('/', (string) $share, 2)[1]]));      // the engine's packages and dumps, a restore
                 $mine = $mine || ($door && explode('/', (string) $share, 2)[1] === PARTNER_PARENT);           // a partner's copies, received by the door
-                watchmanFlowAdd($s, $a['d'], $now, $prevTime, $mine);
+                watchmanFlowAdd($s, $a['d'], $now, $prevTime, $mine, $a['by']);
                 if (!$mine) {
                     $clear = max(WATCH_FLOW_WRITE, (int) ($a['u'] * WATCH_FLOW_PART));
                     $j = watchmanFlowJudge($s, $a['d'], $now, $ack("flow_written:$share"), WATCH_FLOW_MIN, $clear);
                     $run = (array) $s['run'];
                     $added[] = watchmanFlowNote($book, 'flow_written', "flow_written:$share", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
-                        ['share' => $share, 'pct' => $a['u'] > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $a['u'])) : 0]);
+                        fn (): array => ['share' => (string) $share, 'pct' => $a['u'] > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $a['u'])) : 0,
+                                         'src' => watchmanFlowSources($run, (string) $share, $srcCtx + ['single' => $a['n'] === 1])]);
                 }
             }
             $flow['shares'][$share] = $s;
@@ -6948,7 +7283,8 @@ function watchmanText(array $e, ?string $lang = null): array
         'flow_container' => ['name' => (string) ($p['name'] ?? ''), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
                              'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_container', $lang)],
         'flow_written'   => ['share' => (string) ($p['share'] ?? ''), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
-                             'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_written', $lang)],
+                             'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_written', $lang),
+                             'from' => watchmanFlowFrom($p, $lang)],
         'flow_gone'      => ['share' => watchmanGoneName($p), 'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'),
                              'minutes' => (int) ($p['minutes'] ?? 0), 'usual' => watchmanFlowUsualText($p, 'flow_gone', $lang),
                              'more' => watchmanGoneMore($p, $lang)],
@@ -7377,6 +7713,13 @@ function watchmanNotifySend(string $kind, array $entries, string $lang): bool
     foreach (array_slice($entries, 0, 10) as $e) {
         $lines[] = '• ' . officeNotifyText('watchman', "entry.$kind", ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang)
                  . ' — ' . date('Y-m-d H:i', (int) $e['last']);
+        $src = $kind === 'flow_written' && is_array($e['p']['src'] ?? null) ? $e['p']['src'] : [];
+        if ($src && ($src[0]['t'] ?? '') !== 'none') {         // who wrote it: a section, one source per line
+            $lines[] = '  ' . officeNotifyText('watchman', 'src.title', [], $lang);
+            foreach ($src as $x) {
+                $lines[] = '    – ' . watchmanFlowSourceLine((array) $x, $lang);
+            }
+        }
     }
     if ($n > 10) {
         $lines[] = officeNotifyText('watchman', 'notify.more', ['n' => $n - 10], $lang);
