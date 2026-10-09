@@ -2497,33 +2497,75 @@ function embySetSchedule(string $job, ?string $cron): array
 /**
  * Other things that start EmbyCache or the gather on their own: the user's
  * User Scripts entries and cron lines. They would run beside Jack's schedule,
- * outside his locks.
+ * outside his locks. Only what really runs counts (inbox #9, 1.51.0: a line the
+ * user had commented out kept the warning up): a script's or a cron file's
+ * comment lines and `: <<'EOF'` blocks are no call (embyActiveText()), a User
+ * Script whose schedule is off (none, «disabled», «custom» without a line) is
+ * listed but not `enabled`. Read anew on every look at his state (embyScan():
+ * his tour, every refresh, after each action) and by the caretaker's check.
+ *
+ * $usDir, $cronGlob, $officeCron: the places (the tests).
  */
-function embyForeignSchedules(): array
+function embyForeignSchedules(string $usDir = US_DIR, string $cronGlob = '/boot/config/plugins/*/*.cron', string $officeCron = OFFICE_CRON): array
 {
     $found = [];
-    $plans = (array) json_decode((string) @file_get_contents(US_SCHEDULE), true);
-    foreach (glob(US_DIR . '/scripts/*/script') ?: [] as $file) {
-        $name = basename(dirname($file));
-        $text = (string) @file_get_contents($file, false, null, 0, 16384);
-        $tool = str_contains($text, 'embycache_run.py') ? 'embycache' : (str_contains($text, 'consolidate_master.sh') ? 'gather' : null);
-        if ($tool) {
-            $freq = (string) ($plans[$file]['frequency'] ?? 'disabled');
-            $found[] = ['tool' => $tool, 'where' => "User Scripts: $name", 'enabled' => !in_array($freq, ['', 'disabled'], true)];
+    // User Scripts keeps its schedules by the script's path; looked up by its folder like the watchman does
+    $plans = [];
+    foreach ((array) json_decode((string) @file_get_contents("$usDir/schedule.json", false, null, 0, 1 << 20), true) as $key => $plan) {
+        if (is_string($key) && is_array($plan)) {
+            $plans[basename(dirname($key))] = $plan;
         }
     }
-    foreach (glob('/boot/config/plugins/*/*.cron') ?: [] as $file) {
-        if ($file === OFFICE_CRON) {
+    foreach (glob("$usDir/scripts/*/script") ?: [] as $file) {
+        $name = basename(dirname($file));
+        $text = embyActiveText((string) @file_get_contents($file, false, null, 0, 65536));
+        $tool = str_contains($text, 'embycache_run.py') ? 'embycache' : (str_contains($text, 'consolidate_master.sh') ? 'gather' : null);
+        if ($tool) {
+            $plan = $plans[$name] ?? [];
+            $freq = (string) ($plan['frequency'] ?? 'disabled');
+            $on = !in_array($freq, ['', 'disabled'], true) && ($freq !== 'custom' || trim((string) ($plan['custom'] ?? '')) !== '');
+            $found[] = ['tool' => $tool, 'where' => "User Scripts: $name", 'enabled' => $on];
+        }
+    }
+    foreach (glob($cronGlob) ?: [] as $file) {
+        if ($file === $officeCron) {
             continue;
         }
-        foreach (explode("\n", (string) @file_get_contents($file)) as $line) {
-            if ($line !== '' && $line[0] !== '#' && preg_match('/embycache_run\.py|consolidate_master\.sh/', $line, $m)
-                && !str_contains($line, US_DIR)) {
+        foreach (explode("\n", embyActiveText((string) @file_get_contents($file, false, null, 0, 1 << 20))) as $line) {
+            if (preg_match('/embycache_run\.py|consolidate_master\.sh/', $line, $m) && !str_contains($line, $usDir)) {
                 $found[] = ['tool' => str_starts_with($m[0], 'embycache') ? 'embycache' : 'gather', 'where' => $file, 'enabled' => true];
             }
         }
     }
     return $found;
+}
+
+/**
+ * A shell script's or a cron file's lines that may run something: comment lines (`#` after optional blanks) and the
+ * blocks people comment out with `: <<'EOF'` … `EOF` (any word, quoted or not, also `<<-`) left out. A `#` later in
+ * a line is left alone (it may lie in quotes).
+ */
+function embyActiveText(string $text): string
+{
+    $out = [];
+    $until = null;
+    foreach (preg_split('/\r?\n/', $text) ?: [] as $line) {
+        if ($until !== null) {
+            if (trim($line) === $until) {
+                $until = null;
+            }
+            continue;
+        }
+        if (preg_match('/^\s*:\s*<<-?\s*([\'"]?)([A-Za-z_][A-Za-z0-9_]*)\1\s*$/D', $line, $m)) {
+            $until = $m[2];
+            continue;
+        }
+        if (preg_match('/^\s*(#|$)/', $line)) {
+            continue;
+        }
+        $out[] = $line;
+    }
+    return implode("\n", $out);
 }
 
 // ===================================================================== checks (for the caretaker)

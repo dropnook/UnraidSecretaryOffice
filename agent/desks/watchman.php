@@ -78,7 +78,8 @@ declare(strict_types=1);
  * there), shares guests may read, write and delete, Telnet, Unraid's FTP server, an
  * API key that can do everything (ADMIN, or it may make itself one), the CPU's
  * protection against Spectre-like flaws switched off (and VMScape with VMs) or
- * on, privileged containers. Advice, not findings: never in the book, never a
+ * on, privileged containers that run or start by themselves (one stopped and without autostart only a quiet line
+ * in the tip, inbox #10, 1.51.0). Advice, not findings: never in the book, never a
  * notification; «I know, thanks» on one is kept in posture.json (for every
  * browser) until the tip goes or what it is about changes. The team lead gets
  * one hint with how many there are. Where Ms. Whereabouts (up to 1.30; now Ms.
@@ -296,7 +297,7 @@ const WATCH_SSH_INVALID = '/\ssshd[\w-]*(?:\[\d+\])?:\s+Invalid user (.*) from (
 // and the consultant's label (ADVISOR_LABEL: he prepared Unraid's form) and when it was created — what the office installed itself;
 // then its networks (the network watch: a container's own address and MAC on the LAN are the server's, watchnetServer()), last
 // its storage driver's data (Docker on ZFS: the dataset of its writable layer — who wrote into a share, watchmanFlowSources())
-const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}\t{{json .NetworkSettings.Networks}}\t{{json (index .Config.Labels \"uso.drill\")}}\t{{json .GraphDriver.Data}}";
+const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostConfig}}\t{{json .Mounts}}\t{{.State.Pid}}\t{{json (index .Config.Labels \"uso.installed-by\")}}\t{{json .Created}}\t{{json .NetworkSettings.Networks}}\t{{json (index .Config.Labels \"uso.drill\")}}\t{{json .GraphDriver.Data}}\t{{json (index .Config.Labels \"com.docker.compose.project\")}}";
 
 // the night shift (agent.php nightshift, watchmanNightRound()): while the array is stopped, and from boot until the first array
 // start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
@@ -388,6 +389,11 @@ function watchmanPaths(): array
         'boot_logs'   => '/boot/logs',
         'domain_cfg'  => '/boot/config/domain.cfg',
         'docker_cfg'  => '/boot/config/docker.cfg',
+        // what starts a stopped privileged container by itself (watchmanContainerStarts()): Unraid's Docker autostart list,
+        // Compose Manager's stacks (its setting where they lie)
+        'docker_autostart' => HOUSE_AUTOSTART,
+        'compose_cfg'      => HOUSE_COMPOSE_CFG,
+        'compose_projects' => HOUSE_COMPOSE_PROJECTS,
         'port_range' => '/proc/sys/net/ipv4/ip_local_port_range',
         'ss'         => 'ss',
         'connect'    => '/boot/config/plugins/dynamix.my.servers/configs/connect.json',
@@ -736,7 +742,8 @@ function watchmanNightPaths(): array
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'drill_record', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
-        'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg']));
+        'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
+        'docker_autostart', 'compose_cfg', 'compose_projects']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -1273,7 +1280,11 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $netLook = watchnetLook($paths, $fresh ? null : readJson("$dir/net.json"), $netServer, $now);
     }
     if (is_array($containers)) {
-        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true]), $containers);     // the data flow's and the network's only
+        if (isset($paths['docker_autostart'])) {
+            $containers = watchmanContainerStarts($containers, $paths);      // a privileged one: runs, starts by itself, or neither
+        }
+        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true, 'compose' => true]),
+            $containers);     // the data flow's and the network's only (restart, compose: watchmanContainerStarts()'s)
     }
     $seen = [
         'containers' => $containers,
@@ -1940,6 +1951,8 @@ function watchmanContainers(): ?array
         $created = json_decode($f[6] ?? 'null');
         $created = is_string($created) ? strtotime((string) preg_replace('/\.\d+/', '', $created)) : false;
         $gd = json_decode($f[9] ?? 'null', true);           // Docker on ZFS: {"Dataset": "<pool>/…/<id>", "Mountpoint": …}
+        $project = json_decode($f[10] ?? 'null');
+        $restart = $hc['RestartPolicy']['Name'] ?? null;
         $ds = is_array($gd) && is_string($gd['Dataset'] ?? null) && preg_match(WATCH_DATASET, $gd['Dataset']) ? $gd['Dataset'] : null;
         $addrs = $macs = [];
         foreach ((array) (json_decode($f[7] ?? 'null', true) ?: []) as $nw) {
@@ -1957,10 +1970,51 @@ function watchmanContainers(): ?array
                     + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
                     + (is_string($drill) && preg_match('/^\d{8}-\d{6}-[0-9a-f]{4}$/D', $drill) ? ['drill' => $drill] : [])
                     + ($created !== false ? ['created' => $created] : [])
-                    + ($ds !== null ? ['ds' => $ds] : []);
+                    + ($ds !== null ? ['ds' => $ds] : [])
+                    + (is_string($restart) && preg_match('/^[a-z-]{1,20}$/D', $restart) ? ['restart' => $restart] : [])
+                    + (is_string($project) && $project !== '' && strlen($project) <= 200 ? ['compose' => $project] : []);
     }
     ksort($out);
     return $out;
+}
+
+/**
+ * Whether a privileged container runs or comes up by itself ($containers: watchmanContainers(), with pid, restart,
+ * compose): `start` = run (its main process lives), auto (stopped, but started when Docker comes up — Unraid's
+ * autostart list, Docker's restart policy «always», or Compose Manager's autostart of its stack) or off (stopped,
+ * nothing starts it). Not said (counts as running) when that isn't known: a stack Compose Manager doesn't know, or
+ * whose folder lies under /mnt (never a disk woken for it). Kept in the round's look (seen.json), so a round Docker
+ * doesn't answer keeps the last word; only privileged containers get it (inbox #10, 1.51.0: the posture tip
+ * «containers run privileged» named one that was stopped and not on autostart).
+ */
+function watchmanContainerStarts(array $containers, array $paths): array
+{
+    $auto = $root = null;
+    foreach ($containers as $name => $c) {
+        if (!is_array($c) || !in_array('--privileged', (array) ($c['tokens'] ?? []), true)) {
+            continue;
+        }
+        if ((int) ($c['pid'] ?? 0) > 0) {
+            $containers[$name]['start'] = 'run';
+            continue;
+        }
+        if (($c['restart'] ?? '') === 'always') {
+            $on = true;                             // Docker starts it itself when it comes up
+        } elseif (isset($c['compose'])) {
+            if ($root === null) {
+                $root = (string) (readCfg((string) ($paths['compose_cfg'] ?? ''))['PROJECTS_FOLDER'] ?? '');
+                $root = $root !== '' && $root[0] === '/' ? $root : (string) ($paths['compose_projects'] ?? '');
+            }
+            $on = $root === '' || str_starts_with($root . '/', '/mnt/') ? null : houseComposeAutostart((string) $c['compose'], $root);
+        } else {
+            $auto ??= houseAutostart((string) $paths['docker_autostart']);
+            $on = isset($auto[(string) $name]);
+        }
+        if ($on !== null) {
+            $containers[$name]['start'] = $on ? 'auto' : 'off';
+        }
+    }
+    return $containers;
 }
 
 /**
@@ -3812,14 +3866,20 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     } elseif ($cpu !== null && $cpu['covered']) {
         $add('mitigations_on', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU'], implode(',', $cpu['covered']), $boot);
     }
-    $privileged = [];
+    // privileged containers that run or start by themselves; one stopped and without autostart is only a quiet line in the tip
+    $privileged = $quiet = [];
     foreach ((array) ($seen['containers'] ?? []) as $name => $c) {
         if (in_array('--privileged', (array) ($c['tokens'] ?? []), true)) {
-            $privileged[] = (string) $name;
+            if (($c['start'] ?? null) === 'off') {
+                $quiet[] = (string) $name;
+            } else {
+                $privileged[] = (string) $name;
+            }
         }
     }
     if ($privileged) {
-        $add('privileged', ['names' => watchmanNames($privileged), 'n' => count($privileged)], implode(',', $privileged), ['to' => 'docker', 'path' => '/Docker']);
+        $add('privileged', ['names' => watchmanNames($privileged), 'n' => count($privileged)]
+            + ($quiet ? ['quiet' => watchmanNames($quiet), 'quiet_n' => count($quiet)] : []), implode(',', $privileged), ['to' => 'docker', 'path' => '/Docker']);
     }
     // partner doors (the Team Lead's partner offices): the lines in authorized_keys, the pairs (not looked at: no tip of theirs)
     $partner = is_array($seen['partner'] ?? null) ? $seen['partner'] : null;

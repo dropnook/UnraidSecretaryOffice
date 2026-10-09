@@ -1591,6 +1591,72 @@ function testEmbyImport(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Jack Emby's «also started elsewhere» (inbox #9, 1.51.0: a commented-out line in a User Script kept the warning up and
+ * the user thought the schedule was locked): only lines that really run count — not a comment line (also indented, also
+ * `#   python3 …`), not inside a `: <<'EOF'` block; a User Script whose schedule is off is listed but not enabled
+ * (none, «disabled», «custom» without a line); cron files the same, the office's own left out.
+ */
+function testEmbyForeign(): void
+{
+    $tmp = hardeningTmp('embyforeign');
+    $us = "$tmp/user.scripts";
+    $call = 'python3 /usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py --mode run';
+    $scripts = [
+        'Active'      => "#!/bin/bash\n# description=EmbyCache every 15 minutes\n$call\n",
+        'Commented'   => "#!/bin/bash\n#$call\necho done\n",
+        'Indented'    => "#!/bin/bash\n  \t#   $call\n",
+        'Heredoc'     => "#!/bin/bash\n: <<'EOF'\n$call\nbash /x/consolidate_master.sh\nEOF\necho other\n",
+        'HeredocOpen' => "#!/bin/bash\n: << END\n$call\nEND\nbash /mnt/user/system/consolidate_master.sh\n",
+        'Off'         => "#!/bin/bash\n$call\n",
+        'CustomEmpty' => "#!/bin/bash\n$call\n",
+        'Unplanned'   => "#!/bin/bash\n$call\n",
+        'AtStart'     => "#!/bin/bash\r\n$call\r\n",
+        'Unrelated'   => "#!/bin/bash\necho embycache\n",
+    ];
+    $plans = ['Active' => ['custom', '*/15 * * * *'], 'Commented' => ['custom', '*/15 * * * *'], 'Indented' => ['hourly', ''], 'Heredoc' => ['daily', ''],
+              'HeredocOpen' => ['weekly', ''], 'Off' => ['disabled', ''], 'CustomEmpty' => ['custom', ' '], 'AtStart' => ['start', ''], 'Unrelated' => ['hourly', '']];
+    $sched = [];
+    foreach ($scripts as $name => $text) {
+        @mkdir("$us/scripts/$name", 0700, true);
+        file_put_contents("$us/scripts/$name/script", $text);
+        if (isset($plans[$name])) {
+            $sched["/boot/config/plugins/user.scripts/scripts/$name/script"] = ['script' => "/boot/config/plugins/user.scripts/scripts/$name/script",
+                'frequency' => $plans[$name][0], 'id' => "schedule$name", 'custom' => $plans[$name][1]];
+        }
+    }
+    file_put_contents("$us/schedule.json", json_encode($sched));
+    @mkdir("$tmp/plugins/other", 0700, true);
+    @mkdir("$tmp/plugins/office", 0700, true);
+    file_put_contents("$tmp/plugins/other/other.cron", "# */5 * * * * $call\n   #0 4 * * 0 bash /x/consolidate_master.sh\n0 4 * * 0 bash /x/consolidate_master.sh > /dev/null\n"
+        . "*/10 * * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php $us/scripts/Active/script embycache_run.py\n");
+    file_put_contents("$tmp/plugins/office/office.cron", "0 3 * * * $call\n");
+    $found = embyForeignSchedules($us, "$tmp/plugins/*/*.cron", "$tmp/plugins/office/office.cron");
+    $by = [];
+    foreach ($found as $f) {
+        $by[$f['where']] = [$f['tool'], $f['enabled']];
+    }
+    ksort($by);
+    same('emby foreign: only lines that run count, a schedule that is off is listed but not on', [
+        "$tmp/plugins/other/other.cron" => ['gather', true],
+        'User Scripts: Active'          => ['embycache', true],
+        'User Scripts: AtStart'         => ['embycache', true],
+        'User Scripts: CustomEmpty'     => ['embycache', false],
+        'User Scripts: HeredocOpen'     => ['gather', true],
+        'User Scripts: Off'             => ['embycache', false],
+        'User Scripts: Unplanned'       => ['embycache', false],
+    ], $by);
+    same('emby foreign: the warning and the caretaker name only the enabled ones', ['User Scripts: Active', 'User Scripts: AtStart', 'User Scripts: HeredocOpen', "$tmp/plugins/other/other.cron"],
+        array_column(array_filter($found, fn ($f) => $f['enabled']), 'where'));
+    // the user comments the line out (the report): the next look says nothing more
+    file_put_contents("$us/scripts/Active/script", "#!/bin/bash\n# description=EmbyCache every 15 minutes\n# $call\n");
+    check('emby foreign: commented out, gone at the next look', !in_array('User Scripts: Active', array_column(embyForeignSchedules($us, "$tmp/none/*.cron"), 'where'), true));
+    same('emby active text: comments and a `: <<` block left out, a # later in a line kept', "a # b\nc",
+        embyActiveText("#!/bin/sh\n  # x\na # b\n: <<-\"STOP\"\nhidden\n\tSTOP\nc\n"));
+    same('emby active text: an unclosed block hides the rest (bash does the same)', 'a', embyActiveText("a\n: <<EOF\nb\n"));
+    hardeningRm($tmp);
+}
+
 /** The plugin's cron file against a copy: only the job's own line changes, the order stays */
 function testOfficeCron(): void
 {
@@ -11330,6 +11396,96 @@ function testWatchmanPosture(): void
     }
     @unlink(watchmanLockFile($data, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The posture tip «containers run privileged» (inbox #10, 1.51.0: it named a container that was stopped and not on
+ * autostart): only privileged containers that run or start by themselves count — Unraid's autostart list, Docker's
+ * restart policy «always», Compose Manager's autostart of the stack; one stopped that nothing starts is a quiet line in
+ * the tip (none when it is the only one). A stack Compose Manager doesn't know, or whose folder lies under /mnt: counts.
+ * A round Docker doesn't answer keeps the last word; seen.json keeps `start`, never pid, restart or compose.
+ */
+function testWatchmanPrivilegedStopped(): void
+{
+    $now = strtotime('2026-10-09 12:00:00');
+    $tmp = hardeningTmp('wm-privileged');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh', 'projects/media', 'projects/tools', 'projects/old'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    file_put_contents("$src/autostart", "plex\nvpn 10\n");
+    file_put_contents("$src/projects/media/project_name", "media\n");
+    file_put_contents("$src/projects/media/autostart", "true\n");
+    file_put_contents("$src/projects/tools/autostart", "false\n");       // no project_name: the folder's name
+    file_put_contents("$src/projects/old/name", "Legacy\n");
+    file_put_contents("$src/projects/old/autostart", "false\n");
+    $priv = ['--privileged'];
+    $ct = fn (int $pid, array $more = []) => ['image' => 'x', 'tokens' => $priv, 'pid' => $pid, 'addrs' => [], 'macs' => []] + $more;
+    $containers = [
+        'running'   => $ct(4242),
+        'vpn'       => $ct(0),                                      // on Unraid's autostart list
+        'always'    => $ct(0, ['restart' => 'always']),
+        'unless'    => $ct(0, ['restart' => 'unless-stopped']),     // Unraid stopped it: nothing brings it back
+        'stack-on'  => $ct(0, ['compose' => 'media']),
+        'stack-off' => $ct(0, ['compose' => 'tools']),
+        'legacy'    => $ct(0, ['compose' => 'legacy']),             // an older folder: only `name`, compose lower-cases
+        'stack-who' => $ct(0, ['compose' => 'elsewhere']),          // Compose Manager doesn't know it
+        'stopped'   => $ct(0),
+        'web'       => ['image' => 'nginx', 'tokens' => ['-p 80:80/tcp'], 'pid' => 0],
+    ];
+    ksort($containers);                                             // as watchmanContainers() gives them
+    $paths = ['docker_autostart' => "$src/autostart", 'compose_cfg' => "$src/compose.manager.cfg", 'compose_projects' => "$src/projects"];
+    $starts = array_map(fn ($c) => $c['start'] ?? null, watchmanContainerStarts($containers, $paths));
+    same('privileged starts: runs, starts by itself (autostart list, «always», the stack\'s autostart), or neither; unknown left unsaid',
+        ['always' => 'auto', 'legacy' => 'off', 'running' => 'run', 'stack-off' => 'off', 'stack-on' => 'auto', 'stack-who' => null, 'stopped' => 'off',
+         'unless' => 'off', 'vpn' => 'auto', 'web' => null], $starts);
+    file_put_contents("$src/compose.manager.cfg", "PROJECTS_FOLDER=\"/mnt/user/appdata/compose\"\n");
+    same('privileged starts: Compose Manager\'s folder under /mnt — never looked into (no disk woken), the stacks unsaid',
+        [null, null, 'off'], array_values(array_intersect_key(array_map(fn ($c) => $c['start'] ?? null, watchmanContainerStarts($containers, $paths)),
+            array_flip(['stack-on', 'stack-off', 'stopped']))));
+    unlink("$src/compose.manager.cfg");
+
+    // the tip: what runs or starts by itself, the rest a quiet line; nothing but quiet ones: no tip
+    $tip = fn (array $cts) => array_column(watchmanPosture([], ['containers' => $cts]), null, 'id')['privileged'] ?? null;
+    $seenCts = watchmanContainerStarts($containers, $paths);
+    $t = $tip($seenCts);
+    same('privileged tip: counts what runs or starts by itself, the stopped ones without autostart quietly beside',
+        ['names' => 'always, running, stack-on, stack-who, vpn', 'n' => 5, 'quiet' => 'legacy, stack-off, stopped, unless', 'quiet_n' => 4], $t['p'] ?? null);
+    same('privileged tip: only stopped ones without autostart — no tip', null,
+        $tip(['old' => ['tokens' => $priv, 'start' => 'off'], 'web' => ['tokens' => [], 'start' => 'off']]));
+    same('privileged tip: without a word on how it starts (an older look, the tests) it counts as before', ['names' => 'a', 'n' => 1],
+        $tip(['a' => ['tokens' => $priv]])['p'] ?? null);
+    check('privileged tip: what it is about is what counts — a quiet one starting brings it back',
+        ($tip(['a' => ['tokens' => $priv, 'start' => 'run'], 'b' => ['tokens' => $priv, 'start' => 'off']])['sig'] ?? 1)
+        !== ($tip(['a' => ['tokens' => $priv, 'start' => 'run'], 'b' => ['tokens' => $priv, 'start' => 'run']])['sig'] ?? 1));
+    same('privileged tip: a quiet one more or less leaves it alone',
+        $tip(['a' => ['tokens' => $priv, 'start' => 'run']])['sig'] ?? 1, $tip(['a' => ['tokens' => $priv, 'start' => 'run'], 'b' => ['tokens' => $priv, 'start' => 'off']])['sig'] ?? 2);
+
+    // through his round: seen.json keeps `start`, never pid, restart or compose; Docker not answering keeps the last word
+    $paths += ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+               'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    $answer = $containers;
+    $docker = function () use (&$answer) {
+        return $answer;
+    };
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $now + $t, $docker, false, "$tmp/acks.json");
+    $page = fn (int $t) => array_column(watchmanPageState($data, $now + $t, false)['posture']['tips'] ?? [], null, 'id')['privileged']['p'] ?? null;
+    $round(0);
+    same('privileged round: the tip as above', $t['p'], $page(10));
+    $kept = readJson("$data/seen.json")['containers'] ?? [];
+    same('privileged round: seen.json keeps how it starts, nothing of the round\'s own', [['image', 'tokens', 'start'], ['image', 'tokens']],
+        [array_keys($kept['stack-on'] ?? []), array_keys($kept['web'] ?? [])]);
+    $answer = null;
+    $round(300);
+    same('privileged round: Docker didn\'t answer — as the last round saw it', $t['p'], $page(310));
+    $answer = $containers;
+    $answer['stopped']['pid'] = 777;
+    $round(600);
+    same('privileged round: the quiet one started — counted now', [6, 'legacy, stack-off, unless'], [$page(610)['n'] ?? null, $page(610)['quiet'] ?? null]);
+    hardeningRm($tmp);
 }
 
 /**
@@ -23780,8 +23936,8 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
