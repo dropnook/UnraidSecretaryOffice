@@ -45,7 +45,7 @@ const CANDIDATES = {
 };
 const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾', drill: '🧪' };
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾', drill: '🧪', volume: '🗄️' };
 const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
 const ROOM_ITEMS = 120;     // the search's items from her rooms (and WHERE_ITEMS from «Where is what»): 200 together
@@ -1077,6 +1077,8 @@ function imageDetail(i) {
 
 function volumeMeta(v, meta, figures) {
   if (v.anonymous) meta.appendChild(chip(T('vol.anonymous'), 'quiet', T('vol.anonymous_text')));
+  // another driver or mounted from elsewhere: no copy in the storeroom — removing it is for good
+  if (v.category !== 'used' && !v.keep) meta.appendChild(chip(T('vol.for_good'), 'warn', T('vol.for_good_text', { driver: v.driver })));
   usedChips(v.used_by).forEach((c) => meta.appendChild(c));
   noteChips(v).forEach((c) => meta.appendChild(c));
   if (v.created) meta.appendChild(el('span', '', T('img.created', { when: fmt.relative(v.created) })));
@@ -1095,7 +1097,7 @@ function volumeDetail(v) {
     [T('d.used_by'), v.used_by.length ? v.used_by.map((u) => u.name) : T('d.none')],
   ]));
   (v.notes || []).forEach((n) => box.appendChild(el('p', 'role', noteText(n))));
-  if (v.category !== 'used') box.appendChild(el('p', 'role', T('vol.data_text')));
+  if (v.category !== 'used') box.appendChild(el('p', 'role', v.keep ? T('vol.data_text') : T('vol.for_good_text', { driver: v.driver })));
   return box;
 }
 
@@ -1613,32 +1615,38 @@ async function parkDialog() {
   });
 }
 
-/** Docker's leftovers: no storeroom, removed for good */
+/** Docker's leftovers: volumes into the storeroom first (copied), images, the cache and volumes she can't copy for good */
 async function removeDialog() {
   if (!(await fresh())) return;
   const list = entries('docker').filter((e) => selection.has(e.id));
   if (!list.length) return;
+  const kept = list.filter((e) => e.kind === 'volume' && e.keep);
+  const gone = list.length - kept.length;
   const box = el('div');
-  box.appendChild(el('p', '', T('remove.text', { n: list.length, size: fmt.size(sum(list)) })));
+  const kind = !gone ? '_kept' : kept.length ? '_mixed' : '';      // into the storeroom, partly, or all for good
+  box.appendChild(el('p', '', T('remove.text' + kind, { n: list.length, size: fmt.size(sum(list)) })));
   box.appendChild(shortlist(list));
-  const volumes = list.filter((e) => e.kind === 'volume');
-  if (volumes.length) box.appendChild(el('p', 'callout warn', T('remove.volumes', { n: volumes.length })));
+  if (kept.length) box.appendChild(el('p', 'callout', T('remove.volumes_kept', { n: kept.length })));
+  const lost = list.filter((e) => e.kind === 'volume' && !e.keep);
+  if (lost.length) box.appendChild(el('p', 'callout warn', T('remove.volumes', { n: lost.length, names: lost.map((e) => e.name).join(', ') })));
   if (list.some((e) => e.kind === 'image')) box.appendChild(el('p', 'role', T('remove.images')));
   if (list.some((e) => e.kind === 'drill')) box.appendChild(el('p', 'role', T('remove.drill')));
-  box.appendChild(el('p', 'callout warn', T('purge.final')));
+  if (gone) box.appendChild(el('p', 'callout warn', T('purge.final')));
   Office.dialog({
-    title: T('remove.title', { n: list.length }),
+    title: T('remove.title' + kind, { n: list.length }),
     body: box,
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: T('remove.go'), kind: 'danger', act: async () => {
+      { text: T(gone ? 'remove.go' : 'remove.go_kept'), kind: gone ? 'danger' : '', act: async () => {
         busy = true;
         const j = await Office.api.post(`${ID}.remove`, { ids: list.map((e) => e.id) });
         busy = false;
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return true; }
         selection.clear();
         setState(j.state);
-        report(j.results, 'remove');
+        const stored = j.results.filter((r) => r.ok && r.stored).length;
+        if (stored && j.results.every((r) => r.ok)) Office.toast(T('remove.done_kept', { n: stored }));
+        else report(j.results, 'remove');
         return true;
       } },
     ],
@@ -1746,7 +1754,7 @@ function trashRow(run, it) {
   if (!run.legacy && !run.purging && it.from && it.present) {
     const b = el('button', 'btn small plain', T('restore.button'));
     b.type = 'button';
-    b.title = T('restore.title', { path: it.from });
+    b.title = it.kind === 'volume' ? T('restore.title_volume', { name: it.name }) : T('restore.title', { path: it.from });
     b.disabled = !Office.agent.running || state.backup_running;
     b.onclick = () => restore(it, b);
     act.appendChild(b);
@@ -1766,7 +1774,7 @@ async function restore(it, button) {
   if (!j.ok) { button.disabled = false; Office.toast(Office.errorText(j.error, ID), true); return; }
   const r = j.results[0];
   if (r && !r.ok) Office.toast(Office.errorText(r.error, ID), true);
-  else Office.toast(T(it.kind === 'stack' ? 'restore.done_stack' : it.kind === 'icon' ? 'restore.done_icon' : 'restore.done', { name: it.kind === 'icon' ? it.label || it.name : it.name }));
+  else Office.toast(T(it.kind === 'stack' ? 'restore.done_stack' : it.kind === 'icon' ? 'restore.done_icon' : it.kind === 'volume' ? 'restore.done_volume' : 'restore.done', { name: it.kind === 'icon' ? it.label || it.name : it.name }));
   setState(j.state);
 }
 
@@ -1802,7 +1810,7 @@ async function purgeDialog(runs) {
   const volBox = vols.length ? option(T('purge.volumes', { n: vols.length }), T('purge.volumes_hint', { names: vols.join(', ') })) : null;
   const imgBox = imgs.length ? option(T('purge.images', { n: imgs.length }), T('purge.images_hint', { names: imgs.join(', ') })) : null;
   if (items.some((it) => it.zfs)) box.appendChild(el('p', 'role', T('purge.zfs')));
-  if (runs.some((r) => ['appdata', 'domains', 'isos'].includes(r.where))) box.appendChild(el('p', 'role', T('purge.snapshots')));
+  if (runs.some((r) => ['appdata', 'domains', 'isos', 'docker'].includes(r.where))) box.appendChild(el('p', 'role', T('purge.snapshots')));
   box.appendChild(el('p', 'callout warn', T('purge.final')));
   Office.dialog({
     title: T('purge.title', { n: runs.length }),

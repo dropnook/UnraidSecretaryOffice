@@ -290,11 +290,8 @@
     "one": "{n} chose ({size}) sera supprimée définitivement :",
     "other": "{n} choses ({size}) seront supprimées définitivement :"
   },
-  "purge.volumes": {
-    "one": "Supprimer aussi le volume nommé de la stack",
-    "other": "Supprimer aussi les {n} volumes nommés des stacks"
-  },
-  "purge.volumes_hint": "Souvent des bases de données ! {names}",
+  "purge.volumes": {"one": "Mettre aussi le volume nommé de la stack dans mon débarras", "other": "Mettre aussi les {n} volumes nommés des stacks dans mon débarras"},
+  "purge.volumes_hint": "Copiés d'abord, puis retirés de Docker — souvent des bases de données : {names}",
   "purge.images": {
     "one": "Retirer aussi son image",
     "other": "Retirer aussi leurs {n} images"
@@ -343,7 +340,7 @@
   "help.order": "Ordre",
   "help.order_text": "D'abord les modèles, puis les stacks, puis appdata. Un dossier compte comme utilisé tant qu'un modèle ou une stack le nomme — une fois ceux-ci partis, il apparaît ici.",
   "help.trash": "Débarras",
-  "help.trash_text": "Rien n'est supprimé tout de suite. Ce que tu ranges est renommé dans un dossier _UnraidSecretaryOffice-trash sur le même disque — les modèles et les stacks sur la flash, les dossiers appdata dans le partage appdata lui-même. Ça ne prend ni temps ni place en plus, et « Remettre en place » l'annule. Seul « Vider » supprime définitivement.",
+  "help.trash_text": "Rien n'est supprimé tout de suite. Ce que tu ranges est renommé dans un dossier _UnraidSecretaryOffice-trash sur le même disque — les modèles et les stacks sur la flash, les dossiers appdata dans le partage appdata lui-même. Ça ne prend ni temps ni place en plus, et « Remettre en place » l'annule. Seul « Vider » supprime définitivement. Les volumes de Docker ne peuvent pas être renommés : je les copie dans _UnraidSecretaryOffice-trash à côté des données de Docker (dans le partage qui contient docker.img ou le dossier de Docker), ce qui demande leur taille libre une fois de plus pendant la copie.",
   "help.templates_text": "Reste : ni conteneur ni image. Inutilisé : pas de conteneur, mais l'image est encore là. Doublon : un fichier plus ancien avec le même <Name>. Un modèle dont le conteneur existe est utilisé.",
   "help.stacks_text": "Rapprochées des conteneurs par nom de projet, comme le Compose Manager les nomme. Chemins et images viennent de docker compose config, avec le .env. Une stack avec des conteneurs est arrêtée (compose down) avant d'être rangée ; les volumes nommés restent.",
   "help.appdata_text": "Un dossier est utilisé dès que quelque chose le nomme : le montage d'un conteneur, n'importe quel modèle, une stack (avec son .env), un fichier compose hors du Compose Manager, une VM, ou n'importe quel fichier sur la flash (User Scripts, réglages de plugins …). Un conteneur qui monte tout le partage ne compte pas.",
@@ -352,7 +349,7 @@
   "help.sizes": "Tailles",
   "help.sizes_text": "Je compte les fichiers et les tailles en arrière-plan — les dossiers à regarder de moi-même, les dossiers utilisés quand tu le demandes. Les disques endormis restent endormis ; « Réveiller et regarder » les réveille quand tu veux.",
   "help.safe": "Prudence",
-  "help.safe_text": "Pendant qu'une sauvegarde tourne, je ne change rien. Je ne fais jamais que renommer — là où ce n'est pas possible (un autre disque, un dataset à part), je refuse au lieu de copier.",
+  "help.safe_text": "Pendant qu'une sauvegarde tourne, je ne change rien. Je ne fais jamais que renommer — là où ce n'est pas possible (un autre disque, un dataset à part), je refuse au lieu de copier. La seule exception, ce sont les volumes de Docker : Docker ne peut pas les renommer, donc je les copie, après avoir vérifié la place, et ne les retire qu'une fois la copie complète.",
   "errors.cleanup_backup_running": "Une sauvegarde est en cours — j'attends qu'elle soit terminée.",
   "errors.cleanup_restore_running": "Monsieur Restori ramène quelque chose en ce moment — j'attends qu'il ait fini.",
   "errors.cleanup_docker_down": "Docker ne répond pas — je ne touche pas à {name} sans lui.",
@@ -450,7 +447,7 @@
   "note.stack_gone_text": "Appartenait au projet compose {name}, qui n'existe plus.",
   "vol.anonymous": "anonyme",
   "vol.anonymous_text": "Créé par un conteneur tout seul, sans nom — en général un reste après la suppression du conteneur.",
-  "vol.data_text": "Aucun conteneur ne le monte. Ce qu'il contient disparaît définitivement une fois qu'il est retiré.",
+  "vol.data_text": "Aucun conteneur ne le monte. Quand il est retiré, ce qu'il contient va d'abord dans mon débarras — « Remettre en place » le ramène.",
   "cache.name": "Cache de build",
   "cache.meta": "{size} sur {total} peuvent partir",
   "cache.text": "Couches que docker build a gardées pour les builds suivants. Seul ce dont aucune image n'a besoin est retiré (docker builder prune).",
@@ -460,7 +457,7 @@
   "d.mountpoint": "Point de montage",
   "d.driver": "Pilote",
   "d.uuid": "UUID",
-  "docker.note": "Docker ne peut pas les renommer, donc ils ne vont pas dans mon débarras : les retirer est définitif. Les images peuvent être retéléchargées, les volumes non.",
+  "docker.note": "Les images et le cache de build ne peuvent pas aller dans mon débarras — les retirer est définitif, mais les images peuvent être retéléchargées. Les volumes y vont d'abord : je copie ce qu'ils contiennent à côté des données de Docker, et seulement ensuite Docker les retire. Seuls les volumes d'un autre pilote ou montés d'ailleurs (NFS, CIFS …) ne peuvent pas être copiés — ceux-là partent définitivement.",
   "docker.cache_at": "J'ai interrogé Docker sur son cache de build {when}.",
   "remove.button": "Retirer…",
   "remove.title": {
@@ -471,10 +468,7 @@
     "one": "Ceci est retiré définitivement ({size}) :",
     "other": "Ces {n} choses sont retirées définitivement ({size}) :"
   },
-  "remove.volumes": {
-    "one": "Un volume peut contenir des données (souvent une base de données) — elles auront disparu ensuite.",
-    "other": "{n} volumes peuvent contenir des données (souvent des bases de données) — elles auront disparu ensuite."
-  },
+  "remove.volumes": {"one": "{names} : {n} volume d'un autre pilote ou monté d'ailleurs (NFS, CIFS …) — je ne peux pas le copier, donc le retirer est définitif.", "other": "{names} : {n} volumes d'un autre pilote ou montés d'ailleurs (NFS, CIFS …) — je ne peux pas les copier, donc les retirer est définitif."},
   "remove.images": "Les images peuvent être retéléchargées quand tu en as besoin.",
   "remove.drill": "Ce qu'un exercice a laissé est retiré par le balayeur de Monsieur Restori lui-même — seulement ce qui appartient exactement à son exercice.",
   "remove.go": "Retirer définitivement",
@@ -523,7 +517,7 @@
     "other": "{n} restes Docker · {size}"
   },
   "help.vms_text": "Dossiers du partage domains qu'aucune VM n'utilise ; fichiers NVRAM, états TPM et listes de snapshots de VM supprimées (dans libvirt.img) ; images disque du partage isos qu'aucune VM n'a insérées. Seulement pendant que le service VM tourne. Les copies NVRAM des snapshots d'une VM existante relèvent de Madame Snapshotini.",
-  "help.docker_text": "Images orphelines (restes de mises à jour), images avec un tag qu'aucun conteneur n'utilise, volumes qu'aucun conteneur ne monte, le cache de build. Docker ne peut pas les renommer, donc ils sont retirés définitivement — jamais tant qu'un conteneur les utilise encore.",
+  "help.docker_text": "Images orphelines (restes de mises à jour), images avec un tag qu'aucun conteneur n'utilise, volumes qu'aucun conteneur ne monte, le cache de build. Docker ne peut pas les renommer : les volumes, je les copie d'abord dans mon débarras à côté des données de Docker et je ne les retire qu'une fois la copie complète. Les images et le cache sont retirés définitivement (les images peuvent être retéléchargées), tout comme les volumes d'un autre pilote ou montés d'ailleurs (NFS, CIFS …) — jamais tant qu'un conteneur les utilise encore.",
   "errors.cleanup_vm_off": "Le service VM ne tourne pas — je ne touche pas à {name} sans lui.",
   "errors.cleanup_destroy_failed": "zfs destroy de {name} a échoué : {detail}",
   "errors.cleanup_docker_failed": "Docker n'a pas pu retirer {name} : {detail}",
@@ -1657,5 +1651,22 @@
   "where.partners.pair_text": {"one": "{name} : copies de {n} unité, reçues par la porte", "other": "{name} : copies de {n} unités, reçues par la porte"},
   "where.partners.stored": {"one": "{n} dans mon débarras", "other": "{n} dans mon débarras"},
   "where.partners.stored_text": "Copies de partenariats terminés que j'ai rangées — elles sont dans « Le rangement » → débarras.",
-  "where.partners.to_lead": "Secrétariats partenaires (chef d'équipe)"
+  "where.partners.to_lead": "Secrétariats partenaires (chef d'équipe)",
+  "remove.title_kept": {"one": "Mettre {n} volume dans le débarras ?", "other": "Mettre {n} volumes dans le débarras ?"},
+  "remove.title_mixed": {"one": "Retirer {n} chose ?", "other": "Retirer {n} choses ?"},
+  "remove.text_kept": {"one": "Ceci va dans mon débarras ({size}) :", "other": "Ces {n} volumes vont dans mon débarras ({size}) :"},
+  "remove.text_mixed": {"one": "Ceci s'en va ({size}) :", "other": "Ces {n} choses s'en vont ({size}) :"},
+  "remove.volumes_kept": {"one": "Le volume va d'abord dans mon débarras : je copie ce qu'il contient (propriétaires et droits compris) à côté des données de Docker, puis Docker le retire. « Remettre en place » le ramène ; seul « Vider » le supprime.", "other": "Les {n} volumes vont d'abord dans mon débarras : je copie ce qu'ils contiennent (propriétaires et droits compris) à côté des données de Docker, puis Docker les retire. « Remettre en place » les ramène ; seul « Vider » les supprime."},
+  "remove.go_kept": "Au débarras",
+  "remove.done_kept": {"one": "C'est fait — {n} volume est dans mon débarras.", "other": "C'est fait — {n} volumes sont dans mon débarras."},
+  "vol.for_good": "définitif",
+  "vol.for_good_text": "Pilote {driver}, ou monté d'ailleurs (NFS, CIFS, un dossier) : ce qu'il contient n'est pas dans le dossier de Docker, donc je ne peux pas en garder de copie — le retirer est définitif.",
+  "restore.title_volume": "Retour dans Docker comme volume {name}",
+  "restore.done_volume": "{name} est de nouveau un volume Docker, avec tout ce qu'il contenait.",
+  "stored.docker": "à côté des données de Docker",
+  "errors.cleanup_volume_no_place": "Je ne sais pas où Docker garde ses données, donc il n'y a pas de débarras à côté — {name} reste dans Docker.",
+  "errors.cleanup_volume_no_space": "Pas assez de place pour une copie de {name} dans {path} : {need} nécessaires, {free} libres — il reste dans Docker.",
+  "errors.cleanup_volume_copy_failed": "La copie de {name} dans mon débarras a échoué, donc il reste dans Docker : {detail}",
+  "errors.cleanup_volume_back_failed": "Remettre {name} dans Docker a échoué — la copie reste dans mon débarras : {detail}",
+  "errors.cleanup_volume_exists": "Docker a déjà un volume nommé {name} — je ne copie pas par-dessus. Retire ou renomme d'abord celui-là."
 }

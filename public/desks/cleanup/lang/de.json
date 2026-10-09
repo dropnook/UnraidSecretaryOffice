@@ -290,11 +290,8 @@
     "one": "1 Sache ({size}) wird endgültig gelöscht:",
     "other": "{n} Sachen ({size}) werden endgültig gelöscht:"
   },
-  "purge.volumes": {
-    "one": "Auch das Named Volume des Stacks löschen",
-    "other": "Auch die {n} Named Volumes der Stacks löschen"
-  },
-  "purge.volumes_hint": "Oft Datenbanken! {names}",
+  "purge.volumes": {"one": "Auch das Named Volume des Stacks in meine Abstellkammer stellen", "other": "Auch die {n} Named Volumes der Stacks in meine Abstellkammer stellen"},
+  "purge.volumes_hint": "Zuerst kopiert, dann aus Docker entfernt — oft Datenbanken: {names}",
   "purge.images": {
     "one": "Auch sein Image entfernen",
     "other": "Auch ihre {n} Images entfernen"
@@ -343,7 +340,7 @@
   "help.order": "Reihenfolge",
   "help.order_text": "Zuerst Templates, dann Stacks, dann appdata. Ein Ordner gilt als in Betrieb, solange ihn ein Template oder Stack nennt — erst wenn die weg sind, taucht er hier auf.",
   "help.trash": "Abstellkammer",
-  "help.trash_text": "Nichts wird sofort gelöscht. Was du wegstellst, wird in einen Ordner _UnraidSecretaryOffice-trash auf derselben Disk umbenannt — Templates und Stacks auf dem Flash, appdata-Ordner im appdata-Share selbst. Das braucht keine Zeit und keinen zusätzlichen Platz, und «Zurücklegen» macht es rückgängig. Erst «Leeren» löscht endgültig.",
+  "help.trash_text": "Nichts wird sofort gelöscht. Was du wegstellst, wird in einen Ordner _UnraidSecretaryOffice-trash auf derselben Disk umbenannt — Templates und Stacks auf dem Flash, appdata-Ordner im appdata-Share selbst. Das braucht keine Zeit und keinen zusätzlichen Platz, und «Zurücklegen» macht es rückgängig. Erst «Leeren» löscht endgültig. Dockers Volumes lassen sich nicht umbenennen: Ich kopiere sie nach _UnraidSecretaryOffice-trash neben Dockers Daten (im Share mit docker.img oder dem Docker-Ordner) — dafür muss ihre Grösse während des Kopierens noch einmal frei sein.",
   "help.templates_text": "Altlast: kein Container und kein Image. Ungenutzt: kein Container, aber das Image ist noch da. Duplikat: eine ältere Datei mit demselben <Name>. Ein Template, dessen Container existiert, ist in Betrieb.",
   "help.stacks_text": "Mit den Containern über den Projektnamen abgeglichen, so wie der Compose Manager sie benennt. Pfade und Images kommen aus docker compose config, mit der .env. Ein Stack mit Containern wird vor dem Wegstellen gestoppt (compose down); Named Volumes bleiben.",
   "help.appdata_text": "Ein Ordner ist in Betrieb, sobald ihn etwas nennt: der Mount eines Containers, irgendein Template, ein Stack (mit seiner .env), eine Compose-Datei ausserhalb des Compose Managers, eine VM oder irgendeine Datei auf dem Flash (User Scripts, Plugin-Einstellungen …). Ein Container, der den ganzen Share mountet, zählt nicht.",
@@ -352,7 +349,7 @@
   "help.sizes": "Grössen",
   "help.sizes_text": "Dateien und Grössen zähle ich im Hintergrund — Ordner zum Anschauen von mir aus, Ordner in Betrieb, wenn du es willst. Schlafende Disks schlafen weiter; «Wecken & schauen» weckt sie, wenn du es willst.",
   "help.safe": "Vorsicht",
-  "help.safe_text": "Solange eine Sicherung läuft, ändere ich nichts. Ich benenne immer nur um — wo das nicht geht (andere Disk, eigenes Dataset), lehne ich ab, statt zu kopieren.",
+  "help.safe_text": "Solange eine Sicherung läuft, ändere ich nichts. Ich benenne immer nur um — wo das nicht geht (andere Disk, eigenes Dataset), lehne ich ab, statt zu kopieren. Die einzige Ausnahme sind Dockers Volumes: Docker kann sie nicht umbenennen, darum kopiere ich sie, nachdem ich den Platz geprüft habe, und entferne sie erst, wenn die Kopie vollständig ist.",
   "errors.cleanup_backup_running": "Gerade läuft eine Sicherung — ich warte, bis sie fertig ist.",
   "errors.cleanup_restore_running": "Herr Restori holt gerade etwas zurück — ich warte, bis er fertig ist.",
   "errors.cleanup_docker_down": "Docker antwortet nicht — ohne Docker fasse ich {name} nicht an.",
@@ -450,7 +447,7 @@
   "note.stack_gone_text": "Gehörte zum Compose-Projekt {name}, das es nicht mehr gibt.",
   "vol.anonymous": "anonym",
   "vol.anonymous_text": "Von einem Container selbst angelegt, ohne Namen — meist übrig, nachdem der Container entfernt wurde.",
-  "vol.data_text": "Kein Container mountet es. Was darin liegt, ist nach dem Entfernen endgültig weg.",
+  "vol.data_text": "Kein Container mountet es. Beim Entfernen kommt, was darin liegt, zuerst in meine Abstellkammer — «Zurücklegen» holt es zurück.",
   "cache.name": "Build-Cache",
   "cache.meta": "{size} von {total} kann weg",
   "cache.text": "Schichten, die docker build für spätere Builds aufbewahrt. Entfernt wird nur, was kein Image braucht (docker builder prune).",
@@ -460,7 +457,7 @@
   "d.mountpoint": "Mountpoint",
   "d.driver": "Treiber",
   "d.uuid": "UUID",
-  "docker.note": "Docker kann diese nicht umbenennen, darum kommen sie nicht in meine Abstellkammer: Entfernen ist endgültig. Images lassen sich wieder herunterladen, Volumes nicht.",
+  "docker.note": "Images und der Build-Cache können nicht in meine Abstellkammer — Entfernen ist endgültig, aber Images lassen sich wieder herunterladen. Volumes kommen zuerst hinein: Ich kopiere, was darin liegt, neben Dockers Daten, und erst dann entfernt Docker sie. Nur Volumes eines anderen Treibers oder von anderswo eingebunden (NFS, CIFS …) lassen sich nicht kopieren — die sind endgültig weg.",
   "docker.cache_at": "Docker nach dem Build-Cache gefragt {when}.",
   "remove.button": "Entfernen…",
   "remove.title": {
@@ -471,10 +468,7 @@
     "one": "Das wird endgültig entfernt ({size}):",
     "other": "Diese {n} Sachen werden endgültig entfernt ({size}):"
   },
-  "remove.volumes": {
-    "one": "Ein Volume kann Daten enthalten (oft eine Datenbank) — danach ist es weg.",
-    "other": "{n} Volumes können Daten enthalten (oft Datenbanken) — danach sind sie weg."
-  },
+  "remove.volumes": {"one": "{names}: ein Volume eines anderen Treibers oder von anderswo eingebunden (NFS, CIFS …) — ich kann es nicht kopieren, darum ist Entfernen endgültig.", "other": "{names}: {n} Volumes eines anderen Treibers oder von anderswo eingebunden (NFS, CIFS …) — ich kann sie nicht kopieren, darum ist Entfernen endgültig."},
   "remove.images": "Images lassen sich wieder herunterladen, wenn du sie brauchst.",
   "remove.drill": "Was eine Übung liegen liess, räumt Herrn Restoris eigener Kehrer weg — nur genau das, was seiner Übung gehört.",
   "remove.go": "Endgültig entfernen",
@@ -523,7 +517,7 @@
     "other": "{n} Docker-Reste · {size}"
   },
   "help.vms_text": "Ordner im domains-Share, die keine VM benutzt; NVRAM-Dateien, TPM-Zustände und Snapshot-Listen gelöschter VMs (in libvirt.img); Abbilder im isos-Share, die keine VM eingebunden hat. Nur solange der VM-Dienst läuft. NVRAM-Kopien von Snapshots einer bestehenden VM gehören zu Frau Snapshotini.",
-  "help.docker_text": "Verwaiste Images (übrig von Updates), Images mit Namen, die kein Container benutzt, Volumes, die kein Container mountet, der Build-Cache. Docker kann sie nicht umbenennen, darum werden sie endgültig entfernt — nie, solange ein Container sie noch benutzt.",
+  "help.docker_text": "Verwaiste Images (übrig von Updates), Images mit Namen, die kein Container benutzt, Volumes, die kein Container mountet, der Build-Cache. Docker kann sie nicht umbenennen: Volumes kopiere ich zuerst in meine Abstellkammer neben Dockers Daten und entferne sie erst, wenn die Kopie vollständig ist. Images und der Cache werden endgültig entfernt (Images lassen sich wieder herunterladen), ebenso Volumes eines anderen Treibers oder von anderswo eingebunden (NFS, CIFS …) — nie, solange ein Container sie noch benutzt.",
   "errors.cleanup_vm_off": "Der VM-Dienst läuft nicht — ohne ihn fasse ich {name} nicht an.",
   "errors.cleanup_destroy_failed": "zfs destroy von {name} ist fehlgeschlagen: {detail}",
   "errors.cleanup_docker_failed": "Docker konnte {name} nicht entfernen: {detail}",
@@ -1657,5 +1651,22 @@
   "where.partners.pair_text": {"one": "{name}: Kopien von 1 Einheit, durch die Tür empfangen", "other": "{name}: Kopien von {n} Einheiten, durch die Tür empfangen"},
   "where.partners.stored": {"one": "1 in meiner Abstellkammer", "other": "{n} in meiner Abstellkammer"},
   "where.partners.stored_text": "Kopien beendeter Partnerschaften, die ich weggeräumt habe — sie liegen unter «Aufräumen» → Abstellkammer.",
-  "where.partners.to_lead": "Partner-Sekretariate (Teamchef)"
+  "where.partners.to_lead": "Partner-Sekretariate (Teamchef)",
+  "remove.title_kept": {"one": "1 Volume in die Abstellkammer stellen?", "other": "{n} Volumes in die Abstellkammer stellen?"},
+  "remove.title_mixed": {"one": "1 Sache entfernen?", "other": "{n} Sachen entfernen?"},
+  "remove.text_kept": {"one": "Das kommt in meine Abstellkammer ({size}):", "other": "Diese {n} Volumes kommen in meine Abstellkammer ({size}):"},
+  "remove.text_mixed": {"one": "Das geht weg ({size}):", "other": "Diese {n} Sachen gehen weg ({size}):"},
+  "remove.volumes_kept": {"one": "Das Volume kommt zuerst in meine Abstellkammer: Ich kopiere, was darin liegt (mit Besitzern und Rechten), neben Dockers Daten, dann entfernt Docker es. «Zurücklegen» dort holt es zurück; erst «Leeren» löscht es.", "other": "Die {n} Volumes kommen zuerst in meine Abstellkammer: Ich kopiere, was darin liegt (mit Besitzern und Rechten), neben Dockers Daten, dann entfernt Docker sie. «Zurücklegen» dort holt sie zurück; erst «Leeren» löscht sie."},
+  "remove.go_kept": "In die Abstellkammer",
+  "remove.done_kept": {"one": "Erledigt — das Volume ist in meiner Abstellkammer.", "other": "Erledigt — {n} Volumes sind in meiner Abstellkammer."},
+  "vol.for_good": "endgültig",
+  "vol.for_good_text": "Treiber {driver} oder von anderswo eingebunden (NFS, CIFS, ein Ordner): Was darin liegt, ist nicht in Dockers Ordner, darum kann ich keine Kopie behalten — Entfernen ist endgültig.",
+  "restore.title_volume": "Zurück in Docker als Volume {name}",
+  "restore.done_volume": "{name} ist wieder ein Docker-Volume, mit allem, was darin lag.",
+  "stored.docker": "neben Dockers Daten",
+  "errors.cleanup_volume_no_place": "Ich kann nicht sagen, wo Docker seine Daten hat, also gibt es keine Abstellkammer daneben — {name} bleibt in Docker.",
+  "errors.cleanup_volume_no_space": "Nicht genug Platz für eine Kopie von {name} in {path}: {need} nötig, {free} frei — es bleibt in Docker.",
+  "errors.cleanup_volume_copy_failed": "Das Kopieren von {name} in meine Abstellkammer ist fehlgeschlagen, darum bleibt es in Docker: {detail}",
+  "errors.cleanup_volume_back_failed": "{name} zurück in Docker zu bringen ist fehlgeschlagen — die Kopie bleibt in meiner Abstellkammer: {detail}",
+  "errors.cleanup_volume_exists": "Docker hat schon ein Volume namens {name} — darüber kopiere ich nicht. Entferne oder benenne jenes zuerst um."
 }
