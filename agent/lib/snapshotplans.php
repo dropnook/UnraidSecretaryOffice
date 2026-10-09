@@ -601,17 +601,39 @@ function snapPlanRun(array $plan, int $now, ?array $host = null): array
         $skipped ? ', skipped (asleep): ' . implode(', ', $skipped) : '',
         $gone ? ', gone: ' . implode(', ', $gone) . ($remembered['new'] ? '' : ' (known)') : '',
         $failures ? ', ' . count($failures) . ' problem(s)' : ''));
+    $lang = ($failures || $remembered['new']) ? officeNotifyLang() : 'en';
     if ($failures) {
-        officeNotify("Snapshot plan $id", "Ms. Snapshotini: plan \"{$plan['label']}\" had " . count($failures) . ' problem(s) — see the office.',
-            'warning', '', officeNotifyLink('#/snapshot'));
+        snapPlanNotifyFailures((string) $plan['label'], $failures, $lang);
     }
     if ($remembered['new']) {
-        $lang = officeNotifyLang();
         $params = ['plan' => (string) $plan['label'], 'targets' => implode(', ', array_map('snapPlanTargetLabel', $remembered['new']))];
         officeNotify(officeNotifyText('snapshot', 'notify.plan_gone_subject', $params, $lang),
             officeNotifyText('snapshot', 'notify.plan_gone', $params, $lang), 'warning', '', officeNotifyLink('#/snapshot'));
     }
     return $states[$id];
+}
+
+/**
+ * A run with problems: one warning in the language of the notifications (mail-layout, 2026-10-09: before, English only)
+ * — each problem on a line of its own in the long text, in the words the page uses (errors.<key>), at most 5, then
+ * «… and N more»
+ */
+function snapPlanNotifyFailures(string $label, array $failures, string $lang): bool
+{
+    $lines = [];
+    foreach (array_slice($failures, 0, 5) as $f) {
+        $key = (string) ($f['key'] ?? 'unknown');
+        $params = array_filter((array) ($f['params'] ?? []), 'is_scalar');
+        $text = officeNotifyText('snapshot', "errors.$key", $params, $lang) ?: officeNotifyText('', "errors.$key", $params, $lang)
+             ?: officeNotifyText('', 'errors.unknown', ['key' => $key, 'detail' => (string) ($params['detail'] ?? '')], $lang);
+        $lines[] = '• ' . trim((string) preg_replace('/\s+/u', ' ', $text));
+    }
+    if (count($failures) > 5) {
+        $lines[] = officeNotifyText('snapshot', 'notify.more', ['n' => count($failures) - 5], $lang);
+    }
+    $params = ['plan' => $label, 'n' => count($failures)];
+    return officeNotify(officeNotifyText('snapshot', 'notify.plan_failed_subject', $params, $lang),
+        officeNotifyText('snapshot', 'notify.plan_failed', $params, $lang), 'warning', implode("\n", $lines), officeNotifyLink('#/snapshot'));
 }
 
 /**

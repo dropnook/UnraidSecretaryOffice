@@ -7226,6 +7226,9 @@ function watchmanChainSend(array $entries, array $c, string $lang): bool
     foreach (array_slice($entries, 0, 10) as $e) {
         $lines[] = '• ' . date('H:i', (int) $e['time']) . ' ' . officeNotifyText('watchman', "entry.{$e['kind']}", ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang);
     }
+    if (count($entries) > 10) {
+        $lines[] = officeNotifyText('watchman', 'notify.more', ['n' => count($entries) - 10], $lang);
+    }
     $params = ['n' => count($entries), 'minutes' => max(1, (int) round(($c['last'] - $c['first']) / 60))];
     return officeNotify(
         officeNotifyText('watchman', 'notify.chain', $params, $lang),

@@ -817,6 +817,7 @@
   "errors.restore_array_stopping": "Il ripristino è finito perché l'array veniva fermato.",
   "notify.drill_failed": {"one": "Esercitazione di ripristino: 1 elemento fallito", "other": "Esercitazione di ripristino: {n} elementi falliti"},
   "notify.drill_failed_text": "L'esercitazione del signor Restori non ha potuto dimostrare che tutto torna: {names}. La sua pagina dice cosa sistemare e dove.",
+  "notify.more": "… e altri {n}",
   "check.drill": "Il signor Restori si è esercitato a riportare indietro le cose negli ultimi 60 giorni, e la sua esercitazione è stata superata.",
   "check.drill_how": "Signor Restori → «Esercitazione» → «Esercitati ora…» — oppure lascia che lo faccia da solo di notte dopo un backup andato bene (ogni mese).",
   "check.drill_failed": "L'ultima esercitazione del signor Restori è stata superata.",

@@ -817,6 +817,7 @@
   "errors.restore_array_stopping": "Die Rückholung endete, weil das Array gestoppt wurde.",
   "notify.drill_failed": {"one": "Rückhol-Übung: 1 Teil fehlgeschlagen", "other": "Rückhol-Übung: {n} Teile fehlgeschlagen"},
   "notify.drill_failed_text": "Herrn Restoris Übung ist nicht bestanden — nicht alles kam zurück: {names}. Seine Seite sagt, was und wo es zu beheben ist.",
+  "notify.more": "… und {n} weitere",
   "check.drill": "Herr Restori hat in den letzten 60 Tagen das Zurückholen geübt, und seine Übung war bestanden.",
   "check.drill_how": "Herr Restori → «Übung» → «Jetzt üben…» — oder lass ihn nachts nach einer gelungenen Sicherung von selbst üben (monatlich).",
   "check.drill_failed": "Herrn Restoris letzte Übung war bestanden.",
