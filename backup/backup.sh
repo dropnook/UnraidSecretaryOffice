@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.35 - 2026-10-09
+# unraid-backup - backup.sh                       Version 2.36 - 2026-10-09
+#   2.36 Ms. Dustdevil's storeroom is a hidden folder (.UnraidSecretaryOffice-trash, issue #7): datasets put away under
+#        either name are never snapshotted; [kopia] ignore with the old name's rule leaves out the new name too
 #   2.35 cfg_list readers no longer cut the pipe: a unit kept by two partners is never dropped from a run (partner_units
 #        read the list through grep -q - SIGPIPE under pipefail counted a match as none); readers that stop early
 #        (grep -q, break/return in a loop) take a $( ) of the helper, no «printf: write error: Broken pipe» either.

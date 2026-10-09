@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.35 - 2026-10-09
+# unraid-backup - setup.sh                        Version 2.36 - 2026-10-09
+#   2.36 Ms. Dustdevil's storeroom is a hidden folder (.UnraidSecretaryOffice-trash): the plan adds it to [kopia] ignore
+#        beside the old name (_UnraidSecretaryOffice-trash), which stays left out
 #   2.35 cfg_list/plist readers no longer cut the pipe (plist_add, ignored_rel and co. read a $( ) of the list): under
 #        pipefail a value found could count as missing and be added twice; the run keeps a unit kept by two partners
 #   2.34 The «not agreed» hints go out as codes the office translates (messages[] `code` not_agreed_share|_vm|_place
@@ -513,10 +515,15 @@ TXT
     pinit "kopia|compression"      "inherit"
     pinit "kopia|ignore"           "$(printf '%s\n' .DS_Store '._*' '.Trash-*' '.Recycle.Bin/' '*@eaDir*' '*@__thumb*' '*SynoResource*')"
     # Ms. Dustdevil's storeroom never goes offsite: what lies there was backed up under its old
-    # path before, and the local snapshots keep it until it is emptied (folders and datasets)
-    if ! grep -Fxq "_$UB_OFFICE_SHARE-trash*/" <<<"$(plist "kopia|ignore")"; then
-        plist_add "kopia|ignore" "_$UB_OFFICE_SHARE-trash*/"
-        hint "Kopia leaves out Ms. Dustdevil's storeroom (_$UB_OFFICE_SHARE-trash) - the local snapshots keep it"
+    # path before, and the local snapshots keep it until it is emptied (folders and datasets).
+    # (2.36) A hidden folder now (.UnraidSecretaryOffice-trash); its old name stays left out too
+    if ! grep -Fxq "$UB_STOREROOM_OLD*/" <<<"$(plist "kopia|ignore")"; then
+        plist_add "kopia|ignore" "$UB_STOREROOM_OLD*/"
+        hint "Kopia leaves out Ms. Dustdevil's storeroom ($UB_STOREROOM_OLD) - the local snapshots keep it"
+    fi
+    if ! grep -Fxq "$UB_STOREROOM*/" <<<"$(plist "kopia|ignore")"; then
+        plist_add "kopia|ignore" "$UB_STOREROOM*/"
+        hint "Kopia leaves out Ms. Dustdevil's storeroom under its new, hidden name ($UB_STOREROOM) - the local snapshots keep it"
     fi
 
     # Snapshot prefix: a prefix of its own, "uso-backup-". backup.sh never touches
