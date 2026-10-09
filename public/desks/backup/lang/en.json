@@ -551,7 +551,7 @@
   "help.restore": "Where the local snapshots, Kopia and the packages are. Bringing things back — per app and VM, with ready-made commands — is Mr. Restori's job.",
   "disclaimer": "No backup is a guarantee: a backup can be faulty or incomplete. You stay responsible for your data and your backup strategy — test a restore now and then and keep more than one copy (for example 3-2-1: three copies, on two kinds of storage, one of them off site).",
   "help.draft": "Nothing changes yet",
-  "help.draft_text": "Everything here is a draft until you press Apply at the bottom; Discard goes back to what was read.",
+  "help.draft_text": "Everything here is a draft until you press Apply at the bottom; Discard goes back to what was read. If they are only my proposals, Discard sets them aside until I read the server again.",
   "help.replan": "Reads the server again — shares, containers, databases, Kopia — without changing anything.",
   "help.reasons": "Why",
   "help.reasons_text": "Every proposal says why: as before, new, too big, Time Machine target, Kopia's own folder …",

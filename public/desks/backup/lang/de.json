@@ -551,7 +551,7 @@
   "help.restore": "Wo die lokalen Snapshots, Kopia und die Pakete sind. Das Zurückholen — pro App und VM, mit fertigen Befehlen — ist Herrn Restoris Sache.",
   "disclaimer": "Kein Backup ist eine Garantie: Ein Backup kann fehlerhaft oder unvollständig sein. Für deine Daten und deine Backup-Strategie bleibst du selbst verantwortlich — probier ab und zu aus, ob sich etwas zurückholen lässt, und halte mehr als eine Kopie (zum Beispiel 3-2-1: drei Kopien, auf zwei Arten von Speicher, eine davon ausser Haus).",
   "help.draft": "Noch ändert sich nichts",
-  "help.draft_text": "Alles hier ist ein Entwurf, bis du unten auf Übernehmen drückst; Verwerfen geht zurück zum Eingelesenen.",
+  "help.draft_text": "Alles hier ist ein Entwurf, bis du unten auf Übernehmen drückst; Verwerfen geht zurück zum Eingelesenen. Sind es nur meine Vorschläge, legt Verwerfen sie beiseite, bis ich den Server wieder einlese.",
   "help.replan": "Liest den Server neu ein — Shares, Container, Datenbanken, Kopia — ohne etwas zu ändern.",
   "help.reasons": "Warum",
   "help.reasons_text": "Jeder Vorschlag sagt, warum: wie bisher, neu, zu gross, Time-Machine-Ziel, Kopias eigener Ordner …",

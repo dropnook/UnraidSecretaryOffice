@@ -2373,13 +2373,21 @@ function setupBar() {
   const proposals = fresh ? 0 : setupChanges(setupSaved(), setup.base || setup.plan.P).length;
   const busy = setup.status && setup.status.running;
   if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
+  // proposals only, set aside with «Discard» for this plan (Benj, 2026-10-09: the button was grey — no way to say no);
+  // a new plan (another «Look at the server again», an update) offers again; the list of changes still shows them
+  const dismissed = Office.store('backup.proposals_dismissed') === String(setup.plan.time || '');
+  if (!edits && !fresh && dismissed) { Office.selbar(null); return; }
   const chosen = presetChosen();               // a start of the user's: what it changes is the user's, not proposals of mine
   Office.selbar({
     title: edits ? T('setup.bar_changes', { n: edits }) : fresh ? T('setup.bar_new')
       : T(chosen ? 'setup.bar_changes' : 'setup.bar_proposals', { n: proposals }),
     sub: [chosen ? presetStartText() : '', T('setup.bar_sub', { when: fmt.relative(setup.plan.time) })].filter(Boolean).join(' · '),
     buttons: [
-      { text: T('setup.discard'), kind: 'plain', disabled: !edits || busy, act: () => { setupDraftFromPlan(); renderSetup(); } },
+      { text: T('setup.discard'), kind: 'plain', disabled: (!edits && (fresh || !proposals)) || busy, act: () => {
+        if (!edits) Office.store('backup.proposals_dismissed', String(setup.plan.time || ''));   // proposals only: not now
+        setupDraftFromPlan();
+        renderSetup();
+      } },
       { text: T('setup.review'), disabled: busy || !Office.agent.running, act: setupApply },   // opens the list of changes; its dialog applies
     ],
   });

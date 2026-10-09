@@ -557,7 +557,7 @@
   "help.restore": "Dove sono gli snapshot locali, Kopia e i pacchetti. Riportare indietro le cose — per app e VM, con comandi pronti — è compito del signor Restori.",
   "disclaimer": "Nessun backup è una garanzia: un backup può essere difettoso o incompleto. Dei tuoi dati e della tua strategia di backup resti responsabile tu — prova ogni tanto un ripristino e tieni più di una copia (per esempio 3-2-1: tre copie, su due tipi di supporto, una fuori sede).",
   "help.draft": "Non cambia ancora niente",
-  "help.draft_text": "Qui è tutto una bozza finché non premi Applica in fondo; Scarta torna a ciò che è stato letto.",
+  "help.draft_text": "Qui è tutto una bozza finché non premi Applica in fondo; Scarta torna a ciò che è stato letto. Se sono solo mie proposte, Scarta le mette da parte finché non rileggo il server.",
   "help.replan": "Rilegge il server — condivisioni, contenitori, database, Kopia — senza cambiare niente.",
   "help.reasons": "Perché",
   "help.reasons_text": "Ogni proposta dice perché: come prima, nuova, troppo grande, destinazione di Time Machine, cartella di Kopia stesso …",

@@ -557,7 +557,7 @@
   "help.restore": "Dónde están las instantáneas locales, Kopia y los paquetes. Traer las cosas de vuelta — por app y VM, con comandos listos — es cosa del señor Restori.",
   "disclaimer": "Ninguna copia de seguridad es una garantía: una copia puede estar dañada o incompleta. Tú sigues siendo responsable de tus datos y de tu estrategia de copias — prueba una restauración de vez en cuando y guarda más de una copia (por ejemplo 3-2-1: tres copias, en dos tipos de almacenamiento, una fuera de casa).",
   "help.draft": "Todavía no cambia nada",
-  "help.draft_text": "Todo aquí es un borrador hasta que pulses Aplicar abajo; Descartar vuelve a lo que se leyó.",
+  "help.draft_text": "Todo aquí es un borrador hasta que pulses Aplicar abajo; Descartar vuelve a lo que se leyó. Si son solo propuestas mías, Descartar las deja de lado hasta que vuelva a leer el servidor.",
   "help.replan": "Vuelve a leer el servidor — recursos compartidos, contenedores, bases de datos, Kopia — sin cambiar nada.",
   "help.reasons": "Por qué",
   "help.reasons_text": "Cada propuesta dice por qué: como antes, nuevo, demasiado grande, destino de Time Machine, carpeta propia de Kopia …",

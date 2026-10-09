@@ -557,7 +557,7 @@
   "help.restore": "Où sont les snapshots locaux, Kopia et les paquets. Ramener les choses — par appli et par VM, avec des commandes toutes prêtes — c'est le travail de Monsieur Restori.",
   "disclaimer": "Aucune sauvegarde n'est une garantie : une sauvegarde peut être défectueuse ou incomplète. Tu restes responsable de tes données et de ta stratégie de sauvegarde — teste une restauration de temps en temps et garde plus d'une copie (par exemple 3-2-1 : trois copies, sur deux types de support, dont une hors site).",
   "help.draft": "Rien ne change encore",
-  "help.draft_text": "Tout ici est un brouillon jusqu'à ce que tu appuies sur Appliquer en bas ; Abandonner revient à ce qui a été lu.",
+  "help.draft_text": "Tout ici est un brouillon jusqu'à ce que tu appuies sur Appliquer en bas ; Abandonner revient à ce qui a été lu. Si ce ne sont que mes propositions, Abandonner les met de côté jusqu'à ce que je relise le serveur.",
   "help.replan": "Relit le serveur — partages, conteneurs, bases de données, Kopia — sans rien changer.",
   "help.reasons": "Pourquoi",
   "help.reasons_text": "Chaque proposition dit pourquoi : comme avant, nouveau, trop gros, cible Time Machine, dossier propre à Kopia …",
