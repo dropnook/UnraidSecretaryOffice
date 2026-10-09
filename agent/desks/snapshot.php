@@ -743,10 +743,9 @@ function snapshotReadVms(?array $zfs = null, ?array $sleeping = null): array
             continue;
         }
         $gone = $libvirt && !snapshotVmExists($vm, $domains);          // the VM is gone
+        $judged = $gone ? snapshotVmJudge($entries, $zfs, $sleeping) : null;
         $inUse = vmDiskFiles($vm);
         $ids = [];
-        $left = [];
-        $unsure = [];
         foreach ($entries as $key => $e) {
             if (!is_array($e)) {
                 continue;
@@ -786,17 +785,15 @@ function snapshotReadVms(?array $zfs = null, ?array $sleeping = null): array
             ] + $base;
             if ($gone) {
                 // what of it is still on disk (then removing that comes first), or why she can't tell
-                $look = snapshotVmLeft($e + ['name' => $name], $zfs, $sleeping);
+                $look = $judged['looks'][$name] ?? ['left' => [], 'unsure' => null];
                 $snaps[$id]['left'] = $look['left'];
                 $snaps[$id]['unsure'] = $look['unsure'];
-                array_push($left, ...$look['left']);
-                if ($look['unsure']) {
-                    $unsure[] = $look['unsure'];
-                }
                 $ids[] = $id;
             }
         }
         if ($gone && $ids) {
+            $left = $judged['left'];
+            $unsure = $judged['unsure'];
             if (is_link(dirname($db))) {
                 $unsure[] = ['why' => 'link', 'what' => dirname($db)];       // never moved through a link
             }
@@ -837,6 +834,43 @@ function snapshotReadVms(?array $zfs = null, ?array $sleeping = null): array
 
     return ['available' => $libvirt || $snaps, 'domains' => $domains, 'snapshots' => array_values($snaps),
             'folders' => $folders, 'away' => $libvirt ? snapshotVmAway($domains) : []];
+}
+
+/**
+ * A deleted VM's whole list (snapshots.db decoded): every entry looked at (snapshotVmLeft()) — 'looks' by name, all
+ * that is 'left' and every 'unsure' reason (each once). An orphan when both are empty. Shared with Ms. Dustdevil, who
+ * offers to put away such a list only then (clLibvirtOrphans()).
+ */
+function snapshotVmJudge(array $entries, ?array $zfs, ?array $sleeping = null): array
+{
+    $out = ['looks' => [], 'names' => [], 'left' => [], 'unsure' => []];
+    foreach ($entries as $key => $e) {
+        if (!is_array($e)) {
+            continue;
+        }
+        $name = (string) ($e['name'] ?? $key);
+        $look = snapshotVmLeft($e + ['name' => $name], $zfs, $sleeping);
+        $out['looks'][$name] = $look;
+        $out['names'][] = $name;
+        array_push($out['left'], ...$look['left']);
+        if ($look['unsure']) {
+            $out['unsure'][] = $look['unsure'];
+        }
+    }
+    $out['left'] = array_values(array_unique($out['left'], SORT_REGULAR));
+    $out['unsure'] = array_values(array_unique($out['unsure'], SORT_REGULAR));
+    return $out;
+}
+
+/** Does judging this list need ZFS (an entry of the ZFS method)? Ms. Dustdevil lists ZFS only then */
+function snapshotVmNeedsZfs(array $entries): bool
+{
+    foreach ($entries as $e) {
+        if (is_array($e) && ($e['method'] ?? null) === 'ZFS') {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
