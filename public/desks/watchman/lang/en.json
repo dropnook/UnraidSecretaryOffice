@@ -127,6 +127,7 @@
   "fold.script_changed": "{n} user scripts changed",
   "fold.at_job": "{n} jobs in atd's queue",
   "fold.at_userscript": "{n} User Scripts started in the background (through atd)",
+  "fold.at_plugin": "{n} jobs a plugin queued for itself (through atd)",
   "fold.notify_agent": "{n} notification agents new or changed",
   "fold.flow_client": "{n} × a client pulled more than usual",
   "fold.flow_container": "{n} × a container sent more than usual",
