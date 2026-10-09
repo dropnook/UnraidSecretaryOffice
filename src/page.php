@@ -14,6 +14,8 @@ declare(strict_types=1);
  * page hands it to core.js, which sends it along as X-CSRF-Token.
  */
 
+require_once __DIR__ . '/reportimage.php';      // which pictures a report may carry (pure functions, shared with the agent)
+
 /** Where the browser finds the office's files from Unraid's page: the plugin's folder */
 function officeWebBase(): string
 {
@@ -44,6 +46,7 @@ function officePageConfig(): array
         'sponsor_url' => OFFICE_SPONSOR_URL,
         // «Report a problem or a wish…» (core.js Office.reportDialog()): only with an inbox; the agent sends, never the page
         'report'    => officeFeedbackUrl() !== '',
+        'report_images' => reportImageTypes(),   // png, jpeg (webp where GD writes it — else the page makes a WebP a PNG)
         'issues_url' => OFFICE_ISSUES_URL,
         'forum_url' => OFFICE_FORUM_URL,
         'supporter' => officeSupporterPage(),     // the supporter key: a thank-you, it unlocks nothing (supporter.php)
