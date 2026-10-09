@@ -2,7 +2,8 @@
 declare(strict_types=1);
 
 /*
- * The network as the night watchman sees it (stage 1 of the router SOC: UniFi only, briefs/brief-router-soc-stage1.md).
+ * The network as the night watchman sees it (stage 1 of the router SOC: UniFi, briefs/brief-router-soc-stage1.md; MikroTik
+ * RouterOS 7 lines since #2 — parsed and typed, its own kinds still to come: see «MikroTik RouterOS» below).
  * Read only, functions only — like partnerlook.php: the night watchman calls it from his round, the Team Lead for his
  * checks, the Consultant for his look at Unraid's syslog server, Ms. Protocolli for her sources, Mr. Backupsy's setup
  * only through the engine (setup.sh reads rsyslog.cfg itself).
@@ -459,6 +460,8 @@ function watchnetReadPart(string $path, int $from, int $to, int $max, callable $
  *   ['kind' => 'other'] not understood — counted
  *   ['kind' => 'cef', 'th' => header time, 'host' => …, 'utc' => ?int, 'cef' => [vendor, product, version, id, name, sev], 'x' => extension]
  *   ['kind' => 'nf', 'th' => …, 'host' => …, 'nf' => [zone, action, rule, in, out, src, dst, proto, spt, dpt]]
+ *   ['kind' => 'ros', 'th' => …, 'host' => …, 'topics' => list, 'text' => …, 'fmt' => syslog|notopics|default|cef,
+ *    'version' => RouterOS's version ('' unless the CEF header said it), 'board' => …]  a MikroTik RouterOS line
  */
 function watchnetParse(?string $line, int $now): array
 {
@@ -479,6 +482,16 @@ function watchnetParse(?string $line, int $now): array
         $cef = watchnetCef(substr($body, (int) $c[0][1] + (str_starts_with($c[0][0], ' ') ? 1 : 0)));
         if ($cef === null) {
             return ['kind' => 'other'];
+        }
+        if (strcasecmp($cef['h']['vendor'], 'MikroTik') === 0) {
+            // RouterOS's CEF: the topics are the record's name, the plain text its msg (rsyslog keeps the CR as «#015»)
+            $topics = explode(',', strtolower($cef['h']['name']));
+            $text = (string) preg_replace('/(?:#015|\s)+$/D', '', (string) ($cef['x']['msg'] ?? ''));
+            if ($text === '' || !preg_match('/^[a-z][a-z0-9-]{0,23}(?:,[a-z][a-z0-9-]{0,23}){0,7}$/D', $cef['h']['name'])) {
+                return ['kind' => 'other'];
+            }
+            return ['kind' => 'ros', 'th' => $th, 'host' => $host, 'head' => watchnetClean($m[1], 32), 'topics' => $topics, 'text' => $text,
+                    'fmt' => 'cef', 'version' => watchnetRosVersion($cef['h']['version']), 'board' => $cef['h']['product']];
         }
         $utc = null;
         if (preg_match('/^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d{1,9})?Z$/D', (string) ($cef['x']['UNIFIutcTime'] ?? ''), $u)) {
@@ -506,6 +519,13 @@ function watchnetParse(?string $line, int $now): array
                          'src' => $src, 'dst' => $dst, 'proto' => strtoupper(watchnetClean($kv['PROTO'] ?? '', 8)),
                          'spt' => preg_match('/^\d{1,5}$/D', $kv['SPT'] ?? '') ? (int) $kv['SPT'] : null,
                          'dpt' => preg_match('/^\d{1,5}$/D', $kv['DPT'] ?? '') ? (int) $kv['DPT'] : null]];
+    }
+    $ros = watchnetRosBody(watchnetClean($body, WATCHNET_LINE_MAX));
+    if ($ros !== null) {
+        // the `default` format sends no header: rsyslog writes its own time and the sender's address as the host
+        $fmt = $ros['fmt'] === 'syslog' && watchnetIp($m[2]) !== null ? 'default' : $ros['fmt'];
+        return ['kind' => 'ros', 'th' => $th, 'host' => $host, 'head' => watchnetClean($m[1], 32), 'topics' => $ros['topics'],
+                'text' => $ros['text'], 'fmt' => $fmt, 'version' => '', 'board' => ''];
     }
     return ['kind' => 'other'];
 }
@@ -612,6 +632,9 @@ function watchnetType(array $p): array
     if ($p['kind'] === 'nf') {
         return ['type' => in_array($p['nf']['action'], ['D', 'R'], true) ? 'blocked' : 'nf_other', 'vendor' => 'netfilter'] + $p['nf'];
     }
+    if ($p['kind'] === 'ros') {
+        return watchnetRouterOs($p);
+    }
     $h = $p['cef'];
     if (strcasecmp($h['vendor'], 'Ubiquiti') !== 0 || stripos($h['product'], 'UniFi') === false) {
         return ['type' => 'event', 'vendor' => 'cef'];
@@ -687,6 +710,228 @@ function watchnetType(array $p): array
 function watchnetName(string $s): string
 {
     return watchnetClean($s, 64);
+}
+
+// ===================================================================== MikroTik RouterOS (stage 2 of the router SOC, #2)
+
+/*
+ * RouterOS 7 sends plain text lines, one per log entry (System → Logging → Actions, target remote). What the file holds
+ * depends on the action's format (lines from the lab, tests/fixtures/router/mikrotik-*.log):
+ *   syslog, add-topics-string=yes  «Oct  9 13:41:35 lab-chr system,error,critical login failure for user admin from …»
+ *   syslog, add-topics-string=no   «Oct  9 14:02:46 lab-chr ether2 link down»  (7.24's default: no topics)
+ *   default                        «Oct  9 14:03:47 10.77.3.10 interface,info ether2 link down»  (Unraid's time, the
+ *                                  sender's address as the host — no identity)
+ *   iso8601                        rsyslog normalises the time: as bsd-syslog
+ *   cef                            «CEF: 0|MikroTik|<board>|7.24.5 (stable)|<id>|<topics>|Low|dvchost=… msg=<text>»
+ * A line is RouterOS's by its content, never by the file name: a topic list (a known facility word first, a severity
+ * among the words), the CEF vendor MikroTik, or — without topics — one of the fixed phrases below. Unknown RouterOS text
+ * is an `event` (counted, never an entry). RouterOS logs in English only (no locale in its logging).
+ */
+const WATCHNET_ROS_SEVERITY = ['info', 'warning', 'error', 'critical', 'debug'];
+const WATCHNET_ROS_FACILITY = ['account', 'async', 'backup', 'bfd', 'bgp', 'bridge', 'calc', 'caps', 'certificate', 'clock', 'container',
+                               'ddns', 'dhcp', 'disk', 'dns', 'dot1x', 'dude', 'e-mail', 'event', 'fetch', 'firewall', 'gps', 'gsm',
+                               'health', 'hotspot', 'igmp-proxy', 'interface', 'ipsec', 'iscsi', 'isdn', 'kvm', 'l2tp', 'ldp', 'lora',
+                               'lte', 'manager', 'mme', 'modem', 'mpls', 'netinstall', 'netwatch', 'ntp', 'ospf', 'ovpn', 'pim',
+                               'poe-out', 'ppp', 'pppoe', 'pptp', 'ptp', 'queue', 'quickset', 'radius', 'radvd', 'rip', 'romon',
+                               'route', 'rpki', 'rsvp', 'script', 'sertcp', 'simulator', 'smb', 'sms', 'snmp', 'socks', 'ssh', 'sstp',
+                               'state', 'store', 'stp', 'system', 'telephony', 'tftp', 'timer', 'tr069', 'ups', 'upnp', 'vrrp',
+                               'watchdog', 'web-proxy', 'wifi', 'wireguard', 'wireless', 'zerotier'];
+// config changes: «<object> <added|removed|changed|moved> by <how>:<user>@<address>[/<action>] (<id> = <command>)» —
+// the object's words → the area (the command in brackets is never kept: it holds values, addresses, secrets' names)
+const WATCHNET_ROS_AREAS    = ['/^filter rule$/' => 'firewall', '/^nat rule$/' => 'nat',
+                               '/^(?:mangle rule|raw rule|address list entry)$/' => 'policy'];
+// a firewall log prefix that says the rule drops (a RouterOS firewall line names no action, only its prefix can)
+const WATCHNET_ROS_BLOCK    = '/(?:^|[^a-z])(drop|reject|deny|block)(?:ed|s)?(?:$|[^a-z])/i';
+
+/**
+ * A line's body (after the header) as RouterOS's, or null: ['topics' => list, 'text' => …, 'fmt' => syslog|notopics].
+ * With topics: «<facility>,<word>[,…] <text>» — the first word a RouterOS facility, a severity among them. Without: only
+ * when the text is one of the phrases watchnetRouterOs() types (so a stranger's line stays «other»).
+ */
+function watchnetRosBody(string $body): ?array
+{
+    if (preg_match('/^([a-z][a-z0-9-]{0,23}(?:,[a-z][a-z0-9-]{0,23}){1,7}) (\S.*)$/D', $body, $m)) {
+        $topics = explode(',', $m[1]);
+        if (in_array($topics[0], WATCHNET_ROS_FACILITY, true) && array_intersect($topics, WATCHNET_ROS_SEVERITY)) {
+            return ['topics' => $topics, 'text' => rtrim($m[2]), 'fmt' => 'syslog'];
+        }
+    }
+    $text = rtrim($body);
+    if ($text !== '' && watchnetRosPhrase($text) !== null) {
+        return ['topics' => [], 'text' => $text, 'fmt' => 'notopics'];
+    }
+    return null;
+}
+
+/** Which fixed RouterOS phrase a text is (null: none) — anchored on fixed words, never on free text */
+function watchnetRosPhrase(string $t): ?string
+{
+    static $re = [
+        'login'     => '/^user (.{1,128}?) logged in(?: from (\S{1,64}))? via ([a-z][a-z0-9-]{0,15})$/D',
+        'logout'    => '/^user (.{1,128}?) logged out(?: from (\S{1,64}))? via ([a-z][a-z0-9-]{0,15})$/D',
+        'fail'      => '/^login failure for user (.{0,128}?)(?: from (\S{1,64}))? via ([a-z][a-z0-9-]{0,15})$/D',
+        'ppp_fail'  => '/^<([^<>\s]{1,64})>: user (.{1,64}?) authentication failed$/D',
+        'vpn_in'    => '/^(.{1,64}?) logged in, (\S{1,64}) from (\S{1,64})$/D',
+        'vpn_out'   => '/^(.{1,64}?) logged out, [\d ]{1,80}from (\S{1,64})$/D',
+        'config'    => '/^([A-Za-z0-9][A-Za-z0-9 ._<>\/-]{0,95}?) (added|removed|changed|moved) by (\S{1,160})(?: \(.*\))?$/D',
+        'reboot'    => '/^router rebooted(?: by (\S{1,160}))?$/D',
+        'unclean'   => '/^router was rebooted without proper shutdown(?:,.{0,80})?$/D',
+        'installed' => '/^installed system-(\d{1,2}\.\d{1,3}(?:\.\d{1,3})?(?:beta\d{1,3}|rc\d{1,3})?)$/D',
+        'upgraded'  => '/^RouterOS upgraded from (\S{1,24}) to (\d{1,2}\.\d{1,3}(?:\.\d{1,3})?\S{0,12})$/D',
+        'link'      => '/^([A-Za-z0-9._<>\/-]{1,64}) link (up|down)(?: \(.{0,80}\))?$/D',
+        'dhcp_c'    => '/^(\S{1,64}) on (\S{1,64}) (got|lost) IP address (\S{1,64})(?: - .{0,80})?$/D',
+        'lease'     => '/^(\S{1,64}) (assigned|deassigned) (\S{1,64}) (?:for|to|from) ([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})(?: (.{1,128}))?$/D',
+        'ppp_state' => '/^([A-Za-z0-9._\/-]{1,64}): (initializing\.\.\.|connecting\.\.\.|authenticated|connected|disconnected|disabled|terminating\.\.\.(?: - (.{1,80}))?)$/D',
+        'firewall'  => '/^(?:(.{1,64}?) )?([a-z][a-z0-9_-]{0,31}): in:(\S{1,64}) out:(.{1,64}?), (?:connection-state:\S{1,32} )?(?:src-mac \S{1,32}, )?proto (.{1,200})$/D',
+        'clock'     => '/^change time (\S{1,40} \S{1,16}) => (\S{1,40} \S{1,16})$/D',
+        'sshkey'    => '/^publickey accepted for user: \S{1,64}, fingerprint: \S{1,128}$/D',
+    ];
+    foreach ($re as $what => $r) {
+        if (preg_match($r, $t)) {
+            return $what;
+        }
+    }
+    return null;
+}
+
+/** «ssh-cmd:admin+ct@10.77.3.1/action:0», «api:lab@::», «admin» → how, user (login options «+ct» off), address */
+function watchnetRosBy(string $by): array
+{
+    if (!preg_match('/^(?:([a-z][a-z0-9-]{0,15}):)?([^@\/\s]{1,64}?)(?:@([0-9A-Fa-f.:]{1,64}))?(?:\/\S{0,64})?$/D', $by, $m)) {
+        return ['how' => '', 'user' => watchnetName($by), 'ip' => null];
+    }
+    $ip = watchnetIp($m[3] ?? '');
+    return ['how' => (string) $m[1], 'user' => watchnetName((string) preg_replace('/\+[a-z0-9]{0,16}$/D', '', $m[2])),
+            'ip' => $ip === '::' ? null : $ip];
+}
+
+/** An interface name from a line: capped, only [A-Za-z0-9._-] (a server-side PPP «<l2tp-alice>» loses its brackets) */
+function watchnetRosIface(string $s): string
+{
+    return substr((string) preg_replace('/[^A-Za-z0-9._-]/', '', $s), 0, 32);
+}
+
+/**
+ * What a RouterOS line is about: the same types as UniFi's (admin_login, config, client, client_other, vpn, blocked,
+ * nf_other, update, event) plus RouterOS's own — login_fail {admin, ip, method}, logout, link {iface, up}, wan_down /
+ * wan_up {iface, via dhcp|pppoe, reason}, reboot {clean, by}, clock. Every value through watchnetClean() (names 64,
+ * messages 200); a config `msg` is rebuilt from object + verb, never copied; interface names [A-Za-z0-9._-] ≤ 32.
+ */
+function watchnetRouterOs(array $p): array
+{
+    $t = (string) $p['text'];
+    $topics = (array) $p['topics'];
+    $base = ['vendor' => 'mikrotik', 'topics' => implode(',', $topics)];
+    $has = fn (string $w): bool => in_array($w, $topics, true);
+    $what = watchnetRosPhrase($t);
+    $m = [];
+    switch ($what) {
+        case 'login':
+        case 'fail':
+            preg_match($what === 'login' ? '/^user (.{1,128}?) logged in(?: from (\S{1,64}))? via ([a-z][a-z0-9-]{0,15})$/D'
+                                         : '/^login failure for user (.{0,128}?)(?: from (\S{1,64}))? via ([a-z][a-z0-9-]{0,15})$/D', $t, $m);
+            $ip = watchnetIp($m[2] ?? '');
+            if ($what === 'login' && $ip === null && $m[3] === 'api') {
+                return $base + ['type' => 'event'];     // REST's inner session: the «via rest-api» line before it says who and from where
+            }
+            return $base + ['type' => $what === 'login' ? 'admin_login' : 'login_fail', 'admin' => watchnetName($m[1]), 'ip' => $ip,
+                            'method' => watchnetClean($m[3], 16)];
+        case 'ppp_fail':
+            preg_match('/^<([^<>\s]{1,64})>: user (.{1,64}?) authentication failed$/D', $t, $m);
+            return $base + ['type' => 'login_fail', 'admin' => watchnetName($m[2]), 'ip' => watchnetIp($m[1]),
+                            'method' => watchnetClean((string) ($topics[0] ?? 'ppp'), 16), 'vpn' => true];
+        case 'logout':
+        case 'vpn_out':
+            return $base + ['type' => 'logout'];
+        case 'vpn_in':
+            preg_match('/^(.{1,64}?) logged in, (\S{1,64}) from (\S{1,64})$/D', $t, $m);
+            return $base + ['type' => 'vpn', 'user' => watchnetName($m[1]), 'ip' => watchnetIp($m[3]),
+                            'how' => watchnetClean((string) ($topics[0] ?? ''), 32)];
+        case 'config':
+            preg_match('/^([A-Za-z0-9][A-Za-z0-9 ._<>\/-]{0,95}?) (added|removed|changed|moved) by (\S{1,160})(?: \(.*\))?$/D', $t, $m);
+            $object = watchnetClean(trim((string) preg_replace(['/<[^>]*>/', '/\s+/'], ['', ' '], $m[1])), 64);
+            $by = watchnetRosBy($m[3]);
+            $area = null;
+            foreach (WATCHNET_ROS_AREAS as $re => $a) {
+                if (preg_match($re, $object)) {
+                    $area = $a;
+                    break;
+                }
+            }
+            return $base + ['type' => 'config', 'admin' => $by['user'], 'ip' => $by['ip'], 'how' => $by['how'], 'area' => $area,
+                            'object' => $object, 'verb' => $m[2], 'msg' => watchnetClean("$object $m[2]", 200)];
+        case 'reboot':
+            preg_match('/^router rebooted(?: by (\S{1,160}))?$/D', $t, $m);
+            return $base + ['type' => 'reboot', 'clean' => true, 'by' => isset($m[1]) ? watchnetRosBy($m[1])['user'] : ''];
+        case 'unclean':
+            return $base + ['type' => 'reboot', 'clean' => false, 'by' => ''];
+        case 'installed':
+        case 'upgraded':
+            preg_match($what === 'installed' ? '/^installed system-(\S{1,24})$/D' : '/ to (\S{1,24})$/D', $t, $m);
+            return $base + ['type' => 'update', 'version' => watchnetClean($m[1], 24)];
+        case 'link':
+            preg_match('/^([A-Za-z0-9._<>\/-]{1,64}) link (up|down)\b/', $t, $m);
+            return $base + ['type' => 'link', 'iface' => watchnetRosIface($m[1]), 'up' => $m[2] === 'up'];
+        case 'dhcp_c':
+            preg_match('/^(\S{1,64}) on (\S{1,64}) (got|lost) IP address (\S{1,64})/', $t, $m);
+            return $base + ['type' => $m[3] === 'got' ? 'wan_up' : 'wan_down', 'iface' => watchnetRosIface($m[2]), 'via' => 'dhcp',
+                            'client' => watchnetName($m[1]), 'ip' => watchnetIp($m[4]), 'reason' => ''];
+        case 'lease':
+            preg_match('/^(\S{1,64}) (assigned|deassigned) (\S{1,64}) (?:for|to|from) ([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})(?: (.{1,128}))?$/D', $t, $m);
+            $mac = watchnetMac($m[4]);
+            if ($m[2] !== 'assigned' || $mac === null) {
+                return $base + ['type' => 'client_other', 'mac' => $mac];
+            }
+            $name = watchnetName((string) ($m[5] ?? ''));
+            return $base + ['type' => 'client', 'mac' => $mac, 'ip' => watchnetIp($m[3]), 'name' => $name, 'host' => $name,
+                            'network' => watchnetName($m[1])];
+        case 'ppp_state':
+            preg_match('/^([A-Za-z0-9._\/-]{1,64}): (\S+)(?: - (.{1,80}))?$/D', $t, $m);
+            if ($has('pppoe') && in_array($m[2], ['connected', 'terminating...'], true)) {
+                return $base + ['type' => $m[2] === 'connected' ? 'wan_up' : 'wan_down', 'iface' => watchnetRosIface($m[1]), 'via' => 'pppoe',
+                                'client' => '', 'ip' => null, 'reason' => watchnetClean((string) ($m[3] ?? ''), 64)];
+            }
+            return $base + ['type' => 'event'];
+        case 'firewall':
+            return $base + watchnetRosFirewall($t);
+        case 'clock':
+            return $base + ['type' => 'clock'];
+    }
+    return $base + ['type' => 'event'];
+}
+
+/**
+ * A firewall line: «[<prefix> ]<chain>: in:<if> out:<if>, [connection-state:x ][src-mac m, ]proto P[ (flags)],
+ * <src>[:<port>]-><dst>[:<port>][, NAT …], len N». The action only from the prefix (drop/reject/deny/block): blocked
+ * (D, R for reject), any other prefix or none → nf_other (counted). Addresses unparsable → event.
+ */
+function watchnetRosFirewall(string $t): array
+{
+    if (!preg_match('/^(?:(.{1,64}?) )?([a-z][a-z0-9_-]{0,31}): in:(\S{1,64}) out:(.{1,64}?), (?:connection-state:\S{1,32} )?(?:src-mac \S{1,32}, )?proto ([A-Za-z0-9-]{1,16})(?: \([^)]{0,64}\))?, (\S{1,80})->(\S{1,80}?)(?:,| |$)/', $t, $m)) {
+        return ['type' => 'event'];
+    }
+    $end = function (string $s): array {
+        if (preg_match('/^\[([0-9A-Fa-f:.]{2,64})\]:(\d{1,5})$/D', $s, $x) || preg_match('/^((?:\d{1,3}\.){3}\d{1,3}):(\d{1,5})$/D', $s, $x)) {
+            return [watchnetIp($x[1]), (int) $x[2]];
+        }
+        return [watchnetIp(trim($s, '[]')), null];
+    };
+    [$src, $spt] = $end($m[6]);
+    [$dst, $dpt] = $end($m[7]);
+    if ($src === null || $dst === null) {
+        return ['type' => 'event'];
+    }
+    $prefix = watchnetClean((string) $m[1], 64);
+    $action = preg_match(WATCHNET_ROS_BLOCK, $prefix, $w) ? (strtolower($w[1]) === 'reject' ? 'R' : 'D') : 'A';
+    return ['type' => $action === 'A' ? 'nf_other' : 'blocked', 'zone' => watchnetClean($m[2], 32), 'action' => $action, 'rule' => $prefix,
+            'in' => watchnetRosIface($m[3]), 'out' => watchnetRosIface(str_replace('(unknown 0)', '', $m[4])), 'src' => $src, 'dst' => $dst,
+            'proto' => strtoupper($m[5]), 'spt' => $spt, 'dpt' => $dpt];
+}
+
+/** A RouterOS version as the CEF header says it («7.24.5 (stable)») → «7.24.5»; '' when it isn't one */
+function watchnetRosVersion(string $s): string
+{
+    return preg_match('/^(\d{1,2}\.\d{1,3}(?:\.\d{1,3})?(?:beta\d{1,3}|rc\d{1,3})?)(?:\s|$)/', trim($s), $m) ? $m[1] : '';
 }
 
 // ===================================================================== a round: reading (outside the book's lock)
@@ -801,7 +1046,8 @@ function watchnetWriting(array $paths): int
 function watchnetAcc(): array
 {
     return ['lines' => 0, 'other' => 0, 'own' => 0, 'events' => [], 'dropped' => 0, 'read' => 0, 'skipped' => 0, 'learn' => false, 'rotated' => false,
-            'meta' => null, 'newest' => null, 'counts' => [], 'det_other' => [], 'det_other_n' => 0, 'nf_other' => 0, 'det_seen' => false, 'nf_seen' => false, 'cef_seen' => false];
+            'meta' => null, 'newest' => null, 'counts' => [], 'det_other' => [], 'det_other_n' => 0, 'nf_other' => 0, 'det_seen' => false, 'nf_seen' => false, 'cef_seen' => false,
+            'ros_seen' => false, 'ros_fmt' => [], 'clock_off' => 0];
 }
 
 /**
@@ -829,6 +1075,19 @@ function watchnetTake(array &$acc, ?string $line, int $now, array $server): void
     } elseif ($p['kind'] === 'nf') {
         $acc['nf_seen'] = true;
         $acc['meta'] ??= ['vendor' => null, 'product' => null, 'version' => null, 'host' => $p['host']];
+    } elseif ($p['kind'] === 'ros') {
+        // MikroTik: the version only from a CEF header or an «installed system-…» line; no identity in the `default` format
+        $acc['ros_seen'] = true;
+        $acc['ros_fmt'][$p['fmt']] = (int) ($acc['ros_fmt'][$p['fmt']] ?? 0) + 1;
+        $version = $p['version'] !== '' ? $p['version'] : (string) ($t['version'] ?? '');
+        $acc['meta'] = ['vendor' => 'MikroTik', 'product' => 'RouterOS', 'version' => $version !== '' ? $version : ($acc['meta']['version'] ?? null),
+                        'host' => $p['fmt'] === 'default' ? ($acc['meta']['host'] ?? null) : $p['host']];
+        if ($p['th'] !== null && abs((int) $p['th'] - $now) > 86400) {
+            // a router clock a day or more off (a board without a real-time clock after a power loss starts at its build
+            // time — RouterOS refuses anything earlier): the event happened when it arrived
+            $acc['clock_off']++;
+            $time = $now;
+        }
     }
     $type = $t['type'];
     $acc['counts'][$type] = ($acc['counts'][$type] ?? 0) + 1;
@@ -849,7 +1108,7 @@ function watchnetTake(array &$acc, ?string $line, int $now, array $server): void
             $acc['nf_other']++;
             return;
         }
-    } elseif (in_array($type, ['client_other', 'nf_other', 'update', 'wan', 'event'], true)) {
+    } elseif (in_array($type, ['client_other', 'nf_other', 'update', 'wan', 'event', 'logout', 'clock'], true)) {
         return;
     }
     if (count($acc['events']) >= WATCHNET_EVENTS_MAX) {
@@ -882,7 +1141,9 @@ function watchnetEvidenceFields(string $type, array $x): array
  */
 function watchnetEvidence(array $ev, array $allow): string
 {
-    if (($ev['vendor'] ?? '') === 'netfilter') {
+    if (($ev['vendor'] ?? '') === 'mikrotik') {
+        $s = sprintf('%s %s %s %s', $ev['head'], $ev['host'], $ev['topics'] ?? '', watchnetRosEvidence($ev));
+    } elseif (($ev['vendor'] ?? '') === 'netfilter') {
         $s = sprintf('%s %s kernel: [%s-%s-%s] IN=%s OUT=%s SRC=%s DST=%s PROTO=%s SPT=%s DPT=%s', $ev['head'], $ev['host'], $ev['zone'], $ev['action'], $ev['rule'],
             $ev['in'], $ev['out'], $ev['src'], $ev['dst'], $ev['proto'], $ev['spt'] ?? '', $ev['dpt'] ?? '');
     } else {
@@ -893,6 +1154,26 @@ function watchnetEvidence(array $ev, array $allow): string
         $s = sprintf('%s %s CEF %s|%s %s', $ev['head'], $ev['host'], $ev['cef']['id'] ?? '', $ev['cef']['name'] ?? '', implode(' ', $parts));
     }
     return mb_strimwidth(watchnetScrub($s, $allow), 0, WATCHNET_EVIDENCE, '…', 'UTF-8');
+}
+
+/** A RouterOS line rebuilt from its type's own fields (never the raw text: a config line's command holds values) */
+function watchnetRosEvidence(array $ev): string
+{
+    $port = fn (?string $ip, ?int $p): string => $p === null ? (string) $ip : (str_contains((string) $ip, ':') ? "[$ip]:$p" : "$ip:$p");
+    return match ((string) ($ev['type'] ?? '')) {
+        'admin_login' => sprintf('user %s logged in%s via %s', $ev['admin'], $ev['ip'] !== null ? " from {$ev['ip']}" : '', $ev['method']),
+        'login_fail'  => !empty($ev['vpn']) ? sprintf('<%s>: user %s authentication failed', $ev['ip'] ?? '?', $ev['admin'])
+                       : sprintf('login failure for user %s%s via %s', $ev['admin'], $ev['ip'] !== null ? " from {$ev['ip']}" : '', $ev['method']),
+        'config'      => sprintf('%s by %s%s', $ev['msg'], $ev['how'] !== '' ? "{$ev['how']}:" : '', $ev['admin']),
+        'client'      => sprintf('%s assigned %s for %s %s', $ev['network'], $ev['ip'] ?? '?', $ev['mac'], $ev['name']),
+        'vpn'         => sprintf('%s logged in, … from %s', $ev['user'], $ev['ip'] ?? '?'),
+        'blocked', 'nf_other' => sprintf('%s %s: in:%s out:%s, proto %s, %s->%s', $ev['rule'], $ev['zone'], $ev['in'], $ev['out'], $ev['proto'],
+                                         $port($ev['src'], $ev['spt']), $port($ev['dst'], $ev['dpt'])),
+        'link'        => sprintf('%s link %s', $ev['iface'], $ev['up'] ? 'up' : 'down'),
+        'wan_down', 'wan_up' => sprintf('%s %s (%s)', $ev['iface'], $ev['type'] === 'wan_up' ? 'up' : 'down', $ev['via']),
+        'reboot'      => $ev['clean'] ? 'router rebooted' : 'router was rebooted without proper shutdown',
+        default       => (string) ($ev['type'] ?? ''),
+    };
 }
 
 /** Every address in $s that isn't in $allow becomes «…»; MACs keep their first half */
@@ -970,11 +1251,20 @@ function watchnetCompare(?array &$b, array $look, array &$book, array &$ns, arra
         $s['lines'] = (int) $s['lines'] + (int) $acc['lines'];
         foreach (['meta'] as $k) {
             if (is_array($acc[$k])) {
+                $old = is_array($s[$k] ?? null) ? $s[$k] : [];
                 $s[$k] = $acc[$k];
+                if (($acc[$k]['vendor'] ?? null) === 'MikroTik' && ($old['vendor'] ?? null) === 'MikroTik') {
+                    // a RouterOS version is said once (a boot after an upgrade, or every CEF line): kept until another is said
+                    $s[$k]['version'] ??= $old['version'] ?? null;
+                    $s[$k]['host'] ??= $old['host'] ?? null;
+                }
             }
         }
-        foreach (['cef_seen' => 'cef', 'det_seen' => 'det', 'nf_seen' => 'nf'] as $from => $to) {
+        foreach (['cef_seen' => 'cef', 'det_seen' => 'det', 'nf_seen' => 'nf', 'ros_seen' => 'ros'] as $from => $to) {
             $s[$to] = !empty($s[$to]) || !empty($acc[$from]);
+        }
+        foreach ((array) ($acc['ros_fmt'] ?? []) as $fmt => $n) {
+            $s['fmt'][(string) $fmt] = $now;           // the RouterOS formats seen, and when last (the summary's hint, package 2)
         }
         $day = is_array($ns['days'][$today][$sender] ?? null) ? $ns['days'][$today][$sender] : [];
         $day['lines'] = (int) ($day['lines'] ?? 0) + (int) $acc['lines'];
@@ -1266,7 +1556,7 @@ function watchnetSilent(array &$book, array &$ns, string $sender, bool $grew, ar
     }
     $s = (array) ($ns['senders'][$sender] ?? []);
     $last = isset($s['last']) ? (int) $s['last'] : null;
-    if ($last === null || empty($s['cef']) && empty($s['nf'])) {
+    if ($last === null || empty($s['cef']) && empty($s['nf']) && empty($s['ros'])) {
         return null;                            // not known as a router (yet)
     }
     $usual = max(array_map('intval', (array) ($s['gaps'] ?? [])) ?: [0]);
