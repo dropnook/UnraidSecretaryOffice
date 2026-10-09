@@ -16,12 +16,12 @@ declare(strict_types=1);
  *         FEEDBACK_URL="http://…" — tests), 20 s, the body from a 0600 file in RAM (never on the command line). One
  *         token sends once: claimed by a rename, a second send of it gets the first one's answer, never a second POST.
  *   office.reports {}
- *       → «Your reports» (data/office/reports.json, 0600) and how many are left this week.
+ *       → «Your reports» (data/office/reports.json, 0600) and how many are left for now.
  * Nothing leaves the server without the user's click on «Send». What goes is shown before, in full.
  *
- * The caps: REPORT_CAP_WEEK reports in 7 days per office, checked here first (reports.json) — the Worker is binding
- * and counts by the report ID: sha256("uso-report:" + GUID), 64 hex, kept in data/office/report-id (0600, made once) —
- * never the tip page's server ID (that one looks up a supporter's name). The Worker answers with its own keys; the
+ * The caps: REPORT_CAP_DAY reports in 24 hours per office (Benj, 2026-10-09; up to 1.47 it was 2 in 7 days), checked
+ * here first (reports.json) — the Worker is binding and counts by the report ID: sha256("uso-report:" + GUID), 64 hex,
+ * kept in data/office/report-id (0600, made once) — never the tip page's server ID (that one looks up a supporter's name). The Worker answers with its own keys; the
  * office shows only its own words (errors.report_*), never a text the Worker sends.
  *
  * The scrubber (reportScrub()) runs over every log line and the error's params — never over the user's own words
@@ -33,8 +33,8 @@ declare(strict_types=1);
  * address → …, MACs halved), UUIDs. The placeholders' meaning («‹share-1› = Media») is shown in the preview, never sent.
  */
 
-const REPORT_CAP_WEEK    = 2;                  // reports per office in 7 days (the Worker's CAP_WEEK mirrored)
-const REPORT_WEEK        = 7 * 86400;
+const REPORT_CAP_DAY     = 25;                 // reports per office in 24 hours (the Worker's CAP_OFFICE_DAY mirrored)
+const REPORT_DAY         = 86400;
 const REPORT_TOKEN_TTL   = 600;                // a preview may be sent within 10 minutes
 const REPORT_CLOSED_FOR  = 86400;              // the Worker said «closed»: not asked again for a day
 const REPORT_KINDS       = ['bug', 'wish', 'question'];
@@ -683,7 +683,7 @@ function reportsWrite(array $j, array $ctx = []): void
 }
 
 /**
- * The weekly cap as this office counts it: n sent in the last 7 days, left, and when the next may go (null: now)
+ * The cap as this office counts it: n sent in the last 24 hours, left, and when the next may go (null: now)
  *
  * @return array{n: int, left: int, cap: int, next: ?int}
  */
@@ -691,14 +691,14 @@ function reportCap(array $j, int $now): array
 {
     $sent = [];
     foreach ($j['reports'] as $e) {
-        if (reportEntryValid($e) && $e['sent'] > $now - REPORT_WEEK && $e['sent'] <= $now + 300) {
+        if (reportEntryValid($e) && $e['sent'] > $now - REPORT_DAY && $e['sent'] <= $now + 300) {
             $sent[] = $e['sent'];
         }
     }
     sort($sent);
     $n = count($sent);
-    $next = $n >= REPORT_CAP_WEEK ? $sent[$n - REPORT_CAP_WEEK] + REPORT_WEEK : null;
-    return ['n' => $n, 'left' => max(0, REPORT_CAP_WEEK - $n), 'cap' => REPORT_CAP_WEEK, 'next' => $next];
+    $next = $n >= REPORT_CAP_DAY ? $sent[$n - REPORT_CAP_DAY] + REPORT_DAY : null;
+    return ['n' => $n, 'left' => max(0, REPORT_CAP_DAY - $n), 'cap' => REPORT_CAP_DAY, 'next' => $next];
 }
 
 /** «Your reports» for the dialog: the newest first, and the cap */
@@ -830,7 +830,7 @@ function reportTidy(string $dir, int $now): void
 /**
  * office.report_send {token, kind, desk, title, text, name?, parts}: the kept preview — its words must be the ones the
  * page sends now (a word changed: report_stale, show it again) — minus the parts not ticked, to the makers' inbox.
- * Refused before any request: the local cap (report_week), the Worker said «closed» within a day (report_closed), the
+ * Refused before any request: the local cap (report_day), the Worker said «closed» within a day (report_closed), the
  * preview older than REPORT_TOKEN_TTL or never made (report_stale). One token sends once: a second send gets the
  * first one's answer.
  */
@@ -858,7 +858,7 @@ function reportSend(array $r, array $ctx = []): array
     }
     $cap = reportCap($j, $now);
     if ($cap['left'] <= 0) {
-        throw new Problem('report_week', ['n' => $cap['n'], 'next' => $cap['next']]);
+        throw new Problem('report_day', ['n' => $cap['n'], 'next' => $cap['next']]);
     }
     // claimed by a rename: a second send of the same token at the same time finds nothing
     if (is_link("$dir/$token.json") || !@rename("$dir/$token.json", "$dir/$token.sending")) {
@@ -993,7 +993,8 @@ function reportPost(array $body, string $dir, string $token, array $ctx = []): a
  * never by the HTTP status (`closed` is a 403):
  *   ok:true + number                        → sent (the url only when it is a GitHub issue's; again:true = it was one already)
  *   closed                                  → report_closed
- *   week {next, retry_after}                → report_week (next: when a slot frees)
+ *   week {next, retry_after, cap?}          → report_day (the office's cap — 25 a day since 2026-10-09; the Worker keeps the
+ *                                             name `week` for the offices up to 1.47; next: when a slot frees)
  *   busy {retry_after}                      → report_busy
  *   refused {why, field?}                   → report_refused
  *   github | config | internal | anything else, an answer that isn't the Worker's → report_failed
@@ -1014,16 +1015,18 @@ function reportAnswer(int $exit, string $out, int $now): array
     if ($code >= 200 && $code < 300 && ($body['ok'] ?? null) === true && is_int($body['number'] ?? null) && $body['number'] > 0) {
         return ['ok' => true, 'number' => $body['number'], 'url' => reportIssueUrl($body['url'] ?? null)];
     }
-    $keys = ['closed' => 'report_closed', 'week' => 'report_week', 'busy' => 'report_busy', 'refused' => 'report_refused',
+    $keys = ['closed' => 'report_closed', 'week' => 'report_day', 'day' => 'report_day', 'busy' => 'report_busy', 'refused' => 'report_refused',
              'github' => 'report_failed', 'config' => 'report_failed', 'internal' => 'report_failed'];
-    $key = is_string($body['key'] ?? null) && in_array($body['key'], $keys, true) ? $body['key']
+    $wireKeys = ['report_closed', 'report_week', 'report_day', 'report_busy', 'report_refused', 'report_failed'];
+    $key = is_string($body['key'] ?? null) && in_array($body['key'], $wireKeys, true) ? ($body['key'] === 'report_week' ? 'report_day' : $body['key'])
         : $keys[is_string($body['error'] ?? null) ? $body['error'] : ''] ?? 'report_failed';
-    if ($key !== 'report_week') {
+    if ($key !== 'report_day') {
         return ['ok' => false, 'key' => $key, 'params' => []];
     }
     $retry = is_int($body['retry_after'] ?? null) && $body['retry_after'] > 0 ? $body['retry_after'] : null;
     $next = is_int($body['next'] ?? null) ? $body['next'] : (is_string($body['next'] ?? null) ? (strtotime($body['next']) ?: null) : null);
-    return ['ok' => false, 'key' => 'report_week', 'params' => ['n' => REPORT_CAP_WEEK, 'next' => $next ?? ($retry !== null ? $now + $retry : null)]];
+    $cap = is_int($body['cap'] ?? null) && $body['cap'] > 0 && $body['cap'] <= 1000 ? $body['cap'] : REPORT_CAP_DAY;
+    return ['ok' => false, 'key' => 'report_day', 'params' => ['n' => $cap, 'next' => $next ?? ($retry !== null ? $now + $retry : null)]];
 }
 
 /** A line in agent.log — never a report's words; the tests keep theirs */

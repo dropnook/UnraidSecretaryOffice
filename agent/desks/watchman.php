@@ -177,6 +177,7 @@ const WATCH_KINDS = [
     'script_changed'       => ['sched', false],
     'at_job'               => ['sched', true],
     'at_userscript'        => ['sched', false],     // a User Script run in the background: noted by himself (watchmanAtUserScript())
+    'at_plugin'            => ['sched', false],     // a plugin's own job (a file of an installed plugin, as root): noted by himself (watchmanAtPlugin())
     'notify_agent'         => ['sched', true],
     'flow_client'          => ['flow', true],
     'flow_container'       => ['flow', true],
@@ -227,7 +228,7 @@ const WATCH_ATTACK = [
     'flash_ssh_key' => 'T1098.004', 'share_public' => 'T1222',
     'cron_new' => 'T1053.003', 'cron_twice' => 'T1053.003', 'cron_office' => 'T1053.003', 'cron_file' => 'T1053.003',
     'cron_file_foreign' => 'T1053.003', 'script_new' => 'T1053.003', 'script_changed' => 'T1053.003',
-    'at_job' => 'T1053.002', 'at_userscript' => 'T1053.002', 'notify_agent' => 'T1546',
+    'at_job' => 'T1053.002', 'at_userscript' => 'T1053.002', 'at_plugin' => 'T1053.002', 'notify_agent' => 'T1546',
     'flow_client' => 'T1039', 'flow_container' => 'T1041', 'flow_written' => 'T1486', 'flow_gone' => 'T1485',
     'smb_user' => 'T1021.002', 'smb_client' => 'T1021.002', 'smb_hour' => 'T1021.002',
     'snap_gone' => 'T1490', 'snap_hold_released' => 'T1490',
@@ -344,6 +345,7 @@ function watchmanPaths(): array
         'cron_files' => '/boot/config/plugins',
         'userscripts' => '/boot/config/plugins/user.scripts',
         'atjobs'     => '/var/spool/atjobs',
+        'emhttp_plugins' => '/usr/local/emhttp/plugins',            // the plugins' files (RAM): a plugin's README names it (watchmanAtPluginName())
         'office_installs' => DATA_DIR . '/advisor/installs.json',    // the consultant's record of what he installed (root only)
         'drill_record' => DATA_DIR . '/restore-drill/record.json',  // Mr. Restori's drill: the throwaways it made (root only)
         'agents'     => '/boot/config/plugins/dynamix/notifications/agents',
@@ -4251,7 +4253,8 @@ function watchmanUserScripts(array $paths, array $prev): ?array
 /**
  * atd's queue: job file => whether it is the office's own (hostLaunch() marks it), when it is due,
  * whose (uid), what it runs (its first command, without the environment at puts in front: that may
- * hold secrets). Read again only when the folder changed.
+ * hold secrets), the installed plugin whose own file it runs (watchmanAtPlugin()). Read again only when
+ * the folder or the installed plugins changed.
  */
 function watchmanAtJobs(array $paths, ?array $prev): ?array
 {
@@ -4262,7 +4265,10 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     if (!$st) {
         return ['m' => null, 'jobs' => []];
     }
-    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && is_array($prev['jobs'] ?? null)) {
+    $pst = isset($paths['plugins']) ? @stat($paths['plugins']) : false;
+    $pm = $pst ? (int) $pst['mtime'] : null;
+    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 2
+        && is_array($prev['jobs'] ?? null)) {
         return $prev;
     }
     $jobs = [];
@@ -4275,9 +4281,58 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
         $jobs[$f] = ['ours' => $ours, 'when' => hexdec($m[1]) * 60, 'uid' => preg_match('/^# atrun uid=(\d+)/m', $text, $u) ? (int) $u[1] : null,
                      'cmd' => $ours ? '' : watchmanAtCommand($text), 'us' => $ours ? null : watchmanAtUserScript($text, $paths['userscripts'] ?? null)]
                    + (!$ours && watchmanAtUnraid($text) ? ['unraid' => true] : []);
+        if (!$ours && ($plugin = watchmanAtPlugin($text, $paths['plugins'] ?? null)) !== null) {
+            $jobs[$f]['plugin'] = $plugin;
+            $jobs[$f]['pname'] = watchmanAtPluginName($plugin, $paths['emhttp_plugins'] ?? null);
+            $jobs[$f]['file'] = watchmanAtPluginFile((string) watchmanAtOnlyCommand($text));
+        }
     }
     ksort($jobs);
-    return ['m' => (int) $st['mtime'], 'jobs' => $jobs];
+    return ['v' => 2, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs];
+}
+
+/**
+ * A plugin's own at job (Benj, 2026-10-09: Fix Common Problems queues its scan with
+ * `echo "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php" | at now +10 min -M` from its
+ * disks_mounted event, and its extended test the same way): exactly one command that runs a file of
+ * /usr/local/emhttp/plugins/<name>/ — optionally after php, /usr/bin/php, bash or /bin/bash, with plain
+ * arguments (no character the shell would act on) —, as root, with an environment that runs nothing else
+ * (watchmanAtOnlyCommand()), where <name> is an installed plugin (its .plg in /var/log/plugins, as for
+ * his plugin watch). The match's first group is the plugin, the second the file in its folder.
+ */
+const WATCH_AT_PLUGIN = '#^(?:(?:/usr/bin/php|php|/bin/bash|bash) )?/usr/local/emhttp/plugins/([A-Za-z0-9._+-]{1,100})/([A-Za-z0-9._+-]{1,100}(?:/[A-Za-z0-9._+-]{1,100}){0,8})(?: [A-Za-z0-9._+/=:,@%-]{1,200}){0,8}$#D';
+
+/** The installed plugin whose own file an at job runs (WATCH_AT_PLUGIN), or null */
+function watchmanAtPlugin(string $text, ?string $pluginsDir): ?string
+{
+    if ($pluginsDir === null || preg_match('/^# atrun uid=0 /m', $text) !== 1) {
+        return null;
+    }
+    $cmd = watchmanAtOnlyCommand($text);
+    if ($cmd === null || !preg_match(WATCH_AT_PLUGIN, trim($cmd), $m) || in_array($m[1], ['.', '..'], true)
+        || preg_match('#(?:^|/)\.\.?(?:/|$)#', $m[2])) {
+        return null;
+    }
+    return is_file("$pluginsDir/{$m[1]}.plg") ? $m[1] : null;
+}
+
+/** The file an at job of a plugin's runs, shortened to <plugin>/<file> like the cron lines (watchmanCronShort()) */
+function watchmanAtPluginFile(string $cmd): string
+{
+    return preg_match(WATCH_AT_PLUGIN, trim($cmd), $m) ? "{$m[1]}/{$m[2]}" : '';
+}
+
+/**
+ * A plugin's name as Unraid's plugin page shows it: its README.md's first line («####Fix Common Problems####»,
+ * «**Fix Common Problems**»), else the plugin's file name
+ */
+function watchmanAtPluginName(string $plugin, ?string $dir): string
+{
+    $file = $dir === null ? null : "$dir/$plugin/README.md";
+    $head = $file !== null && watchmanPlain($file) ? (string) @file_get_contents($file, false, null, 0, 512) : '';
+    $line = trim(trim((string) strtok($head, "\n")), "#* \t\r");
+    return $line !== '' && mb_check_encoding($line, 'UTF-8') && mb_strlen($line) <= 60 && !preg_match('/[\x00-\x1F\x7F<>]/', $line)
+        ? $line : $plugin;
 }
 
 /**
@@ -4521,10 +4576,14 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         // the office's own (hostLaunch()) and Unraid's own (reload_services after an array start) are never news
         $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']) && empty($j['unraid']));
         watchmanAtUnraidClose($book, $now);
+        watchmanAtPluginClose($book, $installed, $now);
         foreach ($foreign as $f => $j) {
             if (is_string($j['us'] ?? null) && $j['us'] !== '') {
                 unset($foreign[$f]);
                 watchmanAtUserScriptNote($book, (string) $f, $j, $now);      // nothing to tell: a line in the book, noted
+            } elseif (is_string($j['plugin'] ?? null) && $j['plugin'] !== '') {
+                unset($foreign[$f]);
+                watchmanAtPluginNote($book, (string) $f, $j, $now);          // a plugin's own job: likewise
             }
         }
         if (!is_array($known['at'] ?? null)) {
@@ -4570,6 +4629,40 @@ function watchmanAtUnraidClose(array &$book, int $now): void
             $book[$i]['by'] = 'unraid';
         }
     }
+}
+
+/**
+ * Open entries that were only a plugin's own job (Fix Common Problems' scan before 1.48): closed, noted by himself
+ * (`by` plugin) — the command as kept (watchmanAtCommand(), whole: no «…») a file of a plugin installed now, as root
+ */
+function watchmanAtPluginClose(array &$book, array $plugins, int $now): void
+{
+    foreach ($book as $i => $e) {
+        $cmd = (string) ($e['p']['cmd'] ?? '');
+        if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e) && ($e['p']['uid'] ?? null) === 0 && preg_match(WATCH_AT_PLUGIN, $cmd, $m)
+            && isset($plugins[$m[1]]) && !preg_match('#(?:^|/)\.\.?(?:/|$)#', $m[2])) {
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'plugin';
+        }
+    }
+}
+
+/** A plugin's own at job: a line in the book naming the plugin, noted by himself (`by` plugin) — once per job */
+function watchmanAtPluginNote(array &$book, string $job, array $j, int $now): void
+{
+    $key = 'at_plugin:' . substr($job, 1);
+    foreach ($book as $e) {
+        if (($e['key'] ?? '') === $key) {
+            return;
+        }
+    }
+    $e = watchmanEntry('at_plugin', $key, $now, ['job' => $job, 'plugin' => watchmanClean((string) $j['plugin'], 100),
+                                                 'name' => watchmanClean((string) ($j['pname'] ?? $j['plugin']), 60),
+                                                 'file' => watchmanClean((string) ($j['file'] ?? ''), 200), 'when' => (int) ($j['when'] ?? 0),
+                                                 'uid' => $j['uid'] ?? null]);
+    $e['noted'] = $now;
+    $e['by'] = 'plugin';
+    $book[] = $e;
 }
 
 function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now): void
@@ -6827,6 +6920,8 @@ function watchmanText(array $e, ?string $lang = null): array
         'script_new', 'script_changed' => ['name' => (string) ($p['name'] ?? ''), 'cron' => (string) ($p['cron'] ?? '')],
         'at_job'         => ['cmd' => (string) ($p['cmd'] ?? '') ?: '?', 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
         'at_userscript'  => ['name' => (string) ($p['name'] ?? ''), 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
+        'at_plugin'      => ['name' => (string) ($p['name'] ?? '') ?: (string) ($p['plugin'] ?? ''), 'file' => (string) ($p['file'] ?? '') ?: '?',
+                             'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
         'notify_agent'   => ['name' => (string) ($p['name'] ?? '')],
         'flow_client'    => ['ip' => (string) ($p['ip'] ?? ''), 'service' => WATCH_FLOW_SERVICES[$p['service'] ?? ''] ?? (string) ($p['service'] ?? ''),
                              'size' => watchmanSize((int) ($p['bytes'] ?? 0), $lang ?? 'en'), 'minutes' => (int) ($p['minutes'] ?? 0),

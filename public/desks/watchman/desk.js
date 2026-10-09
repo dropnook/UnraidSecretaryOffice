@@ -1057,6 +1057,10 @@ function details(e) {
       add(T('detail.script'), p.name);
       add(T('detail.started'), fmt.date(p.when));
     }
+    if (e.kind === 'at_plugin') {
+      add(T('detail.when'), fmt.date(p.when));
+      add(T('detail.command'), p.file || '?', true);
+    }
     if (e.kind === 'notify_agent') {
       add(T('detail.agent'), p.name);
       add(T('detail.content'), T(p.new ? 'detail.file_new' : 'detail.content_changed'));
@@ -1071,7 +1075,7 @@ function details(e) {
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
   if (e.open) notes.push(T('adopt.' + e.kind));
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'schedule', 'array', 'unraid', 'router'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'schedule', 'array', 'unraid', 'plugin', 'router'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));
