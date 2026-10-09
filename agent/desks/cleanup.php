@@ -26,8 +26,14 @@ declare(strict_types=1);
  *              since the reboot and unchanged for CL_FRESH_DAYS. Scheduled or
  *              running ones are never put away; the office's own never count
  *   docker     dangling and unused images, volumes without a container,
- *              the build cache — Docker can't rename these, so they can
- *              only be removed for good (images can be pulled again)
+ *              the build cache — Docker can't rename these: images and the
+ *              cache are removed for good (images can be pulled again); a
+ *              volume of the local driver is copied into the storeroom
+ *              beside Docker's data first (cp -a, its name, driver, labels
+ *              and options in the manifest) and removed only once the copy
+ *              is complete; «Put back» creates it anew and copies it back.
+ *              Volumes of other drivers or mounted from elsewhere (NFS,
+ *              CIFS, a folder: options) can't be copied — removed for good
  *   leftovers  what Mr. Restori left next to what he brought back (he never
  *              deletes either): <name>.aside-<time>, .restored-<time>,
  *              .putback-<time>, <file>.restored-aside-<time>, his folders on
@@ -81,7 +87,7 @@ const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cl
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
                          'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray', 'userscripts' => 'userscript',
-                         'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner', 'packages' => 'package'];
+                         'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner', 'packages' => 'package', 'volumes' => 'volume'];
 const CL_US_SCRIPTS   = US_DIR . '/scripts';
 const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
 const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
@@ -95,6 +101,12 @@ const CL_FLASH_TTL    = 1800;                      // search the flash again aft
 const CL_PARALLEL     = 2;                         // background jobs at once (purges don't wait)
 const CL_LOCK_LOOK    = 5;                         // seconds between looks at the engine's lock from tick
 const CL_FOLDER_LIMIT = 2000;
+// Docker's volumes: Docker can't rename them, so what they hold is copied into the storeroom beside Docker's data first
+const CL_VOLUME_NAME     = '/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}\z/D';      // Docker's own rule for a volume's name
+const CL_VOLUME_LABEL    = '#^[A-Za-z0-9][A-Za-z0-9._/:-]{0,254}\z#D';    // a label's key as she puts it back (no «=»: --label k=v)
+const CL_VOLUME_LABELS   = 200;
+const CL_VOLUME_COPY_MAX = 4 * 3600;        // one volume's copy (into the storeroom or back) may take this long
+const CL_VOLUME_PULSE    = 15;              // seconds between the agent's pulses while a copy runs (its heartbeat goes stale after 70)
 // Mr. Restori's leftovers: his journals (DATA_DIR/restore/<id>/journal.json, root only) say what he put aside
 const CL_RESTORE_ID     = '/^(\d{8}-\d{6})-[0-9a-f]{4}$/D';      // a restore: <time>-<random>; the time is in all he leaves
 const CL_RESTORE_MAX    = 200;                                   // journals read, newest first
@@ -315,6 +327,8 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
     }
 
     $docker = clDocker();
+    $place = $docker['ok'] ? clVolumePlace() : null;
+    $GLOBALS['clCtx']['volumes'] = $place && !$place['asleep'] ? $place['root'] : null;      // her storeroom for Docker's volumes
     $cache = clCache();
     $raw = [
         'docker'    => $docker,
@@ -616,6 +630,7 @@ function clDocker(): array
                 'anonymous' => array_key_exists('com.docker.volume.anonymous', $labels) || preg_match('/^[0-9a-f]{64}$/', (string) $v['Name']) === 1,
                 'project'   => $labels['com.docker.compose.project'] ?? null,
                 'driver'    => (string) ($v['Driver'] ?? 'local'),
+                'options'   => array_map('strval', array_filter((array) ($v['Options'] ?? []), 'is_scalar')),
             ];
         }
     }
@@ -2729,7 +2744,7 @@ function clDockerEntries(array $raw, array $cache, callable $pending): array
     }
     foreach ($d['volumes'] as $name => $_) {
         $name = (string) $name;
-        $info = $d['volume_info'][$name] ?? ['path' => '', 'created' => null, 'anonymous' => false, 'project' => null, 'driver' => 'local'];
+        $info = $d['volume_info'][$name] ?? ['path' => '', 'created' => null, 'anonymous' => false, 'project' => null, 'driver' => 'local', 'options' => []];
         $by = $volumeUsers[$name] ?? [];
         $size = $info['path'] !== '' ? ($cache['sizes'][$info['path']] ?? null) : null;
         $ok = $size && empty($size['error']);
@@ -2740,6 +2755,8 @@ function clDockerEntries(array $raw, array $cache, callable $pending): array
         $out[] = [
             'id' => "volume:$name", 'kind' => 'volume', 'name' => $name,
             'category' => $by ? 'used' : 'volume', 'anonymous' => $info['anonymous'], 'project' => $info['project'], 'driver' => $info['driver'],
+            // into the storeroom first (copied) — or, another driver or mounted from elsewhere, removed for good
+            'keep' => clVolumeKeepable(['driver' => $info['driver'], 'options' => $info['options'] ?? [], 'mountpoint' => $info['path']]),
             'bytes' => $ok ? $size['bytes'] : null, 'files' => $ok ? $size['files'] : null, 'newest' => $ok ? $size['newest'] : null,
             'measuring' => $info['path'] !== '' && $pending('measure:' . $info['path']),
             'created' => $info['created'], 'path' => $info['path'] !== '' ? $info['path'] : null,
@@ -2934,6 +2951,10 @@ function clTrashRoots(array $places, array $vms, array $extra = []): array
     if ($vms['ok']) {
         $roots[CL_LIBVIRT . '/' . CL_TRASH] = 'libvirt';
     }
+    // Docker's volumes: copied into the storeroom beside Docker's data (clVolumePlace(), set by clScan() — awake only)
+    if (is_string($GLOBALS['clCtx']['volumes'] ?? null)) {
+        $roots[$GLOBALS['clCtx']['volumes']] ??= 'docker';
+    }
     // Mr. Restori's leftovers go into the storeroom on their own filesystem, in their share (clLeftoverTrash())
     foreach ($extra as $root) {
         $roots[$root] ??= 'share';
@@ -3075,6 +3096,11 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
                     || !clTrashAsOk($it['as'], $it['kind'], $runStamp)) {
                     continue;
                 }
+                // a Docker volume: its record (name, driver, labels) exactly as she writes it, or it doesn't count
+                $volume = $it['kind'] === 'volume' ? clVolumeRecord($it['volume'] ?? null, basename($it['as'])) : null;
+                if ($it['kind'] === 'volume' && $volume === null) {
+                    continue;
+                }
                 $known[$it['as']] = true;
                 $known[dirname($it['as'])] = true;            // strays/<folder hash>/
                 $zfs = str_starts_with($it['as'], '@') ? substr($it['as'], 1) : null;
@@ -3094,7 +3120,7 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
                     'asleep'  => $asleep,
                     'volumes' => array_values(array_filter((array) ($it['volumes'] ?? []), fn ($v) => is_string($v) && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}\z/', $v))),
                     'images'  => array_values(array_filter((array) ($it['images'] ?? []), fn ($v) => is_string($v) && preg_match('#^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}\z#', $v))),
-                ];
+                ] + ($volume !== null ? ['volume' => $volume] : []);
             }
             // whatever is in there without a manifest entry (shown, can't go back)
             foreach (CL_KINDS as $dir => $kind) {
@@ -3564,6 +3590,18 @@ function clRestore(array $ids): array
         if ($run['legacy'] || $run['purging'] || !$it['from'] || !$it['present']) {
             throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
         }
+        if ($it['kind'] === 'volume') {
+            // a Docker volume: created anew with its record and its copy copied back — never over one of that name
+            try {
+                clVolumeBack(bin('docker') ?? throw new Problem('cleanup_docker_down', ['name' => $it['name']]), $run, $it);
+                clRestoreForget($run, $it);
+                $results[] = ['id' => $id, 'ok' => true, 'kind' => 'volume'];
+                logLine("Dustdevil put back Docker's volume {$it['name']}");
+            } catch (Problem $p) {
+                $results[] = ['id' => $id, 'ok' => false, 'error' => $p->toArray()];
+            }
+            continue;
+        }
         // only to where such a thing belongs — a manifest is a file anybody with root could edit
         $home = match ($it['kind']) {
             'template'   => CL_TEMPLATES,
@@ -3617,14 +3655,7 @@ function clRestore(array $ids): array
             } elseif (!@rename($run['path'] . '/' . $it['as'], $it['from'])) {
                 throw new Problem('cleanup_move_failed', ['path' => $it['from'], 'detail' => error_get_last()['message'] ?? '']);
             }
-            $manifest = readJson($run['path'] . '/manifest.json') ?? [];
-            $left = array_values(array_filter((array) ($manifest['items'] ?? []), fn ($m) => ($m['as'] ?? null) !== $it['as']));
-            if ($left) {
-                clManifestWrite(['path' => $run['path'], 'time' => (int) ($manifest['time'] ?? $run['time']), 'items' => $left]);
-            } else {
-                clRunTidy($run['path'], $run['root']);
-            }
-            clForgetSize($run['path']);
+            clRestoreForget($run, $it);
             if ($it['kind'] === 'stray') {             // back in the list right away, not only after the next search
                 $cache = clCache();
                 $cache['strays']['paths'] = array_values(array_unique(array_merge($cache['strays']['paths'] ?? [], [$it['from']])));
@@ -3639,7 +3670,23 @@ function clRestore(array $ids): array
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
 }
 
-/** Empties trash runs for good (in the background); for stacks also their volumes and images, if asked */
+/** What was put back leaves the run's manifest; a run with nothing left goes */
+function clRestoreForget(array $run, array $it): void
+{
+    $manifest = readJson($run['path'] . '/manifest.json') ?? [];
+    $left = array_values(array_filter((array) ($manifest['items'] ?? []), fn ($m) => ($m['as'] ?? null) !== $it['as']));
+    if ($left) {
+        clManifestWrite(['path' => $run['path'], 'time' => (int) ($manifest['time'] ?? $run['time']), 'items' => $left]);
+    } else {
+        clRunTidy($run['path'], $run['root']);
+    }
+    clForgetSize($run['path']);
+}
+
+/**
+ * Empties trash runs for good (in the background); for stacks also their images, if asked — and their named volumes,
+ * which go into the storeroom beside Docker's data first (copied, like the Docker room's), where Docker allows it
+ */
 function clPurge(array $ids, bool $volumes, bool $images): array
 {
     $state = clScan(false, false);
@@ -3657,7 +3704,15 @@ function clPurge(array $ids, bool $volumes, bool $images): array
     }
     $results = [];
     $docker = bin('docker');
-    $known = $GLOBALS['clRaw']['docker'] ?? ['volumes' => [], 'images' => []];
+    $known = $GLOBALS['clRaw']['docker'] ?? ['volumes' => [], 'images' => [], 'containers' => []];
+    $volumeUsers = [];
+    foreach ($known['containers'] ?? [] as $c) {
+        foreach ($c['volumes'] as $v) {
+            $volumeUsers[$v] = true;
+        }
+    }
+    $volumeRun = null;                          // the storeroom's run for the stacks' volumes, made with the first one
+    $place = $volumes ? clVolumePlace() : null;
     foreach ($todo as $run) {
         $done = ['id' => $run['id'], 'ok' => true, 'volumes' => [], 'images' => []];
         // datasets of the run first (with their snapshots); the run's folder only when they are gone
@@ -3690,9 +3745,11 @@ function clPurge(array $ids, bool $volumes, bool $images): array
                 continue;
             }
             foreach ($volumes ? $it['volumes'] : [] as $v) {
-                $done['volumes'][] = isset($known['volumes'][$v])
-                    ? ['name' => $v, 'ok' => run([$docker, 'volume', 'rm', $v], 60)[0] === 0]
-                    : ['name' => $v, 'ok' => true, 'absent' => true];
+                $done['volumes'][] = match (true) {
+                    !isset($known['volumes'][$v]) => ['name' => $v, 'ok' => true, 'absent' => true],
+                    isset($volumeUsers[$v])       => ['name' => $v, 'ok' => false, 'error' => ['key' => 'cleanup_in_use', 'params' => ['name' => $v]]],
+                    default                       => ['name' => $v] + clVolumeAway($docker, $v, $volumeRun, $place),
+                };
             }
             foreach ($images ? $it['images'] : [] as $i) {
                 $done['images'][] = ($known['images'][clNormImage($i)]['id'] ?? null) !== null
@@ -3702,10 +3759,16 @@ function clPurge(array $ids, bool $volumes, bool $images): array
         }
         $results[] = $done;
     }
+    if ($volumeRun !== null && !$volumeRun['items']) {
+        clRunTidy($volumeRun['path'], $volumeRun['root']);
+    }
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
 }
 
-/** Docker's leftovers can't be put away (Docker can't rename them): removed for good, never forced */
+/**
+ * Docker's leftovers can't be renamed into the storeroom: a volume of the local driver is copied into it first
+ * (clVolumeAway()); images, the build cache and volumes that can't be copied are removed for good — never forced
+ */
 function clRemove(array $ids): array
 {
     $state = clScan(false, false);
@@ -3738,11 +3801,16 @@ function clRemove(array $ids): array
         }
     }
     $docker = $todo ? (bin('docker') ?? throw new Problem('cleanup_docker_down', ['name' => $todo[0]['name'] ?? ''])) : '';
+    $volumeRun = null;
+    $place = array_filter($todo, fn ($e) => $e['kind'] === 'volume') ? clVolumePlace() : null;
     foreach ($todo as $e) {
+        if ($e['kind'] === 'volume') {
+            $results[] = ['id' => $e['id']] + clVolumeAway($docker, $e['name'], $volumeRun, $place);
+            continue;
+        }
         // a tagged image goes by its tags (removing the id would refuse while it has several), a dangling one by its id
         $command = match ($e['kind']) {
             'image'  => array_merge([$docker, 'image', 'rm'], $e['refs'] ?: [$e['image_id']]),
-            'volume' => [$docker, 'volume', 'rm', $e['name']],
             'cache'  => [$docker, 'builder', 'prune', '-f'],
         };
         [$exit, , $err] = run($command, 300);
@@ -3754,10 +3822,326 @@ function clRemove(array $ids): array
                           'error' => ['key' => 'cleanup_docker_failed', 'params' => ['name' => $e['name'], 'detail' => trim(substr($err, -300))]]];
         }
     }
+    if ($volumeRun !== null && !$volumeRun['items']) {
+        clRunTidy($volumeRun['path'], $volumeRun['root']);
+    }
     $cache = clCache();
     unset($cache['build']);                    // ask Docker again
     clSaveCache($cache);
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
+}
+
+// --------------------------------------------------------------------- Docker's volumes
+
+/**
+ * Where her storeroom for Docker's volumes lies: beside Docker's data — the share folder of DOCKER_IMAGE_FILE (the
+ * docker.img or the docker folder) on the pool or disk that holds it, `<that>/_UnraidSecretaryOffice-trash`, so a copy
+ * stays on the pool it came from. A user share is looked for on its pool first, then on every awake root (a sleeping
+ * one is never looked at — Docker's data lies on a disk that is awake anyway). null when it can't be told.
+ *
+ * @return array{pool: string, root: string, asleep: bool}|null
+ */
+function clVolumePlace(?array $cfg = null, ?array $ctx = null, string $mnt = '/mnt'): ?array
+{
+    $cfg ??= readCfg('/boot/config/docker.cfg');
+    $ctx ??= $GLOBALS['clCtx'];
+    $file = rtrim((string) ($cfg['DOCKER_IMAGE_FILE'] ?? ''), '/');
+    if (!clTrashPathOk($file) || !preg_match('#^/mnt/([^/]+)/([^/]+)(/.*)?\z#', $file, $m)
+        || in_array($m[1], ['disks', 'remotes', 'addons', 'rootshare'], true) || str_starts_with($m[2], CL_TRASH)) {
+        return null;
+    }
+    $rest = $m[3] ?? '';
+    $found = null;
+    if ($m[1] === 'user' || $m[1] === 'user0') {
+        $pool = (string) (clShareCfg($m[2])['shareCachePool'] ?? '');
+        foreach (array_unique(array_merge(isset($ctx['roots'][$pool]) ? [$pool] : [], array_map('strval', array_keys($ctx['roots'])))) as $name) {
+            if (!clPoolAsleep($name, $ctx['asleep']) && file_exists("$mnt/$name/{$m[2]}$rest")) {
+                $found = $name;
+                break;
+            }
+        }
+    } elseif (isset($ctx['roots'][$m[1]])) {
+        $found = $m[1];
+    }
+    return $found === null ? null : ['pool' => $found, 'root' => "$mnt/$found/{$m[2]}/" . CL_TRASH, 'asleep' => clPoolAsleep($found, $ctx['asleep'])];
+}
+
+/**
+ * A volume as Docker tells it (docker volume inspect): name, driver, labels, options, mountpoint — null when Docker
+ * has none of that name (or doesn't answer)
+ *
+ * @return array{name: string, driver: string, labels: array<string, string>, options: array<string, string>, mountpoint: string}|null
+ */
+function clVolumeInspect(string $docker, string $name): ?array
+{
+    if (!preg_match(CL_VOLUME_NAME, $name)) {
+        return null;
+    }
+    [$exit, $json] = run([$docker, 'volume', 'inspect', $name], 30);
+    $v = $exit === 0 ? (json_decode($json, true)[0] ?? null) : null;
+    if (!is_array($v) || ($v['Name'] ?? null) !== $name) {
+        return null;
+    }
+    $map = fn ($x) => array_map('strval', array_filter(is_array($x) ? $x : [], 'is_scalar'));
+    return ['name' => $name, 'driver' => (string) ($v['Driver'] ?? ''), 'labels' => $map($v['Labels'] ?? []), 'options' => $map($v['Options'] ?? []),
+            'mountpoint' => (string) ($v['Mountpoint'] ?? '')];
+}
+
+/**
+ * Can she keep a copy? Only a volume of the local driver without options: its data lies in Docker's own folder. With
+ * options (type=nfs/cifs, a bind of a folder, tmpfs) or another driver what it holds lies elsewhere — nothing to copy;
+ * such a volume is removed for good, as the page says.
+ */
+function clVolumeKeepable(array $v): bool
+{
+    return ($v['driver'] ?? '') === 'local' && !($v['options'] ?? []) && clTrashPathOk((string) ($v['mountpoint'] ?? ''));
+}
+
+/**
+ * A volume's record from a manifest (it lies in a share — others may write there): exactly the shape she writes —
+ * the local driver, no options, labels of plain keys and values — or null (then it can't go back)
+ *
+ * @return array{name: string, driver: string, labels: array<string, string>, options: array{}}|null
+ */
+function clVolumeRecord(mixed $v, string $name): ?array
+{
+    if (!is_array($v) || ($v['name'] ?? null) !== $name || !preg_match(CL_VOLUME_NAME, $name) || ($v['driver'] ?? null) !== 'local'
+        || ($v['options'] ?? []) !== [] || !is_array($v['labels'] ?? []) || count($v['labels'] ?? []) > CL_VOLUME_LABELS) {
+        return null;
+    }
+    $labels = [];
+    foreach ($v['labels'] ?? [] as $k => $x) {
+        if (!preg_match(CL_VOLUME_LABEL, (string) $k) || !is_string($x) || strlen($x) > 4096 || preg_match('/[\x00-\x1f\x7f]/', $x)) {
+            return null;
+        }
+        $labels[(string) $k] = $x;
+    }
+    return ['name' => $name, 'driver' => 'local', 'labels' => $labels, 'options' => []];
+}
+
+/**
+ * docker volume rm; a volume whose folder is gone already («no such file or directory») is removed with -f — then it
+ * counts as removed (nothing was there to keep). Docker refuses a volume a container uses, with -f too.
+ */
+function clVolumeRm(string $docker, string $name): void
+{
+    [$exit, , $err] = run([$docker, 'volume', 'rm', $name], 120);
+    if ($exit !== 0 && stripos($err, 'no such file or directory') !== false) {
+        [$exit, , $err] = run([$docker, 'volume', 'rm', '-f', $name], 120);
+    }
+    if ($exit !== 0) {
+        throw new Problem('cleanup_docker_failed', ['name' => $name, 'detail' => trim(substr($err, -300))]);
+    }
+}
+
+/**
+ * A command that may run long (a volume's copy): like run(), but the agent's pulse goes on meanwhile (every
+ * CL_VOLUME_PULSE s), so the page and the watch don't take the busy agent for a gone one
+ *
+ * @return array{0: int, 1: string, 2: string}
+ */
+function clRunLong(array $command, int $timeout): array
+{
+    $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
+    $pipes = [];
+    $p = @proc_open($command, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/', $env);
+    if (!is_resource($p)) {
+        return [127, '', 'could not start ' . ($command[0] ?? '?')];
+    }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+    $out = $err = '';
+    $start = $pulse = microtime(true);
+    $killed = false;
+    while (!feof($pipes[1]) || !feof($pipes[2])) {
+        $read = array_values(array_filter([$pipes[1], $pipes[2]], fn ($h) => !feof($h)));
+        $w = $e = null;
+        @stream_select($read, $w, $e, 1, 0);
+        foreach ([1, 2] as $fd) {
+            if (!feof($pipes[$fd]) && ($chunk = fread($pipes[$fd], 65536)) !== false) {
+                if ($fd === 1) {
+                    $out = substr($out . $chunk, 0, 65536);
+                } else {
+                    $err = substr($err . $chunk, -65536);
+                }
+            }
+        }
+        if (microtime(true) - $pulse >= CL_VOLUME_PULSE) {
+            $pulse = microtime(true);
+            if (function_exists('agentPulse')) {
+                agentPulse();
+            }
+        }
+        if (microtime(true) - $start > $timeout) {
+            proc_terminate($p, 9);
+            $killed = true;
+            break;
+        }
+    }
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $code = proc_close($p);
+    return [$killed ? 124 : $code, $out, $killed ? "$err\naborted after $timeout s" : $err];
+}
+
+/**
+ * One volume out of Docker: a volume she can keep is copied into the storeroom first (clVolumeStore()), one she can't
+ * (another driver, mounted from elsewhere) is removed for good, one whose folder is gone only removed (nothing to keep).
+ * $run: the storeroom's run of this request, made with the first volume. Never throws.
+ *
+ * @return array{ok: bool, stored?: bool, error?: array}
+ */
+function clVolumeAway(string $docker, string $name, ?array &$run, ?array $place): array
+{
+    try {
+        $v = clVolumeInspect($docker, $name) ?? throw new Problem('cleanup_docker_failed', ['name' => $name, 'detail' => 'no such volume']);
+        if (!clVolumeKeepable($v)) {
+            clVolumeRm($docker, $name);
+            logLine("Dustdevil removed Docker's volume $name for good (driver {$v['driver']}" . ($v['options'] ? ', mounted from elsewhere' : '') . ' — nothing to copy)');
+            return ['ok' => true, 'stored' => false];
+        }
+        clearstatcache(true, $v['mountpoint']);
+        if (!file_exists($v['mountpoint']) && !is_link($v['mountpoint'])) {
+            clVolumeRm($docker, $name);
+            logLine("Dustdevil removed Docker's volume $name — its folder was gone, nothing to keep");
+            return ['ok' => true, 'stored' => false];
+        }
+        if ($place === null) {
+            throw new Problem('cleanup_volume_no_place', ['name' => $name]);
+        }
+        if ($place['asleep']) {
+            throw new Problem('cleanup_asleep', ['name' => $name]);
+        }
+        $item = clVolumeStore($docker, $v, $run, $place['root']);
+        logLine("Dustdevil put Docker's volume $name into the storeroom (" . clHuman((int) $item['bytes']) . ", {$run['path']})");
+        return ['ok' => true, 'stored' => true];
+    } catch (Problem $p) {
+        logLine("Dustdevil could not put away Docker's volume $name: " . $p->getMessage());
+        return ['ok' => false, 'error' => $p->toArray()];
+    }
+}
+
+/**
+ * Copies a volume into the storeroom and removes it from Docker — only after the copy is complete: what it holds with
+ * owners, permissions, times, xattrs and ACLs (cp -a) into `volumes/.<name>.partial`, renamed to `volumes/<name>` once
+ * cp finished well, its record (name, driver, labels, options) in the manifest; then docker volume rm. A copy that
+ * failed goes again and nothing is removed; Docker refusing the rm (a container took it meanwhile) takes the copy back
+ * out. Before copying: the space — what the volume's files hold against what is free where the storeroom lies.
+ *
+ * @return array the manifest entry
+ */
+function clVolumeStore(string $docker, array $v, ?array &$run, string $root): array
+{
+    $name = $v['name'];
+    $mp = $v['mountpoint'];
+    if (is_link($mp) || !is_dir($mp)) {
+        throw new Problem('cleanup_volume_copy_failed', ['name' => $name, 'detail' => "$mp is no folder"]);
+    }
+    // what it holds by its files' sizes: ZFS counts blocks of just-written files only once they are committed (a fresh
+    // 3 MB file: «6 KB»), so blocks on disk could let a copy start that doesn't fit
+    [$exit, $out, $err] = clRunLong(['du', '-s', '-B1', '-x', '--apparent-size', $mp], 3600);
+    $need = $exit === 0 && preg_match('/^(\d+)\s/', $out, $m) ? (int) $m[1] : null;
+    if ($need === null) {
+        throw new Problem('cleanup_volume_copy_failed', ['name' => $name, 'detail' => trim(substr($err, -300)) ?: 'du failed']);
+    }
+    $free = ($GLOBALS['clVolumeFree'] ?? fn (string $p) => @disk_free_space($p))(is_dir($root) ? $root : dirname($root));     // tests: a full pool
+    if ($free !== false && $need > $free * 0.95) {
+        throw new Problem('cleanup_volume_no_space', ['name' => $name, 'need' => clHuman($need), 'free' => clHuman((int) $free), 'path' => dirname($root)]);
+    }
+    $run ??= clRunCreate($root);
+    $dir = $run['path'] . '/volumes';
+    if (!is_dir($dir)) {
+        if (is_link($dir) || !@mkdir($dir, 0775)) {
+            throw new Problem('cleanup_trash_failed', ['path' => $dir]);
+        }
+        @lchown($dir, FILE_UID);
+        @lchgrp($dir, FILE_GID);
+    }
+    $final = "$dir/$name";
+    $partial = "$dir/.$name.partial";
+    if (file_exists($final) || is_link($final) || file_exists($partial) || is_link($partial)) {
+        throw new Problem('cleanup_target_exists', ['path' => $final]);
+    }
+    [$exit, , $err] = clRunLong([$GLOBALS['clVolumeCp'] ?? 'cp', '-a', '--', $mp, $partial], CL_VOLUME_COPY_MAX);      // tests: a cp that fails
+    if ($exit !== 0 || !@rename($partial, $final)) {
+        clRunLong(['rm', '-rf', '--', $partial], 3600);
+        throw new Problem('cleanup_volume_copy_failed', ['name' => $name, 'detail' => trim(substr($err, -300)) ?: 'rename failed']);
+    }
+    $item = ['kind' => 'volume', 'name' => $name, 'label' => $v['driver'], 'from' => $mp, 'as' => "volumes/$name", 'bytes' => $need,
+             'volume' => ['name' => $name, 'driver' => $v['driver'], 'labels' => $v['labels'], 'options' => $v['options']]];
+    $run['items'][] = $item;
+    clManifestWrite($run);
+    try {
+        clVolumeRm($docker, $name);
+    } catch (Problem $p) {
+        array_pop($run['items']);                   // still Docker's: the copy goes again
+        clManifestWrite($run);
+        clRunLong(['rm', '-rf', '--', $final], 3600);
+        throw $p;
+    }
+    return $item;
+}
+
+/**
+ * «Put back» of a volume: docker volume create with its recorded name and labels (the local driver, as she only keeps
+ * those), then the copy copied into the new volume's folder (cp -a -T: its own owner and permissions too) — never when
+ * Docker has a volume of that name (said so). A copy that fails removes the volume just made; the storeroom keeps its
+ * copy. Done, the storeroom's copy goes in the background (clVolumeDrop()).
+ */
+function clVolumeBack(string $docker, array $run, array $it): void
+{
+    $v = $it['volume'] ?? null;
+    $src = $run['path'] . '/' . $it['as'];
+    if (!is_array($v) || basename($it['as']) !== $v['name'] || !clRunPathOk($run['path'], $it['as']) || is_link($src) || !is_dir($src)) {
+        throw new Problem('cleanup_no_way_back', ['name' => $it['name']]);
+    }
+    $name = $v['name'];
+    if (clVolumeInspect($docker, $name) !== null) {
+        throw new Problem('cleanup_volume_exists', ['name' => $name]);
+    }
+    $create = [$docker, 'volume', 'create', '--driver', 'local'];
+    foreach ($v['labels'] as $k => $x) {
+        array_push($create, '--label', "$k=$x");
+    }
+    $create[] = $name;
+    [$exit, , $err] = run($create, 60);
+    if ($exit !== 0) {
+        throw new Problem('cleanup_volume_back_failed', ['name' => $name, 'detail' => trim(substr($err, -300))]);
+    }
+    $new = clVolumeInspect($docker, $name);
+    $mp = (string) ($new['mountpoint'] ?? '');
+    [$exit, , $err] = $mp !== '' && clTrashPathOk($mp) && !is_link($mp) && is_dir($mp)
+        ? clRunLong([$GLOBALS['clVolumeCp'] ?? 'cp', '-a', '-T', '--', $src, $mp], CL_VOLUME_COPY_MAX)
+        : [1, '', "no folder for the new volume ($mp)"];
+    if ($exit !== 0) {
+        try {
+            clVolumeRm($docker, $name);
+        } catch (Problem) {
+            // said below; the storeroom keeps its copy either way
+        }
+        throw new Problem('cleanup_volume_back_failed', ['name' => $name, 'detail' => trim(substr($err, -300))]);
+    }
+    clVolumeDrop($run['root'], $src);
+}
+
+/**
+ * The storeroom's copy of a volume that is back in Docker: renamed into a run of its own being emptied
+ * (`<stamp>.purging/volume`, the same filesystem) and removed in the background like any emptied run; where that
+ * rename fails, removed right away
+ */
+function clVolumeDrop(string $root, string $path): void
+{
+    $stamp = date('Ymd-His');
+    for ($i = 2; file_exists("$root/$stamp") || file_exists("$root/$stamp.purging"); $i++) {
+        $stamp = date('Ymd-His') . "-$i";
+    }
+    $dir = "$root/$stamp.purging";
+    if (!is_link($root) && @mkdir($dir, 0700) && @rename($path, "$dir/volume")) {
+        clJobAdd("purge:$dir", 'purge', [['rm', '-rf', '--', $dir]], 0, true);
+        return;
+    }
+    @rmdir($dir);
+    clRunLong(['rm', '-rf', '--', $path], 3600);
 }
 
 /** Measures folders, volumes or trash runs again, when asked */
