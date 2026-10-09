@@ -567,6 +567,8 @@
   "schedule.daily": "Cada día a las",
   "schedule.custom": "Programación propia",
   "schedule.custom_hint": "Cinco campos como en «Custom» de User Scripts, p. ej. 0 3 * * 1-6 (de lunes a sábado a las 3).",
+  "schedule.examples": "Ejemplos",
+  "schedule.examples_tip": "15 * * * * — cada hora y cuarto\n0 * * * * — cada hora en punto\n0 */6 * * * — cada 6 horas (a las 0, 6, 12 y 18)\n0 1,12 * * * — cada día a la 1 y a las 12\n0 3 * * 1-6 — de lunes a sábado a las 3\nSi una copia sigue en marcha, la siguiente se salta — con un aviso.",
   "schedule.off": "Sin copia automática",
   "schedule.off_hint": "Entonces la copia de seguridad solo se ejecuta cuando la inicias aquí.",
   "schedule.duration": "Una copia ha tardado últimamente unos {duration} — termina hacia las {end}.",

@@ -561,6 +561,8 @@
   "schedule.daily": "Every day at",
   "schedule.custom": "Schedule of your own",
   "schedule.custom_hint": "Five fields as in User Scripts \"Custom\", e.g. 0 3 * * 1-6 (Monday to Saturday at 3 am).",
+  "schedule.examples": "Examples",
+  "schedule.examples_tip": "15 * * * * — every hour at quarter past\n0 * * * * — every hour on the hour\n0 */6 * * * — every 6 hours (0, 6, 12 and 18 o'clock)\n0 1,12 * * * — every day at 1 am and at noon\n0 3 * * 1-6 — Monday to Saturday at 3 am\nIf a backup is still running, the next one is skipped — with a notification.",
   "schedule.off": "No automatic run",
   "schedule.off_hint": "The backup then only runs when you start it here.",
   "schedule.duration": "A run took about {duration} lately — done around {end}.",

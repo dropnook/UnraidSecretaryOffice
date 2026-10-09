@@ -567,6 +567,8 @@
   "schedule.daily": "Ogni giorno alle",
   "schedule.custom": "Pianificazione tua",
   "schedule.custom_hint": "Cinque campi come in User Scripts «Custom», ad es. 0 3 * * 1-6 (da lunedì a sabato alle 3).",
+  "schedule.examples": "Esempi",
+  "schedule.examples_tip": "15 * * * * — ogni ora e un quarto\n0 * * * * — ogni ora allo scoccare dell'ora\n0 */6 * * * — ogni 6 ore (alle 0, 6, 12 e 18)\n0 1,12 * * * — ogni giorno all'1 e alle 12\n0 3 * * 1-6 — da lunedì a sabato alle 3\nSe un backup è ancora in corso, il successivo salta — con una notifica.",
   "schedule.off": "Nessun backup automatico",
   "schedule.off_hint": "Allora il backup gira solo quando lo avvii da qui.",
   "schedule.duration": "Ultimamente un backup è durato circa {duration} — finito verso le {end}.",

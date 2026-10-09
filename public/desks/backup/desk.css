@@ -135,6 +135,7 @@
 .bk-schedule .check{margin-bottom:6px}
 .bk-schedule-field{margin:0 0 14px 25px; display:flex; flex-direction:column; gap:5px; max-width:260px}
 .bk-schedule-field small{font-size:12px; color:var(--muted)}
+.bk-schedule-field .chip{align-self:flex-start; cursor:help}
 .bk-schedule input.input:disabled{opacity:.5}
 
 /* what a running backup has paused right now */
