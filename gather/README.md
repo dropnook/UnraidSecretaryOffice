@@ -1,10 +1,15 @@
 > **In the Unraid Secretary Office** this is Jack Emby's "Consolidate folders": taken from
 > [helmi1987/media-disk-gather-for-unraid](https://github.com/helmi1987/media-disk-gather-for-unraid)
-> (V11.0) and since changed here (V11.3). Jack writes its settings (`data/gather/consolidate.ini`)
+> (V11.0) and since changed here (V11.4). Jack writes its settings (`data/gather/consolidate.ini`)
 > and runs it — never with `--include-cache`, never while EmbyCache runs. Changes against V11.0:
 >
 > * `CONSOLIDATE_CONFIG`: where the ini is (default: next to the script).
 > * `CONSOLIDATE_STATUS`: a JSON file with the result (mode, counters, exit code).
+> * The status carries `sizes` (V11.4): per share and disk/pool the bytes and files the index saw
+>   (`{"Filme": {"disk2": {"bytes": n, "files": n}, "master": {…}}}`, cache/pool roots included; no
+>   extra disk reads), kept up to date by a real run's moves and deletions, and `sizes_at` (when those
+>   numbers were true: after the index in a dry run, the end of a real one). Missing when the run ended
+>   before its index. Jack shows them on his page.
 > * `CONSOLIDATE_STOP`: a file; once it exists the run stops after the folder it is on (no retry,
 >   no deep clean; result `stopped`, exit 3, `folders`/`folders_done` in the status) — Jack writes it
 >   when someone starts watching Emby during a real run.
