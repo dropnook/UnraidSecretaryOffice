@@ -1368,6 +1368,12 @@ Office.supporterAsk = async function supporterAsk(answer) {
  * until the preview was looked at; a word changed after it: the preview goes, «Send» with it. The draft is kept per
  * browser (Office.store report.draft) — a click outside or Escape loses nothing. The office shows only its own words
  * (errors.report_*), never a text of the makers' inbox.
+ * Pictures (#6): up to REPORT_IMAGES_MAX screenshots (PNG, JPEG, WebP; chosen, pasted or dropped), each ≤ 2 MB as the
+ * browser has it — a WebP becomes a PNG here first where the office's GD can't write WebP (CONFIG.report_images). They
+ * go only with the preview: each alone to the web side (office.report_image → a ref in the RAM inbox), then the preview
+ * names the refs and the agent draws each anew (src/reportimage.php). In the preview each has its own tick, and
+ * «Send» needs one more while any is ticked: «I've looked at the pictures — nothing private on them» (the scrubber
+ * can't blank a picture). Pictures are never kept in the draft.
  */
 const REPORT_KINDS = ['bug', 'wish', 'question'];
 const REPORT_TITLE_MAX = 100;
@@ -1375,6 +1381,10 @@ const REPORT_TEXT_MAX = 4096;      // bytes, UTF-8
 const REPORT_TEXT_MIN = 10;
 const REPORT_NAME_MAX = 40;
 const REPORT_PARTS = ['versions', 'unraid', 'language', 'team', 'error', 'log'];
+const REPORT_IMAGES_MAX = 3;
+const REPORT_IMAGE_PARTS = ['image1', 'image2', 'image3'];
+const REPORT_IMAGE_BYTES = 2 * 1024 * 1024;      // as the browser has it; the agent makes it ≤ 1.5 MB
+const REPORT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const utf8Bytes = (s) => (typeof TextEncoder === 'function' ? new TextEncoder().encode(s).length : unescape(encodeURIComponent(s)).length);
 
 /** The page's last error of a desk as the agent takes it: a key, at most 8 plain params, a time */
@@ -1386,6 +1396,34 @@ function reportLastError(desk) {
     .slice(0, 8).forEach(([k, v]) => { params[k] = typeof v === 'string' ? v.slice(0, 1000) : v; });
   return { key: e.key, params, at: e.at };
 }
+
+/** A picture's bytes as base64 (for office.report_image) */
+async function reportBase64(blob) {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let s = '';
+  for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/** A WebP as a PNG, drawn by the browser (where the office's GD can't write WebP) — null when it can't */
+async function reportWebpToPng(blob) {
+  try {
+    if (typeof createImageBitmap !== 'function') return null;
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement('canvas');
+    c.width = bmp.width;
+    c.height = bmp.height;
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    if (bmp.close) bmp.close();
+    return await new Promise((resolve) => c.toBlob((b) => resolve(b), 'image/png'));
+  } catch (e) {
+    return null;
+  }
+}
+
+/** An address for a picture shown in the dialog ('' where the browser makes none) */
+const reportPicUrl = (blob) => { try { return URL.createObjectURL(blob); } catch (e) { return ''; } };
+const reportPicDrop = (url) => { try { if (url) URL.revokeObjectURL(url); } catch (e) { /* gone anyway */ } };
 
 /** An error of the report's in the office's words — report_day with the time the next may go */
 function reportError(error) {
@@ -1400,7 +1438,7 @@ Office.reportDialog = function reportDialog(deskId) {
   const draft = Office.storeJson('report.draft') || {};
   const desks = [['office', t('office.report_desk_office')]].concat(Office.staffInOrder().map((d) => [d.id, t(`${d.id}.name`)]));
   const want = deskId || draft.desk || 'office';
-  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false };
+  const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, images: [], imagesOk: null };
   const box = el('div', 'sso-report');
 
   // the head: the team lead's line, the other ways, the cap
@@ -1465,6 +1503,19 @@ Office.reportDialog = function reportDialog(deskId) {
   text.value = typeof draft.text === 'string' ? draft.text : '';
   const count = el('small', 'sso-report-count');
   field(t('office.report_text'), text, count);
+  // the pictures: chosen, pasted (anywhere in the dialog) or dropped here
+  const pics = el('div', 'sso-report-pics');
+  const picList = el('div', 'sso-report-pic-list');
+  const picInput = el('input');
+  picInput.type = 'file';
+  picInput.accept = REPORT_IMAGE_TYPES.join(',');
+  picInput.multiple = true;
+  picInput.hidden = true;
+  const picAdd = el('button', 'btn small', t('office.report_images_add'));
+  picAdd.type = 'button';
+  picAdd.onclick = () => picInput.click();
+  pics.append(picList, picAdd, picInput);
+  field(t('office.report_images'), pics, el('small', 'sso-report-pic-hint', t('office.report_images_hint', { n: REPORT_IMAGES_MAX, mb: REPORT_IMAGE_BYTES / 1048576 })));
   // no name field (Benj, 2026-10-08): nobody is answered by name — the forum is the place for a conversation (the agent
   // still takes an empty one: report.php reportWords())
   box.appendChild(form);
@@ -1490,7 +1541,9 @@ Office.reportDialog = function reportDialog(deskId) {
   const keep = () => { if (!state.sent) Office.storeJson('report.draft', words()); };
   const say = (s) => { msg.textContent = s || ''; msg.hidden = !s; };
   let send = null;
-  const sendable = () => !!state.preview && !state.closed && !(state.cap && state.cap.left <= 0) && Office.agent.running;
+  // a picture ticked: only with the tick «I've looked at the pictures»
+  const picsOk = () => !(state.boxes || []).some((b) => REPORT_IMAGE_PARTS.includes(b.dataset.part) && b.checked) || !!(state.imagesOk && state.imagesOk.checked);
+  const sendable = () => !!state.preview && !state.closed && !(state.cap && state.cap.left <= 0) && Office.agent.running && picsOk();
   const counter = () => {
     const used = utf8Bytes(text.value.trim());
     count.textContent = t('office.report_count', { used, max: REPORT_TEXT_MAX });
@@ -1509,6 +1562,70 @@ Office.reportDialog = function reportDialog(deskId) {
   [title, text].forEach((f) => { f.oninput = changed; });
   desk.onchange = changed;
   counter();
+
+  function paintPics() {
+    picList.innerHTML = '';
+    state.images.forEach((p, i) => {
+      const fig = el('div', 'sso-report-pic');
+      const img = el('img');
+      img.src = p.url;
+      img.alt = t('office.report_part.image', { n: i + 1 });
+      const x = el('button', 'btn small plain', '×');
+      x.type = 'button';
+      x.title = t('office.report_image_remove');
+      x.setAttribute('aria-label', t('office.report_image_remove'));
+      x.onclick = () => {
+        reportPicDrop(p.url);
+        state.images.splice(i, 1);
+        paintPics();
+        changed();
+      };
+      fig.append(img, el('small', '', Office.fmt.size(p.blob.size)), x);
+      picList.appendChild(fig);
+    });
+    picAdd.hidden = state.images.length >= REPORT_IMAGES_MAX;
+  }
+  /** Pictures from the file chooser, the clipboard or a drop: PNG, JPEG, WebP, ≤ 2 MB, at most three */
+  async function addPics(files) {
+    let added = false;
+    let said = false;
+    const refuse = (m) => { say(m); said = true; };
+    for (const file of files) {
+      if (!file || !/^image\//.test(file.type || '')) continue;
+      const name = file.name || t('office.report_part.image', { n: state.images.length + 1 });
+      if (state.images.length >= REPORT_IMAGES_MAX) { refuse(t('office.report_images_full', { n: REPORT_IMAGES_MAX })); break; }
+      if (!REPORT_IMAGE_TYPES.includes(file.type)) { refuse(t('office.report_image_type', { name })); continue; }
+      let blob = file;
+      if (file.type === 'image/webp' && !(CONFIG.report_images || []).includes('webp')) {
+        blob = await reportWebpToPng(file);
+        if (!blob) { refuse(t('office.report_image_type', { name })); continue; }
+      }
+      if (blob.size > REPORT_IMAGE_BYTES) { refuse(t('office.report_image_too_big', { name, mb: REPORT_IMAGE_BYTES / 1048576 })); continue; }
+      state.images.push({ blob, name, url: reportPicUrl(blob) });
+      added = true;
+    }
+    if (added) {
+      if (!said) say('');
+      paintPics();
+      changed();
+    }
+  }
+  picInput.onchange = () => { addPics([...(picInput.files || [])]); picInput.value = ''; };
+  const picFiles = (list) => [...(list || [])].filter((f) => f && /^image\//.test(f.type || ''));
+  box.addEventListener('paste', (e) => {
+    const files = picFiles(e.clipboardData && e.clipboardData.files);
+    if (!files.length) return;               // text goes where it was pasted
+    e.preventDefault();
+    addPics(files);
+  });
+  pics.addEventListener('dragover', (e) => { e.preventDefault(); pics.classList.add('drop'); });
+  pics.addEventListener('dragleave', () => pics.classList.remove('drop'));
+  pics.addEventListener('drop', (e) => {
+    e.preventDefault();
+    pics.classList.remove('drop');
+    addPics(picFiles(e.dataTransfer && e.dataTransfer.files));
+  });
+  paintPics();
 
   function paintCap() {
     const c = state.cap;
@@ -1545,7 +1662,7 @@ Office.reportDialog = function reportDialog(deskId) {
   }
 
   /** One part of the preview: a tick box (or none: always sent), its name, its content folded under it */
-  function partRow(id, content, ticked, fixed) {
+  function partRow(id, content, ticked, fixed, label) {
     const row = el('div', 'sso-report-part');
     const head = el('label', 'check');
     const cb = el('input');
@@ -1553,7 +1670,7 @@ Office.reportDialog = function reportDialog(deskId) {
     cb.checked = ticked;
     cb.disabled = !!fixed;
     cb.dataset.part = id;
-    head.append(cb, el('span', '', t(`office.report_part.${id}`)));
+    head.append(cb, el('span', '', label || t(`office.report_part.${id}`)));
     row.appendChild(head);
     if (content) row.appendChild(content);
     preview.appendChild(row);
@@ -1600,6 +1717,33 @@ Office.reportDialog = function reportDialog(deskId) {
     const logCb = partRow('log', logBox, !!log && ticked.has('log'));
     if (!log) logCb.disabled = true;
     boxes.push(logCb);
+    state.imagesOk = null;
+    (j.images || []).slice(0, REPORT_IMAGES_MAX).forEach((im, i) => {
+      const pic = el('div', 'sso-report-pic-shown');
+      const mine = state.images[i];
+      if (mine && mine.url) {
+        const img = el('img');
+        img.src = mine.url;
+        img.alt = t('office.report_part.image', { n: i + 1 });
+        pic.appendChild(img);
+      }
+      pic.appendChild(el('small', '', t('office.report_image_info', { w: im.width, h: im.height, size: Office.fmt.size(im.bytes) })));
+      const cb = partRow(REPORT_IMAGE_PARTS[i], pic, ticked.has(REPORT_IMAGE_PARTS[i]), false, t('office.report_part.image', { n: i + 1 }));
+      cb.onchange = () => { if (send) send.disabled = !sendable(); };
+      boxes.push(cb);
+    });
+    if ((j.images || []).length) {
+      const row = el('div', 'sso-report-part sso-report-pics-ok');
+      const head = el('label', 'check');
+      const ok = el('input');
+      ok.type = 'checkbox';
+      ok.dataset.check = 'images';
+      ok.onchange = () => { if (send) send.disabled = !sendable(); };
+      head.append(ok, el('span', '', t('office.report_images_checked')));
+      row.append(head, el('small', '', t('office.report_images_note')));
+      preview.appendChild(row);
+      state.imagesOk = ok;
+    }
     const id = line(t('office.report_id_value', { id: j.id || '?' }));
     id.appendChild(el('small', '', t('office.report_id_why')));
     partRow('id', id, true, true);
@@ -1614,9 +1758,21 @@ Office.reportDialog = function reportDialog(deskId) {
     say('');
     show.disabled = true;
     try {
+      // the pictures first, each alone (a few MB each): the web side keeps them in RAM for this preview only
+      const refs = [];
+      for (const [i, p] of state.images.entries()) {
+        const u = await Office.api.post('office.report_image', { data: await reportBase64(p.blob) });
+        if (!u.ok || typeof u.ref !== 'string') {
+          const e = u.error || { key: 'bad_answer' };
+          // the web side looks at one picture at a time: which one it was, the page knows
+          say(reportError(/^report_image_/.test(e.key) ? { ...e, params: { ...(e.params || {}), n: i + 1 } } : e));
+          return;
+        }
+        refs.push(u.ref);
+      }
       const browser = String((navigator.languages && navigator.languages[0]) || navigator.language || '').slice(0, 2).toLowerCase();
       const j = await Office.api.post('office.report_preview', { ...w, lang: Office.lang, browser: /^[a-z]{2}$/.test(browser) ? browser : undefined,
-        error: reportLastError(w.desk) });
+        error: reportLastError(w.desk), images: refs.length ? refs : undefined });
       if (!j.ok) { say(reportError(j.error)); return; }
       state.preview = j;
       takeCap(j);
@@ -1629,8 +1785,11 @@ Office.reportDialog = function reportDialog(deskId) {
 
   async function doSend() {
     if (!state.preview) return false;
-    const parts = (state.boxes || []).filter((b) => b.checked && !b.disabled && REPORT_PARTS.includes(b.dataset.part)).map((b) => b.dataset.part);
-    const j = await Office.api.post('office.report_send', { ...words(), token: state.preview.token, parts });
+    const parts = (state.boxes || []).filter((b) => b.checked && !b.disabled && (REPORT_PARTS.includes(b.dataset.part) || REPORT_IMAGE_PARTS.includes(b.dataset.part)))
+      .map((b) => b.dataset.part);
+    const withPics = parts.some((p) => REPORT_IMAGE_PARTS.includes(p));
+    if (withPics && !picsOk()) { say(t('errors.report_images_unchecked')); return false; }
+    const j = await Office.api.post('office.report_send', { ...words(), token: state.preview.token, parts, ...(withPics ? { images_checked: true } : {}) });
     if (!j.ok) {
       say(reportError(j.error));
       if (j.error && j.error.key === 'report_stale') changed();
@@ -1645,6 +1804,8 @@ Office.reportDialog = function reportDialog(deskId) {
     }
     state.sent = true;
     Office.store('report.draft', null);
+    state.images.forEach((p) => reportPicDrop(p.url));
+    state.images = [];
     say('');
     [form, showLine, preview, capLine].forEach((n) => { n.hidden = true; });
     done.hidden = false;
@@ -1680,6 +1841,7 @@ Office.reportDialog = function reportDialog(deskId) {
     ],
     onClose: () => {
       keep();
+      state.images.forEach((p) => reportPicDrop(p.url));
       $('#sso-dialog').classList.remove('sso-report-dialog');
       $('#sso-dialog-backdrop').classList.remove('sso-report-backdrop');
     },
