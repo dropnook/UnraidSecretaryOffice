@@ -140,8 +140,9 @@ thanks» comes back once when an update changes what it says.
 **Removing** (*Plugins → Remove*, refused like an update while such a run is going on) takes the code away and lets
 go of what the office had mounted. Your schedules are put aside on the flash and come back when you install the office
 again. Partnerships with other offices end — pair again after a new install. Your data in appdata, the share
-`UnraidSecretaryOffice`, the settings on the flash, your snapshots and Ms. Dustdevil's storeroom stay; delete them
-yourself if you don't want them any more.
+`UnraidSecretaryOffice`, the settings on the flash, your snapshots and Ms. Dustdevil's storeroom (the hidden folders
+`.UnraidSecretaryOffice-trash`, before `_UnraidSecretaryOffice-trash`) stay; delete them yourself if you don't want them
+any more.
 
 ## What it keeps where
 

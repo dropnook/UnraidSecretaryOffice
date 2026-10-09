@@ -24,7 +24,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.35"
+UB_VERSION="2.36"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -40,6 +40,11 @@ UB_KOPIA_DESC="uso-backup"        # Kopia snapshot description "uso-backup <run>
 # UnraidSecretaryOffice, one folder per desk - this one is "backup".
 UB_OFFICE_SHARE="UnraidSecretaryOffice"
 UB_DESK_DIR="backup"
+# Ms. Dustdevil's storeroom: a hidden folder since 2.36 (.UnraidSecretaryOffice-trash); up to 2.35 the office named it
+# _UnraidSecretaryOffice-trash - both are hers for good (folders, and datasets put away as <storeroom>-<stamp>-<name>)
+UB_STOREROOM=".$UB_OFFICE_SHARE-trash"
+UB_STOREROOM_OLD="_$UB_OFFICE_SHARE-trash"
+ub_storeroom() { [[ "$1" == "$UB_STOREROOM"* || "$1" == "$UB_STOREROOM_OLD"* ]]; }
 
 ##############################################################################
 # 1. Basics
@@ -503,6 +508,11 @@ apply_settings() {
     KOPIA_KEEP_ANNUAL="$(cfg "kopia|keep_annual" 3)"
     KOPIA_COMPRESSION="$(cfg "kopia|compression" inherit)"
     mapfile -t KOPIA_IGNORE < <(cfg_list "kopia|ignore")
+    # (2.36) Ms. Dustdevil's storeroom became a hidden folder: whoever leaves out its old name leaves out the new one
+    # too - also before the setup has written the rule for it (setup.sh adds it to the plan)
+    if in_list "$UB_STOREROOM_OLD*/" "${KOPIA_IGNORE[@]}" && ! in_list "$UB_STOREROOM*/" "${KOPIA_IGNORE[@]}"; then
+        KOPIA_IGNORE+=( "$UB_STOREROOM*/" )
+    fi
 }
 
 in_list() { # in_list <value> <entry...>
@@ -1272,9 +1282,10 @@ plan_build() {
         done <<<"${INV_LOCS[$s]}"
         while IFS='|' read -r b ds mp; do
             [[ -z "$ds" ]] && continue
-            # Ms. Dustdevil's storeroom (datasets put away as _UnraidSecretaryOffice-trash-<stamp>-<name>) is never backed up
+            # Ms. Dustdevil's storeroom (datasets put away as <storeroom>-<stamp>-<name>) is never backed up - the
+            # storeroom .UnraidSecretaryOffice-trash (hidden since 2.36) and its old name _UnraidSecretaryOffice-trash
             if in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" || [[ -n "${vm_excl[$ds]:-}" ]] \
-               || [[ "${ds##*/}" == _UnraidSecretaryOffice-trash* ]]; then
+               || ub_storeroom "${ds##*/}"; then
                 PLAN_EXCL[$ds]=1; continue
             fi
             if [[ -z "${seen_ds[$ds]:-}" ]]; then seen_ds[$ds]=1; PLAN_ZFS+=( "$ds" ); PLAN_ZFS_RET[$ds]="$ret"
@@ -3211,7 +3222,7 @@ partner_unit_dataset() {
     mapfile -t excl < <(cfg_list "share|$s|exclude_dataset")
     while IFS='|' read -r b ds mp; do
         [[ -z "$ds" ]] && continue
-        [[ "${ds##*/}" == _UnraidSecretaryOffice-trash* ]] && continue          # Ms. Dustdevil's storeroom: never backed up
+        ub_storeroom "${ds##*/}" && continue                                     # Ms. Dustdevil's storeroom: never backed up
         partner_vm_ds "$ds" && continue                                          # a VM's own dataset is a unit of its own
         in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" && continue
         PU_WHY="children"; return 1

@@ -3152,7 +3152,7 @@ function watchmanHostProcs(string $proc, ?array $containers): ?array
             continue;               // a kernel thread, or gone meanwhile
         }
         $path = str_ends_with($exe, ' (deleted)') ? substr($exe, 0, -10) : $exe;
-        if (!preg_match(WATCH_ODD_EXE, $path) || preg_match(WATCH_ODD_OK, $path)) {
+        if (!preg_match(WATCH_ODD_EXE, watchmanOddPath($path)) || preg_match(WATCH_ODD_OK, $path)) {
             continue;
         }
         $where = null;
@@ -3183,6 +3183,15 @@ function watchmanHostProcs(string $proc, ?array $containers): ?array
     }
     ksort($out);
     return $out;
+}
+
+/**
+ * A program's path as the «odd place» rule reads it: the office's own hidden folders (Ms. Dustdevil's storeroom, Mr.
+ * Restori's set-aside folder — hidden since issue #7) are no hidden folder of an intruder's; a scratch folder still is
+ */
+function watchmanOddPath(string $path): string
+{
+    return str_replace(['/' . OFFICE_STOREROOM, '/' . OFFICE_ASIDE], ['/' . OFFICE_STOREROOM_OLD, '/' . OFFICE_ASIDE_OLD], $path);
 }
 
 /**
@@ -4856,7 +4865,6 @@ const WATCH_FLOW_SERVICES = ['smb' => 'SMB', 'nfs' => 'NFS', 'ssh' => 'SSH', 'we
 const WATCH_GONE_NEW      = 100 * 1024 ** 3;    // gone, still learning: one round over this (100 GB) …
 const WATCH_GONE_PART     = 0.1;                // … or over this part of the share (and at least WATCH_FLOW_WRITE)
 const WATCH_GONE_SNAPS    = 1800;               // a btrfs disk whose snapshots changed this recently: its used space says nothing
-const WATCH_STOREROOM     = '_UnraidSecretaryOffice-trash';     // Ms. Dustdevil's storeroom (folders and datasets)
 const WATCH_DATASET       = '#^[A-Za-z0-9_.:-]+(?:/[^\x00-\x1F@/]+)*$#D';     // a ZFS dataset's name as zfs prints it
 const WATCH_DOCKER_LAYER  = '/^([0-9a-f]{64})(-init)?$/D';      // Docker on ZFS: a layer's or a container's dataset (its -init beside it)
 const WATCH_FLOW_BY       = 40;                 // sources of a share's pull kept (the smallest go into «the rest»)
@@ -5026,7 +5034,7 @@ function watchmanFlowDisks(array $paths, array $snapDirs = ['.btrfs-snap']): ?ar
         }
         $shares = [];
         foreach (@scandir($dir) ?: [] as $f) {
-            if ($f[0] !== '.' && !str_starts_with($f, WATCH_STOREROOM) && count($shares) < 50 && is_dir("$dir/$f")) {
+            if ($f[0] !== '.' && !storeroomName($f) && count($shares) < 50 && is_dir("$dir/$f")) {
                 $shares[] = watchmanClean($f, 100);
             }
         }
@@ -5071,7 +5079,7 @@ function watchmanFlowMover(array $argv): ?string
         (bool) array_intersect($names, ['embycache_run.py'])                                   => 'embycache',
         (bool) array_intersect($names, ['consolidate_master.sh'])                              => 'gather',
         $names[0] === 'rsync' && in_array('--remove-source-files', $argv, true)               => 'rsync',
-        $names[0] === 'rm' && (bool) array_filter($argv, fn ($a) => str_contains((string) $a, '/' . WATCH_STOREROOM)) => 'storeroom',
+        $names[0] === 'rm' && (bool) array_filter($argv, fn ($a) => str_contains((string) $a, '/') && storeroomIn((string) $a)) => 'storeroom',
         default => null,
     };
 }
@@ -5893,7 +5901,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                     $d = (int) $v['w'];             // a new snapshot: what was written since it
                 }                                    // snapshots went and it grew: can't be told — this round left out
             } elseif (is_array($was) && isset($pools[$parts[0]]) && $prevTime !== null && (int) ($v['c'] ?? 0) >= $prevTime
-                      && !str_contains((string) $ds, '/' . WATCH_STOREROOM)) {
+                      && !(str_contains((string) $ds, '/') && storeroomIn((string) $ds))) {
                 $d = (int) $v['w'];                 // made since the last round (a new Docker layer, a container): all it holds was written now
                 $new = true;                         // (one renamed keeps its old creation — no writing)
             }
@@ -6010,7 +6018,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
         }
         foreach (is_array($was) ? $was : [] as $ds => $v) {
             $ds = (string) $ds;
-            if (isset($next['ref'][$ds]) || str_contains($ds, '/' . WATCH_STOREROOM) || ($sh = watchmanGoneShare($ds)) === null) {
+            if (isset($next['ref'][$ds]) || (str_contains($ds, '/') && storeroomIn($ds)) || ($sh = watchmanGoneShare($ds)) === null) {
                 continue;                               // still there, or the storeroom emptied
             }
             $per[$sh] ??= $blank;
@@ -6769,7 +6777,7 @@ function watchmanSnapDiff(?array $known, array $look, array $office, array $runs
                     [$guid, $refs] = array_pad(explode(':', (string) $v, 2), 2, '0');
                     $refs = (int) $refs;
                     if (isset($cur[$full])) {
-                        if ($cur[$full][1] < $refs && !str_contains($full, WATCH_STOREROOM)) {
+                        if ($cur[$full][1] < $refs && !storeroomIn((string) $full)) {
                             isset($office['r'][$full]) ? $note('office') : $rel[] = ['name' => (string) $full];
                         }
                         continue;
@@ -6859,7 +6867,7 @@ function watchmanSnapWhy(string $fs, string $id, string $ds, string $name, array
     if (isset($office['p'][$id])) {
         return 'partner';               // the partner door's retention on a partner's copies
     }
-    if (str_contains($ds, WATCH_STOREROOM)) {
+    if (storeroomIn($ds)) {
         return 'storeroom';
     }
     if ($fs === 'btrfs') {
@@ -7369,7 +7377,7 @@ function watchmanDoorWords(array $p, ?string $lang): string
 
 /**
  * The user share a ZFS dataset belongs to: <pool>/<share>/…; a share put whole into Ms. Dustdevil's
- * storeroom (<pool>/_UnraidSecretaryOffice-trash-<stamp>-<share>/…) still counts for it. Null: the pool's top.
+ * storeroom (<pool>/<storeroom>-<stamp>-<share>/…, either name of it) still counts for it. Null: the pool's top.
  */
 function watchmanGoneShare(string $ds): ?string
 {
@@ -7377,8 +7385,8 @@ function watchmanGoneShare(string $ds): ?string
     if (count($p) < 2) {
         return null;
     }
-    if (str_starts_with($p[1], WATCH_STOREROOM)) {
-        return preg_match('/^' . preg_quote(WATCH_STOREROOM, '/') . '-\d{8}-\d{6}(?:-\d+)?-(.+)$/D', $p[1], $m) ? $m[1] : null;
+    if (storeroomName($p[1])) {
+        return preg_match('/^[._]UnraidSecretaryOffice-trash-\d{8}-\d{6}(?:-\d+)?-(.+)$/D', $p[1], $m) ? $m[1] : null;
     }
     return $p[1];
 }

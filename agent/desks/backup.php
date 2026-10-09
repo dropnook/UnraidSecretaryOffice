@@ -2280,7 +2280,7 @@ function backupShareTop(array $share, array $asleep): array
             continue;
         }
         foreach ($names as $n) {
-            if ($n[0] !== '.' && !str_starts_with($n, '_UnraidSecretaryOffice-trash') && is_dir("/mnt/$base/$name/$n")) {
+            if ($n[0] !== '.' && !storeroomName($n) && is_dir("/mnt/$base/$name/$n")) {        // the storeroom (hidden now, issue #7) is no folder of the share's
                 $dirs[$n] = true;
             }
         }

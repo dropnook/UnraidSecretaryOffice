@@ -70,7 +70,8 @@ and the checklist for a change; where the two differ, CLAUDE.md is right. The ba
 | A partner's copies kept here | `<pool>/UnraidSecretaryOffice-partners/<id>/…` (datasets, never mounted, never shared) |
 | A restore ticket given here (a gone server's copies for a new server, 7 days) | its line in `authorized_keys` (ending `uso-ticket:<id>`), `data/partner/tickets.json` |
 | What Mr. Restori pulled back from a partner | a new dataset beside the original (`<dataset>.restored-<time>`; on a new server `<pool>/UnraidSecretaryOffice-restored/<unit>`), mounted read-only under `/mnt/addons/UnraidSecretaryOffice/restored/` |
-| Ms. Dustdevil's storeroom | `_UnraidSecretaryOffice-trash` on the same disk or pool as what was put away |
+| Ms. Dustdevil's storeroom | `.UnraidSecretaryOffice-trash` (hidden; up to issue #7 `_UnraidSecretaryOffice-trash`, still read and moved over once) on the same disk or pool as what was put away |
+| What Mr. Restori replaced on the flash or in libvirt.img | `/boot/config/.UnraidSecretaryOffice-restore/<time>/`, `/etc/libvirt/.UnraidSecretaryOffice-restore/<time>/` (hidden; formerly `_UnraidSecretaryOffice-restore`) |
 
 ## The data folder
 

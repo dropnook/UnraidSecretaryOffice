@@ -1010,11 +1010,20 @@ function snapshotVmPathThere(string $path, ?array $sleeping = null): ?bool
  */
 function snapshotVmAway(array $domains): array
 {
-    $root = snapshotVmTrash();
     $out = [];
-    if (!is_dir($root) || is_link($root)) {
-        return [];
+    foreach (array_unique(clTrashBoth(snapshotVmTrash())) as $root) {          // the storeroom, and the folder of its old name (issue #7)
+        if (is_dir($root) && !is_link($root)) {
+            array_push($out, ...snapshotVmAwayIn($root, $domains));
+        }
     }
+    usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
+    return $out;
+}
+
+/** snapshotVmAway() in one storeroom folder */
+function snapshotVmAwayIn(string $root, array $domains): array
+{
+    $out = [];
     foreach (@scandir($root) ?: [] as $stamp) {
         $run = "$root/$stamp";
         if (!preg_match('/^\d{8}-\d{6}(-\d+)?$/D', $stamp) || !is_dir($run) || is_link($run)) {

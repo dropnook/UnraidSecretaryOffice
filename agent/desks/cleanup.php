@@ -44,7 +44,7 @@ declare(strict_types=1);
  *              list; put away with zfs rename next to the storeroom (the run's manifest on the flash), never while
  *              the partner door receives for that pair. Also a pair's unit datasets (<pair>/<unit>) whose unit the
  *              pair's receive.units no longer names (the Team Lead's «Keep less of …»): renamed into the partners'
- *              place on the same pool (<…-partners>/_UnraidSecretaryOffice-trash-<run>-<unit>-<pair>), never while a
+ *              place on the same pool (<…-partners>/.UnraidSecretaryOffice-trash-<run>-<unit>-<pair>), never while a
  *              transfer of the door names that unit
  *   icons      containers without a picture on Unraid's Docker page and
  *              Dashboard (none set, or one Unraid can't load): she finds a
@@ -67,6 +67,8 @@ declare(strict_types=1);
  * each thing came from; the trash on disk is the truth, there is no index that
  * could go stale. Emptying it is the only permanent step (in the background:
  * the run is renamed to <stamp>.purging first, so it is gone at once).
+ * The storeroom is a hidden folder (issue #7, CL_TRASH); one with the name it had before (CL_TRASH_OLD) is read
+ * everywhere as hers and moved over once per place (clTrashMigrate()) — never written to again.
  * The old cleanup script's trash (CL_LEGACY) is shown and can be emptied, but
  * is never written to. VM definitions are never touched: a VM whose disks are
  * gone is pointed out, and removed on Unraid's VM page.
@@ -82,7 +84,8 @@ const CL_COMPOSE_CFG  = '/boot/config/plugins/compose.manager/compose.manager.cf
 const CL_COMPOSE_DEF  = '/boot/config/plugins/compose.manager/projects';
 const CL_FLASH        = '/boot/config';
 const CL_LIBVIRT      = '/etc/libvirt';             // libvirt.img, mounted while the VM service runs
-const CL_TRASH        = '_UnraidSecretaryOffice-trash';
+const CL_TRASH        = OFFICE_STOREROOM;          // the storeroom: a hidden folder (issue #7)
+const CL_TRASH_OLD    = OFFICE_STOREROOM_OLD;      // its name before: read for good, never written, moved over (clTrashMigrate())
 const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cleanup.sh
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
@@ -110,7 +113,8 @@ const CL_VOLUME_PULSE    = 15;              // seconds between the agent's pulse
 // Mr. Restori's leftovers: his journals (DATA_DIR/restore/<id>/journal.json, root only) say what he put aside
 const CL_RESTORE_ID     = '/^(\d{8}-\d{6})-[0-9a-f]{4}$/D';      // a restore: <time>-<random>; the time is in all he leaves
 const CL_RESTORE_MAX    = 200;                                   // journals read, newest first
-const CL_RESTORE_ASIDE  = '_UnraidSecretaryOffice-restore';      // his folder on the flash and in libvirt.img
+const CL_RESTORE_ASIDE  = OFFICE_ASIDE;                         // his folder on the flash and in libvirt.img (hidden, issue #7)
+const CL_RESTORE_ASIDE_OLD = OFFICE_ASIDE_OLD;                   // its name before: read for good, moved over by clTrashMigrate()
 const CL_LEFTOVER_NAME  = '/\.(aside|restored|putback|restored-aside)-(\d{8}-\d{6})$/D';
 const CL_SAFETY_DUMPS   = '#^/mnt/[^/]+/[^/]+/(?:backup|unraid-backup)/restore/[^/\x00-\x1f]+/(\d{8}-\d{6})$#D';   // <backup place>/restore/<app>/<time>
 const CL_TEXT_MAX     = 256 * 1024;
@@ -300,6 +304,9 @@ function clMetrics(): array
  */
 function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): array
 {
+    if (isset($GLOBALS['clScanStub'])) {
+        return ($GLOBALS['clScanStub'])();        // tests: her look given (an action on a fixture, never the server's)
+    }
     $t0 = microtime(true);
     $GLOBALS['clFresh'] = [];                    // share settings, ZFS mountpoints: read anew on every tour (the agent runs for weeks)
     $roots = clRoots();
@@ -313,6 +320,9 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
     $places = array_map(fn ($path) => clSharePlaces($path, $roots, $asleep), $settings);
     $GLOBALS['clCtx'] = ['roots' => $roots, 'asleep' => $asleep];
     $vms = clVmFacts();
+    // issue #7: the folders of the old names moved over once — the flash's and libvirt.img's first (his journals name
+    // what lies there), the storerooms in the shares below, once their places are known
+    clTrashMigrate(array_merge([CL_FLASH . '/' . CL_TRASH], $vms['ok'] ? [CL_LIBVIRT . '/' . CL_TRASH] : [], clAsideRoots($vms['ok'])));
     $leftovers = clLeftovers($vms['ok']);       // Mr. Restori's, from his journals
     $sleeping = array_values(array_unique(array_merge(array_merge(...array_column($places, 'asleep')), $leftovers['asleep'])));
     if ($wake && $sleeping) {
@@ -330,6 +340,10 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
     $place = $docker['ok'] ? clVolumePlace() : null;
     $GLOBALS['clCtx']['volumes'] = $place && !$place['asleep'] ? $place['root'] : null;      // her storeroom for Docker's volumes
     $cache = clCache();
+    $partners = clPartners();                    // what ended partnerships left (awake pools only)
+    // the storerooms Mr. Backupsy's let-go put his packages into (agent/desks/backup-letgo.php): also on array disks
+    $extraTrash = array_merge($leftovers['trash'], backupLetGoTrashRoots($asleep));
+    clTrashMigrate(array_keys(clTrashRoots($places, $vms, $extraTrash)));
     $raw = [
         'docker'    => $docker,
         'templates' => clTemplates($docker),
@@ -344,10 +358,9 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'vms'       => $vms,
         'libvirt'   => clLibvirtOrphans($vms),
         'leftovers' => $leftovers,
-        'partners'  => $partners = clPartners(),          // what ended partnerships left (awake pools only)
+        'partners'  => $partners,
         'drill'     => clDrillLeftovers($deep),           // what crashed drills of Mr. Restori's left (his sweeper's own look: quick, deep when asked/hourly)
-        // the storerooms Mr. Backupsy's let-go put his packages into (agent/desks/backup-letgo.php): also on array disks
-        'trash'     => clTrashRuns($places, $vms, array_merge($leftovers['trash'], backupLetGoTrashRoots($asleep)), $partners['there'], $partners['asleep']),
+        'trash'     => clTrashRuns($places, $vms, $extraTrash, $partners['there'], $partners['asleep']),
     ];
     $raw['icons'] = clIcons($docker, $raw['stacks']);
     $raw['zfs_space'] = clZfsSpace(clRawDatasets($raw));
@@ -360,7 +373,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         clIconQueue($raw['icons'], $deep);
     }
     if ($hired && time() - (int) ($cache['flash']['at'] ?? 0) > CL_FLASH_TTL) {
-        clJobAdd('flash', 'flash', [['grep', '-roI', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_LEGACY,
+        clJobAdd('flash', 'flash', [['grep', '-roI', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_TRASH_OLD, '--exclude-dir=' . CL_LEGACY,
                                      '-e', '/mnt/[^"<>[:space:]]*', CL_FLASH]], 300, true);
     }
     if ($hired && ($deep || time() - (int) ($cache['strays']['at'] ?? 0) > CL_STRAY_TTL)) {
@@ -373,7 +386,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
             }
         }
         $find = fn (array $where, int $depth) => [array_merge(['nice', '-n', '10', 'find'], $where, ['-maxdepth', (string) $depth,
-            '(', '-name', '.*', '-o', '-name', CL_TRASH . '*', '-o', '-name', CL_LEGACY, '-o', '-name', '*.sparsebundle', ')', '-prune',
+            '(', '-name', '.*', '-o', '-name', CL_TRASH_OLD . '*', '-o', '-name', CL_LEGACY, '-o', '-name', '*.sparsebundle', ')', '-prune',
             '-o', '-type', 'f', '-name', 'my-*.xml', '-print'])];
         clJobAdd('strays:flash', 'strays', $find(['/boot'], 6), 300);
         if ($pools) {
@@ -868,7 +881,7 @@ function clStacks(array $docker, array &$cache): array
     $resolve = [];
     foreach (glob("$root/*", GLOB_ONLYDIR) ?: [] as $d) {
         $folder = basename($d);
-        if ($folder[0] === '.' || $folder === CL_TRASH || $folder === CL_LEGACY || str_starts_with($folder, '_quarantaene-')) {
+        if ($folder[0] === '.' || storeroomName($folder) || $folder === CL_LEGACY || str_starts_with($folder, '_quarantaene-')) {
             continue;
         }
         $display = clMeta($d, 'name') ?: $folder;
@@ -2034,7 +2047,7 @@ function clShareFolders(array $share): array
     $files = 0;
     foreach ($share['places'] as $root => $place) {
         foreach (@scandir($place['path']) ?: [] as $name) {
-            if ($name === '.' || $name === '..' || $name[0] === '.' || str_starts_with($name, CL_TRASH) || $name === CL_LEGACY || str_starts_with($name, '_quarantaene-')) {
+            if ($name === '.' || $name === '..' || $name[0] === '.' || storeroomName($name) || $name === CL_LEGACY || str_starts_with($name, '_quarantaene-')) {
                 continue;
             }
             $full = $place['path'] . "/$name";
@@ -2145,9 +2158,11 @@ function clLeftoverUnits(array $j): array
             continue;
         }
         foreach (['flash' => CL_FLASH, 'libvirt' => CL_LIBVIRT] as $what => $base) {
-            if (str_starts_with($to, "$base/" . CL_RESTORE_ASIDE . "/$stamp/")) {
-                $add("$base/" . CL_RESTORE_ASIDE . "/$stamp", null, $what, $undoable);
-                continue 2;
+            foreach ([CL_RESTORE_ASIDE, CL_RESTORE_ASIDE_OLD] as $aside) {        // a journal from before issue #7 names the old folder
+                if (str_starts_with($to, "$base/$aside/$stamp/")) {
+                    $add(officeHiddenNow("$base/$aside/$stamp"), null, $what, $undoable);       // where it lies now (moved over)
+                    continue 3;
+                }
             }
         }
         if (str_starts_with($to, '/mnt/') && preg_match(CL_LEFTOVER_NAME, $to, $x) && $x[2] === $stamp && $x[1] !== 'restored') {
@@ -2167,7 +2182,8 @@ function clLeftoverUnits(array $j): array
 /** Is this one of the places Mr. Restori leaves things (the shapes clLeftoverUnits() takes)? For putting one back */
 function clLeftoverShape(string $path): bool
 {
-    return clTrashPathOk($path) && (preg_match('#^(?:' . preg_quote(CL_FLASH, '#') . '|' . preg_quote(CL_LIBVIRT, '#') . ')/' . CL_RESTORE_ASIDE . '/\d{8}-\d{6}$#D', $path)
+    return clTrashPathOk($path) && (preg_match('#^(?:' . preg_quote(CL_FLASH, '#') . '|' . preg_quote(CL_LIBVIRT, '#') . ')/(?:'
+            . preg_quote(CL_RESTORE_ASIDE, '#') . '|' . preg_quote(CL_RESTORE_ASIDE_OLD, '#') . ')/\d{8}-\d{6}$#D', $path)
         || preg_match(CL_SAFETY_DUMPS, $path) || (str_starts_with($path, '/mnt/') && preg_match(CL_LEFTOVER_NAME, $path)));
 }
 
@@ -2627,7 +2643,7 @@ function clTopRefs(array $refs, string $share): array
             }
             continue;
         }
-        if (str_starts_with($top, CL_TRASH) || $top === CL_LEGACY || str_starts_with($top, '_quarantaene-')) {
+        if (storeroomName($top) || $top === CL_LEGACY || str_starts_with($top, '_quarantaene-')) {
             continue;
         }
         $tops[$top]["$kind:$name"] ??= ['kind' => $kind, 'name' => $name, 'weak' => $weak];
@@ -2976,7 +2992,9 @@ function clPartners(?array $host = null): array
 
 /**
  * The trash folders: the flash (templates, stacks there), next to a compose
- * root elsewhere, in appdata, domains and isos on each pool, and in libvirt.img
+ * root elsewhere, in appdata, domains and isos on each pool, and in libvirt.img —
+ * by the storeroom's name now (CL_TRASH); clTrashBoth() adds the old name's folder
+ * at each place for reading
  */
 function clTrashRoots(array $places, array $vms, array $extra = []): array
 {
@@ -3005,8 +3023,8 @@ function clTrashRoots(array $places, array $vms, array $extra = []): array
     $ctx = $GLOBALS['clCtx'];
     foreach ($ctx['roots'] as $name => $r) {
         if ($r['kind'] === 'pool' && !clPoolAsleep($name, $ctx['asleep'])) {
-            foreach (glob("/mnt/$name/*/" . CL_TRASH, GLOB_ONLYDIR) ?: [] as $d) {
-                $roots[$d] ??= 'share';
+            foreach (array_merge(glob("/mnt/$name/*/" . CL_TRASH, GLOB_ONLYDIR) ?: [], glob("/mnt/$name/*/" . CL_TRASH_OLD, GLOB_ONLYDIR) ?: []) as $d) {
+                $roots[dirname($d) . '/' . CL_TRASH] ??= 'share';
             }
         }
     }
@@ -3032,6 +3050,174 @@ function clLegacyRoots(): array
     return array_keys(array_filter($found, fn ($_, $d) => is_dir($d) && !is_link($d), ARRAY_FILTER_USE_BOTH));
 }
 
+/** A storeroom root and the folder of the old name at the same place (issue #7): both are read as hers */
+function clTrashBoth(string $root): array
+{
+    return storeroomName(basename($root)) ? [dirname($root) . '/' . CL_TRASH, dirname($root) . '/' . CL_TRASH_OLD] : [$root];
+}
+
+/** A dataset she put away next to a storeroom: <storeroom>-<stamp>-<name>, with either name of it */
+function clTrashDataset(string $base): bool
+{
+    return str_starts_with($base, CL_TRASH . '-') || str_starts_with($base, CL_TRASH_OLD . '-');
+}
+
+/** Mr. Restori's set-aside folders she looks at: on the flash, and in libvirt.img while it is mounted */
+function clAsideRoots(bool $libvirt): array
+{
+    return array_merge([CL_FLASH . '/' . CL_RESTORE_ASIDE], $libvirt ? [CL_LIBVIRT . '/' . CL_RESTORE_ASIDE] : []);
+}
+
+/**
+ * Issue #7: the storeroom and Mr. Restori's set-aside folder became hidden folders. Once per place (per agent run)
+ * the folder of the old name is moved over — only the old one there: renamed (a ZFS dataset of its own named like it:
+ * zfs rename, its children along, only while its mountpoint follows the name); both there: the old one's runs renamed
+ * into the new one one by one (a run whose name is taken gets a suffix -N; a set-aside time that is taken stays — his
+ * journals name it by its time), then the empty old folder removed. Only rename, never a copy: whatever fails is said
+ * in the log and the old folder stays, read as hers anyway (clTrashBoth(), officeHiddenNow()). $places are the places
+ * she looks at now — never one on a sleeping disk: that one is done the next time she looks there. Nothing while the
+ * engine's lock is held (a backup reading, a restore writing) or a job of hers works inside the old folder: the next
+ * look tries again. Tests: `$GLOBALS['clMigrateHost']` = mounts (mount point => [fs, source]), zfs (a callable like
+ * run(), given zfs's arguments), busy.
+ *
+ * @param list<string> $places storeroom roots (either name) and set-aside roots
+ * @return array<string, string> new place => renamed | merged | partly | failed | busy (what this call did)
+ */
+function clTrashMigrate(array $places): array
+{
+    $host = $GLOBALS['clMigrateHost'] ?? [];
+    $done = &$GLOBALS['clTrashMigrated'];
+    $done ??= [];
+    $out = [];
+    $mounts = null;
+    foreach ($places as $place) {
+        $name = basename($place);
+        $aside = in_array($name, [CL_RESTORE_ASIDE, CL_RESTORE_ASIDE_OLD], true);
+        if (!$aside && !storeroomName($name)) {
+            continue;
+        }
+        $new = dirname($place) . '/' . ($aside ? CL_RESTORE_ASIDE : CL_TRASH);
+        $old = dirname($place) . '/' . ($aside ? CL_RESTORE_ASIDE_OLD : CL_TRASH_OLD);
+        if (isset($done[$new])) {
+            continue;
+        }
+        clearstatcache();
+        if (is_link($old) || !is_dir($old)) {
+            $done[$new] = true;                       // nothing of the old name here
+            continue;
+        }
+        if (($host['busy'] ?? backupLockHolder() !== null) || clTrashMigrateBusy($old)) {
+            $out[$new] = 'busy';                       // looked at again next time
+            continue;
+        }
+        $done[$new] = true;
+        if (!file_exists($new) && !is_link($new)) {
+            $mounts ??= $host['mounts'] ?? array_column(array_map(fn ($m) => [$m['mount'], [$m['fs'], $m['source']]], mountTable()), 1, 0);
+            $out[$new] = clTrashMigrateRename($old, $new, $mounts[$old] ?? null, $host['zfs'] ?? null);
+            continue;
+        }
+        if (is_link($new) || !is_dir($new)) {
+            logLine("Dustdevil could not move $old over to $new: something else has that name — the old folder stays in use");
+            $out[$new] = 'failed';
+            continue;
+        }
+        // both there: the runs one by one (a rename each — on another filesystem it fails, and that run stays)
+        $moved = $left = 0;
+        foreach (@scandir($old) ?: [] as $n) {
+            if ($n === '.' || $n === '..') {
+                continue;
+            }
+            $to = clTrashMigrateName($n, $new, $aside);
+            if ($to === null || is_link("$old/$n") || !@rename("$old/$n", "$new/$to")) {
+                $left++;
+                logLine("Dustdevil could not move $old/$n over to $new" . ($to === null ? ' (not one of hers, or its name is taken)' : ': '
+                    . preg_replace('/^rename\([^)]*\):\s*/', '', (string) (error_get_last()['message'] ?? ''))));
+                continue;
+            }
+            $moved++;
+        }
+        if ($left === 0 && @rmdir($old)) {
+            logLine("Dustdevil moved $moved run(s) from $old over to $new (issue #7) and removed the old folder");
+            $out[$new] = 'merged';
+        } else {
+            logLine("Dustdevil moved $moved run(s) from $old over to $new; $left stay there — the old folder stays in use");
+            $out[$new] = 'partly';
+        }
+    }
+    return $out;
+}
+
+/** Only the old folder: one rename (a dataset named like it: zfs rename, while its mountpoint follows the name) */
+function clTrashMigrateRename(string $old, string $new, ?array $mount, ?callable $zfs): string
+{
+    if ($mount !== null) {
+        [$fs, $ds] = $mount;
+        $zfs ??= fn (array $args) => run(array_merge(['zfs'], $args), 120);
+        if ($fs !== 'zfs' || basename($ds) !== basename($old) || !clZfsNameOk($ds)) {
+            logLine("Dustdevil could not move $old over to $new: it is a filesystem of its own ($fs $ds) — the old folder stays in use");
+            return 'failed';
+        }
+        [$exit, $src] = $zfs(['get', '-H', '-o', 'source', 'mountpoint', $ds]);
+        $src = trim((string) $src);
+        if ($exit !== 0 || ($src !== 'default' && !str_starts_with($src, 'inherited'))) {
+            logLine("Dustdevil could not move $old over to $new: the dataset $ds has a mountpoint of its own — the old folder stays in use");
+            return 'failed';
+        }
+        $to = dirname($ds) . '/' . basename($new);
+        [$exit, , $err] = $zfs(['rename', $ds, $to]);
+        if ($exit !== 0) {
+            logLine("Dustdevil could not move $old over to $new: zfs rename $ds: " . trim((string) $err) . ' — the old folder stays in use');
+            return 'failed';
+        }
+        logLine("Dustdevil renamed the dataset $ds to $to (issue #7: the storeroom is a hidden folder now)");
+        return 'renamed';
+    }
+    if (!@rename($old, $new)) {
+        logLine("Dustdevil could not move $old over to $new: " . preg_replace('/^rename\([^)]*\):\s*/', '', (string) (error_get_last()['message'] ?? ''))
+            . ' — the old folder stays in use');
+        return 'failed';
+    }
+    logLine("Dustdevil renamed $old to $new (issue #7: the storeroom is a hidden folder now)");
+    return 'renamed';
+}
+
+/**
+ * The name a run of the old folder gets in the new one: its own, or — taken — its time with a suffix -N (a run being
+ * emptied keeps .purging at the end); a set-aside time of Mr. Restori's only as it is. Null: not a run (stays there).
+ */
+function clTrashMigrateName(string $n, string $new, bool $aside): ?string
+{
+    $free = fn (string $x) => !file_exists("$new/$x") && !is_link("$new/$x") && ($aside || (!file_exists("$new/$x.purging") && !file_exists("$new/" . preg_replace('/\.purging$/', '', $x))));
+    if ($aside) {
+        return preg_match('/^\d{8}-\d{6}$/D', $n) && $free($n) ? $n : null;
+    }
+    if (!preg_match('/^(\d{8}-\d{6})(-\d+)?(\.purging)?$/D', $n, $m)) {
+        return null;
+    }
+    if ($free($n)) {
+        return $n;
+    }
+    $tail = ($m[3] ?? '') !== '' ? '.purging' : '';
+    for ($i = 2; $i < 1000; $i++) {
+        if ($free("{$m[1]}-$i$tail")) {
+            return "{$m[1]}-$i$tail";
+        }
+    }
+    return null;
+}
+
+/** Does a job of hers (a purge, a measurement) work inside this folder right now, or wait to? */
+function clTrashMigrateBusy(string $old): bool
+{
+    $jobs = $GLOBALS['clJobs'] ?? ['queue' => [], 'running' => []];
+    foreach (array_merge(array_keys($jobs['running']), array_keys($jobs['queue'])) as $key) {
+        if (str_contains((string) $key, "$old/") || str_ends_with((string) $key, $old)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function clStampTime(string $stamp, string $path): int
 {
     $t = preg_match('/^(\d{8}-\d{6})/', $stamp, $m) ? DateTime::createFromFormat('Ymd-His', $m[1]) : false;
@@ -3041,14 +3227,21 @@ function clStampTime(string $stamp, string $path): int
 /**
  * An "as" of a manifest entry as Ms. Dustdevil writes it: "<kind folder>/<name>"
  * (strays and icons one folder deeper), inside the run folder, the folder
- * matching the kind — or "@<pool>/…/_UnraidSecretaryOffice-trash-<this run>-<name>"
- * for a dataset. Nothing with "..", ".", empty parts or control characters.
+ * matching the kind — or "@<pool>/…/<storeroom>-<this run>-<name>" for a dataset (either
+ * name of the storeroom; a run moved over from the old folder with a clash suffix -N
+ * still owns the datasets named by its stamp without it). Nothing with "..", ".",
+ * empty parts or control characters.
  */
 function clTrashAsOk(string $as, string $kind, string $stamp): bool
 {
     if (str_starts_with($as, '@')) {
         $ds = substr($as, 1);
-        return clZfsNameOk($ds) && str_contains($ds, '/') && str_starts_with(basename($ds), CL_TRASH . '-' . $stamp . '-')
+        $base = basename($ds);
+        $own = false;
+        foreach (array_unique([$stamp, preg_replace('/^(\d{8}-\d{6})-\d+$/D', '$1', $stamp)]) as $st) {
+            $own = $own || str_starts_with($base, CL_TRASH . "-$st-") || str_starts_with($base, CL_TRASH_OLD . "-$st-");
+        }
+        return clZfsNameOk($ds) && str_contains($ds, '/') && $own
             && in_array($kind, ['appdata', 'domain', 'iso', 'leftover', 'partner'], true)
             && ($kind !== 'partner' || (($d = partnerLookDataset($ds)) !== null && $d['trash'] && $d['unit'] === null));
     }
@@ -3118,7 +3311,13 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
     foreach (mountTable() as $m) {
         $datasets[$m['source']] = $m['mount'];
     }
+    $scan = [];
     foreach (clTrashRoots($places, $vms, $extra) as $root => $where) {
+        foreach (clTrashBoth($root) as $r) {
+            $scan[$r] ??= $where;
+        }
+    }
+    foreach ($scan as $root => $where) {
         if (!is_dir($root) || is_link($root)) {
             continue;
         }
@@ -3153,7 +3352,8 @@ function clTrashRuns(array $places, array $vms, array $extra = [], array $zfsThe
                     'kind'    => $it['kind'],
                     'name'    => (string) ($it['name'] ?? basename($it['as'])),
                     'label'   => (string) ($it['label'] ?? ''),
-                    'from'    => is_string($it['from'] ?? null) && clTrashPathOk($it['from']) ? $it['from'] : null,
+                    // where it came from — Mr. Restori's set-aside folder under its name now (issue #7: moved over)
+                    'from'    => is_string($it['from'] ?? null) && clTrashPathOk($it['from']) ? officeHiddenNow($it['from']) : null,
                     'as'      => $it['as'],
                     'dataset' => $zfs !== null && is_string($it['dataset'] ?? null) && clZfsNameOk($it['dataset']) ? $it['dataset'] : null,
                     'zfs'     => $zfs,
@@ -3771,7 +3971,7 @@ function clPurge(array $ids, bool $volumes, bool $images): array
             }
         }
         foreach ($run['items'] as $it) {
-            if ($it['zfs'] !== null && $it['present'] && str_contains(basename($it['zfs']), CL_TRASH . '-')) {
+            if ($it['zfs'] !== null && $it['present'] && clTrashDataset(basename($it['zfs']))) {
                 [$exit, , $err] = run(['zfs', 'destroy', '-r', $it['zfs']], 600);
                 if ($exit !== 0) {
                     $results[] = ['id' => $run['id'], 'ok' => false, 'error' => ['key' => 'cleanup_destroy_failed', 'params' => ['name' => $it['zfs'], 'detail' => trim($err)]]];
@@ -3883,7 +4083,7 @@ function clRemove(array $ids): array
 
 /**
  * Where her storeroom for Docker's volumes lies: beside Docker's data — the share folder of DOCKER_IMAGE_FILE (the
- * docker.img or the docker folder) on the pool or disk that holds it, `<that>/_UnraidSecretaryOffice-trash`, so a copy
+ * docker.img or the docker folder) on the pool or disk that holds it, `<that>/.UnraidSecretaryOffice-trash`, so a copy
  * stays on the pool it came from. A user share is looked for on its pool first, then on every awake root (a sleeping
  * one is never looked at — Docker's data lies on a disk that is awake anyway). null when it can't be told.
  *
@@ -3895,7 +4095,7 @@ function clVolumePlace(?array $cfg = null, ?array $ctx = null, string $mnt = '/m
     $ctx ??= $GLOBALS['clCtx'];
     $file = rtrim((string) ($cfg['DOCKER_IMAGE_FILE'] ?? ''), '/');
     if (!clTrashPathOk($file) || !preg_match('#^/mnt/([^/]+)/([^/]+)(/.*)?\z#', $file, $m)
-        || in_array($m[1], ['disks', 'remotes', 'addons', 'rootshare'], true) || str_starts_with($m[2], CL_TRASH)) {
+        || in_array($m[1], ['disks', 'remotes', 'addons', 'rootshare'], true) || storeroomName($m[2])) {
         return null;
     }
     $rest = $m[3] ?? '';

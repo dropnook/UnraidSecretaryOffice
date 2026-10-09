@@ -18,7 +18,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/partner.php';
 
-const PARTNER_LOOK_TRASH = '_UnraidSecretaryOffice-trash';      // Ms. Dustdevil's storeroom (CL_TRASH): a dataset put away is renamed <it>-<stamp>-<name>
+const PARTNER_LOOK_TRASH = OFFICE_STOREROOM;      // Ms. Dustdevil's storeroom (CL_TRASH): a dataset put away is renamed <it>-<stamp>-<name> (also by its old name)
 const PARTNER_LOOK_LINE_MAX = 4096;                                // a line of authorized_keys longer than this is no line of the office's
 const PARTNER_LOOK_FILE_MAX = 65536;                               // the door's small records
 
@@ -38,7 +38,7 @@ function partnerLookDataset(string $name): ?array
     }
     $id = $parts[2] ?? null;
     $trash = false;
-    if ($id !== null && str_starts_with($id, PARTNER_LOOK_TRASH . '-')) {
+    if ($id !== null && (str_starts_with($id, PARTNER_LOOK_TRASH . '-') || str_starts_with($id, OFFICE_STOREROOM_OLD . '-'))) {
         $trash = true;
         $id = preg_match('/-([0-9a-f]{8})$/D', $id, $m) ? $m[1] : null;
     } elseif ($id !== null && !preg_match(PARTNER_ID_RE, $id)) {
