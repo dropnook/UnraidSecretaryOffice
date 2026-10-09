@@ -1196,6 +1196,8 @@ Office.supporterPictures = (sup) => {
   const levels = Object.keys(SUPPORTER_PICTURES).filter((l) => have.includes(l));
   const n = (l) => Math.max(1, parseInt(((sup && sup.counts) || {})[l], 10) || 1);
   return {
+    top: levels[levels.length - 1] || 'coffee',
+    count: n,
     icon: levels.map((l) => SUPPORTER_PICTURES[l] + (n(l) > 1 ? `×${n(l)}` : '')).join(' '),
     text: levels.map((l) => (n(l) > 1 ? `${n(l)} × ` : '') + t(`office.supporter_level_${l}`)).join(' · '),
   };

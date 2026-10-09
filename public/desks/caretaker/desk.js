@@ -368,12 +368,17 @@ function teamSection() {
   const sup = Office.supporter();
   if (sup.state === 'valid') {
     // the supporter keys' plate: a thank-you, not a button (a green outline), as tall as the buttons beside it; the
-    // name (the newest key's) as text only; the pictures each kept level's once, in level order (☕ ☕☕ 🍰 🥂, signed
-    // in the keys — only the owner sees it, never a count, never a rank)
+    // name (the newest key's) as text only; the pictures each kept level's in level order with ×n when several
+    // (☕×3 ☕☕ 🍰 🥂, signed in the keys — only the owner sees it, never a rank)
     const level = Office.supporterPictures(sup);
     const MARK = '\u0001';
     const plate = el('span', 'chip ok ct-supporter');
-    T('supporter_plate', { icon: MARK, name: sup.name }).split(MARK).forEach((part, i) => {
+    // its words by the highest level and how many keys of it (Benj, 2026-10-09: «Prost!», «jam-jam», «schon der 3. Kaffee»)
+    const top = level.top;
+    const many = level.count(top);
+    const variant = top === 'coffee' ? (many >= 3 ? 'coffee_many' : many === 2 ? 'coffee_two' : '') : `${top}_${many >= 2 ? 'more' : 'one'}`;
+    const words = (variant && T(`supporter_plate.${variant}`, { icon: MARK, name: sup.name, n: many })) || T('supporter_plate', { icon: MARK, name: sup.name });
+    words.split(MARK).forEach((part, i) => {
       if (i) plate.appendChild(el('span', 'ct-supporter-pics', level.icon));
       if (part.trim()) plate.appendChild(el('span', 'ct-supporter-words', part.trim()));
     });
