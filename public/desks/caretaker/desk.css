@@ -14,7 +14,14 @@
 .ct-ask{display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:0}
 .ct-ask p{margin:0; flex:1 1 320px; min-width:0}
 .ct-ask-acts{display:flex; gap:8px; flex-wrap:wrap}
-.ct-supporter{overflow-wrap:anywhere}
+/* the plate: a thank-you, not a button — a green outline as tall as «Tips & pay rise» beside it (btn small's font size,
+   line height, 3px + 1px frame; the picture bigger but kept inside the line), stronger words (Benj, 2026-10-09: it
+   looked like a footnote) */
+.chip.ct-supporter{display:inline-flex; align-items:center; gap:7px; box-sizing:border-box; padding:3px 11px;
+  border-radius:var(--radius); font-size:12.5px; line-height:inherit; font-weight:600; white-space:normal;
+  overflow-wrap:anywhere; max-width:100%}
+.ct-supporter-pics{font-size:16px; line-height:1; white-space:nowrap; letter-spacing:.02em; margin:-3px 0}
+&.in-unraid .chip.ct-supporter{font-size:12px; border-radius:4px; padding:2px 11px}   /* Unraid's buttons have no frame: 1px less */
 /* partner offices (partner.js) */
 .row.ct-partner{grid-template-columns:minmax(0,1fr) auto}
 .ct-partner .row-detail strong{color:var(--ink); font-weight:650}
