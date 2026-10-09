@@ -85,6 +85,7 @@ function officeAgentActions(): array
         'report_preview' => fn (array $r): array => reportPreview($r),
         'report_send'    => fn (array $r): array => reportSend($r),
         'reports'        => fn (array $r): array => reportsAnswer(),
+        'supporter_claim' => fn (array $r): array => supporterClaim($r),     // lib/supporter.php: the key a tip made
     ];
 }
 
@@ -161,7 +162,13 @@ function reportKnow(array $ctx = []): array
     }
     $secrets[] = reportId($ctx);
     $supporter = readJson($ctx['supporter'] ?? OFFICE_PRIVATE . '/supporter.json') ?? [];
-    $secrets[] = is_string($supporter['key'] ?? null) ? $supporter['key'] : '';
+    $secrets[] = is_string($supporter['key'] ?? null) ? $supporter['key'] : '';      // a file from before 1.48
+    foreach ((array) ($supporter['keys'] ?? []) as $k) {
+        $secrets[] = is_array($k) && is_string($k['key'] ?? null) ? $k['key'] : '';
+    }
+    foreach ((array) ($supporter['codes'] ?? []) as $c) {                              // the claim codes (one-time)
+        $secrets[] = is_array($c) && is_string($c['code'] ?? null) ? $c['code'] : '';
+    }
     foreach ((array) ((readJson($ctx['emby_settings'] ?? DATA_DIR . '/embycache/embycache_settings.json') ?? [])['instances'] ?? []) as $i) {
         $secrets[] = is_array($i) && is_string($i['api_key'] ?? null) ? $i['api_key'] : '';
     }

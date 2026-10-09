@@ -12611,28 +12611,264 @@ function testSupporter(): void
     if ($server !== null) {
         same('web: a key for this server (broken over lines, as from a mail) taken', ['valid', 'Ana Müller', false], [$out[3]['supporter']['state'] ?? null, $out[3]['supporter']['name'] ?? null, $out[3]['supporter']['ask'] ?? null]);
         $saved = json_decode((string) @file_get_contents($file), true) ?: [];
-        same('web: the key kept without whitespace', $mine, $saved['key'] ?? null);
+        same('web: the key kept without whitespace', $mine, $saved['keys'][0]['key'] ?? null);
         same('web: the page sees it, with its level', ['valid', 'Ana Müller', 'raise'], [$out[4]['state'] ?? null, $out[4]['name'] ?? null, $out[4]['level'] ?? null]);
     }
     [$out, $raw] = $webRun(array_slice($steps, 3));
     same('web: an odd answer refused', 'bad_request', $out[1]['error'] ?? null);
     same('web: «Not now», «Remove», «Don\'t ask again» answered', [true, 'none', false], [$out[2]['ok'] ?? null, $out[3]['supporter']['state'] ?? null, $out[4]['supporter']['ask'] ?? null]);
     $saved = json_decode((string) @file_get_contents($file), true) ?: [];
-    same('web: only the key went, the answers stay', [false, true, 1, true], [isset($saved['key']), isset($saved['first_seen']), $saved['ask']['later'] ?? null, $saved['ask']['never'] ?? null]);
+    same('web: only the key went, the answers stay', [false, true, 1, true], [!empty($saved['keys']) || isset($saved['key']), isset($saved['first_seen']), $saved['ask']['later'] ?? null, $saved['ask']['never'] ?? null]);
     same('web: the file is 0600', '600', substr(sprintf('%o', @fileperms($file)), -3));
 
     // the page: the plate's picture per level (core.js), a text per level in all five languages (asked for as a template)
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     preg_match('/const SUPPORTER_PICTURES = \{([^}]*)\}/', $core, $pm);
     preg_match_all('/(\w+): \'([^\']+)\'/u', $pm[1] ?? '', $pics);
-    same('page: a picture for each level', [OFFICE_SUPPORTER_LEVELS, ['☕', '☕☕', '🍰', '💐']], [$pics[1], $pics[2]]);
+    same('page: a picture for each level (🥂: the whole team toasts a pay rise)', [OFFICE_SUPPORTER_LEVELS, ['☕', '☕☕', '🍰', '🥂']], [$pics[1], $pics[2]]);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $lang = langFile(OFFICE_DIR . "/public/lang/$code.json");
         same("page: the levels' texts ($code)", [], array_values(array_filter(OFFICE_SUPPORTER_LEVELS, fn ($l) => !is_string($lang["office.supporter_level_$l"] ?? null) || $lang["office.supporter_level_$l"] === '')));
     }
     $desk = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js');
-    check('page: the plate shows the level\'s picture, its title the level', str_contains($desk, "T('supporter_plate', { icon: level.icon, name: sup.name })")
-        && str_contains($desk, "T('supporter_plate_title', { level: level.text,"));
+    check('page: the plate shows each level\'s picture once, its title the levels', str_contains($desk, 'const level = Office.supporterPictures(sup);')
+        && str_contains($desk, "T('supporter_plate', { icon: MARK, name: sup.name })") && str_contains($desk, "T('supporter_plate_title', { level: level.text,"));
+    check('page: no 💐 left (🥂 for the raise)', !str_contains($core . $desk, '💐') && !str_contains((string) file_get_contents(OFFICE_DIR . '/src/supporter.php'), '💐'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $help = (string) (langFile(OFFICE_DIR . "/public/desks/caretaker/lang/$code.json")['help.supporter'] ?? '');
+        check("page: the help names the four pictures, 🥂 for the raise ($code)", str_contains($help, '☕☕') && str_contains($help, '🍰') && str_contains($help, '🥂') && !str_contains($help, '💐'));
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * Several supporter keys (Benj, 2026-10-09): an old file with one key read as a list, each key once (by its payload),
+ * at most 20, each level's picture once in level order, the newest key's name, one removed by its reference — and the
+ * one-time codes for the support page: made, handed out again within the hour, at most 3, a day long, the one ask on
+ * its own only a minute after the opening and once, the user's ask at most every 10 s, the answers taken in (a forged
+ * or foreign key never gets in, the code forgotten once the Worker gave its keys).
+ */
+function testSupporterList(): void
+{
+    require_once OFFICE_DIR . '/src/supporter.php';
+    $tmp = hardeningTmp('supporter-list');
+    [$make, , $pub] = supporterTestKeys($tmp);
+    putenv("OFFICE_SUPPORTER_PUBKEY=$pub");
+    $id = 'ABCD-0123-4567-89EF';
+    $key = fn (string $name, string $date, ?string $l = null, string $who = 'ABCD-0123-4567-89EF'): string => $make(json_encode(['v' => 1, 'id' => $who, 'name' => $name, 'date' => $date] + ($l ? ['l' => $l] : []), JSON_UNESCAPED_UNICODE));
+    $t0 = 1790000000;
+
+    // an old file: one key → a list of one, the old fields gone
+    $old = $key('Ana', '2026-10-01');
+    $n = officeSupporterNormalize(['first_seen' => 5, 'key' => $old, 'key_added' => 7]);
+    same('list: an old file\'s key becomes a list of one', [[['key' => $old, 'added' => 7]], false, 5], [$n['keys'], array_key_exists('key', $n), $n['first_seen']]);
+    same('list: the old key is still valid on the page', ['valid', 'Ana', ['coffee']], array_values(array_intersect_key(officeSupporterInfo(['key' => $old], $id, $t0), ['state' => 1, 'name' => 1, 'levels' => 1])));
+
+    // adding: the same payload once (a capture asked twice signs the same payload anew), whitespace out
+    [$d, $new1] = officeSupporterKeyAdd(['key' => $old], " \n" . chunk_split($old, 30, "\n"), $t0);
+    same('list: the same key again is not added twice', [false, 1], [$new1, count($d['keys'])]);
+    $resigned = $make(base64_decode(strtr(explode('.', $old)[1], '-_', '+/')));
+    check('list: (a second signature of the same payload differs)', $resigned !== $old);
+    [$d, $new2] = officeSupporterKeyAdd($d, $resigned, $t0);
+    same('list: the same payload with another signature is the same thank-you', [false, 1], [$new2, count($d['keys'])]);
+    [$d] = officeSupporterKeyAdd($d, $key('Bea', '2026-10-05', 'raise'), $t0 + 1);
+    [$d] = officeSupporterKeyAdd($d, $key('Cem', '2026-10-03', 'cake'), $t0 + 2);
+    [$d] = officeSupporterKeyAdd($d, $key('Dan', '2026-10-04', 'cake'), $t0 + 3);
+    [$d] = officeSupporterKeyAdd($d, $key('Eve', '2026-10-09', 'cake', 'FFFF-0000-FFFF-0000'), $t0 + 4);   // another server's (kept from an old flash)
+    $info = officeSupporterInfo($d, $id, $t0 + 5);
+    same('list: each valid level once, in level order — never a count', ['coffee', 'cake', 'raise'], $info['levels']);
+    same('list: the name and date of the newest valid key', ['valid', 'Bea', '2026-10-05', 'raise'], [$info['state'], $info['name'], $info['date'], $info['level']]);
+    same('list: every key for the tip jar, newest first, with its state', [['Eve', 'other'], ['Bea', 'valid'], ['Dan', 'valid'], ['Cem', 'valid'], ['Ana', 'valid']],
+        array_map(fn (array $k): array => [$k['name'] ?? null, $k['state']], $info['keys']));
+    check('list: the page never gets a key, only a reference', !str_contains(json_encode($info), 'USO1.') && preg_match(OFFICE_SUPPORTER_REF_RE, $info['keys'][0]['ref']) === 1);
+    $only = officeSupporterInfo(['keys' => [['key' => $key('Eve', '2026-10-09', null, 'FFFF-0000-FFFF-0000'), 'added' => 1]]], $id, $t0);
+    same('list: only another server\'s key — «other», no pictures', ['other', []], [$only['state'], $only['levels']]);
+    same('list: no keys — none', ['none', [], []], array_values(array_intersect_key(officeSupporterInfo([], $id, $t0), ['state' => 1, 'levels' => 1, 'keys' => 1])));
+
+    // removing one by its reference, or all
+    $bea = $info['keys'][1]['ref'];
+    $r = officeSupporterInfo(officeSupporterKeyRemove($d, $bea), $id, $t0);
+    same('list: one removed by its reference — the next newest leads, its level gone', ['Dan', ['coffee', 'cake']], [$r['name'], $r['levels']]);
+    same('list: all removed', [], officeSupporterKeyRemove($d, '')['keys']);
+    same('list: an unknown reference removes nothing', 5, count(officeSupporterKeyRemove($d, 'abcdefabcdef')['keys']));
+
+    // the cap: the newest 20
+    $many = [];
+    for ($i = 1; $i <= 22; $i++) {
+        [$many] = officeSupporterKeyAdd($many, $key("N$i", '2026-10-01'), $t0 + $i);
+    }
+    same('list: at most 20, the oldest go', [20, 'N22', 'N3'], [count($many['keys']), officeSupporterCheck(end($many['keys'])['key'], $id)['name'], officeSupporterCheck($many['keys'][0]['key'], $id)['name']]);
+
+    // the codes: 256 bits, handed out again within the hour, at most 3 (the never-opened go first), a day long
+    [$c, $code] = officeSupporterCodeTake([], $t0);
+    check('code: 43 b64url characters (256 random bits)', preg_match(OFFICE_SUPPORTER_CODE_RE, $code) === 1);
+    [$c, $again] = officeSupporterCodeTake($c, $t0 + 3599);
+    same('code: the same within the hour', $code, $again);
+    [$c, $second] = officeSupporterCodeTake($c, $t0 + 3600);
+    check('code: a new one after an hour', $second !== $code && count($c['codes']) === 2);
+    $c = officeSupporterCodeOpened($c, $code, $t0 + 3600);
+    [$c, $third] = officeSupporterCodeTake($c, $t0 + 7300);
+    [$c, $fourth] = officeSupporterCodeTake($c, $t0 + 11000);
+    same('code: at most 3 — the oldest never-opened went, the opened one stays', [$code, $third, $fourth], array_column($c['codes'], 'code'));
+    same('code: expired after a day', [$third, $fourth], array_column(officeSupporterNormalize($c, $t0 + 86400 + 1)['codes'] ?? [], 'code'));
+    same('code: an odd code in the file is dropped', [], officeSupporterNormalize(['codes' => [['code' => 'short', 'made' => $t0], ['code' => str_repeat('a', 43), 'made' => 'x']]], $t0)['codes'] ?? []);
+
+    // when it is asked: the one ask on its own a minute after the opening, once; the user's every open code, 10 s apart
+    [$c, $code] = officeSupporterCodeTake([], $t0);
+    [$c, $plain] = [$c, $code];
+    $c = officeSupporterCodeOpened($c, $code, $t0 + 10);
+    same('claim: the page learns when the one ask on its own is due', ['open' => 1, 'wait' => 60], officeSupporterInfo($c, $id, $t0 + 10)['claim']);
+    [, $pick] = officeSupporterClaimPick($c, true, $t0 + 69);
+    same('claim: not on its own within the minute', [], $pick);
+    [$c, $pick] = officeSupporterClaimPick($c, true, $t0 + 70);
+    same('claim: on its own after the minute', [$code], $pick);
+    [$c, $pick] = officeSupporterClaimPick($c, true, $t0 + 200);
+    same('claim: on its own only once', [[], ['open' => 1, 'wait' => null]], [$pick, officeSupporterInfo($c, $id, $t0 + 200)['claim']]);
+    [$c, $pick] = officeSupporterClaimPick($c, false, $t0 + 205);
+    same('claim: the user\'s ask — every open code, 10 s apart', [[$code], []], [$pick, officeSupporterClaimPick($c, false, $t0 + 214)[1]]);
+    [$u] = officeSupporterCodeTake([], $t0);
+    same('claim: a code never opened is not asked on its own (only by the user)', [[], 1], [officeSupporterClaimPick($u, true, $t0 + 999)[1], count(officeSupporterClaimPick($u, false, $t0 + 999)[1])]);
+
+    // the answers taken in
+    $forged = $make(json_encode(['v' => 1, 'id' => $id, 'name' => 'Mallory', 'date' => '2026-10-09', 'l' => 'raise']), openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']));
+    [$t, $added, $refused] = officeSupporterClaimTake($c, [$code => ['keys' => [$key('Zoe', '2026-10-09', 'round'), $forged, $key('Sly', '2026-10-09', 'raise', 'FFFF-0000-FFFF-0000'), 42]]], $id, $t0 + 220);
+    same('take: a valid key for this server kept; a forged one, another server\'s, a non-key refused', [1, 3, ['round']], [$added, $refused, officeSupporterInfo($t, $id, $t0 + 220)['levels']]);
+    same('take: the code forgotten once the Worker gave its keys', [], $t['codes'] ?? []);
+    [$t, $added] = officeSupporterClaimTake($c, [$code => 'none'], $id, $t0 + 220);
+    same('take: nothing there yet — the code stays', [0, [$code]], [$added, array_column($t['codes'] ?? [], 'code')]);
+    [$t] = officeSupporterClaimTake($c, [$code => 'failed'], $id, $t0 + 220);
+    same('take: no answer — the code stays', [$code], array_column($t['codes'] ?? [], 'code'));
+
+    // the web side's office.supporter_code (a process of its own)
+    $web = "$tmp/web.php";
+    mkdir("$tmp/office", 0700);
+    file_put_contents($web, '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $out = [];'
+        . ' foreach (json_decode(stream_get_contents(STDIN), true) as [$a, $d]) { try { $out[] = officeSupporterAction($a, $d); }'
+        . ' catch (OfficeProblem $e) { $out[] = ["error" => $e->key]; } } echo json_encode($out);');
+    $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+        ['OFFICE_DATA_DIR' => $tmp, 'OFFICE_SUPPORTER_PUBKEY' => $pub, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+    fwrite($pipes[0], json_encode([['office.supporter_code', []], ['office.supporter_code', []], ['office.supporter_code', ['opened' => 'nope']],
+        ['office.supporter_remove', ['ref' => '../x']]]));
+    fclose($pipes[0]);
+    $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    $out = json_decode(explode("\n", trim($raw))[0], true) ?: [];
+    $wcode = $out[0]['code'] ?? '';
+    check('web: office.supporter_code hands out a code, the same again', preg_match(OFFICE_SUPPORTER_CODE_RE, $wcode) === 1 && ($out[1]['code'] ?? null) === $wcode, $raw);
+    same('web: an odd «opened», an odd reference refused', ['bad_request', 'bad_request'], [$out[2]['error'] ?? null, $out[3]['error'] ?? null]);
+    $saved = json_decode((string) @file_get_contents("$tmp/office/supporter.json"), true) ?: [];
+    same('web: the code kept on the server', [$wcode], array_column($saved['codes'] ?? [], 'code'));
+    putenv('OFFICE_SUPPORTER_PUBKEY');
+    hardeningRm($tmp);
+}
+
+/**
+ * The key arrives by itself: the agent's office.supporter_claim (agent/lib/supporter.php) against a stand-in tip Worker
+ * (php -S) — GET /api/claim?code=, the key once, then not_found; nothing asked without a due code; a forged key never
+ * kept; no answer keeps the code; the code never on the command line, never in the log.
+ */
+function testSupporterClaim(): void
+{
+    require_once OFFICE_DIR . '/src/supporter.php';
+    $tmp = hardeningTmp('supporter-claim');
+    mkdir("$tmp/office", 0700);
+    mkdir("$tmp/run", 0700);
+    [$make, , $pub] = supporterTestKeys($tmp);
+    putenv("OFFICE_SUPPORTER_PUBKEY=$pub");
+    $id = 'ABCD-0123-4567-89EF';
+    $good = $make(json_encode(['v' => 1, 'id' => $id, 'name' => 'Ana', 'date' => '2026-10-09', 'l' => 'raise']));
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $s = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($s) {
+            fclose($s);
+            $port = $try;
+        }
+    }
+    // the stand-in: keys under sha256(code) like the Worker, given once, then not_found; answer.json overrides
+    file_put_contents("$tmp/router.php", <<<'ROUTER'
+<?php
+$dir = __DIR__;
+$n = (int) @file_get_contents("$dir/count") + 1;
+file_put_contents("$dir/count", (string) $n);
+file_put_contents("$dir/request-$n.json", json_encode(['uri' => $_SERVER['REQUEST_URI'], 'method' => $_SERVER['REQUEST_METHOD'], 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '']));
+header('Content-Type: application/json');
+if (is_file("$dir/answer.json")) {
+    [$code, $body] = json_decode((string) file_get_contents("$dir/answer.json"), true);
+    http_response_code($code);
+    echo json_encode($body);
+    return;
+}
+$code = (string) ($_GET['code'] ?? '');
+$store = json_decode((string) @file_get_contents("$dir/kv.json"), true) ?: [];
+$h = hash('sha256', $code);
+if (parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) === '/api/claim' && isset($store[$h])) {
+    $keys = $store[$h];
+    unset($store[$h]);
+    file_put_contents("$dir/kv.json", json_encode($store));
+    echo json_encode(['ok' => true, 'keys' => $keys]);
+    return;
+}
+http_response_code(404);
+echo json_encode(['ok' => false, 'error' => 'not_found']);
+ROUTER);
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $logged = [];
+    $file = "$tmp/office/supporter.json";
+    $t0 = time();
+    $ctx = ['file' => $file, 'server_id' => $id, 'url' => "http://127.0.0.1:$port", 'run_dir' => "$tmp/run",
+            'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    $kv = fn (array $s) => file_put_contents("$tmp/kv.json", json_encode($s));
+
+    $r = supporterClaim([], ['now' => $t0] + $ctx);
+    same('claim: no code — nobody asked', [true, 0, 0], [$r['ok'], $r['asked'], $count()]);
+    $code = officeSupporterStore($file, function (array $d) use ($t0, &$code): array { [$d, $code] = officeSupporterCodeTake($d, $t0); return officeSupporterCodeOpened($d, $code, $t0); }, $t0) ? $code : '';
+    $r = supporterClaim(['auto' => true], ['now' => $t0 + 30] + $ctx);
+    same('claim: on its own within the minute — nobody asked', [0, 0], [$r['asked'], $count()]);
+    $r = supporterClaim(['auto' => true], ['now' => $t0 + 61] + $ctx);
+    same('claim: on its own after the minute — nothing there yet, the code stays', [1, 0, 1, 1], [$r['asked'], $r['found'], $count(), $r['supporter']['claim']['open']]);
+    $req = json_decode((string) @file_get_contents("$tmp/request-1.json"), true) ?: [];
+    same('claim: GET /api/claim?code=<code>, the office\'s User-Agent', ['GET', "/api/claim?code=$code", true], [$req['method'] ?? null, $req['uri'] ?? null, str_starts_with($req['ua'] ?? '', 'UnraidSecretaryOffice/')]);
+    same('claim: on its own only once', 0, supporterClaim(['auto' => true], ['now' => $t0 + 200] + $ctx)['asked']);
+
+    $forged = $make(json_encode(['v' => 1, 'id' => $id, 'name' => 'Mallory', 'date' => '2026-10-09']), openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']));
+    $kv([hash('sha256', $code) => [$good, $forged]]);
+    $r = supporterClaim([], ['now' => $t0 + 210] + $ctx);
+    same('claim: the user\'s ask — the key arrives, the forged one refused', [1, 1, 1, 'valid', 'Ana', ['raise']], [$r['asked'], $r['found'], $r['refused'], $r['supporter']['state'], $r['supporter']['name'], $r['supporter']['levels']]);
+    $saved = json_decode((string) file_get_contents($file), true);
+    same('claim: kept on the server, the code forgotten', [[$good], false], [array_column($saved['keys'] ?? [], 'key'), isset($saved['codes'])]);
+    same('claim: the Worker gave it once', [], json_decode((string) file_get_contents("$tmp/kv.json"), true));
+    same('claim: nothing left to ask', 0, supporterClaim([], ['now' => $t0 + 230] + $ctx)['asked']);
+
+    // no answer, a broken answer, a 429: the code stays
+    $code2 = officeSupporterStore($file, function (array $d) use ($t0, &$code2): array { [$d, $code2] = officeSupporterCodeTake($d, $t0 + 240); return $d; }, $t0 + 240) ? $code2 : '';
+    file_put_contents("$tmp/answer.json", json_encode([429, ['ok' => false, 'error' => 'rate_limited']]));
+    $r = supporterClaim([], ['now' => $t0 + 250] + $ctx);
+    same('claim: rate-limited — failed, the code stays', [1, 0, 1, [$code2]], [$r['asked'], $r['found'], $r['failed'], array_column(json_decode((string) file_get_contents($file), true)['codes'] ?? [], 'code')]);
+    file_put_contents("$tmp/answer.json", json_encode([200, ['ok' => true, 'keys' => 'USO1.x']]));
+    same('claim: an answer that isn\'t the Worker\'s — failed', 1, supporterClaim([], ['now' => $t0 + 270] + $ctx)['failed']);
+    unlink("$tmp/answer.json");
+    $r = supporterClaim([], ['now' => $t0 + 290, 'url' => 'http://127.0.0.1:1'] + $ctx);
+    same('claim: no answer at all — failed, the code stays', [1, 1], [$r['failed'], count(json_decode((string) file_get_contents($file), true)['codes'] ?? [])]);
+    same('claim: an http address only through the .cfg (https otherwise)', 'https://tip.uso.dropnook.app', officeSupportUrl("$tmp/none.cfg"));
+    file_put_contents("$tmp/plugin.cfg", "SUPPORT_URL=\"http://127.0.0.1:8787\"\n");
+    same('claim: SUPPORT_URL in the .cfg', 'http://127.0.0.1:8787', officeSupportUrl("$tmp/plugin.cfg"));
+    file_put_contents("$tmp/plugin.cfg", "SUPPORT_URL=\"http://evil/x?y\"\n");
+    same('claim: a SUPPORT_URL with a path ignored', 'https://tip.uso.dropnook.app', officeSupportUrl("$tmp/plugin.cfg"));
+
+    check('claim: the codes never in the log', $logged !== [] && !str_contains(implode("\n", $logged), $code) && !str_contains(implode("\n", $logged), $code2), implode("\n", $logged));
+    same('claim: no curl config left in RAM', [], glob("$tmp/run/claim.*") ?: []);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/supporter.php');
+    check('claim: the address with the code goes in a config file (-K), never on the command line', str_contains($src, "'-K', \$file") && !preg_match('/hostNet\(\[[^\]]*api\/claim/s', $src));
+    check('claim: an agent action, never the browser', str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.reports', 'office.supporter_claim'];") && isset(officeAgentActions()['supporter_claim']));
+    proc_terminate($server);
+    proc_close($server);
+    putenv('OFFICE_SUPPORTER_PUBKEY');
     hardeningRm($tmp);
 }
 
@@ -20116,7 +20352,7 @@ ROUTER);
     same('report: the agent answers office.reports', true, handle(json_encode(['action' => 'office.reports']))['ok'] ?? null);
     same('report: … and nothing else of office.*', 'unknown_action', handle(json_encode(['action' => 'office.nonsense']))['error']['key'] ?? null);
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
-    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports'];")
+    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports', 'office.supporter_claim'];")
         && str_contains($api, '$office = in_array($action, OFFICE_AGENT_ACTIONS, true);'));
     hardeningRm($tmp);
 }
@@ -20823,9 +21059,9 @@ JS);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testSupporterList', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testSupporterClaim', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

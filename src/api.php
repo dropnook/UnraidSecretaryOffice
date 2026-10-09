@@ -22,7 +22,9 @@ declare(strict_types=1);
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
  * POST {"a": "office.hire|fire"}       who works here (see staff.php)
  * POST {"a": "office.staff_order", "order": [desk, …]}   in which order (the reception's cards, the tabs; staff.php)
- * POST {"a": "office.supporter_set|supporter_remove|supporter_ask"}   the supporter key (supporter.php)
+ * POST {"a": "office.supporter_set|supporter_remove|supporter_ask|supporter_code"}   the supporter keys (supporter.php)
+ * POST {"a": "office.supporter_claim", auto?}   the key a tip made, asked of the support page by the agent
+ *                                     (agent/lib/supporter.php) — never by the browser
  * POST {"a": "office.lang", "lang": <code>}   the language the page shows, for the notifications (desks.php)
  * POST {"a": "office.report_preview|report_send|reports", …}   «Report a problem or a wish…»: the agent's
  *                                     (agent/lib/report.php) — it alone ever sends a report, and only on report_send
@@ -483,7 +485,7 @@ function checkOrigin(): void
 }
 
 /** The office's own actions the agent answers (agent/lib/report.php officeAgentActions()) — no desk, never «not hired» */
-const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports'];
+const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports', 'office.supporter_claim'];
 
 /** The only actions that may carry secrets (the Consultant's Kopia setup) */
 const OFFICE_SECRET_ACTIONS = ['advisor.kopia_repo'];

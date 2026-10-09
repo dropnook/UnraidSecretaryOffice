@@ -44,6 +44,23 @@ function officeFeedbackUrl(string $cfg = OFFICE_PLUGIN_CFG): string
     return OFFICE_FEEDBACK_URL;
 }
 
+// the support page (PayPal checkout that shows the supporter key right after the tip, and again for a lost one):
+// set, the tip jar's main button opens <url>?id=<server ID>&lang=<language>#claim=<code> instead of OFFICE_TIP_URL
+// ('' = not yet). Shared: the agent asks it for the key a tip made (GET /api/claim, agent/lib/supporter.php). A line
+// SUPPORT_URL="http://<host>:<port>" in the plugin's .cfg points the agent's ask elsewhere (tests) — officeSupportUrl().
+const OFFICE_SUPPORT_URL = 'https://tip.uso.dropnook.app';
+
+/** Where the agent asks for a tip's key: SUPPORT_URL of the plugin's .cfg (read like FEEDBACK_URL), else OFFICE_SUPPORT_URL */
+function officeSupportUrl(string $cfg = OFFICE_PLUGIN_CFG): string
+{
+    $set = @parse_ini_file($cfg, false, INI_SCANNER_RAW) ?: [];
+    $url = is_string($set['SUPPORT_URL'] ?? null) ? trim($set['SUPPORT_URL'], " \t\"'") : '';
+    if ($url !== '' && preg_match('#^https?://[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?/?$#D', $url)) {
+        return rtrim($url, '/');
+    }
+    return OFFICE_SUPPORT_URL;
+}
+
 /** The .plg's max for the tested version: <major>.99.99 */
 function officeUnraidMax(string $tested = OFFICE_UNRAID_TESTED): string
 {
