@@ -29,10 +29,13 @@ or MikroTik router says about the server. It is a plugin: no container, no accou
 
 A fresh office has only the Team Lead. He looks at your server and suggests whom to hire (no Emby, no Jack Emby; no
 ZFS or btrfs, no Ms. Snapshotini). Hire whom you need, let them go later — their data and settings stay; Mr. Restori
-asks to come together with Mr. Backupsy, and *Hire together with Mr. Backupsy* hires both. Only Mr. Backupsy's *Let
+asks to come together with Mr. Backupsy, and *Hire together with Mr. Backupsy* hires both. Mr. Backupsy's *Let
 go* offers «Also clear away what he kept here»: his packages go to Ms. Dustdevil's storeroom and his own local
-snapshots are deleted — his settings, Kopia's and the partners' copies stay. *Change the order* at the reception puts
-the desks in the order you like.
+snapshots are deleted — his settings, Kopia's and the partners' copies stay. Letting Jack Emby go switches off his
+two schedules (a run that is going finishes); «Also bring the prepared films back to the array» moves what EmbyCache
+keeps on the pool back, the way its cleanup does (never while someone watches) — Mover Tuning stays yours. Hired
+again, his settings are as they were and the schedules stay off until you switch them on. *Change the order* at the
+reception puts the desks in the order you like.
 
 ![Ms. Snapshotini's page](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot.png)
 

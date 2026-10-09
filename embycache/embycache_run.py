@@ -34,9 +34,12 @@ Aufruf:
       --user Benj,Kid   nur diese Benutzer anzeigen (Name oder ID); die Planung läuft immer für alle
       --compact         nur Einträge, keine einzelnen Dateien
   python3 embycache_run.py --run           Scharf
+  python3 embycache_run.py --release       Alles zurück aufs Array (Unraid Secretary Office: Jack Emby wird entlassen):
+                                           ein Cleanup über die ganze Exclude-Liste auf demselben Weg wie oben (3.),
+                                           nichts wird befüllt; was gerade läuft, bleibt auf dem Cache und in der Liste
 
 Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang vor EMBYCACHE_MODE):
-  EMBYCACHE_MODE              dry | report | run
+  EMBYCACHE_MODE              dry | report | run | release
   EMBYCACHE_DIR               Arbeitsverzeichnis (Settings, Exclude-Liste, Lock, logs/); Default: Script-Verzeichnis
   EMBYCACHE_CONFIG            Pfad zur Settings-JSON
   EMBYCACHE_LOG_LEVEL         DEBUG | INFO | WARNING (Default INFO)
@@ -461,10 +464,10 @@ class Planner:
 class Runner:
     def __init__(self, cfg, mode, user_filter=None, show_files=True):
         self.cfg = cfg
-        self.mode = mode  # dry | report | run
+        self.mode = mode  # dry | report | run | release
         self.user_filter = user_filter
         self.show_files = show_files
-        self.run_mode = mode == "run"
+        self.run_mode = mode in ("run", "release")
         self.to_cache = self.to_array = 0
         self.copied_bytes = self.moved_back_bytes = 0
         self.fill_planned = self.cleanup_planned = 0
@@ -909,6 +912,8 @@ class Runner:
             log.warning("Der reguläre Unraid-Mover läuft gerade – Cleanup könnte mit ihm kollidieren (nur Log-Meldungen, kein Datenrisiko)")
 
         sessions, sessions_ok = collect_sessions(cfg, log)
+        if self.mode == "release":
+            return self.release(sessions, sessions_ok)
         planner = Planner(cfg)
         files = planner.run()
         self.status["on_deck"] = {"files": len(files), "bytes": sum(f.size for f in files),
@@ -959,19 +964,50 @@ class Runner:
         return 0
 
 
+    def release(self, sessions, sessions_ok):
+        """Alles zurück aufs Array: der Cleanup über die ganze Exclude-Liste (nichts ist mehr «on deck») – derselbe Weg
+        wie der normale Cleanup (zuerst die Herkunfts-Disk, dann cleanup_tool), ohne Befüllen. Was gerade läuft, bleibt.
+        Danach steht in der Exclude-Liste (und der Herkunft) nur noch, was weiter auf dem Cache liegt."""
+        cfg = self.cfg
+        if not sessions_ok:
+            log.warning("Nicht alle Emby-Instanzen haben geantwortet – was dort gerade läuft, kann nicht geschützt werden "
+                        "(das Office fragt vorher, ob jemand schaut)")
+        loc = Locations(cfg, cfg["instances"][0]["_mappings"])
+        previous = read_exclude()
+        protected = set()
+        try:
+            self.cleanup(loc, set(), sessions, protected)
+        finally:
+            left = {p for p in previous if Path(p).exists()}
+            write_exclude(left)
+            write_origin({p: d for p, d in self.origin.items() if p in left})
+        log.info(f"Ergebnis Zurückbringen: {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
+                 f"({human(self.moved_back_bytes)} von {human(self.to_array)}), {self.to_origin} davon auf ihre Herkunfts-Disk")
+        log.info(f"Exclude-Liste: {len(left)} Einträge" + (" (liegen weiter auf dem Cache)" if left else ""))
+        self.status["cleanup"] = {"planned": self.cleanup_planned, "done": self.moved_back, "to_origin": self.to_origin,
+                                  "bytes_planned": self.to_array, "bytes_done": self.moved_back_bytes}
+        self.status["fill"] = {"planned": 0, "done": 0, "bytes_planned": 0, "bytes_done": 0}
+        self.status["protected"] = len(left)
+        self.status["incomplete"] = not sessions_ok
+        return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="EmbyCache für Unraid", epilog="Details: siehe Kopf des Scripts")
     parser.add_argument("--run", action="store_true", help="Aktionen wirklich ausführen (Default: Dry-Run)")
     parser.add_argument("--show-on-deck", action="store_true", help="Nur die On-Deck-Liste anzeigen (pro Benutzer, nach Quelle)")
+    parser.add_argument("--release", action="store_true", help="Alles aus der Exclude-Liste zurück aufs Array (nichts befüllen)")
     parser.add_argument("--user", help="Report nur für diese Benutzer (Name oder ID, Komma-getrennt); nur mit --show-on-deck")
     parser.add_argument("--compact", action="store_true", help="Report ohne einzelne Dateien, nur Einträge")
     args = parser.parse_args()
     mode = os.environ.get("EMBYCACHE_MODE", "dry").lower()
-    if args.run:
+    if args.release:
+        mode = "release"
+    elif args.run:
         mode = "run"
     elif args.show_on_deck:
         mode = "report"
-    if mode not in ("dry", "report", "run"):
+    if mode not in ("dry", "report", "run", "release"):
         log.error(f"Ungültiger Modus: {mode}")
         return 2
     user_filter = args.user if args.user is not None else os.environ.get("EMBYCACHE_REPORT_USER")
