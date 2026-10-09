@@ -8741,6 +8741,11 @@ function testWatchmanAtPlugin(): void
         array_fill(0, 6, 'fix.common.problems'),
         [$is($head() . $wrap($scan)), $is($head() . "$scan\n"), $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems/scripts/extendedTest.php')),
          $is($head() . $wrap("php $scan")), $is($head() . $wrap("/usr/bin/php $scan --quiet run=1")), $is($head() . $wrap('bash /usr/local/emhttp/plugins/fix.common.problems/scripts/x.sh'))]);
+    // Community Applications queues «…/checkForUpdates.php >/dev/null 2>&1» (2026-10-09): a trailing discard of the output
+    same('at plugin: a trailing «>/dev/null 2>&1» (or &>/dev/null) only throws the output away', array_fill(0, 3, 'fix.common.problems'),
+        [$is($head() . $wrap("$scan >/dev/null 2>&1")), $is($head() . $wrap("$scan > /dev/null 2> /dev/null")), $is($head() . $wrap("$scan &>/dev/null"))]);
+    same('at plugin: a redirection anywhere else stays an alarm', array_fill(0, 3, null),
+        [$is($head() . $wrap("$scan >/dev/null 2>&1; id")), $is($head() . $wrap("$scan >/dev/null &")), $is($head() . $wrap("$scan >/dev/nullx"))]);
     same('at plugin: anything else is not', array_fill(0, 17, null), [
         $is($head() . $wrap('/usr/local/emhttp/plugins/evil.plugin/scripts/x.sh')),                       // not an installed plugin
         $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems.plg')),                        // no file in its folder

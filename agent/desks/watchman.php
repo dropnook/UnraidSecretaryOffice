@@ -4438,11 +4438,12 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
  * `echo "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php" | at now +10 min -M` from its
  * disks_mounted event, and its extended test the same way): exactly one command that runs a file of
  * /usr/local/emhttp/plugins/<name>/ — optionally after php, /usr/bin/php, bash or /bin/bash, with plain
- * arguments (no character the shell would act on) —, as root, with an environment that runs nothing else
+ * arguments (no character the shell would act on; only a trailing «>/dev/null 2>&1» that throws the output away —
+ * Community Applications queues its update check so, 2026-10-09) —, as root, with an environment that runs nothing else
  * (watchmanAtOnlyCommand()), where <name> is an installed plugin (its .plg in /var/log/plugins, as for
  * his plugin watch). The match's first group is the plugin, the second the file in its folder.
  */
-const WATCH_AT_PLUGIN = '#^(?:(?:/usr/bin/php|php|/bin/bash|bash) )?/usr/local/emhttp/plugins/([A-Za-z0-9._+-]{1,100})/([A-Za-z0-9._+-]{1,100}(?:/[A-Za-z0-9._+-]{1,100}){0,8})(?: [A-Za-z0-9._+/=:,@%-]{1,200}){0,8}$#D';
+const WATCH_AT_PLUGIN = '#^(?:(?:/usr/bin/php|php|/bin/bash|bash) )?/usr/local/emhttp/plugins/([A-Za-z0-9._+-]{1,100})/([A-Za-z0-9._+-]{1,100}(?:/[A-Za-z0-9._+-]{1,100}){0,8})(?: [A-Za-z0-9._+/=:,@%-]{1,200}){0,8}(?: ?(?:>|1>|&>) ?/dev/null(?: 2>&1| 2> ?/dev/null)?)?$#D';
 
 /** The installed plugin whose own file an at job runs (WATCH_AT_PLUGIN), or null */
 function watchmanAtPlugin(string $text, ?string $pluginsDir): ?string
