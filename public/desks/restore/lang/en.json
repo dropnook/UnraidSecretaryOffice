@@ -817,6 +817,7 @@
   "errors.restore_array_stopping": "The restore ended because the array was being stopped.",
   "notify.drill_failed": {"one": "Restore drill: 1 item failed", "other": "Restore drill: {n} items failed"},
   "notify.drill_failed_text": "Mr. Restori's drill couldn't prove that everything comes back: {names}. His page says what and where to fix it.",
+  "notify.more": "… and {n} more",
   "check.drill": "Mr. Restori practised bringing things back within the last 60 days, and his drill passed.",
   "check.drill_how": "Mr. Restori → «Drill» → «Practise now…» — or let him do it on his own at night after a backup that went well (monthly).",
   "check.drill_failed": "Mr. Restori's last drill passed.",
