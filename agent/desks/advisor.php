@@ -94,8 +94,9 @@ const ADVISOR_EXTERNALS = [
     'streamviewer' => ['plugin' => 'streamviewer', 'media' => true, 'author' => 'Lazaros Chalkidis',
                        'plg' => 'https://github.com/Lazaros-Chalkidis/unraid-streamviewer/raw/main/streamviewer.plg'],
     'unbalanced'   => ['plugin' => 'unbalanced', 'optional' => true],
-    // Mover Tuning: Jack Emby enters EmbyCache's list there himself, so Unraid's mover leaves the prepared films on the pool
-    // (agent/desks/emby-mover.php) — one of his two ways to real runs; only where a media server runs, never counted as missing
+    // Mover Tuning: optional — for other files moved on its own schedule; Jack Emby enters EmbyCache's list there himself so
+    // that schedule leaves the prepared films on the pool (agent/desks/emby-mover.php; his real runs need Unraid's own mover
+    // schedule «Disabled» either way); only where a media server runs, never counted as missing
     'movertuning'  => ['plugin' => 'ca.mover.tuning', 'media' => true, 'optional' => true, 'author' => 'masterwishx',
                        'plg' => 'https://raw.githubusercontent.com/masterwishx/ca.mover.tuning/master/plugins/ca.mover.tuning.plg'],
     // 'image': the image's own name (no registry, owner, tag) or the container's name matches
