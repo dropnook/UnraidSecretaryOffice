@@ -934,7 +934,8 @@ function testEmbyWatch(): void
         $t = 1000000;
         $slept = [];
         $n = 0;
-        $r = embyGatherGate($by, ['dir' => $dir, 'waitdir' => "$dir/run", 'array' => fn () => !file_exists("$dir/array-stopped"), 'now' => function () use (&$t) { return $t; },
+        $r = embyGatherGate($by, ['dir' => $dir, 'waitdir' => "$dir/run", 'array' => fn () => !file_exists("$dir/array-stopped"),
+            'scheduled' => fn () => !file_exists("$dir/schedule-off"), 'now' => function () use (&$t) { return $t; },
             'sleep' => function (int $s) use (&$t, &$slept, $during, $dir) { $slept[] = $s; $t += $s; if ($during) { $during($t, $dir); } },
             'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }]);
         return $r + ['slept' => $slept, 'looks' => $n];
@@ -979,6 +980,13 @@ function testEmbyWatch(): void
     $r = $gate('schedule', [$W], function (int $t, string $dir) { touch("$dir/array-stopped"); });
     same('gate on schedule: the array stopped while waiting — the wait ends', [false, 'array', [900]], [$r['go'], $r['result'], $r['slept']]);
     check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/emby-gather-wait.lock") && !file_exists("$dir/run/emby-gather-wait.json"));
+    @unlink("$dir/array-stopped");
+    // Jack let go while a scheduled gather waits: its schedule is off — it gives up at its next look (never starts later)
+    $r = $gate('schedule', [$W, $F], function (int $t, string $dir) { touch("$dir/schedule-off"); });
+    same('gate on schedule: its schedule switched off while waiting (Jack let go) — the wait ends, no gather', [false, 'off', [900], 1, null],
+        [$r['go'], $r['result'], $r['slept'], $r['looks'], $r['lock']]);
+    check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/emby-gather-wait.lock") && !file_exists("$dir/run/emby-gather-wait.json"));
+    @unlink("$dir/schedule-off");
 
     // during a real run: someone starts watching → the stop request, the run ends after its folder
     $stop = "$tmp/stop.json";
@@ -1161,7 +1169,7 @@ function testEmbySizes(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('measure: asked about Emby\'s watchers from the page and again in the job, holding EmbyCache\'s lock, its own ini',
         str_contains($src, "in_array(\$mode, ['run', 'measure'], true)) {      // a measurement") && str_contains($src, "if (\$tool === 'gather' && \$mode === 'measure') {\n        \$look = embyWatching();")
-        && str_contains($src, "if (\$mode === 'run' || \$mode === 'measure') {") && str_contains($src, '"$dir/measure.ini"'));
+        && str_contains($src, "if (in_array(\$mode, ['run', 'measure', 'release'], true)) {") && str_contains($src, '"$dir/measure.ini"'));
 
     // his page under node (stand-ins for the office): the numbers, the date, ZFS's chip, an older state, the button
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -1588,6 +1596,338 @@ function testEmbyImport(): void
     [$vars, $strange] = embyImportIni("A='it'\\''s' # c\nB=\"x \\\"y\\\"\"\nC=( 'a b'\n# a comment\n c )\nD=(a *)\nE=plain\nF=\nG=a b\nH=\"\$HOME\"\nI=( ~/x )\nJ=#x\n");
     same('import ini: values as bash sees them, nothing expanded', ['A' => "it's", 'B' => 'x "y"', 'C' => ['a b', 'c'], 'E' => 'plain', 'F' => '', 'J' => '#x'], $vars);
     same('import ini: globs, commands, variables refused', 4, $strange);
+    hardeningRm($tmp);
+}
+
+/**
+ * Letting Jack Emby go (Benj, 2026-10-09; agent/desks/emby-letgo.php): both schedules off — always, no tick — his lines
+ * only (Mr. Backupsy's stays); the look (what is on the pool, a run going, someone watching, Mover Tuning named — read
+ * only); emby.letgo needs `confirm` and `release` said, is refused for an unhired Jack (the hired gate) and changes
+ * nothing then; the tick's release handed to atd as `job embycache release --letgo` — refused while a run is going or
+ * someone watches (his list of runs says so); the note for his page when hired again, said once; EmbyCache's own
+ * `--release` on a fixture tree (everything on the list back the cleanup's way, a duplicate stays and stays listed,
+ * nothing filled); the release's notifications; his dialog part, the done dialog and the page's note under node.
+ */
+function testEmbyLetGo(): void
+{
+    $tmp = hardeningTmp('embyletgo');
+    $dir = "$tmp/emby";
+    $pool = "$tmp/pool";
+    foreach (["$dir", "$pool/Filme/A", "$pool/Filme/B"] as $d) {
+        mkdir($d, 0700, true);
+    }
+    file_put_contents("$pool/Filme/A/a.mkv", str_repeat('a', 3000));
+    file_put_contents("$pool/Filme/B/b.mkv", str_repeat('b', 5000));
+    file_put_contents("$dir/embycache_exclude.txt", "$pool/Filme/A/a.mkv\n$pool/Filme/B/b.mkv\n$pool/Filme/gone.mkv\n/elsewhere/x.mkv\n");
+    $cron = "$tmp/office.cron";
+    officeJobSetSchedule('backup', '0 2 * * *', $cron, false);
+    officeJobSetSchedule('embycache', '15 * * * *', $cron, false);
+    officeJobSetSchedule('gather', '0 3 * * 0', $cron, false);
+    file_put_contents("$tmp/tuning.cfg", "moverDisabled=\"no\"\nfilelistf=\"/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\"\nfilelistv=\"yes\"\n");
+    $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
+    $W = ['state' => 'watching', 'who' => [['user' => 'isp3', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
+    $running = null;
+    $look = ['state' => 'free', 'who' => []];
+    $launched = [];
+    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir, 'tuning' => "$tmp/tuning.cfg",
+        'settings' => function () use (&$settings) { return $settings; }, 'running' => function () use (&$running) { return $running; },
+        'waiting' => fn () => false, 'look' => function () use (&$look) { return $look; }, 'python' => fn () => true,
+        'launch' => function (string $job, array $args) use (&$launched) { $launched[] = [$job, $args]; }];
+
+    // the look: his two schedules, what lies on the pool (only what is there, under the pool), Mover Tuning naming his list
+    $l = embyLetGoLook();
+    same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, Mover Tuning names his list',
+        [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []],
+         ['there' => true, 'listed' => true, 'key' => 'filelistf', 'file' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt']],
+        [$l['schedules'], $l['running'], $l['pool'], $l['release'], $l['mover_tuning']]);
+    $running = 'gather';
+    same('let Jack go: a run going — no release now (it finishes; nothing stops it)', 'emby_running', embyLetGoLook()['release']['why']);
+    $running = null;
+    $look = $W;
+    $r = embyLetGoLook()['release'];
+    same('let Jack go: someone watches — no release now, who is named', [false, 'emby_release_watching', 'isp3'], [$r['ok'], $r['why'], $r['params']['who'][0]['user'] ?? null]);
+    $look = ['state' => 'error', 'who' => [], 'why' => 'emby_watch_key', 'url' => 'http://emby:8096'];
+    same('let Jack go: Emby answers but not usably — no release (like a real gather)', 'emby_watch_key', embyLetGoLook()['release']['why']);
+    $look = ['state' => 'down', 'who' => []];
+    same('let Jack go: Emby down — nobody can watch, the release may go', true, embyLetGoLook()['release']['ok']);
+    $look = ['state' => 'free', 'who' => []];
+    $settings = null;
+    same('let Jack go: never set up — nothing to bring back', ['emby_not_configured', 0], [embyLetGoLook()['release']['why'], embyLetGoLook()['pool']['files']]);
+    $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
+    same('let Jack go: Mover Tuning without his list / not installed', [['there' => true, 'listed' => false], ['there' => false, 'listed' => false]],
+        [embyLetGoTuning("$tmp/office.cron"), embyLetGoTuning("$tmp/none.cfg")]);
+    check('let Jack go: Mover Tuning\'s cfg only read', md5_file("$tmp/tuning.cfg") === md5("moverDisabled=\"no\"\nfilelistf=\"/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\"\nfilelistv=\"yes\"\n"));
+
+    // through the agent's dispatch: the hired gate, then the request's shape — and nothing changed by a refusal
+    $staffBefore = $GLOBALS['agentStaffFile'] ?? null;
+    $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
+    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['backup' => 1]]));
+    $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
+    same('let Jack go: unhired — his look and his let-go refused (the hired gate), his refresh answered', ['not_hired', 'not_hired', 'not_hired', true],
+        [$ask(['action' => 'emby.letgo_look']), $ask(['action' => 'emby.letgo', 'confirm' => true, 'release' => false]), $ask(['action' => 'emby.letgo_seen']),
+         agentDeskMayAct('emby', 'refresh', "$tmp/staff.json")]);
+    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['emby' => 1]]));
+    same('let Jack go: hired — without confirm, confirm not true, release not said or not a bool: refused',
+        ['bad_request', 'bad_request', 'bad_request', 'bad_request'],
+        [$ask(['action' => 'emby.letgo', 'release' => false]), $ask(['action' => 'emby.letgo', 'confirm' => 1, 'release' => false]),
+         $ask(['action' => 'emby.letgo', 'confirm' => true]), $ask(['action' => 'emby.letgo', 'confirm' => true, 'release' => 'yes'])]);
+    same('let Jack go: … nothing switched off by those', ['15 * * * *', '0 3 * * 0'], array_values(embyLetGoSchedules($cron)));
+    same('let Jack go: his look through the dispatch while hired', 'ok', $ask(['action' => 'emby.letgo_look']));
+    check('let Jack go: his jobs run without the hired gate (the release runs after he is let go)', isset(desks()['emby']['jobs']['embycache'])
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), "agentDeskMayAct(\$deskId, 'job')"));
+
+    // without the tick: both schedules off, Mr. Backupsy's line stays, nothing launched, the films stay
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false]));
+    same('let Jack go: both schedules off, what they were, nothing left, no release',
+        [true, ['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], ['embycache', 'gather'], [], null, null],
+        [$r['ok'] ?? null, $r['was'] ?? null, $r['off'] ?? null, $r['left'] ?? null, array_key_exists('failed', $r) ? $r['failed'] : 'x', array_key_exists('release', $r) ? $r['release'] : 'x']);
+    same('let Jack go: the cron file keeps only Mr. Backupsy\'s line', ['backup' => '0 2 * * *'], officeCronLines($cron));
+    check('let Jack go: without the tick nothing is launched and the films stay on the pool', !$launched && is_file("$pool/Filme/A/a.mkv") && is_file("$pool/Filme/B/b.mkv"));
+    same('let Jack go: the note for his page — what he switched off', ['off' => ['embycache', 'gather'], 'was' => ['embycache' => '15 * * * *', 'gather' => '0 3 * * 0']],
+        array_intersect_key(embyLetGoNote($dir) ?? [], ['off' => 1, 'was' => 1]));
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false]));
+    same('let Jack go again with nothing on: nothing to switch off, the earlier note not yet shown stays', [[], ['embycache', 'gather']],
+        [$r['off'] ?? null, embyLetGoNote($dir)['off'] ?? null]);
+    same('let Jack go: hired again, his page said it — said once', [['ok' => true], null], [embyLetGoSeen($dir), embyLetGoNote($dir)]);
+    check('let Jack go: a schedule switched on again also ends the note', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'),
+        "if (\$cron !== null) {\n        embyLetGoSeen();"));
+
+    // with the tick: the release handed to atd as its own job, schedules off all the same
+    officeJobSetSchedule('embycache', '15 * * * *', $cron, false);
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
+    same('let Jack go with the tick: EmbyCache\'s schedule off, the release started — job embycache release --letgo via atd',
+        [['embycache'], ['started' => true, 'files' => 2, 'bytes' => 8000], [['emby-embycache', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'embycache', 'release', '--letgo']]]],
+        [$r['off'] ?? null, $r['release'] ?? null, $launched]);
+    same('let Jack go: the note says the release started', ['started' => true, 'why' => null], readJson("$dir/office-letgo.json")['release'] ?? null);
+    $launched = [];
+    officeJobSetSchedule('gather', '0 3 * * 0', $cron, false);
+    $look = $W;
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
+    same('let Jack go with the tick while someone watches: schedules off all the same, the release refused with who, nothing launched',
+        [['gather'], false, 'emby_release_watching', 'isp3', []],
+        [$r['off'] ?? null, $r['release']['started'] ?? null, $r['release']['error']['key'] ?? null, $r['release']['error']['params']['who'][0]['user'] ?? null, $launched]);
+    $h = embyHistory($dir)[0] ?? [];
+    same('let Jack go: the refusal in his list of runs', ['embycache', 'release', 'letgo', 'refused', 'emby_release_watching', 'isp3'],
+        [$h['tool'] ?? null, $h['mode'] ?? null, $h['by'] ?? null, $h['result'] ?? null, $h['why'] ?? null, $h['who'][0]['user'] ?? null]);
+    $look = ['state' => 'free', 'who' => []];
+    $running = 'embycache';
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
+    same('let Jack go with the tick while a run is going: it finishes, the release refused, said which run', ['embycache', false, 'emby_running', []],
+        [$r['running'] ?? null, $r['release']['started'] ?? null, $r['release']['error']['key'] ?? null, $launched]);
+    $running = null;
+    file_put_contents("$dir/embycache_exclude.txt", "$pool/Filme/gone.mkv\n");
+    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
+    same('let Jack go with the tick, nothing on the pool: nothing to bring back, nothing launched', ['emby_letgo_nothing', []], [$r['release']['error']['key'] ?? null, $launched]);
+    $GLOBALS['agentStaffFile'] = $staffBefore;
+    unset($GLOBALS['embyLetGoHost']);
+
+    // the job: release is EmbyCache's own mode, never from the page's «Start»; asked about watchers again, under the locks
+    same('release: EmbyCache --release, its own mode', ['--release'], EMBY_MODES['release'] ?? null);
+    try {
+        embyStart('embycache', 'release');
+        check('release: never started from the page', false);
+    } catch (Problem $p) {
+        same('release: never started from the page', 'unknown_target', $p->key);
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('release: the job asks Emby again, fully, before any lock, and holds the gather\'s lock like a real run',
+        str_contains($src, "if (\$tool === 'embycache' && \$mode === 'release') {\n        \$look = embyWatching();")
+        && strpos($src, "if (\$tool === 'embycache' && \$mode === 'release') {\n        \$look = embyWatching();") < strpos($src, "if (in_array(\$mode, ['run', 'measure', 'release'], true)) {")
+        && str_contains($src, "in_array('--letgo', \$args, true) ? 'letgo'"));
+    same('release: what Unraid hears — a good end too (he is gone), problems, failures; a real run as before',
+        ['ok', 'errors', 'busy', 'failed', null, 'errors'],
+        [embyNotifyOutcome('release', 'ok', ['errors' => 0]), embyNotifyOutcome('release', 'ok', ['errors' => 2]), embyNotifyOutcome('release', 'busy', []),
+         embyNotifyOutcome('release', 'failed', []), embyNotifyOutcome('run', 'ok', ['errors' => 0]), embyNotifyOutcome('run', 'ok', ['errors' => 1])]);
+    $bin = "$tmp/notify";
+    file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod($bin, 0755);
+    $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$bin");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    embyNotify('embycache', 'release', 'ok', ['cleanup' => ['done' => 2, 'planned' => 3], 'protected' => 1, 'errors' => 0], 0);
+    $sent = (string) @file_get_contents("$tmp/notified");
+    check('release: a good end told as normal — how many came back, how many stay', str_contains($sent, "-i\nnormal") && str_contains($sent, '2 files are back on the array.')
+        && str_contains($sent, '1 file stays on the pool'), $sent);
+    @unlink("$tmp/notified");
+    embyReleaseRefusedTell('emby_release_watching');
+    $sent = (string) @file_get_contents("$tmp/notified");
+    check('release: refused in the job — told as a warning, the films stay', str_contains($sent, "-i\nwarning") && str_contains($sent, 'not started')
+        && str_contains($sent, 'The films stay on the pool.'), $sent);
+    putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
+    putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
+
+    // EmbyCache's own --release on a fixture tree: every file on the list back the cleanup's way (origin disk not mounted
+    // → cleanup_tool rsync to the array view), a duplicate already on the array stays on the pool and in the list
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        check('release: python3 is missing here - skipped', true);
+    } else {
+        $py = "$tmp/py";
+        foreach (["$py/data", "$py/pool/Filme/A", "$py/pool/Filme/B", "$py/pool/Filme/C", "$py/user0/Filme/C", "$py/user/Filme", "$py/shares", "$py/disk1/Filme"] as $d) {
+            mkdir($d, 0700, true);
+        }
+        file_put_contents("$py/pool/Filme/A/a.mkv", str_repeat('a', 3000));
+        file_put_contents("$py/pool/Filme/B/b.srt", 'sub');
+        file_put_contents("$py/pool/Filme/C/c.mkv", 'dup');
+        file_put_contents("$py/user0/Filme/C/c.mkv", 'dup');
+        file_put_contents("$py/data/embycache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.srt\n$py/pool/Filme/C/c.mkv\n$py/pool/Filme/gone.mkv\n");
+        file_put_contents("$py/data/embycache_origin.json", json_encode(["$py/pool/Filme/A/a.mkv" => 'disk1', "$py/pool/Filme/C/c.mkv" => 'disk1']));
+        file_put_contents("$py/data/embycache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
+            'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares", 'api_timeout' => 2,
+            'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]]));
+        [$exit, $out, $err] = run(['env', "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", 'PYTHONDONTWRITEBYTECODE=1',
+                                   'python3', OFFICE_DIR . '/embycache/embycache_run.py', '--release'], 120);
+        $st = readJson("$py/data/status.json") ?? [];
+        same('EmbyCache --release: ok, mode release, 2 of 3 back (the duplicate stays), nothing filled, Emby unanswered noted',
+            [0, 'release', 'ok', 3, 2, 0, 1, true],
+            [$exit, $st['mode'] ?? null, $st['result'] ?? null, $st['cleanup']['planned'] ?? null, $st['cleanup']['done'] ?? null, $st['fill']['planned'] ?? null,
+             $st['protected'] ?? null, $st['incomplete'] ?? null]);
+        check('EmbyCache --release: the files are on the array view, gone from the pool; the duplicate stays on both',
+            is_file("$py/user0/Filme/A/a.mkv") && filesize("$py/user0/Filme/A/a.mkv") === 3000 && is_file("$py/user0/Filme/B/b.srt")
+            && !file_exists("$py/pool/Filme/A/a.mkv") && !file_exists("$py/pool/Filme/B/b.srt") && is_file("$py/pool/Filme/C/c.mkv"), $out . $err);
+        same('EmbyCache --release: the list and the origins name only what is still on the pool', [["$py/pool/Filme/C/c.mkv"], ["$py/pool/Filme/C/c.mkv" => 'disk1']],
+            [file("$py/data/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES), readJson("$py/data/embycache_origin.json")]);
+        check('EmbyCache --release: nothing went to the origin disk that isn\'t mounted', !file_exists("$py/disk1/Filme/A"));
+    }
+
+    // his dialog part, the done dialog and the page's note under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('let Jack go: dialog - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+const posts = [];
+let answer = () => ({ ok: false });
+const dialogs = [];
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', cron: (c) => 'C(' + c + ')', date: (t) => 'D' + t, relative: () => 'now' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n,
+  errorText: (e, d) => 'err:' + (d || '') + ':' + e.key, dialog: (o) => dialogs.push(o),
+  api: { post: async (a, body) => { posts.push([a, body]); return answer(a, body); } } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+(async () => {
+  const out = {};
+  const look = { ok: true, schedules: { embycache: '15 * * * *', gather: null }, running: null, waiting: false, pool: { files: 2, bytes: 8000, pool: '/mnt/master' },
+    release: { ok: true, why: null, params: {} }, mover_tuning: { there: true, listed: true, key: 'filelistf', file: '/x/embycache_exclude.txt' } };
+  out.view = e.letGoView(look);
+  out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} }, mover_tuning: { there: false } });
+  out.watching = e.letGoView({ ...look, release: { ok: false, why: 'emby_release_watching', params: { who: [{ user: 'isp3', title: 'Alien', device: 'iPad' }] } } });
+  out.nothing = e.letGoView({ ...look, schedules: { embycache: null, gather: null }, pool: { files: 0, bytes: 0 }, release: { ok: false, why: 'emby_letgo_nothing', params: {} }, mover_tuning: { there: false } });
+  // the part: looks at once; the tick off by default; ticked — «Let go and bring back»; before() once, with confirm and release
+  answer = (a) => (a === 'emby.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
+    release: { started: true, files: 2, bytes: 8000 } });
+  const box = mk('div');
+  const part = e.letGoPart(box);
+  const button = mk('button');
+  part.bind(button);
+  await part.looked;
+  const wrap = box.children[0];
+  const label = wrap.children[1];
+  const cb = label.children[0];
+  out.start = [label.hidden, cb.checked, cb.disabled, button.textContent, posts.map((p) => p[0]), texts(wrap.children[0]).length > 0, [label.children[1].text, label.children[1].children[0].textContent]];
+  cb.checked = true;
+  cb.onchange();
+  out.ticked = button.textContent;
+  const r1 = await part.before();
+  const r2 = await part.before();
+  out.sent = [posts.slice(1), r1 === r2, cb.disabled];
+  // not ticked: release false
+  posts.length = 0;
+  const p2 = e.letGoPart(mk('div'));
+  await p2.looked;
+  await p2.before();
+  out.untickedSent = posts[1];
+  // busy: the tick there but can't be ticked; «Let go» stays «Let go»
+  answer = () => ({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
+  const box3 = mk('div');
+  const p3 = e.letGoPart(box3);
+  const b3 = mk('button');
+  p3.bind(b3);
+  await p3.looked;
+  out.busyPart = [box3.children[0].children[1].hidden, box3.children[0].children[1].children[0].disabled, b3.textContent];
+  // the agent away: no look, said so
+  posts.length = 0;
+  Office.agent.running = false;
+  const box4 = mk('div');
+  e.letGoPart(box4);
+  out.away = [posts.length, texts(box4.children[0].children[0])];
+  Office.agent.running = true;
+  // the done dialog
+  out.done = e.letGoDoneLines({ ok: true, was: { embycache: '15 * * * *', gather: '0 3 * * 0' }, off: ['embycache', 'gather'], left: [], failed: null, running: 'embycache',
+    release: { started: true, files: 2, bytes: 8000 } });
+  out.doneRefused = e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null,
+    release: { started: false, error: { key: 'emby_release_watching', params: { who: [{ user: 'isp3' }] } } } });
+  out.doneLeft = e.letGoDoneLines({ ok: true, was: { embycache: '15 * * * *', gather: null }, off: [], left: ['embycache'], failed: { key: 'command_failed' }, running: null, release: null });
+  out.doneNone = e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null });
+  out.doneErr = e.letGoDoneLines({ ok: false, error: { key: 'agent_away' } });
+  // hired again: the note, said once (letgo_seen posted once), kept this visit, gone when the schedules are on again
+  posts.length = 0;
+  answer = () => ({ ok: true });
+  const state = { schedules: { embycache: { enabled: false }, gather: { enabled: false } }, letgo: { time: 100, off: ['embycache', 'gather'], was: { embycache: '15 * * * *', gather: '0 3 * * 0' } } };
+  e.setState(state);
+  const n1 = e.letGoNotice();
+  e.setState({ ...state, letgo: null });
+  const n2 = e.letGoNotice();
+  out.note = [n1 && n1.text, n1 && n1.children.filter((c) => c.tag === 'button').map((c) => c.text), n2 && n2.text, posts.map((p) => p[0])];
+  e.setState({ schedules: { embycache: { enabled: true }, gather: { enabled: false } }, letgo: null });
+  const n3 = e.letGoNotice();
+  out.noteOn = n3 && n3.children.filter((c) => c.tag === 'button').map((c) => c.text);
+  e.setState({ schedules: { embycache: { enabled: true }, gather: { enabled: true } }, letgo: null });
+  out.noteGone = e.letGoNotice();
+  // his list of runs: a release
+  out.summary = [e.runSummary({ tool: 'embycache', mode: 'release', result: 'ok', status: { mode: 'release', result: 'ok', cleanup: { planned: 3, done: 2, to_origin: 1 }, protected: 1 } }),
+    e.runSummary({ tool: 'embycache', mode: 'release', result: 'refused', why: 'emby_release_watching', who: [] })];
+  console.log(JSON.stringify(out));
+})().catch((err) => { console.log(JSON.stringify({ error: String(err && err.stack || err) })); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
+    $o = json_decode($raw, true);
+    if (!is_array($o) || isset($o['error'])) {
+        check('let Jack go: dialog ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('let Jack go: the look\'s lines — the schedules switched off; the tick there and free; its hint; without it they stay, Mover Tuning named, settings stay', [
+        'lines' => [['', 'letgo.sched_off {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}']], 'tick' => true, 'tickable' => true,
+        'hint' => 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}',
+        'more' => [['role', 'letgo.tick_off'], ['callout', 'letgo.mover_listed {"file":"/x/embycache_exclude.txt"}'], ['role', 'letgo.stays']]], $o['view']);
+    same('let Jack go: a run going — it finishes (said), the tick waits, Mover Tuning in general words',
+        [['callout', 'letgo.running.gather'], false, true, [['callout warn', 'letgo.release_busy'], ['role', 'letgo.tick_off'], ['role', 'letgo.mover'], ['role', 'letgo.stays']]],
+        [$o['busy']['lines'][1] ?? null, $o['busy']['tickable'], $o['busy']['tick'], $o['busy']['more']]);
+    same('let Jack go: someone watches — who, and the gentler way', [['callout warn', 'letgo.watching'], ['who', [['user' => 'isp3', 'title' => 'Alien', 'device' => 'iPad']]]],
+        array_slice($o['watching']['more'], 0, 2));
+    same('let Jack go: nothing on, nothing on the pool — no tick, said so', [[['', 'letgo.sched_none'], ['role', 'letgo.nothing']], false, '', [['role', 'letgo.stays']]],
+        [$o['nothing']['lines'], $o['nothing']['tick'], $o['nothing']['hint'], $o['nothing']['more']]);
+    same('let Jack go: the part looks at once; the tick shown, off by default, «Let go» as always', [false, false, false, 'office.fire', ['emby.letgo_look'], true,
+        ['letgo.tick', 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}']], $o['start']);
+    same('let Jack go: ticked — «Let go and bring back»', 'letgo.button', $o['ticked']);
+    same('let Jack go: before() once — schedules off and the release, with confirm', [[['emby.letgo', ['confirm' => true, 'release' => true]]], true, true], $o['sent']);
+    same('let Jack go: unticked — schedules off only', ['emby.letgo', ['confirm' => true, 'release' => false]], $o['untickedSent']);
+    same('let Jack go: a run going — the tick can\'t be ticked, «Let go» stays', [false, true, 'office.fire'], $o['busyPart']);
+    same('let Jack go: the agent away — no look, said that the schedules can\'t be switched off', [0, ['letgo.agent_away']], $o['away']);
+    same('let Jack go: done — what went off, the run that finishes, the release started', [
+        ['', 'letgo.done_off {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"}'],
+        ['role', 'letgo.running.embycache'], ['', 'letgo.done_release {"files":"count.files {\"n\":2}","size":"8000 B"}']], $o['done']);
+    same('let Jack go: done — the release refused, who watches', [['callout warn', 'letgo.done_release_not {"error":"err:emby:emby_release_watching"}'], ['who', [['user' => 'isp3']]]], $o['doneRefused']);
+    same('let Jack go: done — a schedule that couldn\'t be switched off is named, with what to do', [['callout warn', 'letgo.done_error {"error":"err:emby:command_failed"}'],
+        ['callout warn', 'letgo.done_still {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}'], ['role', 'letgo.done_hire']], $o['doneLeft']);
+    same('let Jack go: done — nothing on, nothing asked: no dialog; the request failed: said, still running', [[], [['callout warn', 'letgo.done_error {"error":"err:emby:agent_away"}'], ['role', 'letgo.done_hire']]],
+        [$o['doneNone'], $o['doneErr']]);
+    same('let Jack go: hired again — the note once (seen posted once), kept this visit, a button per schedule still off; gone when they are on',
+        ['letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
+         ['schedule_title.embycache', 'schedule_title.gather'], 'letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
+         ['emby.letgo_seen'], ['schedule_title.gather'], null],
+        [...$o['note'], $o['noteOn'], $o['noteGone']]);
+    same('let Jack go: the release in his list of runs', ['release_summary {"back":2,"planned":3,"origin":1,"left":1}', 'refused {"why":"err:emby:emby_release_watching"}'], $o['summary']);
     hardeningRm($tmp);
 }
 
@@ -24281,7 +24621,7 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testEmbyLetGo', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
