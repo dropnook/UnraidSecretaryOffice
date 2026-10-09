@@ -16,7 +16,8 @@
     "pool_asleep_chip",
     "snapshots",
     "storage",
-    "used_by_backup"
+    "used_by_backup",
+    "vm_gone"
   ],
   "texts": [
     "help.asleep",
@@ -33,6 +34,7 @@
     "help.scan_text",
     "help.select_text",
     "help.sources_text",
-    "help.tiles_text"
+    "help.tiles_text",
+    "help.vm_gone"
   ]
 }
