@@ -24,7 +24,7 @@ or MikroTik router says about the server. It is a plugin: no container, no accou
 | 🏮 | **The Night Watchman** | Says how securely the server stands, and keeps a watch book of what is different from normal — logins, containers, plugins, the flash, schedules, data flow, vanished snapshots, and what your router reports. Changes nothing himself. |
 | 🧹 | **Ms. Dustdevil** | Knows where everything lies and gives advice on keeping it in order. Clears away what nobody uses — templates, stacks, appdata folders, Docker's leftovers — into a storeroom first, never deleting at once (Docker's volumes are copied in before Docker removes them; only images and the build cache, which can be downloaded again, and volumes mounted from elsewhere go for good). Gives containers without a picture a logo. |
 | 📝 | **Ms. Protocolli** | Reads every log out loud — Unraid's, the office's, every User Script's and container's, the router's. Her tour counts and groups the errors and warnings and watches how full `/var/log` is. |
-| 🍿 | **Jack Emby** | The intern. Looks after helmi1987's EmbyCache (what you watch next waits on the fast pool, the array disks sleep) and the media gather (one disk per film folder). Never gathers while someone watches. Shows how much of each library lies on which disk or pool, with the date it was measured. Runs for real only while Unraid's mover leaves the prepared films alone: its schedule *Disabled*, or Mover Tuning installed (the Consultant installs it; Jack enters EmbyCache's list there himself) — otherwise dry runs only; the mover starting during a run stops it after the current file. |
+| 🍿 | **Jack Emby** | The intern. Looks after helmi1987's EmbyCache (what you watch next waits on the fast pool, the array disks sleep) and the media gather (one disk per film folder). Never gathers while someone watches. Shows how much of each library lies on which disk or pool, with the date it was measured. Runs for real only while Unraid's own mover schedule is *Disabled* — otherwise dry runs only; his page switches it off for you (*Switch the mover schedule off…*, after a confirm), or you set it in Mover Settings yourself. *Move now* by hand stays possible: the mover starting during a run stops it after the current file. Mover Tuning is optional; if it is installed, Jack enters EmbyCache's list there himself, so its own schedule leaves the films alone too. |
 | 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; shows how the router's log reaches Unraid (UniFi, MikroTik). |
 
 A fresh office has only the Team Lead. He looks at your server and suggests whom to hire (no Emby, no Jack Emby; no
@@ -34,7 +34,8 @@ go* offers «Also clear away what he kept here»: his packages go to Ms. Dustdev
 snapshots are deleted — his settings, Kopia's and the partners' copies stay. Letting Jack Emby go switches off his
 two schedules (a run that is going finishes); «Also bring the prepared films back to the array» moves what EmbyCache
 keeps on the pool back, the way its cleanup does (never while someone watches), and «Also take my list out of Mover
-Tuning again» (on by default) puts Mover Tuning's two settings back as they were before him. Hired
+Tuning again» (on by default) puts Mover Tuning's two settings back as they were before him; Unraid's mover schedule
+stays off (switch it on again in Mover Settings if you like). Hired
 again, his settings are as they were and the schedules stay off until you switch them on. *Change the order* at the
 reception puts the desks in the order you like.
 
