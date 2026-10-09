@@ -28,7 +28,8 @@ declare(strict_types=1);
  *               counts when it has such rights (ports alone don't).
  *   plugins     /var/log/plugins/*.plg: a new plugin, or its pluginURL now
  *               pointing somewhere else (the host, on code hosts its owner)
- *   flash       /boot/config/go (line hashes only, never its text), files in
+ *   flash       /boot/config/go (line hashes; the text only of lines added
+ *               since, kept in that entry of the book — nothing else), files in
  *               /boot/extra, the users in /boot/config/passwd, a changed
  *               password (a hash of each user's shadow field — never the field
  *               itself), SSH keys in /boot/config/ssh/<user>/authorized_keys
@@ -1340,7 +1341,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanLogins($b, $book, $st, $events, false, $doors),
                 watchmanContainersCompare($b['containers'], $seen['containers'], $book, $now, $office),
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
-                watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now),
+                watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
@@ -2678,7 +2679,7 @@ function watchmanPluginsCompare(array &$known, array $seen, array &$book, int $n
 // ===================================================================== the flash
 
 /**
- * What matters on the flash: go (a hash, and one per line — never its text),
+ * What matters on the flash: go (a hash, and one per line — never its text; watchmanGoAdded() reads the lines added),
  * the files in /boot/extra, the users, a hash per user's password field
  * (never the field), the SSH keys (fingerprint, type, comment).
  */
@@ -2768,8 +2769,45 @@ function watchmanClean(string $s, int $max): string
     return mb_substr(mb_convert_encoding($s, 'UTF-8', 'UTF-8'), 0, $max);
 }
 
-/** The flash against what is normal: go changed, a file in /boot/extra new or changed, a new user, a changed password, a new SSH key */
-function watchmanFlashCompare(array &$known, array $seen, array &$book, int $now): array
+const WATCH_GO_SHOW  = 20;           // lines of go added that his book keeps (their text) …
+const WATCH_GO_WIDTH = 200;          // … each cut at this many characters
+
+/**
+ * The lines of go added since what is normal: their text (the first WATCH_GO_SHOW, each cut at WATCH_GO_WIDTH), read
+ * from the file now — the only text of go he keeps, in the entry of his book (the page shows it; never in a notification,
+ * the syslog for a SIEM or a mirror). Lines removed: only their number — their text is kept nowhere.
+ * @return list<string>
+ */
+function watchmanGoAdded(string $file, array $was, array $is): array
+{
+    $text = @file_get_contents($file, false, null, 0, 262144);
+    if ($text === false) {
+        return [];
+    }
+    $was = array_flip(array_map('strval', $was));
+    $is = array_flip(array_map('strval', $is));
+    $out = [];
+    foreach (preg_split('/\r?\n/', $text) ?: [] as $l) {
+        $l = trim($l);
+        $h = substr(sha1($l), 0, 12);
+        if ($l === '' || isset($was[$h]) || !isset($is[$h]) || isset($out[$h])) {
+            continue;                   // known, or not what the round saw (changed again meanwhile), or the same line twice
+        }
+        $clean = watchmanClean($l, WATCH_GO_WIDTH + 1);
+        $out[$h] = mb_strlen($clean) > WATCH_GO_WIDTH ? mb_substr($clean, 0, WATCH_GO_WIDTH) . '…' : $clean;
+        if (count($out) >= WATCH_GO_SHOW) {
+            break;
+        }
+    }
+    unset($text);
+    return array_values($out);
+}
+
+/**
+ * The flash against what is normal: go changed, a file in /boot/extra new or changed, a new user, a changed password, a
+ * new SSH key. $go: the go file — the added lines' text goes into the entry (watchmanGoAdded()).
+ */
+function watchmanFlashCompare(array &$known, array $seen, array &$book, int $now, ?string $go = null): array
 {
     $added = [];
     $kg = $known['go'] ?? null;
@@ -2777,8 +2815,10 @@ function watchmanFlashCompare(array &$known, array $seen, array &$book, int $now
     if (($kg['hash'] ?? null) !== ($sg['hash'] ?? null)) {
         $was = (array) ($kg['lines'] ?? []);
         $is = (array) ($sg['lines'] ?? []);
+        $new = array_diff($is, $was);
         $added[] = watchmanSet($book, 'flash_go', 'flash_go', $now,
-            ['added' => count(array_diff($is, $was)), 'removed' => count(array_diff($was, $is)), 'lines' => count($is), 'gone' => $sg === null]);
+            ['added' => count($new), 'removed' => count(array_diff($was, $is)), 'lines' => count($is), 'gone' => $sg === null]
+            + ($go !== null && $sg !== null && $new ? ['text' => watchmanGoAdded($go, $was, $is)] : []));
     }
 
     foreach ($seen['extra'] as $file => $f) {

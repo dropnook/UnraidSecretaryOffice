@@ -1010,6 +1010,9 @@ function details(e) {
     add(T('detail.version'), p.version);
   } else if (e.kind === 'flash_go') {
     add(T('detail.go'), p.gone ? T('detail.go_gone') : T('detail.go_lines', { added: p.added || 0, removed: p.removed || 0, lines: p.lines || 0 }));
+    // the added lines' text (the only text of go he keeps, in this entry); of removed lines only their number
+    if (!p.gone && (p.text || []).length) add(T('detail.go_added'), lines(p.text, p.added));
+    if (!p.gone && p.removed > 0) add(T('detail.go_removed'), T('detail.go_removed_n', { n: Number(p.removed) }));
   } else if (e.kind === 'flash_extra') {
     add(T('detail.file'), '/boot/extra/' + (p.file || ''), true);
     add(T('detail.size'), fmt.size(p.size));
