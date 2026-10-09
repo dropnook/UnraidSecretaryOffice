@@ -357,6 +357,7 @@
   "gather_cfg_open": "Einstellen…",
   "gather_cfg_title": "Ordner zusammenführen: Einstellungen",
   "gather_cfg_intro": "Welche Shares ich zusammenführe. Hier stehen nur Shares, die auf dem Array liegen; vom Pool hole ich nie etwas.",
+  "gather_layout": "Wichtig: Jeder Film und jede Serie braucht einen eigenen Ordner direkt im Share — «Filme/Filmname/…» und «Serien/Serienname/…»; was darunter liegt (z. B. Staffelordner), ist egal. Jeden Ordner der ersten Ebene hole ich als Ganzes auf eine Disk: Ein Zwischenordner wie «Filme/A-Z/…» landete komplett auf einer Disk. Dateien direkt im Share fasse ich nicht an.",
   "gather_cfg_share": "primär {primary} · sekundär {secondary}",
   "gather_cfg_none": "Kein Share liegt auf dem Array.",
   "gather_cfg_min_free": "Pro Disk frei lassen (GB)",

@@ -357,6 +357,7 @@
   "gather_cfg_open": "Réglages…",
   "gather_cfg_title": "Regrouper les dossiers : réglages",
   "gather_cfg_intro": "Quels partages je regroupe. Seuls les partages qui se trouvent sur l'array sont listés ; je ne prends jamais rien sur le pool.",
+  "gather_layout": "Important : chaque film et chaque série a besoin de son propre dossier directement dans le partage — « Films/Nom du film/… » et « Séries/Nom de la série/… » ; ce qui se trouve en dessous (les dossiers de saison, par exemple) n'a pas d'importance. Je ramène chaque dossier de premier niveau en entier sur un seul disque : un dossier intermédiaire comme « Films/A-Z/… » finirait entièrement sur un disque. Les fichiers posés directement dans le partage, je n'y touche pas.",
   "gather_cfg_share": "principal {primary} · secondaire {secondary}",
   "gather_cfg_none": "Aucun partage ne se trouve sur l'array.",
   "gather_cfg_min_free": "Garder libre par disque (Go)",

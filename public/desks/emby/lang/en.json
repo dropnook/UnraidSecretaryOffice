@@ -357,6 +357,7 @@
   "gather_cfg_open": "Settings…",
   "gather_cfg_title": "Consolidate folders: settings",
   "gather_cfg_intro": "Which shares I consolidate. Only shares that lie on the array are listed; I never take anything from the pool.",
+  "gather_layout": "Important: every film and every series needs its own folder right in the share — «Films/Film name/…» and «Series/Series name/…»; what lies below (season folders, say) doesn't matter. I bring each first-level folder onto one disk as a whole: an in-between folder like «Films/A-Z/…» would end up entirely on one disk. Files lying directly in the share I leave alone.",
   "gather_cfg_share": "primary {primary} · secondary {secondary}",
   "gather_cfg_none": "No share lies on the array.",
   "gather_cfg_min_free": "Keep free per disk (GB)",

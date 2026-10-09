@@ -357,6 +357,7 @@
   "gather_cfg_open": "Ajustes…",
   "gather_cfg_title": "Agrupar carpetas: ajustes",
   "gather_cfg_intro": "Qué recursos compartidos agrupo. Solo aparecen los que están en el array; nunca tomo nada del pool.",
+  "gather_layout": "Importante: cada película y cada serie necesita su propia carpeta directamente en el share — «Películas/Nombre de la película/…» y «Series/Nombre de la serie/…»; lo que haya debajo (por ejemplo, carpetas de temporada) da igual. Llevo cada carpeta de primer nivel entera a un solo disco: una carpeta intermedia como «Películas/A-Z/…» acabaría toda en un disco. Los archivos que están directamente en el share no los toco.",
   "gather_cfg_share": "primario {primary} · secundario {secondary}",
   "gather_cfg_none": "Ningún recurso compartido está en el array.",
   "gather_cfg_min_free": "Mantener libre por disco (GB)",

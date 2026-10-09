@@ -357,6 +357,7 @@
   "gather_cfg_open": "Impostazioni…",
   "gather_cfg_title": "Consolida cartelle: impostazioni",
   "gather_cfg_intro": "Quali condivisioni consolido. Qui ci sono solo le condivisioni che stanno sull'array; dal pool non prendo mai niente.",
+  "gather_layout": "Importante: ogni film e ogni serie ha bisogno di una propria cartella direttamente nella share — «Film/Nome del film/…» e «Serie/Nome della serie/…»; quello che c'è sotto (per esempio le cartelle delle stagioni) non importa. Porto ogni cartella di primo livello su un solo disco per intero: una cartella intermedia come «Film/A-Z/…» finirebbe tutta su un disco. I file che stanno direttamente nella share non li tocco.",
   "gather_cfg_share": "primaria {primary} · secondaria {secondary}",
   "gather_cfg_none": "Nessuna condivisione sta sull'array.",
   "gather_cfg_min_free": "Lascia libero per disco (GB)",

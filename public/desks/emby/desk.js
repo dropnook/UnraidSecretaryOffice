@@ -480,7 +480,7 @@ async function gatherRunDialog() {
   if (!(await Office.freshState(ID))) return;
   const body = el('div');
   const err = errorLine();
-  body.append(el('p', '', T('gather_run_text', { shares: state.gather.settings.shares.join(', ') })), el('p', 'callout', T('gather_run_wake')),
+  body.append(el('p', '', T('gather_run_text', { shares: state.gather.settings.shares.join(', ') })), el('p', 'callout', T('gather_layout')), el('p', 'callout', T('gather_run_wake')),
     el('p', 'role', T('gather_run_watch')), err);
   Office.dialog({
     title: T('gather_run'),
@@ -505,6 +505,7 @@ async function gatherSettingsDialog() {
   const v = { min_free_gb: cur ? cur.min_free_gb : 256, dup_check: cur ? cur.dup_check : 'size' };
   const box = el('div');
   box.appendChild(el('p', '', T('gather_cfg_intro')));
+  box.appendChild(el('p', 'callout', T('gather_layout')));
   const list = el('div', 'jo-users');
   onArray.forEach(([share, i]) => list.appendChild(check(share, chosen.has(share), (on) => { if (on) chosen.add(share); else chosen.delete(share); },
     T('gather_cfg_share', { primary: i.use === 'no' ? T('array') : i.primary, secondary: i.use === 'no' ? '–' : T('array') }))));
