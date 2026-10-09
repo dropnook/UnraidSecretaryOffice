@@ -195,7 +195,7 @@ function backupLetGoSnaps(?array $state, array $prefixes, string $btrfsDir): arr
         $ds = (string) ($s['ds'] ?? '');
         if (($s['fs'] ?? '') === 'zfs') {
             if (!backupIsEngineSnap($name, $prefixes) || !clZfsNameOk($ds)
-                || str_contains("/$ds/", '/' . PARTNER_PARENT . '/') || str_contains($ds, CL_TRASH) || backupLetGoRestored($ds)) {
+                || str_contains("/$ds/", '/' . PARTNER_PARENT . '/') || storeroomIn($ds) || backupLetGoRestored($ds)) {
                 continue;
             }
         } elseif (($s['fs'] ?? '') === 'btrfs') {
@@ -692,9 +692,9 @@ function backupLetGoTrashRoots(array $asleep, ?string $dir = null): array
             continue;
         }
         foreach ((array) ((readJson("$dir/$f") ?? [])['trash'] ?? []) as $t) {
-            if (is_string($t) && clTrashPathOk($t) && basename($t) === CL_TRASH && preg_match('#^/mnt/([^/]+)/[^/]+/#', $t, $m)
+            if (is_string($t) && clTrashPathOk($t) && in_array(basename($t), [CL_TRASH, CL_TRASH_OLD], true) && preg_match('#^/mnt/([^/]+)/[^/]+/#', $t, $m)
                 && !in_array($m[1], ['user', 'user0', 'addons', 'disks', 'remotes', 'rootshare'], true) && !baseAsleep($m[1], $asleep)) {
-                $roots[$t] = true;
+                $roots[dirname($t) . '/' . CL_TRASH] = true;          // by the storeroom's name now (a journal from before names the old one)
             }
         }
     }

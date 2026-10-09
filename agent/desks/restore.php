@@ -48,8 +48,8 @@ const RS_NAME_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/D';   // apps (pack
 // the only variables a command in a database container may name (credentials stay in the container, never here)
 const RS_ENV_VARS     = ['MARIADB_ROOT_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'MARIADB_USER', 'MARIADB_PASSWORD', 'MYSQL_USER', 'MYSQL_PASSWORD',
                          'POSTGRES_USER', 'POSTGRES_PASSWORD', 'MONGO_INITDB_ROOT_USERNAME', 'MONGO_INITDB_ROOT_PASSWORD'];
-const RS_FLASH_ASIDE  = '/boot/config/_UnraidSecretaryOffice-restore';   // templates and compose files he replaces (flash)
-const RS_LIBVIRT_ASIDE = '_UnraidSecretaryOffice-restore';               // a VM's configuration he replaces, inside /etc/libvirt
+const RS_FLASH_ASIDE  = '/boot/config/' . OFFICE_ASIDE;   // templates and compose files he replaces (flash; a hidden folder, issue #7)
+const RS_LIBVIRT_ASIDE = OFFICE_ASIDE;                     // a VM's configuration he replaces, inside /etc/libvirt
 const RS_KEEP         = 60;          // journals listed (the folders stay)
 const RS_DU_PARALLEL  = 2;
 // a share's parts and moments (several pools or disks, snapshots taken on all at once — or only on some)
@@ -58,7 +58,7 @@ const RS_DISKS_INI    = '/var/local/emhttp/disks.ini';    // free space per pool
 const RS_MOMENTS_MAX  = 80;          // moments offered for one folder or share
 const RS_HOLDS_CHECK  = 24;          // moments looked into (does it hold the folder?) — each look mounts a ZFS snapshot
 const RS_ENTRIES_MAX  = 60;          // entries at the top of a share he brings back at once
-const RS_STOREROOM    = '_UnraidSecretaryOffice-trash';   // Ms. Dustdevil's: never a share's own folder
+const RS_STOREROOM    = OFFICE_STOREROOM;   // Ms. Dustdevil's: never a share's own folder (nor one of its old name — storeroomName())
 const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
 const RS_WAKE_TIMEOUT = 90;          // seconds a sleeping disk gets to spin up when «wake» is ticked
 
@@ -343,7 +343,7 @@ function rsDirHasEntries(string $dir): bool
     }
     try {
         while (($n = readdir($h)) !== false) {
-            if ($n !== '.' && $n !== '..' && $n !== '.zfs' && $n !== RS_STOREROOM) {      // .zfs: a snapshot folder made visible
+            if ($n !== '.' && $n !== '..' && $n !== '.zfs' && $n !== RS_STOREROOM && $n !== OFFICE_STOREROOM_OLD) {      // .zfs: a snapshot folder made visible
                 return true;
             }
         }
@@ -710,7 +710,7 @@ function rsMomentEntries(array $moment): array
     $count = 0;
     foreach ($moment['parts'] as $base => $part) {
         foreach (@scandir($part['path'], SCANDIR_SORT_ASCENDING) ?: [] as $n) {
-            if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || preg_match(RS_OWN_LEFTOVER, $n) || preg_match('/[\x00-\x1f\x7f]/', $n)) {
+            if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || $n === OFFICE_STOREROOM_OLD || preg_match(RS_OWN_LEFTOVER, $n) || preg_match('/[\x00-\x1f\x7f]/', $n)) {
                 continue;
             }
             if (!isset($names[$n])) {
@@ -2825,7 +2825,7 @@ function rsPlanConfigFor(array $app, array $pkg, ?array $version, array $items, 
 /**
  * Step 5 — a VM's configuration from its package: its XML (virsh define), UEFI variables and TPM state.
  * Only while the VM is shut off (or gone) — he never forces anything off. What is there now goes aside
- * inside libvirt.img (/etc/libvirt/_UnraidSecretaryOffice-restore/<time>/<vm>/); its disks come back
+ * inside libvirt.img (/etc/libvirt/.UnraidSecretaryOffice-restore/<time>/<vm>/); its disks come back
  * as a folder from a snapshot (step 4), also only while it is shut off.
  */
 function rsPlanVm(array $r, string $stamp): array
@@ -2992,17 +2992,35 @@ function rsPlanPutback(array $r, string $stamp): array
     return $plan;
 }
 
-/** What a journal's steps recorded to undo them, newest first — a failed step too when it may have changed something */
+/**
+ * What a journal's steps recorded to undo them, newest first — a failed step too when it may have changed something.
+ * A journal from before issue #7 names his set-aside folder by its old name: the paths are taken where it lies now
+ * (officeHiddenNow(): moved over by Ms. Dustdevil; never written under the old name again).
+ */
 function rsUndoSteps(array $j): array
 {
     $undo = [];
     foreach (array_reverse((array) ($j['steps'] ?? [])) as $s) {
         $u = (array) ($s['undo'] ?? []);
         if ($u && in_array($s['state'] ?? '', ['ok', 'warning', 'failed', 'running'], true)) {
-            array_push($undo, ...$u);
+            array_push($undo, ...array_map('rsUndoPaths', $u));
         }
     }
     return $undo;
+}
+
+/** An undo step's paths (path, from, to, putback_to) where his set-aside folder lies now — nothing else of it touched */
+function rsUndoPaths(mixed $step): mixed
+{
+    if (!is_array($step)) {
+        return $step;
+    }
+    foreach (['path', 'from', 'to', 'putback_to'] as $k) {
+        if (is_string($step[$k] ?? null) && str_starts_with($step[$k], '/')) {
+            $step[$k] = officeHiddenNow($step[$k]);
+        }
+    }
+    return $step;
 }
 
 function rsDatasetExists(?string $ds): bool
