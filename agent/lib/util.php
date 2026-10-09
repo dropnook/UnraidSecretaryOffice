@@ -263,6 +263,46 @@ function under(string $path, string $root): bool
     return $path === $root || str_starts_with($path, "$root/");
 }
 
+/*
+ * The office's hidden places (issue #7): Ms. Dustdevil's storeroom and Mr. Restori's set-aside folder start with «.»
+ * (hidden in shares, on SMB and NFS). Before, they started with «_»: the old names are read everywhere for good
+ * (listing, sizes, put back, empty, excludes) and never written; Ms. Dustdevil moves an old folder over once per place
+ * (clTrashMigrate()). Datasets she put away are named <storeroom>-<stamp>-<name> — with either name.
+ */
+const OFFICE_STOREROOM     = '.UnraidSecretaryOffice-trash';
+const OFFICE_STOREROOM_OLD = '_UnraidSecretaryOffice-trash';
+const OFFICE_ASIDE         = '.UnraidSecretaryOffice-restore';
+const OFFICE_ASIDE_OLD     = '_UnraidSecretaryOffice-restore';
+
+/** A storeroom's name, or a dataset put away next to one (<storeroom>-<stamp>-<name>) — new or old name */
+function storeroomName(string $name): bool
+{
+    return str_starts_with($name, OFFICE_STOREROOM) || str_starts_with($name, OFFICE_STOREROOM_OLD);
+}
+
+/** Does a path or dataset name lie in (or name) a storeroom — a part of it starting with either name? */
+function storeroomIn(string $path): bool
+{
+    return (bool) preg_match('#(?:^|/)[._]UnraidSecretaryOffice-trash#', $path);
+}
+
+/**
+ * Where a path an older record names lies now: under its old name (storeroom or set-aside folder) only while it is
+ * still there (its move failed or isn't done yet); else under the new name — where it was moved, and where to write
+ * (never under the old name again). Paths without an old name as they are.
+ */
+function officeHiddenNow(string $path): string
+{
+    if (!preg_match('#^(.*?/)(' . preg_quote(OFFICE_STOREROOM_OLD, '#') . '|' . preg_quote(OFFICE_ASIDE_OLD, '#') . ')(?=/|$)(.*)$#sD', $path, $m)) {
+        return $path;
+    }
+    clearstatcache(true, $path);
+    if (file_exists($path) || is_link($path)) {
+        return $path;
+    }
+    return $m[1] . ($m[2] === OFFICE_STOREROOM_OLD ? OFFICE_STOREROOM : OFFICE_ASIDE) . $m[3];
+}
+
 // ===================================================================== files
 
 function jsonEncode(array $data): string
