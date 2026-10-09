@@ -631,6 +631,18 @@
 .sso-report-yours summary{cursor:pointer; color:var(--muted)}
 .sso-report-yours .shortlist{margin-top:6px}
 .sso-report-yours-title{font-family:var(--font, inherit); color:var(--ink)}
+/* its pictures (#6): small thumbnails in the form (× takes one away), a larger one in the preview beside its tick */
+.sso-report-pics{display:flex; flex-direction:column; gap:6px; align-items:flex-start; border:1px dashed var(--line); border-radius:8px; padding:8px; max-width:100%}
+.sso-report-pics.drop{border-color:var(--accent-ink)}
+.sso-report-pic-list{display:flex; flex-wrap:wrap; gap:8px}
+.sso-report-pic-list:empty{display:none}
+.sso-report-pic{display:flex; flex-direction:column; align-items:center; gap:2px; position:relative}
+.sso-report-pic img{width:96px; height:72px; object-fit:cover; border:1px solid var(--line); border-radius:6px; background:var(--surface2)}
+.sso-report-pic small{font-size:11px; color:var(--muted)}
+.sso-report-pic .btn{position:absolute; top:2px; right:2px; min-height:0; padding:0 6px; line-height:18px}
+.sso-report-pic-hint{font-size:12px; color:var(--muted)}
+.sso-report-pic-shown img{display:block; max-width:min(100%, 360px); max-height:240px; border:1px solid var(--line); border-radius:6px; margin:2px 0 3px}
+.sso-report-pics-ok .check{color:var(--ink)}
 /* a phone: the report takes the screen */
 @media (max-width:640px){
   .dialog-backdrop.sso-report-backdrop{padding:0}

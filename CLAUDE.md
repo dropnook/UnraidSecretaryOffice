@@ -649,6 +649,20 @@ stays for the offices up to 1.47, which count 2 a week themselves), `report_stal
 text; **the ID**: `sha256("uso-report:" + GUID)` in `data/office/report-id` (0600, made once) — never the supporter
 ID. **A desk's log lines** come by its labels (`REPORT_LOG_LABELS`, the start of a line's text, plus «<id>:»): a new
 `logLine()` of a desk starts with one of them (`testReport` greps every one). Tests: `testReport`, `testReportDialog`.
+**Pictures** (#6, Benj 2026-10-09): up to 3 screenshots (PNG, JPEG, WebP; chosen, pasted, dropped; ≤ 2 MB each as the
+browser has them — a WebP becomes a PNG in the browser where GD can't write WebP: `CONFIG.report_images`, Unraid 7.3.3's
+bundled GD has none). Each goes alone to the web side (`office.report_image`, src/api.php `apiReportImageStash()`: strict
+base64, ≤ 2 MB, PNG/JPEG/WebP by its first bytes, a 0600 `<ref>.image` in the RAM inbox `officeInboxDir()` — never the
+mailbox; ≤ 6 waiting, 15 min; the only POST body allowed over 1 MB, ≤ 3 MB); the preview names the refs, takes them out of
+the inbox and has each drawn anew by `src/reportimage.php` (pure functions shared with the web side, run per picture as
+`php -n` with its own memory limit: header read first — ≤ 12000 px a side, ≤ 36 MP —, a JPEG turned upright by its EXIF
+orientation, then a new PNG or JPEG without any metadata or GD's comment, the longest side ≤ 2560, ≤ 1.5 MB each and
+≤ 4 MB together), kept as `RUN_DIR/report/<token>.<n>.img` until sent or the preview's 10 min are over (≤ 16 MB in all).
+Each has its own tick (`image1…3`) and a send with one needs `images_checked: true` (the dialog's required tick «I've
+looked at the pictures — nothing private on them»: the scrubber can't blank a picture). The body carries them as
+`images: [{type, data}]` (base64), `parts` names `images`; 90 s for such a send. The Worker checks them again by
+structure, keeps them in KV for 180 days and links them from the issue (`GET /api/img/<id>`); its byte cap per day →
+`report_images_busy`. Tests: `testReportImages`, `testReportDialogImages`.
 
 **Pictures:** every desk has its own drawing, `public/desks/<id>/avatar.svg`
 (64×64, flat, thick shapes, outlined where a light part meets a light theme;

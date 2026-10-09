@@ -28,6 +28,8 @@ declare(strict_types=1);
  * POST {"a": "office.lang", "lang": <code>}   the language the page shows, for the notifications (desks.php)
  * POST {"a": "office.report_preview|report_send|reports", …}   «Report a problem or a wish…»: the agent's
  *                                     (agent/lib/report.php) — it alone ever sends a report, and only on report_send
+ * POST {"a": "office.report_image", "data": <base64>}   one picture for the next preview: checked by its first bytes and
+ *                                     size, left in the RAM inbox (apiReportImageStash()) — the answer is its ref
  *
  * Who may use it is Unraid's business: everything under /plugins/… is behind
  * its login (nginx auth_request), and every POST needs its csrf_token
@@ -39,6 +41,9 @@ declare(strict_types=1);
  *
  * Answers of 1 KB and more go out gzip-compressed when the browser takes gzip (apiSend()).
  */
+
+// the pictures' first bytes and limits — one definition with the agent's (a file of pure functions, it touches nothing)
+require_once __DIR__ . '/reportimage.php';
 
 function api_main(): void
 {
@@ -64,8 +69,16 @@ function api_main(): void
         }
 
         checkOrigin();
-        $data = json_decode((string) file_get_contents('php://input', false, null, 0, 1 << 20), true, 16);
+        $raw = (string) file_get_contents('php://input', false, null, 0, API_IMAGE_BODY_MAX + 1);
+        $data = json_decode($raw, true, 16);
         $action = is_array($data) ? apiText($data, 'a') : '';
+        if (strlen($raw) > ($action === 'office.report_image' ? API_IMAGE_BODY_MAX : API_BODY_MAX)) {
+            answer(['ok' => false, 'error' => ['key' => 'bad_request']], 413);      // only a picture may be larger than 1 MB
+        }
+        unset($raw);
+        if ($action === 'office.report_image') {
+            answer(apiReportImageStash($data));
+        }
         if ($action === 'office.hire' || $action === 'office.fire') {
             answer(officeStaffAction($action, $data));
         }
@@ -484,6 +497,13 @@ function checkOrigin(): void
     }
 }
 
+/** A request's body: at most 1 MB — a picture for a report (office.report_image, base64) at most this */
+const API_BODY_MAX = 1 << 20;
+const API_IMAGE_BODY_MAX = 3 << 20;
+/** Pictures waiting in the RAM inbox for a preview: at most this many, each gone after API_IMAGE_TTL seconds */
+const API_IMAGES_WAITING = 2 * REPORT_IMG_COUNT_MAX;
+const API_IMAGE_TTL = 900;
+
 /** The office's own actions the agent answers (agent/lib/report.php officeAgentActions()) — no desk, never «not hired» */
 const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports', 'office.supporter_claim'];
 
@@ -529,6 +549,65 @@ function apiSecretStash(string $action, mixed $secret): string
         answer(['ok' => false, 'error' => ['key' => 'ad_secret_inbox', 'params' => ['dir' => $dir]]], 500);
     }
     return $id;
+}
+
+/**
+ * One picture for a report's preview (dropnook/UnraidSecretaryOffice#6) — the web side only looks at it: base64 that
+ * decodes strictly, ≤ REPORT_IMG_IN_MAX bytes, a PNG, JPEG or WebP by its first bytes (SVG, HTML and anything else
+ * refused here already). It goes where the secrets go (officeInboxDir(), RAM — never the mailbox, which lies on the
+ * pool): a new 0600 file `<ref>.image`. The agent takes it with the preview, draws it anew (src/reportimage.php)
+ * and removes it; what nobody took goes after API_IMAGE_TTL, and no more than API_IMAGES_WAITING wait at a time.
+ *
+ * @return array{ok: true, ref: string, bytes: int, type: string}
+ */
+function apiReportImageStash(array $data, ?string $dir = null): array
+{
+    $b64 = $data['data'] ?? null;
+    if (!is_string($b64) || $b64 === '' || strlen($b64) > intdiv(REPORT_IMG_IN_MAX + 2, 3) * 4 + 4) {
+        throw new OfficeProblem(is_string($b64) && $b64 !== '' ? 'report_image_big' : 'bad_request', 400, ['n' => 1]);
+    }
+    $bytes = preg_match('#^[A-Za-z0-9+/]+={0,2}$#D', $b64) ? base64_decode($b64, true) : false;
+    if (!is_string($bytes) || $bytes === '') {
+        throw new OfficeProblem('report_image_bad', 400, ['n' => 1]);
+    }
+    if (strlen($bytes) > REPORT_IMG_IN_MAX) {
+        throw new OfficeProblem('report_image_big', 400, ['n' => 1]);
+    }
+    $type = reportImageType($bytes);
+    if ($type === null) {
+        throw new OfficeProblem('report_image_type', 400, ['n' => 1]);
+    }
+    $dir ??= officeInboxDir();
+    @mkdir(dirname($dir), 0700, true);
+    @mkdir($dir, 0700);
+    clearstatcache(true, $dir);
+    $st = @lstat($dir);
+    $me = function_exists('posix_geteuid') ? posix_geteuid() : -1;
+    if (!$st || ($st['mode'] & 0170000) !== 0040000 || ($st['mode'] & 0077) !== 0 || $st['uid'] !== $me) {
+        throw new OfficeProblem('office_storage', 500);
+    }
+    $waiting = 0;
+    foreach (glob("$dir/*.image") ?: [] as $f) {
+        $fs = @lstat($f);
+        if ($fs && (($fs['mode'] & 0170000) !== 0100000 || $fs['mtime'] < time() - API_IMAGE_TTL)) {
+            @unlink($f);
+        } elseif ($fs) {
+            $waiting++;
+        }
+    }
+    if ($waiting >= API_IMAGES_WAITING) {
+        throw new OfficeProblem('report_images_many', 429, ['n' => REPORT_IMG_COUNT_MAX]);
+    }
+    $ref = bin2hex(random_bytes(16));
+    $old = umask(0177);
+    $f = @fopen("$dir/$ref.image", 'x');            // new, ours, 0600 from the start; never through a link
+    umask($old);
+    $written = $f !== false && @fwrite($f, $bytes) === strlen($bytes);
+    if ($f === false || !fclose($f) || !$written) {
+        @unlink("$dir/$ref.image");
+        throw new OfficeProblem('office_storage', 500);
+    }
+    return ['ok' => true, 'ref' => $ref, 'bytes' => strlen($bytes), 'type' => $type];
 }
 
 function apiSecretDrop(string $id): void

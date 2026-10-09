@@ -620,7 +620,7 @@ function codeFiles(): array
 {
     $files = array_merge(glob(__DIR__ . '/*.php') ?: [], glob(__DIR__ . '/lib/*.php') ?: [], glob(__DIR__ . '/desks/*.php') ?: [],
         [dirname(__DIR__) . '/src/place.php', dirname(__DIR__) . '/src/words.php', dirname(__DIR__) . '/src/staff.php',
-        dirname(__DIR__) . '/src/supporter.php']);
+        dirname(__DIR__) . '/src/supporter.php', dirname(__DIR__) . '/src/reportimage.php']);
     sort($files);
     return $files;
 }
