@@ -830,10 +830,21 @@ function testEmby(): void
         ['/mnt/master', '/mnt/disk1', '/mnt/user0', '/mnt/bad pool'], "/x/it's/consolidate.log", '/x/embycache_exclude.txt');
     check('gather ini: shares quoted', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Meine Filme')\n"));
     same('gather ini: only real pools as cache', 1, preg_match("/^CACHE_PATTERN='\\/mnt\\/master'$/m", $ini));
-    check('gather ini: never --include-cache, always dry by default', str_contains($ini, "CACHE_ONLY_TARGET='skip'") && str_contains($ini, "DRYRUN=true\n"));
+    check('gather ini: the cache left alone (a gather.json from before #14), always dry by default',
+        str_contains($ini, "MOVE_CACHE=false\n") && str_contains($ini, "CACHE_ONLY_TARGET='skip'\n") && str_contains($ini, "DRYRUN=true\n"), $ini);
+    $base = ['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'];
+    $cacheIni = fn (array $more) => embyGatherIni($base + $more, ['/mnt/master'], '/l', '/e');
+    same('gather ini: the cache switch (#14) — off/skip, on/skip, on/most-free',
+        [["MOVE_CACHE=false", "CACHE_ONLY_TARGET='skip'"], ["MOVE_CACHE=true", "CACHE_ONLY_TARGET='skip'"], ["MOVE_CACHE=true", "CACHE_ONLY_TARGET='most-free'"]],
+        array_map(fn ($m) => array_values(preg_grep('/^(MOVE_CACHE|CACHE_ONLY_TARGET)=/', explode("\n", $cacheIni($m)))),
+            [['move_cache' => false, 'cache_only_target' => 'skip'], ['move_cache' => true, 'cache_only_target' => 'skip'], ['move_cache' => true, 'cache_only_target' => 'most-free']]));
+    same('gather ini: only a real true switches it on, anything else for the target is «skip»', ["MOVE_CACHE=false", "CACHE_ONLY_TARGET='skip'"],
+        array_values(preg_grep('/^(MOVE_CACHE|CACHE_ONLY_TARGET)=/', explode("\n", $cacheIni(['move_cache' => 'true', 'cache_only_target' => "x'; reboot"])))));
     $tmp = sys_get_temp_dir() . '/office-tests-gather-' . getmypid() . '.ini';
     file_put_contents($tmp, $ini . 'echo "${BASE_DIRS[1]}|$MIN_FREE_GB|$LOGFILE"' . "\n");
     same('gather ini: bash reads it back', "/mnt/user/Meine Filme|256|/x/it's/consolidate.log", trim((string) shell_exec('bash ' . escapeshellarg($tmp))));
+    file_put_contents($tmp, $cacheIni(['move_cache' => true, 'cache_only_target' => 'most-free']) . 'echo "$MOVE_CACHE|$CACHE_ONLY_TARGET"' . "\n");
+    same('gather ini: bash reads the cache switch back', 'true|most-free', trim((string) shell_exec('bash ' . escapeshellarg($tmp))));
     unlink($tmp);
     try {
         embyGatherIni(['shares' => ['a$(reboot)'], 'min_free_gb' => 1, 'dup_check' => 'size'], [], '/l', '/e');
@@ -1501,9 +1512,10 @@ function testEmbyImport(): void
         array_map(fn ($d) => [$d['path'], $d['why']], $g['dropped_shares']));
     same('import preview: the gather\'s unknown keys', ['FOO'], $g['dropped']);
     same('import preview: lines not understood (a command, a $(…))', 2, $g['strange']);
-    same('import preview: the gather\'s changes', [['shares', '["Filme"]', '["Filme","Serien"]'], ['min_free_gb', 256, 300], ['dup_check', 'size', 'cmp']],
+    same('import preview: the gather\'s changes (a gather.json from before #14 counts as cache off, «leave them»; the old ini has no MOVE_CACHE)',
+        [['shares', '["Filme"]', '["Filme","Serien"]'], ['min_free_gb', 256, 300], ['dup_check', 'size', 'cmp'], ['cache_only_target', 'skip', 'most-free']],
         array_map(fn ($c) => [$c['key'], $c['old'], $c['new']], $g['changes']));
-    same('import preview: what Jack sets himself', ['LOGFILE', 'EXCLUDE_FILE', 'DRYRUN', 'CACHE_ONLY_TARGET', 'CACHE_PATTERN'], array_column($g['jack'], 'key'));
+    same('import preview: what Jack sets himself', ['LOGFILE', 'EXCLUDE_FILE', 'DRYRUN', 'CACHE_PATTERN'], array_column($g['jack'], 'key'));
     same('import preview: own exclusions of the old gather said', ['gather_exclude'], array_column($g['warnings'], 'key'));
 
     // the import: something changed since the preview → refused; then done, with copies of Jack's files
@@ -1538,12 +1550,29 @@ function testEmbyImport(): void
         "$pool/Filme/New/n.mkv", "$pool/Serien/X/S01/e1.mkv"], file("$jack/embycache/embycache_exclude.txt", FILE_IGNORE_NEW_LINES));
     same('import done: origins merged, Jack\'s own win', ["$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4', "$pool/Filme/Jack Own/j.mkv" => 'disk3',
         "$pool/Serien/X/S01/e1.mkv" => 'disk2'], json_decode((string) file_get_contents("$jack/embycache/embycache_origin.json"), true));
-    same('import done: the gather\'s settings', ['shares' => ['Filme', 'Serien'], 'min_free_gb' => 300, 'dup_check' => 'cmp'],
+    same('import done: the gather\'s settings', ['shares' => ['Filme', 'Serien'], 'min_free_gb' => 300, 'dup_check' => 'cmp', 'move_cache' => false, 'cache_only_target' => 'most-free'],
         json_decode((string) file_get_contents("$jack/gather/gather.json"), true));
     $ini = (string) file_get_contents("$jack/gather/consolidate.ini");
     check('import done: the gather\'s ini is Jack\'s', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Serien')\n") && str_contains($ini, "DRYRUN=true\n")
-        && str_contains($ini, "MIN_FREE_GB=300\n") && str_contains($ini, "EXCLUDE_FILE='$jack/embycache/embycache_exclude.txt'\n"), $ini);
+        && str_contains($ini, "MIN_FREE_GB=300\n") && str_contains($ini, "EXCLUDE_FILE='$jack/embycache/embycache_exclude.txt'\n")
+        && str_contains($ini, "MOVE_CACHE=false\n") && str_contains($ini, "CACHE_ONLY_TARGET='most-free'\n"), $ini);
     same('import done: nothing left in the trial folder', [], glob("$tmp/run/*") ?: []);
+
+    // the cache switch (#14): an old ini that has MOVE_CACHE — taken over; one Jack can't read — his value stays, said
+    $oldIni = "$fs/mnt/user/system/scripts/consolidate/consolidate.ini";
+    $keep = (string) file_get_contents($oldIni);
+    $cachePv = function (string $move, string $target) use ($oldIni, $ctx): array {
+        file_put_contents($oldIni, "BASE_DIRS=('/mnt/user/Filme')\nMIN_FREE_GB=300\nDUP_CHECK='cmp'\nMOVE_CACHE=$move\nCACHE_ONLY_TARGET='$target'\n");
+        $plan = embyImportPlan('', '/mnt/user/system/scripts/consolidate', $ctx);
+        return [array_map(fn ($c) => [$c['key'], $c['old'], $c['new']], $plan['preview']['gather']['changes']),
+                array_map(fn ($c) => [$c['key'], $c['old'], $c['new']], $plan['preview']['gather']['jack']),
+                array_intersect_key($plan['do']['gather'] ?? [], ['move_cache' => 1, 'cache_only_target' => 1])];
+    };
+    same('import, the cache: MOVE_CACHE=true and «skip» taken over', [[['shares', '["Filme","Serien"]', '["Filme"]'], ['move_cache', false, true],
+        ['cache_only_target', 'most-free', 'skip']], [], ['move_cache' => true, 'cache_only_target' => 'skip']], $cachePv('true', 'skip'));
+    same('import, the cache: values Jack can\'t read — his own stay, said as his', [[['shares', '["Filme","Serien"]', '["Filme"]']],
+        [['MOVE_CACHE', 'yes', false], ['CACHE_ONLY_TARGET', 'disk9', 'most-free']], ['move_cache' => false, 'cache_only_target' => 'most-free']], $cachePv('yes', 'disk9'));
+    file_put_contents($oldIni, $keep);
 
     // an older install without cleanup_tool / mover_debug_level: Jack's choices stay; a Jack without settings gets his own
     // defaults (rsync back, as his setup page), never EmbyCache's original mover default
@@ -2494,6 +2523,143 @@ JS);
  * `#   python3 …`), not inside a `: <<'EOF'` block; a User Script whose schedule is off is listed but not enabled
  * (none, «disabled», «custom» without a line); cron files the same, the office's own left out.
  */
+/**
+ * The gather's cache switch (#14): the ini Jack writes, run by the gather on a fixture tree — off: the cache left alone;
+ * on: the folders' files come to their disk, EmbyCache's list stays («ignored»), folders only on the cache stay or go to
+ * the disk with most free space, the free-space rule holds; the settings dialog and the run dialog under node.
+ */
+function testEmbyGatherCache(): void
+{
+    $tmp = hardeningTmp('embygathercache');
+    $make = function () use ($tmp): void {
+        exec('rm -rf ' . escapeshellarg("$tmp/mnt"));
+        foreach (['mnt/disk1/Filme/A', 'mnt/disk2/Filme', 'mnt/cache/Filme/A', 'mnt/cache/Filme/C', 'user/Filme', 'bin'] as $d) {
+            @mkdir("$tmp/$d", 0700, true);
+        }
+        file_put_contents("$tmp/mnt/disk1/Filme/A/a.mkv", str_repeat('a', 4000));
+        file_put_contents("$tmp/mnt/cache/Filme/A/a.srt", 'sub');                 // the folder's file on the cache
+        file_put_contents("$tmp/mnt/cache/Filme/A/a.nfo", 'nfo');                 // … one on EmbyCache's list
+        file_put_contents("$tmp/mnt/cache/Filme/C/c.mkv", str_repeat('c', 100));  // a folder only on the cache
+    };
+    $make();
+    // disk2 has far more room than disk1 (df -k: disk1 ~4.7 GiB, disk2 ~950 GiB)
+    file_put_contents("$tmp/bin/df", "#!/bin/bash\necho Avail\ncase \"\$*\" in *disk2*) echo 999999999 ;; *) echo 5000000 ;; esac\n");
+    chmod("$tmp/bin/df", 0755);
+    file_put_contents("$tmp/exclude.txt", "$tmp/mnt/cache/Filme/A/a.nfo\n");
+    $gather = function (string $mode, array $set) use ($tmp): array {
+        $ini = embyGatherIni(['shares' => ['Filme'], 'dup_check' => 'size'] + $set, ['/mnt/cache'], "$tmp/consolidate.log", "$tmp/exclude.txt");
+        $ini = str_replace(["'/mnt/user/", "'/mnt/"], ["'$tmp/user/", "'$tmp/mnt/"], $ini);     // Jack's ini, on the fixture tree
+        file_put_contents("$tmp/consolidate.ini", $ini);
+        @unlink("$tmp/status.json");
+        $env = ['PATH' => "$tmp/bin:/usr/bin:/bin", 'HOME' => $tmp, 'LANG' => 'C.UTF-8', 'CONSOLIDATE_CONFIG' => "$tmp/consolidate.ini",
+                'CONSOLIDATE_STATUS' => "$tmp/status.json", 'CONSOLIDATE_LOCK' => "$tmp/gather.lock", 'CONSOLIDATE_USER_ROOT' => "$tmp/user"];
+        $p = proc_open(['bash', OFFICE_DIR . '/gather/consolidate_master.sh', $mode], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $tmp, $env);
+        $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        $exit = proc_close($p);
+        $st = readJson("$tmp/status.json") ?? [];
+        return [[$exit, $st['moved'] ?? null, $st['ignored'] ?? null, $st['cache_skipped'] ?? null, $st['full'] ?? null], $out, $ini];
+    };
+    [$r, $out, $ini] = $gather('--dryrun', ['min_free_gb' => 0]);
+    check('gather cache: a gather.json from before — the ini leaves the cache alone', str_contains($ini, "MOVE_CACHE=false\n") && str_contains($ini, "CACHE_ONLY_TARGET='skip'\n"), $ini);
+    same('gather cache: off — nothing from the cache (the folder\'s file and the cache-only folder skipped, the listed one ignored)', [0, 0, 1, 2, 0], $r, $out);
+    [$r, $out] = $gather('--dryrun', ['min_free_gb' => 0, 'move_cache' => true, 'cache_only_target' => 'skip']);
+    same('gather cache: on, «leave them» — the folder\'s file comes, the listed one is ignored, the cache-only folder stays', [0, 1, 1, 1, 0], $r, $out);
+    [$r, $out] = $gather('--dryrun', ['min_free_gb' => 10, 'move_cache' => true, 'cache_only_target' => 'most-free']);
+    same('gather cache: «Keep free per disk» still holds — disk1 too full for the folder\'s file (exit 2: «not moved»), the cache-only folder to roomy disk2', [2, 1, 1, 0, 1], $r, $out);
+    [$r, $out] = $gather('--run', ['min_free_gb' => 0, 'move_cache' => true, 'cache_only_target' => 'most-free']);
+    same('gather cache: on, «most free space», a real run — both moved, the listed one ignored', [0, 2, 1, 0, 0], $r, $out);
+    same('gather cache: … the folder\'s file on its disk, the cache-only folder on the disk with most free space, EmbyCache\'s file still on the pool',
+        [true, false, true, false, true], [is_file("$tmp/mnt/disk1/Filme/A/a.srt"), file_exists("$tmp/mnt/cache/Filme/A/a.srt"), is_file("$tmp/mnt/disk2/Filme/C/c.mkv"),
+         file_exists("$tmp/mnt/cache/Filme/C/c.mkv"), is_file("$tmp/mnt/cache/Filme/A/a.nfo")]);
+    // measuring never moves anything: its ini has the cache off whatever the gather's settings say
+    @mkdir("$tmp/g", 0700, true);
+    embyWriteMeasureIni(['Filme'], [], "$tmp/g", "$tmp/e");
+    $mini = (string) @file_get_contents("$tmp/g/measure.ini");
+    check('gather cache: measure.ini always has the cache off', str_contains($mini, "MOVE_CACHE=false\n") && str_contains($mini, "DRYRUN=true\n"), $mini);
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('gather cache: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Option = function (text, value) { this.text = text; this.value = value; };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+(async () => {
+  const posted = [];
+  let dlg = null;
+  Office.freshState = async () => true;
+  Office.dialog = (o) => { dlg = o; return { buttons: [], close() {} }; };
+  Office.toast = () => {};
+  Office.api = { post: async (a, d) => { posted.push([a, d]); return { ok: true }; } };
+  const st = (settings) => ({ configured: true, share_info: { Filme: { use: 'no' } }, shares: [], gather: { settings }, schedules: {}, jobs: { embycache: {}, gather: {} } });
+  // a gather.json from before #14: the switch off, the choice hidden; saved as it is — off, «leave them»
+  e.setState(st({ shares: ['Filme'], min_free_gb: 256, dup_check: 'size' }));
+  await e.gatherSettingsDialog();
+  const kids = dlg.body.children;
+  const sw = kids[kids.length - 2];
+  const only = kids[kids.length - 1];
+  out.off = [texts(sw), sw.children[0].checked, only.hidden, texts(only)];
+  await dlg.buttons[1].act();
+  // switched on, «most free space» chosen → both sent
+  sw.children[0].checked = true;
+  sw.children[0].onchange();
+  out.shown = only.hidden;
+  only.children[1].children[1].children[0].onchange();
+  await dlg.buttons[1].act();
+  // switched off again: the choice hides
+  sw.children[0].checked = false;
+  sw.children[0].onchange();
+  out.hidden = only.hidden;
+  // saved on: the dialog opens with it on, the choice shown and set
+  e.setState(st({ shares: ['Filme'], min_free_gb: 256, dup_check: 'size', move_cache: true, cache_only_target: 'most-free' }));
+  await e.gatherSettingsDialog();
+  const k2 = dlg.body.children;
+  const o2 = k2[k2.length - 1];
+  out.on = [k2[k2.length - 2].children[0].checked, o2.hidden, o2.children[1].children.map((l) => l.children[0].checked)];
+  out.posted = posted;
+  // the shares tile and the run dialog say it
+  out.words = [e.gatherCacheWords({ move_cache: false }), e.gatherCacheWords({ move_cache: true, cache_only_target: 'skip' }),
+    e.gatherCacheWords({ move_cache: true, cache_only_target: 'most-free' }), e.gatherCacheWords(null)];
+  await e.gatherRunDialog();
+  out.run_on = texts(dlg.body).slice(0, 2);
+  e.setState(st({ shares: ['Filme'], min_free_gb: 256, dup_check: 'size' }));
+  await e.gatherRunDialog();
+  out.run_off = texts(dlg.body).slice(0, 2);
+  console.log(JSON.stringify(out));
+})();
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
+    $o = json_decode($raw, true);
+    if (!is_array($o)) {
+        check('gather cache: page ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('gather cache dialog: a gather.json from before — the switch off with its hint, the choice hidden', [['gather_cfg_cache', 'gather_cfg_cache_hint'], false, true,
+        ['gather_cfg_cache_only', 'gather_cfg_cache_only.skip', 'gather_cfg_cache_only.most_free']], $o['off']);
+    same('gather cache dialog: switched on — the choice shows; off again — it hides', [false, true], [$o['shown'], $o['hidden']]);
+    $g = fn (bool $on, string $to) => ['emby.gather_save', ['gather' => ['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size', 'move_cache' => $on, 'cache_only_target' => $to]]];
+    same('gather cache dialog: saved — both always sent (off/«leave them», then on/«most free space»)', [$g(false, 'skip'), $g(true, 'most-free')], $o['posted']);
+    same('gather cache dialog: saved on — opens on, the choice shown and set', [true, false, [false, true]], $o['on']);
+    same('gather cache: the shares tile\'s words', ['', ' · gather_cache_on.skip', ' · gather_cache_on.most_free', ''], $o['words']);
+    same('gather cache: the run dialog says it when on, not when off', [['gather_run_text {"shares":"Filme"}', 'gather_run_cache.most_free'], ['gather_run_text {"shares":"Filme"}', 'gather_layout']],
+        [$o['run_on'], $o['run_off']]);
+    hardeningRm($tmp);
+}
+
 function testEmbyForeign(): void
 {
     $tmp = hardeningTmp('embyforeign');
@@ -23107,8 +23273,11 @@ function testStrictSettings(): void
         [$refused(fn () => embyGatherCheck(['shares' => ['media'], 'dup_check' => 'size'], ['media'])), $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 5], ['media'])),
          $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => [5], 'dup_check' => 'size'], ['media'])),
          $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 5, 'dup_check' => 'other'], ['media']))]);
-    same('strict: the gather\'s settings as the page sends them', ['shares' => ['media'], 'min_free_gb' => 300, 'dup_check' => 'cmp'],
-        embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 300, 'dup_check' => 'cmp'], ['media']));
+    $gc = ['shares' => ['media'], 'min_free_gb' => 300, 'dup_check' => 'cmp', 'move_cache' => true, 'cache_only_target' => 'most-free'];
+    same('strict: the gather\'s settings as the page sends them', $gc, embyGatherCheck($gc, ['media']));
+    same('strict: the gather\'s cache switch and its target — said, a real switch, a known target (#14)', array_fill(0, 5, 'bad_request'), array_map(
+        fn ($x) => $refused(fn () => embyGatherCheck($x, ['media'])), [array_diff_key($gc, ['move_cache' => 1]), array_diff_key($gc, ['cache_only_target' => 1]),
+        ['move_cache' => 'true'] + $gc, ['move_cache' => 1] + $gc, ['cache_only_target' => 'disk1'] + $gc]));
     $inst = ['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789', 'servername' => 'Emby']]];
     same('strict: Jack Emby\'s settings without their lists', 'bad_request', $refused(fn () => embySave($inst)));
     same('strict: … one list missing', 'bad_request', $refused(fn () => embySave($inst + ['libraries' => [], 'library_types' => [], 'valid_users' => []])));
@@ -25212,7 +25381,7 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
