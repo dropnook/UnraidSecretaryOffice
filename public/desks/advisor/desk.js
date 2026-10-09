@@ -39,6 +39,11 @@ const EXTERNALS = {
     icon: '🎬', open: '/Settings/StreamViewerSettings', install: '/Apps', desk: 'emby',
     copy: { url: 'https://github.com/Lazaros-Chalkidis/unraid-streamviewer/raw/main/streamviewer.plg' },
   },
+  // optional, only where a media server runs: Jack Emby enters EmbyCache's list there himself (agent/desks/emby-mover.php)
+  movertuning: {
+    icon: '🚚', open: '/Settings/Scheduler', install: '/Apps', desk: 'emby',
+    copy: { url: 'https://raw.githubusercontent.com/masterwishx/ca.mover.tuning/master/plugins/ca.mover.tuning.plg' },
+  },
   // optional (the agent says so): never counted as missing — and the desks it can get in the way of
   unbalanced: {
     icon: '⚖️', open: '/Settings/unbalanced', install: '/Apps', desk: null, clash: ['backup', 'emby'],

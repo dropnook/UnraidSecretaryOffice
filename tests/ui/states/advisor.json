@@ -58,6 +58,16 @@
    "author": "Lazaros Chalkidis",
    "plg": "https://github.com/Lazaros-Chalkidis/unraid-streamviewer/raw/main/streamviewer.plg"
   },
+  "movertuning": {
+   "kind": "plugin",
+   "there": false,
+   "version": null,
+   "icon": null,
+   "optional": true,
+   "offer": true,
+   "author": "masterwishx",
+   "plg": "https://raw.githubusercontent.com/masterwishx/ca.mover.tuning/master/plugins/ca.mover.tuning.plg"
+  },
   "unbalanced": {
    "kind": "plugin",
    "there": false,

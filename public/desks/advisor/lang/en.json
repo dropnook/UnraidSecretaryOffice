@@ -467,5 +467,14 @@
   "net.mikrotik.check": "Within a minute a file syslog-<the router's address>.log appears in the share — the last line above sends one at once. The night watchman's «The network» then names the router «MikroTik RouterOS», its version once a line says it (after an update). After his first round, look at the admins and addresses he learned there: they should be yours.",
   "net.neighbours.what": "The office keeps only what concerns this server. Who does more with a router's log:",
   "net.neighbours.1": "Want dashboards or a store of the router's logs? The office keeps only what concerns this server. FireSight (Community Applications) shows every firewall block with rule, country and reputation — it listens on UDP 514 itself, so the gateway sends either to Unraid's syslog server or to FireSight, not both. Loki + Alloy keep weeks of the same files searchable in your Grafana — preparing both forms is planned, not built yet. CrowdSec turns the gateway's blocks into bans. A real SIEM (Graylog, Wazuh — 8 GB of RAM, not on CA) takes the router directly and Unraid's own lines through ⟦Remote syslog server⟧. The office stores no router log, draws no map and never blocks anyone.",
-  "net.neighbours.2": "Who phones out: FireSight asks ip-api.com where every outside address is (and fetches FireHOL and Spamhaus lists hourly, AbuseIPDB only with your key) — keep it in your LAN and change its admin/admin, its /api/_debug pages answer without a login. CrowdSec shares the addresses it bans with its community (you can switch that off). Loki, Alloy, Graylog and Wazuh stay at home."
+  "net.neighbours.2": "Who phones out: FireSight asks ip-api.com where every outside address is (and fetches FireHOL and Spamhaus lists hourly, AbuseIPDB only with your key) — keep it in your LAN and change its admin/admin, its /api/_debug pages answer without a login. CrowdSec shares the addresses it bans with its community (you can switch that off). Loki, Alloy, Graylog and Wazuh stay at home.",
+  "ext.movertuning.name": "Mover Tuning",
+  "ext.movertuning.what": "A plugin by masterwishx (once Squid's) that tunes Unraid's mover: thresholds, filters, a schedule of its own — and a list of files the mover leaves alone. Jack Emby enters EmbyCache's list there himself, so the films he prepared on the pool stay there.",
+  "ext.movertuning.for": "Jack Emby enters EmbyCache's list there — one of the two ways his real runs go",
+  "open.movertuning": "Open Mover Tuning",
+  "install.movertuning.1": "In ⟦Apps⟧ search for «Mover Tuning» (by masterwishx) and install it.",
+  "install.movertuning.2": "Without ⟦Apps⟧: ⟦Plugins⟧ → ⟦Install Plugin⟧, paste the address below and click ⟦Install⟧.",
+  "install.movertuning.3": "Its install takes Unraid's mover schedule over into its own (⟦Settings⟧ → ⟦Scheduler⟧ → Mover Tuning). Jack Emby enters his list there at his next look — nothing else to set.",
+  "install.movertuning.4": "Unraid's own ⟦Move now⟧ (⟦Mover Settings⟧) still starts Unraid's mover, which knows no list — use Mover Tuning's «Move now» instead.",
+  "copy.movertuning.url": "Plugin address"
 }
