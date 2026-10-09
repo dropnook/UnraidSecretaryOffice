@@ -31,6 +31,7 @@ const EMBY_LOG_TAIL = 96 * 1024;
 const EMBY_MODES    = ['report' => ['--show-on-deck', '--compact'], 'dry' => [], 'run' => ['--run'], 'release' => ['--release']];
 // measure: a dry run over the shares of the chosen libraries, only for what lies where (#8) — asked from the page only
 const GATHER_MODES  = ['dry' => ['--dryrun'], 'run' => ['--run'], 'measure' => ['--dryrun']];
+const GATHER_CACHE_ONLY = ['skip', 'most-free'];   // a folder only on the cache, with the cache switched on: leave it, or the disk with most free space
 const EMBY_SIZES_SHARES = 200;     // shares kept in sizes.json
 const EMBY_SIZES_ROOTS  = 64;      // disks/pools per share
 const EMBY_POOL_GROUPS  = 5000;    // what lies on the pool, by film/series folder: the current state, all of it (a bound against a broken list only)
@@ -527,7 +528,7 @@ function embyMeasureShares(?array $settings = null, ?array $all = null): array
 function embyWriteMeasureIni(array $shares, array $emby, string $gatherDir = GATHER_DATA, string $embyDir = EMBY_DATA): void
 {
     $g = embyGatherSettings() ?? [];
-    $set = ['shares' => $shares, 'min_free_gb' => (int) ($g['min_free_gb'] ?? 256), 'dup_check' => 'size'];
+    $set = ['shares' => $shares, 'min_free_gb' => (int) ($g['min_free_gb'] ?? 256), 'dup_check' => 'size', 'move_cache' => false];   // measuring moves nothing
     writeAtomic("$gatherDir/measure.ini", embyGatherIni($set, embyGatherPools($shares, $emby), "$gatherDir/consolidate.log", "$embyDir/embycache_exclude.txt"), 0600, 0, 0);
 }
 
@@ -851,7 +852,7 @@ function embyGatherSettings(): ?array
     return readJson(GATHER_DATA . '/gather.json');
 }
 
-/** The gather's own settings (works without EmbyCache being set up): shares, minimum free space, duplicates */
+/** The gather's own settings (works without EmbyCache being set up): shares, minimum free space, duplicates, the cache (#14) */
 function embyGatherSave(mixed $in): array
 {
     if (embyAnyRunning()) {
@@ -879,7 +880,12 @@ function embyGatherCheck(mixed $in, ?array $all = null): array
     if (!in_array($in['dup_check'] ?? null, ['size', 'cmp'], true)) {
         throw new Problem('bad_request');
     }
-    return ['shares' => $shares, 'min_free_gb' => (int) $min, 'dup_check' => $in['dup_check']];
+    // the cache switch (#14) and what happens to folders only on the cache: said too, like the others
+    if (!is_bool($in['move_cache'] ?? null) || !in_array($in['cache_only_target'] ?? null, GATHER_CACHE_ONLY, true)) {
+        throw new Problem('bad_request');
+    }
+    return ['shares' => $shares, 'min_free_gb' => (int) $min, 'dup_check' => $in['dup_check'],
+            'move_cache' => $in['move_cache'], 'cache_only_target' => $in['cache_only_target']];
 }
 
 function embySaveGather(array $gather, array $emby, string $gatherDir = GATHER_DATA, string $embyDir = EMBY_DATA): void
@@ -917,9 +923,12 @@ function embyWriteGatherIni(array $gather, array $emby, string $gatherDir = GATH
 
 /**
  * The text of consolidate.ini — a file bash sources: every value single
- * quoted, the shares and pools checked against what exists. Never
- * --include-cache: what EmbyCache keeps on the pool stays (its list is the
- * gather's exclude file, too).
+ * quoted, the shares and pools checked against what exists. The cache only
+ * when switched on (`move_cache`, #14; a gather.json from before it: off):
+ * then the folders' files on the cache come to their disk, folders only on
+ * the cache stay or go to the disk with most free space (`cache_only_target`).
+ * What EmbyCache keeps on the pool always stays: its list is the gather's
+ * exclude file.
  */
 function embyGatherIni(array $gather, array $pools, string $log, string $exclude): string
 {
@@ -940,7 +949,8 @@ function embyGatherIni(array $gather, array $pools, string $log, string $exclude
         . 'EXCLUDE_FILE=' . $q($exclude) . "\n"
         . "DRYRUN=true\n"
         . 'MIN_FREE_GB=' . (int) $gather['min_free_gb'] . "\n"
-        . "CACHE_ONLY_TARGET='skip'\n"
+        . 'MOVE_CACHE=' . (($gather['move_cache'] ?? false) === true ? 'true' : 'false') . "\n"
+        . 'CACHE_ONLY_TARGET=' . $q(($gather['cache_only_target'] ?? '') === 'most-free' ? 'most-free' : 'skip') . "\n"
         . 'DUP_CHECK=' . $q($gather['dup_check'] === 'cmp' ? 'cmp' : 'size') . "\n";
 }
 
@@ -985,8 +995,8 @@ const EMBY_JACK_DEFAULTS = ['cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', '
                             'movie_mode' => 'folder', 'create_share_root' => false, 'mover_debug_level' => 0, 'number_episodes' => 3,
                             'movie_share_percent' => 50, 'max_episodes_per_series' => 0, 'max_favorite_series' => 10, 'use_next_up' => true,
                             'min_free_percent' => 20];
-const GATHER_IMPORT_KEYS = ['BASE_DIRS', 'MIN_FREE_GB', 'DUP_CHECK'];                     // what Jack's gather settings take over
-const GATHER_IMPORT_JACK = ['LOGFILE', 'ARRAY_PATTERN', 'CACHE_PATTERN', 'EXCLUDE_FILE', 'DRYRUN', 'CACHE_ONLY_TARGET', 'MOVE_CACHE'];  // Jack's own
+const GATHER_IMPORT_KEYS = ['BASE_DIRS', 'MIN_FREE_GB', 'DUP_CHECK', 'MOVE_CACHE', 'CACHE_ONLY_TARGET'];  // what Jack's gather settings take over
+const GATHER_IMPORT_JACK = ['LOGFILE', 'ARRAY_PATTERN', 'CACHE_PATTERN', 'EXCLUDE_FILE', 'DRYRUN'];      // Jack's own
 
 /** What the import looks at: Jack's folders and the server's pools, shares and sleeping disks (the tests pass their own) */
 function embyImportContext(): array
@@ -1555,7 +1565,7 @@ function embyImportTrial(array $cfg, array $ctx): ?string
     }
 }
 
-/** The gather's part: consolidate.ini onto Jack's gather settings (shares, free space, duplicates) */
+/** The gather's part: consolidate.ini onto Jack's gather settings (shares, free space, duplicates, the cache) */
 function embyImportGather(string $dir, array $ctx, array $emby): array
 {
     $text = embyImportRead($dir, EMBY_IMPORT_FILES['ini'][0], EMBY_IMPORT_FILES['ini'][1]);
@@ -1566,9 +1576,13 @@ function embyImportGather(string $dir, array $ctx, array $emby): array
     }
     [$vars, $pv['strange']] = embyImportIni($text);
     $cur = readJson($ctx['gather_dir'] . '/gather.json');
-    $new = ['shares' => [], 'min_free_gb' => (int) ($cur['min_free_gb'] ?? 256), 'dup_check' => ($cur['dup_check'] ?? 'size') === 'cmp' ? 'cmp' : 'size'];
+    if ($cur !== null) {                                // a gather.json from before the cache switch: off, «leave them»
+        $cur += ['move_cache' => false, 'cache_only_target' => 'skip'];
+    }
+    $new = ['shares' => [], 'min_free_gb' => (int) ($cur['min_free_gb'] ?? 256), 'dup_check' => ($cur['dup_check'] ?? 'size') === 'cmp' ? 'cmp' : 'size',
+            'move_cache' => ($cur['move_cache'] ?? false) === true, 'cache_only_target' => ($cur['cache_only_target'] ?? '') === 'most-free' ? 'most-free' : 'skip'];
     $jack = ['LOGFILE' => $ctx['gather_dir'] . '/consolidate.log', 'ARRAY_PATTERN' => '/mnt/disk[0-9]*', 'CACHE_PATTERN' => null,
-             'EXCLUDE_FILE' => $ctx['emby_dir'] . '/embycache_exclude.txt', 'DRYRUN' => 'true', 'CACHE_ONLY_TARGET' => 'skip', 'MOVE_CACHE' => 'false'];
+             'EXCLUDE_FILE' => $ctx['emby_dir'] . '/embycache_exclude.txt', 'DRYRUN' => 'true'];
     foreach ($vars as $k => $v) {
         if (in_array($k, GATHER_IMPORT_KEYS, true)) {
             continue;
@@ -1595,14 +1609,20 @@ function embyImportGather(string $dir, array $ctx, array $emby): array
         }
     }
     $new['shares'] = array_values(array_unique($new['shares']));
-    foreach (['MIN_FREE_GB' => 'min_free_gb', 'DUP_CHECK' => 'dup_check'] as $ini => $key) {
+    // MOVE_CACHE: the old install's own ini (its setup never wrote it — «--include-cache» on its command line isn't read)
+    foreach (['MIN_FREE_GB' => 'min_free_gb', 'DUP_CHECK' => 'dup_check', 'MOVE_CACHE' => 'move_cache', 'CACHE_ONLY_TARGET' => 'cache_only_target'] as $ini => $key) {
         if (!array_key_exists($ini, $vars)) {
             continue;
         }
         $v = $vars[$ini];
-        $ok = $key === 'min_free_gb' ? is_string($v) && preg_match('/^\d{1,6}$/D', $v) && (int) $v <= 100000 : in_array($v, ['size', 'cmp'], true);
+        $ok = match ($key) {
+            'min_free_gb'       => is_string($v) && preg_match('/^\d{1,6}$/D', $v) && (int) $v <= 100000,
+            'dup_check'         => in_array($v, ['size', 'cmp'], true),
+            'move_cache'        => in_array($v, ['true', 'false'], true),
+            'cache_only_target' => in_array($v, GATHER_CACHE_ONLY, true),
+        };
         if ($ok) {
-            $new[$key] = $key === 'min_free_gb' ? (int) $v : $v;
+            $new[$key] = match ($key) { 'min_free_gb' => (int) $v, 'move_cache' => $v === 'true', default => $v };
         } else {
             $pv['jack'][] = ['key' => $ini, 'old' => embyImportShow($v), 'new' => $new[$key]];
         }

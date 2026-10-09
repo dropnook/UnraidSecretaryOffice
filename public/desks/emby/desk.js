@@ -242,6 +242,12 @@ function moverWaitLine(w) {
   return el('div', 'callout', T('waiting_mover', { next: fmt.time(w.next), until: fmt.time(w.until) }));
 }
 
+/** « · also from the cache …» when the gather's cache switch is on (#14), else nothing */
+function gatherCacheWords(set) {
+  if (!set || set.move_cache !== true) return '';
+  return ' · ' + T(set.cache_only_target === 'most-free' ? 'gather_cache_on.most_free' : 'gather_cache_on.skip');
+}
+
 /** What a gather did, each count in its own words (count.*) */
 function gatherSummary(s) {
   return T('gather_summary', { moved: nOf('moved', s.moved), dups: nOf('dups', s.duplicates), conflicts: nOf('conflicts', s.conflicts),
@@ -479,7 +485,7 @@ function gatherSection() {
   stat(stats, T('gather_last'), last ? fmt.relative(last.finished) : T('never'),
     last ? gatherSummary(last) : T('gather_never'),
     !!(last && (last.conflicts || last.errors || last.full)));
-  stat(stats, T('shares'), set.shares.join(', '), T('gather_settings', { gb: set.min_free_gb, dup: T('dup.' + set.dup_check) }));
+  stat(stats, T('shares'), set.shares.join(', '), T('gather_settings', { gb: set.min_free_gb, dup: T('dup.' + set.dup_check) }) + gatherCacheWords(set));
   const sc = state.schedules.gather;
   stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'),
     false, () => scheduleDialog('gather'));
@@ -686,8 +692,10 @@ async function gatherRunDialog() {
   if (!(await Office.freshState(ID))) return;
   const body = el('div');
   const err = errorLine();
-  body.append(el('p', '', T('gather_run_text', { shares: state.gather.settings.shares.join(', ') })), el('p', 'callout', T('gather_layout')), el('p', 'callout', T('gather_run_wake')),
-    el('p', 'role', T('gather_run_watch')), err);
+  const set = state.gather.settings;
+  body.append(el('p', '', T('gather_run_text', { shares: set.shares.join(', ') })));
+  if (set.move_cache === true) body.appendChild(el('p', '', T(set.cache_only_target === 'most-free' ? 'gather_run_cache.most_free' : 'gather_run_cache.skip')));
+  body.append(el('p', 'callout', T('gather_layout')), el('p', 'callout', T('gather_run_wake')), el('p', 'role', T('gather_run_watch')), err);
   Office.dialog({
     title: T('gather_run'),
     body,
@@ -727,13 +735,14 @@ async function measureDialog() {
   });
 }
 
-/** Which shares to consolidate (only those on the array), free space per disk, what counts as a duplicate */
+/** Which shares to consolidate (only those on the array), free space per disk, what counts as a duplicate, the cache (#14) */
 async function gatherSettingsDialog() {
   if (!(await Office.freshState(ID))) return;
   const cur = state.gather.settings;
   const onArray = Object.entries(state.share_info).filter(([, i]) => i.use === 'no' || (i.use === 'yes' && !i.secondary));
   const chosen = new Set(cur ? cur.shares : (state.shares || []).filter((x) => ['ok', 'array_only'].includes(x.fit)).map((x) => x.share));
-  const v = { min_free_gb: cur ? cur.min_free_gb : 256, dup_check: cur ? cur.dup_check : 'size' };
+  const v = { min_free_gb: cur ? cur.min_free_gb : 256, dup_check: cur ? cur.dup_check : 'size',
+    move_cache: !!(cur && cur.move_cache === true), cache_only_target: cur && cur.cache_only_target === 'most-free' ? 'most-free' : 'skip' };
   const box = el('div');
   box.appendChild(el('p', '', T('gather_cfg_intro')));
   box.appendChild(el('p', 'callout', T('gather_layout')));
@@ -746,12 +755,18 @@ async function gatherSettingsDialog() {
   f.append(field(T('gather_cfg_min_free'), number(v, 'min_free_gb', 0, 100000), T('gather_cfg_min_free_hint')),
     field(T('gather_cfg_dup'), select(v, 'dup_check', [['size', T('dup.size')], ['cmp', T('dup.cmp')]]), T('gather_cfg_dup_hint')));
   box.appendChild(f);
+  // the cache (off = the cache left alone); folders only there: only asked while it is on
+  const only = field(T('gather_cfg_cache_only'), radioList('gather_cache_only', [['skip', T('gather_cfg_cache_only.skip')],
+    ['most-free', T('gather_cfg_cache_only.most_free')]], v.cache_only_target, (x) => { v.cache_only_target = x; }));
+  only.hidden = !v.move_cache;
+  box.append(check(T('gather_cfg_cache'), v.move_cache, (on) => { v.move_cache = on; only.hidden = !on; }, T('gather_cfg_cache_hint')), only);
   Office.dialog({
     title: T('gather_cfg_title'),
     body: box,
     wide: true,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('setup.save'), kind: '', act: async () =>
-      !!(await act('gather_save', { gather: { shares: [...chosen], min_free_gb: v.min_free_gb, dup_check: v.dup_check } }, T('gather_cfg_saved'))) }],
+      !!(await act('gather_save', { gather: { shares: [...chosen], min_free_gb: v.min_free_gb, dup_check: v.dup_check,
+        move_cache: v.move_cache, cache_only_target: v.cache_only_target } }, T('gather_cfg_saved'))) }],
   });
 }
 
@@ -1707,6 +1722,6 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection,
-    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog };
+    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords };
 }
 })();

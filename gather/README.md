@@ -1,7 +1,9 @@
 > **In the Unraid Secretary Office** this is Jack Emby's "Consolidate folders": taken from
 > [helmi1987/media-disk-gather-for-unraid](https://github.com/helmi1987/media-disk-gather-for-unraid)
 > (V11.0) and since changed here (V11.4). Jack writes its settings (`data/gather/consolidate.ini`)
-> and runs it — never with `--include-cache`, never while EmbyCache runs. Changes against V11.0:
+> and runs it — never while EmbyCache runs; the cache only when switched on in his settings
+> (`MOVE_CACHE`/`CACHE_ONLY_TARGET` in the ini, #14 — EmbyCache's list is the exclude file, so
+> what it keeps on the pool always stays). Changes against V11.0:
 >
 > * `CONSOLIDATE_CONFIG`: where the ini is (default: next to the script).
 > * `CONSOLIDATE_STATUS`: a JSON file with the result (mode, counters, exit code).
