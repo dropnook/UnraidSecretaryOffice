@@ -348,8 +348,8 @@ function testPlanGone(): void
     // a real failure keeps today's warning — every run
     $fail = [['key' => 'create_failed', 'params' => ['target' => 'hive', 'detail' => 'zfs refused']]];
     $st = snapPlanRun($three, $t0 + 18000, $host);
-    same('gone run: a real failure is still a failure, warned as before', ['failed', ['create_failed'], 5, true, ['zfs:mother/drop' => $t0 + 14400]],
-        [$st['result'], array_column($st['detail'], 'key'), count($calls()), str_contains($last()['-d'] ?? '', 'problem(s)'), $st['gone']]);
+    same('gone run: a real failure is still a failure, warned as before (its problem in the long text)', ['failed', ['create_failed'], 5, true, ['zfs:mother/drop' => $t0 + 14400]],
+        [$st['result'], array_column($st['detail'], 'key'), count($calls()), str_contains($last()['-m'] ?? '', 'zfs refused') && ($last()['-i'] ?? '') === 'warning', $st['gone']]);
     $fail = [];
 
     // the team lead: one recommended finding per active plan and gone target; a paused plan says nothing; the failed run as before
