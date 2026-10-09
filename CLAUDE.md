@@ -284,7 +284,9 @@ installed plugin (see the checklist).
   maintenance mode and the apps stop — `downtime_s` (first app stopped → all started) never includes that wait; status
   phase `vm_shutdown` (desk.js STEPS: step `dumps`). `vm_hold`, right before the snapshots, only freezes and pauses — also
   a VM not off by its deadline (its `seconds` from the pause); one that went off late stays off and is started like the
-  others. A run stopped during the wait waits for the VMs still going down (`vm_shutdown_wait abort`) and starts them.
+  others. A run stopped during the wait waits for the VMs still going down (`vm_shutdown_wait abort`) and starts them —
+  also one stopped while `virsh shutdown` itself runs (`VM_SHUT_ASKED` is set before the request, taken back if it fails:
+  bash runs the trap right after the command, 2026-10-09).
   `testBackupVmOrder` runs backup.sh on a fixture server (stand-ins on PATH, an events file) — extend it for changes there.
 * **The array stop ends a run at once (engine 2.24):** var.ini `fsState` Stopping/Stopped (`array_stopping()`, `UB_VAR_INI`;
   Formatting/Clearing count as started — so do agent.sh and agent.php, `ARRAY_RUNNING`) is looked at every phase (`next_phase`), before packages, dumps, Kopia sources and
