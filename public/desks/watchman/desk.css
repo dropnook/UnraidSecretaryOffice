@@ -9,6 +9,14 @@
 .wm-flags{display:inline-flex; flex-wrap:wrap; gap:4px; vertical-align:middle}
 .wm-flag{font-family:var(--mono); font-size:11.5px; line-height:1.5; padding:0 6px; border-radius:4px; background:var(--surface2); color:var(--ink2); overflow-wrap:anywhere}
 .wm-more{margin:8px 12px}
+/* the book's bar (the filter's words, the area, «only open», «unfold all»): wraps on a phone */
+.wm-bookbar .picker{max-width:100%; min-width:0}
+/* a day between the rows: a tinted heading like a group's title bar */
+.wm-day{padding:6px 12px; background:var(--surface2); border-top:1px solid var(--line); font-size:12.5px; font-weight:600; color:var(--ink2)}
+.wm-book > .wm-day:first-child, .wm-book > .wm-chain + .wm-day{border-top:0}
+/* several entries of one kind on one day: one row; unfolded, its entries under it, indented */
+.row.wm-member{padding-left:30px}
+.wm-members:empty{display:none}
 /* an entry's MITRE ATT&CK technique: a chip that is a link (a new tab) */
 a.chip.wm-attack{text-decoration:none; font-family:var(--mono); font-size:11.5px; cursor:pointer}
 a.chip.wm-attack:hover{text-decoration:underline}
@@ -42,6 +50,7 @@ a.chip.wm-attack:hover{text-decoration:underline}
   .row.wm-tip{grid-template-columns:minmax(0,1fr)}
   .wm-tip-acts{justify-content:flex-start}
   .row.wm-item{padding-left:14px}
+  .row.wm-member{padding-left:20px}
   .wm-flow-note{padding-left:14px}
 }
 }
