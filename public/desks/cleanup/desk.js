@@ -2242,6 +2242,42 @@ function advice() {
     add('vm_netmodel', 'info', { names: listNames(slowNet, 3), n: slowNet.length }, { path: '/VMs', text: T('where.adv.to_vms') }, slowNet.join(','));
   }
 
+  // the array's write method (waWriteMethod()): «Auto» is read/modify/write — only the target disk and parity spin, turbo
+  // write reads every other data disk. Nothing writes straight to the array: keep it (good to know, Benj 2026-10-09);
+  // shares that do: turbo write for big copies, or Squid's plugin. The signature: the method, those shares, the disks'
+  // sleep and the plugin — one more share, a pool in front, a spin-down delay set bring the tip back
+  const wm = a.write_method;
+  const toDisks = { path: '/Settings/DiskSettings', text: T('where.adv.to_disks') };
+  if (wm && ['auto', 'rmw'].includes(wm.method)) {
+    const method = T(`where.adv.write_method.${wm.method}`);
+    if (wm.tip === 'keep') {
+      const moved = wm.pooled > 0 ? T('where.adv.write_method_keep.moved', { n: Number(wm.pooled) }) : T('where.adv.write_method_keep.no_moved');
+      add('write_method_keep', 'info', { method, moved, disks: T(wm.sleep ? 'where.adv.write_method_keep.sleep' : 'where.adv.write_method_keep.awake') },
+        toDisks, wm.method);
+    } else if (wm.tip === 'turbo') {
+      const direct = (wm.direct || []).filter((x) => typeof x === 'string');
+      const how = wm.sleep ? T(wm.plugin === 'off' ? 'where.adv.write_method_turbo.plugin_off' : 'where.adv.write_method_turbo.plugin') : '';
+      add('write_method_turbo', 'info', { method, names: listNames(direct, 3), n: direct.length,
+        disks: T(wm.sleep ? 'where.adv.write_method_turbo.sleep' : 'where.adv.write_method_turbo.awake'), how },
+        toDisks, `${wm.method}:${direct.join(',')}:${wm.sleep ? 'sleep' : 'awake'}:${wm.plugin || ''}`);
+    }
+  }
+
+  // ZFS's read cache and a VM with PCI passthrough (waZfsArc(); Benj, 2026-10-09): «Unlimited (Dynamic)» is right as a
+  // rule — the ARC gives RAM back under pressure. Only a passthrough VM pins all its RAM at once at its start: when the RAM
+  // is that tight she names the VM and suggests a cap. The signature: the VM, its RAM and the ARC's limit (the containers'
+  // memory moving a little doesn't bring the tip back)
+  const arc = a.zfs_arc;
+  if (arc && arc.tip === 'passthrough' && typeof arc.vm === 'string') {
+    const gib = 2 ** 30;
+    add('zfs_arc_passthrough', 'advice', {
+      vm: arc.vm, vm_memory: fmt.size(arc.vm_memory), others: fmt.size(arc.others), containers: fmt.size(arc.containers),
+      ram: fmt.size(arc.ram), left: fmt.size(Math.max(arc.left, 0)), arc_max: fmt.size(arc.c_max), percent: Math.round(arc.c_max / arc.ram * 100),
+      setting: arc.unlimited ? T('where.adv.zfs_arc_passthrough.unlimited') : T('where.adv.zfs_arc_passthrough.limit', { size: fmt.size(arc.c_max) }),
+      cap: Number(arc.cap), sys_free: String(Math.ceil(arc.vm_memory / gib) * gib),
+    }, toDisks, `${arc.vm}:${Math.round(arc.vm_memory / gib)}:${Math.round(arc.c_max / gib)}`);
+  }
+
   // security advice is the night watchman's — while he doesn't work here, she says where it went
   if (Office.desks.has('watchman') && !watchmanHired()) add('security', 'info', {}, { path: '#/caretaker', text: T('where.adv.to_team_lead') });
   return out;
@@ -2521,6 +2557,7 @@ function helpItems() {
     [T('where.help.search'), T('where.help.search_text')],
     [T('where.help.tour'), T('where.help.tour_text')],
     [T('where.help.asleep'), T('where.help.asleep_text')],
+    [T('where.help.tunables'), T('where.help.tunables_text')],
   ];
 }
 
