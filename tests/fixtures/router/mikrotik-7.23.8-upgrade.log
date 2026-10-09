@@ -1,0 +1,47 @@
+# REAL lines from the USO MikroTik lab (dropnook/UnraidSecretaryOffice#2), 2026-10-09 (CEST), as Unraid 7.3.3's own
+# syslog server (rsyslog, UDP 514, server_filename syslog-%FROMHOST-IP%.log) wrote them on the test server Tower.
+# Router: MikroTik RouterOS CHR 7.23.8 → 7.24.5 (stable), the raw image from mikrotik.com (SHA-256 checked against the download
+# page), licence level «free», a KVM VM on isolated libvirt networks only (ether1 «wan» 10.77.1.0/24 with libvirt's DHCP
+# as the ISP, ether2 «lan» 10.9.9.0/24 with a second CHR «lab-client» as the fake client, ether3 «mgmt» 10.77.3.0/24 where
+# Tower is 10.77.3.1 — Tower's SSH sessions and the syslog path run there). Identity lab-chr, time zone Europe/Zurich.
+# Not scrubbed: every address and MAC here is the lab's own (10.77.x, 10.9.9.x, 10.66.0.x, 10.0.0.x, 10.88.0.x,
+# 52:54:00:4D:54:xx); users admin, lab (a second full user), alice (L2TP), wan-user (PPPoE); the SSH key is the lab's.
+# Lines «uso-step …» are the lab's own markers (/log info), what follows each marker is what that step provoked.
+# Lines starting with # are this header (the tests leave them out).
+# A second CHR «lab-old» from the 7.23.8 long-term image (ether1 «wan» only, sender 10.77.1.21; 7.23.8 already has
+# remote-log-format and add-topics-string), action syslog/bsd-syslog/topics=yes. routeros-7.24.5.npk (from the
+# download page, SHA-256 checked) copied onto it by scp, /system reboot: «installed system-7.24.5» is the only line
+# that names a version (not «RouterOS upgraded from … to …»); the reboot line here has no «/reboot» after the user.
+Oct  9 14:08:04 lab-old system,info log rule added by ssh-cmd:admin+ct@10.77.1.1 (*5 = /system logging add action=unraid topics=info)
+Oct  9 14:08:04 lab-old system,info log rule added by ssh-cmd:admin+ct@10.77.1.1 (*6 = /system logging add action=unraid topics=warning)
+Oct  9 14:08:04 lab-old system,info log rule added by ssh-cmd:admin+ct@10.77.1.1 (*7 = /system logging add action=unraid topics=error)
+Oct  9 14:08:04 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh
+Oct  9 14:08:04 lab-old system,info log rule added by ssh-cmd:admin+ct@10.77.1.1 (*8 = /system logging add action=unraid topics=critical)
+Oct  9 14:08:04 lab-old ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:08:04 lab-old system,info,account user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:08:04 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh
+Oct  9 14:08:04 lab-old ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:08:04 lab-old system,info,account user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:08:04 lab-old script,info uso-step 12 upgrade 7.23.8 -> 7.24.5: start
+Oct  9 14:08:04 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh
+Oct  9 14:08:10 lab-old ssh,info publickey accepted for user: admin, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:08:10 lab-old system,info,account user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:08:11 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh
+Oct  9 14:08:11 lab-old ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:08:11 lab-old system,info,account user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:08:11 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh
+Oct  9 14:08:11 lab-old ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:08:11 lab-old system,info,account user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:08:11 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh
+Oct  9 14:08:11 lab-old system,info,account user admin logged out via local
+Oct  9 14:08:17 lab-old system,info installed system-7.24.5
+Oct  9 14:08:17 lab-old interface,info lo link up
+Oct  9 14:08:17 lab-old system,info router rebooted by ssh-cmd:admin+ct@10.77.1.1
+Oct  9 14:08:18 lab-old dhcp,info client1 on ether1 got IP address 10.77.1.21
+Oct  9 14:09:21 lab-old ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:09:21 lab-old system,info,account user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:09:21 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh
+Oct  9 14:09:21 lab-old ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:09:21 lab-old system,info,account user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:09:21 lab-old script,info uso-step 12 upgrade: end
+Oct  9 14:09:21 lab-old system,info,account user admin logged out from 10.77.1.1 via ssh

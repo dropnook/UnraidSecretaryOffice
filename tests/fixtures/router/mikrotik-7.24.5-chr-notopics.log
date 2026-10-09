@@ -1,0 +1,75 @@
+# REAL lines from the USO MikroTik lab (dropnook/UnraidSecretaryOffice#2), 2026-10-09 (CEST), as Unraid 7.3.3's own
+# syslog server (rsyslog, UDP 514, server_filename syslog-%FROMHOST-IP%.log) wrote them on the test server Tower.
+# Router: MikroTik RouterOS CHR 7.24.5 (stable), the raw image from mikrotik.com (SHA-256 checked against the download
+# page), licence level «free», a KVM VM on isolated libvirt networks only (ether1 «wan» 10.77.1.0/24 with libvirt's DHCP
+# as the ISP, ether2 «lan» 10.9.9.0/24 with a second CHR «lab-client» as the fake client, ether3 «mgmt» 10.77.3.0/24 where
+# Tower is 10.77.3.1 — Tower's SSH sessions and the syslog path run there). Identity lab-chr, time zone Europe/Zurich.
+# Not scrubbed: every address and MAC here is the lab's own (10.77.x, 10.9.9.x, 10.66.0.x, 10.0.0.x, 10.88.0.x,
+# 52:54:00:4D:54:xx); users admin, lab (a second full user), alice (L2TP), wan-user (PPPoE); the SSH key is the lab's.
+# Lines «uso-step …» are the lab's own markers (/log info), what follows each marker is what that step provoked.
+# Lines starting with # are this header (the tests leave them out).
+# Action as the concept's paste text gives it: remote-log-format=syslog syslog-time-format=bsd-syslog — 7.24.5's default
+# add-topics-string=no, so the line carries NO topic list: «<header> <identity> <text>». First the very first lines of the
+# lab (the four logging rules added, over ether1, sender 10.77.1.10), then the step-11 repeat (sender 10.77.3.10): login,
+# failure, a second user's filter rule added/removed, ether2 link down/up, a lease (deassigned/assigned), two firewall
+# lines, a clean reboot. The last lines of the block («log action changed …») already carry topics again (default format).
+Oct  9 13:37:29 lab-chr log rule added by ssh-cmd:admin+ct@10.77.1.1 (*5 = /system logging add action=unraid topics=info)
+Oct  9 13:37:29 lab-chr user admin logged out from 10.77.1.1 via ssh
+Oct  9 13:37:29 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:37:29 lab-chr user admin logged in from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr log rule added by ssh-cmd:admin+ct@10.77.1.1 (*6 = /system logging add action=unraid topics=warning)
+Oct  9 13:37:30 lab-chr user admin logged out from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:37:30 lab-chr user admin logged in from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr log rule added by ssh-cmd:admin+ct@10.77.1.1 (*7 = /system logging add action=unraid topics=error)
+Oct  9 13:37:30 lab-chr user admin logged out from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:37:30 lab-chr user admin logged in from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr log rule added by ssh-cmd:admin+ct@10.77.1.1 (*8 = /system logging add action=unraid topics=critical)
+Oct  9 13:37:30 lab-chr user admin logged out from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:37:30 lab-chr user admin logged in from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr user admin logged out from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:37:30 lab-chr user admin logged in from 10.77.1.1 via ssh
+Oct  9 13:37:30 lab-chr uso-step 1 hello unraid (syslog, bsd-syslog, add-topics-string=no)
+Oct  9 13:37:30 lab-chr user admin logged out from 10.77.1.1 via ssh
+Oct  9 13:37:46 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:37:46 lab-chr user admin logged in from 10.77.1.1 via ssh
+Oct  9 14:02:42 lab-chr uso-step 11 syslog bsd-syslog add-topics-string=no: start
+Oct  9 14:02:42 lab-chr user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:42 lab-chr user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:02:43 lab-chr user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:43 lab-chr login failure for user admin from 10.77.3.1 via ssh
+Oct  9 14:02:44 lab-chr user lab logged in from 10.77.3.1 via ssh
+Oct  9 14:02:45 lab-chr filter rule added by ssh-cmd:lab+ct@10.77.3.1 (*A = /ip firewall filter add action=accept chain=input comment=fmt)
+Oct  9 14:02:45 lab-chr filter rule removed by ssh-cmd:lab+ct@10.77.3.1/action:1 (/ip firewall filter remove *A)
+Oct  9 14:02:45 lab-chr user lab logged out from 10.77.3.1 via ssh
+Oct  9 14:02:46 lab-chr ether2 link down
+Oct  9 14:02:48 lab-chr ether2 link up
+Oct  9 14:02:52 lab-chr lab-dhcp deassigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client
+Oct  9 14:02:52 lab-chr lab-dhcp assigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client
+Oct  9 14:02:57 lab-chr drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:55628->10.77.1.10:2323, len 60
+Oct  9 14:02:58 lab-chr drop-from-server forward: in:ether2 out:ether1, connection-state:new src-mac 52:54:00:4D:54:12, proto ICMP (type 8, code 0), 10.9.9.20->10.77.1.1, len 56
+Oct  9 14:03:00 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:03:00 lab-chr user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:03:00 lab-chr uso-step 11 syslog bsd-syslog add-topics-string=no: reboot
+Oct  9 14:03:00 lab-chr user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:03:01 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:03:01 lab-chr user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:03:01 lab-chr user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:03:07 lab-chr router rebooted by ssh-cmd:admin+ct@10.77.3.1/reboot
+Oct  9 14:03:07 lab-chr lo link up
+Oct  9 14:03:07 lab-chr wg-lab link up
+Oct  9 14:03:17 lab-chr client2 on ether3 got IP address 10.77.3.10
+Oct  9 14:03:18 lab-chr client1 on ether1 got IP address 10.77.1.10
+Oct  9 14:03:42 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:03:42 lab-chr user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:03:42 lab-chr uso-step 11 syslog bsd-syslog add-topics-string=no: end
+Oct  9 14:03:42 lab-chr user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:03:42 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:03:42 lab-chr user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:03:42 10.77.3.10 system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:03:43 10.77.3.10 system,info log action changed by ssh-cmd:admin+ct@10.77.3.1/action:0 ()
+Oct  9 14:03:43 10.77.3.10 ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:03:43 10.77.3.10 system,info,account user admin logged in from 10.77.3.1 via ssh

@@ -1,0 +1,53 @@
+# REAL lines from the USO MikroTik lab (dropnook/UnraidSecretaryOffice#2), 2026-10-09 (CEST), as Unraid 7.3.3's own
+# syslog server (rsyslog, UDP 514, server_filename syslog-%FROMHOST-IP%.log) wrote them on the test server Tower.
+# Router: MikroTik RouterOS CHR 7.24.5 (stable), the raw image from mikrotik.com (SHA-256 checked against the download
+# page), licence level «free», a KVM VM on isolated libvirt networks only (ether1 «wan» 10.77.1.0/24 with libvirt's DHCP
+# as the ISP, ether2 «lan» 10.9.9.0/24 with a second CHR «lab-client» as the fake client, ether3 «mgmt» 10.77.3.0/24 where
+# Tower is 10.77.3.1 — Tower's SSH sessions and the syslog path run there). Identity lab-chr, time zone Europe/Zurich.
+# Not scrubbed: every address and MAC here is the lab's own (10.77.x, 10.9.9.x, 10.66.0.x, 10.0.0.x, 10.88.0.x,
+# 52:54:00:4D:54:xx); users admin, lab (a second full user), alice (L2TP), wan-user (PPPoE); the SSH key is the lab's.
+# Lines «uso-step …» are the lab's own markers (/log info), what follows each marker is what that step provoked.
+# Lines starting with # are this header (the tests leave them out).
+# Action: remote-log-format=default. The router sends no syslog header: rsyslog writes ITS reception time and the
+# sender's address as the host (10.77.3.10 — no identity), the topics stay at the start of the text. The step-11 repeat,
+# then a clock test: the router's clock set to Sep 30 — the header still says Oct 9 (Unraid's time, not the router's).
+Oct  9 14:03:43 10.77.3.10 script,info uso-step 11 default: start
+Oct  9 14:03:43 10.77.3.10 system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:03:44 10.77.3.10 system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:03:44 10.77.3.10 system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:03:45 10.77.3.10 system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 14:03:46 10.77.3.10 system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 14:03:47 10.77.3.10 system,info filter rule added by ssh-cmd:lab+ct@10.77.3.1 (*A = /ip firewall filter add action=accept chain=input comment=fmt)
+Oct  9 14:03:47 10.77.3.10 system,info filter rule removed by ssh-cmd:lab+ct@10.77.3.1/action:1 (/ip firewall filter remove *A)
+Oct  9 14:03:47 10.77.3.10 system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 14:03:47 10.77.3.10 interface,info ether2 link down
+Oct  9 14:03:49 10.77.3.10 interface,info ether2 link up
+Oct  9 14:03:54 10.77.3.10 dhcp,info lab-dhcp deassigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client
+Oct  9 14:03:54 10.77.3.10 dhcp,info lab-dhcp assigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client
+Oct  9 14:03:59 10.77.3.10 firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:35436->10.77.1.10:2323, len 60
+Oct  9 14:04:00 10.77.3.10 firewall,info drop-from-server forward: in:ether2 out:ether1, connection-state:new src-mac 52:54:00:4D:54:12, proto ICMP (type 8, code 0), 10.9.9.20->10.77.1.1, len 56
+Oct  9 14:04:02 10.77.3.10 ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:04:02 10.77.3.10 system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:04:02 10.77.3.10 script,info uso-step 11 default: reboot
+Oct  9 14:04:02 10.77.3.10 system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:04:03 10.77.3.10 ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:04:03 10.77.3.10 system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:04:03 10.77.3.10 system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:04:11 10.77.3.10 system,info router rebooted by ssh-cmd:admin+ct@10.77.3.1/reboot
+Oct  9 14:04:11 10.77.3.10 interface,info lo link up
+Oct  9 14:04:11 10.77.3.10 interface,info wg-lab link up
+Oct  9 14:04:11 10.77.3.10 dhcp,info client2 on ether3 got IP address 10.77.3.10
+Oct  9 14:04:11 10.77.3.10 dhcp,info client1 on ether1 got IP address 10.77.1.10
+Oct  9 14:04:44 10.77.3.10 ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:04:44 10.77.3.10 system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:04:44 10.77.3.10 script,info uso-step 11 default: end
+Oct  9 14:04:44 10.77.3.10 system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:04:59 10.77.3.10 ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:04:59 10.77.3.10 system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:04:59 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:04:59 lab-chr system,info log action changed by ssh-cmd:admin+ct@10.77.3.1/action:0 (/system logging action set unraid add-topics-string=yes syslog-time-format=iso8601)
+Oct  9 14:04:59 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:04:59 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:07:18 10.77.3.10 system,clock,info change time Oct/09/2026 14:07:18 => Sep/30/2026 14:07:18
+Oct  9 14:07:18 10.77.3.10 script,warning uso-default-clock-test
+Oct  9 14:07:18 10.77.3.10 system,clock,info change time Sep/30/2026 14:07:18 => Oct/09/2026 14:07:18

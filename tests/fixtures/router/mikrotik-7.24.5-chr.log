@@ -1,0 +1,607 @@
+# REAL lines from the USO MikroTik lab (dropnook/UnraidSecretaryOffice#2), 2026-10-09 (CEST), as Unraid 7.3.3's own
+# syslog server (rsyslog, UDP 514, server_filename syslog-%FROMHOST-IP%.log) wrote them on the test server Tower.
+# Router: MikroTik RouterOS CHR 7.24.5 (stable), the raw image from mikrotik.com (SHA-256 checked against the download
+# page), licence level «free», a KVM VM on isolated libvirt networks only (ether1 «wan» 10.77.1.0/24 with libvirt's DHCP
+# as the ISP, ether2 «lan» 10.9.9.0/24 with a second CHR «lab-client» as the fake client, ether3 «mgmt» 10.77.3.0/24 where
+# Tower is 10.77.3.1 — Tower's SSH sessions and the syslog path run there). Identity lab-chr, time zone Europe/Zurich.
+# Not scrubbed: every address and MAC here is the lab's own (10.77.x, 10.9.9.x, 10.66.0.x, 10.0.0.x, 10.88.0.x,
+# 52:54:00:4D:54:xx); users admin, lab (a second full user), alice (L2TP), wan-user (PPPoE); the SSH key is the lab's.
+# Lines «uso-step …» are the lab's own markers (/log info), what follows each marker is what that step provoked.
+# Lines starting with # are this header (the tests leave them out).
+# Action (System → Logging → Actions): remote=10.77.3.1 remote-port=514 remote-protocol=udp remote-log-format=syslog
+#   syslog-time-format=bsd-syslog syslog-facility=local0 add-topics-string=yes (7.24.5's default is add-topics-string=no:
+#   then the topics are NOT in the line — see mikrotik-7.24.5-chr-notopics.log); rules topics=info/warning/error/critical.
+# Steps: 1 «hello unraid» · 2 logins via console (local), ssh password, ssh key, api, rest-api, ftp, telnet · 3 failures
+# (6× ssh, an unknown user, rest-api, telnet — whose second attempt typed a command as the user name —, console; 3b api,
+# rest-api, ftp after a pause: RouterOS itself throttles a burst — «too many concurrent logins» — and logs nothing then)
+# · 4 a second user «lab»: filter/nat/mangle/raw rules added, changed, moved, removed, an address list entry, an address,
+# the identity changed and back (the header shows the new identity at once), ether2 disabled and enabled («device
+# changed», NO link line), REST and API changes («by api:lab@::» / «by api:lab@<addr>») · 5 ether2 link down/up from
+# the hypervisor, three quick flaps · 6 DHCP server lab-dhcp, the client's lease, release (deassigned/assigned), a static
+# lease · 7a WireGuard handshake + ping: nothing logged but the config lines · 7b L2TP (alice in/out), L2TP/IPsec, a
+# wrong password · 8 firewall: the guide's log rules (limit=10,20:packet works on 7.24.5) — input TCP from Tower, a
+# log=yes drop without prefix (UDP), forward ICMP from the client; 8b a 30 s scan: 333 drop-wan-in lines for 606
+# probes (≈ 10/s, the limit), cut to the first 30 here; 8f a forward UDP line (connection-state:invalid) · 9 WAN loss:
+# ether1 link down 130 s (dhcp-client «client1» lost/got) · 10 clean reboot, unclean (virsh destroy), «cannot set time
+# before package build time» (2020 refused), the clock set to Sep 30 and Mar 1 2027 (the header follows the router's
+# clock: skew), a hypervisor clock 20 days behind (the CHR kept the right time — not reproducible on a CHR) · 9c–9f
+# PPPoE against the second CHR as server: connect, link loss, «failed to authenticate ourselves to peer», disable.
+# Skew: the router's clock ran ≈ 1–3 s behind Tower's (NTP pointed at Tower, which doesn't serve the lab networks).
+Oct  9 13:41:12 lab-chr script,info uso-step MAIN syslog bsd-syslog topics=yes: 1 hello unraid
+Oct  9 13:41:12 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:41:12 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:41:12 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:41:13 lab-chr script,info hello unraid
+Oct  9 13:41:13 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:41:13 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:41:13 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:41:14 lab-chr script,info uso-step 2 logins: console, ssh password, ssh key, api, rest-api, ftp, telnet
+Oct  9 13:41:14 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:41:14 lab-chr system,info,account user admin logged in via local
+Oct  9 13:41:15 lab-chr system,info,account user admin logged out via local
+Oct  9 13:41:19 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:41:19 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:41:20 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:41:20 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:41:20 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:41:20 lab-chr system,info,account user admin logged in from 10.77.3.1 via api
+Oct  9 13:41:21 lab-chr system,info,account user admin logged out from 10.77.3.1 via api
+Oct  9 13:41:21 lab-chr system,info,account user admin logged in from 10.77.3.1 via ftp
+Oct  9 13:41:21 lab-chr system,info,account user admin logged out from 10.77.3.1 via ftp
+Oct  9 13:41:25 lab-chr system,info,account user admin logged in from 10.77.3.1 via telnet
+Oct  9 13:41:31 lab-chr system,info,account user admin logged out from 10.77.3.1 via telnet
+Oct  9 13:41:34 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:41:34 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:41:34 lab-chr script,info uso-step 3 failures: 6x ssh admin wrong, 1x ssh unknown user, 3x rest wrong, 2x api wrong, ftp, telnet, console
+Oct  9 13:41:34 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:41:35 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 13:41:36 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 13:41:37 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 13:41:39 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 13:41:41 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 13:41:45 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 13:41:45 lab-chr system,error,critical login failure for user nosuchuser from 10.77.3.1 via ssh
+Oct  9 13:41:50 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via rest-api
+Oct  9 13:42:00 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via telnet
+Oct  9 13:42:06 lab-chr system,error,critical login failure for user /system identity print from 10.77.3.1 via telnet
+Oct  9 13:42:08 lab-chr system,error,critical login failure for user admin via local
+Oct  9 13:42:26 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:42:26 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:42:27 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:44:06 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:44:06 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:44:06 lab-chr script,info uso-step 3b failures after a pause: api, rest, ftp
+Oct  9 13:44:06 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:44:06 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via api
+Oct  9 13:44:06 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via rest-api
+Oct  9 13:44:07 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ftp
+Oct  9 13:44:08 lab-chr system,error,critical login failure for user ghost from 10.77.3.1 via api
+Oct  9 13:44:30 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:44:30 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:44:30 lab-chr script,info uso-step 4 second user lab: firewall, nat, mangle, raw, address-list, address, identity, ether2 disable/enable, user changes
+Oct  9 13:44:30 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:44:31 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:44:31 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:44:31 lab-chr system,info user lab added by ssh-cmd:admin+ct@10.77.3.1 (*2 = /user add group=full name=lab)
+Oct  9 13:44:31 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:44:31 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:32 lab-chr system,info filter rule added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip firewall filter add action=accept chain=input comment=lab)
+Oct  9 13:44:32 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:32 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:33 lab-chr system,info filter rule added by ssh-cmd:lab+ct@10.77.3.1 (*2 = /ip firewall filter add action=accept chain=input comment=lab-b protocol=icmp)
+Oct  9 13:44:33 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:34 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:34 lab-chr system,info filter rule changed by ssh-cmd:lab+ct@10.77.3.1/action:0 (/ip firewall filter set *1 comment=lab-changed)
+Oct  9 13:44:34 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:35 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:36 lab-chr system,info filter rule moved by ssh-cmd:lab+ct@10.77.3.1 ()
+Oct  9 13:44:36 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:36 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:37 lab-chr system,info nat rule added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip firewall nat add action=dst-nat chain=dstnat comment=lab dst-port=8080 protocol=tcp to-addresses=10.9.9.15 to-ports=80)
+Oct  9 13:44:37 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:38 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:39 lab-chr system,info mangle rule added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip firewall mangle add action=mark-connection chain=prerouting comment=lab new-connection-mark=lab passthrough=yes)
+Oct  9 13:44:39 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:40 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:41 lab-chr system,info raw rule added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip firewall raw add action=notrack chain=prerouting comment=lab src-address=10.9.9.250)
+Oct  9 13:44:41 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:42 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:43 lab-chr system,info address list entry added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip firewall address-list add address=10.9.9.99 list=lab)
+Oct  9 13:44:43 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:44 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:45 lab-chr system,info address added by ssh-cmd:lab+ct@10.77.3.1 (*3 = /ip address add address=10.9.9.1/24 interface=ether2)
+Oct  9 13:44:45 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:46 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:47 lab-chr-x system,info system identity changed by ssh-cmd:lab+ct@10.77.3.1 (/system identity set name=lab-chr-x)
+Oct  9 13:44:47 lab-chr-x system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:48 lab-chr-x system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:49 lab-chr system,info system identity changed by ssh-cmd:lab+ct@10.77.3.1 (/system identity set name=lab-chr)
+Oct  9 13:44:49 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:50 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:52 lab-chr system,info device changed by ssh-cmd:lab+ct@10.77.3.1/action:1 (/interface set ether2 disabled=yes)
+Oct  9 13:44:52 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:44:55 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:44:56 lab-chr system,info device changed by ssh-cmd:lab+ct@10.77.3.1/action:2 (/interface set ether2 disabled=no)
+Oct  9 13:44:56 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:45:00 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:45:01 lab-chr system,info filter rule removed by ssh-cmd:lab+ct@10.77.3.1/action:3 (/ip firewall filter remove *1)
+Oct  9 13:45:01 lab-chr system,info filter rule removed by ssh-cmd:lab+ct@10.77.3.1/action:4 (/ip firewall filter remove *2)
+Oct  9 13:45:01 lab-chr system,info mangle rule removed by ssh-cmd:lab+ct@10.77.3.1/action:5 (/ip firewall mangle remove *1)
+Oct  9 13:45:02 lab-chr system,info raw rule removed by ssh-cmd:lab+ct@10.77.3.1/action:6 (/ip firewall raw remove *1)
+Oct  9 13:45:02 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:45:02 lab-chr system,info,account user lab logged in from 10.77.3.1 via rest-api
+Oct  9 13:45:03 lab-chr system,info,account user lab logged in via api
+Oct  9 13:45:04 lab-chr system,info filter rule added by api:lab@:: (*3 = /ip firewall filter add action=accept chain=input comment=lab-rest)
+Oct  9 13:45:04 lab-chr system,info,account user lab logged in from 10.77.3.1 via api
+Oct  9 13:45:05 lab-chr system,info filter rule added by api:lab@10.77.3.1 (*4 = /ip firewall filter add action=accept chain=input comment=lab-api)
+Oct  9 13:45:05 lab-chr system,info,account user lab logged out from 10.77.3.1 via api
+Oct  9 13:45:05 lab-chr system,info,account user lab logged in from 10.77.3.1 via api
+Oct  9 13:45:06 lab-chr system,info,account user lab logged out from 10.77.3.1 via api
+Oct  9 13:45:07 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:45:08 lab-chr system,info filter rule removed by ssh-cmd:lab+ct@10.77.3.1/action:7 (/ip firewall filter remove *3)
+Oct  9 13:45:08 lab-chr system,info filter rule removed by ssh-cmd:lab+ct@10.77.3.1/action:7 (/ip firewall filter remove *4)
+Oct  9 13:45:08 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:45:10 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:45:11 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Oct  9 13:45:46 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:45:46 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:45:47 lab-chr system,info user lab changed by ssh-cmd:admin+ct@10.77.3.1/action:8 (/user set lab comment=lab-user)
+Oct  9 13:45:47 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:45:56 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:45:56 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:45:56 lab-chr script,info uso-step 5 link without config: virsh domif-setlink ether2 down/up, then 3 quick flaps
+Oct  9 13:45:56 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:45:57 lab-chr interface,info ether2 link down
+Oct  9 13:46:03 lab-chr interface,info ether2 link up
+Oct  9 13:46:07 lab-chr interface,info ether2 link down
+Oct  9 13:46:08 lab-chr interface,info ether2 link up
+Oct  9 13:46:10 lab-chr interface,info ether2 link down
+Oct  9 13:46:11 lab-chr interface,info ether2 link up
+Oct  9 13:46:13 lab-chr interface,info ether2 link down
+Oct  9 13:46:14 lab-chr interface,info ether2 link up
+Oct  9 13:46:28 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:46:28 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:46:28 lab-chr script,info uso-step 6 dhcp server lab-dhcp on ether2, client lease, release/renew, static lease
+Oct  9 13:46:28 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:46:28 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:46:29 lab-chr system,info pool lab-pool added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip pool add name=lab-pool ranges=10.9.9.10-10.9.9.20)
+Oct  9 13:46:29 lab-chr system,info dhcp network added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip dhcp-server network add address=10.9.9.0/24 dns-server=10.9.9.1 gateway=10.9.9.1)
+Oct  9 13:46:29 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:46:29 lab-chr system,info dhcp server lab-dhcp added by ssh-cmd:lab+ct@10.77.3.1 (*1 = /ip dhcp-server add address-pool=lab-pool interface=ether2 lease-time=1d name=lab-dhcp)
+Oct  9 13:46:32 lab-chr dhcp,info lab-dhcp assigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client
+Oct  9 13:46:39 lab-chr dhcp,info lab-dhcp deassigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client
+Oct  9 13:46:39 lab-chr dhcp,info lab-dhcp assigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client
+Oct  9 13:46:52 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:46:52 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:46:52 lab-chr system,info,account user lab logged in from 10.77.3.1 via ssh
+Oct  9 13:46:52 lab-chr system,info dhcp lease changed by ssh-cmd:lab+ct@10.77.3.1/action:10 (/ip dhcp-server lease set *1 comment=lab-static)
+Oct  9 13:46:52 lab-chr system,info,account user lab logged out from 10.77.3.1 via ssh
+Oct  9 13:47:08 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:08 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:08 lab-chr script,info uso-step 7a wireguard: wg-lab on the CHR, the client CHR as peer, handshake + ping
+Oct  9 13:47:08 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:08 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:08 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:09 lab-chr interface,info wg-lab link up
+Oct  9 13:47:09 lab-chr system,info device added by ssh-cmd:admin+ct@10.77.3.1 (*5 = /interface wireguard add listen-port=13231 name=wg-lab)
+Oct  9 13:47:09 lab-chr system,info address added by ssh-cmd:admin+ct@10.77.3.1 (*4 = /ip address add address=10.66.0.1/24 interface=wg-lab)
+Oct  9 13:47:09 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:09 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:09 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:10 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:10 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:10 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:11 lab-chr system,info wireguard peer entry added by ssh-cmd:admin+ct@10.77.3.1 (*1 = /interface wireguard peers add allowed-address=10.66.0.2/32 interface=wg-lab name=peer-client public-key="/GKTarL5jMXsZdL2OFHDQI9ypDQGiINeAPdTrr0UbC0=")
+Oct  9 13:47:11 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:17 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:17 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:17 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:44 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:44 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:44 lab-chr script,info uso-step 7b l2tp without ipsec: alice from the client CHR, then disconnect; then l2tp/ipsec
+Oct  9 13:47:44 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:44 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:44 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:45 lab-chr system,info L2TP Server settings changed by ssh-cmd:admin+ct@10.77.3.1 (/interface l2tp-server server set authentication=mschap2 enabled=yes use-ipsec=no)
+Oct  9 13:47:45 lab-chr system,info ppp secret <alice> added by ssh-cmd:admin+ct@10.77.3.1 (*1 = /ppp secret add local-address=10.0.0.1 name=alice remote-address=10.0.0.2 service=l2tp)
+Oct  9 13:47:45 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:45 lab-chr l2tp,info first L2TP UDP packet received from 10.9.9.20 port 1701
+Oct  9 13:47:45 lab-chr l2tp,ppp,info,account alice logged in, 10.0.0.2 from 10.9.9.20
+Oct  9 13:47:45 lab-chr l2tp,ppp,info <l2tp-alice>: authenticated
+Oct  9 13:47:45 lab-chr l2tp,ppp,info <l2tp-alice>: connected
+Oct  9 13:47:45 lab-chr l2tp,ppp,info <l2tp-alice>: using encoding - MPPE128 stateless
+Oct  9 13:47:53 lab-chr l2tp,ppp,info <l2tp-alice>: terminating...
+Oct  9 13:47:53 lab-chr l2tp,ppp,info,account alice logged out, 8 1090 378 17 13 from 10.9.9.20
+Oct  9 13:47:53 lab-chr l2tp,ppp,info <l2tp-alice>: disconnected
+Oct  9 13:47:58 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:47:58 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:47:58 lab-chr system,info L2TP Server settings changed by ssh-cmd:admin+ct@10.77.3.1 (/interface l2tp-server server set use-ipsec=required)
+Oct  9 13:47:58 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:47:58 lab-chr ipsec,info respond new phase 1 (Identity Protection): 10.9.9.1[500]<=>10.9.9.20[500]
+Oct  9 13:47:58 lab-chr ipsec,info ISAKMP-SA established 10.9.9.1[500]-10.9.9.20[500] spi:162f6ef33515c249:13f12b25dbeaf285
+Oct  9 13:48:00 lab-chr l2tp,info first L2TP UDP packet received from 10.9.9.20 port 1701
+Oct  9 13:48:00 lab-chr l2tp,ppp,info,account alice logged in, 10.0.0.2 from 10.9.9.20
+Oct  9 13:48:00 lab-chr l2tp,ppp,info <l2tp-alice>: authenticated
+Oct  9 13:48:00 lab-chr l2tp,ppp,info <l2tp-alice>: connected
+Oct  9 13:48:13 lab-chr l2tp,ppp,info <l2tp-alice>: terminating...
+Oct  9 13:48:13 lab-chr l2tp,ppp,info,account alice logged out, 13 1570 418 18 12 from 10.9.9.20
+Oct  9 13:48:13 lab-chr l2tp,ppp,info <l2tp-alice>: disconnected
+Oct  9 13:48:14 lab-chr l2tp,info first L2TP UDP packet received from 10.9.9.20 port 1701
+Oct  9 13:48:14 lab-chr l2tp,ppp,error <10.9.9.20>: user alice authentication failed
+Oct  9 13:48:14 lab-chr l2tp,info first L2TP UDP packet received from 10.9.9.20 port 1701
+Oct  9 13:48:14 lab-chr l2tp,ppp,error <10.9.9.20>: user alice authentication failed
+Oct  9 13:48:15 lab-chr ipsec,info purging ISAKMP-SA 10.9.9.1[500]<=>10.9.9.20[500] spi=162f6ef33515c249:13f12b25dbeaf285.
+Oct  9 13:48:15 lab-chr ipsec,info ISAKMP-SA deleted 10.9.9.1[500]-10.9.9.20[500] spi:162f6ef33515c249:13f12b25dbeaf285 rekey:1
+Oct  9 13:48:16 lab-chr ipsec,info respond new phase 1 (Identity Protection): 10.9.9.1[500]<=>10.9.9.20[500]
+Oct  9 13:48:16 lab-chr ipsec,info ISAKMP-SA established 10.9.9.1[500]-10.9.9.20[500] spi:b6d60896a834dd9b:fb9d576e270430fb
+Oct  9 13:48:18 lab-chr l2tp,info first L2TP UDP packet received from 10.9.9.20 port 1701
+Oct  9 13:48:18 lab-chr l2tp,ppp,error <10.9.9.20>: user alice authentication failed
+Oct  9 13:48:19 lab-chr ipsec,info purging ISAKMP-SA 10.9.9.1[500]<=>10.9.9.20[500] spi=b6d60896a834dd9b:fb9d576e270430fb.
+Oct  9 13:48:19 lab-chr ipsec,info ISAKMP-SA deleted 10.9.9.1[500]-10.9.9.20[500] spi:b6d60896a834dd9b:fb9d576e270430fb rekey:1
+Oct  9 13:48:21 lab-chr ipsec,info respond new phase 1 (Identity Protection): 10.9.9.1[500]<=>10.9.9.20[500]
+Oct  9 13:48:21 lab-chr ipsec,info ISAKMP-SA established 10.9.9.1[500]-10.9.9.20[500] spi:d0d7fc5b9219e32e:cfd2161e3b4c33c9
+Oct  9 13:48:23 lab-chr l2tp,info first L2TP UDP packet received from 10.9.9.20 port 1701
+Oct  9 13:48:23 lab-chr l2tp,ppp,error <10.9.9.20>: user alice authentication failed
+Oct  9 13:48:24 lab-chr ipsec,info purging ISAKMP-SA 10.9.9.1[500]<=>10.9.9.20[500] spi=d0d7fc5b9219e32e:cfd2161e3b4c33c9.
+Oct  9 13:48:24 lab-chr ipsec,info ISAKMP-SA deleted 10.9.9.1[500]-10.9.9.20[500] spi:d0d7fc5b9219e32e:cfd2161e3b4c33c9 rekey:1
+Oct  9 13:48:49 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:49 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:49 lab-chr script,info uso-step 8 firewall: the guide rules drop-wan-in / drop-from-server with limit=10,20:packet, a log=yes drop without prefix; masquerade
+Oct  9 13:48:49 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:49 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:49 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:50 lab-chr system,info interface list added by ssh-cmd:admin+ct@10.77.3.1 (*2000010 = /interface list add name=WAN)
+Oct  9 13:48:50 lab-chr system,info interface list member added by ssh-cmd:admin+ct@10.77.3.1 (*1 = /interface list member add interface=ether1 list=WAN)
+Oct  9 13:48:50 lab-chr system,info nat rule added by ssh-cmd:admin+ct@10.77.3.1 (*2 = /ip firewall nat add action=masquerade chain=srcnat comment=lab-masq out-interface=ether1)
+Oct  9 13:48:50 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:50 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:50 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:50 lab-chr system,info filter rule added by ssh-cmd:admin+ct@10.77.3.1 (*5 = /ip firewall filter add action=log chain=input connection-state=new dst-port=2300-2400 in-interface-list=WAN limit=10,20:packet log-prefix=drop-wan-in protocol=tcp)
+Oct  9 13:48:50 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:51 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:51 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:51 lab-chr system,info filter rule added by ssh-cmd:admin+ct@10.77.3.1 (*6 = /ip firewall filter add action=drop chain=input dst-port=2300-2400 in-interface-list=WAN protocol=tcp)
+Oct  9 13:48:51 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:52 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:52 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:52 lab-chr system,info filter rule added by ssh-cmd:admin+ct@10.77.3.1 (*7 = /ip firewall filter add action=log chain=forward connection-state=new limit=10,20:packet log-prefix=drop-from-server src-address=10.9.9.20)
+Oct  9 13:48:52 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:53 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:53 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:54 lab-chr system,info filter rule added by ssh-cmd:admin+ct@10.77.3.1 (*8 = /ip firewall filter add action=drop chain=forward dst-address=10.77.1.0/24 src-address=10.9.9.20)
+Oct  9 13:48:54 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:55 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:55 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:55 lab-chr system,info filter rule added by ssh-cmd:admin+ct@10.77.3.1 (*9 = /ip firewall filter add action=drop chain=input dst-port=5000-5100 in-interface-list=WAN log=yes protocol=udp)
+Oct  9 13:48:55 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:56 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:56 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:57 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:58 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:48:58 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:48:58 lab-chr script,info uso-step 8a single probes: tcp 2323 from Tower (input), udp 5005 (log=yes, no prefix), from the client: ping + tcp + udp through the CHR (forward)
+Oct  9 13:48:58 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:48:59 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:37474->10.77.1.10:2323, len 60
+Oct  9 13:49:00 lab-chr firewall,info input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto UDP, 10.77.1.1:42082->10.77.1.10:5005, len 30
+Oct  9 13:49:00 lab-chr firewall,info drop-from-server forward: in:ether2 out:ether1, connection-state:new src-mac 52:54:00:4D:54:12, proto ICMP (type 8, code 0), 10.9.9.20->10.77.1.1, len 56
+Oct  9 13:49:01 lab-chr firewall,info drop-from-server forward: in:ether2 out:ether1, connection-state:new src-mac 52:54:00:4D:54:12, proto ICMP (type 8, code 0), 10.9.9.20->10.77.1.1, len 56
+Oct  9 13:49:24 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:49:24 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:49:25 lab-chr script,info uso-step 8b scan burst 30 s: ports 2300-2400 from Tower
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:36082->10.77.1.10:2300, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:40946->10.77.1.10:2301, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:41362->10.77.1.10:2302, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:60310->10.77.1.10:2303, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:34124->10.77.1.10:2304, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:40494->10.77.1.10:2305, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:54612->10.77.1.10:2306, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:50084->10.77.1.10:2307, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:51582->10.77.1.10:2308, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:56912->10.77.1.10:2309, len 60
+Oct  9 13:49:25 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:42512->10.77.1.10:2310, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:44322->10.77.1.10:2311, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:33282->10.77.1.10:2312, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:43564->10.77.1.10:2313, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:59608->10.77.1.10:2314, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:55220->10.77.1.10:2315, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:58062->10.77.1.10:2316, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:33350->10.77.1.10:2317, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:54094->10.77.1.10:2318, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:54906->10.77.1.10:2319, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:46728->10.77.1.10:2320, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:49062->10.77.1.10:2321, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:54742->10.77.1.10:2322, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:39104->10.77.1.10:2323, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:50002->10.77.1.10:2324, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:44566->10.77.1.10:2325, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:47272->10.77.1.10:2326, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:47912->10.77.1.10:2327, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:46372->10.77.1.10:2328, len 60
+Oct  9 13:49:26 lab-chr firewall,info drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac 52:54:00:4D:54:F1, proto TCP (SYN), 10.77.1.1:53724->10.77.1.10:2329, len 60
+Oct  9 13:49:25 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:49:58 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:49:58 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:49:58 lab-chr script,info uso-step 8c end of scan
+Oct  9 13:49:58 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:50:11 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:50:11 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:50:11 lab-chr script,info uso-step 8d forward tcp + udp from the client
+Oct  9 13:50:11 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:50:30 lab-chr system,info,account user admin logged out via api
+Oct  9 13:50:31 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:50:31 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:50:32 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:50:42 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:50:42 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:50:42 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:50:53 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:50:53 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:50:53 lab-chr script,info uso-step 8e forward udp (traceroute) from the client
+Oct  9 13:50:53 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:53:55 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:53:55 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:53:55 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:54:05 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:54:05 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:54:05 lab-chr script,info uso-step 8f forward log rule without connection-state, tcp + udp again
+Oct  9 13:54:05 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:54:06 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:54:06 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:54:06 lab-chr system,info filter rule changed by ssh-cmd:admin+ct@10.77.3.1/action:11 ()
+Oct  9 13:54:06 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:54:16 lab-chr firewall,info drop-from-server forward: in:ether2 out:ether1, connection-state:invalid src-mac 52:54:00:4D:54:12, proto UDP, 10.9.9.20:32962->10.77.1.1:33434, len 28
+Oct  9 13:54:18 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:54:18 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:54:19 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:54:26 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:54:26 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:54:27 lab-chr system,info filter rule changed by ssh-cmd:admin+ct@10.77.3.1/action:12 (/ip firewall filter set *7 connection-state=new)
+Oct  9 13:54:27 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:54:27 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:54:27 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:54:27 lab-chr script,info uso-step 9 WAN loss: ether1 (dhcp-client client1) link down 130 s, then up
+Oct  9 13:54:27 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:54:28 lab-chr interface,info ether1 link down
+Oct  9 13:54:28 lab-chr dhcp,info client1 on ether1 lost IP address 10.77.1.10 - lease stopped locally
+Oct  9 13:55:02 lab-chr system,info,account user lab logged out via api
+Oct  9 13:56:38 lab-chr interface,info ether1 link up
+Oct  9 13:56:39 lab-chr dhcp,info client1 on ether1 got IP address 10.77.1.10
+Oct  9 13:56:53 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:56:53 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:56:53 lab-chr script,info uso-step 9b WAN back
+Oct  9 13:56:53 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:57:09 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:57:09 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:57:09 lab-chr script,info uso-step 10a clean reboot (/system reboot)
+Oct  9 13:57:09 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:57:09 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:57:09 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:57:10 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:57:10 lab-chr system,info,account user admin logged out from 10.77.3.1 via rest-api
+Oct  9 13:57:10 lab-chr system,info,account user lab logged out from 10.77.3.1 via rest-api
+Oct  9 13:57:16 lab-chr system,info router rebooted by ssh-cmd:admin+ct@10.77.3.1/reboot
+Oct  9 13:57:16 lab-chr interface,info lo link up
+Oct  9 13:57:16 lab-chr interface,info wg-lab link up
+Oct  9 13:57:17 lab-chr dhcp,info client1 on ether1 got IP address 10.77.1.10
+Oct  9 13:57:17 lab-chr dhcp,info client2 on ether3 got IP address 10.77.3.10
+Oct  9 13:57:50 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:57:50 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:57:50 lab-chr script,info uso-step 10b unclean: virsh destroy + start
+Oct  9 13:57:50 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:58:01 lab-chr system,error,critical router was rebooted without proper shutdown
+Oct  9 13:58:01 lab-chr interface,info lo link up
+Oct  9 13:58:01 lab-chr interface,info wg-lab link up
+Oct  9 13:58:12 lab-chr dhcp,info client2 on ether3 got IP address 10.77.3.10
+Oct  9 13:58:12 lab-chr dhcp,info client1 on ether1 got IP address 10.77.1.10
+Oct  9 13:58:36 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:58:36 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:58:36 lab-chr script,info uso-step 10c wrong clock: /system clock set date=2020-01-01, a login, then reboot
+Oct  9 13:58:36 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:58:36 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:58:36 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:58:37 lab-chr script,error executing script from sshd failed, please check it manually
+Oct  9 13:58:37 lab-chr script,error,debug (ssh-cmd:admin+ct@10.77.3.1) failure: cannot set time before package build time (/system/clock/set; line 1)
+Oct  9 13:58:37 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:58:37 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:58:37 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:58:37 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:58:38 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:58:38 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:58:38 lab-chr script,warning uso-clock-test
+Oct  9 13:58:38 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:58:41 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:58:41 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:58:41 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:58:47 lab-chr system,info router rebooted by ssh-cmd:admin+ct@10.77.3.1/reboot
+Oct  9 13:58:48 lab-chr interface,info lo link up
+Oct  9 13:58:48 lab-chr interface,info wg-lab link up
+Oct  9 13:58:49 lab-chr dhcp,info client1 on ether1 got IP address 10.77.1.10
+Oct  9 13:58:49 lab-chr dhcp,info client2 on ether3 got IP address 10.77.3.10
+Oct  9 13:59:22 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:59:22 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:59:22 lab-chr script,info uso-step 10d after the reboot (clock from the hypervisor again)
+Oct  9 13:59:22 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:59:22 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:59:22 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:59:23 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:59:42 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:59:42 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:59:42 lab-chr script,info uso-step 10e wrong clock: date=2026-09-30 (after the build time), lines, then back
+Oct  9 13:59:42 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:59:42 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:59:42 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Sep 30 13:59:43 lab-chr system,clock,info change time Oct/09/2026 13:59:43 => Sep/30/2026 13:59:43
+Sep 30 13:59:43 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Sep 30 13:59:43 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Sep 30 13:59:43 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Sep 30 13:59:43 lab-chr script,warning uso-clock-test 2026-09-30
+Sep 30 13:59:43 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Sep 30 13:59:44 lab-chr system,error,critical login failure for user admin from 10.77.3.1 via ssh
+Sep 30 13:59:45 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Sep 30 13:59:45 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Mar  1 13:59:46 lab-chr system,clock,info change time Sep/30/2026 13:59:46 => Mar/01/2027 13:59:46
+Mar  1 12:59:46 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Mar  1 12:59:46 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Mar  1 12:59:46 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Mar  1 12:59:47 lab-chr script,warning uso-clock-test 2027-03-01
+Mar  1 12:59:47 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Mar  1 12:59:48 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Mar  1 12:59:48 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:59:48 lab-chr system,clock,info change time Mar/01/2027 12:59:49 => Oct/09/2026 13:59:48
+Oct  9 14:59:48 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:59:48 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:59:48 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:59:49 lab-chr script,info uso-step 10f clock back
+Oct  9 14:59:49 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:59:57 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:59:57 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:59:58 lab-chr system,clock,info change time Oct/09/2026 14:59:58 => Oct/09/2026 13:59:58
+Oct  9 13:59:58 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 13:59:58 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 13:59:58 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 13:59:59 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:00:09 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:00:09 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:00:10 lab-chr script,info uso-step 10g RTC 20 days behind (libvirt clock adjustment, like a board without RTC): shutdown, boot
+Oct  9 14:00:10 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:00:11 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:00:11 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:00:12 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:00:30 lab-chr system,info router rebooted by ssh-cmd:admin+ct@10.77.3.1/shutdown
+Oct  9 14:00:30 lab-chr interface,info lo link up
+Oct  9 14:00:30 lab-chr interface,info wg-lab link up
+Oct  9 14:00:40 lab-chr dhcp,info client1 on ether1 got IP address 10.77.1.10
+Oct  9 14:00:41 lab-chr dhcp,info client2 on ether3 got IP address 10.77.3.10
+Oct  9 14:01:05 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:01:05 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:01:05 lab-chr script,warning uso-rtc-test
+Oct  9 14:01:05 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:01:05 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:01:05 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:01:05 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:01:21 lab-chr system,info router rebooted by ssh-cmd:admin+ct@10.77.3.1/shutdown
+Oct  9 14:01:21 lab-chr interface,info lo link up
+Oct  9 14:01:21 lab-chr interface,info wg-lab link up
+Oct  9 14:01:23 lab-chr dhcp,info client1 on ether1 got IP address 10.77.1.10
+Oct  9 14:01:23 lab-chr dhcp,info client2 on ether3 got IP address 10.77.3.10
+Oct  9 14:01:56 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:01:56 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:01:56 lab-chr script,info uso-step 10h RTC right again
+Oct  9 14:01:56 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:04 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:02:04 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:02:05 lab-chr script,error executing script from sshd failed, please check it manually
+Oct  9 14:02:05 lab-chr script,error,debug (ssh-cmd:admin+ct@10.77.3.1) syntax error (line 1 column 54)
+Oct  9 14:02:05 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:05 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:02:05 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:02:05 lab-chr script,error executing script from sshd failed, please check it manually
+Oct  9 14:02:05 lab-chr script,error,debug (ssh-cmd:admin+ct@10.77.3.1) syntax error (line 1 column 53)
+Oct  9 14:02:05 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:10 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:02:10 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:02:10 lab-chr script,error executing script from sshd failed, please check it manually
+Oct  9 14:02:10 lab-chr script,error,debug (ssh-cmd:admin+ct@10.77.3.1) syntax error (line 1 column 54)
+Oct  9 14:02:10 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:11 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:02:11 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:02:11 lab-chr script,error executing script from sshd failed, please check it manually
+Oct  9 14:02:11 lab-chr script,error,debug (ssh-cmd:admin+ct@10.77.3.1) syntax error (line 1 column 53)
+Oct  9 14:02:11 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:12 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:02:12 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:02:12 lab-chr script,error executing script from sshd failed, please check it manually
+Oct  9 14:02:12 lab-chr script,error,debug (ssh-cmd:admin+ct@10.77.3.1) syntax error (line 1 column 51)
+Oct  9 14:02:12 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:18 lab-chr system,info,account user admin logged in via local
+Oct  9 14:02:27 lab-chr system,info,account user admin logged out via local
+Oct  9 14:02:41 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:02:41 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:02:41 lab-chr user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:02:41 lab-chr log action changed by ssh-cmd:admin+ct@10.77.3.1/action:0 ()
+Oct  9 14:02:42 lab-chr publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:02:42 lab-chr user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:09:38 lab-chr script,info uso-step 9c PPPoE: the client CHR as PPPoE server on lan, pppoe-out1 on the lab CHR ether2; link loss 60 s; server-side wrong password
+Oct  9 14:09:38 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:09:38 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:09:38 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:09:39 lab-chr system,info device added by ssh-cmd:admin+ct@10.77.3.1 (*6 = /interface pppoe-client add add-default-route=no disabled=no interface=ether2 keepalive-timeout=10 name=pppoe-out1 user=wan-user)
+Oct  9 14:09:39 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:09:39 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:09:39 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:09:39 lab-chr pppoe,ppp,info pppoe-out1: authenticated
+Oct  9 14:09:39 lab-chr pppoe,ppp,info pppoe-out1: connected
+Oct  9 14:09:49 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:09:49 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:09:49 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:09:49 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:09:49 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:09:50 lab-chr script,info uso-step 9d PPPoE link loss (virsh domif-setlink ether2 down 60 s)
+Oct  9 14:09:50 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:09:51 lab-chr interface,info ether2 link down
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: terminating... - disconnected
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: terminating...
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:09:51 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:10:01 lab-chr pppoe,ppp,info pppoe-out1: terminating... - disconnected
+Oct  9 14:10:01 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:10:01 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:10:01 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:10:11 lab-chr pppoe,ppp,info pppoe-out1: terminating... - disconnected
+Oct  9 14:10:11 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:10:11 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:10:11 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:10:21 lab-chr pppoe,ppp,info pppoe-out1: terminating... - disconnected
+Oct  9 14:10:21 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:10:22 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:10:22 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:10:32 lab-chr pppoe,ppp,info pppoe-out1: terminating... - disconnected
+Oct  9 14:10:32 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:10:33 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:10:33 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:10:44 lab-chr pppoe,ppp,info pppoe-out1: terminating... - disconnected
+Oct  9 14:10:44 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:10:47 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:10:47 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:10:51 lab-chr interface,info ether2 link up
+Oct  9 14:10:51 lab-chr pppoe,ppp,info pppoe-out1: authenticated
+Oct  9 14:10:51 lab-chr pppoe,ppp,info pppoe-out1: connected
+Oct  9 14:11:10 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:11:10 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:11:10 lab-chr script,info uso-step 9e PPPoE server stops answering for the peer (secret disabled), then back
+Oct  9 14:11:10 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:11:11 lab-chr pppoe,ppp,info pppoe-out1: terminating... - hungup
+Oct  9 14:11:11 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:11:17 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:11:17 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:11:17 lab-chr pppoe,ppp,info pppoe-out1: terminating... - failed to authenticate ourselves to peer
+Oct  9 14:11:17 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:11:27 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:11:27 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:11:28 lab-chr pppoe,ppp,info pppoe-out1: terminating... - failed to authenticate ourselves to peer
+Oct  9 14:11:28 lab-chr pppoe,ppp,info pppoe-out1: disconnected
+Oct  9 14:11:38 lab-chr pppoe,ppp,info pppoe-out1: initializing...
+Oct  9 14:11:38 lab-chr pppoe,ppp,info pppoe-out1: connecting...
+Oct  9 14:11:38 lab-chr pppoe,ppp,info pppoe-out1: authenticated
+Oct  9 14:11:38 lab-chr pppoe,ppp,info pppoe-out1: connected
+Oct  9 14:11:56 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:11:56 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:11:56 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:11:56 lab-chr pppoe,ppp,info pppoe-out1: terminating... - administrator request
+Oct  9 14:11:56 lab-chr pppoe,ppp,info pppoe-out1: disabled
+Oct  9 14:11:56 lab-chr system,info device changed by ssh-cmd:admin+ct@10.77.3.1/action:0 (/interface set pppoe-out1 disabled=yes)
+Oct  9 14:12:00 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:12:00 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:12:00 lab-chr script,info uso-step 9f PPPoE end
+Oct  9 14:12:00 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:12:20 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:12:20 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:12:20 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
+Oct  9 14:12:20 lab-chr system,info log action changed by ssh-cmd:admin+ct@10.77.3.1/action:0 (/system logging action set unraid add-topics-string=yes syslog-time-format=bsd-syslog)
+Oct  9 14:12:21 lab-chr ssh,info publickey accepted for user: admin+ct, fingerprint: SHA256:JdzX+A8wW/WagFXzzZ+M4TZMMed76MMDzdTRkNvpBaQ=
+Oct  9 14:12:21 lab-chr system,info,account user admin logged in from 10.77.3.1 via ssh
+Oct  9 14:12:21 lab-chr system,info,account user admin logged out from 10.77.3.1 via ssh
