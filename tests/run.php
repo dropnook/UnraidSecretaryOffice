@@ -1777,8 +1777,8 @@ SH);
     same('new: watched - kopia with kopia_known (also empty); without it, or only local: as before',
         'appdata UnraidSecretaryOffice', $sh("$pre for s in appdata UnraidSecretaryOffice docs local; do share_watched \$s && printf '%s ' \$s; done"));
     same('new: what is decided - known, own and global rules, an app\'s own part, the backup place\'s folder',
-        'a=1 decided=1 kopia=1 cache2=1 deep=0 nc=1 _UnraidSecretaryOffice-trash-1=1 .DS_Store=1 b=0 ncx=0 backup:place=1 other:place=0',
-        $sh("$pre new_decided_load appdata; for n in a decided kopia cache2 deep nc _UnraidSecretaryOffice-trash-1 .DS_Store b ncx; do new_decided appdata \"\$n\" && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done;"
+        'a=1 decided=1 kopia=1 cache2=1 deep=0 nc=1 _UnraidSecretaryOffice-trash-1=1 .UnraidSecretaryOffice-trash=1 .DS_Store=1 b=0 ncx=0 backup:place=1 other:place=0',
+        $sh("$pre new_decided_load appdata; for n in a decided kopia cache2 deep nc _UnraidSecretaryOffice-trash-1 .UnraidSecretaryOffice-trash .DS_Store b ncx; do new_decided appdata \"\$n\" && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done;"
             . ' new_decided_load UnraidSecretaryOffice; new_decided UnraidSecretaryOffice backup && printf "backup:place=1 " || printf "backup:place=0 "; new_decided UnraidSecretaryOffice other && printf "other:place=1" || printf "other:place=0"'));
     same('new: fancier rules never count as leaving a folder out (it stays new - left out by the run itself)', '0 0 0 0 1 1',
         $sh('for r in "/@(b)/" "/b\\\\x/" "!/b/" "/b/c/" "b" "/b"; do rule_hides_top "$r" b && printf "1 " || printf "0 "; done'));
@@ -1911,6 +1911,8 @@ SH);
     $out = $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     $P = $plan['P'] ?? [];
+    same('setup plan: Kopia leaves out Ms. Dustdevil\'s storeroom by its new, hidden name too (issue #7) — the old rule stays',
+        ['_UnraidSecretaryOffice-trash*/', '.UnraidSecretaryOffice-trash*/'], $P['kopia|ignore'] ?? null);
     same('setup plan: the first record - every folder that is there and not left out (2.20 settings: nothing recorded yet)',
         [['/bigds/', '/bitcoin2/', '/c1/', '/gone/'], ['/backup/'], []],
         [$P['share|appdata|kopia_known'] ?? null, $P['share|UnraidSecretaryOffice|kopia_known'] ?? null, $P['share|docs|kopia_known'] ?? null], $out);
@@ -3439,7 +3441,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.35', [1, '2.35'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.36', [1, '2.36'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -3949,7 +3951,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.35', [1, '2.35'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.36', [1, '2.36'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -6668,18 +6670,29 @@ function testLeftovers(): void
         $u(['id' => '20261006-173611-d33f', 'kind' => 'putback', 'result' => 'ok', 'putback' => null, 'steps' => [],
             'aside' => [['from' => '/mnt/master/appdata/zz/pg', 'to' => '/mnt/master/appdata/zz/pg.putback-20261006-173611', 'dataset' => null, 'to_dataset' => null]]]));
     same('leftovers: templates on the flash (one folder for the time), a compose file elsewhere, a VM\'s configuration',
-        [['/boot/config/_UnraidSecretaryOffice-restore/20261007-090000', null, 'flash', true], ['/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000', null, 'file_aside', true],
-         ['/etc/libvirt/_UnraidSecretaryOffice-restore/20261007-090000', null, 'libvirt', true]],
+        [['/boot/config/.UnraidSecretaryOffice-restore/20261007-090000', null, 'flash', true], ['/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000', null, 'file_aside', true],
+         ['/etc/libvirt/.UnraidSecretaryOffice-restore/20261007-090000', null, 'libvirt', true]],
+        $u(['id' => '20261007-090000-0a1b', 'kind' => 'config', 'result' => 'failed', 'putback' => ['result' => 'refused'], 'steps' => [],
+            'aside' => [['from' => '/boot/config/plugins/dockerMan/templates-user/my-a.xml', 'to' => '/boot/config/.UnraidSecretaryOffice-restore/20261007-090000/plugins/dockerMan/templates-user/my-a.xml'],
+                        ['from' => '/boot/config/plugins/compose.manager/projects/x/compose.yaml', 'to' => '/boot/config/.UnraidSecretaryOffice-restore/20261007-090000/plugins/compose.manager/projects/x/compose.yaml'],
+                        ['from' => '/mnt/user/appdata/x/compose.yml', 'to' => '/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000'],
+                        ['from' => 'vm:Win', 'to' => '/etc/libvirt/.UnraidSecretaryOffice-restore/20261007-090000/Win/domain.xml', 'what' => 'xml']]]));
+    // issue #7: a journal from before names his set-aside folder by its old name — the unit is where it lies now
+    // (officeHiddenNow(): the new name once the old folder is gone; while it is still there, the old one)
+    same('leftovers: a journal from before issue #7 — his folder of the old name, taken where it lies now',
+        [[officeHiddenNow('/boot/config/_UnraidSecretaryOffice-restore/20261007-090000'), null, 'flash', true],
+         [officeHiddenNow('/etc/libvirt/_UnraidSecretaryOffice-restore/20261007-090000'), null, 'libvirt', true]],
         $u(['id' => '20261007-090000-0a1b', 'kind' => 'config', 'result' => 'failed', 'putback' => ['result' => 'refused'], 'steps' => [],
             'aside' => [['from' => '/boot/config/plugins/dockerMan/templates-user/my-a.xml', 'to' => '/boot/config/_UnraidSecretaryOffice-restore/20261007-090000/plugins/dockerMan/templates-user/my-a.xml'],
-                        ['from' => '/boot/config/plugins/compose.manager/projects/x/compose.yaml', 'to' => '/boot/config/_UnraidSecretaryOffice-restore/20261007-090000/plugins/compose.manager/projects/x/compose.yaml'],
-                        ['from' => '/mnt/user/appdata/x/compose.yml', 'to' => '/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000'],
                         ['from' => 'vm:Win', 'to' => '/etc/libvirt/_UnraidSecretaryOffice-restore/20261007-090000/Win/domain.xml', 'what' => 'xml']]]));
+    check('leftovers: … both shapes are his places for putting back',
+        clLeftoverShape('/boot/config/_UnraidSecretaryOffice-restore/20261007-090000') && clLeftoverShape('/boot/config/.UnraidSecretaryOffice-restore/20261007-090000')
+        && !clLeftoverShape('/boot/config/xUnraidSecretaryOffice-restore/20261007-090000'));
     same('leftovers: never another shape — another time, none, unfilled, outside /mnt, «..», a dump elsewhere, a dataset of another name', [['/mnt/a/b/ok.aside-20261007-090000', null, 'aside', false]],
         $u(['id' => '20261007-090000-0a1b', 'kind' => 'db', 'result' => 'refused', 'steps' => [['do' => 'copy', 'to' => '/mnt/a/b/c.restored-20261001-000000']],
             'aside' => [['to' => '/mnt/a/b/c.aside-20261001-000000'], ['to' => '/mnt/a/b/c'], ['to' => '/mnt/a/b/c.aside-{T}'], ['to' => '/tmp/c.aside-20261007-090000'],
                         ['to' => '/mnt/a/../b/c.aside-20261007-090000'], ['to' => '/mnt/a/b/x.sql.gz', 'what' => 'safety_dump'], ['to' => "/mnt/a/b/c.aside-20261007-090000\n"],
-                        ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/_UnraidSecretaryOffice-restore/20261001-000000/x']]]));
+                        ['to' => '/mnt/a/b/ok.aside-20261007-090000', 'to_dataset' => 'a/b/other'], ['to' => '/boot/config/.UnraidSecretaryOffice-restore/20261001-000000/x']]]));
     same('leftovers: what «Put back» can still undo', [true, true, false, false, false, true],
         array_map('clRestoreUndoable', [['kind' => 'db', 'result' => 'ok'], ['kind' => 'files', 'result' => 'interrupted', 'putback' => ['result' => 'refused']],
             ['kind' => 'db', 'result' => 'ok', 'putback' => ['result' => 'failed']], ['kind' => 'putback', 'result' => 'ok'], ['kind' => 'kopia', 'result' => 'ok'],
@@ -19306,7 +19319,7 @@ function testVmOrphans(): void
     exec('rm -rf ' . escapeshellarg($tmp) . '/*');
     $db = "$tmp/qemu/snapshotdb";
     $xml = "$tmp/qemu";
-    $trash = "$tmp/_UnraidSecretaryOffice-trash";
+    $trash = "$tmp/" . CL_TRASH;
     $pool = "$tmp/pool";
     foreach (["$db", "$pool/domains/GoneLeft", "$pool/domains/QemuFile", "$tmp/isos", "$tmp/elsewhere/Linked"] as $d) {
         @mkdir($d, 0755, true);
@@ -19457,6 +19470,13 @@ function testVmOrphans(): void
         ['kind' => 'snapshotdb', 'name' => 'Up', 'from' => "$db/..", 'as' => 'snapshotdb/..']]]));
     same('vm orphans: only entries of her shape are listed', ['Gone ZFS'], array_column(snapshotVmAway(['Existing']), 'vm'));
     exec('rm -rf ' . escapeshellarg("$trash/20260101-000000"));
+    // issue #7: a list put away into the storeroom of the old name is hers too
+    $oldTrash = "$tmp/" . CL_TRASH_OLD;
+    @mkdir("$oldTrash/20250101-000000/snapshotdb/Older", 0755, true);
+    file_put_contents("$oldTrash/20250101-000000/snapshotdb/Older/snapshots.db", '{"a":1}');
+    file_put_contents("$oldTrash/20250101-000000/manifest.json", json_encode(['time' => 2, 'items' => [['kind' => 'snapshotdb', 'name' => 'Older', 'from' => "$db/Older", 'as' => 'snapshotdb/Older']]]));
+    same('vm orphans: a list in the storeroom of its old name (before issue #7) is listed too', ['Gone ZFS', 'Older'], array_column(snapshotVmAway(['Existing']), 'vm'));
+    exec('rm -rf ' . escapeshellarg($oldTrash));
 
     $r = snapshotVmRelist($id);
     same('vm orphans: put back — in Unraid\'s list again, an orphan again, the run gone with the storeroom',
@@ -22290,13 +22310,13 @@ SH);
     $GLOBALS['clFresh']['share']['sysx'] = ['shareUseCache' => 'yes', 'shareCachePool' => 'gone'];
     @mkdir("$mnt/disk1/sysx/docker", 0755, true);
     $ctx = ['roots' => ['cache' => ['fs' => 'zfs', 'kind' => 'pool'], 'disk1' => ['fs' => 'xfs', 'kind' => 'disk']], 'asleep' => []];
-    $trash = "$mnt/cache/system/_UnraidSecretaryOffice-trash";
+    $trash = "$mnt/cache/system/" . CL_TRASH;
     same('volumes: the storeroom beside Docker\'s folder, on the pool of its share',
         ['pool' => 'cache', 'root' => $trash, 'asleep' => false], clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/user/system/docker/'], $ctx, $mnt));
     same('volumes: beside docker.img on a pool named directly', ['pool' => 'cache', 'root' => $trash, 'asleep' => false],
         clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/cache/system/docker/docker.img'], $ctx, $mnt));
     same('volumes: a share found where it lies (its pool gone), a sleeping disk never looked at',
-        [['pool' => 'disk1', 'root' => "$mnt/disk1/sysx/_UnraidSecretaryOffice-trash", 'asleep' => false], null],
+        [['pool' => 'disk1', 'root' => "$mnt/disk1/sysx/" . CL_TRASH, 'asleep' => false], null],
         [clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/user/sysx/docker'], $ctx, $mnt),
          clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/user/sysx/docker'], ['asleep' => ['disk1' => true]] + $ctx, $mnt)]);
     same('volumes: no storeroom where it can\'t be told', [null, null, null, null],
@@ -22431,12 +22451,258 @@ SH);
     hardeningRm($tmp);
 }
 
+/**
+ * Issue #7: Ms. Dustdevil's storeroom and Mr. Restori's set-aside folder are hidden folders. The old names are read for
+ * good and moved over once per place (clTrashMigrate()): only the old folder (renamed), only the new one (nothing), both
+ * (runs one by one, a clash gets a suffix, what isn't hers stays — and so does the old folder), a rename that fails
+ * (the old folder stays in use), a dataset of its own (zfs rename while its mountpoint follows), busy (the engine's
+ * lock: next time), once per place; «Put back» of a run that was moved (hers through clRestore(), his through his undo
+ * steps); the other desks and the engine know both names (watchman, partners' places, let-go journals, the backup's
+ * excludes, Kopia's ignore rules)
+ */
+function testHiddenStoreroom(): void
+{
+    $tmp = hardeningTmp('hidden-trash');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+
+    // --- the names
+    same('hidden: the names — new and old are both the storeroom, nothing else is',
+        [true, true, true, true, false, false, false],
+        [storeroomName('.UnraidSecretaryOffice-trash'), storeroomName('_UnraidSecretaryOffice-trash'), storeroomName('.UnraidSecretaryOffice-trash-20261009-101010-foo'),
+         storeroomName(CL_TRASH), storeroomName('UnraidSecretaryOffice-trash'), storeroomName('.UnraidSecretaryOffice-restore'), storeroomName('appdata')]);
+    same('hidden: the storeroom is hidden, Mr. Restori\'s folder too; the other places keep their names',
+        ['.UnraidSecretaryOffice-trash', '_UnraidSecretaryOffice-trash', '.UnraidSecretaryOffice-restore', '_UnraidSecretaryOffice-restore', '/boot/config/.UnraidSecretaryOffice-restore', OFFICE_ASIDE],
+        [CL_TRASH, CL_TRASH_OLD, CL_RESTORE_ASIDE, CL_RESTORE_ASIDE_OLD, RS_FLASH_ASIDE, RS_LIBVIRT_ASIDE]);
+    same('hidden: a path in a storeroom (either name), a dataset put away; not a name that only looks alike',
+        [true, true, true, false, false],
+        [storeroomIn('/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261009-101010'), storeroomIn('tank/appdata/_UnraidSecretaryOffice-trash-20261009-101010-x'),
+         storeroomIn('.UnraidSecretaryOffice-trash'), storeroomIn('/mnt/cache/appdata/my_UnraidSecretaryOffice-trash'), storeroomIn('/mnt/cache/appdata/x')]);
+    same('hidden: both folders of a place are read; datasets put away under either name',
+        [['/x/s/.UnraidSecretaryOffice-trash', '/x/s/_UnraidSecretaryOffice-trash'], ['/x/s/.UnraidSecretaryOffice-trash', '/x/s/_UnraidSecretaryOffice-trash'], ['/x/other'], true, true, false],
+        [clTrashBoth('/x/s/.UnraidSecretaryOffice-trash'), clTrashBoth('/x/s/_UnraidSecretaryOffice-trash'), clTrashBoth('/x/other'),
+         clTrashDataset('.UnraidSecretaryOffice-trash-20261009-101010-a'), clTrashDataset('_UnraidSecretaryOffice-trash-20261009-101010-a'), clTrashDataset('.UnraidSecretaryOffice-trash')]);
+
+    // --- where a path an older record names lies now
+    @mkdir("$tmp/w/_UnraidSecretaryOffice-restore/20261007-090000", 0755, true);
+    @mkdir("$tmp/v", 0755, true);
+    same('hidden: an old path stays while it is there; else the new name (also where to write, the old folder there or not); other paths as they are',
+        ["$tmp/w/_UnraidSecretaryOffice-restore/20261007-090000", "$tmp/w/.UnraidSecretaryOffice-restore/{T}/x", "$tmp/v/.UnraidSecretaryOffice-restore/{T}/y", "$tmp/v/.UnraidSecretaryOffice-trash/20261001-000000",
+         "$tmp/v/_UnraidSecretaryOffice-trash-20261001-000000-ds", "$tmp/v/a.aside-20261007-090000"],
+        [officeHiddenNow("$tmp/w/_UnraidSecretaryOffice-restore/20261007-090000"), officeHiddenNow("$tmp/w/_UnraidSecretaryOffice-restore/{T}/x"),
+         officeHiddenNow("$tmp/v/_UnraidSecretaryOffice-restore/{T}/y"),
+         officeHiddenNow("$tmp/v/_UnraidSecretaryOffice-trash/20261001-000000"), officeHiddenNow("$tmp/v/_UnraidSecretaryOffice-trash-20261001-000000-ds"),
+         officeHiddenNow("$tmp/v/a.aside-20261007-090000")]);
+
+    // a run as she writes it: a folder put away (appdata/<name>) and a dataset put away next to the storeroom
+    $mkRun = function (string $root, string $stamp, string $share, string $name, ?string $ds = null): string {
+        @mkdir("$root/$stamp/appdata/$name/sub", 0775, true);
+        file_put_contents("$root/$stamp/appdata/$name/sub/data", 'x');
+        $items = [['kind' => 'appdata', 'name' => $name, 'label' => 'cache', 'from' => "$share/$name", 'as' => "appdata/$name", 'dataset' => null, 'bytes' => 1]];
+        if ($ds !== null) {
+            $items[] = ['kind' => 'appdata', 'name' => basename($ds), 'label' => 'cache', 'from' => "$share/" . basename($ds), 'as' => '@' . dirname($ds) . '/' . CL_TRASH_OLD . "-$stamp-" . basename($ds),
+                        'dataset' => $ds, 'bytes' => 1];
+        }
+        file_put_contents("$root/$stamp/manifest.json", json_encode(['written_by' => 'Unraid Secretary Office (Ms. Dustdevil)', 'version' => 1, 'time' => 1760000000, 'items' => $items]));
+        return "$root/$stamp";
+    };
+    $runsOf = function (array $roots): array {
+        $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+        $out = clTrashRuns([], ['ok' => false], $roots);
+        unset($GLOBALS['clCtx']);
+        return $out;
+    };
+    $migrate = function (array $places, array $host = []): array {
+        $GLOBALS['clMigrateHost'] = $host + ['busy' => false, 'mounts' => []];
+        $r = clTrashMigrate($places);
+        unset($GLOBALS['clMigrateHost']);
+        return $r;
+    };
+
+    // --- only the old folder: renamed, every run along; listed as before, from the same places
+    $GLOBALS['clTrashMigrated'] = [];
+    $s1 = "$tmp/mnt/cache/appdata";
+    $old1 = "$s1/" . CL_TRASH_OLD;
+    $new1 = "$s1/" . CL_TRASH;
+    $mkRun($old1, '20261001-101010', $s1, 'gone-app');
+    @mkdir("$old1/20261002-000000.purging/x", 0775, true);
+    same('hidden: before — the old folder is read as hers (one run, its item there, from where it came)',
+        [1, true, "$s1/gone-app", $old1],
+        (function () use ($runsOf, $new1) { $r = array_values(array_filter($runsOf([$new1]), fn ($x) => !$x['purging'])); return [count($r), $r[0]['items'][0]['present'] ?? null, $r[0]['items'][0]['from'] ?? null, $r[0]['root'] ?? null]; })());
+    same('hidden: only the old folder — renamed (one rename, nothing copied)', [$new1 => 'renamed'], $migrate([$new1]));
+    same('hidden: … the old one gone, the runs in the new one (also one being emptied)', [false, true, true],
+        [is_dir($old1), is_file("$new1/20261001-101010/appdata/gone-app/sub/data"), is_dir("$new1/20261002-000000.purging")]);
+    $r = array_values(array_filter($runsOf([$new1]), fn ($x) => !$x['purging']));
+    same('hidden: … listed from the new folder, its item there, from the same place', [1, $new1, true, "$s1/gone-app"],
+        [count($r), $r[0]['root'] ?? null, $r[0]['items'][0]['present'] ?? null, $r[0]['items'][0]['from'] ?? null]);
+    same('hidden: … once per place: asked again, nothing is done', [], $migrate([$new1]));
+
+    // «Put back» of the moved run — her own action, on her look given (no server read)
+    @mkdir($s1, 0755, true);
+    $GLOBALS['clScanStub'] = fn () => ['trash' => ['runs' => $runsOf([$new1])], 'stacks' => ['root' => "$tmp/none"], 'backup_running' => false];
+    $id = $r[0]['items'][0]['id'] ?? '';
+    $res = clRestore([$id]);
+    unset($GLOBALS['clScanStub']);
+    same('hidden: «Put back» of a run that was moved — back where it came from, the run gone (only the purging one stays)',
+        [true, true, false, ['20261002-000000.purging']],
+        [$res['results'][0]['ok'] ?? null, is_file("$s1/gone-app/sub/data"), is_dir("$new1/20261001-101010"), array_values(array_diff(scandir($new1) ?: [], ['.', '..']))]);
+
+    // --- only the new folder: nothing to do
+    $GLOBALS['clTrashMigrated'] = [];
+    same('hidden: only the new folder — nothing to move', [], $migrate([$new1]));
+
+    // --- both: the runs one by one; a clash gets a suffix (its datasets still its own); a stranger stays, and the old folder
+    $GLOBALS['clTrashMigrated'] = [];
+    $s2 = "$tmp/mnt/cache/domains";
+    $old2 = "$s2/" . CL_TRASH_OLD;
+    $new2 = "$s2/" . CL_TRASH;
+    $mkRun($new2, '20261001-101010', $s2, 'already');
+    $mkRun($old2, '20261001-101010', $s2, 'clashing', 'cache/domains/Win');
+    $mkRun($old2, '20261003-030303', $s2, 'plain');
+    @mkdir("$old2/20261004-000000.purging", 0775, true);
+    @mkdir("$new2/20261004-000000", 0775, true);
+    file_put_contents("$old2/notes.txt", 'mine');
+    same('hidden: both — the runs moved, the stranger stays and so does the old folder', [$new2 => 'partly'], $migrate([$old2]));
+    same('hidden: … the clash got a suffix (also the run being emptied); the others as they are; nothing copied',
+        [['20261001-101010', '20261001-101010-2', '20261003-030303', '20261004-000000', '20261004-000000-2.purging'], ['notes.txt']],
+        [array_values(array_diff(scandir($new2) ?: [], ['.', '..'])), array_values(array_diff(scandir($old2) ?: [], ['.', '..']))]);
+    $m = readJson("$new2/20261001-101010-2/manifest.json") ?? [];
+    same('hidden: … the moved run still owns its dataset (named by its time without the suffix); another time\'s it doesn\'t',
+        [true, false, true],
+        [clTrashAsOk($m['items'][1]['as'] ?? '', 'appdata', '20261001-101010-2'), clTrashAsOk($m['items'][1]['as'] ?? '', 'appdata', '20261003-030303'),
+         clTrashAsOk('@cache/domains/' . CL_TRASH . '-20261001-101010-2-Win', 'appdata', '20261001-101010-2')]);
+    $items = array_merge(...array_column($runsOf([$new2]), 'items'));
+    same('hidden: … every run listed from both folders — the folders and the dataset', ['already', 'clashing', 'Win', 'plain'],
+        array_column(array_values(array_filter($items, fn ($it) => $it['kind'] === 'appdata')), 'name'));
+    unlink("$old2/notes.txt");
+    $GLOBALS['clTrashMigrated'] = [];
+    same('hidden: … the stranger gone, the next agent start removes the empty old folder', [[$new2 => 'merged'], false], [$migrate([$new2]), is_dir($old2)]);
+
+    // --- a rename that fails: something else has the new name — logged, the old folder stays in use
+    $GLOBALS['clTrashMigrated'] = [];
+    $s3 = "$tmp/mnt/cache/isos";
+    $old3 = "$s3/" . CL_TRASH_OLD;
+    $mkRun($old3, '20261005-050505', $s3, 'img');
+    file_put_contents("$s3/" . CL_TRASH, 'a file of that name');
+    same('hidden: a rename that fails — said, the old folder stays and is read as hers',
+        [["$s3/" . CL_TRASH => 'failed'], true, ['img']],
+        [$migrate(["$s3/" . CL_TRASH]), is_file("$old3/20261005-050505/appdata/img/sub/data"), array_column(array_merge(...array_column($runsOf(["$s3/" . CL_TRASH]), 'items')), 'name')]);
+    unlink("$s3/" . CL_TRASH);
+    $GLOBALS['clTrashMigrated'] = [];
+    $old4 = "$tmp/mnt/cache/x/" . CL_TRASH_OLD;
+    @mkdir("$old4/20261006-060606", 0775, true);
+    @mkdir("$tmp/mnt/cache/x/" . CL_TRASH . '/20261006-060606', 0775, true);
+    same('hidden: both, a run whose name is taken gets the next free suffix', [["$tmp/mnt/cache/x/" . CL_TRASH => 'merged'], true],
+        [$migrate(["$tmp/mnt/cache/x/" . CL_TRASH]), is_dir("$tmp/mnt/cache/x/" . CL_TRASH . '/20261006-060606-2')]);
+
+    // --- busy: the engine's lock or a job of hers inside the old folder — next time
+    $GLOBALS['clTrashMigrated'] = [];
+    $s5 = "$tmp/mnt/cache/y";
+    $old5 = "$s5/" . CL_TRASH_OLD;
+    @mkdir("$old5/20261007-070707", 0775, true);
+    same('hidden: busy (a backup or a restore holds the engine\'s lock) — not now', [["$s5/" . CL_TRASH => 'busy'], true], [$migrate(["$s5/" . CL_TRASH], ['busy' => true]), is_dir($old5)]);
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => ['purge:' . "$old5/20261007-070707.purging" => []]];
+    same('hidden: … a job of hers inside the old folder — not now either', ["$s5/" . CL_TRASH => 'busy'], $migrate(["$s5/" . CL_TRASH]));
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+    same('hidden: … then at the next look', ["$s5/" . CL_TRASH => 'renamed'], $migrate(["$s5/" . CL_TRASH]));
+
+    // --- a dataset of its own: zfs rename while its mountpoint follows the name; never one set by hand or named otherwise
+    $zfsLog = [];
+    $zfs = function (string $source) use (&$zfsLog) {
+        return function (array $args) use (&$zfsLog, $source) {
+            $zfsLog[] = implode(' ', $args);
+            return $args[0] === 'get' ? [0, "$source\n", ''] : [0, '', ''];
+        };
+    };
+    $GLOBALS['clTrashMigrated'] = [];
+    $s6 = "$tmp/mnt/tank/appdata";
+    @mkdir("$s6/" . CL_TRASH_OLD, 0775, true);
+    same('hidden: a dataset of its own — zfs rename, its children along', [["$s6/" . CL_TRASH => 'renamed'],
+        ['get -H -o source mountpoint tank/appdata/' . CL_TRASH_OLD, 'rename tank/appdata/' . CL_TRASH_OLD . ' tank/appdata/' . CL_TRASH]],
+        [$migrate(["$s6/" . CL_TRASH], ['mounts' => ["$s6/" . CL_TRASH_OLD => ['zfs', 'tank/appdata/' . CL_TRASH_OLD]], 'zfs' => $zfs('inherited from tank/appdata')]), $zfsLog]);
+    $zfsLog = [];
+    $GLOBALS['clTrashMigrated'] = [];
+    same('hidden: … its mountpoint set by hand: left as it is (no rename)', [["$s6/" . CL_TRASH => 'failed'], ['get -H -o source mountpoint tank/appdata/' . CL_TRASH_OLD]],
+        [$migrate(["$s6/" . CL_TRASH], ['mounts' => ["$s6/" . CL_TRASH_OLD => ['zfs', 'tank/appdata/' . CL_TRASH_OLD]], 'zfs' => $zfs('local')]), $zfsLog]);
+    $zfsLog = [];
+    $GLOBALS['clTrashMigrated'] = [];
+    same('hidden: … a filesystem named otherwise, or no ZFS: left as it is', [["$s6/" . CL_TRASH => 'failed'], [], true],
+        [$migrate(["$s6/" . CL_TRASH], ['mounts' => ["$s6/" . CL_TRASH_OLD => ['zfs', 'tank/appdata/other']], 'zfs' => $zfs('default')]), $zfsLog, is_dir("$s6/" . CL_TRASH_OLD)]);
+
+    // --- Mr. Restori's set-aside folder: moved over by his time; a time taken in both stays where it is (his journals name it)
+    $GLOBALS['clTrashMigrated'] = [];
+    $f = "$tmp/boot/config";
+    @mkdir("$f/" . CL_RESTORE_ASIDE_OLD . '/20261007-090000/plugins/dockerMan/templates-user', 0755, true);
+    file_put_contents("$f/" . CL_RESTORE_ASIDE_OLD . '/20261007-090000/plugins/dockerMan/templates-user/my-a.xml', '<old/>');
+    @mkdir("$f/" . CL_RESTORE_ASIDE_OLD . '/20261008-080000', 0755, true);
+    file_put_contents("$f/" . CL_RESTORE_ASIDE_OLD . '/20261008-080000/x', 'old');
+    @mkdir("$f/" . CL_RESTORE_ASIDE . '/20261008-080000', 0755, true);
+    same('hidden: his folder — both there: a time of the old one moved, a time taken in both stays (and so the old folder)',
+        [["$f/" . CL_RESTORE_ASIDE => 'partly'], true, true],
+        [$migrate(["$f/" . CL_RESTORE_ASIDE]), is_file("$f/" . CL_RESTORE_ASIDE . '/20261007-090000/plugins/dockerMan/templates-user/my-a.xml'), is_dir("$f/" . CL_RESTORE_ASIDE_OLD . '/20261008-080000')]);
+    // his «Put back» from a journal of before: the undo steps name where it lies now — the moved one under the new name,
+    // the one still in the old folder where it is; where he writes, never under the old name
+    $j = ['steps' => [
+        ['do' => 'aside', 'state' => 'ok', 'undo' => [
+            ['do' => 'aside', 'path' => '/boot/config/plugins/dockerMan/templates-user/my-a.xml', 'to' => "$f/" . CL_RESTORE_ASIDE_OLD . '/{T}/plugins/dockerMan/templates-user/my-a.xml', 'optional' => true],
+            ['do' => 'move', 'from' => "$f/" . CL_RESTORE_ASIDE_OLD . '/20261007-090000/plugins/dockerMan/templates-user/my-a.xml', 'to' => '/boot/config/plugins/dockerMan/templates-user/my-a.xml']]],
+        ['do' => 'aside', 'state' => 'ok', 'undo' => [['do' => 'move', 'from' => "$f/" . CL_RESTORE_ASIDE_OLD . '/20261008-080000/x', 'to' => '/boot/config/x']]],
+        ['do' => 'define', 'state' => 'ok', 'undo' => [['do' => 'define', 'xml' => "<domain><x>$f/" . CL_RESTORE_ASIDE_OLD . '/a</x></domain>', 'name' => 'Win']]]]];
+    $u = rsUndoSteps($j);
+    same('hidden: his «Put back» after the move — from where it lies now (the time still in the old folder there); written only under the new name; an XML untouched',
+        ["$f/" . CL_RESTORE_ASIDE_OLD . '/20261008-080000/x', "$f/" . CL_RESTORE_ASIDE . '/{T}/plugins/dockerMan/templates-user/my-a.xml',
+         "$f/" . CL_RESTORE_ASIDE . '/20261007-090000/plugins/dockerMan/templates-user/my-a.xml', "<domain><x>$f/" . CL_RESTORE_ASIDE_OLD . '/a</x></domain>'],
+        [$u[1]['from'] ?? null, $u[2]['to'] ?? null, $u[3]['from'] ?? null, $u[0]['xml'] ?? null]);
+    check('hidden: … and the moved file is really there to go back', is_file($u[3]['from'] ?? ''));
+    rename("$f/" . CL_RESTORE_ASIDE_OLD . '/20261008-080000', "$f/" . CL_RESTORE_ASIDE . '/20261008-080001');
+    @rmdir("$f/" . CL_RESTORE_ASIDE_OLD);
+    same('hidden: … once the old folder is gone, the rest under the new name too', "$f/" . CL_RESTORE_ASIDE . '/20261008-080000/x', rsUndoSteps($j)[1]['from'] ?? null);
+
+    // --- the other desks know both names
+    same('hidden: the night watchman — a share put whole into the storeroom still counts for it (either name)', ['Serien', 'Serien', 'Alt', null],
+        [watchmanGoneShare('tank/.UnraidSecretaryOffice-trash-20261009-101010-Serien/sub'), watchmanGoneShare('tank/_UnraidSecretaryOffice-trash-20261006-140500-Serien'),
+         watchmanGoneShare('tank/.UnraidSecretaryOffice-trash-20261009-101010-2-Alt'), watchmanGoneShare('tank/.UnraidSecretaryOffice-trash')]);
+    same('hidden: … the office\'s hidden folders are no intruder\'s hidden folder; a stranger\'s still is, and a scratch folder',
+        [false, false, true, true],
+        [(bool) preg_match(WATCH_ODD_EXE, watchmanOddPath('/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261009-101010/appdata/x/run')),
+         (bool) preg_match(WATCH_ODD_EXE, watchmanOddPath('/boot/config/.UnraidSecretaryOffice-restore/20261009-101010/bin/x')),
+         (bool) preg_match(WATCH_ODD_EXE, watchmanOddPath('/mnt/cache/appdata/.hidden/miner')), (bool) preg_match(WATCH_ODD_EXE, watchmanOddPath('/tmp/.UnraidSecretaryOffice-trash/x'))]);
+    same('hidden: partners\' places — a dataset she put away under either name is hers', [true, true, 'deadbeef'],
+        [partnerLookDataset('tank/' . PARTNER_PARENT . '/.UnraidSecretaryOffice-trash-20261009-101010-deadbeef')['trash'] ?? null,
+         partnerLookDataset('tank/' . PARTNER_PARENT . '/_UnraidSecretaryOffice-trash-20261008-101010-deadbeef')['trash'] ?? null,
+         partnerLookDataset('tank/' . PARTNER_PARENT . '/.UnraidSecretaryOffice-trash-20261009-101010-deadbeef')['id'] ?? null]);
+    @mkdir("$tmp/letgo", 0700, true);
+    file_put_contents("$tmp/letgo/letgo-20261008-190000.json", json_encode(['trash' => ['/mnt/disk1/UnraidSecretaryOffice/' . CL_TRASH_OLD, '/mnt/pool/UnraidSecretaryOffice/' . CL_TRASH]]));
+    same('hidden: Mr. Backupsy\'s let-go journals of before — the storeroom they name, by its name now',
+        ['/mnt/disk1/UnraidSecretaryOffice/' . CL_TRASH, '/mnt/pool/UnraidSecretaryOffice/' . CL_TRASH], backupLetGoTrashRoots([], "$tmp/letgo"));
+
+    // --- the engine: both names are the storeroom (never snapshotted, never a share's children); Kopia leaves out both
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = fn (string $script) => trim((string) shell_exec('bash -c ' . escapeshellarg("export UB_DATA=$tmp/ub; source $lib >/dev/null 2>&1; $script") . ' 2>&1'));
+    same('hidden: engine — the storeroom by either name, datasets put away under either; nothing else',
+        '1 1 1 1 0 0', $sh('for n in .UnraidSecretaryOffice-trash _UnraidSecretaryOffice-trash .UnraidSecretaryOffice-trash-20261009-101010-x _UnraidSecretaryOffice-trash-1 UnraidSecretaryOffice-trash appdata; do ub_storeroom "$n" && printf "1 " || printf "0 "; done'));
+    file_put_contents("$tmp/old.ini", "[kopia]\nenabled = yes\nignore = _UnraidSecretaryOffice-trash*/\nignore = .DS_Store\n");
+    file_put_contents("$tmp/both.ini", "[kopia]\nenabled = yes\nignore = _UnraidSecretaryOffice-trash*/\nignore = .UnraidSecretaryOffice-trash*/\n");
+    file_put_contents("$tmp/none.ini", "[kopia]\nenabled = yes\nignore = .DS_Store\n");
+    same('hidden: engine — who leaves out the old name leaves out the new one too (before the setup wrote it); once; nobody else',
+        ['_UnraidSecretaryOffice-trash*/|.DS_Store|.UnraidSecretaryOffice-trash*/', '_UnraidSecretaryOffice-trash*/|.UnraidSecretaryOffice-trash*/', '.DS_Store'],
+        array_map(fn ($f) => $sh("cfg_load $tmp/$f.ini; apply_settings; IFS='|'; echo \"\${KOPIA_IGNORE[*]}\""), ['old', 'both', 'none']));
+    check('hidden: engine — a share\'s storeroom datasets are left out by both names (plan and partner units)',
+        substr_count((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), 'ub_storeroom "${ds##*/}"') === 2
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), '== _UnraidSecretaryOffice-trash*'));
+    $setupSrc = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
+    check('hidden: setup — the plan adds both of Kopia\'s rules for the storeroom', str_contains($setupSrc, 'plist_add "kopia|ignore" "$UB_STOREROOM*/"')
+        && str_contains($setupSrc, 'plist_add "kopia|ignore" "$UB_STOREROOM_OLD*/"'));
+
+    $GLOBALS['clTrashMigrated'] = [];
+    hardeningRm($tmp);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
