@@ -685,6 +685,10 @@ The same thing has the same word on every desk and in every text that speaks of 
 not «Runde»; for Mr. Backupsy «Sicherung», not «Lauf»). Grammar follows the word (de *der* Rundgang, *die* Sicherung;
 it *il* backup).
 
+**No internal script names on the page** (Benj, 2026-10-09): texts never mention `setup.sh`, `backup.sh` or any other
+internal script — the user works in the browser; say what the person does («Herr Backupsi», «das Plugin unter ⟦Plugins⟧
+neu installieren», «in der KopiaUI»). `testNoScriptNames` guards it. Engine log lines and README/docs for admins may name them.
+
 | Thing | en | de | it | fr | es | Desk |
 |---|---|---|---|---|---|---|
 | a desk's look around (button) · its toast | Tour · Tour done | Rundgang · Rundgang fertig | Giro · Giro finito | Tournée · Tournée terminée | Ronda · Ronda terminada | every desk (Mr. Restori's too) |
