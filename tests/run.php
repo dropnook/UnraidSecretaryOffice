@@ -2083,7 +2083,8 @@ esac
 exit 1
 SH);
     // VMs: how each answers a shutdown request ($FAKE/vm/<name>.how): obey (off at once), deaf (never),
-    // late (off once the apps were stopped), slow (off 3 s after the request)
+    // late (off once the apps were stopped), slow (off only once the test lets it: <name>.go - never by the clock;
+    // while <name>.hold exists the request itself doesn't return: a stop lands while virsh shutdown runs)
     file_put_contents("$tmp/bin/virsh", <<<'SH'
 #!/bin/bash
 ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
@@ -2094,7 +2095,7 @@ state() {
   if [[ "$s" == running && -e "$V/$n.asked" ]]; then
     case "$(cat "$V/$n.how" 2>/dev/null)" in
       late) grep -q 'docker stop' "$FAKE/events" 2>/dev/null && s="shut off" ;;
-      slow) (( $(date +%s) - $(cat "$V/$n.asked") >= 3 )) && s="shut off" ;;
+      slow) [[ -e "$V/$n.go" ]] && s="shut off" ;;
     esac
     [[ "$s" == "shut off" ]] && echo "$s" >"$V/$n.state"
   fi
@@ -2108,7 +2109,8 @@ case "$1" in
   domblklist) printf 'Type Device Target Source\n----\nfile disk vdisk1 %s\n' "$MNT/user/domains/$n/vdisk1.img"; exit 0 ;;
   qemu-agent-command|domfsfreeze) exit 1 ;;
   shutdown) ev "virsh shutdown $n"; [[ -e "$V/$n.asked" ]] || date +%s >"$V/$n.asked"
-            [[ "$(cat "$V/$n.how" 2>/dev/null)" == obey ]] && echo "shut off" >"$V/$n.state"; exit 0 ;;
+            [[ "$(cat "$V/$n.how" 2>/dev/null)" == obey ]] && echo "shut off" >"$V/$n.state"
+            i=0; while [[ -e "$V/$n.hold" ]] && (( i++ < 100 )); do sleep 0.1; done; exit 0 ;;
   suspend) [[ "$(state)" == running ]] || exit 1; echo paused >"$V/$n.state"; ev "virsh suspend $n"; exit 0 ;;
   resume) echo running >"$V/$n.state"; ev "virsh resume $n"; exit 0 ;;
   start) [[ "$(state)" == "shut off" ]] || exit 1; echo running >"$V/$n.state"; rm -f "$V/$n.asked"; ev "virsh start $n"; exit 0 ;;
@@ -2231,29 +2233,49 @@ SH);
         !preg_grep('/^virsh shutdown/', $names) && !str_contains($l, 'shutting down') && $at($ev, 'docker stop c1') !== null
         && $at($ev, 'docker stop c1') < $at($ev, 'virsh suspend vmpause') && $at($ev, 'virsh suspend vmpause') < $at($ev, 'zfs snapshot'), json_encode($names) . $l);
 
-    // --- stopped while a VM goes down: the run waits until it is off and starts it again; nothing else was stopped
+    // --- stopped while a VM goes down: the run waits until it is off and starts it again; nothing else was stopped.
+    // Twice: stopped while the request itself runs (virsh shutdown hasn't returned; bash runs the trap right after
+    // it, before the line after it - the engine counts the VM as asked from before the request, 2026-10-09) and
+    // while the run waits for it. No race with the real clock (this part failed 1 run in 3 when the VM went off
+    // 3 s after its request and the deadline was 4 s): the VM goes off only once the stopped run said it waits
+    // for it, so it is neither off before the stop (the apps would stop) nor after the run gave up; the deadline
+    // far off and no repeated request here (the first night covers both).
     $settings(['vmslow' => 'shutdown']);
-    $night(['vmslow' => 'slow']);
-    testsClockRun($clock);
-    $p = proc_open(['bash', '-c', "$env; exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
-    $pid = proc_get_status($p)['pid'];
-    for ($i = 0; $i < 150 && !str_contains((string) @file_get_contents("$fake/events"), 'virsh shutdown vmslow'); $i++) {
-        usleep(100000);
+    $until = function (callable $ok): bool {
+        for ($i = 0; $i < 300 && !$ok(); $i++) {
+            usleep(50000);
+        }
+        return $ok();
+    };
+    foreach (['during the request' => true, 'while waiting' => false] as $when => $inFlight) {
+        $night(['vmslow' => 'slow']);
+        if ($inFlight) {
+            touch("$fake/vm/vmslow.hold");
+        }
+        $t = testsClockRun($clock);
+        // this run's own log (latest.log is the run before until this one has the lock)
+        $runLog = fn () => (string) @file_get_contents("$data/logs/run-" . date('Ymd-Hi', $t) . '.log');
+        $p = proc_open(['bash', '-c', "$env UB_VM_SHUTDOWN_TIMEOUT=60 UB_VM_SHUTDOWN_RETRY=120; exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
+        $pid = proc_get_status($p)['pid'];
+        $until($inFlight ? fn () => str_contains((string) @file_get_contents("$fake/events"), 'virsh shutdown vmslow')
+                         : fn () => str_contains($runLog(), "VM 'vmslow': shutting down"));
+        $phase = $status()['phase'] ?? '';
+        posix_kill($pid, SIGTERM);
+        @unlink("$fake/vm/vmslow.hold");
+        $waited = $until(fn () => str_contains($runLog(), 'Waiting for 1 VM(s) going down'));
+        touch("$fake/vm/vmslow.go");
+        for ($i = 0; $i < 300 && proc_get_status($p)['running']; $i++) {
+            usleep(50000);
+        }
+        proc_close($p);
+        $names = array_column($events(), 1);
+        $s = $status();
+        $l = $runLog();
+        same("vm order: stopped $when in the VMs' shutdown — the phase", 'vm_shutdown', $phase);
+        check("vm order: stopped $when while it goes down — waited for it, started again, no app stopped",
+            $waited && $names === ['virsh shutdown vmslow', 'virsh start vmslow'], json_encode($names) . $l);
+        same("vm order: stopped $when — aborted, no downtime, nothing noted", ['aborted', 0, false], [$s['result'] ?? null, $s['downtime_s'] ?? null, file_exists("$data/state/vms")]);
     }
-    $phase = $status()['phase'] ?? '';
-    posix_kill($pid, SIGTERM);
-    for ($i = 0; $i < 150 && proc_get_status($p)['running']; $i++) {
-        usleep(100000);
-    }
-    proc_close($p);
-    $ev = $events();
-    $names = array_column($ev, 1);
-    $s = $status();
-    $l = $log();
-    same('vm order: stopped in the VMs\' shutdown — the phase', 'vm_shutdown', $phase);
-    check('vm order: stopped while it goes down — waited for it, started again, no app stopped',
-        $names === ['virsh shutdown vmslow', 'virsh start vmslow'] && str_contains($l, 'Waiting for 1 VM(s) going down'), json_encode($names) . $l);
-    same('vm order: stopped — aborted, no downtime, nothing noted', ['aborted', 0, false], [$s['result'] ?? null, $s['downtime_s'] ?? null, file_exists("$data/state/vms")]);
 
     // --- killed while it goes down (kill -9): state/vms names it; the next start starts it once it is off
     $night(['vmslow' => 'slow']);
