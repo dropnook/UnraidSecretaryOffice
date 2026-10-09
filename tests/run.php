@@ -1220,6 +1220,135 @@ JS);
 }
 
 /**
+ * «Ready on the pool» stays readable with hundreds of rows (#8, Benj 2026-10-09): Jack's list by folder — all of it
+ * (no cut at 200), with `since` (when the newest file came onto the pool) and newest first; the page's view under node:
+ * the library select's counts, the filter words (name, library, disk; accents folded), newest first else by name, the
+ * first 30 rows then «Show n more»; the library kept per browser, the words never.
+ */
+function testEmbyPool(): void
+{
+    $tmp = hardeningTmp('embypool');
+    @mkdir("$tmp/data", 0700, true);
+    $list = [];
+    $origin = [];
+    for ($i = 1; $i <= 250; $i++) {
+        $dir = sprintf('%s/pool/Filme/Film.%03d', $tmp, $i);
+        @mkdir($dir, 0700, true);
+        file_put_contents("$dir/f.mkv", str_repeat('x', $i));
+        $list[] = "$dir/f.mkv";
+    }
+    sleep(1);                                       // a ctime of its own for the newer ones
+    @mkdir("$tmp/pool/Serien/Die.Serie", 0700, true);
+    foreach (['e1.mkv' => 1000, 'e2.mkv' => 2000] as $f => $n) {
+        file_put_contents("$tmp/pool/Serien/Die.Serie/$f", str_repeat('s', $n));
+        $list[] = "$tmp/pool/Serien/Die.Serie/$f";
+        $origin["$tmp/pool/Serien/Die.Serie/$f"] = 'disk3';
+    }
+    file_put_contents("$tmp/data/embycache_exclude.txt", implode("\n", $list) . "\n");
+    file_put_contents("$tmp/data/embycache_origin.json", json_encode($origin));
+    $c = embyCacheStats(['cache_path' => "$tmp/pool"], "$tmp/data");
+    $first = $c['groups'][0] ?? [];
+    same('pool list: every folder — nothing cut (251, the old cut was 200)', [252, 251], [$c['files'], count($c['groups'])]);
+    same('pool list: newest first, a folder\'s files and bytes, the disk it goes back to', ['Serien', 'Die.Serie', 2, 3000, ['disk3']],
+        [$first['share'] ?? null, $first['title'] ?? null, $first['files'] ?? null, $first['bytes'] ?? null, $first['origin'] ?? null]);
+    check('pool list: since = when its newest file came onto the pool (ctime)', ($first['since'] ?? 0) === filectime("$tmp/pool/Serien/Die.Serie/e2.mkv")
+        && ($c['groups'][1]['since'] ?? PHP_INT_MAX) < $first['since']);
+    same('pool list: the same time — by name', ['Film.001', 'Film.002'], [$c['groups'][1]['title'] ?? null, $c['groups'][2]['title'] ?? null]);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('pool page: the library kept per browser, the filter words never', str_contains($js, "Office.store('emby.pool_lib', poolLib || null)")
+        && str_contains($js, "let poolLib = Office.store('emby.pool_lib') || '';") && !preg_match('/Office\.store(Json)?\([^)]*poolWords/', $js) && !str_contains($js, 'emby.pool_words'));
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('pool page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $groups = [];
+    for ($i = 1; $i <= 40; $i++) {
+        $groups[] = ['share' => 'Serien', 'title' => sprintf('Serie.%02d', $i), 'files' => 16, 'bytes' => 1000 * $i, 'origin' => ['disk1'], 'since' => 1000 + $i];
+    }
+    $groups[] = ['share' => 'Filme', 'title' => 'Amélie.2001', 'files' => 3, 'bytes' => 5, 'origin' => ['disk3'], 'since' => 500];
+    $groups[] = ['share' => 'Filme', 'title' => 'Zorro', 'files' => 1, 'bytes' => 7, 'origin' => []];
+    $groups[] = ['share' => 'Filme', 'title' => 'Alien', 'files' => 2, 'origin' => []];                    // an older agent: no size, no time
+    $state = ['settings' => ['cache_path' => '/mnt/master'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]],
+        'cache' => ['files' => 700, 'bytes' => 12345, 'listed_at' => 900, 'groups' => $groups]];
+    file_put_contents("$tmp/state.json", json_encode($state));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
+  disabled: false, value: '', appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} };
+  Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
+globalThis.Option = function Option(text, value) { return { tag: 'option', textContent: text, value, children: [] }; };
+const stored = {};
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}` }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, placesTook: () => {}, storeJson: () => null, agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => n,
+  sectionHead: (title, sub, ...x) => el('div', 'section-head', title) };
+globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const g = state.cache.groups;
+const W = (s) => e.plainWords(s).split(/\s+/).filter(Boolean);
+const names = (v) => v.rows.map((r) => r.title);
+const out = {};
+let v = e.poolView(g, { lib: '', words: [], shown: 30 });
+out.all = [v.libs, v.rows.length, v.shown, names(v).slice(0, 3), names(v).slice(-3)];
+v = e.poolView(g, { lib: 'Filme', words: [], shown: 30 });
+out.lib = [names(v), v.shown];
+out.words = ['amelie', 'disk3', 'serie 07', 'filme zorro', 'serien disk1 zz'].map((w) => names(e.poolView(g, { lib: '', words: W(w), shown: 30 })));
+out.libWords = names(e.poolView(g, { lib: 'Serien', words: W('alien'), shown: 30 }));
+out.shown = [e.poolView(g, { lib: '', words: [], shown: 60 }).shown, e.poolView([], { lib: '', words: [], shown: 30 })];
+// the section: 30 rows, «Show 13 more», the select with counts; then the words, the library (kept), more
+e.setState(state);
+const all = (n) => (typeof n === 'string' ? [] : [n, ...n.children.flatMap(all)]);
+const sec = e.poolSection();
+const rows = () => all(sec).filter((n) => n.className === 'row nocheck');
+const more = () => all(sec).find((n) => n.tag === 'button');
+const pick = all(sec).find((n) => n.tag === 'select');
+const search = all(sec).find((n) => n.tag === 'input');
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+out.section = [rows().length, more() && more().textContent, pick.children.map((o) => o.textContent), texts(rows()[0]).slice(1)];
+more().onclick();
+out.more = [rows().length, more() ? more().textContent : null];
+out.noSize = texts(rows().find((r) => texts(r)[0] === 'Alien') || { textContent: '', children: [] });
+search.value = 'zorro';
+search.oninput();
+out.search = [rows().length, texts(rows()[0])[0], stored['emby.pool_lib'] === undefined];
+search.value = '';
+search.oninput();
+pick.value = 'Filme';
+pick.onchange();
+out.pick = [rows().length, stored['emby.pool_lib']];
+search.value = 'nothing-like-this';
+search.oninput();
+out.empty = all(sec).filter((n) => n.className === 'empty').map((n) => n.textContent);
+console.log(JSON.stringify(out));
+JS);
+    $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1';
+    $raw = (string) shell_exec($cmd);
+    $r = json_decode($raw, true);
+    same('pool view: the libraries with counts, newest first, those without a time by name at the end, 30 shown', [[['Filme', 3], ['Serien', 40]], 43, 30,
+        ['Serie.40', 'Serie.39', 'Serie.38'], ['Amélie.2001', 'Alien', 'Zorro']], $r['all'] ?? null, $raw);
+    same('pool view: one library', [['Amélie.2001', 'Alien', 'Zorro'], 3], $r['lib'] ?? null, $raw);
+    same('pool view: the words — a name without accents, a disk, a name with dots as spaces, a library and a name, a word that meets nothing',
+        [['Amélie.2001'], ['Amélie.2001'], ['Serie.07'], ['Zorro'], []], $r['words'] ?? null, $raw);
+    same('pool view: the words within the library', [], $r['libWords'] ?? null, $raw);
+    same('pool view: more shown; nothing there', [43, ['libs' => [], 'rows' => [], 'shown' => 0]], $r['shown'] ?? null, $raw);
+    same('pool page: 30 rows, «Show 13 more», the select with counts, a row: library, files, size beside them, the disk, since when', [30,
+        'pool.more {"n":13}', ['pool.lib_all', 'pool.lib_n {"lib":"Filme","n":3}', 'pool.lib_n {"lib":"Serien","n":40}'],
+        ['Serien', 'files_n {"n":16}', '40000B', 'origin {"disks":"disk1"}', 'pool.since {"date":"D1040"}']], $r['section'] ?? null, $raw);
+    same('pool page: a row of an older agent — no size, no time', ['Alien', 'Filme', 'files_n {"n":2}', 'origin_unknown'], $r['noSize'] ?? null, $raw);
+    same('pool page: «Show more» — all 43, no button left', [43, null], $r['more'] ?? null, $raw);
+    same('pool page: the words narrow it (and are never kept)', [1, 'Zorro', true], $r['search'] ?? null, $raw);
+    same('pool page: the library narrows it and is kept in this browser', [3, 'Filme'], $r['pick'] ?? null, $raw);
+    same('pool page: nothing fits', ['pool.empty_filter'], $r['empty'] ?? null, $raw);
+    hardeningRm($tmp);
+}
+
+/**
  * Jack takes over an earlier install of helmi1987's tools (fixtures shaped like EmbyCache 7.2.1
  * and setup_consolidate.sh V11 write them) on a fake server tree: the folder's checks (links,
  * "..", outside, asleep), unknown and new keys, the API key never in an answer to the page, the
@@ -22615,7 +22744,7 @@ SH);
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],

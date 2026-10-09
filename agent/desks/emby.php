@@ -32,6 +32,7 @@ const EMBY_MODES    = ['report' => ['--show-on-deck', '--compact'], 'dry' => [],
 const GATHER_MODES  = ['dry' => ['--dryrun'], 'run' => ['--run'], 'measure' => ['--dryrun']];
 const EMBY_SIZES_SHARES = 200;     // shares kept in sizes.json
 const EMBY_SIZES_ROOTS  = 64;      // disks/pools per share
+const EMBY_POOL_GROUPS  = 5000;    // what lies on the pool, by film/series folder: the current state, all of it (a bound against a broken list only)
 const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'fill_tool', 'cleanup_tool', 'return_to_origin', 'array_source', 'array_path', 'user_path',
@@ -516,24 +517,32 @@ function embyWriteMeasureIni(array $shares, array $emby, string $gatherDir = GAT
 
 // ===================================================================== what's on the pool
 
-/** What EmbyCache keeps on the pool right now (its exclude list: absolute pool paths) */
-function embyCacheStats(?array $settings): array
+/**
+ * What EmbyCache keeps on the pool right now (its exclude list: absolute pool paths), by film or series folder:
+ * files, bytes, the disks they go back to and `since` — when the newest of them came onto the pool (its ctime: the
+ * copy made it; read with the size, one stat). Newest first; the page filters and pages them.
+ */
+function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
 {
-    $list = @file(EMBY_DATA . '/embycache_exclude.txt', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-    $origin = readJson(EMBY_DATA . '/embycache_origin.json') ?? [];
+    $list = @file("$dir/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $origin = readJson("$dir/embycache_origin.json") ?? [];
     $bytes = 0;
     $groups = [];
     $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
     foreach ($list as $path) {
         $size = (int) @filesize($path);
+        $since = (int) @filectime($path);          // PHP's stat cache: the same stat as the size
         $bytes += $size;
         // group by share and the first folder below it (a film folder or a series)
         $rel = $cache !== '' && str_starts_with($path, "$cache/") ? substr($path, strlen($cache) + 1) : ltrim($path, '/');
         $parts = explode('/', $rel);
         $key = $parts[0] . '/' . ($parts[1] ?? '');
-        $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0, 'origin' => []];
+        $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0, 'origin' => [], 'since' => null];
         $groups[$key]['files']++;
         $groups[$key]['bytes'] += $size;
+        if ($since > 0 && $since > (int) $groups[$key]['since']) {
+            $groups[$key]['since'] = $since;
+        }
         if (is_string($origin[$path] ?? null)) {
             $groups[$key]['origin'][$origin[$path]] = true;
         }
@@ -542,9 +551,9 @@ function embyCacheStats(?array $settings): array
         $g['origin'] = array_keys($g['origin']);
     }
     unset($g);
-    usort($groups, fn ($a, $b) => $b['bytes'] <=> $a['bytes']);
-    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, 200),
-            'listed_at' => @filemtime(EMBY_DATA . '/embycache_exclude.txt') ?: null];
+    usort($groups, fn ($a, $b) => [(int) $b['since'], $a['title']] <=> [(int) $a['since'], $b['title']]);
+    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, EMBY_POOL_GROUPS),
+            'listed_at' => @filemtime("$dir/embycache_exclude.txt") ?: null];
 }
 
 /**

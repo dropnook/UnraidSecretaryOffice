@@ -21,6 +21,10 @@ const ORIGINS = [
 
 let state = null;
 let view = null;
+const POOL_PAGE = 30;                                  // rows of «Ready on the pool» shown at first (and per «Show more»)
+let poolShown = POOL_PAGE;
+let poolLib = Office.store('emby.pool_lib') || '';    // the library chosen there ('' = all), kept in this browser
+let poolWords = '';                                    // its filter words (not kept: a new visit starts with everything)
 let page = 'main';            // main | setup
 let outTimer = null;
 
@@ -423,32 +427,107 @@ function historySection() {
   return s;
 }
 
-/** What EmbyCache keeps on the pool right now, and where each thing goes back to */
+/** Words as the filter compares them: lower case, without accents */
+const plainWords = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+/** A film or series folder's name as the page shows it (dots as spaces) */
+const poolName = (g) => String(g.title || '').replace(/\./g, ' ');
+/** Its words for the filter: the name (as shown and as on disk), the library, the disks it goes back to */
+const poolHay = (g) => plainWords([poolName(g), g.title, g.share, ...(Array.isArray(g.origin) ? g.origin : [])].join(' '));
+
+/**
+ * «Ready on the pool» as his page lists it — no DOM (the tests run it under node). groups: what his state holds
+ * (state.cache.groups); o: {lib ('' = every library), words (plainWords, [] = none), shown}. It is the current state,
+ * nothing is dropped: the library and the words only narrow what is drawn.
+ * Returns {libs: [[library, n], …] by name (the words not counted), rows: what the library and the words leave — newest
+ * first where a time is known (`since`), else by name —, shown: rows drawn}
+ */
+function poolView(groups, o) {
+  const list = (Array.isArray(groups) ? groups : []).filter((g) => g && typeof g.title === 'string');
+  const counts = new Map();
+  list.forEach((g) => counts.set(g.share, (counts.get(g.share) || 0) + 1));
+  const libs = [...counts.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const words = o.words || [];
+  const rows = list.filter((g) => (!o.lib || g.share === o.lib) && (!words.length || words.every((w) => poolHay(g).includes(w))))
+    .sort((a, b) => (Number(b.since) || 0) - (Number(a.since) || 0) || poolName(a).localeCompare(poolName(b)));
+  return { libs, rows, shown: Math.min(o.shown || POOL_PAGE, rows.length) };
+}
+
+/** One film or series on the pool: its name, library, files and size, the disk it goes back to, since when */
+function poolRow(g, most) {
+  const row = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', poolName(g)));
+  const meta = el('div', 'row-meta');
+  meta.append(chip(g.share, 'quiet'), el('span', '', T('files_n', { n: Number(g.files) || 0 })));
+  if (typeof g.bytes === 'number') meta.appendChild(el('span', '', fmt.size(g.bytes)));
+  if (Array.isArray(g.origin) && g.origin.length) meta.appendChild(chip(T('origin', { disks: g.origin.join(', ') }), 'quiet', T('origin_tip')));
+  else meta.appendChild(chip(T('origin_unknown'), 'quiet', T('origin_unknown_tip')));
+  if (g.since) meta.appendChild(el('span', '', T('pool.since', { date: fmt.date(g.since) })));
+  main.appendChild(meta);
+  const bar = el('div', 'bar thin jo-bar');
+  const fill = el('i', 'snaps');
+  fill.style.width = Math.max(2, Math.round((Number(g.bytes) || 0) / most * 100)) + '%';
+  bar.appendChild(fill);
+  row.append(main, bar);
+  return row;
+}
+
+/**
+ * What EmbyCache keeps on the pool right now, and where each thing goes back to — hundreds of rows on a big library,
+ * so readable like the watch book: filter words (name, library, disk), a library select with counts, the first
+ * POOL_PAGE rows, then «Show n more».
+ */
 function poolSection() {
   const c = state.cache;
   const s = section(T('on_pool'), c.listed_at ? T('on_pool_sub', { when: fmt.relative(c.listed_at) }) : T('on_pool_none'),
     el('span', 'hint', c.files ? T('pool_sum', { n: c.files, size: fmt.size(c.bytes) }) : ''), { place: 'on_pool' });
   if (!c.files) return s;
+  const groups = Array.isArray(c.groups) ? c.groups : [];
+  const bar = el('div', 'toolbar jo-poolbar');
+  const search = el('input', 'search');
+  search.type = 'search';
+  search.placeholder = Office.t('common.filter');
+  search.setAttribute('aria-label', T('pool.filter_label'));
+  search.autocomplete = 'off';
+  search.spellcheck = false;
+  search.value = poolWords;
+  const pick = el('select', 'picker');
+  pick.setAttribute('aria-label', T('pool.lib_label'));
+  bar.append(search, pick);
+  s.appendChild(bar);
   const box = el('div', 'box');
-  const most = Math.max(...c.groups.map((g) => g.bytes), 1);
-  c.groups.slice(0, 60).forEach((g) => {
-    const row = el('div', 'row nocheck');
-    const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name text', g.title.replace(/\./g, ' ')));
-    const meta = el('div', 'row-meta');
-    meta.append(chip(g.share, 'quiet'), el('span', '', T('files_n', { n: g.files })));
-    if (g.origin.length) meta.appendChild(chip(T('origin', { disks: g.origin.join(', ') }), 'quiet', T('origin_tip')));
-    else meta.appendChild(chip(T('origin_unknown'), 'quiet', T('origin_unknown_tip')));
-    main.appendChild(meta);
-    const bar = el('div', 'bar thin jo-bar');
-    const fill = el('i', 'snaps');
-    fill.style.width = Math.max(2, Math.round(g.bytes / most * 100)) + '%';
-    bar.appendChild(fill);
-    const fig = el('div', 'figures');
-    fig.append(el('b', '', fmt.size(g.bytes)), el('span', '', ''));
-    row.append(main, bar, fig);
-    box.appendChild(row);
-  });
+  const most = Math.max(...groups.map((g) => Number(g.bytes) || 0), 1);
+  const fill = () => {
+    box.innerHTML = '';
+    const v = poolView(groups, { lib: poolLib, words: plainWords(poolWords).split(/\s+/).filter(Boolean), shown: poolShown });
+    pick.innerHTML = '';
+    pick.appendChild(new Option(T('pool.lib_all'), ''));
+    const libs = v.libs.slice();
+    if (poolLib && !libs.some(([l]) => l === poolLib)) libs.push([poolLib, 0]);     // chosen, none left now: it stays
+    libs.forEach(([l, n]) => pick.appendChild(new Option(T('pool.lib_n', { lib: l, n }), l)));
+    pick.value = poolLib;
+    v.rows.slice(0, v.shown).forEach((g) => box.appendChild(poolRow(g, most)));
+    if (!v.rows.length) box.appendChild(el('p', 'empty', T('pool.empty_filter')));
+    if (v.rows.length > v.shown) {
+      const more = button(T('pool.more', { n: Math.min(POOL_PAGE, v.rows.length - v.shown) }), 'small plain jo-more', () => {
+        poolShown += POOL_PAGE;
+        Office.keepInPlace(null, fill);
+      });
+      box.appendChild(more);
+    }
+  };
+  search.oninput = () => {
+    poolWords = search.value;
+    poolShown = POOL_PAGE;
+    fill();
+  };
+  pick.onchange = () => {
+    poolLib = pick.value;
+    Office.store('emby.pool_lib', poolLib || null);
+    poolShown = POOL_PAGE;
+    Office.keepInPlace(pick, fill);
+  };
+  fill();
   s.appendChild(box);
   return s;
 }
@@ -1362,6 +1441,6 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection };
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection };
 }
 })();
