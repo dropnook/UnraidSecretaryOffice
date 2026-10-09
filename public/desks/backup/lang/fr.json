@@ -567,6 +567,8 @@
   "schedule.daily": "Chaque jour à",
   "schedule.custom": "Ta propre planification",
   "schedule.custom_hint": "Cinq champs comme dans « Custom » de User Scripts, p. ex. 0 3 * * 1-6 (du lundi au samedi à 3 h).",
+  "schedule.examples": "Exemples",
+  "schedule.examples_tip": "15 * * * * — toutes les heures et quart\n0 * * * * — toutes les heures pile\n0 */6 * * * — toutes les 6 heures (0 h, 6 h, 12 h et 18 h)\n0 1,12 * * * — tous les jours à 1 h et à midi\n0 3 * * 1-6 — du lundi au samedi à 3 h\nSi une sauvegarde tourne encore, la suivante est sautée — avec une notification.",
   "schedule.off": "Pas de sauvegarde automatique",
   "schedule.off_hint": "La sauvegarde ne tourne alors que quand tu la lances ici.",
   "schedule.duration": "Une sauvegarde a pris environ {duration} ces derniers temps — terminée vers {end}.",

@@ -263,25 +263,37 @@ function caretakerNotifyEvaluate(array $checks, ?string $file = null, ?int $now 
     return $data;
 }
 
-/** One notification for everything new: the short list in the bell, each with what to do in the long text */
+/** At most so many things in a notification's long text, then «… and N more» (his page lists them all) */
+const CARETAKER_NOTIFY_LIST = 10;
+
+/**
+ * One notification for everything new: the short list in the bell, each with what to do in the long text — one item
+ * per line, its «how» indented under it, a blank line between items when they have one (mail-layout, 2026-10-09)
+ */
 function caretakerNotifySend(array $items, string $lang): bool
 {
     $titles = [];
     $lines = [];
+    $hows = false;
     foreach ($items as $f) {
         $who = officeNotifyText($f['desk'], 'name', [], $lang) ?: $f['desk'];
         $what = officeNotifyText($f['desk'], "check.{$f['id']}", $f['params'], $lang) ?: $f['id'];
         $how = officeNotifyText($f['desk'], "check.{$f['id']}_how", $f['params'], $lang);
         $titles[] = "$who — $what";
-        $lines[] = "• $who — $what" . ($how !== '' ? "\n  $how" : '');
+        if (count($lines) < CARETAKER_NOTIFY_LIST) {
+            $lines[] = "• $who — $what" . ($how !== '' ? "\n  $how" : '');
+            $hows = $hows || $how !== '';
+        }
     }
     $n = count($items);
     $list = implode('; ', array_slice($titles, 0, 3)) . ($n > 3 ? ' ' . officeNotifyText('caretaker', 'notify.more', ['n' => $n - 3], $lang) : '');
+    $body = implode($hows ? "\n\n" : "\n", $lines)
+          . ($n > count($lines) ? "\n" . officeNotifyText('caretaker', 'notify.more', ['n' => $n - count($lines)], $lang) : '');
     return officeNotify(
         officeNotifyText('caretaker', 'notify.subject', ['n' => $n], $lang),
         officeNotifyText('caretaker', 'notify.description', ['list' => $list], $lang),
         'warning',
-        implode("\n", $lines) . "\n\n" . officeNotifyText('caretaker', 'notify.footer', [], $lang),
+        $body . "\n\n" . officeNotifyText('caretaker', 'notify.footer', [], $lang),
         officeNotifyLink('#/caretaker'),
     );
 }

@@ -3237,6 +3237,7 @@ function diskKind(d) {
 function problemText(p) {
   if (p.key === 'attribute') return T('where.smart.attribute', { id: p.id, name: T('where.attr.' + p.id) !== `${ID}.where.attr.${p.id}` ? T('where.attr.' + p.id) : p.name, raw: p.raw });
   if (p.key === 'failing') return T('where.smart.failing', { id: p.id, name: p.name });
+  if (p.key === 'failed_past') return T('where.smart.failed_past', { id: p.id, name: p.name });
   return T('where.smart.' + p.key, { raw: p.raw, n: Number(p.raw) || 0 });     // n: the plural of a count (nvme_media)
 }
 

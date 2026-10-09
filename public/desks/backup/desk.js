@@ -3710,7 +3710,11 @@ async function scheduleDialog() {
   const dailyField = el('div');
   dailyField.append(time, ends);
   option('daily', T('schedule.daily'), null, dailyField);
-  option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
+  const cronField = el('div');
+  const examples = el('span', 'chip', T('schedule.examples'));
+  examples.dataset.tip = T('schedule.examples_tip');
+  cronField.append(cron, examples);
+  option('custom', T('schedule.custom'), T('schedule.custom_hint'), cronField);
   option('off', T('schedule.off'), T('schedule.off_hint'));
   const update = () => {
     time.disabled = mode !== 'daily';

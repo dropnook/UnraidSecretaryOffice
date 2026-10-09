@@ -817,6 +817,7 @@
   "errors.restore_array_stopping": "La restauration s'est terminée parce que l'array était en train d'être arrêté.",
   "notify.drill_failed": {"one": "Exercice de restauration : {n} élément en échec", "other": "Exercice de restauration : {n} éléments en échec"},
   "notify.drill_failed_text": "L'exercice de Monsieur Restori n'a pas pu prouver que tout revient : {names}. Sa page dit quoi corriger et où.",
+  "notify.more": "… et {n} de plus",
   "check.drill": "Monsieur Restori s'est exercé à ramener les choses au cours des 60 derniers jours, et son exercice a réussi.",
   "check.drill_how": "Monsieur Restori → « Exercice » → « S'exercer maintenant… » — ou laisse-le le faire de lui-même la nuit après une sauvegarde réussie (chaque mois).",
   "check.drill_failed": "Le dernier exercice de Monsieur Restori a réussi.",

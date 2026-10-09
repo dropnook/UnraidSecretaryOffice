@@ -561,6 +561,8 @@
   "schedule.daily": "Jeden Tag um",
   "schedule.custom": "Eigener Zeitplan",
   "schedule.custom_hint": "Fünf Felder wie bei User Scripts «Custom», z. B. 0 3 * * 1-6 (Montag bis Samstag um 3 Uhr).",
+  "schedule.examples": "Beispiele",
+  "schedule.examples_tip": "15 * * * * — jede Stunde um Viertel nach\n0 * * * * — jede volle Stunde\n0 */6 * * * — alle 6 Stunden (0, 6, 12 und 18 Uhr)\n0 1,12 * * * — jeden Tag um 1 Uhr und um 12 Uhr\n0 3 * * 1-6 — Montag bis Samstag um 3 Uhr\nLäuft eine Sicherung noch, fällt die nächste aus — mit einer Meldung.",
   "schedule.off": "Keine automatische Sicherung",
   "schedule.off_hint": "Dann läuft die Sicherung nur, wenn du sie hier startest.",
   "schedule.duration": "Eine Sicherung dauerte zuletzt etwa {duration} — fertig gegen {end}.",

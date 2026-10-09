@@ -817,6 +817,7 @@
   "errors.restore_array_stopping": "La restauración terminó porque el array se estaba deteniendo.",
   "notify.drill_failed": {"one": "Simulacro de restauración: 1 elemento fallido", "other": "Simulacro de restauración: {n} elementos fallidos"},
   "notify.drill_failed_text": "El simulacro del señor Restori no pudo demostrar que todo vuelve: {names}. Su página dice qué arreglar y dónde.",
+  "notify.more": "… y {n} más",
   "check.drill": "El señor Restori practicó traer las cosas de vuelta en los últimos 60 días, y su simulacro se superó.",
   "check.drill_how": "Señor Restori → «Simulacro» → «Practicar ahora…» — o deja que lo haga por su cuenta de noche tras una copia que salió bien (cada mes).",
   "check.drill_failed": "El último simulacro del señor Restori se superó.",

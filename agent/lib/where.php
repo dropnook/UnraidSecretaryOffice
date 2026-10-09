@@ -1743,7 +1743,7 @@ function waPoolRedundancy(): array
     $out = [];
     foreach ($pools as $p) {
         $types = array_count_values($p['vdevs']);
-        if (!$p['vdevs']) {
+        if (!$p['vdevs'] || waArrayDiskPool((string) $p['name'])) {
             continue;
         }
         if (isset($types['disk'])) {
@@ -1774,6 +1774,22 @@ function waPoolRedundancy(): array
     return $out;
 }
 
+/**
+ * A ZFS-formatted array disk: Unraid makes one pool per disk, named like the disk (disk1, disk2 …) — a single device
+ * that the array's parity covers, not a pool of its own (a user's report, 2026-10-09: six «single, no redundancy» rows
+ * for an array with parity). The btrfs ones are left out above by their mount point; pool names diskN are Unraid's.
+ */
+function waArrayDiskPool(string $name): bool
+{
+    return preg_match('/^disk\d+$/D', $name) === 1;
+}
+
+/** regDevs from var.ini: the device limit of the licence — a number, or unlimited (-1, 0, empty) → null */
+function waLicenseLimit(string $regDevs): ?int
+{
+    return preg_match('/^\d+$/D', trim($regDevs)) && (int) $regDevs > 0 ? (int) $regDevs : null;
+}
+
 /** "5|187|188" → [5, 187, 188] */
 function waSmartList(string $value): array
 {
@@ -1798,7 +1814,10 @@ function waSmart(string $file, array $watch): ?array
             if ($id === 9) {
                 $smart['hours'] = $rawNum;
             }
-            if ($failed !== '-') {
+            if ($failed !== '-' && stripos($failed, 'past') !== false) {
+                // In_the_past: the value once fell to the threshold and is fine again (often 190/194, a hot day) — a notice
+                $smart['problems'][] = ['level' => 'notice', 'key' => 'failed_past', 'id' => $id, 'name' => $name, 'raw' => trim($raw)];
+            } elseif ($failed !== '-') {
                 $smart['problems'][] = ['level' => 'bad', 'key' => 'failing', 'id' => $id, 'name' => $name, 'raw' => trim($raw)];
             } elseif (in_array($id, $watch, true) && $rawNum > 0) {
                 $smart['problems'][] = ['level' => in_array($id, WA_SMART_BAD, true) ? 'bad' : 'notice', 'key' => 'attribute',
@@ -1882,7 +1901,7 @@ function waLicense(): array
         'to'      => ($v['regTo'] ?? '') ?: null,
         'since'   => num($v['regTm'] ?? '') ?: null,
         'expires' => num($v['regExp'] ?? '') ?: null,
-        'limit'   => ($v['regDevs'] ?? '') !== '' ? (int) $v['regDevs'] : null,
+        'limit'   => waLicenseLimit((string) ($v['regDevs'] ?? '')),      // Lifetime/Pro say -1: unlimited, not «9 of -1»
         'devices' => $used,
         'guid'    => strlen($guid) > 8 ? substr($guid, 0, 4) . '…' . substr($guid, -4) : ($guid ?: null),
         'bound'   => $bound,

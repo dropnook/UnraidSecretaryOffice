@@ -388,7 +388,20 @@ function build(root) {
   v.dockerText = el('span', '', T('docker_layers'));
   v.dockerSwitch.append(v.dockerBox, v.dockerText);
   v.dockerBox.onchange = () => { Office.store('snapshot.docker', v.dockerBox.checked ? '1' : null); fillSources(); renderList(); };
-  bar.append(all, v.foldBtn, v.search, v.source, v.dockerSwitch);
+  // Mr. Backupsy's snapshots and a partner office's copies: hidden unless switched on — here one mostly looks for one's own
+  const hideSwitch = (name) => {
+    const label = el('label', 'switch');
+    const box = el('input');
+    box.type = 'checkbox';
+    box.checked = Office.store('snapshot.' + name) === '1';
+    const text = el('span');
+    label.append(box, text);
+    box.onchange = () => { Office.store('snapshot.' + name, box.checked ? '1' : null); fillSources(); renderList(); };
+    return { label, box, text };
+  };
+  v.backupShow = hideSwitch('backup');
+  v.partnerShow = hideSwitch('partner');
+  bar.append(all, v.foldBtn, v.search, v.source, v.backupShow.label, v.partnerShow.label, v.dockerSwitch);
 
   v.list = el('div');
   v.empty = el('p', 'empty');
@@ -405,6 +418,7 @@ function render() {
   renderPools();
   renderPlans();
   dockerSwitch();
+  hideSwitches();
   fillSources();
   renderList();
   buttons();
@@ -563,12 +577,28 @@ function dockerSwitch() {
   view.dockerSwitch.title = T('docker_title', { parent: dockerParent() });
 }
 
+/** Mr. Backupsy's own snapshots (a partner's copies carry the same names but are the partner's) */
+function isBackupSnap(s) { return !s.docker && !s.partner && source(s).key === 'backup'; }
+function hiddenBySwitch(s) {
+  return (s.docker && !view.dockerBox.checked) || (s.partner && !view.partnerShow.box.checked)
+    || (!view.backupShow.box.checked && isBackupSnap(s));
+}
+function hideSwitches() {
+  const set = (sw, n, key) => {
+    sw.label.hidden = n === 0;
+    sw.text.textContent = `${T(key)} (${fmt.number(n)})`;
+    sw.label.title = T(key + '_title');
+  };
+  set(view.backupShow, snaps.filter(isBackupSnap).length, 'show_backup');
+  set(view.partnerShow, snaps.filter((s) => s.partner).length, 'show_partner');
+}
+
 function fillSources() {
   const sel = view.source;
   const now = sel.value;
   const seen = new Map();
   for (const s of snaps) {
-    if (s.docker && !view.dockerBox.checked) continue;
+    if (hiddenBySwitch(s)) continue;
     const src = source(s);
     const e = seen.get(src.key) || { label: src.label, n: 0 };
     e.n++;
@@ -585,9 +615,8 @@ function fillSources() {
 function filtered() {
   const words = view.search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const src = view.source.value;
-  const docker = view.dockerBox.checked;
   return snaps.filter((s) => {
-    if (s.docker && !docker) return false;
+    if (hiddenBySwitch(s)) return false;
     if (poolFilter && s.pool !== poolFilter) return false;
     if (src && source(s).key !== src) return false;
     if (words.length) {

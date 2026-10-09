@@ -2794,7 +2794,10 @@ function drillCertWrite(array $j, ?array $env): array
     return drillCertHistory($j, $cert);
 }
 
-/** A drill that failed: one warning, naming what failed (codes and names only, never row data) */
+/**
+ * A drill that failed: one warning, naming what failed (codes and names only, never row data) — in the long text one
+ * failed step per line, at most 8, then «… and N more» (mail-layout, 2026-10-09; his page has them all)
+ */
 function drillNotify(array $j): void
 {
     $lang = officeNotifyLang();
@@ -2803,10 +2806,14 @@ function drillNotify(array $j): void
     $lines = [];
     foreach (array_slice($failed, 0, 8) as $s) {
         $key = 'drill.code.' . (string) ($s['code'] ?? 'drill_error');
-        $lines[] = $s['name'] . ': ' . (officeNotifyText('restore', $key, drillTextParams((array) ($s['params'] ?? [])), $lang) ?: (string) ($s['code'] ?? ''));
+        $lines[] = '• ' . $s['name'] . ': ' . (officeNotifyText('restore', $key, drillTextParams((array) ($s['params'] ?? [])), $lang) ?: (string) ($s['code'] ?? ''));
     }
+    if (count($failed) > 8) {
+        $lines[] = officeNotifyText('restore', 'notify.more', ['n' => count($failed) - 8], $lang);
+    }
+    $list = implode(', ', array_slice($names, 0, 6)) . (count($names) > 6 ? ' ' . officeNotifyText('restore', 'notify.more', ['n' => count($names) - 6], $lang) : '');
     officeNotify(officeNotifyText('restore', 'notify.drill_failed', ['n' => count($failed)], $lang),
-        officeNotifyText('restore', 'notify.drill_failed_text', ['names' => implode(', ', array_slice($names, 0, 6)), 'n' => count($names)], $lang),
+        officeNotifyText('restore', 'notify.drill_failed_text', ['names' => $list, 'n' => count($names)], $lang),
         'warning', implode("\n", $lines), officeNotifyLink('restore/drill'));
 }
 
