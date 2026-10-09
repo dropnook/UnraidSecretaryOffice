@@ -787,17 +787,13 @@ function entryRow(e, owner) {
   return r;
 }
 
-/** The entry's nearest MITRE ATT&CK technique: a chip that opens its page on attack.mitre.org (a new tab) */
+/** The entry's nearest MITRE ATT&CK technique: a quiet chip with its explanation — no link out (Benj, 2026-10-09:
+ * a click opened nothing inside Unraid's page, and a link out is one more thing that can break) */
 function attackLink(id) {
   if (typeof id !== 'string' || !/^T\d{4}(\.\d{3})?$/.test(id)) return null;
-  const href = Office.safeHref('https://attack.mitre.org/techniques/' + id.replace('.', '/') + '/');
-  if (!href) return null;
-  const a = el('a', 'chip quiet wm-attack', id);
-  a.href = href;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  a.title = T('attack_title', { id });
-  return a;
+  const c = el('span', 'chip quiet wm-attack', id);
+  c.title = T('attack_title', { id });
+  return c;
 }
 
 /** A way in, in words (agent: watchmanDoorWords()) */

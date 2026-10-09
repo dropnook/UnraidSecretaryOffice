@@ -220,7 +220,7 @@ const WATCH_KINDS = [
 
 /**
  * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page
- * links it, the syslog export carries it. Nearest, not exact: a new plugin is software that runs as root at boot.
+ * shows it as a chip (no link out — Benj, 2026-10-09), the syslog export carries it. Nearest, not exact: a new plugin is software that runs as root at boot.
  */
 const WATCH_ATTACK = [
     'login_new_ip' => 'T1078', 'login_failures' => 'T1110',

@@ -18,8 +18,7 @@
 .row.wm-member{padding-left:30px}
 .wm-members:empty{display:none}
 /* an entry's MITRE ATT&CK technique: a chip that is a link (a new tab) */
-a.chip.wm-attack{text-decoration:none; font-family:var(--mono); font-size:11.5px; cursor:pointer}
-a.chip.wm-attack:hover{text-decoration:underline}
+.chip.wm-attack{font-family:var(--mono); font-size:11.5px; cursor:help}
 /* entries that may belong together */
 .wm-chain{margin:0 0 8px}
 .wm-chain p{margin:0}
