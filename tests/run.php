@@ -1328,6 +1328,40 @@ function testOfficeCron(): void
 }
 
 /** The office's label in Unraid's menu bar (src/place.php): what passes, and the page's Name= line on a copy */
+function testWhereArrayZfs(): void
+{
+    // a user's report (2026-10-09): ZFS-formatted array disks listed as six «single, no redundancy» pools
+    foreach (['disk1', 'disk6', 'disk28'] as $n) {
+        check("array disk pool left out: $n", waArrayDiskPool($n));
+    }
+    foreach (['cache', 'hive', 'disks', 'disk', 'mydisk1', 'disk1x', 'Disk1'] as $n) {
+        check("a real pool stays: $n", !waArrayDiskPool($n));
+    }
+    // the licence's device limit: Lifetime/Pro report -1 (unlimited) — no «9 of -1»
+    check('licence limit -1 = unlimited', waLicenseLimit('-1') === null);
+    check('licence limit empty = unlimited', waLicenseLimit('') === null);
+    check('licence limit 0 = unlimited', waLicenseLimit('0') === null);
+    check('licence limit 6', waLicenseLimit('6') === 6);
+    check('licence limit 30', waLicenseLimit(' 30 ') === 30);
+    // SMART: FAILING_NOW is bad, In_the_past only a notice
+    $tmp = sys_get_temp_dir() . '/office-tests-smart-' . getmypid();
+    file_put_contents($tmp, implode("\n", [
+        'ID# ATTRIBUTE_NAME          FLAG     VALUE WORST THRESH TYPE      UPDATED  WHEN_FAILED RAW_VALUE',
+        '  5 Reallocated_Sector_Ct   0x0033   100   100   010    Pre-fail  Always       -       0',
+        '190 Airflow_Temperature_Cel 0x0022   062   040   045    Old_age   Always   In_the_past 38 (Min/Max 20/60)',
+        '197 Current_Pending_Sector  0x0012   001   001   005    Old_age   Always   FAILING_NOW 812',
+    ]) . "\n");
+    $sm = waSmart($tmp, [5, 197]);
+    @unlink($tmp);
+    $by = [];
+    foreach (($sm['problems'] ?? []) as $p) {
+        $by[$p['id']] = $p;
+    }
+    check('SMART 190 In_the_past: a notice', ($by[190]['level'] ?? '') === 'notice' && ($by[190]['key'] ?? '') === 'failed_past');
+    check('SMART 197 FAILING_NOW: bad', ($by[197]['level'] ?? '') === 'bad' && ($by[197]['key'] ?? '') === 'failing');
+    check('SMART 5 at 0: no problem', !isset($by[5]));
+}
+
 function testMenuName(): void
 {
     foreach (['Sekretariat', 'Office', 'USO', 'Mein Büro', 'Büro 2.0', 'A', 'R&D'] as $ok) {
@@ -20787,7 +20821,7 @@ JS);
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],

@@ -1186,6 +1186,7 @@
   "where.section.notices": "Notices",
   "where.smart.attribute": "{name}: {raw}",
   "where.smart.failing": "attribute {id} {name} failing",
+  "where.smart.failed_past": "attribute {id} {name} once at its threshold — fine again",
   "where.smart.nvme_warning": "NVMe critical warning {raw}",
   "where.smart.nvme_media": {"one": "{raw} media error", "other": "{raw} media errors"},
   "where.smart.nvme_spare": "spare used up ({raw})",

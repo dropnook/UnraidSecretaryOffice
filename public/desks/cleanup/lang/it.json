@@ -1186,6 +1186,7 @@
   "where.section.notices": "Avvisi",
   "where.smart.attribute": "{name}: {raw}",
   "where.smart.failing": "attributo {id} {name} in errore",
+  "where.smart.failed_past": "attributo {id} {name} una volta alla soglia — di nuovo a posto",
   "where.smart.nvme_warning": "avviso critico NVMe {raw}",
   "where.smart.nvme_media": {"one": "{raw} errore del supporto", "other": "{raw} errori del supporto"},
   "where.smart.nvme_spare": "riserva esaurita ({raw})",
