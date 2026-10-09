@@ -19032,6 +19032,202 @@ function testSnapshotPartner(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * Ms. Snapshotini and the entries a deleted VM left in Unraid's snapshot list (issue #3): an orphan only when the VM is gone
+ * and nothing of any entry is left on disk (ZFS snapshot, overlay, .running/.mem), anything unsure is none; «Remove entry
+ * from Unraid's list» moves the VM's folder into the storeroom in libvirt.img, «Put back» returns it — never over a VM again
+ */
+function testVmOrphans(): void
+{
+    $tmp = hardeningTmp('vmorph');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $db = "$tmp/qemu/snapshotdb";
+    $xml = "$tmp/qemu";
+    $trash = "$tmp/_UnraidSecretaryOffice-trash";
+    $pool = "$tmp/pool";
+    foreach (["$db", "$pool/domains/GoneLeft", "$pool/domains/QemuFile", "$tmp/isos", "$tmp/elsewhere/Linked"] as $d) {
+        @mkdir($d, 0755, true);
+    }
+    file_put_contents("$tmp/libvirt-sock", '');
+    file_put_contents("$tmp/virsh", "#!/bin/sh\n[ \"\$1\" = list ] && printf 'Existing\\nOther VM\\n'\nexit 0\n");
+    file_put_contents("$xml/Existing.xml", "<domain><name>Existing</name></domain>\n");
+    file_put_contents("$tmp/isos/x.iso", 'iso');
+    file_put_contents("$pool/domains/QemuFile/vdisk1.Q1qcow2", 'overlay');
+    file_put_contents("$tmp/zfs-ds.txt", "tank\tfilesystem\t1000\t9000\t100\t50\t$pool\ntank/domains\tfilesystem\t500\t9000\t400\t100\t$pool/domains\n"
+        . "tank/domains/GoneLeft\tfilesystem\t300\t9000\t300\t10\t$pool/domains/GoneLeft\n");
+    file_put_contents("$tmp/zfs-snaps.txt", "tank/domains/GoneLeft@S3\t11\t1745000000\t10\t300\t5\t0\t-\n");
+    file_put_contents("$tmp/zpool.txt", "tank\t8000000\t5000000\t3000000\t62\tONLINE\t16\nsleepy\t8000000\t5000000\t3000000\t62\tONLINE\t1\n");
+    file_put_contents("$tmp/disks.ini", "[\"tank\"]\nname=\"tank\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n[\"sleepy\"]\nname=\"sleepy\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"1\"\n");
+    file_put_contents("$tmp/zfs", "#!/bin/sh\ncase \"\$1\" in\n  list)\n    file=snaps\n    for a in \"\$@\"; do [ \"\$a\" = filesystem,volume ] && file=ds; done\n"
+        . "    cat " . escapeshellarg($tmp) . "/zfs-\$file.txt\n    exit 0;;\nesac\nexit 0\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = list ] && cat " . escapeshellarg("$tmp/zpool.txt") . "\nexit 0\n");
+    chmod("$tmp/zfs", 0755);
+    chmod("$tmp/zpool", 0755);
+    chmod("$tmp/virsh", 0755);
+    $zfsEntry = fn (string $name, string $primary) => ['name' => $name, 'parent' => 'None', 'state' => 'shutoff', 'desc' => '', 'creationtime' => 1745000000,
+                                                       'method' => 'ZFS', 'primarypath' => $primary];
+    $qemuEntry = fn (string $name, string $overlay) => ['name' => $name, 'parent' => 'Base', 'state' => 'shutoff', 'creationtime' => 1745000000, 'method' => 'QEMU',
+        'disks' => [['@attributes' => ['name' => 'hdc', 'snapshot' => 'external'], 'source' => ['@attributes' => ['file' => $overlay]]],
+                    ['@attributes' => ['name' => 'hda'], 'source' => ['@attributes' => ['file' => "$tmp/isos/x.iso"]]]],
+        'primarypath' => dirname($overlay)];
+    $lists = [
+        'Gone ZFS' => ['S20250420a' => $zfsEntry('S20250420a', "$pool/domains/Gone ZFS"), 'S20250420b' => $zfsEntry('S20250420b', "$pool/domains/Gone ZFS")],
+        'GoneLeft' => ['S3' => $zfsEntry('S3', "$pool/domains/GoneLeft")],
+        'Existing' => ['E1' => $qemuEntry('E1', "$pool/domains/Existing/vdisk1.E1qcow2")],
+        'Mystery'  => ['M1' => ['method' => 'BTRFS'] + $zfsEntry('M1', "$pool/domains/Mystery")],
+        'QemuGone' => ['G1' => $qemuEntry('G1', "$pool/domains/QemuGone/vdisk1.G1qcow2")],
+        'QemuFile' => ['Q1' => $qemuEntry('Q1', "$pool/domains/QemuFile/vdisk1.Q1qcow2"), 'Q2' => $qemuEntry('Q2', "$pool/domains/QemuFile/vdisk1.Q2qcow2")],
+        'Sleepy'   => ['Z1' => $zfsEntry('Z1', '/mnt/sleepy/domains/Sleepy')],
+        'Nowhere'  => ['N1' => $zfsEntry('N1', '/uso-nowhere/domains/Nowhere')],
+    ];
+    foreach ($lists as $vm => $entries) {
+        @mkdir("$db/$vm", 0755);
+        file_put_contents("$db/$vm/snapshots.db", json_encode($entries, JSON_PRETTY_PRINT));
+    }
+    file_put_contents("$tmp/elsewhere/Linked/snapshots.db", json_encode(['L1' => $qemuEntry('L1', "$pool/domains/Linked/vdisk1.L1qcow2")]));
+    symlink("$tmp/elsewhere/Linked", "$db/Linked");
+    @mkdir("$db/Corrupt", 0755);
+    file_put_contents("$db/Corrupt/snapshots.db", '{not json');
+
+    $iniBefore = $GLOBALS['disksIni'] ?? null;
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'docker' => null];
+    $GLOBALS['snapshotVm'] = ['db' => $db, 'xml' => $xml, 'trash' => $trash, 'virsh' => "$tmp/virsh", 'sock' => "$tmp/libvirt-sock"];
+    $GLOBALS['snapshot'] = null;
+
+    $z = snapshotReadZfs(null, false);
+    $v = snapshotReadVms($z);
+    $folders = [];
+    foreach ($v['folders'] as $f) {
+        $folders[$f['vm']] = [$f['orphan'], $f['left'], array_map(fn ($u) => $u['why'] . ':' . $u['what'], $f['unsure'])];
+    }
+    ksort($folders);
+    same('vm orphans: every deleted VM\'s list judged — orphan only with nothing on disk and nothing unsure', [
+        'Gone ZFS' => [true, [], []],
+        'GoneLeft' => [false, [['zfs' => 'tank/domains/GoneLeft@S3']], []],
+        'Linked'   => [false, [], ["link:$db/Linked"]],
+        'Mystery'  => [false, [], ['method:BTRFS']],
+        'Nowhere'  => [false, [], ['no_dataset:/uso-nowhere/domains/Nowhere']],
+        'QemuFile' => [false, [['file' => "$pool/domains/QemuFile/vdisk1.Q1qcow2"]], []],
+        'QemuGone' => [true, [], []],
+        'Sleepy'   => [false, [], ['asleep:sleepy']],
+    ], $folders);
+    $snap = array_column($v['snapshots'], null, 'id');
+    same('vm orphans: the rows carry it — an orphan\'s entries unlistable, a sibling of a leftover not, an existing VM\'s untouched; the CD (hda) never counts',
+        [true, true, false, [], null, false, null, false],
+        [$snap['vm:Gone ZFS/S20250420a']['unlistable'] ?? null, $snap['vm:QemuGone/G1']['unlistable'] ?? null, $snap['vm:QemuFile/Q2']['unlistable'] ?? null,
+         $snap['vm:QemuFile/Q2']['left'] ?? null, array_key_exists('unsure', $snap['vm:QemuFile/Q2'] ?? []) ? $snap['vm:QemuFile/Q2']['unsure'] : 'x', $snap['vm:Existing/E1']['orphaned'] ?? null,
+         $snap['vm:Existing/E1']['unlistable'] ?? null, isset($snap['vm:Corrupt/x'])]);
+    same('vm orphans: nothing in the storeroom yet', [], $v['away']);
+
+    // a memory dump or a running VM's XML beside the folder is left too; a sleeping disk is never looked at
+    @mkdir("$pool/domains/QemuGone", 0755);
+    file_put_contents("$pool/domains/QemuGone/memoryG1.mem", 'mem');
+    same('vm orphans: a memory dump left in the VM\'s folder counts', [['file' => "$pool/domains/QemuGone/memoryG1.mem"]],
+        snapshotVmLeft($lists['QemuGone']['G1'], $z)['left']);
+    unlink("$pool/domains/QemuGone/memoryG1.mem");
+    same('vm orphans: on a sleeping disk unsure, an awake one looked at, a share\'s path spread over the bases', [null, false],
+        [snapshotVmPathThere('/mnt/disk7/domains/x.mem', ['disk7' => true]), snapshotVmPathThere('/mnt/uso-no-such-pool/x', ['disk7' => true])]);
+    same('vm orphans: no ZFS at all — unsure', ['no_zfs', []], [snapshotVmLeft($lists['GoneLeft']['S3'], null)['unsure']['why'] ?? null, snapshotVmLeft($lists['GoneLeft']['S3'], null)['left']]);
+
+    // refusals: not an orphan, an existing VM, nothing of that name, a name that is none
+    foreach (['GoneLeft' => 'vm_unlist_not_orphan', 'Existing' => 'vm_unlist_vm_there', 'Nobody' => 'vm_unlist_gone', 'Mystery' => 'vm_unlist_not_orphan'] as $vm => $key) {
+        try {
+            snapshotVmUnlist($vm);
+            check("vm orphans: $vm refused", false);
+        } catch (Problem $p) {
+            same("vm orphans: $vm refused — $key", $key, $p->key);
+        }
+    }
+    foreach (['../x', 'a/b', '', ' lead', "nl\n"] as $bad) {
+        try {
+            snapshotVmField(['vm' => $bad], 'vm');
+            check('vm orphans: a name that is none refused: ' . json_encode($bad), false);
+        } catch (Problem $p) {
+            check('vm orphans: a name that is none refused: ' . json_encode($bad), in_array($p->key, ['bad_request', 'missing_field'], true));
+        }
+    }
+    check('vm orphans: GoneLeft still in Unraid\'s list after the refusal', is_file("$db/GoneLeft/snapshots.db"));
+
+    // the orphan goes: the whole folder into the storeroom, a manifest of Ms. Dustdevil's shape
+    $r = snapshotVmUnlist('Gone ZFS');
+    [$runPath, $as] = explode('|', $r['id'], 2);
+    $manifest = readJson("$runPath/manifest.json") ?? [];
+    $item = $manifest['items'][0] ?? [];
+    same('vm orphans: «Remove entry from Unraid\'s list» — the folder in the storeroom, gone from the list, the manifest as she writes it',
+        [true, 'snapshotdb/Gone ZFS', false, true, ['snapshotdb', 'Gone ZFS', "$db/Gone ZFS", ['S20250420a', 'S20250420b']], true],
+        [$r['ok'], $as, file_exists("$db/Gone ZFS"), is_file("$runPath/$as/snapshots.db"), [$item['kind'] ?? null, $item['name'] ?? null, $item['from'] ?? null, $item['entries'] ?? null],
+         clTrashAsOk($as, 'snapshotdb', basename($runPath))]);
+    same('vm orphans: her state — no longer a list of hers, one in the storeroom with its two entries',
+        [false, [['vm' => 'Gone ZFS', 'entries' => 2, 'vm_back' => false, 'taken' => false]]],
+        [in_array('Gone ZFS', array_column($r['state']['vm']['folders'], 'vm'), true),
+         array_map(fn ($a) => array_intersect_key($a, ['vm' => 1, 'entries' => 1, 'vm_back' => 1, 'taken' => 1]), $r['state']['vm']['away'])]);
+    $id = $r['state']['vm']['away'][0]['id'] ?? '';
+
+    // «Put back»: never while a VM of that name exists again, never over a list Unraid made meanwhile
+    file_put_contents("$xml/Gone ZFS.xml", '<domain/>');
+    try {
+        snapshotVmRelist($id);
+        check('vm orphans: put back refused while the VM exists again', false);
+    } catch (Problem $p) {
+        same('vm orphans: put back refused while the VM exists again — vm_relist_vm_back, nothing moved', ['vm_relist_vm_back', false], [$p->key, file_exists("$db/Gone ZFS")]);
+    }
+    unlink("$xml/Gone ZFS.xml");
+    mkdir("$db/Gone ZFS");
+    try {
+        snapshotVmRelist($id);
+        check('vm orphans: put back refused over a new list', false);
+    } catch (Problem $p) {
+        same('vm orphans: put back refused over a new list — vm_relist_taken', 'vm_relist_taken', $p->key);
+    }
+    rmdir("$db/Gone ZFS");
+    try {
+        snapshotVmRelist("$runPath|snapshotdb/../x");
+        check('vm orphans: an id the storeroom doesn\'t list refused', false);
+    } catch (Problem $p) {
+        same('vm orphans: an id the storeroom doesn\'t list refused — vm_relist_gone', 'vm_relist_gone', $p->key);
+    }
+    // a manifest entry not of her shape (a «from» elsewhere) is never listed
+    @mkdir("$trash/20260101-000000/snapshotdb/Fake", 0755, true);
+    file_put_contents("$trash/20260101-000000/manifest.json", json_encode(['time' => 1, 'items' => [
+        ['kind' => 'snapshotdb', 'name' => 'Fake', 'from' => '/etc/libvirt/qemu', 'as' => 'snapshotdb/Fake'],
+        ['kind' => 'snapshotdb', 'name' => 'Up', 'from' => "$db/..", 'as' => 'snapshotdb/..']]]));
+    same('vm orphans: only entries of her shape are listed', ['Gone ZFS'], array_column(snapshotVmAway(['Existing']), 'vm'));
+    exec('rm -rf ' . escapeshellarg("$trash/20260101-000000"));
+
+    $r = snapshotVmRelist($id);
+    same('vm orphans: put back — in Unraid\'s list again, an orphan again, the run gone with the storeroom',
+        [true, true, true, false, []],
+        [$r['ok'], is_file("$db/Gone ZFS/snapshots.db"), in_array('Gone ZFS', array_column(array_filter($r['state']['vm']['folders'], fn ($f) => $f['orphan']), 'vm'), true),
+         file_exists($runPath), $r['state']['vm']['away']]);
+
+    // libvirt not running: nothing about VMs can be told — no folders, nothing removed
+    unlink("$tmp/libvirt-sock");
+    $v = snapshotReadVms($z);
+    same('vm orphans: libvirt not running — no VM is gone, nothing judged', [[], false], [$v['folders'], (array_column($v['snapshots'], 'orphaned', 'id')['vm:QemuGone/G1'] ?? null)]);
+    try {
+        snapshotVmUnlist('QemuGone');
+        check('vm orphans: refused without libvirt', false);
+    } catch (Problem $p) {
+        same('vm orphans: refused without libvirt — vm_unlist_vm_off', 'vm_unlist_vm_off', $p->key);
+    }
+    check('vm orphans: Ms. Dustdevil\'s «Put back» refuses a list whose VM exists again', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php'),
+        "snapshotVmExists(basename(\$it['from']), snapshotVmDomains())"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/en.json'), true) ?: [];
+    check('vm orphans: the page can say it', isset($en['unlist'], $en['why.vm_orphan'], $en['why.vm_left_zfs'], $en['help.vm_gone'], $en['away.title'], $en['errors.vm_relist_vm_back']));
+    same('vm orphans: de says it as asked', ['Eintrag aus Unraids Liste entfernen', 'Zurückholen'],
+        [officeNotifyText('snapshot', 'unlist', [], 'de'), officeNotifyText('snapshot', 'relist', [], 'de')]);
+
+    $GLOBALS['snapshot'] = null;
+    unset($GLOBALS['snapshotHost'], $GLOBALS['snapshotVm']);
+    if ($iniBefore === null) {
+        unset($GLOBALS['disksIni']);
+    } else {
+        $GLOBALS['disksIni'] = $iniBefore;
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /** Ms. Dustdevil and what partners left: the leftovers of ended pairs, never while the door receives, her storeroom's shape, «Where is what» */
 function testCleanupPartner(): void
 {
@@ -21935,7 +22131,7 @@ SH);
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
