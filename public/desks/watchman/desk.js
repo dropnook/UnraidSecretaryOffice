@@ -385,6 +385,8 @@ function postureRow(x) {
   meta.appendChild(chip(T(`posture.level_${x.level}`), x.level === 'advice' ? 'accent' : 'quiet', T(`posture.level_${x.level}_text`)));
   main.appendChild(meta);
   main.appendChild(el('div', 'row-detail', T(`posture.${x.id}.why`, params)));
+  // privileged containers that are stopped and start by nothing: not part of the tip, a quiet line in it (inbox #10)
+  if (x.id === 'privileged' && params.quiet) main.appendChild(el('div', 'row-detail role', T('posture.privileged.quiet', { quiet: params.quiet, n: Number(params.quiet_n) || 1 })));
   r.appendChild(main);
   const acts = el('div', 'wm-tip-acts');
   const href = x.link && Office.safeHref(x.link.path);
