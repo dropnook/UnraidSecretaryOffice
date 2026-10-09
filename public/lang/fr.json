@@ -199,7 +199,7 @@
   "office.supporter_no_id": "Unraid n'indique aucun GUID pour ce serveur, donc aucune clé de soutien ne peut être créée pour lui — un pourboire fait tout autant plaisir.",
   "office.supporter_enter": "Saisir la clé…",
   "office.supporter_enter_more": "Ajouter une clé…",
-  "office.supporter_enter_text": "Colle la clé de soutien que tu as reçue. Elle ne débloque rien — elle dit simplement merci : plus de rappels, et un petit merci chez le chef d'équipe. Chaque clé est gardée ; le merci montre chaque image une fois.",
+  "office.supporter_enter_text": "Colle la clé de soutien que tu as reçue. Elle ne débloque rien — elle dit simplement merci : plus de rappels, et un petit merci chez le chef d'équipe. Chaque clé est gardée et compte — trois cafés s'affichent ☕×3 sur le merci.",
   "office.supporter_for": "Pour ce serveur : {id}",
   "office.supporter_save": "Enregistrer la clé",
   "office.supporter_empty": "Colle d'abord la clé.",

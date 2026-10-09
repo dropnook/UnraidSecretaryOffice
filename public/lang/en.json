@@ -199,7 +199,7 @@
   "office.supporter_no_id": "Unraid names no GUID for this server, so no supporter key can be made for it — a tip is just as welcome.",
   "office.supporter_enter": "Enter key…",
   "office.supporter_enter_more": "Add a key…",
-  "office.supporter_enter_text": "Paste the supporter key you received. It unlocks nothing — it only says thank you: no more reminders, and a small thank-you at the team lead. Every key is kept; the thank-you shows each picture once.",
+  "office.supporter_enter_text": "Paste the supporter key you received. It unlocks nothing — it only says thank you: no more reminders, and a small thank-you at the team lead. Every key is kept and counts — three coffees show as ☕×3 on the thank-you.",
   "office.supporter_for": "For this server: {id}",
   "office.supporter_save": "Save key",
   "office.supporter_empty": "Paste the key first.",

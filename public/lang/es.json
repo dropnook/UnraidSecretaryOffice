@@ -199,7 +199,7 @@
   "office.supporter_no_id": "Unraid no indica ningún GUID para este servidor, así que no se puede crear una clave de apoyo para él — una propina se agradece igual.",
   "office.supporter_enter": "Introducir clave…",
   "office.supporter_enter_more": "Añadir clave…",
-  "office.supporter_enter_text": "Pega la clave de apoyo que recibiste. No desbloquea nada — solo da las gracias: no más recordatorios y un pequeño agradecimiento en el jefe de equipo. Cada clave se guarda; el agradecimiento muestra cada imagen una vez.",
+  "office.supporter_enter_text": "Pega la clave de apoyo que recibiste. No desbloquea nada — solo da las gracias: no más recordatorios y un pequeño agradecimiento en el jefe de equipo. Cada clave se guarda y cuenta — tres cafés se muestran como ☕×3 en el agradecimiento.",
   "office.supporter_for": "Para este servidor: {id}",
   "office.supporter_save": "Guardar clave",
   "office.supporter_empty": "Primero pega la clave.",

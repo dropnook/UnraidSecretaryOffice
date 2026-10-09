@@ -199,7 +199,7 @@
   "office.supporter_no_id": "Unraid non indica alcun GUID per questo server, quindi non si può creare una chiave sostenitore — una mancia fa comunque piacere.",
   "office.supporter_enter": "Inserisci chiave…",
   "office.supporter_enter_more": "Aggiungi chiave…",
-  "office.supporter_enter_text": "Incolla la chiave sostenitore che hai ricevuto. Non sblocca nulla — dice solo grazie: niente più promemoria e un piccolo ringraziamento dal capoufficio. Ogni chiave viene conservata; il ringraziamento mostra ogni immagine una volta.",
+  "office.supporter_enter_text": "Incolla la chiave sostenitore che hai ricevuto. Non sblocca nulla — dice solo grazie: niente più promemoria e un piccolo ringraziamento dal capoufficio. Ogni chiave viene conservata e conta — tre caffè appaiono come ☕×3 nel ringraziamento.",
   "office.supporter_for": "Per questo server: {id}",
   "office.supporter_save": "Salva chiave",
   "office.supporter_empty": "Prima incolla la chiave.",

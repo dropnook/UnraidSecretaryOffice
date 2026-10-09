@@ -414,6 +414,8 @@ function officeSupporterInfo(array $data, ?string $serverId, int $now): array
     }
     $have = array_column($valid, 'level');
     $info['levels'] = array_values(array_filter(OFFICE_SUPPORTER_LEVELS, fn (string $l): bool => in_array($l, $have, true)));
+    // how many valid keys of each level (Benj, 2026-10-09: «so viele Tassen, wie ich will») — the plate shows ☕×3
+    $info['counts'] = (object) array_filter(array_map(fn (string $l): int => count(array_keys($have, $l, true)), array_combine(OFFICE_SUPPORTER_LEVELS, OFFICE_SUPPORTER_LEVELS)));
     $info['keys'] = array_map(function (array $k): array {
         unset($k['order']);
         return $k;

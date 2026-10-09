@@ -13238,6 +13238,7 @@ function testSupporterList(): void
     [$d] = officeSupporterKeyAdd($d, $key('Eve', '2026-10-09', 'cake', 'FFFF-0000-FFFF-0000'), $t0 + 4);   // another server's (kept from an old flash)
     $info = officeSupporterInfo($d, $id, $t0 + 5);
     same('list: each valid level once, in level order — never a count', ['coffee', 'cake', 'raise'], $info['levels']);
+    same('list: how many valid keys of each level (the plate shows ☕×n)', array_filter(array_combine(OFFICE_SUPPORTER_LEVELS, array_map(fn ($l) => count(array_filter($info['keys'], fn ($k) => $k['state'] === 'valid' && ($k['level'] ?? '') === $l)), OFFICE_SUPPORTER_LEVELS))), (array) $info['counts']);
     same('list: the name and date of the newest valid key', ['valid', 'Bea', '2026-10-05', 'raise'], [$info['state'], $info['name'], $info['date'], $info['level']]);
     same('list: every key for the tip jar, newest first, with its state', [['Eve', 'other'], ['Bea', 'valid'], ['Dan', 'valid'], ['Cem', 'valid'], ['Ana', 'valid']],
         array_map(fn (array $k): array => [$k['name'] ?? null, $k['state']], $info['keys']));

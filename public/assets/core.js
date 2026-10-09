@@ -1188,13 +1188,17 @@ Office.supporterLevel = (sup) => {
   return { level, icon: SUPPORTER_PICTURES[level], text: t(`office.supporter_level_${level}`) };
 };
 /**
- * The plate's pictures: each level of the valid keys once, in level order (☕ ☕☕ 🍰 🥂) — never a count, never a
- * rank; {icon, text} (text: the levels' words, for the title)
+ * The plate's pictures: each level of the valid keys in level order (☕ ☕☕ 🍰 🥂), with how many keys of it when more
+ * than one («☕×3» — Benj, 2026-10-09: as many cups as he likes); never a rank; {icon, text} (text: for the title)
  */
 Office.supporterPictures = (sup) => {
   const have = sup && Array.isArray(sup.levels) && sup.levels.length ? sup.levels : [Office.supporterLevel(sup).level];
   const levels = Object.keys(SUPPORTER_PICTURES).filter((l) => have.includes(l));
-  return { icon: levels.map((l) => SUPPORTER_PICTURES[l]).join(' '), text: levels.map((l) => t(`office.supporter_level_${l}`)).join(' · ') };
+  const n = (l) => Math.max(1, parseInt(((sup && sup.counts) || {})[l], 10) || 1);
+  return {
+    icon: levels.map((l) => SUPPORTER_PICTURES[l] + (n(l) > 1 ? `×${n(l)}` : '')).join(' '),
+    text: levels.map((l) => (n(l) > 1 ? `${n(l)} × ` : '') + t(`office.supporter_level_${l}`)).join(' · '),
+  };
 };
 function supporterChanged(info) {
   if (info) CONFIG.supporter = info;

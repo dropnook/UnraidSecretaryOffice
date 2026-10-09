@@ -199,7 +199,7 @@
   "office.supporter_no_id": "Unraid nennt für diesen Server keine GUID, darum lässt sich kein Unterstützer-Schlüssel dafür machen — über ein Trinkgeld freut sich das Team trotzdem.",
   "office.supporter_enter": "Schlüssel eingeben…",
   "office.supporter_enter_more": "Schlüssel hinzufügen…",
-  "office.supporter_enter_text": "Füg den Unterstützer-Schlüssel ein, den du bekommen hast. Er schaltet nichts frei — er sagt nur Danke: keine Erinnerungen mehr und ein kleines Dankeschön beim Teamchef. Jeder Schlüssel bleibt; das Dankeschön zeigt jedes Bild einmal.",
+  "office.supporter_enter_text": "Füg den Unterstützer-Schlüssel ein, den du bekommen hast. Er schaltet nichts frei — er sagt nur Danke: keine Erinnerungen mehr und ein kleines Dankeschön beim Teamchef. Jeder Schlüssel bleibt und zählt — drei Kaffees zeigt das Dankeschön als ☕×3.",
   "office.supporter_for": "Für diesen Server: {id}",
   "office.supporter_save": "Schlüssel speichern",
   "office.supporter_empty": "Füg zuerst den Schlüssel ein.",
