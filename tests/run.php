@@ -11876,6 +11876,112 @@ function testBackupSparse(): void
  * what du measured (merged — what was measured later wins, never lost), only plain JSON files of the folder; then the
  * old ones are renamed aside (<name>.before-<version>), never deleted, and a second run does nothing.
  */
+/**
+ * Ms. Dustdevil's two disk tunables (Benj, 2026-10-09, Settings → Disk Settings): the array's write method — keep
+ * read/modify/write when nothing writes straight to the array, turbo write for shares that do (or Squid's plugin) — and
+ * ZFS's read cache only where a VM with PCI passthrough could come too late (Benj's own server must stay quiet: 125 GB
+ * RAM, 44 GB of running VMs, a 32 GB passthrough VM, ARC «Unlimited (Dynamic)» at RAM − 1 GB).
+ */
+function testWhereTunables(): void
+{
+    $disks = fn (bool $parity = true, int $data = 2) => ['parity' => ['name' => 'parity', 'type' => 'Parity', 'device' => $parity ? 'sdb' : ''],
+            'parity2' => ['name' => 'parity2', 'type' => 'Parity', 'device' => '']]
+        + array_combine(array_map(fn ($i) => "disk$i", range(1, max(1, $data))),
+            array_map(fn ($i) => ['name' => "disk$i", 'type' => 'Data', 'device' => $i <= $data ? "sd$i" : ''], range(1, max(1, $data))))
+        + ['cache' => ['name' => 'cache', 'type' => 'Cache', 'device' => 'nvme0n1']];
+    $share = fn (string $name, string $primary, ?string $secondary = null, bool $missing = false) =>
+        ['name' => $name, 'storage' => ['primary' => $primary, 'secondary' => $secondary, 'missing' => $missing]];
+    $tower = [$share('appdata', 'cache'), $share('isos', 'array'), $share('media', 'big', 'array'), $share('gone', 'oldpool', null, true)];
+    $pooled = [$share('appdata', 'cache'), $share('media', 'big', 'array'), $share('photos', 'big', 'array')];
+    $cfg = fn (string $method = 'auto', string $delay = '0', array $own = []) => ['md_write_method' => $method, 'spindownDelay' => $delay] + $own;
+    $tip = fn (array $r) => [$r['tip'], $r['method'], $r['direct'], $r['pooled'], $r['sleep'], $r['plugin']];
+
+    same('write method: Tower — «Auto», isos straight onto the array, disks never sleep: turbo (a share of a gone pool doesn\'t count)',
+        ['turbo', 'auto', ['isos'], 1, false, null], $tip(waWriteMethod($cfg(), $disks(), $tower, null)));
+    same('write method: everything through a pool, disks sleep — keep read/modify/write',
+        ['keep', 'auto', [], 2, true, null], $tip(waWriteMethod($cfg('auto', '30'), $disks(), $pooled, null)));
+    same('write method: «read/modify/write» chosen by hand is the same', ['keep', 'rmw'], array_slice($tip(waWriteMethod($cfg('0'), $disks(), $pooled, null)), 0, 2));
+    same('write method: an odd value is Unraid\'s «Auto», a line with a newline still read', ['auto', 'reconstruct'], [waWriteMethod(['md_write_method' => 'x'], $disks(), $pooled, null)['method'], waWriteMethod($cfg("1\n"), $disks(), $pooled, null)['method']]);
+    same('write method: no tip — no parity / one data disk / reconstruct write set / the plugin switching',
+        [null, null, null, null],
+        [waWriteMethod($cfg(), $disks(false), $tower, null)['tip'], waWriteMethod($cfg(), $disks(true, 1), $tower, null)['tip'],
+         waWriteMethod($cfg('1'), $disks(), $tower, null)['tip'], waWriteMethod($cfg(), $disks(), $tower, ['enabled' => 'yes'])['tip']]);
+    same('write method: the plugin installed but switched off — the turbo tip, it says so', ['turbo', 'off'],
+        [waWriteMethod($cfg('auto', '15'), $disks(), $tower, ['enabled' => 'no'])['tip'], waWriteMethod($cfg(), $disks(), $tower, [])['plugin']]);
+    same('write method: disks sleep — a default delay, or one disk\'s own; -1 (the default) and 0 (never) don\'t',
+        [true, true, false, false],
+        [waWriteMethod($cfg('auto', '45'), $disks(), $pooled, null)['sleep'], waWriteMethod($cfg('auto', '0', ['diskSpindownDelay.2' => '15']), $disks(), $pooled, null)['sleep'],
+         waWriteMethod($cfg('auto', '0', ['diskSpindownDelay.1' => '-1', 'diskSpindownDelay.2' => '0']), $disks(), $pooled, null)['sleep'],
+         waWriteMethod($cfg('auto', '0', ['diskSpindownDelay.1' => "15\n"]), $disks(), $pooled, null)['sleep']]);
+    same('write method: no shares at all — keep (nothing writes straight to the array)', ['keep', 0], [waWriteMethod($cfg(), $disks(), [], null)['tip'], waWriteMethod($cfg(), $disks(), [], null)['pooled']]);
+
+    // ZFS's read cache
+    $g = 1073741824;
+    $mem = fn (float $gib) => sprintf("MemTotal:       %d kB\nMemFree:          784728 kB\nMemAvailable:    3194332 kB\n", (int) round($gib * 1048576));
+    $arc = fn (float $cmax, float $size = 1, float $free = 0.25) => sprintf("13 1 0x01 147 39984 4711 4711\nname                            type data\nhits                            4    1234\n"
+        . "size                            4    %d\nc                               4    %d\nc_min                           4    194435584\nc_max                           4    %d\n"
+        . "compressed_size                 4    99\narc_sys_free                    4    %d\n", (int) ($size * $g), (int) ($size * $g), (int) ($cmax * $g), (int) ($free * $g));
+    $docker = fn (float $gib) => sprintf("anon %d\nfile 123456789\nkernel 3456\nanon_thp 0\n", (int) ($gib * $g));
+    $vm = fn (string $name, float $gib, bool $running, int $passthrough = 0) => ['name' => $name, 'memory' => (int) ($gib * $g), 'running' => $running, 'passthrough' => $passthrough];
+    $unlimited = "options zfs zfs_arc_max=0\n";
+
+    // Benj's server (OpenZFS 2.4.4): 125 GB, c_max 124.4 GB, ARC 11 GB, arc_sys_free 4.2 GB, VMs running 44 GB, the Gaming VM 32 GB with passthrough
+    $benjVms = [$vm('Windows_11_Tom_1', 16, true), $vm('Debian_Helmi', 12, true), $vm('USO-Test-Server', 16, true), $vm('Gaming', 32, false, 2)];
+    $benj = waZfsArc(true, $unlimited, $arc(124.4, 11, 4.2), $mem(125), $docker(10), $benjVms);
+    same('zfs arc: Benj\'s server — unlimited, the numbers as read, NO tip (44 GB running + 32 GB passthrough of 125 GB is fine)',
+        [true, 0, 125 * $g, (int) (124.4 * $g), 11 * $g, (int) (4.2 * $g), 44 * $g, 10 * $g, 124 * $g, null],
+        [$benj['unlimited'], $benj['setting'], $benj['ram'], $benj['c_max'], $benj['size'], $benj['sys_free'], $benj['vm_running'], $benj['containers'], $benj['default'], $benj['tip']]);
+    same('zfs arc: Benj\'s server with 25 GB in containers — still no tip', null, waZfsArc(true, $unlimited, $arc(124.4), $mem(125), $docker(25), $benjVms)['tip']);
+
+    // tight: 64 GB, 16 GB running, a 32 GB passthrough VM, 6 GB in containers, 4 GB for Unraid — 6 GB left (< 10 %), the ARC may take 63
+    $tightVms = [$vm('Work', 16, true), $vm('Gaming', 32, false, 1)];
+    $t = waZfsArc(true, $unlimited, $arc(63), $mem(64), $docker(6), $tightVms);
+    same('zfs arc: tight — the passthrough VM named, the others, what is left, a cap of what is left (rounded down)',
+        ['passthrough', 'Gaming', 32 * $g, 16 * $g, 6 * $g, 6],
+        [$t['tip'], $t['vm'] ?? null, $t['vm_memory'] ?? null, $t['others'] ?? null, $t['left'] ?? null, $t['cap'] ?? null]);
+    $running = waZfsArc(true, $unlimited, $arc(63), $mem(64), $docker(6), [$vm('Work', 16, true), $vm('Gaming', 32, true, 1)]);
+    same('zfs arc: the passthrough VM running already — its RAM counted once', ['passthrough', 16 * $g, 6], [$running['tip'], $running['others'] ?? null, $running['cap'] ?? null]);
+    same('zfs arc: the tightest of two passthrough VMs', 'Big', waZfsArc(true, $unlimited, $arc(63), $mem(64), $docker(6),
+        [$vm('Work', 16, true), $vm('Small', 8, false, 1), $vm('Big', 32, false, 1)])['vm'] ?? null);
+    same('zfs arc: the ARC capped below what is left — no tip', null, waZfsArc(true, "options zfs zfs_arc_max=4294967296\n", $arc(4), $mem(64), $docker(6), $tightVms)['tip']);
+    same('zfs arc: the VMs alone don\'t fit — a tip, a cap of at least 1 GB, nothing left', ['passthrough', 1, -2 * $g],
+        array_map(fn ($k) => waZfsArc(true, $unlimited, $arc(31), $mem(32), $docker(6), [$vm('Work', 8, true), $vm('Gaming', 16, false, 1)])[$k] ?? null, ['tip', 'cap', 'left']));
+    same('zfs arc: no passthrough VM — no tip, however full (the ARC shrinks for ordinary VMs)', null,
+        waZfsArc(true, $unlimited, $arc(7), $mem(8), $docker(3), [$vm('Work', 6, true)])['tip']);
+    same('zfs arc: a passthrough VM with plenty of room — no tip', null, waZfsArc(true, $unlimited, $arc(255), $mem(256), $docker(10), $tightVms)['tip']);
+    same('zfs arc: no ZFS / no ARC numbers / no RAM — nothing at all', [null, null, null],
+        [waZfsArc(false, $unlimited, $arc(63), $mem(64), $docker(6), $tightVms), waZfsArc(true, $unlimited, '', $mem(64), '', $tightVms),
+         waZfsArc(true, $unlimited, $arc(63), '', '', $tightVms)]);
+
+    // the setting as Unraid's page reads it (DiskSettings.page: 0 or the whole RAM = «Unlimited (Dynamic)»), OpenZFS's default
+    $setting = fn (string $conf, float $ram = 64) => [waZfsArc(true, $conf, $arc(12.8), $mem($ram), '', [])['setting'], waZfsArc(true, $conf, $arc(12.8), $mem($ram), '', [])['unlimited']];
+    same('zfs arc: the setting — 0, Unraid\'s 20 %, the whole RAM (OpenZFS ignores it), no line (Unraid writes 20 % at boot), a comment, another option first',
+        [[0, true], [13743895347, false], [68719476736, true], [null, false], [null, false], [0, true]],
+        [$setting($unlimited), $setting("options zfs zfs_arc_max=13743895347\n"), $setting("options zfs zfs_arc_max=68719476736\n"), $setting(''),
+         $setting("# options zfs zfs_arc_max=0\n"), $setting("options zfs zfs_arc_min=1073741824 zfs_arc_max=0\n")]);
+    same('zfs arc: OpenZFS 2.4\'s default — the larger of 5/8 of the RAM and RAM − 1 GiB (Tower: 6076112 kB)',
+        [124 * $g, (int) (2 * $g * 5 / 8), 6076112 * 1024 - $g],
+        [waZfsArc(true, '', $arc(1), $mem(125), '', [])['default'], waZfsArc(true, '', $arc(1), $mem(2), '', [])['default'],
+         waZfsArc(true, '', $arc(1), "MemTotal:        6076112 kB\n", '', [])['default']]);
+    same('zfs arc: no docker cgroup — containers 0; «anon_thp» is no «anon»', [0, 0], [waZfsArc(true, '', $arc(1), $mem(8), '', [])['containers'],
+        waZfsArc(true, '', $arc(1), $mem(8), "anon_thp 4096\nfile 1\n", [])['containers']]);
+
+    $advice = waAdvice([], [], []);
+    same('tunables: her advice carries both facts (none for ZFS without a ZFS pool)', [true, null], [array_key_exists('write_method', $advice), $advice['zfs_arc']]);
+
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/en.json'), true) ?: [];
+    foreach (['write_method_keep', 'write_method_turbo', 'zfs_arc_passthrough'] as $id) {
+        check("tunables: tip $id is hers, links Unraid's Disk Settings", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
+    }
+    check('tunables: the rows read the agent\'s verdict, never a tunable of their own', str_contains($js, "wm.tip === 'keep'") && str_contains($js, "wm.tip === 'turbo'")
+        && str_contains($js, "arc.tip === 'passthrough'") && str_contains($js, "const toDisks = { path: '/Settings/DiskSettings'"));
+    check('tunables: her help names both', str_contains($js, "[T('where.help.tunables'), T('where.help.tunables_text')]")
+        && str_contains($en['where.help.tunables_text'] ?? '', '⟦Tunable (md_write_method)⟧') && str_contains($en['where.help.tunables_text'] ?? '', '⟦Tunable (zfs_arc_max)⟧'));
+    check('tunables: the ZFS tip says how to cap, and the cap is in GB', str_contains($en['where.adv.zfs_arc_passthrough.why'] ?? '', '«⟦Custom value (GB)⟧», e.g. {cap} GB')
+        && str_contains($en['where.adv.zfs_arc_passthrough.why'] ?? '', 'zfs_arc_sys_free={sys_free}'));
+}
+
 function testWhereTakeOver(): void
 {
     $tmp = hardeningTmp('where-takeover');
@@ -20789,7 +20895,7 @@ JS);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];

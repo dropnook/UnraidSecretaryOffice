@@ -986,6 +986,16 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   even an empty one — Jack Emby keeps such folders as signposts).
 * On a ZFS pool the top folder only sees its own (nearly empty) dataset:
   for how full the pool is take `zfs list -Hp -o used,avail <pool>`.
+* **Disk tunables (Unraid 7.3.3, Settings → Disk Settings; read-only for the office):** `md_write_method` in
+  `/boot/config/disk.cfg` (`auto` — the help: «Auto selects read/modify/write» —, `0` read/modify/write, `1` reconstruct
+  write; var.ini mirrors it); Squid's «CA Auto Turbo Write Mode» is `ca.turbo.plg`, its switching on only with
+  `enabled="yes"` in `/boot/config/plugins/ca.turbo/settings.ini`. `zfs_arc_max` lives in
+  `/boot/config/modprobe.d/zfs.conf` (`options zfs zfs_arc_max=<bytes>`): `/etc/rc.d/rc.modules.local` writes 20 % of the
+  installed RAM (dmidecode) there at boot when the line is missing and applies it via `/sys/module/zfs/parameters`;
+  «Unlimited (Dynamic)» writes 0 (DiskSettings.page also shows a value of the whole RAM so). OpenZFS 2.4.4's own default
+  (arc_os.c `arc_default_max()`) is the larger of 5/8 of RAM and RAM − 1 GiB; a value ≥ RAM is ignored, and 0 written at
+  runtime changes nothing until the next boot (arc.c `arc_tuning_update()`). Ms. Dustdevil's `waWriteMethod()` /
+  `waZfsArc()`: a ZFS tip only for a PCI-passthrough VM that could come too late (Benj, 2026-10-09: unlimited is right).
 * **Exclusive shares** (Settings → Global Share Settings → Permit exclusive shares, `shareUserExclusive` in
   `/boot/config/share.cfg`, changeable only with the array stopped): `/mnt/user/<share>` is then a **symlink**
   `../<pool>/<share>` to `/mnt/<pool>/<share>`, past shfs — for a share whose primary storage is a pool, secondary
