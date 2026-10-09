@@ -509,5 +509,7 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ ist nicht dieser Server",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ ist {remote} — dieser Server selbst: Unraid schickt seine eigenen Zeilen an sich und schreibt sie nochmals in den Syslog-Share (der Nachtwächter überspringt diese Datei). Leere das Feld unter ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, oder nenne ein echtes SIEM.",
   "check.syslog_off": "Unraids Syslog-Server ist aus",
-  "check.syslog_off_how": "Der Nachtwächter ist angestellt und du hast die Router-Anleitung des Beraters geöffnet, aber ⟦Local syslog server⟧ ist aus — der Router kann nirgends hin schicken. Der Berater zeigt die Einstellung."
+  "check.syslog_off_how": "Der Nachtwächter ist angestellt und du hast die Router-Anleitung des Beraters geöffnet, aber ⟦Local syslog server⟧ ist aus — der Router kann nirgends hin schicken. Der Berater zeigt die Einstellung.",
+  "check.syslog_mikrotik_format": "Der MikroTik-Router {router} schickt sein Protokoll mit den Topics von RouterOS",
+  "check.syslog_mikrotik_format_how": "{router} ({sender}) schickt seine Zeilen ohne die Topics, die RouterOS voranstellen kann (das Format «default», oder «syslog» ohne «add-topics-string=yes»): Der Nachtwächter versteht nur einen Teil davon. In WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — die MikroTik-Anleitung des Beraters zeigt die ganze Einstellung."
 }

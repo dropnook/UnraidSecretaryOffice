@@ -20961,9 +20961,9 @@ function testWatchmanNetMikrotik(): void
     $r = $round($t2);
     $kinds = array_count_values($added($r));
     ksort($kinds);
-    same('mikrotik round 2: the existing kinds from RouterOS lines — a new admin and addresses, firewall/NAT/policy changes, a new device, a VPN user, the server blocked, a new sender',
-        ['net_blocked_from_server' => 2, 'net_firewall_change' => 3, 'net_new_device' => 1, 'net_router_config' => 1, 'net_router_login' => 4,
-         'net_sender_new' => 1, 'net_vpn_login' => 1], $kinds);
+    same('mikrotik round 2: the existing kinds from RouterOS lines — a new admin and addresses, firewall/NAT/policy changes, a new device, a VPN user, the server blocked, a new sender — and RouterOS\'s own (a port, two outages, an unclean restart: testWatchmanNetMikrotikBook)',
+        ['net_blocked_from_server' => 2, 'net_firewall_change' => 3, 'net_link_down' => 1, 'net_new_device' => 1, 'net_outage' => 2, 'net_router_config' => 1,
+         'net_router_login' => 4, 'net_router_reboot' => 1, 'net_sender_new' => 1, 'net_vpn_login' => 1], $kinds);
     $book = watchmanLoad($data)['book'];
     $by = [];
     foreach ($book as $e) {
@@ -20993,8 +20993,10 @@ function testWatchmanNetMikrotik(): void
         [[$dev['p']['name'] ?? null, $dev['p']['ip'] ?? null, $dev['p']['network'] ?? null], isset($by['net_new_device']['net_new_device:52:54:00:4d:54:12']), $bl]);
     $vpn = array_values($by['net_vpn_login'] ?? [])[0] ?? [];
     same('mikrotik round 2: the VPN user from its remote address', ['alice', '10.9.9.20', 'l2tp'], [$vpn['p']['user'] ?? null, $vpn['p']['ip'] ?? null, $vpn['p']['how'] ?? null]);
-    same('mikrotik round 2: no entry for failures, links, WAN losses, reboots yet (package 2) — the new types counted per day',
-        [0, true, true, true, true, true], [count(array_filter($book, fn ($e) => preg_match('/fail|link|outage|reboot/', $e['kind']))),
+    same('mikrotik round 2: the failures were in round 1 (learned: no entry); ether2\'s link, the DHCP and PPPoE outages, the restarts — and the new types counted per day',
+        [['net_link_down:10.77.3.10:ether2:2026-10-09', 'net_outage:10.77.3.10:ether1:2026-10-09', 'net_outage:10.77.3.10:pppoe-out1:2026-10-09',
+          'net_router_reboot:10.77.3.10:' . strtotime('2026-10-09 13:58:01'), 'net_router_reboot:10.77.3.10:2026-10-09'], true, true, true, true, true],
+        [(function ($x) { sort($x); return $x; })(array_column(array_filter($book, fn ($e) => preg_match('/fail|link|outage|reboot/', $e['kind'])), 'key')),
          ($n2 = $net())['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['login_fail'] > 5, $n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['link'] > 5,
          $n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['wan_down'] > 5, $n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['reboot'] >= 4,
          ($n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['other'] ?? 0) >= 1]);
@@ -21033,7 +21035,350 @@ function testWatchmanNetMikrotik(): void
     $GLOBALS['watchnetIfaces'] = $ifaces;
 }
 
+/** The lines of a fixture from the one holding $from up to (not with) the one holding $to ('' = to the end) */
+function netTestSlice(array $lines, string $from, string $to = ''): array
+{
+    $out = [];
+    $on = false;
+    foreach ($lines as $l) {
+        if (!$on && str_contains($l, $from)) {
+            $on = true;
+        } elseif ($on && $to !== '' && str_contains($l, $to)) {
+            break;
+        }
+        if ($on) {
+            $out[] = $l;
+        }
+    }
+    return $out;
+}
+
+/**
+ * The watch book's MikroTik kinds (#2, package 2) over the lab's real lines (and lines of their exact shape at chosen
+ * times): a burst of failed router logins (one entry per router and address, the names tried only when they are admins,
+ * the console's single failure a count, an address learned for failing or noted with «I know, thanks» only counted), a
+ * port losing its link (closed by himself when it is back, opened again, flapping told once; the loopback, virtual ups
+ * and the WAN ports no entry), the internet away (open over two rounds and closed with its minutes, a short one noted by
+ * himself, a second loss that day on the same entry making it long, one still away after 30 minutes told while it
+ * lasts, one whose closing line never came closed after a day; PPPoE's retries one loss, its carrier port no link
+ * entry, «administrator request» none), the router restarted (clean: a plain line a day, unclean: told — and joined with
+ * the server's own start as a power loss), their words in every language, the privacy rule, the Team Lead's hint for a
+ * MikroTik without topics.
+ */
+function testWatchmanNetMikrotikBook(): void
+{
+    $main = netTestFixture('mikrotik-7.24.5-chr.log');
+    $at = fn (string $hm) => strtotime("2026-10-09 $hm");
+    $L = fn (string $hm, string $body) => netTestLine(strtotime("2026-10-09 $hm"), $body);
+    $tmp = hardeningTmp('watch-net-mtb');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    $logs = "$tmp/syslog";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh/root', 'flash', 'net/br0', 'net/lo'] as $dir) {
+        @mkdir("$src/$dir", 0700, true);
+    }
+    @mkdir($logs, 0777, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents", 'ident' => "$src/ident.cfg",
+              'rsyslog_cfg' => "$src/rsyslog.cfg", 'var_ini' => "$src/var.ini", 'disks_ini' => "$src/disks.ini", 'shares_ini' => "$src/shares.ini",
+              'net_class' => "$src/net", 'arp' => "$src/arp", 'array_events' => "$src/array-events"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/crontabs/root", "# nothing\n");
+    file_put_contents($paths['ident'], "NAME=\"Tower\"\nUSE_SSH=\"yes\"\n");
+    file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
+    file_put_contents($paths['disks_ini'], "[\"master\"]\nname=\"master\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n");
+    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"master\"\ncachePool2=\"\"\nexclusive=\"yes\"\n");
+    file_put_contents("$src/net/br0/address", "52:54:00:4d:54:12\n");
+    file_put_contents("$src/net/lo/address", "00:00:00:00:00:00\n");
+    file_put_contents($paths['arp'], "IP address       HW type     Flags       HW address            Mask     Device\n10.77.3.10       0x1         0x2         52:54:00:4d:54:03     *        br0\n");
+    file_put_contents($paths['rsyslog_cfg'], "local_server=\"1\"\nserver_protocol=\"udp\"\nserver_port=\"514\"\nserver_folder=\"$logs\"\nserver_filename=\"syslog-%FROMHOST-IP%.log\"\n"
+        . "log_rotation=\"1\"\nlog_size=\"50M\"\nlog_files=\"4\"\nremote_server=\"\"\nremote_protocol=\"udp\"\nremote_port=\"\"\n");
+    $ifaces = $GLOBALS['watchnetIfaces'] ?? null;
+    $GLOBALS['watchnetIfaces'] = ['lo' => ['unicast' => [['family' => 2, 'address' => '127.0.0.1']]], 'br0' => ['unicast' => [['family' => 2, 'address' => '10.9.9.20']]]];
+    $mt = "$logs/syslog-10.77.3.10.log";
+    $round = function (int $now, array $lines) use ($paths, $data, $mt, $tmp): array {
+        file_put_contents($mt, str_replace(' gateway-1 ', ' lab-chr ', implode('', $lines)), FILE_APPEND);
+        touch($mt, $now - 5);
+        return watchmanRound($paths, $data, 1000, $now, fn () => [], false, "$tmp/acks.json");
+    };
+    $book = function () use ($data): array {
+        $out = [];
+        foreach (watchmanLoad($data)['book'] as $e) {
+            $out[$e['key']] = $e;
+        }
+        return $out;
+    };
+    $told = fn (array $r) => array_values(array_unique(array_column(array_filter($r['told'], fn ($x) => $x['kind'] !== 'chain'), 'kind')));
+    $new = fn (array $r) => array_values(array_filter($r['added'], fn ($k) => str_starts_with($k, 'net_')));
+    $burst = fn (string $hm0, string $ip, int $n, string $user = 'admin', string $via = 'ssh') => array_map(
+        fn ($i) => netTestLine(strtotime("2026-10-09 $hm0") + $i, "system,error,critical login failure for user $user from $ip via $via"), range(0, $n - 1));
+    $fk = 'net_router_login_failures:10.77.3.10:10.77.3.1';
+
+    // ---- round 1: the router's history is learned — admin from 10.77.3.1, a burst from 10.77.3.50 makes that address known for failing
+    $r = $round($at('13:41:33'), array_merge($burst('13:30:00', '10.77.3.50', 6), netTestSlice($main, 'uso-step MAIN', 'uso-step 3 failures')));
+    same('mikrotik book round 1: learned, nothing told; a burst in the history makes its address known for failing (counted)', [[], 6],
+        [$new($r), (int) (watchmanLoad($data)['baseline']['net']['fail_ips']['10.77.3.50']['n'] ?? 0)]);
+
+    // ---- round 2: step 3 — the burst from Tower's address, the console's single failure, the known address again
+    $step3 = netTestSlice($main, 'uso-step 3 failures', 'uso-step 3b');
+    $mine = array_values(array_filter($step3, fn ($l) => str_contains($l, 'login failure for user') && str_contains($l, 'from 10.77.3.1 ')));
+    $strangers = count(array_filter($mine, fn ($l) => !str_contains($l, 'login failure for user admin from')));
+    $r = $round($at('13:44:30'), array_merge($step3, $burst('13:44:00', '10.77.3.50', 5)));
+    $b = $book();
+    $f = $b[$fk] ?? [];
+    same('mikrotik failures: one entry per router and address — counted up (every failure of the burst), told; the known address and the console only counted',
+        [['net_router_login_failures'], count($mine), true, ['net_router_login_failures'], false, false],
+        [$new($r), (int) ($f['count'] ?? 0), watchmanImportant($f), $told($r), isset($b['net_router_login_failures:10.77.3.10:10.77.3.50']),
+         isset($b['net_router_login_failures:10.77.3.10:local'])]);
+    same('mikrotik failures: the names tried only when they are admins he knows («admin»), the others a count — never «nosuchuser» or a command typed as a name',
+        [['admin'], $strangers, true, false, false, 'T1110'],
+        [$f['p']['users'] ?? null, (int) ($f['p']['unknown'] ?? 0), in_array('ssh', (array) ($f['p']['methods'] ?? []), true),
+         str_contains(json_encode($f, JSON_UNESCAPED_SLASHES), 'nosuchuser'), str_contains(json_encode($f, JSON_UNESCAPED_SLASHES), 'identity print'), WATCH_ATTACK['net_router_login_failures']]);
+    same('mikrotik failures: the known address\'s burst counted quietly; the console\'s single failure tracked under «local»', [true, true],
+        [(int) (watchmanLoad($data)['baseline']['net']['fail_ips']['10.77.3.50']['quiet'] ?? 0) >= 5, isset((readJson("$data/net.json") ?? [])['fails']['10.77.3.10|local'])]);
+    same('mikrotik failures: the words (en) and the notification\'s subject', [count($mine) . ' failed logins at router lab-chr from 10.77.3.1', 'Night watchman: failed logins at router lab-chr from 10.77.3.1'],
+        [explode(' — ', officeNotifyText('watchman', 'entry.net_router_login_failures', ['n' => (int) $f['count']] + watchmanText($f, 'en'), 'en'))[0],
+         officeNotifyText('watchman', 'notify.net_router_login_failures', ['n' => 1] + watchmanText($f, 'en'), 'en')]);
+
+    // «I know, thanks»: this address's failures are counted from now on — a new burst no entry
+    same('mikrotik failures: «I know, thanks»', ['ok' => true, 'noted' => 1], watchmanAck([$f['id']], $data, $at('13:45:00'), false));
+    $r = $round($at('13:45:40'), $burst('13:45:30', '10.77.3.1', 6, 'admin', 'api'));
+    same('mikrotik failures: … then a new burst from it only counted (no entry, the noted one stays noted)', [[], 1, true],
+        [$new($r), count(array_filter($book(), fn ($e) => $e['kind'] === 'net_router_login_failures')),
+         isset(watchmanLoad($data)['baseline']['net']['fail_ips']['10.77.3.1'])]);
+
+    // ---- round 3: step 5 — ether2 down/up ×4: one entry, closed by himself (back), not told
+    $r = $round($at('13:47:00'), netTestSlice($main, 'uso-step 5 link', 'uso-step 6 dhcp'));
+    $b = $book();
+    $l = $b['net_link_down:10.77.3.10:ether2:2026-10-09'] ?? [];
+    same('mikrotik link: «ether2 link down» ×4 — one entry per port and day, count 4, back at 13:46:14, noted by himself, not told',
+        [['net_link_down'], 4, $at('13:46:14'), 'router', false, [], 'T1200'],
+        [$new($r), (int) ($l['count'] ?? 0), $l['p']['back'] ?? null, $l['by'] ?? null, watchmanImportant($l), $told($r), WATCH_ATTACK['net_link_down']]);
+
+    // ---- step 6–8 (leases, VPN, firewall) between, then step 9: the WAN lost over two rounds
+    $round($at('13:54:00'), netTestSlice($main, 'uso-step 6 dhcp', 'uso-step 9 WAN'));
+    $wan = netTestSlice($main, 'uso-step 9 WAN', 'uso-step 10a');
+    $cut = 0;
+    foreach ($wan as $i => $line) {
+        if (str_contains($line, 'ether1 link up')) {
+            $cut = $i;
+            break;
+        }
+    }
+    $r = $round($at('13:55:00'), array_slice($wan, 0, $cut));
+    $o = $book()['net_outage:10.77.3.10:ether1:2026-10-09'] ?? [];
+    same('mikrotik outage: «client1 on ether1 lost IP address» — open (p.down), not told yet, its shape «still away»; ether1\'s link down no link entry (a WAN port)',
+        [['net_outage'], $at('13:54:28'), false, [], 'net_outage_open', false],
+        [$new($r), $o['p']['down'] ?? null, watchmanImportant($o), $told($r), watchnetEntryVariant($o), isset($book()['net_link_down:10.77.3.10:ether1:2026-10-09'])]);
+    same('mikrotik outage: the words while it lasts (en)', 'The internet is away at lab-chr (ether1) since 13:54 — 1 min so far',
+        officeNotifyText('watchman', watchmanEntryKey($o), ['n' => 1] + watchmanText($o, 'en'), 'en'));
+    $r = $round($at('13:57:00'), array_slice($wan, $cut));
+    $o = $book()['net_outage:10.77.3.10:ether1:2026-10-09'] ?? [];
+    same('mikrotik outage: … «got IP address» closes it — 131 s, over two minutes: important, told now that it is over; still open in the book until noted',
+        [[], null, $at('13:56:39'), 131, true, ['net_outage'], true, null],
+        [$new($r), array_key_exists('down', (array) ($o['p'] ?? [])) ? $o['p']['down'] : 'x', $o['p']['to'] ?? null, (int) ($o['p']['secs'] ?? 0), watchmanImportant($o), $told($r), watchmanOpen($o), watchnetEntryVariant($o)]);
+    same('mikrotik outage: the words once over (en, de); no WAN address anywhere',
+        ['The internet was away at lab-chr (ether1): 13:54–13:56, 2 min', 'Das Internet war bei lab-chr (ether1) weg: 13:54–13:56, 2 Min.', false],
+        [officeNotifyText('watchman', watchmanEntryKey($o), ['n' => 1] + watchmanText($o, 'en'), 'en'),
+         officeNotifyText('watchman', watchmanEntryKey($o), ['n' => 1] + watchmanText($o, 'de'), 'de'), str_contains(json_encode($o), '10.77.1.10')]);
+
+    // ---- step 10: restarts — four clean ones a plain line, the unclean one told; the clock lines nothing
+    $r = $round($at('14:02:00'), netTestSlice($main, 'uso-step 10a', 'uso-step 10h'));
+    $b = $book();
+    $c = $b['net_router_reboot:10.77.3.10:2026-10-09'] ?? [];
+    $u = $b['net_router_reboot:10.77.3.10:' . $at('13:58:01')] ?? [];
+    same('mikrotik restart: clean — one plain line a day, count 4, by admin, noted by himself; unclean — its own entry, important, told; no outage from the boots\' «got IP»',
+        [['net_router_reboot'], 4, ['admin'], 'router', true, true, ['net_router_reboot'], 'net_router_reboot_unclean', 1],
+        [$new($r), (int) ($c['count'] ?? 0), $c['p']['admins'] ?? null, $c['by'] ?? null, watchmanOpen($u), watchmanImportant($u), $told($r),
+         watchnetEntryVariant($u), count(array_filter($b, fn ($e) => $e['kind'] === 'net_outage'))]);
+    // the server started at 13:55 (its boot line, booked by himself): the next round joins them — a power loss for both
+    $raw = readJson("$data/book.json");
+    $raw['entries'][] = ['noted' => $at('14:03:00'), 'by' => 'array'] + watchmanEntry('server_boot', 'server_boot:test-boot', $at('13:55:00'), ['logins' => []]);
+    file_put_contents("$data/book.json", json_encode($raw));
+    $round($at('14:05:00'), []);
+    $u = $book()['net_router_reboot:10.77.3.10:' . $at('13:58:01')] ?? [];
+    same('mikrotik restart: the server\'s own start 3 minutes before — joined (p.power), its words say both lost power',
+        [$at('13:55:00'), 'net_router_reboot_power', true],
+        [$u['p']['power'] ?? null, watchnetEntryVariant($u), str_contains(officeNotifyText('watchman', watchmanEntryKey($u), ['n' => 1] + watchmanText($u, 'en'), 'en'), '13:55')]);
+    $pb = [watchmanEntry('server_boot', 'server_boot:x', 1000, []), watchmanEntry('net_router_reboot', 'r:1', 1000 + WATCHNET_POWER + 1, ['clean' => false])];
+    watchnetPowerLink($pb);
+    same('mikrotik restart: … more than WATCHNET_POWER apart — not joined', false, isset($pb[1]['p']['power']));
+
+    // ---- PPPoE (steps 9c–9f): the retries one loss, its carrier port no link entry, «administrator request» nothing
+    $r = $round($at('14:12:30'), netTestSlice($main, 'uso-step 9c PPPoE', 'uso-step 9f'));
+    $b = $book();
+    $pp = $b['net_outage:10.77.3.10:pppoe-out1:2026-10-09'] ?? [];
+    same('mikrotik PPPoE: link loss 60 s + «failed to authenticate» 27 s — one entry, two losses, 87 s: short, noted by himself; ether2\'s link down carries it (no link entry, a WAN port now)',
+        [['net_outage'], 2, 87, 'router', false, 4, true],
+        [$new($r), (int) ($pp['count'] ?? 0), (int) ($pp['p']['secs'] ?? 0), $pp['by'] ?? null, watchmanImportant($pp),
+         (int) ($b['net_link_down:10.77.3.10:ether2:2026-10-09']['count'] ?? 0), isset((readJson("$data/net.json") ?? [])['senders']['10.77.3.10']['wan']['ether2'])]);
+
+    // ---- flapping: ether5 down/up 4 times, then 6 more — told once; the loopback and a virtual interface coming up: nothing
+    $flap = function (string $hm0, int $n, string $iface = 'ether5') {
+        $out = [];
+        for ($i = 0; $i < $n; $i++) {
+            $out[] = netTestLine(strtotime("2026-10-09 $hm0") + 4 * $i, "interface,info $iface link down");
+            $out[] = netTestLine(strtotime("2026-10-09 $hm0") + 4 * $i + 2, "interface,info $iface link up");
+        }
+        return $out;
+    };
+    $r = $round($at('14:21:00'), array_merge($flap('14:20:00', 4), [$L('14:20:50', 'interface,info lo link up'), $L('14:20:51', 'interface,info wg-lab link up')]));
+    $r2 = $round($at('14:31:00'), $flap('14:30:00', 6));
+    $l = $book()['net_link_down:10.77.3.10:ether5:2026-10-09'] ?? [];
+    same('mikrotik link: ether5 ×4 (noted by himself), then ×6 more — the same entry opened again, count 10: flapping, important, told once, open until noted',
+        [['net_link_down'], [], 10, true, true, ['net_link_down'], 'net_link_down_flapping'],
+        [$new($r), $new($r2), (int) ($l['count'] ?? 0), watchmanOpen($l), !empty($l['p']['flapping']), $told($r2), watchnetEntryVariant($l)]);
+    same('mikrotik link: lo and wg-lab coming up make no entry', [false, false],
+        [isset($book()['net_link_down:10.77.3.10:lo:2026-10-09']), isset($book()['net_link_down:10.77.3.10:wg-lab:2026-10-09'])]);
+
+    // ---- a short outage (noted by himself), a second loss that day on the same entry makes it long (told)
+    $r = $round($at('14:41:00'), [$L('14:40:00', 'dhcp,info client3 on ether6 lost IP address 10.77.6.10 - lease stopped locally'),
+                                   $L('14:40:40', 'dhcp,info client3 on ether6 got IP address 10.77.6.10')]);
+    $s6 = $book()['net_outage:10.77.3.10:ether6:2026-10-09'] ?? [];
+    same('mikrotik outage: 40 s — a plain line he noted himself, not told', [['net_outage'], 'router', false, []],
+        [$new($r), $s6['by'] ?? null, watchmanImportant($s6), $told($r)]);
+    $r = $round($at('15:06:00'), [$L('15:03:00', 'dhcp,info client3 on ether6 lost IP address 10.77.6.10 - lease stopped locally'),
+                                   $L('15:04:30', 'dhcp,info client3 on ether6 got IP address 10.77.6.10')]);
+    $s6 = $book()['net_outage:10.77.3.10:ether6:2026-10-09'] ?? [];
+    same('mikrotik outage: … a second loss that day (90 s) — the same entry, opened again, 130 s in all: told',
+        [[], 2, 130, true, ['net_outage'], 'The internet was away 2 times at lab-chr (ether6) on 2026-10-09: 2 min in all, the longest 2 min'],
+        [$new($r), (int) ($s6['count'] ?? 0), (int) ($s6['p']['secs'] ?? 0), watchmanOpen($s6), $told($r),
+         officeNotifyText('watchman', watchmanEntryKey($s6), ['n' => (int) $s6['count']] + watchmanText($s6, 'en'), 'en')]);
+
+    // ---- still away after 30 minutes: told while it lasts (an hour after the last outage told); its closing line never comes:
+    // closed after a day, its end unknown
+    $round($at('16:11:00'), [$L('16:10:00', 'pppoe,ppp,info pppoe-out2: terminating... - peer is not responding')]);
+    $r = $round($at('16:41:00'), [$L('16:40:30', 'pppoe,ppp,info pppoe-out2: initializing...')]);
+    $p2 = $book()['net_outage:10.77.3.10:pppoe-out2:2026-10-09'] ?? [];
+    same('mikrotik outage: 31 minutes away, still — important now, told while it lasts, «31 min so far»',
+        [true, ['net_outage'], 31, 'net_outage_open'], [watchmanImportant($p2), $told($r), (int) ($p2['p']['minutes'] ?? 0), watchnetEntryVariant($p2)]);
+    $round($at('16:10:00') + WATCHNET_OUTAGE_STALE + 600, [netTestLine($at('16:10:00') + WATCHNET_OUTAGE_STALE + 500, 'script,info still here')]);
+    $p2 = $book()['net_outage:10.77.3.10:pppoe-out2:2026-10-09'] ?? [];
+    same('mikrotik outage: no closing line for a day — closed, its end unknown, open in the book (told already)', [null, null, true, true],
+        [array_key_exists('down', (array) ($p2['p'] ?? [])) ? $p2['p']['down'] : 'x', array_key_exists('to', (array) ($p2['p'] ?? [])) ? $p2['p']['to'] : 'x',
+         !empty($p2['p']['unknown']), watchmanOpen($p2)]);
+
+    // ---- the words: every kind and shape in every language, the fold, «I know, thanks», the privacy rule
+    $variants = ['net_outage_open', 'net_link_down_flapping', 'net_router_reboot_unclean', 'net_router_reboot_power'];
+    $gaps = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = langFile(OFFICE_WEB . "/desks/watchman/lang/$lang.json");
+        foreach (['net_router_login_failures', 'net_link_down', 'net_outage', 'net_router_reboot'] as $k) {
+            foreach (["entry.$k", "check.$k", "check.{$k}_how", "notify.$k", "adopt.$k", "fold.$k"] as $key) {
+                if (!isset($l[$key])) {
+                    $gaps[] = "$lang $key";
+                }
+            }
+        }
+        foreach ($variants as $v) {
+            if (!isset($l["entry.$v"])) {
+                $gaps[] = "$lang entry.$v";
+            }
+        }
+        if (!isset($l['entry.net_too_much_mikrotik'])) {
+            $gaps[] = "$lang entry.net_too_much_mikrotik";
+        }
+    }
+    same('mikrotik book: every new kind and shape has its words in all five languages (entry, check, how, notify, adopt, fold)', [], $gaps);
+    $loose = [];
+    foreach ($book() as $e) {
+        if (!in_array($e['kind'], ['net_router_login_failures', 'net_link_down', 'net_outage', 'net_router_reboot'], true)) {
+            continue;
+        }
+        foreach (['en', 'de', 'fr'] as $lang) {
+            foreach ([watchmanEntryKey($e), "notify.{$e['kind']}", "check.{$e['kind']}"] as $key) {
+                $t = officeNotifyText('watchman', $key, ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang);
+                if ($t === '' || $t === $key || preg_match('/\{[a-z_]+\}/', $t)) {
+                    $loose[] = "$lang $key: $t";
+                }
+            }
+        }
+        if (preg_match('/\b(?:10\.77\.1\.10|10\.77\.6\.10|10\.9\.9\.\d+)\b/', json_encode($e['p']) . json_encode(watchmanText($e, 'en')))
+            && $e['kind'] !== 'net_router_login_failures') {
+            $loose[] = "{$e['kind']}: an address";
+        }
+    }
+    same('mikrotik book: the words filled (no placeholder left) in en/de/fr; links, outages and restarts carry no address (the WAN\'s neither)', [], $loose);
+
+    // ---- the Team Lead: a MikroTik whose newest lines come without topics — a hint; with them again — none
+    $o = ['cfg' => $paths['rsyslog_cfg'], 'shares_ini' => $paths['shares_ini'], 'disks_ini' => $paths['disks_ini'], 'var_ini' => $paths['var_ini'],
+          'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'server' => watchnetServer($paths, []), 'containers' => [], 'link' => '#/advisor',
+          'hired' => true, 'now' => $at('15:00:00')];
+    $hint = fn (array $fmt) => array_values(array_map(fn ($f) => [$f['level'], $f['ok'], $f['params']['router']], array_filter(watchnetChecks($o + ['net' =>
+        ['senders' => ['10.77.3.10' => ['ros' => true, 'meta' => ['host' => 'lab-chr'], 'fmt' => $fmt], '192.0.2.1' => ['cef' => true]]]]),
+        fn ($f) => $f['id'] === 'syslog_mikrotik_format')));
+    same('mikrotik team lead: the default format or no topics lately — a hint naming the router; topics again since, or only long ago — none; not hired — none',
+        [[['hint', false, 'lab-chr']], [['hint', false, 'lab-chr']], [], [], []],
+        [$hint(['default' => $at('14:00:00')]), $hint(['notopics' => $at('14:00:00'), 'syslog' => $at('13:00:00')]),
+         $hint(['notopics' => $at('13:00:00'), 'syslog' => $at('14:00:00')]), $hint(['default' => $at('15:00:00') - 2 * 86400]),
+         array_values(array_filter(watchnetChecks(['hired' => false] + $o + ['net' => ['senders' => ['x' => ['ros' => true, 'fmt' => ['default' => $at('14:00:00')]]]]]),
+             fn ($f) => $f['id'] === 'syslog_mikrotik_format'))]);
+    $ct = langFile(OFFICE_WEB . '/desks/caretaker/lang/en.json');
+    check('mikrotik team lead: the hint\'s words', isset($ct['check.syslog_mikrotik_format'], $ct['check.syslog_mikrotik_format_how']));
+
+    // ---- his summary: a MikroTik's version unknown until a line says it, the format hint, prefixes that say no drop
+    $sum = watchnetSummary(watchmanLoad($data)['baseline']['net'] ?? null, readJson("$data/net.json"), false, $at('16:10:00') + WATCHNET_OUTAGE_STALE + 600);
+    $x = array_column($sum['senders'] ?? [], null, 'sender')['10.77.3.10'] ?? [];
+    same('mikrotik summary: RouterOS, the version not said yet, topics there (no hint), firewall lines without a drop prefix counted', [true, 'RouterOS', '', false, true],
+        [$x['ros'] ?? null, $x['product'] ?? null, $x['version'] ?? null, $x['ros_format'] ?? null, isset($x['prefix_other'])]);
+    $GLOBALS['watchnetIfaces'] = $ifaces;
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 // ===================================================================== updates
+
+/**
+ * The Consultant's MikroTik guide (#2, package 4): a guide of the group network like UniFi's; the lines to paste — the
+ * logging action in the syslog format with add-topics-string=yes (RouterOS 7.24 leaves the topics out without it), the
+ * four rules by severity, the two firewall log rules whose prefixes the night watchman reads as drops (limit=10,20:packet),
+ * the clock, a first line — each tried on the lab's RouterOS 7.24.5; their labels and paragraphs in every language, no
+ * «MikroTik: later» left in UniFi's guide, the search's places.
+ */
+function testAdvisorMikrotikGuide(): void
+{
+    $pub = dirname(__DIR__) . '/public';
+    same('mikrotik guide: a guide of the network group, after UniFi\'s', [['guide' => 'mikrotik', 'optional' => true, 'group' => 'network'], ['syslogserver', 'unifi', 'mikrotik', 'neighbours']],
+        [ADVISOR_EXTERNALS['mikrotik'] ?? null, array_values(array_keys(array_filter(ADVISOR_EXTERNALS, fn ($x) => ($x['group'] ?? '') === 'network')))]);
+    $js = (string) file_get_contents("$pub/desks/advisor/desk.js");
+    preg_match("/  mikrotik: \\{.*?copy: \\{(.*?)\\n    \\},/s", $js, $m);
+    preg_match_all("/^      ([a-z_]+): '(.*)',\$/m", (string) ($m[1] ?? ''), $c, PREG_SET_ORDER);
+    $copy = array_column($c, 2, 1);
+    same('mikrotik guide: the lines to paste', ['action', 'rules', 'drop_wan', 'drop_server', 'clock', 'hello'], array_keys($copy));
+    check('mikrotik guide: the action — remote to this server, UDP 514, the syslog format WITH the topics (add-topics-string=yes)',
+        str_contains($copy['action'] ?? '', '/system logging action add name=unraid target=remote remote={ip} remote-port=514 remote-protocol=udp remote-log-format=syslog')
+        && str_contains($copy['action'] ?? '', 'add-topics-string=yes'));
+    same('mikrotik guide: four rules by severity, one line', ['info', 'warning', 'error', 'critical'],
+        preg_match_all('/\/system logging add topics=([a-z]+) action=unraid/', $copy['rules'] ?? '', $r) ? $r[1] : []);
+    $rule = fn (string $s) => preg_match('/log-prefix="([a-z-]+)"/', $s, $x) ? $x[1] : '';
+    same('mikrotik guide: the firewall log rules with limit=10,20:packet — their prefixes are drops to the night watchman (a line of their shape: blocked)',
+        [true, true, 'blocked', 'blocked'],
+        [str_contains($copy['drop_wan'] ?? '', 'limit=10,20:packet') && str_contains($copy['drop_wan'] ?? '', 'chain=input'),
+         str_contains($copy['drop_server'] ?? '', 'limit=10,20:packet') && str_contains($copy['drop_server'] ?? '', 'src-address={ip}'),
+         watchnetRosFirewall($rule($copy['drop_wan'] ?? '') . ' input: in:ether1 out:(unknown 0), proto TCP (SYN), 203.0.113.5:4455->192.0.2.1:22, len 60')['type'],
+         watchnetRosFirewall($rule($copy['drop_server'] ?? '') . ' forward: in:bridge out:ether1, proto UDP, 192.0.2.20:5353->8.8.8.8:53, len 70')['type']]);
+    check('mikrotik guide: the page fills in the server\'s address and the browser\'s time zone (a safe name, else autodetect)',
+        str_contains($js, "v.replaceAll('{ip}', ip)") && str_contains($js, "time-zone-autodetect=no time-zone-name={tz}") && str_contains($js, "'time-zone-autodetect=yes'"));
+    check('mikrotik guide: «hello unraid» proves the path', ($copy['hello'] ?? '') === '/log info "hello unraid"');
+    $en = langFile("$pub/desks/advisor/lang/en.json");
+    $keys = array_merge(['ext.mikrotik.name', 'net.mikrotik.what', 'net.mikrotik.check'], array_map(fn ($i) => "net.mikrotik.$i", range(1, 6)),
+        array_map(fn ($k) => "copy.mikrotik.$k", array_keys($copy)));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $t = langFile("$pub/desks/advisor/lang/$code.json");
+        same("mikrotik guide/$code: every paragraph and label", [], array_values(array_diff($keys, array_keys($t))));
+        check("mikrotik guide/$code: add-topics-string named, UniFi's guide no longer says «MikroTik: later»",
+            str_contains((string) ($t['net.mikrotik.2'] ?? ''), 'add-topics-string=yes') && !str_contains((string) ($t['net.unifi.6'] ?? ''), 'MikroTik'));
+    }
+    check('mikrotik guide: no seventh paragraph by accident', !isset($en['net.mikrotik.7']));
+    $pj = json_decode((string) file_get_contents("$pub/desks/advisor/places.json"), true) ?: [];
+    check('mikrotik guide: the search knows it (places.json: its name, its paragraphs)', in_array('ext.mikrotik.name', $pj['keys'] ?? [], true)
+        && in_array('net.mikrotik.*', $pj['texts'] ?? [], true) && in_array('net.mikrotik.what', $pj['texts'] ?? [], true)
+        && str_contains($js, "mikrotik: 'net.mikrotik'"));
+}
 
 /**
  * The data folder's version marker and the one place for migrations (agent/lib/migrate.php): an old data folder (an
@@ -23937,7 +24282,7 @@ function testHiddenStoreroom(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

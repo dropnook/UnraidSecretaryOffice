@@ -509,5 +509,7 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ isn't this server",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ is {remote} — this server itself: Unraid sends its own lines to itself and writes them again into the syslog share (the night watchman skips that file). Empty the field under ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, or name a real SIEM.",
   "check.syslog_off": "Unraid's syslog server is off",
-  "check.syslog_off_how": "The night watchman is hired and you opened the Consultant's router guide, but ⟦Local syslog server⟧ is off — the router has nowhere to send. The Consultant shows the setting."
+  "check.syslog_off_how": "The night watchman is hired and you opened the Consultant's router guide, but ⟦Local syslog server⟧ is off — the router has nowhere to send. The Consultant shows the setting.",
+  "check.syslog_mikrotik_format": "The MikroTik router {router} sends its log with RouterOS's topics",
+  "check.syslog_mikrotik_format_how": "{router} ({sender}) sends its lines without the topics RouterOS can put in front (the «default» format, or «syslog» without «add-topics-string=yes»): the night watchman understands only some of them. In WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — the Consultant's MikroTik guide shows the whole setting."
 }

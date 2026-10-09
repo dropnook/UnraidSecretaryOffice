@@ -273,13 +273,14 @@ Dustdevil puts away what an ended partnership left, Ms. Protocolli reads the doo
 
 ## The network
 
-The Night Watchman can read what a router says about this server — UniFi gateways for now. The office never listens
+The Night Watchman can read what a router says about this server — UniFi gateways and MikroTik routers (RouterOS 7). The office never listens
 itself: the router sends its log to Unraid's own syslog server (*Settings → Network Services → Syslog Server*, one file
 per sender in a share of its own on a pool that never sleeps), and he reads those files each round — never while the
 array is stopped, never a disk woken, nothing written there, no router password, never a word to the router. The
 Consultant shows the setting and the router's side. Only what concerns this server becomes an entry in the group *The
 network*: a new sender, a device never seen on the LAN, someone using the server's name or address with another MAC, a
 router or VPN login not seen before, a change to the firewall, NAT or port forwarding, intrusion detections against this
-server or from it, the router's log going silent. Another device's address or name appears only in an entry about that
-device. The Team Lead checks the syslog server's setup, Ms. Protocolli reads the routers' files, Mr. Backupsy proposes
+server or from it, the router's log going silent — and from a MikroTik bursts of failed router logins, a port losing
+its link (told when it flaps), the internet away (told when long) and a restart without proper shutdown (with the
+server's own start: a power loss). Another device's address or name appears only in an entry about that device. The Team Lead checks the syslog server's setup, Ms. Protocolli reads the routers' files, Mr. Backupsy proposes
 their share «not backed up». The lines are untrusted input: see HARDENING.md.

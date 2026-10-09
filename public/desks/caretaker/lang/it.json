@@ -509,5 +509,7 @@
   "check.syslog_loop": "⟦Remote syslog server⟧ non è questo server",
   "check.syslog_loop_how": "⟦Remote syslog server⟧ è {remote} — questo server stesso: Unraid manda le proprie righe a sé e le riscrive nella condivisione syslog (il guardiano notturno salta quel file). Svuota il campo in ⟦Settings⟧ → ⟦Network Services⟧ → ⟦Syslog Server⟧, o indica un vero SIEM.",
   "check.syslog_off": "Il server syslog di Unraid è spento",
-  "check.syslog_off_how": "Il guardiano notturno è assunto e hai aperto la guida del router del consulente, ma ⟦Local syslog server⟧ è spento — il router non ha dove mandare. Il consulente mostra l'impostazione."
+  "check.syslog_off_how": "Il guardiano notturno è assunto e hai aperto la guida del router del consulente, ma ⟦Local syslog server⟧ è spento — il router non ha dove mandare. Il consulente mostra l'impostazione.",
+  "check.syslog_mikrotik_format": "Il router MikroTik {router} invia il suo log con i topic di RouterOS",
+  "check.syslog_mikrotik_format_how": "{router} ({sender}) invia le sue righe senza i topic che RouterOS può mettere davanti (il formato «default», o «syslog» senza «add-topics-string=yes»): il guardiano notturno ne capisce solo una parte. In WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — la guida MikroTik del consulente mostra tutta l'impostazione."
 }

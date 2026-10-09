@@ -9,7 +9,7 @@ A small office inside your Unraid server's web UI. Each member of staff looks af
 nightly backup, getting things back, snapshots, security, tidying up, the logs — tells you what they noticed and,
 where it makes sense, lets you act on it. Before anything changes they show you what will happen and ask. Two servers
 with the office can keep each other's backups as partner offices, and the Night Watchman also reads what a UniFi
-router says about the server. It is a plugin: no container, no account, no cloud of ours, nothing locked.
+or MikroTik router says about the server. It is a plugin: no container, no account, no cloud of ours, nothing locked.
 
 ![The reception: every desk's news at a glance](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception.png)
 
@@ -25,7 +25,7 @@ router says about the server. It is a plugin: no container, no account, no cloud
 | 🧹 | **Ms. Dustdevil** | Knows where everything lies and gives advice on keeping it in order. Clears away what nobody uses — templates, stacks, appdata folders, Docker's leftovers — into a storeroom first, never deleting at once (Docker's volumes are copied in before Docker removes them; only images and the build cache, which can be downloaded again, and volumes mounted from elsewhere go for good). Gives containers without a picture a logo. |
 | 📝 | **Ms. Protocolli** | Reads every log out loud — Unraid's, the office's, every User Script's and container's, the router's. Her tour counts and groups the errors and warnings and watches how full `/var/log` is. |
 | 🍿 | **Jack Emby** | The intern. Looks after helmi1987's EmbyCache (what you watch next waits on the fast pool, the array disks sleep) and the media gather (one disk per film folder). Never gathers while someone watches. Shows how much of each library lies on which disk or pool, with the date it was measured. |
-| 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; shows how the router's log reaches Unraid. |
+| 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; shows how the router's log reaches Unraid (UniFi, MikroTik). |
 
 A fresh office has only the Team Lead. He looks at your server and suggests whom to hire (no Emby, no Jack Emby; no
 ZFS or btrfs, no Ms. Snapshotini). Hire whom you need, let them go later — their data and settings stay; Mr. Restori
@@ -84,10 +84,14 @@ ATT&CK technique; the important ones go to Unraid's notifications. *I know, than
 array is stopped — also while an encrypted array waits for its key — his night shift keeps watch from RAM and the
 flash.
 
-**The router** (UniFi gateways for now): it sends its log to Unraid's own syslog server — the Consultant shows both
-sides — and he reads it on his round: router and VPN logins not seen before, firewall, NAT or port-forwarding changes,
-intrusion detections at this server, a new device on the LAN or one using the server's name or address, the router's
-log gone silent. No router password, never a word to the router; other devices only as new ones, the rest are counts.
+**The router** (UniFi gateways and MikroTik routers with RouterOS 7): it sends its log to Unraid's own syslog
+server — the Consultant shows both sides, for a MikroTik the lines to paste — and he reads it on his round: router and
+VPN logins not seen before, firewall, NAT or port-forwarding changes, intrusion detections at this server, a new device
+on the LAN or one using the server's name or address, the router's log gone silent. A MikroTik also tells him of bursts
+of failed router logins, a port losing its link again and again, the internet away (a short outage is a plain line, a
+long one is told once it is over) and a restart without proper shutdown — at the same time as the server's own start,
+a power loss for both. No router password, never a word to the router; other devices only as new ones, the rest are
+counts.
 
 **Why a parity check runs:** each one gets a plain line with its reason — on schedule, resumed by Parity Check Tuning,
 by hand (when that plugin saw it), a disk rebuild (no check at all), or after an unclean stop: the array didn't stop
