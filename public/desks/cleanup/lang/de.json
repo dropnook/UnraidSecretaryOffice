@@ -366,6 +366,7 @@
   "errors.cleanup_move_failed": "Konnte {path} nicht verschieben: {detail}",
   "errors.cleanup_no_way_back": "{name} lässt sich nicht zurücklegen — es ist nicht verzeichnet, woher es kommt.",
   "errors.cleanup_no_home": "{path} gibt es nicht mehr.",
+  "errors.cleanup_vm_back": "Es gibt wieder eine VM namens {name} — ihre Snapshot-Liste bleibt in der Abstellkammer (die neue VM würde die alten Einträge übernehmen). Leeren, oder zurücklegen, wenn diese VM wieder weg ist.",
   "fit.where": "Frau Putzteufel hat sich umgesehen: Ohne Docker und VMs gibt es bei dir kaum etwas zu putzen. «Wie ordentlich!», sagte sie, fast ein bisschen enttäuscht. Aber sie kennt jeden Winkel deines Servers und sagt dir, wo was liegt.",
   "share_where": "Share «{share}»: {places}",
   "asleep": "Ein Teil davon kann auf schlafenden Disks liegen ({disks}) — dort habe ich nicht nachgeschaut.",

@@ -366,6 +366,7 @@
   "errors.cleanup_move_failed": "No se pudo mover {path}: {detail}",
   "errors.cleanup_no_way_back": "{name} no se puede devolver a su sitio — no hay constancia de dónde venía.",
   "errors.cleanup_no_home": "{path} ya no existe.",
+  "errors.cleanup_vm_back": "Vuelve a haber una VM llamada {name} — su lista de instantáneas se queda en el trastero (la nueva VM se quedaría con las entradas antiguas). Vacíala, o devuélvela cuando esa VM ya no exista.",
   "fit.where": "La señora Plumero ha echado un vistazo: sin Docker y sin VMs casi no hay nada que barrer en tu casa. «¡Qué ordenado!», dijo, casi un poco decepcionada. Pero conoce cada rincón de tu servidor y te dice dónde está cada cosa.",
   "share_where": "Recurso compartido «{share}»: {places}",
   "asleep": "Puede que una parte esté en discos en reposo ({disks}) — ahí no he mirado.",

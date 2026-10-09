@@ -366,6 +366,7 @@
   "errors.cleanup_move_failed": "Impossible de déplacer {path} : {detail}",
   "errors.cleanup_no_way_back": "{name} ne peut pas être remis en place — rien n'indique d'où il vient.",
   "errors.cleanup_no_home": "{path} n'existe plus.",
+  "errors.cleanup_vm_back": "Il y a de nouveau une VM nommée {name} — sa liste de snapshots reste dans le débarras (la nouvelle VM reprendrait les anciennes entrées). Vide-la, ou remets-la en place quand cette VM n'existe plus.",
   "fit.where": "Madame Plumeau a fait le tour : sans Docker et sans VM, il n'y a presque rien à balayer chez toi. « Comme c'est bien rangé ! », a-t-elle dit, presque déçue. Mais elle connaît chaque recoin de ton serveur et te dit où tout se trouve.",
   "share_where": "Partage « {share} » : {places}",
   "asleep": "Une partie se trouve peut-être sur des disques endormis ({disks}) — je n'ai pas regardé là.",

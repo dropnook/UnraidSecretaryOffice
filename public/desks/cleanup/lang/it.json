@@ -366,6 +366,7 @@
   "errors.cleanup_move_failed": "Non sono riuscita a spostare {path}: {detail}",
   "errors.cleanup_no_way_back": "{name} non si può rimettere a posto — non è registrato da dove viene.",
   "errors.cleanup_no_home": "{path} non esiste più.",
+  "errors.cleanup_vm_back": "Esiste di nuovo una VM chiamata {name} — il suo elenco di snapshot resta nel ripostiglio (la nuova VM prenderebbe le vecchie voci). Svuotalo, o rimettilo a posto quando quella VM non c'è più.",
   "fit.where": "La signora Spolverina si è guardata intorno: senza Docker e senza VM da te non c'è quasi niente da pulire. «Che ordine!», ha detto, quasi un po' delusa. Però conosce ogni angolo del tuo server e ti dice dove sta ogni cosa.",
   "share_where": "Condivisione «{share}»: {places}",
   "asleep": "Una parte potrebbe stare su dischi in standby ({disks}) — lì non ho guardato.",

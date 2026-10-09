@@ -3629,6 +3629,10 @@ function clRestore(array $ids): array
         if (!empty($it['asleep'])) {
             throw new Problem('cleanup_asleep', ['name' => $it['name']]);         // its pool sleeps: never woken on her own
         }
+        // a VM's snapshot list: never back while a VM of that name exists again (it would take over the old entries) — issue #3
+        if ($it['kind'] === 'snapshotdb' && snapshotVmExists(basename($it['from']), snapshotVmDomains())) {
+            throw new Problem('cleanup_vm_back', ['name' => $it['name']]);
+        }
         try {
             if ($zfs !== null && $it['kind'] !== 'partner' && is_dir($it['from']) && !array_diff(@scandir($it['from']) ?: [], ['.', '..'])) {
                 @rmdir($it['from']);               // the empty mountpoint folder ZFS left behind
