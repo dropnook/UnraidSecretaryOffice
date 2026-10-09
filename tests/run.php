@@ -19201,6 +19201,46 @@ function testVmOrphans(): void
         [$r['ok'], is_file("$db/Gone ZFS/snapshots.db"), in_array('Gone ZFS', array_column(array_filter($r['state']['vm']['folders'], fn ($f) => $f['orphan']), 'vm'), true),
          file_exists($runPath), $r['state']['vm']['away']]);
 
+    // Ms. Dustdevil judges a snapshot list without its VM the same way: offered only as a true orphan
+    $ctxBefore = $GLOBALS['clCtx'] ?? null;
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => sleepingDisks()];
+    @mkdir("$db/EmptyFolder", 0755);
+    $lv = [];
+    foreach (clLibvirtOrphans(['ok' => true, 'vms' => ['Existing' => ['name' => 'Existing', 'uuid' => null, 'nvram' => null]]]) as $o) {
+        if ($o['kind'] === 'snapshotdb') {
+            $lv[$o['name']] = [$o['vm_why'], $o['entries'], array_map(fn ($x) => $x['zfs'] ?? $x['file'], $o['left']), array_column($o['unsure'], 'why')];
+        }
+    }
+    ksort($lv);
+    same('vm orphans: Ms. Dustdevil — only true orphans offered; what is left named, unsure offers nothing; an existing VM\'s and a linked list never listed', [
+        'Corrupt'     => ['vm_unsure', 0, [], ['unreadable']],
+        'EmptyFolder' => [null, 0, [], []],
+        'Gone ZFS'    => [null, 2, [], []],
+        'GoneLeft'    => ['vm_left', 1, ['tank/domains/GoneLeft@S3'], []],
+        'Mystery'     => ['vm_unsure', 1, [], ['method']],
+        'Nowhere'     => ['vm_unsure', 1, [], ['no_dataset']],
+        'QemuFile'    => ['vm_left', 2, ["$pool/domains/QemuFile/vdisk1.Q1qcow2"], []],
+        'QemuGone'    => [null, 1, [], []],
+        'Sleepy'      => ['vm_unsure', 1, [], ['asleep']],
+    ], $lv);
+    $zfsAsked = false;
+    $GLOBALS['snapshotHost']['zfs'] = "$tmp/no-zfs-here";       // a list of QEMU entries only never asks ZFS
+    $j = clSnapshotDbJudge("$db/QemuGone", $zfsAsked);
+    same('vm orphans: Ms. Dustdevil lists ZFS only for a list of the ZFS method', [false, null], [$zfsAsked, $j['vm_why']]);
+    $j = clSnapshotDbJudge("$db/Gone ZFS", $zfsAsked);
+    same('vm orphans: … and ZFS that can\'t be asked is unsure, never an orphan', [null, 'vm_unsure', ['no_zfs']], [$zfsAsked, $j['vm_why'], array_column($j['unsure'], 'why')]);
+    $GLOBALS['snapshotHost']['zfs'] = "$tmp/zfs";
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('vm orphans: Ms. Dustdevil refuses to put away such a list (vm_left, vm_unsure) and passes the reason on to her page',
+        str_contains($src, "'vm_left'       => new Problem('cleanup_vm_left'") && str_contains($src, "'vm_unsure'     => new Problem('cleanup_vm_unsure'")
+        && str_contains($src, "\$why = \$vmf['ok'] ? (\$o['vm_why'] ?? null) : 'vm_off';"));
+    rmdir("$db/EmptyFolder");
+    if ($ctxBefore === null) {
+        unset($GLOBALS['clCtx']);
+    } else {
+        $GLOBALS['clCtx'] = $ctxBefore;
+    }
+
     // libvirt not running: nothing about VMs can be told — no folders, nothing removed
     unlink("$tmp/libvirt-sock");
     $v = snapshotReadVms($z);
