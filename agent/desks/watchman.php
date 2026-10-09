@@ -216,6 +216,11 @@ const WATCH_KINDS = [
     'net_ips_server'          => ['net', true],     // an IPS detection against the server or from it
     'net_blocked_from_server' => ['net', true],     // the gateway dropped something the server sent (a destination and port not seen before)
     'net_log_silent'          => ['net', true],     // the router's file stopped growing while the router still answers
+    // MikroTik RouterOS (#2): what only its lines say
+    'net_router_login_failures' => ['net', true],   // a burst of failed router logins from one address (like login_failures)
+    'net_link_down'           => ['net', false],    // a port of the router lost its link: a line a day per port, closed by himself when it is back (important when flapping: the entry's `important`)
+    'net_outage'              => ['net', false],    // the internet away (the WAN's DHCP lease or PPPoE lost): a short one noted by himself, a long one told (the entry's `important`)
+    'net_router_reboot'       => ['net', false],    // the router restarted: a plain line, noted by himself; without proper shutdown told (the entry's `important`), with the server's start a power loss
 ];
 
 /**
@@ -257,6 +262,10 @@ const WATCH_ATTACK = [
     'net_sender_new' => 'T1200', 'net_new_device' => 'T1200', 'net_spoof' => 'T1557', 'net_router_login' => 'T1078',
     'net_firewall_change' => 'T1562.004', 'net_router_config' => 'T1562', 'net_vpn_login' => 'T1133', 'net_ips_server' => 'T1595',
     'net_blocked_from_server' => 'T1071', 'net_log_silent' => 'T1562.006',
+    // MikroTik: failed router logins Brute Force; a port losing its link is where a device is unplugged or plugged in (Hardware
+    // Additions, nearest); the internet away Network Denial of Service (nearest — mostly the provider); a restart System
+    // Shutdown/Reboot like the server's
+    'net_router_login_failures' => 'T1110', 'net_link_down' => 'T1200', 'net_outage' => 'T1498', 'net_router_reboot' => 'T1529',
 ];
 
 /**
@@ -1385,6 +1394,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         // the server started since the last round (a reboot leaves no array line: WATCH_ARRAY_EVENTS lies in RAM) — never at his first
         if (!$fresh) {
             watchmanBootLine($book, $st, $boot, $btime, $now);
+            watchnetPowerLink($book);       // a router restarted without proper shutdown close to it: a power loss for both
         }
         if ($boot !== '') {
             $st['boot_seen'] = $boot;
@@ -7364,6 +7374,12 @@ function watchmanText(array $e, ?string $lang = null): array
     };
 }
 
+/** The key of an entry's words: entry.<kind>, or the shape a network entry has now (watchnetEntryVariant(): an outage going on …) */
+function watchmanEntryKey(array $e): string
+{
+    return 'entry.' . (watchnetEntryVariant($e) ?? (string) ($e['kind'] ?? ''));
+}
+
 /** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */
 function watchmanDoorWords(array $p, ?string $lang): string
 {
@@ -7577,7 +7593,7 @@ const WATCH_SYSLOG_OWN = '/\suso-watchman(?:\[\d+\])?:/';
 function watchmanSyslogLine(array $e): string
 {
     $kind = (string) $e['kind'];
-    $text = officeNotifyText('watchman', "entry.$kind", ['n' => (int) ($e['count'] ?? 1)] + watchmanText($e, 'en'), 'en');
+    $text = officeNotifyText('watchman', watchmanEntryKey($e), ['n' => (int) ($e['count'] ?? 1)] + watchmanText($e, 'en'), 'en');
     return jsonEncode(['v' => 1, 'id' => (string) $e['id'], 'kind' => $kind, 'group' => WATCH_KINDS[$kind][0] ?? 'watch',
         'attack' => WATCH_ATTACK[$kind] ?? null, 'important' => (bool) (WATCH_KINDS[$kind][1] ?? false), 'noted' => $e['by'] ?? null,
         'time' => date('c', (int) ($e['time'] ?? time())), 'text' => mb_strimwidth(watchmanClean($text, 1200), 0, 700, '…')]);
@@ -7658,7 +7674,7 @@ const WATCH_CHAIN_KEEP   = 7 * 86400;       // entries older than this start no 
 // a chain is a way in and something else (a login from a new address, then a cron line), or damage of two sorts (snapshots
 // gone and much written) — a plugin installed (its plugin, cron file and port at once) alone is none
 const WATCH_CHAIN_ACCESS = ['login_new_ip', 'login_failures', 'smb_user', 'door_new', 'door_key_moved', 'door_refused',
-                            'net_router_login', 'net_vpn_login', 'net_new_device', 'net_spoof'];
+                            'net_router_login', 'net_router_login_failures', 'net_vpn_login', 'net_new_device', 'net_spoof'];
 const WATCH_CHAIN_IMPACT = ['snap_gone' => 'snap', 'snap_hold_released' => 'snap', 'flow_written' => 'flow', 'flow_gone' => 'flow', 'log_cleared' => 'log',
                             'net_blocked_from_server' => 'exfil'];
 
@@ -7736,7 +7752,7 @@ function watchmanChainSend(array $entries, array $c, string $lang): bool
 {
     $lines = [];
     foreach (array_slice($entries, 0, 10) as $e) {
-        $lines[] = '• ' . date('H:i', (int) $e['time']) . ' ' . officeNotifyText('watchman', "entry.{$e['kind']}", ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang);
+        $lines[] = '• ' . date('H:i', (int) $e['time']) . ' ' . officeNotifyText('watchman', watchmanEntryKey($e), ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang);
     }
     if (count($entries) > 10) {
         $lines[] = officeNotifyText('watchman', 'notify.more', ['n' => count($entries) - 10], $lang);
@@ -7759,7 +7775,7 @@ function watchmanNotifySend(string $kind, array $entries, string $lang): bool
     $params = ['n' => $n] + watchmanText($entries[0], $lang);
     $lines = [];
     foreach (array_slice($entries, 0, 10) as $e) {
-        $lines[] = '• ' . officeNotifyText('watchman', "entry.$kind", ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang)
+        $lines[] = '• ' . officeNotifyText('watchman', watchmanEntryKey($e), ['n' => (int) $e['count']] + watchmanText($e, $lang), $lang)
                  . ' — ' . date('Y-m-d H:i', (int) $e['last']);
         $src = $kind === 'flow_written' && is_array($e['p']['src'] ?? null) ? $e['p']['src'] : [];
         if ($src && ($src[0]['t'] ?? '') !== 'none') {         // who wrote it: a section, one source per line
@@ -7835,7 +7851,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
     $book = [];
     foreach ($d['book'] as $e) {
         $book[] = ['id' => $e['id'], 'kind' => $e['kind'], 'group' => WATCH_KINDS[$e['kind']][0] ?? 'watch', 'tell' => watchmanImportant($e),
-                   'attack' => WATCH_ATTACK[$e['kind']] ?? null,
+                   'attack' => WATCH_ATTACK[$e['kind']] ?? null, 'v' => watchnetEntryVariant($e),
                    'time' => (int) $e['time'], 'last' => (int) $e['last'], 'count' => (int) $e['count'],
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
                    'p' => array_filter((array) ($e['p'] ?? []), fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),

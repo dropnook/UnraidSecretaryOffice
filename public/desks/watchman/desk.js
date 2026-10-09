@@ -719,7 +719,7 @@ function chainCallout(c) {
   const byId = new Map((state.book || []).map((e) => [e.id, e]));
   const ul = el('ul', 'wm-chain-list');
   c.ids.map((id) => byId.get(id)).filter(Boolean).forEach((e) => {
-    ul.appendChild(el('li', '', `${fmt.time(e.time)} · ${T('group.' + e.group)} · ${T('entry.' + e.kind, entryParams(e))}`));
+    ul.appendChild(el('li', '', `${fmt.time(e.time)} · ${T('group.' + e.group)} · ${entryName(e)}`));
   });
   box.appendChild(ul);
   box.appendChild(el('p', 'wm-note', T('chain.how')));
@@ -728,9 +728,14 @@ function chainCallout(c) {
 
 /** An entry in words, as its row names it (and the search finds it) */
 function entryName(e) {
-  if (e.kind === 'watch' && e.p && e.p.too_much) return T('entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) });
-  return T('entry.' + e.kind, entryParams(e));
+  if (e.kind === 'watch' && e.p && e.p.too_much) {
+    return T(e.p.ros ? 'entry.net_too_much_mikrotik' : 'entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) });
+  }
+  return T('entry.' + (e.v || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
 }
+
+/** Kinds whose words say how many already (failed logins, a port's link losses, outages, restarts a day) */
+const COUNT_IN_WORDS = ['login_failures', 'net_router_login_failures', 'net_link_down', 'net_outage', 'net_router_reboot'];
 
 /** One entry: what, when, noted or not; a click unfolds its details (owner: the folded row it is drawn in, if any) */
 function entryRow(e, owner) {
@@ -759,7 +764,7 @@ function entryRow(e, owner) {
   when.dataset.tip = fmt.relative(e.last);
   meta.appendChild(when);
   // snapshots: the count is how many, it stands in the words already
-  if (e.count > 1 && e.kind !== 'login_failures' && e.group !== 'snap') meta.appendChild(el('span', '', T('times', { n: e.count })));
+  if (e.count > 1 && !COUNT_IN_WORDS.includes(e.kind) && e.group !== 'snap') meta.appendChild(el('span', '', T('times', { n: e.count })));
   main.append(name, meta);
   r.appendChild(main);
   if (e.open) {
@@ -1211,6 +1216,32 @@ function netDetails(e, p, add) {
       add(T('detail.last_line'), fmt.date(p.last));
       if (p.usual) add(T('detail.usual_gap'), fmt.duration(p.usual));
       break;
+    case 'net_router_login_failures':
+      add(T('detail.ip'), p.ip || T('detail.console'), !!p.ip);
+      if ((p.methods || []).length) add(T('detail.how'), p.methods.join(', '));
+      if ((p.users || []).length) add(T('detail.admins_tried'), p.users.join(', '));
+      if (p.unknown) add(T('detail.names_unknown'), T('detail.names_unknown_text', { n: p.unknown }));
+      if (p.vpn) add(T('detail.vpn_fail'), T('detail.vpn_fail_text'));
+      break;
+    case 'net_link_down':
+      add(T('detail.iface'), p.iface, true);
+      add(T('detail.link_down'), fmt.date(p.down));
+      add(T('detail.link_back'), p.back ? `${fmt.date(p.back)} (${T('detail.minutes', { n: p.minutes || 0 })})` : T('detail.still_down'));
+      if (p.flapping) add(T('detail.flapping'), T('detail.flapping_text', { n: e.count }));
+      break;
+    case 'net_outage':
+      add(T('detail.iface'), `${p.iface}${p.via ? ` (${p.via === 'pppoe' ? 'PPPoE' : 'DHCP'})` : ''}`, true);
+      add(T('detail.outage_from'), fmt.date(p.from));
+      if (p.down) add(T('detail.outage_now'), T('detail.outage_since', { when: fmt.date(p.down), n: p.minutes || 0 }));
+      else add(T('detail.outage_to'), p.to ? fmt.date(p.to) : T('detail.outage_unknown'));
+      if (e.count > 1) add(T('detail.outages'), T('detail.outages_text', { n: e.count, minutes: p.minutes || 0, longest: Math.max(1, Math.round((p.longest || 0) / 60)) }));
+      if (p.reason) add(T('detail.reason'), p.reason, true);
+      break;
+    case 'net_router_reboot':
+      add(T('detail.restart'), T(p.clean ? 'detail.restart_clean' : 'detail.restart_unclean'));
+      if ((p.admins || []).length) add(T('detail.restart_by'), p.admins.join(', '));
+      if (p.power) add(T('detail.power'), T('detail.power_text', { when: fmt.date(p.power) }));
+      break;
     default:
   }
   if (p.evidence) add(T('detail.router_line'), p.evidence, true);
@@ -1390,11 +1421,14 @@ function netGroup(n) {
     rows.push(c);
   }
   senders.forEach((x) => rows.push(item(x.host ? `${x.host} · ${x.sender}` : x.sender, [
-    x.product ? `${x.product} ${x.version}`.trim() : '',
+    x.product ? `${x.product} ${x.version || (x.ros ? T('watch.net_version_unknown') : '')}`.trim() : '',
     x.last ? T('watch.net_last', { when: fmt.relative(x.last) }) : '',
     T('watch.net_per_day', { n: x.per_day || 0 }),
     x.other_pct > 0 ? T('watch.net_other', { pct: fmt.number(x.other_pct) }) : '',
+    x.prefix_other ? T('watch.net_prefix_other', { n: x.prefix_other }) : '',
   ])));
+  // a MikroTik sending without RouterOS's topics (the default format, or the syslog format without add-topics-string)
+  senders.filter((x) => x.ros && x.ros_format).forEach((x) => say(T('watch.net_ros_format', { router: x.host || x.sender }), true));
   if (senders.length) {
     rows.push(item(T('watch.net_counts', { devices: n.devices, admins: n.admins, vpn: n.vpn }), [], null, true));
     const d = n.detections || {};

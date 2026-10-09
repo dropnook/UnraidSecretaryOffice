@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 /*
  * The network as the night watchman sees it (stage 1 of the router SOC: UniFi, briefs/brief-router-soc-stage1.md; MikroTik
- * RouterOS 7 lines since #2 — parsed and typed, its own kinds still to come: see «MikroTik RouterOS» below).
+ * RouterOS 7 since #2 — parsed and typed, see «MikroTik RouterOS» below — with its own kinds: bursts of failed router
+ * logins, a port losing its link, the internet away, the router restarted).
  * Read only, functions only — like partnerlook.php: the night watchman calls it from his round, the Team Lead for his
  * checks, the Consultant for his look at Unraid's syslog server, Ms. Protocolli for her sources, Mr. Backupsy's setup
  * only through the engine (setup.sh reads rsyslog.cfg itself).
@@ -53,6 +54,12 @@ const WATCHNET_CLOCK         = 300;                  // the router's clock off b
 const WATCHNET_CHAIN         = 600;                  // a new device and a login from its address this close: a chain
 const WATCHNET_EVIDENCE      = 300;                  // characters of an entry's evidence line
 const WATCHNET_ROTATION_MAX  = 2 * 1024 ** 3;        // size × files beyond this: the Team Lead's syslog_no_rotation
+const WATCHNET_FLAPS         = 10;                   // a port losing its link this often in a day: flapping (told once)
+const WATCHNET_OUTAGE_SHORT  = 120;                  // the internet away less than this (that day, in all): a plain line
+const WATCHNET_OUTAGE_TELL   = 1800;                 // … still away after this: told while it lasts
+const WATCHNET_OUTAGE_STALE  = 86400;                // an outage whose closing line never came: closed after this, its end unknown
+const WATCHNET_POWER         = 600;                  // the router restarted uncleanly this close to the server's start: a power loss
+const WATCHNET_WAN_CARRIER   = 5;                    // a link down a PPPoE loss follows this soon: that port carries the WAN
 const WATCHNET_TAG           = '/\[([A-Z][A-Z0-9_]{0,47})-(?:(\d{1,10})-([ADR])|([ADR])-(\d{1,10}))\]/';
 const WATCHNET_OWN           = '/\suso-watchman(?:\[\d+\])?:/';      // his own SIEM lines (WATCH_SYSLOG_OWN)
 const WATCHNET_FIREWALL      = '/\b(?:firewall|nat|port[ -]?forward(?:ing|s)?|traffic rules?|polic(?:y|ies)|zones?)\b/i';
@@ -1196,7 +1203,7 @@ function watchnetScrub(string $s, array $allow): string
 function watchnetBase(mixed $b): array
 {
     $b = is_array($b) ? $b : [];
-    foreach (['senders', 'devices', 'self', 'admins', 'vpn', 'blocked', 'ips_in'] as $k) {
+    foreach (['senders', 'devices', 'self', 'admins', 'vpn', 'blocked', 'ips_in', 'fail_ips'] as $k) {
         $b[$k] = is_array($b[$k] ?? null) ? $b[$k] : [];
     }
     $b['time'] = (int) ($b['time'] ?? 0);
@@ -1207,7 +1214,7 @@ function watchnetBase(mixed $b): array
 function watchnetState(mixed $s): array
 {
     $s = is_array($s) ? $s : [];
-    foreach (['pos', 'senders', 'days', 'blocked', 'seen', 'lan'] as $k) {
+    foreach (['pos', 'senders', 'days', 'blocked', 'seen', 'lan', 'fails'] as $k) {
         $s[$k] = is_array($s[$k] ?? null) ? $s[$k] : [];
     }
     return ['v' => 1] + $s;
@@ -1293,14 +1300,26 @@ function watchnetCompare(?array &$b, array $look, array &$book, array &$ns, arra
             $s['last'] = $cur['mtime'];
         }
         $s['gaps'] = array_slice(array_filter((array) $s['gaps'], fn ($k) => (string) $k >= date('Y-m-d', $now - WATCHNET_GAP_DAYS * 86400), ARRAY_FILTER_USE_KEY), -WATCHNET_GAP_DAYS, null, true);
+        $events = $acc['events'];
+        $ports = watchnetWanPorts($events, (array) ($s['wan'] ?? []));
+        $s['wan'] = $ports['wan'];
         $ns['pos'][$sender] = $acc['pos'];
         $ns['senders'][$sender] = $s;
         // the events, oldest first
-        foreach ($acc['events'] as $ev) {
+        foreach ($events as $ev) {
             $more = watchnetEvent($b, $ns, $book, $sender, $ev, $server, $now, $learn, $lan);
             if ($more !== null) {
                 $added[] = $more;
             }
+        }
+        if ($ports['carriers']) {
+            // a port that carries the PPPoE: known from now on (not before — its earlier link losses in this round were its own)
+            $wan = array_replace((array) ($ns['senders'][$sender]['wan'] ?? []), $ports['carriers']);
+            arsort($wan);
+            $ns['senders'][$sender]['wan'] = array_slice($wan, 0, 16, true);
+        }
+        if (!$learn) {
+            watchnetOutages($book, $sender, $now);
         }
         if ($lan) {
             foreach ($acc['det_other'] as $ip => $n) {
@@ -1317,7 +1336,7 @@ function watchnetCompare(?array &$b, array $look, array &$book, array &$ns, arra
             }
         }
         if ((int) $acc['skipped'] > 0 && !$learn) {
-            watchnetTooMuch($book, $sender, (int) $acc['skipped'], $now);
+            watchnetTooMuch($book, $sender, (int) $acc['skipped'], $now, !empty($s['ros']));
         }
     }
     // a sender whose file went (the folder emptied, another folder): nothing read of it, nothing forgotten — its position stays
@@ -1491,8 +1510,321 @@ function watchnetEvent(array &$b, array &$ns, array &$book, string $sender, arra
                 ['sender' => $sender, 'router' => $router, 'key' => $key, 'dst' => (string) $ev['dst'], 'dpt' => $ev['dpt'], 'proto' => (string) $ev['proto'],
                  'server' => (string) $ev['src'], 'zone' => (string) $ev['zone'], 'rule' => (string) $ev['rule'], 'action' => (string) $ev['action'],
                  'evidence' => watchnetEvidence($ev, $allow + [(string) $ev['dst'] => true])]);
+        case 'login_fail':
+            return watchnetLoginFail($b, $ns, $book, $sender, $router, $ev, $t, $learn, $allow);
+        case 'link':
+            return $learn ? null : watchnetLink($book, $ns, $sender, $router, $ev, $t, $now, $date);
+        case 'wan_down':
+        case 'wan_up':
+            return $learn ? null : watchnetWan($book, $sender, $router, $ev, $t, $now, $date);
+        case 'reboot':
+            return $learn ? null : watchnetReboot($book, $sender, $router, $ev, $t, $now, $date);
     }
     return null;
+}
+
+/**
+ * Failed router logins (RouterOS's «login failure for user U from A via C», L2TP's «user U authentication failed»):
+ * like his own login_failures — WATCH_FAIL_BURST from one address within WATCH_FAIL_WINDOW is a burst, one entry per
+ * router and address that counts up; a single failure is a count of the day. The names tried are kept only when they are
+ * admins he knows (an unknown one may be a password typed into the wrong field — counted, never kept); an address known
+ * for failing («I know, thanks», or a burst in the router's history when he first read it) is counted, not told. The
+ * console has no address: «local».
+ */
+function watchnetLoginFail(array &$b, array &$ns, array &$book, string $sender, string $router, array $ev, int $t, bool $learn, array $allow): ?string
+{
+    $ip = $ev['ip'] ?? null;
+    $addr = $ip ?? 'local';
+    $admin = (string) ($ev['admin'] ?? '');
+    $known = $admin !== '' && isset($b['admins'][$admin]);
+    $fk = "$sender|$addr";
+    $prev = is_array($ns['fails'][$fk] ?? null) ? $ns['fails'][$fk] : null;
+    $was = $prev && !empty($prev['burst']) && $prev['t'] && $t - max($prev['t']) <= WATCH_FAIL_WINDOW;      // a burst going on
+    $one = [$addr => $prev];
+    $add = watchmanFailStep($one, ['ip' => $addr, 'time' => $t, 'user' => $known ? $admin : null, 'service' => (string) ($ev['method'] ?? '')]);
+    $ns['fails'][$fk] = array_merge($one[$addr], ['last' => $t]);
+    if (!$add) {
+        return null;
+    }
+    if ($learn || isset($b['fail_ips'][$addr])) {
+        $k = is_array($b['fail_ips'][$addr] ?? null) ? $b['fail_ips'][$addr] : ['since' => $t, 'last' => $t, 'n' => 0, 'quiet' => 0];
+        $k['last'] = max((int) $k['last'], $t);
+        $k[$learn ? 'n' : 'quiet'] = (int) ($k[$learn ? 'n' : 'quiet'] ?? 0) + $add;     // known for failing: counted, not told
+        $b['fail_ips'][$addr] = $k;
+        return null;
+    }
+    $tr = $ns['fails'][$fk];
+    $p = $was ? ['users' => $known ? [$admin] : [], 'methods' => [(string) ($ev['method'] ?? '')], 'unknown' => $known ? 0 : 1]
+              : ['users' => array_values((array) $tr['users']), 'methods' => array_values((array) $tr['services']), 'unknown' => (int) $tr['unknown']];
+    // the evidence names the user only when it is a known admin (never what someone typed as a name)
+    $shown = ['admin' => $known ? $admin : '…'] + $ev;
+    return watchmanBump($book, 'net_router_login_failures', "net_router_login_failures:$sender:$addr", $t, $add,
+        ['sender' => $sender, 'router' => $router, 'ip' => $ip, 'vpn' => !empty($ev['vpn'])] + $p
+        + ['evidence' => watchnetEvidence($shown, $allow + ($ip !== null ? [$ip => true] : []))]);
+}
+
+/** The index of the newest entry with this key (or key prefix, $prefix) that $ok accepts, or null */
+function watchnetBookAt(array $book, string $key, callable $ok, bool $prefix = false): ?int
+{
+    for ($i = count($book) - 1; $i >= 0; $i--) {
+        $k = (string) ($book[$i]['key'] ?? '');
+        if (($prefix ? str_starts_with($k, $key) : $k === $key) && $ok($book[$i])) {
+            return $i;
+        }
+    }
+    return null;
+}
+
+/** Open, or a plain line he noted himself (`by` router): an entry he may still bring up to date */
+function watchnetMine(array $e): bool
+{
+    return watchmanOpen($e) || ($e['by'] ?? null) === 'router';
+}
+
+/**
+ * The WAN ports of a router: where a DHCP client or PPPoE runs (the lines say it: «client1 on ether1 lost IP address»,
+ * «pppoe-out1: terminating...») and a port whose link went down right before a PPPoE loss (WATCHNET_WAN_CARRIER: it
+ * carries the PPPoE — that link down is the outage, no link entry: the event gets `carrier`). $wan: those known; returns
+ * them with this round's DHCP/PPPoE interfaces (port => when last seen, at most 16) and the carriers found (known from
+ * after this round).
+ *
+ * @return array{wan: array<string, int>, carriers: array<string, int>}
+ */
+function watchnetWanPorts(array &$events, array $wan): array
+{
+    $carriers = [];
+    $ppp = [];
+    foreach ($events as $ev) {
+        if (in_array($ev['type'] ?? '', ['wan_down', 'wan_up'], true) && (string) ($ev['iface'] ?? '') !== '') {
+            $wan[(string) $ev['iface']] = (int) $ev['t'];
+            if ($ev['type'] === 'wan_down' && ($ev['via'] ?? '') === 'pppoe') {
+                $ppp[(int) $ev['t']] = true;
+            }
+        }
+    }
+    foreach ($events as $i => $ev) {
+        if (($ev['type'] ?? '') !== 'link' || !empty($ev['up']) || !$ppp) {
+            continue;
+        }
+        for ($d = 0; $d <= WATCHNET_WAN_CARRIER; $d++) {
+            if (isset($ppp[(int) $ev['t'] + $d])) {
+                $events[$i]['carrier'] = true;
+                $carriers[(string) $ev['iface']] = (int) $ev['t'];
+                break;
+            }
+        }
+    }
+    arsort($wan);
+    return ['wan' => array_slice($wan, 0, 16, true), 'carriers' => $carriers];
+}
+
+/**
+ * A port lost its link (RouterOS's «ether2 link down»): one entry per router, port and day, opened at the first down,
+ * `count` = the downs; the link back closes it by himself (`by` router, p.back, p.minutes), the next down opens it again.
+ * WATCHNET_FLAPS downs in a day: flapping — important once («a cable or a port failing»), it stays open then. Not
+ * important otherwise: a port unplugged is the owner's business. The loopback and the WAN ports are left out (a WAN port
+ * losing its link is the internet away: watchnetWan()). Interface names only — never a device behind the port.
+ */
+function watchnetLink(array &$book, array $ns, string $sender, string $router, array $ev, int $t, int $now, string $date): ?string
+{
+    $iface = (string) ($ev['iface'] ?? '');
+    if ($iface === '' || $iface === 'lo' || !empty($ev['carrier']) || isset($ns['senders'][$sender]['wan'][$iface])) {
+        return null;
+    }
+    if (!empty($ev['up'])) {
+        $i = watchnetBookAt($book, "net_link_down:$sender:$iface:", fn ($e) => watchmanOpen($e) && isset($e['p']['down']) && $e['p']['back'] === null, true);
+        if ($i === null) {
+            return null;
+        }
+        $book[$i]['p']['back'] = $t;
+        $book[$i]['p']['minutes'] = (int) round(max(0, $t - (int) $book[$i]['p']['down']) / 60);
+        if (empty($book[$i]['important'])) {
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'router';
+        }
+        return null;
+    }
+    $key = "net_link_down:$sender:$iface:$date";
+    $i = watchnetBookAt($book, $key, 'watchnetMine');
+    if ($i === null) {
+        $book[] = watchmanEntry('net_link_down', $key, $t, ['sender' => $sender, 'router' => $router, 'iface' => $iface, 'date' => $date,
+            'down' => $t, 'back' => null, 'minutes' => null, 'evidence' => watchnetEvidence($ev, [])]);
+        return 'net_link_down';
+    }
+    $e = &$book[$i];
+    $e['count'] = (int) $e['count'] + 1;
+    $e['last'] = max((int) $e['last'], $t);
+    $e['p']['down'] = $t;
+    $e['p']['back'] = null;
+    $e['p']['minutes'] = null;
+    if (($e['by'] ?? null) === 'router') {
+        $e['noted'] = null;
+        $e['by'] = null;
+    }
+    if ((int) $e['count'] >= WATCHNET_FLAPS && empty($e['important'])) {
+        $e['important'] = true;                 // flapping: told once, open until noted
+        $e['p']['flapping'] = true;
+    }
+    return null;
+}
+
+/**
+ * The internet away (RouterOS's DHCP client «lost IP address» / «got IP address», PPPoE «terminating...» / «connected»):
+ * one entry per router, WAN port and day — opened at the loss (p.from, p.down while it lasts), closed by the return
+ * (p.to, its minutes added up). Under WATCHNET_OUTAGE_SHORT in all that day: a plain line he notes himself (`by`
+ * router); longer: important — told once it is over (a mail couldn't leave during it anyway), or after
+ * WATCHNET_OUTAGE_TELL still away (watchnetOutages()). A further loss that day counts up on the same entry (`count` =
+ * episodes): a flapping WAN is one entry; PPPoE's retries every ten seconds belong to the loss they follow. An admin
+ * switching PPPoE off («administrator request») is no outage — his config line says it. The WAN's address never kept.
+ */
+function watchnetWan(array &$book, string $sender, string $router, array $ev, int $t, int $now, string $date): ?string
+{
+    $iface = (string) ($ev['iface'] ?? '');
+    if ($iface === '') {
+        return null;
+    }
+    $prefix = "net_outage:$sender:$iface:";
+    $at = watchnetBookAt($book, $prefix, fn ($e) => ($e['p']['down'] ?? null) !== null, true);      // a loss going on
+    if ($ev['type'] === 'wan_up') {
+        if ($at !== null) {
+            watchnetOutageEnd($book[$at], $t, $now);
+        }
+        return null;
+    }
+    if ($at !== null || ($ev['reason'] ?? '') === 'administrator request') {
+        return null;
+    }
+    $key = $prefix . $date;
+    $i = watchnetBookAt($book, $key, 'watchnetMine');
+    if ($i === null) {
+        $book[] = watchmanEntry('net_outage', $key, $t, ['sender' => $sender, 'router' => $router, 'iface' => $iface, 'via' => (string) ($ev['via'] ?? ''),
+            'reason' => (string) ($ev['reason'] ?? ''), 'date' => $date, 'from' => $t, 'down' => $t, 'to' => null, 'secs' => 0, 'minutes' => 0,
+            'longest' => 0, 'evidence' => watchnetEvidence($ev, [])]);
+        return 'net_outage';
+    }
+    $e = &$book[$i];
+    $e['count'] = (int) $e['count'] + 1;
+    $e['last'] = max((int) $e['last'], $t);
+    $e['p']['down'] = $t;
+    $e['p']['to'] = null;
+    $e['p']['reason'] = (string) ($ev['reason'] ?? '');
+    if (($e['by'] ?? null) === 'router') {
+        $e['noted'] = null;
+        $e['by'] = null;
+    }
+    return null;
+}
+
+/** An outage's loss ends ($to: the return, null: its end unknown): its minutes added up; short in all — noted by himself, else important */
+function watchnetOutageEnd(array &$e, ?int $to, int $now): void
+{
+    $down = (int) ($e['p']['down'] ?? $to ?? $now);
+    $secs = $to !== null ? max(0, $to - $down) : 0;
+    $e['p']['secs'] = (int) ($e['p']['secs'] ?? 0) + $secs;
+    $e['p']['longest'] = max((int) ($e['p']['longest'] ?? 0), $secs);
+    $e['p']['minutes'] = (int) round($e['p']['secs'] / 60);
+    $e['p']['down'] = null;
+    $e['p']['to'] = $to;
+    if ($to === null) {
+        $e['p']['unknown'] = true;
+    }
+    $e['last'] = max((int) $e['last'], $to ?? $now);
+    if ((int) $e['p']['secs'] >= WATCHNET_OUTAGE_SHORT || $to === null) {
+        $e['important'] = true;
+    } elseif (empty($e['important']) && watchmanOpen($e)) {
+        $e['noted'] = $now;
+        $e['by'] = 'router';
+    }
+}
+
+/**
+ * A router's outages still going on, every round: their minutes so far; WATCHNET_OUTAGE_TELL away — important now
+ * (told while it lasts); WATCHNET_OUTAGE_STALE without the closing line (UDP lost it, the array was stopped when it
+ * came) — closed with its end unknown, never left open for days.
+ */
+function watchnetOutages(array &$book, string $sender, int $now): void
+{
+    foreach ($book as $i => $e) {
+        if (($e['kind'] ?? '') !== 'net_outage' || ($e['p']['sender'] ?? '') !== $sender || ($e['p']['down'] ?? null) === null) {
+            continue;
+        }
+        $away = max(0, $now - (int) $e['p']['down']);
+        if ($away >= WATCHNET_OUTAGE_STALE) {
+            watchnetOutageEnd($book[$i], null, $now);
+            continue;
+        }
+        $book[$i]['p']['minutes'] = (int) round(((int) ($e['p']['secs'] ?? 0) + $away) / 60);
+        if ($away >= WATCHNET_OUTAGE_TELL) {
+            $book[$i]['important'] = true;
+        }
+    }
+}
+
+/**
+ * The router restarted (RouterOS logs it at the next boot): cleanly («router rebooted [by <how>:<user>@A/reboot]») — a
+ * plain line a day per router, noted by himself, who restarted it counted; without proper shutdown («router was
+ * rebooted without proper shutdown»: a power loss or a crash) — an entry of its own, important. Within WATCHNET_POWER
+ * of the server's own start (server_boot) both lost power: the entry says so (p.power) — a UPS hint, no new kind
+ * (watchnetPowerLink() joins them when the server's line comes later).
+ */
+function watchnetReboot(array &$book, string $sender, string $router, array $ev, int $t, int $now, string $date): ?string
+{
+    if (!empty($ev['clean'])) {
+        $key = "net_router_reboot:$sender:$date";
+        $by = (string) ($ev['by'] ?? '') !== '' ? [(string) $ev['by']] : [];
+        $i = watchnetBookAt($book, $key, 'watchnetMine');
+        if ($i !== null) {
+            $book[$i]['count'] = (int) $book[$i]['count'] + 1;
+            $book[$i]['last'] = max((int) $book[$i]['last'], $t);
+            $book[$i]['p'] = watchmanMerge((array) $book[$i]['p'], ['admins' => $by]);
+            return null;
+        }
+        $e = watchmanEntry('net_router_reboot', $key, $t, ['sender' => $sender, 'router' => $router, 'clean' => true, 'date' => $date, 'admins' => $by,
+            'evidence' => watchnetEvidence($ev, [])]);
+        $e['noted'] = $now;
+        $e['by'] = 'router';
+        $book[] = $e;
+        return null;
+    }
+    $key = "net_router_reboot:$sender:$t";
+    if (watchnetBookAt($book, $key, fn () => true) !== null) {
+        return null;
+    }
+    $e = watchmanEntry('net_router_reboot', $key, $t, ['sender' => $sender, 'router' => $router, 'clean' => false, 'date' => $date, 'admins' => [],
+        'evidence' => watchnetEvidence($ev, [])]);
+    $e['important'] = true;
+    $book[] = $e;
+    watchnetPowerLink($book);
+    return 'net_router_reboot';
+}
+
+/**
+ * A router's unclean restart and the server's own start (server_boot, at the kernel's boot time) within WATCHNET_POWER
+ * of each other: a power loss hit both — the router's entry gets p.power (the server's start) and says so. Called when
+ * either line is booked (the server's comes in the round after its boot; the router's line may come before or after).
+ */
+function watchnetPowerLink(array &$book): void
+{
+    $boots = [];
+    foreach ($book as $e) {
+        if (($e['kind'] ?? '') === 'server_boot') {
+            $boots[] = (int) $e['time'];
+        }
+    }
+    if (!$boots) {
+        return;
+    }
+    foreach ($book as $i => $e) {
+        if (($e['kind'] ?? '') !== 'net_router_reboot' || !empty($e['p']['clean']) || isset($e['p']['power'])) {
+            continue;
+        }
+        foreach ($boots as $bt) {
+            if (abs($bt - (int) $e['time']) <= WATCHNET_POWER) {
+                $book[$i]['p']['power'] = $bt;
+                break;
+            }
+        }
+    }
 }
 
 /** What the gateway blocked from the server, as a key: the destination's /24 (IPv4) or /48 (IPv6) — they rotate —, protocol and port */
@@ -1568,8 +1900,11 @@ function watchnetSilent(array &$book, array &$ns, string $sender, bool $grew, ar
         'usual' => $usual, 'hours' => (int) floor(($now - $last) / 3600)]);
 }
 
-/** More than he reads in a round waited: a plain line in the book (once a day per sender, `watch`) — set the gateway to Blocked only */
-function watchnetTooMuch(array &$book, string $sender, int $skipped, int $now): void
+/**
+ * More than he reads in a round waited: a plain line in the book (once a day per sender, `watch`) — set the gateway to
+ * Blocked only; a MikroTik ($ros): take `log=yes` off accept rules, keep the two drop prefixes
+ */
+function watchnetTooMuch(array &$book, string $sender, int $skipped, int $now, bool $ros = false): void
 {
     $key = "net_too_much:$sender:" . date('Y-m-d', $now);
     foreach ($book as $i => $e) {
@@ -1579,7 +1914,7 @@ function watchnetTooMuch(array &$book, string $sender, int $skipped, int $now): 
             return;
         }
     }
-    $book[] = watchmanEntry('watch', $key, $now, ['too_much' => 1, 'skipped' => $skipped, 'sender' => $sender]);
+    $book[] = watchmanEntry('watch', $key, $now, ['too_much' => 1, 'skipped' => $skipped, 'sender' => $sender] + ($ros ? ['ros' => 1] : []));
 }
 
 /** His memory of the network kept small: the lists capped, the days 14, devices by their newest sight */
@@ -1621,6 +1956,10 @@ function watchnetTidy(array &$b, array &$ns, int $now): void
         }
     }
     $ns['blocked'] = $cap($ns['blocked'], WATCHNET_BLOCKED_MAX, fn ($x) => (int) ($x['last'] ?? 0));
+    // failed router logins: a tracker is needed only while its window lasts; the addresses known for failing capped
+    $ns['fails'] = $cap(array_filter($ns['fails'], fn ($x) => is_array($x) && (int) ($x['last'] ?? 0) > $now - 2 * WATCH_FAIL_WINDOW),
+        WATCH_TRACK_MAX, fn ($x) => (int) ($x['last'] ?? 0));
+    $b['fail_ips'] = $cap($b['fail_ips'], WATCH_IPS_MAX, fn ($x) => (int) ($x['last'] ?? 0));
     $ns['lan'] = array_slice($ns['lan'], 0, WATCHNET_LAN_MAX, true);
     if (count($ns['senders']) > WATCHNET_SENDERS_MAX * 2) {
         $ns['senders'] = $cap($ns['senders'], WATCHNET_SENDERS_MAX * 2, fn ($s) => (int) ($s['last'] ?? 0));
@@ -1630,9 +1969,10 @@ function watchnetTidy(array &$b, array &$ns, int $now): void
 
 /**
  * «I know, thanks» on a network entry: what becomes normal — the MAC that claims the server's name or address, the
- * admin's address, the VPN user's address, an inbound signature, a blocked destination; an admin changing settings is
- * known from now on. A new sender, a new device: learned already; a firewall change, an outbound signature, silence:
- * nothing to learn (an outbound hit is told again — never learned away).
+ * admin's address, the VPN user's address, an inbound signature, a blocked destination, an address failing at the
+ * router's login (counted from then on); an admin changing settings is known from now on. A new sender, a new device:
+ * learned already; a firewall change, an outbound signature, silence, a port's link, an outage, a restart: nothing to
+ * learn (an outbound hit is told again — never learned away).
  */
 function watchnetAdopt(array &$b, array $e, int $now): void
 {
@@ -1681,6 +2021,11 @@ function watchnetAdopt(array &$b, array $e, int $now): void
                 $net['blocked'][$p['key']] = $now;
             }
             break;
+        case 'net_router_login_failures':
+            // failures from this address are counted from now on, no longer told (like his own login_failures)
+            $net['fail_ips'][is_string($p['ip'] ?? null) ? $p['ip'] : 'local'] = ['since' => $now, 'last' => (int) ($e['last'] ?? $now),
+                'n' => (int) ($e['count'] ?? 0), 'quiet' => 0];
+            break;
     }
     $b['net'] = $net;
 }
@@ -1693,6 +2038,7 @@ function watchnetText(array $e, ?string $lang = null): array
     $p = (array) ($e['p'] ?? []);
     $router = (string) ($p['router'] ?? $p['sender'] ?? '');
     $area = 'net_area.' . (in_array($p['area'] ?? '', array_keys(WATCHNET_AREAS), true) ? $p['area'] : 'firewall');     // its words: the page's and notifications'
+    $hm = fn (mixed $t): string => is_int($t) && $t > 0 ? date('H:i', $t) : '?';      // a time of the day (the date stands beside it)
     return match ((string) ($e['kind'] ?? '')) {
         'net_sender_new'          => ['sender' => (string) ($p['sender'] ?? ''), 'host' => (string) ($p['host'] ?? '') ?: (string) ($p['sender'] ?? '')],
         'net_new_device'          => ['name' => (string) ($p['name'] ?? '') ?: (string) ($p['mac'] ?? ''), 'mac' => (string) ($p['mac'] ?? ''),
@@ -1712,7 +2058,32 @@ function watchnetText(array $e, ?string $lang = null): array
         'net_log_silent'          => ['router' => $router, 'hours' => (int) ($p['hours'] ?? 0)],
         'net_too_much'            => ['sender' => (string) ($p['sender'] ?? ''), 'skipped' => (int) ($p['skipped'] ?? 0),
                                       'size' => function_exists('watchmanSize') ? watchmanSize((int) ($p['skipped'] ?? 0)) : (string) (int) ($p['skipped'] ?? 0)],
+        'net_router_login_failures' => ['ip' => (string) ($p['ip'] ?? '') ?: 'local', 'methods' => implode(', ', array_map('strval', (array) ($p['methods'] ?? []))) ?: '?',
+                                      'router' => $router],
+        'net_link_down'           => ['iface' => (string) ($p['iface'] ?? ''), 'router' => $router, 'date' => (string) ($p['date'] ?? ''),
+                                      'down' => $hm($p['down'] ?? $e['time'] ?? null)],
+        'net_outage'              => ['iface' => (string) ($p['iface'] ?? ''), 'router' => $router, 'date' => (string) ($p['date'] ?? ''),
+                                      'from' => $hm($p['from'] ?? $e['time'] ?? null), 'to' => $hm($p['to'] ?? null),
+                                      'since' => $hm($p['down'] ?? null), 'minutes' => max(1, (int) ($p['minutes'] ?? 0)),
+                                      'longest' => max(1, (int) round((int) ($p['longest'] ?? 0) / 60))],
+        'net_router_reboot'       => ['router' => $router, 'date' => (string) ($p['date'] ?? ''),
+                                      'admin' => implode(', ', array_map('strval', (array) ($p['admins'] ?? []))) ?: '?', 'power' => $hm($p['power'] ?? null)],
         default                   => [],
+    };
+}
+
+/**
+ * Which words an entry of the network takes when its kind has more than one shape (entry.<variant>, null: entry.<kind>):
+ * an outage still going on, a port flapping, a restart without proper shutdown — and one that hit the server too
+ */
+function watchnetEntryVariant(array $e): ?string
+{
+    $p = (array) ($e['p'] ?? []);
+    return match ((string) ($e['kind'] ?? '')) {
+        'net_outage'        => ($p['down'] ?? null) !== null ? 'net_outage_open' : null,
+        'net_link_down'     => !empty($p['flapping']) ? 'net_link_down_flapping' : null,
+        'net_router_reboot' => !empty($p['clean']) ? null : (isset($p['power']) ? 'net_router_reboot_power' : 'net_router_reboot_unclean'),
+        default             => null,
     };
 }
 
@@ -1791,12 +2162,17 @@ function watchnetSummary(?array $b, ?array $ns, bool $lan, int $now): ?array
         $lines = array_sum(array_map(fn ($d) => (int) ($d['lines'] ?? 0), $days));
         $other = array_sum(array_map(fn ($d) => (int) ($d['other'] ?? 0), $days));
         $span = max(1, (int) ceil(($now - (int) ($s['first'] ?? $now)) / 86400));
+        $wk = array_filter(array_map(fn ($d) => is_array($d[$sender] ?? null) ? $d[$sender] : null, $week));
         $senders[] = ['sender' => (string) $sender, 'host' => (string) ($s['meta']['host'] ?? ''), 'product' => (string) ($s['meta']['product'] ?? ''),
                       'version' => (string) ($s['meta']['version'] ?? ''), 'vendor' => (string) ($s['meta']['vendor'] ?? ''),
                       'last' => isset($s['last']) ? (int) $s['last'] : null, 'per_day' => (int) round($lines / min($span, max(1, count($days)))),
                       'lines' => (int) ($s['lines'] ?? 0), 'other_pct' => $lines > 0 ? round(100 * $other / $lines, 1) : 0.0,
                       'cef' => !empty($s['cef']), 'detections' => !empty($s['det']), 'firewall' => !empty($s['nf']),
-                      'skew' => isset($s['skew']) ? (int) $s['skew'] : null];
+                      'skew' => isset($s['skew']) ? (int) $s['skew'] : null, 'ros' => !empty($s['ros']),
+                      // a MikroTik: firewall lines this week whose prefix says no drop (counted, never a block), and whether
+                      // its newest lines come without RouterOS's topics (the default format, or syslog without add-topics-string)
+                      'prefix_other' => !empty($s['ros']) ? array_sum(array_map(fn ($d) => (int) ($d['c']['nf_other'] ?? 0), $wk)) : 0,
+                      'ros_format' => !empty($s['ros']) && watchnetRosFormatOff((array) ($s['fmt'] ?? []), $now)];
     }
     usort($senders, fn ($x, $y) => [$y['last'] ?? 0, $x['sender']] <=> [$x['last'] ?? 0, $y['sender']]);
     $det = ['in' => 0, 'out' => 0, 'other' => 0];
@@ -1848,6 +2224,18 @@ function watchnetSummary(?array $b, ?array $ns, bool $lan, int $now): ?array
         'dropped'    => $dropped,
         'lan'        => $lanList,
     ];
+}
+
+/**
+ * A MikroTik's formats seen (format => when last): its newest lines come without RouterOS's topics — the `default` format
+ * or `syslog` without add-topics-string=yes — within the last day and no line with them since. Then the parser reads only
+ * the fixed phrases (and `default` has Unraid's time, no identity): the Team Lead's hint, a sentence in his summary.
+ */
+function watchnetRosFormatOff(array $fmt, int $now): bool
+{
+    $off = max((int) ($fmt['notopics'] ?? 0), (int) ($fmt['default'] ?? 0));
+    $on = max((int) ($fmt['syslog'] ?? 0), (int) ($fmt['cef'] ?? 0));
+    return $off > $now - 86400 && $off > $on;
 }
 
 /**
