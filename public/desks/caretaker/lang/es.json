@@ -125,6 +125,8 @@
   "report_button": "Comentario…",
   "report_button_title": "Contar un problema o un deseo a quienes construyen la secretaría — yo se lo paso",
   "supporter_plate": "{icon} ¡Gracias, {name}!",
+  "supporter_names_two": "{a} y {b}",
+  "supporter_names_more": "{a} y {n} más",
   "supporter_plate.coffee_two": "{icon} ¡Otro café — gracias, {name}!",
   "supporter_plate.coffee_many": "{icon} ¡Ya van {n} cafés — ahora sí estamos despiertos, {name}!",
   "supporter_plate.round_one": "{icon} ¡Una ronda para el equipo — gracias, {name}!",

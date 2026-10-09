@@ -125,6 +125,8 @@
   "report_button": "Rückmeldung…",
   "report_button_title": "Den Leuten, die das Sekretariat bauen, ein Problem oder einen Wunsch mitteilen — ich gebe es weiter",
   "supporter_plate": "{icon} Danke, {name}!",
+  "supporter_names_two": "{a} & {b}",
+  "supporter_names_more": "{a} & {n} weitere",
   "supporter_plate.coffee_two": "{icon} Noch ein Kaffee — danke, {name}!",
   "supporter_plate.coffee_many": "{icon} Schon der {n}. Kaffee — jetzt sind wir wach, {name}!",
   "supporter_plate.round_one": "{icon} Eine Runde fürs Team — danke, {name}!",

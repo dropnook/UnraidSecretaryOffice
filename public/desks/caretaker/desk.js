@@ -377,7 +377,11 @@ function teamSection() {
     const top = level.top;
     const many = level.count(top);
     const variant = top === 'coffee' ? (many >= 3 ? 'coffee_many' : many === 2 ? 'coffee_two' : '') : `${top}_${many >= 2 ? 'more' : 'one'}`;
-    const words = (variant && T(`supporter_plate.${variant}`, { icon: MARK, name: sup.name, n: many })) || T('supporter_plate', { icon: MARK, name: sup.name });
+    // several names on the keys: all of them — «Benj & Janine», from three on «Benj & 2 weitere» (Benj, 2026-10-09)
+    const names = Array.isArray(sup.names) && sup.names.length ? sup.names : [sup.name];
+    const who = names.length === 1 ? names[0] : names.length === 2 ? T('supporter_names_two', { a: names[0], b: names[1] })
+      : T('supporter_names_more', { a: names[0], n: names.length - 1 });
+    const words = (variant && T(`supporter_plate.${variant}`, { icon: MARK, name: who, n: many })) || T('supporter_plate', { icon: MARK, name: who });
     words.split(MARK).forEach((part, i) => {
       if (i) plate.appendChild(el('span', 'ct-supporter-pics', level.icon));
       if (part.trim()) plate.appendChild(el('span', 'ct-supporter-words', part.trim()));

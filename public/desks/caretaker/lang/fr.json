@@ -125,6 +125,8 @@
   "report_button": "Signalement…",
   "report_button_title": "Signaler un problème ou un souhait à ceux qui construisent le secrétariat — je transmets",
   "supporter_plate": "{icon} Merci, {name} !",
+  "supporter_names_two": "{a} et {b}",
+  "supporter_names_more": "{a} et {n} autres",
   "supporter_plate.coffee_two": "{icon} Encore un café — merci, {name} !",
   "supporter_plate.coffee_many": "{icon} Déjà le {n}e café — on est bien réveillés, {name} !",
   "supporter_plate.round_one": "{icon} Une tournée pour l'équipe — merci, {name} !",

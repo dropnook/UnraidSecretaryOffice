@@ -125,6 +125,8 @@
   "report_button": "Segnalazione…",
   "report_button_title": "Segnala un problema o un desiderio a chi costruisce la segreteria — lo passo io",
   "supporter_plate": "{icon} Grazie, {name}!",
+  "supporter_names_two": "{a} e {b}",
+  "supporter_names_more": "{a} e altri {n}",
   "supporter_plate.coffee_two": "{icon} Un altro caffè — grazie, {name}!",
   "supporter_plate.coffee_many": "{icon} Già il {n}° caffè — ora siamo svegli, {name}!",
   "supporter_plate.round_one": "{icon} Un giro per tutto l'ufficio — grazie, {name}!",

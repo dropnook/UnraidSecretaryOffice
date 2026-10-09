@@ -13192,8 +13192,10 @@ function testSupporter(): void
         same("page: the levels' texts ($code)", [], array_values(array_filter(OFFICE_SUPPORTER_LEVELS, fn ($l) => !is_string($lang["office.supporter_level_$l"] ?? null) || $lang["office.supporter_level_$l"] === '')));
     }
     $desk = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js');
-    check('page: the plate shows each level\'s picture once, its title the levels', str_contains($desk, 'const level = Office.supporterPictures(sup);')
-        && str_contains($desk, "T('supporter_plate', { icon: MARK, name: sup.name })") && str_contains($desk, "T('supporter_plate_title', { level: level.text,"));
+    check('page: the plate shows each level\'s picture (×n when several), its words by the top level, every name, its title the levels',
+        str_contains($desk, 'const level = Office.supporterPictures(sup);')
+        && str_contains($desk, "T('supporter_plate', { icon: MARK, name: who })") && str_contains($desk, 'T(`supporter_plate.${variant}`, { icon: MARK, name: who, n: many })')
+        && str_contains($desk, "T('supporter_names_more', { a: names[0], n: names.length - 1 })") && str_contains($desk, "T('supporter_plate_title', { level: level.text,"));
     check('page: no 💐 left (🥂 for the raise)', !str_contains($core . $desk, '💐') && !str_contains((string) file_get_contents(OFFICE_DIR . '/src/supporter.php'), '💐'));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $help = (string) (langFile(OFFICE_DIR . "/public/desks/caretaker/lang/$code.json")['help.supporter'] ?? '');
@@ -13238,6 +13240,7 @@ function testSupporterList(): void
     [$d] = officeSupporterKeyAdd($d, $key('Eve', '2026-10-09', 'cake', 'FFFF-0000-FFFF-0000'), $t0 + 4);   // another server's (kept from an old flash)
     $info = officeSupporterInfo($d, $id, $t0 + 5);
     same('list: each valid level once, in level order — never a count', ['coffee', 'cake', 'raise'], $info['levels']);
+    same('list: every name on the valid keys once, newest first', array_values(array_unique(array_column(array_values(array_filter($info['keys'], fn ($k) => $k['state'] === 'valid')), 'name'))), $info['names']);
     same('list: how many valid keys of each level (the plate shows ☕×n)', array_filter(array_combine(OFFICE_SUPPORTER_LEVELS, array_map(fn ($l) => count(array_filter($info['keys'], fn ($k) => $k['state'] === 'valid' && ($k['level'] ?? '') === $l)), OFFICE_SUPPORTER_LEVELS))), (array) $info['counts']);
     same('list: the name and date of the newest valid key', ['valid', 'Bea', '2026-10-05', 'raise'], [$info['state'], $info['name'], $info['date'], $info['level']]);
     same('list: every key for the tip jar, newest first, with its state', [['Eve', 'other'], ['Bea', 'valid'], ['Dan', 'valid'], ['Cem', 'valid'], ['Ana', 'valid']],

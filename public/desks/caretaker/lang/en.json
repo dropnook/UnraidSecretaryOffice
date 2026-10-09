@@ -125,6 +125,8 @@
   "report_button": "Report / wish…",
   "report_button_title": "Tell the people who build the office about a problem or a wish — I'll pass it on",
   "supporter_plate": "{icon} Thank you, {name}!",
+  "supporter_names_two": "{a} & {b}",
+  "supporter_names_more": "{a} & {n} more",
   "supporter_plate.coffee_two": "{icon} Another coffee — thank you, {name}!",
   "supporter_plate.coffee_many": "{icon} Coffee number {n} — now we're wide awake, {name}!",
   "supporter_plate.round_one": "{icon} A round for the team — thank you, {name}!",
