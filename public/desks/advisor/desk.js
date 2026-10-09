@@ -357,6 +357,26 @@ function textfileChip(x) {
 }
 
 /**
+ * A guide the user opened or closed stays so (Inbox #11, Benj's recording, 1.52/1.53): every render builds his page
+ * anew — his new look, the minute's poll, and the messenger's word that comes with every answer of the agent (also
+ * the answer to `network_seen`, which opening the router's guide posts: it closed the UniFi guide right after it was
+ * opened, and put every other guide back to its default) — so the choice is kept per guide for this page's life; the
+ * default (startsOpen(), the syslog rule) counts only until the guide is touched
+ */
+const folds = new Map();
+function keepFold(det, key, open) {
+  det.open = folds.has(key) ? folds.get(key) : open;
+  let shown = det.open;
+  det.addEventListener('toggle', () => {
+    if (det.open === shown) return;          // the page setting it (toggle comes later, for the open it was built with)
+    shown = det.open;
+    folds.set(key, det.open);
+  });
+  return det;
+}
+const told = new Set();       // the router guides whose opening was told (network_seen): once per page
+
+/**
  * Whether the steps start unfolded: something missing that the office needs;
  * in a group (monitoring) once it is begun, what is still missing, stopped or
  * not set up for the office yet — never what is for later
@@ -371,8 +391,7 @@ function startsOpen(x) {
 /** "Install by hand": the steps (lang keys install.<id>.1 …), what to copy below them */
 function howto(id, x) {
   const values = copies(id);
-  const det = el('details', 'ad-howto');
-  det.open = startsOpen(x);
+  const det = keepFold(el('details', 'ad-howto'), `howto:${id}`, startsOpen(x));
   det.appendChild(el('summary', '', T('howto')));
   const ol = el('ol', 'ad-steps');
   const params = { ...values, ip: serverIp() || '<server-ip>', dir: state.metrics_dir || '', media: state.media || 'Emby' };
@@ -516,8 +535,7 @@ function networkEntry(id, x) {
   if (acts.childNodes.length) row.appendChild(acts);
   box.appendChild(row);
 
-  const det = el('details', 'ad-howto');
-  det.open = id === 'syslogserver' ? !x.there || !!(sys && sys.loop) : false;
+  const det = keepFold(el('details', 'ad-howto'), `net:${id}`, id === 'syslogserver' ? !x.there || !!(sys && sys.loop) : false);
   det.appendChild(el('summary', '', T(id === 'syslogserver' ? 'net.syslog.howto' : 'howto')));
   const guide = el('div', 'ad-lock-guide');
   if (id === 'syslogserver') {
@@ -541,10 +559,9 @@ function networkEntry(id, x) {
       guide.appendChild(copyLines(lines, 'mikrotik'));
     }
     guide.appendChild(el('p', 'ad-lock-p', T(`net.${id}.check`)));
-    let told = false;
     det.addEventListener('toggle', () => {
-      if (det.open && !told && Office.agent.running && hired()) {
-        told = true;
+      if (det.open && !told.has(id) && Office.agent.running && hired()) {
+        told.add(id);
         Office.api.post(`${ID}.network_seen`, {}).catch(() => {});      // only for the Team Lead's hint: the router has nowhere to send yet
       }
     });
@@ -588,7 +605,7 @@ function dashboard() {
   }
   box.appendChild(row);
 
-  const det = el('details', 'ad-howto');
+  const det = keepFold(el('details', 'ad-howto'), 'dashboard', false);
   det.appendChild(el('summary', '', T(provisioned ? 'dashboard.howto_manual' : 'dashboard.howto')));
   const ol = el('ol', 'ad-steps');
   for (let i = 1; Office.has(`${ID}.dashboard.${i}`); i++) ol.appendChild(Office.place(`dashboard.${i}`, el('li', '', T(`dashboard.${i}`, { dir: state.metrics_dir || '' }))));
