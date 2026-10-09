@@ -21389,6 +21389,381 @@ JS);
 }
 
 /**
+ * Pictures in a report (dropnook/UnraidSecretaryOffice#6; src/reportimage.php, agent/lib/report.php, src/api.php
+ * apiReportImageStash()): only PNG, JPEG (and WebP where GD writes it) by their first bytes — SVG, GIF, HTML refused;
+ * ≤ 2 MB before, no decompression bomb reaches GD; drawn anew: no EXIF (GPS), no text chunks, nothing behind the
+ * picture, a JPEG upright by its orientation and without GD's comment; the longest side ≤ 2560, ≤ 1.5 MB each and
+ * ≤ 4 MB together. The web side checks and leaves them in the RAM inbox (0600, at most six waiting); the preview takes
+ * them (each in a process of its own), keeps them beside the token in RAM, ticks each; a send with one needs
+ * images_checked; the body carries them base64 (`images`, `parts` names `images`), they go from RAM once sent; four are
+ * refused. The Worker's «no more pictures today» is report_images_busy.
+ */
+function testReportImages(): void
+{
+    $tmp = hardeningTmp('reportimg');
+    foreach (['shares', 'pools', 'partner'] as $d) {
+        @mkdir("$tmp/$d");
+    }
+    @mkdir("$tmp/office", 0700);
+    @mkdir("$tmp/run", 0700);
+    @mkdir("$tmp/inbox", 0700);
+    file_put_contents("$tmp/var.ini", "regGUID=\"0781-5583-3311-A1B2C3D4E5F6\"\n");
+    file_put_contents("$tmp/unraid-version", "version=\"7.3.3\"\n");
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/none.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => [],
+            'passwd' => "$tmp/none", 'partner_dir' => "$tmp/partner", 'emby_settings' => "$tmp/none.json", 'supporter' => "$tmp/none.json",
+            'report_id_file' => "$tmp/office/report-id", 'hostname' => 'tower', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
+            'hired' => ['caretaker'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log", 'inbox' => "$tmp/inbox"];
+    $types = reportImageTypes();
+    check('report images: this PHP\'s GD reads and writes PNG and JPEG', in_array('png', $types, true) && in_array('jpeg', $types, true), json_encode($types));
+
+    // the fixtures, made here with GD
+    $draw = function (int $w, int $h, bool $noise = false): GdImage {
+        $im = imagecreatetruecolor($w, $h);
+        imagefill($im, 0, 0, imagecolorallocate($im, 240, 240, 240));
+        if ($noise) {
+            for ($y = 0; $y < $h; $y++) {
+                for ($x = 0; $x < $w; $x++) {
+                    imagesetpixel($im, $x, $y, mt_rand(0, 0xffffff));
+                }
+            }
+        } else {
+            for ($i = 0; $i < 40; $i++) {
+                imagefilledrectangle($im, ($i * 37) % $w, ($i * 53) % $h, ($i * 37) % $w + 60, ($i * 53) % $h + 30, imagecolorallocate($im, ($i * 61) % 256, ($i * 97) % 256, ($i * 31) % 256));
+            }
+        }
+        return $im;
+    };
+    $bytesOf = function (GdImage $im, string $as, int $q = 90): string {
+        ob_start();
+        $as === 'png' ? imagepng($im) : imagejpeg($im, null, $q);
+        return (string) ob_get_clean();
+    };
+    $chunk = fn (string $type, string $data): string => pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
+    $pngChunks = function (string $png): array {
+        $out = [];
+        for ($o = 8; $o + 8 <= strlen($png);) {
+            $len = unpack('N', substr($png, $o, 4))[1];
+            $out[] = substr($png, $o + 4, 4);
+            $o += 12 + $len;
+        }
+        return $out;
+    };
+    $png = $bytesOf($draw(3000, 1000), 'png');
+    $jpeg = $bytesOf($draw(400, 200), 'jpeg');
+    // EXIF in front: orientation 6 (turn a quarter clockwise) and a GPS IFD with a marker
+    $tiff = "II*\0" . pack('V', 8)
+        . pack('v', 2) . pack('vvVvv', 0x0112, 3, 1, 6, 0) . pack('vvVV', 0x8825, 4, 1, 38) . pack('V', 0)
+        . pack('v', 2) . pack('vvVa4', 1, 2, 2, "N\0\0\0") . pack('vvVV', 0x1b, 7, 15, 68) . pack('V', 0) . "USO-GPS-SECRET\0";
+    $exif = substr($jpeg, 0, 2) . "\xff\xe1" . pack('n', 2 + 6 + strlen($tiff)) . "Exif\0\0" . $tiff . substr($jpeg, 2);
+    $html = '<html><body><script>alert(1)</script></body></html>';
+    $poly = substr($png, 0, -12) . $chunk('tEXt', "Comment\0$html") . substr($png, -12) . $html;
+    $bomb = "\x89PNG\r\n\x1a\n" . $chunk('IHDR', pack('NNCCCCC', 20000, 20000, 8, 2, 0, 0, 0)) . $chunk('IDAT', (string) gzcompress(str_repeat("\0", 1000))) . $chunk('IEND', '');
+    $webp = base64_decode('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==');       // 1×1, lossless
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect width="10" height="10"/></svg>';
+    $gif = base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+    $huge = "\x89PNG\r\n\x1a\n" . random_bytes(REPORT_IMG_IN_MAX);
+    $noisy = $bytesOf($draw(1400, 1000, true), 'jpeg', 95);
+
+    // reportImageMake: drawn anew, or refused with a reason
+    $r = reportImageMake($png);
+    same('report images: a PNG — a PNG again, the longest side 2560', [true, 'png', 2560, 853, true], [$r['ok'], $r['type'] ?? null, $r['width'] ?? null, $r['height'] ?? null, $r['scaled'] ?? null]);
+    same('report images: … only the chunks that draw it (no text, no time, no profile)', [], array_values(array_diff($pngChunks($r['data'] ?? ''), ['IHDR', 'PLTE', 'tRNS', 'pHYs', 'IDAT', 'IEND'])));
+    $r = reportImageMake($exif);
+    same('report images: a JPEG with EXIF — a JPEG, turned upright by its orientation (400×200 → 200×400)', [true, 'jpeg', 200, 400], [$r['ok'], $r['type'] ?? null, $r['width'] ?? null, $r['height'] ?? null]);
+    check('report images: … its EXIF and GPS gone, and GD\'s comment', !str_contains($r['data'] ?? 'Exif', 'Exif') && !str_contains($r['data'] ?? 'GPS', 'USO-GPS') && !str_contains($r['data'] ?? 'CREATOR', 'CREATOR')
+        && substr_count($r['data'] ?? '', "\xff\xe1") === 0);
+    same('report images: … the EXIF orientation read', [6, 1], [reportImageJpegOrientation($exif), reportImageJpegOrientation($jpeg)]);
+    $r = reportImageMake($poly);
+    check('report images: a PNG that is also an HTML page — drawn anew, no HTML left, nothing behind IEND', ($r['ok'] ?? false) && !str_contains($r['data'], '<script') && !str_contains($r['data'], '<html')
+        && str_ends_with($r['data'], $chunk('IEND', '')) && !in_array('tEXt', $pngChunks($r['data']), true));
+    same('report images: refused by their first bytes — SVG, GIF, HTML', ['report_image_type', 'report_image_type', 'report_image_type'],
+        [reportImageMake($svg)['key'] ?? 'ok', reportImageMake($gif)['key'] ?? 'ok', reportImageMake($html)['key'] ?? 'ok']);
+    same('report images: WebP only where GD writes it', in_array('webp', $types, true) ? true : 'report_image_type', in_array('webp', $types, true) ? reportImageMake($webp)['ok'] : (reportImageMake($webp)['key'] ?? 'ok'));
+    same('report images: too large before, a decompression bomb (20000×20000 in its header), a broken one', ['report_image_big', 'report_image_big', 'report_image_bad'],
+        [reportImageMake($huge)['key'] ?? 'ok', reportImageMake($bomb)['key'] ?? 'ok', reportImageMake("\x89PNG\r\n\x1a\n" . $chunk('IHDR', pack('NNCCCCC', 100, 100, 8, 2, 0, 0, 0)) . $chunk('IDAT', 'not zlib at all') . $chunk('IEND', ''))['key'] ?? 'ok']);
+    $r = reportImageMake($noisy, 400 * 1024);
+    check('report images: a busy photo too large for its share — a lower quality or smaller, within it', ($r['ok'] ?? false) && strlen($r['data']) <= 400 * 1024 && $r['type'] === 'jpeg',
+        json_encode(['in' => strlen($noisy), 'out' => strlen($r['data'] ?? ''), 'key' => $r['key'] ?? null]));
+    same('report images: a JPEG\'s walk keeps only what draws it', [null, true], [reportImageJpegClean('nope'), str_starts_with((string) reportImageJpegClean($jpeg), "\xff\xd8\xff\xe0")]);
+
+    // the web side: checks and leaves them in the RAM inbox (a process of its own, as php-fpm would)
+    $web = "$tmp/web.php";
+    file_put_contents($web, '<?php final class OfficeProblem extends RuntimeException { public function __construct(public readonly string $key, public readonly int $status = 400, public readonly array $params = []) { parent::__construct($key); } }'
+        . ' require ' . var_export(OFFICE_DIR . '/src/place.php', true) . '; require ' . var_export(OFFICE_DIR . '/src/api.php', true) . ';'
+        . ' try { echo json_encode(apiReportImageStash(json_decode(stream_get_contents(STDIN), true))); } catch (OfficeProblem $e) { echo json_encode(["error" => $e->key, "status" => $e->status]); }');
+    $stash = function (string $data) use ($web, $tmp): array {
+        $p = proc_open([PHP_BINARY, $web], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, ['OFFICE_INBOX_DIR' => "$tmp/inbox", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        fwrite($pipes[0], json_encode(['data' => $data]));
+        fclose($pipes[0]);
+        $out = (string) stream_get_contents($pipes[1]);
+        $err = (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return json_decode($out, true) ?? ['error' => "no answer: $out $err"];
+    };
+    $a = $stash(base64_encode($png));
+    $st = @lstat("$tmp/inbox/" . ($a['ref'] ?? 'x') . '.image');
+    same('report images: the web side keeps a PNG in the RAM inbox — a 0600 file, its ref', [true, '600', 'png'], [$st !== false, $st ? decoct($st['mode'] & 0777) : null, $a['type'] ?? null]);
+    same('report images: … and refuses an SVG, HTML, what isn\'t base64, more than 2 MB', ['report_image_type', 'report_image_type', 'report_image_bad', 'report_image_big'],
+        [$stash(base64_encode($svg))['error'] ?? 'ok', $stash(base64_encode($html))['error'] ?? 'ok', $stash('not base64!')['error'] ?? 'ok', $stash(base64_encode($huge))['error'] ?? 'ok']);
+    for ($i = 0; $i < 5; $i++) {
+        $stash(base64_encode($jpeg));
+    }
+    same('report images: … no more than six wait at a time', 'report_images_many', $stash(base64_encode($jpeg))['error'] ?? 'ok');
+    touch("$tmp/inbox/" . $a['ref'] . '.image', time() - 1000);
+    check('report images: … what nobody took goes after 15 minutes', isset($stash(base64_encode($jpeg))['ref']) && !is_file("$tmp/inbox/{$a['ref']}.image"));
+    foreach (glob("$tmp/inbox/*") ?: [] as $f) {
+        unlink($f);
+    }
+    $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
+    check('report images: api.php takes 3 MB only for a picture, 1 MB for anything else', str_contains($api, "strlen(\$raw) > (\$action === 'office.report_image' ? API_IMAGE_BODY_MAX : API_BODY_MAX)"));
+
+    // the preview takes them out of the inbox and has each drawn anew in a process of its own
+    $put = function (string $bytes) use ($tmp): string {
+        $ref = bin2hex(random_bytes(16));
+        $old = umask(0177);
+        file_put_contents("$tmp/inbox/$ref.image", $bytes);
+        umask($old);
+        return $ref;
+    };
+    $words = ['kind' => 'bug', 'desk' => 'office', 'title' => 'The page looks odd', 'text' => 'See the screenshots, please.'];
+    $ask = $words + ['lang' => 'en'];
+    $now = 1760000100;
+    $pv = reportPreview(['images' => [$put($png), $put($exif)]] + $ask, $ctx + ['now' => $now]);
+    $tok = $pv['token'];
+    same('report images: the preview — what each became, both ticked', [[['png', 2560, 853], ['jpeg', 200, 400]], ['versions', 'unraid', 'language', 'team', 'image1', 'image2']],
+        [array_map(fn ($i) => [$i['type'], $i['width'], $i['height']], $pv['images'] ?? []), $pv['ticked']]);
+    same('report images: … kept beside the token in RAM (0600), the inbox empty, no bytes in the answer', [true, true, '600', [], false],
+        [is_file("$tmp/run/$tok.1.img"), is_file("$tmp/run/$tok.2.img"), decoct(@fileperms("$tmp/run/$tok.2.img") & 0777), glob("$tmp/inbox/*") ?: [], str_contains(json_encode($pv), base64_encode(substr($png, 0, 30)))]);
+    check('report images: … EXIF and GPS not in what is kept', !str_contains((string) @file_get_contents("$tmp/run/$tok.2.img"), 'USO-GPS'));
+    $refused = function (callable $f): string { try { $f(); return 'ok'; } catch (Problem $p) { return $p->key . (isset($p->params['n']) ? ":{$p->params['n']}" : ''); } };
+    same('report images: four — refused; a ref gone, an SVG past the web side, refs of the wrong shape', ['report_images_many:3', 'report_image_gone:1', 'report_image_type:2', 'bad_request', 'bad_request'], [
+        $refused(fn () => reportPreview(['images' => [$put($png), $put($png), $put($png), $put($png)]] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['images' => [str_repeat('a', 32)]] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['images' => [$put($jpeg), $put($svg)]] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['images' => ['../../etc/passwd']] + $ask, $ctx)),
+        $refused(fn () => reportPreview(['images' => 'x'] + $ask, $ctx))]);
+    check('report images: … a refused preview leaves no picture behind (RAM, inbox)', count(glob("$tmp/run/*.img") ?: []) === 2 && count(glob("$tmp/run/*.in") ?: []) === 0
+        && count(glob("$tmp/inbox/*.image") ?: []) === 4,
+        json_encode([glob("$tmp/run/*") ?: [], glob("$tmp/inbox/*") ?: []]));
+    foreach (glob("$tmp/inbox/*") ?: [] as $f) {
+        unlink($f);
+    }
+    $three = reportPreview(['images' => [$put($noisy), $put($noisy), $put($noisy)]] + $ask, $ctx + ['now' => $now]);
+    $sizes = array_column($three['images'] ?? [], 'bytes');
+    check('report images: three busy photos — each ≤ 1.5 MB, together ≤ 4 MB', count($sizes) === 3 && max($sizes) <= REPORT_IMG_OUT_MAX && array_sum($sizes) <= REPORT_IMG_TOTAL_MAX, json_encode($sizes));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
+    check('report images: the agent never decodes a picture itself (a process of its own does)', !str_contains($src, 'imagecreatefrom') && str_contains($src, "dirname(__DIR__, 2) . '/src/reportimage.php', \$in, \$out"));
+
+    // the send: only with the tick, the pictures base64 in the body, gone from RAM after
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $s = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($s) {
+            fclose($s);
+            $port = $try;
+        }
+    }
+    file_put_contents("$tmp/router.php", '<?php $n = (int) @file_get_contents(__DIR__ . "/count") + 1; file_put_contents(__DIR__ . "/count", (string) $n);'
+        . ' file_put_contents(__DIR__ . "/request-$n.json", file_get_contents("php://input")); header("Content-Type: application/json");'
+        . ' echo json_encode(["ok" => true, "number" => 50 + $n, "url" => "https://github.com/dropnook/uso-inbox/issues/" . (50 + $n)]);');
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-d', 'post_max_size=16M', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $logged = [];
+    $sctx = $ctx + ['url' => "http://127.0.0.1:$port", 'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    same('report images: a picture ticked without «I\'ve looked at the pictures» — refused, nothing sent, the preview kept', ['report_images_unchecked', 'bad_request', 0, true],
+        [$refused(fn () => reportSend(['token' => $tok, 'parts' => ['versions', 'image2']] + $words, ['now' => $now + 5] + $sctx)),
+         $refused(fn () => reportSend(['token' => $tok, 'parts' => ['image1'], 'images_checked' => 'yes'] + $words, ['now' => $now + 5] + $sctx)), $count(), is_file("$tmp/run/$tok.json")]);
+    $kept2 = (string) file_get_contents("$tmp/run/$tok.2.img");
+    $r = reportSend(['token' => $tok, 'parts' => ['versions', 'image2'], 'images_checked' => true] + $words, ['now' => $now + 6] + $sctx);
+    $body = json_decode((string) @file_get_contents("$tmp/request-1.json"), true) ?? [];
+    same('report images: sent with the tick — the ticked picture only, base64, as kept; `parts` names it', [true, 1, ['versions', 'images'], 'image/jpeg', true],
+        [$r['ok'] ?? false, count($body['images'] ?? []), $body['parts'] ?? null, $body['images'][0]['type'] ?? null, base64_decode($body['images'][0]['data'] ?? '', true) === $kept2]);
+    same('report images: … its fields in the Worker\'s order, no other picture fields', [['type', 'data'], 'images', 'parts'],
+        [array_keys($body['images'][0] ?? []), array_keys($body)[count($body) - 2] ?? null, array_key_last($body)]);
+    same('report images: … the pictures gone from RAM, logged with how many', [[], 'Office: sent a report (#51, bug, office, 1 picture)'], [glob("$tmp/run/$tok.*.img") ?: [], $logged[0] ?? null]);
+    $pv3 = reportPreview(['images' => [$put($png)]] + $ask, $ctx + ['now' => $now]);
+    file_put_contents("$tmp/run/{$pv3['token']}.1.img", 'swapped');
+    same('report images: a kept picture changed in RAM — report_stale, nothing sent', ['report_stale', 1], [$refused(fn () => reportSend(['token' => $pv3['token'], 'parts' => ['image1'], 'images_checked' => true] + $words, ['now' => $now + 7] + $sctx)), $count()]);
+    $pv4 = reportPreview(['images' => [$put($png)]] + $ask, $ctx + ['now' => $now]);
+    $r = reportSend(['token' => $pv4['token'], 'parts' => ['versions']] + $words, ['now' => $now + 8] + $sctx);
+    $body = json_decode((string) @file_get_contents("$tmp/request-2.json"), true) ?? [];
+    same('report images: the picture unticked — no tick needed, no `images` in the body, gone from RAM all the same', [true, false, ['versions'], []],
+        [$r['ok'] ?? false, isset($body['images']), $body['parts'] ?? null, glob("$tmp/run/{$pv4['token']}.*.img") ?: []]);
+    proc_terminate($server);
+    proc_close($server);
+
+    // tidy: a preview's pictures go once it can't be sent, the oldest while too many are kept
+    foreach (glob("$tmp/run/*") ?: [] as $f) {
+        unlink($f);
+    }
+    file_put_contents("$tmp/run/" . str_repeat('a', 32) . '.1.img', 'old');
+    touch("$tmp/run/" . str_repeat('a', 32) . '.1.img', $now - REPORT_TOKEN_TTL - 120);
+    file_put_contents("$tmp/run/" . str_repeat('b', 32) . '.1.img', str_repeat('x', 10 * 1024 * 1024));
+    touch("$tmp/run/" . str_repeat('b', 32) . '.1.img', $now - 30);
+    file_put_contents("$tmp/run/" . str_repeat('c', 32) . '.1.img', str_repeat('x', 10 * 1024 * 1024));
+    touch("$tmp/run/" . str_repeat('c', 32) . '.1.img', $now - 10);
+    reportTidy("$tmp/run", $now);
+    same('report images: tidy — a preview\'s pictures after its time, the oldest beyond 16 MB', [str_repeat('c', 32) . '.1.img'], array_map('basename', glob("$tmp/run/*") ?: []));
+
+    // the Worker's «no more pictures today»
+    $a = fn (int $code, array $b) => reportAnswer(0, json_encode($b) . "\n$code", $now)['key'] ?? 'ok';
+    same('report images: the Worker\'s byte cap for pictures — report_images_busy (by its key or busy/images)', ['report_images_busy', 'report_images_busy', 'report_busy'],
+        [$a(429, ['ok' => false, 'error' => 'busy', 'key' => 'report_images_busy', 'why' => 'images']), $a(429, ['ok' => false, 'error' => 'busy', 'why' => 'images']), $a(429, ['ok' => false, 'error' => 'busy'])]);
+
+    // the strings and the page's knowledge
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
+    $missing = array_values(array_filter(['errors.report_image_type', 'errors.report_image_big', 'errors.report_image_bad', 'errors.report_image_gone', 'errors.report_images_many',
+        'errors.report_images_unchecked', 'errors.report_images_busy', 'office.report_images_checked', 'office.report_part.image'], fn ($k) => !isset($en[$k])));
+    same('report images: every key the agent, the web side and the dialog give exists', [], $missing);
+    $page = (string) file_get_contents(OFFICE_DIR . '/src/page.php');
+    check('report images: the page learns which kinds the office writes (a WebP becomes a PNG in the browser where it can\'t)', str_contains($page, "'report_images' => reportImageTypes(),"));
+    hardeningRm($tmp);
+}
+
+/**
+ * The dialog's pictures under node (core.js Office.reportDialog()): one chosen, shown with its size; the preview sends
+ * it alone first (office.report_image) and names its ref; the preview shows it with its own tick and the required tick;
+ * «Send» stays off until that one is ticked (or the picture unticked), and the send says images_checked and image1.
+ */
+function testReportDialogImages(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('report dialog pictures: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('reportdlgimg');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const byId = {};
+const mk = (tag) => {
+  const n = { tag, id: '', className: '', style: {}, dataset: {}, hidden: false, textContent: '', children: [], parentNode: null, attrs: {}, listeners: {},
+    value: '', checked: false, disabled: false, type: '', onclick: null, oninput: null, onchange: null, offsetHeight: 0, src: '', files: null,
+    appendChild(c) { if (typeof c === 'object') { c.parentNode = this; } this.children.push(c); return c; },
+    append(...c) { c.forEach((x) => this.appendChild(x)); }, after() {}, remove() {}, prepend() {},
+    setAttribute(k, v) { this.attrs[k] = String(v); }, removeAttribute(k) { delete this.attrs[k]; }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+    hasAttribute(k) { return k in this.attrs; }, addEventListener(k, f) { this.listeners[k] = f; }, removeEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, right: 0 }), focus() {}, select() {}, click() {} };
+  n.classList = { add(c) { if (!n.className.split(' ').includes(c)) n.className = (n.className + ' ' + c).trim(); },
+    remove(c) { n.className = n.className.split(' ').filter((x) => x !== c).join(' '); }, toggle(c, on) { if (on === undefined ? !this.contains(c) : on) this.add(c); else this.remove(c); },
+    contains: (c) => n.className.split(' ').includes(c) };
+  Object.defineProperty(n, 'innerHTML', { get: () => '', set() { n.children = []; } });
+  return n;
+};
+const find = (id) => (byId[id] = byId[id] || Object.assign(mk('div'), { id }));
+const store = {};
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+Object.defineProperty(globalThis, 'navigator', { value: { languages: ['en'] }, configurable: true, writable: true });
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { version: '1.51.0', desks: [{ id: 'caretaker', hired: true, always: true }], languages: [{ code: 'en' }], base: '', staff_order: ['caretaker'],
+  report: true, report_images: ['png', 'jpeg'], issues_url: '', forum_url: '' };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : find(id)),
+  querySelector: (s) => (s[0] === '#' ? find(s.slice(1)) : null), querySelectorAll: () => [], createElement: (tag) => mk(tag), addEventListener() {}, removeEventListener() {},
+  documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk('body') };
+const posts = [];
+let answers = {};
+globalThis.fetch = async (url, opt) => {
+  let a = { ok: false };
+  if (opt && opt.body) {
+    const b = JSON.parse(opt.body);
+    posts.push(b);
+    a = answers[b.a] || a;
+    if (typeof a === 'function') a = a(b);
+  }
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const walk = (n, f, out = []) => { if (n && typeof n === 'object') { if (f(n)) out.push(n); (n.children || []).forEach((c) => walk(c, f, out)); } return out; };
+const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
+const body = () => byId['sso-dialog-body'];
+const one = (f) => walk(body(), f)[0];
+(async () => {
+  await sleep(30);
+  O.agent = { running: true };
+  O.desk({ id: 'caretaker' });
+  const out = {};
+  answers = {
+    'office.reports': { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: false },
+    'office.report_image': (b) => ({ ok: true, ref: 'f'.repeat(32), bytes: Buffer.from(b.data, 'base64').length, type: 'png' }),
+    'office.report_preview': { ok: true, token: 'a'.repeat(32), ttl: 600, ticked: ['versions', 'unraid', 'language', 'team', 'image1'], id: '1234abcd', hints: [], hidden: {},
+      n: 0, left: 25, cap: 25, next: null, closed: false, images: [{ type: 'png', width: 1280, height: 720, bytes: 81234, scaled: false }],
+      parts: { versions: { office: '1.51.0' }, unraid: '7.3.3', language: { lang: 'en', browser: 'en' }, team: ['caretaker'], log: '' } },
+    'office.report_send': { ok: true, number: 77, url: 'https://github.com/dropnook/uso-inbox/issues/77', left: 24, n: 1, cap: 25, next: null },
+  };
+  const dlg = O.reportDialog('office');
+  await sleep(20);
+  const send = dlg.buttons[1];
+  const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
+  const area = one((n) => n.tag === 'textarea');
+  title.value = 'The tile is cut off'; title.oninput();
+  area.value = 'See the screenshot, the right edge is gone.'; area.oninput();
+  const file = one((n) => n.tag === 'input' && n.type === 'file');
+  const png = new Blob([Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')], { type: 'image/png' });
+  png.name = 'shot.png';
+  const svg = new Blob(['<svg/>'], { type: 'image/svg+xml' });
+  svg.name = 'x.svg';
+  const big = new Blob([new Uint8Array(2 * 1024 * 1024 + 1)], { type: 'image/png' });
+  big.name = 'big.png';
+  out.accept = file.accept;
+  file.files = [svg, big, png];
+  file.onchange();
+  await sleep(20);
+  out.added = { pics: walk(body(), (n) => n.className === 'sso-report-pic').length, msg: text(one((n) => n.className === 'callout warn') || {}) };
+  posts.length = 0;
+  await one((n) => n.tag === 'button' && n.textContent === 'office.report_preview').onclick();
+  out.asked = posts.map((p) => p.a);
+  out.stashed = posts[0] && Buffer.from(posts[0].data || '', 'base64').toString('hex');
+  out.refs = posts[1] && posts[1].images;
+  const boxes = walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox');
+  out.parts = boxes.map((c) => c.dataset.part || c.dataset.check);
+  out.sendOffWithoutTick = send.disabled;
+  const ok = boxes.find((c) => c.dataset.check === 'images');
+  const pic = boxes.find((c) => c.dataset.part === 'image1');
+  pic.checked = false; pic.onchange();
+  out.sendOnUnticked = !send.disabled;
+  pic.checked = true; pic.onchange();
+  out.sendOffAgain = send.disabled;
+  ok.checked = true; ok.onchange();
+  out.sendOnTicked = !send.disabled;
+  posts.length = 0;
+  await send.onclick();
+  await sleep(10);
+  const s = posts.find((p) => p.a === 'office.report_send') || {};
+  out.sent = { parts: s.parts, checked: s.images_checked };
+  dlg.close();
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('report dialog pictures: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('report dialog pictures: PNG, JPEG, WebP offered; an SVG and one over 2 MB refused, the PNG taken', ['image/png,image/jpeg,image/webp', 1, 'office.report_image_too_big'],
+        [$r['accept'], $r['added']['pics'], $r['added']['msg']]);
+    same('report dialog pictures: the preview sends the picture alone first, then names its ref', [['office.report_image', 'office.report_preview'], '89504e470d0a1a0a0000000d49484452', [str_repeat('f', 32)]],
+        [$r['asked'], $r['stashed'], $r['refs']]);
+    same('report dialog pictures: its own tick and the required one; «Send» off until it is ticked (or the picture unticked)',
+        [['words', 'versions', 'unraid', 'language', 'team', 'log', 'image1', 'images', 'id'], true, true, true, true],
+        [$r['parts'], $r['sendOffWithoutTick'], $r['sendOnUnticked'], $r['sendOffAgain'], $r['sendOnTicked']]);
+    same('report dialog pictures: the send names the picture and the tick', [['versions', 'unraid', 'language', 'team', 'image1'], true], [$r['sent']['parts'], $r['sent']['checked']]);
+    hardeningRm($tmp);
+}
+
+/**
  * Mr. Backupsy let go with «Also clear away what he kept here» (Benj, 2026-10-08; agent/desks/backup-letgo.php): the
  * backup place on its pools and disks (a sleeping one never looked at), its packages into Ms. Dustdevil's storeroom on
  * their own filesystem (her runs and manifests, kind `package`, found again by her and put back only into a backup
@@ -22209,9 +22584,9 @@ SH);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testReportDialogImages', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
