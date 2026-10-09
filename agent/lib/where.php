@@ -1445,6 +1445,8 @@ function waAdvice(array $shares, array $roots, array $asleep, array $vms = [], a
         'ups'            => ($ups['SERVICE'] ?? 'disable') === 'enable'
             || (bool) array_filter(array_keys(housePlugins()), fn ($n) => str_contains(strtolower($n), 'nut')),
         // kept after a crash: mirrored to the flash or sent to a syslog server (this one's own share too)
+        // Unraid 7.3's internal boot: the boot device is a disk (type Boot), not a USB stick (type Flash) — no stick to wear
+        'boot_internal'  => (readCfg('/var/local/emhttp/disks.ini', true)['flash']['type'] ?? '') === 'Boot',
         'syslog_kept'    => ($syslog['syslog_flash'] ?? '') !== '' || trim((string) ($syslog['remote_server'] ?? '')) !== '',
         'exclusive'      => waExclusive($shares, $roots, $asleep, $share),
         'vm_stop'        => waVmStop($domain, readCfg(WA_VAR_INI)),

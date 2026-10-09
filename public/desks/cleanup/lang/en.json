@@ -1603,7 +1603,8 @@
   "where.adv.ups.title": "No UPS",
   "where.adv.ups.why": "When the power goes, the server simply stops: open files may break, afterwards Unraid runs a long parity check. A small UPS gives it time to shut down cleanly (⟦Settings⟧ → ⟦UPS Settings⟧; for a NUT server the NUT plugin).",
   "where.adv.syslog.title": "After a crash the log is gone",
-  "where.adv.syslog.why": "Unraid keeps its syslog in RAM — after a crash or a hard reset nobody can read what happened, Ms. Protocolli included. Unraid can keep it itself: «⟦Mirror syslog to flash⟧» for a while (it wears the stick).",
+  "where.adv.syslog.why": "Unraid keeps its syslog in RAM — after a crash or a hard reset nobody can read what happened, Ms. Protocolli included. Unraid can keep it itself: «⟦Mirror syslog to flash⟧» for a while{wear}.",
+  "where.adv.syslog.wear": "(it wears the stick)",
   "where.adv.vm_windows.title": {
     "one": "A Windows VM can hold up the array stop: {names}",
     "other": "{n} Windows VMs can hold up the array stop: {names}"

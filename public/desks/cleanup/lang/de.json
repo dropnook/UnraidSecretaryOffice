@@ -1603,7 +1603,8 @@
   "where.adv.ups.title": "Keine USV",
   "where.adv.ups.why": "Fällt der Strom aus, ist der Server einfach weg: Offene Dateien können kaputtgehen, danach läuft eine lange Paritätsprüfung. Eine kleine USV gibt ihm Zeit, sauber herunterzufahren (⟦Settings⟧ → ⟦UPS Settings⟧; für einen NUT-Server das NUT-Plugin).",
   "where.adv.syslog.title": "Nach einem Absturz ist das Protokoll weg",
-  "where.adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. Unraid kann es selbst aufbewahren: «⟦Mirror syslog to flash⟧» für eine Weile (das nutzt den Stick ab).",
+  "where.adv.syslog.why": "Unraid hält sein Syslog im RAM — nach einem Absturz oder harten Reset weiss niemand mehr, was passiert ist, auch Frau Protokolli nicht. Unraid kann es selbst aufbewahren: «⟦Mirror syslog to flash⟧» für eine Weile{wear}.",
+  "where.adv.syslog.wear": "(das nutzt den Stick ab)",
   "where.adv.vm_windows.title": {
     "one": "Eine Windows-VM kann den Array-Stopp aufhalten: {names}",
     "other": "{n} Windows-VMs können den Array-Stopp aufhalten: {names}"

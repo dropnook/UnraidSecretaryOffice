@@ -2215,7 +2215,7 @@ function advice() {
     }
   }
   if (!a.ups) add('ups', 'info', {}, { path: '/Settings/UPSsettings', text: T('where.adv.to_ups') });
-  if (!a.syslog_kept) add('syslog', 'advice', {}, { path: '/Settings/SyslogSettings', text: T('where.adv.to_syslog') });
+  if (!a.syslog_kept) add('syslog', 'advice', { wear: a.boot_internal ? '' : ' ' + T('where.adv.syslog.wear') }, { path: '/Settings/SyslogSettings', text: T('where.adv.to_syslog') });
 
   // Windows VMs at the array stop: Unraid asks (the guest agent, else the ACPI power button), waits the VM
   // shutdown time-out, then switches off hard — an idle Windows with its display off ignores the button (waVmStop())
