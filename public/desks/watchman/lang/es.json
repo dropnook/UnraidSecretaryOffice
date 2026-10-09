@@ -128,6 +128,7 @@
   "fold.at_job": "{n} tareas en la cola de atd",
   "fold.at_userscript": "{n} User Scripts iniciados en segundo plano (a través de atd)",
   "fold.at_plugin": "{n} tareas que un plugin programó para sí mismo (a través de atd)",
+  "fold.parity_check": "{n} comprobaciones de paridad, cada una con su motivo",
   "fold.notify_agent": "{n} agentes de notificación nuevos o modificados",
   "fold.flow_client": "{n} × un cliente se llevó más de lo habitual",
   "fold.flow_container": "{n} × un contenedor envió más de lo habitual",

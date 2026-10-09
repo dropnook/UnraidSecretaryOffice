@@ -128,6 +128,7 @@
   "fold.at_job": "{n} Jobs in der Warteschlange von atd",
   "fold.at_userscript": "{n} User Scripts im Hintergrund gestartet (über atd)",
   "fold.at_plugin": "{n} Jobs, die ein Plugin für sich selbst geplant hat (über atd)",
+  "fold.parity_check": "{n} Paritätsprüfungen, jede mit ihrem Grund",
   "fold.notify_agent": "{n} Benachrichtigungs-Agenten neu oder geändert",
   "fold.flow_client": "{n} × ein Rechner holte mehr als sonst",
   "fold.flow_container": "{n} × ein Container sendete mehr als sonst",
