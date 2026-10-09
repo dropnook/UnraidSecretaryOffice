@@ -290,11 +290,8 @@
     "one": "1 cosa ({size}) se borrará para siempre:",
     "other": "{n} cosas ({size}) se borrarán para siempre:"
   },
-  "purge.volumes": {
-    "one": "Borrar también el volumen con nombre de la stack",
-    "other": "Borrar también los {n} volúmenes con nombre de las stacks"
-  },
-  "purge.volumes_hint": "¡A menudo bases de datos! {names}",
+  "purge.volumes": {"one": "Poner también el volumen con nombre de la stack en mi trastero", "other": "Poner también los {n} volúmenes con nombre de las stacks en mi trastero"},
+  "purge.volumes_hint": "Primero copiados, luego quitados de Docker — a menudo bases de datos: {names}",
   "purge.images": {
     "one": "Quitar también su imagen",
     "other": "Quitar también sus {n} imágenes"
@@ -343,7 +340,7 @@
   "help.order": "Orden",
   "help.order_text": "Primero las plantillas, luego las stacks, luego appdata. Una carpeta cuenta como en uso mientras una plantilla o una stack la nombre — cuando desaparecen, aparece aquí.",
   "help.trash": "Trastero",
-  "help.trash_text": "Nada se borra enseguida. Lo que guardas se renombra a una carpeta _UnraidSecretaryOffice-trash en el mismo disco — plantillas y stacks en el flash, carpetas de appdata en el propio recurso compartido appdata. No tarda nada ni ocupa espacio extra, y «Devolver a su sitio» lo deshace. Solo «Vaciar» borra para siempre.",
+  "help.trash_text": "Nada se borra enseguida. Lo que guardas se renombra a una carpeta _UnraidSecretaryOffice-trash en el mismo disco — plantillas y stacks en el flash, carpetas de appdata en el propio recurso compartido appdata. No tarda nada ni ocupa espacio extra, y «Devolver a su sitio» lo deshace. Solo «Vaciar» borra para siempre. Los volúmenes de Docker no se pueden renombrar: los copio a _UnraidSecretaryOffice-trash junto a los datos de Docker (en el recurso compartido con docker.img o la carpeta de Docker), lo que necesita su tamaño libre una vez más mientras se copian.",
   "help.templates_text": "Resto: ni contenedor ni imagen. Sin usar: sin contenedor, pero la imagen sigue ahí. Duplicado: un archivo más antiguo con el mismo <Name>. Una plantilla cuyo contenedor existe está en uso.",
   "help.stacks_text": "Se emparejan con los contenedores por nombre de proyecto, como los nombra el Compose Manager. Rutas e imágenes vienen de docker compose config, con el .env. Una stack con contenedores se detiene (compose down) antes de guardarla; los volúmenes con nombre se quedan.",
   "help.appdata_text": "Una carpeta está en uso en cuanto algo la nombra: el montaje de un contenedor, cualquier plantilla, una stack (con su .env), un archivo compose fuera del Compose Manager, una VM, o cualquier archivo del flash (User Scripts, ajustes de plugins …). Un contenedor que monta el recurso compartido entero no cuenta.",
@@ -352,7 +349,7 @@
   "help.sizes": "Tamaños",
   "help.sizes_text": "Cuento archivos y tamaños en segundo plano — las carpetas para revisar por mi cuenta, las carpetas en uso cuando lo pides. Los discos en reposo siguen durmiendo; «Despertar y mirar» los despierta cuando quieras.",
   "help.safe": "Cuidado",
-  "help.safe_text": "Mientras se hace una copia de seguridad no cambio nada. Siempre me limito a renombrar — donde no es posible (otro disco, un dataset propio) me niego en lugar de copiar.",
+  "help.safe_text": "Mientras se hace una copia de seguridad no cambio nada. Siempre me limito a renombrar — donde no es posible (otro disco, un dataset propio) me niego en lugar de copiar. La única excepción son los volúmenes de Docker: Docker no puede renombrarlos, así que los copio, después de comprobar el espacio, y solo los quito cuando la copia está completa.",
   "errors.cleanup_backup_running": "Se está haciendo una copia de seguridad — espero a que termine.",
   "errors.cleanup_restore_running": "El señor Restori está recuperando algo ahora mismo — espero hasta que termine.",
   "errors.cleanup_docker_down": "Docker no responde — sin él no toco {name}.",
@@ -450,7 +447,7 @@
   "note.stack_gone_text": "Pertenecía al proyecto compose {name}, que ya no existe.",
   "vol.anonymous": "anónimo",
   "vol.anonymous_text": "Creado por un contenedor por su cuenta, sin nombre — normalmente un resto tras eliminar el contenedor.",
-  "vol.data_text": "Ningún contenedor lo monta. Lo que contiene desaparece para siempre al quitarlo.",
+  "vol.data_text": "Ningún contenedor lo monta. Al quitarlo, lo que contiene va primero a mi trastero — «Devolver a su sitio» lo trae de vuelta.",
   "cache.name": "Caché de build",
   "cache.meta": "{size} de {total} pueden irse",
   "cache.text": "Capas que docker build guardó para builds posteriores. Solo se quita lo que ninguna imagen necesita (docker builder prune).",
@@ -460,7 +457,7 @@
   "d.mountpoint": "Punto de montaje",
   "d.driver": "Driver",
   "d.uuid": "UUID",
-  "docker.note": "Docker no puede renombrarlos, así que no van a mi trastero: quitarlos es para siempre. Las imágenes se pueden volver a descargar, los volúmenes no.",
+  "docker.note": "Las imágenes y la caché de build no pueden ir a mi trastero — quitarlas es para siempre, pero las imágenes se pueden volver a descargar. Los volúmenes van primero allí: copio lo que contienen junto a los datos de Docker, y solo entonces Docker los quita. Solo los volúmenes de otro driver o montados desde otro sitio (NFS, CIFS …) no se pueden copiar — esos se van para siempre.",
   "docker.cache_at": "Pregunté a Docker por su caché de build {when}.",
   "remove.button": "Quitar…",
   "remove.title": {
@@ -471,10 +468,7 @@
     "one": "Esto se quita para siempre ({size}):",
     "other": "Estas {n} cosas se quitan para siempre ({size}):"
   },
-  "remove.volumes": {
-    "one": "Un volumen puede contener datos (a menudo una base de datos) — después habrán desaparecido.",
-    "other": "{n} volúmenes pueden contener datos (a menudo bases de datos) — después habrán desaparecido."
-  },
+  "remove.volumes": {"one": "{names}: un volumen de otro driver o montado desde otro sitio (NFS, CIFS …) — no puedo copiarlo, así que quitarlo es para siempre.", "other": "{names}: {n} volúmenes de otro driver o montados desde otro sitio (NFS, CIFS …) — no puedo copiarlos, así que quitarlos es para siempre."},
   "remove.images": "Las imágenes se pueden volver a descargar cuando las necesites.",
   "remove.drill": "Lo que dejó un simulacro lo retira el propio barrendero del señor Restori — solo exactamente lo de su simulacro.",
   "remove.go": "Quitar para siempre",
@@ -523,7 +517,7 @@
     "other": "{n} restos de Docker · {size}"
   },
   "help.vms_text": "Carpetas del recurso compartido domains que ninguna VM usa; archivos NVRAM, estados del TPM y listas de instantáneas de VMs borradas (en libvirt.img); imágenes de disco del recurso compartido isos que ninguna VM tiene insertadas. Solo mientras el servicio de VMs está en marcha. Las copias de NVRAM de las instantáneas de una VM existente son cosa de la señora Snapshotini.",
-  "help.docker_text": "Imágenes huérfanas (restos de actualizaciones), imágenes con tag que ningún contenedor usa, volúmenes que ningún contenedor monta, la caché de build. Docker no puede renombrarlos, así que se quitan para siempre — nunca mientras un contenedor todavía los use.",
+  "help.docker_text": "Imágenes huérfanas (restos de actualizaciones), imágenes con tag que ningún contenedor usa, volúmenes que ningún contenedor monta, la caché de build. Docker no puede renombrarlos: los volúmenes los copio primero a mi trastero junto a los datos de Docker y solo los quito cuando la copia está completa. Las imágenes y la caché se quitan para siempre (las imágenes se pueden volver a descargar), igual que los volúmenes de otro driver o montados desde otro sitio (NFS, CIFS …) — nunca mientras un contenedor todavía los use.",
   "errors.cleanup_vm_off": "El servicio de VMs no se está ejecutando — sin él no toco {name}.",
   "errors.cleanup_destroy_failed": "zfs destroy de {name} falló: {detail}",
   "errors.cleanup_docker_failed": "Docker no pudo quitar {name}: {detail}",
@@ -1677,5 +1671,22 @@
   "where.partners.pair_text": {"one": "{name}: copias de 1 unidad, recibidas por la puerta", "other": "{name}: copias de {n} unidades, recibidas por la puerta"},
   "where.partners.stored": {"one": "1 en mi trastero", "other": "{n} en mi trastero"},
   "where.partners.stored_text": "Copias de asociaciones terminadas que guardé — están en «Ordenar» → trastero.",
-  "where.partners.to_lead": "Secretarías asociadas (jefe de equipo)"
+  "where.partners.to_lead": "Secretarías asociadas (jefe de equipo)",
+  "remove.title_kept": {"one": "¿Poner 1 volumen en el trastero?", "other": "¿Poner {n} volúmenes en el trastero?"},
+  "remove.title_mixed": {"one": "¿Quitar 1 cosa?", "other": "¿Quitar {n} cosas?"},
+  "remove.text_kept": {"one": "Esto va a mi trastero ({size}):", "other": "Estos {n} volúmenes van a mi trastero ({size}):"},
+  "remove.text_mixed": {"one": "Esto se va ({size}):", "other": "Estas {n} cosas se van ({size}):"},
+  "remove.volumes_kept": {"one": "El volumen va primero a mi trastero: copio lo que contiene (con propietarios y permisos) junto a los datos de Docker, y luego Docker lo quita. «Devolver a su sitio» allí lo trae de vuelta; solo «Vaciar» lo borra.", "other": "Los {n} volúmenes van primero a mi trastero: copio lo que contienen (con propietarios y permisos) junto a los datos de Docker, y luego Docker los quita. «Devolver a su sitio» allí los trae de vuelta; solo «Vaciar» los borra."},
+  "remove.go_kept": "Al trastero",
+  "remove.done_kept": {"one": "Hecho — el volumen está en mi trastero.", "other": "Hecho — {n} volúmenes están en mi trastero."},
+  "vol.for_good": "para siempre",
+  "vol.for_good_text": "Driver {driver}, o montado desde otro sitio (NFS, CIFS, una carpeta): lo que contiene no está en la carpeta de Docker, así que no puedo guardar una copia — quitarlo es para siempre.",
+  "restore.title_volume": "De vuelta a Docker como volumen {name}",
+  "restore.done_volume": "{name} vuelve a ser un volumen de Docker, con todo lo que contenía.",
+  "stored.docker": "junto a los datos de Docker",
+  "errors.cleanup_volume_no_place": "No sé dónde guarda Docker sus datos, así que no hay trastero al lado — {name} se queda en Docker.",
+  "errors.cleanup_volume_no_space": "No hay espacio suficiente para una copia de {name} en {path}: hacen falta {need}, hay {free} libres — se queda en Docker.",
+  "errors.cleanup_volume_copy_failed": "La copia de {name} a mi trastero falló, así que se queda en Docker: {detail}",
+  "errors.cleanup_volume_back_failed": "Devolver {name} a Docker falló — la copia se queda en mi trastero: {detail}",
+  "errors.cleanup_volume_exists": "Docker ya tiene un volumen llamado {name} — no copio encima. Quita o renombra ese primero."
 }

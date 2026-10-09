@@ -290,11 +290,8 @@
     "one": "1 thing ({size}) will be deleted for good:",
     "other": "{n} things ({size}) will be deleted for good:"
   },
-  "purge.volumes": {
-    "one": "Also delete the stack's named volume",
-    "other": "Also delete the stacks' {n} named volumes"
-  },
-  "purge.volumes_hint": "Often databases! {names}",
+  "purge.volumes": {"one": "Also put the stack's named volume into my storeroom", "other": "Also put the stacks' {n} named volumes into my storeroom"},
+  "purge.volumes_hint": "Copied first, then removed from Docker — often databases: {names}",
   "purge.images": {
     "one": "Also remove its image",
     "other": "Also remove their {n} images"
@@ -343,7 +340,7 @@
   "help.order": "Order",
   "help.order_text": "Templates first, then stacks, then appdata. A folder counts as in use as long as a template or stack names it — once those are gone, it shows up here.",
   "help.trash": "Storeroom",
-  "help.trash_text": "Nothing is deleted right away. What you put away is renamed into a folder _UnraidSecretaryOffice-trash on the same disk — templates and stacks on the flash, appdata folders in the appdata share itself. That takes no time and no extra space, and \"Put back\" undoes it. Only \"Empty\" deletes for good.",
+  "help.trash_text": "Nothing is deleted right away. What you put away is renamed into a folder _UnraidSecretaryOffice-trash on the same disk — templates and stacks on the flash, appdata folders in the appdata share itself. That takes no time and no extra space, and \"Put back\" undoes it. Only \"Empty\" deletes for good. Docker's volumes can't be renamed: I copy them into _UnraidSecretaryOffice-trash beside Docker's data (in the share that holds docker.img or the docker folder), which needs their size free once more while copying.",
   "help.templates_text": "Leftover: no container and no image. Unused: no container, but the image is still there. Duplicate: an older file with the same <Name>. A template whose container exists is in use.",
   "help.stacks_text": "Matched with the containers by project name, the way the Compose Manager names them. Paths and images come from docker compose config, with the .env. A stack with containers is stopped (compose down) before it is put away; named volumes stay.",
   "help.appdata_text": "A folder is in use as soon as something names it: a container's mount, any template, a stack (with its .env), a compose file outside the Compose Manager, a VM, or any file on the flash (User Scripts, plugin settings …). A container that mounts the whole share doesn't count.",
@@ -352,7 +349,7 @@
   "help.sizes": "Sizes",
   "help.sizes_text": "I count files and sizes in the background — folders to look at on my own, folders in use when you ask. Sleeping disks stay asleep; \"Wake & look\" wakes them when you want.",
   "help.safe": "Careful",
-  "help.safe_text": "While a backup runs I change nothing. I only ever rename — where that isn't possible (another disk, a dataset of its own) I refuse instead of copying.",
+  "help.safe_text": "While a backup runs I change nothing. I only ever rename — where that isn't possible (another disk, a dataset of its own) I refuse instead of copying. The one exception is Docker's volumes: Docker can't rename them, so I copy them, after checking there is room, and remove them only once the copy is complete.",
   "errors.cleanup_backup_running": "A backup is running — I'll wait until it's done.",
   "errors.cleanup_restore_running": "Mr. Restori is bringing something back right now — I'll wait until he's done.",
   "errors.cleanup_docker_down": "Docker doesn't answer — I won't touch {name} without it.",
@@ -450,7 +447,7 @@
   "note.stack_gone_text": "Belonged to the Compose project {name}, which no longer exists.",
   "vol.anonymous": "anonymous",
   "vol.anonymous_text": "Made by a container on its own, without a name — usually left over after the container was removed.",
-  "vol.data_text": "No container mounts it. What's inside is gone for good once it is removed.",
+  "vol.data_text": "No container mounts it. Removing it puts what's inside into my storeroom first — «Put back» brings it back.",
   "cache.name": "Build cache",
   "cache.meta": "{size} of {total} can go",
   "cache.text": "Layers docker build kept for later builds. Only what no image needs is removed (docker builder prune).",
@@ -460,7 +457,7 @@
   "d.mountpoint": "Mountpoint",
   "d.driver": "Driver",
   "d.uuid": "UUID",
-  "docker.note": "Docker can't rename these, so they don't go into my storeroom: removing is for good. Images can be pulled again, volumes can't.",
+  "docker.note": "Images and the build cache can't go into my storeroom — removing them is for good, but images can be pulled again. Volumes go into it first: I copy what they hold beside Docker's data, and only then does Docker remove them. Only volumes of another driver or mounted from elsewhere (NFS, CIFS …) can't be copied — those go for good.",
   "docker.cache_at": "Asked Docker about its build cache {when}.",
   "remove.button": "Remove…",
   "remove.title": {
@@ -471,10 +468,7 @@
     "one": "This is removed for good ({size}):",
     "other": "These {n} things are removed for good ({size}):"
   },
-  "remove.volumes": {
-    "one": "A volume can hold data (often a database) — it is gone afterwards.",
-    "other": "{n} volumes can hold data (often databases) — they are gone afterwards."
-  },
+  "remove.volumes": {"one": "{names}: a volume of another driver or mounted from elsewhere (NFS, CIFS …) — I can't copy it, so removing it is for good.", "other": "{names}: {n} volumes of another driver or mounted from elsewhere (NFS, CIFS …) — I can't copy them, so removing them is for good."},
   "remove.images": "Images can be pulled again when you need them.",
   "remove.drill": "What a drill left goes through Mr. Restori's own sweeper — only exactly his drill's things.",
   "remove.go": "Remove for good",
@@ -523,7 +517,7 @@
     "other": "{n} Docker leftovers · {size}"
   },
   "help.vms_text": "Folders in the domains share no VM uses; NVRAM files, TPM states and snapshot lists of deleted VMs (in libvirt.img); disk images in the isos share no VM has inserted. Only while the VM service runs. NVRAM copies of an existing VM's snapshots belong to Ms. Snapshotini.",
-  "help.docker_text": "Dangling images (left over from updates), tagged images no container uses, volumes no container mounts, the build cache. Docker can't rename them, so they are removed for good — never while a container still uses them.",
+  "help.docker_text": "Dangling images (left over from updates), tagged images no container uses, volumes no container mounts, the build cache. Docker can't rename them: volumes I copy into my storeroom beside Docker's data first and remove only once the copy is complete. Images and the cache are removed for good (images can be pulled again), and so are volumes of another driver or mounted from elsewhere (NFS, CIFS …) — never while a container still uses them.",
   "errors.cleanup_vm_off": "The VM service isn't running — I won't touch {name} without it.",
   "errors.cleanup_destroy_failed": "zfs destroy of {name} failed: {detail}",
   "errors.cleanup_docker_failed": "Docker couldn't remove {name}: {detail}",
@@ -1677,5 +1671,22 @@
   "where.partners.pair_text": {"one": "{name}: copies of 1 unit, received through the door", "other": "{name}: copies of {n} units, received through the door"},
   "where.partners.stored": {"one": "1 in my storeroom", "other": "{n} in my storeroom"},
   "where.partners.stored_text": "Copies of ended partnerships I put away — they are in «Tidying up» → storeroom.",
-  "where.partners.to_lead": "Partner offices (Team Lead)"
+  "where.partners.to_lead": "Partner offices (Team Lead)",
+  "remove.title_kept": {"one": "Put 1 volume into the storeroom?", "other": "Put {n} volumes into the storeroom?"},
+  "remove.title_mixed": {"one": "Remove 1 thing?", "other": "Remove {n} things?"},
+  "remove.text_kept": {"one": "This goes into my storeroom ({size}):", "other": "These {n} volumes go into my storeroom ({size}):"},
+  "remove.text_mixed": {"one": "This goes ({size}):", "other": "These {n} things go ({size}):"},
+  "remove.volumes_kept": {"one": "The volume goes into my storeroom first: I copy what it holds (owners and permissions included) beside Docker's data, then Docker removes it. «Put back» there brings it back; only «Empty» deletes it.", "other": "The {n} volumes go into my storeroom first: I copy what they hold (owners and permissions included) beside Docker's data, then Docker removes them. «Put back» there brings them back; only «Empty» deletes them."},
+  "remove.go_kept": "Into the storeroom",
+  "remove.done_kept": {"one": "Done — the volume is in my storeroom.", "other": "Done — {n} volumes are in my storeroom."},
+  "vol.for_good": "for good",
+  "vol.for_good_text": "Driver {driver}, or mounted from elsewhere (NFS, CIFS, a folder): what it holds doesn't lie in Docker's folder, so I can't keep a copy — removing it is for good.",
+  "restore.title_volume": "Back into Docker as volume {name}",
+  "restore.done_volume": "{name} is a Docker volume again, with everything it held.",
+  "stored.docker": "beside Docker's data",
+  "errors.cleanup_volume_no_place": "I can't tell where Docker keeps its data, so there's no storeroom beside it — {name} stays in Docker.",
+  "errors.cleanup_volume_no_space": "Not enough space for a copy of {name} in {path}: {need} needed, {free} free — it stays in Docker.",
+  "errors.cleanup_volume_copy_failed": "Copying {name} into my storeroom failed, so it stays in Docker: {detail}",
+  "errors.cleanup_volume_back_failed": "Putting {name} back into Docker failed — the copy stays in my storeroom: {detail}",
+  "errors.cleanup_volume_exists": "Docker already has a volume named {name} — I won't copy over it. Remove or rename that one first."
 }

@@ -9925,7 +9925,7 @@ function testTrashManifest(): void
     foreach ([['templates/my-app.xml', 'template'], ['compose/stack', 'stack'], ['appdata/foo', 'appdata'], ['vms/win11', 'domain'],
               ['strays/0a1b2c3d/my-x.xml', 'stray'], ['icons/0a1b2c3d/compose.override.yaml', 'icon'], ['nvram/abc_VARS.fd', 'nvram'],
               ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['restore/0a1b2c3d/pg.aside-20261006-172818', 'leftover'],
-              ["@master/domains/_UnraidSecretaryOffice-trash-$st-Win.aside-20261006-175854", 'leftover']] as [$as, $kind]) {
+              ["@master/domains/_UnraidSecretaryOffice-trash-$st-Win.aside-20261006-175854", 'leftover'], ['volumes/pgdata', 'volume']] as [$as, $kind]) {
         check("manifest as accepted: $as", clTrashAsOk($as, $kind, $st));
     }
     foreach ([['../../../../boot/config/super.dat', 'template'], ['templates/../../x', 'template'], ['templates/./x', 'template'],
@@ -9933,7 +9933,8 @@ function testTrashManifest(): void
               ['strays/x', 'stray'], ["templates/x\ny", 'template'], ['', 'template'], ['@cache/appdata', 'appdata'],
               ['@cache/appdata/_UnraidSecretaryOffice-trash-20990101-000000-foo', 'appdata'], ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'template'],
               ["@cache/../x/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['@cache', 'appdata'], ['restore/pg.aside-20261006-172818', 'leftover'],
-              ['restore/0a1b2c3d/pg.aside-20261006-172818', 'appdata'], ['appdata/foo', 'leftover']] as [$as, $kind]) {
+              ['restore/0a1b2c3d/pg.aside-20261006-172818', 'appdata'], ['appdata/foo', 'leftover'], ['volumes/a/b', 'volume'], ['volumes/pgdata', 'appdata'],
+              ["@cache/system/_UnraidSecretaryOffice-trash-$st-pgdata", 'volume'], ['appdata/pgdata', 'volume']] as [$as, $kind]) {
         check('manifest as refused: ' . json_encode($as) . " ($kind)", !clTrashAsOk($as, $kind, $st));
     }
     check('manifest from: an absolute path', clTrashPathOk('/mnt/cache/appdata/foo'));
@@ -21485,6 +21486,211 @@ function testWatchBookNoteSome(): void
          $ask(['action' => 'watchman.ack_some', 'ids' => ['x']]), $ask(['action' => 'watchman.ack', 'id' => [$a, $b]])]);
     unset($GLOBALS['agentStaffFile']);
     @unlink($staff);
+ * Ms. Dustdevil's storeroom for Docker's volumes (issue #1): where it lies (beside Docker's data), which volumes she can
+ * keep, the copy first and the rm only after it (a stand-in docker on a folder of fake volumes), a copy that fails, a
+ * full pool, Docker refusing the rm, a volume whose folder is gone (rm -f), one she can't copy (for good), the
+ * manifest's record read back, and «Put back»: refused over a volume of that name, created anew with its labels and
+ * its content, the storeroom's copy emptied in the background; a copy back that fails leaves nothing behind
+ */
+function testCleanupVolumes(): void
+{
+    $tmp = hardeningTmp('clean-volumes');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $fake = "$tmp/fake";
+    @mkdir("$fake/vols", 0755, true);
+    @mkdir("$fake/inuse", 0755, true);
+    @mkdir("$fake/enoent", 0755, true);
+    $docker = "$tmp/docker";
+    file_put_contents($docker, <<<SH
+#!/bin/bash
+FAKE='$fake'
+echo "\$*" >>"\$FAKE/docker.log"
+[[ \$1 == volume ]] || exit 1
+case \$2 in
+  inspect)
+    v="\$FAKE/vols/\$3"
+    [[ -d \$v ]] || { echo "Error response from daemon: get \$3: no such volume" >&2; exit 1; }
+    printf '[{"Name":"%s","Driver":"%s","Labels":%s,"Options":%s,"Mountpoint":"%s/_data","Scope":"local"}]\\n' "\$3" "\$(cat "\$v/driver")" "\$(cat "\$v/labels")" "\$(cat "\$v/options")" "\$v" ;;
+  rm)
+    f=0; n=\$3; [[ \$3 == -f ]] && { f=1; n=\$4; }
+    [[ -e \$FAKE/inuse/\$n ]] && { echo "Error response from daemon: remove \$n: volume is in use - [abc]" >&2; exit 1; }
+    [[ \$f == 0 && -e \$FAKE/enoent/\$n ]] && { echo "Error response from daemon: remove \$n: unlinkat /var/lib/docker/volumes/\$n/_data: no such file or directory" >&2; exit 1; }
+    [[ -d \$FAKE/vols/\$n ]] || { echo "Error: No such volume: \$n" >&2; exit 1; }
+    rm -rf "\$FAKE/vols/\$n"; echo "\$n" ;;
+  create)
+    shift 2; labels=''
+    while [[ \$# -gt 1 ]]; do
+      case \$1 in
+        --driver) d=\$2; shift 2 ;;
+        --label) k=\${2%%=*}; labels+="\${labels:+,}\\"\$k\\":\\"\${2#*=}\\""; shift 2 ;;
+        *) exit 9 ;;
+      esac
+    done
+    v="\$FAKE/vols/\$1"; [[ -e \$v ]] && exit 1
+    mkdir -p "\$v/_data"; echo "\$d" >"\$v/driver"; echo "{\$labels}" >"\$v/labels"; echo null >"\$v/options"; echo "\$1" ;;
+  *) exit 1 ;;
+esac
+SH);
+    chmod($docker, 0755);
+    $mkvol = function (string $name, string $labels = '{"com.docker.compose.project":"app","x":""}', string $options = 'null', string $driver = 'local') use ($fake): string {
+        $v = "$fake/vols/$name";
+        @mkdir("$v/_data/sub", 0755, true);
+        file_put_contents("$v/_data/sub/data", str_repeat('x', 8192));         // something on disk (folders take no blocks on tmpfs)
+        file_put_contents("$v/driver", "$driver\n");
+        file_put_contents("$v/labels", "$labels\n");
+        file_put_contents("$v/options", "$options\n");
+        return "$v/_data";
+    };
+    $log = fn () => trim((string) @file_get_contents("$fake/docker.log"));
+    $logClear = fn () => @unlink("$fake/docker.log");
+
+    // where: beside Docker's data — the share of DOCKER_IMAGE_FILE on the pool that holds it
+    $mnt = "$tmp/mnt";
+    @mkdir("$mnt/cache/system/docker", 0755, true);
+    @mkdir("$mnt/disk1/system", 0755, true);
+    $GLOBALS['clFresh']['share']['system'] = ['shareUseCache' => 'only', 'shareCachePool' => 'cache'];
+    $GLOBALS['clFresh']['share']['sysx'] = ['shareUseCache' => 'yes', 'shareCachePool' => 'gone'];
+    @mkdir("$mnt/disk1/sysx/docker", 0755, true);
+    $ctx = ['roots' => ['cache' => ['fs' => 'zfs', 'kind' => 'pool'], 'disk1' => ['fs' => 'xfs', 'kind' => 'disk']], 'asleep' => []];
+    $trash = "$mnt/cache/system/_UnraidSecretaryOffice-trash";
+    same('volumes: the storeroom beside Docker\'s folder, on the pool of its share',
+        ['pool' => 'cache', 'root' => $trash, 'asleep' => false], clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/user/system/docker/'], $ctx, $mnt));
+    same('volumes: beside docker.img on a pool named directly', ['pool' => 'cache', 'root' => $trash, 'asleep' => false],
+        clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/cache/system/docker/docker.img'], $ctx, $mnt));
+    same('volumes: a share found where it lies (its pool gone), a sleeping disk never looked at',
+        [['pool' => 'disk1', 'root' => "$mnt/disk1/sysx/_UnraidSecretaryOffice-trash", 'asleep' => false], null],
+        [clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/user/sysx/docker'], $ctx, $mnt),
+         clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/user/sysx/docker'], ['asleep' => ['disk1' => true]] + $ctx, $mnt)]);
+    same('volumes: no storeroom where it can\'t be told', [null, null, null, null],
+        [clVolumePlace([], $ctx, $mnt), clVolumePlace(['DOCKER_IMAGE_FILE' => '/var/lib/docker.img'], $ctx, $mnt),
+         clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/user/../boot/docker'], $ctx, $mnt), clVolumePlace(['DOCKER_IMAGE_FILE' => '/mnt/remotes/nas/docker'], $ctx, $mnt)]);
+    unset($GLOBALS['clFresh']['share']['system'], $GLOBALS['clFresh']['share']['sysx']);
+    $place = ['pool' => 'cache', 'root' => $trash, 'asleep' => false];
+
+    same('volumes: kept are the local driver\'s without options only', [true, false, false, false],
+        [clVolumeKeepable(['driver' => 'local', 'options' => [], 'mountpoint' => '/var/lib/docker/volumes/a/_data']),
+         clVolumeKeepable(['driver' => 'local', 'options' => ['type' => 'nfs', 'device' => ':/x'], 'mountpoint' => '/var/lib/docker/volumes/a/_data']),
+         clVolumeKeepable(['driver' => 'rclone', 'options' => [], 'mountpoint' => '/var/lib/docker/volumes/a/_data']),
+         clVolumeKeepable(['driver' => 'local', 'options' => [], 'mountpoint' => ''])]);
+
+    // into the storeroom: copied (owners, permissions, links), recorded, then removed from Docker
+    $data = $mkvol('pgdata');
+    file_put_contents("$data/sub/PG_VERSION", "16\n");
+    file_put_contents("$data/secret", 'x');
+    chmod("$data/secret", 0600);
+    @chown("$data/secret", 999);
+    @chgrp("$data/secret", 999);
+    chmod($data, 0700);
+    @symlink('sub/PG_VERSION', "$data/link");
+    $run = null;
+    $r = clVolumeAway($docker, 'pgdata', $run, $place);
+    $copy = ($run['path'] ?? '') . '/volumes/pgdata';
+    same('volumes: into the storeroom — copied, then removed from Docker', [['ok' => true, 'stored' => true], false, "16\n", 'sub/PG_VERSION'],
+        [$r, is_dir("$fake/vols/pgdata"), @file_get_contents("$copy/sub/PG_VERSION"), @readlink("$copy/link")]);
+    clearstatcache();
+    same('volumes: the copy keeps owners and permissions (the folder\'s own too)', [0600, posix_geteuid() === 0 ? 999 : fileowner("$copy/secret"), 0700],
+        [@fileperms("$copy/secret") & 0777, @fileowner("$copy/secret"), @fileperms($copy) & 0777]);
+    same('volumes: the rm only after the copy', ['volume inspect pgdata', 'volume rm pgdata'], explode("\n", $log()));
+    $runs = array_values(array_filter(clTrashRuns([], ['ok' => false], [$trash]), fn ($x) => $x['path'] === ($run['path'] ?? '')));
+    $it = $runs[0]['items'][0] ?? [];
+    same('volumes: the manifest names it with its record — read back exactly',
+        ['volume', 'pgdata', 'volumes/pgdata', "$data", ['name' => 'pgdata', 'driver' => 'local', 'labels' => ['com.docker.compose.project' => 'app', 'x' => ''], 'options' => []], true],
+        [$it['kind'] ?? null, $it['name'] ?? null, $it['as'] ?? null, $it['from'] ?? null, $it['volume'] ?? null, $it['present'] ?? null]);
+    check('volumes: no .partial left', !array_filter(scandir($run['path'] . '/volumes'), fn ($n) => str_ends_with($n, '.partial')));
+
+    // a copy that fails: nothing removed, nothing left in the storeroom
+    $logClear();
+    $mkvol('cache1');
+    file_put_contents("$tmp/cp-fails", "#!/bin/bash\nmkdir -p \"\${@: -1}\"; echo 'cp: error writing: No space left on device' >&2; exit 1\n");
+    chmod("$tmp/cp-fails", 0755);
+    $GLOBALS['clVolumeCp'] = "$tmp/cp-fails";
+    $r = clVolumeAway($docker, 'cache1', $run, $place);
+    unset($GLOBALS['clVolumeCp']);
+    same('volumes: a copy that fails — an error, the volume stays, no copy, not in the manifest',
+        ['cleanup_volume_copy_failed', true, ['pgdata'], ['pgdata']],
+        [$r['error']['key'] ?? null, is_dir("$fake/vols/cache1"), array_values(array_diff(scandir($run['path'] . '/volumes'), ['.', '..'])),
+         array_column(readJson($run['path'] . '/manifest.json')['items'] ?? [], 'name')]);
+    check('volumes: … and Docker was never asked to remove it', !str_contains($log(), 'rm cache1'), $log());
+    // a full pool: refused before copying
+    $GLOBALS['clVolumeFree'] = fn (string $p) => 10.0;
+    $r = clVolumeAway($docker, 'cache1', $run, $place);
+    unset($GLOBALS['clVolumeFree']);
+    same('volumes: not enough space — refused before copying, the volume stays', ['cleanup_volume_no_space', true, dirname($trash)],
+        [$r['error']['key'] ?? null, is_dir("$fake/vols/cache1"), $r['error']['params']['path'] ?? null]);
+    // Docker refuses the rm (a container took it meanwhile): the copy goes again
+    touch("$fake/inuse/cache1");
+    $r = clVolumeAway($docker, 'cache1', $run, $place);
+    @unlink("$fake/inuse/cache1");
+    same('volumes: Docker refusing the rm — the copy goes again, the volume stays', ['cleanup_docker_failed', true, false, ['pgdata']],
+        [$r['error']['key'] ?? null, is_dir("$fake/vols/cache1"), file_exists($run['path'] . '/volumes/cache1'), array_column(readJson($run['path'] . '/manifest.json')['items'] ?? [], 'name')]);
+    // the storeroom's pool asleep, no storeroom at all: refused
+    same('volumes: the storeroom asleep or not to be found — refused, kept', ['cleanup_asleep', 'cleanup_volume_no_place', true],
+        [(clVolumeAway($docker, 'cache1', $run, ['asleep' => true] + $place)['error']['key'] ?? null), (clVolumeAway($docker, 'cache1', $run, null)['error']['key'] ?? null), is_dir("$fake/vols/cache1")]);
+    // a volume whose folder is gone: removed with -f, nothing to keep
+    $logClear();
+    $mkvol('ghost');
+    exec('rm -rf ' . escapeshellarg("$fake/vols/ghost/_data"));
+    touch("$fake/enoent/ghost");
+    $r = clVolumeAway($docker, 'ghost', $run, $place);
+    same('volumes: its folder gone — docker volume rm, then rm -f; counts as removed', [['ok' => true, 'stored' => false], false, ['volume inspect ghost', 'volume rm ghost', 'volume rm -f ghost']],
+        [$r, is_dir("$fake/vols/ghost"), explode("\n", $log())]);
+    // a volume she can't copy (mounted from elsewhere): removed for good, as today
+    $logClear();
+    $mkvol('nfs1', '{}', '{"type":"nfs","device":":/export","o":"addr=10.0.0.2"}');
+    $r = clVolumeAway($docker, 'nfs1', $run, $place);
+    same('volumes: mounted from elsewhere — removed for good, nothing copied', [['ok' => true, 'stored' => false], false, false],
+        [$r, is_dir("$fake/vols/nfs1"), file_exists($run['path'] . '/volumes/nfs1')]);
+
+    // the manifest's record: only her own shape
+    same('volumes: records not hers don\'t count', [null, null, null, null, null, true],
+        [clVolumeRecord(['name' => 'a', 'driver' => 'local', 'labels' => [], 'options' => ['type' => 'nfs']], 'a'),
+         clVolumeRecord(['name' => 'a', 'driver' => 'rclone', 'labels' => [], 'options' => []], 'a'),
+         clVolumeRecord(['name' => 'a', 'driver' => 'local', 'labels' => ['k=v' => 'x'], 'options' => []], 'a'),
+         clVolumeRecord(['name' => 'b', 'driver' => 'local', 'labels' => [], 'options' => []], 'a'),
+         clVolumeRecord(['name' => 'a', 'driver' => 'local', 'labels' => ['k' => "x\ny"], 'options' => []], 'a'),
+         is_array(clVolumeRecord(['name' => 'a', 'driver' => 'local', 'labels' => ['k' => 'v'], 'options' => []], 'a'))]);
+
+    // «Put back»: never over a volume of that name
+    $runRec = $runs[0];
+    $mkvol('pgdata', '{}');
+    $before = $log();
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+    $e = null;
+    try {
+        clVolumeBack($docker, $runRec, $it);
+    } catch (Problem $p) {
+        $e = $p->toArray();
+    }
+    same('volumes: back — refused while Docker has one of that name, said so; the copy stays', ['cleanup_volume_exists', true, '{}'],
+        [$e['key'] ?? null, is_dir($copy), trim((string) @file_get_contents("$fake/vols/pgdata/labels"))]);
+    exec('rm -rf ' . escapeshellarg("$fake/vols/pgdata"));
+    // a copy back that fails: the volume just made goes again, the storeroom keeps its copy
+    $GLOBALS['clVolumeCp'] = "$tmp/cp-fails";
+    $e = null;
+    try {
+        clVolumeBack($docker, $runRec, $it);
+    } catch (Problem $p) {
+        $e = $p->toArray();
+    }
+    unset($GLOBALS['clVolumeCp']);
+    same('volumes: back — a copy that fails removes the new volume, the copy stays', ['cleanup_volume_back_failed', false, true],
+        [$e['key'] ?? null, is_dir("$fake/vols/pgdata"), is_dir($copy)]);
+    $logClear();
+    clVolumeBack($docker, $runRec, $it);
+    $back = "$fake/vols/pgdata/_data";
+    clearstatcache();
+    same('volumes: back — created with its labels, its content and owners copied in, the folder\'s permissions too',
+        ['{"com.docker.compose.project":"app","x":""}', "16\n", 0600, 0700, 'sub/PG_VERSION'],
+        [trim((string) @file_get_contents("$fake/vols/pgdata/labels")), @file_get_contents("$back/sub/PG_VERSION"), @fileperms("$back/secret") & 0777,
+         @fileperms($back) & 0777, @readlink("$back/link")]);
+    same('volumes: back — asked Docker in this order', ['volume inspect pgdata', 'volume create --driver local --label com.docker.compose.project=app --label x= pgdata', 'volume inspect pgdata'],
+        explode("\n", $log()));
+    $purging = glob("$trash/*.purging") ?: [];
+    same('volumes: back — the storeroom\'s copy goes in the background, like an emptied run', [false, 1, true, true],
+        [file_exists($copy), count($purging), is_dir(($purging[0] ?? '') . '/volume'), isset($GLOBALS['clJobs']['queue']['purge:' . ($purging[0] ?? '')])
+            || in_array('purge:' . ($purging[0] ?? ''), array_column($GLOBALS['clJobs']['queue'], 'key'), true)]);
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+    hardeningRm($tmp);
 }
 
 // ===================================================================== run
@@ -21492,7 +21698,7 @@ function testWatchBookNoteSome(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
