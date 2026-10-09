@@ -8,8 +8,8 @@
    keeps them (data/caretaker/acks.json) and marks them "acked" in its state,
    each finding carries its "sig" — they move to «Noted» and count nowhere.
    The supporter key (core.js Office.supporter, src/supporter.php) unlocks
-   nothing: with a valid one he shows a small thank-you at «The team» (its
-   picture the tip's level: Office.supporterLevel); without,
+   nothing: with a valid one he shows a thank-you at «The team» (its
+   pictures the kept keys' levels, each once: Office.supporterPictures); without,
    he asks once, friendly, a week after the office first ran here (a callout
    under «The team», «Not now» at most twice more, «Don't ask again»). */
 (() => {
@@ -367,10 +367,16 @@ function teamSection() {
   const extra = [];
   const sup = Office.supporter();
   if (sup.state === 'valid') {
-    // the supporter key's plate: a quiet thank-you, the name as text only; the picture is the tip's level
-    // (☕ ☕☕ 🍰 💐, signed in the key — only the owner sees it, it is not a rank)
-    const level = Office.supporterLevel(sup);
-    const plate = el('span', 'chip ok ct-supporter', T('supporter_plate', { icon: level.icon, name: sup.name }));
+    // the supporter keys' plate: a thank-you, not a button (a green outline), as tall as the buttons beside it; the
+    // name (the newest key's) as text only; the pictures each kept level's once, in level order (☕ ☕☕ 🍰 🥂, signed
+    // in the keys — only the owner sees it, never a count, never a rank)
+    const level = Office.supporterPictures(sup);
+    const MARK = '\u0001';
+    const plate = el('span', 'chip ok ct-supporter');
+    T('supporter_plate', { icon: MARK, name: sup.name }).split(MARK).forEach((part, i) => {
+      if (i) plate.appendChild(el('span', 'ct-supporter-pics', level.icon));
+      if (part.trim()) plate.appendChild(el('span', 'ct-supporter-words', part.trim()));
+    });
     plate.title = T('supporter_plate_title', { level: level.text, date: Office.fmt.day(sup.date) });
     extra.push(plate);
   }

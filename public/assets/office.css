@@ -601,6 +601,13 @@
 .tip-jar{display:flex; gap:14px; align-items:flex-start}
 .tip-jar-icon{font-size:30px; line-height:1}
 .tip-jar p{margin:0 0 12px}
+/* the kept supporter keys (core.js supporterPart): picture, level, name, date — «Remove…» beside each */
+.tip-jar-keys{list-style:none; margin:0 0 12px; padding:0; display:flex; flex-direction:column; gap:6px}
+.tip-jar-keys li{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; overflow-wrap:anywhere}
+.tip-jar-keys li.off{color:var(--muted)}
+.tip-jar-keys li > span{flex:1 1 180px; min-width:0}
+.tip-jar-keys li > .btn{flex:none}
+.tip-jar-claim{font-size:13px; color:var(--ink2)}
 
 /* «Report a problem or a wish…» (core.js Office.reportDialog()): the form, the preview's parts, the log in full */
 .sso-report-ways{font-size:13px}

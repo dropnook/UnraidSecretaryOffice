@@ -17,9 +17,7 @@ declare(strict_types=1);
 const OFFICE_VERSION = '1.48.0';
 // where the tip jar leads after hiring someone ('' = no button, only the thank-you)
 const OFFICE_TIP_URL = 'https://paypal.me/dropnook';
-// the support page (PayPal checkout that shows the supporter key right after the tip, and again for a lost one):
-// set, the tip jar's main button opens <url>?id=<server ID>&lang=<language> instead of OFFICE_TIP_URL ('' = not yet)
-const OFFICE_SUPPORT_URL = 'https://tip.uso.dropnook.app';
+// the support page (OFFICE_SUPPORT_URL) lives in place.php since 1.48: the agent asks it for a tip's key (a claim)
 // GitHub Sponsors in the tip jar ('' = no button; set once the maintainer's Sponsors profile is active)
 const OFFICE_SPONSOR_URL = '';
 // «Report a problem or a wish…»: the dialog's head names the other ways — the plugin's GitHub issues (for those with an

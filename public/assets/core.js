@@ -248,7 +248,7 @@ function loggedOut(r) {
 // page until it is answered: Unraid's own (div.spinner.fixed, the animated logo
 // every Unraid page has; ours only if a page lacks it). Reads that poll or run
 // beside the page (a log being followed, an estimate) stay quiet.
-const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|staff_order|lang)$/;
+const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|staff_order|supporter_code|supporter_claim|lang)$/;
 let busyCount = 0, busyTimer = null;
 function busyEl() {
   const unraid = document.querySelector('div.spinner.fixed');
@@ -1123,6 +1123,12 @@ function tipJar(ids) {
 Office.tipJar = function openTipJar(ids) {
   const sup = Office.supporter();
   const thanked = sup.state === 'valid';
+  // the support page's link carries a one-time code (src/supporter.php): the agent later asks the page for the key
+  // the tip made — taken now, so the click opens the page at once (a window opened after a wait is blocked)
+  let code = null;
+  if (supportPage(sup) && sup.id) {
+    Office.api.post('office.supporter_code', {}).then((j) => { if (j && j.ok && typeof j.code === 'string') code = j.code; }).catch(() => {});
+  }
   const names = (ids || []).map((id) => t(`${id}.name`));
   const box = el('div', 'tip-jar');
   box.appendChild(el('div', 'tip-jar-icon', '☕'));
@@ -1133,6 +1139,8 @@ Office.tipJar = function openTipJar(ids) {
   text.appendChild(el('p', '', t('office.tip_shelter')));    // what goes beyond our work goes to animal shelters (Benj)
   // the key part only once the support page hands keys out (Benj issues none by hand) — or when one is saved
   if (supportPage(sup) || sup.state !== 'none') text.appendChild(supporterPart(sup));
+  const claim = sup.claim && sup.claim.open > 0;     // the support page was opened from here: its key may be waiting
+  if (claim) text.appendChild(el('p', 'tip-jar-claim', t('office.supporter_claim_text')));
   const cb = el('input');
   cb.type = 'checkbox';
   if (ids) {                         // after hiring it may stop asking; asked for, it never nags
@@ -1148,7 +1156,17 @@ Office.tipJar = function openTipJar(ids) {
   };
   if (Office.safeHref(CONFIG.sponsor_url) && /^https:/.test(CONFIG.sponsor_url)) buttons.push({ text: t('office.tip_sponsor'), act: give(CONFIG.sponsor_url) });
   const page = supportPage(sup);     // the support page shows the key right after the tip; else just the PayPal link
-  if (page) buttons.push({ text: t('office.tip_give_page'), kind: thanked ? undefined : '', act: give(page) });
+  if (claim) buttons.push({ text: t('office.supporter_claim'), act: async () => (await Office.supporterClaim(false)) > 0 });
+  if (page) {
+    buttons.push({ text: t('office.tip_give_page'), kind: thanked ? undefined : '', act: () => {
+      give(code ? `${page}#claim=${code}` : page)();
+      if (code) {
+        Office.api.post('office.supporter_code', { opened: code }).then((j) => {
+          if (j && j.ok) supporterChanged(j.supporter);
+        }).catch(() => {});
+      }
+    } });
+  }
   else if (CONFIG.tip_url) buttons.push({ text: t('office.tip_give'), kind: thanked ? undefined : '', act: give(CONFIG.tip_url) });
   Office.dialog({ title: t(thanked ? 'office.supporter_thanks_title' : ids ? 'office.tip_title' : 'office.tip_title_team'), body: box, buttons });
 };
@@ -1162,14 +1180,25 @@ Office.tipJar = function openTipJar(ids) {
  */
 Office.supporter = () => CONFIG.supporter || { id: null, state: 'none', ask: false };
 // the thank-you's level, signed in the key (Benj, 2026-10-08): only the plate's picture — not a rank, it unlocks nothing
-const SUPPORTER_PICTURES = { coffee: '☕', round: '☕☕', cake: '🍰', raise: '💐' };
+// — a little office story: one coffee, a round, a cake, the whole team toasts a pay rise (Benj, 2026-10-09: 🥂 for the raise)
+const SUPPORTER_PICTURES = { coffee: '☕', round: '☕☕', cake: '🍰', raise: '🥂' };
 /** {level, icon, text} of a key — a coffee when it names none (every key from before levels) */
 Office.supporterLevel = (sup) => {
   const level = sup && Object.prototype.hasOwnProperty.call(SUPPORTER_PICTURES, sup.level) ? sup.level : 'coffee';
   return { level, icon: SUPPORTER_PICTURES[level], text: t(`office.supporter_level_${level}`) };
 };
+/**
+ * The plate's pictures: each level of the valid keys once, in level order (☕ ☕☕ 🍰 🥂) — never a count, never a
+ * rank; {icon, text} (text: the levels' words, for the title)
+ */
+Office.supporterPictures = (sup) => {
+  const have = sup && Array.isArray(sup.levels) && sup.levels.length ? sup.levels : [Office.supporterLevel(sup).level];
+  const levels = Object.keys(SUPPORTER_PICTURES).filter((l) => have.includes(l));
+  return { icon: levels.map((l) => SUPPORTER_PICTURES[l]).join(' '), text: levels.map((l) => t(`office.supporter_level_${l}`)).join(' · ') };
+};
 function supporterChanged(info) {
   if (info) CONFIG.supporter = info;
+  claimArm();
   if (Office.current && Office.current.supporterChanged) Office.current.supporterChanged();
 }
 const keyDay = (iso) => {
@@ -1189,16 +1218,28 @@ function supportPage(sup) {
   } catch (e) { return null; }
 }
 
-/** The tip jar's part about the key: this server's ID (for the support page or the tip's note) and «Enter key…» — or the key that is there */
+/** The tip jar's part about the keys: each kept key (picture, level, date, «Remove…»), this server's ID (for the support page or the tip's note) and «Enter key…» */
 function supporterPart(sup) {
   const part = el('div', 'tip-jar-key');
   part.appendChild(el('div', 'field-title', t('office.supporter_title')));
-  if (sup.state === 'valid') {
-    const level = Office.supporterLevel(sup);
-    part.appendChild(el('p', '', t('office.supporter_key_info', { icon: level.icon, level: level.text, id: sup.key_id, date: keyDay(sup.date) })));
-  } else {
-    if (sup.state === 'other') part.appendChild(el('p', 'callout warn', t('office.supporter_other', { id: sup.key_id, server: sup.id || '?' })));
-    if (sup.state === 'invalid') part.appendChild(el('p', 'callout warn', t('office.supporter_bad_saved')));
+  const keys = Array.isArray(sup.keys) ? sup.keys : [];
+  if (keys.length) {
+    const list = el('ul', 'tip-jar-keys');
+    keys.forEach((k) => {
+      const li = el('li', k.state === 'valid' ? '' : 'off');
+      const level = Office.supporterLevel(k);
+      const words = k.state === 'valid' ? t('office.supporter_key_row', { icon: level.icon, level: level.text, name: k.name, date: keyDay(k.date) })
+        : k.state === 'other' ? t('office.supporter_other', { id: k.key_id, server: sup.id || '?' }) : t('office.supporter_bad_saved');
+      li.appendChild(el('span', '', words));
+      const rm = el('button', 'btn small danger plain', t('office.supporter_remove'));
+      rm.type = 'button';
+      rm.onclick = () => Office.supporterRemoveDialog(k);
+      li.appendChild(rm);
+      list.appendChild(li);
+    });
+    part.appendChild(list);
+  }
+  if (sup.state !== 'valid') {
     const how = !sup.id ? 'office.supporter_no_id' : supportPage(sup) ? 'office.supporter_text_page' : null;
     if (how) part.appendChild(el('p', '', t(how)));
   }
@@ -1214,9 +1255,8 @@ function supporterPart(sup) {
     id.title = t('office.supporter_id_title');
     line.append(el('span', '', t('office.supporter_id')), id);
     button(t('common.copy'), 'btn small plain', () => Office.copy(sup.id));
-    button(t('office.supporter_enter'), 'btn small plain', Office.supporterKeyDialog);
   }
-  if (sup.state !== 'none') button(t('office.supporter_remove'), 'btn small danger plain', Office.supporterRemoveDialog);
+  if (sup.id) button(t(keys.length ? 'office.supporter_enter_more' : 'office.supporter_enter'), 'btn small plain', Office.supporterKeyDialog);
   if (line.childNodes.length) part.appendChild(line);
   return part;
 }
@@ -1249,22 +1289,27 @@ Office.supporterKeyDialog = function supporterKeyDialog() {
         const j = await Office.api.post('office.supporter_set', { key });
         if (!j.ok) { msg.textContent = Office.errorText(j.error); msg.hidden = false; return false; }
         supporterChanged(j.supporter);
-        Office.toast(t('office.supporter_saved', { name: j.supporter.name || '' }));
+        Office.toast(t(j.added === false ? 'office.supporter_known' : 'office.supporter_saved', { name: (j.key && j.key.name) || j.supporter.name || '' }));
         return true;
       } },
     ],
   });
 };
 
-/** «Remove key…»: nothing changes but the thank-you (and the reminders may come back) */
-Office.supporterRemoveDialog = function supporterRemoveDialog() {
+/** «Remove…» of one kept key (k: its row in CONFIG.supporter.keys): nothing changes but the thank-you (and the reminders may come back) */
+Office.supporterRemoveDialog = function supporterRemoveDialog(k) {
+  const level = Office.supporterLevel(k);
+  const which = k && k.state === 'valid' ? t('office.supporter_key_row', { icon: level.icon, level: level.text, name: k.name, date: keyDay(k.date) }) : '';
+  const box = el('div');
+  if (which) box.appendChild(el('p', '', which));
+  box.appendChild(el('p', '', t('office.supporter_remove_text')));
   Office.dialog({
     title: t('office.supporter_remove_title'),
-    body: t('office.supporter_remove_text'),
+    body: box,
     buttons: [
       { text: t('common.cancel') },
       { text: t('office.supporter_remove_do'), kind: 'danger', act: async () => {
-        const j = await Office.api.post('office.supporter_remove', {});
+        const j = await Office.api.post('office.supporter_remove', k && k.ref ? { ref: k.ref } : {});
         if (!j.ok) { Office.toast(Office.errorText(j.error), true); return false; }
         supporterChanged(j.supporter);
         Office.toast(t('office.supporter_removed'));
@@ -1273,6 +1318,33 @@ Office.supporterRemoveDialog = function supporterRemoveDialog() {
     ],
   });
 };
+
+/**
+ * Ask the support page (through the agent — never from here) for the key a tip made: auto = the one ask on its own,
+ * a minute after the page was opened; else the tip jar's «I've tipped — look for my key». Returns the keys found.
+ */
+Office.supporterClaim = async function supporterClaim(auto) {
+  const j = await Office.api.post('office.supporter_claim', auto ? { auto: true } : {});
+  if (!j.ok) {
+    if (!auto) Office.toast(Office.errorText(j.error), true);
+    return 0;
+  }
+  supporterChanged(j.supporter);
+  if (j.found > 0) Office.toast(t('office.supporter_arrived', { name: j.supporter.name || '' }));
+  else if (!auto) Office.toast(t(j.failed > 0 ? 'office.supporter_claim_offline' : 'office.supporter_claim_none'), j.failed > 0);
+  return j.found || 0;
+};
+// the one ask on its own: due `wait` seconds after the answer that said so, made on the next state refresh after that
+let claimDue = null;
+function claimArm() {
+  const c = Office.supporter().claim;
+  claimDue = c && typeof c.wait === 'number' ? Date.now() + c.wait * 1000 : null;
+}
+function claimLook() {
+  if (claimDue === null || Date.now() < claimDue || document.hidden) return;
+  claimDue = null;                  // once — the agent marks the code asked, a second page asks nothing
+  Office.supporterClaim(true);
+}
 
 /** The team lead's ask answered — 'later' (again in a month, at most twice more) or 'never'; kept on the server */
 Office.supporterAsk = async function supporterAsk(answer) {
@@ -3041,12 +3113,15 @@ async function start() {
   route();
   // desks that want to know something on every page (the caretaker's badge), unless the office is locked
   for (const d of Office.desks.values()) if (d.started) d.started();
+  claimArm();
   setInterval(() => {
+    claimLook();                    // a tip's key: the one ask on its own, when due (src/supporter.php)
     if (document.hidden || Office.dialogOpen() || Office.menuOpen()) return;
     if (Office.current && Office.current.poll) Office.current.poll();
     else if (!Office.agent.running) agentLook();      // the reception: is the messenger back, how is the night shift
   }, POLL);
   document.addEventListener('visibilitychange', () => {
+    claimLook();
     if (document.hidden || Office.dialogOpen()) return;
     if (Office.current && Office.current.poll) Office.current.poll();
     else if (!Office.agent.running) agentLook();
