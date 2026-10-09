@@ -20493,6 +20493,390 @@ function testWatchmanNet(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/** The type of the first fixture line holding $needle (after $from, a marker), for testWatchmanNetMikrotik() */
+function netTestRos(array $lines, string $needle, int $now, string $from = ''): array
+{
+    $on = $from === '';
+    foreach ($lines as $l) {
+        $on = $on || str_contains($l, $from);
+        if ($on && str_contains($l, $needle)) {
+            $p = watchnetParse(rtrim($l, "\n"), $now);
+            return ['p' => $p] + ($p['kind'] === 'other' ? ['type' => 'other'] : watchnetType($p));
+        }
+    }
+    return ['type' => 'missing', 'p' => []];
+}
+
+/** The typed events between two markers of a fixture (logouts, unknown text and the lab's own lines left out) */
+function netTestRosTypes(array $lines, string $from, string $to, int $now, array $skip = ['event', 'logout', 'other']): array
+{
+    $out = [];
+    $on = false;
+    foreach ($lines as $l) {
+        if (str_contains($l, $from)) {
+            $on = true;
+            continue;
+        }
+        if ($on && str_contains($l, $to)) {
+            break;
+        }
+        if ($on) {
+            $p = watchnetParse(rtrim($l, "\n"), $now);
+            $t = $p['kind'] === 'other' ? 'other' : watchnetType($p)['type'];
+            if (!in_array($t, $skip, true)) {
+                $out[] = $t;
+            }
+        }
+    }
+    return $out;
+}
+
+/**
+ * The night watchman reads a MikroTik router (#2, package 1: the parser): real RouterOS 7.24.5 lines from the lab on
+ * Tower (tests/fixtures/router/mikrotik-*.log) — every step of the lab's script typed (logins per channel, failures,
+ * a second user's changes per area, links, leases, VPN, the firewall's prefixes, WAN loss by DHCP and PPPoE, reboots,
+ * the upgrade line), the same events in the formats syslog / no topics / default / iso8601 / cef; in a round: UniFi
+ * and MikroTik side by side, the existing kinds from RouterOS lines, the new types typed but no entry yet (package 2),
+ * an unknown sender, a 1970 clock, overlong and hostile lines, the privacy rule.
+ */
+function testWatchmanNetMikrotik(): void
+{
+    $now = strtotime('2026-10-09 15:00:00');
+    $main = netTestFixture('mikrotik-7.24.5-chr.log');
+    $T = fn (string $needle, string $from = '') => netTestRos($main, $needle, $now, $from);
+
+    // ---- every line of the main run: RouterOS's (typed or counted), only one line without topics (the format switch) «other»
+    $kinds = [];
+    foreach ($main as $l) {
+        $kinds[watchnetParse(rtrim($l, "\n"), $now)['kind']][] = $l;
+    }
+    same('mikrotik parse: every line of the lab\'s main run is RouterOS\'s (typed or counted) — also the one without topics at the format switch',
+        [['ros'], 578, 578], [array_keys($kinds), count($kinds['ros'] ?? []), count($main)]);
+
+    // ---- step 2: logins per channel (confirmed on 7.24.5: local, ssh, api, rest-api, ftp, telnet)
+    $logins = [];
+    foreach (['via local', 'via ssh', 'via api', 'via rest-api', 'via ftp', 'via telnet'] as $via) {
+        $t = $T("logged in from 10.77.3.1 $via", 'uso-step 2 logins');
+        if ($via === 'via local') {
+            $t = $T('user admin logged in via local', 'uso-step 2 logins');
+        }
+        $logins[] = [$t['type'], $t['admin'] ?? null, $t['ip'] ?? null, $t['method'] ?? null];
+    }
+    same('mikrotik login: «user admin logged in [from A] via C» — the console without an address',
+        [['admin_login', 'admin', null, 'local'], ['admin_login', 'admin', '10.77.3.1', 'ssh'], ['admin_login', 'admin', '10.77.3.1', 'api'],
+         ['admin_login', 'lab', '10.77.3.1', 'rest-api'], ['admin_login', 'admin', '10.77.3.1', 'ftp'], ['admin_login', 'admin', '10.77.3.1', 'telnet']], $logins);
+    // (step 2's REST call reused the session of a minute before — RouterOS logs a REST login once per session, here lab\'s in step 4)
+    $p = $T('logged in from 10.77.3.1 via ssh', 'uso-step 2 logins')['p'];
+    same('mikrotik parse: syslog format — the header\'s identity, the topics, the router\'s time', ['ros', 'syslog', 'lab-chr', ['system', 'info', 'account'], strtotime('2026-10-09 13:41:19')],
+        [$p['kind'], $p['fmt'], $p['host'], $p['topics'], $p['th']]);
+    same('mikrotik login: REST\'s inner «user lab logged in via api» (no address, after the rest-api line) — understood, nothing to say; logouts likewise',
+        ['event', 'logout'], [$T('user lab logged in via api')['type'], $T('user admin logged out from 10.77.3.1 via ssh')['type']]);
+
+    // ---- step 3: failures — the burst, an unknown user, the console, a command typed as the user name (telnet)
+    $fails = array_values(array_filter(array_map(fn ($l) => watchnetParse(rtrim($l, "\n"), $now), $main), fn ($p) => $p['kind'] === 'ros' && watchnetType($p)['type'] === 'login_fail'));
+    $byMethod = [];
+    foreach ($fails as $p) {
+        $t = watchnetType($p);
+        $byMethod[$t['method']] = ($byMethod[$t['method']] ?? 0) + 1;
+    }
+    ksort($byMethod);
+    same('mikrotik failure: «login failure for user U [from A] via C» per channel (6 ssh in a burst + later ones), L2TP\'s «authentication failed»',
+        ['api' => 2, 'ftp' => 1, 'l2tp' => 4, 'local' => 1, 'rest-api' => 2, 'ssh' => 9, 'telnet' => 2], $byMethod);
+    $t = $T('login failure for user nosuchuser');
+    $c = $T('login failure for user admin via local');
+    $x = $T('login failure for user /system identity print');
+    same('mikrotik failure: an unknown user, the console without address, a command as the user name — a name, nothing executed',
+        [['nosuchuser', '10.77.3.1', 'ssh'], ['admin', null, 'local'], ['/system identity print', 'telnet']],
+        [[$t['admin'], $t['ip'], $t['method']], [$c['admin'], $c['ip'], $c['method']], [$x['admin'], $x['method']]]);
+    $v = $T('user alice authentication failed');
+    same('mikrotik failure: L2TP «<10.9.9.20>: user alice authentication failed» — the peer\'s address, a VPN failure', ['login_fail', 'alice', '10.9.9.20', 'l2tp', true],
+        [$v['type'], $v['admin'], $v['ip'], $v['method'], $v['vpn'] ?? null]);
+
+    // ---- step 4: a second user's changes — the area by the object, who and from where, the message rebuilt
+    $cfg = [];
+    foreach (['filter rule added', 'filter rule changed', 'filter rule moved', 'filter rule removed', 'nat rule added', 'mangle rule added', 'raw rule added',
+              'address list entry added', 'address added', 'system identity changed', 'device changed', 'user lab added'] as $n) {
+        $t = $T("$n by", 'uso-step 4 second');
+        $cfg[$n] = [$t['type'], array_key_exists('area', $t) ? $t['area'] : 'x', $t['admin'] ?? null, $t['ip'] ?? null, $t['how'] ?? null, $t['msg'] ?? null];
+    }
+    same('mikrotik config: «<object> <verb> by ssh-cmd:lab+ct@A[/action:n] (<command>)» — filter → firewall, nat → nat, mangle/raw/address list → policy, the rest a setting',
+        ['filter rule added'        => ['config', 'firewall', 'lab', '10.77.3.1', 'ssh-cmd', 'filter rule added'],
+         'filter rule changed'      => ['config', 'firewall', 'lab', '10.77.3.1', 'ssh-cmd', 'filter rule changed'],
+         'filter rule moved'        => ['config', 'firewall', 'lab', '10.77.3.1', 'ssh-cmd', 'filter rule moved'],
+         'filter rule removed'      => ['config', 'firewall', 'lab', '10.77.3.1', 'ssh-cmd', 'filter rule removed'],
+         'nat rule added'           => ['config', 'nat', 'lab', '10.77.3.1', 'ssh-cmd', 'nat rule added'],
+         'mangle rule added'        => ['config', 'policy', 'lab', '10.77.3.1', 'ssh-cmd', 'mangle rule added'],
+         'raw rule added'           => ['config', 'policy', 'lab', '10.77.3.1', 'ssh-cmd', 'raw rule added'],
+         'address list entry added' => ['config', 'policy', 'lab', '10.77.3.1', 'ssh-cmd', 'address list entry added'],
+         'address added'            => ['config', null, 'lab', '10.77.3.1', 'ssh-cmd', 'address added'],
+         'system identity changed'  => ['config', null, 'lab', '10.77.3.1', 'ssh-cmd', 'system identity changed'],
+         'device changed'           => ['config', null, 'lab', '10.77.3.1', 'ssh-cmd', 'device changed'],
+         'user lab added'           => ['config', null, 'admin', '10.77.3.1', 'ssh-cmd', 'user lab added']], $cfg);
+    $r = $T('comment=lab-rest');
+    $a = $T('comment=lab-api');
+    same('mikrotik config: a REST change says «by api:lab@::» (no address), the API\'s «by api:lab@A»; the command never in the message',
+        [['lab', null, 'api'], ['lab', '10.77.3.1', 'api'], false],
+        [[$r['admin'], $r['ip'], $r['how']], [$a['admin'], $a['ip'], $a['how']], str_contains(json_encode(array_diff_key($T('nat rule added by'), ['p' => 1])), '10.9.9.15')]);
+    same('mikrotik config: the identity changed — the header carries the new name at once; ether2 disabled by an admin logs NO link line',
+        ['lab-chr-x', []], [$T('name=lab-chr-x)')['p']['host'], netTestRosTypes($main, 'set ether2 disabled=yes', 'set ether2 disabled=no', $now, ['event', 'logout', 'other', 'admin_login'])]);
+
+    // ---- step 5: links from the hypervisor
+    same('mikrotik link: «ether2 link down/up» (no speed on a CHR) — down/up ×4, the interface name',
+        ['link', 'link', 'link', 'link', 'link', 'link', 'link', 'link'], netTestRosTypes($main, 'uso-step 5 link', 'uso-step 6 dhcp', $now, ['event', 'logout', 'other', 'admin_login']));
+    $l = $T('ether2 link down', 'uso-step 5 link');
+    same('mikrotik link: iface and up', ['ether2', false, true], [$l['iface'], $l['up'], $T('ether2 link up', 'uso-step 5 link')['up']]);
+
+    // ---- step 6: the lease — MAC, address, host name, the DHCP server's name; deassigned understood
+    $d = $T('lab-dhcp assigned');
+    same('mikrotik lease: 7.24.5 «lab-dhcp assigned 10.9.9.20 for 52:54:00:4D:54:12 lab-client» (no lease time) — a client',
+        ['client', '52:54:00:4d:54:12', '10.9.9.20', 'lab-client', 'lab-dhcp', 'client_other'],
+        [$d['type'], $d['mac'], $d['ip'], $d['name'], $d['network'], $T('lab-dhcp deassigned')['type']]);
+
+    // ---- step 7: WireGuard logs nothing per peer; L2TP's login
+    same('mikrotik vpn: WireGuard\'s handshake — no line but the config lines (and the interface\'s link up)', ['link', 'config', 'config', 'config'],
+        netTestRosTypes($main, 'uso-step 7a wireguard', 'uso-step 7b l2tp', $now, ['event', 'logout', 'other', 'admin_login']));
+    $v = $T('alice logged in, 10.0.0.2 from 10.9.9.20');
+    same('mikrotik vpn: «alice logged in, 10.0.0.2 from 10.9.9.20» (l2tp,ppp,info,account) — user, remote address, how; logged out understood',
+        ['vpn', 'alice', '10.9.9.20', 'l2tp', 'logout'], [$v['type'], $v['user'], $v['ip'], $v['how'], $T('alice logged out, ')['type']]);
+
+    // ---- step 8: the firewall — the prefix says drop, no prefix is no block
+    $w = $T('drop-wan-in input:', 'uso-step 8a');
+    same('mikrotik firewall: «drop-wan-in input: in:ether1 out:(unknown 0), connection-state:new src-mac …, proto TCP (SYN), A:p->B:q, len 60»',
+        ['blocked', 'D', 'drop-wan-in', 'input', 'ether1', '', '10.77.1.1', '10.77.1.10', 'TCP', 2323],
+        [$w['type'], $w['action'], $w['rule'], $w['zone'], $w['in'], $w['out'], $w['src'], $w['dst'], $w['proto'], $w['dpt']]);
+    $f = $T('drop-from-server forward:');
+    $u = $T('firewall,info input: in:ether1');
+    $i = $T('connection-state:invalid');
+    same('mikrotik firewall: forward ICMP (no ports), a log=yes rule without prefix (UDP) — no block, a forward UDP line',
+        [['blocked', 'forward', '10.9.9.20', '10.77.1.1', 'ICMP', null, 'ether2', 'ether1'], ['nf_other', 'A', 'UDP', 5005], ['blocked', 'UDP', 33434]],
+        [[$f['type'], $f['zone'], $f['src'], $f['dst'], $f['proto'], $f['dpt'], $f['in'], $f['out']], [$u['type'], $u['action'], $u['proto'], $u['dpt']],
+         [$i['type'], $i['proto'], $i['dpt']]]);
+    same('mikrotik firewall: the prefix\'s words — reject is R, «allow-ssh» or «counted» no block', ['R', 'nf_other', 'nf_other', 'D'],
+        [watchnetRosFirewall('reject-from-guest forward: in:bridge out:ether1, proto TCP (SYN), 10.9.9.30:1->10.77.1.1:22, len 60')['action'],
+         watchnetRosFirewall('allow-ssh input: in:ether1 out:(unknown 0), proto TCP (SYN), 10.77.1.1:1->10.77.1.10:22, len 60')['type'],
+         watchnetRosFirewall('counted input: in:ether1 out:(unknown 0), proto TCP (SYN), 10.77.1.1:1->10.77.1.10:22, len 60')['type'],
+         watchnetRosFirewall('WAN_BLOCKED input: in:ether1 out:(unknown 0), proto UDP, [2001:db8::5]:53->[2001:db8::1]:53, len 60')['action']]);
+
+    // ---- step 9: the WAN — DHCP client and PPPoE
+    $lost = $T('client1 on ether1 lost IP address');
+    $got = $T('client1 on ether1 got IP address', 'uso-step 9 WAN');
+    same('mikrotik wan: «client1 on ether1 lost IP address A - lease stopped locally» (dhcp,info — no warning) / «… got IP address A»',
+        [['wan_down', 'ether1', 'dhcp', 'client1'], ['wan_up', 'ether1', 'dhcp']], [[$lost['type'], $lost['iface'], $lost['via'], $lost['client']], [$got['type'], $got['iface'], $got['via']]]);
+    $pc = $T('pppoe-out1: connected');
+    $pt = $T('pppoe-out1: terminating... - disconnected');
+    $pa = $T('pppoe-out1: terminating... - administrator request');
+    same('mikrotik wan: PPPoE «pppoe-out1: connected» / «terminating... - <reason>»; initializing/connecting/disconnected understood',
+        [['wan_up', 'pppoe-out1', 'pppoe'], ['wan_down', 'disconnected'], ['wan_down', 'administrator request'], 'event', 'event'],
+        [[$pc['type'], $pc['iface'], $pc['via']], [$pt['type'], $pt['reason']], [$pa['type'], $pa['reason']], $T('pppoe-out1: initializing...')['type'],
+         $T('pppoe-out1: disconnected')['type']]);
+    same('mikrotik wan: a server-side PPP session («<l2tp-alice>: connected») is no WAN', 'event', $T('<l2tp-alice>: connected')['type']);
+
+    // ---- step 10: reboots and the clock
+    $c = $T('router rebooted by ssh-cmd:admin+ct@10.77.3.1/reboot');
+    $u = $T('router was rebooted without proper shutdown');
+    same('mikrotik reboot: «router rebooted by <how>:<user>@A/reboot» (clean), «router was rebooted without proper shutdown» (unclean)',
+        [['reboot', true, 'admin'], ['reboot', false]], [[$c['type'], $c['clean'], $c['by']], [$u['type'], $u['clean']]]);
+    $s = $T('uso-clock-test 2026-09-30');
+    same('mikrotik clock: «change time A => B» understood; the header follows the router\'s clock (Sep 30)', ['clock', strtotime('2026-09-30 13:59:43')],
+        [$T('change time Oct/09/2026')['type'], $s['p']['th']]);
+
+    // ---- step 12: the upgrade line names the version
+    $up = netTestRos(netTestFixture('mikrotik-7.23.8-upgrade.log'), 'installed system-', $now);
+    same('mikrotik upgrade: «installed system-7.24.5» — the only line with a version (no «upgraded from … to …»)', ['update', '7.24.5'], [$up['type'], $up['version']]);
+
+    // ---- step 11: the same events in every format
+    $block = fn (string $file, string $from, string $to) => netTestRosTypes(netTestFixture($file), $from, $to, $now);
+    $want = ['admin_login', 'login_fail', 'admin_login', 'config', 'config', 'link', 'link', 'client_other', 'client', 'blocked', 'blocked', 'admin_login'];
+    same('mikrotik formats: the step-11 repeat types alike — syslog without topics, default, iso8601, cef',
+        [$want, $want, $want, $want],
+        [$block('mikrotik-7.24.5-chr-notopics.log', 'add-topics-string=no: start', ': reboot'),
+         $block('mikrotik-7.24.5-chr-default.log', 'default: start', 'default: reboot'),
+         $block('mikrotik-7.24.5-chr-iso8601.log', 'iso8601 topics=yes: start', ': reboot'),
+         $block('mikrotik-7.24.5-chr-cef.log', '11 cef: start', '11 cef: reboot')]);
+    $nt = netTestRos(netTestFixture('mikrotik-7.24.5-chr-notopics.log'), 'login failure for user admin', $now)['p'];
+    $df = netTestRos(netTestFixture('mikrotik-7.24.5-chr-default.log'), 'login failure for user admin', $now)['p'];
+    $cf = netTestRos(netTestFixture('mikrotik-7.24.5-chr-cef.log'), 'msg=filter rule added', $now);
+    same('mikrotik formats: no topics (identity kept), default (the address as host, Unraid\'s time), cef (topics from the name, the version, «#015» and \\= undone)',
+        [['notopics', 'lab-chr', []], ['default', '10.77.3.10', ['system', 'error', 'critical']], ['cef', ['system', 'info'], '7.24.5', 'CHR QEMU Standard PC (i440FX + PIIX, 1996)', 'filter rule added', 'firewall']],
+        [[$nt['fmt'], $nt['host'], $nt['topics']], [$df['fmt'], $df['host'], $df['topics']],
+         [$cf['p']['fmt'], $cf['p']['topics'], $cf['p']['version'], $cf['p']['board'], $cf['msg'] ?? null, $cf['area'] ?? null]]);
+    same('mikrotik formats: the default format\'s header is Unraid\'s time — the router\'s Sep 30 is not in it', strtotime('2026-10-09 14:07:18'),
+        netTestRos(netTestFixture('mikrotik-7.24.5-chr-default.log'), 'uso-default-clock-test', $now)['p']['th']);
+
+    // ---- shapes from the documentation the lab couldn't give (hardware, older 7.x): typed alike
+    $doc = fn (string $body) => watchnetType(watchnetParse("Oct  9 10:00:00 router-1 $body", $now));
+    $d1 = $doc('system,info filter rule added by admin');
+    $d2 = $doc('interface,info ether1 link up (speed 1G, full duplex)');
+    $d3 = $doc('system,info,critical RouterOS upgraded from 7.15 to 7.16');
+    $d4 = $doc('pppoe,ppp,info pppoe-out1: terminating... - peer is not responding');
+    $d5 = $doc('dhcp,warning dhcp-client on ether1 lost IP address 203.0.113.5 - lease stopped');
+    same('mikrotik docs: «filter rule added by admin», a link with its speed, «RouterOS upgraded from … to …», «peer is not responding», «dhcp-client on … lost»',
+        [['config', 'firewall', 'admin', ''], ['link', 'ether1', true], ['update', '7.16'], ['wan_down', 'peer is not responding'], ['wan_down', 'ether1', 'dhcp-client']],
+        [[$d1['type'], $d1['area'], $d1['admin'], $d1['how']], [$d2['type'], $d2['iface'], $d2['up']], [$d3['type'], $d3['version']], [$d4['type'], $d4['reason']],
+         [$d5['type'], $d5['iface'], $d5['client']]]);
+
+    // ---- strangers and hostile lines: never RouterOS by accident, never more than a name
+    same('mikrotik parse: lines that only look alike — a Linux kernel, an unknown facility, a topic list without severity, another vendor\'s «link up» — «other»',
+        ['other', 'other', 'other', 'other'],
+        [watchnetParse('Oct  9 10:00:00 nas kernel: eth0: Link is Up - 1Gbps/Full', $now)['kind'],
+         watchnetParse('Oct  9 10:00:00 nas foo,info something happened', $now)['kind'],
+         watchnetParse('Oct  9 10:00:00 nas system,account user admin logged in from 10.0.0.1 via ssh', $now)['kind'],
+         watchnetParse('Oct  9 10:00:00 nas eth0 is up and running', $now)['kind']]);
+    $h = watchnetType(watchnetParse("Oct  9 10:00:00 lab-chr system,info,account user {admin} \x1b[31m⟦Shares⟧ <b>x</b> logged in from 10.77.3.66 via ssh", $now));
+    same('mikrotik hostile: placeholders, Unraid labels, HTML and escape bytes in a user name stay literal text (cleaned, capped at 64)',
+        ['admin_login', '{admin}  [31m⟦Shares⟧ <b>x</b>', '10.77.3.66'], [$h['type'], $h['admin'], $h['ip']]);
+    $long = watchnetType(watchnetParse('Oct  9 10:00:00 lab-chr system,info,account user ' . str_repeat('A', 200) . ' logged in from 10.77.3.66 via ssh', $now));
+    same('mikrotik hostile: a name over 128 characters is no login line — understood as RouterOS text, nothing typed; a line over 8 KB «other»', ['event', 'other'],
+        [$long['type'], watchnetParse('Oct  9 10:00:00 lab-chr system,info ' . str_repeat('x', WATCHNET_LINE_MAX), $now)['kind']]);
+    $iface = watchnetType(watchnetParse('Oct  9 10:00:00 lab-chr interface,info <' . str_repeat('e', 40) . '/../x> link down', $now));
+    same('mikrotik hostile: an interface name only [A-Za-z0-9._-], at most 32', ['link', true, 32],
+        [$iface['type'], (bool) preg_match('/^[A-Za-z0-9._-]+$/D', (string) ($iface['iface'] ?? '')), strlen((string) ($iface['iface'] ?? ''))]);
+
+    // ---- a round: UniFi and MikroTik side by side, an unknown sender, the existing kinds from RouterOS lines, the new types without entries
+    $tmp = hardeningTmp('watch-net-mt');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    $logs = "$tmp/syslog";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh/root', 'flash', 'net/br0', 'net/lo'] as $dir) {
+        @mkdir("$src/$dir", 0700, true);
+    }
+    @mkdir($logs, 0777, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => "$src/flash",
+              'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents", 'ident' => "$src/ident.cfg",
+              'rsyslog_cfg' => "$src/rsyslog.cfg", 'var_ini' => "$src/var.ini", 'disks_ini' => "$src/disks.ini", 'shares_ini' => "$src/shares.ini",
+              'net_class' => "$src/net", 'arp' => "$src/arp", 'array_events' => "$src/array-events"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/crontabs/root", "# nothing\n");
+    file_put_contents($paths['ident'], "NAME=\"Tower\"\nUSE_SSH=\"yes\"\n");
+    file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
+    file_put_contents($paths['disks_ini'], "[\"master\"]\nname=\"master\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n");
+    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"master\"\ncachePool2=\"\"\nexclusive=\"yes\"\n");
+    // the server is the lab's fake client (10.9.9.20, its MAC): the guide's drop-from-server lines are the server's
+    file_put_contents("$src/net/br0/address", "52:54:00:4d:54:12\n");
+    file_put_contents("$src/net/lo/address", "00:00:00:00:00:00\n");
+    file_put_contents($paths['arp'], "IP address       HW type     Flags       HW address            Mask     Device\n10.77.3.10       0x1         0x2         52:54:00:4d:54:03     *        br0\n");
+    file_put_contents($paths['rsyslog_cfg'], "local_server=\"1\"\nserver_protocol=\"udp\"\nserver_port=\"514\"\nserver_folder=\"$logs\"\nserver_filename=\"syslog-%FROMHOST-IP%.log\"\n"
+        . "log_rotation=\"1\"\nlog_size=\"50M\"\nlog_files=\"4\"\nremote_server=\"\"\nremote_protocol=\"udp\"\nremote_port=\"\"\n");
+    $ifaces = $GLOBALS['watchnetIfaces'] ?? null;
+    $GLOBALS['watchnetIfaces'] = ['lo' => ['unicast' => [['family' => 2, 'address' => '127.0.0.1']]], 'br0' => ['unicast' => [['family' => 2, 'address' => '10.9.9.20']]]];
+    $acks = "$tmp/acks.json";
+    $round = fn (int $t) => watchmanRound($paths, $data, 1000, $t, fn () => [], false, $acks);
+    $added = fn (array $r) => array_values(array_filter($r['added'], fn ($k) => str_starts_with($k, 'net_')));
+    $net = fn () => readJson("$data/net.json") ?? [];
+    $mt = "$logs/syslog-10.77.3.10.log";
+    $gw = "$logs/syslog-192.0.2.1.log";
+    $cut = 0;
+    foreach ($main as $i => $l) {
+        if (str_contains($l, 'uso-step 4 second')) {
+            $cut = $i;
+            break;
+        }
+    }
+    // round 1: steps 1–3 of the router and nostromo's UniFi gateway — learned (admin from 10.77.3.1), nothing told
+    file_put_contents($mt, implode('', array_slice($main, 0, $cut)));
+    file_put_contents($gw, implode('', netTestFixture('unifi-10.6.106-real.log')));
+    touch($mt, $now - 600);
+    touch($gw, $now - 600);
+    $r = $round($now);
+    $n = $net();
+    same('mikrotik round 1: both routers learned — nothing told; MikroTik by its lines (vendor, product, identity), UniFi as before',
+        [[], ['MikroTik', 'RouterOS', 'lab-chr', true], ['Ubiquiti', 'UniFi Network']],
+        [$added($r), [$n['senders']['10.77.3.10']['meta']['vendor'] ?? null, $n['senders']['10.77.3.10']['meta']['product'] ?? null,
+                      $n['senders']['10.77.3.10']['meta']['host'] ?? null, !empty($n['senders']['10.77.3.10']['ros'])],
+         [$n['senders']['192.0.2.1']['meta']['vendor'] ?? null, $n['senders']['192.0.2.1']['meta']['product'] ?? null]]);
+    same('mikrotik round 1: the router\'s admin and address learned from its login lines', ['10.77.3.1'],
+        array_keys(watchmanLoad($data)['baseline']['net']['admins']['admin']['ips'] ?? []));
+    // round 2: the rest of the run (+ the upgrade's line, a new device's lease, a 1970 clock, an unknown sender, hostile lines)
+    $t2 = $now + 600;
+    $extra = [netTestLine($t2 - 60, 'dhcp,info lab-dhcp assigned 10.9.9.13 for 52:54:00:4D:54:77 guest-phone', 'lab-chr'),
+              netTestLine($t2 - 50, 'system,info installed system-7.24.5', 'lab-chr'),
+              'Jan  1 01:00:07 lab-chr system,info,account user admin logged in from 10.77.3.70 via winbox' . "\n",
+              '1970-01-01T00:00:09Z lab-chr system,info,account user admin logged in from 10.77.3.71 via web' . "\n",
+              netTestLine($t2 - 40, "system,info,account user {admin} ⟦Shares⟧ <b>x</b> logged in from 10.77.3.66 via ssh", 'lab-chr'),
+              'Oct  9 15:09:00 lab-chr system,info ' . str_repeat('x', WATCHNET_LINE_MAX) . "\n"];
+    file_put_contents($mt, implode('', array_slice($main, $cut)) . implode('', $extra), FILE_APPEND);
+    file_put_contents("$logs/syslog-10.77.3.99.log", "Oct  9 15:05:00 nas kernel: eth0: Link is Up - 1Gbps/Full\nOct  9 15:05:01 nas smbd[123]: connection from 10.77.3.1\n");
+    touch($mt, $t2 - 10);
+    $r = $round($t2);
+    $kinds = array_count_values($added($r));
+    ksort($kinds);
+    same('mikrotik round 2: the existing kinds from RouterOS lines — a new admin and addresses, firewall/NAT/policy changes, a new device, a VPN user, the server blocked, a new sender',
+        ['net_blocked_from_server' => 2, 'net_firewall_change' => 3, 'net_new_device' => 1, 'net_router_config' => 1, 'net_router_login' => 4,
+         'net_sender_new' => 1, 'net_vpn_login' => 1], $kinds);
+    $book = watchmanLoad($data)['book'];
+    $by = [];
+    foreach ($book as $e) {
+        if (str_starts_with($e['kind'], 'net_')) {
+            $by[$e['kind']][$e['key']] = $e;
+        }
+    }
+    same('mikrotik round 2: firewall changes per area (filter → firewall, nat, mangle/raw/address list → policy), the admin «lab»',
+        ['net_firewall_change:10.77.3.10:firewall', 'net_firewall_change:10.77.3.10:nat', 'net_firewall_change:10.77.3.10:policy'],
+        (function ($x) { sort($x); return $x; })(array_keys($by['net_firewall_change'] ?? [])));
+    same('mikrotik round 2: logins — «lab» new, the 1970 and hostile ones keyed by their address; the router named by its identity',
+        ['net_router_login:10.77.3.10:admin:10.77.3.70', 'net_router_login:10.77.3.10:admin:10.77.3.71', 'net_router_login:10.77.3.10:lab:10.77.3.1',
+         'net_router_login:10.77.3.10:{admin} ⟦Shares⟧ <b>x</b>:10.77.3.66'],
+        (function ($x) { sort($x); return $x; })(array_keys($by['net_router_login'] ?? [])));
+    $old = $by['net_router_login']['net_router_login:10.77.3.10:admin:10.77.3.70'] ?? [];
+    same('mikrotik clock: a 1970 header (and an ISO one) — the event\'s time is its arrival, not 1970', [$t2, $t2, 'lab-chr'],
+        [(int) ($old['time'] ?? 0), (int) ($by['net_router_login']['net_router_login:10.77.3.10:admin:10.77.3.71']['time'] ?? 0), $old['p']['router'] ?? null]);
+    $hostile = $by['net_router_login']['net_router_login:10.77.3.10:{admin} ⟦Shares⟧ <b>x</b>:10.77.3.66'] ?? [];
+    $text = json_encode(watchmanText($hostile, 'en'), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    same('mikrotik hostile: «{admin} ⟦Shares⟧ <b>x</b>» stays a literal value in the entry and its words (never a template)', [true, '{admin} ⟦Shares⟧ <b>x</b>'],
+        [str_contains($text, '{admin} ⟦Shares⟧ <b>x</b>'), $hostile['p']['admin'] ?? null]);
+    $dev = $by['net_new_device']['net_new_device:52:54:00:4d:54:77'] ?? [];
+    $bl = array_keys($by['net_blocked_from_server'] ?? []);
+    sort($bl);
+    same('mikrotik round 2: the lease of a new MAC (name, address, the DHCP server) — the server\'s own lease no device; the drop-from-server lines keyed',
+        [['guest-phone', '10.9.9.13', 'lab-dhcp'], false, ['net_blocked_from_server:10.77.1.0/24 icmp', 'net_blocked_from_server:10.77.1.0/24 udp/33434']],
+        [[$dev['p']['name'] ?? null, $dev['p']['ip'] ?? null, $dev['p']['network'] ?? null], isset($by['net_new_device']['net_new_device:52:54:00:4d:54:12']), $bl]);
+    $vpn = array_values($by['net_vpn_login'] ?? [])[0] ?? [];
+    same('mikrotik round 2: the VPN user from its remote address', ['alice', '10.9.9.20', 'l2tp'], [$vpn['p']['user'] ?? null, $vpn['p']['ip'] ?? null, $vpn['p']['how'] ?? null]);
+    same('mikrotik round 2: no entry for failures, links, WAN losses, reboots yet (package 2) — the new types counted per day',
+        [0, true, true, true, true, true], [count(array_filter($book, fn ($e) => preg_match('/fail|link|outage|reboot/', $e['kind']))),
+         ($n2 = $net())['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['login_fail'] > 5, $n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['link'] > 5,
+         $n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['wan_down'] > 5, $n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['c']['reboot'] >= 4,
+         ($n2['days'][date('Y-m-d', $t2)]['10.77.3.10']['other'] ?? 0) >= 1]);
+    same('mikrotik round 2: the version from «installed system-7.24.5», kept; the formats seen; the unknown sender all «other»',
+        ['7.24.5', ['syslog', 'notopics'], 2, 2, null],
+        [$n2['senders']['10.77.3.10']['meta']['version'] ?? null, array_keys($n2['senders']['10.77.3.10']['fmt'] ?? []),
+         (int) ($n2['days'][date('Y-m-d', $t2)]['10.77.3.99']['lines'] ?? 0), (int) ($n2['days'][date('Y-m-d', $t2)]['10.77.3.99']['other'] ?? 0),
+         $n2['senders']['10.77.3.99']['meta']['vendor'] ?? null]);
+    file_put_contents($mt, netTestLine($t2 + 100, 'system,info,account user admin logged in from 10.77.3.1 via ssh', 'lab-chr'), FILE_APPEND);
+    touch($mt, $t2 + 110);
+    $round($t2 + 300);
+    same('mikrotik round 3: a round without a version line — the version kept', '7.24.5', $net()['senders']['10.77.3.10']['meta']['version'] ?? null);
+
+    // ---- the privacy rule over every entry: another client's address, MAC or name only in net_new_device
+    $bystander = ['10.9.9.13', '52:54:00:4d:54:77', '52:54:00:4D:54:77', 'guest-phone', '10.0.0.2', '10.9.9.15'];
+    $leaks = [];
+    foreach (watchmanLoad($data)['book'] as $e) {
+        if (!str_starts_with($e['kind'], 'net_') || in_array($e['kind'], ['net_new_device', 'net_spoof'], true)) {
+            continue;
+        }
+        $blob = json_encode($e['p'], JSON_UNESCAPED_UNICODE) . json_encode(watchmanText($e, 'en'), JSON_UNESCAPED_UNICODE);
+        foreach ($bystander as $x) {
+            if (str_contains($blob, $x)) {
+                $leaks[] = "{$e['kind']}: $x";
+            }
+        }
+        if (mb_strlen((string) ($e['p']['evidence'] ?? '')) > WATCHNET_EVIDENCE) {
+            $leaks[] = "{$e['kind']}: evidence too long";
+        }
+    }
+    same('mikrotik privacy: no other client\'s address, MAC or name in any other entry or its words (the VPN\'s inner address, a NAT target never); evidence ≤ 300', [], $leaks);
+    $fw = array_values($by['net_firewall_change'] ?? [])[0] ?? [];
+    same('mikrotik evidence: rebuilt from the type\'s fields — the change and who, never the command; the device\'s MAC by its first half',
+        [true, false, true, false], [(bool) preg_match('/(?:rule|entry) (?:added|changed|moved|removed) by (?:ssh-cmd|api):(?:lab|admin)/', (string) ($fw['p']['evidence'] ?? '')), str_contains((string) ($fw['p']['evidence'] ?? ''), '/ip firewall'),
+         str_contains((string) ($dev['p']['evidence'] ?? ''), '52:54:00:…'), str_contains((string) ($dev['p']['evidence'] ?? ''), '52:54:00:4d:54:77')]);
+    $GLOBALS['watchnetIfaces'] = $ifaces;
+}
+
 // ===================================================================== updates
 
 /**
@@ -23397,7 +23781,7 @@ function testHiddenStoreroom(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
