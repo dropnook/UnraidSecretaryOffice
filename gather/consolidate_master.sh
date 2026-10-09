@@ -172,6 +172,8 @@ if is_dry; then
     # Dryrun: nichts wird ins Log geschrieben
     logf() { :; }
 else
+    # the log grows with every real run: past 5 MB it moves to .1 (one older copy kept) — 2026-10-09
+    if [[ -f "$LOGFILE" && $(stat -c %s "$LOGFILE" 2>/dev/null || echo 0) -gt 5242880 ]]; then mv -f -- "$LOGFILE" "$LOGFILE.1" 2>/dev/null; fi
     if ! { mkdir -p "$(dirname "$LOGFILE")" && touch "$LOGFILE"; } 2>/dev/null; then
         die "Logdatei $LOGFILE kann nicht angelegt werden."
     fi

@@ -207,6 +207,11 @@ fi
 ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
 TS="$(date +%Y%m%d-%H%M)"
 LOG_FILE="$UB_LOGS/setup-$TS.log"
+# its own logs are kept like the runs' (2026-10-09: they were never cleared - 86 in a week on a real server): the newest
+# UB_KEEP_SETUP_LOGS (30), oldest first out; never the one this run is about to write
+ls -1 "$UB_LOGS"/setup-*.log 2>/dev/null | sort | head -n -"${UB_KEEP_SETUP_LOGS:-30}" | while IFS= read -r old; do
+    [[ "$old" == "$LOG_FILE" ]] || rm -f -- "$old"
+done
 
 ##############################################################################
 # Output and input
