@@ -126,9 +126,15 @@ ub_notify_after() { # ub_notify_after <second>  - returns once the clock is past
 ub_notify() {
     [[ "${UB_NO_NOTIFY:-0}" == "1" ]] && return 0
     [[ -x "$UB_NOTIFY_BIN" ]] || return 0
-    # Unraid puts the server's name in front of the subject itself
-    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "$2" -i "${3:-normal}" ) st="$UB_NOTIFY_STAMP" fd="" last
-    [[ -n "${4:-}" ]] && args+=( -m "$4" )
+    # Unraid puts the server's name in front of the subject itself; the description is one line, the long text's lines
+    # are Unraid's literal \n (its mail, the bell and the push agents split there; a blank line between sections stays)
+    local d="${2//$'\n'/ }" m="${4:-}" ml=()
+    local args=( -e "Unraid Secretary Office" -s "Unraid Secretary Office: $1" -d "${d//$'\r'/}" -i "${3:-normal}" ) st="$UB_NOTIFY_STAMP" fd="" last
+    m="${m//$'\r'/}"; m="${m%$'\n'}"
+    if [[ -n "$m" ]]; then
+        mapfile -t ml <<<"$m"; printf -v m '%s\\n' "${ml[@]}"     # every line + a literal \n (printf's \\), the last one cut off
+        args+=( -m "${m:0:${#m}-2}" )
+    fi
     if [[ -n "$st" && -d "${st%/*}" && ! -L "$st" ]] && { exec {fd}>>"$st"; } 2>/dev/null; then
         if flock -w 10 "$fd" 2>/dev/null; then
             last="$(head -c 32 "$st" 2>/dev/null | tr -dc '0-9')"
@@ -159,6 +165,70 @@ is_uint() { [[ "$1" =~ ^[0-9]+$ ]]; }
 to_gb() { local b="${1:-0}"; is_uint "$b" || b=0; echo $(( b / 1073741824 )); }
 
 human() { numfmt --to=iec --suffix=B "${1:-0}" 2>/dev/null || echo "${1:-0} B"; }
+
+# --- The notifications' layout (mail-layout, 2026-10-09): Unraid mails them as plain text, the bell and the push agents
+# show the same lines - a headline, then sections (an UPPERCASE title, items indented two spaces, one per line, a blank
+# line between sections), long lists trimmed, word lists wrapped at ~70 characters. ub_notify turns the lines into
+# Unraid's literal \n.
+# human_sp <bytes>  - like human, with a space before the unit: 113 MB
+human_sp() {
+    local h; h="$(human "$1")"
+    [[ "$h" =~ ^([0-9.,]+)([A-Za-z]+)$ ]] && h="${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
+    printf '%s' "$h"
+}
+# dur_n <seconds>  - a duration for people: 6 h 4 min, 1 min 26 s, 9 s
+dur_n() {
+    local s="${1:-0}"; is_uint "$s" || s=0
+    if (( s >= 3600 )); then printf '%d h' $(( s / 3600 )); (( s % 3600 >= 60 )) && printf ' %d min' $(( s % 3600 / 60 ))
+    elif (( s >= 60 )); then printf '%d min' $(( s / 60 )); (( s % 60 )) && printf ' %d s' $(( s % 60 ))
+    else printf '%d s' "$s"; fi
+    return 0
+}
+# dur_c <seconds>  - coarser, for lists: 5 h 22 min, 20 min (rounded), 40 s
+dur_c() {
+    local s="${1:-0}"; is_uint "$s" || s=0
+    if (( s >= 3600 )); then dur_n "$s"
+    elif (( s >= 60 )); then printf '%d min' $(( (s + 30) / 60 ))
+    else printf '%d s' "$s"; fi
+}
+# wrap_words <prefix> <separator> <item>...  - one list on lines of at most ~70 characters: the first behind <prefix>,
+# the others under it (a hanging indent); a line ends with the separator's mark («,»), never with a space
+wrap_words() {
+    local pre="$1" sep="$2" line="" pad it n=0; shift 2
+    printf -v pad '%*s' "${#pre}" ''
+    line="$pre"
+    for it in "$@"; do
+        [[ -n "$it" ]] || continue
+        if (( n == 0 )); then line+="$it"
+        elif (( ${#line} + ${#sep} + ${#it} > 70 )); then printf '%s\n' "$line${sep% }"; line="$pad$it"
+        else line+="$sep$it"; fi
+        n=$(( n + 1 ))
+    done
+    (( n )) && printf '%s\n' "$line"
+    return 0
+}
+# kopia_report <ok> <failed> <name|ok|seconds>...  - the Kopia section of a run's notification: every failed source,
+# then the 4 longest, then «N more, each under X» (the longest of the rest, rounded up); the full list stays in the log
+kopia_report() {
+    local nok="$1" nfail="$2" l n ok secs d w1=0 w2=6
+    local -a kf=() ko=()
+    shift 2
+    for l in "$@"; do
+        IFS='|' read -r n ok secs _ <<<"$l"
+        is_uint "$secs" || secs=0
+        if [[ "$ok" == "1" ]]; then ko+=( "$secs|$n" ); else kf+=( "$n" ); fi
+    done
+    mapfile -t ko < <(printf '%s\n' "${ko[@]}" | sed '/^$/d' | LC_ALL=C sort -t'|' -k1,1nr -k2)
+    echo "KOPIA   $nok ok, $nfail failed"
+    for n in "${kf[@]}"; do (( ${#n} > w1 )) && w1=${#n}; done
+    for l in "${ko[@]:0:4}"; do n="${l#*|}"; d="$(dur_c "${l%%|*}")"; (( ${#n} > w1 )) && w1=${#n}; (( ${#d} > w2 )) && w2=${#d}; done
+    for n in "${kf[@]}"; do printf '  %-*s   %*s\n' "$w1" "$n" "$w2" "FAILED"; done
+    for l in "${ko[@]:0:4}"; do printf '  %-*s   %*s\n' "$w1" "${l#*|}" "$w2" "$(dur_c "${l%%|*}")"; done
+    (( ${#ko[@]} > 4 )) || return 0
+    secs="${ko[4]%%|*}"
+    if (( secs < 60 )); then d="1 min"; elif (( secs < 3600 )); then d="$(( secs / 60 + 1 )) min"; else d="$(( secs / 3600 + 1 )) h"; fi
+    if (( ${#ko[@]} == 5 )); then echo "  1 more, under $d"; else echo "  $(( ${#ko[@]} - 4 )) more, each under $d"; fi
+}
 
 # Escape a path for overlayfs options (colon, comma, backslash)
 ovl_escape() { local p="$1"; p="${p//\\/\\\\}"; p="${p//:/\\:}"; p="${p//,/\\,}"; printf '%s' "$p"; }
@@ -1604,6 +1674,7 @@ note_write() {
 #     after a crash -; «Aborted run not fully repaired» (warning) naming what didn't
 recover_interrupted_run() {
     local list="" stay="" level="warning" why="An earlier run was aborted" fin f
+    local -a back_ct=() back_nc=() back_vm=()     # what came back, for the notification (the helpers add to them)
     if array_stopping && recover_notes; then
         log "The array is being stopped - what an earlier run left stopped stays so (state/stopped, maintenance, vms) until a run after the array start"
         return 0
@@ -1641,10 +1712,29 @@ recover_interrupted_run() {
     list="${list% }"
     if [[ -n "$stay" ]]; then
         log "$why - not all of it came back${list:+ (restored: $list)}: $stay"
-        ub_notify "Aborted run not fully repaired" "$why. ${list:+Started again or reset: $list. }Not brought back: $stay. What is still noted, the next run tries again." "warning"
+        ub_notify "Aborted run not fully repaired" "$why - not all of it is back; what is still noted, the next run tries again." "warning" \
+            "$(recover_report "$why" "$stay")"
     elif [[ -n "$list" ]]; then
         if [[ "$level" == "warning" ]]; then warn "$why - restored: $list"; else log "$why - restored: $list"; fi
-        ub_notify "Aborted run repaired" "$why. Started again or reset: $list" "$level"
+        ub_notify "Aborted run repaired" "$why - all of it is back." "$level" "$(recover_report "$why" "")"
+    fi
+    return 0
+}
+
+# recover_report <why> <stay>  - the notification's long text: what came back, what didn't (one item per line)
+recover_report() {
+    local l
+    echo "$1."
+    if (( ${#back_ct[@]} + ${#back_nc[@]} + ${#back_vm[@]} )); then
+        echo; echo "STARTED AGAIN OR RESET"
+        (( ${#back_ct[@]} )) && wrap_words "  Containers started: " ", " "${back_ct[@]}"
+        (( ${#back_nc[@]} )) && wrap_words "  Maintenance mode off: " ", " "${back_nc[@]}"
+        for l in "${back_vm[@]}"; do echo "  $l"; done
+    fi
+    if [[ -n "$2" ]]; then
+        echo; echo "NOT BROUGHT BACK"
+        while IFS= read -r l; do [[ -n "$l" ]] && echo "  $l"; done <<<"${2//; /$'\n'}"
+        echo; echo "What is still noted, the next run tries again."
     fi
     return 0
 }
@@ -1681,7 +1771,7 @@ recover_containers() {
             if array_stopping; then keep+=( "$n" ); continue; fi
             case "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" in
                 true)  ;;
-                false) if docker start "$n" >/dev/null 2>>"${LOG_FILE:-/dev/null}"; then started+=( "$n" ); list+="$n "
+                false) if docker start "$n" >/dev/null 2>>"${LOG_FILE:-/dev/null}"; then started+=( "$n" ); list+="$n "; back_ct+=( "$n" )
                        else err "Container '$n' (from the aborted run) does not start - it stays noted (state/stopped)"; keep+=( "$n" ); fi ;;
                 *)     log "  Container '$n' (from the aborted run) is gone - nothing to start" ;;
             esac
@@ -1736,7 +1826,7 @@ recover_maintenance() {
             sleep 2
         done
         if out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
-            list+="maintenance mode $n off "
+            list+="maintenance mode $n off "; back_nc+=( "$n" )
         else
             while IFS= read -r f; do [[ -n "${f//[[:space:]]/}" ]] && log "    occ: ${f%$'\r'}"; done < <(head -20 <<<"$out")
             err "Maintenance mode of '$n' could not be switched off - it stays noted (state/maintenance)"
@@ -1760,13 +1850,13 @@ recover_vms() {
         if [[ -z "$st" ]]; then log "  VM '$n' (from the aborted run) is gone - nothing to do"; continue; fi
         case "$how" in
             frozen)   [[ "$st" == "running" ]] || continue
-                      if timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1; then list+="VM $n thawed "
+                      if timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1; then list+="VM $n thawed "; back_vm+=( "VM $n thawed" )
                       else err "VM '$n' (from the aborted run) could not be thawed - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
             paused)   [[ "$st" == "paused" ]] || continue
-                      if timeout 30 virsh resume "$n" >/dev/null 2>&1; then list+="VM $n resumed "
+                      if timeout 30 virsh resume "$n" >/dev/null 2>&1; then list+="VM $n resumed "; back_vm+=( "VM $n resumed" )
                       else err "VM '$n' (from the aborted run) does not resume - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
             shutdown) [[ "$st" == "shut off" ]] || continue
-                      if timeout 60 virsh start "$n" >/dev/null 2>&1; then list+="VM $n started "
+                      if timeout 60 virsh start "$n" >/dev/null 2>&1; then list+="VM $n started "; back_vm+=( "VM $n started" )
                       else err "VM '$n' (from the aborted run) does not start - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
         esac
     done <"$UB_STATE/vms"
@@ -2964,6 +3054,7 @@ new_policy_align() {
 # drift_check_new_local; uses SHARE_MOUNTED and SKIP_KOPIA of the run.
 new_local_run() {
     local s n b cpath bytes first rules now k l fresh="" nfresh=0
+    local -a fresh_l=()
     local -A looked=() names=()
     local -a keep=( "${NEW_LIST[@]}" )
     now="$(date +%s)"
@@ -2993,6 +3084,7 @@ new_local_run() {
             if [[ -z "$first" ]]; then
                 first="$now"; nfresh=$((nfresh+1))
                 fresh+="${fresh:+, }$s/$n${bytes:+ ($(human "$bytes"))}"
+                fresh_l+=( "$s/$n${bytes:+   $(human_sp "$bytes")}" )
             fi
             rules="$(new_rules_for "$s" "$n")"
             NEW_RULES[$s]+="$rules"$'\n'
@@ -3017,7 +3109,10 @@ new_local_run() {
         if (( nfresh == 1 )); then
             ub_notify "New folder stays local" "$fresh - new in a share that goes to Kopia: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal"
         else
-            ub_notify "$nfresh new folders stay local" "$fresh - new in shares that go to Kopia: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal"
+            # the list one per line in the long text (at most 12; the setup lists them all)
+            ub_notify "$nfresh new folders stay local" "$nfresh new folders in shares that go to Kopia: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal" \
+                "$(echo "NEW, ONLY LOCAL UNTIL YOU DECIDE"; printf '  %s\n' "${fresh_l[@]:0:12}"
+                   (( nfresh > 12 )) && echo "  $(( nfresh - 12 )) more - Mr. Backupsy's setup lists them all")"
         fi
         # Unraid's notify keeps one notification per event and second: the run's own report comes later
         [[ "${UB_NO_NOTIFY:-0}" == "1" ]] || sleep 1

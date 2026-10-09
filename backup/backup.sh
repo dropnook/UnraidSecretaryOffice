@@ -1031,10 +1031,10 @@ DUMP_DIR=""; DUMP_KEY=""
 declare -A DUMP_STATE=()         # container -> ok | failed  (none: no dump this run)
 declare -A DUMP_AUTH=()          # container -> "login<US>user variable<US>password variable<US>client"
 declare -A DUMP_FILE_CT=()       # "apps/<app>/db/<file>" -> container
-declare -a DUMPS_DONE=()         # "<file>|bytes" written this run
+declare -a DUMPS_DONE=()         # "<file>|bytes|<container>" written this run
 dump_done() { # dump_done <container> <file>
     local size; size="$(stat -c %s "$2" 2>/dev/null)"
-    DUMP_FILE_CT[$DUMP_KEY/db/${2##*/}]="$1"; DUMPS_DONE+=( "${2##*/}|${size:-0}" )
+    DUMP_FILE_CT[$DUMP_KEY/db/${2##*/}]="$1"; DUMPS_DONE+=( "${2##*/}|${size:-0}|$1" )
 }
 
 dump_mariadb() { # dump_mariadb <container>
@@ -2118,6 +2118,22 @@ prune_files() {
 ##############################################################################
 # Reporting drift
 ##############################################################################
+# drift_report  - the notification's long text: the errors, then the warnings, one per line (the infos stay in drift.txt)
+drift_report() {
+    local lvl l t n=0
+    for lvl in error warn; do
+        t=""
+        for l in "${DRIFT[@]}"; do
+            [[ "${l%%|*}" == "$lvl" ]] || continue
+            if [[ -z "$t" ]]; then
+                t=1; (( n++ )) && echo
+                if [[ "$lvl" == "error" ]]; then echo "ERRORS"; else echo "WARNINGS"; fi
+            fi
+            echo "  ${l#*|}"
+        done
+    done
+    echo; echo "Please run setup.sh (Mr. Backupsy's setup) to bring settings.ini up to date. All of it: $UB_STATE/drift.txt"
+}
 report_drift() {
     local fp last_fp="" last_t=0 now nw ne lvl
     drift_text >"$UB_STATE/drift.txt"
@@ -2140,7 +2156,7 @@ report_drift() {
         lvl="warning"; (( ne > 0 )) && lvl="alert"
         ub_notify "settings.ini is out of date" \
             "${ne} errors, ${nw} warnings - please run setup.sh. Details: $UB_STATE/drift.txt" \
-            "$lvl" "$(grep -v '^INFO' "$UB_STATE/drift.txt")"
+            "$lvl" "$(drift_report)"
         echo "$fp" >"$UB_STATE/drift.fp"; echo "$now" >"$UB_STATE/drift.ts"
     fi
 }
@@ -2233,21 +2249,33 @@ array_stop_release() {
     [[ "$RUN_NOTED" == "yes" ]] && save_restore_state
 }
 
-array_stop_report() { # a few lines for the notification
-    local l list="" n
-    echo "The run of $(date -d "@$STARTED_AT" '+%Y-%m-%d %H:%M' 2>/dev/null) ended at once when the array stop began (phase ${ARRAY_STOP_PHASE:-?}), after $(dur_h $(( $(date +%s) - STARTED_AT )))."
-    local ns=$(( ${#ST_KOPIA_SKIPPED[@]} - ${#ST_KOPIA_SKIPPED_WHY[@]} ))
-    (( ${#ST_KOPIA_PLAN[@]} )) && echo "Kopia: $(( ${#ST_KOPIA_PLAN[@]} - ns )) of ${#ST_KOPIA_PLAN[@]} sources done${ST_KOPIA_INTERRUPTED:+, $ST_KOPIA_INTERRUPTED interrupted (Kopia keeps what it uploaded)}; skipped until the next run: $ns"
-    (( ${#ST_PARTNER_PLAN[@]} )) && echo "Partners: ${#ST_PARTNER_DONE[@]} of ${#ST_PARTNER_PLAN[@]} sent${ST_PARTNER_INTERRUPTED:+, ${ST_PARTNER_INTERRUPTED#*|} interrupted (the partner keeps what came; the next run continues it)}"
-    for l in "${!VM_HELD[@]}"; do list+="${list:+, }VM $l"; done
-    for n in "${STOPPED[@]}"; do list+="${list:+, }$n"; done
-    for n in "${!NC_ON[@]}"; do list+="${list:+, }maintenance mode of $n"; done
-    [[ -n "$list" ]] && echo "Left as the stop found them - brought back right after the array start: $list"
+array_stop_report() { # the notification's long text: a headline, then a section per part (like run_report)
+    local l n items=() ns
+    echo "The run of $(date -d "@$STARTED_AT" '+%Y-%m-%d %H:%M' 2>/dev/null) ended at once when the array stop began (phase ${ARRAY_STOP_PHASE:-?}), after $(dur_n $(( $(date +%s) - STARTED_AT )))."
+    ns=$(( ${#ST_KOPIA_SKIPPED[@]} - ${#ST_KOPIA_SKIPPED_WHY[@]} ))
+    if (( ${#ST_KOPIA_PLAN[@]} )); then
+        echo; echo "KOPIA   $(( ${#ST_KOPIA_PLAN[@]} - ns )) of ${#ST_KOPIA_PLAN[@]} sources done"
+        [[ -n "$ST_KOPIA_INTERRUPTED" ]] && echo "  $ST_KOPIA_INTERRUPTED interrupted (Kopia keeps what it uploaded)"
+        echo "  skipped until the next run: $ns"
+    fi
+    if (( ${#ST_PARTNER_PLAN[@]} )); then
+        echo; echo "PARTNERS   ${#ST_PARTNER_DONE[@]} of ${#ST_PARTNER_PLAN[@]} sent"
+        [[ -n "$ST_PARTNER_INTERRUPTED" ]] && echo "  ${ST_PARTNER_INTERRUPTED#*|} interrupted (the partner keeps what came; the next run continues it)"
+    fi
+    for l in "${!VM_HELD[@]}"; do items+=( "VM $l" ); done
+    for n in "${STOPPED[@]}"; do items+=( "$n" ); done
+    for n in "${!NC_ON[@]}"; do items+=( "maintenance mode of $n" ); done
+    if (( ${#items[@]} )); then
+        echo; echo "LEFT AS THE STOP FOUND THEM - BROUGHT BACK RIGHT AFTER THE ARRAY START"
+        wrap_words "  " ", " "${items[@]}"
+    fi
+    echo; echo "RETENTION"
     if [[ -n "$PRUNED_DONE" ]]; then
-        if (( PRUNED_DONE > 0 )); then echo "Its retention was done when the stop began: $PRUNED_DONE snapshot(s) removed (state/pruned.json). Log: $LOG_FILE"
-        else echo "Its retention was done when the stop began - there was nothing to prune. Log: $LOG_FILE"; fi
-    elif (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "Its retention had removed $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) when the stop began; the rest waits for the next run. Log: $LOG_FILE"
-    else echo "No snapshots were pruned. Log: $LOG_FILE"; fi
+        if (( PRUNED_DONE > 0 )); then echo "  done when the stop began: $PRUNED_DONE snapshot(s) removed (state/pruned.json)"
+        else echo "  done when the stop began - there was nothing to prune"; fi
+    elif (( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )); then echo "  $(( ${#PRUNED_ZFS[@]} + ${#PRUNED_BTRFS[@]} )) snapshot(s) removed when the stop began; the rest waits for the next run"
+    else echo "  no snapshots were pruned"; fi
+    echo; echo "Log: $LOG_FILE"
 }
 array_stop_notify() {
     [[ "$ST_MODE" == "backup" ]] || return 0           # a check or dry run is started by hand: its answer is seen there
@@ -3483,71 +3511,132 @@ RUN_SIZE="$(human "$ST_DUMP_BYTES")"
 } >"$UB_STATE/last-run"
 
 if is_yes "$KOPIA_ENABLED"; then KSUM="Kopia ${KOPIA_DONE} ok/${KOPIA_FAILED} failed"; else KSUM="Kopia off"; fi
-# A few lines for the notification: what this run did, like the office's overview
+# The notification's long text (mail-layout, 2026-10-09): a headline - the result and the times that matter -, errors
+# and warnings under it, then a section per part of the run (an UPPERCASE title, one item per line, indented); Kopia's
+# list trimmed to every failed source and the 4 longest (the full list stays in the log); word lists wrapped
+# run_report <headline>
 run_report() {
-    local l n p d secs ok f list=""
-    echo "Duration $(dur_h "$TOTAL"), containers stopped $(dur_h "$DOWNTIME")"
-    echo "Snapshots: ${#PLAN_ZFS[@]} ZFS datasets, ${#BTRFS_OK[@]} btrfs disks$([[ "$PLAN_FLASH" == "snapshot" ]] && echo ", flash")"
-    for l in "${DUMPS_DONE[@]}"; do list+="${list:+, }${l%|*} $(human "${l##*|}")"; done
-    [[ -n "$list" ]] && echo "Dumps: $list"
-    list=""
-    for l in "${!SQ_STATE[@]}"; do list+="${list:+, }${l#*|} ${SQ_STATE[$l]}"; done
-    [[ -n "$list" ]] && echo "SQLite copies: $list"
-    echo "Packages: ${#PKG_APPS[@]} apps, ${#PKG_VMS[@]} VMs in $UB_DUMPS$( (( PKG_OLD_RUNS > 0 )) && [[ "$PKG_OLD_ACTION" == "removed" ]] && echo "; ${PKG_OLD_RUNS} old run folders cleared away")"
-    list=""
+    local l n p d secs f i sz lines=() items=()
+    echo "$1 in $(dur_n "$TOTAL"), apps stopped $(dur_n "$DOWNTIME")"
+    echo "Errors $ERRORS, warnings $WARNINGS"
+    # SNAPSHOTS
+    items=()
+    (( ${#PLAN_ZFS[@]} )) && items+=( "${#PLAN_ZFS[@]} ZFS dataset$( (( ${#PLAN_ZFS[@]} == 1 )) || echo s)" )
+    (( ${#BTRFS_OK[@]} )) && items+=( "${#BTRFS_OK[@]} btrfs disk$( (( ${#BTRFS_OK[@]} == 1 )) || echo s)" )
+    [[ "$PLAN_FLASH" == "snapshot" ]] && items+=( "flash" )
+    echo; echo "SNAPSHOTS"
+    if (( ${#items[@]} )); then wrap_words "  " ", " "${items[@]}"; else echo "  none"; fi
+    # DATABASES: the dumps (<container> (<engine>), the size), the media servers' SQLite copies per container and state
+    lines=()
+    local ct eng db w1=0 w2=0 lbl
+    local -A per=()
+    for l in "${DUMPS_DONE[@]}"; do IFS='|' read -r f _ ct <<<"$l"; [[ -n "$ct" ]] && per[$ct]=$(( ${per[$ct]:-0} + 1 )); done
+    local -a dl=() ds=()
+    for l in "${DUMPS_DONE[@]}"; do
+        IFS='|' read -r f sz ct <<<"$l"
+        case "$f" in
+            mariadb_*)  eng="MariaDB"; db="${f#mariadb_"$ct"_}"; db="${db%.sql.gz}" ;;
+            postgres_*) eng="Postgres"; db="" ;;
+            mongodb_*)  eng="MongoDB"; db="" ;;
+            *)          eng=""; db="" ;;
+        esac
+        if [[ -n "$ct" && -n "$eng" ]]; then
+            lbl="$ct ($eng)"; [[ -n "$db" && "${per[$ct]:-0}" -gt 1 ]] && lbl="$ct ($eng: $db)"
+        else lbl="$f"; fi
+        dl+=( "$lbl" ); ds+=( "$(human_sp "$sz")" )
+        (( ${#lbl} > w1 )) && w1=${#lbl}; (( ${#ds[-1]} > w2 )) && w2=${#ds[-1]}
+    done
+    for i in "${!dl[@]}"; do lines+=( "$(printf '  %-*s   %*s' "$w1" "${dl[$i]}" "$w2" "${ds[$i]}")" ); done
+    local -A sq=()
+    local k
+    for k in $(printf '%s\n' "${!SQ_STATE[@]}" | LC_ALL=C sort); do
+        ct="${k%%|*}"; f="${k#*|}"; f="${f#sqlite_"$ct"_}"; f="${f%.db}"
+        sq[$ct|${SQ_STATE[$k]}]+="${sq[$ct|${SQ_STATE[$k]}]:+, }$f"
+    done
+    for k in $(printf '%s\n' "${!sq[@]}" | LC_ALL=C sort); do lines+=( "  ${k%%|*}: ${sq[$k]}   ${k#*|}" ); done
+    if (( ${#lines[@]} )); then echo; echo "DATABASES"; printf '%s\n' "${lines[@]}"; fi
+    # PACKAGES
+    echo; echo "PACKAGES"
+    echo "  ${#PKG_APPS[@]} app$( (( ${#PKG_APPS[@]} == 1 )) || echo s), ${#PKG_VMS[@]} VM$( (( ${#PKG_VMS[@]} == 1 )) || echo s) in $UB_DUMPS"
+    (( PKG_OLD_RUNS > 0 )) && [[ "$PKG_OLD_ACTION" == "removed" ]] && echo "  ${PKG_OLD_RUNS} old run folders cleared away"
+    # VMS: what each held VM went through, and for how long
+    lines=(); w1=0
+    local -a vn=() vt=()
     for l in "${ST_VMS[@]}"; do
         IFS='|' read -r n p d secs _ <<<"$l"
-        case "$d" in off|kept_running|not_running|planned) continue ;; esac
-        list+="${list:+, }$n ($d, $(dur_h "$secs"))"
+        case "$d" in
+            off|kept_running|not_running|planned) continue ;;
+            shutdown) d="shut down for $(dur_n "$secs")" ;;
+            paused)   d="paused for $(dur_n "$secs")" ;;
+            frozen)   d="frozen for $(dur_n "$secs")" ;;
+            failed)   d="could not be paused - kept running" ;;
+            *)        d="$d for $(dur_n "$secs")" ;;
+        esac
+        vn+=( "$n" ); vt+=( "$d" ); (( ${#n} > w1 )) && w1=${#n}
     done
-    [[ -n "$list" ]] && echo "VMs: $list"
-    list=""
-    for l in "${ST_KOPIA_DONE[@]}"; do
-        IFS='|' read -r n ok secs _ <<<"$l"
-        if [[ "$ok" == "1" ]]; then list+="${list:+, }$n $(dur_h "$secs")"; else list+="${list:+, }$n FAILED"; fi
-    done
-    [[ -n "$list" ]] && echo "Kopia: $list"
+    if (( ${#vn[@]} )); then
+        echo; echo "VMS"
+        for i in "${!vn[@]}"; do printf '  %-*s   %s\n' "$w1" "${vn[$i]}" "${vt[$i]}"; done
+    fi
+    # KOPIA: every failed source, then the 4 longest, then how many more
+    (( ${#ST_KOPIA_DONE[@]} )) && { echo; kopia_report "$KOPIA_DONE" "$KOPIA_FAILED" "${ST_KOPIA_DONE[@]}"; }
+    # TO <partner>: what went, how much and how fast; what didn't, and why
     local id b secs2 nb why
     for l in "${ST_PARTNER_IDS[@]}"; do
-        id="${l%%|*}"; list=""; nb=0; secs2=0
+        id="${l%%|*}"; items=(); nb=0; secs2=0; lines=()
         for p in "${ST_PARTNER_DONE[@]}"; do
             IFS='|' read -r n d _ _ b secs _ <<<"$p"
             [[ "$n" == "$id" ]] || continue
-            list+="${list:+, }${d#*:}"; nb=$(( nb + b )); secs2=$(( secs2 + secs ))
+            items+=( "${d#*:}" ); nb=$(( nb + b )); secs2=$(( secs2 + secs ))
         done
-        [[ -n "$list" ]] && list="$list - $(human "$nb"), $(partner_mbit "$nb" "$secs2") Mbit/s"
         for p in "${ST_PARTNER_SKIPPED[@]}" "${ST_PARTNER_FAILED[@]}"; do
             IFS='|' read -r n d why <<<"$p"
-            [[ "$n" == "$id" ]] && list+="${list:+; }${d#*:} not sent ($why)"
+            [[ "$n" == "$id" ]] && lines+=( "  ${d#*:}   not sent ($why)" )
         done
-        echo "To $(partner_name "$id"): ${list:-nothing}"
+        echo
+        if (( ${#items[@]} )); then
+            echo "TO $(partner_name "$id")   ${#items[@]} sent, $(human_sp "$nb"), $(partner_mbit "$nb" "$secs2") Mbit/s"
+            wrap_words "  " ", " "${items[@]}"
+        else
+            echo "TO $(partner_name "$id")   nothing sent"
+        fi
+        (( ${#lines[@]} )) && printf '%s\n' "${lines[@]}"
     done
+    # LEFT OUT, ASLEEP: the pools and disks asleep, their shares, the VMs not held and the apps kept running for it
     if (( ${#ST_ASLEEP_POOLS[@]} )); then
-        echo "Asleep, left out (asleep_pools = skip): ${ST_ASLEEP_POOLS[*]} - shares ${ST_ASLEEP_SHARES[*]:-none}${ST_ASLEEP_VMS[*]:+; VMs ${ST_ASLEEP_VMS[*]} not held}${ST_ASLEEP_CTS[*]:+; kept running ${ST_ASLEEP_CTS[*]}}"
+        echo; echo "LEFT OUT, ASLEEP (asleep_pools = skip)"
+        wrap_words "  Disks:   " " " "${ST_ASLEEP_POOLS[@]}"
+        if (( ${#ST_ASLEEP_SHARES[@]} )); then wrap_words "  Shares:  " ", " "${ST_ASLEEP_SHARES[@]}"; else echo "  Shares:  none"; fi
+        (( ${#ST_ASLEEP_VMS[@]} )) && wrap_words "  VMs:     " " " "${ST_ASLEEP_VMS[@]}" "(not held)"
+        (( ${#ST_ASLEEP_CTS[@]} )) && wrap_words "  Apps:    " " " "${ST_ASLEEP_CTS[@]}" "(kept running)"
     fi
-    list=""
-    for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r n p _ <<<"$l"; list+="${list:+, }$n/$p"; done
-    [[ -n "$list" ]] && echo "New, only local until you decide: $list"
-    (( ${#T_NEW[@]} )) && echo "New containers, kept running until you decide: ${T_NEW[*]}"
-    echo "Errors $ERRORS, warnings $WARNINGS"
+    items=()
+    for l in "${NEW_LIST[@]}"; do IFS=$'\x1f' read -r n p _ <<<"$l"; items+=( "$n/$p" ); done
+    if (( ${#items[@]} )); then echo; echo "NEW, ONLY LOCAL UNTIL YOU DECIDE"; wrap_words "  " ", " "${items[@]}"; fi
+    if (( ${#T_NEW[@]} )); then echo; echo "NEW CONTAINERS, KEPT RUNNING UNTIL YOU DECIDE"; wrap_words "  " ", " "${T_NEW[@]}"; fi
+    echo
     echo "Log: $LOG_FILE"
 }
 SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, packages ${RUN_SIZE}"
 (( ${#ST_PARTNER_PLAN[@]} )) && SUMMARY+=", partners ${#ST_PARTNER_DONE[@]} sent/${#ST_PARTNER_FAILED[@]} failed/${#ST_PARTNER_SKIPPED[@]} skipped"
 (( ${#ST_ASLEEP_SHARES[@]} )) && SUMMARY+=", ${#ST_ASLEEP_SHARES[@]} share$( (( ${#ST_ASLEEP_SHARES[@]} == 1 )) || echo s) asleep (left out)"
+# the same for people, in the notification's description (the bell's line, the mail's header); the log keeps SUMMARY
+NSUMMARY="$(dur_n "$TOTAL"), apps stopped $(dur_n "$DOWNTIME"), ${KSUM}, packages $(human_sp "$ST_DUMP_BYTES")"
+(( ${#ST_PARTNER_PLAN[@]} )) && NSUMMARY+=", partners ${#ST_PARTNER_DONE[@]} sent/${#ST_PARTNER_FAILED[@]} failed/${#ST_PARTNER_SKIPPED[@]} skipped"
+(( ${#ST_ASLEEP_SHARES[@]} )) && NSUMMARY+=", ${#ST_ASLEEP_SHARES[@]} share$( (( ${#ST_ASLEEP_SHARES[@]} == 1 )) || echo s) asleep (left out)"
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi
 if (( ERRORS > 0 )); then
     log "Backup finished with ${ERRORS} error(s) and ${WARNINGS} warning(s). $SUMMARY"
-    ub_notify "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $SUMMARY" "alert" "$(run_report)"
+    ub_notify "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" "alert" "$(run_report "Backup finished with errors")"
     exit 1
 elif (( WARNINGS > 0 )); then
     log "Backup finished with ${WARNINGS} warning(s). $SUMMARY"
-    ub_notify "Backup with warnings" "${WARNINGS} warnings. $SUMMARY" "warning" "$(run_report)"
+    ub_notify "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" "warning" "$(run_report "Backup finished with warnings")"
 else
     log "Backup successful. $SUMMARY"
-    is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup successful" "$SUMMARY" "normal" "$(run_report)"
+    is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup successful" "$NSUMMARY" "normal" "$(run_report "Backup successful")"
 fi
 exit 0
 }
