@@ -993,6 +993,13 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   is on screen; space that vanished below is given back as the user scrolls up.
   Exception: selection lists (snapshots) — selecting means deleting, so only
   the checkbox selects.
+* **What the user opened stays open** (Inbox #11 and the UniFi guide that closed again, 2026-10-09): a desk draws its
+  page anew often — every new look (the minute's poll, the look that follows «show first»), and the messenger's word
+  that comes with EVERY answer of the agent (`Office.setAgent()` → `agentChanged()`; also the answer to a post the click
+  itself made, like the Consultant's `network_seen`). So a `<details>` a desk builds goes through its `keepFold(det,
+  key, open)` (advisor, backup, restore, cleanup): the user's choice kept per key for the page's life, the default only
+  until touched; rows keep theirs in a set (`expanded`, `protOpen` …), groups and tiles in `Office.store`.
+  `testDetailsKept` finds a bare `el('details', …)`; `tools/ui-clicks.sh` clicks them in a real browser (checklist 9).
 * **Subheadings inside a list** (a compose stack, a group) are a tinted title
   bar (`var(--surface2)`, like `.group-head`), the rows under it slightly
   indented — never just bold text between rows.
@@ -1343,6 +1350,14 @@ When more than one Claude chat works on the office, one of them is the
    just to test.
 8. Something for the plugin changed (paths, scripts, `.plg`)? `bash plugin/build.sh <version>`
    must pass.
+9. The page changed? `bash tools/ui-clicks.sh` on the Mac (node + playwright-core, a headless Chrome with a throwaway
+   profile — never a browser with your sign-ins): every desk page built from the repository's files (`tests/ui/harness.mjs`,
+   stub states in `tests/ui/states/` — scrubbed copies of Tower's, `post/<desk>.<action>.json` for what a page posts on
+   its own), both themes at 1440 and 375 px; every `<summary>`, unfolding row, group head, tile and other
+   `aria-expanded` control clicked twice: it changes, nothing else does, it stays after 1.5 s and when the desk draws
+   itself anew (the messenger's word after each click, the poll after each round), no console error, no horizontal
+   scrolling. ≈ 2 min, exit ≠ 0 on any failure; `--only <route>,…`, `-v`, `UC_DEBUG=1`. `tools/release.sh` runs it
+   before the suite (step 6) and stops on red like the suite. A new state shape a page needs: add it to the stub.
 
 ## Layout
 
@@ -1359,6 +1374,8 @@ public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, to
                          deskHead, pageHelp, sectionHead, backupChip, the search (places, palette, reveal)
 public/desks/<id>/       desk.json, desk.js, places.json (the search), lang/*.json (and desk.css, avatar.svg)
 data/                    runtime only (state per desk, mailbox, agent log, office/staff.json) — not in git
+tests/                   run.php (the suite, on a server), watchbook.js; ui/ the click test's page (harness.mjs) and stub states
+tools/                   release.sh (the coordinator's release), ui-clicks.mjs/.sh (the click test), supporter-key.sh, lang-keys.php
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
 embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
 gather/                  Jack Emby's media gather, consolidate_master.sh (bash; data in data/gather)

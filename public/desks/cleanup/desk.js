@@ -2668,6 +2668,22 @@ function renderPlaces() {
   if (g) detail.appendChild(placeDetail(g));
 }
 
+/**
+ * A file list the user opened or closed stays so when her page is drawn anew (a new look, the messenger's word with
+ * every answer of the agent) — kept per place and item for this page's life, closed until touched
+ */
+const whereFolds = new Map();
+function keepFold(det, key) {
+  det.open = whereFolds.get(key) === true;
+  let shown = det.open;
+  det.addEventListener('toggle', () => {
+    if (det.open === shown) return;
+    shown = det.open;
+    whereFolds.set(key, det.open);
+  });
+  return det;
+}
+
 function placeDetail(g) {
   const box = el('div', 'box clw-place');
   if (g.id === 'unraid') box.appendChild(bootIntro(g.boot));
@@ -2680,7 +2696,7 @@ function placeDetail(g) {
       it.note ? T('where.loc.docker_' + it.note) : '', it.ram ? T('where.loc.ram') : '', !it.exists ? T('where.loc.missing') : ''].filter(Boolean).join(' ');
     box.appendChild(pathLine(T('where.loc.' + it.id), it.path, { figure, backup: it.backup, note, missing: !it.exists }));
     if (it.files && it.files.length) {
-      const det = el('details', 'clw-files');
+      const det = keepFold(el('details', 'clw-files'), `${g.id}:${it.id}`);
       det.appendChild(el('summary', '', T('where.loc.show_files', { n: it.files.length })));
       const ul = el('div', 'mono clw-file-list');
       ul.textContent = it.files.join('\n');

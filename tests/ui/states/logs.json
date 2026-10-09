@@ -1,0 +1,604 @@
+{
+ "time": 1791505997,
+ "sources": [
+  {
+   "id": "agent",
+   "group": "office",
+   "label": "agent",
+   "param": "",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/agent.log",
+   "size": 47627,
+   "time": 1791505561
+  },
+  {
+   "id": "backup:latest",
+   "group": "office",
+   "label": "backup_latest",
+   "param": "",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/latest.log",
+   "size": 4398,
+   "time": 1791501440
+  },
+  {
+   "id": "backup:setup-20261009-0226.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261009-0226",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261009-0226.log",
+   "size": 13711,
+   "time": 1791505562
+  },
+  {
+   "id": "backup:setup-20261009-0222.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261009-0222",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261009-0222.log",
+   "size": 13711,
+   "time": 1791505338
+  },
+  {
+   "id": "backup:run-20261009-0117.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "run-20261009-0117",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/run-20261009-0117.log",
+   "size": 4398,
+   "time": 1791501440
+  },
+  {
+   "id": "backup:setup-20261008-2354.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2354",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2354.log",
+   "size": 13711,
+   "time": 1791496443
+  },
+  {
+   "id": "backup:setup-20261008-2353.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2353",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2353.log",
+   "size": 30844,
+   "time": 1791496432
+  },
+  {
+   "id": "backup:setup-20261008-2350.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2350",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2350.log",
+   "size": 29133,
+   "time": 1791496238
+  },
+  {
+   "id": "backup:setup-20261008-2349.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2349",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2349.log",
+   "size": 15422,
+   "time": 1791496188
+  },
+  {
+   "id": "backup:setup-20261008-2300.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2300",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2300.log",
+   "size": 13711,
+   "time": 1791493242
+  },
+  {
+   "id": "backup:setup-20261008-2259.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2259",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2259.log",
+   "size": 13711,
+   "time": 1791493157
+  },
+  {
+   "id": "backup:setup-20261008-2256.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2256",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2256.log",
+   "size": 13711,
+   "time": 1791493005
+  },
+  {
+   "id": "backup:setup-20261008-2254.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2254",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2254.log",
+   "size": 13711,
+   "time": 1791492854
+  },
+  {
+   "id": "backup:setup-20261008-2251.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2251",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2251.log",
+   "size": 13711,
+   "time": 1791492704
+  },
+  {
+   "id": "backup:setup-20261008-2248.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2248",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2248.log",
+   "size": 13711,
+   "time": 1791492512
+  },
+  {
+   "id": "backup:setup-20261008-2245.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2245",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2245.log",
+   "size": 13711,
+   "time": 1791492361
+  },
+  {
+   "id": "backup:setup-20261008-2244.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2244",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2244.log",
+   "size": 13711,
+   "time": 1791492278
+  },
+  {
+   "id": "backup:setup-20261008-2243.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2243",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2243.log",
+   "size": 13711,
+   "time": 1791492210
+  },
+  {
+   "id": "backup:setup-20261008-2242.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2242",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2242.log",
+   "size": 13711,
+   "time": 1791492127
+  },
+  {
+   "id": "backup:setup-20261008-2240.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2240",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2240.log",
+   "size": 13711,
+   "time": 1791492053
+  },
+  {
+   "id": "backup:setup-20261008-2239.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2239",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2239.log",
+   "size": 13711,
+   "time": 1791491977
+  },
+  {
+   "id": "backup:setup-20261008-2238.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2238",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2238.log",
+   "size": 13711,
+   "time": 1791491914
+  },
+  {
+   "id": "backup:check-20261008-2230.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "check-20261008-2230",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/check-20261008-2230.log",
+   "size": 315,
+   "time": 1791491441
+  },
+  {
+   "id": "backup:setup-20261008-2207.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2207",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2207.log",
+   "size": 13711,
+   "time": 1791490055
+  },
+  {
+   "id": "backup:setup-20261008-2205.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2205",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2205.log",
+   "size": 13711,
+   "time": 1791489902
+  },
+  {
+   "id": "backup:setup-20261008-2202.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2202",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2202.log",
+   "size": 13711,
+   "time": 1791489748
+  },
+  {
+   "id": "backup:setup-20261008-2159.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2159",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2159.log",
+   "size": 13711,
+   "time": 1791489563
+  },
+  {
+   "id": "backup:setup-20261008-2157.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2157",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2157.log",
+   "size": 13711,
+   "time": 1791489458
+  },
+  {
+   "id": "backup:setup-20261008-2149.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2149",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2149.log",
+   "size": 13711,
+   "time": 1791488981
+  },
+  {
+   "id": "backup:setup-20261008-2147.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2147",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2147.log",
+   "size": 13711,
+   "time": 1791488828
+  },
+  {
+   "id": "backup:setup-20261008-2144.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-2144",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-2144.log",
+   "size": 13711,
+   "time": 1791488674
+  },
+  {
+   "id": "backup:setup-20261008-1739.log",
+   "group": "office",
+   "label": "backup_log",
+   "param": "setup-20261008-1739",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/logs/setup-20261008-1739.log",
+   "size": 13711,
+   "time": 1791473956
+  },
+  {
+   "id": "partner:door",
+   "group": "office",
+   "label": "partner_door",
+   "param": "",
+   "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/partner/door.log",
+   "size": 2170,
+   "time": 1791471681
+  },
+  {
+   "id": "router:192.168.1.190",
+   "group": "unraid",
+   "label": "router",
+   "param": "192.168.1.190",
+   "path": "/mnt/big/syslog/syslog-192.168.1.190.log",
+   "size": 5866,
+   "time": 1791459040
+  },
+  {
+   "id": "syslog",
+   "group": "unraid",
+   "label": "syslog",
+   "param": "",
+   "path": "/var/log/syslog",
+   "size": 535597,
+   "time": 1791505980
+  },
+  {
+   "id": "dmesg",
+   "group": "unraid",
+   "label": "dmesg",
+   "param": "",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "docker",
+   "group": "unraid",
+   "label": "docker",
+   "param": "",
+   "path": "/var/log/docker.log",
+   "size": 156,
+   "time": 1791501074
+  },
+  {
+   "id": "libvirt",
+   "group": "unraid",
+   "label": "libvirt",
+   "param": "",
+   "path": "/var/log/libvirt/libvirtd.log",
+   "size": 0,
+   "time": 1791501076
+  },
+  {
+   "id": "nginx",
+   "group": "unraid",
+   "label": "nginx",
+   "param": "",
+   "path": "/var/log/nginx/error.log",
+   "size": 629,
+   "time": 1791501066
+  },
+  {
+   "id": "samba:log.rpcd_classic",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_classic",
+   "path": "/var/log/samba/log.rpcd_classic",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_epmapper",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_epmapper",
+   "path": "/var/log/samba/log.rpcd_epmapper",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_fsrvp",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_fsrvp",
+   "path": "/var/log/samba/log.rpcd_fsrvp",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_lsad",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_lsad",
+   "path": "/var/log/samba/log.rpcd_lsad",
+   "size": 6732,
+   "time": 1791505889
+  },
+  {
+   "id": "samba:log.rpcd_mdssvc",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_mdssvc",
+   "path": "/var/log/samba/log.rpcd_mdssvc",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_spoolss",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_spoolss",
+   "path": "/var/log/samba/log.rpcd_spoolss",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.rpcd_winreg",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.rpcd_winreg",
+   "path": "/var/log/samba/log.rpcd_winreg",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.samba-dcerpcd",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.samba-dcerpcd",
+   "path": "/var/log/samba/log.samba-dcerpcd",
+   "size": 3204,
+   "time": 1791505889
+  },
+  {
+   "id": "samba:log.smbd",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.smbd",
+   "path": "/var/log/samba/log.smbd",
+   "size": 161,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.wb-TOWER",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.wb-TOWER",
+   "path": "/var/log/samba/log.wb-TOWER",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.winbindd",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.winbindd",
+   "path": "/var/log/samba/log.winbindd",
+   "size": 171,
+   "time": 1791501046
+  },
+  {
+   "id": "samba:log.winbindd-idmap",
+   "group": "unraid",
+   "label": "samba",
+   "param": "log.winbindd-idmap",
+   "path": "/var/log/samba/log.winbindd-idmap",
+   "size": 0,
+   "time": 1791501046
+  },
+  {
+   "id": "php",
+   "group": "unraid",
+   "label": "php",
+   "param": "",
+   "path": "/var/log/phplog",
+   "size": 11510,
+   "time": 1791504085
+  },
+  {
+   "id": "graphql",
+   "group": "unraid",
+   "label": "api",
+   "param": "",
+   "path": "/var/log/graphql-api.log",
+   "size": 9761,
+   "time": 1791501173
+  },
+  {
+   "id": "mail",
+   "group": "unraid",
+   "label": "mail",
+   "param": "",
+   "path": "/var/log/maillog",
+   "size": 0,
+   "time": 1619630927
+  },
+  {
+   "id": "parity",
+   "group": "unraid",
+   "label": "parity",
+   "param": "",
+   "path": "/boot/config/parity-checks.log",
+   "size": 112,
+   "time": 1791501094
+  },
+  {
+   "id": "container:immich_server",
+   "group": "containers",
+   "label": "container",
+   "param": "immich_server",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:immich_redis",
+   "group": "containers",
+   "label": "container",
+   "param": "immich_redis",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:immich_postgres",
+   "group": "containers",
+   "label": "container",
+   "param": "immich_postgres",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:Nextcloud",
+   "group": "containers",
+   "label": "container",
+   "param": "Nextcloud",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:mariadb-nextcloud",
+   "group": "containers",
+   "label": "container",
+   "param": "mariadb-nextcloud",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:EmbyServer",
+   "group": "containers",
+   "label": "container",
+   "param": "EmbyServer",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:kopia",
+   "group": "containers",
+   "label": "container",
+   "param": "kopia",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:Grafana",
+   "group": "containers",
+   "label": "container",
+   "param": "Grafana",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:prometheus",
+   "group": "containers",
+   "label": "container",
+   "param": "prometheus",
+   "path": null,
+   "size": null,
+   "time": null
+  },
+  {
+   "id": "container:Node-Exporter",
+   "group": "containers",
+   "label": "container",
+   "param": "Node-Exporter",
+   "path": null,
+   "size": null,
+   "time": null
+  }
+ ],
+ "syslog": {
+  "errors": 0,
+  "warnings": 0
+ },
+ "varlog": {
+  "ok": true,
+  "own": true,
+  "fs": "tmpfs",
+  "total": 134217728,
+  "used": 622592,
+  "pct": 0,
+  "warn": 60,
+  "full": 80
+ }
+}

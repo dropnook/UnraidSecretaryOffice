@@ -14,15 +14,20 @@
 #    4 bump       OFFICE_VERSION (src/bootstrap.php) == AGENT_VERSION (agent/agent.php), both older than x.y.z;
 #                 both set to x.y.z
 #    5 build      bash plugin/build.sh <x.y.z> passes on the Mac (what the Action runs: versions, the .plg's max)
-#    6 suite      rsync to uso-test:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
-#                 (a red build or suite puts the two version lines back)
-#    7 commit     «Version x.y.z» (+ Co-Authored-By), push main, origin/main is that commit
-#    8 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix)
+#    6 ui clicks  bash tools/ui-clicks.sh on this Mac: every desk page built from this clone's files in a headless
+#                 Chrome (a throwaway profile, both themes, 1440 and 375 px) - every <summary>, row, group and tile
+#                 that opens or closes does so on its own and stays so (also when the desk draws itself anew), no
+#                 console error, no horizontal scrolling. Red stops the release like the suite; without node,
+#                 playwright-core or a Chrome it is skipped with a note (≈ 2 min)
+#    7 suite      rsync to uso-test:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
+#                 (a red build, click test or suite puts the two version lines back)
+#    8 commit     «Version x.y.z» (+ Co-Authored-By), push main, origin/main is that commit
+#    9 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix)
 #                 --notes-file <notes>; the tag points to the commit
-#    9 action     the Action plugin.yml for v<x.y.z> finished green (polled, at most 10 min)
-#   10 assets     the release has the .plg and the .txz; its .plg names office x.y.z; the public «latest» address
+#   10 action     the Action plugin.yml for v<x.y.z> finished green (polled, at most 10 min)
+#   11 assets     the release has the .plg and the .txz; its .plg names office x.y.z; the public «latest» address
 #                 serves that .plg (what `plugin check` reads)
-#   11 servers    USOPartner (uso-partner) -> Tower (uso-test) -> nostromo (unless --no-nostromo), each:
+#   12 servers    USOPartner (uso-partner) -> Tower (uso-test) -> nostromo (unless --no-nostromo), each:
 #                 reachable; no long job running (the .plg's own guard pattern: backup run/setup, restore, drill,
 #                 Jack Emby's runs) - refused, never waited for; plugin check names the new .plg version;
 #                 plugin update; then the installed .plg's version, OFFICE_VERSION in the installed bootstrap.php,
@@ -33,13 +38,13 @@
 #                 again, only checked.
 #
 #   --dry           prints every command; runs only the read-only ones: steps 1-3, the version check (no bump), the
-#                   build with the CURRENT version (into dist/, ignored by git), the suite on a copy of its own
-#                   (uso-test:/tmp/uso-release-dry/), steps 9-10 against the CURRENT release, and on USOPartner and
+#                   build with the CURRENT version (into dist/, ignored by git), the click test, the suite on a copy of
+#                   its own (uso-test:/tmp/uso-release-dry/), steps 10-11 against the CURRENT release, and on USOPartner and
 #                   Tower `plugin check` plus the checks against what is installed. Nothing is bumped, committed,
 #                   pushed, released or updated; nostromo is not contacted at all. A red step does not stop a dry
 #                   run: every red step is listed at the end (exit 1 if any).
 #   --no-nostromo   stop after Tower - nostromo later, when no run is active: `tools/release.sh <x.y.z> --servers-only`
-#   --servers-only  the release is out already: only steps 1, 9, 10, 11 (resume after a red server step)
+#   --servers-only  the release is out already: only steps 1, 10, 11, 12 (resume after a red server step)
 #
 # Log: ~/Claude/UnraidSecretaryOffice-briefs/releases/<x.y.z>.log - every run appended: all it prints, the suite's
 # output and every server's answers included. Exit: 0 done, 1 a red step, 2 wrong call.
@@ -210,7 +215,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------------------------------
-step 6 suite
+step 6 'ui clicks'
+uc_out=$(mktemp "${TMPDIR:-/tmp}/uso-release-clicks.XXXXXX")
+started=$(date +%s)
+echo "   \$ bash tools/ui-clicks.sh   (its table and every failure follow)"
+bash tools/ui-clicks.sh > "$uc_out" 2>&1
+rc=$?
+sed 's/^/   | /' "$uc_out"
+last=$(grep -E '^ui clicks:' "$uc_out" | tail -n 1)
+echo "   $(( $(date +%s) - started )) s, exit $rc"
+if (( rc == 3 )); then
+    echo "   SKIPPED: ${last:-the click test did not run} - it needs node and playwright-core on this Mac (tools/ui-clicks.mjs)"
+elif (( rc != 0 )); then
+    unbump; red "the click test failed (${last:-no summary line}; its table above)"
+else
+    ok "$last"
+fi
+rm -f "$uc_out"
+
+# ---------------------------------------------------------------------------------------------------------------------
+step 7 suite
 suite_dir=/tmp/uso-main
 (( dry )) && suite_dir=/tmp/uso-release-dry && echo "   (dry: a copy of its own, $suite_host:$suite_dir - /tmp/uso-main stays the coordinator's)"
 suite_out=$(mktemp "${TMPDIR:-/tmp}/uso-release-suite.XXXXXX")
@@ -234,7 +258,7 @@ fi
 rm -f "$suite_out"
 
 # ---------------------------------------------------------------------------------------------------------------------
-step 7 commit
+step 8 commit
 msg=$(printf 'Version %s\n\n%s\n' "$ver" "$coauthor")
 if (( dry )); then
     echo "   (dry, not run) \$ git add src/bootstrap.php agent/agent.php"
@@ -254,7 +278,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------------------------------
-step 8 release
+step 9 release
 IFS=. read -r v_maj v_min v_fix <<<"$ver"
 title="Version $v_maj.$v_min"; [[ "$v_fix" == 0 ]] || title="Version $ver"
 if (( dry )); then
@@ -268,11 +292,11 @@ fi
 fi  # not --servers-only
 
 # ---------------------------------------------------------------------------------------------------------------------
-# steps 9-11 look at a release: the new one - in a dry run the current one (what the servers should have now)
+# steps 10-12 look at a release: the new one - in a dry run the current one (what the servers should have now)
 rel=$ver
-if (( dry )) && (( ! servers_only )); then rel=$cur_office; echo; echo "(dry: steps 9-11 look at the CURRENT release v$rel)"; fi
+if (( dry )) && (( ! servers_only )); then rel=$cur_office; echo; echo "(dry: steps 10-12 look at the CURRENT release v$rel)"; fi
 
-step 9 action
+step 10 action
 run_line=''
 deadline=$(( $(date +%s) + 600 ))
 while :; do
@@ -295,7 +319,7 @@ else
     ok "run $run_id: completed success"
 fi
 
-step 10 assets
+step 11 assets
 plg_ver=''
 assets=$(gh release view "v$rel" --json assets --jq '.assets[].name' 2>/dev/null)
 echo "$assets" | sed 's/^/      /'
@@ -402,7 +426,7 @@ plugin_check() {
     grep -v -E '^plugin: downloading|^$' <<<"$out" | sed 's/^/      /'
 }
 
-step 11 servers
+step 12 servers
 done_at=()
 for host in "${servers[@]}"; do
     who=$(label "$host")
@@ -412,7 +436,7 @@ for host in "${servers[@]}"; do
         echo "   (dry, not contacted) plugin update $name.plg; then the same checks as above"
         continue
     fi
-    if [[ -z "$plg_ver" ]]; then red "$who: no .plg version from step 10 to compare with"; continue; fi
+    if [[ -z "$plg_ver" ]]; then red "$who: no .plg version from step 11 to compare with"; continue; fi
     state=$(server_state "$host"); rc=$?
     if (( rc != 0 )) || ! grep -q '^now=' <<<"$state"; then red "$who: ssh $host failed (exit $rc)"; continue; fi
     sed 's/^/      /' <<<"$state"

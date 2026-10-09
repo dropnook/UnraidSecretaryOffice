@@ -1,0 +1,822 @@
+{
+ "time": 1791561874,
+ "duration_ms": 34,
+ "checks": {
+  "advisor": [
+   {
+    "id": "fcp",
+    "level": "recommended",
+    "ok": true,
+    "params": [],
+    "link": "apps",
+    "sig": "advisor:fcp:355972d5d6eaed31"
+   },
+   {
+    "id": "filesviewer",
+    "level": "recommended",
+    "ok": true,
+    "params": [],
+    "link": "apps",
+    "sig": "advisor:filesviewer:0eae8650f74cc4cd"
+   },
+   {
+    "id": "streamviewer",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "media": "Emby"
+    },
+    "link": "apps",
+    "sig": "advisor:streamviewer:1705f89e98ffddf5"
+   }
+  ],
+  "backup": [
+   {
+    "id": "setup",
+    "level": "required",
+    "ok": true,
+    "params": {
+     "path": "/usr/local/emhttp/plugins/unraid-secretary-office/backup/setup.sh"
+    },
+    "link": "#/backup/setup",
+    "sig": "backup:setup:ef070bc92f409fba"
+   },
+   {
+    "id": "schedule",
+    "level": "required",
+    "ok": true,
+    "params": [],
+    "link": "#/backup/schedule",
+    "sig": "backup:schedule:331d0a734519449d"
+   },
+   {
+    "id": "kopia",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "name": "kopia"
+    },
+    "link": "apps",
+    "sig": "backup:kopia:2e1a046743b8ca14"
+   },
+   {
+    "id": "kopia_running",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "name": "kopia"
+    },
+    "link": "docker",
+    "sig": "backup:kopia_running:58e3c1e9a2731be2"
+   },
+   {
+    "id": "kopia_root",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "name": "kopia",
+     "puid": "0"
+    },
+    "link": "docker",
+    "sig": "backup:kopia_root:bd5fe119247e5351"
+   },
+   {
+    "id": "kopia_mapping",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "name": "kopia",
+     "path": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+     "now": "ro,slave"
+    },
+    "link": "docker",
+    "sig": "backup:kopia_mapping:ccd252546c9577c5"
+   },
+   {
+    "id": "drift",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1
+    },
+    "link": "#/backup/setup",
+    "sig": "backup:drift:abeb2a62cfeb65d5"
+   },
+   {
+    "id": "dumps_share",
+    "level": "required",
+    "ok": true,
+    "params": {
+     "share": "UnraidSecretaryOffice"
+    },
+    "link": "#/backup/setup",
+    "sig": "backup:dumps_share:670ea59e3da19c13"
+   },
+   {
+    "id": "mnt_folders",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "folders": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+     "path": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+     "name": "kopia"
+    },
+    "link": "#/backup/setup",
+    "sig": "backup:mnt_folders:a329b70fd9663dd0"
+   },
+   {
+    "id": "nextcloud_datadir",
+    "level": "required",
+    "ok": true,
+    "params": {
+     "name": "Nextcloud",
+     "path": "/mnt/user/nextcloud",
+     "mode": "750"
+    },
+    "link": "userscripts",
+    "sig": "backup:nextcloud_datadir:e45e92221e1da67a"
+   }
+  ],
+  "caretaker": [
+   {
+    "id": "unraid",
+    "level": "required",
+    "ok": true,
+    "params": {
+     "version": "7.3.3",
+     "min": "6.12"
+    },
+    "link": null,
+    "sig": "caretaker:unraid:6a9cb05881e544a3"
+   },
+   {
+    "id": "unraid_tested",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "version": "7.3.3",
+     "tested": "7.3",
+     "next": "8"
+    },
+    "link": "plugins",
+    "sig": "caretaker:unraid_tested:721718580887e768"
+   },
+   {
+    "id": "office_update",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "version": "1.52.0",
+     "latest": "1.44.0"
+    },
+    "link": "#/caretaker",
+    "sig": "caretaker:office_update:b50ca51764f3ef8a"
+   },
+   {
+    "id": "community_apps",
+    "level": "recommended",
+    "ok": true,
+    "params": [],
+    "link": "plugins",
+    "sig": "caretaker:community_apps:fff56b450c279c9c"
+   },
+   {
+    "id": "notifications",
+    "level": "recommended",
+    "ok": false,
+    "params": [],
+    "link": "notifications",
+    "sig": "caretaker:notifications:cbb075e51149a666"
+   },
+   {
+    "id": "api_down",
+    "level": "recommended",
+    "ok": true,
+    "params": [],
+    "link": "management",
+    "sig": "caretaker:api_down:959abf413a1596dc"
+   },
+   {
+    "id": "metrics_written",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "dir": "/mnt/addons/UnraidSecretaryOffice/metrics"
+    },
+    "link": null,
+    "sig": "caretaker:metrics_written:8fce8814f4ba6acd"
+   },
+   {
+    "id": "metrics_textfile",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "name": "Node-Exporter",
+     "dir": "/mnt/addons/UnraidSecretaryOffice/metrics"
+    },
+    "link": "#/advisor",
+    "sig": "caretaker:metrics_textfile:10805019d54c7e02"
+   },
+   {
+    "id": "metrics_prometheus",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "name": "prometheus"
+    },
+    "link": "docker",
+    "sig": "caretaker:metrics_prometheus:96280ce647443f48"
+   },
+   {
+    "id": "partner_silent",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "name": "USOPartner",
+     "pair": "2ec7accd"
+    },
+    "link": "#/caretaker",
+    "sig": "caretaker:partner_silent:349ef76fd79f64c7"
+   },
+   {
+    "id": "partner_silent",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "name": "USOPartner",
+     "pair": "26bbb6eb"
+    },
+    "link": "#/caretaker",
+    "sig": "caretaker:partner_silent:a542605c9b2a7a81"
+   },
+   {
+    "id": "syslog_share_sleeps",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "share": "syslog",
+     "disks": "–",
+     "pools": "big, cache"
+    },
+    "link": "#/advisor",
+    "sig": "caretaker:syslog_share_sleeps:ce630edd6188e52e"
+   },
+   {
+    "id": "syslog_no_rotation",
+    "level": "required",
+    "ok": true,
+    "params": {
+     "share": "syslog",
+     "size": "50 MB",
+     "files": 4
+    },
+    "link": "#/advisor",
+    "sig": "caretaker:syslog_no_rotation:d34889bc26ac71e5"
+   },
+   {
+    "id": "syslog_share_public",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "share": "syslog",
+     "proto": "–"
+    },
+    "link": "#/advisor",
+    "sig": "caretaker:syslog_share_public:3c93f19edc74e8b3"
+   },
+   {
+    "id": "syslog_port_taken",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "port": 514,
+     "names": "–"
+    },
+    "link": "#/advisor",
+    "sig": "caretaker:syslog_port_taken:902464dd5b26c18a"
+   }
+  ],
+  "cleanup": [
+   {
+    "id": "docker",
+    "level": "required",
+    "ok": true,
+    "params": [],
+    "link": "docker",
+    "sig": "cleanup:docker:5a9ed51afb24d563"
+   },
+   {
+    "id": "trash_old",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "n": 0,
+     "days": 0,
+     "size": ""
+    },
+    "link": "#/cleanup/tidy",
+    "sig": "cleanup:trash_old:6119a57a6e9472d4"
+   }
+  ],
+  "logs": [
+   {
+    "id": "varlog",
+    "level": "required",
+    "ok": true,
+    "params": {
+     "pct": 1,
+     "used": "1.6 MB",
+     "total": "128 MB"
+    },
+    "link": "#/logs",
+    "sig": "logs:varlog:26998b5cc2db61d1"
+   }
+  ],
+  "restore": [
+   {
+    "id": "drill_failed",
+    "level": "recommended",
+    "ok": true,
+    "params": {
+     "items": ""
+    },
+    "link": "#/restore/drill",
+    "sig": "restore:drill_failed:af057c538bafb746"
+   }
+  ],
+  "snapshot": [],
+  "watchman": [
+   {
+    "id": "login_new_ip",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 2,
+     "ip": "192.168.1.125",
+     "user": "root",
+     "service": "WebGUI, SSH (publickey)"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:login_new_ip:0655f7efea2060b1"
+   },
+   {
+    "id": "container_new",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 2,
+     "name": "kopia",
+     "rights": "--cap-add=SYS_ADMIN --device=/dev/fuse -p 51515:51515/tcp"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:container_new:6b22661b8c2325c3"
+   },
+   {
+    "id": "plugin_new",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 3,
+     "name": "fix.common.problems",
+     "source": "raw.githubusercontent.com/unraid"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:plugin_new:ae51042df9046de1"
+   },
+   {
+    "id": "plugin_source",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "name": "unraid-secretary-office",
+     "source": "github.com/dropnook",
+     "old": "github.com/vipermark2"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:plugin_source:347553b83baeb249"
+   },
+   {
+    "id": "cron_new",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "lines": 1,
+     "jobs": "cron.d/filesviewer: 30 4 * * * /usr/bin/php filesviewer/include/filesviewer_recycle_cron.php",
+     "fix": ""
+    },
+    "link": "#/watchman",
+    "sig": "watchman:cron_new:2ede27d4232e694c"
+   },
+   {
+    "id": "flow_written",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "share": "cache/system",
+     "size": "120 KB",
+     "from": ""
+    },
+    "link": "#/watchman",
+    "sig": "watchman:flow_written:f78df4f0bbce015e"
+   },
+   {
+    "id": "flow_gone",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "share": "speedtest",
+     "size": "4.0 GB",
+     "more": ""
+    },
+    "link": "#/watchman",
+    "sig": "watchman:flow_gone:bc31f5a4f9aa69d2"
+   },
+   {
+    "id": "listen_new",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 2,
+     "prog": "php",
+     "port": "4567"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:listen_new:163f429dceade9c6"
+   },
+   {
+    "id": "door_new",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "door": "",
+     "name": "wg0"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:door_new:e43826b66fa44d15"
+   },
+   {
+    "id": "net_sender_new",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 3,
+     "sender": "10.0.1.21",
+     "host": "10.0.1.21"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_sender_new:c55404094c95983f"
+   },
+   {
+    "id": "net_new_device",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "name": "device-4",
+     "mac": "02:00:00:00:00:04",
+     "ip": "192.0.2.77",
+     "router": "GatewayHome"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_new_device:b4e0e9ab3f29d2ba"
+   },
+   {
+    "id": "net_router_login",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "admin": "Nina",
+     "ip": "192.168.1.191",
+     "router": "GatewayHome"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_router_login:e953896f3c8c38d5"
+   },
+   {
+    "id": "net_firewall_change",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "area": "port_forward",
+     "admin": "Nina",
+     "router": "GatewayHome"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_firewall_change:48b34a54a7fbb7c9"
+   },
+   {
+    "id": "net_vpn_login",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "user": "nina-laptop",
+     "ip": "203.0.113.50",
+     "router": "GatewayHome"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_vpn_login:48a60468b0cb2cdc"
+   },
+   {
+    "id": "net_ips_server",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 2,
+     "signature": "ET MALWARE Possible Botnet C2 Beacon",
+     "remote": "203.0.113.66",
+     "server": "192.168.1.111",
+     "router": "GatewayHome"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_ips_server:d0fa83190895738f"
+   },
+   {
+    "id": "net_blocked_from_server",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "dst": "203.0.113.9",
+     "port": "tcp/443",
+     "server": "192.168.1.111",
+     "router": "GatewayHome"
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_blocked_from_server:9fd6e3c1a8f1b54f"
+   },
+   {
+    "id": "net_log_silent",
+    "level": "recommended",
+    "ok": false,
+    "params": {
+     "n": 1,
+     "router": "GatewayHome",
+     "hours": 28
+    },
+    "link": "#/watchman",
+    "sig": "watchman:net_log_silent:a55070742a997c7b"
+   }
+  ]
+ },
+ "staff": {
+  "advisor": {
+   "hired": true,
+   "ok": true,
+   "why": "yes",
+   "params": []
+  },
+  "backup": {
+   "hired": true,
+   "ok": true,
+   "why": "yes",
+   "params": {
+    "kopia": "kopia"
+   }
+  },
+  "cleanup": {
+   "hired": true,
+   "ok": true,
+   "why": "yes",
+   "params": []
+  },
+  "emby": {
+   "hired": false,
+   "ok": true,
+   "why": "yes",
+   "params": {
+    "name": "EmbyServer"
+   }
+  },
+  "logs": {
+   "hired": true,
+   "ok": true,
+   "why": "yes",
+   "params": []
+  },
+  "restore": {
+   "hired": true,
+   "ok": true,
+   "why": "packages",
+   "params": {
+    "n": 8
+   }
+  },
+  "snapshot": {
+   "hired": true,
+   "ok": true,
+   "why": "yes",
+   "params": {
+    "places": "disk2, big, cache, disk1"
+   }
+  },
+  "watchman": {
+   "hired": true,
+   "ok": true,
+   "why": "yes",
+   "params": []
+  }
+ },
+ "office": {
+  "checked": 1791479672,
+  "latest": "1.44.0",
+  "name": "Version 1.44",
+  "url": "https://github.com/dropnook/UnraidSecretaryOffice/releases/tag/v1.44.0",
+  "published": 1791472741,
+  "version": "1.52.0",
+  "newer": false
+ },
+ "hired": [
+  "snapshot",
+  "logs",
+  "watchman",
+  "cleanup",
+  "advisor",
+  "backup",
+  "restore",
+  "caretaker"
+ ],
+ "notify": {
+  "on": true,
+  "available": true,
+  "waiting": 0,
+  "last": {
+   "time": 1791312692,
+   "sent": true,
+   "items": [
+    {
+     "desk": "backup",
+     "id": "schedule",
+     "params": []
+    }
+   ]
+  }
+ },
+ "partners": {
+  "pairs": [
+   {
+    "id": "2ec7accd",
+    "name": "USOPartner",
+    "address": "192.168.1.190",
+    "port": 22,
+    "public": false,
+    "trust": "mine",
+    "paired": 1791411224,
+    "last_heard": 1791561334,
+    "last_try": 1791561334,
+    "reachable": true,
+    "why": null,
+    "array": "started",
+    "night": false,
+    "version": "1.52.0",
+    "silent": false,
+    "tailnet": null,
+    "sends": true,
+    "send_units": [
+     "place",
+     "share:domains"
+    ],
+    "wanted": [
+     "place",
+     "share:domains"
+    ],
+    "offered": null,
+    "offer": {
+     "time": 1791444993,
+     "ok": true,
+     "why": null,
+     "pending": [
+      "place"
+     ]
+    },
+    "status_time": 1791561334,
+    "wish": null,
+    "receive": null,
+    "door": null,
+    "they_keep": {
+     "name": "USOPartner",
+     "array": "started",
+     "version": "1.52.0",
+     "lead": {
+      "must": 0,
+      "recommended": 3
+     },
+     "last_run": {
+      "run": "20261008-1736",
+      "result": "aborted",
+      "time": 1791473780
+     },
+     "pool": {
+      "free_bytes": 15129260032,
+      "asleep": false
+     },
+     "quota": {
+      "bytes": null,
+      "used_bytes": 988725248
+     },
+     "units": {
+      "share:appdata": {
+       "snaps": 5,
+       "newest": "uso-backup-20261008-0937",
+       "used_bytes": 252571648
+      },
+      "share:domains": {
+       "snaps": 7,
+       "newest": "uso-backup-20261009-0430",
+       "used_bytes": 98304
+      },
+      "place": {
+       "snaps": 5,
+       "newest": "uso-backup-20261009-0430",
+       "used_bytes": 735956992
+      }
+     },
+     "agreed": [
+      "share:appdata",
+      "share:domains",
+      "place"
+     ],
+     "wish": []
+    },
+    "i_keep": null,
+    "last_transfer": {
+     "bytes": 151389568,
+     "mbit": 1211.1
+    },
+    "tickets": []
+   },
+   {
+    "id": "26bbb6eb",
+    "name": "USOPartner",
+    "address": "192.168.1.190",
+    "port": 22,
+    "public": false,
+    "trust": "mine",
+    "paired": 1791455144,
+    "last_heard": 1791561328,
+    "last_try": null,
+    "reachable": null,
+    "why": null,
+    "array": null,
+    "night": null,
+    "version": null,
+    "silent": false,
+    "tailnet": null,
+    "sends": false,
+    "send_units": [],
+    "wanted": [],
+    "offered": null,
+    "offer": null,
+    "status_time": null,
+    "wish": null,
+    "receive": {
+     "pool": "big",
+     "quota_gb": 0,
+     "retention": "7 4 6",
+     "window": "00:00-00:00",
+     "wake": true,
+     "units": [
+      "share:pdata",
+      "place"
+     ]
+    },
+    "door": "open",
+    "they_keep": null,
+    "i_keep": {
+     "pair": "26bbb6eb",
+     "units": {
+      "place": {
+       "snap": "uso-backup-20261008-1701",
+       "bytes": 3153920,
+       "seconds": 0,
+       "time": 1791471681,
+       "snaps": 4
+      },
+      "share:pdata": {
+       "snap": "uso-backup-20261008-1701",
+       "bytes": 0,
+       "seconds": 0,
+       "time": 1791471681,
+       "snaps": 4
+      }
+     },
+     "used_bytes": 170270720,
+     "time": 1791471681
+    },
+    "last_transfer": null,
+    "tickets": []
+   }
+  ],
+  "pending": [],
+  "silent_after": 21600,
+  "ticket_pairs": [],
+  "ticket_requests": []
+ }
+}

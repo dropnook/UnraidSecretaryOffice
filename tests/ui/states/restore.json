@@ -1,0 +1,1448 @@
+{
+ "time": 1791551074,
+ "host": "Tower",
+ "engine": {
+  "found": true,
+  "settings": true,
+  "busy": false,
+  "holder": null,
+  "kopia": false,
+  "kopia_container": "kopia",
+  "mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+  "view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
+  "prefix": "uso-backup-",
+  "flash": "tar"
+ },
+ "place": {
+  "share": "UnraidSecretaryOffice",
+  "base": "/mnt/user/UnraidSecretaryOffice/backup",
+  "asleep": false,
+  "found": true,
+  "partner": null,
+  "snaps": 6
+ },
+ "kopia": {
+  "enabled": false,
+  "container": null,
+  "running": false,
+  "root": null,
+  "restore": null
+ },
+ "compose_root": "/boot/config/plugins/compose.manager/projects",
+ "templates_dir": "/boot/config/plugins/dockerMan/templates-user",
+ "libvirt_img": "/mnt/user/system/libvirt/libvirt.img",
+ "vm_service": true,
+ "pools_asleep": [],
+ "shares": [
+  {
+   "name": "appdata",
+   "mode": "snapshot",
+   "last": null
+  },
+  {
+   "name": "domains",
+   "mode": "snapshot",
+   "last": null
+  },
+  {
+   "name": "isos",
+   "mode": "snapshot",
+   "last": null
+  },
+  {
+   "name": "media",
+   "mode": "snapshot",
+   "last": null
+  },
+  {
+   "name": "nextcloud",
+   "mode": "snapshot",
+   "last": null
+  },
+  {
+   "name": "photos",
+   "mode": "snapshot",
+   "last": null
+  },
+  {
+   "name": "speedtest",
+   "mode": "snapshot",
+   "last": null
+  },
+  {
+   "name": "system",
+   "mode": "off",
+   "last": null
+  },
+  {
+   "name": "UnraidSecretaryOffice",
+   "mode": "snapshot",
+   "last": null
+  }
+ ],
+ "apps": [
+  {
+   "id": "EmbyServer",
+   "name": "EmbyServer",
+   "type": "template",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "ok",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/EmbyServer",
+   "containers": [
+    {
+     "name": "EmbyServer",
+     "image": "emby/embyserver:latest",
+     "digest": "emby/embyserver@sha256:997e8c1ea1fde7d303eb455143e7be77dc4f20cb06acb11ffdcbcfaa87186ec2",
+     "template": "my-EmbyServer.xml",
+     "service": "",
+     "db": null,
+     "now": "running"
+    }
+   ],
+   "files": [
+    {
+     "path": "db/sqlite_EmbyServer_authentication.db",
+     "bytes": 32768,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "sqlite",
+     "container": "EmbyServer"
+    },
+    {
+     "path": "db/sqlite_EmbyServer_library.db",
+     "bytes": 307200,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "sqlite",
+     "container": "EmbyServer"
+    },
+    {
+     "path": "db/sqlite_EmbyServer_users.db",
+     "bytes": 20480,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "sqlite",
+     "container": "EmbyServer"
+    },
+    {
+     "path": "my-EmbyServer.xml",
+     "bytes": 1472,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "template",
+     "container": ""
+    }
+   ],
+   "dumps": [],
+   "templates": [
+    {
+     "file": "my-EmbyServer.xml",
+     "now": "same"
+    }
+   ],
+   "compose": null,
+   "nextcloud": [],
+   "sqlite": [
+    {
+     "container": "EmbyServer",
+     "file": "db/sqlite_EmbyServer_library.db",
+     "source": "/mnt/user/appdata/emby/data/library.db",
+     "check": "ok",
+     "bytes": 307200,
+     "time": 1791513000,
+     "kept": false
+    },
+    {
+     "container": "EmbyServer",
+     "file": "db/sqlite_EmbyServer_users.db",
+     "source": "/mnt/user/appdata/emby/data/users.db",
+     "check": "ok",
+     "bytes": 20480,
+     "time": 1791513000,
+     "kept": false
+    },
+    {
+     "container": "EmbyServer",
+     "file": "db/sqlite_EmbyServer_authentication.db",
+     "source": "/mnt/user/appdata/emby/data/authentication.db",
+     "check": "ok",
+     "bytes": 32768,
+     "time": 1791513000,
+     "kept": false
+    }
+   ],
+   "own_backups": [],
+   "stale": false,
+   "immich": false,
+   "db_only": false,
+   "present": true,
+   "folders": [
+    {
+     "path": "/mnt/user/appdata/emby",
+     "containers": [
+      "EmbyServer"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/appdata/emby",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/appdata",
+       "own_dataset": false,
+       "inner": [],
+       "count": 7,
+       "latest": {
+        "id": "cache/appdata@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430/emby",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791426605,
+     "share": "appdata",
+     "whole": false
+    }
+   ],
+   "shares": [
+    {
+     "path": "/mnt/user/media",
+     "containers": [
+      "EmbyServer"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "big",
+       "fs": "zfs",
+       "live": "/mnt/big/media",
+       "asleep": false,
+       "exists": true,
+       "dataset": "big/media",
+       "own_dataset": true,
+       "inner": [],
+       "count": 4,
+       "latest": {
+        "id": "big/media@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/big/media/.zfs/snapshot/uso-backup-20261009-0430",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 4,
+     "newest": 1791513012,
+     "oldest": 1791458906,
+     "share": "media",
+     "whole": true
+    }
+   ],
+   "needs": [
+    {
+     "share": "appdata",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    },
+    {
+     "share": "media",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    }
+   ],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "USOPartner",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ]
+  },
+  {
+   "id": "Grafana",
+   "name": "Grafana",
+   "type": "template",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "ok",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Grafana",
+   "containers": [
+    {
+     "name": "Grafana",
+     "image": "grafana/grafana",
+     "digest": "grafana/grafana@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572",
+     "template": "my-Grafana.xml",
+     "service": "",
+     "db": null,
+     "now": "stopped"
+    }
+   ],
+   "files": [
+    {
+     "path": "my-Grafana.xml",
+     "bytes": 3328,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "template",
+     "container": ""
+    }
+   ],
+   "dumps": [],
+   "templates": [
+    {
+     "file": "my-Grafana.xml",
+     "now": "same"
+    }
+   ],
+   "compose": null,
+   "nextcloud": [],
+   "sqlite": [],
+   "own_backups": [],
+   "stale": false,
+   "immich": false,
+   "db_only": false,
+   "present": true,
+   "folders": [
+    {
+     "path": "/mnt/user/appdata/grafana",
+     "containers": [
+      "Grafana"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/appdata/grafana",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/appdata",
+       "own_dataset": false,
+       "inner": [],
+       "count": 7,
+       "latest": {
+        "id": "cache/appdata@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430/grafana",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791426605,
+     "share": "appdata",
+     "whole": false
+    }
+   ],
+   "shares": [],
+   "needs": [
+    {
+     "share": "appdata",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    }
+   ],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "USOPartner",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ]
+  },
+  {
+   "id": "immich",
+   "name": "immich",
+   "type": "compose",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "warnings",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/immich",
+   "containers": [
+    {
+     "name": "immich_server",
+     "image": "ghcr.io/immich-app/immich-server:release",
+     "digest": "ghcr.io/immich-app/immich-server@sha256:be56bc12c17a84617a979ad1eab1d9105bbec1955ffa7da09b3f9cf79d3bd09d",
+     "template": "",
+     "service": "immich-server",
+     "db": null,
+     "now": "running"
+    },
+    {
+     "name": "immich_redis",
+     "image": "valkey/valkey:8-bookworm",
+     "digest": "valkey/valkey@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571",
+     "template": "",
+     "service": "redis",
+     "db": "cache",
+     "now": "running"
+    },
+    {
+     "name": "immich_postgres",
+     "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+     "digest": "ghcr.io/immich-app/postgres@sha256:c570d9e1c2494f65d2a0a379a7f6df66e8441964254a30aa62cc58e8ebf1dee0",
+     "template": "",
+     "service": "database",
+     "db": "postgres",
+     "now": "running"
+    }
+   ],
+   "files": [
+    {
+     "path": "db/postgres_immich_postgres.sql.gz",
+     "bytes": 18628029,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "dump",
+     "container": "immich_postgres"
+    }
+   ],
+   "dumps": [
+    {
+     "file": "db/postgres_immich_postgres.sql.gz",
+     "container": "immich_postgres",
+     "type": "postgres",
+     "bytes": 18628029,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "kept": false,
+     "state": "ok",
+     "login": "user",
+     "user_var": "POSTGRES_USER",
+     "password_var": "POSTGRES_PASSWORD",
+     "client": "psql",
+     "db": null
+    }
+   ],
+   "templates": [],
+   "compose": {
+    "project": "immich",
+    "dir": "",
+    "working_dir": "/mnt/user/appdata/immich",
+    "config_files": [],
+    "files": [],
+    "indirect": false,
+    "now": []
+   },
+   "nextcloud": [],
+   "sqlite": [],
+   "own_backups": [
+    {
+     "kind": "immich",
+     "container": "immich_server",
+     "path": "/mnt/user/appdata/immich/upload/backups",
+     "files": 1,
+     "newest": 1791504001,
+     "asleep": false
+    }
+   ],
+   "stale": false,
+   "immich": true,
+   "db_only": false,
+   "present": true,
+   "folders": [
+    {
+     "path": "/mnt/user/appdata/immich",
+     "containers": [
+      "immich_server",
+      "immich_postgres"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/appdata/immich",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/appdata",
+       "own_dataset": false,
+       "inner": [],
+       "count": 7,
+       "latest": {
+        "id": "cache/appdata@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430/immich",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791426605,
+     "share": "appdata",
+     "whole": false
+    }
+   ],
+   "shares": [
+    {
+     "path": "/mnt/user/photos",
+     "containers": [
+      "immich_server"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "big",
+       "fs": "zfs",
+       "live": "/mnt/big/photos",
+       "asleep": false,
+       "exists": true,
+       "dataset": "big/photos",
+       "own_dataset": true,
+       "inner": [],
+       "count": 4,
+       "latest": {
+        "id": "big/photos@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/big/photos/.zfs/snapshot/uso-backup-20261009-0430",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 4,
+     "newest": 1791513012,
+     "oldest": 1791458906,
+     "share": "photos",
+     "whole": true
+    }
+   ],
+   "needs": [
+    {
+     "share": "appdata",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    },
+    {
+     "share": "photos",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    }
+   ],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "USOPartner",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ]
+  },
+  {
+   "id": "kopia",
+   "name": "kopia",
+   "type": "template",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "ok",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/kopia",
+   "containers": [
+    {
+     "name": "kopia",
+     "image": "ghcr.io/imagegenius/kopia",
+     "digest": "ghcr.io/imagegenius/kopia@sha256:46e1675a66d0190d6af8c2241c99c78c22619fe8f340e7a6acc5b8b48e37c1e9",
+     "template": "my-kopia.xml",
+     "service": "",
+     "db": null,
+     "now": "stopped"
+    }
+   ],
+   "files": [
+    {
+     "path": "my-kopia.xml",
+     "bytes": 5187,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "template",
+     "container": ""
+    }
+   ],
+   "dumps": [],
+   "templates": [
+    {
+     "file": "my-kopia.xml",
+     "now": "same"
+    }
+   ],
+   "compose": null,
+   "nextcloud": [],
+   "sqlite": [],
+   "own_backups": [],
+   "stale": false,
+   "immich": false,
+   "db_only": false,
+   "present": true,
+   "folders": [
+    {
+     "path": "/mnt/user/appdata/kopia",
+     "containers": [
+      "kopia"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/appdata/kopia",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/appdata",
+       "own_dataset": false,
+       "inner": [],
+       "count": 7,
+       "latest": {
+        "id": "cache/appdata@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430/kopia",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791426605,
+     "share": "appdata",
+     "whole": false
+    }
+   ],
+   "shares": [],
+   "needs": [
+    {
+     "share": "appdata",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    }
+   ],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "USOPartner",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ]
+  },
+  {
+   "id": "mariadb-nextcloud",
+   "name": "mariadb-nextcloud",
+   "type": "template",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "ok",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/mariadb-nextcloud",
+   "containers": [
+    {
+     "name": "mariadb-nextcloud",
+     "image": "mariadb:11",
+     "digest": "mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15",
+     "template": "my-mariadb-nextcloud.xml",
+     "service": "",
+     "db": "mariadb",
+     "now": "running"
+    }
+   ],
+   "files": [
+    {
+     "path": "db/mariadb_mariadb-nextcloud_nextcloud.sql.gz",
+     "bytes": 290816,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "dump",
+     "container": "mariadb-nextcloud"
+    },
+    {
+     "path": "my-mariadb-nextcloud.xml",
+     "bytes": 1562,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "template",
+     "container": ""
+    }
+   ],
+   "dumps": [
+    {
+     "file": "db/mariadb_mariadb-nextcloud_nextcloud.sql.gz",
+     "container": "mariadb-nextcloud",
+     "type": "mariadb",
+     "bytes": 290816,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "kept": false,
+     "state": "ok",
+     "login": "root",
+     "user_var": "",
+     "password_var": "MARIADB_ROOT_PASSWORD",
+     "client": "mariadb",
+     "db": "nextcloud"
+    }
+   ],
+   "templates": [
+    {
+     "file": "my-mariadb-nextcloud.xml",
+     "now": "same"
+    }
+   ],
+   "compose": null,
+   "nextcloud": [],
+   "sqlite": [],
+   "own_backups": [],
+   "stale": false,
+   "immich": false,
+   "db_only": true,
+   "present": true,
+   "folders": [
+    {
+     "path": "/mnt/user/appdata/mariadb-nextcloud",
+     "containers": [
+      "mariadb-nextcloud"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/appdata/mariadb-nextcloud",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/appdata",
+       "own_dataset": false,
+       "inner": [],
+       "count": 7,
+       "latest": {
+        "id": "cache/appdata@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430/mariadb-nextcloud",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791426605,
+     "share": "appdata",
+     "whole": false
+    }
+   ],
+   "shares": [],
+   "needs": [
+    {
+     "share": "appdata",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    }
+   ],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "USOPartner",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ]
+  },
+  {
+   "id": "Nextcloud",
+   "name": "Nextcloud",
+   "type": "template",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "ok",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Nextcloud",
+   "containers": [
+    {
+     "name": "Nextcloud",
+     "image": "nextcloud:apache",
+     "digest": "nextcloud@sha256:f4e0ee28ac9e54cad6e04e148489d79a609acba86dfbff69c8f666d50f96e414",
+     "template": "my-Nextcloud.xml",
+     "service": "",
+     "db": null,
+     "now": "running"
+    }
+   ],
+   "files": [
+    {
+     "path": "my-Nextcloud.xml",
+     "bytes": 1364,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "template",
+     "container": ""
+    },
+    {
+     "path": "nextcloud/Nextcloud_config.php",
+     "bytes": 1548,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "nextcloud",
+     "container": ""
+    },
+    {
+     "path": "nextcloud/Nextcloud_occ-app-list.txt",
+     "bytes": 1713,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "nextcloud",
+     "container": ""
+    },
+    {
+     "path": "nextcloud/Nextcloud_occ-config-list-system.txt",
+     "bytes": 1343,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "nextcloud",
+     "container": ""
+    },
+    {
+     "path": "nextcloud/Nextcloud_occ-files_external-list.txt",
+     "bytes": 325,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "nextcloud",
+     "container": ""
+    },
+    {
+     "path": "nextcloud/Nextcloud_occ-status.txt",
+     "bytes": 184,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "nextcloud",
+     "container": ""
+    },
+    {
+     "path": "nextcloud/Nextcloud_occ-user-list.txt",
+     "bytes": 133,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "nextcloud",
+     "container": ""
+    }
+   ],
+   "dumps": [],
+   "templates": [
+    {
+     "file": "my-Nextcloud.xml",
+     "now": "same"
+    }
+   ],
+   "compose": null,
+   "nextcloud": [
+    {
+     "container": "Nextcloud",
+     "occ": "/var/www/html/occ",
+     "user": "www-data",
+     "same_as": ""
+    }
+   ],
+   "sqlite": [],
+   "own_backups": [],
+   "stale": false,
+   "immich": false,
+   "db_only": false,
+   "present": true,
+   "folders": [
+    {
+     "path": "/mnt/user/appdata/nextcloud",
+     "containers": [
+      "Nextcloud"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/appdata/nextcloud",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/appdata",
+       "own_dataset": false,
+       "inner": [],
+       "count": 7,
+       "latest": {
+        "id": "cache/appdata@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430/nextcloud",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791426605,
+     "share": "appdata",
+     "whole": false
+    }
+   ],
+   "shares": [
+    {
+     "path": "/mnt/user/nextcloud",
+     "containers": [
+      "Nextcloud"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "big",
+       "fs": "zfs",
+       "live": "/mnt/big/nextcloud",
+       "asleep": false,
+       "exists": true,
+       "dataset": "big/nextcloud",
+       "own_dataset": true,
+       "inner": [],
+       "count": 3,
+       "latest": {
+        "id": "big/nextcloud@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/big/nextcloud/.zfs/snapshot/uso-backup-20261009-0430",
+        "ours": true
+       }
+      },
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/nextcloud",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/nextcloud",
+       "own_dataset": true,
+       "inner": [],
+       "count": 4,
+       "latest": {
+        "id": "cache/nextcloud@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/nextcloud/.zfs/snapshot/uso-backup-20261009-0430",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791458906,
+     "share": "nextcloud",
+     "whole": true
+    }
+   ],
+   "needs": [
+    {
+     "share": "appdata",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    },
+    {
+     "share": "nextcloud",
+     "state": "data",
+     "exclusive": false,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    }
+   ],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "USOPartner",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ]
+  },
+  {
+   "id": "Node-Exporter",
+   "name": "Node-Exporter",
+   "type": "template",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "ok",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Node-Exporter",
+   "containers": [
+    {
+     "name": "Node-Exporter",
+     "image": "quay.io/prometheus/node-exporter:latest-distroless",
+     "digest": "quay.io/prometheus/node-exporter@sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106",
+     "template": "my-Node-Exporter.xml",
+     "service": "",
+     "db": null,
+     "now": "stopped"
+    }
+   ],
+   "files": [
+    {
+     "path": "my-Node-Exporter.xml",
+     "bytes": 2352,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "template",
+     "container": ""
+    }
+   ],
+   "dumps": [],
+   "templates": [
+    {
+     "file": "my-Node-Exporter.xml",
+     "now": "same"
+    }
+   ],
+   "compose": null,
+   "nextcloud": [],
+   "sqlite": [],
+   "own_backups": [],
+   "stale": false,
+   "immich": false,
+   "db_only": false,
+   "present": true,
+   "folders": [],
+   "shares": [],
+   "needs": [],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": []
+  },
+  {
+   "id": "prometheus",
+   "name": "prometheus",
+   "type": "template",
+   "run": "20261009-0430",
+   "time": 1791513000,
+   "result": "ok",
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/prometheus",
+   "containers": [
+    {
+     "name": "prometheus",
+     "image": "prom/prometheus",
+     "digest": "prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e",
+     "template": "my-prometheus.xml",
+     "service": "",
+     "db": null,
+     "now": "stopped"
+    }
+   ],
+   "files": [
+    {
+     "path": "my-prometheus.xml",
+     "bytes": 2282,
+     "run": "20261009-0430",
+     "time": 1791513000,
+     "what": "template",
+     "container": ""
+    }
+   ],
+   "dumps": [],
+   "templates": [
+    {
+     "file": "my-prometheus.xml",
+     "now": "same"
+    }
+   ],
+   "compose": null,
+   "nextcloud": [],
+   "sqlite": [],
+   "own_backups": [],
+   "stale": false,
+   "immich": false,
+   "db_only": false,
+   "present": true,
+   "folders": [
+    {
+     "path": "/mnt/user/appdata/prometheus",
+     "containers": [
+      "prometheus"
+     ],
+     "protection": "local",
+     "exists": true,
+     "asleep": false,
+     "places": [
+      {
+       "base": "cache",
+       "fs": "zfs",
+       "live": "/mnt/cache/appdata/prometheus",
+       "asleep": false,
+       "exists": true,
+       "dataset": "cache/appdata",
+       "own_dataset": false,
+       "inner": [],
+       "count": 7,
+       "latest": {
+        "id": "cache/appdata@uso-backup-20261009-0430",
+        "name": "uso-backup-20261009-0430",
+        "time": 1791513012,
+        "path": "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261009-0430/prometheus",
+        "ours": true
+       }
+      }
+     ],
+     "snaps": 7,
+     "newest": 1791513012,
+     "oldest": 1791426605,
+     "share": "appdata",
+     "whole": false
+    }
+   ],
+   "shares": [],
+   "needs": [
+    {
+     "share": "appdata",
+     "state": "data",
+     "exclusive": true,
+     "asleep": [],
+     "old": null,
+     "old_known": false
+    }
+   ],
+   "kopia": [],
+   "package_protection": "local",
+   "at_partner": [
+    {
+     "id": "2ec7accd",
+     "name": "USOPartner",
+     "unit": "share:appdata",
+     "newest": 1791445024,
+     "n": 5
+    }
+   ]
+  }
+ ],
+ "vms": [],
+ "server": {
+  "path": "/mnt/user/UnraidSecretaryOffice/backup/server",
+  "libvirt": "/mnt/user/UnraidSecretaryOffice/backup/server/libvirt.tar.gz",
+  "libvirt_time": 1791513000,
+  "libvirt_bytes": 30785,
+  "templates": 0,
+  "compose": [],
+  "shares": "/mnt/user/UnraidSecretaryOffice/backup/server/shares"
+ },
+ "flash": {
+  "path": "/mnt/user/UnraidSecretaryOffice/backup/flash/flash.tar.gz",
+  "time": 1791513000,
+  "bytes": 131136589
+ },
+ "run": "20261009-0430",
+ "run_time": 1791513000,
+ "running": null,
+ "restores": [
+  {
+   "id": "20261008-125107-32f9",
+   "kind": "putback",
+   "what": "appdata ← USOPartner",
+   "method": null,
+   "target": {
+    "id": "20261008-082404-3df6",
+    "of": "partner"
+   },
+   "created": 1791456668,
+   "started": 1791456668,
+   "finished": 1791456668,
+   "result": "ok",
+   "reason": null,
+   "reason_params": [],
+   "failed": null,
+   "aside": [],
+   "putback_of": "20261008-082404-3df6",
+   "putback": null,
+   "can_putback": false,
+   "after": []
+  },
+  {
+   "id": "20261008-082404-3df6",
+   "kind": "partner",
+   "what": "appdata ← USOPartner",
+   "method": null,
+   "target": {
+    "pair": "2ec7accd",
+    "unit": "share:appdata",
+    "snap": "uso-backup-20261008-0736",
+    "pool": null,
+    "kind": "pair",
+    "partner": "USOPartner",
+    "dataset": "cache/appdata.restored-20261008-082404",
+    "how": "beside",
+    "path": "/mnt/user/appdata"
+   },
+   "created": 1791440644,
+   "started": 1791440644,
+   "finished": 1791440644,
+   "result": "ok",
+   "reason": null,
+   "reason_params": [],
+   "failed": null,
+   "aside": [],
+   "putback_of": null,
+   "putback": {
+    "id": "20261008-125107-32f9",
+    "result": "ok",
+    "finished": 1791456668,
+    "aside": []
+   },
+   "can_putback": false,
+   "after": [
+    {
+     "key": "after.partner_then",
+     "params": {
+      "path": "/mnt/user/appdata",
+      "name": "USOPartner",
+      "what": "appdata"
+     }
+    },
+    {
+     "key": "after.partner_drop",
+     "params": []
+    }
+   ]
+  },
+  {
+   "id": "20261007-000716-cdcc",
+   "kind": "files",
+   "what": "prometheus",
+   "method": "copy",
+   "target": {
+    "path": "/mnt/user/appdata/prometheus",
+    "snap": "run:20261006-1945",
+    "mode": "copy",
+    "wake": false,
+    "owner": "app",
+    "id": "prometheus",
+    "items": null
+   },
+   "created": 1791324451,
+   "started": 1791324451,
+   "finished": 1791324451,
+   "result": "ok",
+   "reason": null,
+   "reason_params": [],
+   "failed": null,
+   "aside": [],
+   "putback_of": null,
+   "putback": null,
+   "can_putback": false,
+   "after": [
+    {
+     "key": "after.files_copy",
+     "params": {
+      "path": "/mnt/user/appdata/prometheus.restored-20261007-000716"
+     }
+    }
+   ]
+  }
+ ],
+ "partners": [
+  {
+   "id": "2ec7accd",
+   "name": "USOPartner",
+   "kind": "pair",
+   "of": null,
+   "expires": null,
+   "looked": 1791549497,
+   "tried": 1791549497,
+   "reachable": true,
+   "why": null,
+   "looking": false,
+   "units": [
+    {
+     "unit": "place",
+     "snaps": [
+      {
+       "name": "uso-backup-20261009-0430",
+       "used": 0,
+       "referenced": 151420928,
+       "creation": 1791513012
+      },
+      {
+       "name": "uso-backup-20261009-0117",
+       "used": 151310336,
+       "referenced": 151396352,
+       "creation": 1791501438
+      },
+      {
+       "name": "uso-backup-20261008-1701",
+       "used": 151080960,
+       "referenced": 151166976,
+       "creation": 1791471691
+      },
+      {
+       "name": "uso-backup-20261008-1328",
+       "used": 151044096,
+       "referenced": 151130112,
+       "creation": 1791458906
+      },
+      {
+       "name": "uso-backup-20261008-0937",
+       "used": 131047424,
+       "referenced": 131080192,
+       "creation": 1791445024
+      }
+     ],
+     "newest": 1791513012,
+     "why": null,
+     "known": true
+    },
+    {
+     "unit": "share:appdata",
+     "snaps": [
+      {
+       "name": "uso-backup-20261008-0937",
+       "used": 0,
+       "referenced": 244850688,
+       "creation": 1791445024
+      },
+      {
+       "name": "uso-backup-20261008-0736",
+       "used": 442368,
+       "referenced": 244764672,
+       "creation": 1791437781
+      },
+      {
+       "name": "uso-backup-20261008-0430",
+       "used": 1073152,
+       "referenced": 244789248,
+       "creation": 1791426605
+      },
+      {
+       "name": "uso-backup-20261008-0015",
+       "used": 2277376,
+       "referenced": 222027776,
+       "creation": 1791411354
+      },
+      {
+       "name": "uso-backup-20261007-1313",
+       "used": 3620864,
+       "referenced": 222760960,
+       "creation": 1791371630
+      }
+     ],
+     "newest": 1791445024,
+     "why": null,
+     "known": true
+    },
+    {
+     "unit": "share:domains",
+     "snaps": [
+      {
+       "name": "uso-backup-20261009-0430",
+       "used": 0,
+       "referenced": 98304,
+       "creation": 1791513012
+      },
+      {
+       "name": "uso-backup-20261009-0117",
+       "used": 0,
+       "referenced": 98304,
+       "creation": 1791501438
+      },
+      {
+       "name": "uso-backup-20261008-1701",
+       "used": 0,
+       "referenced": 98304,
+       "creation": 1791471691
+      },
+      {
+       "name": "uso-backup-20261008-1328",
+       "used": 0,
+       "referenced": 98304,
+       "creation": 1791458906
+      },
+      {
+       "name": "uso-backup-20261008-0937",
+       "used": 0,
+       "referenced": 98304,
+       "creation": 1791445024
+      },
+      {
+       "name": "uso-backup-20261008-0736",
+       "used": 0,
+       "referenced": 98304,
+       "creation": 1791437781
+      },
+      {
+       "name": "uso-backup-20261008-0430",
+       "used": 0,
+       "referenced": 98304,
+       "creation": 1791426605
+      }
+     ],
+     "newest": 1791513012,
+     "why": null,
+     "known": true
+    }
+   ],
+   "pools": null
+  }
+ ]
+}
