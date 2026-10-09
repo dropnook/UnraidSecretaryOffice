@@ -397,7 +397,7 @@ save_restore_state() {
 declare -A VM_HELD=()     # name -> frozen | paused | shutdown (asked to shut down: off, going down or ignoring it)
 declare -A VM_HELD_AT=()  # name -> since when (s): the shutdown request, the freeze, the pause
 declare -a VM_TODO=()     # running VMs whose disks this run snapshots, prepare != none
-declare -A VM_SHUT_ASKED=()  # name -> 1: the shutdown request went through (vm_hold_begin)
+declare -A VM_SHUT_ASKED=()  # name -> 1: the shutdown request went out (vm_hold_begin; from before the request - see there)
 declare -A VM_SHUT_DOWN=()   # name -> 1: seen shut off (vm_shutdown_wait, vm_hold)
 
 vm_plan() {
@@ -442,8 +442,16 @@ vm_hold_begin() { # the shutdown requests, all together
         # noted before asking (also when the request fails - it may have reached the guest): if it
         # goes off, the trap or the next run starts it again
         VM_HELD[$n]="shutdown"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
-        if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"; VM_SHUT_ASKED[$n]=1
-        else warn "VM '$n' did not take the shutdown request - it keeps running and is paused for the snapshot instead"; fi
+        # asked counts from before the request: a stop (SIGTERM) while virsh runs is handled right
+        # after it returns, before any line after it - set only on success, a run stopped then never
+        # waited for the VM going down, and it stayed off (vm_release: «nothing to start»; seen in
+        # testBackupVmOrder, 2026-10-09). A request that fails takes it back.
+        VM_SHUT_ASKED[$n]=1
+        if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"
+        else
+            unset "VM_SHUT_ASKED[$n]"
+            warn "VM '$n' did not take the shutdown request - it keeps running and is paused for the snapshot instead"
+        fi
     done
 }
 
