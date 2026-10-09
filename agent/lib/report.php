@@ -31,7 +31,18 @@ declare(strict_types=1);
  * shares, every other share → ‹share-N›, every pool → ‹pool-N›, the rest → …), names (the server, partners, users,
  * shares, pools) → placeholders, then watchmanScrub() (URLs, secret settings, long tokens) and watchnetScrub() (every
  * address → …, MACs halved), UUIDs. The placeholders' meaning («‹share-1› = Media») is shown in the preview, never sent.
+ *
+ * Pictures (dropnook/UnraidSecretaryOffice#6): up to REPORT_IMG_COUNT_MAX screenshots. The page hands each one to the
+ * web side alone (office.report_image, src/api.php apiReportImageStash(): its magic bytes, ≤ 2 MB, a 0600 file in the
+ * RAM inbox officeInboxDir() — never the mailbox, which lies on the pool); the preview names them (`images`: the refs),
+ * takes them out of the inbox at once and has each one drawn anew by src/reportimage.php in a process of its own (no
+ * metadata, no bytes behind the picture, the longest side ≤ 2560, ≤ 1.5 MB each and ≤ 4 MB together) — kept beside the
+ * preview in RAM (RUN_DIR/report/<token>.<n>.img, 0600) until sent or REPORT_TOKEN_TTL is over. Each has its own tick
+ * (image1 …); the scrubber can't blank a picture, so a send with one needs `images_checked: true` (the page's required
+ * tick «I've looked at the pictures»). They go base64 in the body (`images: [{type, data}]`, `parts` names `images`).
  */
+
+require_once dirname(__DIR__, 2) . '/src/reportimage.php';      // shared with the web side (pure functions)
 
 const REPORT_CAP_DAY     = 25;                 // reports per office in 24 hours (the Worker's CAP_OFFICE_DAY mirrored)
 const REPORT_DAY         = 86400;
@@ -39,6 +50,7 @@ const REPORT_TOKEN_TTL   = 600;                // a preview may be sent within 1
 const REPORT_CLOSED_FOR  = 86400;              // the Worker said «closed»: not asked again for a day
 const REPORT_KINDS       = ['bug', 'wish', 'question'];
 const REPORT_PARTS       = ['versions', 'unraid', 'language', 'team', 'error', 'log'];     // what the user may untick
+const REPORT_IMAGE_PARTS = ['image1', 'image2', 'image3'];                                // … and each picture (REPORT_IMG_COUNT_MAX)
 const REPORT_TITLE_MAX   = 100;                // characters
 const REPORT_TEXT_MAX    = 4096;               // bytes (UTF-8)
 const REPORT_TEXT_MIN    = 10;                 // characters
@@ -48,7 +60,10 @@ const REPORT_LOG_OWN     = 10;                 // … and the agent's own (its s
 const REPORT_LOG_MAX     = 16384;              // bytes of the log part
 const REPORT_LINE_MAX    = 400;                // characters of a line
 const REPORT_LOG_READ    = 2 * 1024 * 1024;    // at most this much of agent.log (and .1) is read, from the end
-const REPORT_BODY_MAX    = 24576;              // the Worker's limit for a request
+const REPORT_BODY_MAX    = 24576;              // the Worker's limit for a request (without its pictures)
+const REPORT_IMG_RAM_MAX = 16 * 1024 * 1024;   // all previews' pictures in RAM together: the oldest go first
+const REPORT_SEND_TIMEOUT = 20;                // seconds for a send …
+const REPORT_SEND_TIMEOUT_IMAGES = 90;         // … and for one with pictures (≤ ~5.5 MB up)
 const REPORT_KEEP        = 50;                 // «Your reports»: the newest kept
 const REPORT_LANGS       = ['en', 'de', 'it', 'fr', 'es'];
 // Unraid's own shares and the office's: they stay in paths; every other share is the user's and becomes ‹share-N›
@@ -634,15 +649,16 @@ function reportLangField(array $r, string $field, bool $known): string
     return $v;
 }
 
-/** The parts the user left ticked: a list of REPORT_PARTS, each once; anything else bad_request */
+/** The parts the user left ticked: a list of REPORT_PARTS and REPORT_IMAGE_PARTS, each once; anything else bad_request */
 function reportPartsField(array $r): array
 {
+    $all = array_merge(REPORT_PARTS, REPORT_IMAGE_PARTS);
     $v = $r['parts'] ?? null;
-    if (!is_array($v) || !array_is_list($v) || count($v) > count(REPORT_PARTS)) {
+    if (!is_array($v) || !array_is_list($v) || count($v) > count($all)) {
         throw new Problem('bad_request');
     }
     foreach ($v as $p) {
-        if (!is_string($p) || !in_array($p, REPORT_PARTS, true)) {
+        if (!is_string($p) || !in_array($p, $all, true)) {
             throw new Problem('bad_request');
         }
     }
@@ -742,6 +758,7 @@ function reportPreview(array $r, array $ctx = []): array
     $error = reportErrorField($r);
     $lang = reportLangField($r, 'lang', true);
     $browser = reportLangField($r, 'browser', false);
+    $refs = reportImageRefs($r);
     $know = $ctx['know'] ?? reportKnow($ctx);
     $seen = [];
 
@@ -769,13 +786,26 @@ function reportPreview(array $r, array $ctx = []): array
     }
 
     $dir = reportRunDir($ctx);
-    reportTidy($dir, $now);
     $token = bin2hex(random_bytes(16));
-    $kept = ['time' => $now, 'words' => $words, 'rid' => bin2hex(random_bytes(16)), 'report_id' => reportId($ctx), 'parts' => $parts];
+    // the pictures leave the inbox now, whatever comes of them
+    $pictures = reportImagesTake($refs, $ctx['inbox'] ?? officeInboxDir());
     if (!reportRunDirReady($dir)) {
         throw new Problem('office_storage');
     }
-    writeAtomic("$dir/$token.json", jsonEncode($kept), 0600, 0, 0);
+    reportTidy($dir, $now);
+    $images = reportImagesPrepare($pictures, $dir, $token);
+    unset($pictures);
+    $kept = ['time' => $now, 'words' => $words, 'rid' => bin2hex(random_bytes(16)), 'report_id' => reportId($ctx), 'parts' => $parts];
+    if ($images) {
+        $kept['images'] = $images;
+        $ticked = array_merge($ticked, array_slice(REPORT_IMAGE_PARTS, 0, count($images)));
+    }
+    try {
+        writeAtomic("$dir/$token.json", jsonEncode($kept), 0600, 0, 0);
+    } catch (Throwable $e) {
+        reportImagesDrop($dir, $token);
+        throw $e;
+    }
 
     $hints = [];
     $text = $words['title'] . "\n" . $words['text'];
@@ -790,9 +820,160 @@ function reportPreview(array $r, array $ctx = []): array
     }
     ksort($seen, SORT_NATURAL);
     $j = reportsRead($ctx);
-    return ['ok' => true, 'token' => $token, 'ttl' => REPORT_TOKEN_TTL, 'parts' => $parts, 'ticked' => $ticked,
-            'id' => substr($kept['report_id'], 0, 8), 'hidden' => (object) $seen, 'hints' => $hints,
-            'closed' => ($j['closed_until'] ?? 0) > $now] + reportCap($j, $now);
+    $answer = ['ok' => true, 'token' => $token, 'ttl' => REPORT_TOKEN_TTL, 'parts' => $parts, 'ticked' => $ticked,
+               'id' => substr($kept['report_id'], 0, 8), 'hidden' => (object) $seen, 'hints' => $hints,
+               'closed' => ($j['closed_until'] ?? 0) > $now] + reportCap($j, $now);
+    if ($images) {
+        // what each picture became (the page shows its own copy beside it: the same picture, the pixels unchanged
+        // but for the size); never the bytes — they stay in RAM here
+        $answer['images'] = array_map(fn (array $i): array => ['type' => $i['type'], 'width' => $i['width'], 'height' => $i['height'],
+            'bytes' => $i['bytes'], 'scaled' => $i['scaled']], $images);
+    }
+    return $answer;
+}
+
+// ===================================================================== the pictures
+
+/** The preview's `images`: absent → none; else a list of ≤ REPORT_IMG_COUNT_MAX distinct inbox refs (32 hex) */
+function reportImageRefs(array $r): array
+{
+    $v = $r['images'] ?? null;
+    if ($v === null) {
+        return [];
+    }
+    if (!is_array($v) || !array_is_list($v)) {
+        throw new Problem('bad_request');
+    }
+    if (count($v) > REPORT_IMG_COUNT_MAX) {
+        throw new Problem('report_images_many', ['n' => REPORT_IMG_COUNT_MAX]);
+    }
+    foreach ($v as $ref) {
+        if (!is_string($ref) || !preg_match('/^[0-9a-f]{32}$/D', $ref)) {
+            throw new Problem('bad_request');
+        }
+    }
+    if (count(array_unique($v)) !== count($v)) {
+        throw new Problem('bad_request');
+    }
+    return $v;
+}
+
+/**
+ * The pictures the web side left in the RAM inbox for this preview: each a plain 0600 file of ours (no link, one name)
+ * in a folder of ours only, ≤ REPORT_IMG_IN_MAX bytes — every one removed at once, usable or not. One missing (the
+ * inbox swept it, another preview took it): report_image_gone.
+ *
+ * @return list<string>
+ */
+function reportImagesTake(array $refs, string $inbox): array
+{
+    if (!$refs) {
+        return [];
+    }
+    $me = function_exists('posix_geteuid') ? posix_geteuid() : 0;
+    clearstatcache();
+    $d = @lstat($inbox);
+    $dirOk = $d && ($d['mode'] & 0170000) === 0040000 && $d['uid'] === $me && ($d['mode'] & 0077) === 0;
+    $out = [];
+    $missing = null;
+    foreach ($refs as $n => $ref) {
+        $file = "$inbox/$ref.image";
+        $st = @lstat($file);
+        $ok = $dirOk && $st && ($st['mode'] & 0170000) === 0100000 && $st['uid'] === $me && ($st['mode'] & 0077) === 0 && $st['nlink'] === 1
+            && $st['size'] <= REPORT_IMG_IN_MAX;
+        $raw = $ok ? @file_get_contents($file, false, null, 0, REPORT_IMG_IN_MAX + 1) : false;
+        if ($st) {
+            @unlink($file);
+        }
+        if (!is_string($raw) || $raw === '') {
+            $missing ??= $n + 1;
+            continue;
+        }
+        $out[] = $raw;
+    }
+    if ($missing !== null) {
+        throw new Problem('report_image_gone', ['n' => $missing]);
+    }
+    return $out;
+}
+
+/**
+ * Each picture drawn anew by src/reportimage.php in a process of its own (`php -n`, its own memory limit, 60 s): kept as
+ * RUN_DIR/report/<token>.<n>.img (0600). Their share of the bytes: ≤ REPORT_IMG_OUT_MAX each, ≤ REPORT_IMG_TOTAL_MAX
+ * together. One refused: all of this preview's go, and the page says which (n) and why.
+ *
+ * @param list<string> $pictures
+ * @return list<array{type: string, width: int, height: int, bytes: int, sha256: string, scaled: bool}>
+ */
+function reportImagesPrepare(array $pictures, string $dir, string $token): array
+{
+    if (!$pictures) {
+        return [];
+    }
+    $max = min(REPORT_IMG_OUT_MAX, intdiv(REPORT_IMG_TOTAL_MAX, count($pictures)));
+    $images = [];
+    foreach ($pictures as $i => $bytes) {
+        $n = $i + 1;
+        $in = "$dir/$token.$n.in";
+        $out = "$dir/$token.$n.img";
+        @unlink($in);
+        @unlink($out);
+        try {
+            $old = umask(0177);
+            $h = @fopen($in, 'x');
+            umask($old);
+            if (!$h || @fwrite($h, $bytes) !== strlen($bytes) || !fclose($h)) {
+                throw new Problem('office_storage');
+            }
+            [, $stdout] = run([PHP_BINARY, '-n', '-d', 'memory_limit=' . REPORT_IMG_MEMORY, '-d', 'display_errors=stderr', '-d', 'max_execution_time=0',
+                dirname(__DIR__, 2) . '/src/reportimage.php', $in, $out, (string) $max], 60);
+            $a = json_decode(trim((string) strrchr("\n" . trim($stdout), "\n")), true);
+            if (!is_array($a) || ($a['ok'] ?? null) !== true) {
+                $key = is_array($a) && in_array($a['key'] ?? null, ['report_image_type', 'report_image_big', 'report_image_bad', 'office_storage'], true) ? $a['key'] : 'report_image_bad';
+                throw new Problem($key, ['n' => $n]);
+            }
+            clearstatcache(true, $out);
+            $data = is_file($out) && !is_link($out) ? (string) @file_get_contents($out, false, null, 0, REPORT_IMG_OUT_MAX + 1) : '';
+            $type = reportImageType($data);
+            if ($data === '' || strlen($data) > $max || strlen($data) !== ($a['bytes'] ?? -1) || $type !== ($a['type'] ?? null)
+                || !in_array($type, ['png', 'jpeg'], true) || hash('sha256', $data) !== ($a['sha256'] ?? '')
+                || !is_int($a['width'] ?? null) || !is_int($a['height'] ?? null)) {
+                throw new Problem('report_image_bad', ['n' => $n]);
+            }
+            $images[] = ['type' => $type, 'width' => $a['width'], 'height' => $a['height'], 'bytes' => strlen($data), 'sha256' => $a['sha256'],
+                         'scaled' => ($a['scaled'] ?? false) === true];
+        } catch (Throwable $e) {
+            @unlink($in);
+            reportImagesDrop($dir, $token);
+            throw $e;
+        }
+        @unlink($in);
+    }
+    return $images;
+}
+
+/** A preview's pictures in RAM gone (sent, refused, stale) */
+function reportImagesDrop(string $dir, string $token): void
+{
+    foreach (glob("$dir/$token.*.{img,in}", GLOB_BRACE) ?: [] as $f) {
+        if (preg_match('/^[0-9a-f]{32}\.[1-9]\.(?:img|in)$/D', basename($f))) {
+            @unlink($f);
+        }
+    }
+}
+
+/**
+ * The bytes of a kept preview's picture n (1 …) as previewed — the same length and hash, else null
+ */
+function reportImageKept(string $dir, string $token, array $kept, int $n): ?string
+{
+    $meta = $kept['images'][$n - 1] ?? null;
+    $file = "$dir/$token.$n.img";
+    if (!is_array($meta) || is_link($file) || !is_file($file)) {
+        return null;
+    }
+    $data = (string) @file_get_contents($file, false, null, 0, REPORT_IMG_OUT_MAX + 1);
+    return strlen($data) === ($meta['bytes'] ?? -1) && hash('sha256', $data) === ($meta['sha256'] ?? '') ? $data : null;
 }
 
 /** The backup engine's version (backup/lib/common.sh UB_VERSION), or null */
@@ -822,13 +1003,37 @@ function reportRunDirReady(string $dir): bool
     return $st !== false && ($st['mode'] & 0170000) === 0040000 && $st['uid'] === $me && ($st['mode'] & 0077) === 0;
 }
 
-/** Previews older than their time and what a send left go (a sent token's answer stays an hour) */
+/**
+ * Previews older than their time and what a send left go (a sent token's answer stays an hour); pictures as soon as
+ * their preview can't be sent any more, and the oldest while all of them together hold more than REPORT_IMG_RAM_MAX
+ */
 function reportTidy(string $dir, int $now): void
 {
     foreach (glob("$dir/*.{json,sending,sent,body}", GLOB_BRACE) ?: [] as $f) {
         if (is_file($f) && !is_link($f) && (int) @filemtime($f) < $now - 3600) {
             @unlink($f);
         }
+    }
+    $pictures = [];
+    foreach (glob("$dir/*.{img,in}", GLOB_BRACE) ?: [] as $f) {
+        $st = @lstat($f);
+        if (!$st) {
+            continue;
+        }
+        if (($st['mode'] & 0170000) !== 0100000 || $st['mtime'] < $now - REPORT_TOKEN_TTL - 60) {
+            @unlink($f);
+            continue;
+        }
+        $pictures[$f] = [$st['mtime'], $st['size']];
+    }
+    uasort($pictures, fn ($a, $b) => $a[0] <=> $b[0]);
+    $total = array_sum(array_column($pictures, 1));
+    foreach ($pictures as $f => [, $size]) {
+        if ($total <= REPORT_IMG_RAM_MAX) {
+            break;
+        }
+        @unlink($f);
+        $total -= $size;
     }
 }
 
@@ -850,6 +1055,14 @@ function reportSend(array $r, array $ctx = []): array
     }
     $words = reportWords($r);
     $parts = reportPartsField($r);
+    // the scrubber can't blank a picture: one goes only with the user's tick «I've looked at the pictures»
+    $checked = $r['images_checked'] ?? false;
+    if (!is_bool($checked)) {
+        throw new Problem('bad_request');
+    }
+    if (array_intersect($parts, REPORT_IMAGE_PARTS) && !$checked) {
+        throw new Problem('report_images_unchecked');
+    }
     $dir = reportRunDir($ctx);
     if (!reportRunDirReady($dir)) {
         throw new Problem('office_storage');
@@ -875,6 +1088,7 @@ function reportSend(array $r, array $ctx = []): array
     $giveBack = static fn () => @rename("$dir/$token.sending", "$dir/$token.json");
     if (!is_array($kept) || !is_int($kept['time'] ?? null) || $now - $kept['time'] > REPORT_TOKEN_TTL || $now < $kept['time'] - 60) {
         @unlink("$dir/$token.sending");
+        reportImagesDrop($dir, $token);
         throw new Problem('report_stale');
     }
     if (($kept['words'] ?? null) !== $words) {
@@ -882,7 +1096,15 @@ function reportSend(array $r, array $ctx = []): array
         throw new Problem('report_stale');
     }
     try {
-        $answer = reportPost(reportBody($kept, $parts), $dir, $token, $ctx);
+        $body = reportBody($kept, $parts, fn (int $n): ?string => reportImageKept($dir, $token, $kept, $n));
+    } catch (Problem $e) {
+        @unlink("$dir/$token.sending");             // a picture isn't what was previewed (or gone): show it again
+        reportImagesDrop($dir, $token);
+        throw $e;
+    }
+    $pictures = count($body['images'] ?? []);
+    try {
+        $answer = reportPost($body, $dir, $token, $ctx);
     } catch (Throwable $e) {
         $giveBack();                    // the body couldn't be written, curl couldn't run: nothing went — the preview stays
         throw $e;
@@ -908,20 +1130,23 @@ function reportSend(array $r, array $ctx = []): array
         // the next send of this token finds no answer — and no preview: report_stale, never a second report
     }
     @unlink("$dir/$token.sending");
+    reportImagesDrop($dir, $token);
     $j = reportsRead($ctx);         // anew: written by nobody else, but read as late as possible
     $j['reports'][] = $entry;
     $j['closed_until'] = null;
     reportsWrite($j, $ctx);
-    reportLogLine("Office: sent a report (#{$answer['number']}, {$words['kind']}, {$words['desk']})", $ctx);
+    reportLogLine("Office: sent a report (#{$answer['number']}, {$words['kind']}, {$words['desk']}"
+        . ($pictures ? ", $pictures picture" . ($pictures === 1 ? '' : 's') : '') . ')', $ctx);
     return ['ok' => true, 'number' => $answer['number'], 'url' => $answer['url']] + reportCap($j, $now);
 }
 
 /**
  * The request's body (briefs/uso-feedback-concept.md §5.2): the kept preview with only the ticked parts —
  * {v, rid, report_id, kind, desk, title, text, name?, facts: {office, engine?, unraid, lang, browser, hired}, error?,
- * log?, parts}. Never larger than REPORT_BODY_MAX: the log's oldest lines go first.
+ * log?, images?, parts}. Without its pictures never larger than REPORT_BODY_MAX: the log's oldest lines go first.
+ * $image(n): the bytes of the kept picture n as previewed (reportImageKept()), null when they aren't — report_stale.
  */
-function reportBody(array $kept, array $parts): array
+function reportBody(array $kept, array $parts, ?callable $image = null): array
 {
     $w = $kept['words'];
     $p = $kept['parts'];
@@ -953,11 +1178,30 @@ function reportBody(array $kept, array $parts): array
     if (in_array('log', $sentParts, true)) {
         $body['log'] = $p['log'];
     }
+    $images = [];
+    foreach (is_array($kept['images'] ?? null) ? $kept['images'] : [] as $i => $meta) {
+        if (!isset($on[REPORT_IMAGE_PARTS[$i] ?? '']) || !is_array($meta)) {
+            continue;
+        }
+        $data = $image !== null ? $image($i + 1) : null;
+        if ($data === null) {
+            throw new Problem('report_stale');
+        }
+        $images[] = ['type' => REPORT_IMG_MIME[$meta['type']] ?? 'image/png', 'data' => base64_encode($data)];
+    }
+    if ($images) {
+        $sentParts[] = 'images';
+    }
     $body['parts'] = $sentParts;
     while (isset($body['log']) && strlen(jsonEncode($body)) > REPORT_BODY_MAX) {
         $lines = explode("\n", $body['log']);
         array_shift($lines);
         $body['log'] = implode("\n", $lines);
+    }
+    if ($images) {
+        $parts = $body['parts'];
+        unset($body['parts']);
+        $body += ['images' => $images, 'parts' => $parts];       // the Worker's field order: parts last
     }
     return $body;
 }
@@ -985,10 +1229,11 @@ function reportPost(array $body, string $dir, string $token, array $ctx = []): a
         @unlink($file);
         throw new Problem('office_storage');
     }
+    $limit = isset($body['images']) ? REPORT_SEND_TIMEOUT_IMAGES : REPORT_SEND_TIMEOUT;     // pictures: a few MB up
     try {
-        [$exit, $out, $err] = hostNet(['curl', '-s', '-S', '-m', '20', '--proto', str_starts_with($base, 'http://') ? '=http' : '=https',
+        [$exit, $out, $err] = hostNet(['curl', '-s', '-S', '-m', (string) $limit, '--proto', str_starts_with($base, 'http://') ? '=http' : '=https',
             '--max-redirs', '0', '--max-filesize', '65536', '-H', 'Content-Type: application/json', '-H', 'Accept: application/json',
-            '-A', 'UnraidSecretaryOffice/' . AGENT_VERSION, '--data-binary', "@$file", '-w', '\n%{http_code}', "$base/api/report"], 30);
+            '-A', 'UnraidSecretaryOffice/' . AGENT_VERSION, '--data-binary', "@$file", '-w', '\n%{http_code}', "$base/api/report"], $limit + 10);
     } finally {
         @unlink($file);
     }
@@ -1003,6 +1248,7 @@ function reportPost(array $body, string $dir, string $token, array $ctx = []): a
  *   week {next, retry_after, cap?}          → report_day (the office's cap — 25 a day since 2026-10-09; the Worker keeps the
  *                                             name `week` for the offices up to 1.47; next: when a slot frees)
  *   busy {retry_after}                      → report_busy
+ *   busy {why: images} key report_images_busy → report_images_busy (the inbox's bytes of pictures for the day are used up)
  *   refused {why, field?}                   → report_refused
  *   github | config | internal | anything else, an answer that isn't the Worker's → report_failed
  *   no answer at all (curl failed)          → report_offline
@@ -1024,9 +1270,12 @@ function reportAnswer(int $exit, string $out, int $now): array
     }
     $keys = ['closed' => 'report_closed', 'week' => 'report_day', 'day' => 'report_day', 'busy' => 'report_busy', 'refused' => 'report_refused',
              'github' => 'report_failed', 'config' => 'report_failed', 'internal' => 'report_failed'];
-    $wireKeys = ['report_closed', 'report_week', 'report_day', 'report_busy', 'report_refused', 'report_failed'];
+    $wireKeys = ['report_closed', 'report_week', 'report_day', 'report_busy', 'report_images_busy', 'report_refused', 'report_failed'];
     $key = is_string($body['key'] ?? null) && in_array($body['key'], $wireKeys, true) ? ($body['key'] === 'report_week' ? 'report_day' : $body['key'])
         : $keys[is_string($body['error'] ?? null) ? $body['error'] : ''] ?? 'report_failed';
+    if ($key === 'report_busy' && ($body['why'] ?? null) === 'images') {
+        $key = 'report_images_busy';
+    }
     if ($key !== 'report_day') {
         return ['ok' => false, 'key' => $key, 'params' => []];
     }
