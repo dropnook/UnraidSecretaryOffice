@@ -604,13 +604,25 @@ var.ini like the csrf token (the GUID never leaves the server). Key `USO1.<b64ur
 over "USO1.<b64url(payload)>")>`, payload `{"v":1,"id","name","date"[,"l"]}` in that order, checked as transmitted with
 `openssl_verify()` against `OFFICE_SUPPORTER_PUBLIC_KEY` (the exact rules in supporter.php's head; `OFFICE_SUPPORTER_PUBKEY`
 = a PEM file, tests only). Kept in `data/office/supporter.json` (0600, `officeWriteAtomic()`, also `first_seen` and the
-team lead's ask), actions `office.supporter_set|remove|ask`, the page gets `CONFIG.supporter`. A valid key: no tip jar
-after hiring, the tip jar thanks, «☕ Thank you, <name>» at the team lead's «The team» — its picture the tip's level, signed
-as `l` (Benj, 2026-10-08: coffee ☕ any tip/no `l` · round ☕☕ from 20 · cake 🍰 from 50 · raise 💐 from 100, any of
-USD/EUR/CHF; `Office.supporterLevel()`, `office.supporter_level_*`; not a rank, no vitrine, old keys = coffee). Without: his one ask, a callout
+team lead's ask), actions `office.supporter_set|remove|ask|code`, the page gets `CONFIG.supporter`. **Several keys**
+(Benj, 2026-10-09; 1.48): `keys: [{key, added}]` (an old single `key` is read as a list of one, `officeSupporterNormalize()`),
+the same payload once, at most 20; set adds, remove takes a `ref` (12 hex of the payload's hash — the page never gets a
+key). A valid key: no tip jar after hiring, the tip jar thanks and lists the keys (picture, level, name, date,
+«Remove…»), and at the team lead's «The team» a green-outlined plate as tall as the buttons beside it — each valid
+level's picture once in level order, never a count, the newest key's name (`Office.supporterPictures()`). Levels signed
+as `l` (Benj, 2026-10-08/09: coffee ☕ any tip/no `l` · round ☕☕ from 20 · cake 🍰 from 50 · raise 🥂 from 100 — one
+coffee, a round, a cake, the whole team toasts a pay rise; any of USD/EUR/CHF; `Office.supporterLevel()`, `office.supporter_level_*`; not a rank, no vitrine, old keys = coffee). Without: his one ask, a callout
 under «The team» 7 days after `first_seen` («Not now» = 30 days, at most twice more; «Don't ask again») — never a modal,
 never at the reception or on the Dashboard. Keys come from the support page (`OFFICE_SUPPORT_URL`, opened with
-`?id=<server ID>&lang=<language>`, shows the key after the tip) or by hand: `tools/supporter-key.sh [--level <level>] <server-id> "<name>"
+`?id=<server ID>&lang=<language>#claim=<code>`, shows the key after the tip) or by hand.
+**The key arrives by itself** (2026-10-09): opening the support page, the tip jar takes a one-time code
+(`office.supporter_code`: 256 bits in supporter.json `codes`, the same within the hour, ≤ 3, a day long; `{opened}`
+marks it), the page sends it with the order, the tip Worker keeps the paid key under SHA-256(code) for a day; the agent
+(never the browser; `office.supporter_claim`, agent/lib/supporter.php, curl through hostNet() with the address in a 0600
+`-K` file) asks `GET <OFFICE_SUPPORT_URL>/api/claim?code=` — on the tip jar's «I've tipped — look for my key» (every open
+code, 10 s apart) and once on its own, a minute after the opening, on the page's next state refresh (core.js `claimLook()`,
+opened codes only); each key checked like a pasted one, the code forgotten once given. `OFFICE_SUPPORT_URL` lives in
+src/place.php (shared); `SUPPORT_URL="http://…"` in the plugin's .cfg points the agent's ask elsewhere (tests). Keys by hand: `tools/supporter-key.sh [--level <level>] <server-id> "<name>"
 [YYYY-MM-DD]` (private key on Benj's Mac only, `~/.config/uso-supporter/`; never in the repo or on a server).
 `OFFICE_SPONSOR_URL` adds a GitHub Sponsors button.
 

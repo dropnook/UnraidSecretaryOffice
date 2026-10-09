@@ -205,10 +205,11 @@ developers — how it works inside, adding a desk or a language, tests and relea
 
 The office is free and complete — nothing is locked, now or later. If it is useful to you, a tip is welcome: the tip
 jar in the office (the Team Lead's *☕ Tips & pay rise*) opens the [tip page](https://tip.uso.dropnook.app/) (PayPal)
-with your server's ID; after the tip it shows a supporter key to paste under *Enter key…*. A share goes to helmi1987
-(see below). The key unlocks nothing — it stops the reminders and shows a small thank-you on the Team Lead's plate, which
-only you see: a coffee for the team (any amount), a round for everyone (from 20), cake for the whole office (from 50),
-a pay rise and the donations (from 100; USD, EUR or CHF). If the tips ever exceed what our work costs, we give the
+with your server's ID; after the tip the office fetches your supporter key by itself (the page shows it too, to paste
+under *Enter key…*). A share goes to helmi1987 (see below). The key unlocks nothing — it stops the reminders and shows a
+thank-you on the Team Lead's plate, which only you see, a little office story: ☕ one coffee for the team (any amount),
+☕☕ a round for everyone (from 20), 🍰 a cake for the whole office (from 50), 🥂 the whole team toasting a pay rise and
+the donations (from 100; USD, EUR or CHF). Every key is kept; each picture shows once — never a count. If the tips ever exceed what our work costs, we give the
 rest to animal shelters that urgently need financial support. Questions and bugs:
 [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues), or without an account from inside the office
 (below).
