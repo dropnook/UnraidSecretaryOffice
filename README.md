@@ -25,7 +25,7 @@ or MikroTik router says about the server. It is a plugin: no container, no accou
 | 🧹 | **Ms. Dustdevil** | Knows where everything lies and gives advice on keeping it in order. Clears away what nobody uses — templates, stacks, appdata folders, Docker's leftovers — into a storeroom first, never deleting at once (Docker's volumes are copied in before Docker removes them; only images and the build cache, which can be downloaded again, and volumes mounted from elsewhere go for good). Gives containers without a picture a logo. |
 | 📝 | **Ms. Protocolli** | Reads every log out loud — Unraid's, the office's, every User Script's and container's, the router's. Her tour counts and groups the errors and warnings and watches how full `/var/log` is. |
 | 🍿 | **Jack Emby** | The intern. Looks after helmi1987's EmbyCache (what you watch next waits on the fast pool, the array disks sleep) and the media gather (one disk per film folder; on request it also fetches the folders' files from the cache — never what EmbyCache keeps there). Never gathers while someone watches. While EmbyCache runs for real, a bar per person shows what is coming for them, how far it is and when their last file will be there (EmbyCache copies everyone's files in one queue), finished parts how long they took; *Stop after this file* ends the run gently — the next run goes on. Shows how much of each library lies on which disk or pool, with the date it was measured. Runs for real only while Unraid's own mover schedule is *Disabled* — otherwise dry runs only; his page switches it off for you (*Switch the mover schedule off…*, after a confirm), or you set it in Mover Settings yourself. *Move now* by hand stays possible: the mover starting during a run stops it after the current file. Mover Tuning is optional; if it is installed, Jack enters EmbyCache's list there himself, so its own schedule leaves the films alone too. |
-| 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; shows how the router's log reaches Unraid (UniFi, MikroTik). |
+| 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, Mover Tuning, unbalanced, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; shows how the router's log reaches Unraid (UniFi, MikroTik). |
 
 A fresh office has only the Team Lead. He looks at your server and suggests whom to hire (no Emby, no Jack Emby; no
 ZFS or btrfs, no Ms. Snapshotini). Hire whom you need, let them go later — their data and settings stay; Mr. Restori
@@ -54,40 +54,43 @@ again. Next the snapshots of what you ticked go to your **partner office**, then
 encrypted — the flash first, then the apps, then the shares and VMs, the smallest first. Old snapshots go by your
 retention. Something new — a folder in a share that goes to Kopia, an app, a VM — stays local and keeps running until
 you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's
-notifications; stopping the array ends a run cleanly, and what it had stopped comes back right after the array starts.
+notifications. *Stop the run* ends a run cleanly, and its card says what it still waits for (apps stopping, a VM,
+Kopia); stopping the array ends it cleanly too, and what it had stopped comes back right after the array starts.
 
 ![Mr. Backupsy: a run going on — its steps, Kopia's sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)
 
 ### Getting something back
 
-Mr. Restori lists every app and VM with what can come back from where, with dates: its package, the local snapshots
-of its folders, Kopia, a partner office. Choose a database, a folder, a share, the templates or a VM's configuration,
-and he shows exactly what will happen — the steps, which containers stop and for how long, what goes aside where. Only
-when you confirm does he start, on the server, one restore at a time and never during a backup. His journal shows every
-step; *Put back* undoes a restore, also one that failed. He never starts or recreates a container — he says what to
-click. For the rest there are ready-made commands with your names and paths, and a guide *onto a new server*.
+Mr. Restori lists every app and VM with what can come back from where, with dates: its package, the local snapshots of
+its folders, Kopia, a partner office. Choose a database, a folder, a share, the templates or a VM's configuration, and
+he shows exactly what will happen — the steps, which containers stop and for how long, what goes aside where. Only
+when you confirm does he start, on the server, one restore at a time and never during a backup. «Restored» lists every
+restore with its steps and what went aside where; *Put back* undoes one, also one that failed. He never starts or
+recreates a container — he says what to click. For the rest there are ready-made commands with your names and paths,
+and a guide *onto a new server*.
 
 ### The restore drill
 
-Once a month (or every week in the night you choose, or only when you press *Practise now…*), at night after a backup that went well, Mr.
-Restori proves that what Mr. Backupsy keeps really comes back. He reads every package in full, plays the database dumps
-into throwaway containers without network, checks the media servers' database copies and the VMs' disks, and streams a
-sample back from Kopia to compare with the local snapshot — where an app's package goes to Kopia, one of its dumps is
-read back from Kopia and played too. Each app and VM gets a **certificate**: which level is proven, from which copy,
-when. The drill wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after
-itself (what an interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
+Once a month (or every week in the night you choose, or only when you press *Practise now…*), at night after a backup
+that went well, Mr. Restori proves that what Mr. Backupsy keeps really comes back. He reads every package in full,
+plays the database dumps into throwaway containers without network, checks the media servers' database copies and the
+VMs' disks, and streams a sample back from Kopia (as many GB as you allow) to compare with the local snapshot — where
+an app's package goes to Kopia, one of its dumps is read back from Kopia and played too. Each app and VM gets a
+**certificate**: which level is proven, from which copy, when; a step that failed shows its error. The drill wakes no
+disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
+interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
 
 ![Mr. Restori: the drill passed — the level per app, the databases played back](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill.png)
 
 ### The Night Watchman's round
 
-When you hire him he notes what is normal. From then on he walks his round every five minutes, office open or not, and
-writes down only what is different: a login from an address he hasn't seen, a burst of failed logins, a container that
-got special rights, a new plugin, a change on the flash, a new cron line, a share newly open to guests, a client or
-container sending far more than usual, snapshots gone that nobody in the office removed. Each entry names its MITRE
-ATT&CK technique; the important ones go to Unraid's notifications. *I know, thanks* makes it the new normal. While the
-array is stopped — also while an encrypted array waits for its key — his night shift keeps watch from RAM and the
-flash.
+When you hire him he learns what is normal (his *On watch since* tile says until when). From then on he walks his
+round every five minutes, office open or not, and writes down only what is different: a login from an address he
+hasn't seen, a burst of failed logins, a container that got special rights, a new plugin, a change on the flash, a new
+cron line, a share newly open to guests, a client or container sending far more than usual, snapshots gone that nobody
+in the office removed. Each entry names its MITRE ATT&CK technique; the important ones go to Unraid's notifications.
+*I know, thanks* makes it the new normal. While the array is stopped — also while an encrypted array waits for its key
+— his night shift keeps watch from RAM and the flash.
 
 **The router** (UniFi gateways and MikroTik routers with RouterOS 7): it sends its log to Unraid's own syslog
 server — the Consultant shows both sides, for a MikroTik the lines to paste — and he reads it on his round: router and
@@ -111,8 +114,9 @@ parity at every start until a stop is clean again; he says so once, and the Team
 
 The magnifier at the top right, or ⌘K / Ctrl+K inside the office, finds a desk, a section, a tile, a setting, a step
 of a setup or one of the Consultant's guides — in all five languages at once, forgiving a typo. It also finds what the
-desks know right now: a share, an app, a VM, a database, an open point, an entry of the watch book, a partner office.
-Choose one and the office takes you there, opens it and marks the place. It all runs in your browser.
+desks know right now: a share, an app, a VM, a database, an open point, an entry of the watch book, a partner office,
+what Ms. Dustdevil would clear away and where it lies. Choose one and the office takes you there, opens it and marks
+the place. It all runs in your browser.
 
 ## Install
 
@@ -128,7 +132,8 @@ than the one the office was tested on.
    ```
 2. Open **Sekretariat** in Unraid's menu bar. The Team Lead welcomes you and suggests whom to hire.
 3. For backups: Mr. Backupsy → *Set up…* (he reads the server and proposes everything with reasons; change what you
-   like, then *Apply*), then *Schedule…*. The Team Lead lists what is still missing.
+   like — the bar counts his proposals and your changes, *Leave out* declines one of his — then *Apply*), then
+   *Schedule…*. The Team Lead lists what is still missing.
 
 *⋯ → Entry in Unraid* renames the menu entry or moves it under *Settings → User Utilities* or to a button in Unraid's
 header. A tile on Unraid's Dashboard shows the essentials: the messenger, the Team Lead's open points, the last and
@@ -242,13 +247,14 @@ Say what it is — a problem, a wish or a question — which desk it is about, a
 sent…* then lists everything that would go, part by part: your words as you typed them, the office's and Unraid's
 versions, the languages, which desks you hired, the desk's last error, and its last lines from the messenger's log —
 cleaned of share, pool, server, partner and user names, paths, addresses, MAC addresses, e-mail addresses and keys
-(you see what was hidden). Untick what you'd rather keep. Nothing leaves the server before you click *Send*.
+(you see what was hidden). Untick what you'd rather keep. Up to three pictures can go along — the office redraws them,
+without location or other metadata. Nothing leaves the server before you click *Send*.
 
 It goes to the office's makers, into a private inbox on GitHub — not public; the makers, GitHub and Cloudflare (who
 carries it) can read it. Each office can send 25 reports a day, and *Your reports* keeps the list: where each one
-stands — received, looked at, done — and, once the makers opened a public GitHub issue for it, a link to that issue. For
-that the office asks the inbox when you open the dialog (each report at most once an hour), with nothing but the
-reports' numbers in the inbox and the office's report ID.
+stands — received, looked at, done — and, once the makers opened a public GitHub issue for it, a link to it
+(«Issue #…»). For that the office asks the inbox when you open the dialog (each report at most once an hour), with
+nothing but the reports' numbers in the inbox and the office's report ID.
 
 ![«Your reports»: a wish, built and public as Issue #14](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report.png)
 
