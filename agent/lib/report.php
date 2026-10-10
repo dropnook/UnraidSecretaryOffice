@@ -883,7 +883,10 @@ function reportStatusAnswer(int $exit, string $out, array $asked): array
             continue;
         }
         $public = reportPublic($r['public'] ?? null);
-        $status = $r['state'] === 'closed' ? 'done' : (($r['answered'] ?? null) === true || $public !== null ? 'seen' : 'received');
+        // the inbox issue is closed once triaged — «done» only when its public issue is closed (Benj 2026-10-10: #12 → #14 still open)
+        $status = $public !== null
+            ? ((($r['public']['state'] ?? null) === 'closed') ? 'done' : 'seen')
+            : ($r['state'] === 'closed' || ($r['answered'] ?? null) === true ? 'seen' : 'received');
         $got[$r['number']] = ['status' => $status, 'public' => $public];
     }
     return $got;
