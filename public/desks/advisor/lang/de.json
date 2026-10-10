@@ -37,7 +37,7 @@
   "install.filesviewer.4": "⟦Settings⟧ → ⟦User Utilities⟧ → Files Viewer Settings: welche Shares es zeigt, und sein Papierkorb.",
   "copy.filesviewer.url": "Plugin-Adresse",
   "ext.kopia.name": "Kopia",
-  "ext.kopia.what": "Ein Container, der Backups ausser Haus kopiert — verschlüsselt und dedupliziert, in einen Cloud-Speicher oder auf einen anderen Rechner (S3, Backblaze B2, MEGA S4, SFTP …). Herr Backupsi gibt ihm bei jeder Sicherung die Snapshots deiner Shares; ohne ihn bleibt alles nur auf diesem Server.",
+  "ext.kopia.what": "Ein Container, der Backups ausser Haus kopiert — verschlüsselt und dedupliziert, in einen Cloud-Speicher oder auf einen anderen Rechner (S3, Backblaze B2, MEGA S4, SFTP …). Herr Backupsi gibt ihm bei jeder Sicherung die Snapshots deiner Shares; ohne Kopia bleibt alles nur auf diesem Server.",
   "ext.kopia.for": "Herr Backupsi gibt ihm die Kopien, die ausser Haus gehen",
   "open.kopia": "Zur Docker-Seite",
   "install.fcp.1": "Öffne in Unraid ⟦Apps⟧ (Community Applications) und suche nach «Fix Common Problems».",

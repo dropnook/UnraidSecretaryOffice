@@ -37,7 +37,7 @@
   "install.filesviewer.4": "⟦Settings⟧ → ⟦User Utilities⟧ → Files Viewer Settings: qué recursos compartidos muestra, y su papelera.",
   "copy.filesviewer.url": "Dirección del plugin",
   "ext.kopia.name": "Kopia",
-  "ext.kopia.what": "Un contenedor que copia las copias de seguridad fuera de casa — cifradas y deduplicadas, a un almacenamiento en la nube o a otra máquina (S3, Backblaze B2, MEGA S4, SFTP …). En cada copia el señor Backupsi le entrega las instantáneas de tus recursos compartidos; sin él, todo se queda solo en este servidor.",
+  "ext.kopia.what": "Un contenedor que copia las copias de seguridad fuera de casa — cifradas y deduplicadas, a un almacenamiento en la nube o a otra máquina (S3, Backblaze B2, MEGA S4, SFTP …). En cada copia el señor Backupsi le entrega las instantáneas de tus recursos compartidos; sin Kopia, todo se queda solo en este servidor.",
   "ext.kopia.for": "El señor Backupsi le entrega las copias que salen fuera de casa",
   "open.kopia": "A la página de Docker",
   "install.fcp.1": "En Unraid abre ⟦Apps⟧ (Community Applications) y busca «Fix Common Problems».",

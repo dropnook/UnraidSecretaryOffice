@@ -37,7 +37,7 @@
   "install.filesviewer.4": "⟦Settings⟧ → ⟦User Utilities⟧ → Files Viewer Settings: quali condivisioni mostra, e il suo cestino.",
   "copy.filesviewer.url": "Indirizzo del plugin",
   "ext.kopia.name": "Kopia",
-  "ext.kopia.what": "Un contenitore che copia i backup fuori sede — cifrati e deduplicati, su un cloud storage o su un'altra macchina (S3, Backblaze B2, MEGA S4, SFTP …). A ogni backup il signor Backupsi gli passa gli snapshot delle tue condivisioni; senza di lui resta tutto solo su questo server.",
+  "ext.kopia.what": "Un contenitore che copia i backup fuori sede — cifrati e deduplicati, su un cloud storage o su un'altra macchina (S3, Backblaze B2, MEGA S4, SFTP …). A ogni backup il signor Backupsi gli passa gli snapshot delle tue condivisioni; senza Kopia resta tutto solo su questo server.",
   "ext.kopia.for": "Il signor Backupsi gli passa le copie che vanno fuori sede",
   "open.kopia": "Alla pagina Docker",
   "install.fcp.1": "In Unraid apri ⟦Apps⟧ (Community Applications) e cerca «Fix Common Problems».",

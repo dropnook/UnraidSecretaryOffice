@@ -37,7 +37,7 @@
   "install.filesviewer.4": "⟦Settings⟧ → ⟦User Utilities⟧ → Files Viewer Settings: which shares it shows, and its recycle bin.",
   "copy.filesviewer.url": "Plugin address",
   "ext.kopia.name": "Kopia",
-  "ext.kopia.what": "A container that copies backups offsite — encrypted and deduplicated, to a cloud storage or another machine (S3, Backblaze B2, MEGA S4, SFTP …). With every backup Mr. Backupsy hands it the snapshots of your shares; without it everything stays on this server only.",
+  "ext.kopia.what": "A container that copies backups offsite — encrypted and deduplicated, to a cloud storage or another machine (S3, Backblaze B2, MEGA S4, SFTP …). With every backup Mr. Backupsy hands it the snapshots of your shares; without Kopia everything stays on this server only.",
   "ext.kopia.for": "Mr. Backupsy hands it the offsite copies",
   "open.kopia": "To the Docker page",
   "install.fcp.1": "In Unraid open ⟦Apps⟧ (Community Applications) and search for «Fix Common Problems».",
