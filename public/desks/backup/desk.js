@@ -313,13 +313,13 @@ function render() {
   const actions = [];
   if (state && state.found) {
     if (live()) {
-      actions.push(button(T(stopKey('abort')), 'danger plain', abortRun));
+      actions.push(button(T(stopKey('abort')), 'danger plain', abortRun));      // grey once asked (the card says what it waits for)
     } else {
       actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/${ID}/setup`)));
       actions.push(button(T('check'), 'plain', () => startRun('check')));
       actions.push(button(T('start'), '', chooseRun));
     }
-    actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()); });
+    actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()) || (live() && !!state.abort_asked); });
   }
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText().join(' ')), actions });
   root.appendChild(head);
@@ -465,6 +465,14 @@ function runningCard() {
   const since = s ? s.started : state.since;
   if (since) top.appendChild(el('span', 'status quiet', T('since', { time: fmt.time(since), duration: fmt.duration(Date.now() / 1000 - since) })));
   card.appendChild(top);
+  // «Abort» was sent: what the engine still waits for before it cleans up (it hears the signal after its current step)
+  if (state.abort_asked) {
+    const ph = s && s.phase;
+    const wait = ph === 'stopping_apps' || ph === 'stopping' ? 'apps' : ph === 'vm_shutdown' ? 'vm' : ph === 'kopia' ? 'kopia' : 'step';
+    const note = el('p', 'callout warn bk-aborting');
+    note.append(el('span', 'spin'), ' ', T('aborting_wait.' + wait, { when: fmt.time(state.abort_asked) }));
+    card.appendChild(note);
+  }
 
   if (!s) {
     card.appendChild(el('div', 'card-line', T('old_step', { step: state.step || '…' })));

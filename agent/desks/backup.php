@@ -234,6 +234,7 @@ function backupScan(): array
         'since'      => $running ? (($holder['started'] ?? 0) ?: (@filemtime("$data/state/lock") ?: null)) : null,
         'holder'     => $holder,
         'paused'     => $running ? backupPaused($data) : null,
+        'abort_asked' => backupAbortAsked($running, $status),     // «Abort» sent: the page says so until the run ends
         // a run the array stop ended leaves what it stopped noted for the next run (engine 2.24)
         'left'       => !$running && ($status['result'] ?? '') === 'aborted' && ($status['message'] ?? '') === 'array_stopping' ? backupPaused($data) : null,
         'history'    => $history,
@@ -1765,6 +1766,22 @@ function backupMinuteTaken(string $mode, string $data, ?int $now = null): ?int
     return null;
 }
 
+/** Where the agent notes an abort it sent (RAM): {pid, at} */
+function backupAbortFile(): string
+{
+    return RUN_DIR . '/backup-abort.json';
+}
+
+/** When the running backup.sh was asked to stop, or null (none asked, or that run is over) */
+function backupAbortAsked(bool $running, ?array $status): ?int
+{
+    $a = readJson(backupAbortFile());
+    if (!$running || !is_array($a) || (int) ($a['pid'] ?? 0) <= 0 || (int) ($a['pid'] ?? 0) !== (int) ($status['pid'] ?? -1)) {
+        return null;
+    }
+    return (int) ($a['at'] ?? 0) ?: null;
+}
+
 /** SIGTERM to the running backup.sh — its trap cleans up (Kopia, containers, mounts) */
 function backupAbort(): array
 {
@@ -1791,6 +1808,9 @@ function backupAbort(): array
         throw new Problem('command_failed', ['detail' => "kill $pid"]);
     }
     logLine("Backup: sent SIGTERM to backup.sh (PID $pid)");
+    // the abort said on the page until the run ends — the engine's trap runs only once its current command returns
+    // (a «docker stop -t 60» takes its minute; Benj 2026-10-10: «hängt es ohne Welle»); in RAM, for this PID only
+    writeAtomic(backupAbortFile(), jsonEncode(['pid' => $pid, 'at' => time()]), 0600);
     usleep(500000);
     return ['ok' => true, 'pid' => $pid, 'state' => backupScan()];
 }
