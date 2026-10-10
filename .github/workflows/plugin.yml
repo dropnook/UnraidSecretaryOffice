@@ -58,6 +58,7 @@ jobs:
 
       - name: Check the plugin file
         run: |
+          sudo apt-get update -qq >/dev/null   # the runner image's index can be stale (2026-10-10: 404 on the mirror)
           sudo apt-get install -y -qq libxml2-utils >/dev/null
           xmllint --noout dist/unraid-secretary-office.plg
 
