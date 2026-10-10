@@ -202,7 +202,7 @@
   "office.report_part.image": "Immagine {n}",
   "office.report_image_info": "{w} × {h} pixel, {size} — ridisegnata: niente dei metadati del file (luogo, fotocamera, data) va con lei",
   "office.report_images_checked": "Ho guardato le immagini — niente di privato",
-  "office.report_images_note": "Il log viene ripulito da nomi, percorsi e indirizzi — un'immagine no: quello che mostra uno screenshot va così com'è. Le immagini sono conservate per 180 giorni e si raggiungono solo tramite il loro link nella casella privata degli autori.",
+  "office.report_images_note": "Il log viene ripulito da nomi, percorsi e indirizzi — un'immagine no: quello che mostra uno screenshot va così com'è.",
   "office.supporter_title": "Chiave sostenitore",
   "office.supporter_text_page": "Dopo la tua mancia la segreteria va a prendere da sola la tua chiave sostenitore. Anche la pagina te la mostra — se non arriva, incollala qui con «Inserisci chiave…». L'hai persa? La stessa pagina te la mostra di nuovo. Non sblocca nulla (qui è tutto gratuito e lo resta); dice solo grazie e ferma i promemoria.",
   "office.supporter_id": "ID del server",

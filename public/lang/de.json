@@ -202,7 +202,7 @@
   "office.report_part.image": "Bild {n}",
   "office.report_image_info": "{w} × {h} Pixel, {size} — neu gezeichnet: nichts von den Metadaten der Datei (Ort, Kamera, Datum) geht mit",
   "office.report_images_checked": "Ich habe die Bilder angeschaut — nichts Privates darauf",
-  "office.report_images_note": "Das Protokoll wird von Namen, Pfaden und Adressen gereinigt — ein Bild kann das nicht: Was ein Screenshot zeigt, geht so, wie es ist. Die Bilder werden 180 Tage aufbewahrt und sind nur über ihren Link im privaten Eingang der Macher erreichbar.",
+  "office.report_images_note": "Das Protokoll wird von Namen, Pfaden und Adressen gereinigt — ein Bild kann das nicht: Was ein Screenshot zeigt, geht so, wie es ist.",
   "office.supporter_title": "Unterstützer-Schlüssel",
   "office.supporter_text_page": "Nach deinem Trinkgeld holt das Sekretariat deinen Unterstützer-Schlüssel selbst ab. Die Seite zeigt ihn auch an — kommt er nicht an, füg ihn hier mit «Schlüssel eingeben…» ein. Verloren? Dieselbe Seite zeigt ihn wieder. Er schaltet nichts frei (hier ist alles kostenlos und bleibt es); er sagt nur Danke und beendet die Erinnerungen.",
   "office.supporter_id": "Server-ID",

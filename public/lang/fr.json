@@ -202,7 +202,7 @@
   "office.report_part.image": "Image {n}",
   "office.report_image_info": "{w} × {h} pixels, {size} — redessinée : rien des métadonnées du fichier (lieu, appareil, date) ne part avec",
   "office.report_images_checked": "J'ai regardé les images — rien de privé dessus",
-  "office.report_images_note": "Le journal est nettoyé des noms, chemins et adresses — une image ne peut pas l'être : ce que montre une capture part tel quel. Les images sont gardées 180 jours et ne sont accessibles que par leur lien dans la boîte privée des auteurs.",
+  "office.report_images_note": "Le journal est nettoyé des noms, chemins et adresses — une image ne peut pas l'être : ce que montre une capture part tel quel.",
   "office.supporter_title": "Clé de soutien",
   "office.supporter_text_page": "Après ton pourboire, le secrétariat va chercher ta clé de soutien tout seul. La page l'affiche aussi — si elle n'arrive pas, colle-la ici avec « Saisir la clé… ». Perdue ? La même page te la montre à nouveau. Elle ne débloque rien (tout ici est gratuit et le reste) ; elle dit simplement merci et arrête les rappels.",
   "office.supporter_id": "ID du serveur",

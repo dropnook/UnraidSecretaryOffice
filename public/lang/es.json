@@ -202,7 +202,7 @@
   "office.report_part.image": "Imagen {n}",
   "office.report_image_info": "{w} × {h} píxeles, {size} — redibujada: nada de los metadatos del archivo (lugar, cámara, fecha) va con ella",
   "office.report_images_checked": "He mirado las imágenes — nada privado en ellas",
-  "office.report_images_note": "El registro se limpia de nombres, rutas y direcciones — una imagen no puede limpiarse: lo que muestra una captura va tal cual. Las imágenes se guardan 180 días y solo se llega a ellas por su enlace en el buzón privado de los autores.",
+  "office.report_images_note": "El registro se limpia de nombres, rutas y direcciones — una imagen no puede limpiarse: lo que muestra una captura va tal cual.",
   "office.supporter_title": "Clave de apoyo",
   "office.supporter_text_page": "Después de tu propina, la secretaría recoge tu clave de apoyo por sí sola. La página también te la muestra — si no llega, pégala aquí con «Introducir clave…». ¿La perdiste? La misma página te la vuelve a mostrar. No desbloquea nada (aquí todo es gratis y lo seguirá siendo); solo da las gracias y detiene los recordatorios.",
   "office.supporter_id": "ID del servidor",

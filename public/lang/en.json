@@ -202,7 +202,7 @@
   "office.report_part.image": "Picture {n}",
   "office.report_image_info": "{w} × {h} pixels, {size} — drawn anew: nothing of the file's metadata (place, camera, date) goes along",
   "office.report_images_checked": "I've looked at the pictures — nothing private on them",
-  "office.report_images_note": "The log is cleaned of names, paths and addresses — a picture can't be: what a screenshot shows goes as it is. The pictures are kept for 180 days and can only be reached through their link in the makers' private inbox.",
+  "office.report_images_note": "The log is cleaned of names, paths and addresses — a picture can't be: what a screenshot shows goes as it is.",
   "office.supporter_title": "Supporter key",
   "office.supporter_text_page": "After your tip the office fetches your supporter key by itself. The page shows it too — paste it here with «Enter key…» if it doesn't arrive. Lost it? The same page shows it again. It unlocks nothing (everything here is free and stays so); it only says thank you and stops the reminders.",
   "office.supporter_id": "Server ID",
