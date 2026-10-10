@@ -1,0 +1,1295 @@
+{
+ "status": {
+  "running": false,
+  "mode": "plan",
+  "result": "ok",
+  "started": 1791505561,
+  "finished": 1791505562,
+  "written": false,
+  "errors": 0,
+  "warnings": 2,
+  "plan_time": 1791505562
+ },
+ "run": {
+  "interface": 1,
+  "version": "2.35",
+  "mode": "plan",
+  "pid": 887573,
+  "started": 1791505561,
+  "updated": 1791505562,
+  "finished": 1791505562,
+  "result": "ok",
+  "written": false,
+  "errors": 0,
+  "warnings": 2,
+  "log": "setup-20261009-0226.log",
+  "messages": [
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "Unraid 7.3.3"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "Docker 29.8.2"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "/mnt/user is mounted"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "zfs present"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "btrfs present"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "overlayfs present (shares across several bases)"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "Unraid notifications available"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+   },
+   {
+    "level": "ok",
+    "step": "basis",
+    "text": "settings.ini read - the decisions so far are the defaults"
+   },
+   {
+    "level": "hint",
+    "step": "offsite",
+    "text": "Kopia container found: kopia"
+   },
+   {
+    "level": "ok",
+    "step": "offsite",
+    "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+   },
+   {
+    "level": "hint",
+    "step": "containers",
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server)."
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+   },
+   {
+    "level": "hint",
+    "step": "containers",
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis)."
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'immich_postgres': postgres dump before every snapshot"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'immich_postgres': pg_dumpall present"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'mariadb-nextcloud': mariadb dump before every snapshot"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'mariadb-nextcloud': access through $MARIADB_ROOT_PASSWORD"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'Nextcloud': maintenance mode during the backup (occ /var/www/html/occ)"
+   },
+   {
+    "level": "ok",
+    "step": "general",
+    "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place"
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way"
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "text": "share:appdata: not agreed with Grosseltern yet - ask at the Team Lead («Change what FamilienServer sends…»); until then it doesn't go there",
+    "code": "not_agreed_share",
+    "params": {
+     "name": "appdata",
+     "partner": "Grosseltern",
+     "host": "FamilienServer"
+    }
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel"
+   },
+   {
+    "level": "hint",
+    "step": "kopia",
+    "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3."
+   },
+   {
+    "level": "ok",
+    "step": "plan",
+    "text": "Plan written: /mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/state/setup-plan.json"
+   }
+  ]
+ },
+ "plan": {
+  "interface": 1,
+  "version": "2.35",
+  "time": 1791505562,
+  "have_settings": true,
+  "asleep_pools": "wake",
+  "asleep_nights": 7,
+  "preset_new": "auto",
+  "sizes_measured": false,
+  "P": {
+   "partner|2ec7accd|port": "22",
+   "share|domains|partner": [
+    "2ec7accd"
+   ],
+   "general|keep_mounts": "no",
+   "share|appdata|mode": "snapshot",
+   "kopia|keep_monthly": "12",
+   "share|syslog|method": "auto",
+   "flash|mode": "tar",
+   "share|syslog|exclude_dataset": [],
+   "dump|immich_postgres|type": "postgres",
+   "kopia|keep_weekly": "4",
+   "share|media|kopia_ignore": [],
+   "share|isos|method": "auto",
+   "share|domains|mode": "snapshot",
+   "libvirt|mode": "tar",
+   "share|UnraidSecretaryOffice|kopia_ignore": [],
+   "docker|stop_timeout": "60",
+   "flash|tar_exclude": [
+    "./bz*",
+    "./previous",
+    "./config/plugins/*/packages"
+   ],
+   "general|notify_success": "yes",
+   "share|appdata|method": "auto",
+   "share|paperless|exclude_dataset": [],
+   "kopia|keep_latest": "7",
+   "general|keep_logs": "60",
+   "kopia|container": "kopia",
+   "share|media|exclude_dataset": [],
+   "share|domains|kopia_ignore": [],
+   "share|UnraidSecretaryOffice|exclude_dataset": [],
+   "general|min_free_gb": "8",
+   "general|partner_place": [
+    "2ec7accd"
+   ],
+   "share|system|mode": "off",
+   "share|nextcloud|method": "auto",
+   "share|system|method": "auto",
+   "kopia|identity": "",
+   "btrfs|snapshot_all": "no",
+   "share|isos|exclude_dataset": [],
+   "kopia|ignore": [
+    ".DS_Store",
+    "._*",
+    ".Trash-*",
+    ".Recycle.Bin/",
+    "*@eaDir*",
+    "*@__thumb*",
+    "*SynoResource*",
+    "_UnraidSecretaryOffice-trash*/"
+   ],
+   "share|photos|kopia_ignore": [],
+   "share|appdata|partner": [
+    "2ec7accd"
+   ],
+   "kopia|keep_daily": "7",
+   "share|isos|mode": "snapshot",
+   "general|btrfs_snap_dir": ".btrfs-snap",
+   "docker|stop": "all",
+   "docker|known": [
+    "immich_server",
+    "immich_redis",
+    "immich_postgres",
+    "Nextcloud",
+    "mariadb-nextcloud",
+    "EmbyServer",
+    "kopia",
+    "Grafana",
+    "prometheus",
+    "Node-Exporter"
+   ],
+   "share|syslog|mode": "off",
+   "share|domains|method": "auto",
+   "partner|2ec7accd|address": "192.168.178.190",
+   "share|photos|mode": "snapshot",
+   "general|server": "FamilienServer",
+   "share|appdata|kopia_ignore": [],
+   "share|system|exclude_dataset": [],
+   "nextcloud|Nextcloud|preexisting_maintenance": "abort",
+   "general|preset_new": "auto",
+   "kopia|keep_hourly": "0",
+   "share|photos|exclude_dataset": [],
+   "general|snap_prefix": "uso-backup-",
+   "share|UnraidSecretaryOffice|method": "auto",
+   "general|asleep_pools": "wake",
+   "share|appdata|exclude_dataset": [],
+   "kopia|compression": "inherit",
+   "general|view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
+   "share|isos|kopia_ignore": [],
+   "kopia|enabled": "no",
+   "btrfs|keep_days": "7",
+   "share|media|mode": "snapshot",
+   "share|system|kopia_ignore": [],
+   "drift|remind_days": "7",
+   "share|nextcloud|exclude_dataset": [],
+   "share|domains|exclude_dataset": [],
+   "share|paperless|kopia_ignore": [],
+   "share|syslog|kopia_ignore": [],
+   "docker|skip": [],
+   "share|paperless|method": "auto",
+   "partner|2ec7accd|rate_mbit": "0",
+   "share|UnraidSecretaryOffice|mode": "snapshot",
+   "kopia|keep_annual": "3",
+   "share|nextcloud|mode": "snapshot",
+   "share|nextcloud|kopia_ignore": [],
+   "dump|mariadb-nextcloud|type": "mariadb",
+   "zfs|retention": "7 4 6",
+   "share|photos|method": "auto",
+   "general|mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+   "partner|2ec7accd|name": "Grosseltern",
+   "share|paperless|mode": "snapshot",
+   "general|dumps_share": "UnraidSecretaryOffice",
+   "btrfs|min_free_gb": "150",
+   "flash|kopia_ignore": [
+    "/bz*",
+    "/EFI*/",
+    "/previous/",
+    "/config/plugins/nvidia-driver/"
+   ],
+   "docker|no_stop": [
+    "immich_server",
+    "immich_redis",
+    "immich_postgres",
+    "Nextcloud",
+    "mariadb-nextcloud",
+    "EmbyServer",
+    "Node-Exporter"
+   ],
+   "drift|ignore": [],
+   "share|media|method": "auto"
+  },
+  "O": {
+   "partner|2ec7accd|port": "22",
+   "general|keep_mounts": "no",
+   "share|domains|partner": [
+    "2ec7accd"
+   ],
+   "kopia|keep_monthly": "12",
+   "share|appdata|mode": "snapshot",
+   "flash|mode": "tar",
+   "dump|immich_postgres|type": "postgres",
+   "share|nextcloud|id": "zfs:8864978316551758463",
+   "kopia|keep_weekly": "4",
+   "share|domains|mode": "snapshot",
+   "libvirt|mode": "tar",
+   "docker|stop_timeout": "60",
+   "flash|tar_exclude": [
+    "./bz*",
+    "./previous",
+    "./config/plugins/*/packages"
+   ],
+   "general|notify_success": "yes",
+   "kopia|keep_latest": "7",
+   "general|keep_logs": "60",
+   "kopia|container": "kopia",
+   "share|system|locations": "cache",
+   "share|appdata|id": "zfs:448137333054734116",
+   "general|min_free_gb": "8",
+   "general|partner_place": [
+    "2ec7accd"
+   ],
+   "share|system|mode": "off",
+   "share|paperless|locations": "cache",
+   "share|isos|id": "ino:disk1:257",
+   "kopia|identity": "",
+   "btrfs|snapshot_all": "no",
+   "kopia|ignore": [
+    ".DS_Store",
+    "._*",
+    ".Trash-*",
+    ".Recycle.Bin/",
+    "*@eaDir*",
+    "*@__thumb*",
+    "*SynoResource*",
+    "_UnraidSecretaryOffice-trash*/"
+   ],
+   "share|appdata|partner": [
+    "2ec7accd"
+   ],
+   "kopia|keep_daily": "7",
+   "share|isos|mode": "snapshot",
+   "general|btrfs_snap_dir": ".btrfs-snap",
+   "docker|stop": "all",
+   "docker|known": [
+    "immich_server",
+    "immich_redis",
+    "immich_postgres",
+    "Nextcloud",
+    "mariadb-nextcloud",
+    "EmbyServer",
+    "kopia",
+    "Grafana",
+    "prometheus",
+    "Node-Exporter"
+   ],
+   "share|system|id": "zfs:13515846597822135354",
+   "partner|2ec7accd|address": "192.168.178.190",
+   "share|photos|mode": "snapshot",
+   "share|nextcloud|locations": "daten, cache",
+   "general|server": "FamilienServer",
+   "share|media|locations": "daten",
+   "nextcloud|Nextcloud|preexisting_maintenance": "abort",
+   "kopia|keep_hourly": "0",
+   "general|snap_prefix": "uso-backup-",
+   "share|isos|locations": "disk1",
+   "share|photos|locations": "daten",
+   "share|photos|id": "zfs:749602814511649200",
+   "kopia|compression": "inherit",
+   "share|domains|locations": "cache",
+   "general|view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
+   "kopia|enabled": "no",
+   "btrfs|keep_days": "7",
+   "share|media|mode": "snapshot",
+   "share|paperless|id": "ino:cache:8",
+   "drift|remind_days": "7",
+   "share|media|id": "zfs:7255324485978589394",
+   "partner|2ec7accd|rate_mbit": "0",
+   "kopia|keep_annual": "3",
+   "share|UnraidSecretaryOffice|mode": "snapshot",
+   "share|nextcloud|mode": "snapshot",
+   "dump|mariadb-nextcloud|type": "mariadb",
+   "share|domains|id": "zfs:10695481905297575639",
+   "zfs|retention": "7 4 6",
+   "general|mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+   "partner|2ec7accd|name": "Grosseltern",
+   "share|paperless|mode": "snapshot",
+   "general|dumps_share": "UnraidSecretaryOffice",
+   "share|UnraidSecretaryOffice|id": "zfs:11432220187110286558",
+   "btrfs|min_free_gb": "150",
+   "share|UnraidSecretaryOffice|locations": "daten",
+   "flash|kopia_ignore": [
+    "/bz*",
+    "/EFI*/",
+    "/previous/",
+    "/config/plugins/nvidia-driver/"
+   ],
+   "share|appdata|locations": "cache",
+   "docker|no_stop": [
+    "immich_server",
+    "immich_redis",
+    "immich_postgres",
+    "Nextcloud",
+    "mariadb-nextcloud",
+    "EmbyServer",
+    "Node-Exporter"
+   ]
+  },
+  "pending": [
+   {
+    "op": "+",
+    "section": "share \"syslog\"",
+    "line": "id = zfs:1352789535575133982"
+   },
+   {
+    "op": "+",
+    "section": "share \"syslog\"",
+    "line": "locations = big"
+   },
+   {
+    "op": "+",
+    "section": "share \"syslog\"",
+    "line": "mode = off"
+   }
+  ],
+  "shares": [
+   {
+    "name": "UnraidSecretaryOffice",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "daten",
+    "where": "daten",
+    "method": "snap",
+    "layout": "single",
+    "gb": 0,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": true,
+    "partner_why": null,
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "appdata",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "cache",
+    "where": "cache",
+    "method": "snap",
+    "layout": "single",
+    "gb": 0,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [
+     {
+      "dir": "emby",
+      "container": "EmbyServer"
+     },
+     {
+      "dir": "grafana",
+      "container": "Grafana"
+     },
+     {
+      "dir": "immich",
+      "container": "immich_postgres"
+     },
+     {
+      "dir": "immich",
+      "container": "immich_server"
+     },
+     {
+      "dir": "kopia",
+      "container": "kopia"
+     },
+     {
+      "dir": "mariadb-nextcloud",
+      "container": "mariadb-nextcloud"
+     },
+     {
+      "dir": "Dokumente",
+      "container": "Nextcloud"
+     },
+     {
+      "dir": "prometheus",
+      "container": "prometheus"
+     }
+    ],
+    "syslog": false,
+    "waiting": [],
+    "partner": [
+     "2ec7accd"
+    ],
+    "partner_ok": false,
+    "partner_why": "not_agreed",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "domains",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "cache",
+    "where": "cache",
+    "method": "snap",
+    "layout": "single",
+    "gb": 0,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [
+     "2ec7accd"
+    ],
+    "partner_ok": true,
+    "partner_why": null,
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "isos",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "disk1",
+    "where": "disk1",
+    "method": "snap",
+    "layout": "single",
+    "gb": null,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "no_dataset",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "Familienvideos",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "daten",
+    "where": "daten",
+    "method": "snap",
+    "layout": "single",
+    "gb": 1,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "not_agreed",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "Dokumente",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "daten, cache",
+    "where": "daten, cache",
+    "method": "snap",
+    "layout": "overlay",
+    "gb": 0,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "split",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "Familienfotos",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "daten",
+    "where": "daten",
+    "method": "snap",
+    "layout": "single",
+    "gb": 0,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "not_agreed",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "paperless",
+    "mode": "snapshot",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "cache",
+    "where": "cache",
+    "method": "snap",
+    "layout": "single",
+    "gb": null,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "not_dataset",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "syslog",
+    "mode": "off",
+    "why": "syslog",
+    "why_arg": "",
+    "why_text": "Unraid's syslog server writes here - the router's words, not yours",
+    "locations": "daten",
+    "where": "daten",
+    "method": "snap",
+    "layout": "single",
+    "gb": 0,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": true,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "not_agreed",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   },
+   {
+    "name": "system",
+    "mode": "off",
+    "why": "previous",
+    "why_arg": "",
+    "why_text": "as before",
+    "locations": "cache",
+    "where": "cache",
+    "method": "snap",
+    "layout": "single",
+    "gb": 3,
+    "notes": [],
+    "exists": true,
+    "children": [],
+    "folders": [],
+    "syslog": false,
+    "waiting": [],
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "not_agreed",
+    "place": [],
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "top": [],
+    "top_asleep": [],
+    "top_many": false
+   }
+  ],
+  "containers": [
+   {
+    "name": "immich_server",
+    "image": "ghcr.io/immich-app/immich-server:release",
+    "running": true,
+    "stop": false,
+    "why": "volumes",
+    "why_arg": "",
+    "previous": true,
+    "risk": true,
+    "volumes": [
+     "/data"
+    ],
+    "project": "immich",
+    "service": "immich-server",
+    "kopia": false,
+    "binds": [
+     {
+      "share": "Familienfotos",
+      "path": "",
+      "rw": false
+     },
+     {
+      "share": "appdata",
+      "path": "immich/upload",
+      "rw": true
+     }
+    ],
+    "media": "",
+    "offers": [
+     {
+      "share": "appdata",
+      "path": "immich/upload/thumbs",
+      "kind": "thumbs"
+     },
+     {
+      "share": "appdata",
+      "path": "immich/upload/encoded-video",
+      "kind": "video"
+     }
+    ],
+    "data": {
+     "kind": "immich",
+     "share": "appdata",
+     "path": "immich/upload"
+    }
+   },
+   {
+    "name": "immich_redis",
+    "image": "valkey/valkey:8-bookworm",
+    "running": true,
+    "stop": false,
+    "why": "volumes",
+    "why_arg": "",
+    "previous": true,
+    "risk": true,
+    "volumes": [
+     "/data"
+    ],
+    "project": "immich",
+    "service": "redis",
+    "kopia": false,
+    "binds": [],
+    "media": "",
+    "offers": [],
+    "data": null
+   },
+   {
+    "name": "immich_postgres",
+    "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+    "running": true,
+    "stop": false,
+    "why": "writes",
+    "why_arg": "appdata/immich/postgres",
+    "previous": true,
+    "risk": true,
+    "volumes": [],
+    "project": "immich",
+    "service": "database",
+    "kopia": false,
+    "binds": [
+     {
+      "share": "appdata",
+      "path": "immich/postgres",
+      "rw": true
+     }
+    ],
+    "media": "",
+    "offers": [],
+    "data": null
+   },
+   {
+    "name": "Nextcloud",
+    "image": "nextcloud:apache",
+    "running": true,
+    "stop": false,
+    "why": "writes",
+    "why_arg": "appdata/Dokumente nextcloud",
+    "previous": true,
+    "risk": true,
+    "volumes": [],
+    "project": "",
+    "service": "",
+    "kopia": false,
+    "binds": [
+     {
+      "share": "appdata",
+      "path": "Dokumente",
+      "rw": true
+     },
+     {
+      "share": "Dokumente",
+      "path": "",
+      "rw": true
+     }
+    ],
+    "media": "",
+    "offers": [],
+    "data": {
+     "kind": "Dokumente",
+     "share": "Dokumente",
+     "path": ""
+    }
+   },
+   {
+    "name": "mariadb-nextcloud",
+    "image": "mariadb:11",
+    "running": true,
+    "stop": false,
+    "why": "writes",
+    "why_arg": "appdata/mariadb-nextcloud",
+    "previous": true,
+    "risk": true,
+    "volumes": [],
+    "project": "",
+    "service": "",
+    "kopia": false,
+    "binds": [
+     {
+      "share": "appdata",
+      "path": "mariadb-nextcloud",
+      "rw": true
+     }
+    ],
+    "media": "",
+    "offers": [],
+    "data": null
+   },
+   {
+    "name": "EmbyServer",
+    "image": "emby/embyserver:latest",
+    "running": true,
+    "stop": false,
+    "why": "writes",
+    "why_arg": "appdata/emby media",
+    "previous": true,
+    "risk": true,
+    "volumes": [],
+    "project": "",
+    "service": "",
+    "kopia": false,
+    "binds": [
+     {
+      "share": "appdata",
+      "path": "emby",
+      "rw": true
+     },
+     {
+      "share": "Familienvideos",
+      "path": "",
+      "rw": false
+     }
+    ],
+    "media": "emby",
+    "offers": [
+     {
+      "share": "appdata",
+      "path": "emby/cache",
+      "kind": "cache"
+     },
+     {
+      "share": "appdata",
+      "path": "emby/logs",
+      "kind": "log"
+     }
+    ],
+    "data": null
+   },
+   {
+    "name": "kopia",
+    "image": "ghcr.io/imagegenius/kopia",
+    "running": false,
+    "stop": false,
+    "why": "kopia",
+    "why_arg": "",
+    "previous": false,
+    "risk": false,
+    "volumes": [
+     "/backups",
+     "/source"
+    ],
+    "project": "",
+    "service": "",
+    "kopia": true,
+    "binds": [
+     {
+      "share": "appdata",
+      "path": "kopia/cache",
+      "rw": true
+     },
+     {
+      "share": "appdata",
+      "path": "kopia",
+      "rw": true
+     },
+     {
+      "share": "UnraidSecretaryOffice",
+      "path": "restore/kopia",
+      "rw": true
+     }
+    ],
+    "media": "",
+    "offers": [],
+    "data": null
+   },
+   {
+    "name": "Grafana",
+    "image": "grafana/grafana",
+    "running": false,
+    "stop": true,
+    "why": "writes",
+    "why_arg": "appdata/grafana",
+    "previous": true,
+    "risk": false,
+    "volumes": [],
+    "project": "",
+    "service": "",
+    "kopia": false,
+    "binds": [
+     {
+      "share": "appdata",
+      "path": "grafana",
+      "rw": true
+     }
+    ],
+    "media": "",
+    "offers": [],
+    "data": null
+   },
+   {
+    "name": "prometheus",
+    "image": "prom/prometheus",
+    "running": false,
+    "stop": true,
+    "why": "writes",
+    "why_arg": "appdata/prometheus/data appdata/prometheus/etc",
+    "previous": true,
+    "risk": false,
+    "volumes": [],
+    "project": "",
+    "service": "",
+    "kopia": false,
+    "binds": [
+     {
+      "share": "appdata",
+      "path": "prometheus/data",
+      "rw": true
+     },
+     {
+      "share": "appdata",
+      "path": "prometheus/etc",
+      "rw": true
+     }
+    ],
+    "media": "",
+    "offers": [],
+    "data": null
+   },
+   {
+    "name": "Node-Exporter",
+    "image": "quay.io/prometheus/node-exporter:latest-distroless",
+    "running": false,
+    "stop": false,
+    "why": "no_data",
+    "why_arg": "",
+    "previous": true,
+    "risk": false,
+    "volumes": [],
+    "project": "",
+    "service": "",
+    "kopia": false,
+    "binds": [],
+    "media": "",
+    "offers": [],
+    "data": null
+   }
+  ],
+  "databases": [
+   {
+    "container": "immich_redis",
+    "stack": "immich/redis",
+    "type": "cache",
+    "detected": "VALKEY_VERSION",
+    "where": "volume:/data!",
+    "dumpable": false
+   },
+   {
+    "container": "immich_postgres",
+    "stack": "immich/database",
+    "type": "postgres",
+    "detected": "as before",
+    "where": "appdata/immich/postgres",
+    "dumpable": true
+   },
+   {
+    "container": "mariadb-nextcloud",
+    "stack": "-",
+    "type": "mariadb",
+    "detected": "as before",
+    "where": "appdata/mariadb-nextcloud",
+    "dumpable": true
+   }
+  ],
+  "missing_databases": [],
+  "nextcloud": [
+   {
+    "members": [
+     "Nextcloud"
+    ],
+    "occ": "/var/www/html/occ",
+    "preexisting": "abort"
+   }
+  ],
+  "vms": [],
+  "vm_service": true,
+  "partners": [
+   {
+    "id": "2ec7accd",
+    "name": "Grosseltern",
+    "address": "192.168.178.190",
+    "port": 22,
+    "rate_mbit": 0,
+    "key": true,
+    "reachable": null,
+    "source": "pairs"
+   }
+  ],
+  "place_partner": {
+   "share": "UnraidSecretaryOffice",
+   "partner": [
+    "2ec7accd"
+   ],
+   "partner_ok": true,
+   "partner_why": null
+  },
+  "bases": [
+   {
+    "name": "daten",
+    "fs": "zfs",
+    "kind": "pool"
+   },
+   {
+    "name": "cache",
+    "fs": "zfs",
+    "kind": "pool"
+   },
+   {
+    "name": "disk1",
+    "fs": "btrfs",
+    "kind": "disk"
+   },
+   {
+    "name": "disk2",
+    "fs": "zfs",
+    "kind": "disk"
+   }
+  ],
+  "flash": {
+   "dataset": "",
+   "fs": "vfat"
+  },
+  "mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+  "kopia": {
+   "enabled": false,
+   "container": "kopia",
+   "candidates": [
+    "kopia"
+   ],
+   "running": false,
+   "image": "ghcr.io/imagegenius/kopia",
+   "ready": false,
+   "problem": "off",
+   "probe": null,
+   "mappings": [],
+   "connected": false,
+   "identity": "",
+   "version": "",
+   "storage": "",
+   "host_is_container_id": false,
+   "server_uid": "",
+   "sources": []
+  },
+  "messages": [
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "Unraid 7.3.3"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "Docker 29.8.2"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "/mnt/user is mounted"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "zfs present"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "btrfs present"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "overlayfs present (shares across several bases)"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "Unraid notifications available"
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+   },
+   {
+    "level": "ok",
+    "step": "basis",
+    "text": "settings.ini read - the decisions so far are the defaults"
+   },
+   {
+    "level": "hint",
+    "step": "offsite",
+    "text": "Kopia container found: kopia"
+   },
+   {
+    "level": "ok",
+    "step": "offsite",
+    "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+   },
+   {
+    "level": "hint",
+    "step": "containers",
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server)."
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+   },
+   {
+    "level": "hint",
+    "step": "containers",
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis)."
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'immich_postgres': postgres dump before every snapshot"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'immich_postgres': pg_dumpall present"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'mariadb-nextcloud': mariadb dump before every snapshot"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'mariadb-nextcloud': access through $MARIADB_ROOT_PASSWORD"
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "text": "'Nextcloud': maintenance mode during the backup (occ /var/www/html/occ)"
+   },
+   {
+    "level": "ok",
+    "step": "general",
+    "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place"
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way"
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "text": "share:appdata: not agreed with Grosseltern yet - ask at the Team Lead («Change what FamilienServer sends…»); until then it doesn't go there",
+    "code": "not_agreed_share",
+    "params": {
+     "name": "appdata",
+     "partner": "Grosseltern",
+     "host": "FamilienServer"
+    }
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel"
+   },
+   {
+    "level": "hint",
+    "step": "kopia",
+    "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3."
+   }
+  ]
+ }
+}

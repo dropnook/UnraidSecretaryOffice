@@ -1,0 +1,249 @@
+{
+ "interface": 1,
+ "last": {
+  "id": "20261008-011005-57db",
+  "started": 1791414613,
+  "ended": 1791414614,
+  "result": "failed",
+  "scope": "now",
+  "egress": 0,
+  "items": 8,
+  "proven": 6,
+  "warnings": 0,
+  "failed": 1,
+  "not_checked": 1,
+  "asleep": 0
+ },
+ "last_passed": 1791414614,
+ "items": [
+  {
+   "kind": "package",
+   "of": "app",
+   "id": "Grafana",
+   "name": "Grafana",
+   "what": "",
+   "level": 1,
+   "copy": "package",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "ok",
+   "code": "package_ok",
+   "params": {
+    "package": "Grafana",
+    "files": 1,
+    "bytes": 3328,
+    "run": "20261008-0015",
+    "stale": false
+   },
+   "seconds": 0,
+   "at": 1791414613
+  },
+  {
+   "kind": "package",
+   "of": "app",
+   "id": "kopia",
+   "name": "kopia",
+   "what": "",
+   "level": 1,
+   "copy": "package",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "ok",
+   "code": "package_ok",
+   "params": {
+    "package": "kopia",
+    "files": 1,
+    "bytes": 5187,
+    "run": "20261008-0015",
+    "stale": false
+   },
+   "seconds": 0,
+   "at": 1791414613
+  },
+  {
+   "kind": "package",
+   "of": "app",
+   "id": "Node-Exporter",
+   "name": "Node-Exporter",
+   "what": "",
+   "level": 1,
+   "copy": "package",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "ok",
+   "code": "package_ok",
+   "params": {
+    "package": "Node-Exporter",
+    "files": 1,
+    "bytes": 2352,
+    "run": "20261008-0015",
+    "stale": false
+   },
+   "seconds": 0,
+   "at": 1791414613
+  },
+  {
+   "kind": "package",
+   "of": "app",
+   "id": "prometheus",
+   "name": "prometheus",
+   "what": "",
+   "level": 1,
+   "copy": "package",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "ok",
+   "code": "package_ok",
+   "params": {
+    "package": "prometheus",
+    "files": 1,
+    "bytes": 2282,
+    "run": "20261008-0015",
+    "stale": false
+   },
+   "seconds": 0,
+   "at": 1791414613
+  },
+  {
+   "kind": "package",
+   "of": "server",
+   "id": "server",
+   "name": "server",
+   "what": "",
+   "level": 1,
+   "copy": "package",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "ok",
+   "code": "package_ok",
+   "params": {
+    "package": "server",
+    "files": 14,
+    "bytes": 41468,
+    "entries": 61,
+    "run": "20261008-0015",
+    "stale": false
+   },
+   "seconds": 0,
+   "at": 1791414613
+  },
+  {
+   "kind": "package",
+   "of": "flash",
+   "id": "flash",
+   "name": "flash",
+   "what": "",
+   "level": 1,
+   "copy": "package",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "ok",
+   "code": "package_ok",
+   "params": {
+    "package": "flash",
+    "files": 1,
+    "bytes": 130405370,
+    "entries": 317,
+    "run": "20261008-0015",
+    "stale": false
+   },
+   "seconds": 0,
+   "at": 1791414614
+  },
+  {
+   "kind": "dump",
+   "of": "app",
+   "id": "Grafana",
+   "name": "Grafana",
+   "what": "grafana-db",
+   "level": 1,
+   "copy": "snapshot",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "failed",
+   "code": "play_failed",
+   "params": {
+    "container": "grafana-db",
+    "seconds": 12
+   },
+   "seconds": 12,
+   "at": 1791414613,
+   "detail": "ERROR:  syntax error at or near \"CRATE\"\nERROR:  relation \"public.dashboard\" does not exist\nERROR:  relation \"public.dashboard_tag\" does not exist\nERROR:  relation \"public.alert_rule\" does not exist\nERROR:  current transaction is aborted, commands ignored until end of transaction block"
+  },
+  {
+   "kind": "dump",
+   "of": "app",
+   "id": "prometheus",
+   "name": "prometheus",
+   "what": "prometheus-db",
+   "level": 1,
+   "copy": "snapshot",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "not_checked",
+   "code": "dump_no_room",
+   "params": {
+    "container": "prometheus-db",
+    "need_mb": 1806,
+    "ram_mb": 1806
+   },
+   "seconds": 9,
+   "at": 1791414613,
+   "detail": "PANIC:  could not write to file \"pg_wal/xlogtemp.104\": No space left on device\nconnection to server was lost"
+  }
+ ],
+ "lose": [
+  {
+   "kind": "app",
+   "id": "Grafana",
+   "name": "Grafana",
+   "local": 1791411300,
+   "kopia": null,
+   "best": 1,
+   "played": null
+  },
+  {
+   "kind": "app",
+   "id": "kopia",
+   "name": "kopia",
+   "local": 1791411300,
+   "kopia": null,
+   "best": 1,
+   "played": null
+  },
+  {
+   "kind": "app",
+   "id": "Node-Exporter",
+   "name": "Node-Exporter",
+   "local": 1791411300,
+   "kopia": null,
+   "best": 1,
+   "played": null
+  },
+  {
+   "kind": "app",
+   "id": "prometheus",
+   "name": "prometheus",
+   "local": 1791411300,
+   "kopia": null,
+   "best": 1,
+   "played": null
+  }
+ ],
+ "history": [
+  {
+   "id": "20261008-011005-57db",
+   "scope": "now",
+   "started": 1791414613,
+   "ended": 1791414614,
+   "result": "passed",
+   "reason": null,
+   "proven": 6,
+   "warnings": 0,
+   "failed": 0,
+   "not_checked": 0,
+   "asleep": 0
+  }
+ ],
+ "updated": 1791414614
+}

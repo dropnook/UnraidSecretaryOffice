@@ -20,7 +20,7 @@
   "users": [
    {
     "name": "Mutter",
-    "server": "Familie",
+    "server": "FamilienServer",
     "files": 5,
     "bytes": 13314398618,
     "done_files": 5,
@@ -31,7 +31,7 @@
    },
    {
     "name": "Vater",
-    "server": "Familie",
+    "server": "FamilienServer",
     "files": 3,
     "bytes": 31460635443,
     "done_files": 1,
@@ -42,7 +42,7 @@
    },
    {
     "name": "Tochter",
-    "server": "Familie",
+    "server": "FamilienServer",
     "files": 4,
     "bytes": 20830591386,
     "done_files": 0,

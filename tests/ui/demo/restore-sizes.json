@@ -1,0 +1,30 @@
+{
+ "sizes": {
+  "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261006-1945/prometheus": {
+   "bytes": 139264,
+   "apparent": 216817,
+   "at": 1791324436,
+   "seconds": 0
+  },
+  "/mnt/cache/appdata/.zfs/snapshot/uso-backup-20261008-1328/immich": {
+   "bytes": 200679424,
+   "apparent": 346026616,
+   "at": 1791465336,
+   "seconds": 0
+  },
+  "/mnt/daten/Familienfotos/.zfs/snapshot/uso-backup-20261008-1328/2025": {
+   "bytes": 64765952,
+   "apparent": 63536128,
+   "at": 1791465336,
+   "seconds": 0
+  },
+  "/mnt/daten/Familienfotos/.zfs/snapshot/uso-backup-20261008-1328/2026": {
+   "bytes": 103001088,
+   "apparent": 101390336,
+   "at": 1791465337,
+   "seconds": 1
+  }
+ },
+ "queue": [],
+ "running": []
+}

@@ -17,7 +17,10 @@
 // The theme: ?theme=black|white in the page's address, else the office's own switch (localStorage office.theme:
 // light = white), else black.
 // opts.demo serves tests/ui/demo instead of tests/ui/states: invented family data for screenshots (tools/ui-shots.mjs),
-// its times moved to now (a state's `time` and every time field beside it keep their distance to it).
+// its times moved to now (a state's `time` and every time field beside it keep their distance to it; a canned answer
+// in demo/post/ likewise when it has a `time`), the server called FamilienServer and «Report a problem» in the ⋯ menu.
+// opts.alias {name: file}: a desk's (or part's) state from another file of the folder - one desk in several demo states
+// (tests/ui/demo/backup-run.json for a run going on, while backup.json is a quiet day).
 // No PHP, no dependencies: node's own http only. Nothing here touches a server.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -87,12 +90,16 @@ function unraidCss() {
 }
 
 /** The fields of a state that hold a time (seconds) - moved with the state's own `time` for the demo */
-const TIME_KEYS = new Set(['time', 'started', 'finished', 'since', 'listed_at', 'updated', 'at', 'next', 'until', 'seen', 'pulse']);
+const TIME_KEYS = new Set(['time', 'started', 'finished', 'since', 'listed_at', 'updated', 'at', 'next', 'until', 'seen', 'pulse',
+  'current_since', 'ended', 'last_passed', 'on_watch', 'looked', 'checked', 'sent', 'last', 'first', 'created', 'when', 'run_time',
+  'published', 'measured_at', 'cache_at', 'strays_at', 'flash_at', 'ca_at', 'plan_time', 'state_time', 'last_heard', 'last_try',
+  'libvirt_time', 'mtime', 'abort_asked', 'from', 'to', 'ts', 'date', 'modified', 'expires', 'ack', 'noted', 'told']);
 function moveTimes(v, delta) {
   if (Array.isArray(v)) return v.map((x) => moveTimes(x, delta));
   if (!v || typeof v !== 'object') return v;
   const out = {};
-  for (const [k, x] of Object.entries(v)) out[k] = TIME_KEYS.has(k) && typeof x === 'number' && x > 1e9 ? x + delta : moveTimes(x, delta);
+  // a time is seconds between 2020 and 2039 (a byte count under such a key - upload.sent - stays clear of that by the demo's choice)
+  for (const [k, x] of Object.entries(v)) out[k] = TIME_KEYS.has(k) && typeof x === 'number' && x > 1.58e9 && x < 2.2e9 ? x + delta : moveTimes(x, delta);
   return out;
 }
 
@@ -101,18 +108,20 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 /**
  * Start the harness. opts: port (0 = any free one), statesDir (default tests/ui/states), demo (true: tests/ui/demo, its
  * times moved to now), later (ms: the shown desk's look comes stale and the new one that many ms later - off by default).
- * Returns { url, posts, close(), setState(desk, state) }.
+ * alias: {name: file} (see above). Returns { url, posts, close(), setState(desk, state) }.
  */
 export async function startHarness(opts = {}) {
   const statesDir = opts.statesDir || (opts.demo ? DEMO : path.join(HERE, 'states'));
   const list = desks();
   const stamp = Math.floor(Date.now() / 1000);
-  const agent = () => ({ running: true, version: VERSION, pid: 4242, started: stamp, host: 'Tower', desks: list.map((d) => d.id), pulse: Math.floor(Date.now() / 1000) });
+  const host = opts.demo ? 'FamilienServer' : 'Tower';
+  const alias = opts.alias || {};
+  const agent = () => ({ running: true, version: VERSION, pid: 4242, started: stamp, host, desks: list.map((d) => d.id), pulse: Math.floor(Date.now() / 1000) });
   const config = () => ({
-    version: VERSION, host: 'Tower',
+    version: VERSION, host,
     desks: list.map((d) => ({ ...d, hired: true, avatar: fs.existsSync(path.join(PUBLIC, 'desks', d.id, 'avatar.svg')) ? `${BASE}desks/${d.id}/avatar.svg?v=${stamp}` : null })),
     staff_order: list.map((d) => d.id), languages: languages(), stamp,
-    tip_url: '', support_url: '', sponsor_url: '', report: false, report_images: ['png', 'jpeg'], issues_url: '', forum_url: '',
+    tip_url: '', support_url: '', sponsor_url: '', report: !!opts.demo, report_images: ['png', 'jpeg'], issues_url: '', forum_url: '',
     supporter: null, base: BASE, reception_icon: `${BASE}assets/reception.svg?v=${stamp}`, agent: agent(),
     theme_switch: true, size_switch: true, csrf: 'harness', array: 'Started', menu_name: 'Sekretariat', menu_default: 'Sekretariat',
     menu_max: 24, menu_page: 'SecretaryOffice', menu_place: 'tasks', unraid_lang: '', unraid_words: {}, lang_seen: null,
@@ -122,7 +131,7 @@ export async function startHarness(opts = {}) {
   const posts = [];
   const stateOf = (name) => {
     if (overrides.has(name)) return overrides.get(name);
-    const s = readJson(path.join(statesDir, `${name}.json`));
+    const s = readJson(path.join(statesDir, `${alias[name] || name}.json`));
     // the demo's times as if looked at just now (the relative words - «2 days ago», «running for 6 min» - stay as written)
     return opts.demo && s && typeof s.time === 'number' ? moveTimes(s, stamp - 5 - s.time) : s;
   };
@@ -207,7 +216,8 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
           try { j = JSON.parse(body); } catch (e) { /* noted as it is */ }
           const action = String(j.a || '');
           posts.push({ action, data: j, at: Date.now() });
-          const canned = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/.test(action) ? readJson(path.join(statesDir, 'post', `${action}.json`)) : null;
+          let canned = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/.test(action) ? readJson(path.join(statesDir, 'post', `${alias[action] || action}.json`)) : null;
+          if (opts.demo && canned && typeof canned.time === 'number') canned = moveTimes(canned, stamp - 5 - canned.time);
           answer(res, 200, { ok: true, ...(canned || {}), agent: agent() });
         });
         return undefined;

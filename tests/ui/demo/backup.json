@@ -1,0 +1,2172 @@
+{
+ "time": 1791551073,
+ "found": true,
+ "dir": "/usr/local/emhttp/plugins/unraid-secretary-office/backup",
+ "data": "/mnt/cache/appdata/UnraidSecretaryOffice/data/unraid-backup",
+ "asleep": false,
+ "version": "2.36",
+ "interface": 1,
+ "compatible": true,
+ "settings_found": true,
+ "running": false,
+ "status": {
+  "interface": 1,
+  "name": "unraid-backup",
+  "version": "2.35",
+  "mode": "backup",
+  "run": "20261009-0430",
+  "pid": 979442,
+  "started": 1791513001,
+  "updated": 1791513015,
+  "finished": 1791513014,
+  "phase": "done",
+  "result": "warnings",
+  "message": "",
+  "errors": 0,
+  "warnings": 1,
+  "downtime_s": 6,
+  "snapshot": "uso-backup-20261009-0430",
+  "dump_bytes": 150554465,
+  "log": "run-20261009-0430.log",
+  "drift": {
+   "error": 0,
+   "warn": 1,
+   "info": 0
+  },
+  "vms": [],
+  "packages": {
+   "base": "/mnt/user/UnraidSecretaryOffice/backup",
+   "written": true,
+   "written_bytes": 150554465,
+   "apps": 8,
+   "vms": 0,
+   "errors": 0,
+   "warnings": 1,
+   "stale": 0,
+   "kept": 0,
+   "old_runs": 0,
+   "old_runs_action": null,
+   "list": [
+    {
+     "kind": "app",
+     "name": "immich",
+     "folder": "immich",
+     "type": "compose",
+     "result": "warnings",
+     "files": 2,
+     "bytes": 18665122,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "app",
+     "name": "EmbyServer",
+     "folder": "EmbyServer",
+     "type": "template",
+     "result": "ok",
+     "files": 5,
+     "bytes": 373746,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "app",
+     "name": "Grafana",
+     "folder": "Grafana",
+     "type": "template",
+     "result": "ok",
+     "files": 2,
+     "bytes": 13143,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "app",
+     "name": "Nextcloud",
+     "folder": "Nextcloud",
+     "type": "template",
+     "result": "ok",
+     "files": 8,
+     "bytes": 20195,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "app",
+     "name": "Node-Exporter",
+     "folder": "Node-Exporter",
+     "type": "template",
+     "result": "ok",
+     "files": 2,
+     "bytes": 13169,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "app",
+     "name": "kopia",
+     "folder": "kopia",
+     "type": "template",
+     "result": "ok",
+     "files": 2,
+     "bytes": 18435,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "app",
+     "name": "mariadb-nextcloud",
+     "folder": "mariadb-nextcloud",
+     "type": "template",
+     "result": "ok",
+     "files": 3,
+     "bytes": 302868,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "app",
+     "name": "prometheus",
+     "folder": "prometheus",
+     "type": "template",
+     "result": "ok",
+     "files": 2,
+     "bytes": 12655,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    },
+    {
+     "kind": "flash",
+     "name": "flash",
+     "folder": "flash",
+     "type": "flash",
+     "result": "ok",
+     "files": 2,
+     "bytes": 131136895,
+     "kept": 0,
+     "stale": false,
+     "run": "20261009-0430"
+    }
+   ]
+  },
+  "new_local": null,
+  "partner": {
+   "partners": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern"
+    }
+   ],
+   "planned": [
+    {
+     "id": "2ec7accd",
+     "unit": "place"
+    },
+    {
+     "id": "2ec7accd",
+     "unit": "share:domains"
+    },
+    {
+     "id": "2ec7accd",
+     "unit": "share:appdata"
+    }
+   ],
+   "current": null,
+   "done": [
+    {
+     "id": "2ec7accd",
+     "unit": "place",
+     "snap": "uso-backup-20261009-0430",
+     "from": "uso-backup-20261009-0117",
+     "bytes": 151389568,
+     "seconds": 1,
+     "resumed": false,
+     "mbit": 1211.1
+    },
+    {
+     "id": "2ec7accd",
+     "unit": "share:domains",
+     "snap": "uso-backup-20261009-0430",
+     "from": "uso-backup-20261009-0117",
+     "bytes": 624,
+     "seconds": 0,
+     "resumed": false,
+     "mbit": null
+    }
+   ],
+   "skipped": [
+    {
+     "id": "2ec7accd",
+     "unit": "share:appdata",
+     "why": "not_agreed"
+    }
+   ],
+   "failed": [],
+   "interrupted": null
+  },
+  "partner_ok": 2,
+  "partner_failed": 0,
+  "partner_skipped": 1,
+  "asleep": null,
+  "kopia": {
+   "enabled": false,
+   "state": "off",
+   "planned": [],
+   "current": null,
+   "current_since": null,
+   "done": [],
+   "skipped": [],
+   "skipped_why": [],
+   "interrupted": null
+  }
+ },
+ "step": null,
+ "since": null,
+ "holder": null,
+ "paused": null,
+ "left": null,
+ "history": [
+  {
+   "run": "20261009-0430",
+   "started": 1791513001,
+   "finished": 1791513014,
+   "result": "warnings",
+   "message": "",
+   "errors": 0,
+   "warnings": 1,
+   "downtime": 6,
+   "dump_bytes": 150554465,
+   "packages": {
+    "apps": 8,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 2,
+     "bytes": 151390192,
+     "seconds": 1,
+     "mbit": 1211.1,
+     "units": [
+      {
+       "unit": "place",
+       "snap": "uso-backup-20261009-0430",
+       "from": "uso-backup-20261009-0117",
+       "bytes": 151389568,
+       "seconds": 1,
+       "resumed": false
+      },
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261009-0430",
+       "from": "uso-backup-20261009-0117",
+       "bytes": 624,
+       "seconds": 0,
+       "resumed": false
+      }
+     ],
+     "skipped": [
+      {
+       "unit": "share:appdata",
+       "why": "not_agreed"
+      }
+     ],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261009-0430.log",
+   "version": "2.35",
+   "source": "status"
+  },
+  {
+   "run": "20261009-0117",
+   "started": 1791501425,
+   "finished": 1791501440,
+   "result": "warnings",
+   "message": "",
+   "errors": 0,
+   "warnings": 1,
+   "downtime": 6,
+   "dump_bytes": 150607914,
+   "packages": {
+    "apps": 8,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 2,
+     "bytes": 151443752,
+     "seconds": 0,
+     "mbit": 1211.6,
+     "units": [
+      {
+       "unit": "place",
+       "snap": "uso-backup-20261009-0117",
+       "from": "uso-backup-20261008-1701",
+       "bytes": 151443128,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261009-0117",
+       "from": "uso-backup-20261008-1701",
+       "bytes": 624,
+       "seconds": 0,
+       "resumed": false
+      }
+     ],
+     "skipped": [
+      {
+       "unit": "share:appdata",
+       "why": "not_agreed"
+      }
+     ],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261009-0117.log",
+   "version": "2.35",
+   "source": "status"
+  },
+  {
+   "run": "20261008-1701",
+   "started": 1791471679,
+   "finished": 1791471693,
+   "result": "warnings",
+   "message": "",
+   "errors": 0,
+   "warnings": 1,
+   "downtime": 5,
+   "dump_bytes": 150325804,
+   "packages": {
+    "apps": 8,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 2,
+     "bytes": 151128360,
+     "seconds": 1,
+     "mbit": 1209,
+     "units": [
+      {
+       "unit": "place",
+       "snap": "uso-backup-20261008-1701",
+       "from": "uso-backup-20261008-1328",
+       "bytes": 151127736,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261008-1701",
+       "from": "uso-backup-20261008-1328",
+       "bytes": 624,
+       "seconds": 1,
+       "resumed": false
+      }
+     ],
+     "skipped": [
+      {
+       "unit": "share:appdata",
+       "why": "not_agreed"
+      }
+     ],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261008-1701.log",
+   "version": "2.34",
+   "source": "status"
+  },
+  {
+   "run": "20261008-1328",
+   "started": 1791458893,
+   "finished": 1791458908,
+   "result": "warnings",
+   "message": "",
+   "errors": 0,
+   "warnings": 1,
+   "downtime": 6,
+   "dump_bytes": 150348261,
+   "packages": {
+    "apps": 8,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 2,
+     "bytes": 151179896,
+     "seconds": 1,
+     "mbit": 1209.4,
+     "units": [
+      {
+       "unit": "place",
+       "snap": "uso-backup-20261008-1328",
+       "from": "uso-backup-20261008-0937",
+       "bytes": 151179272,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261008-1328",
+       "from": "uso-backup-20261008-0937",
+       "bytes": 624,
+       "seconds": 1,
+       "resumed": false
+      }
+     ],
+     "skipped": [
+      {
+       "unit": "share:appdata",
+       "why": "not_agreed"
+      }
+     ],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261008-1328.log",
+   "version": "2.32",
+   "source": "status"
+  },
+  {
+   "run": "20261008-1327",
+   "started": 1791458859,
+   "finished": 1791458871,
+   "result": "failed",
+   "message": "nc_datadir_readable",
+   "errors": 1,
+   "warnings": 2,
+   "downtime": 0,
+   "dump_bytes": 0,
+   "packages": null,
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 0,
+     "bytes": 0,
+     "seconds": 0,
+     "mbit": null,
+     "units": [],
+     "skipped": [],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261008-1327.log",
+   "version": "2.32",
+   "source": "status"
+  },
+  {
+   "run": "20261008-0937",
+   "started": 1791445021,
+   "finished": 1791445026,
+   "result": "ok",
+   "message": "",
+   "errors": 0,
+   "warnings": 0,
+   "downtime": 3,
+   "dump_bytes": 130692929,
+   "packages": {
+    "apps": 4,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 3,
+     "bytes": 131487040,
+     "seconds": 0,
+     "mbit": 1051.9,
+     "units": [
+      {
+       "unit": "place",
+       "snap": "uso-backup-20261008-0937",
+       "from": null,
+       "bytes": 131194464,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261008-0937",
+       "from": "uso-backup-20261008-0736",
+       "bytes": 624,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:appdata",
+       "snap": "uso-backup-20261008-0937",
+       "from": "uso-backup-20261008-0736",
+       "bytes": 291952,
+       "seconds": 0,
+       "resumed": false
+      }
+     ],
+     "skipped": [],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261008-0937.log",
+   "version": "2.29",
+   "source": "status"
+  },
+  {
+   "run": "20261008-0736",
+   "started": 1791437777,
+   "finished": 1791437783,
+   "result": "warnings",
+   "message": "",
+   "errors": 0,
+   "warnings": 1,
+   "downtime": 3,
+   "dump_bytes": 130677175,
+   "packages": {
+    "apps": 4,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 2,
+     "bytes": 954824,
+     "seconds": 1,
+     "mbit": 7.6,
+     "units": [
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261008-0736",
+       "from": "uso-backup-20261008-0430",
+       "bytes": 624,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:appdata",
+       "snap": "uso-backup-20261008-0736",
+       "from": "uso-backup-20261008-0430",
+       "bytes": 954200,
+       "seconds": 1,
+       "resumed": false
+      }
+     ],
+     "skipped": [],
+     "failed": [
+      {
+       "unit": "place",
+       "why": "unit_not_agreed"
+      }
+     ],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261008-0736.log",
+   "version": "2.27",
+   "source": "status"
+  },
+  {
+   "run": "20261008-0430",
+   "started": 1791426601,
+   "finished": 1791426607,
+   "result": "ok",
+   "message": "",
+   "errors": 0,
+   "warnings": 0,
+   "downtime": 4,
+   "dump_bytes": 130643614,
+   "packages": {
+    "apps": 4,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 2,
+     "bytes": 24447552,
+     "seconds": 1,
+     "mbit": 195.6,
+     "units": [
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261008-0430",
+       "from": "uso-backup-20261008-0015",
+       "bytes": 624,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:appdata",
+       "snap": "uso-backup-20261008-0430",
+       "from": "uso-backup-20261008-0015",
+       "bytes": 24446928,
+       "seconds": 1,
+       "resumed": false
+      }
+     ],
+     "skipped": [],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261008-0430.log",
+   "version": "2.27",
+   "source": "status"
+  },
+  {
+   "run": "20261008-0015",
+   "started": 1791411350,
+   "finished": 1791411356,
+   "result": "ok",
+   "message": "",
+   "errors": 0,
+   "warnings": 0,
+   "downtime": 3,
+   "dump_bytes": 130508238,
+   "packages": {
+    "apps": 4,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": [
+    {
+     "id": "2ec7accd",
+     "name": "Grosseltern",
+     "sent": 2,
+     "bytes": 2341440,
+     "seconds": 1,
+     "mbit": 18.7,
+     "units": [
+      {
+       "unit": "share:domains",
+       "snap": "uso-backup-20261008-0015",
+       "from": null,
+       "bytes": 45776,
+       "seconds": 0,
+       "resumed": false
+      },
+      {
+       "unit": "share:appdata",
+       "snap": "uso-backup-20261008-0015",
+       "from": "uso-backup-20261007-1313",
+       "bytes": 2295664,
+       "seconds": 1,
+       "resumed": false
+      }
+     ],
+     "skipped": [],
+     "failed": [],
+     "interrupted": null
+    }
+   ],
+   "log": "run-20261008-0015.log",
+   "version": "2.27",
+   "source": "status"
+  },
+  {
+   "run": "20261007-1313",
+   "started": 1791371629,
+   "finished": 1791371631,
+   "result": "ok",
+   "message": "",
+   "errors": 0,
+   "warnings": 0,
+   "downtime": 1,
+   "dump_bytes": 3190326,
+   "packages": {
+    "apps": 4,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": null,
+   "log": "run-20261007-1313.log",
+   "version": "2.25",
+   "source": "status"
+  },
+  {
+   "run": "20261007-1007",
+   "started": 1791360446,
+   "finished": 1791360447,
+   "result": "aborted",
+   "message": "array_stopping",
+   "errors": 0,
+   "warnings": 0,
+   "downtime": 0,
+   "dump_bytes": 0,
+   "packages": null,
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": null,
+   "log": "run-20261007-1007.log",
+   "version": "2.24",
+   "source": "status"
+  },
+  {
+   "run": "20261006-1945",
+   "started": 1791308706,
+   "finished": 1791308708,
+   "result": "warnings",
+   "message": "",
+   "errors": 0,
+   "warnings": 1,
+   "downtime": 1,
+   "dump_bytes": 3031518,
+   "packages": {
+    "apps": 3,
+    "vms": 0,
+    "errors": 0,
+    "stale": 0
+   },
+   "kopia": [],
+   "kopia_skipped": [],
+   "kopia_asleep": [],
+   "asleep": null,
+   "kopia_interrupted": null,
+   "kopia_first": null,
+   "partner": null,
+   "log": "run-20261006-1945.log",
+   "version": "2.21",
+   "source": "status"
+  }
+ ],
+ "skips": [],
+ "skipped": null,
+ "estimates": {
+  "sources": [],
+  "before": null,
+  "total": 14
+ },
+ "upload": null,
+ "drift": {
+  "time": 1791513001,
+  "items": [
+   {
+    "level": "warn",
+    "code": "",
+    "value": "",
+    "text": "New share 'syslog' (daten, 0 GB) - not in settings.ini, not backed up"
+   }
+  ],
+  "policies": null
+ },
+ "settings": {
+  "server": "FamilienServer",
+  "mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+  "view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
+  "snap_prefix": "uso-backup-",
+  "snap_prefixes": [
+   "uso-backup-",
+   "unraidbackup-"
+  ],
+  "btrfs_dir": ".btrfs-snap",
+  "dumps_share": "UnraidSecretaryOffice",
+  "dumps_dir": "/mnt/user/UnraidSecretaryOffice/backup",
+  "keep_mounts": false,
+  "zfs_retention": "7 4 6",
+  "btrfs_days": "7",
+  "docker_stop": "all",
+  "no_stop": [
+   "immich_server",
+   "immich_redis",
+   "immich_postgres",
+   "Nextcloud",
+   "mariadb-nextcloud",
+   "EmbyServer",
+   "Node-Exporter"
+  ],
+  "flash": "tar",
+  "libvirt": "tar",
+  "libvirt_img": "/mnt/user/system/libvirt/libvirt.img",
+  "kopia_enabled": false,
+  "kopia_container": "kopia",
+  "kopia_keep": {
+   "latest": "7",
+   "hourly": "0",
+   "daily": "7",
+   "weekly": "4",
+   "monthly": "12",
+   "annual": "3"
+  },
+  "kopia_ignore": [
+   ".DS_Store",
+   "._*",
+   ".Trash-*",
+   ".Recycle.Bin/",
+   "*@eaDir*",
+   "*@__thumb*",
+   "*SynoResource*",
+   "_UnraidSecretaryOffice-trash*/"
+  ],
+  "kopia_compression": "inherit",
+  "dumps": [
+   {
+    "container": "immich_postgres",
+    "type": "postgres"
+   },
+   {
+    "container": "mariadb-nextcloud",
+    "type": "mariadb"
+   }
+  ],
+  "nextcloud": [
+   {
+    "container": "Nextcloud",
+    "preexisting": "abort"
+   }
+  ]
+ },
+ "shares": [
+  {
+   "name": "appdata",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "cache"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "domains",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "cache"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "isos",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "disk1"
+   ],
+   "fs": [
+    "btrfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "Familienvideos",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "daten"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "Dokumente",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "daten",
+    "cache"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "Familienfotos",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "daten"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "paperless",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "cache"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "system",
+   "mode": "off",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "cache"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  },
+  {
+   "name": "UnraidSecretaryOffice",
+   "mode": "snapshot",
+   "method": "auto",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "daten"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": null
+  }
+ ],
+ "items": [],
+ "vms": [
+  {
+   "name": "Home-Assistant",
+   "running": false,
+   "configured": false,
+   "mode": "snapshot",
+   "prepare": "none",
+   "retention": null,
+   "share": "",
+   "share_mode": null,
+   "snap": null,
+   "own": [],
+   "disks": [],
+   "agent": null,
+   "hostdev": 0,
+   "tpm": false,
+   "last": null
+  },
+  {
+   "name": "Windows-11",
+   "running": false,
+   "configured": false,
+   "mode": "snapshot",
+   "prepare": "none",
+   "retention": null,
+   "share": "",
+   "share_mode": null,
+   "snap": null,
+   "own": [],
+   "disks": [],
+   "agent": null,
+   "hostdev": 0,
+   "tpm": false,
+   "last": null
+  },
+  {
+   "name": "Ubuntu-Test",
+   "running": false,
+   "configured": false,
+   "mode": "snapshot",
+   "prepare": "none",
+   "retention": null,
+   "share": "",
+   "share_mode": null,
+   "snap": null,
+   "own": [],
+   "disks": [],
+   "agent": null,
+   "hostdev": 0,
+   "tpm": false,
+   "last": null
+  }
+ ],
+ "waiting": {
+  "folders": [],
+  "apps": [],
+  "vms": [
+   "Home-Assistant",
+   "Windows-11",
+   "Ubuntu-Test"
+  ]
+ },
+ "containers": {
+  "up": true,
+  "total": 10,
+  "running": 6,
+  "kept": 6,
+  "stopped": 0,
+  "dumps": 2,
+  "kopia": {
+   "name": "kopia",
+   "exists": true,
+   "running": false
+  }
+ },
+ "partners": [
+  {
+   "id": "2ec7accd",
+   "name": "Grosseltern",
+   "address": "192.168.178.190",
+   "port": 22,
+   "rate_mbit": 0,
+   "units": [
+    "place",
+    "share:appdata",
+    "share:domains"
+   ],
+   "last": {
+    "id": "2ec7accd",
+    "name": "Grosseltern",
+    "sent": 2,
+    "bytes": 151390192,
+    "seconds": 1,
+    "mbit": 1211.1,
+    "units": [
+     {
+      "unit": "place",
+      "snap": "uso-backup-20261009-0430",
+      "from": "uso-backup-20261009-0117",
+      "bytes": 151389568,
+      "seconds": 1,
+      "resumed": false
+     },
+     {
+      "unit": "share:domains",
+      "snap": "uso-backup-20261009-0430",
+      "from": "uso-backup-20261009-0117",
+      "bytes": 624,
+      "seconds": 0,
+      "resumed": false
+     }
+    ],
+    "skipped": [
+     {
+      "unit": "share:appdata",
+      "why": "not_agreed"
+     }
+    ],
+    "failed": [],
+    "interrupted": null,
+    "run": "20261009-0430",
+    "time": 1791513014
+   },
+   "current": null
+  }
+ ],
+ "dumps": [],
+ "packages": {
+  "base": "/mnt/user/UnraidSecretaryOffice/backup",
+  "asleep": false,
+  "found": true,
+  "run": "20261009-0430",
+  "time": 1791513000,
+  "result": "ok",
+  "apps": [
+   {
+    "name": "EmbyServer",
+    "folder": "EmbyServer",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/EmbyServer",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "ok",
+    "stale": false,
+    "bytes": 361920,
+    "files": [
+     {
+      "path": "db/sqlite_EmbyServer_authentication.db",
+      "bytes": 32768,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "sqlite",
+      "container": "EmbyServer"
+     },
+     {
+      "path": "db/sqlite_EmbyServer_library.db",
+      "bytes": 307200,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "sqlite",
+      "container": "EmbyServer"
+     },
+     {
+      "path": "db/sqlite_EmbyServer_users.db",
+      "bytes": 20480,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "sqlite",
+      "container": "EmbyServer"
+     },
+     {
+      "path": "my-EmbyServer.xml",
+      "bytes": 1472,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "template",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "EmbyServer",
+      "image": "emby/embyserver:latest",
+      "digest": "emby/embyserver@sha256:997e8c1ea1fde7d303eb455143e7be77dc4f20cb06acb11ffdcbcfaa87186ec2",
+      "template": "my-EmbyServer.xml"
+     }
+    ],
+    "dumps": [],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [
+     {
+      "container": "EmbyServer",
+      "file": "db/sqlite_EmbyServer_library.db",
+      "source": "/mnt/user/appdata/emby/data/library.db",
+      "path": "/config/data/library.db",
+      "state": "ok",
+      "check": "ok",
+      "present": true
+     },
+     {
+      "container": "EmbyServer",
+      "file": "db/sqlite_EmbyServer_users.db",
+      "source": "/mnt/user/appdata/emby/data/users.db",
+      "path": "/config/data/users.db",
+      "state": "unchanged",
+      "check": "ok",
+      "present": true
+     },
+     {
+      "container": "EmbyServer",
+      "file": "db/sqlite_EmbyServer_authentication.db",
+      "source": "/mnt/user/appdata/emby/data/authentication.db",
+      "path": "/config/data/authentication.db",
+      "state": "unchanged",
+      "check": "ok",
+      "present": true
+     }
+    ],
+    "own_backups": []
+   },
+   {
+    "name": "Grafana",
+    "folder": "Grafana",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Grafana",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "ok",
+    "stale": false,
+    "bytes": 3328,
+    "files": [
+     {
+      "path": "my-Grafana.xml",
+      "bytes": 3328,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "template",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "Grafana",
+      "image": "grafana/grafana",
+      "digest": "grafana/grafana@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572",
+      "template": "my-Grafana.xml"
+     }
+    ],
+    "dumps": [],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": []
+   },
+   {
+    "name": "immich",
+    "folder": "immich",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/immich",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "warnings",
+    "stale": false,
+    "bytes": 18628029,
+    "files": [
+     {
+      "path": "db/postgres_immich_postgres.sql.gz",
+      "bytes": 18628029,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "dump",
+      "container": "immich_postgres"
+     }
+    ],
+    "type": "compose",
+    "containers": [
+     {
+      "name": "immich_server",
+      "image": "ghcr.io/immich-app/immich-server:release",
+      "digest": "ghcr.io/immich-app/immich-server@sha256:be56bc12c17a84617a979ad1eab1d9105bbec1955ffa7da09b3f9cf79d3bd09d",
+      "template": ""
+     },
+     {
+      "name": "immich_redis",
+      "image": "valkey/valkey:8-bookworm",
+      "digest": "valkey/valkey@sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571",
+      "template": ""
+     },
+     {
+      "name": "immich_postgres",
+      "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+      "digest": "ghcr.io/immich-app/postgres@sha256:c570d9e1c2494f65d2a0a379a7f6df66e8441964254a30aa62cc58e8ebf1dee0",
+      "template": ""
+     }
+    ],
+    "dumps": [
+     {
+      "container": "immich_postgres",
+      "type": "postgres",
+      "state": "ok",
+      "login": "user",
+      "user_var": "POSTGRES_USER",
+      "password_var": "POSTGRES_PASSWORD",
+      "client": "psql"
+     }
+    ],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": [
+     {
+      "kind": "immich",
+      "container": "immich_server",
+      "path": "/mnt/user/appdata/immich/upload/backups",
+      "files": 1,
+      "newest": 1791504001,
+      "asleep": false
+     }
+    ]
+   },
+   {
+    "name": "kopia",
+    "folder": "kopia",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/kopia",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "ok",
+    "stale": false,
+    "bytes": 5187,
+    "files": [
+     {
+      "path": "my-kopia.xml",
+      "bytes": 5187,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "template",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "kopia",
+      "image": "ghcr.io/imagegenius/kopia",
+      "digest": "ghcr.io/imagegenius/kopia@sha256:46e1675a66d0190d6af8c2241c99c78c22619fe8f340e7a6acc5b8b48e37c1e9",
+      "template": "my-kopia.xml"
+     }
+    ],
+    "dumps": [],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": []
+   },
+   {
+    "name": "mariadb-nextcloud",
+    "folder": "mariadb-nextcloud",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/mariadb-nextcloud",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "ok",
+    "stale": false,
+    "bytes": 292378,
+    "files": [
+     {
+      "path": "db/mariadb_mariadb-nextcloud_nextcloud.sql.gz",
+      "bytes": 290816,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "dump",
+      "container": "mariadb-nextcloud"
+     },
+     {
+      "path": "my-mariadb-nextcloud.xml",
+      "bytes": 1562,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "template",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "mariadb-nextcloud",
+      "image": "mariadb:11",
+      "digest": "mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15",
+      "template": "my-mariadb-nextcloud.xml"
+     }
+    ],
+    "dumps": [
+     {
+      "container": "mariadb-nextcloud",
+      "type": "mariadb",
+      "state": "ok",
+      "login": "root",
+      "user_var": "",
+      "password_var": "MARIADB_ROOT_PASSWORD",
+      "client": "mariadb"
+     }
+    ],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": []
+   },
+   {
+    "name": "Nextcloud",
+    "folder": "Nextcloud",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Nextcloud",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "ok",
+    "stale": false,
+    "bytes": 6610,
+    "files": [
+     {
+      "path": "my-Nextcloud.xml",
+      "bytes": 1364,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "template",
+      "container": ""
+     },
+     {
+      "path": "nextcloud/Nextcloud_config.php",
+      "bytes": 1548,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "Dokumente",
+      "container": ""
+     },
+     {
+      "path": "nextcloud/Nextcloud_occ-app-list.txt",
+      "bytes": 1713,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "Dokumente",
+      "container": ""
+     },
+     {
+      "path": "nextcloud/Nextcloud_occ-config-list-system.txt",
+      "bytes": 1343,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "Dokumente",
+      "container": ""
+     },
+     {
+      "path": "nextcloud/Nextcloud_occ-files_external-list.txt",
+      "bytes": 325,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "Dokumente",
+      "container": ""
+     },
+     {
+      "path": "nextcloud/Nextcloud_occ-status.txt",
+      "bytes": 184,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "Dokumente",
+      "container": ""
+     },
+     {
+      "path": "nextcloud/Nextcloud_occ-user-list.txt",
+      "bytes": 133,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "Dokumente",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "Nextcloud",
+      "image": "nextcloud:apache",
+      "digest": "nextcloud@sha256:f4e0ee28ac9e54cad6e04e148489d79a609acba86dfbff69c8f666d50f96e414",
+      "template": "my-Nextcloud.xml"
+     }
+    ],
+    "dumps": [],
+    "nextcloud": [
+     {
+      "container": "Nextcloud",
+      "occ": "/var/www/html/occ",
+      "user": "www-data",
+      "same_as": ""
+     }
+    ],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": []
+   },
+   {
+    "name": "Node-Exporter",
+    "folder": "Node-Exporter",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/Node-Exporter",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "ok",
+    "stale": false,
+    "bytes": 2352,
+    "files": [
+     {
+      "path": "my-Node-Exporter.xml",
+      "bytes": 2352,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "template",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "Node-Exporter",
+      "image": "quay.io/prometheus/node-exporter:latest-distroless",
+      "digest": "quay.io/prometheus/node-exporter@sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106",
+      "template": "my-Node-Exporter.xml"
+     }
+    ],
+    "dumps": [],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": []
+   },
+   {
+    "name": "prometheus",
+    "folder": "prometheus",
+    "path": "/mnt/user/UnraidSecretaryOffice/backup/apps/prometheus",
+    "run": "20261009-0430",
+    "time": 1791513000,
+    "result": "ok",
+    "stale": false,
+    "bytes": 2282,
+    "files": [
+     {
+      "path": "my-prometheus.xml",
+      "bytes": 2282,
+      "run": "20261009-0430",
+      "time": 1791513000,
+      "what": "template",
+      "container": ""
+     }
+    ],
+    "type": "template",
+    "containers": [
+     {
+      "name": "prometheus",
+      "image": "prom/prometheus",
+      "digest": "prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e",
+      "template": "my-prometheus.xml"
+     }
+    ],
+    "dumps": [],
+    "nextcloud": [],
+    "compose_dir": "",
+    "sqlite": [],
+    "own_backups": []
+   }
+  ],
+  "vms": [],
+  "flash": {
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/flash/flash.tar.gz",
+   "bytes": 131136589,
+   "run": "20261009-0430",
+   "time": 1791513000
+  },
+  "server": {
+   "path": "/mnt/user/UnraidSecretaryOffice/backup/server",
+   "libvirt": "/mnt/user/UnraidSecretaryOffice/backup/server/libvirt.tar.gz",
+   "libvirt_bytes": 30785,
+   "libvirt_time": 1791513000,
+   "templates": 0,
+   "compose": []
+  },
+  "old_runs": 0
+ },
+ "schedule": {
+  "script": true,
+  "frequency": "custom",
+  "custom": "30 4 * * *",
+  "enabled": true
+ },
+ "logs": [
+  {
+   "name": "run-20261009-0430.log",
+   "kind": "run",
+   "time": 1791513000,
+   "size": 4366
+  },
+  {
+   "name": "setup-20261009-0226.log",
+   "kind": "setup",
+   "time": 1791505560,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261009-0222.log",
+   "kind": "setup",
+   "time": 1791505320,
+   "size": 13711
+  },
+  {
+   "name": "run-20261009-0117.log",
+   "kind": "run",
+   "time": 1791501420,
+   "size": 4398
+  },
+  {
+   "name": "setup-20261008-2354.log",
+   "kind": "setup",
+   "time": 1791496440,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2353.log",
+   "kind": "setup",
+   "time": 1791496380,
+   "size": 30844
+  },
+  {
+   "name": "setup-20261008-2350.log",
+   "kind": "setup",
+   "time": 1791496200,
+   "size": 29133
+  },
+  {
+   "name": "setup-20261008-2349.log",
+   "kind": "setup",
+   "time": 1791496140,
+   "size": 15422
+  },
+  {
+   "name": "setup-20261008-2300.log",
+   "kind": "setup",
+   "time": 1791493200,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2259.log",
+   "kind": "setup",
+   "time": 1791493140,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2256.log",
+   "kind": "setup",
+   "time": 1791492960,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2254.log",
+   "kind": "setup",
+   "time": 1791492840,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2251.log",
+   "kind": "setup",
+   "time": 1791492660,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2248.log",
+   "kind": "setup",
+   "time": 1791492480,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2245.log",
+   "kind": "setup",
+   "time": 1791492300,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2244.log",
+   "kind": "setup",
+   "time": 1791492240,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2243.log",
+   "kind": "setup",
+   "time": 1791492180,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2242.log",
+   "kind": "setup",
+   "time": 1791492120,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2240.log",
+   "kind": "setup",
+   "time": 1791492000,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2239.log",
+   "kind": "setup",
+   "time": 1791491940,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2238.log",
+   "kind": "setup",
+   "time": 1791491880,
+   "size": 13711
+  },
+  {
+   "name": "check-20261008-2230.log",
+   "kind": "check",
+   "time": 1791491400,
+   "size": 315
+  },
+  {
+   "name": "setup-20261008-2207.log",
+   "kind": "setup",
+   "time": 1791490020,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2205.log",
+   "kind": "setup",
+   "time": 1791489900,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2202.log",
+   "kind": "setup",
+   "time": 1791489720,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2159.log",
+   "kind": "setup",
+   "time": 1791489540,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2157.log",
+   "kind": "setup",
+   "time": 1791489420,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2149.log",
+   "kind": "setup",
+   "time": 1791488940,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2147.log",
+   "kind": "setup",
+   "time": 1791488820,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-2144.log",
+   "kind": "setup",
+   "time": 1791488640,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1739.log",
+   "kind": "setup",
+   "time": 1791473940,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1738.log",
+   "kind": "setup",
+   "time": 1791473880,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1735.log",
+   "kind": "setup",
+   "time": 1791473700,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1728.log",
+   "kind": "setup",
+   "time": 1791473280,
+   "size": 13711
+  },
+  {
+   "name": "run-20261008-1701.log",
+   "kind": "run",
+   "time": 1791471660,
+   "size": 4366
+  },
+  {
+   "name": "setup-20261008-1656.log",
+   "kind": "setup",
+   "time": 1791471360,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1654.log",
+   "kind": "setup",
+   "time": 1791471240,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1653.log",
+   "kind": "setup",
+   "time": 1791471180,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1651.log",
+   "kind": "setup",
+   "time": 1791471060,
+   "size": 13711
+  },
+  {
+   "name": "setup-20261008-1621.log",
+   "kind": "setup",
+   "time": 1791469260,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1554.log",
+   "kind": "setup",
+   "time": 1791467640,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1552.log",
+   "kind": "setup",
+   "time": 1791467520,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1539.log",
+   "kind": "setup",
+   "time": 1791466740,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1537.log",
+   "kind": "setup",
+   "time": 1791466620,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1527.log",
+   "kind": "setup",
+   "time": 1791466020,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1525.log",
+   "kind": "setup",
+   "time": 1791465900,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1524.log",
+   "kind": "setup",
+   "time": 1791465840,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1522.log",
+   "kind": "setup",
+   "time": 1791465720,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1521.log",
+   "kind": "setup",
+   "time": 1791465660,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1514.log",
+   "kind": "setup",
+   "time": 1791465240,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1512.log",
+   "kind": "setup",
+   "time": 1791465120,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1508.log",
+   "kind": "setup",
+   "time": 1791464880,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1338.log",
+   "kind": "setup",
+   "time": 1791459480,
+   "size": 13721
+  },
+  {
+   "name": "setup-20261008-1336.log",
+   "kind": "setup",
+   "time": 1791459360,
+   "size": 13721
+  },
+  {
+   "name": "run-20261008-1328.log",
+   "kind": "run",
+   "time": 1791458880,
+   "size": 4170
+  },
+  {
+   "name": "run-20261008-1327.log",
+   "kind": "run",
+   "time": 1791458820,
+   "size": 4537
+  },
+  {
+   "name": "setup-20261008-1327.log",
+   "kind": "setup",
+   "time": 1791458820,
+   "size": 15341
+  },
+  {
+   "name": "setup-20261008-1326.log",
+   "kind": "setup",
+   "time": 1791458760,
+   "size": 13342
+  },
+  {
+   "name": "setup-20261008-1157.log",
+   "kind": "setup",
+   "time": 1791453420,
+   "size": 11172
+  },
+  {
+   "name": "setup-20261008-1156.log",
+   "kind": "setup",
+   "time": 1791453360,
+   "size": 11172
+  },
+  {
+   "name": "setup-20261008-1042.log",
+   "kind": "setup",
+   "time": 1791448920,
+   "size": 11172
+  },
+  {
+   "name": "run-20261008-0937.log",
+   "kind": "run",
+   "time": 1791445020,
+   "size": 3080
+  },
+  {
+   "name": "run-20261008-0736.log",
+   "kind": "run",
+   "time": 1791437760,
+   "size": 3291
+  },
+  {
+   "name": "setup-20261008-0729.log",
+   "kind": "setup",
+   "time": 1791437340,
+   "size": 34408
+  },
+  {
+   "name": "setup-20261008-0728.log",
+   "kind": "setup",
+   "time": 1791437280,
+   "size": 10992
+  },
+  {
+   "name": "setup-20261008-0727.log",
+   "kind": "setup",
+   "time": 1791437220,
+   "size": 10992
+  },
+  {
+   "name": "setup-20261008-0726.log",
+   "kind": "setup",
+   "time": 1791437160,
+   "size": 10992
+  },
+  {
+   "name": "run-20261008-0430.log",
+   "kind": "run",
+   "time": 1791426600,
+   "size": 2733
+  },
+  {
+   "name": "check-20261008-0015.log",
+   "kind": "check",
+   "time": 1791411300,
+   "size": 219
+  },
+  {
+   "name": "run-20261008-0015.log",
+   "kind": "run",
+   "time": 1791411300,
+   "size": 2746
+  },
+  {
+   "name": "setup-20261008-0015.log",
+   "kind": "setup",
+   "time": 1791411300,
+   "size": 23681
+  },
+  {
+   "name": "setup-20261008-0014.log",
+   "kind": "setup",
+   "time": 1791411240,
+   "size": 10957
+  },
+  {
+   "name": "setup-20261007-1802.log",
+   "kind": "setup",
+   "time": 1791388920,
+   "size": 10644
+  },
+  {
+   "name": "run-20261007-1313.log",
+   "kind": "run",
+   "time": 1791371580,
+   "size": 2431
+  },
+  {
+   "name": "unmount.log",
+   "kind": "unmount",
+   "time": 1791371578,
+   "size": 496
+  },
+  {
+   "name": "run-20261007-1007.log",
+   "kind": "run",
+   "time": 1791360420,
+   "size": 1978
+  },
+  {
+   "name": "check-20261007-0044.log",
+   "kind": "check",
+   "time": 1791326640,
+   "size": 607
+  },
+  {
+   "name": "setup-20261006-2053.log",
+   "kind": "setup",
+   "time": 1791312780,
+   "size": 10590
+  },
+  {
+   "name": "run-20261006-1945.log",
+   "kind": "run",
+   "time": 1791308700,
+   "size": 2140
+  },
+  {
+   "name": "setup-20261006-1944.log",
+   "kind": "setup",
+   "time": 1791308640,
+   "size": 22853
+  },
+  {
+   "name": "setup-20261006-1942.log",
+   "kind": "setup",
+   "time": 1791308520,
+   "size": 10789
+  },
+  {
+   "name": "setup-20261006-1935.log",
+   "kind": "setup",
+   "time": 1791308100,
+   "size": 10785
+  }
+ ],
+ "mounted": [],
+ "setup": {
+  "running": false,
+  "mode": "plan",
+  "result": "ok",
+  "started": 1791505561,
+  "finished": 1791505562,
+  "written": false,
+  "errors": 0,
+  "warnings": 2,
+  "plan_time": 1791505562
+ },
+ "drill": {
+  "result": "passed",
+  "ended": 1791414614,
+  "proven": 6,
+  "total": 6,
+  "failed": []
+ }
+}

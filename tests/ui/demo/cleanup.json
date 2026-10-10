@@ -1,0 +1,1539 @@
+{
+ "time": 1791551074,
+ "duration_ms": 0,
+ "host": "FamilienServer",
+ "docker": {
+  "ok": true,
+  "enabled": true,
+  "compose": false,
+  "containers": 10,
+  "cache_at": 1791551074,
+  "list": [
+   {
+    "id": "image:sha256:e6475dc73e9863ee93622368af33d035025c7585e22d6f52ac97b2f782c3eebf",
+    "kind": "image",
+    "image_id": "sha256:e6475dc73e9863ee93622368af33d035025c7585e22d6f52ac97b2f782c3eebf",
+    "refs": [
+     "ghcr.io/immich-app/immich-server:release"
+    ],
+    "name": "ghcr.io/immich-app/immich-server:release",
+    "category": "used",
+    "bytes": 1689953590,
+    "created": 1791398414,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "immich_server",
+      "weak": false
+     }
+    ],
+    "notes": [],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:42aa95fc13ded13dfe60355a3b6ffb83b8d99e360b96b18dd56506d5f12d3467",
+    "kind": "image",
+    "image_id": "sha256:42aa95fc13ded13dfe60355a3b6ffb83b8d99e360b96b18dd56506d5f12d3467",
+    "refs": [
+     "nextcloud:apache"
+    ],
+    "name": "nextcloud:apache",
+    "category": "used",
+    "bytes": 1477186620,
+    "created": 1791254881,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "Nextcloud",
+      "weak": false
+     }
+    ],
+    "notes": [
+     {
+      "why": "named_by",
+      "names": [
+       {
+        "kind": "template",
+        "name": "my-Nextcloud.xml"
+       }
+      ]
+     }
+    ],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:53ef799caed285438d88678b529b4ff24406d4788f47ab8a74bb2212c707899a",
+    "kind": "image",
+    "image_id": "sha256:53ef799caed285438d88678b529b4ff24406d4788f47ab8a74bb2212c707899a",
+    "refs": [
+     "mariadb:11"
+    ],
+    "name": "mariadb:11",
+    "category": "used",
+    "bytes": 335489119,
+    "created": 1790904670,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "mariadb-nextcloud",
+      "weak": false
+     }
+    ],
+    "notes": [
+     {
+      "why": "named_by",
+      "names": [
+       {
+        "kind": "template",
+        "name": "my-mariadb-nextcloud.xml"
+       }
+      ]
+     }
+    ],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:5fd43a34a84f5e854ba58a9e4f7640d036da1ad6664682038226a3736d04eb8c",
+    "kind": "image",
+    "image_id": "sha256:5fd43a34a84f5e854ba58a9e4f7640d036da1ad6664682038226a3736d04eb8c",
+    "refs": [
+     "emby/embyserver:latest"
+    ],
+    "name": "emby/embyserver:latest",
+    "category": "used",
+    "bytes": 962842426,
+    "created": 1790632341,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "EmbyServer",
+      "weak": false
+     }
+    ],
+    "notes": [
+     {
+      "why": "named_by",
+      "names": [
+       {
+        "kind": "template",
+        "name": "my-EmbyServer.xml"
+       }
+      ]
+     }
+    ],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:fe28f8795cacedcab7a315750dc2ad6bb6f7b63ac720525cb76b15b6647a28c4",
+    "kind": "image",
+    "image_id": "sha256:fe28f8795cacedcab7a315750dc2ad6bb6f7b63ac720525cb76b15b6647a28c4",
+    "refs": [
+     "grafana/grafana:latest"
+    ],
+    "name": "grafana/grafana:latest",
+    "category": "used",
+    "bytes": 1413918453,
+    "created": 1790628924,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "Grafana",
+      "weak": false
+     }
+    ],
+    "notes": [
+     {
+      "why": "named_by",
+      "names": [
+       {
+        "kind": "template",
+        "name": "my-Grafana.xml"
+       }
+      ]
+     }
+    ],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:66416213a3b43651d3521acc3987277b4f97ad0ae29acc581f910ef9bd3959bd",
+    "kind": "image",
+    "image_id": "sha256:66416213a3b43651d3521acc3987277b4f97ad0ae29acc581f910ef9bd3959bd",
+    "refs": [
+     "prom/prometheus:latest"
+    ],
+    "name": "prom/prometheus:latest",
+    "category": "used",
+    "bytes": 265582474,
+    "created": 1790323583,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "prometheus",
+      "weak": false
+     }
+    ],
+    "notes": [
+     {
+      "why": "named_by",
+      "names": [
+       {
+        "kind": "template",
+        "name": "my-prometheus.xml"
+       }
+      ]
+     }
+    ],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:6ce127b25a483f9181abc5205a5967b65427ec43f0aa38eb69c5768db42ca634",
+    "kind": "image",
+    "image_id": "sha256:6ce127b25a483f9181abc5205a5967b65427ec43f0aa38eb69c5768db42ca634",
+    "refs": [
+     "quay.io/prometheus/node-exporter:latest-distroless"
+    ],
+    "name": "quay.io/prometheus/node-exporter:latest-distroless",
+    "category": "used",
+    "bytes": 26124601,
+    "created": 1784031078,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "Node-Exporter",
+      "weak": false
+     }
+    ],
+    "notes": [
+     {
+      "why": "named_by",
+      "names": [
+       {
+        "kind": "template",
+        "name": "my-Node-Exporter.xml"
+       }
+      ]
+     }
+    ],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:2e0b21b0d720b9ce7f9dd6c0ffeb9903d15a3529315d25a3ba20bddfae872f8b",
+    "kind": "image",
+    "image_id": "sha256:2e0b21b0d720b9ce7f9dd6c0ffeb9903d15a3529315d25a3ba20bddfae872f8b",
+    "refs": [
+     "ghcr.io/imagegenius/kopia:latest"
+    ],
+    "name": "ghcr.io/imagegenius/kopia:latest",
+    "category": "used",
+    "bytes": 234801723,
+    "created": 1779517218,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "kopia",
+      "weak": false
+     }
+    ],
+    "notes": [
+     {
+      "why": "named_by",
+      "names": [
+       {
+        "kind": "template",
+        "name": "my-kopia.xml"
+       }
+      ]
+     }
+    ],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:cbcb613696a8362de6c08df225b46912e3e326d925e3d16abde653486601d645",
+    "kind": "image",
+    "image_id": "sha256:cbcb613696a8362de6c08df225b46912e3e326d925e3d16abde653486601d645",
+    "refs": [
+     "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0"
+    ],
+    "name": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+    "category": "used",
+    "bytes": 738679732,
+    "created": 1759838960,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "immich_postgres",
+      "weak": false
+     }
+    ],
+    "notes": [],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "image:sha256:8c04e462c12008e3f9b974deedbd8252f2825657c58f75483643554f3686a7b1",
+    "kind": "image",
+    "image_id": "sha256:8c04e462c12008e3f9b974deedbd8252f2825657c58f75483643554f3686a7b1",
+    "refs": [
+     "valkey/valkey:8-bookworm"
+    ],
+    "name": "valkey/valkey:8-bookworm",
+    "category": "used",
+    "bytes": 112534682,
+    "created": 1755870671,
+    "path": null,
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "immich_redis",
+      "weak": false
+     }
+    ],
+    "notes": [],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "volume:3d444e1d017857e6f0bd27cc0d883e57e8f016059bbf749a0f5ae633c0f06925",
+    "kind": "volume",
+    "name": "3d444e1d017857e6f0bd27cc0d883e57e8f016059bbf749a0f5ae633c0f06925",
+    "category": "used",
+    "anonymous": true,
+    "project": null,
+    "driver": "local",
+    "keep": true,
+    "bytes": null,
+    "files": null,
+    "newest": null,
+    "measuring": false,
+    "created": 1791322499,
+    "path": "/var/lib/docker/volumes/3d444e1d017857e6f0bd27cc0d883e57e8f016059bbf749a0f5ae633c0f06925/_data",
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "kopia",
+      "weak": false
+     }
+    ],
+    "notes": [],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "volume:8236bed845487a2e95b1ab6af4f83dd1ece28f32f698dd929b726bb2d4904fe6",
+    "kind": "volume",
+    "name": "8236bed845487a2e95b1ab6af4f83dd1ece28f32f698dd929b726bb2d4904fe6",
+    "category": "used",
+    "anonymous": true,
+    "project": null,
+    "driver": "local",
+    "keep": true,
+    "bytes": null,
+    "files": null,
+    "newest": null,
+    "measuring": false,
+    "created": 1791458486,
+    "path": "/var/lib/docker/volumes/8236bed845487a2e95b1ab6af4f83dd1ece28f32f698dd929b726bb2d4904fe6/_data",
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "immich_redis",
+      "weak": false
+     }
+    ],
+    "notes": [],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "volume:9002b596574075e2fe21402c7ceeeb1a9c06de44333843742c0a1ce541dd44a5",
+    "kind": "volume",
+    "name": "9002b596574075e2fe21402c7ceeeb1a9c06de44333843742c0a1ce541dd44a5",
+    "category": "used",
+    "anonymous": true,
+    "project": null,
+    "driver": "local",
+    "keep": true,
+    "bytes": null,
+    "files": null,
+    "newest": null,
+    "measuring": false,
+    "created": 1791458487,
+    "path": "/var/lib/docker/volumes/9002b596574075e2fe21402c7ceeeb1a9c06de44333843742c0a1ce541dd44a5/_data",
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "immich_server",
+      "weak": false
+     }
+    ],
+    "notes": [],
+    "why": null,
+    "force": false
+   },
+   {
+    "id": "volume:d60d599f9ca2a28d09ee0629bcb6696ed00082664ac6c7d24bf26bc639b653a6",
+    "kind": "volume",
+    "name": "d60d599f9ca2a28d09ee0629bcb6696ed00082664ac6c7d24bf26bc639b653a6",
+    "category": "used",
+    "anonymous": true,
+    "project": null,
+    "driver": "local",
+    "keep": true,
+    "bytes": null,
+    "files": null,
+    "newest": null,
+    "measuring": false,
+    "created": 1791322499,
+    "path": "/var/lib/docker/volumes/d60d599f9ca2a28d09ee0629bcb6696ed00082664ac6c7d24bf26bc639b653a6/_data",
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "kopia",
+      "weak": false
+     }
+    ],
+    "notes": [],
+    "why": null,
+    "force": false
+   }
+  ]
+ },
+ "backup_running": false,
+ "restore_running": false,
+ "looked": 1791551074,
+ "restore_newer": null,
+ "templates": {
+  "dir": "/boot/config/plugins/dockerMan/templates-user",
+  "list": [
+   {
+    "id": "template:my-EmbyServer.xml",
+    "file": "my-EmbyServer.xml",
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-EmbyServer.xml",
+    "category": "in_use",
+    "container": {
+     "name": "EmbyServer",
+     "state": "running",
+     "origin": "dockerman",
+     "project": null
+    },
+    "image_local": "yes",
+    "image_bytes": 962842426,
+    "image_used_by": [
+     "EmbyServer"
+    ],
+    "newer": null,
+    "paths": [
+     {
+      "path": "/mnt/user/appdata/emby",
+      "exists": true
+     },
+     {
+      "path": "/mnt/user/Familienvideos",
+      "exists": true
+     }
+    ],
+    "name": "EmbyServer",
+    "image": "emby/embyserver:latest",
+    "network": "bridge",
+    "webui": "http://[IP]:[PORT:8096]/",
+    "support": "",
+    "installed": 1791458485,
+    "mtime": 1791458484,
+    "bytes": 1472,
+    "counts": {
+     "paths": 2,
+     "ports": 1,
+     "vars": 2
+    },
+    "kind": "template",
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "template:my-Grafana.xml",
+    "file": "my-Grafana.xml",
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-Grafana.xml",
+    "category": "in_use",
+    "container": {
+     "name": "Grafana",
+     "state": "exited",
+     "origin": "dockerman",
+     "project": null
+    },
+    "image_local": "yes",
+    "image_bytes": 1413918453,
+    "image_used_by": [
+     "Grafana"
+    ],
+    "newer": null,
+    "paths": [
+     {
+      "path": "/mnt/user/appdata/grafana",
+      "exists": true
+     }
+    ],
+    "name": "Grafana",
+    "image": "grafana/grafana",
+    "network": "bridge",
+    "webui": "http://[IP]:[PORT:3000]/",
+    "support": "https://forums.unraid.net/index.php?topic=51498.0",
+    "installed": 1791308045,
+    "mtime": 1791308044,
+    "bytes": 3328,
+    "counts": {
+     "paths": 1,
+     "ports": 1,
+     "vars": 5
+    },
+    "kind": "template",
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "template:my-Nextcloud.xml",
+    "file": "my-Nextcloud.xml",
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-Nextcloud.xml",
+    "category": "in_use",
+    "container": {
+     "name": "Nextcloud",
+     "state": "running",
+     "origin": "dockerman",
+     "project": null
+    },
+    "image_local": "yes",
+    "image_bytes": 1477186620,
+    "image_used_by": [
+     "Nextcloud"
+    ],
+    "newer": null,
+    "paths": [
+     {
+      "path": "/mnt/user/appdata/Dokumente",
+      "exists": true
+     },
+     {
+      "path": "/mnt/user/Dokumente",
+      "exists": true
+     }
+    ],
+    "name": "Nextcloud",
+    "image": "nextcloud:apache",
+    "network": "bridge",
+    "webui": "http://[IP]:[PORT:8080]/",
+    "support": "",
+    "installed": 1791458485,
+    "mtime": 1791458484,
+    "bytes": 1364,
+    "counts": {
+     "paths": 2,
+     "ports": 1,
+     "vars": 1
+    },
+    "kind": "template",
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "template:my-Node-Exporter.xml",
+    "file": "my-Node-Exporter.xml",
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-Node-Exporter.xml",
+    "category": "in_use",
+    "container": {
+     "name": "Node-Exporter",
+     "state": "exited",
+     "origin": "dockerman",
+     "project": null
+    },
+    "image_local": "yes",
+    "image_bytes": 26124601,
+    "image_used_by": [
+     "Node-Exporter"
+    ],
+    "newer": null,
+    "paths": [
+     {
+      "path": "/",
+      "exists": true
+     }
+    ],
+    "name": "Node-Exporter",
+    "image": "quay.io/prometheus/node-exporter:latest-distroless",
+    "network": "host",
+    "webui": "http://[IP]:9100/metrics",
+    "support": "https://github.com/RasmusLauritsen/unraid-node-exporter/issues",
+    "installed": 1791307270,
+    "mtime": 1791307270,
+    "bytes": 2352,
+    "counts": {
+     "paths": 1,
+     "ports": 0,
+     "vars": 0
+    },
+    "kind": "template",
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "template:my-kopia.xml",
+    "file": "my-kopia.xml",
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-kopia.xml",
+    "category": "in_use",
+    "container": {
+     "name": "kopia",
+     "state": "exited",
+     "origin": "dockerman",
+     "project": null
+    },
+    "image_local": "yes",
+    "image_bytes": 234801723,
+    "image_used_by": [
+     "kopia"
+    ],
+    "newer": null,
+    "paths": [
+     {
+      "path": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+      "exists": null
+     },
+     {
+      "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+      "exists": true
+     },
+     {
+      "path": "/mnt/user/appdata/kopia/cache",
+      "exists": true
+     },
+     {
+      "path": "/mnt/cache/appdata/kopia",
+      "exists": true
+     }
+    ],
+    "name": "kopia",
+    "image": "ghcr.io/imagegenius/kopia",
+    "network": "bridge",
+    "webui": "http://[IP]:[PORT:51515]",
+    "support": "https://github.com/imagegenius/docker-kopia/issues/new/choose",
+    "installed": 1791322492,
+    "mtime": 1791322492,
+    "bytes": 5187,
+    "counts": {
+     "paths": 5,
+     "ports": 1,
+     "vars": 7
+    },
+    "kind": "template",
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "template:my-mariadb-nextcloud.xml",
+    "file": "my-mariadb-nextcloud.xml",
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-mariadb-nextcloud.xml",
+    "category": "in_use",
+    "container": {
+     "name": "mariadb-nextcloud",
+     "state": "running",
+     "origin": "dockerman",
+     "project": null
+    },
+    "image_local": "yes",
+    "image_bytes": 335489119,
+    "image_used_by": [
+     "mariadb-nextcloud"
+    ],
+    "newer": null,
+    "paths": [
+     {
+      "path": "/mnt/user/appdata/mariadb-nextcloud",
+      "exists": true
+     }
+    ],
+    "name": "mariadb-nextcloud",
+    "image": "mariadb:11",
+    "network": "bridge",
+    "webui": "",
+    "support": "",
+    "installed": 1791458485,
+    "mtime": 1791458484,
+    "bytes": 1562,
+    "counts": {
+     "paths": 1,
+     "ports": 0,
+     "vars": 4
+    },
+    "kind": "template",
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "template:my-prometheus.xml",
+    "file": "my-prometheus.xml",
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-prometheus.xml",
+    "category": "in_use",
+    "container": {
+     "name": "prometheus",
+     "state": "exited",
+     "origin": "dockerman",
+     "project": null
+    },
+    "image_local": "yes",
+    "image_bytes": 265582474,
+    "image_used_by": [
+     "prometheus"
+    ],
+    "newer": null,
+    "paths": [
+     {
+      "path": "/mnt/user/appdata/prometheus/data",
+      "exists": true
+     },
+     {
+      "path": "/mnt/user/appdata/prometheus/etc",
+      "exists": true
+     }
+    ],
+    "name": "prometheus",
+    "image": "prom/prometheus",
+    "network": "bridge",
+    "webui": "http://[IP]:[PORT:9090]",
+    "support": "https://forums.unraid.net/topic/87798-support-selfhostersnets-template-repository/",
+    "installed": 1791307940,
+    "mtime": 1791307940,
+    "bytes": 2282,
+    "counts": {
+     "paths": 2,
+     "ports": 1,
+     "vars": 0
+    },
+    "kind": "template",
+    "why": null,
+    "force": true
+   }
+  ],
+  "strays_at": 1791551074,
+  "strays_searching": false,
+  "strays_skipped": 0,
+  "strays_skipped_dirs": []
+ },
+ "stacks": {
+  "root": "/boot/config/plugins/compose.manager/projects",
+  "exists": false,
+  "list": []
+ },
+ "scripts": {
+  "installed": false,
+  "boot": 1791530630,
+  "list": [],
+  "dir": "/boot/config/plugins/user.scripts/scripts"
+ },
+ "appdata": {
+  "share": "appdata",
+  "places": [
+   {
+    "root": "cache",
+    "path": "/mnt/cache/appdata",
+    "fs": "zfs"
+   }
+  ],
+  "asleep": [],
+  "mounters": [],
+  "complete": true,
+  "flash_at": 1791551074,
+  "list": [
+   {
+    "id": "appdata:emby",
+    "kind": "appdata",
+    "name": "emby",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "EmbyServer",
+      "weak": false
+     },
+     {
+      "kind": "template",
+      "name": "my-EmbyServer.xml",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/emby",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791458488,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "appdata:grafana",
+    "kind": "appdata",
+    "name": "grafana",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "Grafana",
+      "weak": false
+     },
+     {
+      "kind": "template",
+      "name": "my-Grafana.xml",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/grafana",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791436117,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "appdata:immich",
+    "kind": "appdata",
+    "name": "immich",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "immich_server",
+      "weak": false
+     },
+     {
+      "kind": "container",
+      "name": "immich_postgres",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/immich",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791458485,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "appdata:kopia",
+    "kind": "appdata",
+    "name": "kopia",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "kopia",
+      "weak": false
+     },
+     {
+      "kind": "template",
+      "name": "my-kopia.xml",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/kopia",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791322499,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "appdata:mariadb-nextcloud",
+    "kind": "appdata",
+    "name": "mariadb-nextcloud",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "mariadb-nextcloud",
+      "weak": false
+     },
+     {
+      "kind": "template",
+      "name": "my-mariadb-nextcloud.xml",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/mariadb-nextcloud",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791530712,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "appdata:nextcloud",
+    "kind": "appdata",
+    "name": "Dokumente",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "Nextcloud",
+      "weak": false
+     },
+     {
+      "kind": "template",
+      "name": "my-Nextcloud.xml",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/Dokumente",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791458498,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "appdata:prometheus",
+    "kind": "appdata",
+    "name": "prometheus",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "container",
+      "name": "prometheus",
+      "weak": false
+     },
+     {
+      "kind": "template",
+      "name": "my-prometheus.xml",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/prometheus",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791307926,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "appdata:UnraidSecretaryOffice",
+    "kind": "appdata",
+    "name": "UnraidSecretaryOffice",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "flash",
+      "name": "plugins/unraid-secretary-office/unraid-secretary-office.cfg",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/appdata/UnraidSecretaryOffice",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791500857,
+      "bytes": 97280,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": 97280,
+    "snaps": 0,
+    "files": 27,
+    "newest": 1791308294,
+    "top": [
+     [
+      1791308294,
+      "data/agent.log"
+     ],
+     [
+      1791308294,
+      "data/cleanup/cache.json"
+     ],
+     [
+      1791308293,
+      "data/backup.json"
+     ],
+     [
+      1791308293,
+      "data/logs.json"
+     ],
+     [
+      1791308293,
+      "data/watchman.json"
+     ]
+    ],
+    "measured_at": 1791308294,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   }
+  ]
+ },
+ "vms": {
+  "enabled": true,
+  "ok": true,
+  "count": 3,
+  "domains": {
+   "share": "domains",
+   "places": [
+    {
+     "root": "cache",
+     "path": "/mnt/cache/domains",
+     "fs": "zfs"
+    }
+   ],
+   "asleep": []
+  },
+  "isos": {
+   "share": "isos",
+   "places": [
+    {
+     "root": "disk1",
+     "path": "/mnt/disk1/isos",
+     "fs": "btrfs"
+    }
+   ],
+   "asleep": []
+  },
+  "complete": true,
+  "list": [
+   {
+    "id": "domain:router",
+    "kind": "domain",
+    "name": "router",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "vm",
+      "name": "Home-Assistant",
+      "weak": false
+     },
+     {
+      "kind": "vm",
+      "name": "Windows-11",
+      "weak": false
+     },
+     {
+      "kind": "vm",
+      "name": "Ubuntu-Test",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "cache",
+      "path": "/mnt/cache/domains/router",
+      "dataset": null,
+      "zfs": false,
+      "mtime": 1791548576,
+      "bytes": null,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": null,
+    "snaps": null,
+    "files": null,
+    "newest": null,
+    "top": [],
+    "measured_at": null,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   },
+   {
+    "id": "iso:virtio-win-0.1.302-1.iso",
+    "kind": "iso",
+    "name": "virtio-win-0.1.302-1.iso",
+    "category": "used",
+    "notes": [],
+    "used_by": [
+     {
+      "kind": "flash",
+      "name": "domain.cfg",
+      "weak": false
+     }
+    ],
+    "used_more": 0,
+    "parts": [
+     {
+      "root": "disk1",
+      "path": "/mnt/disk1/isos/virtio-win-0.1.302-1.iso",
+      "dataset": null,
+      "file": true,
+      "mtime": 1787874652,
+      "bytes": 877375488,
+      "snaps": null,
+      "backup": "local"
+     }
+    ],
+    "bytes": 877375488,
+    "snaps": 0,
+    "files": 1,
+    "newest": 1787874652,
+    "top": [],
+    "measured_at": 1791551074,
+    "measuring": false,
+    "partial": false,
+    "why": null,
+    "force": true
+   }
+  ]
+ },
+ "leftovers": {
+  "restores": 3,
+  "asleep": [],
+  "list": []
+ },
+ "partners": {
+  "asleep": [],
+  "list": []
+ },
+ "trash": {
+  "runs": [
+   {
+    "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261007-000849",
+    "path": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261007-000849",
+    "root": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash",
+    "where": "appdata",
+    "legacy": false,
+    "purging": false,
+    "stamp": "20261007-000849",
+    "time": 1791324529,
+    "items": [
+     {
+      "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261007-000849|restore/8d1099e0/prometheus.restored-20261007-000716",
+      "kind": "leftover",
+      "name": "prometheus.restored-20261007-000716",
+      "label": "20261007-000716-cdcc",
+      "from": "/mnt/cache/appdata/prometheus.restored-20261007-000716",
+      "as": "restore/8d1099e0/prometheus.restored-20261007-000716",
+      "dataset": null,
+      "zfs": null,
+      "zfs_path": null,
+      "present": true,
+      "asleep": false,
+      "volumes": [],
+      "images": []
+     }
+    ],
+    "bytes": 139264,
+    "measuring": false,
+    "snaps": 0
+   }
+  ],
+  "bytes": 139264
+ },
+ "icons": {
+  "list": [
+   {
+    "id": "icon:EmbyServer",
+    "kind": "icon",
+    "name": "EmbyServer",
+    "image": "emby/embyserver:latest",
+    "state": "running",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://raw.githubusercontent.com/MediaBrowser/Emby.Resources/master/images/logoicon.png",
+    "value_from": "template",
+    "shown": null,
+    "template": "/boot/config/plugins/dockerMan/templates-user/my-EmbyServer.xml",
+    "template_id": "template:my-EmbyServer.xml",
+    "project": null,
+    "service": null,
+    "override": null,
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-EmbyServer.xml",
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   },
+   {
+    "id": "icon:Grafana",
+    "kind": "icon",
+    "name": "Grafana",
+    "image": "grafana/grafana",
+    "state": "exited",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://github.com/atribe/unRAID-docker/raw/master/icons/grafana.png",
+    "value_from": "template",
+    "shown": null,
+    "template": "/boot/config/plugins/dockerMan/templates-user/my-Grafana.xml",
+    "template_id": "template:my-Grafana.xml",
+    "project": null,
+    "service": null,
+    "override": null,
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-Grafana.xml",
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   },
+   {
+    "id": "icon:immich_postgres",
+    "kind": "icon",
+    "name": "immich_postgres",
+    "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+    "state": "running",
+    "category": "none",
+    "status": "missing",
+    "value": "",
+    "value_from": null,
+    "shown": null,
+    "template": null,
+    "template_id": null,
+    "project": null,
+    "service": "database",
+    "override": null,
+    "path": null,
+    "why": "no_stack",
+    "candidates": [
+     {
+      "url": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/postgres.png",
+      "source": "table",
+      "detail": "postgres",
+      "status": "ok"
+     }
+    ],
+    "force": false,
+    "suggest": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/postgres.png",
+    "checking": false
+   },
+   {
+    "id": "icon:immich_redis",
+    "kind": "icon",
+    "name": "immich_redis",
+    "image": "valkey/valkey:8-bookworm",
+    "state": "running",
+    "category": "none",
+    "status": "missing",
+    "value": "",
+    "value_from": null,
+    "shown": null,
+    "template": null,
+    "template_id": null,
+    "project": null,
+    "service": "redis",
+    "override": null,
+    "path": null,
+    "why": "no_stack",
+    "candidates": [
+     {
+      "url": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/valkey.png",
+      "source": "table",
+      "detail": "valkey",
+      "status": "ok"
+     }
+    ],
+    "force": false,
+    "suggest": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/valkey.png",
+    "checking": false
+   },
+   {
+    "id": "icon:immich_server",
+    "kind": "icon",
+    "name": "immich_server",
+    "image": "ghcr.io/immich-app/immich-server:release",
+    "state": "running",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://raw.githubusercontent.com/immich-app/immich/main/design/immich-logo.svg",
+    "value_from": "label",
+    "shown": null,
+    "template": null,
+    "template_id": null,
+    "project": null,
+    "service": "immich-server",
+    "override": null,
+    "path": null,
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   },
+   {
+    "id": "icon:kopia",
+    "kind": "icon",
+    "name": "kopia",
+    "image": "ghcr.io/imagegenius/kopia",
+    "state": "exited",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/kopia.png",
+    "value_from": "template",
+    "shown": null,
+    "template": "/boot/config/plugins/dockerMan/templates-user/my-kopia.xml",
+    "template_id": "template:my-kopia.xml",
+    "project": null,
+    "service": null,
+    "override": null,
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-kopia.xml",
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   },
+   {
+    "id": "icon:mariadb-nextcloud",
+    "kind": "icon",
+    "name": "mariadb-nextcloud",
+    "image": "mariadb:11",
+    "state": "running",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/mariadb-logo.png",
+    "value_from": "template",
+    "shown": null,
+    "template": "/boot/config/plugins/dockerMan/templates-user/my-mariadb-nextcloud.xml",
+    "template_id": "template:my-mariadb-nextcloud.xml",
+    "project": null,
+    "service": null,
+    "override": null,
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-mariadb-nextcloud.xml",
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   },
+   {
+    "id": "icon:Nextcloud",
+    "kind": "icon",
+    "name": "Nextcloud",
+    "image": "nextcloud:apache",
+    "state": "running",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://raw.githubusercontent.com/Dokumente/server/master/core/img/favicon.png",
+    "value_from": "template",
+    "shown": null,
+    "template": "/boot/config/plugins/dockerMan/templates-user/my-Nextcloud.xml",
+    "template_id": "template:my-Nextcloud.xml",
+    "project": null,
+    "service": null,
+    "override": null,
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-Nextcloud.xml",
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   },
+   {
+    "id": "icon:Node-Exporter",
+    "kind": "icon",
+    "name": "Node-Exporter",
+    "image": "quay.io/prometheus/node-exporter:latest-distroless",
+    "state": "exited",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://raw.githubusercontent.com/RasmusLauritsen/unraid-node-exporter/main/icon.png",
+    "value_from": "template",
+    "shown": null,
+    "template": "/boot/config/plugins/dockerMan/templates-user/my-Node-Exporter.xml",
+    "template_id": "template:my-Node-Exporter.xml",
+    "project": null,
+    "service": null,
+    "override": null,
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-Node-Exporter.xml",
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   },
+   {
+    "id": "icon:prometheus",
+    "kind": "icon",
+    "name": "prometheus",
+    "image": "prom/prometheus",
+    "state": "exited",
+    "category": "ok",
+    "status": "ok",
+    "value": "https://raw.githubusercontent.com/selfhosters/unRAID-CA-templates/master/templates/img/prometheus.png",
+    "value_from": "template",
+    "shown": null,
+    "template": "/boot/config/plugins/dockerMan/templates-user/my-prometheus.xml",
+    "template_id": "template:my-prometheus.xml",
+    "project": null,
+    "service": null,
+    "override": null,
+    "path": "/boot/config/plugins/dockerMan/templates-user/my-prometheus.xml",
+    "why": null,
+    "candidates": [],
+    "force": false,
+    "suggest": null,
+    "checking": false
+   }
+  ],
+  "loop": {
+   "version": "7.3.3",
+   "affected": false,
+   "fallback_missing": false,
+   "containers": 0,
+   "risk": false,
+   "standin": true
+  },
+  "checking": false,
+  "ca_at": null,
+  "collection": "homarr-labs/dashboard-icons",
+  "previews": [],
+  "upload_dir": "/boot/config/plugins/unraid-secretary-office/icons"
+ },
+ "jobs": {
+  "busy": 0,
+  "flash": false,
+  "measuring": 0,
+  "purging": 0
+ }
+}

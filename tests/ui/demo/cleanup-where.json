@@ -1,0 +1,2814 @@
+{
+ "time": 1791551074,
+ "duration_ms": 81,
+ "host": "FamilienServer",
+ "agent": "1.52.0",
+ "system": {
+  "name": "FamilienServer",
+  "unraid": "7.3.3",
+  "uptime": 20444,
+  "load": [
+   1.48095703125,
+   0.73876953125,
+   0.494140625
+  ],
+  "array": {
+   "state": "STARTED",
+   "fs": "Started",
+   "resync": null
+  },
+  "mover": false,
+  "scrubs": [],
+  "docker": {
+   "running": 6,
+   "total": 10,
+   "up": true
+  },
+  "vms": {
+   "running": 0,
+   "total": 3,
+   "up": true
+  },
+  "scripts": [],
+  "backup": {
+   "running": false,
+   "since": null,
+   "step": null
+  }
+ },
+ "storage": [
+  {
+   "name": "daten",
+   "fs": "zfs",
+   "kind": "pool",
+   "asleep": false
+  },
+  {
+   "name": "cache",
+   "fs": "zfs",
+   "kind": "pool",
+   "asleep": false
+  },
+  {
+   "name": "disk1",
+   "fs": "btrfs",
+   "kind": "disk",
+   "asleep": false
+  },
+  {
+   "name": "disk2",
+   "fs": "zfs",
+   "kind": "disk",
+   "asleep": false
+  }
+ ],
+ "shares": [
+  {
+   "name": "appdata",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "cache",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/cache/appdata",
+    "pools": [
+     "cache"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "cache/appdata",
+    "missing": false
+   },
+   "size": {
+    "bytes": 1007284224,
+    "source": "zfs"
+   },
+   "measure": "/mnt/cache/appdata",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [
+    {
+     "kind": "container",
+     "name": "EmbyServer",
+     "path": "/mnt/user/appdata/emby",
+     "detail": "/config",
+     "rest": "emby"
+    },
+    {
+     "kind": "container",
+     "name": "Grafana",
+     "path": "/mnt/user/appdata/grafana",
+     "detail": "/var/lib/grafana",
+     "rest": "grafana"
+    },
+    {
+     "kind": "container",
+     "name": "immich_postgres",
+     "path": "/mnt/user/appdata/immich/postgres",
+     "detail": "/var/lib/postgresql/data",
+     "rest": "immich/postgres"
+    },
+    {
+     "kind": "container",
+     "name": "immich_server",
+     "path": "/mnt/user/appdata/immich/upload",
+     "detail": "/usr/src/app/upload",
+     "rest": "immich/upload"
+    },
+    {
+     "kind": "container",
+     "name": "kopia",
+     "path": "/mnt/user/appdata/kopia/cache",
+     "detail": "/cache",
+     "rest": "kopia/cache"
+    },
+    {
+     "kind": "container",
+     "name": "kopia",
+     "path": "/mnt/cache/appdata/kopia",
+     "detail": "/config",
+     "rest": "kopia"
+    },
+    {
+     "kind": "container",
+     "name": "mariadb-nextcloud",
+     "path": "/mnt/user/appdata/mariadb-nextcloud",
+     "detail": "/var/lib/mysql",
+     "rest": "mariadb-nextcloud"
+    },
+    {
+     "kind": "container",
+     "name": "Nextcloud",
+     "path": "/mnt/user/appdata/Dokumente",
+     "detail": "/var/www/html",
+     "rest": "Dokumente"
+    },
+    {
+     "kind": "container",
+     "name": "prometheus",
+     "path": "/mnt/user/appdata/prometheus/data",
+     "detail": "/prometheus",
+     "rest": "prometheus/data"
+    },
+    {
+     "kind": "container",
+     "name": "prometheus",
+     "path": "/mnt/user/appdata/prometheus/etc",
+     "detail": "/etc/prometheus",
+     "rest": "prometheus/etc"
+    },
+    {
+     "kind": "backup",
+     "name": "kopia",
+     "path": "/mnt/user/appdata/kopia/cache",
+     "detail": "kopia",
+     "rest": "kopia/cache"
+    },
+    {
+     "kind": "backup",
+     "name": "kopia",
+     "path": "/mnt/cache/appdata/kopia",
+     "detail": "kopia",
+     "rest": "kopia"
+    }
+   ],
+   "backup": "local"
+  },
+  {
+   "name": "domains",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "cache",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/cache/domains",
+    "pools": [
+     "cache"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "cache/domains",
+    "missing": false
+   },
+   "size": {
+    "bytes": 358981632,
+    "source": "zfs"
+   },
+   "measure": "/mnt/cache/domains",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [
+    {
+     "kind": "vm",
+     "name": "Home-Assistant",
+     "path": "/mnt/user/domains/router/vdisks/home-assistant.img",
+     "detail": null,
+     "rest": "router/vdisks/home-assistant.img"
+    },
+    {
+     "kind": "vm",
+     "name": "Windows-11",
+     "path": "/mnt/user/domains/router/vdisks/windows-11.img",
+     "detail": null,
+     "rest": "router/vdisks/windows-11.img"
+    },
+    {
+     "kind": "vm",
+     "name": "Ubuntu-Test",
+     "path": "/mnt/user/domains/router/vdisks/ubuntu-test.img",
+     "detail": null,
+     "rest": "router/vdisks/ubuntu-test.img"
+    }
+   ],
+   "backup": "local"
+  },
+  {
+   "name": "isos",
+   "comment": "",
+   "storage": {
+    "use_cache": "no",
+    "primary": "array",
+    "secondary": null,
+    "exclusive": false,
+    "real": null,
+    "pools": [],
+    "disks": [
+     "disk1"
+    ],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": null,
+    "missing": false
+   },
+   "size": null,
+   "measure": "/mnt/user/isos",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [],
+   "backup": "local"
+  },
+  {
+   "name": "Familienvideos",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "daten",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/daten/Familienvideos",
+    "pools": [
+     "daten"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "daten/Familienvideos",
+    "missing": false
+   },
+   "size": {
+    "bytes": 1303355392,
+    "source": "zfs"
+   },
+   "measure": "/mnt/daten/Familienvideos",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [
+    {
+     "kind": "container",
+     "name": "EmbyServer",
+     "path": "/mnt/user/Familienvideos",
+     "detail": "/mnt/Familienvideos",
+     "rest": ""
+    }
+   ],
+   "backup": "local"
+  },
+  {
+   "name": "Dokumente",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "daten",
+    "secondary": null,
+    "exclusive": false,
+    "real": null,
+    "pools": [
+     "daten",
+     "cache"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "daten/Dokumente",
+    "missing": false
+   },
+   "size": {
+    "bytes": 98304,
+    "source": "zfs"
+   },
+   "measure": "/mnt/user/Dokumente",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [
+    {
+     "kind": "container",
+     "name": "Nextcloud",
+     "path": "/mnt/user/Dokumente",
+     "detail": "/var/www/html/data",
+     "rest": ""
+    }
+   ],
+   "backup": "local"
+  },
+  {
+   "name": "Familienfotos",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "daten",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/daten/Familienfotos",
+    "pools": [
+     "daten"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "daten/Familienfotos",
+    "missing": false
+   },
+   "size": {
+    "bytes": 167837696,
+    "source": "zfs"
+   },
+   "measure": "/mnt/daten/Familienfotos",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [
+    {
+     "kind": "container",
+     "name": "immich_server",
+     "path": "/mnt/user/Familienfotos",
+     "detail": "/mnt/Familienfotos",
+     "rest": ""
+    }
+   ],
+   "backup": "local"
+  },
+  {
+   "name": "paperless",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "cache",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/cache/paperless",
+    "pools": [
+     "cache"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": null,
+    "dataset": null,
+    "missing": false
+   },
+   "size": null,
+   "measure": "/mnt/cache/paperless",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": false,
+   "used_by": [],
+   "backup": "local"
+  },
+  {
+   "name": "syslog",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "daten",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/daten/syslog",
+    "pools": [
+     "daten"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "daten/syslog",
+    "missing": false
+   },
+   "size": {
+    "bytes": 397312,
+    "source": "zfs"
+   },
+   "measure": "/mnt/daten/syslog",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [],
+   "backup": "none"
+  },
+  {
+   "name": "system",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "cache",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/cache/system",
+    "pools": [
+     "cache"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "cache/system",
+    "missing": false
+   },
+   "size": {
+    "bytes": 4170461184,
+    "source": "zfs"
+   },
+   "measure": "/mnt/cache/system",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [],
+   "backup": "none"
+  },
+  {
+   "name": "UnraidSecretaryOffice",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "daten",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/daten/UnraidSecretaryOffice",
+    "pools": [
+     "daten"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "daten/UnraidSecretaryOffice",
+    "missing": false
+   },
+   "size": {
+    "bytes": 867065856,
+    "source": "zfs"
+   },
+   "measure": "/mnt/daten/UnraidSecretaryOffice",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [
+    {
+     "kind": "container",
+     "name": "kopia",
+     "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+     "detail": "/uso-restore",
+     "rest": "restore/kopia"
+    },
+    {
+     "kind": "backup",
+     "name": "kopia",
+     "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+     "detail": "kopia",
+     "rest": "restore/kopia"
+    }
+   ],
+   "backup": "local"
+  }
+ ],
+ "appdata": "appdata",
+ "folders": [
+  {
+   "share": "appdata",
+   "base": "/mnt/cache/appdata",
+   "appdata": true,
+   "files": 0,
+   "folders": [
+    {
+     "name": "emby",
+     "path": "/mnt/user/appdata/emby",
+     "real": "/mnt/cache/appdata/emby",
+     "dataset": null,
+     "size": null,
+     "modified": 1791458488,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "EmbyServer",
+       "path": "/mnt/user/appdata/emby",
+       "detail": "/config"
+      }
+     ]
+    },
+    {
+     "name": "grafana",
+     "path": "/mnt/user/appdata/grafana",
+     "real": "/mnt/cache/appdata/grafana",
+     "dataset": null,
+     "size": null,
+     "modified": 1791436117,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "Grafana",
+       "path": "/mnt/user/appdata/grafana",
+       "detail": "/var/lib/grafana"
+      }
+     ]
+    },
+    {
+     "name": "immich",
+     "path": "/mnt/user/appdata/immich",
+     "real": "/mnt/cache/appdata/immich",
+     "dataset": null,
+     "size": null,
+     "modified": 1791458485,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "immich_postgres",
+       "path": "/mnt/user/appdata/immich/postgres",
+       "detail": "/var/lib/postgresql/data"
+      },
+      {
+       "kind": "container",
+       "name": "immich_server",
+       "path": "/mnt/user/appdata/immich/upload",
+       "detail": "/usr/src/app/upload"
+      }
+     ]
+    },
+    {
+     "name": "kopia",
+     "path": "/mnt/user/appdata/kopia",
+     "real": "/mnt/cache/appdata/kopia",
+     "dataset": null,
+     "size": null,
+     "modified": 1791322499,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "kopia",
+       "path": "/mnt/user/appdata/kopia/cache",
+       "detail": "/cache"
+      },
+      {
+       "kind": "container",
+       "name": "kopia",
+       "path": "/mnt/cache/appdata/kopia",
+       "detail": "/config"
+      },
+      {
+       "kind": "backup",
+       "name": "kopia",
+       "path": "/mnt/user/appdata/kopia/cache",
+       "detail": "kopia"
+      },
+      {
+       "kind": "backup",
+       "name": "kopia",
+       "path": "/mnt/cache/appdata/kopia",
+       "detail": "kopia"
+      }
+     ]
+    },
+    {
+     "name": "mariadb-nextcloud",
+     "path": "/mnt/user/appdata/mariadb-nextcloud",
+     "real": "/mnt/cache/appdata/mariadb-nextcloud",
+     "dataset": null,
+     "size": null,
+     "modified": 1791530712,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "mariadb-nextcloud",
+       "path": "/mnt/user/appdata/mariadb-nextcloud",
+       "detail": "/var/lib/mysql"
+      }
+     ]
+    },
+    {
+     "name": "Dokumente",
+     "path": "/mnt/user/appdata/Dokumente",
+     "real": "/mnt/cache/appdata/Dokumente",
+     "dataset": null,
+     "size": null,
+     "modified": 1791458498,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "Nextcloud",
+       "path": "/mnt/user/appdata/Dokumente",
+       "detail": "/var/www/html"
+      }
+     ]
+    },
+    {
+     "name": "prometheus",
+     "path": "/mnt/user/appdata/prometheus",
+     "real": "/mnt/cache/appdata/prometheus",
+     "dataset": null,
+     "size": null,
+     "modified": 1791307926,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "prometheus",
+       "path": "/mnt/user/appdata/prometheus/data",
+       "detail": "/prometheus"
+      },
+      {
+       "kind": "container",
+       "name": "prometheus",
+       "path": "/mnt/user/appdata/prometheus/etc",
+       "detail": "/etc/prometheus"
+      }
+     ]
+    },
+    {
+     "name": "UnraidSecretaryOffice",
+     "path": "/mnt/user/appdata/UnraidSecretaryOffice",
+     "real": "/mnt/cache/appdata/UnraidSecretaryOffice",
+     "dataset": null,
+     "size": null,
+     "modified": 1791500857,
+     "used_by": []
+    },
+    {
+     "name": ".UnraidSecretaryOffice-trash",
+     "path": "/mnt/user/appdata/.UnraidSecretaryOffice-trash",
+     "real": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash",
+     "dataset": null,
+     "size": null,
+     "modified": 1791324529,
+     "used_by": []
+    }
+   ],
+   "cut": false
+  },
+  {
+   "share": "domains",
+   "base": "/mnt/cache/domains",
+   "appdata": false,
+   "files": 0,
+   "folders": [
+    {
+     "name": "router",
+     "path": "/mnt/user/domains/router",
+     "real": "/mnt/cache/domains/router",
+     "dataset": null,
+     "size": null,
+     "modified": 1791548576,
+     "used_by": [
+      {
+       "kind": "vm",
+       "name": "Home-Assistant",
+       "path": "/mnt/user/domains/router/vdisks/home-assistant.img",
+       "detail": null
+      },
+      {
+       "kind": "vm",
+       "name": "Windows-11",
+       "path": "/mnt/user/domains/router/vdisks/windows-11.img",
+       "detail": null
+      },
+      {
+       "kind": "vm",
+       "name": "Ubuntu-Test",
+       "path": "/mnt/user/domains/router/vdisks/ubuntu-test.img",
+       "detail": null
+      }
+     ]
+    }
+   ],
+   "cut": false
+  },
+  {
+   "share": "Familienvideos",
+   "base": "/mnt/daten/Familienvideos",
+   "appdata": false,
+   "files": 0,
+   "folders": [
+    {
+     "name": "Filme",
+     "path": "/mnt/user/Familienvideos/Filme",
+     "real": "/mnt/daten/Familienvideos/Filme",
+     "dataset": null,
+     "size": null,
+     "modified": 1791457719,
+     "used_by": []
+    },
+    {
+     "name": "Serien",
+     "path": "/mnt/user/Familienvideos/Serien",
+     "real": "/mnt/daten/Familienvideos/Serien",
+     "dataset": null,
+     "size": null,
+     "modified": 1791457718,
+     "used_by": []
+    }
+   ],
+   "cut": false
+  },
+  {
+   "share": "Dokumente",
+   "base": "/mnt/daten/Dokumente",
+   "appdata": false,
+   "files": 0,
+   "folders": [],
+   "cut": false
+  },
+  {
+   "share": "Familienfotos",
+   "base": "/mnt/daten/Familienfotos",
+   "appdata": false,
+   "files": 0,
+   "folders": [
+    {
+     "name": "2025",
+     "path": "/mnt/user/Familienfotos/2025",
+     "real": "/mnt/daten/Familienfotos/2025",
+     "dataset": null,
+     "size": null,
+     "modified": 1791457721,
+     "used_by": []
+    },
+    {
+     "name": "2026",
+     "path": "/mnt/user/Familienfotos/2026",
+     "real": "/mnt/daten/Familienfotos/2026",
+     "dataset": null,
+     "size": null,
+     "modified": 1791457718,
+     "used_by": []
+    }
+   ],
+   "cut": false
+  },
+  {
+   "share": "paperless",
+   "base": "/mnt/cache/paperless",
+   "appdata": false,
+   "files": 0,
+   "folders": [],
+   "cut": false
+  },
+  {
+   "share": "syslog",
+   "base": "/mnt/daten/syslog",
+   "appdata": false,
+   "files": 1,
+   "folders": [],
+   "cut": false
+  },
+  {
+   "share": "system",
+   "base": "/mnt/cache/system",
+   "appdata": false,
+   "files": 0,
+   "folders": [
+    {
+     "name": "docker",
+     "path": "/mnt/user/system/docker",
+     "real": "/mnt/cache/system/docker",
+     "dataset": null,
+     "size": null,
+     "modified": 1791530709,
+     "used_by": []
+    },
+    {
+     "name": "libvirt",
+     "path": "/mnt/user/system/libvirt",
+     "real": "/mnt/cache/system/libvirt",
+     "dataset": null,
+     "size": null,
+     "modified": 1791305969,
+     "used_by": []
+    }
+   ],
+   "cut": false
+  },
+  {
+   "share": "UnraidSecretaryOffice",
+   "base": "/mnt/daten/UnraidSecretaryOffice",
+   "appdata": false,
+   "files": 0,
+   "folders": [
+    {
+     "name": "backup",
+     "path": "/mnt/user/UnraidSecretaryOffice/backup",
+     "real": "/mnt/daten/UnraidSecretaryOffice/backup",
+     "dataset": null,
+     "size": null,
+     "modified": 1791513012,
+     "used_by": []
+    },
+    {
+     "name": "restore",
+     "path": "/mnt/user/UnraidSecretaryOffice/restore",
+     "real": "/mnt/daten/UnraidSecretaryOffice/restore",
+     "dataset": null,
+     "size": null,
+     "modified": 1791322492,
+     "used_by": [
+      {
+       "kind": "container",
+       "name": "kopia",
+       "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+       "detail": "/uso-restore"
+      },
+      {
+       "kind": "backup",
+       "name": "kopia",
+       "path": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+       "detail": "kopia"
+      }
+     ]
+    }
+   ],
+   "cut": false
+  }
+ ],
+ "containers": [
+  {
+   "name": "EmbyServer",
+   "image": "emby/embyserver:latest",
+   "state": "running",
+   "started": 1791530711,
+   "managed": "template",
+   "template": "/boot/config/plugins/dockerMan/templates-user/my-EmbyServer.xml",
+   "compose": null,
+   "autostart": true,
+   "restart": "no",
+   "privileged": false,
+   "network": "bridge",
+   "networks": [
+    {
+     "name": "bridge",
+     "ip": "172.17.0.4"
+    }
+   ],
+   "ports": [
+    {
+     "container": "8096/tcp",
+     "host": "8096",
+     "ip": "0.0.0.0"
+    },
+    {
+     "container": "8096/tcp",
+     "host": "8096",
+     "ip": "::"
+    }
+   ],
+   "mounts": [
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/emby",
+     "dest": "/config",
+     "rw": true
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/user/Familienvideos",
+     "dest": "/mnt/Familienvideos",
+     "rw": false
+    }
+   ],
+   "webui": "http://[IP]:[PORT:8096]/",
+   "icon": "https://raw.githubusercontent.com/MediaBrowser/Emby.Resources/master/images/logoicon.png"
+  },
+  {
+   "name": "Grafana",
+   "image": "grafana/grafana",
+   "state": "exited",
+   "started": 1791426605,
+   "managed": "template",
+   "template": "/boot/config/plugins/dockerMan/templates-user/my-Grafana.xml",
+   "compose": null,
+   "autostart": false,
+   "restart": "no",
+   "privileged": false,
+   "network": "bridge",
+   "networks": [
+    {
+     "name": "bridge",
+     "ip": null
+    }
+   ],
+   "ports": [],
+   "mounts": [
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/grafana",
+     "dest": "/var/lib/grafana",
+     "rw": true
+    }
+   ],
+   "webui": "http://[IP]:[PORT:3000]/",
+   "icon": "https://github.com/atribe/unRAID-docker/raw/master/icons/grafana.png"
+  },
+  {
+   "name": "immich_postgres",
+   "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+   "state": "running",
+   "started": 1791530712,
+   "managed": "compose",
+   "template": null,
+   "compose": {
+    "project": "immich",
+    "files": [],
+    "service": "database"
+   },
+   "autostart": true,
+   "restart": "no",
+   "privileged": false,
+   "network": "immich_default",
+   "networks": [
+    {
+     "name": "immich_default",
+     "ip": "172.18.0.2"
+    }
+   ],
+   "ports": [],
+   "mounts": [
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/immich/postgres",
+     "dest": "/var/lib/postgresql/data",
+     "rw": true
+    }
+   ],
+   "webui": null,
+   "icon": null
+  },
+  {
+   "name": "immich_redis",
+   "image": "valkey/valkey:8-bookworm",
+   "state": "running",
+   "started": 1791530712,
+   "managed": "compose",
+   "template": null,
+   "compose": {
+    "project": "immich",
+    "files": [],
+    "service": "redis"
+   },
+   "autostart": true,
+   "restart": "no",
+   "privileged": false,
+   "network": "immich_default",
+   "networks": [
+    {
+     "name": "immich_default",
+     "ip": "172.18.0.3"
+    }
+   ],
+   "ports": [],
+   "mounts": [
+    {
+     "type": "volume",
+     "source": "/var/lib/docker/volumes/8236bed845487a2e95b1ab6af4f83dd1ece28f32f698dd929b726bb2d4904fe6/_data",
+     "dest": "/data",
+     "rw": true
+    }
+   ],
+   "webui": null,
+   "icon": null
+  },
+  {
+   "name": "immich_server",
+   "image": "ghcr.io/immich-app/immich-server:release",
+   "state": "running",
+   "started": 1791530712,
+   "managed": "compose",
+   "template": null,
+   "compose": {
+    "project": "immich",
+    "files": [],
+    "service": "immich-server"
+   },
+   "autostart": true,
+   "restart": "no",
+   "privileged": false,
+   "network": "immich_default",
+   "networks": [
+    {
+     "name": "immich_default",
+     "ip": "172.18.0.4"
+    }
+   ],
+   "ports": [
+    {
+     "container": "2283/tcp",
+     "host": "2283",
+     "ip": "0.0.0.0"
+    },
+    {
+     "container": "2283/tcp",
+     "host": "2283",
+     "ip": "::"
+    }
+   ],
+   "mounts": [
+    {
+     "type": "volume",
+     "source": "/var/lib/docker/volumes/9002b596574075e2fe21402c7ceeeb1a9c06de44333843742c0a1ce541dd44a5/_data",
+     "dest": "/data",
+     "rw": true
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/user/Familienfotos",
+     "dest": "/mnt/Familienfotos",
+     "rw": false
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/immich/upload",
+     "dest": "/usr/src/app/upload",
+     "rw": true
+    }
+   ],
+   "webui": "http://[IP]:[PORT:2283]/",
+   "icon": "https://raw.githubusercontent.com/immich-app/immich/main/design/immich-logo.svg"
+  },
+  {
+   "name": "kopia",
+   "image": "ghcr.io/imagegenius/kopia",
+   "state": "exited",
+   "started": 1791322499,
+   "managed": "template",
+   "template": "/boot/config/plugins/dockerMan/templates-user/my-kopia.xml",
+   "compose": null,
+   "autostart": false,
+   "restart": "no",
+   "privileged": false,
+   "network": "bridge",
+   "networks": [
+    {
+     "name": "bridge",
+     "ip": null
+    }
+   ],
+   "ports": [],
+   "mounts": [
+    {
+     "type": "volume",
+     "source": "/var/lib/docker/volumes/3d444e1d017857e6f0bd27cc0d883e57e8f016059bbf749a0f5ae633c0f06925/_data",
+     "dest": "/backups",
+     "rw": true
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/kopia/cache",
+     "dest": "/cache",
+     "rw": true
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/cache/appdata/kopia",
+     "dest": "/config",
+     "rw": true
+    },
+    {
+     "type": "volume",
+     "source": "/var/lib/docker/volumes/d60d599f9ca2a28d09ee0629bcb6696ed00082664ac6c7d24bf26bc639b653a6/_data",
+     "dest": "/source",
+     "rw": true
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/addons/UnraidSecretaryOffice/snapshots",
+     "dest": "/uso",
+     "rw": false
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+     "dest": "/uso-restore",
+     "rw": true
+    }
+   ],
+   "webui": "http://[IP]:[PORT:51515]",
+   "icon": "https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/kopia.png"
+  },
+  {
+   "name": "mariadb-nextcloud",
+   "image": "mariadb:11",
+   "state": "running",
+   "started": 1791530711,
+   "managed": "template",
+   "template": "/boot/config/plugins/dockerMan/templates-user/my-mariadb-nextcloud.xml",
+   "compose": null,
+   "autostart": true,
+   "restart": "no",
+   "privileged": false,
+   "network": "bridge",
+   "networks": [
+    {
+     "name": "bridge",
+     "ip": "172.17.0.2"
+    }
+   ],
+   "ports": [],
+   "mounts": [
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/mariadb-nextcloud",
+     "dest": "/var/lib/mysql",
+     "rw": true
+    }
+   ],
+   "webui": null,
+   "icon": "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/mariadb-logo.png"
+  },
+  {
+   "name": "Nextcloud",
+   "image": "nextcloud:apache",
+   "state": "running",
+   "started": 1791530711,
+   "managed": "template",
+   "template": "/boot/config/plugins/dockerMan/templates-user/my-Nextcloud.xml",
+   "compose": null,
+   "autostart": true,
+   "restart": "no",
+   "privileged": false,
+   "network": "bridge",
+   "networks": [
+    {
+     "name": "bridge",
+     "ip": "172.17.0.3"
+    }
+   ],
+   "ports": [
+    {
+     "container": "80/tcp",
+     "host": "8080",
+     "ip": "0.0.0.0"
+    },
+    {
+     "container": "80/tcp",
+     "host": "8080",
+     "ip": "::"
+    }
+   ],
+   "mounts": [
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/Dokumente",
+     "dest": "/var/www/html",
+     "rw": true
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/user/Dokumente",
+     "dest": "/var/www/html/data",
+     "rw": true
+    }
+   ],
+   "webui": "http://[IP]:[PORT:8080]/",
+   "icon": "https://raw.githubusercontent.com/Dokumente/server/master/core/img/favicon.png"
+  },
+  {
+   "name": "Node-Exporter",
+   "image": "quay.io/prometheus/node-exporter:latest-distroless",
+   "state": "exited",
+   "started": 1791307273,
+   "managed": "template",
+   "template": "/boot/config/plugins/dockerMan/templates-user/my-Node-Exporter.xml",
+   "compose": null,
+   "autostart": false,
+   "restart": "no",
+   "privileged": false,
+   "network": "host",
+   "networks": [
+    {
+     "name": "host",
+     "ip": null
+    }
+   ],
+   "ports": [],
+   "mounts": [
+    {
+     "type": "bind",
+     "source": "/",
+     "dest": "/host",
+     "rw": false
+    }
+   ],
+   "webui": "http://[IP]:9100/metrics",
+   "icon": "https://raw.githubusercontent.com/RasmusLauritsen/unraid-node-exporter/main/icon.png"
+  },
+  {
+   "name": "prometheus",
+   "image": "prom/prometheus",
+   "state": "exited",
+   "started": 1791426605,
+   "managed": "template",
+   "template": "/boot/config/plugins/dockerMan/templates-user/my-prometheus.xml",
+   "compose": null,
+   "autostart": false,
+   "restart": "no",
+   "privileged": false,
+   "network": "bridge",
+   "networks": [
+    {
+     "name": "bridge",
+     "ip": null
+    }
+   ],
+   "ports": [],
+   "mounts": [
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/prometheus/data",
+     "dest": "/prometheus",
+     "rw": true
+    },
+    {
+     "type": "bind",
+     "source": "/mnt/user/appdata/prometheus/etc",
+     "dest": "/etc/prometheus",
+     "rw": true
+    }
+   ],
+   "webui": "http://[IP]:[PORT:9090]",
+   "icon": "https://raw.githubusercontent.com/selfhosters/unRAID-CA-templates/master/templates/img/prometheus.png"
+  }
+ ],
+ "compose": [],
+ "templates": [
+  {
+   "file": "/boot/config/plugins/dockerMan/templates-user/my-EmbyServer.xml",
+   "name": "EmbyServer",
+   "image": "emby/embyserver:latest",
+   "container": true,
+   "paths": [
+    "/mnt/user/appdata/emby",
+    "/mnt/user/Familienvideos"
+   ]
+  },
+  {
+   "file": "/boot/config/plugins/dockerMan/templates-user/my-Grafana.xml",
+   "name": "Grafana",
+   "image": "grafana/grafana",
+   "container": true,
+   "paths": [
+    "/mnt/user/appdata/grafana"
+   ]
+  },
+  {
+   "file": "/boot/config/plugins/dockerMan/templates-user/my-kopia.xml",
+   "name": "kopia",
+   "image": "ghcr.io/imagegenius/kopia",
+   "container": true,
+   "paths": [
+    "/mnt/addons/UnraidSecretaryOffice/snapshots",
+    "/mnt/user/UnraidSecretaryOffice/restore/kopia",
+    "/mnt/user/appdata/kopia/cache",
+    "/mnt/cache/appdata/kopia"
+   ]
+  },
+  {
+   "file": "/boot/config/plugins/dockerMan/templates-user/my-mariadb-nextcloud.xml",
+   "name": "mariadb-nextcloud",
+   "image": "mariadb:11",
+   "container": true,
+   "paths": [
+    "/mnt/user/appdata/mariadb-nextcloud"
+   ]
+  },
+  {
+   "file": "/boot/config/plugins/dockerMan/templates-user/my-Nextcloud.xml",
+   "name": "Nextcloud",
+   "image": "nextcloud:apache",
+   "container": true,
+   "paths": [
+    "/mnt/user/appdata/Dokumente",
+    "/mnt/user/Dokumente"
+   ]
+  },
+  {
+   "file": "/boot/config/plugins/dockerMan/templates-user/my-Node-Exporter.xml",
+   "name": "Node-Exporter",
+   "image": "quay.io/prometheus/node-exporter:latest-distroless",
+   "container": true,
+   "paths": [
+    "/"
+   ]
+  },
+  {
+   "file": "/boot/config/plugins/dockerMan/templates-user/my-prometheus.xml",
+   "name": "prometheus",
+   "image": "prom/prometheus",
+   "container": true,
+   "paths": [
+    "/mnt/user/appdata/prometheus/data",
+    "/mnt/user/appdata/prometheus/etc"
+   ]
+  }
+ ],
+ "vms": [
+  {
+   "name": "Home-Assistant",
+   "state": "shut off",
+   "running": false,
+   "autostart": false,
+   "uuid": "5b9ee266-91fd-4743-81ce-95d9772b0d35",
+   "description": "USO MikroTik lab (dropnook/UnraidSecretaryOffice#2): RouterOS CHR from mikrotik.com, isolated libvirt networks only - never br0",
+   "os": null,
+   "template": null,
+   "machine": "pc-i440fx-10.2",
+   "firmware": "bios",
+   "secure_boot": false,
+   "loader": null,
+   "nvram": null,
+   "nvram_copies": 0,
+   "tpm": null,
+   "xml": "/etc/libvirt/qemu/Home-Assistant.xml",
+   "cpus": 1,
+   "memory": 268435456,
+   "disks": [
+    {
+     "device": "disk",
+     "source": "/mnt/user/domains/router/vdisks/home-assistant.img",
+     "target": "vda",
+     "bus": "virtio",
+     "format": "raw",
+     "backup": "local",
+     "chain": [],
+     "bytes": 134217728,
+     "allocated": 45495296,
+     "sparse": false
+    }
+   ],
+   "networks": [
+    {
+     "mac": "52:54:00:4d:54:01",
+     "source": "br0",
+     "model": "virtio"
+    },
+    {
+     "mac": "52:54:00:4d:54:02",
+     "source": "br0",
+     "model": "virtio"
+    },
+    {
+     "mac": "52:54:00:4d:54:03",
+     "source": "br0",
+     "model": "virtio"
+    }
+   ],
+   "passthrough": 0,
+   "graphics": null,
+   "snapshots": 0,
+   "config_backup": "local",
+   "agent": null
+  },
+  {
+   "name": "Windows-11",
+   "state": "shut off",
+   "running": false,
+   "autostart": false,
+   "uuid": "a053353f-5118-4575-80b7-e707d983069c",
+   "description": "USO MikroTik lab (dropnook/UnraidSecretaryOffice#2): RouterOS CHR from mikrotik.com, isolated libvirt networks only - never br0",
+   "os": null,
+   "template": null,
+   "machine": "pc-i440fx-10.2",
+   "firmware": "bios",
+   "secure_boot": false,
+   "loader": null,
+   "nvram": null,
+   "nvram_copies": 0,
+   "tpm": null,
+   "xml": "/etc/libvirt/qemu/Windows-11.xml",
+   "cpus": 1,
+   "memory": 268435456,
+   "disks": [
+    {
+     "device": "disk",
+     "source": "/mnt/user/domains/router/vdisks/windows-11.img",
+     "target": "vda",
+     "bus": "virtio",
+     "format": "raw",
+     "backup": "local",
+     "chain": [],
+     "bytes": 134217728,
+     "allocated": 45454336,
+     "sparse": false
+    }
+   ],
+   "networks": [
+    {
+     "mac": "52:54:00:4d:54:11",
+     "source": "br0",
+     "model": "virtio"
+    },
+    {
+     "mac": "52:54:00:4d:54:12",
+     "source": "br0",
+     "model": "virtio"
+    }
+   ],
+   "passthrough": 0,
+   "graphics": null,
+   "snapshots": 0,
+   "config_backup": "local",
+   "agent": null
+  },
+  {
+   "name": "Ubuntu-Test",
+   "state": "shut off",
+   "running": false,
+   "autostart": false,
+   "uuid": "a82c2239-38ca-4648-b94f-6ce60d04cc3d",
+   "description": "USO MikroTik lab (dropnook/UnraidSecretaryOffice#2): RouterOS CHR from mikrotik.com, isolated libvirt networks only - never br0",
+   "os": null,
+   "template": null,
+   "machine": "pc-i440fx-10.2",
+   "firmware": "bios",
+   "secure_boot": false,
+   "loader": null,
+   "nvram": null,
+   "nvram_copies": 0,
+   "tpm": null,
+   "xml": "/etc/libvirt/qemu/Ubuntu-Test.xml",
+   "cpus": 1,
+   "memory": 268435456,
+   "disks": [
+    {
+     "device": "disk",
+     "source": "/mnt/user/domains/router/vdisks/ubuntu-test.img",
+     "target": "vda",
+     "bus": "virtio",
+     "format": "raw",
+     "backup": "local",
+     "chain": [],
+     "bytes": 134217728,
+     "allocated": 65930240,
+     "sparse": false
+    }
+   ],
+   "networks": [
+    {
+     "mac": "52:54:00:4d:54:21",
+     "source": "br0",
+     "model": "virtio"
+    }
+   ],
+   "passthrough": 0,
+   "graphics": null,
+   "snapshots": 0,
+   "config_backup": "local",
+   "agent": null
+  }
+ ],
+ "users": [],
+ "smb": {
+  "enabled": true,
+  "workgroup": "WORKGROUP",
+  "security": "user",
+  "fruit": true,
+  "netbios": false,
+  "wsd": true,
+  "extra": "# FILESVIEWER RECYCLE BEGIN - managed by the files viewer plugin, do not edit\nveto files = /.RecycleBin/\n# FILESVIEWER RECYCLE END",
+  "custom": [],
+  "sessions": []
+ },
+ "nfs": {
+  "enabled": false,
+  "exports": []
+ },
+ "scripts": [],
+ "cron": [
+  {
+   "source": "crontab",
+   "title": "Run hourly cron jobs at 47 minutes after the hour",
+   "schedule": "47 * * * *",
+   "command": "/usr/bin/run-parts /etc/cron.hourly 1> /dev/null",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "crontab",
+   "title": "Run daily cron jobs at 4:40 every day",
+   "schedule": "40 4 * * *",
+   "command": "/usr/bin/run-parts /etc/cron.daily 1> /dev/null",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "crontab",
+   "title": "Run weekly cron jobs at 4:30 on the first day of the week",
+   "schedule": "30 4 * * 0",
+   "command": "/usr/bin/run-parts /etc/cron.weekly 1> /dev/null",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "crontab",
+   "title": "Run monthly cron jobs at 4:20 on the first day of the month",
+   "schedule": "20 4 1 * *",
+   "command": "/usr/bin/run-parts /etc/cron.monthly 1> /dev/null",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "/etc/cron.d/filesviewer",
+   "title": "Files Viewer: empty expired recycle bin events daily",
+   "schedule": "30 4 * * *",
+   "command": "/usr/bin/php /usr/local/emhttp/plugins/filesviewer/include/filesviewer_recycle_cron.php > /dev/null 2>&1",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "/etc/cron.d/root",
+   "title": "system monitoring",
+   "schedule": "*/1 * * * *",
+   "command": "/usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "/etc/cron.d/root",
+   "title": "mover",
+   "schedule": "40 3 * * *",
+   "command": "/usr/local/sbin/mover start > /dev/null 2> >(logger -t move)",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "/etc/cron.d/root",
+   "title": "Unraid OS update check",
+   "schedule": "11 0 * * 1",
+   "command": "/usr/local/emhttp/plugins/dynamix.plugin.manager/scripts/unraidcheck &> /dev/null",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "/etc/cron.d/root",
+   "title": "Unraid Secretary Office - is the agent at work? (written by scripts/agent.sh)",
+   "schedule": "*/5 * * * *",
+   "command": "bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh watch > /dev/null 2>&1",
+   "gone": null,
+   "program": null
+  },
+  {
+   "source": "/etc/cron.d/root",
+   "title": "Unraid Secretary Office - written by the office, change it there",
+   "schedule": "30 4 * * *",
+   "command": "bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup > /dev/null 2>&1",
+   "gone": null,
+   "program": null
+  }
+ ],
+ "backups": [
+  {
+   "kind": "unraid-backup",
+   "title": "unraid-backup",
+   "paths": [
+    "/usr/local/emhttp/plugins/unraid-secretary-office/backup",
+    "/mnt/addons/UnraidSecretaryOffice/snapshots"
+   ],
+   "detail": {
+    "prefix": "uso-backup-"
+   }
+  },
+  {
+   "kind": "kopia",
+   "title": "kopia",
+   "paths": [
+    "/mnt/user/appdata/kopia/cache",
+    "/mnt/cache/appdata/kopia",
+    "/mnt/addons/UnraidSecretaryOffice/snapshots",
+    "/mnt/user/UnraidSecretaryOffice/restore/kopia"
+   ],
+   "detail": {
+    "image": "ghcr.io/imagegenius/kopia",
+    "state": "exited"
+   }
+  },
+  {
+   "kind": "snapshots",
+   "title": "Ms. Snapshot",
+   "paths": [],
+   "detail": {
+    "count": 57
+   }
+  }
+ ],
+ "partners": {
+  "places": [
+   {
+    "pool": "daten",
+    "dataset": "daten/UnraidSecretaryOffice-partners",
+    "used": 170369024,
+    "pairs": [
+     {
+      "id": "26bbb6eb",
+      "name": "Grosseltern",
+      "gone": false,
+      "used": 170270720,
+      "snaps": 9478144,
+      "units": [
+       "place",
+       "share:pdata"
+      ]
+     }
+    ],
+    "stored": 0
+   }
+  ],
+  "asleep": []
+ },
+ "plugins": [
+  {
+   "name": "community.applications",
+   "file": "community.applications.plg",
+   "version": "2026.07.21",
+   "author": "Lime Technology"
+  },
+  {
+   "name": "dwpython",
+   "file": "dwpython.plg",
+   "version": "2026.10.06",
+   "author": "desertwitch"
+  },
+  {
+   "name": "filesviewer",
+   "file": "filesviewer.plg",
+   "version": "2026.08.24",
+   "author": "Lazaros Chalkidis"
+  },
+  {
+   "name": "fix.common.problems",
+   "file": "fix.common.problems.plg",
+   "version": "2026.05.16",
+   "author": "Lime Technology"
+  },
+  {
+   "name": "unraid-secretary-office",
+   "file": "unraid-secretary-office.plg",
+   "version": "2026.10.09c",
+   "author": "dropnook"
+  }
+ ],
+ "health": {
+  "limits": {
+   "hdd_hot": 45,
+   "hdd_max": 55,
+   "ssd_hot": 60,
+   "ssd_max": 70,
+   "warning": 70,
+   "critical": 90
+  },
+  "devices": [
+   {
+    "name": "parity",
+    "roles": [],
+    "origin": "array",
+    "type": "Parity",
+    "device": "sde",
+    "id": "QEMU_HARDDISK_QM00009",
+    "transport": "ata",
+    "rotational": true,
+    "asleep": false,
+    "status": "DISK_OK",
+    "building": null,
+    "errors": 0,
+    "temp": 31,
+    "hot": 45,
+    "max": 55,
+    "fill": null,
+    "size": null,
+    "warn": 70,
+    "crit": 90,
+    "smart": {
+     "read": 1791551066,
+     "kind": "ata",
+     "hours": 1,
+     "attributes": [
+      {
+       "id": 1,
+       "name": "Raw_Read_Error_Rate",
+       "value": 100,
+       "worst": 100,
+       "thresh": 6,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 3,
+       "name": "Spin_Up_Time",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "16"
+      },
+      {
+       "id": 4,
+       "name": "Start_Stop_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 20,
+       "failed": null,
+       "raw": "100"
+      },
+      {
+       "id": 5,
+       "name": "Reallocated_Sector_Ct",
+       "value": 100,
+       "worst": 100,
+       "thresh": 36,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 9,
+       "name": "Power_On_Hours",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "1"
+      },
+      {
+       "id": 12,
+       "name": "Power_Cycle_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 190,
+       "name": "Airflow_Temperature_Cel",
+       "value": 69,
+       "worst": 69,
+       "thresh": 50,
+       "failed": null,
+       "raw": "31 (Min/Max 31/31)"
+      }
+     ],
+     "nvme": [],
+     "problems": []
+    }
+   },
+   {
+    "name": "disk1",
+    "roles": [],
+    "origin": "array",
+    "type": "Data",
+    "device": "sda",
+    "id": "WDC_WD80EFZZ-68BTXN0",
+    "transport": "ata",
+    "rotational": true,
+    "asleep": false,
+    "status": "DISK_OK",
+    "building": null,
+    "errors": 0,
+    "temp": 31,
+    "hot": 45,
+    "max": 55,
+    "fill": 3.3,
+    "size": 34359705600,
+    "warn": 70,
+    "crit": 90,
+    "smart": {
+     "read": 1791551066,
+     "kind": "ata",
+     "hours": 1,
+     "attributes": [
+      {
+       "id": 1,
+       "name": "Raw_Read_Error_Rate",
+       "value": 100,
+       "worst": 100,
+       "thresh": 6,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 3,
+       "name": "Spin_Up_Time",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "16"
+      },
+      {
+       "id": 4,
+       "name": "Start_Stop_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 20,
+       "failed": null,
+       "raw": "100"
+      },
+      {
+       "id": 5,
+       "name": "Reallocated_Sector_Ct",
+       "value": 100,
+       "worst": 100,
+       "thresh": 36,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 9,
+       "name": "Power_On_Hours",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "1"
+      },
+      {
+       "id": 12,
+       "name": "Power_Cycle_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 190,
+       "name": "Airflow_Temperature_Cel",
+       "value": 69,
+       "worst": 69,
+       "thresh": 50,
+       "failed": null,
+       "raw": "31 (Min/Max 31/31)"
+      }
+     ],
+     "nvme": [],
+     "problems": []
+    }
+   },
+   {
+    "name": "disk2",
+    "roles": [],
+    "origin": "array",
+    "type": "Data",
+    "device": "sdb",
+    "id": "QEMU_HARDDISK_USO-TS-DISK1",
+    "transport": "ata",
+    "rotational": true,
+    "asleep": false,
+    "status": "DISK_OK",
+    "building": null,
+    "errors": 0,
+    "temp": 31,
+    "hot": 45,
+    "max": 55,
+    "fill": 0,
+    "size": 24444403712,
+    "warn": 70,
+    "crit": 90,
+    "smart": {
+     "read": 1791551066,
+     "kind": "ata",
+     "hours": 1,
+     "attributes": [
+      {
+       "id": 1,
+       "name": "Raw_Read_Error_Rate",
+       "value": 100,
+       "worst": 100,
+       "thresh": 6,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 3,
+       "name": "Spin_Up_Time",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "16"
+      },
+      {
+       "id": 4,
+       "name": "Start_Stop_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 20,
+       "failed": null,
+       "raw": "100"
+      },
+      {
+       "id": 5,
+       "name": "Reallocated_Sector_Ct",
+       "value": 100,
+       "worst": 100,
+       "thresh": 36,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 9,
+       "name": "Power_On_Hours",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "1"
+      },
+      {
+       "id": 12,
+       "name": "Power_Cycle_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 190,
+       "name": "Airflow_Temperature_Cel",
+       "value": 69,
+       "worst": 69,
+       "thresh": 50,
+       "failed": null,
+       "raw": "31 (Min/Max 31/31)"
+      }
+     ],
+     "nvme": [],
+     "problems": []
+    }
+   },
+   {
+    "name": "daten",
+    "roles": [],
+    "origin": "array",
+    "type": "Cache",
+    "device": "vda",
+    "id": "USO-TS-BIG",
+    "transport": "virtio",
+    "rotational": true,
+    "asleep": false,
+    "status": "DISK_OK",
+    "building": null,
+    "errors": 0,
+    "temp": null,
+    "hot": 45,
+    "max": 55,
+    "fill": 1,
+    "size": 258033582080,
+    "warn": 70,
+    "crit": 90,
+    "smart": {
+     "read": 1791551066,
+     "kind": null,
+     "hours": null,
+     "attributes": [],
+     "nvme": [],
+     "problems": []
+    }
+   },
+   {
+    "name": "cache",
+    "roles": [],
+    "origin": "array",
+    "type": "Cache",
+    "device": "sdc",
+    "id": "QEMU_HARDDISK_USO-TS-DISK2",
+    "transport": "ata",
+    "rotational": true,
+    "asleep": false,
+    "status": "DISK_OK",
+    "building": null,
+    "errors": 0,
+    "temp": 31,
+    "hot": 45,
+    "max": 55,
+    "fill": 34.5,
+    "size": 16252944384,
+    "warn": 70,
+    "crit": 90,
+    "smart": {
+     "read": 1791551066,
+     "kind": "ata",
+     "hours": 1,
+     "attributes": [
+      {
+       "id": 1,
+       "name": "Raw_Read_Error_Rate",
+       "value": 100,
+       "worst": 100,
+       "thresh": 6,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 3,
+       "name": "Spin_Up_Time",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "16"
+      },
+      {
+       "id": 4,
+       "name": "Start_Stop_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 20,
+       "failed": null,
+       "raw": "100"
+      },
+      {
+       "id": 5,
+       "name": "Reallocated_Sector_Ct",
+       "value": 100,
+       "worst": 100,
+       "thresh": 36,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 9,
+       "name": "Power_On_Hours",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "1"
+      },
+      {
+       "id": 12,
+       "name": "Power_Cycle_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 190,
+       "name": "Airflow_Temperature_Cel",
+       "value": 69,
+       "worst": 69,
+       "thresh": 50,
+       "failed": null,
+       "raw": "31 (Min/Max 31/31)"
+      }
+     ],
+     "nvme": [],
+     "problems": []
+    }
+   },
+   {
+    "name": "cache2",
+    "roles": [],
+    "origin": "array",
+    "type": "Cache",
+    "device": "sdd",
+    "id": "QEMU_HARDDISK_USO-TS-POOL1",
+    "transport": "ata",
+    "rotational": true,
+    "asleep": false,
+    "status": "DISK_OK",
+    "building": null,
+    "errors": 0,
+    "temp": 31,
+    "hot": 45,
+    "max": 55,
+    "fill": null,
+    "size": null,
+    "warn": 70,
+    "crit": 90,
+    "smart": {
+     "read": 1791551066,
+     "kind": "ata",
+     "hours": 1,
+     "attributes": [
+      {
+       "id": 1,
+       "name": "Raw_Read_Error_Rate",
+       "value": 100,
+       "worst": 100,
+       "thresh": 6,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 3,
+       "name": "Spin_Up_Time",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "16"
+      },
+      {
+       "id": 4,
+       "name": "Start_Stop_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 20,
+       "failed": null,
+       "raw": "100"
+      },
+      {
+       "id": 5,
+       "name": "Reallocated_Sector_Ct",
+       "value": 100,
+       "worst": 100,
+       "thresh": 36,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 9,
+       "name": "Power_On_Hours",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "1"
+      },
+      {
+       "id": 12,
+       "name": "Power_Cycle_Count",
+       "value": 100,
+       "worst": 100,
+       "thresh": 0,
+       "failed": null,
+       "raw": "0"
+      },
+      {
+       "id": 190,
+       "name": "Airflow_Temperature_Cel",
+       "value": 69,
+       "worst": 69,
+       "thresh": 50,
+       "failed": null,
+       "raw": "31 (Min/Max 31/31)"
+      }
+     ],
+     "nvme": [],
+     "problems": []
+    }
+   },
+   {
+    "name": "flash",
+    "roles": [],
+    "origin": "array",
+    "type": "Flash",
+    "device": "sdf",
+    "id": "Samsung_Flash_Drive_0377319120017455-0:0",
+    "transport": "usb",
+    "rotational": true,
+    "asleep": false,
+    "status": "DISK_OK",
+    "building": null,
+    "errors": 0,
+    "temp": null,
+    "hot": 45,
+    "max": 55,
+    "fill": 4,
+    "size": 64124862464,
+    "warn": 70,
+    "crit": 90,
+    "smart": {
+     "read": 1791551066,
+     "kind": null,
+     "hours": null,
+     "attributes": [],
+     "nvme": [],
+     "problems": []
+    }
+   }
+  ],
+  "parity": {
+   "slots": 2,
+   "present": 1,
+   "checked": 1791530178,
+   "errors": 0
+  },
+  "pools": [
+   {
+    "name": "daten",
+    "fs": "zfs",
+    "layout": "single",
+    "devices": 1,
+    "tolerates": 0
+   },
+   {
+    "name": "cache",
+    "fs": "zfs",
+    "layout": "mirror",
+    "devices": 2,
+    "tolerates": 1
+   }
+  ]
+ },
+ "license": {
+  "type": "Trial",
+  "to": "Trial User",
+  "since": 1791302311,
+  "expires": null,
+  "limit": null,
+  "devices": 6,
+  "guid": "090C…7455",
+  "bound": "flash",
+  "check": null
+ },
+ "notices": [
+  {
+   "time": 1791533723,
+   "event": "Unraid Secretary Office",
+   "subject": "Unraid Secretary Office: Night watchman: 2 entries that may belong together",
+   "description": "These 2 entries came within 18 minutes and are of different kinds — they may belong together:",
+   "importance": "warning",
+   "link": "/SecretaryOffice#/watchman"
+  }
+ ],
+ "locations": [
+  {
+   "id": "unraid",
+   "boot": {
+    "fs": "vfat",
+    "source": "/dev/sdf1",
+    "kind": "usb",
+    "pool": null,
+    "layout": null,
+    "state": null,
+    "devices": [
+     {
+      "dev": "sdf1",
+      "disk": "sdf",
+      "model": "Flash Drive",
+      "bytes": 64160400896,
+      "usb": true
+     }
+    ],
+    "efi": [],
+    "guid": "090C-1000-0377-319120017455",
+    "vendor": "Samsung Flash_Drive",
+    "license": "flash",
+    "license_file": "/boot/config/Trial.key"
+   },
+   "items": [
+    {
+     "id": "flash_config",
+     "path": "/boot/config",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "super_dat",
+     "path": "/boot/config/super.dat",
+     "exists": true,
+     "dir": false,
+     "bytes": 4096,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "disk_cfg",
+     "path": "/boot/config/disk.cfg",
+     "exists": true,
+     "dir": false,
+     "bytes": 1407,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "network_cfg",
+     "path": "/boot/config/network.cfg",
+     "exists": true,
+     "dir": false,
+     "bytes": 105,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "ident_cfg",
+     "path": "/boot/config/ident.cfg",
+     "exists": true,
+     "dir": false,
+     "bytes": 650,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "share_cfgs",
+     "path": "/boot/config/shares",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 9,
+     "backup": "local"
+    },
+    {
+     "id": "users",
+     "path": "/boot/config/passwd",
+     "exists": true,
+     "dir": false,
+     "bytes": 628,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "smb_users",
+     "path": "/boot/config/smbpasswd",
+     "exists": true,
+     "dir": false,
+     "bytes": 101,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "ssh",
+     "path": "/boot/config/ssh",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "wireguard",
+     "path": "/boot/config/wireguard",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 1,
+     "backup": "local"
+    },
+    {
+     "id": "plugins",
+     "path": "/boot/config/plugins",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 5,
+     "backup": "local"
+    },
+    {
+     "id": "syslog",
+     "path": "/var/log/syslog",
+     "exists": true,
+     "dir": false,
+     "bytes": 1173471,
+     "count": null,
+     "backup": "none",
+     "ram": true
+    }
+   ]
+  },
+  {
+   "id": "docker",
+   "items": [
+    {
+     "id": "docker_templates",
+     "path": "/boot/config/plugins/dockerMan/templates-user",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 7,
+     "backup": "local",
+     "files": [
+      "my-EmbyServer.xml",
+      "my-Grafana.xml",
+      "my-kopia.xml",
+      "my-mariadb-nextcloud.xml",
+      "my-Nextcloud.xml",
+      "my-Node-Exporter.xml",
+      "my-prometheus.xml"
+     ]
+    },
+    {
+     "id": "docker_cfg",
+     "path": "/boot/config/docker.cfg",
+     "exists": true,
+     "dir": false,
+     "bytes": 481,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "docker_image",
+     "path": "/mnt/user/system/docker",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "none",
+     "note": "folder"
+    },
+    {
+     "id": "appdata",
+     "path": "/mnt/user/appdata",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    }
+   ]
+  },
+  {
+   "id": "compose",
+   "items": [
+    {
+     "id": "compose_projects",
+     "path": "/boot/config/plugins/compose.manager/projects",
+     "exists": false,
+     "dir": false,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    }
+   ],
+   "stacks": []
+  },
+  {
+   "id": "vms",
+   "items": [
+    {
+     "id": "domain_cfg",
+     "path": "/boot/config/domain.cfg",
+     "exists": true,
+     "dir": false,
+     "bytes": 338,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "libvirt_img",
+     "path": "/mnt/user/system/libvirt/libvirt.img",
+     "exists": true,
+     "dir": false,
+     "bytes": 2147483648,
+     "count": null,
+     "backup": "none",
+     "mounted": "/etc/libvirt"
+    },
+    {
+     "id": "vm_xml",
+     "path": "/etc/libvirt/qemu",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 3,
+     "backup": "local"
+    },
+    {
+     "id": "vm_nvram",
+     "path": "/etc/libvirt/qemu/nvram",
+     "exists": false,
+     "dir": false,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "vm_tpm",
+     "path": "/etc/libvirt/qemu/swtpm/tpm-states",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 0,
+     "backup": "local"
+    },
+    {
+     "id": "vm_snapshotdb",
+     "path": "/etc/libvirt/qemu/snapshotdb",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 0,
+     "backup": "local"
+    },
+    {
+     "id": "vm_domains",
+     "path": "/mnt/user/domains",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "vm_isos",
+     "path": "/mnt/user/isos",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    }
+   ],
+   "vms": 3
+  },
+  {
+   "id": "cron",
+   "jobs": 10,
+   "items": [
+    {
+     "id": "cron_files",
+     "path": "/boot/config/plugins",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 5,
+     "backup": "local",
+     "files": [
+      "dynamix/monitor.cron",
+      "dynamix/mover.cron",
+      "dynamix/unraid-check.cron",
+      "unraid-secretary-office/agent-watch.cron",
+      "unraid-secretary-office/unraid-secretary-office.cron"
+     ]
+    },
+    {
+     "id": "cron_d",
+     "path": "/etc/cron.d",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": 2,
+     "backup": "none",
+     "ram": true
+    },
+    {
+     "id": "crontab",
+     "path": "/var/spool/cron/crontabs/root",
+     "exists": true,
+     "dir": false,
+     "bytes": 1041,
+     "count": null,
+     "backup": "none",
+     "ram": true
+    }
+   ]
+  },
+  {
+   "id": "scripts",
+   "items": [
+    {
+     "id": "user_scripts",
+     "path": "/boot/config/plugins/user.scripts/scripts",
+     "exists": false,
+     "dir": false,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "user_scripts_schedule",
+     "path": "/boot/config/plugins/user.scripts/schedule.json",
+     "exists": false,
+     "dir": false,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    }
+   ]
+  },
+  {
+   "id": "office",
+   "items": [
+    {
+     "id": "office_dir",
+     "path": "/usr/local/emhttp/plugins/unraid-secretary-office",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "none"
+    },
+    {
+     "id": "office_data",
+     "path": "/mnt/user/appdata/UnraidSecretaryOffice/data",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    },
+    {
+     "id": "backup_data",
+     "path": "/mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup",
+     "exists": true,
+     "dir": true,
+     "bytes": null,
+     "count": null,
+     "backup": "local"
+    }
+   ]
+  }
+ ],
+ "advice": {
+  "mover_schedule": "40 3 * * *",
+  "system_shares": [
+   "appdata",
+   "system",
+   "domains"
+  ],
+  "spindown": {
+   "default": "0",
+   "never": 0
+  },
+  "ups": false,
+  "boot_internal": false,
+  "syslog_kept": false,
+  "exclusive": {
+   "permitted": true,
+   "ready": [],
+   "unclear": [],
+   "elsewhere": [
+    {
+     "name": "Dokumente",
+     "pool": "daten",
+     "where": [
+      "cache"
+     ]
+    }
+   ],
+   "overflow": [],
+   "asleep": []
+  },
+  "vm_stop": {
+   "timeout": 60,
+   "disk_timeout": 90
+  },
+  "vm_netmodel": [],
+  "write_method": {
+   "method": "auto",
+   "parity": 1,
+   "data": 2,
+   "direct": [
+    "isos"
+   ],
+   "pooled": 0,
+   "sleep": false,
+   "plugin": null,
+   "tip": "turbo"
+  },
+  "zfs_arc": {
+   "setting": 1288490188,
+   "unlimited": false,
+   "ram": 6221938688,
+   "c_max": 1288490188,
+   "size": 410407520,
+   "sys_free": 270152704,
+   "default": 5148196864,
+   "vm_running": 0,
+   "containers": 916406272,
+   "tip": null
+  }
+ }
+}

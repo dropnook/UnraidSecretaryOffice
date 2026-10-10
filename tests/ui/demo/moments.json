@@ -1,0 +1,27 @@
+[
+ {
+  "nr": 1,
+  "desk": "reception",
+  "moment": "team",
+  "title": "Empfang - das ganze Team auf einen Blick",
+  "route": "",
+  "clip": ".reception",
+  "pad": 12
+ },
+ {
+  "nr": 10,
+  "desk": "caretaker",
+  "moment": "advice",
+  "title": "Der Teamchef - was das Team empfiehlt, jede Sache mit ihrem Schreibtisch",
+  "route": "caretaker",
+  "clip": "[data-ct=advice]"
+ },
+ {
+  "nr": 10,
+  "desk": "caretaker",
+  "moment": "partner",
+  "title": "Der Teamchef - Partner-Sekretariat bei den Grosseltern (Kopien in beide Richtungen)",
+  "route": "caretaker",
+  "clip": "[data-ct=partners]"
+ }
+]
