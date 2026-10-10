@@ -1,0 +1,36 @@
+{
+ "time": 1791551074,
+ "n": 3,
+ "left": 22,
+ "cap": 25,
+ "next": null,
+ "closed": false,
+ "reports": [
+  {
+   "title": "Consolidate folders: also bring files from the cache",
+   "kind": "wish",
+   "desk": "emby",
+   "sent": 1791187474,
+   "status": "done",
+   "public": {
+    "url": "https://github.com/dropnook/UnraidSecretaryOffice/issues/14"
+   }
+  },
+  {
+   "title": "Snapshot list: filter by share",
+   "kind": "wish",
+   "desk": "snapshot",
+   "sent": 1791367474,
+   "status": "seen",
+   "public": null
+  },
+  {
+   "title": "What does «local only» mean for the backup place?",
+   "kind": "question",
+   "desk": "backup",
+   "sent": 1791529474,
+   "status": "received",
+   "public": null
+  }
+ ]
+}

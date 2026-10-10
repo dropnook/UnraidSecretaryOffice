@@ -283,25 +283,28 @@
    "name": "Familienvideos",
    "comment": "",
    "storage": {
-    "use_cache": "only",
-    "primary": "daten",
-    "secondary": null,
-    "exclusive": true,
-    "real": "/mnt/daten/Familienvideos",
+    "use_cache": "yes",
+    "primary": "cache",
+    "secondary": "array",
+    "exclusive": false,
+    "real": "/mnt/user/Familienvideos",
     "pools": [
-     "daten"
+     "cache"
     ],
-    "disks": [],
+    "disks": [
+     "disk1",
+     "disk2"
+    ],
     "unknown": [],
     "include": [],
     "exclude": [],
     "allocator": "highwater",
-    "dataset": "daten/Familienvideos",
+    "dataset": null,
     "missing": false
    },
    "size": {
     "bytes": 880468295680,
-    "source": "zfs"
+    "source": "du"
    },
    "measure": "/mnt/daten/Familienvideos",
    "smb": {

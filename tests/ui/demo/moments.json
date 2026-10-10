@@ -9,6 +9,22 @@
   "pad": 12
  },
  {
+  "nr": 2,
+  "desk": "emby",
+  "moment": "live",
+  "title": "Jack Emby - live: EmbyCache legt für jede Person bereit, was sie als Nächstes schaut",
+  "route": "emby",
+  "clip": ".jo-prog"
+ },
+ {
+  "nr": 2,
+  "desk": "emby",
+  "moment": "shares",
+  "title": "Jack Emby - die Shares der Bibliotheken: wie viel auf welcher Disk und welchem Pool liegt",
+  "route": "emby",
+  "clip": "section:has(> [data-place=\"shares\"])"
+ },
+ {
   "nr": 10,
   "desk": "caretaker",
   "moment": "advice",
@@ -261,5 +277,59 @@
    "#sso-dialog"
   ],
   "viewport": true
+ },
+ {
+  "nr": 11,
+  "desk": "office",
+  "moment": "report",
+  "title": "Problem oder Wunsch mitteilen - «Deine Rückmeldungen»: ein Wunsch, gebaut und öffentlich nachzulesen (Issue #14)",
+  "route": "emby",
+  "prepare": [
+   {
+    "click": "#sso-more",
+    "pause": 300
+   },
+   {
+    "js": "[...document.querySelectorAll(\"#sso-menu button\")].find((b) => b.textContent === Office.t(\"office.report_menu\")).click()",
+    "pause": 700
+   },
+   {
+    "click": "#sso-dialog .sso-report-kinds button[data-kind=wish]",
+    "pause": 200
+   },
+   {
+    "fill": "#sso-dialog .sso-report input.input",
+    "value": {
+     "de": "Serien: neue Folgen auch für Gäste bereitlegen",
+     "en": "Series: get new episodes ready for guests too"
+    }
+   },
+   {
+    "fill": "#sso-dialog .sso-report-text",
+    "value": {
+     "de": "Wenn die Grosseltern zu Besuch sind, schauen sie mit dem Gast-Konto. Schön wäre, wenn Jack Emby auch dafür die nächsten Folgen auf den Cache holt.",
+     "en": "When the grandparents visit they watch with the guest account. It would be nice if Jack Emby got the next episodes onto the cache for it too."
+    }
+   },
+   {
+    "click": "#sso-dialog .sso-report-yours > summary",
+    "pause": 400
+   },
+   {
+    "js": "(() => { const b = document.querySelector(\"#sso-dialog-body\"); b.scrollTop = b.scrollHeight; })()",
+    "pause": 300
+   }
+  ],
+  "clip": [
+   "#sso-dialog"
+  ],
+  "viewport": true,
+  "height": 900,
+  "states": {
+   "office.reports": {
+    "de": "office.reports",
+    "en": "office.reports-en"
+   }
+  }
  }
 ]

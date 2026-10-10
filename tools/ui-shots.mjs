@@ -18,8 +18,9 @@
 // --moments [nr,…]: the product page's «moments» instead (tests/ui/demo/moments.json) - per desk an element that does
 // something, clipped, after a small «prepare» (open a row, a dialog, a tooltip), each in its own demo state; black theme,
 // 1280 px, scale 2, de and en: <nr>-<desk>-<moment>-<lang>.png and a contact sheet (contact-sheet.html, contact-sheet-<lang>.png)
-// with all of them small and named. A moment: {nr, desk, moment, title, route ('' = the reception), states {name: file},
-// prepare [{click|hover|wait|scroll|select: <css>, value (select), all (click every match), pause (ms)} | {js: …}…], clip (css, or a list: the box around all), pad, height,
+// with all of them small and named. A moment: {nr, desk, moment, title, route ('' = the reception), states {name: file, or {de, en}: a desk's,
+// part's or canned answer's (demo/post/<desk>.<action>) state from another file},
+// prepare [{click|hover|wait|scroll|select|fill: <css>, value (select, fill; or {de, en}), all (click every match), pause (ms)} | {js: …}…], clip (css, or a list: the box around all), pad, height,
 // viewport (true: the element is fixed - a dialog - and shot as the window shows it), hide [css…]}.
 //
 // Needs node and playwright-core (USO_PLAYWRIGHT=<its folder>, else found in node's own paths or npx's cache) and a
@@ -184,8 +185,9 @@ const MOMENT_WIDTH = 1280;
 const momentFile = (m, lang) => path.join(opt.out, `${String(m.nr).padStart(2, '0')}-${m.desk}-${m.moment}-${lang}.png`);
 
 /** One step of a moment's «prepare»: click, hover, wait for, scroll to an element, or run a bit of the page's JS */
-async function prepareStep(page, st) {
-  const sel = st.click || st.hover || st.wait || st.scroll || st.select;
+async function prepareStep(page, st, lang) {
+  const value = st.value && typeof st.value === 'object' ? st.value[lang] ?? st.value.en : st.value;     // per language: {de: …, en: …}
+  const sel = st.click || st.hover || st.wait || st.scroll || st.select || st.fill;
   if (sel) {
     const loc = page.locator(sel);
     await loc.first().waitFor({ state: 'visible', timeout: 8000 });
@@ -194,14 +196,17 @@ async function prepareStep(page, st) {
       for (let i = 0; i < n; i++) await loc.nth(i).click();
     } else if (st.hover) await loc.first().hover();
     else if (st.scroll) await loc.first().scrollIntoViewIfNeeded();
-    else if (st.select) await loc.first().selectOption(String(st.value));
+    else if (st.select) await loc.first().selectOption(String(value));
+    else if (st.fill) await loc.first().fill(String(value));
   }
   if (st.js) await page.evaluate(st.js);
   await page.waitForTimeout(st.pause ?? 250);
 }
 
 async function shootMoment(browser, m, lang) {
-  const harness = await startHarness({ demo: true, alias: m.states || {} });
+  // a state per language where its words are the user's own (a report's title): {name: {de: file, en: file}}
+  const alias = Object.fromEntries(Object.entries(m.states || {}).map(([k, v]) => [k, v && typeof v === 'object' ? v[lang] ?? v.en ?? k : v]));
+  const harness = await startHarness({ demo: true, alias });
   const width = m.width || MOMENT_WIDTH;
   const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: 2,
     locale: LOCALES[lang] || lang, colorScheme: 'dark' });
@@ -221,7 +226,7 @@ async function shootMoment(browser, m, lang) {
       await Promise.all(['14px clear-sans', 'bold 14px clear-sans', '12px bitstream'].map((f) => document.fonts.load(f).catch(() => null)));
     });
     await page.waitForTimeout(500);
-    for (const st of m.prepare || []) await prepareStep(page, st);
+    for (const st of m.prepare || []) await prepareStep(page, st, lang);
     if ((m.hide || []).length) await page.addStyleTag({ content: `${m.hide.join(',')}{visibility:hidden!important}` });
     const sels = [].concat(m.clip || []);
     for (const sel of sels) {
