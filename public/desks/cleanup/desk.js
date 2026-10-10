@@ -3517,7 +3517,7 @@ Office.places(ID, [
     shown: () => !state || visible(sec), part: 'part.tidy' })),
   { kind: 'help', key: 'part.where', text: 'part.where_sub' },
   { kind: 'help', key: 'part.tidy', text: 'part.tidy_sub' },
-  ...['labels', 'tiles', 'copy', 'rows', 'search', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
+  ...['labels', 'tiles', 'copy', 'rows', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
   ...['order', 'trash', 'check', 'loop', 'sizes', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners']
     .map((x) => ({ kind: 'help', key: `section.${x}`, text: `help.${x}_text` })),
