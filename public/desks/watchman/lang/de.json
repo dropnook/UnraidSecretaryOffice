@@ -31,6 +31,8 @@
   "stat.next": "Nächster Rundgang",
   "stat.open": "Noch nicht zur Kenntnis genommen",
   "stat.since": "Auf Wache seit",
+  "stat.learning_until": "Lernmodus: lernt noch, was normal ist — bis {when} ({left})",
+  "stat.learned": "Hat gelernt, was normal ist",
   "stat.never": "noch nicht",
   "stat.running": "gerade auf Rundgang",
   "stat.took": "dauerte {ms} ms",

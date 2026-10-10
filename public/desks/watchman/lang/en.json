@@ -31,6 +31,8 @@
   "stat.next": "Next round",
   "stat.open": "Not noted yet",
   "stat.since": "On watch since",
+  "stat.learning_until": "Learning mode: still learning what is normal — until {when} ({left})",
+  "stat.learned": "Has learned what is normal",
   "stat.never": "not yet",
   "stat.running": "on his round now",
   "stat.took": "took {ms} ms",

@@ -31,6 +31,8 @@
   "stat.next": "Prossimo giro",
   "stat.open": "Non ancora preso atto",
   "stat.since": "Di guardia da",
+  "stat.learning_until": "Modalità apprendimento: sta ancora imparando cosa è normale — fino al {when} ({left})",
+  "stat.learned": "Ha imparato cosa è normale",
   "stat.never": "non ancora",
   "stat.running": "sta facendo il giro",
   "stat.took": "ha impiegato {ms} ms",

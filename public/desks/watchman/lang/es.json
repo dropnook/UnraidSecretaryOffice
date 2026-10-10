@@ -31,6 +31,8 @@
   "stat.next": "Próxima ronda",
   "stat.open": "Aún sin anotar",
   "stat.since": "De guardia desde",
+  "stat.learning_until": "Modo aprendizaje: aún aprende qué es normal — hasta el {when} ({left})",
+  "stat.learned": "Ya sabe qué es normal",
   "stat.never": "todavía no",
   "stat.running": "de ronda ahora",
   "stat.took": "tardó {ms} ms",

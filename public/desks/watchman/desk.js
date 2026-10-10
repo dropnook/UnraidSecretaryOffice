@@ -260,8 +260,16 @@ function roundSection() {
   const n = openCount();
   stats.appendChild(stat(T('stat.open'), fmt.number(n),
     n ? T('stat.open_kinds', { n: Object.keys(state.open || {}).length }) : T('stat.open_none'), n ? 'alert' : ''));
-  stats.appendChild(stat(T('stat.since'), state.on_watch ? fmt.relative(state.on_watch) : T('stat.never'),
-    state.on_watch ? fmt.date(state.on_watch) : ''));
+  const since = stat(T('stat.since'), state.on_watch ? fmt.relative(state.on_watch) : T('stat.never'),
+    state.on_watch ? fmt.date(state.on_watch) : '');
+  // still learning what is normal for the data flow? and until when (Benj, 2026-10-10)
+  const f = state.on_watch && state.flow;
+  if (f && f.since && f.learn) {
+    const end = f.since + f.learn * 86400;
+    since.appendChild(el('div', 'stat-sub', end > Date.now() / 1000
+      ? T('stat.learning_until', { when: fmt.date(end), left: fmt.relative(end) }) : T('stat.learned')));
+  }
+  stats.appendChild(since);
   s.appendChild(stats);
   const notes = el('div', 'wm-notes');
   if (!state.on_watch) notes.appendChild(el('p', 'callout', T('round.first')));
