@@ -272,7 +272,7 @@
    "at_partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "unit": "share:appdata",
      "newest": 1791445024,
      "n": 5
@@ -375,7 +375,7 @@
    "at_partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "unit": "share:appdata",
      "newest": 1791445024,
      "n": 5
@@ -568,7 +568,7 @@
    "at_partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "unit": "share:appdata",
      "newest": 1791445024,
      "n": 5
@@ -671,7 +671,7 @@
    "at_partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "unit": "share:appdata",
      "newest": 1791445024,
      "n": 5
@@ -798,7 +798,7 @@
    "at_partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "unit": "share:appdata",
      "newest": 1791445024,
      "n": 5
@@ -1017,7 +1017,7 @@
    "at_partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "unit": "share:appdata",
      "newest": 1791445024,
      "n": 5
@@ -1171,7 +1171,7 @@
    "at_partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "unit": "share:appdata",
      "newest": 1791445024,
      "n": 5
@@ -1201,7 +1201,7 @@
   {
    "id": "20261008-125107-32f9",
    "kind": "putback",
-   "what": "appdata ← USOPartner",
+   "what": "appdata ← PartnerNAS",
    "method": null,
    "target": {
     "id": "20261008-082404-3df6",
@@ -1223,7 +1223,7 @@
   {
    "id": "20261008-082404-3df6",
    "kind": "partner",
-   "what": "appdata ← USOPartner",
+   "what": "appdata ← PartnerNAS",
    "method": null,
    "target": {
     "pair": "2ec7accd",
@@ -1231,7 +1231,7 @@
     "snap": "uso-backup-20261008-0736",
     "pool": null,
     "kind": "pair",
-    "partner": "USOPartner",
+    "partner": "PartnerNAS",
     "dataset": "cache/appdata.restored-20261008-082404",
     "how": "beside",
     "path": "/mnt/user/appdata"
@@ -1257,7 +1257,7 @@
      "key": "after.partner_then",
      "params": {
       "path": "/mnt/user/appdata",
-      "name": "USOPartner",
+      "name": "PartnerNAS",
       "what": "appdata"
      }
     },
@@ -1305,7 +1305,7 @@
  "partners": [
   {
    "id": "2ec7accd",
-   "name": "USOPartner",
+   "name": "PartnerNAS",
    "kind": "pair",
    "of": null,
    "expires": null,

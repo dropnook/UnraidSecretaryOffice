@@ -295,7 +295,7 @@
   "users": [
    {
     "name": "Benj",
-    "server": "Nostromo",
+    "server": "HomeServer",
     "files": 4,
     "bytes": 12400000000,
     "done_files": 1,
@@ -306,7 +306,7 @@
    },
    {
     "name": "Kids",
-    "server": "Nostromo",
+    "server": "HomeServer",
     "files": 6,
     "bytes": 3300000000,
     "done_files": 0,
@@ -316,8 +316,8 @@
     "took": null
    },
    {
-    "name": "Grosi",
-    "server": "Nostromo",
+    "name": "Grandma",
+    "server": "HomeServer",
     "files": 2,
     "bytes": 4100000000,
     "done_files": 2,

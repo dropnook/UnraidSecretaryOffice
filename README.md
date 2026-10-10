@@ -277,7 +277,7 @@ better. Thank you, helmi1987 — a share of the tips goes to him.
 
 ## License
 
-Copyright (c) 2026 dropnook
+Copyright (c) 2026 Benjamin Mueller
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
 License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later

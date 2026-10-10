@@ -116,7 +116,7 @@
     "children": 2,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     }
@@ -135,7 +135,7 @@
     "children": 0,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     }
@@ -154,7 +154,7 @@
     "children": 0,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     }
@@ -417,7 +417,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },
@@ -441,7 +441,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },
@@ -465,7 +465,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },
@@ -489,7 +489,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },
@@ -513,7 +513,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },
@@ -537,7 +537,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },
@@ -561,7 +561,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },
@@ -585,7 +585,7 @@
     "docker": false,
     "partner": {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "gone": false,
      "place": false
     },

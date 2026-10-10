@@ -31,7 +31,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..', '..');
 export const DEMO = path.join(HERE, 'demo');
 
-// The demo family's names in English (Benj, 2026-10-10: the English shots on GitHub showed «Grosseltern», «Familienfotos»):
+// The demo family's names in English (2026-10-10: the English shots on GitHub showed «Grosseltern», «Familienfotos»):
 // ui-shots passes names: DEMO_NAMES_EN for an English shot - every state, canned answer and the host go through it as text
 export const DEMO_NAMES_EN = [['FamilienServer', 'FamilyServer'], ['Familienfotos', 'FamilyPhotos'], ['Familienvideos', 'FamilyVideos'],
   ['Familienserien', 'FamilySeries'], ['Familienfilme', 'FamilyMovies'], ['Fotos-Grosseltern', 'Photos-Grandparents'],

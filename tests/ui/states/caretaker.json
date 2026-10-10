@@ -232,7 +232,7 @@
     "level": "recommended",
     "ok": true,
     "params": {
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "pair": "2ec7accd"
     },
     "link": "#/caretaker",
@@ -243,7 +243,7 @@
     "level": "recommended",
     "ok": true,
     "params": {
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "pair": "26bbb6eb"
     },
     "link": "#/caretaker",
@@ -391,7 +391,7 @@
      "n": 1,
      "name": "unraid-secretary-office",
      "source": "github.com/dropnook",
-     "old": "github.com/vipermark2"
+     "old": "github.com/example"
     },
     "link": "#/watchman",
     "sig": "watchman:plugin_source:347553b83baeb249"
@@ -491,7 +491,7 @@
     "ok": false,
     "params": {
      "n": 1,
-     "admin": "Nina",
+     "admin": "admin-1",
      "ip": "192.168.1.191",
      "router": "GatewayHome"
     },
@@ -505,7 +505,7 @@
     "params": {
      "n": 1,
      "area": "port_forward",
-     "admin": "Nina",
+     "admin": "admin-1",
      "router": "GatewayHome"
     },
     "link": "#/watchman",
@@ -517,7 +517,7 @@
     "ok": false,
     "params": {
      "n": 1,
-     "user": "nina-laptop",
+     "user": "laptop-1",
      "ip": "203.0.113.50",
      "router": "GatewayHome"
     },
@@ -663,7 +663,7 @@
   "pairs": [
    {
     "id": "2ec7accd",
-    "name": "USOPartner",
+    "name": "PartnerNAS",
     "address": "192.168.1.190",
     "port": 22,
     "public": false,
@@ -701,7 +701,7 @@
     "receive": null,
     "door": null,
     "they_keep": {
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "array": "started",
      "version": "1.52.0",
      "lead": {
@@ -754,7 +754,7 @@
    },
    {
     "id": "26bbb6eb",
-    "name": "USOPartner",
+    "name": "PartnerNAS",
     "address": "192.168.1.190",
     "port": 22,
     "public": false,

@@ -1,6 +1,6 @@
-# DOCUMENTATION-BASED lines — composed, NOT captured: nostromo's gateway had sent none of these yet (2026-10-08, the first
-# hours with «Blocked Traffic Only»). Built from the shapes in briefs/uso-router-soc-concept.md 1.1 (the Wazuh-Unifi decoders,
-# Graylog's content pack, Security Onion's UniFi guide) and briefs/uso-router-soc-neighbours.md 5 (the netfilter prefix as
+# DOCUMENTATION-BASED lines — composed, NOT captured: a large server's gateway had sent none of these yet (2026-10-08, the first
+# hours with «Blocked Traffic Only»). Built from the shapes in the router SOC concept 1.1 (the Wazuh-Unifi decoders,
+# Graylog's content pack, Security Onion's UniFi guide) and the router SOC neighbours notes 5 (the netfilter prefix as
 # FireSight's and CrowdSec's regexes read it: [ZONE-ACTION-RULEID] / [ZONE-RULEID-ACTION]), in the header shape of the real
 # 10.6.106 lines (unifi-10.6.106-real.log: «CEF: 0|», the header's local time, UNIFIutcTime). ASSUMED and to be checked
 # against a captured line: the event ids and names of Wired Client Connected, Threat Detected and Blocked, Admin Made
