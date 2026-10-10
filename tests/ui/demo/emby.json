@@ -1,0 +1,512 @@
+{
+ "time": 1791900000,
+ "python": "3.11.15",
+ "emby": [
+  {
+   "name": "Emby",
+   "image": "emby/embyserver:latest",
+   "running": true,
+   "url": "http://tower.local:8096",
+   "mounts": {
+    "/familienvideos": "/mnt/user/Familienvideos",
+    "/familienserien": "/mnt/user/Familienserien"
+   }
+  }
+ ],
+ "versions": {
+  "embycache": "7.3.0 (2026-10-04)",
+  "gather": "V11.4"
+ },
+ "configured": true,
+ "settings": {
+  "instances": [
+   {
+    "servername": "Familie",
+    "url": "http://tower.local:8096",
+    "has_key": true,
+    "path_mappings": {
+     "/familienvideos": "/mnt/user/Familienvideos",
+     "/familienserien": "/mnt/user/Familienserien"
+    }
+   }
+  ],
+  "libraries": [
+   "Familienfilme",
+   "Familienserien"
+  ],
+  "library_types": {
+   "Familienfilme": "movies",
+   "Familienserien": "tvshows"
+  },
+  "valid_users": [],
+  "cache_path": "/mnt/cache",
+  "cache_budget": "",
+  "number_episodes": 3,
+  "movie_share_percent": 50,
+  "max_episodes_per_series": 0,
+  "max_resume_items": 10,
+  "max_resume_movies": 10,
+  "max_resume_series": 10,
+  "max_favorite_series": 10,
+  "use_next_up": true,
+  "min_free_percent": 20,
+  "movie_mode": "folder",
+  "return_to_origin": true,
+  "array_source": "user0",
+  "array_path": "/mnt/user0",
+  "user_path": "/mnt/user",
+  "array_disks_glob": "/mnt/disk[0-9]*",
+  "create_share_root": false,
+  "mover_debug_level": 0
+ },
+ "shares": [
+  {
+   "share": "Familienvideos",
+   "fit": "ok",
+   "root": true,
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "include": "",
+   "sizes": {
+    "at": 1791640800,
+    "mode": "run",
+    "roots": [
+     {
+      "name": "disk1",
+      "bytes": 442381631488,
+      "files": 188
+     },
+     {
+      "name": "disk2",
+      "bytes": 319438192640,
+      "files": 131
+     },
+     {
+      "name": "cache",
+      "bytes": 19971597926,
+      "files": 6
+     }
+    ]
+   },
+   "live": [
+    {
+     "pool": "cache",
+     "used": 19971597926
+    }
+   ]
+  },
+  {
+   "share": "Familienserien",
+   "fit": "ok",
+   "root": true,
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "include": "",
+   "sizes": {
+    "at": 1791640800,
+    "mode": "run",
+    "roots": [
+     {
+      "name": "disk3",
+      "bytes": 253403070464,
+      "files": 402
+     },
+     {
+      "name": "disk1",
+      "bytes": 65712999628,
+      "files": 96
+     },
+     {
+      "name": "cache",
+      "bytes": 16750372454,
+      "files": 5
+     }
+    ]
+   },
+   "live": [
+    {
+     "pool": "cache",
+     "used": 16750372454
+    }
+   ]
+  }
+ ],
+ "cache": {
+  "files": 9,
+  "bytes": 30064771071,
+  "groups": [
+   {
+    "share": "Familienvideos",
+    "title": "Velotour Bodensee 2019",
+    "files": 1,
+    "bytes": 3113851290,
+    "origin": [
+     "disk2"
+    ],
+    "since": 1791899960
+   },
+   {
+    "share": "Familienserien",
+    "title": "Hochzeit Eltern 1989",
+    "files": 3,
+    "bytes": 6442450944,
+    "origin": [
+     "disk1"
+    ],
+    "since": 1791899850
+   },
+   {
+    "share": "Familienvideos",
+    "title": "Geburtstag Grossmutter 80 2015",
+    "files": 1,
+    "bytes": 2791728742,
+    "origin": [
+     "disk2"
+    ],
+    "since": 1791899810
+   },
+   {
+    "share": "Familienvideos",
+    "title": "Ferien Film Island 2023",
+    "files": 1,
+    "bytes": 4080218931,
+    "origin": [
+     "disk1"
+    ],
+    "since": 1791899780
+   },
+   {
+    "share": "Familienvideos",
+    "title": "Zeltferien Toskana 2018",
+    "files": 1,
+    "bytes": 3328599654,
+    "origin": [
+     "disk1"
+    ],
+    "since": 1791806600
+   },
+   {
+    "share": "Familienserien",
+    "title": "Skilager Lenk 2022",
+    "files": 2,
+    "bytes": 10307921510,
+    "origin": [
+     "disk3"
+    ],
+    "since": 1791722200
+   }
+  ],
+  "listed_at": 1791899970
+ },
+ "pool": {
+  "path": "/mnt/cache",
+  "free_percent": 41.3,
+  "free": 846623953387,
+  "min_free": 20
+ },
+ "gather": {
+  "settings": {
+   "shares": [
+    "Familienvideos",
+    "Familienserien"
+   ],
+   "min_free_gb": 50,
+   "dup_check": "size",
+   "move_cache": false
+  },
+  "ready": true,
+  "last": {
+   "finished": 1791633400,
+   "moved": 14,
+   "duplicates": 2,
+   "conflicts": 0,
+   "dirs_deleted": 6,
+   "dirs_kept": 0,
+   "errors": 0,
+   "full": 0
+  },
+  "waiting": null
+ },
+ "jobs": {
+  "embycache": {
+   "tool": "embycache",
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791899640,
+   "pid": 4343,
+   "running": true,
+   "size": 9400,
+   "updated": 1791899998
+  },
+  "gather": {
+   "running": false,
+   "size": 0,
+   "updated": null
+  }
+ },
+ "last": {
+  "tool": "embycache",
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791808800,
+  "finished": 1791809400,
+  "result": "ok",
+  "errors": 0,
+  "warnings": 0,
+  "cleanup": {
+   "planned": 3,
+   "done": 3,
+   "to_origin": 3,
+   "bytes_planned": 6657199309,
+   "bytes_done": 6657199309
+  },
+  "fill": {
+   "planned": 4,
+   "done": 4,
+   "bytes_planned": 13636521165,
+   "bytes_done": 13636521165
+  },
+  "protected": 0,
+  "incomplete": false
+ },
+ "history": [
+  {
+   "tool": "embycache",
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791808800,
+   "finished": 1791809400,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "run",
+    "result": "ok",
+    "cleanup": {
+     "planned": 3,
+     "done": 3,
+     "to_origin": 3
+    },
+    "fill": {
+     "planned": 4,
+     "done": 4,
+     "bytes_planned": 13636521165
+    },
+    "errors": 0,
+    "warnings": 0
+   }
+  },
+  {
+   "tool": "embycache",
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791722400,
+   "finished": 1791723300,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "run",
+    "result": "ok",
+    "cleanup": {
+     "planned": 2,
+     "done": 2,
+     "to_origin": 2
+    },
+    "fill": {
+     "planned": 5,
+     "done": 5,
+     "bytes_planned": 16428249907
+    },
+    "errors": 0,
+    "warnings": 0
+   }
+  },
+  {
+   "tool": "gather",
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791631800,
+   "finished": 1791633400,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "result": "ok",
+    "moved": 14,
+    "duplicates": 2,
+    "conflicts": 0,
+    "dirs_deleted": 6,
+    "dirs_kept": 0,
+    "errors": 0,
+    "full": 0
+   }
+  },
+  {
+   "tool": "embycache",
+   "mode": "dry",
+   "by": "office",
+   "started": 1791438000,
+   "finished": 1791438100,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "dry",
+    "result": "ok",
+    "cleanup": {
+     "planned": 0,
+     "done": 0,
+     "to_origin": 0
+    },
+    "fill": {
+     "planned": 6,
+     "done": 0,
+     "bytes_planned": 19434727014
+    },
+    "errors": 0,
+    "warnings": 0
+   }
+  }
+ ],
+ "schedules": {
+  "embycache": {
+   "script": true,
+   "frequency": "custom",
+   "custom": "30 4 * * *",
+   "enabled": true
+  },
+  "gather": {
+   "script": true,
+   "frequency": "custom",
+   "custom": "0 3 * * 0",
+   "enabled": true
+  }
+ },
+ "foreign": [],
+ "pools": [
+  "/mnt/cache"
+ ],
+ "share_info": {
+  "Familienserien": {
+   "use": "yes",
+   "primary": "cache",
+   "secondary": ""
+  },
+  "Familienvideos": {
+   "use": "yes",
+   "primary": "cache",
+   "secondary": ""
+  },
+  "appdata": {
+   "use": "only",
+   "primary": "cache",
+   "secondary": ""
+  },
+  "domains": {
+   "use": "only",
+   "primary": "cache",
+   "secondary": ""
+  },
+  "isos": {
+   "use": "no",
+   "primary": "",
+   "secondary": ""
+  },
+  "system": {
+   "use": "only",
+   "primary": "cache",
+   "secondary": ""
+  }
+ },
+ "pool_dirs": {
+  "/mnt/cache": [
+   "appdata",
+   "domains",
+   "Familienserien",
+   "Familienvideos",
+   "system"
+  ]
+ },
+ "old_clone": false,
+ "mover": {
+  "ok": true,
+  "way": null,
+  "why": null,
+  "schedule": "",
+  "running": false,
+  "tuning": {
+   "installed": false
+  }
+ },
+ "waiting": {
+  "embycache": null,
+  "gather": null
+ },
+ "progress": {
+  "mode": "run",
+  "phase": "fill",
+  "started": 1791899640,
+  "back": {
+   "files": 4,
+   "bytes": 8160437862,
+   "done_files": 4,
+   "done_bytes": 8160437862,
+   "eta": 0,
+   "ended": true,
+   "here": false,
+   "took": 80
+  },
+  "users": [
+   {
+    "name": "Mutter",
+    "server": "Familie",
+    "files": 5,
+    "bytes": 13314398618,
+    "done_files": 5,
+    "done_bytes": 13314398618,
+    "eta": 0,
+    "here": false,
+    "took": 75
+   },
+   {
+    "name": "Vater",
+    "server": "Familie",
+    "files": 3,
+    "bytes": 31460635443,
+    "done_files": 1,
+    "done_bytes": 5948529705,
+    "eta": 132,
+    "here": true,
+    "took": null
+   },
+   {
+    "name": "Tochter",
+    "server": "Familie",
+    "files": 4,
+    "bytes": 20830591386,
+    "done_files": 0,
+    "done_bytes": 0,
+    "eta": 240,
+    "here": false,
+    "took": null
+   }
+  ],
+  "total": {
+   "files": 16,
+   "bytes": 73766063309,
+   "done_files": 10,
+   "done_bytes": 27423366185,
+   "eta": 240,
+   "running": 360
+  },
+  "speed": 188743680,
+  "current": {
+   "phase": "fill",
+   "rel": "Familienvideos/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
+   "size": 4724464026,
+   "done": 2834678415,
+   "source": "resume",
+   "title": "Film Tauchgang Ägypten 1993"
+  }
+ },
+ "stopping": null
+}

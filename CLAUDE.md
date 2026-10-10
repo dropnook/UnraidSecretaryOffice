@@ -1380,6 +1380,12 @@ When more than one Claude chat works on the office, one of them is the
    itself anew (the messenger's word after each click, the poll after each round), no console error, no horizontal
    scrolling. ≈ 2 min, exit ≠ 0 on any failure; `--only <route>,…`, `-v`, `UC_DEBUG=1`. `tools/release.sh` runs it
    before the suite (step 6) and stops on red like the suite. A new state shape a page needs: add it to the stub.
+   **Screenshots** for the product page and the forum: `bash tools/ui-shots.sh` — the same harness with `demo: true`
+   (`tests/ui/demo/`: invented family data only — never a real server's names, paths, addresses or titles; times moved
+   to now), inside Unraid's look (the harness always lays Unraid 7.3's palette, black or white theme and fonts from
+   `tests/ui/unraid/` around the office; `?theme=white`), black/white × de/en × 1440/390 at scale 2, a route's own shots
+   (`SHOTS`, e.g. Jack Emby's head + live panel and the panel alone) or `--shot full|until:<css>|clip:<css>`; PNGs into
+   `~/Claude/UnraidSecretaryOffice-briefs/shots/<date>/`. Neither tests/ nor tools/ go into the plugin package.
 
 ## Layout
 
@@ -1396,8 +1402,9 @@ public/assets/core.js    Office: i18n, routing, reception, API, dialog, menu, to
                          deskHead, pageHelp, sectionHead, backupChip, the search (places, palette, reveal)
 public/desks/<id>/       desk.json, desk.js, places.json (the search), lang/*.json (and desk.css, avatar.svg)
 data/                    runtime only (state per desk, mailbox, agent log, office/staff.json) — not in git
-tests/                   run.php (the suite, on a server), watchbook.js; ui/ the click test's page (harness.mjs) and stub states
-tools/                   release.sh (the coordinator's release), ui-clicks.mjs/.sh (the click test), supporter-key.sh, lang-keys.php
+tests/                   run.php (the suite, on a server), watchbook.js; ui/ the click test's page (harness.mjs) and stub states,
+                         ui/demo/ invented family data for screenshots, ui/unraid/ Unraid 7.3's palette, black/white theme, fonts
+tools/                   release.sh (the coordinator's release), ui-clicks.mjs/.sh (the click test), ui-shots.mjs/.sh (screenshots), supporter-key.sh, lang-keys.php
 backup/                  the backup engine: backup.sh, setup.sh, lib/common.sh (data in data/unraid-backup)
 embycache/               Jack Emby's EmbyCache (Python; data in data/embycache)
 gather/                  Jack Emby's media gather, consolidate_master.sh (bash; data in data/gather)

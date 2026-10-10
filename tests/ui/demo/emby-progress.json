@@ -1,0 +1,74 @@
+{
+ "time": 1791900000,
+ "running": true,
+ "mode": "run",
+ "real": true,
+ "progress": {
+  "mode": "run",
+  "phase": "fill",
+  "started": 1791899640,
+  "back": {
+   "files": 4,
+   "bytes": 8160437862,
+   "done_files": 4,
+   "done_bytes": 8160437862,
+   "eta": 0,
+   "ended": true,
+   "here": false,
+   "took": 80
+  },
+  "users": [
+   {
+    "name": "Mutter",
+    "server": "Familie",
+    "files": 5,
+    "bytes": 13314398618,
+    "done_files": 5,
+    "done_bytes": 13314398618,
+    "eta": 0,
+    "here": false,
+    "took": 75
+   },
+   {
+    "name": "Vater",
+    "server": "Familie",
+    "files": 3,
+    "bytes": 31460635443,
+    "done_files": 1,
+    "done_bytes": 5948529705,
+    "eta": 132,
+    "here": true,
+    "took": null
+   },
+   {
+    "name": "Tochter",
+    "server": "Familie",
+    "files": 4,
+    "bytes": 20830591386,
+    "done_files": 0,
+    "done_bytes": 0,
+    "eta": 240,
+    "here": false,
+    "took": null
+   }
+  ],
+  "total": {
+   "files": 16,
+   "bytes": 73766063309,
+   "done_files": 10,
+   "done_bytes": 27423366185,
+   "eta": 240,
+   "running": 360
+  },
+  "speed": 188743680,
+  "current": {
+   "phase": "fill",
+   "rel": "Familienvideos/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
+   "size": 4724464026,
+   "done": 2834678415,
+   "source": "resume",
+   "title": "Film Tauchgang Ägypten 1993"
+  }
+ },
+ "stopping": null
+}
