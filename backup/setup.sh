@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.36 - 2026-10-09
+# unraid-backup - setup.sh                        Version 2.37 - 2026-10-10
+#   2.37 kopia_known is recorded only for the shares Unraid names for app configs and VMs (docker.cfg
+#        DOCKER_APP_CONFIG_PATH, domain.cfg DOMAINDIR): a data share's new folders go with the share, so nothing is
+#        proposed there (a record from up to 2.36 stays as it is - never a change of its own); there a new folder of
+#        an app or VM going to Kopia is not waiting either. The plan carries per share app_share (["docker"] /
+#        ["vm"] / null)
 #   2.36 Ms. Dustdevil's storeroom is a hidden folder (.UnraidSecretaryOffice-trash): the plan adds it to [kopia] ignore
 #        beside the old name (_UnraidSecretaryOffice-trash), which stays left out
 #   2.35 cfg_list/plist readers no longer cut the pipe (plist_add, ignored_rel and co. read a $( ) of the list): under
@@ -999,11 +1004,13 @@ TXT
     share_known_all
 }
 
-# Kopia and what is new (2.21, lib/common.sh section 11): per share that goes to Kopia its top-level folders
-# are recorded (kopia_known) - all of them the first time and when the share newly goes there (that is your
-# decision for the whole share), afterwards what was known (a folder gone drops out) plus what you send there.
-# A folder neither known nor left out is new: it waits, only local, until you decide (NEW_LIST, the plan's
-# "waiting"). Never wakes a disk: a share whose part sleeps keeps its record, or gets its first one later.
+# Kopia and what is new (2.21, lib/common.sh section 11): per app/VM share that goes to Kopia (2.37: the shares
+# Unraid names for app configs and VMs - share_app) its top-level folders are recorded (kopia_known) - all of them
+# the first time and when the share newly goes there (that is your decision for the whole share), afterwards what
+# was known (a folder gone drops out) plus what you send there. A folder neither known nor left out nor an offsite
+# app's/VM's is new: it waits, only local, until you decide (NEW_LIST, the plan's "waiting"). In a data share every
+# folder goes with the share: nothing is recorded, a record from up to 2.36 stays as it is (never a change of its
+# own). Never wakes a disk: a share whose part sleeps keeps its record, or gets its first one later.
 share_known_all() {
     local s n x k l b
     new_local_state_load
@@ -1013,6 +1020,8 @@ share_known_all() {
            || [[ "${WHY[$s]:-}" == "no longer exists"* ]]; then
             unset "P[$k]"; continue
         fi
+        # a data share: what settings.ini has stays as it is (taken over above; read, never acted on)
+        share_app "$s" || continue
         share_top_live "$s"
         if [[ -n "${P[$k]+x}" ]] && grep -Fxq '*' <<<"$(plist "$k")"; then
             :       # a collection: every folder goes, new ones too (by hand: list folders instead)
@@ -1032,7 +1041,7 @@ share_known_all() {
         else
             # the first record: what is there and not left out goes to Kopia (as it did so far)
             P[$k]="$(for n in "${SK_DIRS[@]}"; do share_rules_hide "$s" "$n" || printf '/%s/\n' "$n"; done)"
-            hint "Share '$s': $(plist "$k" | wc -l) folder(s) recorded that go to Kopia - folders that appear later stay local until you decide"
+            hint "Share '$s': $(plist "$k" | wc -l) folder(s) recorded that go to Kopia - folders that appear later and belong to no app or VM going there stay local until you decide"
         fi
     done
     _apply_P
@@ -2573,9 +2582,14 @@ plan_write() {
                    | .notes = (.notes | split("\u001e") | map(select(length > 0)))
                    | .children = (.children | split("\u001e") | map(select(length > 0)))
                    | .folders = (.folders | split("\u001e") | map(select(length > 0) | split("|") | {dir: .[0], container: .[1]})))')"
-    # the new folders of each share going to Kopia: waiting for a decision, only local so far (2.21)
-    shares="$(jq -c --argjson w "$(new_local_json)" 'map(.name as $n
-        | .waiting = [$w[] | select(.share == $n) | {dir: .folder, bytes, first_seen: (if .first_seen > 0 then .first_seen else null end)}])' <<<"$shares")" \
+    # the new folders of each share going to Kopia: waiting for a decision, only local so far (2.21); (2.37) per share
+    # app_share: ["docker"] / ["vm"] when Unraid names it as the place for app configs / VMs (only there new folders
+    # can wait - in every other share they go with the share), else null
+    ub_app_shares_load
+    shares="$(jq -c --argjson w "$(new_local_json)" --argjson a "$(for s in "${!APP_SHARE[@]}"; do printf '%s\x1f%s\n' "$s" "${APP_SHARE[$s]}"; done \
+                | jq -Rn '[inputs | select(length > 0) | split("\u001f") | {key: .[0], value: (.[1] | split(" "))}] | from_entries')" 'map(.name as $n
+        | .waiting = [$w[] | select(.share == $n) | {dir: .folder, bytes, first_seen: (if .first_seen > 0 then .first_seen else null end)}]
+        | .app_share = ($a[$n] // null))' <<<"$shares")" \
         || shares="[]"
     cts="$(for n in "${CT_NAMES[@]}"; do
         printf '%s\x1f' "$n" "${CT_IMAGE[$n]}" "${CT_RUNNING[$n]}" "${CT_STOP[$n]:-}" "${CT_CODE[$n]:-}" "${CT_ARG[$n]:-}" \
