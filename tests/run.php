@@ -24537,7 +24537,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
 (async () => {
   await sleep(30);
   O.strings = { 'office.report_sent': 'Sent. Thank you!', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' },
-    'office.report_status.received': 'Received', 'office.report_status.seen': 'Looked at', 'office.report_status.done': 'Done', 'office.report_public': 'Public issue #{number}' };
+    'office.report_status.received': 'Received', 'office.report_status.seen': 'Looked at', 'office.report_status.done': 'Done', 'office.report_public': 'Issue #{number}' };
   O.agent = { running: true };
   O.desk({ id: 'snapshot' });
   O.desk({ id: 'caretaker' });
@@ -24633,7 +24633,7 @@ JS);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
     $pub14 = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14';
     same('report dialog: «Your reports» — title, kind · desk · day, where it stands, the public issue (only the public repository\'s, a new tab)', [
-        ['title' => 'Darker', 'chips' => [['chip accent', 'Looked at']], 'links' => [[$pub14, 'Public issue #14', '_blank', 'noopener noreferrer']]],
+        ['title' => 'Darker', 'chips' => [['chip accent', 'Looked at']], 'links' => [[$pub14, 'Issue #14', '_blank', 'noopener noreferrer']]],
         ['title' => 'Twice', 'chips' => [['chip quiet', 'Received']], 'links' => []],
         ['title' => 'Why', 'chips' => [['chip ok', 'Done']], 'links' => []],
         ['title' => 'Old', 'chips' => [], 'links' => []],

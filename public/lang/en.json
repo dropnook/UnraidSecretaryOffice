@@ -194,7 +194,7 @@
   "office.report_status.received": "Received",
   "office.report_status.seen": "Looked at",
   "office.report_status.done": "Done",
-  "office.report_public": "Public issue #{number}",
+  "office.report_public": "Issue #{number}",
   "office.report_images": "Pictures (optional)",
   "office.report_images_hint": "Up to {n} screenshots — PNG, JPEG or WebP, each up to {mb} MB. Choose them, paste them or drop them here.",
   "office.report_images_add": "Add a picture…",

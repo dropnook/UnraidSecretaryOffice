@@ -194,7 +194,7 @@
   "office.report_status.received": "Eingegangen",
   "office.report_status.seen": "Angeschaut",
   "office.report_status.done": "Erledigt",
-  "office.report_public": "Öffentliches Issue #{number}",
+  "office.report_public": "Issue #{number}",
   "office.report_images": "Bilder (freiwillig)",
   "office.report_images_hint": "Bis zu {n} Screenshots — PNG, JPEG oder WebP, je bis {mb} MB. Wähle sie aus, füge sie ein oder zieh sie hierher.",
   "office.report_images_add": "Bild hinzufügen…",
