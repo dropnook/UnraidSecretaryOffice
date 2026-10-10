@@ -1,5 +1,5 @@
 /* The Team Lead's «Partner offices» (loaded by desk.js beside it): two offices pair up and keep copies of each
-   other's ZFS snapshots (plan: briefs/uso-partner-zfs-plan.md). Pairing is two pastes and a code — «Add a partner…»
+   other's ZFS snapshots (the partner plan). Pairing is two pastes and a code — «Add a partner…»
    makes BLOCK-A, the partner's «Accept a partner…» answers with BLOCK-B and the SAFETY CODE, «Paste the partner's
    answer» compares it. The cards come from his state (`partners`, agent/lib/partner.php partnerPublic()): never a
    key, never a block. The agent part: partner_add / accept / finish / end / ping in agent/desks/caretaker.php.
@@ -287,7 +287,7 @@ function addressPicker(addresses, port) {
   const f = field(T('partner.address'), sel);
   f.appendChild(typed);
   // over WireGuard the tunnel's address (wg0, wg1 …) is the one to pick - it is listed only while the tunnel is up
-  // (partnerMyAddresses: ip addr, the iface per address), so say when none is up right now (Benj, 2026-10-08)
+  // (partnerMyAddresses: ip addr, the iface per address), so say when none is up right now (2026-10-08)
   const wg = (addresses || []).some((a) => /^wg\d*$/.test(String(a.iface || '')));
   f.appendChild(el('small', '', T('partner.address_hint') + (wg ? '' : ' ' + T('partner.address_nowg'))));
   box.appendChild(f);

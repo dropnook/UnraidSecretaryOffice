@@ -100,7 +100,7 @@ declare(strict_types=1);
  * (watchmanPageState()); with Grafana and the office's dashboard there (the
  * consultant's look) it links his data flow's history in it.
  *
- * Partner offices (stage 2 of briefs/uso-partner-zfs-plan.md, agent/lib/partnerlook.php — the door and the pairing are
+ * Partner offices (stage 2 of the partner plan, agent/lib/partnerlook.php — the door and the pairing are
  * the Team Lead's): the office's own line in authorized_keys (uso-partner:<id>, exactly as the pairing writes it, the
  * pair's key, written right at the pairing) is noted by himself; a known pair's line changed is `door_changed`; the
  * pair's key from another address or its address with another key `door_key_moved`; three refusals at the door within a
@@ -226,7 +226,7 @@ const WATCH_KINDS = [
 
 /**
  * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page
- * shows it as a chip (no link out — Benj, 2026-10-09), the syslog export carries it. Nearest, not exact: a new plugin is software that runs as root at boot.
+ * shows it as a chip (no link out — 2026-10-09), the syslog export carries it. Nearest, not exact: a new plugin is software that runs as root at boot.
  */
 const WATCH_ATTACK = [
     'login_new_ip' => 'T1078', 'login_failures' => 'T1110',
@@ -3194,7 +3194,7 @@ function watchmanListenParse(string $text, int $low): array
 /**
  * Programs running from a scratch folder, a hidden folder or from memory — on the server itself or inside a
  * container (its path as the container sees it; the container by its PID namespace). One readlink per process
- * (~1'600 on nostromo), the namespaces only for the few that match. A binary replaced while it runs (a plugin
+ * (~1'600 on a large server), the namespaces only for the few that match. A binary replaced while it runs (a plugin
  * update) shows "(deleted)" — that alone is no news.
  *
  * @return array<string, array{where: ?string, exe: string, prog: string}>|null  "host:<exe>" / "ct:<container>:<exe>"
@@ -4434,7 +4434,7 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
 }
 
 /**
- * A plugin's own at job (Benj, 2026-10-09: Fix Common Problems queues its scan with
+ * A plugin's own at job (2026-10-09: Fix Common Problems queues its scan with
  * `echo "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php" | at now +10 min -M` from its
  * disks_mounted event, and its extended test the same way): exactly one command that runs a file of
  * /usr/local/emhttp/plugins/<name>/ — optionally after php, /usr/bin/php, bash or /bin/bash, with plain

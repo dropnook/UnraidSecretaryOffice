@@ -354,7 +354,7 @@ async function postOnce(action, data) {
 
 // ------------------------------------------------------------------ states: show first, then look
 /*
- * A desk's state (or a part of it) the quick way (src/api.php apiLook(), Benj 2026-10-07): the server answers at once
+ * A desk's state (or a part of it) the quick way (src/api.php apiLook(), 2026-10-07): the server answers at once
  * with what it keeps — `stale` when older than the desk's refresh_after, `refreshing` while the agent looks again in the
  * background; the page then asks once more (`wait`) and shows the new state when it is there. Who asks how:
  *   the desk whose page is shown   at once, the new look follows (its mount, its poll)
@@ -668,7 +668,7 @@ let closeDialog = null;
 Office.dialogOpen = () => !!closeDialog;
 
 /** buttons: [{text, kind, act}] — when act() returns false the dialog stays open.
-    wide: true = 760 px; 'log' = as wide and tall as the window allows (logs with long lines, Benj 2026-10-10).
+    wide: true = 760 px; 'log' = as wide and tall as the window allows (logs with long lines, 2026-10-10).
     onClose() runs however the dialog ends (button, Escape, click outside, another dialog). */
 Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
   if (closeDialog) closeDialog();
@@ -729,7 +729,7 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
 };
 
 /**
- * The page behind an open dialog never scrolls (Benj, 2026-10-10: scrolling a log in a dialog scrolled the page once
+ * The page behind an open dialog never scrolls (2026-10-10: scrolling a log in a dialog scrolled the page once
  * the log was at its end): the wheel goes to what can scroll that way inside the dialog, else nowhere
  */
 function dialogWheel(e) {
@@ -1158,8 +1158,8 @@ Office.tipJar = function openTipJar(ids) {
   const key = !ids ? 'office.tip_text_team' : ids.length > 1 ? 'office.tip_text_many' : 'office.tip_text';
   text.appendChild(el('p', '', thanked ? t('office.supporter_thanks', { name: sup.name }) : t(key, { names: names.join(', ') })));
   text.appendChild(el('p', '', t('office.tip_credit')));     // a share goes to helmi1987, who wrote Jack Emby's tools
-  text.appendChild(el('p', '', t('office.tip_shelter')));    // what goes beyond our work goes to animal shelters (Benj)
-  // the key part only once the support page hands keys out (Benj issues none by hand) — or when one is saved
+  text.appendChild(el('p', '', t('office.tip_shelter')));    // what goes beyond our work goes to animal shelters
+  // the key part only once the support page hands keys out (none are issued by hand) — or when one is saved
   if (supportPage(sup) || sup.state !== 'none') text.appendChild(supporterPart(sup));
   const claim = sup.claim && sup.claim.open > 0;     // the support page was opened from here: its key may be waiting
   if (claim) text.appendChild(el('p', 'tip-jar-claim', t('office.supporter_claim_text')));
@@ -1201,8 +1201,8 @@ Office.tipJar = function openTipJar(ids) {
  * name, date, key_id, level, ask: the team lead asks now}
  */
 Office.supporter = () => CONFIG.supporter || { id: null, state: 'none', ask: false };
-// the thank-you's level, signed in the key (Benj, 2026-10-08): only the plate's picture — not a rank, it unlocks nothing
-// — a little office story: one coffee, a round, a cake, the whole team toasts a pay rise (Benj, 2026-10-09: 🥂 for the raise)
+// the thank-you's level, signed in the key (2026-10-08): only the plate's picture — not a rank, it unlocks nothing
+// — a little office story: one coffee, a round, a cake, the whole team toasts a pay rise (2026-10-09: 🥂 for the raise)
 const SUPPORTER_PICTURES = { coffee: '☕', round: '☕☕', cake: '🍰', raise: '🥂' };
 /** {level, icon, text} of a key — a coffee when it names none (every key from before levels) */
 Office.supporterLevel = (sup) => {
@@ -1211,7 +1211,7 @@ Office.supporterLevel = (sup) => {
 };
 /**
  * The plate's pictures: each level of the valid keys in level order (☕ ☕☕ 🍰 🥂), with how many keys of it when more
- * than one («☕×3» — Benj, 2026-10-09: as many cups as he likes); never a rank; {icon, text} (text: for the title)
+ * than one («☕×3» — 2026-10-09: as many cups as he likes); never a rank; {icon, text} (text: for the title)
  */
 Office.supporterPictures = (sup) => {
   const have = sup && Array.isArray(sup.levels) && sup.levels.length ? sup.levels : [Office.supporterLevel(sup).level];
@@ -1384,7 +1384,7 @@ Office.supporterAsk = async function supporterAsk(answer) {
 
 // ------------------------------------------------------------------ «Report a problem or a wish…»
 /*
- * The office's reports to its makers (agent/lib/report.php, briefs/uso-feedback-concept.md). The page only asks the
+ * The office's reports to its makers (agent/lib/report.php, the feedback concept). The page only asks the
  * agent: office.reports (the list — where each stands, its public issue —, the cap), office.report_preview (everything that would be sent, part by part, a
  * token — no network) and, on «Send» only, office.report_send (the previewed parts still ticked). «Send» stays off
  * until the preview was looked at; a word changed after it: the preview goes, «Send» with it. The draft is kept per
@@ -1541,7 +1541,7 @@ Office.reportDialog = function reportDialog(deskId) {
   picAdd.onclick = () => picInput.click();
   pics.append(picList, picAdd, picInput);
   field(t('office.report_images'), pics, el('small', 'sso-report-pic-hint', t('office.report_images_hint', { n: REPORT_IMAGES_MAX, mb: REPORT_IMAGE_BYTES / 1048576 })));
-  // no name field (Benj, 2026-10-08): nobody is answered by name — the forum is the place for a conversation (the agent
+  // no name field (2026-10-08): nobody is answered by name — the forum is the place for a conversation (the agent
   // still takes an empty one: report.php reportWords())
   box.appendChild(form);
 
@@ -2027,7 +2027,7 @@ async function reception(root) {
     }
   }
   arrangeable(head, grid, cards);
-  // «Report a problem or a wish…» at the reception, right of «Change the order» (Benj, 2026-10-10 — was the team lead's
+  // «Report a problem or a wish…» at the reception, right of «Change the order» (2026-10-10 — was the team lead's
   // button; the ⋯ menu keeps its entry, which starts with the desk shown)
   if (CONFIG.report) {
     const report = el('button', 'btn small plain', t('office.report_menu'));
@@ -2432,7 +2432,7 @@ function footer() {
 
 // ------------------------------------------------------------------ places and the search
 /*
- * The search (Benj, 2026-10-08): the magnifier in the top line, or ⌘K / Ctrl+K while the office has focus, opens a
+ * The search (2026-10-08): the magnifier in the top line, or ⌘K / Ctrl+K while the office has focus, opens a
  * palette under it that finds PLACES — a desk, a section, a tile, a step or a setting of a setup, a term of «How to read
  * this page», a guide — in every language the office speaks at once («Partn» finds «Partner-Sekretariate» in an English
  * office), and jumps there: the desk's page (its route), what folds open above it, the place scrolled into view and
@@ -2506,7 +2506,7 @@ const placeWordsOf = (v) => {
 };
 
 /*
- * Items — what a desk's STATE holds worth finding (phase 2, Benj 2026-10-08): a finding, an open entry of the watch book,
+ * Items — what a desk's STATE holds worth finding (phase 2, 2026-10-08): a finding, an open entry of the watch book,
  * a share, an app, a dataset, a log … Each desk names them with ONE provider beside Office.places():
  *   Office.placesFrom(ID, (state, part) => [{text, sub, route, anchor, words}, …])
  *     text    what the page shows for it, in the desk's own words (its text helpers): never a raw log line, a secret or

@@ -25,7 +25,7 @@ declare(strict_types=1);
  * Never: a port, a network, a bind of anything of the app, a Docker volume, the app's labels or passwords, a pull,
  * --privileged, devices; never a write to the app, its folders or Kopia's repository; never a sleeping disk woken
  * ("asleep" is no failure). Every docker run argument list comes from drillContainerArgs() (the tests assert the
- * «never» list against nostromo-shaped manifests).
+ * «never» list against manifests shaped like a large server's).
  *
  * The job: atd (`php agent.php job restore-drill <id>`), the engine's lock as {holder: restore, mode: drill},
  * a journal like his restores (data/restore-drill/<id>/: plan.json, journal.json, log.txt, root only) with a
@@ -67,7 +67,7 @@ const DRILL_KOPIA_LOOKS    = 40;              // directories looked into per sha
 const DRILL_RAM_SHARE      = 0.25;            // of MemAvailable …
 const DRILL_RAM_MAX        = 8 << 30;         // … at most 8 GB
 const DRILL_SERVER_RAM     = 512 << 20;       // what a database server takes besides its data
-// the data dir's tmpfs: the dump's uncompressed size × 4 plus 512 MB. Measured on Tower (2026-10-08) with the lean
+// the data dir's tmpfs: the dump's uncompressed size × 4 plus 512 MB. Measured on a test server (2026-10-08) with the lean
 // server (drillServerArgs) — tables and indexes took 1.3–2.7× the uncompressed dump (Immich's trigram indexes the
 // most), the fixed part (a fresh cluster, Postgres' WAL up to max_wal_size, InnoDB's redo, undo and its 60 MB
 // extents) up to ≈ 300 MB: Immich-shaped 302 MiB → 647 MB, Nextcloud-shaped 162 MiB → 515 MB
@@ -163,7 +163,7 @@ function drillNow(): int
 
 // ===================================================================== settings
 
-/** His drill settings (Benj may change the defaults — the coordinator's decisions 1, 3 and 4) */
+/** His drill settings (the defaults may still change — decisions 1, 3 and 4) */
 function drillSettings(): array
 {
     $def = ['schedule' => 'monthly', 'weekday' => DRILL_WEEKDAY, 'kopia_mb' => DRILL_KOPIA_MB, 'live_catalog' => true, 'live_sqlite' => true];
@@ -224,7 +224,7 @@ function drillVarIni(): array
 }
 
 /**
- * A parity check or rebuild RUNNING (var.ini): `mdResyncPos` > 0 and not paused. Paused (Benj, 2026-10-08 — a paused
+ * A parity check or rebuild RUNNING (var.ini): `mdResyncPos` > 0 and not paused. Paused (2026-10-08 — a paused
  * sync blocked the drill for days) = `mdResync` 0 and `mdResyncDt` 0 while the position stays (Unraid keeps mdResyncPos;
  * lib/where.php waBuilding(): «mdResyncDt 0 = paused») — the drill's reads don't race a sync that waits. Either key
  * missing: running, as before (never a guess towards «go»). Done: mdResyncPos 0.
@@ -1716,7 +1716,7 @@ function drillNoRoom(string $name, string $dir, string $said): bool
 
 /**
  * Why a play didn't go through, for the journal and the certificate: the play's own ERROR lines (rsDoPlay()) — else,
- * when the client said no «ERROR» (Postgres' PANIC on a full WAL, «server closed the connection»: on nostromo
+ * when the client said no «ERROR» (Postgres' PANIC on a full WAL, «server closed the connection»: on a large server
  * 2026-10-08 such a step had no detail at all), its words since the play began that say what went wrong, else their
  * end; the «already exists» a fresh cluster says is no reason; the drill's own log lines (a time first) are not the
  * client's. Cut (drillCut()). Empty for a play that went through.
@@ -2709,7 +2709,7 @@ function drillCertBase(): array
 
 /**
  * The certificate's items from a drill's steps: per step what was proven, from which copy, how it went — and for one
- * that isn't ok what the tool said (Benj 2026-10-10: «sonst steht der User ohne Hinweise da»), cut like the log
+ * that isn't ok what the tool said (2026-10-10: «sonst steht der User ohne Hinweise da»), cut like the log
  * (drillCut(): ≤ 12 lines of ≤ DRILL_LOG_LINE letters; his page only, never a notification or the Team Lead)
  */
 function drillCertItems(array $j): array
@@ -2897,7 +2897,7 @@ function drillDue(array $set, ?array $lastRun, ?array $cert, ?array $auto, ?int 
 }
 
 /**
- * Weekly (Benj 2026-10-10: «Sunday to Monday or Saturday to Sunday?»): the night the user chose — $weekday is the day
+ * Weekly (2026-10-10: «Sunday to Monday or Saturday to Sunday?»): the night the user chose — $weekday is the day
  * it ends on (date('w'), the window lies after midnight) — when no drill started in the 6 days before it; a night
  * that passed without one (that night's backup didn't run or went wrong, the drill was refused) is caught up by the
  * next night that may (the last drill ≥ 8 days ago in the usual week). One rule for both: the chosen day on or before

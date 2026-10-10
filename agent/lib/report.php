@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * «Report a problem or a wish…» — the office's reports to its makers (briefs/uso-feedback-concept.md).
+ * «Report a problem or a wish…» — the office's reports to its makers (the feedback concept).
  *
  * The page's dialog (core.js Office.reportDialog()) asks the agent twice:
  *   office.report_preview {kind, desk, title, text, name?, lang, browser, error?}
@@ -25,7 +25,7 @@ declare(strict_types=1);
  *         keep what was known). The inbox's numbers stay in reports.json for this; the page never gets them.
  * Nothing user-written leaves the server without the user's click on «Send». What goes is shown before, in full.
  *
- * The caps: REPORT_CAP_DAY reports in 24 hours per office (Benj, 2026-10-09; up to 1.47 it was 2 in 7 days), checked
+ * The caps: REPORT_CAP_DAY reports in 24 hours per office (2026-10-09; up to 1.47 it was 2 in 7 days), checked
  * here first (reports.json) — the Worker is binding and counts by the report ID: sha256("uso-report:" + GUID), 64 hex,
  * kept in data/office/report-id (0600, made once) — never the tip page's server ID (that one looks up a supporter's name). The Worker answers with its own keys; the
  * office shows only its own words (errors.report_*), never a text the Worker sends.
@@ -884,8 +884,8 @@ function reportStatusAnswer(int $exit, string $out, array $asked): array
         }
         $public = reportPublic($r['public'] ?? null);
         // the inbox issue is closed once decided (the decision as its comment). With a public issue the work goes on there:
-        // «done» only when that one is closed (Benj 2026-10-10: #12 → #14 still open). Without one the closed inbox issue is
-        // the end (explained, answered, nothing to build): «done» (Benj, same evening: #13). Open but answered: «seen».
+        // «done» only when that one is closed (2026-10-10: #12 → #14 still open). Without one the closed inbox issue is
+        // the end (explained, answered, nothing to build): «done» (the same evening: #13). Open but answered: «seen».
         $status = $public !== null
             ? ((($r['public']['state'] ?? null) === 'closed') ? 'done' : 'seen')
             : ($r['state'] === 'closed' ? 'done' : (($r['answered'] ?? null) === true ? 'seen' : 'received'));
@@ -1298,7 +1298,7 @@ function reportSend(array $r, array $ctx = []): array
 }
 
 /**
- * The request's body (briefs/uso-feedback-concept.md §5.2): the kept preview with only the ticked parts —
+ * The request's body (the feedback concept §5.2): the kept preview with only the ticked parts —
  * {v, rid, report_id, kind, desk, title, text, name?, facts: {office, engine?, unraid, lang, browser, hired}, error?,
  * log?, images?, parts}. Without its pictures never larger than REPORT_BODY_MAX: the log's oldest lines go first.
  * $image(n): the bytes of the kept picture n as previewed (reportImageKept()), null when they aren't — report_stale.
@@ -1398,7 +1398,7 @@ function reportPost(array $body, string $dir, string $token, array $ctx = []): a
 }
 
 /**
- * The Worker's answer in the office's words — by its `error` (uso-support/feedback/SETUP.md «The contract as built»),
+ * The Worker's answer in the office's words — by its `error` (the Worker's SETUP.md «The contract as built»),
  * never by the HTTP status (`closed` is a 403):
  *   ok:true + number                        → sent (the url only when it is a GitHub issue's; again:true = it was one already)
  *   closed                                  → report_closed

@@ -58,7 +58,7 @@
 .rs-opts .field{margin-bottom:10px}
 /* a label.check row right inside a .field (the drill's schedule, a restore's way) keeps the office's row look - the
    control, then its words beside it: office.css's «.field > label» is for a field's title (flex, space-between, bold
-   and small) and pushed a short text like «Off» to the right edge (Benj 2026-10-10; the caretaker's .ct-opts had the
+   and small) and pushed a short text like «Off» to the right edge (2026-10-10; the caretaker's .ct-opts had the
    same). The font size apart and no stronger than office.css's rule, so the text size switch's floor still wins */
 .rs-opts .field > label.check{justify-content:flex-start; align-items:flex-start; gap:9px; font-weight:400; color:var(--ink2)}
 :where(.rs-opts) .field > label:where(.check){font-size:13.5px}

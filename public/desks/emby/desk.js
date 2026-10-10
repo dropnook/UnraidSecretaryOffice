@@ -155,7 +155,7 @@ function schedText(sc) {
 }
 
 /**
- * «isp3 watches … on iPad · last activity 10 hours ago» — who watches what on which device (Emby's
+ * «anna watches … on iPad · last activity 10 hours ago» — who watches what on which device (Emby's
  * sessions, as the agent judged them) and when Emby last heard from it (`seen`): a device that went to
  * sleep with a film paused stays «watching» for hours. Now: how long ago; in the list of runs (`past`): when.
  */
@@ -238,7 +238,7 @@ function moverWhy(m) {
 
 /**
  * Unraid's mover and EmbyCache's files on the pool: real runs only while Unraid's own mover schedule is «Disabled»
- * (Benj, 2026-10-09). Not met: why; for the schedule «Switch the mover schedule off…» (moverOffDialog) and «set it
+ * (2026-10-09). Not met: why; for the schedule «Switch the mover schedule off…» (moverOffDialog) and «set it
  * yourself» (Unraid's ⟦Mover Settings⟧). Met: what still moves them (⟦Move now⟧ by hand — his run stops after the
  * current file then); Mover Tuning, if installed, keeps his list (he enters it there himself). Mover Tuning's «Move
  * All» threshold, the mover at work right now.
@@ -991,7 +991,7 @@ async function showLog(tool) {
 
 // ------------------------------------------------------------------ schedules
 /**
- * When a tool runs on its own. EmbyCache: once a night (Benj 2026-10-09; default 03:00);
+ * When a tool runs on its own. EmbyCache: once a night (2026-10-09; default 03:00);
  * the gather: once a week or every night. Or a cron expression, or not at all.
  */
 async function scheduleDialog(job) {
@@ -1009,7 +1009,7 @@ async function scheduleDialog(job) {
   const cur = (sc.enabled && sc.custom) || '';
   const pad = (n) => String(n).padStart(2, '0');
   const m2 = /^(\d{1,2}) (\d{1,2}) \* \* (\*|[0-7])$/.exec(cur);           // daily / weekly
-  // EmbyCache once deep in the night, when nobody watches (Benj, 2026-10-09 — no more hourly / every few hours;
+  // EmbyCache once deep in the night, when nobody watches (2026-10-09 — no more hourly / every few hours;
   // a schedule of those kinds saved earlier shows as «own schedule»)
   let mode;
   if (!sc.enabled) mode = job === 'gather' ? 'weekly' : 'daily';
@@ -1818,7 +1818,7 @@ Office.desk({
       await Office.freshState(ID);      // the form starts from his settings: from a fresh look, never a stale one
       if (view !== root || page !== 'setup') return;
       // … and anew on every visit: a form left without «Save» kept its old values and a later save wrote them back
-      // (Benj, 2026-10-10: 12 episodes ahead became 7)
+      // (2026-10-10: 12 episodes ahead became 7)
       form = null;
       renderSetup();
       return;

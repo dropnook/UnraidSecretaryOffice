@@ -86,7 +86,7 @@ chown -R 99:100 $P`,
   syslogserver: { icon: '📡', open: '/Settings/SyslogSettings', install: null, desk: 'watchman', copy: {} },
   unifi: { icon: '🛜', open: null, install: null, desk: null, copy: {} },
   // RouterOS 7's side: what to paste into the router's terminal ({ip}: this server's address, {tz}: this browser's time zone —
-  // filled in on the page); each line tried on RouterOS 7.24.5 (the lab on Tower, 2026-10-09)
+  // filled in on the page); each line tried on RouterOS 7.24.5 (the lab on a test server, 2026-10-09)
   mikrotik: {
     icon: '🔀', open: null, install: null, desk: null,
     copy: {
@@ -362,7 +362,7 @@ function textfileChip(x) {
 }
 
 /**
- * A guide the user opened or closed stays so (Inbox #11, Benj's recording, 1.52/1.53): every render builds his page
+ * A guide the user opened or closed stays so (Inbox #11, a screen recording, 1.52/1.53): every render builds his page
  * anew — his new look, the minute's poll, and the messenger's word that comes with every answer of the agent (also
  * the answer to `network_seen`, which opening the router's guide posts: it closed the UniFi guide right after it was
  * opened, and put every other guide back to its default) — so the choice is kept per guide for this page's life; the

@@ -242,12 +242,12 @@
    "t": {
     "name": "unraid-secretary-office",
     "source": "github.com/dropnook",
-    "old": "github.com/vipermark2"
+    "old": "github.com/example"
    },
    "p": {
     "name": "unraid-secretary-office",
     "source": "github.com/dropnook",
-    "old": "github.com/vipermark2"
+    "old": "github.com/example"
    },
    "noted": null,
    "by": null,
@@ -1066,12 +1066,12 @@
    "count": 1,
    "open": false,
    "t": {
-    "name": "USOPartner",
+    "name": "PartnerNAS",
     "address": "192.168.1.190"
    },
    "p": {
     "id": "26bbb6eb",
-    "name": "USOPartner",
+    "name": "PartnerNAS",
     "address": "192.168.1.190",
     "from": "192.168.1.190",
     "fp": "SHA256:a5468f92e0a6163490789d48cefd68cb2e783c9ee63",
@@ -1094,18 +1094,18 @@
    "count": 1,
    "open": true,
    "t": {
-    "user": "nina-laptop",
+    "user": "laptop-1",
     "ip": "203.0.113.50",
     "router": "GatewayHome"
    },
    "p": {
     "sender": "192.168.1.190",
     "router": "GatewayHome",
-    "user": "nina-laptop",
+    "user": "laptop-1",
     "ip": "203.0.113.50",
     "how": "WireGuard",
     "new_user": true,
-    "evidence": "Oct  8 13:30:39 GatewayHome CEF 600|VPN Client Connected UNIFIcategory=VPN UNIFIvpnType=WireGuard UNIFIvpnUser=nina-laptop src=203.0.113.50 msg=nina-laptop connected to WireGuard from 203.0.113.50"
+    "evidence": "Oct  8 13:30:39 GatewayHome CEF 600|VPN Client Connected UNIFIcategory=VPN UNIFIvpnType=WireGuard UNIFIvpnUser=laptop-1 src=203.0.113.50 msg=laptop-1 connected to WireGuard from 203.0.113.50"
    },
    "noted": null,
    "by": null,
@@ -1124,7 +1124,7 @@
    "count": 1,
    "open": false,
    "t": {
-    "admin": "Nina",
+    "admin": "admin-1",
     "router": "GatewayHome",
     "date": "2026-10-08"
    },
@@ -1133,12 +1133,12 @@
     "router": "GatewayHome",
     "date": "2026-10-08",
     "admins": [
-     "Nina"
+     "admin-1"
     ],
     "msgs": [
-     "Nina made changes to WiFi: Haus-WLAN band steering changed"
+     "admin-1 made changes to WiFi: Haus-WLAN band steering changed"
     ],
-    "evidence": "Oct  8 13:30:39 GatewayHome CEF 546|Admin Made Config Changes UNIFIcategory=Audit UNIFIsubCategory=Admin Activity UNIFIadmin=Nina src=192.168.1.136 msg=Nina made changes to WiFi: Haus-WLAN band steering changed"
+    "evidence": "Oct  8 13:30:39 GatewayHome CEF 546|Admin Made Config Changes UNIFIcategory=Audit UNIFIsubCategory=Admin Activity UNIFIadmin=admin-1 src=192.168.1.136 msg=admin-1 made changes to WiFi: Haus-WLAN band steering changed"
    },
    "noted": 1791459316,
    "by": "router",
@@ -1158,7 +1158,7 @@
    "open": true,
    "t": {
     "area": "port_forward",
-    "admin": "Nina",
+    "admin": "admin-1",
     "router": "GatewayHome"
    },
    "p": {
@@ -1166,12 +1166,12 @@
     "router": "GatewayHome",
     "area": "port_forward",
     "admins": [
-     "Nina"
+     "admin-1"
     ],
     "msgs": [
-     "Nina made changes to Port Forwarding: rule media-1 (TCP 32400) added"
+     "admin-1 made changes to Port Forwarding: rule media-1 (TCP 32400) added"
     ],
-    "evidence": "Oct  8 13:30:39 GatewayHome CEF 546|Admin Made Config Changes UNIFIcategory=Audit UNIFIsubCategory=Admin Activity UNIFIadmin=Nina src=192.168.1.136 msg=Nina made changes to Port Forwarding: rule media-1 (TCP 32400) added"
+    "evidence": "Oct  8 13:30:39 GatewayHome CEF 546|Admin Made Config Changes UNIFIcategory=Audit UNIFIsubCategory=Admin Activity UNIFIadmin=admin-1 src=192.168.1.136 msg=admin-1 made changes to Port Forwarding: rule media-1 (TCP 32400) added"
    },
    "noted": null,
    "by": null,
@@ -1291,18 +1291,18 @@
    "count": 1,
    "open": true,
    "t": {
-    "admin": "Nina",
+    "admin": "admin-1",
     "ip": "192.168.1.191",
     "router": "GatewayHome"
    },
    "p": {
     "sender": "192.168.1.190",
     "router": "GatewayHome",
-    "admin": "Nina",
+    "admin": "admin-1",
     "ip": "192.168.1.191",
     "method": "web",
     "new_admin": false,
-    "evidence": "Oct  8 13:30:37 GatewayHome CEF 544|Network Accessed UNIFIcategory=Audit UNIFIaccessMethod=web UNIFIadmin=Nina src=192.168.1.191 msg=Nina accessed UniFi Network using the web. Source IP: 192.168.1.191"
+    "evidence": "Oct  8 13:30:37 GatewayHome CEF 544|Network Accessed UNIFIcategory=Audit UNIFIaccessMethod=web UNIFIadmin=admin-1 src=192.168.1.191 msg=admin-1 accessed UniFi Network using the web. Source IP: 192.168.1.191"
    },
    "noted": null,
    "by": null,
@@ -1339,7 +1339,7 @@
     ],
     "held": 0,
     "history": [
-     "2026-10-08 07:07:23 zfs destroy -r cache/speedtest [user 0 (root) on USO-Test-Server:linux]"
+     "2026-10-08 07:07:23 zfs destroy -r cache/speedtest [user 0 (root) on Lab-Server:linux]"
     ],
     "evidence": [
      "07:49:09 nfsrahead[327985]: skipping non-NFS device zfs-8"
@@ -2170,7 +2170,7 @@
    },
    {
     "name": "unraid-secretary-office",
-    "source": "github.com/vipermark2",
+    "source": "github.com/example",
     "version": "2026.10.07"
    }
   ],
@@ -2331,7 +2331,7 @@
    "pairs": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "address": "192.168.1.190",
      "door": false,
      "line": "missing",
@@ -2341,7 +2341,7 @@
     },
     {
      "id": "26bbb6eb",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "address": "192.168.1.190",
      "door": true,
      "line": "ok",

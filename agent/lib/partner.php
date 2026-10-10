@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Partner offices (the Team Lead's; briefs uso-partner-zfs-plan.md §3): two offices pair up, each may send the
+ * Partner offices (the Team Lead's; the partner plan §3): two offices pair up, each may send the
  * engine's own ZFS snapshots of its datasets to the other (`zfs send` through SSH), the receiver keeps them with a
  * retention of its own. Shared by the agent (the Team Lead's pairing, cards and mutual watch) and the door
  * (agent/partner-door.php, the forced command of a pair's line in authorized_keys) — so nothing here runs at load,

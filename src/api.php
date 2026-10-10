@@ -189,7 +189,7 @@ function apiLookMode(array $query): string
 }
 
 /**
- * Show first, then look (Benj, 2026-10-07 — perf report levers 1 and 2). A state file is answered at once, with its
+ * Show first, then look (2026-10-07 — perf report levers 1 and 2). A state file is answered at once, with its
  * age and whether it is older than refresh_after (`stale`); a stale one is looked at again by the agent AFTER the
  * answer went out (`later`, run by answerThenLook()) — `refreshing` says a look is under way, the page then asks with
  * `wait` and gets the new state when it is there. One look per state at a time: its lock lies in RAM
@@ -639,11 +639,11 @@ function apiJson(array $data): string
 
 /** Answers below this many bytes go out as they are: gzip would gain little for a round of zlib and two headers */
 const API_GZIP_MIN = 1024;
-/** zlib's level: 1 takes four fifths off a state in ≈ 1.5 ms per 300 KB (nostromo); 6 another tenth for 2.5× the time */
+/** zlib's level: 1 takes four fifths off a state in ≈ 1.5 ms per 300 KB (a large server); 6 another tenth for 2.5× the time */
 const API_GZIP_LEVEL = 1;
 
 /**
- * Send an answer's bytes (Benj 2026-10-07, perf report lever 6): gzip-compressed when the browser takes it
+ * Send an answer's bytes (2026-10-07, perf report lever 6): gzip-compressed when the browser takes it
  * (apiGzipWanted()) and the body is worth it (≥ API_GZIP_MIN) — −80…85 % of the bytes, what counts over a VPN or
  * Unraid Connect (the reception's states ≈ 1 MB → 0.2 MB, the strings 465 → 155 KB). Compressed before anything goes
  * out and sent with its Content-Length, so answerThenLook() hands php-fpm a complete answer (fastcgi_finish_request());

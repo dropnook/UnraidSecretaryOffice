@@ -1,16 +1,24 @@
 #!/bin/bash
 # Unraid Secretary Office - the mechanical part of a release (for the coordinator, on the Mac).
 #
-#   tools/release.sh <x.y.z> [--dry] [--no-nostromo] [--servers-only]
+#   tools/release.sh <x.y.z> [--dry] [--no-main] [--servers-only]
 #
 # Run it from the clone on the Mac. What must be done and checked BEFORE it (suite, browser smoke, update test from
-# the previous version) and the rules around it (order of the servers, the quiet day after a release) are in
-# ~/Claude/UnraidSecretaryOffice-briefs/release-playbook.md. The script stops at the first red step with one line
-# that says why. Its steps:
+# the previous version) and the rules around it (order of the servers, the quiet day after a release) are in the
+# maintainer's release playbook (beside the notes, see below). The script stops at the first red step with one line
+# that says why.
+#
+# Its machines and folders come from a file outside the repository, $USO_RELEASE_CONF (default
+# ~/.config/uso-release.conf; bash, sourced). Without it the script stops before anything else:
+#   notes_dir=<folder>              release-<x.y.z>-notes.md lies there, the logs go to <folder>/releases/
+#   suite_host=<ssh host>           where the suite runs (step 7)
+#   servers=(<host>=<Label> …)      step 12's order: the first is the canary, the last the main server
+#
+# Its steps:
 #
 #    1 tools      git, gh (logged in), rsync, ssh, curl there; the version looks like x.y.z
 #    2 clone      on main, nothing uncommitted, main == origin/main; the tag v<x.y.z> not taken yet
-#    3 notes      ~/Claude/UnraidSecretaryOffice-briefs/release-<x.y.z>-notes.md exists and isn't empty
+#    3 notes      <notes_dir>/release-<x.y.z>-notes.md exists and isn't empty
 #    4 bump       OFFICE_VERSION (src/bootstrap.php) == AGENT_VERSION (agent/agent.php), both older than x.y.z;
 #                 both set to x.y.z
 #    5 build      bash plugin/build.sh <x.y.z> passes on the Mac (what the Action runs: versions, the .plg's max)
@@ -19,7 +27,7 @@
 #                 that opens or closes does so on its own and stays so (also when the desk draws itself anew), no
 #                 console error, no horizontal scrolling. Red stops the release like the suite; without node,
 #                 playwright-core or a Chrome it is skipped with a note (≈ 2 min)
-#    7 suite      rsync to uso-test:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
+#    7 suite      rsync to <suite_host>:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
 #                 (a red build, click test or suite puts the two version lines back)
 #    8 commit     «Version x.y.z» (+ Co-Authored-By), push main, origin/main is that commit
 #    9 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix)
@@ -27,45 +35,44 @@
 #   10 action     the Action plugin.yml for v<x.y.z> finished green (polled, at most 10 min)
 #   11 assets     the release has the .plg and the .txz; its .plg names office x.y.z; the public «latest» address
 #                 serves that .plg (what `plugin check` reads)
-#   12 servers    USOPartner (uso-partner) -> Tower (uso-test) -> nostromo (unless --no-nostromo), each:
+#   12 servers    the servers in their order (the main one, the last, unless --no-main), each:
 #                 reachable; no long job running (the .plg's own guard pattern: backup run/setup, restore, drill,
 #                 Jack Emby's runs) - refused, never waited for; plugin check names the new .plg version;
 #                 plugin update; then the installed .plg's version, OFFICE_VERSION in the installed bootstrap.php,
 #                 the agent process, «Agent started (vx.y.z,» in the agent log within 60 s, no line with the word
 #                 error/fatal in the agent log's last 2 min (printed if any).
-#                 USOPartner is the canary: after its update its agent log is watched 5 min (no error/fatal line,
-#                 the agent's PID unchanged) before Tower is updated. A server already on x.y.z is not updated
+#                 The first is the canary: after its update its agent log is watched 5 min (no error/fatal line,
+#                 the agent's PID unchanged) before the next one is updated. A server already on x.y.z is not updated
 #                 again, only checked.
 #
 #   --dry           prints every command; runs only the read-only ones: steps 1-3, the version check (no bump), the
 #                   build with the CURRENT version (into dist/, ignored by git), the click test, the suite on a copy of
-#                   its own (uso-test:/tmp/uso-release-dry/), steps 10-11 against the CURRENT release, and on USOPartner and
-#                   Tower `plugin check` plus the checks against what is installed. Nothing is bumped, committed,
-#                   pushed, released or updated; nostromo is not contacted at all. A red step does not stop a dry
+#                   its own (<suite_host>:/tmp/uso-release-dry/), steps 10-11 against the CURRENT release, and on every
+#                   server but the main one `plugin check` plus the checks against what is installed. Nothing is bumped,
+#                   committed, pushed, released or updated; the main server is not contacted at all. A red step does not stop a dry
 #                   run: every red step is listed at the end (exit 1 if any).
-#   --no-nostromo   stop after Tower - nostromo later, when no run is active: `tools/release.sh <x.y.z> --servers-only`
+#   --no-main       stop before the main server - it later, when no run is active: `tools/release.sh <x.y.z> --servers-only`
 #   --servers-only  the release is out already: only steps 1, 10, 11, 12 (resume after a red server step)
 #
-# Log: ~/Claude/UnraidSecretaryOffice-briefs/releases/<x.y.z>.log - every run appended: all it prints, the suite's
+# Log: <notes_dir>/releases/<x.y.z>.log - every run appended: all it prints, the suite's
 # output and every server's answers included. Exit: 0 done, 1 a red step, 2 wrong call.
 #
 # No `set -e`: every step checks what it ran and says what went wrong.
 set -u -o pipefail
 
-briefs=${USO_BRIEFS:-$HOME/Claude/UnraidSecretaryOffice-briefs}
+conf=${USO_RELEASE_CONF:-$HOME/.config/uso-release.conf}
 coauthor='Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>'
 name=unraid-secretary-office
 plugin_dir=/usr/local/emhttp/plugins/$name
-suite_host=uso-test
-canary_watch=300   # s: USOPartner's agent log without error/fatal before Tower gets the release
+canary_watch=300   # s: the canary's agent log without error/fatal before the next server gets the release
 
 usage() { sed -n '4p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2; exit 2; }
 
-ver='' dry=0 no_nostromo=0 servers_only=0
+ver='' dry=0 no_main=0 servers_only=0
 for a in "$@"; do
     case $a in
         --dry) dry=1 ;;
-        --no-nostromo) no_nostromo=1 ;;
+        --no-main) no_main=1 ;;
         --servers-only) servers_only=1 ;;
         -h|--help) usage ;;
         -*) echo "release: unknown option $a" >&2; usage ;;
@@ -77,14 +84,25 @@ done
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo" || exit 2
-mkdir -p "$briefs/releases" || { echo "release: cannot create $briefs/releases" >&2; exit 2; }
-log="$briefs/releases/$ver.log"
-notes="$briefs/release-$ver-notes.md"
+notes_dir='' suite_host='' servers=()
+# shellcheck source=/dev/null
+[[ -r "$conf" ]] && source "$conf"
+if [[ -z "$notes_dir" || -z "$suite_host" ]] || (( ${#servers[@]} == 0 )); then
+    echo "release: $conf must set notes_dir, suite_host and servers=(<host>=<Label> ...) - see the head of tools/release.sh" >&2
+    exit 2
+fi
+mkdir -p "$notes_dir/releases" || { echo "release: cannot create $notes_dir/releases" >&2; exit 2; }
+log="$notes_dir/releases/$ver.log"
+notes="$notes_dir/release-$ver-notes.md"
 exec > >(tee -a "$log") 2>&1
 
-servers=(uso-partner uso-test)
-(( no_nostromo )) || servers+=(nostromo)
-label() { case $1 in uso-partner) echo USOPartner ;; uso-test) echo Tower ;; *) echo "$1" ;; esac; }
+# the servers' hosts in their order: the first is the canary, the last the main server (left out with --no-main)
+hosts=()
+for s in "${servers[@]}"; do hosts+=("${s%%=*}"); done
+canary=${hosts[0]} main=${hosts[$(( ${#hosts[@]} - 1 ))]}
+run_hosts=("${hosts[@]}")
+(( no_main && ${#hosts[@]} > 1 )) && unset "run_hosts[$(( ${#hosts[@]} - 1 ))]"
+label() { local s; for s in "${servers[@]}"; do [[ "${s%%=*}" == "$1" ]] && { echo "${s#*=}"; return; }; done; echo "$1"; }
 
 reds=()
 step_no=0 step_name=''
@@ -131,8 +149,8 @@ const_of() { sed -n "s/^const $1 *= *'\([^']*\)';.*/\1/p" "$2" | head -n 1; }
 plg_entity() { sed -n "s/.*ENTITY $1 *\"\([^\"]*\)\".*/\1/p" | head -n 1; }
 
 echo
-echo "=== $(date '+%Y-%m-%d %H:%M:%S') tools/release.sh $ver$( ((dry)) && echo ' --dry')$( ((no_nostromo)) && echo ' --no-nostromo')$( ((servers_only)) && echo ' --servers-only')  ($(git -C "$repo" rev-parse --short HEAD 2>/dev/null) in $repo)"
-(( dry )) && echo "DRY RUN: nothing is bumped, committed, pushed, released or updated; nostromo is not contacted."
+echo "=== $(date '+%Y-%m-%d %H:%M:%S') tools/release.sh $ver$( ((dry)) && echo ' --dry')$( ((no_main)) && echo ' --no-main')$( ((servers_only)) && echo ' --servers-only')  ($(git -C "$repo" rev-parse --short HEAD 2>/dev/null) in $repo)"
+(( dry )) && echo "DRY RUN: nothing is bumped, committed, pushed, released or updated; $(label "$main") is not contacted."
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 1 tools
@@ -432,11 +450,11 @@ plugin_check() {
 
 step 12 servers
 done_at=()
-for host in "${servers[@]}"; do
+for host in "${run_hosts[@]}"; do
     who=$(label "$host")
     echo "   -- $who ($host)"
-    if (( dry )) && [[ "$host" == nostromo ]]; then
-        echo "   (dry, not contacted) on nostromo: refuse if pgrep -f the .plg's jobs pattern finds a job; plugin check $name.plg;"
+    if (( dry )) && [[ "$host" == "$main" && "$host" != "$canary" ]]; then
+        echo "   (dry, not contacted) on $who: refuse if pgrep -f the .plg's jobs pattern finds a job; plugin check $name.plg;"
         echo "   (dry, not contacted) plugin update $name.plg; then the same checks as above"
         continue
     fi
@@ -476,8 +494,8 @@ for host in "${servers[@]}"; do
     if (( rc != 0 )); then red "$who: $(grep '^RED' <<<"$verify" | head -n 1 | cut -c5-)"; continue; fi
     done_at+=("$who $(date '+%H:%M:%S')")
     ok "$who on $rel"
-    # USOPartner is the canary: its agent log stays free of error/fatal for 5 min after the update before Tower gets it
-    if [[ "$host" == uso-partner ]]; then
+    # the first server is the canary: its agent log stays free of error/fatal for 5 min after the update before the next gets it
+    if [[ "$host" == "$canary" && ${#run_hosts[@]} -gt 1 ]]; then
         if (( dry )) || [[ -z "$since" ]]; then
             echo "   (dry or not updated now: no watch) after an update: $who's agent log watched ${canary_watch} s for error/fatal, the agent's PID kept"
         else
@@ -494,7 +512,7 @@ for host in "${servers[@]}"; do
                 [[ -n "$pid" && "$pid" == "$pid0" ]] || { watch_red="its agent is gone or restarted (PID $pid0 -> '${pid:-none}')"; break; }
                 echo "   $(date '+%H:%M:%S') $who quiet"
             done
-            [[ -z "$watch_red" ]] || { red "$who: $watch_red - Tower and nostromo not updated"; continue; }
+            [[ -z "$watch_red" ]] || { red "$who: $watch_red - the servers after it not updated"; continue; }
             ok "$who quiet for ${canary_watch} s"
         fi
     fi
@@ -513,7 +531,7 @@ if (( dry )); then
     exit 0
 fi
 echo "DONE: v$rel ($plg_ver) - ${done_at[*]:-no server}"
-(( no_nostromo )) && echo "nostromo not updated: when no run is active, tools/release.sh $rel --servers-only"
-echo "Next (release-playbook.md): 24 h quiet except hotfixes; tonight's run on nostromo; note the release in the day's notes."
+(( no_main )) && echo "$(label "$main") not updated: when no run is active, tools/release.sh $rel --servers-only"
+echo "Next (the release playbook): 24 h quiet except hotfixes; tonight's run on $(label "$main"); note the release in the day's notes."
 echo "Log: $log"
 exit 0

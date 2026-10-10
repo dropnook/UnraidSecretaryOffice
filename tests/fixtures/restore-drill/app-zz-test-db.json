@@ -1,12 +1,12 @@
 {
-  "name": "zz-uso-test-db",
+  "name": "zz-test-db",
   "type": "compose",
   "run": "20261006-2036",
   "result": "ok",
   "interface": 1,
   "engine": "2.22",
   "kind": "app",
-  "folder": "zz-uso-test-db",
+  "folder": "zz-test-db",
   "files": [
     {
       "path": "compose-files/compose.yaml",
@@ -16,23 +16,23 @@
       "container": ""
     },
     {
-      "path": "db/mariadb_zz-uso-test-db-mdb_usotest.sql.gz",
+      "path": "db/mariadb_zz-test-db-mdb_usotest.sql.gz",
       "bytes": 1405,
       "run": "20261006-2036",
       "what": "dump",
-      "container": "zz-uso-test-db-mdb"
+      "container": "zz-test-db-mdb"
     },
     {
-      "path": "db/postgres_zz-uso-test-db-pg.sql.gz",
+      "path": "db/postgres_zz-test-db-pg.sql.gz",
       "bytes": 2124,
       "run": "20261006-2036",
       "what": "dump",
-      "container": "zz-uso-test-db-pg"
+      "container": "zz-test-db-pg"
     }
   ],
   "dumps": [
     {
-      "container": "zz-uso-test-db-mdb",
+      "container": "zz-test-db-mdb",
       "type": "mariadb",
       "state": "ok",
       "login": "root",
@@ -41,7 +41,7 @@
       "client": "mariadb"
     },
     {
-      "container": "zz-uso-test-db-pg",
+      "container": "zz-test-db-pg",
       "type": "postgres",
       "state": "ok",
       "login": "user",
@@ -53,14 +53,14 @@
   "sqlite": [],
   "own_backups": [],
   "compose": {
-    "project": "zz-uso-test-db",
+    "project": "zz-test-db",
     "manager_dir": null,
     "working_dir": "/boot/x",
     "config_files": []
   },
   "containers": [
     {
-      "name": "zz-uso-test-db-mdb",
+      "name": "zz-test-db-mdb",
       "image": "mariadb:11",
       "image_id": "sha256:53ef799caed285438d88678b529b4ff24406d4788f47ab8a74bb2212c707899a",
       "digests": [],
@@ -115,13 +115,13 @@
         "Mounts": [
           {
             "Type": "bind",
-            "Source": "/mnt/user/appdata/zz-uso-test-db/mdb",
+            "Source": "/mnt/user/appdata/zz-test-db/mdb",
             "Destination": "/var/lib/mysql",
             "RW": true
           }
         ],
         "HostConfig": {
-          "NetworkMode": "zz-uso-test-db_default",
+          "NetworkMode": "zz-test-db_default",
           "PortBindings": {},
           "Privileged": false,
           "CapAdd": null,
@@ -131,7 +131,7 @@
       }
     },
     {
-      "name": "zz-uso-test-db-pg",
+      "name": "zz-test-db-pg",
       "image": "postgres:16-alpine",
       "image_id": "sha256:81bd698b4594e751a3269e4dcd3e03a4a0ec0daf7b72e7aa1abd43cce9887542",
       "digests": [],
@@ -179,13 +179,13 @@
         "Mounts": [
           {
             "Type": "bind",
-            "Source": "/mnt/user/appdata/zz-uso-test-db/pg",
+            "Source": "/mnt/user/appdata/zz-test-db/pg",
             "Destination": "/var/lib/postgresql/data",
             "RW": true
           }
         ],
         "HostConfig": {
-          "NetworkMode": "zz-uso-test-db_default",
+          "NetworkMode": "zz-test-db_default",
           "PortBindings": {},
           "Privileged": false,
           "CapAdd": null,

@@ -142,11 +142,11 @@
    {
     "level": "hint",
     "step": "partners",
-    "text": "share:appdata: not agreed with USOPartner yet - ask at the Team Lead («Change what Tower sends…»); until then it doesn't go there",
+    "text": "share:appdata: not agreed with PartnerNAS yet - ask at the Team Lead («Change what Tower sends…»); until then it doesn't go there",
     "code": "not_agreed_share",
     "params": {
      "name": "appdata",
-     "partner": "USOPartner",
+     "partner": "PartnerNAS",
      "host": "Tower"
     }
    },
@@ -253,7 +253,7 @@
    "share|domains|method": "auto",
    "partner|2ec7accd|address": "192.168.1.190",
    "share|photos|mode": "snapshot",
-   "general|server": "USO-Test-Server",
+   "general|server": "Lab-Server",
    "share|appdata|kopia_ignore": [],
    "share|system|exclude_dataset": [],
    "nextcloud|Nextcloud|preexisting_maintenance": "abort",
@@ -287,7 +287,7 @@
    "zfs|retention": "7 4 6",
    "share|photos|method": "auto",
    "general|mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
-   "partner|2ec7accd|name": "USOPartner",
+   "partner|2ec7accd|name": "PartnerNAS",
    "share|speedtest|mode": "snapshot",
    "general|dumps_share": "UnraidSecretaryOffice",
    "btrfs|min_free_gb": "150",
@@ -377,7 +377,7 @@
    "partner|2ec7accd|address": "192.168.1.190",
    "share|photos|mode": "snapshot",
    "share|nextcloud|locations": "big, cache",
-   "general|server": "USO-Test-Server",
+   "general|server": "Lab-Server",
    "share|media|locations": "big",
    "nextcloud|Nextcloud|preexisting_maintenance": "abort",
    "kopia|keep_hourly": "0",
@@ -402,7 +402,7 @@
    "share|domains|id": "zfs:10695481905297575639",
    "zfs|retention": "7 4 6",
    "general|mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
-   "partner|2ec7accd|name": "USOPartner",
+   "partner|2ec7accd|name": "PartnerNAS",
    "share|speedtest|mode": "snapshot",
    "general|dumps_share": "UnraidSecretaryOffice",
    "share|UnraidSecretaryOffice|id": "zfs:11432220187110286558",
@@ -1089,7 +1089,7 @@
   "partners": [
    {
     "id": "2ec7accd",
-    "name": "USOPartner",
+    "name": "PartnerNAS",
     "address": "192.168.1.190",
     "port": 22,
     "rate_mbit": 0,
@@ -1272,11 +1272,11 @@
    {
     "level": "hint",
     "step": "partners",
-    "text": "share:appdata: not agreed with USOPartner yet - ask at the Team Lead («Change what Tower sends…»); until then it doesn't go there",
+    "text": "share:appdata: not agreed with PartnerNAS yet - ask at the Team Lead («Change what Tower sends…»); until then it doesn't go there",
     "code": "not_agreed_share",
     "params": {
      "name": "appdata",
-     "partner": "USOPartner",
+     "partner": "PartnerNAS",
      "host": "Tower"
     }
    },

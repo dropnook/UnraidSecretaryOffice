@@ -194,9 +194,9 @@ active, `backup/` is left alone.
   real server's names) inside Unraid's look; `--moments` makes the product page's moments (black, 1280 px, de/en) with
   a contact sheet. The README's pictures in `docs/screenshots/` are the English moments.
 * **Reports to the makers** (*⋯ → Report a problem or a wish…*): the inbox is `OFFICE_FEEDBACK_URL` in
-  `src/place.php` (shared by the web side and the agent; `''` hides the feature), a Cloudflare Worker in the private
-  repository `dropnook/uso-support` (`feedback/`, its SETUP.md has the request's exact shape) that opens an issue in
-  the private `dropnook/uso-inbox`. To test against a Worker of your own (e.g. `wrangler dev` on your machine) put
+  `src/place.php` (shared by the web side and the agent; `''` hides the feature), a Cloudflare Worker in the maintainer's private
+  repository (`feedback/`, its SETUP.md has the request's exact shape) that opens an issue in
+  a private inbox repository. To test against a Worker of your own (e.g. `wrangler dev` on your machine) put
   `FEEDBACK_URL="http://<host>:<port>"` into `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
   (scheme, host and port only; read at every send, no restart) and remove the line afterwards. The dialog's other ways:
   `OFFICE_ISSUES_URL` and `OFFICE_FORUM_URL` (`''` = not shown) in `src/bootstrap.php`. Tests: `testReport` (scrubber,
@@ -209,7 +209,7 @@ active, `backup/` is left alone.
   `tools/release.sh <version> --dry`, then without `--dry` — bump, build, the click test, the suite on a test server,
   the commit, `gh release create`, the Action, the release's assets, then the servers one after another (the partner
   test server as the canary, watched 5 min, then the test server, then the main one), stopping at the first red step
-  (a red build, click test or suite, or Ctrl-C before the commit, puts the version lines back). `--no-nostromo` stops
+  (a red build, click test or suite, or Ctrl-C before the commit, puts the version lines back). `--no-main` stops
   before the main server, `--servers-only` does only the server part of a release that is out already. If the
   release's Action run fails, run it by hand for the tag — `gh workflow run plugin.yml -f tag=v<version>` — and go on
   with `--servers-only` once it is green. The checklist around it is the release playbook (`release-playbook.md` in the

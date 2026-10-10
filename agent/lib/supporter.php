@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 /*
- * The key arrives by itself (Benj, 2026-10-09; the rules: src/supporter.php's head). The agent is the office's
- * house messenger: it alone asks the support page (OFFICE_SUPPORT_URL, the tip Worker in dropnook/uso-support) for the
+ * The key arrives by itself (2026-10-09; the rules: src/supporter.php's head). The agent is the office's
+ * house messenger: it alone asks the support page (OFFICE_SUPPORT_URL, the tip Worker in the maintainer's private repository) for the
  * key a tip made — never the browser.
  *
  *   office.supporter_claim {auto?: true}

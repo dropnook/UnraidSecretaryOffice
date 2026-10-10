@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Jack Emby: a live panel while EmbyCache runs for real (Benj, 2026-10-10 — in place of the «Output (real run)» button,
+ * Jack Emby: a live panel while EmbyCache runs for real (2026-10-10 — in place of the «Output (real run)» button,
  * like Mr. Backupsy's run progress). EmbyCache writes a small progress file when EMBYCACHE_PROGRESS is set (atomic, at
  * every file boundary; embycache_run.py `Progress`): the phase (plan, back, fill, done), «back to the array» and per Emby
  * user what is planned and done (files, bytes), the file being copied with its target, its user and its reason. Jack's
@@ -12,8 +12,8 @@ declare(strict_types=1);
  * lstat, read only (the pool or the disk is awake: it is being written) — in a second RAM file
  * (`RUN_DIR/emby-progress-speed.json`, the last EMBY_PROGRESS_WINDOW seconds). The speed is the MEDIAN of the rates
  * between those samples (a stall or a burst doesn't swing it), there after the first step of 10 s (two samples);
- * every ETA is bytes / that speed. The bracket's: everything left. A user's (Benj, 2026-10-10, the first real run on
- * nostromo — «2 min» for 12 GB nothing of which had started while another's 49 GB file copied): EmbyCache fills one
+ * every ETA is bytes / that speed. The bracket's: everything left. A user's (2026-10-10, the first real run on
+ * a large server — «2 min» for 12 GB nothing of which had started while another's 49 GB file copied): EmbyCache fills one
  * file after another, all users mixed, in path order, and writes that queue (`queue` [[user index, bytes], …], `pos` =
  * how many are done or dropped): the bytes until the user's LAST remaining file is done — what is left of «back» while
  * it goes, plus every remaining queue entry up to and including that file, minus what of the current one is there.
@@ -304,7 +304,7 @@ function embyProgressView(array $p, array $samples, int $now, bool $stopping = f
     }
     $total['eta'] = $total['files'] > $total['done_files'] ? $eta(max(0, $total['bytes'] - $total['done_bytes'])) : 0;
     $total['running'] = $p['started'] > 0 ? max(0, $now - $p['started']) : null;
-    // asked to stop (the button, the mover): only the file it is on still counts (Benj, 2026-10-10) — the bar it belongs to
+    // asked to stop (the button, the mover): only the file it is on still counts (2026-10-10) — the bar it belongs to
     // and the total end with it, the others are `halted` (not in this run any more)
     if ($stopping) {
         $curEta = $cur !== null ? $eta(max(0, $cur['size'] - $part)) : 0;
@@ -356,7 +356,7 @@ function embyProgressState(?array $job = null, ?array $paths = null, ?int $now =
 }
 
 /**
- * «Stop after this file» (his panel; Benj, 2026-10-10): only while a real EmbyCache run goes (run, release) — the same
+ * «Stop after this file» (his panel; 2026-10-10): only while a real EmbyCache run goes (run, release) — the same
  * stop request the mover guard writes (`office-stop.json`, EMBYCACHE_STOP), why `user`, once; EmbyCache ends after the
  * file it is on (exit 3, result `stopped`), embyRunWatch() takes the why from the file. Already asked: nothing new.
  * Returns whether it was written now.

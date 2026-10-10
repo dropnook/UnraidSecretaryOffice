@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Letting Jack Emby go (Benj, 2026-10-09: «why else would one let him go?»). Until then his let-go dialog only warned
+ * Letting Jack Emby go (2026-10-09: «why else would one let him go?»). Until then his let-go dialog only warned
  * that EmbyCache and the gather keep running on their schedules. Now, like Mr. Backupsy's let-go (backup-letgo.php,
  * core.js Office.fireDialog → the desk's letGo), his part of the dialog asks `emby.letgo_look` when it opens and, on
  * «Let go», `emby.letgo {confirm: true, release: bool}` — before he is let go (an unhired desk gets no write actions,

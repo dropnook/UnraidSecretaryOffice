@@ -2,12 +2,12 @@
 declare(strict_types=1);
 
 /*
- * Jack Emby and Unraid's mover (Benj, 2026-10-09 — a manual «mover start» on his server moved three films EmbyCache had
+ * Jack Emby and Unraid's mover (2026-10-09 — a manual «mover start» on his server moved three films EmbyCache had
  * put on the pool back to the array). EmbyCache and the gather run for real only while Unraid's own mover schedule is
- * «Disabled» (⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧) — always, one way (Benj's decision, 2026-10-09 evening);
+ * «Disabled» (⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧) — always, one way (decision, 2026-10-09 evening);
  * otherwise only their dry runs go, and real ones (from the page and on schedule) are refused with the reason
  * (embyRunCheck() → embyMoverProblem()). Unraid 7.3.3 keeps «Disabled» as `shareMoverSchedule=""` in
- * /boot/config/share.cfg and removes /boot/config/plugins/dynamix/mover.cron (verified on Tower: «Daily» writes the file
+ * /boot/config/share.cfg and removes /boot/config/plugins/dynamix/mover.cron (verified on a test server: «Daily» writes the file
  * with «… /usr/local/sbin/mover start …», «Disabled» deletes it; emhttpd deletes it again at every array start while the
  * key is empty, so «Disabled» lasts). Mover Tuning is no way around it: from Unraid 7.2.1 on Unraid's own schedule and
  * ⟦Move now⟧ run /usr/local/sbin/mover, which knows no list.
@@ -25,7 +25,7 @@ declare(strict_types=1);
  * line of those two keys gets the new value (Unraid's parse_ini takes the last of a key, age_mover's cfg() the first); a
  * new file + rename; the cfg as it was copied next to it once (`<cfg>.before-jack-emby`). Nothing to reload: age_mover
  * reads the cfg at each run. With Unraid's schedule off, what still lets Mover Tuning's own schedule take his files
- * (found in its code and tried on Tower, 2026-10-09) — each refuses real runs too:
+ * (found in its code and tried on a test server, 2026-10-09) — each refuses real runs too:
  *   - his list couldn't be entered → `tuning_list`;
  *   - its «Force move all files on a schedule» (force="yes", its own mover.cron: «mover.php force start») runs Unraid's
  *     mover → `tuning_force`;

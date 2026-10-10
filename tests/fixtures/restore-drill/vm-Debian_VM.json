@@ -1,15 +1,15 @@
 {
-  "name": "Debian_Helmi",
+  "name": "Debian_VM",
   "run": "20261007-1052",
   "result": "ok",
   "uuid": "9b3e9c65-84b4-2410-470b-8f719c38ea29",
-  "xml": "Debian_Helmi.xml",
+  "xml": "Debian_VM.xml",
   "autostart": true,
   "prepare": "shutdown",
   "disks": [
     {
       "target": "hdc",
-      "source": "/mnt/user/domains/Debian_Helmi/vdisk1.img",
+      "source": "/mnt/user/domains/Debian_VM/vdisk1.img",
       "base": "master",
       "fs": "zfs",
       "dataset": "master/domains",
@@ -20,7 +20,7 @@
   ],
   "files": [
     {
-      "path": "Debian_Helmi.xml",
+      "path": "Debian_VM.xml",
       "bytes": 6298,
       "run": "20261007-1052",
       "what": "xml",
@@ -37,5 +37,5 @@
   "interface": 1,
   "engine": "2.24",
   "kind": "vm",
-  "folder": "Debian_Helmi"
+  "folder": "Debian_VM"
 }

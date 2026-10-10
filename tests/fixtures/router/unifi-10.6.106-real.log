@@ -1,4 +1,4 @@
-# REAL lines, scrubbed: nostromo's gateway (UniFi Cloud Gateway, UniFi Network 10.6.106; Traffic Logging -> Activity Logging
+# REAL lines, scrubbed: a large server's gateway (UniFi Cloud Gateway, UniFi Network 10.6.106; Traffic Logging -> Activity Logging
 # (Syslog) -> SIEM Server = Unraid's syslog server, Contents: Admin Activity, Clients, Critical, Devices, Security Detections,
 # Triggers, Updates, VPN; Flow Logging «Blocked Traffic Only», Debug Logs off), as Unraid's syslog server wrote them to
 # /mnt/user/syslog/syslog-<gateway>.log on 2026-10-08 between 09:18 and 09:57 (CEST; UNIFIutcTime is UTC, two hours less).

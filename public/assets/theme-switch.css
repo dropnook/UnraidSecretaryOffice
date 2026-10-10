@@ -1,5 +1,5 @@
 /* Unraid Secretary Office — the theme switch at the reception: Automatic · Dark · Light
-   (an experiment, Benj 2026-10-07; it may go again).
+   (an experiment, 2026-10-07; it may go again).
 
    Loaded only while OFFICE_THEME_SWITCH (src/bootstrap.php) is true, together with theme-switch.js.
    Nothing here applies without a choice: in Automatic #sso carries no data-theme and the office

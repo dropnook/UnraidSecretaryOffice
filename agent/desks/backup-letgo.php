@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /*
  * Letting Mr. Backupsy go — and, only when the user ticks «Also clear away what he kept here» in his let-go dialog
- * (Benj, 2026-10-08, «Rückbauten ohne Altlasten»), clearing away what he kept. Letting him go alone keeps everything,
+ * (2026-10-08, «Rückbauten ohne Altlasten»), clearing away what he kept. Letting him go alone keeps everything,
  * like every desk. With the tick the page asks `backup.letgo_look` (what would go, with Ms. Snapshotini's estimate)
  * and, on «Let go», `backup.letgo_clear {confirm: true}` — before it lets him go (an unhired desk gets no write
  * actions); he is let go whatever came of it, and the page says what was done.

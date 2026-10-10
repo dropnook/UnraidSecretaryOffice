@@ -3260,7 +3260,7 @@ function rsStep(array &$j, int $i): array
 /*
  * A database client's output on its way into a restore's log.txt, every line cut at RS_LOG_LINE_MAX bytes with
  * «… (n bytes cut)»: MariaDB 11.8's client echoes a failed statement whole (--print-query-on-error, on by default —
- * ≈ 1 MB of row data per failed INSERT on nostromo, 2026-10-08). Its --skip-print-query-on-error would stop that, but
+ * ≈ 1 MB of row data per failed INSERT on a large server, 2026-10-08). Its --skip-print-query-on-error would stop that, but
  * the clients he plays with don't all know it (MySQL's `mysql`, MariaDB before 11 — an unknown option ends them, a
  * `--loose-` one leaves a warning line that reads as an error), so the cut is the office's, the same for every client.
  * A process of its own (PHP, no ini): the client writes into its stdin while he writes the dump into the client's —

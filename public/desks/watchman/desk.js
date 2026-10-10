@@ -262,7 +262,7 @@ function roundSection() {
     n ? T('stat.open_kinds', { n: Object.keys(state.open || {}).length }) : T('stat.open_none'), n ? 'alert' : ''));
   const since = stat(T('stat.since'), state.on_watch ? fmt.relative(state.on_watch) : T('stat.never'),
     state.on_watch ? fmt.date(state.on_watch) : '');
-  // still learning what is normal for the data flow? and until when (Benj, 2026-10-10)
+  // still learning what is normal for the data flow? and until when (2026-10-10)
   const f = state.on_watch && state.flow;
   if (f && f.since && f.learn) {
     const end = f.since + f.learn * 86400;
@@ -802,7 +802,7 @@ function entryRow(e, owner) {
   return r;
 }
 
-/** The entry's nearest MITRE ATT&CK technique: a quiet chip with its explanation — no link out (Benj, 2026-10-09:
+/** The entry's nearest MITRE ATT&CK technique: a quiet chip with its explanation — no link out (2026-10-09:
  * a click opened nothing inside Unraid's page, and a link out is one more thing that can break) */
 function attackLink(id) {
   if (typeof id !== 'string' || !/^T\d{4}(\.\d{3})?$/.test(id)) return null;

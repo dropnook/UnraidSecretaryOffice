@@ -162,7 +162,7 @@
    "partners": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner"
+     "name": "PartnerNAS"
     }
    ],
    "planned": [
@@ -259,7 +259,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 2,
      "bytes": 151390192,
      "seconds": 1,
@@ -321,7 +321,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 2,
      "bytes": 151443752,
      "seconds": 0,
@@ -383,7 +383,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 2,
      "bytes": 151128360,
      "seconds": 1,
@@ -445,7 +445,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 2,
      "bytes": 151179896,
      "seconds": 1,
@@ -502,7 +502,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 0,
      "bytes": 0,
      "seconds": 0,
@@ -542,7 +542,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 3,
      "bytes": 131487040,
      "seconds": 0,
@@ -607,7 +607,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 2,
      "bytes": 954824,
      "seconds": 1,
@@ -669,7 +669,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 2,
      "bytes": 24447552,
      "seconds": 1,
@@ -726,7 +726,7 @@
    "partner": [
     {
      "id": "2ec7accd",
-     "name": "USOPartner",
+     "name": "PartnerNAS",
      "sent": 2,
      "bytes": 2341440,
      "seconds": 1,
@@ -856,7 +856,7 @@
   "policies": null
  },
  "settings": {
-  "server": "USO-Test-Server",
+  "server": "Lab-Server",
   "mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
   "view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
   "snap_prefix": "uso-backup-",
@@ -1147,7 +1147,7 @@
  "partners": [
   {
    "id": "2ec7accd",
-   "name": "USOPartner",
+   "name": "PartnerNAS",
    "address": "192.168.1.190",
    "port": 22,
    "rate_mbit": 0,
@@ -1158,7 +1158,7 @@
    ],
    "last": {
     "id": "2ec7accd",
-    "name": "USOPartner",
+    "name": "PartnerNAS",
     "sent": 2,
     "bytes": 151390192,
     "seconds": 1,

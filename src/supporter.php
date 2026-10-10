@@ -10,7 +10,7 @@ declare(strict_types=1);
  * with a valid one the office stops reminding (the tip jar after hiring, the
  * team lead's one ask) and the team lead shows a small thank-you with the name,
  * its picture the tip's level (coffee, a round, cake, a pay rise — not a rank).
- * Several keys are kept (Benj, 2026-10-09: up to OFFICE_SUPPORTER_KEYS_MAX, the same
+ * Several keys are kept (2026-10-09: up to OFFICE_SUPPORTER_KEYS_MAX, the same
  * payload once); the plate shows each level's picture once, in level order — never a
  * count, never a rank —, and the name of the newest key.
  *
@@ -30,7 +30,7 @@ declare(strict_types=1);
  *     v the integer 1, id the server ID (16 upper-case hex digits in groups of 4),
  *     name 1–60 characters (not bytes), none of them a control/format character or a
  *     line/paragraph separator, no white space at either end; date a real day;
- *     l the thank-you's level (Benj, 2026-10-08), exactly "round" (a tip from 20),
+ *     l the thank-you's level (2026-10-08), exactly "round" (a tip from 20),
  *     "cake" (from 50) or "raise" (from 100). Without l the key is «coffee» (any tip,
  *     and every key made before levels) — coffee is never written as l. The level is
  *     signed like the rest, so the office never shows one nobody signed; it only
@@ -53,7 +53,7 @@ declare(strict_types=1);
  *    "ask": {"later": <n>, "next": <ts>, "never": true}}
  * A file from before 1.48 has one "key" (+ "key_added"): read as a list of one, written as the list.
  *
- * The key arrives by itself (Benj, 2026-10-09): when the tip jar opens the support page the office hands it a
+ * The key arrives by itself (2026-10-09): when the tip jar opens the support page the office hands it a
  * one-time code (officeSupporterCodeTake(): 256 random bits, b64url, kept here with its time; a code from the last
  * hour is handed out again, at most OFFICE_SUPPORTER_CODES_MAX, each lives a day) in the link's fragment
  * (#claim=<code> — never sent in a request line). After a paid tip the tip Worker keeps the key under SHA-256(code)
@@ -416,7 +416,7 @@ function officeSupporterInfo(array $data, ?string $serverId, int $now): array
     $info['levels'] = array_values(array_filter(OFFICE_SUPPORTER_LEVELS, fn (string $l): bool => in_array($l, $have, true)));
     // every name on the valid keys, newest first, each once (the plate thanks them all: «Benj & Janine»)
     $info['names'] = array_values(array_unique(array_column($valid, 'name')));
-    // how many valid keys of each level (Benj, 2026-10-09: «so viele Tassen, wie ich will») — the plate shows ☕×3
+    // how many valid keys of each level (2026-10-09: «so viele Tassen, wie ich will») — the plate shows ☕×3
     $info['counts'] = (object) array_filter(array_map(fn (string $l): int => count(array_keys($have, $l, true)), array_combine(OFFICE_SUPPORTER_LEVELS, OFFICE_SUPPORTER_LEVELS)));
     $info['keys'] = array_map(function (array $k): array {
         unset($k['order']);

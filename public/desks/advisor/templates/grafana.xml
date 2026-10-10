@@ -2,7 +2,7 @@
 <!-- The Consultant's template for Grafana (agent/desks/advisor.php fills in {{…}}). Based on the
      official image's template in Community Applications (atribe); changed: the real root URL, the
      admin password optional (empty: Grafana's admin/admin, it asks for a new one at the first login —
-     Benj's decision 2026-10-06), provisioning inside the mapped appdata folder
+     decision 2026-10-06), provisioning inside the mapped appdata folder
      (the agent puts the Prometheus data source and the office's dashboard there beforehand),
      anonymous viewing off unless chosen, the label uso.installed-by. -->
 <Container version="2">

@@ -1,26 +1,26 @@
 {
-  "name": "Windows11_Gaming",
+  "name": "Windows11_VM",
   "run": "20261007-1052",
   "result": "ok",
   "uuid": "43cd8087-9364-2c3d-eb36-29696480e7d8",
-  "xml": "Windows11_Gaming.xml",
+  "xml": "Windows11_VM.xml",
   "autostart": false,
   "prepare": "shutdown",
   "disks": [
     {
       "target": "hdc",
-      "source": "/mnt/user/domains/Windows11_Gaming/vdisk2.S20260801195224qcow2",
+      "source": "/mnt/user/domains/Windows11_VM/vdisk2.S20260801195224qcow2",
       "base": "master",
       "fs": "zfs",
-      "dataset": "master/domains/Windows11_Gaming",
+      "dataset": "master/domains/Windows11_VM",
       "share": "domains",
       "bytes": 257454899200,
-      "snapshot": "master/domains/Windows11_Gaming@uso-backup-20261007-1052"
+      "snapshot": "master/domains/Windows11_VM@uso-backup-20261007-1052"
     }
   ],
   "files": [
     {
-      "path": "Windows11_Gaming.xml",
+      "path": "Windows11_VM.xml",
       "bytes": 6564,
       "run": "20261007-1052",
       "what": "xml",
@@ -72,5 +72,5 @@
   "interface": 1,
   "engine": "2.24",
   "kind": "vm",
-  "folder": "Windows11_Gaming"
+  "folder": "Windows11_VM"
 }

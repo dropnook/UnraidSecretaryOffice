@@ -83,7 +83,7 @@ function officePluginDataDir(): string
  * Unraid's exclusive shares (Settings → Global Share Settings → Permit exclusive shares; emhttpd decides at every
  * array start): /mnt/user/<share> is then Unraid's symlink `../<pool>/<share>` (or `/mnt/<pool>/<share>`) to the
  * share's only volume, past shfs (FUSE). That one link — exactly this shape, the same share name, a real folder
- * behind it — is followed: $path comes back on the pool, reached there without shfs (nostromo, 2026-10-07: the agent's
+ * behind it — is followed: $path comes back on the pool, reached there without shfs (a large server, 2026-10-07: the agent's
  * look at its data folder and mailbox 4 µs instead of 200 µs). Anything else comes back as it is: a path outside
  * /mnt/user, a share that is no link (secondary
  * storage, a folder of it on another disk or pool), any other link. One lstat, a readlink and one lstat — nothing is

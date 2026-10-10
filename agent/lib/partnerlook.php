@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Partner offices as the other desks see them (stage 2 of briefs/uso-partner-zfs-plan.md): read-only looks at what the
+ * Partner offices as the other desks see them (stage 2 of the partner plan): read-only looks at what the
  * Team Lead's pairing and the door leave behind — for the night watchman, Ms. Snapshotini and Ms. Dustdevil. Nothing
  * here writes; nothing runs ssh; only partnerLookPlaces() runs one `zfs list` (never from a tick). The pairing, the
  * door and their files are agent/lib/partner.php's and agent/partner-door.php's — read here exactly as they write them:
