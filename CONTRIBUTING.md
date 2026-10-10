@@ -12,7 +12,9 @@ goes into `main` without a review.
 3. **Pull request.** Describe what changed and what you tested, and on which Unraid version. The maintainers review it,
    run the test suite and try it on a test server; then it is merged and goes out with the next release.
 
-No access to anything else is needed: no token, no server, no other repository.
+No access to anything else is needed: no token, no server, no other repository. Invited collaborators may push a branch
+to this repository instead of a fork (`<name>/<topic>`); `main` takes changes only through a reviewed pull request, and
+release tags (`v*`) are the maintainers' — a release reaches every user.
 
 ## The rules for the code
 
