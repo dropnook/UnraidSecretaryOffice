@@ -18,14 +18,15 @@
 #  10. Snapshot names  the engine's ZFS snapshots: prefixes, exact matching, retention (since 2.20); what its
 #                      retention removed, state/pruned.json (since 2.21)
 #  11. New things      what is new stays local and keeps running until the user decided (since 2.21); a new folder
-#                      inherits its share's level, in the app/VM shares its app's or VM's (since 2.37)
+#                      inherits its share's level, in the app/VM shares its app's or VM's (since 2.37) - also an
+#                      existing app's or VM's set only local: it stays local with it, silently (since 2.38)
 #  12. Partners        units sent to partner offices by zfs send through their door (since 2.27)
 #  13. Sleeping pools  [general] asleep_pools = skip: pools and disks that sleep are left out of a run (since 2.28)
 ###############################################################################
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.37"
+UB_VERSION="2.38"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1487,13 +1488,14 @@ FLASH_SOURCE_NAME="_flash"
 # Wanted ignore list of a target
 #   root    -> the global list from [kopia] (inherited by all shares)
 #   share   -> only the share's own rules, and the parts of apps and VMs with a source of their own, and
-#              (since 2.21) the rules for its new folders that stay local (NEW_RULES, section 11)
+#              (since 2.21) the rules for its new folders that stay local (NEW_RULES, section 11), and (since
+#              2.38) those for the folders of existing apps/VMs set only local (KEPT_RULES, section 11)
 #   app/vm  -> only its own rules (relative to its source: /<share>/<path>/)
 kopia_want_ignores() {
     local kind="$1" s="${2:-}"
     case "$kind" in
         root)   printf '%s\n' "${KOPIA_IGNORE[@]}" ;;
-        share)  cfg_list "share|$s|kopia_ignore"; kopia_derived_ignores "$s"; printf '%s\n' "${NEW_RULES[$s]:-}" ;;
+        share)  cfg_list "share|$s|kopia_ignore"; kopia_derived_ignores "$s"; printf '%s\n' "${NEW_RULES[$s]:-}" "${KEPT_RULES[$s]:-}" ;;
         app|vm) cfg_list "$kind|$s|kopia_ignore" ;;
         flash)  printf '%s\n' "${FLASH_KOPIA_IGNORE[@]}" ;;
     esac | sed '/^$/d' | LC_ALL=C sort -u
@@ -2791,8 +2793,15 @@ pruned_write() {
 #         Compose project, else the container) or a VM's disk lies in it (top_owners_load). Such a folder
 #         follows its app/VM: one that goes offsite ([app|vm "<name>"] kopia = yes, or - settings from
 #         before 2.19 - another folder of it recorded in kopia_known of a share going to Kopia) takes it
-#         along; any other (a new app/VM - the office proposes the user's default, preset_new -, one only
-#         local, or no app/VM at all) leaves it NEW, as before 2.37:
+#         along. (2.38, Benj 2026-10-10) One that belongs only to EXISTING apps/VMs set only local (an app with a
+#         container in [docker] known, a VM with a [vm "<name>"] section - none going offsite) is DECIDED: it
+#         stays local with them, silently - not new, no state/new-local.json entry, no notification, no drift.
+#         The share still goes to Kopia, so the run leaves it out exactly like a new folder (KEPT_RULES: rules
+#         right before the upload, part of the wanted policy so the comparison stays quiet; noted in
+#         state/kept-local.json and taken away once the folder is gone or its app/VM goes offsite - settings.ini
+#         is never written by a run). Any other (a new app/VM - the office proposes the user's default,
+#         preset_new -, or no app/VM at all) leaves it NEW, as before 2.37. An app/VM share that is itself only
+#         local sends nothing offsite until the setup is applied - unchanged:
 #     The app/VM shares that go to Kopia record their top-level folders when the setup is applied:
 #       [share "<name>"] kopia_known = /<folder>/   (repeatable; an empty "kopia_known =" means recorded,
 #                                                    none yet)
@@ -2816,7 +2825,11 @@ pruned_write() {
 #                         ignore rules the run set for it. Written by real backup runs that reached Kopia.
 #                         Since 2.37 only folders of app/VM shares; the rules a run set up to 2.36 for a folder
 #                         of a data share are taken away by the next run (new_local_run), and tolerated by the
-#                         policy comparison until then (NEW_GOING).
+#                         policy comparison until then (NEW_GOING). Since 2.38 never a folder of an existing app or
+#                         VM set only local:
+#   state/kept-local.json (2.38) {interface, version, run, time, folders: [{share, folder, rules}]}: the folders of
+#                         existing apps/VMs set only local the run left out of their share's Kopia source, and the
+#                         rules it set - so the next run can take them away again. Nothing waits; nobody is told.
 
 UB_KNOWN_MAX="${UB_KNOWN_MAX:-500}"   # more folders at a share's top at its first record: a collection (kopia_known = *)
 declare -gA NEW_RULES=()       # share -> ignore rules for its new folders (lines): part of its wanted policy
@@ -2835,6 +2848,10 @@ declare -gA TOP_OWNERS=()      # (2.37) "share|folder" of an app/VM share -> lin
 TOP_OWNERS_LOADED=""
 declare -gA NEW_GOING=()       # (2.37) share -> rules a run set for folders no longer new (data shares, decided): the policy
                                # comparison tolerates them until new_local_run takes them away
+declare -gA KEPT_RULES=()      # (2.38) share -> ignore rules for the folders of existing apps/VMs set only local: part of its
+                               # wanted policy, like NEW_RULES - but nothing waits
+declare -gA KEPT_SEEN_RULES=() # (2.38) "share|folder" -> the rules a run set for it, from state/kept-local.json
+declare -ga KEPT_LIST=()       # (2.38) such folders: "share<US>folder<US>rules joined by <RS>"
 
 # ub_path_share_part <path>  -> "share|folder": the share and the top-level folder a path lies in
 # (<mnt>/user|user0|<pool>|<disk>/<share>/<folder>[/...]; folder empty for the share itself); 1 when it is no share path
@@ -2919,6 +2936,30 @@ top_owner_offsite() {
         done
     done
     return 1
+}
+
+# top_owner_kept_local <share> <folder>  -> (2.38) 0 when the top-level folder of an app/VM share belongs only to apps
+# and VMs that were set up before - an app with a container in [docker] known (no such list: every container, as
+# backup.sh's stop tiers read it), a VM with a [vm "<name>"] section. Asked after new_decided (so none of them goes
+# offsite): such a folder stays local with its app/VM, silently. Without an owner, or with a new one: 1 (it is new)
+top_owner_kept_local() {
+    local o t n c any=""
+    local -a owners
+    top_owners_load
+    mapfile -t owners <<<"${TOP_OWNERS[$1|$2]:-}"
+    for o in "${owners[@]}"; do
+        [[ -n "$o" ]] || continue
+        t="${o%%|*}"; n="${o#*|}"; any=1
+        if [[ "$t" == "vm" ]]; then
+            cfg_has "vm|$n" || return 1
+        elif (( ${#DOCKER_KNOWN[@]} )); then
+            for c in "${CT_NAMES[@]}"; do
+                [[ "${CT_PROJECT[$c]:-$c}" == "$n" ]] && in_list "$c" "${DOCKER_KNOWN[@]}" && continue 2
+            done
+            return 1
+        fi
+    done
+    [[ -n "$any" ]]
 }
 
 # share_watched <share>  -> 0 when the share's new folders stay local: an app/VM share (2.37 - in a data share every
@@ -3051,13 +3092,18 @@ new_folder_bytes() {
 # (awake parts only) - for setup.sh: what it shows as waiting, and what the policies it writes leave out
 new_local_scan_live() {
     local s n
-    NEW_LIST=(); NEW_RULES=()
+    NEW_LIST=(); NEW_RULES=(); KEPT_LIST=(); KEPT_RULES=()
     while IFS= read -r s; do
         [[ -n "$s" ]] && share_watched "$s" && inv_has_share "$s" || continue
         share_top_live "$s"
         new_decided_load "$s"
         for n in "${SK_DIRS[@]}"; do
             new_decided "$s" "$n" && continue
+            # (2.38) an existing app's or VM's set only local: left out the same way, but nothing waits
+            if top_owner_kept_local "$s" "$n"; then
+                KEPT_RULES[$s]+="$(new_rules_for "$s" "$n")"$'\n'
+                continue
+            fi
             NEW_RULES[$s]+="$(new_rules_for "$s" "$n")"$'\n'
             NEW_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"$(new_folder_bytes "$s" "$n")"$'\x1f'"${NEW_SEEN[$s|$n]:-}"$'\x1f' )
         done
@@ -3065,11 +3111,19 @@ new_local_scan_live() {
     return 0
 }
 
-# new_local_state_load  -> NEW_SEEN, NEW_SEEN_RULES, NEW_SEEN_BYTES from state/new-local.json (trusted only in
-# its own shape)
+# new_local_state_load  -> NEW_SEEN, NEW_SEEN_RULES, NEW_SEEN_BYTES from state/new-local.json, and (2.38)
+# KEPT_SEEN_RULES from state/kept-local.json (each trusted only in its own shape)
 new_local_state_load() {
     local s f t b r
-    NEW_SEEN=(); NEW_SEEN_RULES=(); NEW_SEEN_BYTES=()
+    NEW_SEEN=(); NEW_SEEN_RULES=(); NEW_SEEN_BYTES=(); KEPT_SEEN_RULES=()
+    if [[ -s "$UB_STATE/kept-local.json" ]]; then
+        while IFS=$'\x1f' read -r s f r; do
+            [[ -n "$s" && -n "$f" ]] && share_name_ok "$s" || continue
+            KEPT_SEEN_RULES[$s|$f]="$(tr '\036' '\n' <<<"$r" | grep '^/' )"
+        done < <(jq -r '.folders[]? | select((.share | type) == "string" and (.folder | type) == "string")
+                        | [.share, .folder, ((.rules // []) | map(select(type == "string")) | join("\u001e"))]
+                        | select(all(.[]; test("[\u0000-\u001d\n]") | not)) | join("\u001f")' "$UB_STATE/kept-local.json" 2>/dev/null)
+    fi
     [[ -s "$UB_STATE/new-local.json" ]] || return 0
     while IFS=$'\x1f' read -r s f t b r; do
         [[ -n "$s" && -n "$f" ]] && share_name_ok "$s" || continue
@@ -3102,26 +3156,37 @@ new_local_drift() {
 }
 
 # drift_check_new_local  -> what the last run left out and is still undecided: NEW_LIST, NEW_RULES (so the
-# policies compare as the run left them), drift info new_waiting; the rules of folders no longer new (NEW_GOING:
-# decided, or in a data share since 2.37 - the run takes them away); and the app/VM shares going to Kopia without
-# a record of their folders (known_missing). Before drift_check_kopia, after plan_build.
+# policies compare as the run left them), drift info new_waiting; (2.38) the folders of existing apps/VMs set only
+# local it left out: KEPT_LIST, KEPT_RULES (wanted too - no drift); the rules of folders no longer new or kept
+# (NEW_GOING: decided, gone over to waiting, or in a data share since 2.37 - the run takes them away); and the app/VM
+# shares going to Kopia without a record of their folders (known_missing). Before drift_check_kopia, after plan_build.
 drift_check_new_local() {
-    local k s n missing=""
+    local k s n r missing=""
     local -a keys=()
     new_local_state_load
-    NEW_LIST=(); NEW_RULES=(); NEW_GOING=(); ND_SHARE=""
-    mapfile -t keys < <(printf '%s\n' "${!NEW_SEEN[@]}" | sed '/^$/d' | LC_ALL=C sort)
+    NEW_LIST=(); NEW_RULES=(); NEW_GOING=(); KEPT_LIST=(); KEPT_RULES=(); ND_SHARE=""
+    mapfile -t keys < <(printf '%s\n' "${!NEW_SEEN[@]}" "${!KEPT_SEEN_RULES[@]}" | sed '/^$/d' | LC_ALL=C sort -u)
     for k in "${keys[@]}"; do
         s="${k%%|*}"; n="${k#*|}"
+        r="$(printf '%s\n' "${NEW_SEEN_RULES[$k]:-}" "${KEPT_SEEN_RULES[$k]:-}" | sed '/^$/d' | LC_ALL=C sort -u)"
         if share_watched "$s"; then
             [[ "$ND_SHARE" == "$s" ]] || new_decided_load "$s"
             if ! new_decided "$s" "$n"; then
-                NEW_RULES[$s]+="${NEW_SEEN_RULES[$k]:-}"$'\n'
-                NEW_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"${NEW_SEEN_BYTES[$k]:-}"$'\x1f'"${NEW_SEEN[$k]}"$'\x1f'"${NEW_SEEN_RULES[$k]//$'\n'/$'\x1e'}" )
-                continue
+                if top_owner_kept_local "$s" "$n"; then
+                    # (2.38) its app/VM is an existing one set only local: it stays local, nothing waits
+                    KEPT_RULES[$s]+="$r"$'\n'
+                    KEPT_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"${r//$'\n'/$'\x1e'}" )
+                    continue
+                fi
+                if [[ -n "${NEW_SEEN[$k]+x}" ]]; then
+                    NEW_RULES[$s]+="${NEW_SEEN_RULES[$k]:-}"$'\n'
+                    NEW_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"${NEW_SEEN_BYTES[$k]:-}"$'\x1f'"${NEW_SEEN[$k]}"$'\x1f'"${NEW_SEEN_RULES[$k]//$'\n'/$'\x1e'}" )
+                    continue
+                fi
+                # kept before, new now (its app/VM gone): the run finds it new and says so - tolerated meanwhile
             fi
         fi
-        NEW_GOING[$s]+="${NEW_SEEN_RULES[$k]:-}"$'\n'
+        NEW_GOING[$s]+="$r"$'\n'
     done
     new_local_drift
     for s in "${PLAN_KOPIA[@]}"; do
@@ -3152,9 +3217,25 @@ new_local_state_write() {
     return 0
 }
 
-# new_policy_align <share> <container path>  -> the share's policy leaves out its new folders (NEW_RULES), and no
-# longer leaves out those a run left out before and nobody wants left out now (decided or gone). Only these
-# rules - everything else in the policy is the setup's. 1 when Kopia refused.
+# kept_local_state_write  -> (2.38) KEPT_LIST as state/kept-local.json: the folders of existing apps/VMs set only local
+# the run left out, with their rules (so a later run can take them away again)
+kept_local_state_write() {
+    local tmp="$UB_STATE/.kept-local.json.$$"
+    if printf '%s\n' "${KEPT_LIST[@]}" | jq -R 'select(length > 0) | split("\u001f")
+            | {share: .[0], folder: .[1], rules: ((.[2] // "") | split("\u001e") | map(select(length > 0)))}' \
+          | jq -sc --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --arg run "${TS:-}" \
+            --argjson time "$(date +%s)" '{interface: $interface, version: $version, run: $run, time: $time, folders: .}' \
+            >"$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+        mv -f "$tmp" "$UB_STATE/kept-local.json" 2>/dev/null
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+# new_policy_align <share> <container path>  -> the share's policy leaves out its new folders (NEW_RULES) and (2.38)
+# the folders of existing apps/VMs set only local (KEPT_RULES), and no longer leaves out those a run left out before
+# and nobody wants left out now (decided or gone). Only these rules - everything else in the policy is the setup's.
+# 1 when Kopia refused.
 new_policy_align() {
     local s="$1" cpath="$2" cur want r k
     local -a args=()
@@ -3167,15 +3248,15 @@ new_policy_align() {
         [[ -n "$r" && -z "${seen[$r]:-}" ]] || continue
         seen[$r]=1
         grep -Fxq -- "$r" <<<"$cur" || args+=( --add-ignore "$r" )
-    done <<<"${NEW_RULES[$s]:-}"
+    done <<<"${NEW_RULES[$s]:-}"$'\n'"${KEPT_RULES[$s]:-}"
     while IFS= read -r k; do
         [[ -n "$k" && "${k%%|*}" == "$s" ]] || continue
         while IFS= read -r r; do
             [[ -n "$r" && -z "${seen[$r]:-}" ]] || continue
             seen[$r]=1
             grep -Fxq -- "$r" <<<"$cur" && ! grep -Fxq -- "$r" <<<"$want" && args+=( --remove-ignore "$r" )
-        done <<<"${NEW_SEEN_RULES[$k]}"
-    done < <(printf '%s\n' "${!NEW_SEEN_RULES[@]}" | LC_ALL=C sort)
+        done <<<"${NEW_SEEN_RULES[$k]:-}"$'\n'"${KEPT_SEEN_RULES[$k]:-}"
+    done < <(printf '%s\n' "${!NEW_SEEN_RULES[@]}" "${!KEPT_SEEN_RULES[@]}" | sed '/^$/d' | LC_ALL=C sort -u)
     (( ${#args[@]} )) || return 0
     kopia_x policy set "$KOPIA_ID:$cpath" "${args[@]}" >>"${LOG_FILE:-/dev/null}" 2>&1 || return 1
     log "  Kopia policy of '$s': ${args[*]}"
@@ -3185,21 +3266,22 @@ new_policy_align() {
 # new_local_run  -> right before the Kopia uploads: which top-level folders of the shares going there are new
 # - looked up where Kopia reads them, in the mounted snapshots (<mount_root>/<share>, per base when split) -,
 # left out of the share's policy (a share whose policy Kopia refuses is skipped: never uploaded unasked),
-# noted in state/new-local.json, status.json and drift.json, and told once. backup.sh: Kopia phase, after
-# drift_check_new_local; uses SHARE_MOUNTED and SKIP_KOPIA of the run.
+# noted in state/new-local.json, status.json and drift.json, and told once. (2.38) A folder of an existing app/VM
+# set only local is left out the same way, noted only in state/kept-local.json - silently. backup.sh: Kopia phase,
+# after drift_check_new_local; uses SHARE_MOUNTED and SKIP_KOPIA of the run.
 new_local_run() {
     local s n b cpath bytes first rules now k l fresh="" nfresh=0
     local -a fresh_l=() pend=() shown=()
     local -A looked=() names=()
     local -a keep=( "${NEW_LIST[@]}" )
     now="$(date +%s)"
-    NEW_LIST=()
+    NEW_LIST=(); KEPT_LIST=()
     for s in "${PLAN_KOPIA[@]}"; do
         if ! share_watched "$s"; then
             # (2.37) a data share (or a collection, or not recorded yet): every folder goes with it - the rules a
             # run set before for its folders go (a refusal only keeps them local one more night)
             [[ -n "${NEW_GOING[$s]:-}" ]] || continue
-            NEW_RULES[$s]=""
+            NEW_RULES[$s]=""; KEPT_RULES[$s]=""
             if [[ -n "${SKIP_KOPIA[$s]:-}" || -z "${SHARE_MOUNTED[$s]:-}" ]] || ! cpath="$(k_path "$(share_kopia_hostpath "$s")")" \
                || ! new_policy_align "$s" "$cpath"; then
                 # not done this time: noted on (state file only - nothing waits for a decision), the next run tries again
@@ -3208,6 +3290,8 @@ new_local_run() {
                     [[ "${k%%|*}" == "$s" ]] || continue
                     pend+=( "$s"$'\x1f'"${k#*|}"$'\x1f'"${NEW_SEEN_BYTES[$k]:-}"$'\x1f'"${NEW_SEEN[$k]}"$'\x1f'"${NEW_SEEN_RULES[$k]//$'\n'/$'\x1e'}" )
                 done
+            else
+                looked[$s]=1      # (2.38) its kept folders' rules went too
             fi
             continue
         fi
@@ -3224,10 +3308,18 @@ new_local_run() {
         else
             while IFS= read -r n; do [[ -n "$n" ]] && names[$n]=1; done < <(top_dirs "$MOUNT_ROOT/$s")
         fi
-        NEW_RULES[$s]=""
+        NEW_RULES[$s]=""; KEPT_RULES[$s]=""
         while IFS= read -r n; do
             [[ -n "$n" ]] || continue
             new_decided "$s" "$n" && continue
+            if top_owner_kept_local "$s" "$n"; then
+                # (2.38) an existing app's or VM's set only local: it stays local with it - left out, nobody told
+                rules="$(new_rules_for "$s" "$n")"
+                KEPT_RULES[$s]+="$rules"$'\n'
+                KEPT_LIST+=( "$s"$'\x1f'"$n"$'\x1f'"${rules//$'\n'/$'\x1e'}" )
+                log "  Folder '$s/$n' stays local like its app or VM: Kopia leaves it out"
+                continue
+            fi
             k="$s|$n"
             bytes="$(new_folder_bytes "$s" "$n")"
             first="${NEW_SEEN[$k]:-}"
@@ -3248,6 +3340,12 @@ new_local_run() {
         s="${l%%$'\x1f'*}"
         [[ -n "${looked[$s]:-}" ]] || NEW_LIST+=( "$l" )
     done
+    # (2.38) the kept folders' rules of a share not looked at (skipped, not mounted, a refusal) stay noted as they were
+    for k in "${!KEPT_SEEN_RULES[@]}"; do
+        s="${k%%|*}"
+        [[ -n "${looked[$s]:-}" ]] || KEPT_LIST+=( "$s"$'\x1f'"${k#*|}"$'\x1f'"${KEPT_SEEN_RULES[$k]//$'\n'/$'\x1e'}" )
+    done
+    kept_local_state_write
     shown=( "${NEW_LIST[@]}" )
     NEW_LIST+=( "${pend[@]}" )
     new_local_state_write
@@ -3260,10 +3358,10 @@ new_local_run() {
     status_write
     if (( nfresh > 0 )); then
         if (( nfresh == 1 )); then
-            ub_notify "New folder stays local" "$fresh - new in the share for apps or VMs, and of no app or VM that goes to Kopia: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal"
+            ub_notify "New folder stays local" "$fresh - new in the share for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal"
         else
             # the list one per line in the long text (at most 12; the setup lists them all)
-            ub_notify "$nfresh new folders stay local" "$nfresh new folders in the shares for apps or VMs, of no app or VM that goes to Kopia: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal" \
+            ub_notify "$nfresh new folders stay local" "$nfresh new folders in the shares for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal" \
                 "$(echo "NEW, ONLY LOCAL UNTIL YOU DECIDE"; printf '  %s\n' "${fresh_l[@]:0:12}"
                    (( nfresh > 12 )) && echo "  $(( nfresh - 12 )) more - Mr. Backupsy's setup lists them all")"
         fi

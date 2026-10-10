@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.37 - 2026-10-10
+# unraid-backup - backup.sh                       Version 2.38 - 2026-10-10
+#   2.38 A new folder of an app/VM share inherits the level of its app or VM also when that one was set up before and
+#        is only local ([docker] known / a [vm] section, no kopia = yes): decided, it stays local silently - no
+#        state/new-local.json entry, no notification, no drift; the run still leaves it out of the share's Kopia
+#        policy right before the upload (state/kept-local.json, part of the wanted policy) and takes the rule away
+#        once the folder is gone or its app/VM goes offsite. A new app's/VM's folder and one of no owner wait as before
 #   2.37 A new top-level folder inherits its share's level: in a data share that goes to Kopia it goes there too
 #        (nextcloud_data: a new user's folder), only the user's kopia_ignore leaves one out. Only in the shares Unraid
 #        names for app configs and VMs (docker.cfg DOCKER_APP_CONFIG_PATH, domain.cfg DOMAINDIR) a new folder follows

@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.37 - 2026-10-10
+# unraid-backup - setup.sh                        Version 2.38 - 2026-10-10
+#   2.38 A new folder of an app/VM share whose app or VM was set up before and is only local is not waiting: it stays
+#        local with it (not in the plan's waiting, left out of the share's Kopia policy as before - KEPT_RULES)
 #   2.37 kopia_known is recorded only for the shares Unraid names for app configs and VMs (docker.cfg
 #        DOCKER_APP_CONFIG_PATH, domain.cfg DOMAINDIR): a data share's new folders go with the share, so nothing is
 #        proposed there (a record from up to 2.36 stays as it is - never a change of its own); there a new folder of
@@ -1008,7 +1010,8 @@ TXT
 # Unraid names for app configs and VMs - share_app) its top-level folders are recorded (kopia_known) - all of them
 # the first time and when the share newly goes there (that is your decision for the whole share), afterwards what
 # was known (a folder gone drops out) plus what you send there. A folder neither known nor left out nor an offsite
-# app's/VM's is new: it waits, only local, until you decide (NEW_LIST, the plan's "waiting"). In a data share every
+# app's/VM's is new: it waits, only local, until you decide (NEW_LIST, the plan's "waiting") - (2.38) unless its app or
+# VM was set up before and is only local: then it stays local with it, nothing waits (KEPT_RULES). In a data share every
 # folder goes with the share: nothing is recorded, a record from up to 2.36 stays as it is (never a change of its
 # own). Never wakes a disk: a share whose part sleeps keeps its record, or gets its first one later.
 share_known_all() {
@@ -1041,7 +1044,7 @@ share_known_all() {
         else
             # the first record: what is there and not left out goes to Kopia (as it did so far)
             P[$k]="$(for n in "${SK_DIRS[@]}"; do share_rules_hide "$s" "$n" || printf '/%s/\n' "$n"; done)"
-            hint "Share '$s': $(plist "$k" | wc -l) folder(s) recorded that go to Kopia - folders that appear later and belong to no app or VM going there stay local until you decide"
+            hint "Share '$s': $(plist "$k" | wc -l) folder(s) recorded that go to Kopia - folders that appear later and belong to no app or VM, or to a new one, stay local until you decide"
         fi
     done
     _apply_P

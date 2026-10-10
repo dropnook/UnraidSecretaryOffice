@@ -3629,6 +3629,7 @@ function testBackupKopiaItems(): void
  * zfs, virsh, mount and notify on PATH - nothing real is touched, no Kopia, no mount, no container.
  * Engine 2.37: a new folder inherits its share's level - only the shares Unraid names for app configs and VMs
  * (docker.cfg, domain.cfg of the fixture) keep new folders waiting, and there a folder follows its app or VM.
+ * Engine 2.38: a folder of an app or VM set up before and only local stays local with it, silently (kept-local.json).
  */
 function testBackupNewLocal(): void
 {
@@ -3742,6 +3743,15 @@ SH);
     same('owners: a folder follows its app/VM - its own Kopia source (nc, vmk), an app with another folder recorded (old: /a/ known - settings before 2.19); a new app, a local VM, no owner: not',
         'nc-extra=1 a2=1 newapp=0 b=0 vmk=1 vml=0',
         $sh("$own for n in nc-extra a2 newapp b; do top_owner_offsite appdata \$n && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done; for n in vmk vml; do top_owner_offsite domains \$n && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done"));
+    // engine 2.38: an app/VM set up before ([docker] known / a [vm] section) and only local keeps its new folder local
+    $kept = "$own CT_NAMES+=(loc); CT_BINDS[loc]=\"/mnt/user/appdata/locnew|/a|true\"\$'\\n'\"/mnt/user/appdata/both|/b|true\";"
+          . ' CT_BINDS[newapp]+=$\'\\n\'"/mnt/user/appdata/both|/x|true"; DOCKER_KNOWN=(old kopia ncweb loc); CFG_SECTIONS+=("vm|vml");'
+          . ' VM_NAMES+=(vmnew); VM_DISKS[vmnew]="vda|/mnt/user/domains/vmnew/vdisk1.img|master|zfs||domains";';
+    same('owners (2.38): kept local - an app with a known container (locnew), a VM with a section (vml); a new app (newapp), a folder of a new and an old app (both), no owner (b), a VM without a section (vmnew): not; no [docker] known list at all - every container counts as set up',
+        'locnew=1 newapp=0 both=0 b=0 vml=1 vmnew=0|newapp=1',
+        $sh("$kept for n in locnew newapp both b; do top_owner_kept_local appdata \$n && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done;"
+            . " for n in vml vmnew; do top_owner_kept_local domains \$n && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done | sed 's/ \$//';"
+            . " DOCKER_KNOWN=(); top_owner_kept_local appdata newapp && printf '|newapp=1' || printf '|newapp=0'"));
     same('owners: an offsite app\'s new folder is decided (it goes with the share), the others stay new',
         'nc-extra=1 a2=1 newapp=0 b=0',
         $sh("$own new_decided_load appdata; for n in nc-extra a2 newapp b; do new_decided appdata \$n && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done"));
@@ -3832,6 +3842,70 @@ SH);
         $sh("FAKE_POLICY_FAIL=1; export FAKE_POLICY_FAIL; $run drift_check_new_local; new_local_run >/dev/null; printf '%s' \"\${SKIP_KOPIA[appdata]:-}\""));
     same('run: a share not mounted this run keeps its notes', 'appdata/c appdata/still appdata/we ird[1]',
         $sh("$run SHARE_MOUNTED=(); drift_check_new_local; new_local_run >/dev/null; for l in \"\${NEW_LIST[@]}\"; do IFS=\$'\\x1f' read -r s n _ <<<\"\$l\"; printf '%s/%s ' \"\$s\" \"\$n\"; done"));
+
+    // --- engine 2.38: the new folder of an app set up before and only local stays local, silently - left out of the upload
+    exec('rm -rf ' . escapeshellarg("$root/appdata") . ' ' . escapeshellarg("$root/UnraidSecretaryOffice"));
+    foreach (['a', 'locnew', 'locold', 'newappdir', 'nc-extra'] as $d) {
+        @mkdir("$root/appdata/$d", 0700, true);
+    }
+    $st0 = "$tmp/data/unraid-backup/state";
+    @unlink("$st0/kept-local.json");
+    @unlink("$tmp/fake/docker.log");
+    @unlink("$tmp/fake/notify.log");
+    // an engine 2.37 listed locold (of the local app loc) as waiting and set its rule
+    file_put_contents("$st0/new-local.json", json_encode(['interface' => 1, 'folders' => [
+        ['share' => 'appdata', 'folder' => 'locold', 'bytes' => null, 'first_seen' => 1000, 'rules' => ['/locold/']]]]));
+    file_put_contents("$tmp/kp.json", json_encode([['target' => ['path' => '/uso/appdata', 'userName' => 'root', 'host' => 'kopia'],
+        'files' => ['ignore' => ['/kopia/', '/locold/']]]]));
+    // loc: known, only local; fresh: a new app; ncweb (Compose project nc): [app "nc"] kopia = yes - offsite
+    $runK = "$run CT_NAMES=(ncweb loc fresh); CT_PROJECT[ncweb]=nc; CT_BINDS[ncweb]=\"/mnt/user/appdata/nc-extra|/x|true\";"
+          . ' CT_BINDS[loc]="/mnt/user/appdata/locnew|/a|true"$\'\\n\'"/mnt/user/appdata/locold|/b|true"; CT_BINDS[fresh]="/mnt/user/appdata/newappdir|/c|true";'
+          . ' VM_NAMES=(); DOCKER_KNOWN=(ncweb loc);';
+    $out = $sh("$runK drift_check_new_local; printf 'before:%s|' \"\${#NEW_LIST[@]}\"; for c in \"\${DRIFT_CODE[@]}\"; do printf '%s ' \"\${c%%\$'\\x1f'*}\"; done;"
+        . ' new_local_run >/dev/null 2>&1');
+    $dl = trim((string) @file_get_contents("$tmp/fake/docker.log"));
+    same('kept (2.38): before the run - the waiting folder of a local app (an engine 2.37\'s) is no longer waiting, no drift note', 'before:0|', $out);
+    same('kept (2.38): the run - the new app\'s folder and the local app\'s new one left out, the old rule kept, the offsite app\'s folder goes (no rule)',
+        'exec -u 0 kopia kopia --no-progress policy set root@kopia:/uso/appdata --add-ignore /newappdir/ --add-ignore /locnew/', $dl);
+    $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
+    $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
+    same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.38'],
+        [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
+    $notes = (string) @file_get_contents("$tmp/fake/notify.log");
+    check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
+    $dj = json_decode((string) @file_get_contents("$st0/drift.json"), true);
+    $sj = json_decode((string) @file_get_contents("$st0/status.json"), true);
+    same('kept (2.38): drift.json and status.json new_local - only the new app\'s folder', [[['new_waiting', 'appdata/newappdir']], ['newappdir']],
+        [array_map(fn ($i) => [$i['code'], $i['value']], $dj['items'] ?? []), array_column($sj['new_local'] ?? [], 'folder')]);
+    // the next night: the policy as the run left it - the comparison expects the kept rules (no drift), without them it would differ
+    file_put_contents("$tmp/kp.json", json_encode([['target' => ['path' => '/uso/appdata', 'userName' => 'root', 'host' => 'kopia'],
+        'files' => ['ignore' => ['/kopia/', '/locold/', '/locnew/', '/newappdir/']]]]));
+    same('kept (2.38): the next night - the wanted policy has the kept rules, the comparison matches; without them it would differ',
+        "/locnew/,/locold/|0|1",
+        $sh("$runK drift_check_new_local; w=\"\$(kopia_want_ignores share appdata)\"; printf '%s|' \"\$(grep '^/loc' <<<\"\$w\" | tr '\\n' ',' | sed 's/,\$//')\";"
+            . " KP_JSON=\"\$(jq -nc --arg w \"\$w\" '[{target: {path: \"/uso/appdata\", userName: \"root\", host: \"kopia\"}, files: {ignore: (\$w | split(\"\\n\") | map(select(length > 0)))}}]')\";"
+            . " kopia_policy_eval /uso/appdata share \"\$w\" 'inherit inherit inherit inherit inherit inherit'; printf '%s|' \$?;"
+            . " KEPT_RULES=(); kopia_policy_eval /uso/appdata share \"\$(kopia_want_ignores share appdata)\" 'inherit inherit inherit inherit inherit inherit'; printf '%s' \$?"));
+    @unlink("$tmp/fake/docker.log");
+    $sh("$runK drift_check_new_local; new_local_run");
+    same('kept (2.38): the next night - no policy change, no second notification', ['', 1],
+        [trim((string) @file_get_contents("$tmp/fake/docker.log")), substr_count((string) @file_get_contents("$tmp/fake/notify.log"), "\n")]);
+    // the folder goes: its rule goes; the app goes offsite: the other rule goes
+    rmdir("$root/appdata/locnew");
+    $sh("$runK drift_check_new_local; new_local_run");
+    $dl = trim((string) @file_get_contents("$tmp/fake/docker.log"));
+    check('kept (2.38): a kept folder gone - its rule goes, the other stays', str_contains($dl, '--remove-ignore /locnew/') && !str_contains($dl, '/locold/'), $dl);
+    file_put_contents("$tmp/kp.json", json_encode([['target' => ['path' => '/uso/appdata', 'userName' => 'root', 'host' => 'kopia'],
+        'files' => ['ignore' => ['/kopia/', '/locold/', '/newappdir/']]]]));
+    @unlink("$tmp/fake/docker.log");
+    $sh("$runK CFG[app|loc|kopia]=yes; drift_check_new_local; new_local_run");
+    $dl = trim((string) @file_get_contents("$tmp/fake/docker.log"));
+    $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
+    $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
+    same('kept (2.38): the app goes offsite - its folder\'s rule goes, nothing kept, nothing waits for it',
+        ['exec -u 0 kopia kopia --no-progress policy set root@kopia:/uso/appdata --remove-ignore /locold/', [], ['newappdir']],
+        [$dl, $ks['folders'] ?? null, array_column($st['folders'] ?? [], 'folder')]);
     exec('rm -rf ' . escapeshellarg("$root/appdata"));
 
     // --- what the retention removed: state/pruned.json, run by run (the last runs within the days, capped)
@@ -5436,7 +5510,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.37', [1, '2.37'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.38', [1, '2.38'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -5946,7 +6020,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.37', [1, '2.37'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.38', [1, '2.38'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
