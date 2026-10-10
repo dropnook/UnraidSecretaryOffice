@@ -1816,6 +1816,9 @@ Office.desk({
       if (!state) await load(false);
       await Office.freshState(ID);      // the form starts from his settings: from a fresh look, never a stale one
       if (view !== root || page !== 'setup') return;
+      // … and anew on every visit: a form left without «Save» kept its old values and a later save wrote them back
+      // (Benj, 2026-10-10: 12 episodes ahead became 7)
+      form = null;
       renderSetup();
       return;
     }
