@@ -258,13 +258,14 @@ nothing but the reports' numbers in the inbox and the office's report ID.
 
 ![«Your reports»: a wish, built and public as Issue #14](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report.png)
 
-## Thanks
+## Special thanks
 
 Jack Emby's two tools are the work of **[helmi1987](https://github.com/helmi1987)**:
 [EmbyCache](https://github.com/helmi1987/embycache-for-unraid) and
 [media-disk-gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate folders"), both
 GPL-3.0-or-later. They ship with the office in `embycache/` and `gather/`, modified and under the same licence — what
-we changed is listed at the top of their READMEs. Thank you, helmi1987 — a share of the tips goes to him.
+we changed is listed at the top of their READMEs. helmi1987 also tested the office early and sent the reports that made it
+better. Thank you, helmi1987 — a share of the tips goes to him.
 
 ![Jack Emby live: EmbyCache gets ready for each person what they watch next](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live.png)
 
