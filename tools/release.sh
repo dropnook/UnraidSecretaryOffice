@@ -312,6 +312,10 @@ if [[ -z "$run_line" ]]; then
     red "no run of plugin.yml for v$rel within 10 min (gh run list --workflow plugin.yml)"
 elif [[ "$run_status" != completed ]]; then
     red "the Action for v$rel is still '$run_status' after 10 min (run $run_id)"
+elif [[ "$run_conclusion" != success ]] && gh release view "v$rel" --json assets --jq '.assets[].name' 2>/dev/null | grep -q '\.plg$'; then
+    # the release's own run failed, a later one (by hand: gh workflow run plugin.yml -f tag=v<x.y.z>) attached the files -
+    # step 11 checks them (2026-10-10: a stale runner index broke the release's run)
+    ok "run $run_id ended '$run_conclusion', but the release has its .plg (a later run) - step 11 checks it"
 elif [[ "$run_conclusion" != success ]]; then
     gh run view "$run_id" --log-failed 2>/dev/null | tail -n 30 | sed 's/^/      /'
     red "the Action for v$rel ended '$run_conclusion' (gh run view $run_id)"
