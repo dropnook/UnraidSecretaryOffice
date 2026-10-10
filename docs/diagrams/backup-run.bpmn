@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Defs_backup_run" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.51.1">
+  <bpmn:signal id="Sig_array" name="Array is being stopped" />
+  <bpmn:collaboration id="Collab">
+    <bpmn:participant id="Pool" name="A backup run" processRef="sicherung" />
+    <bpmn:textAnnotation id="A2">
+      <bpmn:text>Without a partner this step is skipped.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:textAnnotation id="A1">
+      <bpmn:text>From here apps and VMs run again - the copies need no downtime.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:textAnnotation id="A4">
+      <bpmn:text>Without Kopia this step is skipped.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:textAnnotation id="A3">
+      <bpmn:text>In every step: Mr. Backupsy stops at once and starts what he stopped.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="A3_as" sourceRef="TA" targetRef="A3" />
+    <bpmn:association id="A2_as" sourceRef="T7" targetRef="A2" />
+    <bpmn:association id="A1_as" sourceRef="T6" targetRef="A1" />
+    <bpmn:association id="A4_as" sourceRef="T8" targetRef="A4" />
+  </bpmn:collaboration>
+  <bpmn:process id="sicherung" isExecutable="false">
+    <bpmn:laneSet id="LS">
+      <bpmn:lane id="L4" name="Offsite (Kopia)">
+        <bpmn:flowNodeRef>T8</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>TA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>B1</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="L3" name="Partner office">
+        <bpmn:flowNodeRef>T7</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="L2" name="Apps and VMs">
+        <bpmn:flowNodeRef>T3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T6</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="L1" name="Mr. Backupsy">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G0</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T0</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E0</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T5</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T9</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T10</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Schedule or «Back up now»">
+      <bpmn:outgoing>F0</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="S_t" />
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="G0" name="A restore or drill going on?">
+      <bpmn:incoming>F0</bpmn:incoming>
+      <bpmn:outgoing>F1</bpmn:outgoing>
+      <bpmn:outgoing>F3</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:task id="T0" name="Skip and notify">
+      <bpmn:incoming>F1</bpmn:incoming>
+      <bpmn:outgoing>F2</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="E0">
+      <bpmn:incoming>F2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:task id="T1" name="Look around: what is there, what is new">
+      <bpmn:incoming>F3</bpmn:incoming>
+      <bpmn:outgoing>F4</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="T3" name="VMs pause or shut down, apps stop (or keep running, as set up)">
+      <bpmn:incoming>F4</bpmn:incoming>
+      <bpmn:outgoing>F5</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="T4" name="Packages and database dumps">
+      <bpmn:incoming>F5</bpmn:incoming>
+      <bpmn:outgoing>F6</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="T5" name="Snapshots: shares, VMs, flash">
+      <bpmn:incoming>F6</bpmn:incoming>
+      <bpmn:outgoing>F7</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="T6" name="Apps and VMs start again">
+      <bpmn:incoming>F7</bpmn:incoming>
+      <bpmn:outgoing>F8</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="T7" name="Copy to the partner office (ZFS)">
+      <bpmn:incoming>F8</bpmn:incoming>
+      <bpmn:outgoing>F9</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="T8" name="Offsite upload (Kopia), source by source">
+      <bpmn:incoming>F9</bpmn:incoming>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="TA" name="Stop cleanly: nothing deleted, apps and VMs run">
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="EA">
+      <bpmn:incoming>F11</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:task id="T9" name="Tidy up: old snapshots by retention">
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:outgoing>F13</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:task id="T10" name="Result: history and notification">
+      <bpmn:incoming>F13</bpmn:incoming>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="E" name="Backup done">
+      <bpmn:incoming>F14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="B1" name="Array is being stopped" attachedToRef="T8">
+      <bpmn:outgoing>F10</bpmn:outgoing>
+      <bpmn:signalEventDefinition id="B1_s" signalRef="Sig_array" />
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="F0" sourceRef="S" targetRef="G0" />
+    <bpmn:sequenceFlow id="F1" name="Yes" sourceRef="G0" targetRef="T0" />
+    <bpmn:sequenceFlow id="F3" name="No" sourceRef="G0" targetRef="T1" />
+    <bpmn:sequenceFlow id="F2" sourceRef="T0" targetRef="E0" />
+    <bpmn:sequenceFlow id="F4" sourceRef="T1" targetRef="T3" />
+    <bpmn:sequenceFlow id="F5" sourceRef="T3" targetRef="T4" />
+    <bpmn:sequenceFlow id="F6" sourceRef="T4" targetRef="T5" />
+    <bpmn:sequenceFlow id="F7" sourceRef="T5" targetRef="T6" />
+    <bpmn:sequenceFlow id="F8" sourceRef="T6" targetRef="T7" />
+    <bpmn:sequenceFlow id="F9" sourceRef="T7" targetRef="T8" />
+    <bpmn:sequenceFlow id="F12" sourceRef="T8" targetRef="T9" />
+    <bpmn:sequenceFlow id="F10" sourceRef="B1" targetRef="TA" />
+    <bpmn:sequenceFlow id="F11" sourceRef="TA" targetRef="EA" />
+    <bpmn:sequenceFlow id="F13" sourceRef="T9" targetRef="T10" />
+    <bpmn:sequenceFlow id="F14" sourceRef="T10" targetRef="E" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="Collab">
+      <bpmndi:BPMNShape id="Pool_di" bpmnElement="Pool" isHorizontal="true">
+        <dc:Bounds x="160" y="40" width="1800" height="840" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="L4_di" bpmnElement="L4" isHorizontal="true">
+        <dc:Bounds x="190" y="620" width="1770" height="260" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="L3_di" bpmnElement="L3" isHorizontal="true">
+        <dc:Bounds x="190" y="460" width="1770" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="L2_di" bpmnElement="L2" isHorizontal="true">
+        <dc:Bounds x="190" y="300" width="1770" height="160" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="L1_di" bpmnElement="L1" isHorizontal="true">
+        <dc:Bounds x="190" y="40" width="1770" height="260" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S">
+        <dc:Bounds x="232" y="192" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="188" y="232" width="74" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G0_di" bpmnElement="G0" isMarkerVisible="true">
+        <dc:Bounds x="305" y="185" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="257" y="240" width="147" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T0_di" bpmnElement="T0">
+        <dc:Bounds x="280" y="70" width="100" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E0_di" bpmnElement="E0">
+        <dc:Bounds x="412" y="82" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1">
+        <dc:Bounds x="400" y="170" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T3_di" bpmnElement="T3">
+        <dc:Bounds x="540" y="340" width="110" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T4_di" bpmnElement="T4">
+        <dc:Bounds x="680" y="170" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T5_di" bpmnElement="T5">
+        <dc:Bounds x="820" y="170" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T6_di" bpmnElement="T6">
+        <dc:Bounds x="960" y="340" width="110" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T7_di" bpmnElement="T7">
+        <dc:Bounds x="1100" y="500" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T8_di" bpmnElement="T8">
+        <dc:Bounds x="1240" y="660" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TA_di" bpmnElement="TA">
+        <dc:Bounds x="1340" y="770" width="140" height="60" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EA_di" bpmnElement="EA">
+        <dc:Bounds x="1522" y="782" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T9_di" bpmnElement="T9">
+        <dc:Bounds x="1440" y="170" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T10_di" bpmnElement="T10">
+        <dc:Bounds x="1600" y="170" width="110" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_di" bpmnElement="E">
+        <dc:Bounds x="1752" y="192" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1731" y="232" width="78" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A3_di" bpmnElement="A3">
+        <dc:Bounds x="1560" y="820" width="280" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="B1_di" bpmnElement="B1">
+        <dc:Bounds x="1282" y="722" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1220" y="762" width="50" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F0_di" bpmnElement="F0">
+        <di:waypoint x="268" y="210" />
+        <di:waypoint x="305" y="210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F1_di" bpmnElement="F1">
+        <di:waypoint x="330" y="185" />
+        <di:waypoint x="330" y="130" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="340" y="148" width="12" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F2_di" bpmnElement="F2">
+        <di:waypoint x="380" y="100" />
+        <di:waypoint x="412" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F3_di" bpmnElement="F3">
+        <di:waypoint x="355" y="210" />
+        <di:waypoint x="400" y="210" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="364" y="214" width="23" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F4_di" bpmnElement="F4">
+        <di:waypoint x="510" y="210" />
+        <di:waypoint x="595" y="210" />
+        <di:waypoint x="595" y="340" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F5_di" bpmnElement="F5">
+        <di:waypoint x="650" y="380" />
+        <di:waypoint x="735" y="380" />
+        <di:waypoint x="735" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F6_di" bpmnElement="F6">
+        <di:waypoint x="790" y="210" />
+        <di:waypoint x="820" y="210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F7_di" bpmnElement="F7">
+        <di:waypoint x="930" y="210" />
+        <di:waypoint x="1015" y="210" />
+        <di:waypoint x="1015" y="340" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F8_di" bpmnElement="F8">
+        <di:waypoint x="1070" y="380" />
+        <di:waypoint x="1155" y="380" />
+        <di:waypoint x="1155" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F9_di" bpmnElement="F9">
+        <di:waypoint x="1210" y="540" />
+        <di:waypoint x="1300" y="540" />
+        <di:waypoint x="1300" y="660" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10">
+        <di:waypoint x="1300" y="758" />
+        <di:waypoint x="1300" y="800" />
+        <di:waypoint x="1340" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11">
+        <di:waypoint x="1480" y="800" />
+        <di:waypoint x="1522" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12">
+        <di:waypoint x="1360" y="700" />
+        <di:waypoint x="1500" y="700" />
+        <di:waypoint x="1500" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13">
+        <di:waypoint x="1560" y="210" />
+        <di:waypoint x="1600" y="210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14">
+        <di:waypoint x="1710" y="210" />
+        <di:waypoint x="1752" y="210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="A3_as_di" bpmnElement="A3_as">
+        <di:waypoint x="1480" y="815" />
+        <di:waypoint x="1560" y="840" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="A2_as_di" bpmnElement="A2_as">
+        <di:waypoint x="1209" y="508" />
+        <di:waypoint x="1260" y="495" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="A1_as_di" bpmnElement="A1_as">
+        <di:waypoint x="1067" y="344" />
+        <di:waypoint x="1120" y="336" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="A4_as_di" bpmnElement="A4_as">
+        <di:waypoint x="1359" y="665" />
+        <di:waypoint x="1380" y="652" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A2_di" bpmnElement="A2">
+        <dc:Bounds x="1260" y="470" width="200" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A1_di" bpmnElement="A1">
+        <dc:Bounds x="1120" y="310" width="250" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A4_di" bpmnElement="A4">
+        <dc:Bounds x="1375" y="625" width="110" height="56" />
+      </bpmndi:BPMNShape>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

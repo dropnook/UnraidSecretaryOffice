@@ -54,10 +54,14 @@ again. Next the snapshots of what you ticked go to your **partner office**, then
 from the snapshots, encrypted, to your storage (S3, Backblaze B2, SFTP, WebDAV, a NAS …) — the flash first, then the
 apps, then the shares and VMs, the smallest first. Old snapshots go by your retention. A new folder simply goes with its share — offsite when
 the share goes offsite; only in appdata and domains (the shares Unraid keeps apps and VMs in) it follows the app or VM it
-belongs to. Something new — an app, a VM, a folder there of no app or VM going offsite — stays local and keeps running
-until you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. *Stop the run* ends a run
+belongs to (offsite with an offsite app, local with a local one). Something new — an app, a VM, a folder there of no
+app or VM or of a new one — stays local and keeps running until you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. *Stop the run* ends a run
 cleanly, and its card says what it still waits for (apps stopping, a VM, the offsite upload); stopping the array ends
 it cleanly too, and what it had stopped comes back right after the array starts.
+
+The whole run at a glance ([BPMN source](docs/diagrams/backup-run.bpmn), [German](docs/diagrams/backup-run.de.svg)):
+
+![A backup run: Mr. Backupsy, apps and VMs, the partner office and the offsite upload as lanes](docs/diagrams/backup-run.svg)
 
 ![Mr. Backupsy: a run going on — its steps, its offsite sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)
 
