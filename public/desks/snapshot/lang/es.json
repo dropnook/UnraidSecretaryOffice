@@ -389,7 +389,7 @@
   "help.menu_text": "Propiedades, seleccionar, renombrar, proteger o quitar la protección, desmontar, copiar la ruta, borrar.",
   "help.held": "Protegida (ZFS hold): no se puede borrar — ni aquí ni con ninguna herramienta — hasta que se quite la protección.",
   "help.mounted": "Montada en algún sitio: al borrarla, primero se desmonta si estás de acuerdo.",
-  "help.backup": "La copia de seguridad del señor Backupsi la está usando ahora mismo (Kopia lee de ella) — no tocar hasta que termine.",
+  "help.backup": "La copia de seguridad del señor Backupsi la está usando ahora mismo (la subida fuera de casa lee de ella) — no tocar hasta que termine.",
   "help.asleep": "Vista en la tabla de montajes mientras su disco duerme — no se despierta el disco solo para mirar.",
   "help.sources": "Etiquetas de origen",
   "help.sources_text": "Quién la hizo: el motor de copias (el señor Backupsi), Docker, una VM, a mano, u otra herramienta.",

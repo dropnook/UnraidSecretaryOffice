@@ -389,7 +389,7 @@
   "help.menu_text": "Proprietà, seleziona, rinomina, proteggi o togli la protezione, smonta, copia il percorso, elimina.",
   "help.held": "Protetto (ZFS hold): non si può eliminare — né qui né da uno strumento — finché non togli la protezione.",
   "help.mounted": "Montato da qualche parte: se sei d'accordo, prima di eliminarlo viene smontato.",
-  "help.backup": "Il backup del signor Backupsi lo sta usando proprio ora (Kopia legge da qui) — giù le mani finché il backup non è finito.",
+  "help.backup": "Il backup del signor Backupsi lo sta usando proprio ora (l'upload fuori sede legge da qui) — giù le mani finché il backup non è finito.",
   "help.asleep": "Visto nella tabella dei mount mentre il suo disco dorme — il disco non viene svegliato solo per guardare.",
   "help.sources": "Etichette dell'origine",
   "help.sources_text": "Chi l'ha creato: il motore di backup (il signor Backupsi), Docker, una VM, a mano, o un altro strumento.",

@@ -389,7 +389,7 @@
   "help.menu_text": "Propriétés, sélectionner, renommer, protéger ou lever la protection, démonter, copier le chemin, supprimer.",
   "help.held": "Protégé (ZFS hold) : ne peut pas être supprimé — ni ici, ni par un outil — tant que la protection n'est pas levée.",
   "help.mounted": "Monté quelque part : la suppression le démonte d'abord si tu es d'accord.",
-  "help.backup": "La sauvegarde de Monsieur Backupsi l'utilise en ce moment (Kopia lit dedans) — pas touche tant qu'elle n'est pas terminée.",
+  "help.backup": "La sauvegarde de Monsieur Backupsi l'utilise en ce moment (l'envoi hors site lit dedans) — pas touche tant qu'elle n'est pas terminée.",
   "help.asleep": "Vu dans la table des montages pendant que son disque dort — le disque n'est pas réveillé juste pour regarder.",
   "help.sources": "Puces de source",
   "help.sources_text": "Qui l'a fait : le moteur de sauvegarde (Monsieur Backupsi), Docker, une VM, à la main, ou un autre outil.",

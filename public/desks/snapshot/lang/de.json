@@ -389,7 +389,7 @@
   "help.menu_text": "Eigenschaften, auswählen, umbenennen, schützen oder den Schutz aufheben, aushängen, Pfad kopieren, löschen.",
   "help.held": "Geschützt (ZFS-Hold): lässt sich nicht löschen — weder hier noch von einem Werkzeug — bis der Schutz aufgehoben ist.",
   "help.mounted": "Irgendwo eingehängt: Beim Löschen wird er auf Wunsch vorher ausgehängt.",
-  "help.backup": "Die Sicherung von Herrn Backupsi benutzt ihn gerade (Kopia liest daraus) — Finger weg, bis sie fertig ist.",
+  "help.backup": "Die Sicherung von Herrn Backupsi benutzt ihn gerade (der Upload ausser Haus liest daraus) — Finger weg, bis sie fertig ist.",
   "help.asleep": "In der Mount-Tabelle gesehen, während seine Disk schläft — die Disk wird dafür nicht geweckt.",
   "help.sources": "Quellen-Chips",
   "help.sources_text": "Wer ihn gemacht hat: die Backup-Engine (Herr Backupsi), Docker, eine VM, von Hand oder ein anderes Werkzeug.",

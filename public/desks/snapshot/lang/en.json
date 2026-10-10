@@ -389,7 +389,7 @@
   "help.menu_text": "Properties, select, rename, hold or release, unmount, copy the path, delete.",
   "help.held": "Held (ZFS hold): can't be deleted — neither here nor by a tool — until the hold is released.",
   "help.mounted": "Mounted somewhere: deleting unmounts it first if you agree.",
-  "help.backup": "Mr. Backupsy's run uses it right now (Kopia reads from it) — hands off until the run is done.",
+  "help.backup": "Mr. Backupsy's run uses it right now (the offsite upload reads from it) — hands off until the run is done.",
   "help.asleep": "Seen in the mount table while its disk sleeps — the disk isn't woken just to look.",
   "help.sources": "Source chips",
   "help.sources_text": "Who made it: the backup engine (Mr. Backupsy), Docker, a VM, by hand, or another tool.",
