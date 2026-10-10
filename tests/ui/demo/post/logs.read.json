@@ -1,0 +1,33 @@
+{
+ "time": 1791465474,
+ "lines": [
+  "Oct 10 02:00:01 FamilienServer crond[1902]: exit status 0 from user root /usr/local/sbin/mover &> /dev/null",
+  "Oct 10 02:00:03 FamilienServer root: Fix Common Problems Version 2026.05.16",
+  "Oct 10 02:00:03 FamilienServer root: Fix Common Problems: Warning: Docker application paperless has an update available",
+  "Oct 10 03:10:12 FamilienServer kernel: br0: port 3(vnet0) entered forwarding state",
+  "Oct 10 04:30:01 FamilienServer crond[1902]: (root) CMD (bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup)",
+  "Oct 10 04:30:40 FamilienServer kernel: br0: port 2(veth4d5e6f) entered disabled state",
+  "Oct 10 04:30:52 FamilienServer kernel: br0: port 2(veth7a8b9c) entered forwarding state",
+  "Oct 10 04:31:07 FamilienServer nginx: 2026/10/10 04:31:07 [warn] 4711#4711: *2207 a client request body is buffered to a temporary file /var/lib/nginx/client_body/0000000012",
+  "Oct 10 05:14:02 FamilienServer emhttpd: spinning down /dev/sdc",
+  "Oct 10 05:14:02 FamilienServer emhttpd: spinning down /dev/sdd",
+  "Oct 10 06:40:19 FamilienServer smbd[21102]: [2026/10/10 06:40:19.112233,  0] ../../source3/smbd/server.c:1746(main)",
+  "Oct 10 06:40:19 FamilienServer smbd[21102]:   smbd version 4.21.4 started.",
+  "Oct 10 07:01:55 FamilienServer webGUI: Successful login user root from 192.168.178.34",
+  "Oct 10 07:12:41 FamilienServer smbd[21344]:   chdir_current_service: vfs_ChDir(/mnt/user/Schule) failed: Permission denied. Current token: uid=1003, gid=100, 1 groups: 100",
+  "Oct 10 07:12:44 FamilienServer smbd[21344]:   chdir_current_service: vfs_ChDir(/mnt/user/Schule) failed: Permission denied. Current token: uid=1003, gid=100, 1 groups: 100",
+  "Oct 10 07:13:02 FamilienServer smbd[21344]:   chdir_current_service: vfs_ChDir(/mnt/user/Schule) failed: Permission denied. Current token: uid=1003, gid=100, 1 groups: 100",
+  "Oct 10 07:20:31 FamilienServer emhttpd: shcmd (2291): /usr/local/sbin/update_cron",
+  "Oct 10 07:20:31 FamilienServer emhttpd: Starting services...",
+  "Oct 10 07:20:32 FamilienServer emhttpd: shcmd (2293): /etc/rc.d/rc.samba reload",
+  "Oct 10 07:21:05 FamilienServer smbd[22010]:   tochter connected to service Schule",
+  "Oct 10 08:19:44 FamilienServer smbd[22410]:   mutter connected to service Familienfotos",
+  "Oct 10 08:59:51 FamilienServer smbd[22410]:   mutter closed connection to service Familienfotos",
+  "Oct 10 09:30:02 FamilienServer emhttpd: read SMART /dev/sdc",
+  "Oct 10 10:02:17 FamilienServer kernel: docker0: port 4(veth1a2b3c) entered forwarding state"
+ ],
+ "follow": "replace",
+ "offset": null,
+ "size": 535552,
+ "reset": true
+}

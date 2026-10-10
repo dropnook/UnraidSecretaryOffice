@@ -191,5 +191,48 @@
     "pause": 500
    }
   ]
+ },
+ {
+  "nr": 8,
+  "desk": "logs",
+  "moment": "tour",
+  "title": "Frau Protokolli - ihr Rundgang: was nach Fehler klang, gruppiert, eine Zeile aufgeklappt",
+  "route": "logs",
+  "prepare": [
+   {
+    "click": ".lg-srcs > *:has-text(\"Syslog\")",
+    "pause": 500
+   },
+   {
+    "click": ".lg-kind .row-name",
+    "pause": 400
+   }
+  ],
+  "clip": [
+   ".lg-tour"
+  ]
+ },
+ {
+  "nr": 8,
+  "desk": "logs",
+  "moment": "read",
+  "title": "Frau Protokolli - sie liest vor: das Syslog, gefiltert, Fehler rot",
+  "route": "logs",
+  "prepare": [
+   {
+    "click": ".lg-favs button:has-text(\"Syslog\")",
+    "pause": 700
+   },
+   {
+    "js": "(() => { const q = document.querySelector(\"[data-place=reading]\").parentNode.querySelector(\".lg-bar > input.search\"); q.value = \"smbd\"; q.dispatchEvent(new Event(\"input\")); })()",
+    "pause": 400
+   }
+  ],
+  "clip": [
+   "[data-place=\"reading\"]",
+   ".lg-favs",
+   ".lg-out .lg-line:last-of-type"
+  ],
+  "pad": 16
  }
 ]
