@@ -3870,7 +3870,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.38'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.39'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -5510,7 +5510,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.38', [1, '2.38'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -5543,7 +5543,8 @@ SH);
     check('setup plan 2.29: … and said: ask at the Team Lead (2.34: the server as ident.cfg names it)',
         str_contains($out, 'share:docs: not agreed with vault yet - ask at the Team Lead («Change what Fixture sends…»)'), $out);
     // 2.34: as a code the office translates (setup.msg.<code>), the share by its name, not the unit id (QA 2026-10-08, finding 10)
-    $coded = array_values(array_filter($plan['messages'] ?? [], fn ($m) => isset($m['code'])));
+    // (2.39: every hint and warning has a code - the «not agreed» ones are looked at here, the rest in testSetupMessages)
+    $coded = array_values(array_filter($plan['messages'] ?? [], fn ($m) => str_starts_with((string) ($m['code'] ?? ''), 'not_agreed')));
     same('setup plan 2.34: the «not agreed» hint as a code with its params', [['level' => 'hint', 'code' => 'not_agreed_share', 'params' => ['name' => 'docs', 'partner' => 'vault', 'host' => 'Fixture']]],
         array_map(fn ($m) => array_intersect_key($m, ['level' => 1, 'code' => 1, 'params' => 1]), $coded));
     check('setup plan 2.34: … the English text beside it; other messages without a code', ($coded[0]['text'] ?? '') !== '' && !array_filter($plan['messages'] ?? [], fn ($m) => array_key_exists('params', $m) && !isset($m['code'])));
@@ -6020,7 +6021,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.38', [1, '2.38'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');

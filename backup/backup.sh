@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.38 - 2026-10-10
+# unraid-backup - backup.sh                       Version 2.39 - 2026-10-10
+#   2.39 (setup.sh only: every hint and warning of the setup carries a code for the office)
 #   2.38 A new folder of an app/VM share inherits the level of its app or VM also when that one was set up before and
 #        is only local ([docker] known / a [vm] section, no kopia = yes): decided, it stays local silently - no
 #        state/new-local.json entry, no notification, no drift; the run still leaves it out of the share's Kopia
