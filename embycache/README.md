@@ -31,8 +31,13 @@
 >   …]` in the order the files are copied (path order, all users mixed; only what isn't on the pool yet; none beyond
 >   5000 files), `pos` = how many of them are done or dropped. Jack draws a live panel from it (when each user will be
 >   done, how long each part took; he stats rsync's temporary file next to the target for the bytes inside the file).
+> * Jack always moves with rsync, both ways: he sets `EMBYCACHE_FILL_TOOL`/`EMBYCACHE_CLEANUP_TOOL` to `rsync` and
+>   writes `rsync` into the settings — the `mover` tools stay in the code for standalone use only.
 > * Not taken over: `embycache_setup.py` (Jack is the setup) and `embycache_cleaner.py`
 >   (on a share whose primary is the pool it would take every new film for an orphan).
+>
+> Upstream has moved on since: helmi1987's own 7.3.0 (2026-10-09, with parallel copies) is a different release from
+> the «7.3.0» here — for the standalone script read [his current README](https://github.com/helmi1987/embycache-for-unraid).
 >
 > **Licence:** helmi1987's original is under the GNU GPL v3 — its
 > [LICENSE](https://github.com/helmi1987/embycache-for-unraid/blob/main/LICENSE) is the GPL v3 text,

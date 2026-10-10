@@ -14,11 +14,14 @@
 >   before its index. Jack shows them on his page.
 > * `CONSOLIDATE_STOP`: a file; once it exists the run stops after the folder it is on (no retry,
 >   no deep clean; result `stopped`, exit 3, `folders`/`folders_done` in the status) — Jack writes it
->   when someone starts watching Emby during a real run.
+>   when someone starts watching Emby or Unraid's mover starts during a real run.
 > * `CONSOLIDATE_LOCK`, `CONSOLIDATE_USER_ROOT`: the lock file and `/mnt/user` — for the tests only.
 > * Deep clean keeps an empty array folder when the same folder exists on a cache/pool: its
 >   content lies there right now and the folder shows which disk it belongs to.
 > * Not taken over: `setup_consolidate.sh` (Jack is the setup), the zip and the test suite.
+>
+> The German text below is the V11.0 README as taken over; for the standalone script's current state read
+> [helmi1987's repository](https://github.com/helmi1987/media-disk-gather-for-unraid).
 >
 > **Licence:** helmi1987's original is under the GNU GPL v3 — its
 > [LICENSE](https://github.com/helmi1987/media-disk-gather-for-unraid/blob/main/LICENSE) is the GPL v3
