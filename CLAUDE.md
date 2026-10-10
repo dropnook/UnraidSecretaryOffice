@@ -267,7 +267,12 @@ installed plugin (see the checklist).
   share itself (`ub_app_shares_load`, office `backupAppShares()`, plan `shares[].app_share`; files unreadable = none,
   everything inherits); there a folder follows the app/VM whose bind or disk lies in it (`top_owners_load`): one going
   to Kopia (`[app|vm] kopia = yes`, or another folder of it in `kopia_known`) takes it along (`top_owner_offsite` →
-  decided), anything else stays new as below; the run takes away rules an older run set in a data share
+  decided); one set up before and only local (a container in `[docker] known`, a `[vm]` section — engine 2.38, Benj
+  2026-10-10) keeps it local, silently (`top_owner_kept_local`: decided — no new-local.json, notification or drift; the
+  run still leaves it out right before the upload, `KEPT_RULES` beside `NEW_RULES` in the wanted policy,
+  `state/kept-local.json`, the rule gone with the folder or once the app/VM goes offsite; never settings.ini); a new
+  app's/VM's folder or an unowned one stays new as below (an app/VM share itself only local: nothing offsite until
+  Apply); the run takes away rules an older run set in a data share
   (`NEW_GOING`, tolerated by the policy comparison until then). The rest of this bullet holds for app/VM shares: one that goes
   to Kopia records its top-level folders at the setup's Apply (`[share] kopia_known = /<folder>/`; the first time all
   that are there and not ignored, later what was known plus what the user sends to Kopia; a sleeping part: recorded at
