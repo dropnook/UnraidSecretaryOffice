@@ -398,7 +398,8 @@ function backupAppShares(string $boot = '/boot'): array
  * Follows the same rules as the engine: share mode, Kopia ignore rules, a new top-level
  * folder of an app/VM share (not in kopia_known, engine 2.21; since 2.37 only there - in a data share
  * it goes with the share) only local, flash mode for /boot, and /etc/libvirt lives in libvirt.img.
- * A new folder of an app or VM going offsite counts as local here (its owner needs Docker's view).
+ * A new folder of an app or VM going offsite counts as local here (its owner needs Docker's view); one of an app or
+ * VM set up before and only local (engine 2.38: it stays local with it, silently) is local here as it is in the run.
  * $appShares for the tests (backupAppShares()).
  */
 function backupProtection(string $path, int $depth = 0, ?array $settings = null, ?array $appShares = null): ?string

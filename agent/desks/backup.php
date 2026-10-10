@@ -25,7 +25,9 @@ declare(strict_types=1);
  * folders the engine left out of Kopia (state/new-local.json), the new apps (containers not in [docker] known) and
  * the new VMs (no [vm] section) for the main page; the setup decides about them (kopia_known / kopia_ignore).
  * Since engine 2.37 a new folder inherits its share's level: only folders of the app/VM shares (backupAppShares())
- * can wait - in a data share they go with the share.
+ * can wait - in a data share they go with the share. Since 2.38 a folder of an app or VM set up before and only local
+ * doesn't wait either (the engine keeps it local and out of new-local.json - an engine 2.37's file may still name one
+ * until the next run).
  *
  * Since engine 2.20 a run that finds the lock busy is skipped, not lost: state/skipped.json (the last
  * attempt) and a history.jsonl line with "result": "skipped" — kept apart from the runs (history,

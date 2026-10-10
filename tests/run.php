@@ -6675,6 +6675,20 @@ JS;
     check('office setup: the first record of an app share\'s folders is a change Apply makes; a data share has none (engine 2.37 proposes none)',
         in_array('share|appdata|kopia_known', $r['changes'], true) && !in_array('share|UnraidSecretaryOffice|kopia_known', $r['changes'], true), json_encode($r['changes']));
     same('office setup: the default\'s footnote names the app/VM shares (the plan\'s app_share)', 'appdata and domains', $r['appShares'] ?? null);
+    // engine 2.38: a folder of an app/VM set up before and only local stays local with it - the texts say who waits
+    $bl = fn (string $l) => json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/backup/lang/$l.json"), true) ?: [];
+    $de = $bl('de');
+    $en = $bl('en');
+    same('office texts (2.38): the default\'s footnote - in appdata and domains a folder inherits its app\'s or VM\'s level, one without waits',
+        'Ein neuer Ordner in einem Share, der schon ausser Haus geht, geht mit — in {list} erbt er die Stufe seiner App oder VM; einer ohne App oder VM wartet auf deine Entscheidung.',
+        $de['setup.preset.folders_follow'] ?? null);
+    same('office texts (2.38): help, drift and record texts - a folder waits when it belongs to no app or VM, or to a new one (en, de)',
+        [true, true, true, true, true],
+        [str_contains($en['help.waiting_text'] ?? '', 'no app or VM, or to a new one') && str_contains($de['help.waiting_text'] ?? '', 'oder zu einer neuen'),
+         str_contains($en['help.new_text'] ?? '', 'no app or VM, or to a new one') && str_contains($de['help.new_text'] ?? '', 'oder zu einer neuen'),
+         str_contains($en['drift_code.new_waiting'] ?? '', 'or to a new one') && str_contains($de['drift_code.new_waiting'] ?? '', 'oder zu einer neuen'),
+         str_contains($en['drift_code.known_missing'] ?? '', 'or to a new one') && str_contains($de['drift_code.known_missing'] ?? '', 'oder zu einer neuen'),
+         str_contains($en['setup.known_first']['other'] ?? '', 'or of a new one') && str_contains($de['setup.known_first']['other'] ?? '', 'zu einer neuen')]);
     same('office setup: «local + Kopia» for a new folder - recorded, its rule goes', [['/c1/', '/c2/', '/c3/', '/nc/', '/manual[1]/'], ['/kopia/', '/bitcoin/']], $r['afterKopia']);
     same('office main page: the callout', 'waiting.callout {"n":2} waiting.folders {"n":1,"list":"appdata/bitcoin (2048 B)"} · waiting.apps {"n":1,"list":"btc"}', $r['callout']);
     exec('rm -rf ' . escapeshellarg($tmp));
