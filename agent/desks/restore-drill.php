@@ -47,6 +47,8 @@ const DRILL_LABEL          = 'uso.drill';                             // = <id>
 const DRILL_LABEL_BY       = 'uso.installed-by';
 const DRILL_BY             = 'restori-drill';
 const DRILL_SCHEDULES      = ['monthly', 'weekly', 'off'];
+const DRILL_WEEKDAY        = 0;               // weekly: the day the night ends on (date('w'): 0 = Sunday — the night from Saturday to Sunday)
+const DRILL_WEEK_GAP       = 6;               // weekly: no drill in the 6 days (calendar days) before the chosen night
 const DRILL_RESULTS        = ['ok', 'warning', 'failed', 'not_checked', 'asleep'];
 const DRILL_KEEP           = 12;              // drills in the certificate's history and on his page
 const DRILL_RECORD_KEEP    = 50;              // record.json: the newest 50 …
@@ -164,10 +166,11 @@ function drillNow(): int
 /** His drill settings (Benj may change the defaults — the coordinator's decisions 1, 3 and 4) */
 function drillSettings(): array
 {
-    $def = ['schedule' => 'monthly', 'kopia_mb' => DRILL_KOPIA_MB, 'live_catalog' => true, 'live_sqlite' => true];
+    $def = ['schedule' => 'monthly', 'weekday' => DRILL_WEEKDAY, 'kopia_mb' => DRILL_KOPIA_MB, 'live_catalog' => true, 'live_sqlite' => true];
     $f = readJson(drillData() . '/settings.json') ?? [];
     return [
         'schedule'     => in_array($f['schedule'] ?? null, DRILL_SCHEDULES, true) ? $f['schedule'] : $def['schedule'],
+        'weekday'      => is_int($f['weekday'] ?? null) && $f['weekday'] >= 0 && $f['weekday'] <= 6 ? $f['weekday'] : $def['weekday'],   // older files: Sunday
         'kopia_mb'     => is_int($f['kopia_mb'] ?? null) && $f['kopia_mb'] >= 0 && $f['kopia_mb'] <= 102400 ? $f['kopia_mb'] : $def['kopia_mb'],
         'live_catalog' => is_bool($f['live_catalog'] ?? null) ? $f['live_catalog'] : $def['live_catalog'],
         'live_sqlite'  => is_bool($f['live_sqlite'] ?? null) ? $f['live_sqlite'] : $def['live_sqlite'],
@@ -177,7 +180,7 @@ function drillSettings(): array
 /** «Drill» settings from his page: each field only when sent */
 function drillSet(array $r): array
 {
-    if (!array_intersect_key($r, array_flip(['schedule', 'kopia_mb', 'live_catalog', 'live_sqlite']))) {
+    if (!array_intersect_key($r, array_flip(['schedule', 'weekday', 'kopia_mb', 'live_catalog', 'live_sqlite']))) {
         throw new Problem('bad_request');      // nothing it knows: refused, never an «ok» that changed nothing (QA 2026-10-08)
     }
     $s = drillSettings();
@@ -186,6 +189,12 @@ function drillSet(array $r): array
             throw new Problem('unknown_target', ['target' => (string) (is_scalar($r['schedule']) ? $r['schedule'] : '?')]);
         }
         $s['schedule'] = $r['schedule'];
+    }
+    if (array_key_exists('weekday', $r)) {
+        if (!is_int($r['weekday']) || $r['weekday'] < 0 || $r['weekday'] > 6) {
+            throw new Problem('unknown_target', ['target' => 'weekday']);
+        }
+        $s['weekday'] = $r['weekday'];
     }
     if (array_key_exists('kopia_mb', $r)) {
         $mb = $r['kopia_mb'];
@@ -1623,11 +1632,12 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
         $GLOBALS['rsStopWhy'] = null;
         return ['state' => 'not_checked', 'code' => 'budget', 'params' => ['container' => $s['container']]] + $out;
     }
-    $room = drillPlayRoom($play, $name, $s, drillLogSince($log, $from), ['seconds' => $seconds] + $out);
+    $said = drillLogSince($log, $from);
+    $room = drillPlayRoom($play, $name, $s, $said, ['seconds' => $seconds] + $out);
     if ($room) {
         return $room;
     }
-    $detail = drillCut((string) ($play['detail'] ?? ''));
+    $detail = drillPlayDetail($play, $said);
     $results = [$play['state']];
     $params = ['container' => $s['container'], 'seconds' => $seconds];
     $code = $play['state'] === 'ok' ? 'verify_ok' : (string) ($play['note'] ?? 'play_failed');
@@ -1671,7 +1681,7 @@ function drillPlayRoom(array $play, string $name, array $s, string $said, array 
     if ($play['state'] === 'ok' || !drillNoRoom($name, (string) ($s['datadir'] ?? ''), $said)) {
         return null;
     }
-    return ['state' => 'not_checked', 'code' => 'dump_no_room', 'level' => 1, 'detail' => drillCut((string) ($play['detail'] ?? '')),
+    return ['state' => 'not_checked', 'code' => 'dump_no_room', 'level' => 1, 'detail' => drillPlayDetail($play, $said),
             'params' => ['container' => $s['container'], 'need_mb' => intdiv((int) ($s['need'] ?? 0), 1 << 20), 'ram_mb' => intdiv((int) ($s['mem'] ?? 0), 1 << 20)]] + $out;
 }
 
@@ -1702,6 +1712,25 @@ function drillNoRoom(string $name, string $dir, string $said): bool
         return $exit === 0 && trim($out) === 'true';
     }
     return false;
+}
+
+/**
+ * Why a play didn't go through, for the journal and the certificate: the play's own ERROR lines (rsDoPlay()) — else,
+ * when the client said no «ERROR» (Postgres' PANIC on a full WAL, «server closed the connection»: on nostromo
+ * 2026-10-08 such a step had no detail at all), its words since the play began that say what went wrong, else their
+ * end; the «already exists» a fresh cluster says is no reason; the drill's own log lines (a time first) are not the
+ * client's. Cut (drillCut()). Empty for a play that went through.
+ */
+function drillPlayDetail(array $play, string $said): string
+{
+    $detail = drillCut((string) ($play['detail'] ?? ''));
+    if ($detail !== '' || ($play['state'] ?? '') === 'ok') {
+        return $detail;
+    }
+    $lines = array_values(array_filter(explode("\n", str_replace("\r", '', $said)), fn ($l) => trim($l) !== ''
+        && !preg_match('/already exists|current user cannot be dropped|cannot drop the currently open database|^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d  /', $l)));
+    $why = array_values(array_filter($lines, fn ($l) => (bool) preg_match('/\b(ERROR|FATAL|PANIC)\b|error|No space left|is full|connection.*lost|closed the connection|Killed|denied/i', $l)));
+    return drillCut(implode("\n", array_slice($why ?: $lines, -6)));
 }
 
 /** What the clients wrote into the drill's log since an offset (the end only: what the classification needs) */
@@ -2678,7 +2707,11 @@ function drillCertBase(): array
     return $fresh;
 }
 
-/** The certificate's items from a drill's steps: per step what was proven, from which copy, how it went */
+/**
+ * The certificate's items from a drill's steps: per step what was proven, from which copy, how it went — and for one
+ * that isn't ok what the tool said (Benj 2026-10-10: «sonst steht der User ohne Hinweise da»), cut like the log
+ * (drillCut(): ≤ 12 lines of ≤ DRILL_LOG_LINE letters; his page only, never a notification or the Team Lead)
+ */
 function drillCertItems(array $j): array
 {
     $items = [];
@@ -2686,11 +2719,13 @@ function drillCertItems(array $j): array
         if (!in_array($s['state'] ?? '', DRILL_RESULTS, true)) {
             continue;
         }
+        $detail = in_array($s['state'], ['failed', 'warning', 'not_checked'], true) && is_string($s['detail'] ?? null) ? drillCut($s['detail']) : '';
         $items[] = ['kind' => $s['do'], 'of' => $s['kind'], 'id' => $s['id'], 'name' => $s['name'],
                     'what' => (string) ($s['container'] ?? $s['target'] ?? $s['source'] ?? (isset($s['file']) ? basename((string) $s['file']) : '')),
                     'level' => (int) ($s['level'] ?? 0), 'copy' => (string) ($s['copy'] ?? ''), 'run' => (string) ($s['run'] ?? ''),
                     'state_time' => isset($s['state_time']) ? (int) $s['state_time'] : null, 'result' => $s['state'], 'code' => (string) ($s['code'] ?? ''),
-                    'params' => (array) ($s['params'] ?? []), 'seconds' => (int) ($s['seconds'] ?? 0), 'at' => (int) ($s['finished'] ?? 0)];
+                    'params' => (array) ($s['params'] ?? []), 'seconds' => (int) ($s['seconds'] ?? 0), 'at' => (int) ($s['finished'] ?? 0)]
+                 + ($detail !== '' ? ['detail' => $detail] : []);
     }
     return $items;
 }
@@ -2827,8 +2862,9 @@ function drillTextParams(array $p): array
 
 /**
  * Is a drill due now? After a nightly backup run that ended ok or with warnings (last-run.json, within 6 h), inside
- * the window (00:00–07:00), monthly (none passed or failed this month yet) or weekly (none in 7 days), once packages
- * exist for 7 days — and only one try per backup run (a drill refused or ended early waits for the next one).
+ * the window (00:00–07:00), monthly (none passed or failed this month yet) or weekly (drillWeekDue(): the night the
+ * user chose, or a later one when that night passed without a drill), once packages exist for 7 days — and only one
+ * try per backup run (a drill refused or ended early waits for the next one).
  * Returns the scope or null.
  */
 function drillDue(array $set, ?array $lastRun, ?array $cert, ?array $auto, ?int $since, int $now): ?string
@@ -2854,10 +2890,31 @@ function drillDue(array $set, ?array $lastRun, ?array $cert, ?array $auto, ?int 
     if ($set['schedule'] === 'monthly' && $last >= (int) mktime(0, 0, 0, (int) date('n', $now), 1, (int) date('Y', $now))) {
         return null;
     }
-    if ($set['schedule'] === 'weekly' && $now - $last < 7 * 86400 - 6 * 3600) {
+    if ($set['schedule'] === 'weekly' && !drillWeekDue((int) ($set['weekday'] ?? DRILL_WEEKDAY), $last, $now)) {
         return null;
     }
     return $set['schedule'];
+}
+
+/**
+ * Weekly (Benj 2026-10-10: «Sunday to Monday or Saturday to Sunday?»): the night the user chose — $weekday is the day
+ * it ends on (date('w'), the window lies after midnight) — when no drill started in the 6 days before it; a night
+ * that passed without one (that night's backup didn't run or went wrong, the drill was refused) is caught up by the
+ * next night that may (the last drill ≥ 8 days ago in the usual week). One rule for both: the chosen day on or before
+ * today lies ≥ 6 calendar days after the last drill's day. A drill in between (by hand) covers its week: the next
+ * one comes on the first chosen night ≥ 6 days after it — the rhythm never wanders off to another night. Calendar
+ * days, not seconds: a drill at 03:10 and one at 02:50 a week later are 7 days apart.
+ */
+function drillWeekDue(int $weekday, int $last, int $now): bool
+{
+    $chosen = drillDayNo($now) - ((int) date('w', $now) - $weekday + 7) % 7;
+    return $last <= 0 || $chosen - drillDayNo($last) >= DRILL_WEEK_GAP;
+}
+
+/** A local calendar day as a number (noon of that day: summer time never moves it to another) */
+function drillDayNo(int $t): int
+{
+    return intdiv((int) mktime(12, 0, 0, (int) date('n', $t), (int) date('j', $t), (int) date('Y', $t)), 86400);
 }
 
 /** His tick: cheap — once a minute whether a drill is due, once an hour the sweeper's look at the journal folder */
