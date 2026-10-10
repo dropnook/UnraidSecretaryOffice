@@ -649,6 +649,16 @@ stays for the offices up to 1.47, which count 2 a week themselves), `report_stal
 text; **the ID**: `sha256("uso-report:" + GUID)` in `data/office/report-id` (0600, made once) — never the supporter
 ID. **A desk's log lines** come by its labels (`REPORT_LOG_LABELS`, the start of a line's text, plus «<id>:»): a new
 `logLine()` of a desk starts with one of them (`testReport` greps every one). Tests: `testReport`, `testReportDialog`.
+**Where a report stands** (Benj, 2026-10-10): `office.reports` asks the Worker ONE `GET /api/status?ids=<n>,…` for the newest
+`REPORT_STATUS_MAX` (10) reports not looked at within `REPORT_STATUS_EVERY` (1 h; also after a failure) — the report ID as
+header `X-Office` (never the GUID), address and header in a 0600 curl config in RAM, https only, 8 s, nothing the user wrote
+(`reportStatusRefresh()`/`reportStatusAsk()`); open → `received`, answered or with a public issue → `seen`, closed → `done`,
+the public issue only of `dropnook/UnraidSecretaryOffice` (`REPORT_PUBLIC_RE`); kept per entry as `status`, `public`
+{number, url}, `checked` (`reportEntryValid()` takes them only in that shape); a failure is silent (what was known stays).
+The page gets title, kind, desk, day, status, public — **never the private inbox's number or link** (they stay in
+reports.json for the ask); `paintYours` shows a chip (`office.report_status.*`) and «Public issue #n» (`Office.safeHref` +
+the same regex). The Worker reads the link from the inbox issue's last comment by its owner (uso-support `feedback/`,
+`PUBLIC_REPO`). Test: `testReportStatus`.
 **Pictures** (#6, Benj 2026-10-09): up to 3 screenshots (PNG, JPEG, WebP; chosen, pasted, dropped; ≤ 2 MB each as the
 browser has them — a WebP becomes a PNG in the browser where GD can't write WebP: `CONFIG.report_images`, Unraid 7.3.3's
 bundled GD has none). Each goes alone to the web side (`office.report_image`, src/api.php `apiReportImageStash()`: strict

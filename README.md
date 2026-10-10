@@ -164,7 +164,8 @@ any more.
 
 Nothing leaves the server unless you set it up: Kopia to the storage you chose, partner offices to the partner. The
 office itself only asks GitHub once a day whether a new version is out, checks logo addresses for containers without a
-picture, and sends a report only when you send one yourself (below). No account, no telemetry. The desks never wake a
+picture, and sends a report only when you send one yourself (below) — and, when you open the list of your reports,
+asks where they stand. No account, no telemetry. The desks never wake a
 sleeping disk unless you ask; the scheduled backup does, unless you tell it to leave sleeping pools out.
 
 ![Ms. Dustdevil's «Where is what»](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)
@@ -242,7 +243,10 @@ cleaned of share, pool, server, partner and user names, paths, addresses, MAC ad
 (you see what was hidden). Untick what you'd rather keep. Nothing leaves the server before you click *Send*.
 
 It goes to the office's makers, into a private inbox on GitHub — not public; the makers, GitHub and Cloudflare (who
-carries it) can read it. Each office can send 25 reports a day; you get a number, and *Your reports* keeps the list.
+carries it) can read it. Each office can send 25 reports a day, and *Your reports* keeps the list: where each one
+stands — received, looked at, done — and, once the makers opened a public GitHub issue for it, a link to that issue. For
+that the office asks the inbox when you open the dialog (each report at most once an hour), with nothing but the
+reports' numbers in the inbox and the office's report ID.
 
 ## Thanks
 
