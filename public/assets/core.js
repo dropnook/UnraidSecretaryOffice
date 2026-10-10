@@ -1647,7 +1647,7 @@ Office.reportDialog = function reportDialog(deskId) {
     const ul = el('ul', 'shortlist');
     list.forEach((r) => {
       const li = el('li');
-      const head = el('span', 'sso-report-yours-title', `#${r.number} ${r.title}`);
+      const head = el('span', 'sso-report-yours-title', r.title);     // no inbox number: the inbox is private (2026-10-10)
       li.appendChild(head);
       li.appendChild(el('span', '', t('office.report_yours_row', { kind: t(`office.report_kind_${r.kind}`),
         desk: r.desk === 'office' ? t('office.report_desk_office') : t(`${r.desk}.name`), day: Office.fmt.date(r.sent) })));
@@ -1810,12 +1810,7 @@ Office.reportDialog = function reportDialog(deskId) {
     [form, showLine, preview, capLine].forEach((n) => { n.hidden = true; });
     done.hidden = false;
     done.innerHTML = '';
-    done.appendChild(el('p', 'sso-report-sent', t('office.report_sent', { number: String(j.number) })));
-    if (Office.safeHref(j.url) && /^https:\/\/github\.com\//.test(j.url)) {
-      const p = el('p');
-      p.appendChild(link(j.url, t('office.report_sent_link')));
-      done.appendChild(p);
-    }
+    done.appendChild(el('p', 'sso-report-sent', t('office.report_sent')));     // no number, no link: the inbox is private
     done.appendChild(el('p', 'role', t('office.report_sent_note', { n: typeof j.left === 'number' ? j.left : 0 })));
     send.hidden = true;
     dlg.buttons[0].textContent = t('common.close');

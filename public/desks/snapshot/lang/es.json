@@ -283,6 +283,8 @@
   "p.data_hint": "El tamaño del contenido cuando se tomó la instantánea.",
   "p.written": "Nuevo desde la anterior",
   "p.written_hint": "Escrito entre la instantánea anterior y esta.",
+  "p.written_why": "¿Por qué tan distintos?",
+  "p.written_why_tip": "«Nuevo desde la anterior» cuenta todo lo escrito entre la instantánea anterior y esta. «Usado» cuenta solo lo que esta instantánea retiene por sí sola.\nMientras los datos nuevos sigan sin cambios en el recurso compartido, la instantánea los comparte con él y no necesita espacio propio. Solo cuando allí se borran o sobrescriben, el espacio pertenece a la instantánea sola — entonces «Usado» crece.\nLa compresión no tiene nada que ver.",
   "p.held": "Protegida",
   "p.mounted": "Montada",
   "p.mounted_backup": "El motor de copias está leyendo de ella. Desmontar y borrar solo después de la copia.",

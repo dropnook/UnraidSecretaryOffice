@@ -283,6 +283,8 @@
   "p.data_hint": "Quanto era grande il contenuto nel momento dello snapshot.",
   "p.written": "Nuovo dal precedente",
   "p.written_hint": "Scritto tra lo snapshot precedente e questo.",
+  "p.written_why": "Perché così diversi?",
+  "p.written_why_tip": "«Nuovo dal precedente» conta tutto ciò che è stato scritto tra lo snapshot precedente e questo. «Occupato» conta solo ciò che questo snapshot trattiene da solo.\nFinché i nuovi dati restano invariati sullo share, lo snapshot li condivide con lo share e non ha bisogno di spazio proprio. Solo quando lì vengono eliminati o sovrascritti lo spazio appartiene al solo snapshot — allora «Occupato» cresce.\nLa compressione non c'entra.",
   "p.held": "Protetto",
   "p.mounted": "Montato",
   "p.mounted_backup": "Il motore di backup sta leggendo da qui. Smonta ed elimina solo dopo il backup.",

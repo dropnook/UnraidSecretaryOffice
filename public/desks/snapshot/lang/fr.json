@@ -283,6 +283,8 @@
   "p.data_hint": "La taille du contenu au moment du snapshot.",
   "p.written": "Nouveau depuis le précédent",
   "p.written_hint": "Écrit entre le snapshot précédent et celui-ci.",
+  "p.written_why": "Pourquoi si différent ?",
+  "p.written_why_tip": "« Nouveau depuis le précédent » compte tout ce qui a été écrit entre le snapshot précédent et celui-ci. « Utilisé » ne compte que ce que ce snapshot retient à lui seul.\nTant que les nouvelles données restent inchangées sur le partage, le snapshot les partage avec lui et n'a besoin d'aucune place propre. Ce n'est que lorsqu'elles y sont supprimées ou écrasées que la place appartient au seul snapshot — alors « Utilisé » augmente.\nLa compression n'y est pour rien.",
   "p.held": "Protégé",
   "p.mounted": "Monté",
   "p.mounted_backup": "Le moteur de sauvegarde lit dedans. Démonter et supprimer seulement après la sauvegarde.",

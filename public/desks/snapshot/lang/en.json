@@ -283,6 +283,8 @@
   "p.data_hint": "How big the content was when the snapshot was taken.",
   "p.written": "New since the previous",
   "p.written_hint": "Written between the previous snapshot and this one.",
+  "p.written_why": "Why so different?",
+  "p.written_why_tip": "“New since the previous” counts everything written between the previous snapshot and this one. “Used” counts only what this snapshot alone holds on to.\nAs long as the new data still sits unchanged on the share, the snapshot shares it with the share and needs no space of its own. Only once it is deleted or overwritten there does the space belong to the snapshot alone — then “Used” grows.\nCompression has nothing to do with it.",
   "p.held": "Held",
   "p.mounted": "Mounted",
   "p.mounted_backup": "The backup engine is reading from it. Unmount and delete only after its run.",

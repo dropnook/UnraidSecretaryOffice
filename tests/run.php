@@ -23829,7 +23829,7 @@ const one = (f) => walk(body(), f)[0];
 const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
 (async () => {
   await sleep(30);
-  O.strings = { 'office.report_sent': 'Sent — report #{number}.', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' } };
+  O.strings = { 'office.report_sent': 'Sent. Thank you!', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' } };
   O.agent = { running: true };
   O.desk({ id: 'snapshot' });
   O.desk({ id: 'caretaker' });
@@ -23849,7 +23849,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   const send = dlg.buttons[1];
   out.opened = { title: byId['sso-dialog-title'].textContent, desk: desk.value, deskOptions: desk.children.map((o) => o.value), sendOff: send.disabled,
     asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className, issues: walk(body(), (n) => n.tag === 'a').map((a) => a.href),
-    yours: text(one((n) => n.tag === 'details')).includes('#40 Darker') };
+    yours: text(one((n) => n.tag === 'details')).includes('Darker') && !text(one((n) => n.tag === 'details')).includes('#40') };
   const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
   const area = one((n) => n.tag === 'textarea');
   title.value = 'Her plan ran twice'; title.oninput();
@@ -23910,7 +23910,7 @@ JS);
     $o = $r['opened'];
     same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
-    same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports»', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
+    same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
     same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.'], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
@@ -23924,7 +23924,7 @@ JS);
     $s = $r['sent'];
     same('report dialog: «Send» — the preview\'s token, the parts still ticked, the words as now', [str_repeat('a', 32), ['versions', 'unraid', 'language', 'team', 'error'], 'Her plan ran three times'],
         [$s['token'], $s['parts'], $s['title']]);
-    same('report dialog: … the number and the link, the draft gone, «Send» gone, «Close»', ['Sent — report #41.', ['https://github.com/dropnook/uso-inbox/issues/41'], true, 'common.close', null, true],
+    same('report dialog: … thanks without the private inbox\'s number or link, the draft gone, «Send» gone, «Close»', ['Sent. Thank you!', [], true, 'common.close', null, true],
         [$s['shown'], $s['link'], $s['sendHidden'], $s['closeText'], $s['draft'], $s['formHidden']]);
     check('report dialog: … its classes go with it', !str_contains($r['classesGone'], 'sso-report-dialog'));
     check('report dialog: report_day says its time, «Send» stays off; no desk given and no draft: the office as a whole', str_starts_with($r['week']['msg'], '25 in 24 hours; next from ') && !str_contains($r['week']['msg'], '{when}')

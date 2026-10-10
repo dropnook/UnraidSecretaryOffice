@@ -283,6 +283,8 @@
   "p.data_hint": "So gross war der Inhalt im Moment des Snapshots.",
   "p.written": "Neu seit dem vorigen",
   "p.written_hint": "Zwischen dem vorherigen Snapshot und diesem geschrieben.",
+  "p.written_why": "Warum so verschieden?",
+  "p.written_why_tip": "«Neu seit dem vorigen» zählt alles, was zwischen dem vorherigen Snapshot und diesem geschrieben wurde. «Belegt» zählt nur, was dieser Snapshot ganz allein festhält.\nSolange die neuen Daten noch so auf dem Share liegen, teilt der Snapshot sie mit dem Share und braucht dafür keinen eigenen Platz. Erst wenn sie dort gelöscht oder überschrieben werden, gehört der Platz dem Snapshot allein — dann wächst «Belegt».\nMit der Kompression hat das nichts zu tun.",
   "p.held": "Geschützt",
   "p.mounted": "Eingehängt",
   "p.mounted_backup": "Die Backup-Engine liest gerade daraus. Aushängen und Löschen erst nach der Sicherung.",

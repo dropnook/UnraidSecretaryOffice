@@ -1826,7 +1826,14 @@ function properties(s) {
   }
   if (s.used !== null && s.used !== undefined) line(T('p.used'), fmt.size(s.used), T('p.used_hint'));
   if (s.refer !== null && s.refer !== undefined) line(T('p.data'), fmt.size(s.refer), T('p.data_hint'));
-  if (s.written !== null && s.written !== undefined) line(T('p.written'), fmt.size(s.written), T('p.written_hint'));
+  if (s.written !== null && s.written !== undefined) {
+    const dd = line(T('p.written'), fmt.size(s.written), T('p.written_hint'));
+    if (s.used !== null && s.used !== undefined && s.written > s.used) {   // 3.6 GB new but 88 KB used: why (inbox #13)
+      const why = el('span', 'chip', T('p.written_why'));
+      why.dataset.tip = T('p.written_why_tip');
+      dd.appendChild(why);
+    }
+  }
   if (s.fs === 'zfs') line(T('p.held'), s.holds && s.holds.length ? Office.t('common.yes') + ' — ' + s.holds.join(', ') : Office.t('common.no'));
   if ((s.mounts || []).length) {
     const dd = line(T('p.mounted'), s.mounts.map(mountText).join('\n'),
