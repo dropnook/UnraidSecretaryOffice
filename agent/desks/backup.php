@@ -1196,9 +1196,16 @@ function backupZfsSnapSum(string $out, string $snap): ?int
  * $containers (name => compose project), $file and $appShares for the tests; otherwise docker ps, the engine's state
  * and backupAppShares().
  */
-function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null, ?array $appShares = null): array
+function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null, ?array $appShares = null, ?callable $there = null): array
 {
     $out = ['folders' => [], 'apps' => [], 'vms' => []];
+    // a folder the last run noted that is gone by now waits for nothing (Benj, 2026-10-10: the callout stayed until the next
+    // run and «Decide…» found nothing to decide); looked at only where the share's disks are awake - never woken for it
+    $there ??= function (string $share, string $folder) use ($s): bool {
+        static $asleep = null;
+        $asleep ??= sleepingDisks();
+        return backupShareAsleep($share, $s, $asleep) || file_exists("/mnt/user/$share/$folder");
+    };
     if (!$s) {
         return $out;
     }
@@ -1217,6 +1224,9 @@ function backupWaiting(array $s, array $vms, ?array $containers = null, ?string 
         $escaped = '/' . preg_replace('/[*?\[\]\\\\]/', '?', $folder) . '/';
         if (in_array($rule, $s["share|$share"]['kopia_known'], true)
             || array_intersect([$rule, $escaped, rtrim($rule, '/'), rtrim($escaped, '/')], $s["share|$share"]['kopia_ignore'] ?? [])) {
+            continue;
+        }
+        if (!$there($share, $folder)) {
             continue;
         }
         $out['folders'][] = ['share' => $share, 'folder' => $folder, 'bytes' => is_int($f['bytes'] ?? null) ? $f['bytes'] : null,

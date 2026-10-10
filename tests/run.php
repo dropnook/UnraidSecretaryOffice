@@ -6572,7 +6572,9 @@ function testBackupNewLocalOffice(): void
         ['share' => 'old', 'folder' => 'x'], ['share' => 'UnraidSecretaryOffice', 'folder' => 'olduser'], 'odd']]));
     $apps = ['appdata' => ['docker'], 'domains' => ['vm']];
     $cts = ['c1' => '', 'kopia' => '', 'nc-app' => 'nextcloud', 'nc-redis' => 'nextcloud', 'btc' => '', 'imm-a' => 'immich', 'imm-b' => 'immich'];
-    $w = backupWaiting($s, [['name' => 'oldvm', 'configured' => true], ['name' => 'newvm', 'configured' => false]], $cts, "$tmp/new-local.json", $apps);
+    $w = backupWaiting($s, [['name' => 'oldvm', 'configured' => true], ['name' => 'newvm', 'configured' => false]], $cts, "$tmp/new-local.json", $apps, fn () => true);
+    same('office waiting: a folder gone since the run waits for nothing (2026-10-10)', [],
+        backupWaiting($s, [], $cts, "$tmp/new-local.json", $apps, fn ($sh, $f) => $f !== 'bitcoin')['folders']);
     same('office waiting: folders still undecided (decided, ignored, unwatched ones drop out; a data share\'s from an engine 2.36 too - it goes with its share, 2.37)', [['appdata', 'bitcoin', 5, 100]],
         array_map(fn ($f) => [$f['share'], $f['folder'], $f['bytes'], $f['first_seen']], $w['folders']));
     same('office waiting: no app/VM share (docker.cfg unreadable) - no folder waits', [],
