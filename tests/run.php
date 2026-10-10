@@ -14487,6 +14487,65 @@ if ($c) {
 }
 
 /**
+ * The team lead's vanished network (caretakerNetworkFindings(), agent/desks/caretaker.php): a container pointing at a
+ * network Docker no longer has — by name (deleted), or by an ID the name no longer has (deleted and created again).
+ * Fixtures tests/fixtures/networks/: `docker inspect` of invented containers and `docker network ls --no-trunc`'s list.
+ */
+function testCaretakerNetworks(): void
+{
+    $fx = __DIR__ . '/fixtures/networks';
+    $inspect = json_decode((string) file_get_contents("$fx/inspect.json"), true);
+    $networks = caretakerNetworkList((string) file_get_contents("$fx/networks.txt"));
+    same('networks: the list — full ID => name, Docker\'s own three among them', ['bridge', 'host', 'none', 'family-net', 'media-net'],
+        array_values($networks));
+    same('networks: the list — a line not of that shape is no network', [],
+        caretakerNetworkList("NETWORK ID\tNAME\nnot-hex\tx\n" . str_repeat('a', 64) . "\t\n"));
+    $byName = [];
+    foreach ($inspect as $c) {
+        $byName[ltrim($c['Name'], '/')] = $c;
+    }
+    $gaps = fn (array $names) => caretakerNetworkGaps(array_values(array_intersect_key($byName, array_flip($names))), $networks);
+
+    same('networks: on its network, Docker\'s own (bridge, host, none, default — a stale bridge ID too), container:<other>, '
+        . 'a NetworkMode given as an ID, one never started (no ID yet) — nothing to say',
+        [], $gaps(['notes-app', 'vpn-tunnel', 'torrent-client', 'media-host', 'sleepy-db', 'id-mode', 'default-mode', 'fresh-created']));
+    same('networks: missing by name — the container and the network named', [['name' => 'photo-share', 'network' => 'old-lan', 'recreated' => false]],
+        $gaps(['photo-share']));
+    same('networks: the same name created again, the container holds the old ID — re-created', [['name' => 'recipe-box', 'network' => 'family-net', 'recreated' => true]],
+        $gaps(['recipe-box']));
+    same('networks: a second network gone while the first is there — only the gone one', [['name' => 'web-frontend', 'network' => 'backend-net', 'recreated' => false]],
+        $gaps(['web-frontend']));
+    $lost = $byName['lost-id']['HostConfig']['NetworkMode'];
+    same('networks: a NetworkMode that is an ID nobody has — named by its short ID', [['name' => 'lost-id', 'network' => substr($lost, 0, 12), 'recreated' => false]],
+        $gaps(['lost-id']));
+    same('networks: all of them — sorted by container, each once', ['lost-id', 'photo-share', 'recipe-box', 'web-frontend'],
+        array_column(caretakerNetworkGaps($inspect, $networks), 'name'));
+    same('networks: no network list (Docker didn\'t answer) — nothing to say, never every container lost', [], caretakerNetworkGaps($inspect, []));
+    same('networks: a list that isn\'t inspect\'s shape — nothing', [], caretakerNetworkGaps([null, 'x', ['Name' => '']], $networks));
+
+    $f = caretakerNetworkFindings($inspect, $networks);
+    same('networks: the findings — recommended, not in place, a link to Unraid\'s Docker page, container and network as params',
+        [['network_gone', 'recommended', false, 'docker', ['name' => 'lost-id', 'network' => substr($lost, 0, 12)]],
+         ['network_gone', 'recommended', false, 'docker', ['name' => 'photo-share', 'network' => 'old-lan']],
+         ['network_recreated', 'recommended', false, 'docker', ['name' => 'recipe-box', 'network' => 'family-net']],
+         ['network_gone', 'recommended', false, 'docker', ['name' => 'web-frontend', 'network' => 'backend-net']]],
+        array_map(fn ($x) => [$x['id'], $x['level'], $x['ok'], $x['link'], $x['params']], $f));
+    same('networks: no containers — no findings', [], caretakerNetworkFindings([], $networks));
+
+    // read-only: Docker is only asked (ps, inspect, network ls), never told
+    $rf = new ReflectionFunction('caretakerNetworkFacts');
+    $src = implode('', array_slice(file($rf->getFileName()), $rf->getStartLine() - 1, $rf->getEndLine() - $rf->getStartLine() + 1));
+    preg_match_all("/\\[\\\$docker,\\s*'([a-z]+)'(?:,\\s*'([a-z]+)')?/", $src, $m, PREG_SET_ORDER);
+    same('networks: read-only — Docker is asked ps, inspect and network ls, nothing else',
+        ['ps', 'inspect', 'network ls'], array_map(fn ($x) => $x[1] === 'network' ? 'network ' . ($x[2] ?? '') : $x[1], $m));
+    check('networks: read-only — no word that changes a container or a network', !preg_match('/\'(?:rm|create|connect|disconnect|start|stop|restart|prune|update)\'/', $src));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true);
+    check('networks: the how-texts name the way in Unraid — ⟦Docker⟧ → ⟦Edit⟧ (→ ⟦Network Type⟧ when gone) → ⟦Apply⟧',
+        str_contains($en['check.network_gone_how'], '⟦Docker⟧ → {name} → ⟦Edit⟧ → ⟦Network Type⟧, then ⟦Apply⟧')
+        && str_contains($en['check.network_recreated_how'], '⟦Docker⟧ → {name} → ⟦Edit⟧ → ⟦Apply⟧'));
+}
+
+/**
  * The night shift on the office's page and on the Dashboard tile while the array is stopped: officeNightShift()
  * (src/mailbox.php) reads RAM only — the pid in its lock (a living `agent.php nightshift`; it never takes the lock, so
  * the night shift's own non-blocking lock at its start never meets it) and its state — and the web side without its
@@ -26388,7 +26447,7 @@ function testHiddenStoreroom(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];

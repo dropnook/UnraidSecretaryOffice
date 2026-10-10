@@ -1,0 +1,271 @@
+[
+ {
+  "Id": "e5e57109d759b021c3a4de45e549ae1a0c7b06906afee8ba65b5e91409618373",
+  "Name": "/notes-app",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/notes-app:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "family-net"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "family-net": {
+     "NetworkID": "bc64ab5175ac7f42e67015f52b7a7b1573b73d54188958e0dcb82354d60837c6",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "53c1df74a2a0ff93d16ee8c3b1bd0bc5e4d4b8087451006017d0d572db34341e",
+  "Name": "/photo-share",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/photo-share:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "old-lan"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "old-lan": {
+     "NetworkID": "dcf521dbdfa0303ad49b9f466345fdd7a1ff01fdbf53d75c77d21ce95e831b49",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "235d829a207ee3562e23ca984f8ffab4d41baedf8d6bd64f30752727a064e4c1",
+  "Name": "/recipe-box",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/recipe-box:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "family-net"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "family-net": {
+     "NetworkID": "bd36361706ade6f9e0a2b25d4d17c009f5b02603728e8c4b28b14cc6fab8cdc7",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "cf3b68e2a2b6ef02c2ae9e25f78e0036cb902731d36fbadb7a4d8a7c90f37507",
+  "Name": "/vpn-tunnel",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/vpn-tunnel:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "bridge"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "bridge": {
+     "NetworkID": "4bd3cc0effa456cd799ec26fcc75f4e4758531885ce5a6e7fa6d58c0add6f630",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "1d3a0fd9620dfbeddfbdc0bb851c29144aa392fe517fc3918b541eff681997c2",
+  "Name": "/torrent-client",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/torrent-client:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "container:vpn-tunnel"
+  },
+  "NetworkSettings": {
+   "Networks": {}
+  }
+ },
+ {
+  "Id": "46a3ba1d0ef27815890f1ace1f468d910085f7b86a33dbb8e05307ea67360b21",
+  "Name": "/media-host",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/media-host:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "host"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "host": {
+     "NetworkID": "945e5b13904fb7f24b63d169abb7c89564242189fd0abb230187f4c2880b3cb9",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "9c0a1ceead22505302093a6f6b76e3dcd757808cbaf1c8093bcb9b0812cc2177",
+  "Name": "/sleepy-db",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/sleepy-db:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "none"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "none": {
+     "NetworkID": "cdfcda3324194f992c8332c3f98bf5457e221321288d9e5d672921de4674af0f",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "8edecfd4787d9cc1b50d549cdd354aaa05ad0e4676b80527c44e270be0da90dc",
+  "Name": "/web-frontend",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/web-frontend:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "family-net"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "family-net": {
+     "NetworkID": "bc64ab5175ac7f42e67015f52b7a7b1573b73d54188958e0dcb82354d60837c6",
+     "EndpointID": "",
+     "IPAddress": ""
+    },
+    "backend-net": {
+     "NetworkID": "e2a3c7ed4aad6b74072580a0a846eeaf519da1dc50a1bb2aef89306f58051eb0",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "baf45655f53e3d24a8cde4e7c318fa1c4a8e8f2dbf9c8c45b76c888cdde3095b",
+  "Name": "/id-mode",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/id-mode:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "23d59cd787be21572ad365a891c4e4239bef6890cacaed81b046a78d46981181"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "media-net": {
+     "NetworkID": "23d59cd787be21572ad365a891c4e4239bef6890cacaed81b046a78d46981181",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "4bff7f69bbd4acffd90b944b915b26663843be3cf90674ebf06fb46eda172800",
+  "Name": "/lost-id",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/lost-id:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "551f869adafbf6f806008b046ecaa51a2bd22eac8f23599636ed0061feb9447f"
+  },
+  "NetworkSettings": {
+   "Networks": {}
+  }
+ },
+ {
+  "Id": "eaa131ce21e72d1f20b33c71e5646375bd109a8f346f135eb3ca8a4f3badde4f",
+  "Name": "/default-mode",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/default-mode:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "default"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "bridge": {
+     "NetworkID": "4a27a58c5148408275f062263384efe164b6c123ed7cd38964aa49fed3020da1",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ },
+ {
+  "Id": "dac10292e7de433a21e0137c25caeff6ca51aecbd69bfe2be4114272c8a0b1a6",
+  "Name": "/fresh-created",
+  "State": {
+   "Status": "exited",
+   "Running": false
+  },
+  "Config": {
+   "Image": "example/fresh-created:latest"
+  },
+  "HostConfig": {
+   "NetworkMode": "media-net"
+  },
+  "NetworkSettings": {
+   "Networks": {
+    "media-net": {
+     "NetworkID": "",
+     "EndpointID": "",
+     "IPAddress": ""
+    }
+   }
+  }
+ }
+]
