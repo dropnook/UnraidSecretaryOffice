@@ -62,7 +62,7 @@
   .ad-copy, .ad-note, .ad-steps, .ad-lock-p, .ad-howto summary,
   .bk-disclaimer, .bk-paused-note, .bk-paused-label, .bk-schedule-field small, .bk-steps li, .bk-diffs, .bk-msgs, .bk-ret-field,
   .bk-preset .bk-preset-note, .bk-preset-wrap .bk-preset-common, .bk-preset p, .bk-warnline, .bk-restore, .bk-partners .role,
-  .bk-log summary, .bk-how summary{font-size:var(--floor)}
+  .bk-log summary, .bk-how summary, .bk-filter-none{font-size:var(--floor)}
   /* caretaker, cleanup, emby */
   .ct-pq, .ct-pret-part, .ct-opts > label.check,
   .cl-part-sub, .cl-pic-short li, .clw-place-intro, .clw-path-label, .clw-path-note, .clw-files summary, .clw-file-list, .clw-wake,
