@@ -2786,7 +2786,7 @@ function drillCertHistory(array $j, ?array $cert = null): array
     $cert['history'] = array_slice($hist, 0, DRILL_KEEP);
     $cert['updated'] = time();
     try {
-        writeAtomic(drillCertFile(), jsonEncode($cert));
+        writeAtomic(drillCertFile(), jsonEncode($cert), 0600);     // carries cut client output of failed items (1.55)
     } catch (Throwable) {
     }
     return $cert;
