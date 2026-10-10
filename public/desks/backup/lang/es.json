@@ -60,6 +60,8 @@
   "step.snapshots": "Instantáneas",
   "step.kopia": "Fuera de casa",
   "step.finish": "Recoger",
+  "step.kopia_skipped_off": "La copia fuera de casa está apagada: esta copia se queda en este servidor.",
+  "step.kopia_skipped_none": "Esta vez nada sale fuera de casa: esta copia se queda en este servidor.",
   "result.running": "en curso",
   "result.ok": "OK",
   "result.warnings": "avisos",

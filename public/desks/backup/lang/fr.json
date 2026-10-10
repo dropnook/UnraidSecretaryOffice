@@ -60,6 +60,8 @@
   "step.snapshots": "Snapshots",
   "step.kopia": "Hors site",
   "step.finish": "Ranger",
+  "step.kopia_skipped_off": "La sauvegarde hors site est désactivée : cette sauvegarde reste sur ce serveur.",
+  "step.kopia_skipped_none": "Rien ne part hors site cette fois : cette sauvegarde reste sur ce serveur.",
   "result.running": "en cours",
   "result.ok": "OK",
   "result.warnings": "avertissements",

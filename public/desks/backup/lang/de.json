@@ -60,6 +60,8 @@
   "step.snapshots": "Snapshots",
   "step.kopia": "Ausser Haus",
   "step.finish": "Aufräumen",
+  "step.kopia_skipped_off": "Ausser Haus ist ausgeschaltet: Diese Sicherung bleibt auf diesem Server.",
+  "step.kopia_skipped_none": "Diesmal geht nichts ausser Haus: Diese Sicherung bleibt auf diesem Server.",
   "result.running": "läuft",
   "result.ok": "OK",
   "result.warnings": "Warnungen",

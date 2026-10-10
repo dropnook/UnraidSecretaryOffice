@@ -485,7 +485,11 @@ function runningCard() {
   const shown = STEPS.map(([name], i) => [name, i]).filter(([name]) => name !== 'partner' || s.partner);
   shown.forEach(([name, i]) => {
     const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));
-    if (name === 'kopia' && !p.planned.length) li.classList.add('skipped');
+    if (name === 'kopia' && !p.planned.length) {
+      // struck through - and why: offsite switched off, or on but nothing goes this time
+      li.classList.add('skipped');
+      li.dataset.tip = state.settings && state.settings.kopia_enabled === false ? T('step.kopia_skipped_off') : T('step.kopia_skipped_none');
+    }
     steps.appendChild(li);
   });
   card.appendChild(steps);

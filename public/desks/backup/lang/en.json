@@ -60,6 +60,8 @@
   "step.snapshots": "Snapshots",
   "step.kopia": "Offsite",
   "step.finish": "Tidy up",
+  "step.kopia_skipped_off": "Offsite is switched off: this backup stays on this server.",
+  "step.kopia_skipped_none": "Nothing goes offsite this time: this backup stays on this server.",
   "result.running": "running",
   "result.ok": "OK",
   "result.warnings": "warnings",

@@ -60,6 +60,8 @@
   "step.snapshots": "Snapshot",
   "step.kopia": "Fuori sede",
   "step.finish": "Mettere in ordine",
+  "step.kopia_skipped_off": "Il backup fuori sede è spento: questo backup resta su questo server.",
+  "step.kopia_skipped_none": "Questa volta niente va fuori sede: questo backup resta su questo server.",
   "result.running": "in corso",
   "result.ok": "OK",
   "result.warnings": "avvisi",
