@@ -1,0 +1,16 @@
+{
+ "settings": {
+  "schedule": "weekly",
+  "weekday": 0,
+  "kopia_mb": 50000,
+  "live_catalog": true,
+  "live_sqlite": true
+ },
+ "certificate": null,
+ "running": null,
+ "drills": [],
+ "ram": 6420000000,
+ "next_backup": null,
+ "packages_since": null,
+ "auto": null
+}

@@ -56,6 +56,12 @@
 
 /* a restore's dialog: options, the preview, the confirmation */
 .rs-opts .field{margin-bottom:10px}
+/* a label.check row right inside a .field (the drill's schedule, a restore's way) keeps the office's row look - the
+   control, then its words beside it: office.css's «.field > label» is for a field's title (flex, space-between, bold
+   and small) and pushed a short text like «Off» to the right edge (Benj 2026-10-10; the caretaker's .ct-opts had the
+   same). The font size apart and no stronger than office.css's rule, so the text size switch's floor still wins */
+.rs-opts .field > label.check{justify-content:flex-start; align-items:flex-start; gap:9px; font-weight:400; color:var(--ink2)}
+:where(.rs-opts) .field > label:where(.check){font-size:13.5px}
 .rs-opts select.input{max-width:100%}
 .rs-entries{display:flex; flex-direction:column; gap:2px; max-height:260px; overflow:auto}
 .rs-entries label.check span{overflow-wrap:anywhere}
@@ -87,6 +93,12 @@
 .rs-dr-rows{margin-top:8px}
 .rs-dr-items code{overflow-wrap:anywhere}
 .rs-dr-hist{margin-top:16px}
+.rs-dr-detail{margin:2px 0 4px}
+.rs-dr-detail .rs-j-detail{margin:2px 0}
+.rs-dr-detail .rs-how{margin:2px 0}
+.rs-dr-detail .rs-how summary{font-size:12px; font-weight:500}
+.rs-dr-night{margin:-4px 0 9px 25px; width:auto; align-self:flex-start; max-width:calc(100% - 25px)}   /* under «Weekly», beside its words */
+.rs-dr-gb{max-width:120px}
 
 /* on a phone a row's buttons go under its name instead of squeezing it */
 @media (max-width:640px){
@@ -100,5 +112,6 @@
   .rs-code{flex-direction:column; align-items:stretch}
   .rs-chipgroup{padding-left:0; border-left:0}
   .rs-pv-steps, .rs-pv-list{padding-left:18px}
+  .rs-dr-night{margin-left:0; max-width:100%}
 }
 }

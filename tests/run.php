@@ -19858,6 +19858,29 @@ function testRestoreDrill(): void
     same('drill due: weekly — 7 days after the last', ['weekly', null], [drillDue(['schedule' => 'weekly'] + $set, $run, ['last' => ['started' => $night - 8 * 86400]], null, $old, $night),
         drillDue(['schedule' => 'weekly'] + $set, $run, ['last' => ['started' => $night - 3 * 86400]], null, $old, $night)]);
     same('drill due: «with warnings» counts as a run that went well', 'monthly', drillDue($set, ['result' => 'warnings'] + $run, null, null, $old, $night));
+    // weekly on the night the user chose (drill-ux 2026-10-10): weekday = the day the night ends on, 0 = Sunday
+    $wk = fn (string $when, ?string $last, int $wd = 0, string $sched = 'weekly') => drillDue(['schedule' => $sched, 'weekday' => $wd] + $set,
+        ['run' => 'r' . strtotime($when), 'finished' => strtotime($when) - 600] + $run, $last ? ['last' => ['started' => strtotime($last)]] : null, null, $old, strtotime($when));
+    same('drill due: weekly — on the chosen night (Saturday to Sunday), a week after the last, even when that was ten minutes later in the night',
+        ['weekly', 'weekly'], [$wk('2026-11-08 03:40', '2026-11-01 03:50'), $wk('2026-11-08 00:20', '2026-11-01 06:50')]);
+    same('drill due: weekly — not on another night while the chosen one is to come or was taken', [null, null, null, null],
+        [$wk('2026-11-07 03:40', '2026-11-01 03:50'), $wk('2026-11-04 03:40', '2026-11-01 03:50'), $wk('2026-11-09 03:40', '2026-11-08 03:40'), $wk('2026-11-14 03:40', '2026-11-08 03:40')]);
+    same('drill due: weekly — the chosen night passed without one (its backup didn\'t run): the next night catches up (8 days after the last), two nights later too',
+        ['weekly', 'weekly'], [$wk('2026-11-09 03:40', '2026-11-01 03:50'), $wk('2026-11-10 03:40', '2026-11-01 03:50')]);
+    same('drill due: weekly — after a catch-up on Monday the chosen night comes again (6 days)', 'weekly', $wk('2026-11-15 02:50', '2026-11-09 03:40'));
+    same('drill due: weekly — a drill by hand on Tuesday covers its week, no catch-up after it: the next chosen night 6 days or more after it, the rhythm stays',
+        [null, null, null, 'weekly'], [$wk('2026-11-08 03:40', '2026-11-03 21:00'), $wk('2026-11-09 03:40', '2026-11-03 21:00'), $wk('2026-11-11 03:40', '2026-11-03 21:00'),
+         $wk('2026-11-15 03:40', '2026-11-03 21:00')]);
+    same('drill due: weekly — another night chosen (Sunday to Monday: 1), never drilled yet: the first night that may', ['weekly', null, 'weekly', 'weekly'],
+        [$wk('2026-11-09 03:40', '2026-11-02 03:40', 1), $wk('2026-11-08 03:40', '2026-11-02 03:40', 1), $wk('2026-11-04 03:40', null), $wk('2026-11-04 03:40', null, 3)]);
+    same('drill due: weekly — the other conditions stay (no good run, outside the window, tried after this run)', [null, null, null], [
+        drillDue(['schedule' => 'weekly', 'weekday' => 0] + $set, ['result' => 'failed', 'finished' => strtotime('2026-11-08 03:30')] + $run, null, null, $old, strtotime('2026-11-08 03:40')),
+        $wk('2026-11-08 07:05', '2026-11-01 03:50'),
+        drillDue(['schedule' => 'weekly', 'weekday' => 0] + $set, ['run' => 'r1', 'finished' => strtotime('2026-11-08 03:30')] + $run, null, ['run' => 'r1'], $old, strtotime('2026-11-08 03:40'))]);
+    same('drill due: monthly stays as it was — the weekday changes nothing', ['monthly', null, 'monthly'],
+        [$wk('2026-11-03 03:40', '2026-10-30 03:00', 3, 'monthly'), $wk('2026-11-08 03:40', '2026-11-02 03:00', 0, 'monthly'), $wk('2026-12-01 03:40', '2026-11-08 03:40', 0, 'monthly')]);
+    same('drill due: the calendar day stays through summer time (a day number at noon)', [1, 7], [drillDayNo(strtotime('2026-10-26 01:00')) - drillDayNo(strtotime('2026-10-25 23:00')),
+        drillDayNo(strtotime('2026-11-01 00:10')) - drillDayNo(strtotime('2026-10-25 06:59'))]);
 
     // ---- follow-up drills: what the last drill left «not checked» comes first (plan order), the rest after it
     $fsteps = [['do' => 'package', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich'],
@@ -19880,9 +19903,17 @@ function testRestoreDrill(): void
 
     // ---- the settings: each field only when sent, only in its shape
     drillSet(['schedule' => 'weekly', 'kopia_mb' => 0]);
-    same('drill settings: kept (root only), defaults for the rest', ['weekly', 0, true, true, '0600'],
+    same('drill settings: kept (root only), defaults for the rest (the night: Saturday to Sunday)', ['weekly', 0, 0, true, true, '0600'],
         [...array_values(drillSettings()), substr(sprintf('%o', fileperms("$tmp/data/restore-drill/settings.json")), -4)]);
-    foreach ([['schedule' => 'daily'], ['kopia_mb' => '5'], ['live_sqlite' => 'yes'], ['kopia_mb' => -1]] as $bad) {
+    drillSet(['weekday' => 3, 'kopia_mb' => 102400]);
+    same('drill settings: the night kept (0–6), the rest as it was; 100 GB as MB', ['weekly', 3, 102400], array_values(array_slice(drillSettings(), 0, 3)));
+    writeAtomic("$tmp/data/restore-drill/settings.json", '{"schedule":"weekly","kopia_mb":50000,"live_catalog":true,"live_sqlite":true}', 0600, 0, 0);
+    same('drill settings: a file from before the night (nostromo\'s) reads as Saturday to Sunday', ['weekly', 0, 50000], array_values(array_slice(drillSettings(), 0, 3)));
+    writeAtomic("$tmp/data/restore-drill/settings.json", '{"schedule":"weekly","weekday":9,"kopia_mb":50000}', 0600, 0, 0);
+    same('drill settings: a night out of range in the file reads as Saturday to Sunday', 0, drillSettings()['weekday']);
+    writeAtomic("$tmp/data/restore-drill/settings.json", jsonEncode(['schedule' => 'weekly', 'weekday' => 0, 'kopia_mb' => 0, 'live_catalog' => true, 'live_sqlite' => true]), 0600, 0, 0);
+    foreach ([['schedule' => 'daily'], ['kopia_mb' => '5'], ['live_sqlite' => 'yes'], ['kopia_mb' => -1], ['weekday' => 7], ['weekday' => -1], ['weekday' => '3'], ['weekday' => 1.5],
+              ['weekday' => true], ['weekday' => null], ['kopia_mb' => 102401]] as $bad) {
         try {
             drillSet($bad);
             check('drill settings: refused ' . json_encode($bad), false);
@@ -19926,10 +19957,43 @@ function testRestoreDrill(): void
     same('drill no room: a lost connection with room left and no kill, another error, a play that went through — the play\'s own result (failed stays failed)',
         [null, null, null], [$room("connection to server was lost\n", 'server-quiet.txt', 'df-room.txt'), $room('play-other-error.txt', 'server-quiet.txt', 'df-room.txt'),
                              $room('', 'no-room-postgres-server.txt', 'df-full.txt', false, 'ok')]);
+    // nostromo's drill 20261008-215520-f5c5 (before drillNoRoom existed): both plays «failed (play_failed)», Immich's with no detail at all
+    $nos = $room("ERROR 1114 (HY000) at line 633276: The table 'oc_job_runs' is full\n", 'server-quiet.txt', 'df-room.txt');
+    $nosPg = $room("ERROR:  current user cannot be dropped\nERROR:  role \"postgres\" already exists\nPANIC:  could not write to file \"pg_wal/xlogtemp.104\": No space left on device\n"
+        . "server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n\tbefore or while processing the request.\nconnection to server was lost\n",
+        'server-quiet.txt', 'df-room.txt');
+    same('drill no room: nostromo\'s two lines of 2026-10-08 — MariaDB\'s «oc_job_runs is full», Postgres\' PANIC on its WAL — not checked (dump_no_room), each saying why',
+        [['not_checked', 'dump_no_room', "ERROR 1114 (HY000) at line 633276: The table 'oc_job_runs' is full"],
+         ['not_checked', 'dump_no_room', "PANIC:  could not write to file \"pg_wal/xlogtemp.104\": No space left on device\nserver closed the connection unexpectedly\nconnection to server was lost"]],
+        [[$nos['state'] ?? null, $nos['code'] ?? null, $nos['detail'] ?? null], [$nosPg['state'] ?? null, $nosPg['code'] ?? null, $nosPg['detail'] ?? null]]);
     check('drill no room: df looks at the throwaway\'s data dir only', str_contains((string) file_get_contents("$nr/calls"), 'exec ' . DRILL_PREFIX . '20261101-041200-ab12-3 df -P -k /var/lib/postgresql/data'));
     file_put_contents("$tmp/play.log", str_repeat('x', 70000) . "PANIC: No space left on device\n");
     same('drill no room: the log since the play began, its end only', [true, 65536], [str_ends_with(drillLogSince("$tmp/play.log", 10), "device\n"), strlen(drillLogSince("$tmp/play.log", 10))]);
     same('drill no room: nothing written since', '', drillLogSince("$tmp/play.log", (int) filesize("$tmp/play.log")));
+    // why a play failed, for the journal and the certificate (drill-ux 2026-10-10)
+    $other = (string) file_get_contents("$fix/play-other-error.txt");
+    same('drill play detail: a plain play failure keeps the play\'s own ERROR lines; a play that went through says nothing', [
+        "ERROR:  syntax error at or near \"CRATE\"\nERROR:  relation \"public.asset\" does not exist", ''], [
+        drillPlayDetail(['state' => 'failed', 'detail' => "ERROR:  syntax error at or near \"CRATE\"\nERROR:  relation \"public.asset\" does not exist"], $other),
+        drillPlayDetail(['state' => 'ok', 'detail' => ''], $other)]);
+    same('drill play detail: no ERROR line from the play — the client\'s words that say what went wrong (FATAL, a lost connection), never «already exists» or the drill\'s own log lines; else their end',
+        ["FATAL:  terminating connection due to administrator command\nconnection to server was lost", "SET\ninvalid command \\N\nsome last words"],
+        [drillPlayDetail(['state' => 'failed', 'detail' => ''], "2026-10-08 21:55:20  Step 3/9: dump immich\nERROR:  role \"postgres\" already exists\nSET\nFATAL:  terminating connection due to administrator command\nconnection to server was lost\n"),
+         drillPlayDetail(['state' => 'failed', 'detail' => ''], "SET\ninvalid command \\N\nsome last words\n")]);
+    same('drill play detail: cut like the log — at most 12 lines of at most 200 letters', [12, 200],
+        (function () { $d = explode("\n", drillPlayDetail(['state' => 'failed', 'detail' => implode("\n", array_fill(0, 30, 'ERROR: ' . str_repeat('x', 400)))], ''));
+            return [count($d), max(array_map('mb_strlen', $d))]; })());
+    $ci = drillCertItems(['steps' => [
+        ['do' => 'dump', 'kind' => 'app', 'id' => 'nc', 'name' => 'nextcloud', 'container' => 'nextcloud-db', 'state' => 'failed', 'code' => 'play_failed', 'detail' => "ERROR 1064 at line 9\n" . str_repeat('y', 300)],
+        ['do' => 'dump', 'kind' => 'app', 'id' => 'im', 'name' => 'immich', 'container' => 'immich_postgres', 'state' => 'not_checked', 'code' => 'dump_no_room', 'detail' => 'PANIC: No space left on device'],
+        ['do' => 'kopia', 'kind' => 'share', 'id' => 'appdata', 'name' => 'appdata', 'source' => 'appdata', 'state' => 'warning', 'code' => 'kopia_old', 'detail' => implode("\n", range(1, 20))],
+        ['do' => 'package', 'kind' => 'app', 'id' => 'nc', 'name' => 'nextcloud', 'state' => 'ok', 'code' => 'package_ok', 'detail' => 'all fine'],
+        ['do' => 'sqlite', 'kind' => 'app', 'id' => 'emby', 'name' => 'emby', 'file' => '/x/library.db', 'state' => 'asleep', 'code' => 'asleep', 'detail' => 'zzz'],
+        ['do' => 'vmdisk', 'kind' => 'vm', 'id' => 'Win', 'name' => 'Win', 'target' => 'hdc', 'state' => 'failed', 'code' => 'vm_disk_missing'],
+        ['do' => 'dump', 'kind' => 'app', 'id' => 'x', 'name' => 'x', 'state' => 'skipped', 'detail' => 'stopped']]]);
+    same('drill certificate: an item not ok keeps what the tool said (cut: 12 lines × 200 letters), an ok or asleep one doesn\'t, none without one, a skipped step is no item',
+        [6, "ERROR 1064 at line 9\n" . str_repeat('y', 200), 'PANIC: No space left on device', implode("\n", range(9, 20)), false, false, false],
+        [count($ci), $ci[0]['detail'] ?? null, $ci[1]['detail'] ?? null, $ci[2]['detail'] ?? null, isset($ci[3]['detail']), isset($ci[4]['detail']), isset($ci[5]['detail'])]);
     unset($GLOBALS['drill']['docker']);
 
     // ---- a docker stand-in: containers in a file ("name label"), every call logged
@@ -20479,6 +20543,16 @@ d.setJob({ result: 'running', steps: [{ state: 'ok' }, { state: 'running' }, { s
 out.running = d.tileLine();
 out.code = d.codeText('too_big_for_ram', { need: 3, budget: 2, container: 'x' });
 out.reasons = [d.reasonText('array_stopping'), d.reasonText('drill_parity')];
+// the settings: Kopia's cap shown and typed in GB (kept as MB), the weekly night named
+Office.locale = 'en';
+out.gb = [d.kopiaGb(1024), d.kopiaGb(50000), d.kopiaGb(512), d.kopiaGb(0), d.kopiaGb(102400), d.kopiaGb(1536)];
+Office.locale = 'de';
+out.gbDe = d.kopiaGb(50000);
+out.parse = ['1,5', '1.5', ' 2 ', '0', '100', '100.1', '-1', 'abc', '', '1,5,0', '.5', '1e3'].map(d.parseGb);
+d.setState({ settings: { schedule: 'weekly', weekday: 1 } });
+out.sched = [d.schedText('weekly'), d.schedText('monthly')];
+d.setState({ settings: { schedule: 'weekly' } });
+out.schedOld = d.schedText('weekly');
 // the job's poll: a failed ask (Office.api.get answers offline, never throws) keeps it going, slower; back — its pace again
 const delays = [];
 globalThis.setTimeout = (fn, ms) => { delays.push(ms); return 1; };
@@ -20501,6 +20575,12 @@ JS);
             is_array($o) ? [$o['none'], $o['passed'], $o['failed'], $o['running']] : $raw);
         same('drill page: a code\'s words with its sizes made readable; a stop of its own, a refusal', ['drill.code.too_big_for_ram {"need":"3 B","budget":"2 B","container":"x"}',
             ['drill.code.array_stopping {}', 'error drill_parity']], is_array($o) ? [$o['code'], $o['reasons']] : $raw);
+        same('drill page: Kopia\'s cap in GB — up to one decimal, no «.0», the page\'s decimal sign; a comma or a point typed, 0–100 only',
+            [['1', '48.8', '0.5', '0', '100', '1.5'], '48,8', [1.5, 1.5, 2, 0, 100, null, null, null, null, null, 0.5, null]],
+            is_array($o) ? [$o['gb'] ?? null, $o['gbDe'] ?? null, $o['parse'] ?? null] : $raw);
+        same('drill page: weekly names its night (the setting\'s, a file without one: Saturday to Sunday); monthly as it was',
+            [['drill.sched.weekly {"night":"drill.night.1"}', 'drill.sched.monthly {}'], 'drill.sched.weekly {"night":"drill.night.0"}'],
+            is_array($o) ? [$o['sched'] ?? null, $o['schedOld'] ?? null] : $raw);
         same('drill page: the job\'s poll goes on after failed asks, slower, and at its pace once they come through again (review 2026-10-09)',
             [[20000, 40000, 2000], 1], is_array($o) ? $o['poll'] ?? null : $raw);
     }
@@ -20531,7 +20611,7 @@ JS);
     foreach (['result' => ['passed', 'failed', 'aborted', 'refused', 'interrupted', 'queued', 'running'], 'state' => [...DRILL_RESULTS, 'skipped', 'pending', 'running'],
               'kind' => DRILL_STEP_KINDS, 'copy' => ['package', 'local', 'kopia'], 'scope' => ['monthly', 'weekly', 'now'], 'sched' => DRILL_SCHEDULES,
               'set' => [...DRILL_SCHEDULES, 'live_catalog', 'live_sqlite'], 'pv' => DRILL_STEP_KINDS, 'level_hint' => ['0', '1', '2'],
-              'copy_hint' => ['package', 'local', 'kopia'], 'done' => ['passed', 'failed', 'other']] as $group => $names) {
+              'copy_hint' => ['package', 'local', 'kopia'], 'done' => ['passed', 'failed', 'other'], 'night' => ['0', '1', '2', '3', '4', '5', '6']] as $group => $names) {
         foreach ($names as $n) {
             check("drill: a text for drill.$group.$n", isset($en["drill.$group.$n"]));
         }
