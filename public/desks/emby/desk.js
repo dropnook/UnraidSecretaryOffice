@@ -946,11 +946,8 @@ function initForm() {
       use_next_up: set.use_next_up ?? true,
       min_free_percent: set.min_free_percent ?? 20,
       return_to_origin: set.return_to_origin ?? true,
-      cleanup_tool: set.cleanup_tool || 'rsync',
-      fill_tool: set.fill_tool || 'rsync',
       array_source: set.array_source || 'user0',
       create_share_root: !!set.create_share_root,
-      mover_debug_level: set.mover_debug_level ?? 0,
     },
   };
 }
@@ -1172,14 +1169,11 @@ function renderSetup() {
     check(T('setup.next_up'), v.use_next_up, (x) => { v.use_next_up = x; }, T('setup.next_up_hint')));
   root.appendChild(s4);
 
-  // 5. more: the way back, the tools, where to read from
+  // 5. more: the way back and where to read from (both ways always rsync: Unraid's move binary is never Jack's choice)
   const s5 = section(T('setup.more'), T('setup.more_sub'), { place: 'setup.more' });
   const f5 = el('div', 'jo-form');
   f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
-  f5.appendChild(field(T('setup.cleanup_tool'), select(v, 'cleanup_tool', [['rsync', T('setup.tool_rsync_back')], ['mover', T('setup.tool_mover_back')]]), T('setup.cleanup_tool_hint')));
-  f5.appendChild(field(T('setup.fill_tool'), select(v, 'fill_tool', [['rsync', T('setup.tool_rsync_fill')], ['mover', T('setup.tool_mover_fill')]]), T('setup.fill_tool_hint')));
   f5.appendChild(field(T('setup.array_source'), select(v, 'array_source', [['user0', T('setup.source_user0')], ['disk', T('setup.source_disk')]]), T('setup.array_source_hint')));
-  f5.appendChild(field(T('setup.mover_debug'), number(v, 'mover_debug_level', 0, 3), T('setup.mover_debug_hint')));
   // only needed when a chosen share has no folder on the pool yet
   const shares = [...new Set(libraryList().filter((l) => form.chosenLibs.has(l.name))
     .flatMap((l) => l.at.filter(([i, p]) => !form.instances[i].skip.has(p)).map(([i, p]) => shareOf(form.instances[i].mappings[p]))).filter(Boolean))].sort();
@@ -1463,11 +1457,8 @@ async function saveSetup() {
     min_free_percent: v.min_free_percent,
     movie_mode: 'folder',          // always the whole folder: subtitles, preview images, nfo, extras
     return_to_origin: v.return_to_origin,
-    cleanup_tool: v.cleanup_tool,
-    fill_tool: v.fill_tool,
     array_source: v.array_source,
     create_share_root: v.create_share_root,
-    mover_debug_level: v.mover_debug_level,
   };
   const j = await act('save', { settings });
   if (!j) return;

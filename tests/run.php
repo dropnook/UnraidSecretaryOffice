@@ -1495,6 +1495,8 @@ function testEmbyImport(): void
     same('import preview: Jack\'s values for what runs or isn\'t valid', ['mover_bin' => '', 'rsync_args' => ['-aAX', '--numeric-ids']],
         array_intersect_key($jackSet, ['mover_bin' => 1, 'rsync_args' => 1]));
     check('import preview: array_path with a slash is no change', !isset($jackSet['array_path']));
+    same('import preview: the old «mover» way back becomes Jack\'s rsync, said as his; rsync filling no change', ['cleanup_tool' => 'rsync', 'fill' => false],
+        ['cleanup_tool' => $jackSet['cleanup_tool'] ?? null, 'fill' => isset($jackSet['fill_tool'])]);
     $changes = array_column($e['changes'], null, 'key');
     same('import preview: a change, old → new', ['key' => 'min_free_percent', 'old' => 20, 'new' => 15], $changes['min_free_percent'] ?? null);
     same('import preview: a key Jack didn\'t have', ['old' => null, 'new' => '2.5T'], array_intersect_key($changes['cache_budget'] ?? [], ['old' => 1, 'new' => 1]));
@@ -1540,9 +1542,10 @@ function testEmbyImport(): void
     same('import done: copies are root\'s only', '600', substr(sprintf('%o', fileperms($done['backups'][0])), -3));
     $s = json_decode((string) file_get_contents("$jack/embycache/embycache_settings.json"), true);
     same('import done: the old key stays on the server', $key, $s['instances'][0]['api_key'] ?? null);
-    same('import done: settings as shown', [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', [], 1, 8, 'mover'],
+    same('import done: settings as shown (the old «mover» way back is rsync: Jack never selects the move binary)',
+        [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', [], 1, 8, 'rsync', 'rsync'],
         [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], $s['return_to_origin'], $s['array_path'], $s['cache_budget'], $s['path_mappings'],
-         $s['max_resume_movies'], $s['max_resume_series'], $s['cleanup_tool']]);
+         $s['max_resume_movies'], $s['max_resume_series'], $s['cleanup_tool'], $s['fill_tool']]);
     check('import done: unknown keys gone', !isset($s['old_option']) && !isset($s['emby_token']));
     same('import done: people with their budget', ['u1' => ['budget' => '300G'], 'u2' => [], 'u3' => []], $s['valid_users']);
     same('import done: library types kept where the name matches', ['Filme' => 'movies'], $s['library_types']);
@@ -1584,7 +1587,8 @@ function testEmbyImport(): void
     file_put_contents("$tmp/jack2/embycache/embycache_settings.json", json_encode(['cache_path' => $pool, 'cleanup_tool' => 'rsync', 'mover_debug_level' => 1,
         'max_resume_series' => 4, 'max_resume_movies' => null, 'mover_bin' => '/mnt/user/x.sh', 'array_path' => '/mnt/elsewhere'], JSON_UNESCAPED_SLASHES));
     $d = array_column(embyImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
-    same('import, older install: Jack\'s own choices stay', [['cleanup_tool', true, 'rsync'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
+    same('import, older install: Jack\'s own choices stay (the way back is always rsync — his, not a choice kept)',
+        [['cleanup_tool', false, 'rsync'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
         array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level', 'max_resume_series']));
     same('import, older install: a null of Jack\'s is no value — his default', [false, 8], [$d['max_resume_movies']['kept'] ?? null, $d['max_resume_movies']['value'] ?? null]);
     $d = array_column(embyImportPlan($old, '', ['emby_dir' => "$tmp/nojack/embycache", 'gather_dir' => "$tmp/nojack/gather"] + $ctx)['preview']['embycache']['defaults'], null, 'key');
@@ -2523,6 +2527,54 @@ JS);
  * `#   python3 …`), not inside a `: <<'EOF'` block; a User Script whose schedule is off is listed but not enabled
  * (none, «disabled», «custom» without a line); cron files the same, the office's own left out.
  */
+/**
+ * Both ways always rsync (Benj, 2026-10-10: «we wait for Ms. Moverelli»): an old settings file with «mover» reads as
+ * rsync and is written so at the next save, whatever a request or an import carries; what Jack hands EmbyCache (its
+ * environment over any settings file) is rsync — EmbyCache's own load_config() says so; his setup page has no choice.
+ */
+function testEmbyRsync(): void
+{
+    $tmp = hardeningTmp('embyrsync');
+    same('rsync: an old «mover» reads as rsync, the rest kept', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/master'],
+        embyToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/master']));
+    same('rsync: none set (EmbyCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'], embyToolsRsync([]));
+    @mkdir("$tmp/emby", 0700, true);
+    @mkdir("$tmp/pool", 0700, true);
+    $inst = [['servername' => 'Emby', 'url' => 'http://192.168.7.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
+    file_put_contents("$tmp/emby/embycache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
+        'instances' => $inst], JSON_UNESCAPED_SLASHES));
+    $read = embyReadSettings("$tmp/emby");
+    same('rsync: an old settings file with «mover» reads as rsync (migrated on read)', ['rsync', 'rsync', "$tmp/pool"],
+        [$read['fill_tool'] ?? null, $read['cleanup_tool'] ?? null, $read['cache_path'] ?? null]);
+    same('rsync: the file itself untouched until the next save', 'mover', json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true)['cleanup_tool']);
+    check('rsync: the setup\'s save no longer takes the two keys from the page', !in_array('fill_tool', EMBY_SETTINGS, true) && !in_array('cleanup_tool', EMBY_SETTINGS, true));
+    $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('rsync: the save lays rsync over the request', (bool) preg_match('/\$cfg\[\$k\] = \$in\[\$k\];\s*\}\s*\}\s*\$cfg = embyToolsRsync\(\$cfg\);/', $code));
+    // the save's writer (also the import's): a request with «mover» is written as rsync
+    $cfg = $read;
+    $cfg['fill_tool'] = $cfg['cleanup_tool'] = 'mover';
+    @mkdir("$tmp/run", 0700, true);
+    embyWriteSettings($cfg, "$tmp/emby", "$tmp/run");
+    $saved = json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true);
+    same('rsync: a save that carries «mover» writes rsync (refused as a choice)', ['rsync', 'rsync'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
+    // what Jack hands EmbyCache: its environment wins over any settings file — EmbyCache's own load_config() says so
+    file_put_contents("$tmp/emby/old.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
+        'instances' => $inst], JSON_UNESCAPED_SLASHES));
+    $env = embyPyEnv();
+    same('rsync: Jack\'s environment for EmbyCache says rsync both ways', ['rsync', 'rsync'], [$env['EMBYCACHE_FILL_TOOL'] ?? null, $env['EMBYCACHE_CLEANUP_TOOL'] ?? null]);
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"])';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, EMBY_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + $env + ['EMBYCACHE_CONFIG' => "$tmp/emby/old.json"], 30);
+    same('rsync: EmbyCache run with Jack\'s environment on an old «mover» file — rsync both ways', [0, 'rsync|rsync'], [$exit, trim($out) ?: trim($err)]);
+    // the import: an old «mover» is Jack's rsync (tested with the whole import in testEmbyImport); never accepted as a value
+    same('rsync: «mover» is no valid value for the two keys', [false, true, false], [embyImportValueOk('cleanup_tool', 'mover', 'mover'),
+        embyImportValueOk('fill_tool', 'rsync', 'rsync'), embyImportValueOk('fill_tool', 'mover', 'rsync')]);
+    same('rsync: the import sets both itself', ['rsync', 'rsync'], [EMBY_IMPORT_FIXED['fill_tool'] ?? null, EMBY_IMPORT_FIXED['cleanup_tool'] ?? null]);
+    // his setup page: no choice of the tool left, nothing sent
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('rsync: the setup page has no tool select and sends none', !str_contains($js, 'cleanup_tool') && !str_contains($js, 'fill_tool'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /**
  * The gather's cache switch (#14): the ini Jack writes, run by the gather on a fixture tree — off: the cache left alone;
  * on: the folders' files come to their disk, EmbyCache's list stays («ignored»), folders only on the cache stay or go to
@@ -25381,7 +25433,7 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
