@@ -1150,23 +1150,13 @@
       "kind": "vm",
       "name": "Home-Assistant",
       "weak": false
-     },
-     {
-      "kind": "vm",
-      "name": "Windows-11",
-      "weak": false
-     },
-     {
-      "kind": "vm",
-      "name": "Ubuntu-Test",
-      "weak": false
      }
     ],
     "used_more": 0,
     "parts": [
      {
       "root": "cache",
-      "path": "/mnt/cache/domains/router",
+      "path": "/mnt/cache/domains/Home-Assistant",
       "dataset": null,
       "zfs": false,
       "mtime": 1791548576,

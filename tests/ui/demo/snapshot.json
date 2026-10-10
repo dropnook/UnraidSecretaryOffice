@@ -1398,9 +1398,7 @@
  "vm": {
   "available": true,
   "domains": [
-   "Home-Assistant",
-   "Windows-11",
-   "Ubuntu-Test"
+   "Home-Assistant"
   ],
   "snapshots": [],
   "folders": [],

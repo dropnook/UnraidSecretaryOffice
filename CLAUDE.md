@@ -1385,7 +1385,11 @@ When more than one Claude chat works on the office, one of them is the
    to now), inside Unraid's look (the harness always lays Unraid 7.3's palette, black or white theme and fonts from
    `tests/ui/unraid/` around the office; `?theme=white`), black/white × de/en × 1440/390 at scale 2, a route's own shots
    (`SHOTS`, e.g. Jack Emby's head + live panel and the panel alone) or `--shot full|until:<css>|clip:<css>`; PNGs into
-   `~/Claude/UnraidSecretaryOffice-briefs/shots/<date>/`. Neither tests/ nor tools/ go into the plugin package.
+   `~/Claude/UnraidSecretaryOffice-briefs/shots/<date>/`. `--moments [nr,…]`: the product page's moments
+   (`tests/ui/demo/moments.json`: per desk a clipped element after a small «prepare» - click, fill, select, js -, each
+   in its demo state, `states` naming another file of the folder, e.g. `backup-run.json`), black, 1280 px, de/en,
+   seeded greetings, into `shots/<date>-moments/` with `contact-sheet.html/-de.png/-en.png`. Prepare steps stay
+   language-neutral (`Office.t(…)` in a js step, not a German text selector). Neither tests/ nor tools/ go into the plugin package.
 
 ## Layout
 

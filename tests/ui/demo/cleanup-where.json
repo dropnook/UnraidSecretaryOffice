@@ -231,9 +231,9 @@
     {
      "kind": "vm",
      "name": "Home-Assistant",
-     "path": "/mnt/user/domains/router/vdisks/home-assistant.img",
+     "path": "/mnt/user/domains/Home-Assistant/haos_ova.qcow2",
      "detail": null,
-     "rest": "router/vdisks/home-assistant.img"
+     "rest": "Home-Assistant/haos_ova.qcow2"
     }
    ],
    "backup": "local"
@@ -839,8 +839,8 @@
    "folders": [
     {
      "name": "router",
-     "path": "/mnt/user/domains/router",
-     "real": "/mnt/cache/domains/router",
+     "path": "/mnt/user/domains/Home-Assistant",
+     "real": "/mnt/cache/domains/Home-Assistant",
      "dataset": null,
      "size": null,
      "modified": 1791548576,
@@ -848,19 +848,7 @@
       {
        "kind": "vm",
        "name": "Home-Assistant",
-       "path": "/mnt/user/domains/router/vdisks/home-assistant.img",
-       "detail": null
-      },
-      {
-       "kind": "vm",
-       "name": "Windows-11",
-       "path": "/mnt/user/domains/router/vdisks/windows-11.img",
-       "detail": null
-      },
-      {
-       "kind": "vm",
-       "name": "Ubuntu-Test",
-       "path": "/mnt/user/domains/router/vdisks/ubuntu-test.img",
+       "path": "/mnt/user/domains/Home-Assistant/haos_ova.qcow2",
        "detail": null
       }
      ]
