@@ -1136,7 +1136,7 @@
   "setup.preset.done": "Réglage par défaut « {name} » pour tout — change chaque ligne comme tu veux, puis applique.",
   "setup.preset.done_new": "Réglage par défaut « {name} » pour le nouveau — tes réglages restent ; Appliquer l'enregistre.",
   "setup.preset.local_new_text": "Tout ce qui est nouveau a des snapshots locaux et son paquet — une nouvelle app est arrêtée pour le snapshot comme les autres, une nouvelle VM suspendue. Ce qui part hors site reste tel quel.",
-  "setup.preset.kopia_new_text": "Tout ce qui est nouveau va en local et aussi hors site — sauf un nouveau partage de plus de 500 Go ou de taille inconnue : celui-là t'attend.",
+  "setup.preset.kopia_new_text": "Tout ce qui est nouveau va en local et aussi hors site — sauf un nouveau partage de plus de 500 Go ou de taille inconnue : celui-là attend ta décision.",
   "setup.preset.scope_all": "Appliquer à tout maintenant",
   "setup.preset.scope_all_hint": "Chaque partage, app et VM le reçoit — tes choix dans ce brouillon partent. Ce qui arrive plus tard le reçoit aussi.",
   "setup.preset.scope_new": "Seulement à ce qui est nouveau — mes réglages restent",

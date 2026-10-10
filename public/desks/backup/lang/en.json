@@ -1115,7 +1115,7 @@
   "setup.preset.done": "Default «{name}» for everything — change any row you like, then apply.",
   "setup.preset.done_new": "Default «{name}» for what is new — your settings stay; Apply stores it.",
   "setup.preset.local_new_text": "Whatever is new gets local snapshots and its package — a new app is stopped for the snapshot like any other, a new VM held. What goes offsite stays as it is.",
-  "setup.preset.kopia_new_text": "Whatever is new goes locally and offsite as well — except a new share over 500 GB or of unknown size: that one waits for you.",
+  "setup.preset.kopia_new_text": "Whatever is new goes locally and offsite as well — except a new share over 500 GB or of unknown size: that one waits for your decision.",
   "setup.preset.scope_all": "Apply to everything now",
   "setup.preset.scope_all_hint": "Every share, app and VM gets it — your choices in this draft go. Whatever comes later gets it too.",
   "setup.preset.scope_new": "Only to what is new — my settings stay",

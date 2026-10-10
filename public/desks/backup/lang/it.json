@@ -1121,7 +1121,7 @@
   "setup.preset.done": "Impostazione predefinita «{name}» per tutto — cambia ogni riga come vuoi, poi applica.",
   "setup.preset.done_new": "Impostazione predefinita «{name}» per il nuovo — le tue impostazioni restano; Applica la salva.",
   "setup.preset.local_new_text": "Tutto ciò che è nuovo ha snapshot locali e il suo pacchetto — una nuova app viene fermata per lo snapshot come le altre, una nuova VM trattenuta. Ciò che va fuori sede resta com'è.",
-  "setup.preset.kopia_new_text": "Tutto ciò che è nuovo va in locale e anche fuori sede — tranne una nuova condivisione oltre 500 GB o di dimensione sconosciuta: quella aspetta te.",
+  "setup.preset.kopia_new_text": "Tutto ciò che è nuovo va in locale e anche fuori sede — tranne una nuova condivisione oltre 500 GB o di dimensione sconosciuta: quella aspetta la tua decisione.",
   "setup.preset.scope_all": "Applica a tutto adesso",
   "setup.preset.scope_all_hint": "Ogni condivisione, app e VM la riceve — le tue scelte in questa bozza se ne vanno. Anche ciò che arriva dopo la riceve.",
   "setup.preset.scope_new": "Solo a ciò che è nuovo — le mie impostazioni restano",

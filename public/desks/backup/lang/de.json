@@ -1115,7 +1115,7 @@
   "setup.preset.done": "Vorgabe «{name}» für alles — ändere jede Zeile, wie du willst, dann übernehmen.",
   "setup.preset.done_new": "Vorgabe «{name}» für Neues — deine Einstellungen bleiben; Übernehmen speichert sie.",
   "setup.preset.local_new_text": "Alles Neue bekommt lokale Snapshots und sein Paket — eine neue App wird für den Snapshot gestoppt wie jede andere, eine neue VM angehalten. Was ausser Haus geht, bleibt, wie es ist.",
-  "setup.preset.kopia_new_text": "Alles Neue geht lokal und zusätzlich ausser Haus — ausser ein neuer Share über 500 GB oder unbekannter Grösse: der wartet auf dich.",
+  "setup.preset.kopia_new_text": "Alles Neue geht lokal und zusätzlich ausser Haus — ausser ein neuer Share über 500 GB oder unbekannter Grösse: der wartet auf deine Entscheidung.",
   "setup.preset.scope_all": "Auf alles anwenden",
   "setup.preset.scope_all_hint": "Jeder Share, jede App und jede VM bekommt sie — deine Auswahl in diesem Entwurf geht. Was später dazukommt, bekommt sie auch.",
   "setup.preset.scope_new": "Nur auf Neues — meine Einstellungen bleiben",

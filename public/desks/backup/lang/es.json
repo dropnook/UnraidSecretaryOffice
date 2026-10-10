@@ -1136,7 +1136,7 @@
   "setup.preset.done": "Ajuste predeterminado «{name}» para todo — cambia cada fila como quieras y luego aplica.",
   "setup.preset.done_new": "Ajuste predeterminado «{name}» para lo nuevo — tus ajustes se quedan; Aplicar lo guarda.",
   "setup.preset.local_new_text": "Todo lo nuevo tiene instantáneas locales y su paquete — una app nueva se detiene para la instantánea como las demás, una VM nueva se retiene. Lo que sale fuera de casa se queda como está.",
-  "setup.preset.kopia_new_text": "Todo lo nuevo va en local y además fuera de casa — salvo un recurso compartido nuevo de más de 500 GB o de tamaño desconocido: ese te espera.",
+  "setup.preset.kopia_new_text": "Todo lo nuevo va en local y además fuera de casa — salvo un recurso compartido nuevo de más de 500 GB o de tamaño desconocido: ese espera tu decisión.",
   "setup.preset.scope_all": "Aplicar a todo ahora",
   "setup.preset.scope_all_hint": "Cada recurso compartido, app y VM lo recibe — tus elecciones en este borrador se van. Lo que llegue después también lo recibe.",
   "setup.preset.scope_new": "Solo a lo nuevo — mis ajustes se quedan",
