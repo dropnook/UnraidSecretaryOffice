@@ -48,8 +48,8 @@ const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose
 const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾', drill: '🧪', volume: '🗄️' };
 const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
-const ROOM_ITEMS = 120;     // the search's items from her rooms (and WHERE_ITEMS from «Where is what»): 200 together
-const WHERE_ITEMS = 80;
+const ROOM_ITEMS = 120;     // the search's items from her rooms (WHERE_ITEMS come from «Where is what», a part of its own)
+const WHERE_ITEMS = 200;    // «Where is what» is a part of its own: its own 200 in the search (2026-10-10: her field went)
 
 let state = null;
 let lookedAgain = false;      // looked again this visit because Mr. Restori finished something since her last look
@@ -269,15 +269,8 @@ function build(root) {
   v.scanBtn.append(el('span', 'spin'), T('scan'));
   v.scanBtn.title = T('scan_title');
   v.scanBtn.onclick = () => tour();
-  v.search = el('input', 'search');
-  v.search.type = 'search';
-  v.search.placeholder = T('search');
-  v.search.autocomplete = 'off';
-  v.search.spellcheck = false;
-  v.search.value = query;
-  v.search.style.minWidth = '220px';
-  v.search.dataset.keep = '1';          // built once: typing here never holds up a new look (core.js calm())
-  v.search.oninput = () => setQuery(v.search.value);
+  // no search field of her own any more (Benj 2026-10-10): the office's search finds her rooms' items and «Where is what»;
+  // the page's filter `query` is still set by her findings' links (pick()) and shown with its «clear» above the rooms
   // wake the sleeping disks for this tour — off unless switched on, never remembered
   v.wakeLabel = el('label', 'switch clw-wake');
   v.wake = el('input');
@@ -285,7 +278,7 @@ function build(root) {
   v.wakeText = el('span', '', T('where.wake'));
   v.wakeLabel.append(v.wake, v.wakeText);
   v.wakeLabel.title = T('where.wake_title');
-  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.search, v.wakeLabel, v.scanBtn] });
+  const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon }, { actions: [v.wakeLabel, v.scanBtn] });
   v.bubble = head.bubble;
   root.appendChild(head.head);
   root.appendChild(Office.pageHelp(ID, [
@@ -347,7 +340,6 @@ function part(title, sub) {
 function setQuery(text) {
   query = text;
   if (!view) return;
-  if (view.search.value !== text) view.search.value = text;
   // what the filter hides is no longer chosen: nothing is put away that isn't in sight
   for (const e of entries(section)) if (selection.has(e.id) && !matches(e)) selection.delete(e.id);
   filterMark();
@@ -357,12 +349,10 @@ function setQuery(text) {
 }
 
 
-/** A set filter is hard to miss: red frame on the field, a warning above the rooms */
+/** A set filter is hard to miss: a warning above the rooms, with its «clear» */
 function filterMark() {
   if (!view) return;
   const on = words().length > 0;
-  view.search.classList.toggle('cl-filter-on', on);
-  view.search.title = on ? T('filter_on_short') : '';
   view.filterNote.hidden = !on;
   view.filterNote.innerHTML = '';
   if (!on) return;
@@ -3484,6 +3474,9 @@ function plugins(body) {
 function items(s) {
   if (!s || !Array.isArray(s.shares)) return [];
   const out = [];
+  s.shares.forEach((x) => out.push({ text: x.name, sub: x.storage ? `${T('where.section.shares')} · ${storageText(x.storage)}` : T('where.section.shares'),
+    route: `#/${ID}/where/shares`, anchor: 'share:' + x.name,
+    words: [x.comment, x.storage && x.storage.exclusive ? 'exclusive ' + T('where.exclusive') : '', x.smb && x.smb.timemachine_limit ? 'Time Machine' : ''].filter(Boolean).join(' ') }));
   (s.containers || []).forEach((c) => out.push({ text: c.name, sub: `${T('where.section.docker')} · ${c.state === 'running' ? T('where.state.running') : c.state}`,
     route: `#/${ID}/where/docker`, anchor: 'container:' + c.name, words: c.image }));
   const order = ['Parity', 'Data', 'Cache', 'Boot', 'Unassigned'];

@@ -16970,7 +16970,7 @@ function testSearchItems(): void
             'settings' => ['instances' => [['servername' => 'Wohnzimmer', 'url' => 'http://192.168.1.2:8096', 'api_key' => '0123456789abcdef0123456789abcdef']]],
             'shares' => [['share' => 'movies', 'fit' => 'ok']], 'history' => [['tool' => 'embycache', 'mode' => 'run', 'started' => 900, 'result' => 'ok', 'by' => 'schedule']]],
     ];
-    $parts = ['cleanup/where' => ['time' => 1000, 'shares' => [],
+    $parts = ['cleanup/where' => ['time' => 1000, 'shares' => [['name' => 'Media', 'comment' => '', 'storage' => ['primary' => 'cache', 'secondary' => null, 'exclusive' => true], 'smb' => ['timemachine_limit' => 0]]],
         'folders' => [['share' => 'appdata', 'appdata' => true, 'base' => '/mnt/user/appdata', 'folders' => [['name' => 'plex', 'real' => '/mnt/cache/appdata/plex', 'path' => '/mnt/user/appdata/plex', 'used_by' => []]]]],
         'containers' => [['name' => 'plex', 'image' => 'lscr.io/linuxserver/plex', 'state' => 'running', 'networks' => [], 'ports' => [], 'mounts' => [['source' => '/mnt/user/appdata/plex', 'dest' => '/config']], 'managed' => 'template']],
         'health' => ['devices' => [['name' => 'Disk 1', 'device' => 'sdb', 'type' => 'Data', 'roles' => [], 'serial' => 'WD-WX12345678']]]]];
@@ -17188,10 +17188,13 @@ JS);
         [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['snapshot'] ?? []));
     $c = $r['items']['cleanup'] ?? [];
-    check('search items cleanup: what she would clear away (capped at 120), not what is in use; «Where is what»: containers, disks, appdata folders',
-        count($c) === 120 + 3 && in_array('item:tpl:my-plex.xml', $anchors('cleanup'), true) && in_array('item:ad:oldapp', $anchors('cleanup'), true)
+    check('search items cleanup: what she would clear away (capped at 120), not what is in use; «Where is what»: shares, containers, disks, appdata folders',
+        count($c) === 120 + 4 && in_array('share:Media', $anchors('cleanup'), true) && in_array('item:tpl:my-plex.xml', $anchors('cleanup'), true) && in_array('item:ad:oldapp', $anchors('cleanup'), true)
         && !in_array('item:ad:plex', $anchors('cleanup'), true) && in_array('container:plex', $anchors('cleanup'), true) && in_array('disk:sdb', $anchors('cleanup'), true)
         && in_array('folder:/mnt/cache/appdata/plex', $anchors('cleanup'), true), json_encode([count($c), array_slice($anchors('cleanup'), -4)]));
+    $media = array_values(array_filter($c, fn ($e) => $e['anchor'] === 'share:Media'))[0] ?? [];
+    same('search items cleanup: … a share into «Where is what»\'s shares, found by «exclusive» too (her own field went, 2026-10-10)',
+        ['#/cleanup/where/shares', true], [$media['route'] ?? null, str_contains(strtolower(json_encode($media)), 'exclusive')]);
     same('search items logs: every log by its name, each into her reader', [['Syslog', '#/logs/read/syslog'], ['Container plex', '#/logs/read/container%3Aplex'],
         ['Mr. Backupsy: latest run', '#/logs/read/backup%3Alatest']], array_map(fn ($e) => [$e['label'], $e['route']], $r['items']['logs'] ?? []));
     same('search items advisor: each external he knows as he finds it now (one he doesn\'t know: none)', ['ext.kopia', 'ext.fcp', 'ext.grafana', 'ext.syslogserver'], $anchors('advisor'));
