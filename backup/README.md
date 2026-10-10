@@ -376,7 +376,7 @@ The retention also leaves alone every other pool and disk that sleeps at plan ti
 
 Never left out: **the backup place's pool** — the packages and dumps are the point of the run; if it sleeps, the run wakes it as always and says so in the log (`asleep.woken`) — and the pool of the engine's own data folder (the run's log is written there). Packages and dumps are not affected otherwise. The inventory's list of the datasets (one `zfs list` of the filesystems, the pools' mounted metadata) stays as before.
 
-Said where you look: the log has one line per pool («ZFS hive: asleep - left out this run (asleep_pools = skip)»), `status.json` (and `last-run.json`, `history.jsonl`) carries `asleep` — `mode`, `pools`, `shares`, `units` (how many shares), `vms`, `containers`, `sources`, `woken`, `nights` — `state/last-run` a line `asleep=<shares>`, and the notification's summary «…, 3 shares asleep (left out)». With `wake` `asleep` is `null`.
+Said where you look: the log has one line per pool («ZFS hazel: asleep - left out this run (asleep_pools = skip)»), `status.json` (and `last-run.json`, `history.jsonl`) carries `asleep` — `mode`, `pools`, `shares`, `units` (how many shares), `vms`, `containers`, `sources`, `woken`, `nights` — `state/last-run` a line `asleep=<shares>`, and the notification's summary «…, 3 shares asleep (left out)». With `wake` `asleep` is `null`.
 
 **A share that is never awake at night** would never be backed up — and nobody would know. So `state/asleep.json` counts per share the nights in a row it was left out (two runs on one day count once); the `UB_ASLEEP_NIGHTS`-th night (7) warns, once per stretch (the run ends «with warnings», the text names the share and the nights, code `asleep_long`); a night the share is snapshotted — every night with `wake` — takes it out of the file. A dry run counts no night.
 
@@ -533,7 +533,7 @@ Since 2.21 every real backup run notes in `state/pruned.json` which snapshots it
 ```json
 {"interface": 1, "version": "2.21", "updated": 1791328000,
  "runs": [{"run": "20261007-0100", "time": 1791328000,
-           "zfs": ["master/appdata@uso-backup-20260930-0100"], "btrfs": ["/mnt/disk4/.btrfs-snap/20260929-0100"]}]}
+           "zfs": ["maple/appdata@uso-backup-20260930-0100"], "btrfs": ["/mnt/disk4/.btrfs-snap/20260929-0100"]}]}
 ```
 
 `runs` newest last, one entry per real run that reached its cleanup (empty lists when it removed nothing); the last 30 runs, none older than 30 days (`UB_PRUNED_RUNS`, `UB_PRUNED_DAYS`). Per run at most 1000 names per list (`UB_PRUNED_CAP`), what is left out counted in `zfs_more` / `btrfs_more`. Written as a new file + `mv`, in the root-only state folder. Only what the engine destroyed is listed — its own snapshots, exactly matched (never anything else).

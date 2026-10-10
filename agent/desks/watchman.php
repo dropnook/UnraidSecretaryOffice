@@ -1234,7 +1234,7 @@ function watchmanBootLine(array &$book, array $st, string $boot, ?int $btime, in
     return ['server_boot'];
 }
 
-/** Who had logged in around an array stop or start, in names: "root@192.168.7.125 (WebGUI)" … or – */
+/** Who had logged in around an array stop or start, in names: "root@192.168.20.125 (WebGUI)" … or – */
 function watchmanArrayWho(array $logins): string
 {
     $out = [];

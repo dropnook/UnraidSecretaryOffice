@@ -2647,7 +2647,7 @@ plan_write() {
         'map(.name as $n | .partner = ($ids[$n] // []) | .partner_ok = ($pu["vm:" + $n].ok // false)
              | .partner_why = (if ($pu["vm:" + $n].ok // false) then null else ($pu["vm:" + $n].why // "no_dataset") end))' <<<"${vms:-[]}")" || vms="[]"
     # what sleeps right now (2.28: disks.ini, read once - nothing woken): per share and VM its pools and disks asleep,
-    # so the office can say «hive sleeps now» beside the choice asleep_pools
+    # so the office can say «hazel sleeps now» beside the choice asleep_pools
     ub_asleep_load
     shares="$(jq -c --argjson a "$(for s in "${SH[@]}"; do printf '%s\x1f%s\n' "$s" "$(share_asleep_now "$s" | paste -sd' ')"; done | us_json name bases \
             | jq -c 'map(select(.name != "") | {key: .name, value: (.bases | split(" ") | map(select(length > 0)))}) | from_entries')" \

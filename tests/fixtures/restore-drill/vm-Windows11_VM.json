@@ -10,12 +10,12 @@
     {
       "target": "hdc",
       "source": "/mnt/user/domains/Windows11_VM/vdisk2.S20260801195224qcow2",
-      "base": "master",
+      "base": "maple",
       "fs": "zfs",
-      "dataset": "master/domains/Windows11_VM",
+      "dataset": "maple/domains/Windows11_VM",
       "share": "domains",
       "bytes": 257454899200,
-      "snapshot": "master/domains/Windows11_VM@uso-backup-20261007-1052"
+      "snapshot": "maple/domains/Windows11_VM@uso-backup-20261007-1052"
     }
   ],
   "files": [

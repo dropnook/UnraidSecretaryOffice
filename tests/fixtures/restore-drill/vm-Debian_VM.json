@@ -10,12 +10,12 @@
     {
       "target": "hdc",
       "source": "/mnt/user/domains/Debian_VM/vdisk1.img",
-      "base": "master",
+      "base": "maple",
       "fs": "zfs",
-      "dataset": "master/domains",
+      "dataset": "maple/domains",
       "share": "domains",
       "bytes": 107374182400,
-      "snapshot": "master/domains@uso-backup-20261007-1052"
+      "snapshot": "maple/domains@uso-backup-20261007-1052"
     }
   ],
   "files": [

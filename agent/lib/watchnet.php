@@ -188,7 +188,7 @@ function watchnetSleeping(array $disks): array
 /**
  * The disks and pools that never spin down: every disk of it an SSD (rotational 0) or with ⟦Spin down delay⟧ «Never»
  * (spindownDelay 0; -1 = the default, var.ini's spindownDelay). A pool is the slot with a file system (fsType) and the
- * slots named like it with a number (master, master2 — as baseAsleep() groups them); an array disk is itself. Name => true.
+ * slots named like it with a number (maple, maple2 — as baseAsleep() groups them); an array disk is itself. Name => true.
  */
 function watchnetAlwaysOn(array $disks, int $defaultDelay): array
 {

@@ -3615,7 +3615,7 @@ partner_state_set() { # partner_state_set <file> <jq filter with $v> <value as J
 # [general] asleep_pools: wake (the default, as before) = a pool whose disks sleep is woken by its snapshot;
 # skip = backup.sh leaves it out of that night's run - the office's own desks never wake a sleeping pool, the
 # engine offers the same choice. Unraid notes in disks.ini which disks are spun down (spundown="1"); a pool
-# sleeps when ANY of its disks does (hive, hive2 ...), an array disk is just itself. disks.ini is read once
+# sleeps when ANY of its disks does (hazel, hazel2 ...), an array disk is just itself. disks.ini is read once
 # (ub_asleep_load) - never a disk touched to find out: no zfs list or zfs get on such a pool, no look into it.
 # backup.sh decides it once, when the run makes its plan (asleep_plan) - before anything is stopped, so VMs
 # and apps whose data sleeps are neither prepared nor stopped for nothing:

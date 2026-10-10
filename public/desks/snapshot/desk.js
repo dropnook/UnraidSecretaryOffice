@@ -571,7 +571,7 @@ function vmCard(part) {
 }
 
 // ------------------------------------------------------------------ filters
-function dockerParent() { return state?.zfs?.docker_parent || 'master/system'; }
+function dockerParent() { return state?.zfs?.docker_parent || 'cache/system'; }
 
 function dockerSwitch() {
   const n = snaps.filter((s) => s.docker).length;

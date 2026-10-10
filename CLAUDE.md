@@ -387,7 +387,7 @@ installed plugin (see the checklist).
   `pinit general|asleep_pools wake`, asked with the snapshots, written only when skip or settings.ini had it (`ORIG_ASLEEP_SET` - `_apply_P` makes
   CFG the proposals); the plan carries `asleep_pools`, `asleep_nights`, per share/VM `pool_asleep` + `asleep_bases` (`share_asleep_now`,
   `vm_asleep_now`). The office: `backupAsleepRun()` / `backupKopiaSkipped()` (agent/desks/backup.php). Tests: `testBackupAsleep` (fixture like
-  `testBackupArrayStop`: master awake, hive asleep), `testBackupAsleepOffice`.
+  `testBackupArrayStop`: maple awake, hazel asleep), `testBackupAsleepOffice`.
 * **One run at a time, never lost silently (engine 2.20):** `state/lock` (flock) is held by
   backup.sh, setup.sh and Mr. Restori's restores; whoever takes it opens it with `>>` (never
   truncating), `touch`es it and writes `state/lock-holder.json` (`holder`, `mode`, `what`, `run`,
@@ -1067,7 +1067,7 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 
 * **Which disk a file is on:** `getfattr -n system.LOCATION` (Python
   `os.getxattr`) on a `/mnt/user/…` or `/mnt/user0/…` path gives `disk2`,
-  `master` … (`system.LOCATIONS`: all of them) — no look at other disks.
+  `maple` … (`system.LOCATIONS`: all of them) — no look at other disks.
 * A share's split level is `shareSplitLevel` in `/boot/config/shares/<share>.cfg`
   ("top level only": files go to the disk where their folder already exists,
   even an empty one — Jack Emby keeps such folders as signposts).
@@ -1099,7 +1099,7 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   its inodes `(st_dev << 48) | st_ino` of the file behind (ZFS and btrfs, on two test servers: 11258999068426506 =
   0x28 << 48 | 266) — `flockHeld()` looks for both. The lock itself still works through shfs (FUSE hands it down).
 
-* **shfs across pools (7.3.2, tried on drop: hive + mother):** a `rename()` through `/mnt/user/<share>/…` renames the folder
+* **shfs across pools (7.3.2, tried on drop: hazel + moss):** a `rename()` through `/mnt/user/<share>/…` renames the folder
   on every pool and disk that has it (no copy) — put aside and put back work for a folder spread over two pools; a folder made
   through /mnt/user lands on the share's primary storage; for a name on two parts shfs shows the primary's
   (`system.LOCATION`); hard links, owners and user xattrs survive an `rsync -aHX` into /mnt/user. A ZFS dataset of its own is

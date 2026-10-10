@@ -569,7 +569,7 @@ function peopleText(vu) {
 }
 
 /**
- * What lies where (#8): «disk2 1.8 TB · disk5 0.4 TB · master 120 GB · measured …» from the gather's last numbers for
+ * What lies where (#8): «disk2 1.8 TB · disk5 0.4 TB · maple 120 GB · measured …» from the gather's last numbers for
  * this share (its index — any run that covered it, or «Measure sizes…»), and ZFS's own count of the share's dataset
  * right now. An older agent's state has neither: nothing shown but «not measured yet».
  */

@@ -47,7 +47,7 @@ MOVER_PIDFILE = "/var/run/mover.pid"
 
 # Alle Config-Schlüssel mit Default. Unbekannte Schlüssel werden ignoriert, fehlende ergänzt.
 DEFAULTS = {
-    "cache_path": "/mnt/cache",          # Pool, auf den gecacht wird (z.B. /mnt/cache oder /mnt/master)
+    "cache_path": "/mnt/cache",          # Pool, auf den gecacht wird (z.B. /mnt/cache oder /mnt/maple)
     "array_path": "/mnt/user0",          # Array-Sicht ohne Pools (FUSE)
     "user_path": "/mnt/user",            # Zusammengeführte Sicht (Emby sieht diese Pfade)
     "array_disks_glob": "/mnt/disk[0-9]*",  # Echte Array-Disks (nur für array_source = disk)

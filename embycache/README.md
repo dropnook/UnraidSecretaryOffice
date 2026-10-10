@@ -95,7 +95,7 @@ Alle Pfade sind relativ zum **Script-Verzeichnis**, nicht zum Arbeitsverzeichnis
 
 ```jsonc
 {
-    "cache_path": "/mnt/cache",            // Pool, auf den gecacht wird (z.B. /mnt/master)
+    "cache_path": "/mnt/cache",            // Pool, auf den gecacht wird (z.B. /mnt/maple)
     "array_path": "/mnt/user0",            // Array-Sicht ohne Pools
     "user_path": "/mnt/user",              // Sicht, die Emby gemountet hat
     "array_disks_glob": "/mnt/disk[0-9]*", // echte Array-Disks (nur für array_source: disk)
@@ -104,7 +104,7 @@ Alle Pfade sind relativ zum **Script-Verzeichnis**, nicht zum Arbeitsverzeichnis
     "instances": [
         {
             "servername": "Tower",
-            "url": "http://192.168.7.10:8096",
+            "url": "http://192.168.20.10:8096",
             "api_key": "…",
             "path_mappings": {                 // Docker-Pfad -> Host-Pfad, nur gecachte Bibliotheken
                 "/media/Filme":  "/mnt/user/Filme",

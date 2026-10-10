@@ -8,7 +8,7 @@
 > * `CONSOLIDATE_CONFIG`: where the ini is (default: next to the script).
 > * `CONSOLIDATE_STATUS`: a JSON file with the result (mode, counters, exit code).
 > * The status carries `sizes` (V11.4): per share and disk/pool the bytes and files the index saw
->   (`{"Filme": {"disk2": {"bytes": n, "files": n}, "master": {…}}}`, cache/pool roots included; no
+>   (`{"Filme": {"disk2": {"bytes": n, "files": n}, "maple": {…}}}`, cache/pool roots included; no
 >   extra disk reads), kept up to date by a real run's moves and deletions, and `sizes_at` (when those
 >   numbers were true: after the index in a dry run, the end of a real one). Missing when the run ended
 >   before its index. Jack shows them on his page.

@@ -220,31 +220,31 @@ function testRetention(): void
     $mk = fn (string $ds, string $name) => ['id' => "zfs:$ds@$name", 'fs' => 'zfs', 'ds' => $ds, 'vol' => "zfs:$ds", 'name' => $name, 'docker' => false];
     $all = [];
     for ($h = 0; $h < 30; $h++) {
-        $all[] = $mk('master/appdata', snapPlanName('hourly', $now - $h * 3600));
-        $all[] = $mk('master/appdata/immich', snapPlanName('hourly', $now - $h * 3600));
+        $all[] = $mk('maple/appdata', snapPlanName('hourly', $now - $h * 3600));
+        $all[] = $mk('maple/appdata/immich', snapPlanName('hourly', $now - $h * 3600));
     }
     // others that must never go
-    $all[] = $mk('master/appdata', 'unraidbackup-20261003-0200');
-    $all[] = $mk('master/appdata', 'auto-hourly2-20261001-0100');
-    $all[] = $mk('master/appdata', 'manuell-20261001-0100');
-    $all[] = $mk('master/other', snapPlanName('hourly', $now - 99 * 3600));
+    $all[] = $mk('maple/appdata', 'unraidbackup-20261003-0200');
+    $all[] = $mk('maple/appdata', 'auto-hourly2-20261001-0100');
+    $all[] = $mk('maple/appdata', 'manuell-20261001-0100');
+    $all[] = $mk('maple/other', snapPlanName('hourly', $now - 99 * 3600));
     $all[] = ['id' => 'btrfs:/mnt/disk1/.btrfs-snap/20261001-0100', 'fs' => 'btrfs', 'ds' => '/mnt/disk1', 'vol' => 'btrfs:/mnt/disk1', 'name' => '20261001-0100', 'docker' => false];
 
     $plan = ['id' => 'hourly', 'keep' => 24, 'max_days' => 0, 'recursive' => true];
-    $doomed = snapPlanDoomed($plan, ['zfs:master/appdata'], $all, $now);
+    $doomed = snapPlanDoomed($plan, ['zfs:maple/appdata'], $all, $now);
     same('retention keep 24 recursive', 12, count($doomed));
-    $foreign = array_filter($doomed, fn ($id) => !preg_match('/@uso-plan-hourly-\d{8}-\d{4}$/', $id) || str_contains($id, 'master/other'));
+    $foreign = array_filter($doomed, fn ($id) => !preg_match('/@uso-plan-hourly-\d{8}-\d{4}$/', $id) || str_contains($id, 'maple/other'));
     same('retention never touches other snapshots', [], array_values($foreign));
     $plan['recursive'] = false;
-    same('retention keep 24 not recursive', 6, count(snapPlanDoomed($plan, ['zfs:master/appdata'], $all, $now)));
+    same('retention keep 24 not recursive', 6, count(snapPlanDoomed($plan, ['zfs:maple/appdata'], $all, $now)));
     $plan['keep'] = 100;
     $plan['max_days'] = 1;
-    same('retention max 1 day', 5, count(snapPlanDoomed($plan, ['zfs:master/appdata'], $all, $now)));
+    same('retention max 1 day', 5, count(snapPlanDoomed($plan, ['zfs:maple/appdata'], $all, $now)));
     $plan['keep'] = 1;
     $plan['max_days'] = 0;
-    $one = snapPlanDoomed($plan, ['zfs:master/appdata'], $all, $now);
+    $one = snapPlanDoomed($plan, ['zfs:maple/appdata'], $all, $now);
     same('retention keep 1', 29, count($one));
-    check('retention keeps the newest', !in_array('zfs:master/appdata@' . snapPlanName('hourly', $now), $one, true));
+    check('retention keeps the newest', !in_array('zfs:maple/appdata@' . snapPlanName('hourly', $now), $one, true));
     check('plan name matches its pattern', (bool) preg_match(snapPlanPattern('hourly'), snapPlanName('hourly', $now)));
     check('pattern ignores a similar plan', !preg_match(snapPlanPattern('hourly'), 'auto-hourly2-20261001-0100'));
     check('pattern ignores a similar plan (new name)', !preg_match(snapPlanPattern('hourly'), 'uso-plan-hourly2-20261001-0100'));
@@ -281,9 +281,9 @@ function testPlanGone(): void
     };
     $last = fn () => $calls()[count($calls()) - 1] ?? [];
 
-    // the server as the plan sees it (what the stand-ins answer): datasets on hive, and whether mother/drop still exists
+    // the server as the plan sees it (what the stand-ins answer): datasets on hazel, and whether moss/drop still exists
     $vol = fn (string $ds) => ['id' => "zfs:$ds", 'fs' => 'zfs', 'pool' => explode('/', $ds)[0], 'name' => $ds, 'mount' => "/mnt/$ds"];
-    $volumes = [$vol('hive/appdata'), $vol('hive/system')];
+    $volumes = [$vol('hazel/appdata'), $vol('hazel/system')];
     $taken = [];
     $fail = [];
     $host = [
@@ -298,75 +298,75 @@ function testPlanGone(): void
         'delete' => fn (array $ids): array => ['deleted' => [], 'failures' => []],
     ];
     $base = ['recursive' => false, 'cron' => '0 * * * *', 'keep' => 24, 'max_days' => 0, 'skip_asleep' => false, 'enabled' => true, 'since' => 1];
-    $three = ['id' => 'three', 'label' => 'Three places', 'targets' => ['zfs:hive/appdata', 'zfs:hive/system', 'zfs:mother/drop']] + $base;
-    $drop = ['id' => 'drop', 'label' => 'Only drop', 'targets' => ['zfs:mother/drop']] + $base;
+    $three = ['id' => 'three', 'label' => 'Three places', 'targets' => ['zfs:hazel/appdata', 'zfs:hazel/system', 'zfs:moss/drop']] + $base;
+    $drop = ['id' => 'drop', 'label' => 'Only drop', 'targets' => ['zfs:moss/drop']] + $base;
     $t0 = strtotime('2026-10-07 14:00:00');
 
     // sorting the targets: what exists is taken, what sleeps is skipped only when the plan says so, the rest is gone
     $scan = $host['scan']();
     same('gone: targets sorted — take, skipped, gone (and which of the taken ones sleep: the create wakes them, as the plan says)',
-        ['take' => ['zfs:hive/appdata', 'zfs:hive/system'], 'skipped' => [], 'gone' => ['zfs:mother/drop'], 'wake' => ['zfs:hive/appdata', 'zfs:hive/system']],
-        snapPlanTargets($three, $scan, ['hive' => true]));
-    same('gone: a sleeping pool is skipped when the plan says so', ['take' => [], 'skipped' => ['zfs:hive/appdata', 'zfs:hive/system'], 'gone' => ['zfs:mother/drop'], 'wake' => []],
-        snapPlanTargets(['skip_asleep' => true] + $three, $scan, ['hive' => true]));
+        ['take' => ['zfs:hazel/appdata', 'zfs:hazel/system'], 'skipped' => [], 'gone' => ['zfs:moss/drop'], 'wake' => ['zfs:hazel/appdata', 'zfs:hazel/system']],
+        snapPlanTargets($three, $scan, ['hazel' => true]));
+    same('gone: a sleeping pool is skipped when the plan says so', ['take' => [], 'skipped' => ['zfs:hazel/appdata', 'zfs:hazel/system'], 'gone' => ['zfs:moss/drop'], 'wake' => []],
+        snapPlanTargets(['skip_asleep' => true] + $three, $scan, ['hazel' => true]));
     same('gone: remembered with its first time, a further one is new, one back is forgotten',
         ['gone' => ['zfs:a' => 100, 'zfs:c' => 500], 'new' => ['zfs:c']], snapPlanGone(['zfs:a' => 100, 'zfs:b' => 200], ['zfs:a', 'zfs:c'], 500));
     same('gone: junk in the state file is not a gone target', ['zfs:x' => 7], snapPlanGoneOf(['gone' => ['zfs:x' => 7, 'zfs:y' => 'junk', '' => 3, 5 => 6]]));
 
     // a run with one target gone: the others are taken, no failure, remembered, told once
     $st = snapPlanRun($three, $t0, $host);
-    same('gone run: takes what exists, ok, no failure', [[['zfs:hive/appdata', 'zfs:hive/system']], 'ok', [], 2], [$taken, $st['result'], $st['detail'], $st['created']]);
-    same('gone run: the gone target remembered with since when', ['zfs:mother/drop' => $t0], $st['gone']);
+    same('gone run: takes what exists, ok, no failure', [[['zfs:hazel/appdata', 'zfs:hazel/system']], 'ok', [], 2], [$taken, $st['result'], $st['detail'], $st['created']]);
+    same('gone run: the gone target remembered with since when', ['zfs:moss/drop' => $t0], $st['gone']);
     $n = $calls();
     same('gone run: told once — a warning naming the schedule and the target, not the failure text',
         [1, 'warning', true, true, false],
-        [count($n), $n[0]['-i'] ?? null, str_contains($n[0]['-s'] ?? '', 'Three places'), str_contains($n[0]['-d'] ?? '', 'mother/drop'), str_contains($n[0]['-d'] ?? '', 'problem(s)')]);
+        [count($n), $n[0]['-i'] ?? null, str_contains($n[0]['-s'] ?? '', 'Three places'), str_contains($n[0]['-d'] ?? '', 'moss/drop'), str_contains($n[0]['-d'] ?? '', 'problem(s)')]);
     check('gone run: the notification leads to her page', str_ends_with($n[0]['-l'] ?? '', '#/snapshot'));
     $st = snapPlanRun($three, $t0 + 3600, $host);
-    same('gone run: the next run says nothing more, the time it was first missed stays', [1, $t0, 'ok', 2], [count($calls()), $st['gone']['zfs:mother/drop'], $st['result'], count($taken)]);
+    same('gone run: the next run says nothing more, the time it was first missed stays', [1, $t0, 'ok', 2], [count($calls()), $st['gone']['zfs:moss/drop'], $st['result'], count($taken)]);
 
     // a further target going gone is told again — naming only the new one
-    $volumes = [$vol('hive/appdata')];
+    $volumes = [$vol('hazel/appdata')];
     $st = snapPlanRun($three, $t0 + 7200, $host);
-    same('gone run: a further target gone — remembered beside the first (in the plan\'s order)', ['zfs:hive/system' => $t0 + 7200, 'zfs:mother/drop' => $t0], $st['gone']);
-    same('gone run: told again, for the new one only', [2, true, false], [count($calls()), str_contains($last()['-d'] ?? '', 'hive/system'), str_contains($last()['-d'] ?? '', 'mother/drop')]);
-    same('gone run: still a snapshot of what exists', ['zfs:hive/appdata'], $taken[count($taken) - 1]);
+    same('gone run: a further target gone — remembered beside the first (in the plan\'s order)', ['zfs:hazel/system' => $t0 + 7200, 'zfs:moss/drop' => $t0], $st['gone']);
+    same('gone run: told again, for the new one only', [2, true, false], [count($calls()), str_contains($last()['-d'] ?? '', 'hazel/system'), str_contains($last()['-d'] ?? '', 'moss/drop')]);
+    same('gone run: still a snapshot of what exists', ['zfs:hazel/appdata'], $taken[count($taken) - 1]);
 
     // the targets come back: forgotten — and told again when one goes once more
-    $volumes = [$vol('hive/appdata'), $vol('hive/system'), $vol('mother/drop')];
+    $volumes = [$vol('hazel/appdata'), $vol('hazel/system'), $vol('moss/drop')];
     $st = snapPlanRun($three, $t0 + 10800, $host);
     same('gone run: targets back — forgotten, all taken, nothing told', [false, 'ok', 3, 2], [array_key_exists('gone', $st), $st['result'], $st['created'], count($calls())]);
-    $volumes = [$vol('hive/appdata'), $vol('hive/system')];
+    $volumes = [$vol('hazel/appdata'), $vol('hazel/system')];
     $st = snapPlanRun($three, $t0 + 14400, $host);
-    same('gone run: gone once more — told again, from now', [3, ['zfs:mother/drop' => $t0 + 14400]], [count($calls()), $st['gone']]);
+    same('gone run: gone once more — told again, from now', [3, ['zfs:moss/drop' => $t0 + 14400]], [count($calls()), $st['gone']]);
 
     // a plan whose only target is gone: creates nothing, result gone, told once
     $before = count($taken);
     $st = snapPlanRun($drop, $t0 + 14400, $host);
-    same('gone run: only gone targets — nothing created, result gone, told once', ['gone', 0, $before, 4, ['zfs:mother/drop' => $t0 + 14400]],
+    same('gone run: only gone targets — nothing created, result gone, told once', ['gone', 0, $before, 4, ['zfs:moss/drop' => $t0 + 14400]],
         [$st['result'], $st['created'], count($taken), count($calls()), $st['gone']]);
     $st = snapPlanRun($drop, $t0 + 18000, $host);
     same('gone run: and quiet from then on', ['gone', 4], [$st['result'], count($calls())]);
 
     // a real failure keeps today's warning — every run
-    $fail = [['key' => 'create_failed', 'params' => ['target' => 'hive', 'detail' => 'zfs refused']]];
+    $fail = [['key' => 'create_failed', 'params' => ['target' => 'hazel', 'detail' => 'zfs refused']]];
     $st = snapPlanRun($three, $t0 + 18000, $host);
-    same('gone run: a real failure is still a failure, warned as before (its problem in the long text)', ['failed', ['create_failed'], 5, true, ['zfs:mother/drop' => $t0 + 14400]],
+    same('gone run: a real failure is still a failure, warned as before (its problem in the long text)', ['failed', ['create_failed'], 5, true, ['zfs:moss/drop' => $t0 + 14400]],
         [$st['result'], array_column($st['detail'], 'key'), count($calls()), str_contains($last()['-m'] ?? '', 'zfs refused') && ($last()['-i'] ?? '') === 'warning', $st['gone']]);
     $fail = [];
 
     // the team lead: one recommended finding per active plan and gone target; a paused plan says nothing; the failed run as before
-    snapPlanSaveAll([$three, $drop, ['id' => 'paused', 'label' => 'Paused', 'targets' => ['zfs:mother/drop'], 'enabled' => false] + $base]);
+    snapPlanSaveAll([$three, $drop, ['id' => 'paused', 'label' => 'Paused', 'targets' => ['zfs:moss/drop'], 'enabled' => false] + $base]);
     $states = snapPlanStates();
-    $states['paused'] = ['last_run' => $t0, 'result' => 'gone', 'gone' => ['zfs:mother/drop' => $t0]];
+    $states['paused'] = ['last_run' => $t0, 'result' => 'gone', 'gone' => ['zfs:moss/drop' => $t0]];
     $findings = array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']], snapPlanFindings(snapPlans(), $states, ['script' => true, 'enabled' => true]));
     same('gone check: the team lead hears of every gone target of an active plan, recommended',
         [['plans_runner', 'required', true, []],
          ['plan_failed', 'recommended', false, ['name' => 'Three places']],
-         ['plan_target_gone', 'recommended', false, ['plan' => 'Three places', 'target' => 'mother/drop']],
-         ['plan_target_gone', 'recommended', false, ['plan' => 'Only drop', 'target' => 'mother/drop']]], $findings);
+         ['plan_target_gone', 'recommended', false, ['plan' => 'Three places', 'target' => 'moss/drop']],
+         ['plan_target_gone', 'recommended', false, ['plan' => 'Only drop', 'target' => 'moss/drop']]], $findings);
     $public = snapPlansPublic($host['scan']());
-    same('gone page: the plan carries what is gone and since when', [['zfs:mother/drop' => $t0 + 14400], ['zfs:mother/drop' => $t0 + 14400], []],
+    same('gone page: the plan carries what is gone and since when', [['zfs:moss/drop' => $t0 + 14400], ['zfs:moss/drop' => $t0 + 14400], []],
         array_column($public['plans'], 'gone'));
 
     // Prometheus: a plan whose every target is gone creates nothing — not ok, counted as failing like failed and partly;
@@ -382,21 +382,21 @@ function testPlanGone(): void
 
     // saving a plan: a target it had that is gone now is dropped (the page can't even show it, so «choose another
     // target» must work without it); one nobody knows that the plan didn't have stays refused; none left = no targets
-    $known = ['zfs:hive/appdata' => true, 'zfs:hive/system' => true];
+    $known = ['zfs:hazel/appdata' => true, 'zfs:hazel/system' => true];
     same('gone save: the gone target the plan had is dropped, the rest kept in the page\'s order',
-        ['targets' => ['zfs:hive/system', 'zfs:hive/appdata'], 'dropped' => ['zfs:mother/drop']],
-        snapPlanSaveTargets(['zfs:hive/system', 'zfs:mother/drop', 'zfs:hive/appdata', 'zfs:hive/system'], $known, $three['targets']));
-    same('gone save: a plan without a gone target is saved as sent', ['targets' => ['zfs:hive/appdata'], 'dropped' => []],
-        snapPlanSaveTargets(['zfs:hive/appdata'], $known, $three['targets']));
-    foreach ([['new plan', []], ['a plan that never had it', ['zfs:hive/appdata']]] as [$case, $before]) {
+        ['targets' => ['zfs:hazel/system', 'zfs:hazel/appdata'], 'dropped' => ['zfs:moss/drop']],
+        snapPlanSaveTargets(['zfs:hazel/system', 'zfs:moss/drop', 'zfs:hazel/appdata', 'zfs:hazel/system'], $known, $three['targets']));
+    same('gone save: a plan without a gone target is saved as sent', ['targets' => ['zfs:hazel/appdata'], 'dropped' => []],
+        snapPlanSaveTargets(['zfs:hazel/appdata'], $known, $three['targets']));
+    foreach ([['new plan', []], ['a plan that never had it', ['zfs:hazel/appdata']]] as [$case, $before]) {
         try {
-            snapPlanSaveTargets(['zfs:hive/appdata', 'zfs:mother/drop'], $known, $before);
+            snapPlanSaveTargets(['zfs:hazel/appdata', 'zfs:moss/drop'], $known, $before);
             check("gone save: an unknown target is refused ($case)", false);
         } catch (Problem $p) {
-            same("gone save: an unknown target is refused ($case)", ['unknown_target', ['target' => 'zfs:mother/drop']], [$p->key, $p->params]);
+            same("gone save: an unknown target is refused ($case)", ['unknown_target', ['target' => 'zfs:moss/drop']], [$p->key, $p->params]);
         }
     }
-    foreach ([['only the gone one', ['zfs:mother/drop']], ['nothing', []], ['junk', [5, null]]] as [$case, $sent]) {
+    foreach ([['only the gone one', ['zfs:moss/drop']], ['nothing', []], ['junk', [5, null]]] as [$case, $sent]) {
         try {
             snapPlanSaveTargets($sent, $known, $drop['targets']);
             check("gone save: no target left is refused ($case)", false);
@@ -405,8 +405,8 @@ function testPlanGone(): void
         }
     }
     foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
-        $text = officeNotifyText('snapshot', 'notify.plan_gone', ['plan' => 'Hourly', 'targets' => 'mother/drop'], $lang);
-        check("gone text ($lang): names the schedule and the target", str_contains($text, 'Hourly') && str_contains($text, 'mother/drop') && !str_contains($text, '{'));
+        $text = officeNotifyText('snapshot', 'notify.plan_gone', ['plan' => 'Hourly', 'targets' => 'moss/drop'], $lang);
+        check("gone text ($lang): names the schedule and the target", str_contains($text, 'Hourly') && str_contains($text, 'moss/drop') && !str_contains($text, '{'));
     }
 
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
@@ -426,14 +426,14 @@ function testSnapPlansTolerant(): void
     $before = [$GLOBALS['snapPlanFile'] ?? null, $GLOBALS['snapPlanStateFile'] ?? null];
     $GLOBALS['snapPlanFile'] = "$tmp/plans.json";
     $GLOBALS['snapPlanStateFile'] = "$tmp/state.json";
-    $old = ['id' => 'nightly', 'targets' => ['zfs:hive/appdata'], 'cron' => '0 3 * * *'];          // keys missing (an older office)
-    $future = ['id' => 'hourly', 'label' => 'Hourly', 'targets' => ['zfs:hive/system'], 'recursive' => true, 'cron' => '0 * * * *', 'keep' => 24,
+    $old = ['id' => 'nightly', 'targets' => ['zfs:hazel/appdata'], 'cron' => '0 3 * * *'];          // keys missing (an older office)
+    $future = ['id' => 'hourly', 'label' => 'Hourly', 'targets' => ['zfs:hazel/system'], 'recursive' => true, 'cron' => '0 * * * *', 'keep' => 24,
                'max_days' => 2, 'skip_asleep' => true, 'enabled' => false, 'since' => 5, 'notify' => ['when' => 'never'], 'colour' => 'blue'];
     $odd = ['label' => 'no id'];
     file_put_contents("$tmp/plans.json", json_encode(['plans' => [$old, $future, $odd, 'x', ['id' => 'Bad Id!']], 'v' => 2]));
     $plans = snapPlans();
     same('snap plans tolerant: only the plans of the office\'s shape, in their order', ['nightly', 'hourly'], array_column($plans, 'id'));
-    same('snap plans tolerant: a plan without keys — every default, of its type', ['id' => 'nightly', 'label' => 'nightly', 'targets' => ['zfs:hive/appdata'],
+    same('snap plans tolerant: a plan without keys — every default, of its type', ['id' => 'nightly', 'label' => 'nightly', 'targets' => ['zfs:hazel/appdata'],
         'recursive' => false, 'cron' => '0 3 * * *', 'keep' => SNAPPLAN_KEEP, 'max_days' => 0, 'skip_asleep' => false, 'enabled' => true, 'since' => 0], $plans[0]);
     same('snap plans tolerant: a plan of a newer office — its keys as they were, the unknown ones kept after them', $future, $plans[1]);
     same('snap plans tolerant: … in that order', ['id', 'label', 'targets', 'recursive', 'cron', 'keep', 'max_days', 'skip_asleep', 'enabled', 'since', 'notify', 'colour'],
@@ -448,7 +448,7 @@ function testSnapPlansTolerant(): void
         cronPrevious($plans[0]['cron'], time()) !== null && $plans[0]['enabled']);
     same('snap plans tolerant: no cron line — never due, no next time', [null, null], [cronPrevious(snapPlanNormal(['id' => 'x'])['cron'], time()),
         cronNext(snapPlanNormal(['id' => 'x'])['cron'], time())]);
-    $snap = fn (string $name, int $at) => ['name' => $name, 'fs' => 'zfs', 'vol' => 'zfs:hive/appdata', 'ds' => 'hive/appdata', 'id' => "zfs:hive/appdata@$name",
+    $snap = fn (string $name, int $at) => ['name' => $name, 'fs' => 'zfs', 'vol' => 'zfs:hazel/appdata', 'ds' => 'hazel/appdata', 'id' => "zfs:hazel/appdata@$name",
         'created' => $at, 'docker' => false];
     $now = 1800000000;
     $all = [];
@@ -456,7 +456,7 @@ function testSnapPlansTolerant(): void
         $all[] = $snap(snapPlanName('nightly', $now - $i * 86400 * 40), $now - $i * 86400 * 40);
     }
     same('snap plans tolerant: retention of a plan without keep / max_days — nothing goes (keep the most, no age limit)', [],
-        snapPlanDoomed($plans[0], ['zfs:hive/appdata'], $all, $now, []));
+        snapPlanDoomed($plans[0], ['zfs:hazel/appdata'], $all, $now, []));
     // written again (a pause, as snapPlanToggle() writes): the unknown keys, the odd entries and the keys beside the list stay
     $plans[1]['enabled'] = true;
     snapPlanSaveAll($plans);
@@ -490,16 +490,16 @@ function testSleepingPools(): void
     $args = "$tmp/zfs-args.txt";
     $ini = function (bool $hiveAsleep) use ($tmp): void {
         $x = $hiveAsleep ? '1' : '0';
-        file_put_contents("$tmp/disks.ini", "[\"master\"]\nname=\"master\"\ntype=\"Cache\"\nfsType=\"luks:zfs\"\nspundown=\"0\"\n[\"master2\"]\nname=\"master2\"\ntype=\"Cache\"\nspundown=\"0\"\n"
-            . "[\"hive\"]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n[\"hive2\"]\nname=\"hive2\"\ntype=\"Cache\"\nspundown=\"$x\"\n"
+        file_put_contents("$tmp/disks.ini", "[\"maple\"]\nname=\"maple\"\ntype=\"Cache\"\nfsType=\"luks:zfs\"\nspundown=\"0\"\n[\"maple2\"]\nname=\"maple2\"\ntype=\"Cache\"\nspundown=\"0\"\n"
+            . "[\"hazel\"]\nname=\"hazel\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n[\"hazel2\"]\nname=\"hazel2\"\ntype=\"Cache\"\nspundown=\"$x\"\n"
             . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nspundown=\"0\"\n[\"flash\"]\nname=\"flash\"\ntype=\"Boot\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
-            . "[\"sulaco\"]\nname=\"sulaco\"\ntype=\"Cache\"\nfsType=\"zfs\"\nrotational=\"0\"\nspundown=\"1\"\n");     // an SSD in standby: never asleep for the office
+            . "[\"spruce\"]\nname=\"spruce\"\ntype=\"Cache\"\nfsType=\"zfs\"\nrotational=\"0\"\nspundown=\"1\"\n");     // an SSD in standby: never asleep for the office
     };
-    file_put_contents("$tmp/zfs-ds.txt", "master\tfilesystem\t1000\t9000\t100\t50\t/mnt/master\nmaster/appdata\tfilesystem\t500\t9000\t400\t100\t/mnt/master/appdata\n"
-        . "hive\tfilesystem\t2000\t8000\t100\t0\t/mnt/hive\nhive/media\tfilesystem\t1500\t8000\t1400\t300\t/mnt/hive/media\nflash\tfilesystem\t10\t90\t10\t0\t/boot\n");
-    file_put_contents("$tmp/zfs-snaps.txt", "master/appdata@a\t11\t1700000000\t10\t400\t5\t0\t-\nmaster/appdata@b\t12\t1700003600\t10\t400\t5\t0\t-\n"
-        . "hive/media@h1\t21\t1700000000\t20\t1400\t0\t0\t-\nhive/media@h2\t22\t1700007200\t20\t1400\t0\t1\t-\nflash/cfg@f\t31\t1700000000\t1\t10\t0\t0\t-\n");
-    file_put_contents("$tmp/zpool.txt", "master\t8000000\t5000000\t3000000\t62\tONLINE\t16\nhive\t60000000\t600000\t59400000\t1\tONLINE\t0\nflash\t100\t10\t90\t10\tONLINE\t1\n");
+    file_put_contents("$tmp/zfs-ds.txt", "maple\tfilesystem\t1000\t9000\t100\t50\t/mnt/maple\nmaple/appdata\tfilesystem\t500\t9000\t400\t100\t/mnt/maple/appdata\n"
+        . "hazel\tfilesystem\t2000\t8000\t100\t0\t/mnt/hazel\nhazel/media\tfilesystem\t1500\t8000\t1400\t300\t/mnt/hazel/media\nflash\tfilesystem\t10\t90\t10\t0\t/boot\n");
+    file_put_contents("$tmp/zfs-snaps.txt", "maple/appdata@a\t11\t1700000000\t10\t400\t5\t0\t-\nmaple/appdata@b\t12\t1700003600\t10\t400\t5\t0\t-\n"
+        . "hazel/media@h1\t21\t1700000000\t20\t1400\t0\t0\t-\nhazel/media@h2\t22\t1700007200\t20\t1400\t0\t1\t-\nflash/cfg@f\t31\t1700000000\t1\t10\t0\t0\t-\n");
+    file_put_contents("$tmp/zpool.txt", "maple\t8000000\t5000000\t3000000\t62\tONLINE\t16\nhazel\t60000000\t600000\t59400000\t1\tONLINE\t0\nflash\t100\t10\t90\t10\tONLINE\t1\n");
     // zfs lists only the pools named after -r (the columns asked for), answers holds with nothing, a dry destroy with a reclaim line
     file_put_contents("$tmp/zfs", "#!/bin/sh\nprintf '%s\\n' \"\$*\" >> " . escapeshellarg($args) . "\ncase \"\$1\" in\n  list)\n    file=snaps; cols=; prev=\n"
         . "    for a in \"\$@\"; do [ \"\$a\" = filesystem,volume ] && file=ds; [ \"\$a\" = filesystem ] && file=ds; [ \"\$prev\" = -o ] && cols=\$a; prev=\$a; done\n"
@@ -521,31 +521,31 @@ function testSleepingPools(): void
 
     // the shared helper: a pool sleeps when any of its disks does; a name disks.ini doesn't know is awake
     $ini(true);
-    same('sleeping pools: sorted by disks.ini — hive sleeps through hive2, master and the boot pool are awake, an unknown pool counts as awake, an SSD pool in standby (spundown=1, rotational=0) is awake',
-        ['awake' => ['master', 'flash', 'ud', 'sulaco'], 'asleep' => ['hive']], poolsBySleep(['master', 'hive', 'flash', 'ud', 'sulaco']));
+    same('sleeping pools: sorted by disks.ini — hazel sleeps through hazel2, maple and the boot pool are awake, an unknown pool counts as awake, an SSD pool in standby (spundown=1, rotational=0) is awake',
+        ['awake' => ['maple', 'flash', 'ud', 'spruce'], 'asleep' => ['hazel']], poolsBySleep(['maple', 'hazel', 'flash', 'ud', 'spruce']));
     same('sleeping disks: diskAsleep — spun down and rotating; rotational missing counts as rotating; an SSD never', [true, true, false, false],
         [diskAsleep(['spundown' => '1', 'rotational' => '1']), diskAsleep(['spundown' => '1']), diskAsleep(['spundown' => '1', 'rotational' => '0']), diskAsleep(['spundown' => '0', 'rotational' => '1'])]);
 
-    // Ms. Snapshotini, nothing known yet and hive asleep: zfs is asked for master and flash only; hive is there, asleep, never looked at
+    // Ms. Snapshotini, nothing known yet and hazel asleep: zfs is asked for maple and flash only; hazel is there, asleep, never looked at
     $z = snapshotReadZfs(null, false);
-    same('Snapshotini: zfs asked for the awake pools only (datasets and snapshots)', ['list -r master flash', 'list -r master flash'], $asked());
+    same('Snapshotini: zfs asked for the awake pools only (datasets and snapshots)', ['list -r maple flash', 'list -r maple flash'], $asked());
     same('Snapshotini: the sleeping pool is listed as asleep, never looked at, without snapshots; the others as before',
-        [[['master', false, 2], ['hive', true, 0], ['flash', false, 1]], ['hive'], null, 'zfs:master/appdata@a', 'zfs:master/appdata@b', 'zfs:flash/cfg@f'],
+        [[['maple', false, 2], ['hazel', true, 0], ['flash', false, 1]], ['hazel'], null, 'zfs:maple/appdata@a', 'zfs:maple/appdata@b', 'zfs:flash/cfg@f'],
         [$poolsOf($z), $z['asleep'], $z['pools'][1]['looked'], ...array_column($z['snapshots'], 'id')]);
-    same('Snapshotini: no dataset of the sleeping pool either', ['zfs:master', 'zfs:master/appdata', 'zfs:flash'], array_column($z['volumes'], 'id'));
+    same('Snapshotini: no dataset of the sleeping pool either', ['zfs:maple', 'zfs:maple/appdata', 'zfs:flash'], array_column($z['volumes'], 'id'));
     check('Snapshotini: the awake pools carry when they were looked at', is_int($z['pools'][0]['looked']) && $z['pools'][0]['looked'] > 0);
 
-    // hive awake: everything listed; then asleep again — hive keeps what she saw, marked asleep with when that was; nothing asked of it
+    // hazel awake: everything listed; then asleep again — hazel keeps what she saw, marked asleep with when that was; nothing asked of it
     $ini(false);
     $all = ['time' => 1700000000, 'zfs' => snapshotReadZfs(null, false)];
-    same('Snapshotini: all pools awake — all listed', [['list -r master hive flash', 'list -r master hive flash', 'holds -H hive/media@h2'], [['master', false, 2], ['hive', false, 2], ['flash', false, 1]]],
+    same('Snapshotini: all pools awake — all listed', [['list -r maple hazel flash', 'list -r maple hazel flash', 'holds -H hazel/media@h2'], [['maple', false, 2], ['hazel', false, 2], ['flash', false, 1]]],
         [$asked(), $poolsOf($all['zfs'])]);
     $ini(true);
     $z = snapshotReadZfs($all, false);
-    same('Snapshotini: hive asleep again — zfs asked for master and flash only, hive keeps its list as last seen, each snapshot marked',
-        [['list -r master flash', 'list -r master flash'], [['master', false, 2], ['hive', true, 2], ['flash', false, 1]],
-         ['zfs:master/appdata@a', 'zfs:master/appdata@b', 'zfs:flash/cfg@f', 'zfs:hive/media@h1 (asleep)', 'zfs:hive/media@h2 (asleep)'],
-         ['zfs:master', 'zfs:master/appdata', 'zfs:flash', 'zfs:hive (asleep)', 'zfs:hive/media (asleep)']],
+    same('Snapshotini: hazel asleep again — zfs asked for maple and flash only, hazel keeps its list as last seen, each snapshot marked',
+        [['list -r maple flash', 'list -r maple flash'], [['maple', false, 2], ['hazel', true, 2], ['flash', false, 1]],
+         ['zfs:maple/appdata@a', 'zfs:maple/appdata@b', 'zfs:flash/cfg@f', 'zfs:hazel/media@h1 (asleep)', 'zfs:hazel/media@h2 (asleep)'],
+         ['zfs:maple', 'zfs:maple/appdata', 'zfs:flash', 'zfs:hazel (asleep)', 'zfs:hazel/media (asleep)']],
         [$asked(), $poolsOf($z), $names($z['snapshots']), $names($z['volumes'])]);
     same('Snapshotini: the sleeping pool says when it was last looked at, and keeps what its snapshots held', [$all['zfs']['pools'][1]['looked'], 300],
         [$z['pools'][1]['looked'], $z['pools'][1]['snapused']]);
@@ -554,77 +554,77 @@ function testSleepingPools(): void
     same('Snapshotini: a state from before (no `looked` yet) — the scan\'s time stands in', 1700000000, snapshotReadZfs($old, false)['pools'][1]['looked']);
     $asked();
     $z2 = snapshotReadZfs($z, true);
-    same('Snapshotini: «wake» — the sleeping pool is listed too, nothing is asleep any more', [['list -r master hive flash', 'list -r master hive flash', 'holds -H hive/media@h2'], [['master', false, 2], ['hive', false, 2], ['flash', false, 1]], []],
+    same('Snapshotini: «wake» — the sleeping pool is listed too, nothing is asleep any more', [['list -r maple hazel flash', 'list -r maple hazel flash', 'holds -H hazel/media@h2'], [['maple', false, 2], ['hazel', false, 2], ['flash', false, 1]], []],
         [$asked(), $poolsOf($z2), $z2['asleep']]);
-    same('Snapshotini: the names of the pools asleep, for the log', ['hive'], snapshotPoolsAsleep(['zfs' => $z]));
+    same('Snapshotini: the names of the pools asleep, for the log', ['hazel'], snapshotPoolsAsleep(['zfs' => $z]));
 
     // her actions: the estimate leaves a sleeping pool's snapshot out (counted), delete/rename/hold refuse it without «wake»
     $GLOBALS['snapshot'] = ['zfs' => $z, 'btrfs' => ['devices' => [], 'snapshots' => []], 'vm' => ['snapshots' => []]];
-    $e = snapshotEstimate(['zfs:master/appdata@a', 'zfs:hive/media@h1', 'zfs:nobody@x']);
+    $e = snapshotEstimate(['zfs:maple/appdata@a', 'zfs:hazel/media@h1', 'zfs:nobody@x']);
     same('Snapshotini: the estimate asks zfs only about the awake pool\'s snapshot, counts the sleeping one',
-        [['destroy -nvp master/appdata@a'], 1000, 1, 0], [$asked(), $e['bytes'], $e['asleep'], $e['unknown']]);
+        [['destroy -nvp maple/appdata@a'], 1000, 1, 0], [$asked(), $e['bytes'], $e['asleep'], $e['unknown']]);
     $index = snapshotIndex($GLOBALS['snapshot']);
     try {
-        snapshotRefuseAsleep($index['zfs:hive/media@h1']);
+        snapshotRefuseAsleep($index['zfs:hazel/media@h1']);
         check('Snapshotini: a snapshot on a sleeping pool is refused', false);
     } catch (Problem $p) {
-        same('Snapshotini: a snapshot on a sleeping pool is refused — naming it and its pool', ['pool_asleep', ['name' => 'hive/media@h1', 'pool' => 'hive']], [$p->key, $p->params]);
+        same('Snapshotini: a snapshot on a sleeping pool is refused — naming it and its pool', ['pool_asleep', ['name' => 'hazel/media@h1', 'pool' => 'hazel']], [$p->key, $p->params]);
     }
-    snapshotRefuseAsleep($index['zfs:master/appdata@a']);
+    snapshotRefuseAsleep($index['zfs:maple/appdata@a']);
     check('Snapshotini: one on an awake pool passes', true);
     $GLOBALS['snapshot'] = null;
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/snapshot/lang/en.json'), true) ?: [];
     check('Snapshotini: the page can say it', isset($en['errors.pool_asleep'], $en['pool_asleep_chip'], $en['delete.wake'], $en['rename.wake'], $en['wake_for.confirm']));
 
     // her plans: a target on a sleeping pool that was never listed is asleep (skipped when the plan says so, else taken with a wake), not gone
-    $state = ['zfs' => ['pools' => [['name' => 'hive', 'asleep' => true]], 'volumes' => []], 'btrfs' => ['devices' => []]];
-    $plan = ['targets' => ['zfs:hive/appdata', 'zfs:gone/x'], 'skip_asleep' => true];
-    same('plans: a target on a sleeping, never listed pool is skipped, not gone', ['take' => [], 'skipped' => ['zfs:hive/appdata'], 'gone' => ['zfs:gone/x'], 'wake' => []],
-        snapPlanTargets($plan, $state, ['hive' => false, 'hive2' => true]));
-    same('plans: … and taken with a wake when the plan takes sleeping targets', ['take' => ['zfs:hive/appdata'], 'skipped' => [], 'gone' => ['zfs:gone/x'], 'wake' => ['zfs:hive/appdata']],
-        snapPlanTargets(['skip_asleep' => false] + $plan, $state, ['hive' => false, 'hive2' => true]));
-    same('plans: on an awake pool a target nobody lists is gone', ['take' => [], 'skipped' => [], 'gone' => ['zfs:hive/appdata', 'zfs:gone/x'], 'wake' => []],
-        snapPlanTargets($plan, $state, ['hive' => false, 'hive2' => false]));
+    $state = ['zfs' => ['pools' => [['name' => 'hazel', 'asleep' => true]], 'volumes' => []], 'btrfs' => ['devices' => []]];
+    $plan = ['targets' => ['zfs:hazel/appdata', 'zfs:gone/x'], 'skip_asleep' => true];
+    same('plans: a target on a sleeping, never listed pool is skipped, not gone', ['take' => [], 'skipped' => ['zfs:hazel/appdata'], 'gone' => ['zfs:gone/x'], 'wake' => []],
+        snapPlanTargets($plan, $state, ['hazel' => false, 'hazel2' => true]));
+    same('plans: … and taken with a wake when the plan takes sleeping targets', ['take' => ['zfs:hazel/appdata'], 'skipped' => [], 'gone' => ['zfs:gone/x'], 'wake' => ['zfs:hazel/appdata']],
+        snapPlanTargets(['skip_asleep' => false] + $plan, $state, ['hazel' => false, 'hazel2' => true]));
+    same('plans: on an awake pool a target nobody lists is gone', ['take' => [], 'skipped' => [], 'gone' => ['zfs:hazel/appdata', 'zfs:gone/x'], 'wake' => []],
+        snapPlanTargets($plan, $state, ['hazel' => false, 'hazel2' => false]));
 
     // Mr. Restori: his look lists the awake pools only; a sleeping pool keeps its list in his file, rsLocate names what he last saw
-    $GLOBALS['rs']['fs'] = ['master' => 'zfs', 'hive' => 'zfs', 'disk1' => 'btrfs'];
+    $GLOBALS['rs']['fs'] = ['maple' => 'zfs', 'hazel' => 'zfs', 'disk1' => 'btrfs'];
     $GLOBALS['rs']['zfs_bin'] = "$tmp/zfs";
     $GLOBALS['rs']['kept_file'] = "$tmp/restore-zfs.json";
     $ini(true);
     $ctx = rsContext([]);
     same('Restori: zfs asked for the awake pool only, the sleeping one named, never looked at yet',
-        [['list -r master', 'list -r master'], ['/mnt/master' => 'master', '/mnt/master/appdata' => 'master/appdata'], ['master/appdata'], ['hive' => null], null],
-        [$asked(), $ctx['zfs'], array_keys($ctx['snaps']), $ctx['pools_asleep'], rsKeptLook('/mnt/hive/media/x', 'hive', $ctx)]);
+        [['list -r maple', 'list -r maple'], ['/mnt/maple' => 'maple', '/mnt/maple/appdata' => 'maple/appdata'], ['maple/appdata'], ['hazel' => null], null],
+        [$asked(), $ctx['zfs'], array_keys($ctx['snaps']), $ctx['pools_asleep'], rsKeptLook('/mnt/hazel/media/x', 'hazel', $ctx)]);
     $ini(false);
     $ctx = rsContext([]);
     rsKeptWrite($ctx['zfs_kept']);
-    same('Restori: all awake — both listed, his file keeps both', [['list -r master hive', 'list -r master hive'], ['master', 'hive'], []],
+    same('Restori: all awake — both listed, his file keeps both', [['list -r maple hazel', 'list -r maple hazel'], ['maple', 'hazel'], []],
         [$asked(), array_keys((readJson("$tmp/restore-zfs.json") ?? [])['pools'] ?? []), $ctx['pools_asleep']]);
     $ini(true);
     $ctx = rsContext([]);
-    $kept = rsKeptLook('/mnt/hive/media/films', 'hive', $ctx);
-    same('Restori: hive asleep again — only master live; hive as last seen from his file: the dataset holding the path, its snapshots then, as of when',
-        [['list -r master', 'list -r master'], ['master/appdata'], true, ['hive/media', 2, 1700007200], true, ['hive', 0], 'master'],
-        [$asked(), array_keys($ctx['snaps']), is_int($ctx['pools_asleep']['hive'] ?? null), [$kept['dataset'], $kept['count'], $kept['newest']], $kept['looked'] === $ctx['pools_asleep']['hive'],
-         [rsKeptLook('/mnt/hive/other', 'hive', $ctx)['dataset'], rsKeptLook('/mnt/hive/other', 'hive', $ctx)['count']], rsKeptLook('/mnt/master/x', 'master', $ctx)['dataset'] ?? null]);
+    $kept = rsKeptLook('/mnt/hazel/media/films', 'hazel', $ctx);
+    same('Restori: hazel asleep again — only maple live; hazel as last seen from his file: the dataset holding the path, its snapshots then, as of when',
+        [['list -r maple', 'list -r maple'], ['maple/appdata'], true, ['hazel/media', 2, 1700007200], true, ['hazel', 0], 'maple'],
+        [$asked(), array_keys($ctx['snaps']), is_int($ctx['pools_asleep']['hazel'] ?? null), [$kept['dataset'], $kept['count'], $kept['newest']], $kept['looked'] === $ctx['pools_asleep']['hazel'],
+         [rsKeptLook('/mnt/hazel/other', 'hazel', $ctx)['dataset'], rsKeptLook('/mnt/hazel/other', 'hazel', $ctx)['count']], rsKeptLook('/mnt/maple/x', 'maple', $ctx)['dataset'] ?? null]);
     // «wake» ticked and the pool answered (rsWake marks its disks awake): listed fresh into the live lists
     foreach (array_keys($ctx['asleep']) as $n) {
         $ctx['asleep'][$n] = false;
     }
-    rsContextZfs($ctx, ['hive']);
-    same('Restori: after a wake the pool is listed into the live lists', [['list -r hive', 'list -r hive'], ['master/appdata', 'hive/media'], 'hive/media', []],
-        [$asked(), array_keys($ctx['snaps']), $ctx['zfs']['/mnt/hive/media'] ?? null, $ctx['pools_asleep']]);
+    rsContextZfs($ctx, ['hazel']);
+    same('Restori: after a wake the pool is listed into the live lists', [['list -r hazel', 'list -r hazel'], ['maple/appdata', 'hazel/media'], 'hazel/media', []],
+        [$asked(), array_keys($ctx['snaps']), $ctx['zfs']['/mnt/hazel/media'] ?? null, $ctx['pools_asleep']]);
     // his file is trusted only in his shape
-    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hive' => ['looked' => 'soon', 'mounts' => ['/etc' => 'hive/x', '/mnt/hive' => 'other/ds', '/mnt/hive/ok' => 'hive/ok'], 'snaps' => ['hive/ok' => [['a', 1], ['b', 'x'], 'junk']]]]]));
+    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hazel' => ['looked' => 'soon', 'mounts' => ['/etc' => 'hazel/x', '/mnt/hazel' => 'other/ds', '/mnt/hazel/ok' => 'hazel/ok'], 'snaps' => ['hazel/ok' => [['a', 1], ['b', 'x'], 'junk']]]]]));
     $ctx = rsContext([]);
     $asked();
-    same('Restori: junk in his file is left out, an odd `looked` means never looked (nothing said of the pool then)', [null, ['hive/ok' => [['a', 1]]], ['/mnt/hive/ok' => 'hive/ok'], null],
-        [$ctx['pools_asleep']['hive'], $ctx['zfs_kept']['hive']['snaps'], $ctx['zfs_kept']['hive']['mounts'], rsKeptLook('/mnt/hive/ok', 'hive', $ctx)]);
-    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hive' => ['looked' => 1700000500, 'mounts' => ['/etc' => 'hive/x', '/mnt/hive' => 'other/ds', '/mnt/hive/ok' => 'hive/ok'], 'snaps' => ['hive/ok' => [['a', 1], ['b', 'x'], 'junk'], 'other/ds' => [['c', 2]]]]]]));
+    same('Restori: junk in his file is left out, an odd `looked` means never looked (nothing said of the pool then)', [null, ['hazel/ok' => [['a', 1]]], ['/mnt/hazel/ok' => 'hazel/ok'], null],
+        [$ctx['pools_asleep']['hazel'], $ctx['zfs_kept']['hazel']['snaps'], $ctx['zfs_kept']['hazel']['mounts'], rsKeptLook('/mnt/hazel/ok', 'hazel', $ctx)]);
+    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => ['hazel' => ['looked' => 1700000500, 'mounts' => ['/etc' => 'hazel/x', '/mnt/hazel' => 'other/ds', '/mnt/hazel/ok' => 'hazel/ok'], 'snaps' => ['hazel/ok' => [['a', 1], ['b', 'x'], 'junk'], 'other/ds' => [['c', 2]]]]]]));
     $ctx = rsContext([]);
     $asked();
-    same('Restori: only mounts under /mnt of that pool and well-formed snapshots are taken', [['/mnt/hive/ok' => 'hive/ok'], ['hive/ok' => [['a', 1]]], ['dataset' => 'hive/ok', 'count' => 1, 'newest' => 1, 'looked' => 1700000500]],
-        [$ctx['zfs_kept']['hive']['mounts'], $ctx['zfs_kept']['hive']['snaps'], rsKeptLook('/mnt/hive/ok/sub', 'hive', $ctx)]);
+    same('Restori: only mounts under /mnt of that pool and well-formed snapshots are taken', [['/mnt/hazel/ok' => 'hazel/ok'], ['hazel/ok' => [['a', 1]]], ['dataset' => 'hazel/ok', 'count' => 1, 'newest' => 1, 'looked' => 1700000500]],
+        [$ctx['zfs_kept']['hazel']['mounts'], $ctx['zfs_kept']['hazel']['snaps'], rsKeptLook('/mnt/hazel/ok/sub', 'hazel', $ctx)]);
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true) ?: [];
     check('Restori: the page can say it', isset($en['snaps.kept'], $en['snaps.kept_hint']));
 
@@ -676,25 +676,25 @@ function testSnapshotNames(): void
     // Ms. Snapshotini's retention: old and new names are one series; the engine's names are refused
     $now = strtotime('2026-10-06 12:00:00');
     $mk = fn (string $ds, string $name) => ['id' => "zfs:$ds@$name", 'fs' => 'zfs', 'ds' => $ds, 'vol' => "zfs:$ds", 'name' => $name, 'docker' => false];
-    $all = [$mk('mother/drop', 'auto-backup-20261006-0700'), $mk('mother/drop', 'auto-backup-20261006-0800'), $mk('mother/drop', 'auto-backup-20261006-0900'),
-            $mk('mother/drop', 'uso-plan-backup-20261006-1000'), $mk('mother/drop', 'uso-plan-backup-20261006-1100'), $mk('mother/drop', 'uso-plan-backup-20261006-1200'),
-            $mk('mother/drop', 'uso-backup-20261006-0100'), $mk('mother/drop', 'unraidbackup-20261005-2142'), $mk('mother/drop', 'uso-plan-backup-20261006-0100-x'),
-            $mk('mother/drop', 'uso-plan-backups-20261006-0100')];
+    $all = [$mk('moss/drop', 'auto-backup-20261006-0700'), $mk('moss/drop', 'auto-backup-20261006-0800'), $mk('moss/drop', 'auto-backup-20261006-0900'),
+            $mk('moss/drop', 'uso-plan-backup-20261006-1000'), $mk('moss/drop', 'uso-plan-backup-20261006-1100'), $mk('moss/drop', 'uso-plan-backup-20261006-1200'),
+            $mk('moss/drop', 'uso-backup-20261006-0100'), $mk('moss/drop', 'unraidbackup-20261005-2142'), $mk('moss/drop', 'uso-plan-backup-20261006-0100-x'),
+            $mk('moss/drop', 'uso-plan-backups-20261006-0100')];
     $plan = ['id' => 'backup', 'keep' => 3, 'max_days' => 0, 'recursive' => false];
     same('plan retention: old auto- and new uso-plan- names are one series, the oldest go',
-        ['zfs:mother/drop@auto-backup-20261006-0900', 'zfs:mother/drop@auto-backup-20261006-0800', 'zfs:mother/drop@auto-backup-20261006-0700'],
-        snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, $both));
+        ['zfs:moss/drop@auto-backup-20261006-0900', 'zfs:moss/drop@auto-backup-20261006-0800', 'zfs:moss/drop@auto-backup-20261006-0700'],
+        snapPlanDoomed($plan, ['zfs:moss/drop'], $all, $now, $both));
     $plan['keep'] = 1;
-    $doomed = snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, $both);
+    $doomed = snapPlanDoomed($plan, ['zfs:moss/drop'], $all, $now, $both);
     same('plan retention: keep 1 - only the plan\'s, never the engine\'s or look-alikes', 5, count($doomed));
-    check('plan retention: the newest stays', !in_array('zfs:mother/drop@uso-plan-backup-20261006-1200', $doomed, true));
+    check('plan retention: the newest stays', !in_array('zfs:moss/drop@uso-plan-backup-20261006-1200', $doomed, true));
     same('plan retention: what matches the engine\'s (own) prefix is refused, even when it looks like a plan\'s - the rest is the series',
-        ['zfs:mother/drop@auto-backup-20261006-0800', 'zfs:mother/drop@auto-backup-20261006-0700'],
-        snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, ['uso-plan-backup-']));
-    same('plan retention: the same for an old auto- look-alike', ['zfs:mother/drop@uso-plan-backup-20261006-1100', 'zfs:mother/drop@uso-plan-backup-20261006-1000'],
-        snapPlanDoomed($plan, ['zfs:mother/drop'], $all, $now, ['auto-backup-']));
-    $engineOnly = [$mk('mother/drop', 'uso-backup-20261006-0100'), $mk('mother/drop', 'unraidbackup-20261005-2142'), $mk('mother/drop', 'unraidbackup-20261005-1637')];
-    same('plan retention: a plan "backup" never takes the engine\'s snapshots', [], snapPlanDoomed($plan, ['zfs:mother/drop'], $engineOnly, $now, $both));
+        ['zfs:moss/drop@auto-backup-20261006-0800', 'zfs:moss/drop@auto-backup-20261006-0700'],
+        snapPlanDoomed($plan, ['zfs:moss/drop'], $all, $now, ['uso-plan-backup-']));
+    same('plan retention: the same for an old auto- look-alike', ['zfs:moss/drop@uso-plan-backup-20261006-1100', 'zfs:moss/drop@uso-plan-backup-20261006-1000'],
+        snapPlanDoomed($plan, ['zfs:moss/drop'], $all, $now, ['auto-backup-']));
+    $engineOnly = [$mk('moss/drop', 'uso-backup-20261006-0100'), $mk('moss/drop', 'unraidbackup-20261005-2142'), $mk('moss/drop', 'unraidbackup-20261005-1637')];
+    same('plan retention: a plan "backup" never takes the engine\'s snapshots', [], snapPlanDoomed($plan, ['zfs:moss/drop'], $engineOnly, $now, $both));
 
     // the engine (bash): the same rule
     $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
@@ -763,7 +763,7 @@ function testSnapshotNames(): void
  */
 function testSnapshotIds(): void
 {
-    $good = ['zfs:cache/appdata@uso-backup-20261006-0100', 'zfs:t@x', 'zfs:mother/My Files@auto-backup-20261006-0700',
+    $good = ['zfs:cache/appdata@uso-backup-20261006-0100', 'zfs:t@x', 'zfs:moss/My Files@auto-backup-20261006-0700',
              'zfs:cache/appdata@a..b', 'zfs:cache/system/docker/0f1e2d3c4b5a@123456', 'zfs:pool.a/ds:x/d-s_1@snap.1:2',
              'btrfs:/mnt/disk1/.btrfs-snap/20261006-0100', 'btrfs:/mnt/cache/appdata/.snap/My snap', 'btrfs:/mnt/disk1/..x',
              'vm:Windows 11/Snap 1', 'vm:HA/S20261006', 'vm:Ubuntü (test)/before update'];
@@ -815,25 +815,25 @@ function testEmby(): void
         check("not an emby server: $i", !embyIsServerImage($i));
     }
 
-    // does a share suit EmbyCache with the pool "master"?
-    foreach ([['ok', ['shareUseCache' => 'yes', 'shareCachePool' => 'master']],
-              ['no_array', ['shareUseCache' => 'yes', 'shareCachePool' => 'hive', 'shareCachePool2' => 'ripley']],
+    // does a share suit EmbyCache with the pool "maple"?
+    foreach ([['ok', ['shareUseCache' => 'yes', 'shareCachePool' => 'maple']],
+              ['no_array', ['shareUseCache' => 'yes', 'shareCachePool' => 'hazel', 'shareCachePool2' => 'rowan']],
               ['other_pool', ['shareUseCache' => 'yes', 'shareCachePool' => 'cache']],
               ['array_only', ['shareUseCache' => 'no']],
-              ['pool_only', ['shareUseCache' => 'prefer', 'shareCachePool' => 'master']],
-              ['pool_only', ['shareUseCache' => 'only', 'shareCachePool' => 'master']]] as [$want, $cfg]) {
-        same('emby share fit: ' . json_encode($cfg), $want, embyShareFit($cfg, 'master'));
+              ['pool_only', ['shareUseCache' => 'prefer', 'shareCachePool' => 'maple']],
+              ['pool_only', ['shareUseCache' => 'only', 'shareCachePool' => 'maple']]] as [$want, $cfg]) {
+        same('emby share fit: ' . json_encode($cfg), $want, embyShareFit($cfg, 'maple'));
     }
 
     // the gather's consolidate.ini: bash sources it, so every value is quoted and checked
     $ini = embyGatherIni(['shares' => ['Filme', 'Meine Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'],
-        ['/mnt/master', '/mnt/disk1', '/mnt/user0', '/mnt/bad pool'], "/x/it's/consolidate.log", '/x/embycache_exclude.txt');
+        ['/mnt/maple', '/mnt/disk1', '/mnt/user0', '/mnt/bad pool'], "/x/it's/consolidate.log", '/x/embycache_exclude.txt');
     check('gather ini: shares quoted', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Meine Filme')\n"));
-    same('gather ini: only real pools as cache', 1, preg_match("/^CACHE_PATTERN='\\/mnt\\/master'$/m", $ini));
+    same('gather ini: only real pools as cache', 1, preg_match("/^CACHE_PATTERN='\\/mnt\\/maple'$/m", $ini));
     check('gather ini: the cache left alone (a gather.json from before #14), always dry by default',
         str_contains($ini, "MOVE_CACHE=false\n") && str_contains($ini, "CACHE_ONLY_TARGET='skip'\n") && str_contains($ini, "DRYRUN=true\n"), $ini);
     $base = ['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'];
-    $cacheIni = fn (array $more) => embyGatherIni($base + $more, ['/mnt/master'], '/l', '/e');
+    $cacheIni = fn (array $more) => embyGatherIni($base + $more, ['/mnt/maple'], '/l', '/e');
     same('gather ini: the cache switch (#14) — off/skip, on/skip, on/most-free',
         [["MOVE_CACHE=false", "CACHE_ONLY_TARGET='skip'"], ["MOVE_CACHE=true", "CACHE_ONLY_TARGET='skip'"], ["MOVE_CACHE=true", "CACHE_ONLY_TARGET='most-free'"]],
         array_map(fn ($m) => array_values(preg_grep('/^(MOVE_CACHE|CACHE_ONLY_TARGET)=/', explode("\n", $cacheIni($m)))),
@@ -1163,16 +1163,16 @@ function testEmbySizes(): void
 
     // ZFS's live count: one zfs list per awake ZFS pool of the shares; never a sleeping pool, never btrfs, never an array-only share
     $asked = [];
-    $zfs = function (string $pool) use (&$asked): string { $asked[] = $pool; return "master\t100\nmaster/Filme\t5000\nmaster/Other\t1\nmaster/Serien\tx\n"; };
-    $mounts = [['mount' => '/mnt/master', 'fs' => 'zfs', 'source' => 'master'], ['mount' => '/mnt/hive', 'fs' => 'zfs', 'source' => 'hive'],
+    $zfs = function (string $pool) use (&$asked): string { $asked[] = $pool; return "maple\t100\nmaple/Filme\t5000\nmaple/Other\t1\nmaple/Serien\tx\n"; };
+    $mounts = [['mount' => '/mnt/maple', 'fs' => 'zfs', 'source' => 'maple'], ['mount' => '/mnt/hazel', 'fs' => 'zfs', 'source' => 'hazel'],
                ['mount' => '/mnt/bt', 'fs' => 'btrfs', 'source' => '/dev/sdx1'], ['mount' => '/mnt/disk1', 'fs' => 'zfs', 'source' => 'disk1']];
-    $rows = [['share' => 'Filme', 'use' => 'yes', 'primary' => 'master', 'secondary' => ''], ['share' => 'Serien', 'use' => 'yes', 'primary' => 'master', 'secondary' => 'hive'],
-             ['share' => 'Musik', 'use' => 'no', 'primary' => 'master', 'secondary' => ''], ['share' => 'Doku', 'use' => 'prefer', 'primary' => 'bt', 'secondary' => '']];
-    same('sizes live: ZFS used of <pool>/<share> on awake pools — one look per pool', [['Filme' => [['pool' => 'master', 'used' => 5000]]], ['master']],
-        [embyShareLive($rows, $mounts, ['hive1' => true, 'master1' => false], $zfs), $asked]);
+    $rows = [['share' => 'Filme', 'use' => 'yes', 'primary' => 'maple', 'secondary' => ''], ['share' => 'Serien', 'use' => 'yes', 'primary' => 'maple', 'secondary' => 'hazel'],
+             ['share' => 'Musik', 'use' => 'no', 'primary' => 'maple', 'secondary' => ''], ['share' => 'Doku', 'use' => 'prefer', 'primary' => 'bt', 'secondary' => '']];
+    same('sizes live: ZFS used of <pool>/<share> on awake pools — one look per pool', [['Filme' => [['pool' => 'maple', 'used' => 5000]]], ['maple']],
+        [embyShareLive($rows, $mounts, ['hazel1' => true, 'maple1' => false], $zfs), $asked]);
     $asked = [];
-    same('sizes live: a pool asleep — not asked (the other pool of a share is)', [[], ['hive']], [embyShareLive($rows, $mounts, ['master1' => true], $zfs), $asked]);
-    $sized = embySharesSized([['share' => 'Filme'], ['share' => 'Musik']], $kept, ['Filme' => [['pool' => 'master', 'used' => 5000]]]);
+    same('sizes live: a pool asleep — not asked (the other pool of a share is)', [[], ['hazel']], [embyShareLive($rows, $mounts, ['maple1' => true], $zfs), $asked]);
+    $sized = embySharesSized([['share' => 'Filme'], ['share' => 'Musik']], $kept, ['Filme' => [['pool' => 'maple', 'used' => 5000]]]);
     same('sizes on the share rows', [3, 5000, null, []], [count($sized[0]['sizes']['roots'] ?? []), $sized[0]['live'][0]['used'] ?? null, $sized[1]['sizes'], $sized[1]['live']]);
 
     // the measurement: a dry run over the libraries' shares (those that exist), its own ini — consolidate.ini stays
@@ -1192,12 +1192,12 @@ function testEmbySizes(): void
         hardeningRm($tmp);
         return;
     }
-    $state = ['settings' => ['cache_path' => '/mnt/master'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]], 'shares' => [
-        ['share' => 'Filme', 'fit' => 'ok', 'use' => 'yes', 'primary' => 'master', 'secondary' => '', 'include' => 'disk2,disk5', 'root' => true,
+    $state = ['settings' => ['cache_path' => '/mnt/maple'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]], 'shares' => [
+        ['share' => 'Filme', 'fit' => 'ok', 'use' => 'yes', 'primary' => 'maple', 'secondary' => '', 'include' => 'disk2,disk5', 'root' => true,
          'sizes' => ['at' => 1791500000, 'mode' => 'dry', 'roots' => [['name' => 'disk2', 'bytes' => 1800, 'files' => 10], ['name' => 'disk5', 'bytes' => 400, 'files' => 3],
-                                                                    ['name' => 'master', 'bytes' => 120, 'files' => 2]]],
-         'live' => [['pool' => 'master', 'used' => 125]]],
-        ['share' => 'Serien', 'fit' => 'ok', 'use' => 'yes', 'primary' => 'master', 'secondary' => '', 'include' => '', 'root' => true,
+                                                                    ['name' => 'maple', 'bytes' => 120, 'files' => 2]]],
+         'live' => [['pool' => 'maple', 'used' => 125]]],
+        ['share' => 'Serien', 'fit' => 'ok', 'use' => 'yes', 'primary' => 'maple', 'secondary' => '', 'include' => '', 'root' => true,
          'sizes' => ['at' => 1791400000, 'mode' => 'measure', 'roots' => []], 'live' => []],
         ['share' => 'Doku', 'fit' => 'array_only', 'use' => 'no', 'primary' => '', 'secondary' => '', 'include' => '', 'root' => true]]];
     file_put_contents("$tmp/state.json", json_encode($state));
@@ -1232,8 +1232,8 @@ JS);
     $raw = (string) shell_exec($cmd);
     $r = json_decode($raw, true);
     same('sizes on his page: biggest first with the date, ZFS\'s chip; measured empty; an older state: «not measured yet»', [
-        ['disk2 1800B · disk5 400B · master 120B', '@sizes_tip', 'sizes_at {"date":"D1791500000"}', 'sizes_live {"pool":"master","size":"125B"}',
-         '@sizes_live_tip {"share":"Filme","pool":"master"}'],
+        ['disk2 1800B · disk5 400B · maple 120B', '@sizes_tip', 'sizes_at {"date":"D1791500000"}', 'sizes_live {"pool":"maple","size":"125B"}',
+         '@sizes_live_tip {"share":"Filme","pool":"maple"}'],
         ['sizes_empty', '@sizes_tip', 'sizes_at {"date":"D1791400000"}'],
         ['sizes_never']], $r['rows'] ?? null, $raw);
     same('sizes on his page: a line on every share row, the button «Measure sizes…» in the section — off while a run is active',
@@ -1293,7 +1293,7 @@ function testEmbyPool(): void
     $groups[] = ['share' => 'Filme', 'title' => 'Amélie.2001', 'files' => 3, 'bytes' => 5, 'origin' => ['disk3'], 'since' => 500];
     $groups[] = ['share' => 'Filme', 'title' => 'Zorro', 'files' => 1, 'bytes' => 7, 'origin' => []];
     $groups[] = ['share' => 'Filme', 'title' => 'Alien', 'files' => 2, 'origin' => []];                    // an older agent: no size, no time
-    $state = ['settings' => ['cache_path' => '/mnt/master'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]],
+    $state = ['settings' => ['cache_path' => '/mnt/maple'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]],
         'cache' => ['files' => 700, 'bytes' => 12345, 'listed_at' => 900, 'groups' => $groups]];
     file_put_contents("$tmp/state.json", json_encode($state));
     file_put_contents("$tmp/t.js", <<<'JS'
@@ -1384,7 +1384,7 @@ function testEmbyImport(): void
     $key = 'FakeKey0123456789abcdefFAKEKEY99';
     $jackKey = 'JackOwnKey0123456789JACKKEY0000';
     foreach (['mnt/user/system/scripts/embycache', 'mnt/user/system/scripts/consolidate', 'mnt/user/system/scripts/badfile',
-              'mnt/user/Filme', 'mnt/cache/appdata/old', 'mnt/hive/x', 'boot/config/plugins/user.scripts/scripts/old-embycache',
+              'mnt/user/Filme', 'mnt/cache/appdata/old', 'mnt/hazel/x', 'boot/config/plugins/user.scripts/scripts/old-embycache',
               'mnt/cache/appdata/UnraidSecretaryOffice/data/embycache', 'mnt/cache/appdata/UnraidSecretaryOffice/data/gather', 'pool', 'run'] as $d) {
         @mkdir(str_starts_with($d, 'pool') || $d === 'run' ? "$tmp/$d" : "$fs/$d", 0700, true);
     }
@@ -1397,8 +1397,8 @@ function testEmbyImport(): void
     link("$fs/mnt/user/system/scripts/notes.txt", "$fs/mnt/user/system/scripts/hardlink/consolidate.ini");
     $jack = "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data";
     $ctx = ['emby_dir' => "$jack/embycache", 'gather_dir' => "$jack/gather", 'tmp' => "$tmp/run", 'fs' => $fs,
-            'pools' => ['/mnt/cache', '/mnt/hive', $pool], 'shares' => ['Filme', 'Serien', 'system', 'appdata', 'Sleepy'],
-            'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false, 'hive' => true],
+            'pools' => ['/mnt/cache', '/mnt/hazel', $pool], 'shares' => ['Filme', 'Serien', 'system', 'appdata', 'Sleepy'],
+            'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false, 'hazel' => true],
             'share_cfg' => fn (string $s): array => ['Filme' => ['shareUseCache' => 'yes', 'shareCachePool' => 'cache', 'shareInclude' => 'disk1'],
                                                       'Serien' => ['shareUseCache' => 'yes', 'shareCachePool' => 'cache', 'shareInclude' => 'disk1'],
                                                       'system' => ['shareUseCache' => 'only', 'shareCachePool' => 'cache'],
@@ -1426,7 +1426,7 @@ function testEmbyImport(): void
               '/etc' => 'emby_import_where', '/mnt/user0/system' => 'emby_import_where', '/mnt/disks/usb' => 'emby_import_where',
               '/mnt/user' => 'emby_import_where', '/boot/config/plugins/user.scripts/scripts' => 'emby_import_where', '/tmp/x' => 'emby_import_where',
               '/mnt/user/linked' => 'emby_import_link', '/mnt/user/linked/x' => 'emby_import_link', '/mnt/user/system/scripts/lnk' => 'emby_import_link',
-              '/mnt/user/Sleepy/old' => 'emby_import_asleep', '/mnt/hive/x' => 'emby_import_asleep', '/mnt/disk2/scripts' => 'emby_import_asleep',
+              '/mnt/user/Sleepy/old' => 'emby_import_asleep', '/mnt/hazel/x' => 'emby_import_asleep', '/mnt/disk2/scripts' => 'emby_import_asleep',
               '/mnt/user/system/nothing' => 'emby_import_missing', '/mnt/user/system/scripts/badfile/embycache_settings.json' => 'emby_import_link',
               '/mnt/user/Nocfg/old' => 'emby_import_asleep', '/mnt/user/system/scripts/notes.txt' => 'emby_import_missing',
               '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache' => 'emby_import_own'] as $path => $want) {
@@ -1440,7 +1440,7 @@ function testEmbyImport(): void
     // the old install: EmbyCache 7.2.1's settings (every key of its DEFAULTS), its list, our origins
     $settings = ['cache_path' => "$pool/", 'array_path' => '/mnt/user0/', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*',
         'array_source' => 'user0',
-        'instances' => [['servername' => 'HomeServer', 'url' => 'http://192.168.7.10:8096', 'api_key' => $key,
+        'instances' => [['servername' => 'HomeServer', 'url' => 'http://192.168.20.10:8096', 'api_key' => $key,
                          'path_mappings' => ['/media/Serien' => '/mnt/user/Serien', '/media/Musik' => '', '/media/bad' => '/mnt/user/../etc',
                                              '/media/Gone' => '/mnt/user/Gone/Filme', '/media/Filme' => '/mnt/user/Filme/']]],
         'path_mappings' => ['/media/Filme' => '/mnt/user/Oops'], 'libraries' => ['Filme', 'Serien'],
@@ -1468,7 +1468,7 @@ function testEmbyImport(): void
     // what Jack has already: his own settings (another key), a list and origins
     @mkdir("$jack/embycache", 0700, true);
     @mkdir("$jack/gather", 0700, true);
-    $mine = ['cache_path' => $pool, 'instances' => [['servername' => 'Emby', 'url' => 'http://192.168.7.10:8096', 'api_key' => $jackKey,
+    $mine = ['cache_path' => $pool, 'instances' => [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => $jackKey,
              'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]], 'min_free_percent' => 20, 'library_types' => ['Filme' => 'movies', 'Musik' => 'music'],
              'cleanup_tool' => 'rsync', 'max_resume_movies' => 1];
     file_put_contents("$jack/embycache/embycache_settings.json", json_encode($mine, JSON_UNESCAPED_SLASHES));
@@ -1610,7 +1610,7 @@ function testEmbyImport(): void
     same('import blocked: a strange pool, no key', ['pool', 'no_key'], array_column($b['embycache']['blockers'], 'key'));
     check('import blocked: not ready', $b['ready'] === false);
     check('import blocked: the strange key never in the preview', !str_contains(json_encode($b), 'short'));
-    $bad['instances'][0]['url'] = 'http://192.168.7.10:8096';                    // Jack has a key for that address
+    $bad['instances'][0]['url'] = 'http://192.168.20.10:8096';                    // Jack has a key for that address
     $bad['cache_path'] = $pool;
     $bad['movie_mode'] = 'chaos';
     $bad['max_resume_items'] = 'many';                                         // EmbyCache's own check refuses it
@@ -1886,7 +1886,7 @@ const e = OFFICE_DESK_TESTS.emby;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
 (async () => {
   const out = {};
-  const look = { ok: true, schedules: { embycache: '15 * * * *', gather: null }, running: null, waiting: false, pool: { files: 2, bytes: 8000, pool: '/mnt/master' },
+  const look = { ok: true, schedules: { embycache: '15 * * * *', gather: null }, running: null, waiting: false, pool: { files: 2, bytes: 8000, pool: '/mnt/maple' },
     release: { ok: true, why: null, params: {} }, mover_tuning: { there: true, listed: true, key: 'filelistf', file: '/x/embycache_exclude.txt' } };
   out.view = e.letGoView(look);
   out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} }, mover_tuning: { there: false } });
@@ -2535,12 +2535,12 @@ JS);
 function testEmbyRsync(): void
 {
     $tmp = hardeningTmp('embyrsync');
-    same('rsync: an old «mover» reads as rsync, the rest kept', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/master'],
-        embyToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/master']));
+    same('rsync: an old «mover» reads as rsync, the rest kept', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple'],
+        embyToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple']));
     same('rsync: none set (EmbyCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'], embyToolsRsync([]));
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
-    $inst = [['servername' => 'Emby', 'url' => 'http://192.168.7.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
+    $inst = [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
     file_put_contents("$tmp/emby/embycache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
         'instances' => $inst], JSON_UNESCAPED_SLASHES));
     $read = embyReadSettings("$tmp/emby");
@@ -3224,7 +3224,7 @@ function testWhereArrayZfs(): void
     foreach (['disk1', 'disk6', 'disk28'] as $n) {
         check("array disk pool left out: $n", waArrayDiskPool($n));
     }
-    foreach (['cache', 'hive', 'disks', 'disk', 'mydisk1', 'disk1x', 'Disk1'] as $n) {
+    foreach (['cache', 'hazel', 'disks', 'disk', 'mydisk1', 'disk1x', 'Disk1'] as $n) {
         check("a real pool stays: $n", !waArrayDiskPool($n));
     }
     // the licence's device limit: Lifetime/Pro report -1 (unlimited) — no «9 of -1»
@@ -3451,8 +3451,8 @@ function testBackupFirstUpload(): void
     same('first upload: read and sent in one look (rchar, wchar)', [[2390370860668, 1180491244705], [null, null]], [backupProcIo(4456, $proc), backupProcIo(3123, $proc)]);
     exec('rm -rf ' . escapeshellarg($proc));
 
-    $zfs = "ripley/Backups_statisch@uso-backup-20261005-0100\t2355000000000\nripley/Backups_statisch@uso-backup-20261006-0100\t2355490998272\n"
-         . "ripley/Backups_statisch/child@uso-backup-20261006-0100\t1000\nripley/Backups_statisch/child@other\t5\n";
+    $zfs = "rowan/Backups_statisch@uso-backup-20261005-0100\t2355000000000\nrowan/Backups_statisch@uso-backup-20261006-0100\t2355490998272\n"
+         . "rowan/Backups_statisch/child@uso-backup-20261006-0100\t1000\nrowan/Backups_statisch/child@other\t5\n";
     same('first upload: the size of this run\'s snapshot, child datasets too', [2355490999272, null],
         [backupZfsSnapSum($zfs, 'uso-backup-20261006-0100'), backupZfsSnapSum($zfs, 'uso-backup-20261007-0100')]);
 
@@ -3562,11 +3562,11 @@ function testBackupKopiaItems(): void
         . "[vm \"Win 11\"]\nmode = snapshot\nprepare = freeze\nkopia = yes\nfolder = domains/Win 11\n");
     file_put_contents("$tmp/bad.ini", $ini . "[app \"x\"]\nkopia = maybe\nfolder = appdata/../etc\nfolder = /appdata/x\nkopia_retention = 7 7\n");
     file_put_contents("$tmp/disks.ini", "[\"disk1\"]\nname=\"disk1\"\nspundown=\"0\"\n[\"disk10\"]\nname=\"disk10\"\nspundown=\"1\"\n"
-        . "[\"master\"]\nname=\"master\"\nspundown=\"0\"\n[\"master2\"]\nname=\"master2\"\nspundown=\"1\"\n[\"ripley\"]\nname=\"ripley\"\nspundown=\"0\"\n");
+        . "[\"maple\"]\nname=\"maple\"\nspundown=\"0\"\n[\"maple2\"]\nname=\"maple2\"\nspundown=\"1\"\n[\"rowan\"]\nname=\"rowan\"\nspundown=\"0\"\n");
     $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
     $sh = function (string $file, string $script) use ($lib, $tmp): string {
         $pre = "UB_DATA=$tmp/data UB_DISKS_INI=$tmp/disks.ini; source $lib >/dev/null 2>&1; cfg_load $tmp/$file; cfg_validate >/dev/null; apply_settings;"
-             . ' INV_METHOD[appdata]=snap; INV_LAYOUT[appdata]=single; INV_LOCS[appdata]="master|zfs|master/appdata|"$\'\\n\';'
+             . ' INV_METHOD[appdata]=snap; INV_LAYOUT[appdata]=single; INV_LOCS[appdata]="maple|zfs|maple/appdata|"$\'\\n\';'
              . ' INV_METHOD[UnraidSecretaryOffice]=snap; INV_LAYOUT[UnraidSecretaryOffice]=single; PLAN_KOPIA=(UnraidSecretaryOffice appdata); PLAN_FLASH=off;';
         return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
     };
@@ -3579,8 +3579,8 @@ function testBackupKopiaItems(): void
     same('items: the share leaves their folders out, besides its own rules', "/kopia/\n/myapp/\n/nextcloud/", $sh('new.ini', 'kopia_want_ignores share appdata'));
     same('items: the backup place leaves their packages out', "/backup/apps/my_app/\n/backup/apps/nextcloud/\n/backup/vms/Win_11/",
         $sh('new.ini', 'kopia_want_ignores share UnraidSecretaryOffice'));
-    same('items: a split share gets a rule per base', "/disk1/myapp/\n/disk1/nextcloud/\n/kopia/\n/master/myapp/\n/master/nextcloud/",
-        $sh('new.ini', 'INV_LAYOUT[appdata]=split; INV_LOCS[appdata]="master|zfs|x|"$\'\\n\'"disk1|btrfs|/mnt/disk1|appdata"; kopia_want_ignores share appdata'));
+    same('items: a split share gets a rule per base', "/disk1/myapp/\n/disk1/nextcloud/\n/kopia/\n/maple/myapp/\n/maple/nextcloud/",
+        $sh('new.ini', 'INV_LAYOUT[appdata]=split; INV_LOCS[appdata]="maple|zfs|x|"$\'\\n\'"disk1|btrfs|/mnt/disk1|appdata"; kopia_want_ignores share appdata'));
     same('items: own rules and retention, or inherited', "/appdata/nextcloud/data/cache/|7 0 14 8 24 5|inherit inherit inherit inherit inherit inherit",
         $sh('new.ini', 'printf "%s|%s|%s" "$(kopia_want_ignores app nextcloud)" "$(kopia_want_retention app nextcloud)" "$(kopia_want_retention app "my app")"'));
     $root = '/mnt/addons/UnraidSecretaryOffice/snapshots';
@@ -3592,8 +3592,8 @@ function testBackupKopiaItems(): void
         $sh('old.ini', 'printf "%s|%s|%s" "$(kopia_items)" "$(kopia_want_ignores share appdata)" "$(kopia_targets)"'));
     same('items: settings.ini valid', '0', $sh('new.ini', 'echo ${#CFG_ERRORS[@]}'));
     same('items: bad keys found', '4', $sh('bad.ini', 'echo ${#CFG_ERRORS[@]}'));
-    same('engine: sleeping disks (a pool sleeps with any of its disks, disk1 is not disk10)', 'master disk10',
-        $sh('new.ini', 'for b in master disk1 disk10 ripley mast; do ub_base_asleep $b && printf "%s " $b; done'));
+    same('engine: sleeping disks (a pool sleeps with any of its disks, disk1 is not disk10)', 'maple disk10',
+        $sh('new.ini', 'for b in maple disk1 disk10 rowan map; do ub_base_asleep $b && printf "%s " $b; done'));
     same('engine: a path for an SQLite URI', '/a%20b/Plug-in%20Support/%C3%A4%3F%23.db', $sh('new.ini', 'uri_escape "/a b/Plug-in Support/ä?#.db"'));
     same('engine: a container path on the host', '/mnt/user/appdata/plex/Library/x|/mnt/user/Backups/Emby|1',
         $sh('new.ini', 'CT_BINDS[c]="/mnt/user/appdata/plex|/config|true"$\'\\n\'"/mnt/user/Backups/Emby|/config/backup|true";'
@@ -3726,7 +3726,7 @@ SH);
         . "[share \"UnraidSecretaryOffice\"]\nmode = kopia\nkopia_known =\n[share \"docs\"]\nmode = kopia\n[share \"local\"]\nmode = snapshot\nkopia_known = /x/\n"
         . "[app \"nc\"]\nkopia = yes\nfolder = appdata/nc\n");
     $pre = "cfg_load $tmp/s.ini; cfg_validate >/dev/null; apply_settings; INV_METHOD[appdata]=snap; INV_LAYOUT[appdata]=single;"
-         . ' INV_LOCS[appdata]="master|zfs|master/appdata|"$\'\\n\'; INV_METHOD[UnraidSecretaryOffice]=snap; INV_LAYOUT[UnraidSecretaryOffice]=single;';
+         . ' INV_LOCS[appdata]="maple|zfs|maple/appdata|"$\'\\n\'; INV_METHOD[UnraidSecretaryOffice]=snap; INV_LAYOUT[UnraidSecretaryOffice]=single;';
     same('new: settings.ini with kopia_known is valid (an empty one too)', '0', $sh("$pre echo \${#CFG_ERRORS[@]}"));
     file_put_contents("$tmp/bad.ini", "[share \"x\"]\nmode = kopia\nkopia_known = a\nkopia_known = /a/b/\nkopia_known = /../\nkopia_known = /ok/\n");
     same('new: kopia_known must be /<folder>/', '3', $sh("cfg_load $tmp/bad.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"));
@@ -3735,7 +3735,7 @@ SH);
     // engine 2.37: who a folder of an app/VM share belongs to, and whether that one goes offsite
     $own = "$pre CT_NAMES=(ncweb newapp old kopia); CT_PROJECT[ncweb]=nc; CT_BINDS[ncweb]=\"/mnt/user/appdata/nc-extra/x|/x|true\"\$'\\n'\"/mnt/user/nextcloud_data|/data|true\";"
          . ' CT_BINDS[newapp]="/mnt/cache/appdata/newapp|/config|true"; CT_BINDS[old]="/mnt/user/appdata/a|/a|true"$\'\\n\'"/mnt/user/appdata/a2|/b|true"; CT_BINDS[kopia]="/mnt/user/appdata/kopia|/config|true";'
-         . ' VM_NAMES=(vmk vml); VM_DISKS[vmk]="vda|/mnt/user/domains/vmk/vdisk1.img|master|zfs||domains"; VM_DISKS[vml]="vda|/mnt/user/domains/vml/vdisk1.img|master|zfs||domains";'
+         . ' VM_NAMES=(vmk vml); VM_DISKS[vmk]="vda|/mnt/user/domains/vmk/vdisk1.img|maple|zfs||domains"; VM_DISKS[vml]="vda|/mnt/user/domains/vml/vdisk1.img|maple|zfs||domains";'
          . ' CFG[vm|vmk|kopia]=yes; CFG[share|domains|mode]=kopia;';
     same('owners: binds and VM disks in the app/VM shares only (a bind of a data share - Nextcloud\'s data - makes no owner)',
         'appdata|a=app|old appdata|a2=app|old appdata|kopia=app|kopia appdata|nc-extra=app|nc appdata|newapp=app|newapp domains|vmk=vm|vmk domains|vml=vm|vml',
@@ -3746,7 +3746,7 @@ SH);
     // engine 2.38: an app/VM set up before ([docker] known / a [vm] section) and only local keeps its new folder local
     $kept = "$own CT_NAMES+=(loc); CT_BINDS[loc]=\"/mnt/user/appdata/locnew|/a|true\"\$'\\n'\"/mnt/user/appdata/both|/b|true\";"
           . ' CT_BINDS[newapp]+=$\'\\n\'"/mnt/user/appdata/both|/x|true"; DOCKER_KNOWN=(old kopia ncweb loc); CFG_SECTIONS+=("vm|vml");'
-          . ' VM_NAMES+=(vmnew); VM_DISKS[vmnew]="vda|/mnt/user/domains/vmnew/vdisk1.img|master|zfs||domains";';
+          . ' VM_NAMES+=(vmnew); VM_DISKS[vmnew]="vda|/mnt/user/domains/vmnew/vdisk1.img|maple|zfs||domains";';
     same('owners (2.38): kept local - an app with a known container (locnew), a VM with a section (vml); a new app (newapp), a folder of a new and an old app (both), no owner (b), a VM without a section (vmnew): not; no [docker] known list at all - every container counts as set up',
         'locnew=1 newapp=0 both=0 b=0 vml=1 vmnew=0|newapp=1',
         $sh("$kept for n in locnew newapp both b; do top_owner_kept_local appdata \$n && printf '%s=1 ' \$n || printf '%s=0 ' \$n; done;"
@@ -3762,8 +3762,8 @@ SH);
     same('new: fancier rules never count as leaving a folder out (it stays new - left out by the run itself)', '0 0 0 0 1 1',
         $sh('for r in "/@(b)/" "/b\\\\x/" "!/b/" "/b/c/" "b" "/b"; do rule_hides_top "$r" b && printf "1 " || printf "0 "; done'));
     same('new: a pattern character in a folder becomes ? in its rule', "/we ird?1??/\n/x/", $sh("$pre new_rules_for appdata 'we ird[1]*'; new_rules_for appdata x"));
-    same('new: a split share gets a rule per base', "/master/x/\n/disk1/x/",
-        $sh("$pre INV_LAYOUT[appdata]=split; INV_LOCS[appdata]=\"master|zfs|master/appdata|\"\$'\\n'\"disk1|btrfs|/mnt/disk1|appdata\"; new_rules_for appdata x"));
+    same('new: a split share gets a rule per base', "/maple/x/\n/disk1/x/",
+        $sh("$pre INV_LAYOUT[appdata]=split; INV_LOCS[appdata]=\"maple|zfs|maple/appdata|\"\$'\\n'\"disk1|btrfs|/mnt/disk1|appdata\"; new_rules_for appdata x"));
     foreach (['a', 'b', 'decided', 'kopia', 'nc', 'still', 'we ird[1]', '_UnraidSecretaryOffice-trash-1', '.zfs'] as $d) {
         @mkdir("$root/appdata/$d", 0700, true);
     }
@@ -3774,7 +3774,7 @@ SH);
     same('new: a collection (kopia_known = *) is not watched - every folder goes', '0|',
         $sh("$pre CFG[share|appdata|kopia_known]='*'; cfg_validate >/dev/null; printf '%s|' \${#CFG_ERRORS[@]}; share_watched appdata && echo watched"));
     same('new: a folder\'s size only where cheap - a ZFS dataset of its own', '42|',
-        $sh("$pre INV_BASE_PATH[master]=/p; INV_CHILDREN[appdata]=\$'master|master/appdata/b|/p/appdata/b\\n'; ZDS_REF[master/appdata/b]=42; printf '%s|%s' \"\$(new_folder_bytes appdata b)\" \"\$(new_folder_bytes appdata c)\""));
+        $sh("$pre INV_BASE_PATH[maple]=/p; INV_CHILDREN[appdata]=\$'maple|maple/appdata/b|/p/appdata/b\\n'; ZDS_REF[maple/appdata/b]=42; printf '%s|%s' \"\$(new_folder_bytes appdata b)\" \"\$(new_folder_bytes appdata c)\""));
     same('new: the wanted policy of a share includes the rules for its new folders', "/cache*/\n/deep/cache/\n/kopia/\n/nc/\n/still/",
         $sh("$pre NEW_RULES[appdata]=/still/; kopia_want_ignores share appdata"));
 
@@ -3928,27 +3928,27 @@ SH);
         array_map(fn ($r) => [$r['run'], $r['zfs'], $r['btrfs']], $pr['runs'] ?? []));
 
     // --- setup.sh on a fixture server: --plan and --apply
-    $pool = "$mnt/master";
+    $pool = "$mnt/maple";
     foreach (["$pool/media/a", "$pool/media/b", "$pool/media/c", "$pool/media/d", "$pool/media/e", "$pool/media/f", "$pool/media/g"] as $d) {
         @mkdir($d, 0700, true);
     }
     foreach (["$mnt/user", "$pool/appdata/c1", "$pool/appdata/bitcoin2", "$pool/appdata/kopia", "$pool/appdata/gone", "$pool/appdata/bigds", "$pool/appdata/_UnraidSecretaryOffice-trash",
-              "$pool/UnraidSecretaryOffice/backup", "$pool/docs", "$pool/domains/oldvm", "$mnt/ripley/sleepy/old"] as $d) {
+              "$pool/UnraidSecretaryOffice/backup", "$pool/docs", "$pool/domains/oldvm", "$mnt/rowan/sleepy/old"] as $d) {
         @mkdir($d, 0700, true);
     }
     exec('truncate -s 2G ' . escapeshellarg("$pool/domains/oldvm/vdisk1.img"));       // a sparse vdisk: 2 GiB it is, next to nothing it takes
     foreach (['appdata', 'UnraidSecretaryOffice', 'docs', 'sleepy', 'media', 'domains'] as $n) {
         touch("$tmp/boot/config/shares/$n.cfg");
     }
-    file_put_contents("$tmp/fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/appdata/bigds $pool/appdata/bigds zfs rw 0 0\n"
-        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\nmaster/media $pool/media zfs rw 0 0\nmaster/domains $pool/domains zfs rw 0 0\n"
-        . "ripley $mnt/ripley zfs rw 0 0\nripley/sleepy $mnt/ripley/sleepy zfs rw 0 0\n"
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/appdata/bigds $pool/appdata/bigds zfs rw 0 0\n"
+        . "maple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nmaple/docs $pool/docs zfs rw 0 0\nmaple/media $pool/media zfs rw 0 0\nmaple/domains $pool/domains zfs rw 0 0\n"
+        . "rowan $mnt/rowan zfs rw 0 0\nrowan/sleepy $mnt/rowan/sleepy zfs rw 0 0\n"
         . "shfs $mnt/user fuse.shfs rw 0 0\n");
     $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
-    file_put_contents("$tmp/fake/zfs.txt", $z('master', $pool, 1) . $z('master/appdata', "$pool/appdata", 5000) . $z('master/appdata/bigds', "$pool/appdata/bigds", 123456789)
-        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10) . $z('master/docs', "$pool/docs", 10) . $z('master/media', "$pool/media", 10) . $z('master/domains', "$pool/domains", 10)
-        . $z('ripley', "$mnt/ripley", 1) . $z('ripley/sleepy', "$mnt/ripley/sleepy", 10));
-    file_put_contents("$tmp/fake/disks.ini", "[\"master\"]\nname=\"master\"\nspundown=\"0\"\n[\"ripley\"]\nname=\"ripley\"\nspundown=\"1\"\n");
+    file_put_contents("$tmp/fake/zfs.txt", $z('maple', $pool, 1) . $z('maple/appdata', "$pool/appdata", 5000) . $z('maple/appdata/bigds', "$pool/appdata/bigds", 123456789)
+        . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10) . $z('maple/docs', "$pool/docs", 10) . $z('maple/media', "$pool/media", 10) . $z('maple/domains', "$pool/domains", 10)
+        . $z('rowan', "$mnt/rowan", 1) . $z('rowan/sleepy', "$mnt/rowan/sleepy", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"maple\"]\nname=\"maple\"\nspundown=\"0\"\n[\"rowan\"]\nname=\"rowan\"\nspundown=\"1\"\n");
     file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
     file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\n");
     $ct = fn ($name, $img, $binds) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
@@ -4043,8 +4043,8 @@ SH);
     // the share Unraid's syslog server writes into (rsyslog.cfg): proposed not backed up — the routers' words, not yours
     @mkdir("$pool/syslog", 0700, true);
     touch("$tmp/boot/config/shares/syslog.cfg");
-    file_put_contents("$tmp/fake/mounts", "master/syslog $pool/syslog zfs rw 0 0\n", FILE_APPEND);
-    file_put_contents("$tmp/fake/zfs.txt", $z('master/syslog', "$pool/syslog", 10), FILE_APPEND);
+    file_put_contents("$tmp/fake/mounts", "maple/syslog $pool/syslog zfs rw 0 0\n", FILE_APPEND);
+    file_put_contents("$tmp/fake/zfs.txt", $z('maple/syslog', "$pool/syslog", 10), FILE_APPEND);
     file_put_contents("$tmp/boot/config/rsyslog.cfg", "local_server=\"1\"\nserver_folder=\"/mnt/user/syslog\"\nserver_filename=\"syslog-%FROMHOST-IP%.log\"\n");
     $out = $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
@@ -4132,7 +4132,7 @@ function testBackupVmOrder(): void
     $tmp = sys_get_temp_dir() . '/office-tests-vmorder-' . getmypid();
     exec('rm -rf ' . escapeshellarg($tmp));
     $mnt = "$tmp/mnt";
-    $pool = "$mnt/master";
+    $pool = "$mnt/maple";
     $fake = "$tmp/fake";
     $data = "$tmp/data/unraid-backup";
     $vms = ['vmshut', 'vmdeaf', 'vmlate', 'vmpause', 'vmslow'];
@@ -4147,11 +4147,11 @@ function testBackupVmOrder(): void
     foreach (['appdata', 'domains', 'UnraidSecretaryOffice'] as $n) {
         touch("$tmp/boot/config/shares/$n.cfg");
     }
-    file_put_contents("$fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/domains $pool/domains zfs rw 0 0\n"
-        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    file_put_contents("$fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/domains $pool/domains zfs rw 0 0\n"
+        . "maple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
     $z = fn ($n, $mp) => "$n\t$mp\ton\t" . crc32($n) . "\t1000\t-\n";
-    file_put_contents("$fake/zfs.txt", $z('master', $pool) . $z('master/appdata', "$pool/appdata") . $z('master/domains', "$pool/domains")
-        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice"));
+    file_put_contents("$fake/zfs.txt", $z('maple', $pool) . $z('maple/appdata', "$pool/appdata") . $z('maple/domains', "$pool/domains")
+        . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice"));
     file_put_contents("$fake/inspect.json", json_encode([['Name' => '/c1', 'Id' => 'id1', 'Config' => ['Image' => 'nginx', 'Env' => [], 'Labels' => new stdClass()],
         'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
         'Mounts' => [['Type' => 'bind', 'Source' => "$mnt/user/appdata/c1", 'Destination' => '/config', 'RW' => true]]]]));
@@ -4412,7 +4412,7 @@ function testBackupArrayStop(): void
     $tmp = sys_get_temp_dir() . '/office-tests-arraystop-' . getmypid();
     exec('rm -rf ' . escapeshellarg($tmp));
     $mnt = "$tmp/mnt";
-    $pool = "$mnt/master";
+    $pool = "$mnt/maple";
     $fake = "$tmp/fake";
     $data = "$tmp/data/unraid-backup";
     $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
@@ -4425,11 +4425,11 @@ function testBackupArrayStop(): void
     foreach (['appdata', 'docs', 'domains', 'UnraidSecretaryOffice'] as $n) {
         touch("$tmp/boot/config/shares/$n.cfg");
     }
-    $mounts0 = "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\nmaster/domains $pool/domains zfs rw 0 0\n"
-        . "master/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n";
+    $mounts0 = "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/docs $pool/docs zfs rw 0 0\nmaple/domains $pool/domains zfs rw 0 0\n"
+        . "maple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n";
     $z = fn ($n, $mp) => "$n\t$mp\ton\t" . crc32($n) . "\t1000\t-\n";
-    file_put_contents("$fake/zfs.txt", $z('master', $pool) . $z('master/appdata', "$pool/appdata") . $z('master/docs', "$pool/docs") . $z('master/domains', "$pool/domains")
-        . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice"));
+    file_put_contents("$fake/zfs.txt", $z('maple', $pool) . $z('maple/appdata', "$pool/appdata") . $z('maple/docs', "$pool/docs") . $z('maple/domains', "$pool/domains")
+        . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice"));
     $ct = fn ($name, $img, $binds) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
         'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
         'Mounts' => array_map(fn ($b) => ['Type' => 'bind', 'Source' => $b[0], 'Destination' => $b[1], 'RW' => true], $binds)];
@@ -4612,7 +4612,7 @@ SH);
         @mkdir("$fake/ct", 0700, true);
         file_put_contents("$fake/vms", "vmshut\nvmpause\n");
         file_put_contents("$fake/mounts", $mounts0);
-        file_put_contents("$fake/snaps.txt", "master/appdata@uso-backup-20200101-0100\nmaster/appdata@uso-backup-20200102-0100\n");
+        file_put_contents("$fake/snaps.txt", "maple/appdata@uso-backup-20200101-0100\nmaple/appdata@uso-backup-20200102-0100\n");
         file_put_contents("$fake/var.ini", "mdState=\"STARTED\"\nfsState=\"Started\"\n");
         if ($stopAt !== '') {
             file_put_contents("$fake/stop-at", $stopAt);
@@ -4655,7 +4655,7 @@ SH);
         && array_key_exists('interrupted', $s['kopia'] ?? []) && $s['kopia']['interrupted'] === null, $out . $log());
     check('array stop: a normal run — maintenance on and off, the VMs held and back, the old snapshots pruned',
         in_array('occ maintenance on', $n, true) && in_array('occ maintenance off', $n, true) && in_array('virsh start vmshut', $n, true) && in_array('virsh resume vmpause', $n, true)
-        && in_array('zfs destroy master/appdata@uso-backup-20200101-0100', $n, true), json_encode($n));
+        && in_array('zfs destroy maple/appdata@uso-backup-20200101-0100', $n, true), json_encode($n));
     check('array stop: a normal run — its mounts gone, no array-stop notification', $ours() === [] && !preg_grep('/array stop/', $notes()), json_encode([$ours(), $notes()]));
 
     $prunedRuns = fn () => count(json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? []);
@@ -4738,15 +4738,15 @@ SH);
 
     // --- in the middle of the retention: what it destroyed until then goes into pruned.json, the rest waits
     $night('destroy');
-    file_put_contents("$fake/snaps.txt", "master/appdata@uso-backup-20200101-0100\nmaster/docs@uso-backup-20200101-0100\n");
+    file_put_contents("$fake/snaps.txt", "maple/appdata@uso-backup-20200101-0100\nmaple/docs@uso-backup-20200101-0100\n");
     $before = $prunedRuns();
     [$code] = $run();
     $s = $status();
     $pr = json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? [];
     $nt = $notes();
     same('array stop while pruning: aborted, the first dataset\'s snapshot gone and noted in pruned.json, the second dataset left',
-        ['aborted', 'array_stopping', $before + 1, ['master/appdata@uso-backup-20200101-0100'], false],
-        [$s['result'] ?? null, $s['message'] ?? null, count($pr), end($pr)['zfs'] ?? null, in_array('zfs destroy master/docs@uso-backup-20200101-0100', $names(), true)]);
+        ['aborted', 'array_stopping', $before + 1, ['maple/appdata@uso-backup-20200101-0100'], false],
+        [$s['result'] ?? null, $s['message'] ?? null, count($pr), end($pr)['zfs'] ?? null, in_array('zfs destroy maple/docs@uso-backup-20200101-0100', $names(), true)]);
     check('array stop while pruning: the notification says so', count($nt) === 1 && str_contains($nt[0], 'RETENTION\n  1 snapshot(s) removed when the stop began'), json_encode($nt));
     // --- past its retention (a btrfs disk's old snapshot the last it removed), noticed «while cleaning up»: pruned.json has the
     // run's entry, and the notification says what it says - never «No snapshots were pruned»
@@ -4812,8 +4812,8 @@ SH);
     // file; a Kopia checkpoint (incomplete) and another identity's snapshot don't count
     file_put_contents("$data/settings.ini", "[app \"c1\"]\nkopia = yes\nfolder = appdata/c1\n[vm \"vmpause\"]\nkopia = yes\nfolder = domains/vmpause\n", FILE_APPEND);
     $zs = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
-    file_put_contents("$fake/zfs.txt", $zs('master', $pool, 1) . $zs('master/appdata', "$pool/appdata", 3000000000) . $zs('master/docs', "$pool/docs", 1000)
-        . $zs('master/domains', "$pool/domains", 7) . $zs('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 50000000));
+    file_put_contents("$fake/zfs.txt", $zs('maple', $pool, 1) . $zs('maple/appdata', "$pool/appdata", 3000000000) . $zs('maple/docs', "$pool/docs", 1000)
+        . $zs('maple/domains', "$pool/domains", 7) . $zs('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 50000000));
     $ksnap = fn ($path, $size, $start, $more = []) => ['source' => ['host' => 'kopia', 'userName' => 'root', 'path' => $path], 'startTime' => $start,
         'stats' => ['totalSize' => $size]] + $more;
     file_put_contents("$fake/snaplist.json", json_encode([$ksnap('/uso/appdata', 9000000000, '2026-10-01T01:00:00Z'), $ksnap('/uso/appdata', 500, '2026-10-06T01:00:00Z'),
@@ -4852,8 +4852,8 @@ SH);
     // itself: keep_mounts' mounts of an earlier run, a killed run's, a layer in its staging area; a busy one (a Kopia that
     // didn't end) is detached (umount -l) after the normal attempt. The plugin's array-stop hook leaves this to a live run.
     $engine = fn () => array_values(array_filter(file("$fake/mounts", FILE_IGNORE_NEW_LINES) ?: [], fn ($l) => str_contains($l, " $root/") || str_contains($l, " $tmp/stage/")));
-    $leftover = "master/appdata@uso-backup-1 $root/appdata fake ro 0 0\nmaster/docs@uso-backup-1 $root/docs fake ro 0 0\n"
-        . "master/docs@uso-backup-1 $tmp/stage/layers/master_docs fake ro 0 0\n";
+    $leftover = "maple/appdata@uso-backup-1 $root/appdata fake ro 0 0\nmaple/docs@uso-backup-1 $root/docs fake ro 0 0\n"
+        . "maple/docs@uso-backup-1 $tmp/stage/layers/maple_docs fake ro 0 0\n";
     $night();
     file_put_contents("$fake/mounts", $mounts0 . $leftover);
     file_put_contents("$fake/busy", "$root/docs\n");
@@ -5095,7 +5095,7 @@ function testBackupPartnerPhase(): void
     $tmp = sys_get_temp_dir() . '/office-tests-partner-' . getmypid();
     exec('rm -rf ' . escapeshellarg($tmp));
     $mnt = "$tmp/mnt";
-    $pool = "$mnt/master";
+    $pool = "$mnt/maple";
     $fake = "$tmp/fake";
     $data = "$tmp/data/unraid-backup";
     $pdir = "$tmp/partners";
@@ -5110,13 +5110,13 @@ function testBackupPartnerPhase(): void
     foreach (['appdata', 'docs', 'rootfolder', 'split', 'arr', 'domains', 'UnraidSecretaryOffice'] as $n) {
         touch("$tmp/boot/config/shares/$n.cfg");
     }
-    file_put_contents("$fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/docs $pool/docs zfs rw 0 0\n"
-        . "master/domains $pool/domains zfs rw 0 0\nmaster/domains/vm1 $pool/domains/vm1 zfs rw 0 0\nmaster/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+    file_put_contents("$fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/docs $pool/docs zfs rw 0 0\n"
+        . "maple/domains $pool/domains zfs rw 0 0\nmaple/domains/vm1 $pool/domains/vm1 zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
         . "/dev/md1p1 $mnt/disk1 xfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
     $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
     // sizes: the place 10, docs 300, vm1 900, appdata 5000 - the order is place, docs, vm1, appdata
-    file_put_contents("$fake/zfs.txt", $z('master', $pool, 1) . $z('master/appdata', "$pool/appdata", 5000) . $z('master/docs', "$pool/docs", 300)
-        . $z('master/domains', "$pool/domains", 20) . $z('master/domains/vm1', "$pool/domains/vm1", 900) . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$fake/zfs.txt", $z('maple', $pool, 1) . $z('maple/appdata', "$pool/appdata", 5000) . $z('maple/docs', "$pool/docs", 300)
+        . $z('maple/domains', "$pool/domains", 20) . $z('maple/domains/vm1', "$pool/domains/vm1", 900) . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
     file_put_contents("$fake/inspect.json", json_encode([['Name' => '/c1', 'Id' => 'id1', 'Config' => ['Image' => 'nginx', 'Env' => [], 'Labels' => new stdClass()],
         'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
         'Mounts' => [['Type' => 'bind', 'Source' => "$mnt/user/appdata/c1", 'Destination' => '/config', 'RW' => true]]]]));
@@ -5284,12 +5284,12 @@ SH);
         ["ssh ping", "ssh resume place", "ssh list place", "ssh recv place $snap", "ssh resume share:docs", "ssh list share:docs", "ssh recv share:docs $snap",
          "ssh resume vm:vm1", "ssh list vm:vm1", "ssh recv vm:vm1 $snap", "ssh resume share:appdata", "ssh list share:appdata", "ssh recv share:appdata $snap"], $ssh(), $out . $l);
     check('partner phase: zfs send -L -c of the run\'s snapshot, no -i (whole), never -s (that is --skip-missing)',
-        in_array("zfs send -L -c master/UnraidSecretaryOffice@$snap", $names(), true) && in_array("zfs send -L -c master/domains/vm1@$snap", $names(), true)
+        in_array("zfs send -L -c maple/UnraidSecretaryOffice@$snap", $names(), true) && in_array("zfs send -L -c maple/domains/vm1@$snap", $names(), true)
         && !preg_grep('/^zfs send .*-s /', $names()), json_encode($names()));
     check('partner phase: mbuffer and pv in the pipe (pv without -L: no rate)', in_array('mbuffer -q -s 128k -m 256M', $names(), true) && in_array('pv -n -b -i 10', $names(), true), json_encode($names()));
     check('partner phase: the bookmark of the last snapshot sent, per dataset (the old one destroyed first)',
-        in_array("zfs bookmark master/appdata@$snap master/appdata#uso-partner-$id", $names(), true) && in_array("zfs destroy master/appdata#uso-partner-$id", $names(), true)
-        && in_array("master/docs#uso-partner-$id", file("$fake/bookmarks.txt", FILE_IGNORE_NEW_LINES) ?: [], true), json_encode($names()));
+        in_array("zfs bookmark maple/appdata@$snap maple/appdata#uso-partner-$id", $names(), true) && in_array("zfs destroy maple/appdata#uso-partner-$id", $names(), true)
+        && in_array("maple/docs#uso-partner-$id", file("$fake/bookmarks.txt", FILE_IGNORE_NEW_LINES) ?: [], true), json_encode($names()));
     $args = (string) @file_get_contents("$fake/ssh.args");
     $first = explode("\n", $args)[0];
     same('partner phase: the ssh options exactly as the plan (3.5)',
@@ -5313,20 +5313,20 @@ SH);
         $rc === 0 && !str_contains($l, 'WARNING: Partner') && str_contains($l, 'Partner:          vault <- place') && str_contains($l, 'Partners: 4 sent')
         && str_contains($l, 'share:rootfolder: not covered (not_dataset)'), $out . $l);
     $sent = json_decode((string) @file_get_contents("$data/state/partner-sent.json"), true) ?: [];
-    same('partner phase: partner-sent.json - the last snapshot each unit got', [$snap, 'master/docs'], [$sent[$id]['share:docs']['snap'] ?? null, $sent[$id]['share:docs']['dataset'] ?? null]);
+    same('partner phase: partner-sent.json - the last snapshot each unit got', [$snap, 'maple/docs'], [$sent[$id]['share:docs']['snap'] ?? null, $sent[$id]['share:docs']['dataset'] ?? null]);
     $ord = array_values(array_filter($names(), fn ($n) => in_array($n, ['ssh ping', 'zfs snapshot'], true) || str_starts_with($n, 'ssh recv place')));
     same('partner phase: after the snapshots (the apps are back) - Kopia\'s phase would come after', ['zfs snapshot', 'ssh ping', "ssh recv place $snap"], $ord);
 
     // --- incremental: the snapshot both have; gone here but bookmarked; need_full; a rate
     $settings(8);
-    file_put_contents("$data/state/partner-sent.json", json_encode([$id => ['share:docs' => ['snap' => $old2, 'dataset' => 'master/docs', 'time' => 1]]]));
-    $night(['share:appdata' => [$old1], 'share:docs' => [$old2], 'vm:vm1' => [$old1]], ["master/appdata@$old1", "master/domains/vm1@$old1"],
-        ["master/docs#uso-partner-$id"]);
+    file_put_contents("$data/state/partner-sent.json", json_encode([$id => ['share:docs' => ['snap' => $old2, 'dataset' => 'maple/docs', 'time' => 1]]]));
+    $night(['share:appdata' => [$old1], 'share:docs' => [$old2], 'vm:vm1' => [$old1]], ["maple/appdata@$old1", "maple/domains/vm1@$old1"],
+        ["maple/docs#uso-partner-$id"]);
     [$rc, $out] = $run();
     $n = $names();
-    check('partner phase: incremental from the snapshot both have', in_array("zfs send -L -c -i master/appdata@$old1 master/appdata@$snap", $n, true)
+    check('partner phase: incremental from the snapshot both have', in_array("zfs send -L -c -i maple/appdata@$old1 maple/appdata@$snap", $n, true)
         && in_array("ssh recv share:appdata $snap $old1", $n, true), json_encode($n) . $out);
-    check('partner phase: gone here, bookmarked - zfs send -i <bookmark>, the door gets the snapshot\'s name', in_array("zfs send -L -c -i master/docs#uso-partner-$id master/docs@$snap", $n, true)
+    check('partner phase: gone here, bookmarked - zfs send -i <bookmark>, the door gets the snapshot\'s name', in_array("zfs send -L -c -i maple/docs#uso-partner-$id maple/docs@$snap", $n, true)
         && in_array("ssh recv share:docs $snap $old2", $n, true), json_encode($n));
     check('partner phase: a rate - pv -L in bytes/s (8 Mbit/s = 1000000)', in_array('pv -n -b -i 10 -L 1000000', $n, true), json_encode($n));
     $d = $byUnit($status()['partner']['done'] ?? []);
@@ -5334,7 +5334,7 @@ SH);
 
     // --- need_full: the partner has no base for it - sent whole right after
     $settings();
-    $night(['share:appdata' => [$old1]], ["master/appdata@$old1"]);
+    $night(['share:appdata' => [$old1]], ["maple/appdata@$old1"]);
     touch("$fake/needfull");
     $run();
     $r = array_values(preg_grep('/^ssh recv share:appdata/', $names()));
@@ -5349,9 +5349,9 @@ SH);
     @unlink("$fake/listrefuse");
 
     // --- a resume token: the interrupted transfer first (zfs send -t), then this night's from it
-    $night(['share:appdata' => []], ["master/appdata@$old1"]);
+    $night(['share:appdata' => []], ["maple/appdata@$old1"]);
     file_put_contents("$fake/token.share-appdata", '1-0123abcd-token');
-    file_put_contents("$fake/token.toname", "master/appdata@$old1");
+    file_put_contents("$fake/token.toname", "maple/appdata@$old1");
     $run();
     $n = $names();
     $r = array_values(preg_grep('/^ssh recv share:appdata/', $n));
@@ -5462,9 +5462,9 @@ SH);
     // the next night: the interrupted transfer continues first
     $stopSnap = $s['snapshot'] ?? '';
     $token = (string) @file_get_contents("$fake/token.place");
-    $night([], ["master/UnraidSecretaryOffice@$stopSnap"]);
+    $night([], ["maple/UnraidSecretaryOffice@$stopSnap"]);
     file_put_contents("$fake/token.place", $token);
-    file_put_contents("$fake/token.toname", "master/UnraidSecretaryOffice@$stopSnap");
+    file_put_contents("$fake/token.toname", "maple/UnraidSecretaryOffice@$stopSnap");
     $run();
     $r = array_values(preg_grep('/^ssh recv place/', $names()));
     check('partner phase: after the array stop - the next run continues the interrupted transfer (recv … -t)', ($r[0] ?? '') === "ssh recv place $stopSnap -t"
@@ -5689,10 +5689,10 @@ function testBackupPartnerOffice(): void
 
 /**
  * Engine 2.28: sleeping pools - [general] asleep_pools = skip leaves a pool whose disks sleep out of the night's run.
- * backup.sh on a fixture server like testBackupArrayStop: the pools master (awake) and hive (asleep: one of its two
- * disks spun down in a fixture disks.ini), stand-ins for docker (c1 on master, c2 only on hive, c3 on both, kopia),
- * zfs (snapshots in a file, every snapshot call and snapshot list noted), virsh (vmm on master, vmh on hive), mount,
- * notify. Skip: hive's datasets not in the snapshot call, no list or prune there, its Kopia sources skipped (asleep),
+ * backup.sh on a fixture server like testBackupArrayStop: the pools maple (awake) and hazel (asleep: one of its two
+ * disks spun down in a fixture disks.ini), stand-ins for docker (c1 on maple, c2 only on hazel, c3 on both, kopia),
+ * zfs (snapshots in a file, every snapshot call and snapshot list noted), virsh (vmm on maple, vmh on hazel), mount,
+ * notify. Skip: hazel's datasets not in the snapshot call, no list or prune there, its Kopia sources skipped (asleep),
  * vmh not shut down, c2 not stopped, the partner's unit there skipped (asleep), status/last-run/history/notification;
  * the 7th night warns once; wake = as before; the backup place on a sleeping pool is woken; a dry run counts no
  * night; setup.sh --plan / --apply carry the key and what sleeps now.
@@ -5706,8 +5706,8 @@ function testBackupAsleep(): void
     $tmp = sys_get_temp_dir() . '/office-tests-asleep-' . getmypid();
     exec('rm -rf ' . escapeshellarg($tmp));
     $mnt = "$tmp/mnt";
-    $m = "$mnt/master";
-    $h = "$mnt/hive";
+    $m = "$mnt/maple";
+    $h = "$mnt/hazel";
     $fake = "$tmp/fake";
     $data = "$tmp/data/unraid-backup";
     $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
@@ -5720,9 +5720,9 @@ function testBackupAsleep(): void
     foreach (['appdata', 'films', 'domains', 'UnraidSecretaryOffice', 'media', 'tm', 'vmh'] as $n) {
         touch("$tmp/boot/config/shares/$n.cfg");
     }
-    $ds = ['master' => $m, 'master/appdata' => "$m/appdata", 'master/films' => "$m/films", 'master/domains' => "$m/domains",
-           'master/UnraidSecretaryOffice' => "$m/UnraidSecretaryOffice", 'hive' => $h, 'hive/media' => "$h/media", 'hive/tm' => "$h/tm",
-           'hive/films' => "$h/films", 'hive/vmh' => "$h/vmh"];
+    $ds = ['maple' => $m, 'maple/appdata' => "$m/appdata", 'maple/films' => "$m/films", 'maple/domains' => "$m/domains",
+           'maple/UnraidSecretaryOffice' => "$m/UnraidSecretaryOffice", 'hazel' => $h, 'hazel/media' => "$h/media", 'hazel/tm' => "$h/tm",
+           'hazel/films' => "$h/films", 'hazel/vmh' => "$h/vmh"];
     $mounts0 = '';
     $zfs = '';
     foreach ($ds as $n => $mp) {
@@ -5856,7 +5856,7 @@ SH);
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NOTIFY_STAMP=$tmp/notify.stamp UB_VAR_INI=$fake/var.ini"
          . " FAKE=$fake FAKE_ROOT=$root MNT=$mnt UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1";
     $pid = '0a0b0c0d';
-    // app c2 (its folder on hive) is a Kopia source of its own only in the skip nights: the fixture's mounts are empty
+    // app c2 (its folder on hazel) is a Kopia source of its own only in the skip nights: the fixture's mounts are empty
     // folders, a source of its own could never be put together - skipped asleep it never needs to be
     $settings = function (string $asleep) use ($data, $root, $mnt, $pid): void {
         file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\n"
@@ -5868,8 +5868,8 @@ SH);
             . ($asleep === 'skip' ? "[app \"c2\"]\nkopia = yes\nfolder = media/c2\n" : '')
             . "[vm \"vmm\"]\nmode = snapshot\nprepare = pause\n[vm \"vmh\"]\nmode = snapshot\nprepare = shutdown\n");
     };
-    // a fresh night: everything running, hive asleep (one of its two disks), an old snapshot on each pool
-    $night = function (string $sleep = 'hive') use ($fake, $data, $mounts0): void {
+    // a fresh night: everything running, hazel asleep (one of its two disks), an old snapshot on each pool
+    $night = function (string $sleep = 'hazel') use ($fake, $data, $mounts0): void {
         exec('rm -rf ' . escapeshellarg("$fake/vm") . ' ' . escapeshellarg("$fake/ct") . ' ' . escapeshellarg("$data/logs"));
         foreach (['events', 'notify.log'] as $f) {
             @unlink("$fake/$f");
@@ -5880,13 +5880,13 @@ SH);
         @mkdir("$fake/vm", 0700, true);
         @mkdir("$fake/ct", 0700, true);
         file_put_contents("$fake/mounts", $mounts0);
-        file_put_contents("$fake/snaps.txt", "master/appdata@uso-backup-20200101-0100\nmaster/appdata@uso-backup-20200102-0100\nhive/media@uso-backup-20200101-0100\nhive/media@uso-backup-20200102-0100\n");
+        file_put_contents("$fake/snaps.txt", "maple/appdata@uso-backup-20200101-0100\nmaple/appdata@uso-backup-20200102-0100\nhazel/media@uso-backup-20200101-0100\nhazel/media@uso-backup-20200102-0100\n");
         file_put_contents("$fake/var.ini", "mdState=\"STARTED\"\nfsState=\"Started\"\n");
         $ini = '';
-        foreach (['master' => 0, 'master2' => 1, 'hive' => 0, 'hive2' => 1] as $d => $down) {
-            $asleep = $down || ($sleep === 'both' && str_starts_with($d, 'master'));
-            // master2 is an SSD in standby (rotational=0, spundown=1): never asleep for the engine - master sleeps only through master ('both')
-            $ini .= "[\"$d\"]\nname=\"$d\"\n" . ($d === 'master2' ? "rotational=\"0\"\n" : '') . "spundown=\"" . ($asleep ? 1 : 0) . "\"\n";
+        foreach (['maple' => 0, 'maple2' => 1, 'hazel' => 0, 'hazel2' => 1] as $d => $down) {
+            $asleep = $down || ($sleep === 'both' && str_starts_with($d, 'maple'));
+            // maple2 is an SSD in standby (rotational=0, spundown=1): never asleep for the engine - maple sleeps only through maple ('both')
+            $ini .= "[\"$d\"]\nname=\"$d\"\n" . ($d === 'maple2' ? "rotational=\"0\"\n" : '') . "spundown=\"" . ($asleep ? 1 : 0) . "\"\n";
         }
         file_put_contents("$fake/disks.ini", $sleep === 'none' ? str_replace('spundown="1"', 'spundown="0"', $ini) : $ini);
     };
@@ -5904,7 +5904,7 @@ SH);
     $nights = fn () => json_decode((string) @file_get_contents("$data/state/asleep.json"), true);
     $snapCall = fn (array $n) => implode(' ', preg_grep('/^zfs snapshot /', $n));
 
-    // --- skip: hive sleeps - left out
+    // --- skip: hazel sleeps - left out
     $settings('skip');
     $night();
     [$code, $out] = $run();
@@ -5913,26 +5913,26 @@ SH);
     $l = $log();
     same('asleep skip: the run went through - ok, exit 0, no warning, no error', ['ok', 0, 0, 0], [$s['result'] ?? null, $code, $s['warnings'] ?? null, $s['errors'] ?? null], $out . $l);
     $snap = $snapCall($n);
-    check('asleep skip: one snapshot call for master, none of hive\'s datasets in it', str_contains($snap, 'master/appdata@uso-backup-') && str_contains($snap, 'master/films@')
-        && str_contains($snap, 'master/UnraidSecretaryOffice@') && !str_contains($snap, 'hive') && count(preg_grep('/^zfs snapshot /', $n)) === 1, json_encode($n));
+    check('asleep skip: one snapshot call for maple, none of hazel\'s datasets in it', str_contains($snap, 'maple/appdata@uso-backup-') && str_contains($snap, 'maple/films@')
+        && str_contains($snap, 'maple/UnraidSecretaryOffice@') && !str_contains($snap, 'hazel') && count(preg_grep('/^zfs snapshot /', $n)) === 1, json_encode($n));
     $lists = preg_grep('/^zfs list /', $n);
-    check('asleep skip: the retention lists snapshots on master only (-r master), never hive, never all pools at once',
-        (bool) preg_grep('/-r master$/', $lists) && !preg_grep('/hive/', $lists) && !preg_grep('/^zfs list -H -t snapshot -o name$/', $lists), json_encode($lists));
-    check('asleep skip: master\'s old snapshot pruned, hive\'s left alone', in_array('zfs destroy master/appdata@uso-backup-20200101-0100', $n, true) && !preg_grep('/^zfs destroy hive/', $n), json_encode($n));
-    check('asleep skip: c1 and c3 stopped and started, c2 (only hive) never stopped', in_array('docker stop c1', $n, true) && in_array('docker stop c3', $n, true)
+    check('asleep skip: the retention lists snapshots on maple only (-r maple), never hazel, never all pools at once',
+        (bool) preg_grep('/-r maple$/', $lists) && !preg_grep('/hazel/', $lists) && !preg_grep('/^zfs list -H -t snapshot -o name$/', $lists), json_encode($lists));
+    check('asleep skip: maple\'s old snapshot pruned, hazel\'s left alone', in_array('zfs destroy maple/appdata@uso-backup-20200101-0100', $n, true) && !preg_grep('/^zfs destroy hazel/', $n), json_encode($n));
+    check('asleep skip: c1 and c3 stopped and started, c2 (only hazel) never stopped', in_array('docker stop c1', $n, true) && in_array('docker stop c3', $n, true)
         && in_array('docker start c3', $n, true) && !preg_grep('/ c2$/', $n), json_encode($n));
-    check('asleep skip: vmm paused and resumed, vmh (on hive) neither shut down nor paused', in_array('virsh suspend vmm', $n, true) && in_array('virsh resume vmm', $n, true)
+    check('asleep skip: vmm paused and resumed, vmh (on hazel) neither shut down nor paused', in_array('virsh suspend vmm', $n, true) && in_array('virsh resume vmm', $n, true)
         && !preg_grep('/vmh$/', $n), json_encode($n));
     $kopia = array_values(preg_grep('/^kopia /', $n));
     check('asleep skip: Kopia for appdata and the backup place - nothing of media or app c2', in_array('kopia /uso/appdata', $kopia, true) && in_array('kopia /uso/UnraidSecretaryOffice', $kopia, true)
         && !preg_grep('/media|c2/', $kopia), json_encode($kopia));
-    check('asleep skip: nothing of hive mounted', !preg_grep('/^mount .*hive/', $n), json_encode(preg_grep('/^mount /', $n)));
+    check('asleep skip: nothing of hazel mounted', !preg_grep('/^mount .*hazel/', $n), json_encode(preg_grep('/^mount /', $n)));
     $a = $s['asleep'] ?? [];
     if (is_array($a['nights'] ?? null)) {
         ksort($a['nights']);
     }
     same('asleep skip: status.json asleep - the pool, its shares (films partly), units, the VM, the container, the sources',
-        ['mode' => 'skip', 'pools' => ['hive'], 'shares' => ['films', 'media', 'tm', 'vmh'], 'units' => 4, 'vms' => ['vmh'], 'containers' => ['c2'], 'sources' => ['media', 'app:c2'],
+        ['mode' => 'skip', 'pools' => ['hazel'], 'shares' => ['films', 'media', 'tm', 'vmh'], 'units' => 4, 'vms' => ['vmh'], 'containers' => ['c2'], 'sources' => ['media', 'app:c2'],
          'woken' => [], 'nights' => ['films' => 1, 'media' => 1, 'tm' => 1, 'vmh' => 1]], $a);
     $why = $s['kopia']['skipped_why'] ?? [];
     ksort($why);
@@ -5945,11 +5945,11 @@ SH);
         [[$vms['vmh']['prepare'] ?? null, $vms['vmh']['done'] ?? null, $vms['vmh']['snapshot'] ?? null], [$vms['vmm']['prepare'] ?? null, $vms['vmm']['done'] ?? null]]);
     same('asleep skip: the partner - media skipped (asleep), appdata skipped (no key)', [['id' => $pid, 'unit' => 'share:media', 'why' => 'asleep'], ['id' => $pid, 'unit' => 'share:appdata', 'why' => 'no_key']],
         $s['partner']['skipped'] ?? null);
-    check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hive: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hive: asleep - left out') === 1, $l);
+    check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
     $nt = array_values(preg_grep('/Backup successful/', $notes()));
     check('asleep skip: the notification - successful, «4 shares asleep (left out)» in its summary', count($nt) === 1
-        && str_contains($nt[0], ', 4 shares asleep (left out)') && str_contains($nt[0], 'LEFT OUT, ASLEEP (asleep_pools = skip)\n  Disks:   hive\n'), json_encode($nt));
+        && str_contains($nt[0], ', 4 shares asleep (left out)') && str_contains($nt[0], 'LEFT OUT, ASLEEP (asleep_pools = skip)\n  Disks:   hazel\n'), json_encode($nt));
     same('asleep skip: state/asleep.json - one night each', ['films' => 1, 'media' => 1, 'tm' => 1, 'vmh' => 1], array_map(fn ($x) => $x['nights'] ?? null, $nights()['shares'] ?? []));
 
     // --- the 7th night in a row: one warning; the same day again: none
@@ -5982,32 +5982,32 @@ SH);
     $run('--dry-run');
     $s = $status();
     same('asleep dry run: the plan says it (asleep, skipped sources), asleep.json untouched, nothing snapshotted',
-        [['hive'], ['media', 'app:c2'], $before, []], [$s['asleep']['pools'] ?? null, $s['kopia']['skipped'] ?? null, (string) @file_get_contents("$data/state/asleep.json"), array_values(preg_grep('/^zfs snapshot/', $names()))]);
+        [['hazel'], ['media', 'app:c2'], $before, []], [$s['asleep']['pools'] ?? null, $s['kopia']['skipped'] ?? null, (string) @file_get_contents("$data/state/asleep.json"), array_values(preg_grep('/^zfs snapshot/', $names()))]);
 
-    // --- the backup place's pool asleep too: woken as always (the packages are the point), only hive left out
+    // --- the backup place's pool asleep too: woken as always (the packages are the point), only hazel left out
     $night('both');
     [$code, $out] = $run();
     $s = $status();
     $l = $log();
-    check('asleep place: master asleep but holds the backup place - woken, said so; hive left out',
-        ($s['asleep']['woken'] ?? null) === ['master'] && ($s['asleep']['pools'] ?? null) === ['hive'] && str_contains($snapCall($names()), 'master/UnraidSecretaryOffice@')
-        && str_contains($l, 'ZFS master: asleep, but the backup place (UnraidSecretaryOffice) lies there - woken as always'), $out . $l);
+    check('asleep place: maple asleep but holds the backup place - woken, said so; hazel left out',
+        ($s['asleep']['woken'] ?? null) === ['maple'] && ($s['asleep']['pools'] ?? null) === ['hazel'] && str_contains($snapCall($names()), 'maple/UnraidSecretaryOffice@')
+        && str_contains($l, 'ZFS maple: asleep, but the backup place (UnraidSecretaryOffice) lies there - woken as always'), $out . $l);
 
-    // --- hive awake with skip: nothing left out, the nights reset
+    // --- hazel awake with skip: nothing left out, the nights reset
     $night('none');
     $run();
     $s = $status();
     same('asleep skip, nothing asleep: asleep with empty lists, every night count gone', [[], 0, null], [$s['asleep']['pools'] ?? null, $s['asleep']['units'] ?? null, $nights()]);
 
-    // --- wake: as before - hive woken by its snapshot
+    // --- wake: as before - hazel woken by its snapshot
     $settings('wake');
     $night();
     file_put_contents("$data/state/asleep.json", json_encode(['shares' => ['media' => ['nights' => 3, 'first' => 1, 'last_day' => '2000-01-01', 'warned' => '']]]));
     [$code, $out] = $run();
     $s = $status();
     $n = $names();
-    check('asleep wake: as before - hive in the snapshot call, c2 stopped, vmh shut down and started, Kopia for media',
-        str_contains($snapCall($n), 'hive/media@') && in_array('docker stop c2', $n, true) && in_array('virsh shutdown vmh', $n, true) && in_array('virsh start vmh', $n, true)
+    check('asleep wake: as before - hazel in the snapshot call, c2 stopped, vmh shut down and started, Kopia for media',
+        str_contains($snapCall($n), 'hazel/media@') && in_array('docker stop c2', $n, true) && in_array('virsh shutdown vmh', $n, true) && in_array('virsh start vmh', $n, true)
         && in_array('kopia /uso/media', $n, true), json_encode($n) . $out);
     same('asleep wake: status asleep null, nothing skipped, the night counts gone, last-run asleep=0', [null, [], [], null, true],
         [array_key_exists('asleep', $s) ? $s['asleep'] : 'missing', $s['kopia']['skipped'] ?? null, $s['kopia']['skipped_why'] ?? null, $nights(), str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=0\n")]);
@@ -6016,7 +6016,7 @@ SH);
     $night();
     $run();
     $s = $status();
-    same('asleep: no key at all = wake', [null, true], [array_key_exists('asleep', $s) ? $s['asleep'] : 'missing', str_contains($snapCall($names()), 'hive/media@')]);
+    same('asleep: no key at all = wake', [null, true], [array_key_exists('asleep', $s) ? $s['asleep'] : 'missing', str_contains($snapCall($names()), 'hazel/media@')]);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
@@ -6031,7 +6031,7 @@ SH);
     $sh = array_column($plan['shares'] ?? [], null, 'name');
     $vm = array_column($plan['vms'] ?? [], null, 'name');
     same('setup plan: asleep_pools (and in P), per share and VM pool_asleep / asleep_bases from disks.ini',
-        ['skip', 'skip', 7, [true, ['hive']], [true, ['hive']], [false, []], [true, ['hive']], [false, []]],
+        ['skip', 'skip', 7, [true, ['hazel']], [true, ['hazel']], [false, []], [true, ['hazel']], [false, []]],
         [$plan['asleep_pools'] ?? null, $plan['P']['general|asleep_pools'] ?? null, $plan['asleep_nights'] ?? null,
          [$sh['media']['pool_asleep'] ?? null, $sh['media']['asleep_bases'] ?? null], [$sh['films']['pool_asleep'] ?? null, $sh['films']['asleep_bases'] ?? null],
          [$sh['appdata']['pool_asleep'] ?? null, $sh['appdata']['asleep_bases'] ?? null], [$vm['vmh']['pool_asleep'] ?? null, $vm['vmh']['asleep_bases'] ?? null],
@@ -6076,17 +6076,17 @@ function testBackupAsleepOffice(): void
     $tmp = sys_get_temp_dir() . '/office-tests-asleepoffice-' . getmypid();
     @mkdir("$tmp/state", 0700, true);
     $j = ['run' => '20261008-0302', 'started' => 1000, 'finished' => 1600, 'result' => 'ok', 'version' => '2.28',
-        'asleep' => ['mode' => 'skip', 'pools' => ['hive'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine', "bad\nname", 5], 'units' => 99,
+        'asleep' => ['mode' => 'skip', 'pools' => ['hazel'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine', "bad\nname", 5], 'units' => 99,
                      'vms' => [], 'containers' => ['TimeMachine_Benj'], 'sources' => [], 'woken' => [], 'nights' => ['Filme' => 9, 'timemachine_benj' => 2, '2024' => 7, 'x' => 'many']],
         'kopia' => ['enabled' => true, 'planned' => ['appdata'], 'done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 1500]],
                     'skipped' => ['media', 'docs'], 'skipped_why' => ['media' => 'asleep'], 'interrupted' => null]];
     $r = backupRunFromStatus($j);
     same('asleep office: a run\'s asleep block - names in their shape, units counted from them, nights, the long ones',
-        ['pools' => ['hive'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine'], 'units' => 3, 'vms' => [], 'containers' => ['TimeMachine_Benj'], 'woken' => [],
+        ['pools' => ['hazel'], 'shares' => ['Filme', 'timemachine_benj', 'timemachine_janine'], 'units' => 3, 'vms' => [], 'containers' => ['TimeMachine_Benj'], 'woken' => [],
          'nights' => ['Filme' => 9, 'timemachine_benj' => 2, '2024' => 7], 'long' => ['Filme', '2024']], $r['asleep']);
     same('asleep office: Kopia sources skipped asleep apart from those the array stop skipped', [['docs'], ['media']], [$r['kopia_skipped'], $r['kopia_asleep']]);
     same('asleep office: wake, an older engine or no block - null', [null, null, null],
-        [backupRunFromStatus(['run' => 'x'])['asleep'], backupAsleepRun(['pools' => ['hive']]), backupAsleepRun(null)]);
+        [backupRunFromStatus(['run' => 'x'])['asleep'], backupAsleepRun(['pools' => ['hazel']]), backupAsleepRun(null)]);
     same('asleep office: an older engine\'s skipped list (no skipped_why) - all the array stop\'s', [['a', 'b'], []],
         [backupKopiaSkipped(['skipped' => ['a', 'b', 3]], false), backupKopiaSkipped(['skipped' => ['a', 'b']], true)]);
     // the history as the page gets it
@@ -6172,14 +6172,14 @@ function testBackupKopiaOrder(): void
     same('kopia order: the allocated size alone would put the sparse VM far too early (what 2.25 did)', 'vm:Win 11 appdata',
         $sh('VM_APPARENT=(["Win 11"]=21000000000); KOPIA_CONNECTED=no; kopia_order | cut -d"|" -f1 | grep -E "^(vm:Win 11|appdata)$" | paste -sd" " -'));
     // vm_load reads both sizes of a VM's disk files on their pool: what they take (allocated) and what they are (a sparse vdisk whole)
-    @mkdir("$tmp/mnt/master/domains/Sparse", 0700, true);
-    exec('truncate -s 5G ' . escapeshellarg("$tmp/mnt/master/domains/Sparse/vdisk1.img"));
-    file_put_contents("$tmp/mnt/master/domains/Sparse/vdisk2.img", str_repeat('x', 1024 * 1024));
-    file_put_contents("$tmp/mounts", "master $tmp/mnt/master zfs rw 0 0\n");
+    @mkdir("$tmp/mnt/maple/domains/Sparse", 0700, true);
+    exec('truncate -s 5G ' . escapeshellarg("$tmp/mnt/maple/domains/Sparse/vdisk1.img"));
+    file_put_contents("$tmp/mnt/maple/domains/Sparse/vdisk2.img", str_repeat('x', 1024 * 1024));
+    file_put_contents("$tmp/mounts", "maple $tmp/mnt/maple zfs rw 0 0\n");
     file_put_contents("$tmp/bin/virsh", "#!/bin/bash\ncase \"\$1\" in\n  list) echo Sparse ;;\n  domstate) echo 'shut off' ;;\n  dominfo) echo 'Autostart:      disable' ;;\n  dumpxml) echo '<domain/>' ;;\n"
         . "  domblklist) printf 'Type Device Target Source\\nfile disk vda $tmp/mnt/user/domains/Sparse/vdisk1.img\\nfile disk vdb $tmp/mnt/user/domains/Sparse/vdisk2.img\\nfile cdrom sda -\\n' ;;\nesac\n");
     chmod("$tmp/bin/virsh", 0755);
-    $vm = explode(' ', $sh("UB_MNT=$tmp/mnt UB_MOUNTS_FILE=$tmp/mounts; mounts_load; INV_BASES=(master); INV_BASE_PATH[master]=$tmp/mnt/master; vm_load;"
+    $vm = explode(' ', $sh("UB_MNT=$tmp/mnt UB_MOUNTS_FILE=$tmp/mounts; mounts_load; INV_BASES=(maple); INV_BASE_PATH[maple]=$tmp/mnt/maple; vm_load;"
         . ' printf "%s %s %s %s" "${VM_APPARENT[Sparse]}" "$(( ${VM_BYTES[Sparse]} < 100000000 ))" "$(( ${VM_BYTES[Sparse]} >= 1048576 ))" "${VM_SNAP[Sparse]}"'));
     same('vm_load: VM_APPARENT is the files\' own sizes (5 GiB sparse + 1 MiB), VM_BYTES what they take (the 1 MiB, far less than the 5 GiB), the VM in a snapshot',
         [(string) (5 * 1073741824 + 1048576), '1', '1', 'yes'], $vm);
@@ -6237,13 +6237,13 @@ function testAgentBackupHooks(): void
 
     // array stopping
     file_put_contents("$ub/settings.ini", "[general]\nmount_root = $tmp/snaps\nkeep_mounts = yes\n[share \"x\"]\nmount_root = $tmp/elsewhere\n");
-    file_put_contents("$tmp/mounts", "master /mnt/master zfs rw 0 0\n");
+    file_put_contents("$tmp/mounts", "maple /mnt/maple zfs rw 0 0\n");
     $call('backup_release');
     same('hooks: stopping, nothing of the engine mounted - backup.sh not called', '', $read('backup.calls'));
-    file_put_contents("$tmp/mounts", "master /mnt/master zfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/elsewhere/appdata zfs ro 0 0\n");
+    file_put_contents("$tmp/mounts", "maple /mnt/maple zfs rw 0 0\nmaple/appdata@uso-backup-1 $tmp/elsewhere/appdata zfs ro 0 0\n");
     $call('backup_release');
     same('hooks: stopping, a mount under another section\'s «mount_root» is none of the engine\'s', '', $read('backup.calls'));
-    file_put_contents("$tmp/mounts", "master /mnt/master zfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
+    file_put_contents("$tmp/mounts", "maple /mnt/maple zfs rw 0 0\nmaple/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
     $call('backup_release');
     same('hooks: stopping, its snapshot mounted (keep_mounts) and the lock free - backup.sh --unmount with its data folder, latest.log left alone, '
         . 'not waiting for the lock (UB_ARRAY_STOP)', "$ub 1 1 --unmount\n", $read('backup.calls'));
@@ -6312,7 +6312,7 @@ function testAgentBackupHooks(): void
     same('hooks: stopping, the live run ends within 2 s (past its last look) - released after it', "$ub 1 1 --unmount\n", $read('backup.calls'));
     @unlink("$tmp/backup.calls");
     @unlink("$ub/state/lock-holder.json");
-    file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\nmaster/appdata@uso-backup-1 $tmp/stage/layers/master_appdata zfs ro 0 0\n");
+    file_put_contents("$tmp/mounts", "unraid-backup-stage $tmp/stage tmpfs rw 0 0\nmaple/appdata@uso-backup-1 $tmp/stage/layers/maple_appdata zfs ro 0 0\n");
     $call('backup_release');
     same('hooks: stopping, a layer in its staging area mounted - released too', "$ub 1 1 --unmount\n", $read('backup.calls'));
     @unlink("$tmp/backup.calls");
@@ -6320,7 +6320,7 @@ function testAgentBackupHooks(): void
     $call('backup_release');
     same('hooks: stopping, only the staging area itself (a tmpfs for the boot) - nothing to do', '', $read('backup.calls'));
     file_put_contents("$tmp/plugin/backup/backup.sh", "sleep 30\n");
-    file_put_contents("$tmp/mounts", "master/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
+    file_put_contents("$tmp/mounts", "maple/appdata@uso-backup-1 $tmp/snaps/appdata zfs ro 0 0\n");
     $t0 = microtime(true);
     $call('backup_release');
     check('hooks: stopping, a hanging unmount is cut off after 8 s - with the 2 s for a live run, the array stop waits at most 10 s',
@@ -6625,9 +6625,9 @@ function testBackupNewLocalOffice(): void
             ['name' => 'nc-app', 'project' => 'nextcloud', 'why' => 'writes', 'previous' => true, 'binds' => [['share' => 'appdata', 'path' => 'nc', 'rw' => true]], 'volumes' => []],
             ['name' => 'nc-redis', 'project' => 'nextcloud', 'why' => 'new', 'previous' => false, 'binds' => [], 'volumes' => []]],
         'vms' => [
-            ['name' => 'oldvm', 'why' => 'previous', 'agent' => 'no', 'own' => ['master/domains/oldvm'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/oldvm/vdisk1.img']]],
-            ['name' => 'newvm', 'why' => 'new', 'agent' => 'no', 'own' => ['master/domains/newvm'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/newvm/vdisk1.img']]],
-            ['name' => 'sharedvm', 'why' => 'new', 'agent' => 'no', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/sharedvm/vdisk1.img']]]],
+            ['name' => 'oldvm', 'why' => 'previous', 'agent' => 'no', 'own' => ['maple/domains/oldvm'], 'disks' => [['share' => 'domains', 'source' => '/mnt/maple/domains/oldvm/vdisk1.img']]],
+            ['name' => 'newvm', 'why' => 'new', 'agent' => 'no', 'own' => ['maple/domains/newvm'], 'disks' => [['share' => 'domains', 'source' => '/mnt/maple/domains/newvm/vdisk1.img']]],
+            ['name' => 'sharedvm', 'why' => 'new', 'agent' => 'no', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/maple/domains/sharedvm/vdisk1.img']]]],
         'databases' => [], 'nextcloud' => [], 'missing_databases' => [],
     ];
     file_put_contents("$tmp/plan.json", json_encode($plan));
@@ -6810,8 +6810,8 @@ function testSetupFilter(): void
     $ct = fn (string $name, string $why, array $binds) => ['name' => $name, 'image' => "some/$name", 'why' => $why, 'previous' => $why !== 'new',
         'running' => true, 'media' => '', 'kopia' => false, 'volumes' => [], 'project' => '',
         'binds' => array_map(fn ($b) => ['share' => explode('/', $b, 2)[0], 'path' => explode('/', $b, 2)[1] ?? '', 'rw' => true], $binds)];
-    $vm = fn (string $name, string $why) => ['name' => $name, 'why' => $why, 'agent' => 'yes', 'snap' => 'yes', 'own' => ["master/domains/$name"],
-        'disks' => [['share' => 'domains', 'source' => "/mnt/master/domains/$name/vdisk1.img"]], 'bytes' => 1, 'apparent' => 1];
+    $vm = fn (string $name, string $why) => ['name' => $name, 'why' => $why, 'agent' => 'yes', 'snap' => 'yes', 'own' => ["maple/domains/$name"],
+        'disks' => [['share' => 'domains', 'source' => "/mnt/maple/domains/$name/vdisk1.img"]], 'bytes' => 1, 'apparent' => 1];
     $plan = [
         'time' => 1000, 'have_settings' => true, 'vm_service' => true, 'mount_root' => '/mnt/addons/UnraidSecretaryOffice/snapshots',
         'P' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'flash|mode' => 'off', 'docker|known' => ['c1', 'c2'],
@@ -6825,7 +6825,7 @@ function testSetupFilter(): void
             $sh('UnraidSecretaryOffice'), $sh('domains'), $sh('Écoles')],
         'containers' => [$ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('neu', 'new', ['appdata/neu'])],
         'vms' => [$vm('old', 'previous'), $vm('fresh', 'new')],
-        'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']],
+        'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'maple', 'fs' => 'zfs', 'kind' => 'pool']],
         'flash' => ['dataset' => '', 'fs' => 'vfat'],
         'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => [
             ['source' => '/mnt/addons/UnraidSecretaryOffice/snapshots', 'target' => '/uso', 'rw' => false, 'main' => true]]],
@@ -7195,13 +7195,13 @@ function testBackupPresets(): void
             $ct('kopia', 'kopia', [], ['kopia' => true])],
         'vms' => [
             // vm1: a 500 GB vdisk holding 20 GB (engine 2.26: bytes = what the files take, apparent = what they are); vm3: a full one; vm2: sizes unknown
-            ['name' => 'vm1', 'why' => 'previous', 'agent' => 'no', 'snap' => 'yes', 'own' => ['master/domains/vm1'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm1/vdisk1.img']],
+            ['name' => 'vm1', 'why' => 'previous', 'agent' => 'no', 'snap' => 'yes', 'own' => ['maple/domains/vm1'], 'disks' => [['share' => 'domains', 'source' => '/mnt/maple/domains/vm1/vdisk1.img']],
              'bytes' => 20000000000, 'apparent' => 500000000000],
-            ['name' => 'vm2', 'why' => 'previous', 'agent' => 'no', 'snap' => 'no_snapshot', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm2/vdisk1.img']],
+            ['name' => 'vm2', 'why' => 'previous', 'agent' => 'no', 'snap' => 'no_snapshot', 'own' => [], 'disks' => [['share' => 'domains', 'source' => '/mnt/maple/domains/vm2/vdisk1.img']],
              'bytes' => null, 'apparent' => null],
-            ['name' => 'vm3', 'why' => 'previous', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['master/domains/vm3'], 'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vm3/vdisk1.img']],
+            ['name' => 'vm3', 'why' => 'previous', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['maple/domains/vm3'], 'disks' => [['share' => 'domains', 'source' => '/mnt/maple/domains/vm3/vdisk1.img']],
              'bytes' => 50000000000, 'apparent' => 50000000000]],
-        'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']], 'flash' => ['dataset' => '', 'fs' => 'vfat'],
+        'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'maple', 'fs' => 'zfs', 'kind' => 'pool']], 'flash' => ['dataset' => '', 'fs' => 'vfat'],
         'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => [
             ['source' => '/mnt/addons/UnraidSecretaryOffice/snapshots', 'target' => '/uso', 'rw' => false, 'main' => true],
             ['source' => '/mnt/user/kopia_tmp', 'target' => '/cache', 'rw' => true, 'main' => false],
@@ -7223,7 +7223,7 @@ function testBackupPresets(): void
                      $sh('UnraidSecretaryOffice', 1, ['why' => 'new']), $sh('Filme', 3000, ['why' => 'big']), $sh('system', 30, ['why' => 'system']),
                      $sh('routerlogs', 2, ['why' => 'syslog'])],
         'containers' => [$ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('c3', 'writes', ['appdata/c3']), $ct('dsm', 'no_data', ['Filme'])],
-        'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']],
+        'vms' => [], 'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'maple', 'fs' => 'zfs', 'kind' => 'pool']],
         'flash' => ['dataset' => 'flash/boot', 'fs' => 'zfs'], 'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => []]];
     file_put_contents("$tmp/plan.json", json_encode($plan));
     file_put_contents("$tmp/later.json", json_encode($later));
@@ -7385,8 +7385,8 @@ JS;
     $news['P']['general|preset_new'] = 'auto';
     $news['O'] += ['share|kopia_tmp|mode' => 'off', 'share|tm_janine|mode' => 'off', 'share|Backups_TimeMachine|mode' => 'off', 'share|scratch|mode' => 'off',
         'share|old_name|mode' => 'snapshot'];
-    $news['vms'][] = ['name' => 'vmnew', 'why' => 'new', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['master/domains/vmnew'],
-        'disks' => [['share' => 'domains', 'source' => '/mnt/master/domains/vmnew/vdisk1.img']], 'bytes' => 10000000000, 'apparent' => 10000000000];
+    $news['vms'][] = ['name' => 'vmnew', 'why' => 'new', 'agent' => 'yes', 'snap' => 'yes', 'own' => ['maple/domains/vmnew'],
+        'disks' => [['share' => 'domains', 'source' => '/mnt/maple/domains/vmnew/vdisk1.img']], 'bytes' => 10000000000, 'apparent' => 10000000000];
     $news['P'] += ['vm|vmnew|mode' => 'snapshot', 'vm|vmnew|prepare' => 'none', 'share|fresh|mode' => 'kopia', 'share|huge|mode' => 'off', 'share|unk|mode' => 'snapshot',
         'share|renamed|mode' => 'snapshot'];
     $news['shares'][] = $sh('fresh', 50, ['why' => 'new']);
@@ -7749,7 +7749,7 @@ function testRestore(): void
         'containers' => [['name' => 'EmbyServer', 'image' => 'emby/embyserver', 'template' => 'my-EmbyServer.xml']],
         'files' => [['path' => 'my-EmbyServer.xml', 'bytes' => 9, 'run' => '20261001-0200', 'what' => 'template']]]);
     $put('vms/Win/manifest.json', ['name' => 'Win', 'run' => '20261006-0200', 'xml' => 'Win.xml', 'uuid' => '43CD8087-9364-2C3D-EB36-29696480E7D8',
-        'disks' => [['source' => '/mnt/user/domains/Win/vdisk1.img', 'snapshot' => 'master/domains/Win@unraidbackup-20261006-0200', 'share' => 'domains']],
+        'disks' => [['source' => '/mnt/user/domains/Win/vdisk1.img', 'snapshot' => 'maple/domains/Win@unraidbackup-20261006-0200', 'share' => 'domains']],
         'files' => [['path' => 'Win.xml', 'bytes' => 5, 'what' => 'xml'], ['path' => 'nvram/43cd8087-9364-2c3d-eb36-29696480e7d8_VARS-pure-efi.fd', 'bytes' => 7, 'what' => 'nvram']]]);
     $put('vms/Win/Win.xml', '<domain><hostdev/><hostdev/></domain>');
     $p = rsPackages($tmp);
@@ -7769,14 +7769,14 @@ function testRestore(): void
         [$vm['uuid'] ?? null, $vm['nvram'] ?? null, $vm['hostdev'] ?? null, $vm['tpm'] ?? null]);
     exec('rm -rf ' . escapeshellarg($tmp));
 
-    $ctx = ['fs' => ['master' => 'zfs', 'disk1' => 'btrfs']];
-    same('restore: share paths', [['appdata', 'nextcloud/db', null], ['appdata', 'x', 'master'], null, null, null, ['domains', '', null]],
-        [rsSharePath('/mnt/user/appdata/nextcloud/db/', $ctx), rsSharePath('/mnt/master/appdata/x', $ctx), rsSharePath('/mnt/disks/ud/x', $ctx),
+    $ctx = ['fs' => ['maple' => 'zfs', 'disk1' => 'btrfs']];
+    same('restore: share paths', [['appdata', 'nextcloud/db', null], ['appdata', 'x', 'maple'], null, null, null, ['domains', '', null]],
+        [rsSharePath('/mnt/user/appdata/nextcloud/db/', $ctx), rsSharePath('/mnt/maple/appdata/x', $ctx), rsSharePath('/mnt/disks/ud/x', $ctx),
          rsSharePath('/mnt/user/appdata/../etc', $ctx), rsSharePath('/mnt/user/.hidden/x', $ctx), rsSharePath('/mnt/user/domains', $ctx)]);
 
     // whether he suits the server says what is really there (a fresh server: no package, no snapshot yet)
     $set = ['general' => ['dumps_share' => ['UnraidSecretaryOffice']]];
-    $cow = ['zfs' => ['master'], 'btrfs' => []];
+    $cow = ['zfs' => ['maple'], 'btrfs' => []];
     $fitOf = fn (array $f) => [$f['ok'], $f['why'], $f['params']['n'] ?? null];
     $ran = fn (int $finished, bool $written) => ['finished' => $finished, 'packages' => ['written' => $written, 'apps' => 25, 'vms' => 3]];
     same('restore fit: the packages of his last look', [true, 'packages', 2],
@@ -7993,7 +7993,7 @@ function testRestoreJobs(): void
 }
 
 /**
- * Mr. Restori and a share on several pools and disks (like drop: primary hive, secondary mother, an array disk):
+ * Mr. Restori and a share on several pools and disks (like drop: primary hazel, secondary moss, an array disk):
  * moments across the parts (the engine's run on all, a manual snapshot on two, a plan's on one), never a moment
  * whose parts hold nothing by default, the union of the parts as the source (primary first), a ZFS dataset of its
  * own at the top of a share from its own snapshots, targets on the share (/mnt/user/<share>/…, never the pool),
@@ -8024,53 +8024,53 @@ function testRestoreShares(): void
     $T1 = (int) strtotime('2026-10-06 14:59');
     $T2 = (int) strtotime('2026-10-06 15:00');
     $Th = (int) strtotime('2026-10-05 12:00');
-    // live: the data on hive, mother's part empty, the array disk's empty
-    $put("$mnt/hive/zzdrop/files");
-    $put("$mnt/hive/zzdrop/texts/t1.txt", 'live text');
-    $put("$mnt/hive/zzdrop/shares/a/x", 'live x');
-    $put("$mnt/mother/zzdrop");
+    // live: the data on hazel, moss's part empty, the array disk's empty
+    $put("$mnt/hazel/zzdrop/files");
+    $put("$mnt/hazel/zzdrop/texts/t1.txt", 'live text');
+    $put("$mnt/hazel/zzdrop/shares/a/x", 'live x');
+    $put("$mnt/moss/zzdrop");
     $put("$mnt/disk1/zzdrop");
-    // snapshots: the engine's run on all three, a manual one on hive and mother, a plan's on mother only, one on hive only
-    $put($snap('hive', 'hive-only') . '/files/h.png', 'h');
-    $put($snap('hive', 'hive-only') . '/texts/t1.txt', 'hive-only text');
-    $put($snap('hive', 'unraidbackup-20261006-0100') . '/files/f0.png', 'png0');
-    $put($snap('hive', 'manual-x') . '/files/f1.png', 'png1');
-    $put($snap('hive', 'manual-x') . '/texts/t1.txt', 'old text');
-    $put($snap('hive', 'manual-x') . '/shares');                       // a dataset of its own: empty in its parent's snapshot
-    $put($snap('hive', 'manual-x') . '/.thumbs/t', 'thumb');
-    $put($snap('hive', 'manual-x') . '/files.restored-20261006-150008/old', 'mine');   // what he left himself: not listed
-    $put("$mnt/hive/zzdrop/shares/.zfs/snapshot/manual-x/a/x", 'snap x');
-    $put($snap('mother', 'unraidbackup-20261006-0100') . '/files/m0.png', 'm0');
-    $put($snap('mother', 'manual-x'));
-    $put($snap('mother', 'uso-plan-test-20261006-1500'));
+    // snapshots: the engine's run on all three, a manual one on hazel and moss, a plan's on moss only, one on hazel only
+    $put($snap('hazel', 'hazel-only') . '/files/h.png', 'h');
+    $put($snap('hazel', 'hazel-only') . '/texts/t1.txt', 'hazel-only text');
+    $put($snap('hazel', 'unraidbackup-20261006-0100') . '/files/f0.png', 'png0');
+    $put($snap('hazel', 'manual-x') . '/files/f1.png', 'png1');
+    $put($snap('hazel', 'manual-x') . '/texts/t1.txt', 'old text');
+    $put($snap('hazel', 'manual-x') . '/shares');                       // a dataset of its own: empty in its parent's snapshot
+    $put($snap('hazel', 'manual-x') . '/.thumbs/t', 'thumb');
+    $put($snap('hazel', 'manual-x') . '/files.restored-20261006-150008/old', 'mine');   // what he left himself: not listed
+    $put("$mnt/hazel/zzdrop/shares/.zfs/snapshot/manual-x/a/x", 'snap x');
+    $put($snap('moss', 'unraidbackup-20261006-0100') . '/files/m0.png', 'm0');
+    $put($snap('moss', 'manual-x'));
+    $put($snap('moss', 'uso-plan-test-20261006-1500'));
     $put("$mnt/disk1/.btrfs-snap/20261006-0100/zzdrop/files/d1.png", 'd1');
     // the share's settings as the last run packed them (a share that is gone now)
-    $put("$tmp/pkg/server/shares/zzgone.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"hive\"\nshareCachePool2=\"zzpool2\"\nshareAllocator=\"mostfree\"\n"
+    $put("$tmp/pkg/server/shares/zzgone.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"hazel\"\nshareCachePool2=\"zzpool2\"\nshareAllocator=\"mostfree\"\n"
         . "shareSplitLevel=\"1\"\nshareFloor=\"2000\"\nshareExport=\"eh\"\nshareSecurity=\"private\"\nshareExportNFS=\"-\"\n");
-    // an empty share on hive only, and one with too much at its top
-    $put("$mnt/hive/zzempty");
-    $put($snap('hive', 'manual-e', 'zzempty') . '/data/d.txt', 'd');
+    // an empty share on hazel only, and one with too much at its top
+    $put("$mnt/hazel/zzempty");
+    $put($snap('hazel', 'manual-e', 'zzempty') . '/data/d.txt', 'd');
     for ($i = 0; $i <= RS_ENTRIES_MAX; $i++) {
-        $put($snap('hive', 'manual-m', 'zzmany') . "/f$i");
+        $put($snap('hazel', 'manual-m', 'zzmany') . "/f$i");
     }
     $put("$mnt/user");
     foreach (['zzdrop', 'zzempty', 'zzmany'] as $s) {
-        symlink("$mnt/hive/$s", "$mnt/user/$s");
+        symlink("$mnt/hazel/$s", "$mnt/user/$s");
     }
     $ctx = [
-        'fs' => ['hive' => 'zfs', 'mother' => 'zfs', 'disk1' => 'btrfs'],
-        'zfs' => ["$mnt/hive/zzdrop" => 'zz-hive/zzdrop', "$mnt/mother/zzdrop" => 'zz-mother/zzdrop', "$mnt/hive/zzdrop/shares" => 'zz-hive/zzdrop/shares',
-                  "$mnt/hive/zzempty" => 'zz-hive/zzempty', "$mnt/hive/zzmany" => 'zz-hive/zzmany'],
-        'snaps' => ['zz-hive/zzdrop' => [['name' => 'hive-only', 'time' => $Th], ['name' => 'unraidbackup-20261006-0100', 'time' => $T0], ['name' => 'manual-x', 'time' => $T1]],
-                    'zz-mother/zzdrop' => [['name' => 'unraidbackup-20261006-0100', 'time' => $T0 + 60], ['name' => 'manual-x', 'time' => $T1], ['name' => 'uso-plan-test-20261006-1500', 'time' => $T2]],
-                    'zz-hive/zzdrop/shares' => [['name' => 'manual-x', 'time' => $T1]],
-                    'zz-hive/zzempty' => [['name' => 'manual-e', 'time' => $T1]], 'zz-hive/zzmany' => [['name' => 'manual-m', 'time' => $T1]]],
+        'fs' => ['hazel' => 'zfs', 'moss' => 'zfs', 'disk1' => 'btrfs'],
+        'zfs' => ["$mnt/hazel/zzdrop" => 'zz-hazel/zzdrop', "$mnt/moss/zzdrop" => 'zz-moss/zzdrop', "$mnt/hazel/zzdrop/shares" => 'zz-hazel/zzdrop/shares',
+                  "$mnt/hazel/zzempty" => 'zz-hazel/zzempty', "$mnt/hazel/zzmany" => 'zz-hazel/zzmany'],
+        'snaps' => ['zz-hazel/zzdrop' => [['name' => 'hazel-only', 'time' => $Th], ['name' => 'unraidbackup-20261006-0100', 'time' => $T0], ['name' => 'manual-x', 'time' => $T1]],
+                    'zz-moss/zzdrop' => [['name' => 'unraidbackup-20261006-0100', 'time' => $T0 + 60], ['name' => 'manual-x', 'time' => $T1], ['name' => 'uso-plan-test-20261006-1500', 'time' => $T2]],
+                    'zz-hazel/zzdrop/shares' => [['name' => 'manual-x', 'time' => $T1]],
+                    'zz-hazel/zzempty' => [['name' => 'manual-e', 'time' => $T1]], 'zz-hazel/zzmany' => [['name' => 'manual-m', 'time' => $T1]]],
         // disk1 still holds a part of it (the engine noted it at the setup): the array is no storage of the share any more
-        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => ['share|zzdrop' => ['locations' => ['hive, mother, disk1']]],
-        'cfg' => ['zzdrop' => ['shareUseCache' => 'prefer', 'shareCachePool' => 'hive', 'shareCachePool2' => 'mother', 'shareFloor' => '1000'],
-                  'zzempty' => ['shareUseCache' => 'only', 'shareCachePool' => 'hive'], 'zzmany' => ['shareUseCache' => 'only', 'shareCachePool' => 'hive'], 'zzgone' => []],
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => ['share|zzdrop' => ['locations' => ['hazel, moss, disk1']]],
+        'cfg' => ['zzdrop' => ['shareUseCache' => 'prefer', 'shareCachePool' => 'hazel', 'shareCachePool2' => 'moss', 'shareFloor' => '1000'],
+                  'zzempty' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel'], 'zzmany' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel'], 'zzgone' => []],
         'mnt' => $mnt, 'user' => "$mnt/user",
-        'disks' => ['hive' => ['name' => 'hive', 'fsFree' => '1000000'], 'mother' => ['name' => 'mother', 'fsFree' => '500000'], 'disk1' => ['name' => 'disk1', 'fsFree' => '7']],
+        'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000'], 'moss' => ['name' => 'moss', 'fsFree' => '500000'], 'disk1' => ['name' => 'disk1', 'fsFree' => '7']],
         'shares_ini' => ['zzdrop' => ['exclusive' => 'no'], 'zzempty' => ['exclusive' => 'yes'], 'zzmany' => ['exclusive' => 'yes']],
         'old_shares' => "$tmp/pkg/server/shares", 'now' => [],
     ];
@@ -8081,29 +8081,29 @@ function testRestoreShares(): void
     // moments: by run (the engine's, on every part — ZFS and btrfs alike) or by name; newest first; which parts each covers
     $m = rsMoments(rsLocate('/mnt/user/zzdrop', $c));
     same('restore shares: moments across the parts, newest first', [
-            ['name:uso-plan-test-20261006-1500', ['mother']], ['name:manual-x', ['hive', 'mother']],
-            ['run:20261006-0100', ['hive', 'mother', 'disk1']], ['name:hive-only', ['hive']]],
+            ['name:uso-plan-test-20261006-1500', ['moss']], ['name:manual-x', ['hazel', 'moss']],
+            ['run:20261006-0100', ['hazel', 'moss', 'disk1']], ['name:hazel-only', ['hazel']]],
         array_map(fn ($x) => [$x['id'], array_keys($x['parts'])], $m));
     same('restore shares: the engine\'s run named by its ZFS snapshot, the newest part\'s time', ['unraidbackup-20261006-0100', $T0 + 60, true],
         [$m[2]['name'], $m[2]['time'], $m[2]['ours']]);
     rsMomentHolds($m, true);
-    same('restore shares: which parts hold anything', [[], ['hive'], ['hive', 'mother', 'disk1'], ['hive']], array_column($m, 'holds'));
+    same('restore shares: which parts hold anything', [[], ['hazel'], ['hazel', 'moss', 'disk1'], ['hazel']], array_column($m, 'holds'));
 
-    // a whole share: the default moment holds something (not the plan's empty one on mother), its entries, copy by default
+    // a whole share: the default moment holds something (not the plan's empty one on moss), its entries, copy by default
     $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', false, $owner, $stamp, $c);
     same('restore shares: the default moment is never one whose parts hold nothing', 'name:manual-x', $p['target']['snap']);
-    same('restore shares: the moment\'s parts', [['hive', true, true], ['mother', true, false], ['disk1', false, false]],
+    same('restore shares: the moment\'s parts', [['hazel', true, true], ['moss', true, false], ['disk1', false, false]],
         array_map(fn ($x) => [$x['base'], $x['covered'], $x['holds']], $p['moment']['parts']));
     same('restore shares: entries at its top (his own leftovers not)', ['.thumbs', 'files', 'shares', 'texts'], array_column($p['options']['entries'], 'name'));
     same('restore shares: data there, so copy by default', ['copy', []], [$p['target']['mode'], $p['blockers']]);
     same('restore shares: copies go onto the share, not the pool', ["$mnt/user/zzdrop/.thumbs.restored-$stamp", "$mnt/user/zzdrop/files.restored-$stamp",
             "$mnt/user/zzdrop/shares.restored-$stamp", "$mnt/user/zzdrop/texts.restored-$stamp"],
         array_column($p['steps'], 'to'));
-    same('restore shares: a dataset of its own comes from its own snapshot', ["$mnt/hive/zzdrop/shares/.zfs/snapshot/manual-x"], $p['steps'][2]['sources']);
+    same('restore shares: a dataset of its own comes from its own snapshot', ["$mnt/hazel/zzdrop/shares/.zfs/snapshot/manual-x"], $p['steps'][2]['sources']);
     $notes = array_column($p['notes'], 'key');
     check('restore shares: Unraid places it by the share\'s settings', in_array('note.files_place2', $notes, true), json_encode($notes));
     $place = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_place2'))[0]['params'] ?? [];
-    same('restore shares: primary and secondary storage', ['/mnt/user/zzdrop', 'hive', 'mother'], [$place['path'] ?? null, $place['primary'] ?? null, $place['secondary'] ?? null]);
+    same('restore shares: primary and secondary storage', ['/mnt/user/zzdrop', 'hazel', 'moss'], [$place['path'] ?? null, $place['primary'] ?? null, $place['secondary'] ?? null]);
 
     // chosen entries, swapped: copies first, what binds the whole share stops, each aside through the share, the copy in place
     $c = $ctx;
@@ -8134,7 +8134,7 @@ function testRestoreShares(): void
     same('restore shares: the swap ran', array_fill(0, 8, 'ok'), $states);
     clearstatcache();
     same('restore shares: the snapshot\'s state in place, the live one aside', ['png1', 'old text', 'live text'],
-        [@file_get_contents("$mnt/hive/zzdrop/files/f1.png"), @file_get_contents("$mnt/hive/zzdrop/texts/t1.txt"), @file_get_contents("$mnt/hive/zzdrop/texts.aside-$stamp/t1.txt")]);
+        [@file_get_contents("$mnt/hazel/zzdrop/files/f1.png"), @file_get_contents("$mnt/hazel/zzdrop/texts/t1.txt"), @file_get_contents("$mnt/hazel/zzdrop/texts.aside-$stamp/t1.txt")]);
     $j['result'] = 'ok';
     writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
     rsJournalWrite($j);
@@ -8149,16 +8149,16 @@ function testRestoreShares(): void
     }
     clearstatcache();
     same('restore shares: put back — as before, the restored state aside', [array_fill(0, 6, 'ok'), 'live text', false, 'old text', 'png1'],
-        [$states, @file_get_contents("$mnt/hive/zzdrop/texts/t1.txt"), file_exists("$mnt/hive/zzdrop/files/f1.png"),
-         @file_get_contents("$mnt/hive/zzdrop/texts.putback-20261006-170000/t1.txt"), @file_get_contents("$mnt/hive/zzdrop/files.putback-20261006-170000/f1.png")]);
+        [$states, @file_get_contents("$mnt/hazel/zzdrop/texts/t1.txt"), file_exists("$mnt/hazel/zzdrop/files/f1.png"),
+         @file_get_contents("$mnt/hazel/zzdrop/texts.putback-20261006-170000/t1.txt"), @file_get_contents("$mnt/hazel/zzdrop/files.putback-20261006-170000/f1.png")]);
 
     // one folder from the engine's run: the union of its parts (primary first), copied together
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/zzdrop/files', 'run:20261006-0100', 'copy', false, $owner, $stamp, $c);
-    same('restore shares: the union of the parts, primary storage first', [$snap('hive', 'unraidbackup-20261006-0100') . '/files', $snap('mother', 'unraidbackup-20261006-0100') . '/files',
+    same('restore shares: the union of the parts, primary storage first', [$snap('hazel', 'unraidbackup-20261006-0100') . '/files', $snap('moss', 'unraidbackup-20261006-0100') . '/files',
             "$mnt/disk1/.btrfs-snap/20261006-0100/zzdrop/files"], $p['steps'][0]['sources'] ?? null);
     $union = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_union'))[0]['params']['bases'] ?? null;
-    same('restore shares: said so', 'hive + mother + disk1', $union);
+    same('restore shares: said so', 'hazel + moss + disk1', $union);
     $j = rsJournalNew("$stamp-ef56", $p);
     rsPrivateDir(rsDir($j['id']));
     $r = rsStep($j, 0);
@@ -8168,26 +8168,26 @@ function testRestoreShares(): void
     same('restore shares: never over a copy that is there', ['restore_exists'], array_column(rsPlanFilesFor('/mnt/user/zzdrop/files', 'run:20261006-0100', 'copy', false, $owner, $stamp, $c)['blockers'], 'key'));
 
     // a part with content now that the moment doesn't cover: said so (warning); a moment that holds nothing of it is refused
-    $put("$mnt/mother/zzdrop/texts/m.txt", 'on mother');
+    $put("$mnt/moss/zzdrop/texts/m.txt", 'on moss');
     $stamp = '20261006-161000';
     $c = $ctx;
-    $p = rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:hive-only', 'swap', false, $owner, $stamp, $c);
+    $p = rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:hazel-only', 'swap', false, $owner, $stamp, $c);
     $un = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_uncovered'))[0] ?? [];
-    same('restore shares: a part with content the moment doesn\'t cover', ['mother', 'texts', true], [$un['params']['bases'] ?? null, $un['params']['names'] ?? null, $un['warn'] ?? null]);
+    same('restore shares: a part with content the moment doesn\'t cover', ['moss', 'texts', true], [$un['params']['bases'] ?? null, $un['params']['names'] ?? null, $un['warn'] ?? null]);
     $c = $ctx;
     same('restore shares: a moment that holds nothing of it', ['restore_not_in_snapshot'],
         array_column(rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:uso-plan-test-20261006-1500', 'copy', false, $owner, $stamp, $c)['blockers'], 'key'));
     $c = $ctx;
-    $c['asleep'] = ['mother' => true];
+    $c['asleep'] = ['moss' => true];
     same('restore shares: a part asleep — through /mnt/user only with «wake»', ['restore_asleep'],
         array_column(rsPlanFilesFor('/mnt/user/zzdrop/texts', 'name:manual-x', 'copy', false, $owner, $stamp, $c)['blockers'], 'key'));
     $c = $ctx;
-    $c['asleep'] = ['hive' => true];
+    $c['asleep'] = ['hazel' => true];
     $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', false, $owner, $stamp, $c);
-    same('restore shares: the part holding the data asleep — «wake», never "nothing there"', [['restore_asleep'], ['hive'], ['mother', 'disk1']],
+    same('restore shares: the part holding the data asleep — «wake», never "nothing there"', [['restore_asleep'], ['hazel'], ['moss', 'disk1']],
         [array_column($p['blockers'], 'key'), $p['options']['asleep'], array_values(array_unique(array_merge(...array_column($p['options']['moments'], 'bases'))))]);
     $c = $ctx;
-    $c['asleep'] = ['hive' => true];
+    $c['asleep'] = ['hazel' => true];
     $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', true, $owner, $stamp, $c);
     same('restore shares: with «wake» it is looked into', ['name:manual-x', []], [$p['target']['snap'], array_column($p['blockers'], 'key')]);
 
@@ -8197,20 +8197,20 @@ function testRestoreShares(): void
         $woke[] = $commands;
         return array_map(fn ($cmd) => [0, '', ''], $commands);
     };
-    $disks = ['hive' => ['name' => 'hive', 'device' => 'null', 'spundown' => '1', 'fsFree' => '1000000'], 'hive2' => ['name' => 'hive2', 'device' => 'null', 'spundown' => '0'],
-              'mother' => ['name' => 'mother', 'device' => 'null', 'spundown' => '0', 'fsFree' => '500000'], 'disk1' => ['name' => 'disk1', 'device' => 'null', 'fsFree' => '7']];
+    $disks = ['hazel' => ['name' => 'hazel', 'device' => 'null', 'spundown' => '1', 'fsFree' => '1000000'], 'hazel2' => ['name' => 'hazel2', 'device' => 'null', 'spundown' => '0'],
+              'moss' => ['name' => 'moss', 'device' => 'null', 'spundown' => '0', 'fsFree' => '500000'], 'disk1' => ['name' => 'disk1', 'device' => 'null', 'fsFree' => '7']];
     $c = $ctx;
     $c['disks'] = $disks;
-    $c['asleep'] = ['hive' => true, 'hive2' => false, 'mother' => false];
+    $c['asleep'] = ['hazel' => true, 'hazel2' => false, 'moss' => false];
     $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', false, $owner, $stamp, $c);
     same('restore shares: without «wake» no disk is woken', [[], ['restore_asleep']], [$woke, array_column($p['blockers'], 'key')]);
     $c = $ctx;
     $c['disks'] = $disks;
-    $c['asleep'] = ['hive' => true, 'hive2' => false, 'mother' => false];
+    $c['asleep'] = ['hazel' => true, 'hazel2' => false, 'moss' => false];
     $p = rsPlanFilesFor('/mnt/user/zzdrop', '', 'swap', true, $owner, $stamp, $c, ['files', 'texts']);
-    same('restore shares: «wake» wakes every disk of the sleeping pool, nothing else', [['hive', 'hive2']], array_map('array_keys', $woke));
-    same('restore shares: the dd read of one block', ['dd', 'if=/dev/null', 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'], $woke[0]['hive'] ?? null);
-    same('restore shares: woken, then its moments and the choices kept', [['woken' => ['hive'], 'failed' => []], [], ['hive'], 'name:manual-x', ['files', 'texts'], 'swap', []],
+    same('restore shares: «wake» wakes every disk of the sleeping pool, nothing else', [['hazel', 'hazel2']], array_map('array_keys', $woke));
+    same('restore shares: the dd read of one block', ['dd', 'if=/dev/null', 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'], $woke[0]['hazel'] ?? null);
+    same('restore shares: woken, then its moments and the choices kept', [['woken' => ['hazel'], 'failed' => []], [], ['hazel'], 'name:manual-x', ['files', 'texts'], 'swap', []],
         [$p['woke'], $p['options']['asleep'], $p['options']['woken'], $p['target']['snap'], $p['target']['items'], $p['target']['mode'], array_column($p['blockers'], 'key')]);
     $woke = [];
     $GLOBALS['rs']['wake_run'] = function (array $commands) use (&$woke): array {
@@ -8219,9 +8219,9 @@ function testRestoreShares(): void
     };
     $c = $ctx;
     $c['disks'] = $disks;
-    $c['asleep'] = ['hive' => true, 'hive2' => false, 'mother' => false];
+    $c['asleep'] = ['hazel' => true, 'hazel2' => false, 'moss' => false];
     $p = rsPlanFilesFor('/mnt/user/zzdrop', '', '', true, $owner, $stamp, $c);
-    same('restore shares: a disk that doesn\'t answer stays asleep — said so, never read', [['woken' => [], 'failed' => ['hive']], ['hive'], ['restore_wake_failed'], ['mother', 'disk1']],
+    same('restore shares: a disk that doesn\'t answer stays asleep — said so, never read', [['woken' => [], 'failed' => ['hazel']], ['hazel'], ['restore_wake_failed'], ['moss', 'disk1']],
         [$p['woke'], $p['options']['asleep'], array_column($p['blockers'], 'key'), array_values(array_unique(array_merge(...array_column($p['options']['moments'], 'bases'))))]);
     unset($GLOBALS['rs']['wake_run']);
     $c = $ctx;
@@ -8230,15 +8230,15 @@ function testRestoreShares(): void
     $c = $ctx;
     $c['fs']['disk2'] = 'xfs';
     $bases = fn (array $cfg) => (function () use ($c, $cfg) { $c['cfg']['zz'] = $cfg; return rsShareBases('zz', $c); })();
-    same('restore shares: the array is a part only as primary or secondary storage', [['hive', 'mother'], ['hive', 'disk1', 'disk2'], ['disk1', 'disk2'], ['hive']],
-        [$bases(['shareUseCache' => 'prefer', 'shareCachePool' => 'hive', 'shareCachePool2' => 'mother']), $bases(['shareUseCache' => 'yes', 'shareCachePool' => 'hive']),
-         $bases(['shareUseCache' => 'no', 'shareCachePool' => 'hive']), $bases(['shareUseCache' => 'only', 'shareCachePool' => 'hive'])]);
+    same('restore shares: the array is a part only as primary or secondary storage', [['hazel', 'moss'], ['hazel', 'disk1', 'disk2'], ['disk1', 'disk2'], ['hazel']],
+        [$bases(['shareUseCache' => 'prefer', 'shareCachePool' => 'hazel', 'shareCachePool2' => 'moss']), $bases(['shareUseCache' => 'yes', 'shareCachePool' => 'hazel']),
+         $bases(['shareUseCache' => 'no', 'shareCachePool' => 'hazel']), $bases(['shareUseCache' => 'only', 'shareCachePool' => 'hazel'])]);
 
     // a share that is gone: never created here — its old settings as information, pools this server lacks named
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/zzgone/x', '', '', false, $owner, $stamp, $c);
     $old = $p['share_now']['old'] ?? [];
-    same('restore shares: a missing share blocks, with its old settings', [['restore_share_missing'], 'missing', 'hive', 'zzpool2', 'to_primary', ['zzpool2']],
+    same('restore shares: a missing share blocks, with its old settings', [['restore_share_missing'], 'missing', 'hazel', 'zzpool2', 'to_primary', ['zzpool2']],
         [array_column($p['blockers'], 'key'), $p['share_now']['state'], $old['primary'] ?? null, $old['secondary'] ?? null, $old['mover'] ?? null, $old['missing_pools'] ?? null]);
     same('restore shares: the old settings in words', ['mostfree', '1', 2048000, 'hidden', 'private', 'no'],
         [$old['allocator'] ?? null, $old['split'] ?? null, $old['floor'] ?? null, $old['smb'] ?? null, $old['security'] ?? null, $old['nfs'] ?? null]);
@@ -8249,7 +8249,7 @@ function testRestoreShares(): void
     same('restore shares: an empty share is filled straight in', ['empty', 'swap', ['copy', 'stop', 'move', 'start'], [], 'after.files_place'],
         [$p['share_now']['state'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'], $p['after'][0]['key'] ?? null]);
     check('restore shares: and says so', in_array('note.files_share_empty', array_column($p['notes'], 'key'), true));
-    same('restore shares: an exclusive share is placed on its pool only', ['note.files_place', 'hive'],
+    same('restore shares: an exclusive share is placed on its pool only', ['note.files_place', 'hazel'],
         [array_values(array_filter($p['notes'], fn ($n) => str_starts_with($n['key'], 'note.files_place')))[0]['key'] ?? null,
          array_values(array_filter($p['notes'], fn ($n) => str_starts_with($n['key'], 'note.files_place')))[0]['params']['primary'] ?? null]);
     $c = $ctx;
@@ -8262,14 +8262,14 @@ function testRestoreShares(): void
     same('restore shares: the shares as they are', ['data', 'empty', 'missing'], [rsShareNow('zzdrop', $c)['state'], rsShareNow('zzempty', $c)['state'], rsShareNow('zzgone', $c)['state']]);
     $s = fn (array $cfg) => array_intersect_key(rsShareSettings($cfg, $ctx), array_flip(['primary', 'secondary', 'mover']));
     same('restore shares: primary and secondary storage from the cfg', [
-            ['primary' => 'array', 'secondary' => null, 'mover' => null], ['primary' => 'hive', 'secondary' => null, 'mover' => null],
-            ['primary' => 'hive', 'secondary' => 'array', 'mover' => 'to_secondary'], ['primary' => 'cache', 'secondary' => 'mother', 'mover' => 'to_primary']],
-        [$s([]), $s(['shareUseCache' => 'only', 'shareCachePool' => 'hive']), $s(['shareUseCache' => 'yes', 'shareCachePool' => 'hive']),
-         $s(['shareUseCache' => 'prefer', 'shareCachePool2' => 'mother'])]);
+            ['primary' => 'array', 'secondary' => null, 'mover' => null], ['primary' => 'hazel', 'secondary' => null, 'mover' => null],
+            ['primary' => 'hazel', 'secondary' => 'array', 'mover' => 'to_secondary'], ['primary' => 'cache', 'secondary' => 'moss', 'mover' => 'to_primary']],
+        [$s([]), $s(['shareUseCache' => 'only', 'shareCachePool' => 'hazel']), $s(['shareUseCache' => 'yes', 'shareCachePool' => 'hazel']),
+         $s(['shareUseCache' => 'prefer', 'shareCachePool2' => 'moss'])]);
     same('restore shares: odd values are not taken', ['array', 'no', 'public'],
         array_values(array_intersect_key(rsShareSettings(['shareUseCache' => 'x;y', 'shareSecurity' => '<b>', 'shareExport' => 'e;rm'], $ctx), array_flip(['primary', 'security', 'smb']))));
     $c = $ctx;
-    same('restore shares: room on primary and secondary, less the minimum free space', ['hive', 'mother', 999000 * 1024, 499000 * 1024, 1498000 * 1024],
+    same('restore shares: room on primary and secondary, less the minimum free space', ['hazel', 'moss', 999000 * 1024, 499000 * 1024, 1498000 * 1024],
         array_values(rsShareSpace('zzdrop', $c)));
 
     unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users']);
@@ -8303,7 +8303,7 @@ function testRestoreFindings(): void
     $vmState = 'running';
     $GLOBALS['rs']['vm_disks'] = function () use (&$vmState): array {
         return ['VM1' => ['state' => $vmState, 'disks' => ['/mnt/user/domains/VM1/vdisk1.img']],
-                'Other' => ['state' => 'running', 'disks' => ['/mnt/master/domains/Other/vdisk1.img']]];
+                'Other' => ['state' => 'running', 'disks' => ['/mnt/maple/domains/Other/vdisk1.img']]];
     };
     $put = function (string $file, ?string $text = null): void {
         @mkdir($text === null ? $file : dirname($file), 0755, true);
@@ -8312,47 +8312,47 @@ function testRestoreFindings(): void
         }
     };
     $T = (int) strtotime('2026-10-06 16:00');
-    $aside = "$mnt/master/domains/VM2.aside-20261006-175854";
+    $aside = "$mnt/maple/domains/VM2.aside-20261006-175854";
     // VM1: a dataset of its own, empty now, its snapshot holds the disk; VM2: data now, its old dataset put aside with the snapshot
-    $put("$mnt/master/domains/VM1/.zfs/snapshot/uso-backup-20261006-1600/vdisk1.img", 'disk one');
-    $put("$mnt/master/domains/VM2/vdisk1.img", 'live two');
+    $put("$mnt/maple/domains/VM1/.zfs/snapshot/uso-backup-20261006-1600/vdisk1.img", 'disk one');
+    $put("$mnt/maple/domains/VM2/vdisk1.img", 'live two');
     $put("$aside/.zfs/snapshot/uso-backup-20261006-1600/vdisk1.img", 'old two');
     $put("$mnt/user");
-    symlink("$mnt/master/domains", "$mnt/user/domains");
+    symlink("$mnt/maple/domains", "$mnt/user/domains");
     $ctx = [
-        'fs' => ['master' => 'zfs'],
-        'zfs' => ["$mnt/master/domains" => 'zz-master/domains', "$mnt/master/domains/VM1" => 'zz-master/domains/VM1',
-                  "$mnt/master/domains/VM2" => 'zz-master/domains/VM2', $aside => 'zz-master/domains/VM2.aside-20261006-175854'],
-        'snaps' => ['zz-master/domains/VM1' => [['name' => 'uso-backup-20261006-1600', 'time' => $T]],
-                    'zz-master/domains/VM2.aside-20261006-175854' => [['name' => 'uso-backup-20261006-1600', 'time' => $T]]],
+        'fs' => ['maple' => 'zfs'],
+        'zfs' => ["$mnt/maple/domains" => 'zz-maple/domains', "$mnt/maple/domains/VM1" => 'zz-maple/domains/VM1',
+                  "$mnt/maple/domains/VM2" => 'zz-maple/domains/VM2', $aside => 'zz-maple/domains/VM2.aside-20261006-175854'],
+        'snaps' => ['zz-maple/domains/VM1' => [['name' => 'uso-backup-20261006-1600', 'time' => $T]],
+                    'zz-maple/domains/VM2.aside-20261006-175854' => [['name' => 'uso-backup-20261006-1600', 'time' => $T]]],
         'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
-        'cfg' => ['domains' => ['shareUseCache' => 'only', 'shareCachePool' => 'master']],
-        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['master' => ['name' => 'master', 'fsFree' => '1000000000']],
+        'cfg' => ['domains' => ['shareUseCache' => 'only', 'shareCachePool' => 'maple']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['maple' => ['name' => 'maple', 'fsFree' => '1000000000']],
         'shares_ini' => ['domains' => ['exclusive' => 'yes']], 'old_shares' => null, 'now' => [],
     ];
     $owner = ['kind' => 'vm', 'name' => 'VM1', 'id' => 'VM1', 'vm_state' => 'shut off'];
     $stamp = '20261006-190000';
-    $src1 = "$mnt/master/domains/VM1/.zfs/snapshot/uso-backup-20261006-1600";
+    $src1 = "$mnt/maple/domains/VM1/.zfs/snapshot/uso-backup-20261006-1600";
 
     // 2: an empty folder (here a dataset holding only its .zfs) is nothing there: «put in place» by default, it goes aside
     $c = $ctx;
     $p = rsPlanFilesFor('/mnt/user/domains/VM1', '', '', false, $owner, $stamp, $c);
     $notes = array_column($p['notes'], 'key');
     same('restore findings: an empty folder — put in place by default, as a dataset, the empty one aside',
-        [true, 'swap', ['copy', 'vms_off', 'aside', 'move'], 'empty', 'zz-master/domains/VM1.restored-' . $stamp],
+        [true, 'swap', ['copy', 'vms_off', 'aside', 'move'], 'empty', 'zz-maple/domains/VM1.restored-' . $stamp],
         [$p['options']['nothing_live'], $p['target']['mode'], array_column($p['steps'], 'do'), $p['aside'][0]['what'] ?? null, $p['steps'][0]['dataset'] ?? null]);
     check('restore findings: and says so (place, the empty folder aside)', in_array('note.files_place_empty', $notes, true)
         && in_array('after.files_empty_aside', array_column($p['after'], 'key'), true) && ($p['after'][0]['key'] ?? '') === 'after.files_place', json_encode([$notes, $p['after']]));
     // 7: its snapshots go with the dataset put aside — said so
     $snapNote = array_values(array_filter($p['notes'], fn ($n) => $n['key'] === 'note.files_dataset_snaps'))[0] ?? [];
-    same('restore findings: the snapshots stay with the dataset put aside — said so', [1, "zz-master/domains/VM1.aside-$stamp", true],
+    same('restore findings: the snapshots stay with the dataset put aside — said so', [1, "zz-maple/domains/VM1.aside-$stamp", true],
         [$snapNote['params']['n'] ?? null, $snapNote['params']['dataset'] ?? null, $snapNote['warn'] ?? null]);
     // 6: a running VM keeps its disk there — refused, with a reason; the job looks again before replacing anything
     same('restore findings: never under a running VM', [['restore_vm_uses'], 'VM1', 'running', '/mnt/user/domains/VM1/vdisk1.img'],
         [array_values(array_diff(array_column($p['blockers'], 'key'), [])), $p['blockers'][0]['params']['name'] ?? null,
          $p['blockers'][0]['params']['state'] ?? null, $p['blockers'][0]['params']['path'] ?? null]);
     same('restore findings: the job checks the VMs again with every way to the folder',
-        [['/mnt/user/domains/VM1', '/mnt/master/domains/VM1'], ['VM1']], [$p['steps'][1]['paths'] ?? null, $p['steps'][1]['names'] ?? null]);
+        [['/mnt/user/domains/VM1', '/mnt/maple/domains/VM1'], ['VM1']], [$p['steps'][1]['paths'] ?? null, $p['steps'][1]['names'] ?? null]);
     same('restore findings: a VM elsewhere doesn\'t count', [], array_column(rsVmsUsing(['/mnt/user/domains/VM2']), 'name'));
     same('restore findings: the VM running blocks the step in the job, shut off it passes', ['failed', 'vm_running', 'VM1 (running)'],
         (fn ($r) => [$r['state'], $r['note'] ?? null, $r['params']['names'] ?? null])(rsDoVmsOff($p['steps'][1])));
@@ -8395,7 +8395,7 @@ function testRestoreFindings(): void
     // a backup run after it went aside snapshots the leftover too: that one holds no state of the folder — never offered
     $put("$aside/.zfs/snapshot/uso-backup-20261006-1828/leftover.txt", 'empty leftover');
     $c = $ctx;
-    $c['snaps']['zz-master/domains/VM2.aside-20261006-175854'][] = ['name' => 'uso-backup-20261006-1828', 'time' => (int) strtotime('2026-10-06 18:31')];
+    $c['snaps']['zz-maple/domains/VM2.aside-20261006-175854'][] = ['name' => 'uso-backup-20261006-1828', 'time' => (int) strtotime('2026-10-06 18:31')];
     same('restore findings: a snapshot of the folder put aside taken after it went aside is left out',
         [[$mid], 1], [array_column(rsPlanFilesFor('/mnt/user/domains/VM2', '', '', false, $owner2, $stamp, $c)['options']['moments'], 'id'),
                       rsFolder('/mnt/user/domains/VM2', [], $c)['snaps']]);
@@ -8437,11 +8437,11 @@ function testRestoreFindings(): void
     $jr = rsJournalNew($jid, rsPlanBase('files', 'VM1', ['path' => '/mnt/user/domains/VM1']) + ['stamp' => '20261006-180000']);
     $jr['result'] = 'ok';
     $jr['steps'] = [['do' => 'aside', 'state' => 'ok', 'undo' => [
-        ['do' => 'aside', 'path' => '/mnt/master/domains/VM1', 'to' => '/mnt/master/domains/VM1.putback-{T}', 'optional' => true],
-        ['do' => 'move', 'from' => '/mnt/master/domains/VM1.aside-20261006-180000', 'to' => '/mnt/master/domains/VM1']]]];   // only planned, never run
+        ['do' => 'aside', 'path' => '/mnt/maple/domains/VM1', 'to' => '/mnt/maple/domains/VM1.putback-{T}', 'optional' => true],
+        ['do' => 'move', 'from' => '/mnt/maple/domains/VM1.aside-20261006-180000', 'to' => '/mnt/maple/domains/VM1']]]];   // only planned, never run
     writeAtomic(rsDir($jid) . '/plan.json', jsonEncode(rsPlanBase('files', 'VM1', []) + ['stamp' => '20261006-180000']), 0600, 0, 0);
     rsJournalWrite($jr, false);
-    $GLOBALS['rs']['vm_disks'] = fn (): array => ['VM1' => ['state' => 'running', 'disks' => ['/mnt/master/domains/VM1/vdisk1.img']]];
+    $GLOBALS['rs']['vm_disks'] = fn (): array => ['VM1' => ['state' => 'running', 'disks' => ['/mnt/maple/domains/VM1/vdisk1.img']]];
     $b = rsPlanPutback(['id' => $jid], '20261006-200000');
     check('restore findings: a put back under a running VM is refused, its VMs checked first',
         in_array('restore_vm_uses', array_column($b['blockers'], 'key'), true) && ($b['steps'][0]['do'] ?? '') === 'vms_off', json_encode([$b['blockers'], $b['steps']]));
@@ -8454,12 +8454,12 @@ function testRestoreFindings(): void
     $pj = rsJournalNew($pid, rsPlanBase('putback', 'VM1', ['id' => $jid]) + ['stamp' => '20261006-200000']);
     $pj['result'] = 'ok';
     $pj['finished'] = 1791300000;
-    $pj['aside'] = [['from' => "$mnt/master/domains/VM1", 'to' => "$mnt/master/domains/VM1.putback-20261006-200000"]];
+    $pj['aside'] = [['from' => "$mnt/maple/domains/VM1", 'to' => "$mnt/maple/domains/VM1.putback-20261006-200000"]];
     rsJournalWrite($pj, false);
     rsMarkPutback($jid, $pid, 'ok');
     $row = rsJournalRow(rsJournal($jid));
     same('restore findings: the journal says it was put back, when, and where the restored state went',
-        [$pid, 'ok', 1791300000, ["$mnt/master/domains/VM1.putback-20261006-200000"], false],
+        [$pid, 'ok', 1791300000, ["$mnt/maple/domains/VM1.putback-20261006-200000"], false],
         [$row['putback']['id'] ?? null, $row['putback']['result'] ?? null, $row['putback']['finished'] ?? null, array_column($row['putback']['aside'] ?? [], 'to'), $row['can_putback']]);
 
     // 8: Kopia's list shows what a snapshot holds (rootEntry.summ), not the files read anew in that run
@@ -8744,7 +8744,7 @@ function testLogsTour(): void
 
     // similar lines are one kind: times, PIDs, connection numbers, addresses, ids don't matter
     $kind = fn (string $l) => logsNormalize($l, logsLineTime($l)[1]);
-    same('logs kind: nginx loop', $kind('Oct  4 23:21:47 Tower nginx: 2026/10/04 23:21:47 [error] 42368#42368: *814029 open() "/q.png" failed, client: 192.168.7.61'),
+    same('logs kind: nginx loop', $kind('Oct  4 23:21:47 Tower nginx: 2026/10/04 23:21:47 [error] 42368#42368: *814029 open() "/q.png" failed, client: 192.168.20.61'),
         $kind('Oct  5 01:02:03 Tower nginx: 2026/10/05 01:02:03 [error] 1234#1234: *9 open() "/q.png" failed, client: 10.0.0.2'));
     same('logs kind: container ids and UUIDs', $kind('2026-10-05T20:33:38.694584352Z removing 7f505d74adb07ef9bf9bc20ec4652a38d4daf85a for 9b3e9c65-84b4-2410-470b-8f719c38ea21'),
         $kind('2026-10-06T01:00:00.1Z removing aba6f774f5ad7603936e9b3c6d28853ce5537f2e for 1734176c-cd39-de65-1437-8fe971a30dd6'));
@@ -8757,12 +8757,12 @@ function testLogsTour(): void
                                     'Oct  5 12:30:00 Tower smbd[99]:   open_file_ntcreate: inherit_new_acl failed for Dokumente/Steuer 2025/Beleg Nr. 7.pdf with NT_STATUS_ACCESS_DENIED'],
         'Samba [file]'          => ['Oct  5 12:00:00 Tower smbd[12]:   streams_xattr_pwrite: Write to xattr [user.DosStream.WofCompressedData:$DATA] on file [Windows/System32/fr-FR/wmerror.dll.mui] exceeds maximum',
                                     'Oct  5 12:00:01 Tower smbd[12]:   streams_xattr_pwrite: Write to xattr [user.DosStream.WofCompressedData:$DATA] on file [Windows/SysWOW64/ErrorDetails.dll] exceeds maximum'],
-        'quoted path'           => ['Oct  4 23:21:47 Tower nginx: 2026/10/04 23:21:47 [error] 1#1: *1 open() "/usr/local/emhttp/a/question.png" failed (2: No such file or directory), request: "GET /a/question.png HTTP/1.1", referrer: "http://192.168.7.59/Dashboard"',
+        'quoted path'           => ['Oct  4 23:21:47 Tower nginx: 2026/10/04 23:21:47 [error] 1#1: *1 open() "/usr/local/emhttp/a/question.png" failed (2: No such file or directory), request: "GET /a/question.png HTTP/1.1", referrer: "http://192.168.20.59/Dashboard"',
                                     'Oct  4 23:21:48 Tower nginx: 2026/10/04 23:21:48 [error] 1#1: *2 open() "/usr/local/emhttp/b/c/logo.svg" failed (2: No such file or directory), request: "GET /b/c/logo.svg?v=3 HTTP/1.1", referrer: "http://tower.local/Docker"'],
         'quoted file name'      => ["[05-Oct-2026 08:24:47 Europe/Berlin] PHP Warning:  file_get_contents('state.json'): Failed to open stream",
                                     "[05-Oct-2026 08:24:48 Europe/Berlin] PHP Warning:  file_get_contents('/tmp/other folder/x.json'): Failed to open stream"],
-        'absolute path'         => ["Oct  5 03:40:01 Tower move: create_parent: /mnt/master/Serien/Gabby's.Dollhouse.(2019)/Season.04 error: No space left on device",
-                                    'Oct  5 03:40:02 Tower move: create_parent: /mnt/master/Serien/Slow.Horses/Season.01 error: No space left on device'],
+        'absolute path'         => ["Oct  5 03:40:01 Tower move: create_parent: /mnt/maple/Serien/Gabby's.Dollhouse.(2019)/Season.04 error: No space left on device",
+                                    'Oct  5 03:40:02 Tower move: create_parent: /mnt/maple/Serien/Slow.Horses/Season.01 error: No space left on device'],
         'absolute with spaces'  => ['Oct  5 03:40:01 Tower move: move: /mnt/cache/Filme/Der Name der Rose (1986)/Der Name der Rose.mkv No space left on device',
                                     'Oct  5 03:40:02 Tower move: move: /mnt/cache/Serien/Slow.Horses/Season.04/Slow.Horses.-.S04E01.mkv No space left on device'],
     ];
@@ -8876,25 +8876,25 @@ function testLeftovers(): void
 {
     $u = fn (array $j) => array_map(fn ($x) => [$x['path'], $x['dataset'], $x['what'], $x['back']], clLeftoverUnits($j));
     // shapes as on a large server (data/restore/<id>/journal.json)
-    same('leftovers: a copy next to the live one', [['/mnt/hive/drop/shares.restored-20261006-150008', null, 'restored', false]],
+    same('leftovers: a copy next to the live one', [['/mnt/hazel/drop/shares.restored-20261006-150008', null, 'restored', false]],
         $u(['id' => '20261006-150008-2814', 'kind' => 'files', 'result' => 'ok', 'putback' => null, 'aside' => [],
-            'steps' => [['do' => 'copy', 'to' => '/mnt/hive/drop/shares.restored-20261006-150008', 'dataset' => null]]]));
-    $vm = 'master/domains/Win.aside-20261006-175854';
+            'steps' => [['do' => 'copy', 'to' => '/mnt/hazel/drop/shares.restored-20261006-150008', 'dataset' => null]]]));
+    $vm = 'maple/domains/Win.aside-20261006-175854';
     same('leftovers: a swap — the live one aside (a dataset, his way back), the copy (moved into place: existence decides)',
-        [['/mnt/master/domains/Win.aside-20261006-175854', $vm, 'aside', true], ['/mnt/master/domains/Win.restored-20261006-175854', 'master/domains/Win.restored-20261006-175854', 'restored', false]],
+        [['/mnt/maple/domains/Win.aside-20261006-175854', $vm, 'aside', true], ['/mnt/maple/domains/Win.restored-20261006-175854', 'maple/domains/Win.restored-20261006-175854', 'restored', false]],
         $u(['id' => '20261006-175854-9b26', 'kind' => 'files', 'result' => 'ok', 'putback' => null,
-            'steps' => [['do' => 'copy', 'to' => '/mnt/master/domains/Win.restored-20261006-175854', 'dataset' => 'master/domains/Win.restored-20261006-175854'],
-                        ['do' => 'aside', 'path' => '/mnt/master/domains/Win', 'to' => '/mnt/master/domains/Win.aside-20261006-175854']],
-            'aside' => [['from' => '/mnt/master/domains/Win', 'to' => '/mnt/master/domains/Win.aside-20261006-175854', 'dataset' => 'master/domains/Win', 'to_dataset' => $vm]]]));
+            'steps' => [['do' => 'copy', 'to' => '/mnt/maple/domains/Win.restored-20261006-175854', 'dataset' => 'maple/domains/Win.restored-20261006-175854'],
+                        ['do' => 'aside', 'path' => '/mnt/maple/domains/Win', 'to' => '/mnt/maple/domains/Win.aside-20261006-175854']],
+            'aside' => [['from' => '/mnt/maple/domains/Win', 'to' => '/mnt/maple/domains/Win.aside-20261006-175854', 'dataset' => 'maple/domains/Win', 'to_dataset' => $vm]]]));
     same('leftovers: a database put back already — its safety dumps\' folder and the folder aside are no way back any more',
-        [['/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818', null, 'safety', false], ['/mnt/master/appdata/zz/pg.aside-20261006-172818', null, 'aside', false]],
+        [['/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818', null, 'safety', false], ['/mnt/maple/appdata/zz/pg.aside-20261006-172818', null, 'aside', false]],
         $u(['id' => '20261006-172818-56e7', 'kind' => 'db', 'result' => 'ok', 'putback' => ['id' => '20261006-173611-d33f', 'result' => 'ok'], 'steps' => [],
             'aside' => [['from' => 'db:zz-pg', 'to' => '/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818/postgres_zz-pg.sql.gz', 'what' => 'safety_dump'],
                         ['from' => 'db:zz-mdb', 'to' => '/mnt/user/UnraidSecretaryOffice/backup/restore/zz/20261006-172818/mariadb_zz.sql.gz', 'what' => 'safety_dump'],
-                        ['from' => '/mnt/master/appdata/zz/pg', 'to' => '/mnt/master/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'to_dataset' => null]]]));
-    same('leftovers: what «Put back» set aside', [['/mnt/master/appdata/zz/pg.putback-20261006-173611', null, 'putback', false]],
+                        ['from' => '/mnt/maple/appdata/zz/pg', 'to' => '/mnt/maple/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'to_dataset' => null]]]));
+    same('leftovers: what «Put back» set aside', [['/mnt/maple/appdata/zz/pg.putback-20261006-173611', null, 'putback', false]],
         $u(['id' => '20261006-173611-d33f', 'kind' => 'putback', 'result' => 'ok', 'putback' => null, 'steps' => [],
-            'aside' => [['from' => '/mnt/master/appdata/zz/pg', 'to' => '/mnt/master/appdata/zz/pg.putback-20261006-173611', 'dataset' => null, 'to_dataset' => null]]]));
+            'aside' => [['from' => '/mnt/maple/appdata/zz/pg', 'to' => '/mnt/maple/appdata/zz/pg.putback-20261006-173611', 'dataset' => null, 'to_dataset' => null]]]));
     same('leftovers: templates on the flash (one folder for the time), a compose file elsewhere, a VM\'s configuration',
         [['/boot/config/.UnraidSecretaryOffice-restore/20261007-090000', null, 'flash', true], ['/mnt/user/appdata/x/compose.yml.restored-aside-20261007-090000', null, 'file_aside', true],
          ['/etc/libvirt/.UnraidSecretaryOffice-restore/20261007-090000', null, 'libvirt', true]],
@@ -8950,11 +8950,11 @@ function testLeftovers(): void
     same('storeroom: at the share\'s top on the same filesystem', "$top/" . CL_TRASH, clLeftoverTrash("$top/app/db/pg.aside-20261006-172818", $top));
     same('storeroom: never outside the share, nothing where its folder is gone', [null, null],
         [clLeftoverTrash("$tmp/mnt/pool/other/x.aside-20261006-172818", $top), clLeftoverTrash("$top/gone/x.aside-20261006-172818", $top)]);
-    same('way back: to where he leaves things, on the storeroom\'s own filesystem', ['/mnt/hive/drop', '/boot/config/' . CL_RESTORE_ASIDE, '', '', ''],
-        [clLeftoverHome('/mnt/hive/drop/shares.restored-20261006-150008', '/mnt/hive/drop/' . CL_TRASH),
+    same('way back: to where he leaves things, on the storeroom\'s own filesystem', ['/mnt/hazel/drop', '/boot/config/' . CL_RESTORE_ASIDE, '', '', ''],
+        [clLeftoverHome('/mnt/hazel/drop/shares.restored-20261006-150008', '/mnt/hazel/drop/' . CL_TRASH),
          clLeftoverHome('/boot/config/' . CL_RESTORE_ASIDE . '/20261006-150008', '/boot/config/' . CL_TRASH),
-         clLeftoverHome('/mnt/hive/drop/shares', '/mnt/hive/drop/' . CL_TRASH),
-         clLeftoverHome('/mnt/hive/other/shares.restored-20261006-150008', '/mnt/hive/drop/' . CL_TRASH),
+         clLeftoverHome('/mnt/hazel/drop/shares', '/mnt/hazel/drop/' . CL_TRASH),
+         clLeftoverHome('/mnt/hazel/other/shares.restored-20261006-150008', '/mnt/hazel/drop/' . CL_TRASH),
          clLeftoverHome('/etc/libvirt/' . CL_RESTORE_ASIDE . '/20261006-150008', '/boot/config/' . CL_TRASH)]);
     hardeningRm($tmp);
 
@@ -8969,35 +8969,35 @@ function testLeftovers(): void
 
     // a dataset is as big as ZFS counts it with its snapshots — a large server's VM folder set aside: used 17.3 GB, referenced 96 KB,
     // find saw «0 B»; the other rooms (domains, appdata, the storeroom's parked datasets) the same
-    $aside = 'master/domains/VM.aside-20261006-175854';
+    $aside = 'maple/domains/VM.aside-20261006-175854';
     $calls = [];
     $zfs = function (array $cmd) use (&$calls, $aside): array {
         $calls[] = $cmd;
-        return [1, "$aside\t17299173376\t17299075072\nother/x\t5\t0\nmaster/domains/odd\tx\t1\n", "cannot open 'pool/gone': dataset does not exist\n"];
+        return [1, "$aside\t17299173376\t17299075072\nother/x\t5\t0\nmaple/domains/odd\tx\t1\n", "cannot open 'pool/gone': dataset does not exist\n"];
     };
-    $space = clZfsSpace([$aside, 'pool/gone', 'master/domains/odd'], $zfs);
+    $space = clZfsSpace([$aside, 'pool/gone', 'maple/domains/odd'], $zfs);
     same('zfs space: used and what the snapshots hold, only the datasets named', [$aside => ['used' => 17299173376, 'snaps' => 17299075072]], $space);
-    same('zfs space: one call naming them, none without datasets', [[['zfs', 'list', '-Hp', '-o', 'name,used,usedbysnapshots', $aside, 'pool/gone', 'master/domains/odd']], []],
+    same('zfs space: one call naming them, none without datasets', [[['zfs', 'list', '-Hp', '-o', 'name,used,usedbysnapshots', $aside, 'pool/gone', 'maple/domains/odd']], []],
         [$calls, clZfsSpace([], $zfs)]);
     $raw = [
-        'appdata'   => ['folders' => ['list' => [['parts' => [['dataset' => 'master/appdata/x'], ['dataset' => null]]], ['parts' => [['dataset' => 'tmpfs'], ['dataset' => '/dev/sdb1']]]]]],
+        'appdata'   => ['folders' => ['list' => [['parts' => [['dataset' => 'maple/appdata/x'], ['dataset' => null]]], ['parts' => [['dataset' => 'tmpfs'], ['dataset' => '/dev/sdb1']]]]]],
         'domains'   => ['folders' => ['list' => [['parts' => [['dataset' => $aside]]]]]],
         'leftovers' => ['list' => [['parts' => [['dataset' => $aside], ['dataset' => null]]]]],
-        'trash'     => [['items' => [['zfs' => 'master/domains/_UnraidSecretaryOffice-trash-20261004-150957-W', 'present' => true], ['zfs' => 'master/gone', 'present' => false],
+        'trash'     => [['items' => [['zfs' => 'maple/domains/_UnraidSecretaryOffice-trash-20261004-150957-W', 'present' => true], ['zfs' => 'maple/gone', 'present' => false],
                                      ['zfs' => null, 'present' => true], ['zfs' => '-o/x', 'present' => true]]]],
     ];
-    same('zfs space: the datasets of the rooms, each once (no device, no tmpfs, no option)', ['master/appdata/x', $aside, 'master/domains/_UnraidSecretaryOffice-trash-20261004-150957-W'],
+    same('zfs space: the datasets of the rooms, each once (no device, no tmpfs, no option)', ['maple/appdata/x', $aside, 'maple/domains/_UnraidSecretaryOffice-trash-20261004-150957-W'],
         clRawDatasets($raw));
     $path = "/mnt/$aside";
     $lo = clLeftoverSizes([['parts' => [['path' => $path, 'dataset' => $aside, 'file' => false, 'bytes' => null],
-                                        ['path' => '/mnt/master/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'file' => false, 'bytes' => null]]]],
-        ['sizes' => [$path => ['bytes' => 0, 'at' => time()], '/mnt/master/appdata/zz/pg.aside-20261006-172818' => ['bytes' => 18404352, 'at' => time()]]], fn () => false, $space)[0];
+                                        ['path' => '/mnt/maple/appdata/zz/pg.aside-20261006-172818', 'dataset' => null, 'file' => false, 'bytes' => null]]]],
+        ['sizes' => [$path => ['bytes' => 0, 'at' => time()], '/mnt/maple/appdata/zz/pg.aside-20261006-172818' => ['bytes' => 18404352, 'at' => time()]]], fn () => false, $space)[0];
     same('leftovers: a dataset set aside with all in its snapshots — 17.3 GB, of which 17.3 GB in them (not «0 B»)',
         [17299173376 + 18404352, 17299075072, 17299173376, 17299075072, null, false], [$lo['bytes'], $lo['snaps'], $lo['parts'][0]['bytes'], $lo['parts'][0]['snaps'], $lo['parts'][1]['snaps'], $lo['measuring']]);
     $lo = clLeftoverSizes([['parts' => [['path' => $path, 'dataset' => $aside, 'file' => false, 'bytes' => null]]]], ['sizes' => []], fn () => true, [])[0];
     same('leftovers: without ZFS\'s word, measured in the background', [null, 0, true], [$lo['bytes'], $lo['snaps'], $lo['measuring']]);
     $old = time() - 40 * 86400;
-    $list = [['name' => 'VM.aside-20261006-175854', 'parts' => [['root' => 'master', 'path' => $path, 'dataset' => $aside, 'zfs' => true, 'mtime' => $old]]]];
+    $list = [['name' => 'VM.aside-20261006-175854', 'parts' => [['root' => 'maple', 'path' => $path, 'dataset' => $aside, 'zfs' => true, 'mtime' => $old]]]];
     $cache = ['sizes' => [$path => ['at' => time(), 'files' => 3, 'bytes' => 98304, 'newest' => $old, 'top' => []]]];
     $f = clFolderEntries($list, [], [], 'domain', true, true, $cache, fn () => false, $space)[0];
     same('domains: a folder that is a dataset counts its snapshots, find still tells files and the newest change', [17299173376, 17299075072, 17299075072, 3, $old],
@@ -9009,18 +9009,18 @@ function testLeftovers(): void
     }
 
     // what his journals name is his room's only — exactly by path, never by a name's pattern
-    $los = [['path' => '/mnt/user/appdata/prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/prometheus.restored-20261007-000716']]],
-            ['path' => '/mnt/master/domains/Win.aside-20261006-175854', 'parts' => []]];
+    $los = [['path' => '/mnt/user/appdata/prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/maple/appdata/prometheus.restored-20261007-000716']]],
+            ['path' => '/mnt/maple/domains/Win.aside-20261006-175854', 'parts' => []]];
     $folders = ['files' => 2, 'list' => [
-        ['name' => 'prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/prometheus.restored-20261007-000716'], ['path' => '/mnt/disk1/appdata/prometheus.restored-20261007-000716']]],
-        ['name' => 'grafana.restored-20261007-000716', 'parts' => [['path' => '/mnt/master/appdata/grafana.restored-20261007-000716']]],
-        ['name' => 'prometheus', 'parts' => [['path' => '/mnt/master/appdata/prometheus']]]]];
+        ['name' => 'prometheus.restored-20261007-000716', 'parts' => [['path' => '/mnt/maple/appdata/prometheus.restored-20261007-000716'], ['path' => '/mnt/disk1/appdata/prometheus.restored-20261007-000716']]],
+        ['name' => 'grafana.restored-20261007-000716', 'parts' => [['path' => '/mnt/maple/appdata/grafana.restored-20261007-000716']]],
+        ['name' => 'prometheus', 'parts' => [['path' => '/mnt/maple/appdata/prometheus']]]]];
     $kept = clWithoutLeftovers($folders, $los, 'appdata');
     same('his leftovers: out of the appdata room (all its parts), a look-alike nobody named and the rest stay',
         [['grafana.restored-20261007-000716', 'prometheus'], 2], [array_column($kept['list'], 'name'), $kept['files']]);
-    $dom = clWithoutLeftovers(['list' => [['name' => 'Win.aside-20261006-175854', 'parts' => [['path' => '/mnt/master/domains/Win.aside-20261006-175854'],
-                                                                                         ['path' => '/mnt/hive/domains/Win.aside-20261006-175854']]]]], $los, 'domains');
-    same('his leftovers: a pool path takes out that part only', [['/mnt/hive/domains/Win.aside-20261006-175854']], array_map(fn ($f) => array_column($f['parts'], 'path'), $dom['list']));
+    $dom = clWithoutLeftovers(['list' => [['name' => 'Win.aside-20261006-175854', 'parts' => [['path' => '/mnt/maple/domains/Win.aside-20261006-175854'],
+                                                                                         ['path' => '/mnt/hazel/domains/Win.aside-20261006-175854']]]]], $los, 'domains');
+    same('his leftovers: a pool path takes out that part only', [['/mnt/hazel/domains/Win.aside-20261006-175854']], array_map(fn ($f) => array_column($f['parts'], 'path'), $dom['list']));
     same('his leftovers: none named, nothing taken out', $folders, clWithoutLeftovers($folders, [], 'appdata'));
 
     // a restore finished after her last look: the page looks again (his job file's time, never while the lock is held)
@@ -9134,7 +9134,7 @@ function testExclusive(): void
     $shares = [
         $share('appdata', 'only', 'cache', null, ['cache']),                         // qualifies
         $share('system', 'only', 'cache', null, ['cache'], ['disk1']),               // a folder on disk1 too
-        $share('drop', 'only', 'fast', null, ['cache', 'fast']),                     // a large server's drop: mother + hive
+        $share('drop', 'only', 'fast', null, ['cache', 'fast']),                     // a large server's drop: moss + hazel
         $share('films', 'yes', 'cache', 'array', ['cache'], ['disk1']),              // cache → array: belongs to the array
         $share('media', 'no', 'array', null, [], ['disk1', 'disk2']),
         $share('tm', 'prefer', 'fast', 'cache', ['cache', 'fast']),                  // pool ← pool, data meant on fast
@@ -9211,21 +9211,21 @@ function testWatchman(): void
     $pick = fn (?array $e, array $keys) => $e === null ? null : array_map(fn ($k) => $e[$k], $keys);
 
     // lines: Unraid's web login (dynamix/include/.login.php) and SSH
-    same('watch line: web login', [true, 'web', 'root', '192.168.7.125', strtotime('2026-10-06 11:58:01')],
-        $pick($p('Oct  6 11:58:01 Tower webgui: Successful login user root from 192.168.7.125'), ['ok', 'service', 'user', 'ip', 'time']));
-    same('watch line: web failure with its cooldown', [false, 'root', '192.168.7.66'],
-        $pick($p('Oct  6 11:58:02 Tower webgui: Unsuccessful login user root from 192.168.7.66. Ignoring login attempts for 900 seconds.'), ['ok', 'user', 'ip']));
+    same('watch line: web login', [true, 'web', 'root', '192.168.20.125', strtotime('2026-10-06 11:58:01')],
+        $pick($p('Oct  6 11:58:01 Tower webgui: Successful login user root from 192.168.20.125'), ['ok', 'service', 'user', 'ip', 'time']));
+    same('watch line: web failure with its cooldown', [false, 'root', '192.168.20.66'],
+        $pick($p('Oct  6 11:58:02 Tower webgui: Unsuccessful login user root from 192.168.20.66. Ignoring login attempts for 900 seconds.'), ['ok', 'user', 'ip']));
     same('watch line: what was typed as the name is never the address, nor kept unless a user', [false, null, '10.0.0.5'],
         $pick($p('Oct  6 11:58:03 Tower webgui: Unsuccessful login user hunter2 from 9.9.9.9 from 10.0.0.5. '), ['ok', 'user', 'ip']));
-    same('watch line: SSH with a key', [true, 'ssh:publickey', 'root', '192.168.7.219'],
-        $pick($p('Oct  6 11:59:00 Tower sshd-session[2347524]: Accepted publickey for root from 192.168.7.219 port 59009 ssh2: RSA SHA256:abc'), ['ok', 'service', 'user', 'ip']));
+    same('watch line: SSH with a key', [true, 'ssh:publickey', 'root', '192.168.20.219'],
+        $pick($p('Oct  6 11:59:00 Tower sshd-session[2347524]: Accepted publickey for root from 192.168.20.219 port 59009 ssh2: RSA SHA256:abc'), ['ok', 'service', 'user', 'ip']));
     same('watch line: SSH password failed', [false, 'ssh:password', 'root', '203.0.113.9'],
         $pick($p('Oct  6 11:59:01 Tower sshd[123]: Failed password for root from 203.0.113.9 port 4242 ssh2'), ['ok', 'service', 'user', 'ip']));
     same('watch line: "Failed … for invalid user" counts through its "Invalid user" line', null,
         $p('Oct  6 11:59:02 Tower sshd[123]: Failed password for invalid user admin from 203.0.113.9 port 4243 ssh2'));
     same('watch line: invalid user, the name not kept', [false, null, '203.0.113.9'],
         $pick($p('Oct  6 11:59:02 Tower sshd[123]: Invalid user admin from 203.0.113.9 port 4243'), ['ok', 'user', 'ip']));
-    same('watch line: IPv4 inside IPv6', '192.168.7.5', $p('Oct  6 11:59:03 Tower sshd-session[9]: Accepted password for root from ::ffff:192.168.7.5 port 1 ssh2')['ip'] ?? null);
+    same('watch line: IPv4 inside IPv6', '192.168.20.5', $p('Oct  6 11:59:03 Tower sshd-session[9]: Accepted password for root from ::ffff:192.168.20.5 port 1 ssh2')['ip'] ?? null);
     same('watch line: other lines are none', [null, null, null], [
         $p('Oct  6 11:59:04 Tower sshd-session[9]: Postponed publickey for root from 1.2.3.4 port 5 ssh2 [preauth]'),
         $p('Oct  6 11:59:04 Tower webgui: TimeMachine: Could not download icon /boot/config/plugins/dockerMan/images/x.png'),
@@ -9256,20 +9256,20 @@ function testWatchman(): void
     $tmp = sys_get_temp_dir() . '/office-tests-watch-' . getmypid();
     @mkdir($tmp, 0700, true);
     $log = "$tmp/syslog";
-    file_put_contents($log, "Oct  6 10:00:00 Tower webgui: Successful login user root from 192.168.7.10\nOct  6 10:00:01 Tower kernel: x\n");
+    file_put_contents($log, "Oct  6 10:00:00 Tower webgui: Successful login user root from 192.168.20.10\nOct  6 10:00:01 Tower kernel: x\n");
     [$ev, $pos] = watchmanReadLogins($log, null, true, $known, $now);
-    same('watch read: taking over reads all of it', [['192.168.7.10'], filesize($log)], [array_column($ev, 'ip'), $pos['size']]);
+    same('watch read: taking over reads all of it', [['192.168.20.10'], filesize($log)], [array_column($ev, 'ip'), $pos['size']]);
     [$ev, $pos2] = watchmanReadLogins($log, null, false, $known, $now);
     same('watch read: without a position, from now on', [[], filesize($log)], [$ev, $pos2['size']]);
-    file_put_contents($log, "Oct  6 10:01:00 Tower webgui: Successful login user root from 192.168.7.11\n"
-        . 'Oct  6 10:01:01 Tower webgui: Successful login user root from 192.168.7.12', FILE_APPEND);
+    file_put_contents($log, "Oct  6 10:01:00 Tower webgui: Successful login user root from 192.168.20.11\n"
+        . 'Oct  6 10:01:01 Tower webgui: Successful login user root from 192.168.20.12', FILE_APPEND);
     [$ev, $pos] = watchmanReadLogins($log, $pos, false, $known, $now);
-    same('watch read: only what came, whole lines', ['192.168.7.11'], array_column($ev, 'ip'));
+    same('watch read: only what came, whole lines', ['192.168.20.11'], array_column($ev, 'ip'));
     rename($log, "$log.1");
     file_put_contents("$log.1", "\n", FILE_APPEND);
-    file_put_contents($log, "Oct  6 10:02:00 Tower sshd[1]: Accepted publickey for root from 192.168.7.13 port 1 ssh2\n");
+    file_put_contents($log, "Oct  6 10:02:00 Tower sshd[1]: Accepted publickey for root from 192.168.20.13 port 1 ssh2\n");
     [$ev, $pos, $info] = watchmanReadLogins($log, $pos, false, $known, $now);
-    same('watch read: rotated — the rest of the old file, then the new one', [true, ['192.168.7.12', '192.168.7.13']],
+    same('watch read: rotated — the rest of the old file, then the new one', [true, ['192.168.20.12', '192.168.20.13']],
         [$info['rotated'], array_column($ev, 'ip')]);
     same('watch read: nothing twice', [], watchmanReadLogins($log, $pos, false, $known, $now)[0]);
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -9300,9 +9300,9 @@ function testWatchman(): void
               'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
               'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
     $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
-    $history = $line($now - 7200, 'webgui: Successful login user root from 192.168.7.10');
+    $history = $line($now - 7200, 'webgui: Successful login user root from 192.168.20.10');
     foreach (range(0, 5) as $i) {      // a client that keeps failing (it had a burst before he came)
-        $history .= $line($now - 5000 + $i, 'webgui: Unsuccessful login user root from 192.168.7.66. ');
+        $history .= $line($now - 5000 + $i, 'webgui: Unsuccessful login user root from 192.168.20.66. ');
     }
     file_put_contents($paths['syslog'], $history);
     $plgFile = fn (string $owner) => "<!ENTITY name \"ca\">\n<!ENTITY github \"$owner/ca\">\n"
@@ -9333,7 +9333,7 @@ function testWatchman(): void
     $r = watchmanRound($paths, $data, 1000, $now, $docker, true, $acks);
     $d = watchmanLoad($data);
     same('watch: the first round takes over and reports nothing', [true, [], [], 0], [$r['fresh'], $r['added'], $open(), count($calls())]);
-    same('watch: what is normal now', [['192.168.7.10'], ['192.168.7.66'], ['kopia', 'plex'], ['ca' => 'raw.githubusercontent.com/unraid'], ['root', 'benj'], 1, ['Media', 'appdata', 'flash']],
+    same('watch: what is normal now', [['192.168.20.10'], ['192.168.20.66'], ['kopia', 'plex'], ['ca' => 'raw.githubusercontent.com/unraid'], ['root', 'benj'], 1, ['Media', 'appdata', 'flash']],
         [array_keys($d['baseline']['ips']), array_keys($d['baseline']['fail_ips']), array_keys($d['baseline']['containers']),
          array_map(fn ($x) => $x['source'], $d['baseline']['plugins']), $d['baseline']['flash']['users'], count($d['baseline']['flash']['keys']['root']),
          array_keys($d['baseline']['shares'])]);
@@ -9344,10 +9344,10 @@ function testWatchman(): void
     // the night: what differs
     $t = $now + 300;
     $night = $line($t, 'webgui: Successful login user root from 10.9.8.7')
-           . $line($t, 'sshd-session[5]: Accepted publickey for root from 192.168.7.10 port 2 ssh2: ED25519 SHA256:x');
+           . $line($t, 'sshd-session[5]: Accepted publickey for root from 192.168.20.10 port 2 ssh2: ED25519 SHA256:x');
     foreach (range(0, 5) as $i) {
         $night .= $line($t + $i, 'sshd[7]: Failed password for root from 203.0.113.9 port ' . (4000 + $i) . ' ssh2');
-        $night .= $line($t + $i, 'webgui: Unsuccessful login user root from 192.168.7.66. ');
+        $night .= $line($t + $i, 'webgui: Unsuccessful login user root from 192.168.20.66. ');
     }
     file_put_contents($paths['syslog'], $night, FILE_APPEND);
     $containers['plex']['tokens'] = ['--privileged', '-p 32400:32400/tcp', '-p 8080:80/tcp'];
@@ -9371,7 +9371,7 @@ function testWatchman(): void
     $d = watchmanLoad($data);
     $by = array_column(array_filter($d['book'], 'watchmanOpen'), null, 'kind');
     same('watch: the burst — how many, who', [6, ['root'], '203.0.113.9'], [$by['login_failures']['count'], $by['login_failures']['p']['users'], $by['login_failures']['p']['ip']]);
-    same('watch: an address known for failing is counted, not reported', 6, $d['baseline']['fail_ips']['192.168.7.66']['quiet'] ?? null);
+    same('watch: an address known for failing is counted, not reported', 6, $d['baseline']['fail_ips']['192.168.20.66']['quiet'] ?? null);
     same('watch: fewer rights are the new normal', [], $d['baseline']['containers']['kopia']['tokens']);
     same('watch: a new container with only ports is normal', ['-p 80:80/tcp'], $d['baseline']['containers']['web']['tokens'] ?? null);
     same('watch: rights as flags, the plugin source moved', ['--privileged', 'raw.githubusercontent.com/someone', 'raw.githubusercontent.com/unraid', ['added' => 1, 'removed' => 0]],
@@ -9436,7 +9436,7 @@ function testWatchman(): void
     check('watch page: no internal values', !str_contains(json_encode($page), '"_h"'));
     $failing = array_column($page['watch']['fail_ips'], 'ip');
     sort($failing);
-    same('watch page: what he keeps an eye on', [2, ['192.168.7.66', '203.0.113.9'], ['Media']],
+    same('watch page: what he keeps an eye on', [2, ['192.168.20.66', '203.0.113.9'], ['Media']],
         [count($page['watch']['ips']), $failing, array_column($page['watch']['shares']['open'], 'share')]);
     $m = watchmanMetrics($data);
     same('watch metrics: open per kind, the last round', ['uso_watchman_open_findings', count(WATCH_KINDS), 1, 'uso_watchman_last_round_timestamp_seconds', $now + 300 + 600 + WATCH_NOTIFY_QUIET],
@@ -9818,7 +9818,7 @@ function testWatchmanSched(): void
     // the night: root's own crontab becomes a copy of Unraid's, with an old copy of the office's line, a new line, a gone program
     $t = $now + 500;
     file_put_contents($paths['syslog'], $line($t - 700, 'www[9]: /usr/local/emhttp/plugins/far/away.sh too early')
-        . $line($t - 20, 'webgui: Unsuccessful login user hunter2.sh from 192.168.7.66')
+        . $line($t - 20, 'webgui: Unsuccessful login user hunter2.sh from 192.168.20.66')
         . $line($t - 10, "ool www[3899811]: /usr/local/emhttp/plugins/vmbackup/scripts/commands.sh 'update_user_script' 'default'")
         . $line($t, 'kernel: eth0: link up')
         . $line($t + 30, 'crond[1234]: updating crontab for root')
@@ -10109,7 +10109,7 @@ function testWatchmanFlowGone(): void
         ['python3', '/usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py', '--run'],
         ['bash', '/usr/local/emhttp/plugins/unraid-secretary-office/gather/consolidate_master.sh', 'run'],
         ['rsync', '-a', '--remove-source-files', '/mnt/user/a/', '/mnt/user/b/'], ['rsync', '-a', '/mnt/user/a/', '/mnt/user/b/'],
-        ['rm', '-rf', '--', '/mnt/hive/Serien/_UnraidSecretaryOffice-trash/20261006-1010.purging'], ['rm', '-rf', '/mnt/hive/Serien/Staffel 1'],
+        ['rm', '-rf', '--', '/mnt/hazel/Serien/_UnraidSecretaryOffice-trash/20261006-1010.purging'], ['rm', '-rf', '/mnt/hazel/Serien/Staffel 1'],
         ['/usr/local/emhttp/plugins/unbalanced/unbalanced', '--port', '7090']]));
     foreach (['100' => ['/bin/bash', '/usr/local/sbin/mover', 'start'], '200' => ['sleep', '60'], 'self' => ['x']] as $pid => $argv) {
         @mkdir("$tmp/proc/$pid", 0700, true);
@@ -10123,7 +10123,7 @@ function testWatchmanFlowGone(): void
     }
     touch("$tmp/mnt/disk1/.btrfs-snap", 1791200000);
     file_put_contents("$tmp/disks.ini", "[parity]\nname=\"parity\"\ntype=\"Parity\"\nfsType=\"\"\n[disk1]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n"
-        . "[disk2]\nname=\"disk2\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nspundown=\"1\"\n[hive]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n");
+        . "[disk2]\nname=\"disk2\"\ntype=\"Data\"\nfsType=\"xfs\"\nfsStatus=\"Mounted\"\nspundown=\"1\"\n[hazel]\nname=\"hazel\"\ntype=\"Cache\"\nfsType=\"zfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n");
     $d = watchmanFlowDisks(['disks_ini' => "$tmp/disks.ini", 'mnt' => "$tmp/mnt"]);
     same('gone disks: the awake XFS/btrfs ones with their shares and snapshot time, the sleeping one not asked', [['disk1'], 'btrfs', 1791200000, ['Filme', 'Serien'], true, ['disk2']],
         [array_keys($d['disks'] ?? []), $d['disks']['disk1']['fs'] ?? null, $d['disks']['disk1']['snap'] ?? null,
@@ -10531,17 +10531,17 @@ function testWatchmanFlowSources(): void
         watchmanZfsParse("tank/x\twritten\t5\ntank/x\tused\t6\ntank/x\tcreation\t1791242200\ntank/x\tsnapshots_changed\t-\n")['tank/x']);
     same('flow libvirt: its image\'s folder in a share, or its folder; anything else none',
         [['share' => 'system', 'dir' => 'libvirt'], ['share' => 'system', 'dir' => 'libvirt'], ['share' => 'system', 'dir' => ''], null, null, null],
-        [watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/user/system/libvirt/libvirt.img']), watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/master/system/libvirt/']),
+        [watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/user/system/libvirt/libvirt.img']), watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/maple/system/libvirt/']),
          watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/user/system/libvirt.img']), watchmanFlowLibvirt([]), watchmanFlowLibvirt(['IMAGE_FILE' => '/boot/libvirt.img']),
          watchmanFlowLibvirt(['IMAGE_FILE' => '/mnt/user/system/../etc/libvirt.img'])]);
     $hx = fn (string $c) => str_repeat($c, 64);
-    $dockerDs = ['master/system/' . $hx('a') => 'EmbyServer', 'master/system/docker/' . $hx('b') => 'plex'];
+    $dockerDs = ['maple/system/' . $hx('a') => 'EmbyServer', 'maple/system/docker/' . $hx('b') => 'plex'];
     same('flow sources: the share\'s own, a container (its -init too, also deeper down), a layer of no container, another dataset',
         ['own', 'ct:EmbyServer', 'ct:EmbyServer', 'ct:plex', 'ly:' . $hx('c'), 'ds:appcache', 'ds:' . $hx('a') . 'x'],
-        [watchmanFlowByKey('master/system', '', $dockerDs), watchmanFlowByKey('master/system', $hx('a'), $dockerDs),
-         watchmanFlowByKey('master/system', $hx('a') . '-init', $dockerDs), watchmanFlowByKey('master/system', 'docker/' . $hx('b') . '-init', $dockerDs),
-         watchmanFlowByKey('master/system', $hx('c'), $dockerDs), watchmanFlowByKey('master/system', 'appcache', $dockerDs),
-         watchmanFlowByKey('master/system', $hx('a') . 'x', $dockerDs)]);
+        [watchmanFlowByKey('maple/system', '', $dockerDs), watchmanFlowByKey('maple/system', $hx('a'), $dockerDs),
+         watchmanFlowByKey('maple/system', $hx('a') . '-init', $dockerDs), watchmanFlowByKey('maple/system', 'docker/' . $hx('b') . '-init', $dockerDs),
+         watchmanFlowByKey('maple/system', $hx('c'), $dockerDs), watchmanFlowByKey('maple/system', 'appcache', $dockerDs),
+         watchmanFlowByKey('maple/system', $hx('a') . 'x', $dockerDs)]);
     $many = [];
     foreach (range(1, WATCH_FLOW_BY + 5) as $i) {
         $many["ds:d$i"] = [$i, false];
@@ -10560,7 +10560,7 @@ function testWatchmanFlowSources(): void
         file_put_contents("$root/image/zfs/layerdb/sha256/$chain/cache-id", $cache);
     }
     $img = fn (string $id, array $tags, array $layers, ?string $top) => 'sha256:' . $hx($id) . "\t" . json_encode($tags) . "\t" . json_encode(array_map($diff, $layers))
-        . "\t" . json_encode($top === null ? null : ['Dataset' => "master/system/$top", 'Mountpoint' => "/var/lib/docker/zfs/graph/$top"]);
+        . "\t" . json_encode($top === null ? null : ['Dataset' => "maple/system/$top", 'Mountpoint' => "/var/lib/docker/zfs/graph/$top"]);
     $inspect = implode("\n", [$img('d', ['dropnook/office:latest'], ['a', 'b'], $hx('2')), $img('e', [], ['a', 'c'], $hx('3')),
         $img('f', ['alpine:3.20'], ['a'], $hx('1')), $img('9', ['emby/embyserver:4.9'], ['d'], $hx('4')), "broken line"]);
     same('flow layers: each layer\'s image — a shared base to the first tagged by name, an untagged by its short id, a top layer without the database',
@@ -10579,21 +10579,21 @@ function testWatchmanFlowSources(): void
     same('flow layers: asked once, remembered; one no image named asked again only after a while', [1, 'dropnook/office', '', 'dropnook/office', 2],
         [$r2 === [$hx('f') => 'dropnook/office', $hx('1') => ''] ? 1 : 0, $r1[$hx('e')], $r1[$hx('1')], $r2[$hx('f')], $asks]);
 
-    // rounds: master/system holds Docker (ZFS driver) and libvirt's folder, master/appdata is one dataset, disk1 is XFS
+    // rounds: maple/system holds Docker (ZFS driver) and libvirt's folder, maple/appdata is one dataset, disk1 is XFS
     $t0 = strtotime('2026-10-05 10:02:00');
     $old = $t0 - 86400;
     $ds = fn (int $w, int $u = 0, int $c = 0) => ['w' => $w, 'u' => $u, 's' => null, 'c' => $c ?: $old];
-    $sys = 'master/system/';
-    $round1 = ['master' => $ds(1, 900 * $gb), 'master/system' => $ds($gb, 20 * $gb), $sys . $hx('a') => $ds($gb), $sys . $hx('a') . '-init' => $ds(0),
+    $sys = 'maple/system/';
+    $round1 = ['maple' => $ds(1, 900 * $gb), 'maple/system' => $ds($gb, 20 * $gb), $sys . $hx('a') => $ds($gb), $sys . $hx('a') . '-init' => $ds(0),
         $sys . $hx('b') => $ds(0), $sys . $hx('c') => $ds(5 * $gb), $sys . $hx('d') => $ds($gb), $sys . 'appcache' => $ds(0),
-        'master/appdata' => $ds(0, 100 * $gb), 'master/domains' => $ds(0, 100 * $gb), 'master/domains/Win11' => $ds(0)];
+        'maple/appdata' => $ds(0, 100 * $gb), 'maple/domains' => $ds(0, 100 * $gb), 'maple/domains/Win11' => $ds(0)];
     $round2 = array_diff_key($round1, [$sys . $hx('d') => 1]) + [$sys . $hx('e') => $ds(2 * $gb, 0, $t0 + 100), $sys . $hx('f') => $ds($gb, 0, $t0 + 150),
         $sys . $hx('1') => $ds(intdiv($gb, 2), 0, $t0 + 200), $sys . 'renamed' => $ds(50 * $gb)];
-    $round2['master/system'] = $ds(2 * $gb, 20 * $gb);
+    $round2['maple/system'] = $ds(2 * $gb, 20 * $gb);
     $round2[$sys . $hx('a')] = $ds((int) (4.5 * $gb));
     $round2[$sys . $hx('b')] = $ds((int) (0.2 * $gb));
     $round2[$sys . 'appcache'] = $ds((int) (0.25 * $gb));
-    $round2['master/appdata'] = $ds(30 * $gb, 100 * $gb);
+    $round2['maple/appdata'] = $ds(30 * $gb, 100 * $gb);
     $round3 = array_diff_key($round2, [$sys . $hx('1') => 1]);
     $round3[$sys . $hx('a')] = $ds((int) (5.5 * $gb));
     $layerCache = [];
@@ -10602,7 +10602,7 @@ function testWatchmanFlowSources(): void
         return watchmanFlowLayers($ids, $ask, null, $layerCache);
     };
     $look = fn (array $datasets, int $used) => ['conns' => [], 'smb' => ['on' => true, 'sessions' => []], 'containers' => null, 'nfs' => false, 'holder' => null,
-        'kopia' => 'kopia', 'office_shares' => ['UnraidSecretaryOffice'], 'zfs' => ['datasets' => $datasets, 'pools' => ['master'], 'asleep' => []],
+        'kopia' => 'kopia', 'office_shares' => ['UnraidSecretaryOffice'], 'zfs' => ['datasets' => $datasets, 'pools' => ['maple'], 'asleep' => []],
         'docker_ds' => [$sys . $hx('a') => 'EmbyServer', $sys . $hx('b') => 'plex'], 'libvirt' => ['share' => 'system', 'dir' => 'libvirt'],
         'layers' => $layers,
         'disks' => ['disks' => ['disk1' => ['fs' => 'xfs', 'used' => $used, 'snap' => null, 'shares' => ['Media']]], 'asleep' => []]];
@@ -10614,39 +10614,39 @@ function testWatchmanFlowSources(): void
     sort($added);
     same('flow sources: written into the Docker share and the one-dataset share; the XFS disk growing is no such entry', ['flow_written', 'flow_written'], $added);
     $by = array_column(array_filter($book, 'watchmanOpen'), null, 'key');
-    $e = $by['flow_written:master/system'];
+    $e = $by['flow_written:maple/system'];
     same('flow sources: the new layers and the new container count (made since the last round), a renamed one not, the vanished one adds nothing',
         (int) (8.45 * $gb), $e['p']['bytes']);
     same('flow sources: top 5 — the container, the new layers per image, the share itself (libvirt\'s folder there), unknown new layers, a dataset — and the rest',
         [['t' => 'ct', 'name' => 'EmbyServer', 'b' => (int) (3.5 * $gb)], ['t' => 'img', 'name' => 'dropnook/office', 'n' => 2, 'b' => 3 * $gb, 'new' => true],
-         ['t' => 'own', 'name' => 'master/system', 'b' => $gb, 'dir' => 'libvirt'], ['t' => 'img', 'name' => '', 'n' => 1, 'b' => intdiv($gb, 2), 'new' => true],
-         ['t' => 'ds', 'name' => 'master/system/appcache', 'b' => (int) (0.25 * $gb)], ['t' => 'rest', 'b' => (int) (8.45 * $gb) - (int) (3.5 * $gb) - 3 * $gb - $gb - intdiv($gb, 2) - (int) (0.25 * $gb)]],
+         ['t' => 'own', 'name' => 'maple/system', 'b' => $gb, 'dir' => 'libvirt'], ['t' => 'img', 'name' => '', 'n' => 1, 'b' => intdiv($gb, 2), 'new' => true],
+         ['t' => 'ds', 'name' => 'maple/system/appcache', 'b' => (int) (0.25 * $gb)], ['t' => 'rest', 'b' => (int) (8.45 * $gb) - (int) (3.5 * $gb) - 3 * $gb - $gb - intdiv($gb, 2) - (int) (0.25 * $gb)]],
         $e['p']['src']);
     same('flow sources: Docker asked once, only for the entry', 1, $asks);
-    same('flow sources: a share of one dataset — no single source', [['t' => 'none', 'b' => 30 * $gb]], $by['flow_written:master/appdata']['p']['src']);
+    same('flow sources: a share of one dataset — no single source', [['t' => 'none', 'b' => 30 * $gb]], $by['flow_written:maple/appdata']['p']['src']);
     same('flow sources: the entry in words, the biggest source named',
-        '8.4 GB written into master/system in 5 min — 42 % of the share while I\'m still learning what is normal. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
+        '8.4 GB written into maple/system in 5 min — 42 % of the share while I\'m still learning what is normal. Most of it: Container EmbyServer (its writable layer), 3.5 GB.',
         officeNotifyText('watchman', 'entry.flow_written', watchmanText($e, 'en'), 'en'));
     same('flow sources: no single source, in words (German)',
-        '30 GB geschrieben in master/appdata in 5 Min. — 30 % des Shares, während ich noch lerne, was normal ist. Keine einzelne Quelle sichtbar — master/appdata ist ein einziges Dataset.',
-        officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written:master/appdata'], 'de'), 'de'));
+        '30 GB geschrieben in maple/appdata in 5 Min. — 30 % des Shares, während ich noch lerne, was normal ist. Keine einzelne Quelle sichtbar — maple/appdata ist ein einziges Dataset.',
+        officeNotifyText('watchman', 'entry.flow_written', watchmanText($by['flow_written:maple/appdata'], 'de'), 'de'));
 
     // five minutes on: the container writes on, the unknown layer is deleted meanwhile
     [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look($round3, 400 * $gb), $book, $t0 + 600);
-    $e = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:master/system'];
+    $e = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_written:maple/system'];
     same('flow sources: the pull going on — the same entry, its sources added up, Docker not asked again', [[], (int) (9.45 * $gb), (int) (4.5 * $gb), 1],
         [$added, $e['p']['bytes'], $e['p']['src'][0]['b'], $asks]);
     same('flow sources: in words (German) — new, deleted since, the share itself with libvirt\'s folder, the rest', [
         'Container EmbyServer (seine beschreibbare Ebene): 4,5 GB',
         '2 neue Image-Ebenen: Image dropnook/office: 3,0 GB',
-        'master/system selbst, kein Dataset darunter — dort liegt der Ordner system/libvirt von libvirt: 1,0 GB',
+        'maple/system selbst, kein Dataset darunter — dort liegt der Ordner system/libvirt von libvirt: 1,0 GB',
         'neue Image-Ebene: Image unbekannt — inzwischen gelöscht: 512 MB',
-        'Dataset master/system/appcache: 256 MB',
+        'Dataset maple/system/appcache: 256 MB',
         'übrige: 205 MB'], array_map(fn ($x) => watchmanFlowSourceLine($x, 'de'), $e['p']['src']));
     same('flow sources: libvirt in a dataset of its own is named so, the share itself then not',
-        [['t' => 'libvirt', 'name' => 'master/system/libvirt', 'b' => 2], ['t' => 'own', 'name' => 'master/system', 'b' => 1]],
-        watchmanFlowSources(['bytes' => 3, 'by' => ['ds:libvirt' => [2, false], 'own' => [1, false]]], 'master/system',
-            ['datasets' => ['master/system' => true, 'master/system/libvirt' => true], 'libvirt' => ['share' => 'system', 'dir' => 'libvirt']]));
+        [['t' => 'libvirt', 'name' => 'maple/system/libvirt', 'b' => 2], ['t' => 'own', 'name' => 'maple/system', 'b' => 1]],
+        watchmanFlowSources(['bytes' => 3, 'by' => ['ds:libvirt' => [2, false], 'own' => [1, false]]], 'maple/system',
+            ['datasets' => ['maple/system' => true, 'maple/system/libvirt' => true], 'libvirt' => ['share' => 'system', 'dir' => 'libvirt']]));
     same('flow sources: nothing known of the sources (a pull begun before) — none named', null, watchmanFlowSources(['bytes' => 3], 'tank/x', []));
     same('flow sources: a new container, in words', 'Container web (its writable layer) — new: 1.0 GB',
         watchmanFlowSourceLine(['t' => 'ct', 'name' => 'web', 'b' => $gb, 'new' => true], 'en'));
@@ -10666,9 +10666,9 @@ function testWatchmanFlowSources(): void
     $msg = (string) ($args[array_search('-m', $args, true) + 1] ?? '');
     check('flow sources: the notification lists them, one per line', $sent && str_contains($msg, '\n  Where it was written:\n    – Container EmbyServer (its writable layer): 4.5 GB\n'
         . '    – 2 new image layers: image dropnook/office: 3.0 GB\n') && str_contains($msg, '    – the rest: 205 MB'), $msg);
-    $none = watchmanEntry('flow_written', 'flow_written:master/appdata', $t0, ['share' => 'master/appdata', 'bytes' => $gb, 'src' => [['t' => 'none', 'b' => $gb]]]);
+    $none = watchmanEntry('flow_written', 'flow_written:maple/appdata', $t0, ['share' => 'maple/appdata', 'bytes' => $gb, 'src' => [['t' => 'none', 'b' => $gb]]]);
     $old = watchmanEntry('flow_written', 'flow_written:tank/x', $t0, ['share' => 'tank/x', 'bytes' => $gb]);
-    same('flow sources: an entry of an older office, and one of a single dataset, in words', ['', ' No single source visible — master/appdata is one dataset.'],
+    same('flow sources: an entry of an older office, and one of a single dataset, in words', ['', ' No single source visible — maple/appdata is one dataset.'],
         [watchmanFlowFrom($old['p'], 'en'), watchmanFlowFrom($none['p'], 'en')]);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -11385,12 +11385,12 @@ function testIcons(): void
 function testAdvisor(): void
 {
     foreach (['quay.io/prometheus/node-exporter:latest-distroless' => 'node-exporter', 'prom/prometheus' => 'prometheus',
-              'grafana/grafana:12.1.0' => 'grafana', 'grafana/loki:master' => 'loki', 'registry:5000/Team/App:1' => 'app',
+              'grafana/grafana:12.1.0' => 'grafana', 'grafana/loki:maple' => 'loki', 'registry:5000/Team/App:1' => 'app',
               'bitnami/node-exporter@sha256:ab12' => 'node-exporter', 'redis' => 'redis'] as $image => $want) {
         same("advisor: image name of $image", $want, advisorImageName($image));
     }
     $c = fn (string $name, string $image, bool $running = true) => ['name' => $name, 'image' => $image, 'running' => $running];
-    $all = ['loki' => $c('loki', 'grafana/loki:master'), 'renderer' => $c('renderer', 'grafana/grafana-image-renderer'),
+    $all = ['loki' => $c('loki', 'grafana/loki:maple'), 'renderer' => $c('renderer', 'grafana/grafana-image-renderer'),
             'old' => $c('Grafana-old', 'grafana/grafana-oss', false), 'Grafana' => $c('Grafana', 'grafana/grafana'),
             'prometheus' => $c('prometheus', 'prom/prometheus'), 'exp' => $c('Node-Exporter', 'quay.io/prometheus/node-exporter:latest-distroless'),
             'qbit' => $c('qbit-exporter', 'esanchezm/prometheus-qbittorrent-exporter'), 'kopia' => $c('KopiaUI', 'ghcr.io/imagegenius/kopia')];
@@ -11962,13 +11962,13 @@ function testMetrics(): void
             'Networks' => ['bridge' => ['IPAddress' => '172.17.0.5']]]]));
     same('prometheus: host network with its own port', ['http://127.0.0.1:9191', false],
         caretakerPrometheusUrl(['Args' => ['--web.listen-address=:9191'], 'HostConfig' => ['NetworkMode' => 'host']]));
-    same('prometheus: an address of its own (br0)', ['http://192.168.7.30:9090', true],
-        caretakerPrometheusUrl(['HostConfig' => ['NetworkMode' => 'br0'], 'NetworkSettings' => ['Ports' => [], 'Networks' => ['br0' => ['IPAddress' => '192.168.7.30']]]]));
+    same('prometheus: an address of its own (br0)', ['http://192.168.20.30:9090', true],
+        caretakerPrometheusUrl(['HostConfig' => ['NetworkMode' => 'br0'], 'NetworkSettings' => ['Ports' => [], 'Networks' => ['br0' => ['IPAddress' => '192.168.20.30']]]]));
     $targets = fn (array ...$t) => ['status' => 'success', 'data' => ['activeTargets' => $t]];
     $tg = fn (string $job, string $url, string $health) => ['labels' => ['job' => $job, 'instance' => parse_url($url, PHP_URL_HOST) . ':' . parse_url($url, PHP_URL_PORT)],
                                                           'scrapeUrl' => $url, 'health' => $health];
-    same('prometheus: node target up', ['up' => true, 'target' => '192.168.7.20:9100'],
-        caretakerNodeTarget($targets($tg('prometheus', 'http://localhost:9090/metrics', 'up'), $tg('node', 'http://192.168.7.20:9100/metrics', 'up'))));
+    same('prometheus: node target up', ['up' => true, 'target' => '192.168.20.20:9100'],
+        caretakerNodeTarget($targets($tg('prometheus', 'http://localhost:9090/metrics', 'up'), $tg('node', 'http://192.168.20.20:9100/metrics', 'up'))));
     same('prometheus: a target on port 9100 under another job, down', ['up' => false, 'target' => '10.0.0.2:9100'],
         caretakerNodeTarget($targets($tg('server', 'http://10.0.0.2:9100/metrics', 'down'))));
     same('prometheus: no node job', 'none', caretakerNodeTarget($targets($tg('prometheus', 'http://localhost:9090/metrics', 'up'))));
@@ -12353,10 +12353,10 @@ function testSnapshotRecord(): void
     $mode = fn (string $p) => substr(sprintf('%o', fileperms($p)), -3);
     check('record: set up — a folder of root\'s own (0700), an empty file (0600)',
         snapshotRecordReady() && is_file($file) && filesize($file) === 0 && $mode(dirname($file)) === '700' && $mode($file) === '600' && fileowner($file) === 0);
-    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/My Share', 'names' => ['a', 'b']]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hazel/My Share', 'names' => ['a', 'b']]);
     snapshotRecord(['do' => 'deleted', 'fs' => 'btrfs', 'path' => '/mnt/disk1/.btrfs-snap/x']);
-    snapshotRecord(['do' => 'released', 'ds' => 'hive/data', 'name' => 'keep']);
-    snapshotRecord(['do' => 'renamed', 'where' => 'hive/data', 'from' => 'manual', 'to' => 'manual2']);
+    snapshotRecord(['do' => 'released', 'ds' => 'hazel/data', 'name' => 'keep']);
+    snapshotRecord(['do' => 'renamed', 'where' => 'hazel/data', 'from' => 'manual', 'to' => 'manual2']);
     same('record: a line each, with its time', [['deleted', true], ['deleted', true], ['released', true], ['renamed', true]],
         array_map(fn ($l) => [json_decode($l, true)['do'] ?? null, is_int(json_decode($l, true)['t'] ?? null)], file($file) ?: []));
 
@@ -12365,17 +12365,17 @@ function testSnapshotRecord(): void
     same('record read, the watch taken over: from now on', [[], filesize($file)], [$ev['d'], $pos['size']]);
     [$ev, $pos] = watchmanSnapRecord($file, null, false);
     same('record read: her deletions (several at once, btrfs), releases, renames',
-        [['hive/My Share@a', 'hive/My Share@b', '/mnt/disk1/.btrfs-snap/x'], ['hive/data@keep'], [['hive/data', 'manual', 'manual2']]],
+        [['hazel/My Share@a', 'hazel/My Share@b', '/mnt/disk1/.btrfs-snap/x'], ['hazel/data@keep'], [['hazel/data', 'manual', 'manual2']]],
         [array_keys($ev['d']), array_keys($ev['r']), array_map(fn ($m) => array_slice($m, 0, 3), $ev['m'])]);
-    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['c']]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hazel/data', 'names' => ['c']]);
     [$ev, $pos] = watchmanSnapRecord($file, $pos, false);
-    same('record read: by its position', ['hive/data@c'], array_keys($ev['d']));
+    same('record read: by its position', ['hazel/data@c'], array_keys($ev['d']));
 
     // full: it becomes deletes.jsonl.1 — the watchman reads the rest of that one (by its inode), then the new one
     file_put_contents($file, json_encode(['t' => 1, 'do' => 'padding', 'x' => str_repeat('x', SNAPSHOT_RECORD_MAX)]) . "\n", FILE_APPEND);
-    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['d']]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hazel/data', 'names' => ['d']]);
     [$ev, $pos] = watchmanSnapRecord($file, $pos, false);
-    same('record full: a new one begins, one older kept, nothing missed', [true, 1, ['hive/data@d']],
+    same('record full: a new one begins, one older kept, nothing missed', [true, 1, ['hazel/data@d']],
         [is_file("$file.1"), count(file($file) ?: []), array_keys($ev['d'])]);
 
     // a record others could have written is no record: the watchman refuses it, she sets it aside and begins anew
@@ -12385,9 +12385,9 @@ function testSnapshotRecord(): void
         check("record: set aside and begun anew — $what", snapshotRecordReady() && $mode(dirname($file)) === '700' && fileowner($file) === 0 && $mode($file) === '600');
     }
     same('record: what others could have written is set aside, never read again', 2, count(glob("$file.untrusted-*") ?: []));
-    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/data', 'names' => ['e']]);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hazel/data', 'names' => ['e']]);
     [$ev] = watchmanSnapRecord($file, $pos, false);
-    same('record begun anew: read from its beginning', ['hive/data@e'], array_keys($ev['d']));
+    same('record begun anew: read from its beginning', ['hazel/data@e'], array_keys($ev['d']));
     unlink($file);
     symlink("$file.1", $file);
     same('record refused by the watchman: a link', null, watchmanSnapRecord($file, $pos, false));
@@ -12403,20 +12403,20 @@ function testSnapshotRecord(): void
     $known = $round(null);
     check('round: the record\'s and the log\'s positions kept', is_array($known['record'] ?? null) && is_array($known['log'] ?? null));
     $stamp = date('Y-m-d H:i:s');
-    file_put_contents($log, "$stamp  Deleted: hive/forged@x\n$stamp  Released: hive/forged@held\n", FILE_APPEND);
-    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hive/real', 'names' => ['y']]);
+    file_put_contents($log, "$stamp  Deleted: hazel/forged@x\n$stamp  Released: hazel/forged@held\n", FILE_APPEND);
+    snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'hazel/real', 'names' => ['y']]);
     $k2 = $round($known);
-    same('round: her record counts, a line in the log alone doesn\'t (forged)', [['hive/real@y'], []], [array_keys($k2['office']['d'] ?? []), array_keys($k2['office']['r'] ?? [])]);
+    same('round: her record counts, a line in the log alone doesn\'t (forged)', [['hazel/real@y'], []], [array_keys($k2['office']['d'] ?? []), array_keys($k2['office']['r'] ?? [])]);
     // an older office's snaps.json (no record yet): what its log said since, and the record from its beginning
     $old = $known;
     unset($old['record']);
     $k3 = $round($old);
-    same('round: the record first there — the log\'s lines before it count too', ['hive/real@y', 'hive/forged@x'], array_keys($k3['office']['d'] ?? []));
+    same('round: the record first there — the log\'s lines before it count too', ['hazel/real@y', 'hazel/forged@x'], array_keys($k3['office']['d'] ?? []));
     // she kept a record, and it isn't one now: her log lines alone prove nothing
-    file_put_contents($log, "$stamp  Deleted: hive/forged@z\n", FILE_APPEND);
+    file_put_contents($log, "$stamp  Deleted: hazel/forged@z\n", FILE_APPEND);
     chmod($file, 0644);
     $k4 = $round($k2);
-    check('round: a record that isn\'t one any more — the log\'s lines don\'t count', !isset($k4['office']['d']['hive/forged@z']) && isset($k4['office']['d']['hive/real@y']));
+    check('round: a record that isn\'t one any more — the log\'s lines don\'t count', !isset($k4['office']['d']['hazel/forged@z']) && isset($k4['office']['d']['hazel/real@y']));
     unset($GLOBALS['snapshotRecordFile']);
     hardeningRm($tmp);
 }
@@ -12428,7 +12428,7 @@ function testTrashManifest(): void
     foreach ([['templates/my-app.xml', 'template'], ['compose/stack', 'stack'], ['appdata/foo', 'appdata'], ['vms/win11', 'domain'],
               ['strays/0a1b2c3d/my-x.xml', 'stray'], ['icons/0a1b2c3d/compose.override.yaml', 'icon'], ['nvram/abc_VARS.fd', 'nvram'],
               ["@cache/appdata/_UnraidSecretaryOffice-trash-$st-foo", 'appdata'], ['restore/0a1b2c3d/pg.aside-20261006-172818', 'leftover'],
-              ["@master/domains/_UnraidSecretaryOffice-trash-$st-Win.aside-20261006-175854", 'leftover'], ['volumes/pgdata', 'volume']] as [$as, $kind]) {
+              ["@maple/domains/_UnraidSecretaryOffice-trash-$st-Win.aside-20261006-175854", 'leftover'], ['volumes/pgdata', 'volume']] as [$as, $kind]) {
         check("manifest as accepted: $as", clTrashAsOk($as, $kind, $st));
     }
     foreach ([['../../../../boot/config/super.dat', 'template'], ['templates/../../x', 'template'], ['templates/./x', 'template'],
@@ -13198,18 +13198,18 @@ function testWatchmanPosture(): void
 
     // the data flow's history in Grafana: only where the consultant saw it with the office's dashboard
     $adv = "$tmp/advisor.json";
-    $g = fn (array $grafana, string $webui = 'http://192.168.7.20:3000/', bool $running = true) => file_put_contents($adv, json_encode(
+    $g = fn (array $grafana, string $webui = 'http://192.168.20.20:3000/', bool $running = true) => file_put_contents($adv, json_encode(
         ['externals' => ['grafana' => ['kind' => 'container', 'there' => true, 'running' => $running, 'webui' => $webui, 'grafana' => $grafana]]]));
     $link = fn () => watchmanPageState($data, $now, false, $adv)['grafana'];
     $g(['points' => true, 'done' => true]);
-    same('grafana: the office\'s dashboard at the data flow\'s panels', ['flow_clients' => 'http://192.168.7.20:3000/d/unraid-secretary-office?viewPanel=50',
-        'flow_shares' => 'http://192.168.7.20:3000/d/unraid-secretary-office?viewPanel=51'], $link());
+    same('grafana: the office\'s dashboard at the data flow\'s panels', ['flow_clients' => 'http://192.168.20.20:3000/d/unraid-secretary-office?viewPanel=50',
+        'flow_shares' => 'http://192.168.20.20:3000/d/unraid-secretary-office?viewPanel=51'], $link());
     $g(['points' => true, 'done' => true], 'http://10.0.0.5:3000/grafana/?orgId=1');
     same('grafana: under a sub path, without its query', 'http://10.0.0.5:3000/grafana/d/unraid-secretary-office?viewPanel=50', $link()['flow_clients'] ?? null);
     $none = [];
     foreach ([[['points' => true, 'done' => false]], [['points' => false, 'done' => true]], [['points' => true, 'done' => null]],
               [['points' => true, 'done' => true], 'javascript:alert(1)'], [['points' => true, 'done' => true], 'http://x:3000/ "<b>'],
-              [['points' => true, 'done' => true], 'http://192.168.7.20:3000/', false]] as $case) {
+              [['points' => true, 'done' => true], 'http://192.168.20.20:3000/', false]] as $case) {
         $g(...$case);
         $none[] = $link();
     }
@@ -13352,12 +13352,12 @@ function testWatchmanHost(): void
         . "LISTEN 0 4096 0.0.0.0:2283 0.0.0.0:* users:((\"docker-proxy\",pid=13,fd=4))\n"
         . "LISTEN 0 1 0.0.0.0:5900 0.0.0.0:* users:((\"qemu-system-x86\",pid=14,fd=30))\n"
         . "LISTEN 0 64 127.0.0.1:631 0.0.0.0:* users:((\"cupsd\",pid=15,fd=7))\n"
-        . "LISTEN 0 64 192.168.7.20:41234 0.0.0.0:* users:((\"rpc.statd\",pid=16,fd=8))\n"
+        . "LISTEN 0 64 192.168.20.20:41234 0.0.0.0:* users:((\"rpc.statd\",pid=16,fd=8))\n"
         . "LISTEN 0 64 [::1]:25 [::]:* users:((\"sendmail\",pid=17,fd=9))\n";
     $l = watchmanListenParse($ss, 32768);
     same('host listen: Docker, VM consoles and loopback left out; a dynamic port counts by program',
         ['rpc.statd:*', 'tcp:3702', 'tcp:9100'], array_keys($l));
-    same('host listen: addresses, all as *; the program', [['*'], 'node_exporter', null, ['192.168.7.20']],
+    same('host listen: addresses, all as *; the program', [['*'], 'node_exporter', null, ['192.168.20.20']],
         [$l['tcp:9100']['addr'], $l['tcp:9100']['prog'], $l['rpc.statd:*']['port'], $l['rpc.statd:*']['addr']]);
     same('host listen: Samba names another process of its own next time — the same port, nothing new', ['tcp:445'],
         array_keys(watchmanListenParse("LISTEN 0 50 0.0.0.0:445 0.0.0.0:* users:((\"smbd-scavenger\",pid=3,fd=37),(\"smbd\",pid=2,fd=37))\n", 32768)));
@@ -13602,7 +13602,7 @@ function testWatchmanNight(): void
     // the night's places: as watchmanNightPaths() leaves them (no shares' exports)
     $nightPaths = array_diff_key($paths, array_flip(['sec', 'sec_nfs', 'share_cfg']));
     $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
-    file_put_contents($paths['syslog'], $line($now - 7200, 'webgui: Successful login user root from 192.168.7.10'));
+    file_put_contents($paths['syslog'], $line($now - 7200, 'webgui: Successful login user root from 192.168.20.10'));
     file_put_contents("$src/plugins/ca.plg", "<PLUGIN name=\"ca\" version=\"1\" pluginURL=\"https://raw.githubusercontent.com/unraid/ca/master/ca.plg\">\n");
     file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
     file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
@@ -13650,7 +13650,7 @@ function testWatchmanNight(): void
     // the array stops: the night shift from the RAM mirror — never the data folder
     $t = $now + 1100;
     file_put_contents($paths['array_events'], "$t stop\n");
-    file_put_contents($paths['syslog'], $line($t - 60, 'webgui: Successful login user root from 192.168.7.10')
+    file_put_contents($paths['syslog'], $line($t - 60, 'webgui: Successful login user root from 192.168.20.10')
         . $line($t + 30, 'webgui: Successful login user root from 10.0.0.5')           // the open one again: counted there
         . $line($t + 40, 'sshd-session[9]: Accepted publickey for root from 10.0.0.77 port 1 ssh2: x'), FILE_APPEND);
     file_put_contents($paths['go'], "curl x | bash\n", FILE_APPEND);
@@ -13678,7 +13678,7 @@ function testWatchmanNight(): void
          $byKey['login_new_ip:10.0.0.5']['count'] ?? null]);
     $stop = $byKey["array_stop:$t"] ?? [];
     same('night: the array\'s stop as a plain line, noted by himself, with who had logged in around then',
-        ['array_stop', 'array', ['192.168.7.10', '10.0.0.5', '10.0.0.77'], 'T1489', false],
+        ['array_stop', 'array', ['192.168.20.10', '10.0.0.5', '10.0.0.77'], 'T1489', false],
         [$stop['kind'] ?? null, $stop['by'] ?? null, array_column($stop['p']['logins'] ?? [], 'ip'), WATCH_ATTACK['array_stop'], WATCH_KINDS['array_stop'][1]]);
     $sent = array_slice($calls(), $sentDay);
     // login_new_ip was told at +300: still within its quiet hour (the mirror carries it); go is a new kind
@@ -13729,7 +13729,7 @@ function testWatchmanNight(): void
     $d = watchmanLoad($day);
     $byKey = array_column($d['book'], null, 'key');
     same('after the night: nothing lost — the login after its last round is new, the start is a line',
-        [['login_new_ip'], 'array', ['192.168.7.10', '10.0.0.5', '10.0.0.77', '10.0.0.99']],
+        [['login_new_ip'], 'array', ['192.168.20.10', '10.0.0.5', '10.0.0.77', '10.0.0.99']],
         [$r['added'], $byKey['array_start:' . ($t + 550)]['by'] ?? null, array_column($byKey['array_start:' . ($t + 550)]['p']['logins'] ?? [], 'ip')]);
     same('after the night: nothing twice', [[], 1, 1], [watchmanRound($paths, $day, 1000, $t + 960, $docker, true, $acks)['added'],
         count(array_filter($d['book'], fn ($e) => $e['kind'] === 'array_stop')), count(array_filter($d['book'], fn ($e) => $e['kind'] === 'array_start'))]);
@@ -13745,7 +13745,7 @@ function testWatchmanNight(): void
     file_put_contents("$tmp/boot_id", "$boot2\n");
     $boot = $t + 3600;
     file_put_contents("$tmp/stat", "cpu  1 2 3\nbtime $boot\nprocesses 9\n");
-    file_put_contents($paths['syslog'], $line($boot + 10, 'webgui: Successful login user root from 192.168.7.10')
+    file_put_contents($paths['syslog'], $line($boot + 10, 'webgui: Successful login user root from 192.168.20.10')
         . $line($boot + 20, 'webgui: Successful login user root from 10.0.0.123'));
     file_put_contents($paths['shadow'], 'root:$6$zz$yy:20000:0:99999:7:::' . "\n");     // changed while it was off: the agent's to find
     $r = watchmanNightRound($nightPaths, $night, $boot + 60, false, fn () => [], $ram, $flash, $boot2);
@@ -13754,7 +13754,7 @@ function testWatchmanNight(): void
     // the reboot left no array line (its clock lay in RAM): the night shift books the server's start, at the kernel's btime
     $sb = array_values(array_filter($nb, fn ($e) => $e['kind'] === 'server_boot'));
     same('reboot: the night books the server\'s start — once, a plain line at its btime, with who logged in then',
-        [1, "server_boot:$boot2", $boot, 'array', true, ['192.168.7.10', '10.0.0.123'], 'T1529', false],
+        [1, "server_boot:$boot2", $boot, 'array', true, ['192.168.20.10', '10.0.0.123'], 'T1529', false],
         [count($sb), $sb[0]['key'] ?? null, $sb[0]['time'] ?? null, $sb[0]['by'] ?? null, !empty($sb[0]['noted']),
          array_column($sb[0]['p']['logins'] ?? [], 'ip'), WATCH_ATTACK['server_boot'], WATCH_KINDS['server_boot'][1]]);
     watchmanNightRound($nightPaths, $night, $boot + 90, false, fn () => [], $ram, $flash, $boot2);
@@ -13813,7 +13813,7 @@ function testWatchmanBoot(): void
               'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
               'etc_passwd' => "$src/passwd", 'boot_id' => "$tmp/boot_id", 'stat' => "$tmp/stat"];
     $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
-    file_put_contents($paths['syslog'], $line($now - 60, 'webgui: Successful login user root from 192.168.7.10'));
+    file_put_contents($paths['syslog'], $line($now - 60, 'webgui: Successful login user root from 192.168.20.10'));
     file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
     file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
     file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
@@ -13843,19 +13843,19 @@ function testWatchmanBoot(): void
     // a reboot: the next round books the start once, at the kernel's btime, with who logged in around then
     $up = $now + 900;
     $setBoot($bootC, $up);
-    file_put_contents($paths['syslog'], $line($up + 40, 'webgui: Successful login user root from 192.168.7.10')
-        . $line($up + 50, 'sshd-session[7]: Accepted publickey for root from 192.168.7.20 port 2 ssh2: x'));
+    file_put_contents($paths['syslog'], $line($up + 40, 'webgui: Successful login user root from 192.168.20.10')
+        . $line($up + 50, 'sshd-session[7]: Accepted publickey for root from 192.168.20.20 port 2 ssh2: x'));
     $r = watchmanRound($paths, $day, 1000, $up + 120, $docker, false, $acks);
     $b = $boots();
     same('boot: a new boot id — one plain line at its btime, noted by himself, who logged in around then (the new address apart)',
-        [1, "server_boot:$bootC", $up, 'array', true, ['192.168.7.10', '192.168.7.20'], ['login_new_ip'], $bootC],
+        [1, "server_boot:$bootC", $up, 'array', true, ['192.168.20.10', '192.168.20.20'], ['login_new_ip'], $bootC],
         [count($b), $b[0]['key'] ?? null, $b[0]['time'] ?? null, $b[0]['by'] ?? null, !empty($b[0]['noted']), array_column($b[0]['p']['logins'] ?? [], 'ip'),
          $r['added'], watchmanLoad($day)['state']['boot_seen'] ?? null]);
     same('boot: never told, never on the team lead\'s list', [[], []],
         [array_values(array_filter(watchmanChecks($day), fn ($f) => $f['id'] === 'server_boot')), array_values(array_filter(array_keys(watchmanOpenCounts(watchmanLoad($day)['book'])), fn ($k) => $k === 'server_boot'))]);
     watchmanRound($paths, $day, 1000, $up + 420, $docker, false, $acks);
     same('boot: the same boot again — still one', 1, count($boots()));
-    same('boot: its words', 'The server was started — logged in around then: root@192.168.7.10 (WebGUI), root@192.168.7.20 (SSH (publickey))',
+    same('boot: its words', 'The server was started — logged in around then: root@192.168.20.10 (WebGUI), root@192.168.20.20 (SSH (publickey))',
         officeNotifyText('watchman', 'entry.server_boot', watchmanText($boots()[0]), 'en'));
 
     // a state of before 1.31 (no boot_seen): the syslog position's boot tells; unknown — only remembered
@@ -14166,7 +14166,7 @@ function testParityWhy(): void
     $setBoot($F, $up);
     @unlink("$src/logs/syslog-previous");
     $setVar($up + 43 - 86400, $up + 900 - 86400);
-    file_put_contents($paths['syslog'], $bootLog($up, false, $line($up + 300, 'webgui: Successful login user root from 192.168.7.10')));
+    file_put_contents($paths['syslog'], $bootLog($up, false, $line($up + 300, 'webgui: Successful login user root from 192.168.20.10')));
     watchmanRound($paths, $day, 1000, $up + PARITYWHY_SETTLE + 100, $docker, true, $acks);
     same('parity: a clean boot after an unclean stop — the to-do goes, nobody told', [null, 'boot', 3, 3],
         [$parity()['todo'] ?? null, $parity()['cleared']['by'] ?? null, count($calls()), count($entries())]);
@@ -14174,7 +14174,7 @@ function testParityWhy(): void
     $setVar($odd, 0, 'check P', 100);
     watchmanRound($paths, $day, 1000, $odd + 120, $docker, true, $acks);
     $e = $entries();
-    same('parity: a check of no known reason — who was logged in then', ['unknown', 'Parity check, reason unknown: not after an unclean stop, not on schedule — Unraid doesn\'t note who starts one (Check on Main, or a script); logged in around then: root@192.168.7.10 (WebGUI)'],
+    same('parity: a check of no known reason — who was logged in then', ['unknown', 'Parity check, reason unknown: not after an unclean stop, not on schedule — Unraid doesn\'t note who starts one (Check on Main, or a script); logged in around then: root@192.168.20.10 (WebGUI)'],
         [$e[3]['p']['reason'] ?? null, officeNotifyText('watchman', 'entry.parity_check', watchmanText($e[3], 'en'), 'en')]);
     file_put_contents("$src/plugins/parity.check.tuning.plg", '<PLUGIN/>');
     file_put_contents("$src/pct/parity.check.tuning.progress", "type|date|time|x\nMANUAL|2026 Oct 13 10:00:00|" . ($odd + 1000) . "|x|\n");
@@ -14640,27 +14640,27 @@ function testWatchmanSnaps(): void
     file_put_contents("$src/mnt/disk1/.btrfs-snap/not-a-snapshot.txt", 'x');
 
     // unit parts first: the list, series, the office's log
-    $docker = 'hive/system/' . str_repeat('ab', 32);
-    same('snaps parse: per pool, Docker\'s layers and odd lines left out', ['hive' => ['hive/data@a' => ['11', 0], 'hive/data@b' => ['12', 2]], 'cold' => ['cold@c' => ['13', 0]]],
-        watchmanSnapParse("hive/data@b\t12\t2\nhive/data@a\t11\t0\n$docker@123\t14\t0\n$docker-init@1\t15\t0\ncold@c\t13\t0\nbad name\nhive/x@y\tnot\t0\n"));
+    $docker = 'hazel/system/' . str_repeat('ab', 32);
+    same('snaps parse: per pool, Docker\'s layers and odd lines left out', ['hazel' => ['hazel/data@a' => ['11', 0], 'hazel/data@b' => ['12', 2]], 'cold' => ['cold@c' => ['13', 0]]],
+        watchmanSnapParse("hazel/data@b\t12\t2\nhazel/data@a\t11\t0\n$docker@123\t14\t0\n$docker-init@1\t15\t0\ncold@c\t13\t0\nbad name\nhazel/x@y\tnot\t0\n"));
     same('snaps series: numbers as #', ['uso-plan-daily-#-#', 'autosnap_#-#-#_#:#:#_hourly', 'manual'],
         array_map('watchmanSnapSeries', ['uso-plan-daily-20261006-0100', 'autosnap_2026-10-06_14:00:01_hourly', 'manual']));
     $log = "$src/agent.log";
-    file_put_contents($log, "2026-10-06 11:00:00  Deleted: hive/old@x\n");
+    file_put_contents($log, "2026-10-06 11:00:00  Deleted: hazel/old@x\n");
     [$ev, $pos] = watchmanSnapOfficeLog($log, null, $now);
     same('office log: without a position, from now on', [[], filesize($log)], [$ev['d'], $pos['size']]);
-    file_put_contents($log, "2026-10-06 11:01:00  Deleted: hive/My Share@a,b\n2026-10-06 11:02:00  Deleted: $src/mnt/disk1/.btrfs-snap/x (btrfs)\n"
-        . "2026-10-06 11:03:00  Released: hive/data@keep\n2026-10-06 11:04:00  Renamed: /mnt/disk1 old → new\n2026-10-06 11:05:00  Snapshot scan: 3 snapshots\n"
+    file_put_contents($log, "2026-10-06 11:01:00  Deleted: hazel/My Share@a,b\n2026-10-06 11:02:00  Deleted: $src/mnt/disk1/.btrfs-snap/x (btrfs)\n"
+        . "2026-10-06 11:03:00  Released: hazel/data@keep\n2026-10-06 11:04:00  Renamed: /mnt/disk1 old → new\n2026-10-06 11:05:00  Snapshot scan: 3 snapshots\n"
         . "2026-10-06 11:06:00  Deleted: half", FILE_APPEND);
     [$ev, $pos2] = watchmanSnapOfficeLog($log, $pos, $now);
     same('office log: her deletions (several at once, btrfs), releases, renames — a line not finished waits',
-        [['hive/My Share@a', 'hive/My Share@b', "$src/mnt/disk1/.btrfs-snap/x"], ['hive/data@keep'], [['/mnt/disk1', 'old', 'new', strtotime('2026-10-06 11:04:00')]], filesize($log) - strlen('2026-10-06 11:06:00  Deleted: half')],
+        [['hazel/My Share@a', 'hazel/My Share@b', "$src/mnt/disk1/.btrfs-snap/x"], ['hazel/data@keep'], [['/mnt/disk1', 'old', 'new', strtotime('2026-10-06 11:04:00')]], filesize($log) - strlen('2026-10-06 11:06:00  Deleted: half')],
         [array_keys($ev['d']), array_keys($ev['r']), $ev['m'], $pos2['size']]);
     rename($log, "$log.1");
     file_put_contents("$log.1", "\n", FILE_APPEND);
-    file_put_contents($log, "2026-10-06 11:07:00  Deleted: hive/new@z\n");
+    file_put_contents($log, "2026-10-06 11:07:00  Deleted: hazel/new@z\n");
     [$ev] = watchmanSnapOfficeLog($log, $pos2, $now);
-    same('office log: rotated — the rest of the old one (by its inode), then the new one', ['hive/new@z'], array_keys($ev['d']));
+    same('office log: rotated — the rest of the old one (by its inode), then the new one', ['hazel/new@z'], array_keys($ev['d']));
     same('office log: what the office removed is remembered a week, the newest time counts', [['b' => $now, 'a' => $now - 10], []],
         [watchmanSnapOfficeMerge(['d' => ['a' => $now - 10, 'old' => $now - 8 * 86400, 'b' => $now - 100], 'm' => [['x', 'y', 'z', $now - 9 * 86400]]],
             ['d' => ['b' => $now]], $now)['d'], watchmanSnapOfficeMerge(['m' => [['x', 'y', 'z', $now - 9 * 86400]]], [], $now)['m']]);
@@ -14670,18 +14670,18 @@ function testWatchmanSnaps(): void
     same('engine runs: from history.jsonl (skipped ones left out), status.json while its run goes on', [true, false],
         [watchmanEngineRan(watchmanEngineRuns("$src/engine"), $now - 90000, $now), watchmanEngineRan(watchmanEngineRuns("$src/engine"), $now - 3600, $now)]);
 
-    // the server: hive and cold (ZFS), disk1 awake and disk3 asleep (btrfs), the boot pool never asked
-    $ini = fn (bool $coldAsleep) => file_put_contents("$src/disks.ini", "[\"hive\"]\nname=\"hive\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
+    // the server: hazel and cold (ZFS), disk1 awake and disk3 asleep (btrfs), the boot pool never asked
+    $ini = fn (bool $coldAsleep) => file_put_contents("$src/disks.ini", "[\"hazel\"]\nname=\"hazel\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
         . "[\"cold\"]\nname=\"cold\"\ntype=\"Cache\"\nfsType=\"luks:zfs\"\nspundown=\"" . ($coldAsleep ? 1 : 0) . "\"\n"
         . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"luks:btrfs\"\nfsStatus=\"Mounted\"\nspundown=\"0\"\n"
         . "[\"disk3\"]\nname=\"disk3\"\ntype=\"Data\"\nfsType=\"btrfs\"\nfsStatus=\"Mounted\"\nspundown=\"1\"\n"
         . "[\"flash\"]\nname=\"flash\"\ntype=\"Boot\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
     $ini(false);
-    $snaps = ['hive/data@uso-backup-20261001-0100' => ['11', 0], 'hive/data@uso-backup-20261006-0100' => ['12', 0],
-              'hive/data@uso-plan-daily-20261001-0100' => ['13', 0], 'hive/data@uso-plan-daily-20261006-0100' => ['14', 0],
-              'hive/data@manual' => ['15', 0], 'hive/data@keep' => ['16', 1],
-              'hive/media@uso-plan-x-20261005-0100' => ['21', 0], 'hive/media@uso-plan-x-20261006-0100' => ['22', 0], 'hive/media@held' => ['23', 1],
-              'hive/_UnraidSecretaryOffice-trash-20261006-110000-old@uso-backup-20261001-0100' => ['31', 0], "$docker@123" => ['41', 0],
+    $snaps = ['hazel/data@uso-backup-20261001-0100' => ['11', 0], 'hazel/data@uso-backup-20261006-0100' => ['12', 0],
+              'hazel/data@uso-plan-daily-20261001-0100' => ['13', 0], 'hazel/data@uso-plan-daily-20261006-0100' => ['14', 0],
+              'hazel/data@manual' => ['15', 0], 'hazel/data@keep' => ['16', 1],
+              'hazel/media@uso-plan-x-20261005-0100' => ['21', 0], 'hazel/media@uso-plan-x-20261006-0100' => ['22', 0], 'hazel/media@held' => ['23', 1],
+              'hazel/_UnraidSecretaryOffice-trash-20261006-110000-old@uso-backup-20261001-0100' => ['31', 0], "$docker@123" => ['41', 0],
               'cold/x@a' => ['51', 0], 'flash/cfg@b' => ['61', 0]];
     $write = function () use (&$snaps, $src) {
         file_put_contents("$src/zfs-list.txt", implode('', array_map(fn ($k, $v) => "$k\t$v[0]\t$v[1]\n", array_keys($snaps), $snaps)));
@@ -14706,21 +14706,21 @@ function testWatchmanSnaps(): void
 
     // his first round: all of it normal; Docker's layers, the boot pool and the sleeping disk left out
     $round(0);
-    same('snaps: the first round — nothing told; per pool and disk, the sleeping one named', [[], ['hive' => 10, 'cold' => 1], ['disk1' => 3], ['disk3']],
+    same('snaps: the first round — nothing told; per pool and disk, the sleeping one named', [[], ['hazel' => 10, 'cold' => 1], ['disk1' => 3], ['disk3']],
         [$open(), $summary()['zfs'] ?? null, $summary()['btrfs'] ?? null, $summary()['asleep'] ?? null]);
-    same('snaps: zfs asked for the awake pools only (never the boot pool)', 'list -H -p -t snapshot -o name,guid,userrefs -r hive cold',
+    same('snaps: zfs asked for the awake pools only (never the boot pool)', 'list -H -p -t snapshot -o name,guid,userrefs -r hazel cold',
         trim((string) file_get_contents("$src/zfs-args.txt")));
-    check('snaps: the lists kept for the next round (snaps.json)', isset((readJson("$data/snaps.json") ?? [])['zfs']['hive']['s']['hive/data@keep']));
+    check('snaps: the lists kept for the next round (snaps.json)', isset((readJson("$data/snaps.json") ?? [])['zfs']['hazel']['s']['hazel/data@keep']));
 
     // what the office does: Ms. Snapshotini deletes, releases (her log), renames; the engine's run prunes (with a newer one of its
     // own staying); the storeroom is emptied — nothing told
-    file_put_contents($log, "2026-10-06 12:02:00  Deleted: hive/data@uso-plan-daily-20261001-0100\n2026-10-06 12:02:01  Released: hive/data@keep\n"
-        . "2026-10-06 12:02:02  Renamed: hive/data manual → manual2\n2026-10-06 12:02:03  Snapshot scan: 9 snapshots\n", FILE_APPEND);
+    file_put_contents($log, "2026-10-06 12:02:00  Deleted: hazel/data@uso-plan-daily-20261001-0100\n2026-10-06 12:02:01  Released: hazel/data@keep\n"
+        . "2026-10-06 12:02:02  Renamed: hazel/data manual → manual2\n2026-10-06 12:02:03  Snapshot scan: 9 snapshots\n", FILE_APPEND);
     file_put_contents("$src/engine/state/history.jsonl", json_encode(['mode' => 'backup', 'result' => 'ok', 'started' => $now + 100, 'finished' => $now + 250]) . "\n", FILE_APPEND);
-    unset($snaps['hive/data@uso-plan-daily-20261001-0100'], $snaps['hive/data@uso-backup-20261001-0100'], $snaps['hive/data@manual'],
-        $snaps['hive/_UnraidSecretaryOffice-trash-20261006-110000-old@uso-backup-20261001-0100']);
-    $snaps['hive/data@manual2'] = ['15', 0];
-    $snaps['hive/data@keep'] = ['16', 0];
+    unset($snaps['hazel/data@uso-plan-daily-20261001-0100'], $snaps['hazel/data@uso-backup-20261001-0100'], $snaps['hazel/data@manual'],
+        $snaps['hazel/_UnraidSecretaryOffice-trash-20261006-110000-old@uso-backup-20261001-0100']);
+    $snaps['hazel/data@manual2'] = ['15', 0];
+    $snaps['hazel/data@keep'] = ['16', 0];
     $write();
     rmdir("$src/mnt/disk1/.btrfs-snap/20261001-0100");
     $round(300);
@@ -14730,32 +14730,32 @@ function testWatchmanSnaps(): void
     // an attacker: the newest of the engine's (no run now), a renamed one, one of a plan; a hold released; on disk1 a snapshot of a
     // plan — while cold sleeps (its snapshot missing from the list is never "gone")
     $ini(true);
-    unset($snaps['hive/data@uso-backup-20261006-0100'], $snaps['hive/data@manual2'], $snaps['hive/media@uso-plan-x-20261005-0100'], $snaps['cold/x@a']);
-    $snaps['hive/media@held'] = ['23', 0];
+    unset($snaps['hazel/data@uso-backup-20261006-0100'], $snaps['hazel/data@manual2'], $snaps['hazel/media@uso-plan-x-20261005-0100'], $snaps['cold/x@a']);
+    $snaps['hazel/media@held'] = ['23', 0];
     $write();
     rmdir("$src/mnt/disk1/.btrfs-snap/uso-plan-b-20261006-0100");
     file_put_contents("$src/engine/state/history.jsonl", json_encode(['mode' => 'backup', 'result' => 'skipped', 'started' => $now + 500, 'finished' => $now + 500]) . "\n", FILE_APPEND);
-    file_put_contents("$src/zpool-history.txt", "2026-10-06.11:00:00 zfs destroy hive/data@older [user 0 (root) on tower:linux]\n"
-        . "2026-10-06.12:07:30 zfs destroy hive/data@uso-backup-20261006-0100,manual2 [user 0 (root) on tower:linux]\n"
-        . "2026-10-06.12:07:31 zfs release unraid-secretary-office hive/media@held [user 0 (root) on tower:linux]\n"
-        . "2026-10-06.12:07:32 zfs destroy hive/media@uso-plan-x-20261005-0100 [user 0 (root) on tower:linux]\n"
-        . "2026-10-06.12:07:33 zfs snapshot hive/data@new [user 0 (root) on tower:linux]\n");
+    file_put_contents("$src/zpool-history.txt", "2026-10-06.11:00:00 zfs destroy hazel/data@older [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:30 zfs destroy hazel/data@uso-backup-20261006-0100,manual2 [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:31 zfs release unraid-secretary-office hazel/media@held [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:32 zfs destroy hazel/media@uso-plan-x-20261005-0100 [user 0 (root) on tower:linux]\n"
+        . "2026-10-06.12:07:33 zfs snapshot hazel/data@new [user 0 (root) on tower:linux]\n");
     file_put_contents("$src/syslog", "Oct  6 12:07:29 tower root: zfs destroy started by /root/evil.sh\nOct  6 12:07:31 tower kernel: nothing to see\n", FILE_APPEND);
     $round(600);
     $o = $open();
-    $g = $o['snap_gone:zfs:hive'] ?? [];
-    same('snaps gone: on hive — how many, which datasets, a few of them, their series, zpool history (who, when), the syslog then',
-        [3, ['hive/data', 'hive/media'], ['hive/data@manual2', 'hive/data@uso-backup-20261006-0100', 'hive/media@uso-plan-x-20261005-0100'], ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#'], 0,
-         ['2026-10-06 12:07:30 zfs destroy hive/data@uso-backup-20261006-0100,manual2 [user 0 (root) on tower:linux]',
-          '2026-10-06 12:07:31 zfs release unraid-secretary-office hive/media@held [user 0 (root) on tower:linux]',
-          '2026-10-06 12:07:32 zfs destroy hive/media@uso-plan-x-20261005-0100 [user 0 (root) on tower:linux]'],
+    $g = $o['snap_gone:zfs:hazel'] ?? [];
+    same('snaps gone: on hazel — how many, which datasets, a few of them, their series, zpool history (who, when), the syslog then',
+        [3, ['hazel/data', 'hazel/media'], ['hazel/data@manual2', 'hazel/data@uso-backup-20261006-0100', 'hazel/media@uso-plan-x-20261005-0100'], ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#'], 0,
+         ['2026-10-06 12:07:30 zfs destroy hazel/data@uso-backup-20261006-0100,manual2 [user 0 (root) on tower:linux]',
+          '2026-10-06 12:07:31 zfs release unraid-secretary-office hazel/media@held [user 0 (root) on tower:linux]',
+          '2026-10-06 12:07:32 zfs destroy hazel/media@uso-plan-x-20261005-0100 [user 0 (root) on tower:linux]'],
          ['12:07:29 root: zfs destroy started by /root/evil.sh']],
         [$g['count'] ?? null, $g['p']['datasets'] ?? null, $g['p']['names'] ?? null, $g['p']['series'] ?? null, $g['p']['held'] ?? null, $g['p']['history'] ?? null, $g['p']['evidence'] ?? null]);
-    same('snaps gone: on disk1 (btrfs) — and nothing for cold, asleep', [['snap_gone:btrfs:disk1', 'snap_gone:zfs:hive', 'snap_hold_released:zfs:hive'], ['disk1/.btrfs-snap/uso-plan-b-20261006-0100'], []],
+    same('snaps gone: on disk1 (btrfs) — and nothing for cold, asleep', [['snap_gone:btrfs:disk1', 'snap_gone:zfs:hazel', 'snap_hold_released:zfs:hazel'], ['disk1/.btrfs-snap/uso-plan-b-20261006-0100'], []],
         [(function (array $a) { sort($a); return $a; })(array_keys($o)), $o['snap_gone:btrfs:disk1']['p']['names'] ?? null, $o['snap_gone:btrfs:disk1']['p']['history'] ?? null]);
-    same('snaps: a hold released, not by Ms. Snapshotini', [1, ['hive/media@held'], 2],
-        [$o['snap_hold_released:zfs:hive']['count'] ?? null, $o['snap_hold_released:zfs:hive']['p']['names'] ?? null, count($o['snap_hold_released:zfs:hive']['p']['history'] ?? [])]);
-    same('snaps gone in words', '3 snapshots vanished on hive — not removed by the office: hive/data@manual2, hive/data@uso-backup-20261006-0100, hive/media@uso-plan-x-20261005-0100',
+    same('snaps: a hold released, not by Ms. Snapshotini', [1, ['hazel/media@held'], 2],
+        [$o['snap_hold_released:zfs:hazel']['count'] ?? null, $o['snap_hold_released:zfs:hazel']['p']['names'] ?? null, count($o['snap_hold_released:zfs:hazel']['p']['history'] ?? [])]);
+    same('snaps gone in words', '3 snapshots vanished on hazel — not removed by the office: hazel/data@manual2, hazel/data@uso-backup-20261006-0100, hazel/media@uso-plan-x-20261005-0100',
         officeNotifyText('watchman', 'entry.snap_gone', ['n' => 3] + watchmanText($g, 'en'), 'en'));
     $checks = array_column(watchmanChecks($data), null, 'id');
     same('snaps: the team lead hears of both — important, so to Unraid\'s notifications too', ['recommended', 'recommended', true, true],
@@ -14765,20 +14765,20 @@ function testWatchmanSnaps(): void
     // cold awake again, its snapshot there: it slept, nothing went
     $ini(false);
     $snaps['cold/x@a'] = ['51', 0];
-    $snaps['hive/media@uso-plan-x-20261007-0100'] = ['24', 0];
+    $snaps['hazel/media@uso-plan-x-20261007-0100'] = ['24', 0];
     $write();
     $round(900);
-    same('snaps: a pool that slept is compared with its list from before — nothing gone', [3, 1], [$open()['snap_gone:zfs:hive']['count'] ?? null, count($open()) === 3 ? 1 : 0]);
+    same('snaps: a pool that slept is compared with its list from before — nothing gone', [3, 1], [$open()['snap_gone:zfs:hazel']['count'] ?? null, count($open()) === 3 ? 1 : 0]);
 
     // «I know, thanks»: a retention of yours — its series may go while a newer one stays; another series, or the last of one, is told
     watchmanAck($g['id'], $data, $now + 950, false);
     same('snaps ack: the series learned', ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#'], array_keys(watchmanLoad($data)['baseline']['snaps']['series'] ?? []));
-    unset($snaps['hive/media@uso-plan-x-20261006-0100'], $snaps['hive/data@uso-plan-daily-20261006-0100']);
+    unset($snaps['hazel/media@uso-plan-x-20261006-0100'], $snaps['hazel/data@uso-plan-daily-20261006-0100']);
     $write();
     $round(1200);
     $o = $open();
-    same('snaps learned: a plan of yours pruned (a newer one stays) is quiet; another series is told', [1, ['hive/data@uso-plan-daily-20261006-0100']],
-        [$o['snap_gone:zfs:hive']['count'] ?? null, $o['snap_gone:zfs:hive']['p']['names'] ?? null]);
+    same('snaps learned: a plan of yours pruned (a newer one stays) is quiet; another series is told', [1, ['hazel/data@uso-plan-daily-20261006-0100']],
+        [$o['snap_gone:zfs:hazel']['count'] ?? null, $o['snap_gone:zfs:hazel']['p']['names'] ?? null]);
 
     // zfs not answering: nothing compared, the lists kept — what went meanwhile is told once it answers again
     touch("$src/zfs-fails");
@@ -14792,7 +14792,7 @@ function testWatchmanSnaps(): void
 
     // the page: what he follows
     $page = watchmanPageState($data, $now + 1810, false);
-    same('snaps on the page: per pool and disk, the series learned', [['hive' => 3, 'cold' => 0], ['disk1' => 1], ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#']],
+    same('snaps on the page: per pool and disk, the series learned', [['hazel' => 3, 'cold' => 0], ['disk1' => 1], ['manual#', 'uso-backup-#-#', 'uso-plan-x-#-#']],
         [$page['snaps']['zfs'] ?? null, $page['snaps']['btrfs'] ?? null, $page['snaps']['series'] ?? null]);
     $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/lang/en.json'), true) ?: [];
     check('snaps: the page\'s words', isset($en['group.snap'], $en['group_title.snap'], $en['watch.snaps'], $en['help.snaps_text'], $en['detail.history']));
@@ -15190,7 +15190,7 @@ function testWhereBuilding(): void
     $tmp = hardeningTmp('where-building');
     $disk = fn (string $name, string $type, string $status, string $dev = 'sdx') => "[\"$name\"]\nname=\"$name\"\ndevice=\"$dev\"\ntype=\"$type\"\nstatus=\"$status\"\nspundown=\"0\"\n";
     $disks = $disk('parity', 'Parity', 'DISK_INVALID', 'sdo') . $disk('disk1', 'Data', 'DISK_OK', 'sda') . $disk('disk2', 'Data', 'DISK_OK', 'sdb')
-        . $disk('parity2', 'Parity', 'DISK_NP_DSBL', '') . $disk('hive', 'Cache', 'DISK_OK', 'nvme0n1') . $disk('flash', 'Flash', 'DISK_OK', 'sdz');
+        . $disk('parity2', 'Parity', 'DISK_NP_DSBL', '') . $disk('hazel', 'Cache', 'DISK_OK', 'nvme0n1') . $disk('flash', 'Flash', 'DISK_OK', 'sdz');
     // a large server on 2026-10-08, 81.6 % through its first parity build
     $var = fn (array $o) => implode("\n", array_map(fn ($k, $v) => "$k=\"$v\"", array_keys($o), $o)) . "\n";
     $homeserver = ['mdState' => 'STARTED', 'mdResync' => '23437770700', 'mdResyncPos' => '19114247308', 'mdResyncDb' => '462168', 'mdResyncDt' => '31',
@@ -15211,7 +15211,7 @@ function testWhereBuilding(): void
         waBuilding(['mdResyncPos' => '1000', 'mdResyncAction' => 'check P', 'mdResyncSize' => '2000'], readCfg("$tmp/disks.ini", true)));
     // a data disk rebuilt: Unraid names it in the action and calls it invalid meanwhile; the parity disk is fine
     file_put_contents("$tmp/disks.ini", $disk('parity', 'Parity', 'DISK_OK', 'sdo') . $disk('disk1', 'Data', 'DISK_OK', 'sda') . $disk('disk2', 'Data', 'DISK_INVALID', 'sdb')
-        . $disk('hive', 'Cache', 'DISK_OK', 'nvme0n1'));
+        . $disk('hazel', 'Cache', 'DISK_OK', 'nvme0n1'));
     $b = waBuilding(['mdResyncPos' => '500', 'mdResyncSize' => '1000', 'mdResync' => '1000', 'mdResyncAction' => 'recon 2', 'mdResyncDt' => '10', 'mdResyncDb' => '100'],
         readCfg("$tmp/disks.ini", true));
     same('where building: a data disk being rebuilt (recon <n>) - that disk, as a rebuild, half way', [['disk2'], 'rebuild', 50.0], [array_keys($b), $b['disk2']['what'] ?? null, $b['disk2']['percent'] ?? null]);
@@ -18709,7 +18709,7 @@ function testPartnerPairing(): void
         $fp = preg_match('/ (SHA256:\S+) /', (string) shell_exec('/usr/bin/ssh-keygen -lf ' . escapeshellarg("$tmp/k.pub")), $m) ? $m[1] : '?';
         same('partner: the fingerprint is ssh-keygen\'s', $fp, partnerFingerprint($k));
     }
-    foreach (['192.168.7.20', '10.0.0.5', '172.16.3.4', '100.101.102.103', '127.0.0.1', 'fd00::1', 'fd7a:115c:a1e0::1', 'homeserver', 'homeserver.local', 'nas.tail1234.ts.net'] as $a) {
+    foreach (['192.168.20.20', '10.0.0.5', '172.16.3.4', '100.101.102.103', '127.0.0.1', 'fd00::1', 'fd7a:115c:a1e0::1', 'homeserver', 'homeserver.local', 'nas.tail1234.ts.net'] as $a) {
         check("partner: private address $a", partnerAddressValid($a) && partnerAddressPrivate($a));
     }
     foreach (['8.8.8.8', '172.32.0.1', '100.128.0.1', '2001:db8::1', 'example.com', 'nas.ts.net.evil.com'] as $a) {
@@ -18718,11 +18718,11 @@ function testPartnerPairing(): void
     foreach (['', '1.2.3.4;id', '-oProxyCommand=x', 'fe80::1', 'fe80::1%br0', '::', '0.0.0.0', 'a b', 'host/x', '[fd00::1]', 'homeserver.', '123', "x\n", str_repeat('a', 64)] as $a) {
         check('partner: no address ' . json_encode($a), !partnerAddressValid($a));
     }
-    same('partner: from= for an IP is the IP', '192.168.7.20', partnerFromList('192.168.7.20'));
+    same('partner: from= for an IP is the IP', '192.168.20.20', partnerFromList('192.168.20.20'));
 
     // ---- known_hosts: the full key under the name ssh looks up
-    same('partner: known_hosts for port 22', "192.168.7.20 $k\n", partnerKnownText('192.168.7.20', 22, [$k, 'junk']));
-    same('partner: known_hosts for another port', "[192.168.7.20]:2222 $k\n", partnerKnownText('192.168.7.20', 2222, ["$k comment"]));
+    same('partner: known_hosts for port 22', "192.168.20.20 $k\n", partnerKnownText('192.168.20.20', 22, [$k, 'junk']));
+    same('partner: known_hosts for another port', "[192.168.20.20]:2222 $k\n", partnerKnownText('192.168.20.20', 2222, ["$k comment"]));
     same('partner: known_hosts IPv6, another port', "[fd00::1]:2222 $k\n", partnerKnownText('fd00::1', 2222, [$k]));
 
     // ---- the ssh call: exactly the plan's options
@@ -19478,16 +19478,16 @@ function testPartnerUnits(): void
     // ---- two offices: A sends appdata and domains, B keeps them
     $A = partnerTestOffice("$tmp/A");
     $B = partnerTestOffice("$tmp/B", 'vault');
-    file_put_contents("$A[data]/unraid-backup/state/setup-plan.json", json_encode(['bases' => [['name' => 'tank', 'fs' => 'zfs', 'kind' => 'pool'], ['name' => 'hive', 'fs' => 'zfs', 'kind' => 'pool']],
+    file_put_contents("$A[data]/unraid-backup/state/setup-plan.json", json_encode(['bases' => [['name' => 'tank', 'fs' => 'zfs', 'kind' => 'pool'], ['name' => 'hazel', 'fs' => 'zfs', 'kind' => 'pool']],
         'shares' => [['name' => 'appdata', 'layout' => 'single', 'locations' => 'tank'], ['name' => 'domains', 'layout' => 'single', 'locations' => 'tank'],
                      ['name' => 'docs', 'layout' => 'single', 'locations' => 'tank'], ['name' => 'UnraidSecretaryOffice', 'layout' => 'single', 'locations' => 'tank'],
-                     ['name' => 'media', 'layout' => 'single', 'locations' => 'hive'], ['name' => 'isos', 'layout' => 'overlay', 'locations' => 'tank, disk1']], 'vms' => []]));
+                     ['name' => 'media', 'layout' => 'single', 'locations' => 'hazel'], ['name' => 'isos', 'layout' => 'overlay', 'locations' => 'tank, disk1']], 'vms' => []]));
     file_put_contents("$A[data]/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n");
-    file_put_contents("$A[root]/disks.ini", "[\"tank\"]\nname=\"tank\"\nspundown=\"0\"\n[\"hive\"]\nname=\"hive\"\nspundown=\"1\"\n");
+    file_put_contents("$A[root]/disks.ini", "[\"tank\"]\nname=\"tank\"\nspundown=\"0\"\n[\"hazel\"]\nname=\"hazel\"\nspundown=\"1\"\n");
     $target = fn (array $o) => ['php' => PHP_BINARY, 'door' => OFFICE_DIR . '/agent/partner-door.php', 'host_key' => $o['host'], 'auth_keys' => $o['keys'],
                                 'env' => array_diff_key($o['env'], ['PATH' => 1]) + ['PATH' => '/usr/bin:/bin']];
     $dsOf = fn (array $names) => array_fill_keys($names, ['used' => 0]);
-    partnerTestBin($A['bin'], ['pools' => ['tank', 'hive'], 'ds' => $dsOf(['tank', 'tank/appdata', 'tank/domains', 'tank/docs', 'tank/UnraidSecretaryOffice', 'hive', 'hive/media'])],
+    partnerTestBin($A['bin'], ['pools' => ['tank', 'hazel'], 'ds' => $dsOf(['tank', 'tank/appdata', 'tank/domains', 'tank/docs', 'tank/UnraidSecretaryOffice', 'hazel', 'hazel/media'])],
         ['root@192.168.77.2' => $target($B)]);
     partnerTestBin($B['bin'], ['pools' => ['vault'], 'ds' => $dsOf(['vault'])], ['root@192.168.77.1' => $target($A)]);
     $as = fn (array $o, string $code) => partnerTestAs($o, $code);
@@ -20516,38 +20516,38 @@ function testRestoreDrill(): void
     same('drill raw disks: MBR, GPT (512 and 4K sectors), nothing, something', ['mbr', 'gpt', 'gpt', 'empty', 'data'],
         [drillRawLook($mbr), drillRawLook($gpt), drillRawLook($gpt4k), drillRawLook(str_repeat("\0", 8192)), drillRawLook(str_repeat("\0", 100) . 'x')]);
 
-    // ---- a VM disk chain in a run's snapshot (a fake pool: master, its dataset domains with one snapshot of run 20261101-0300)
-    $snap = "$tmp/mnt/master/domains/.zfs/snapshot/uso-backup-20261101-0300";
+    // ---- a VM disk chain in a run's snapshot (a fake pool: maple, its dataset domains with one snapshot of run 20261101-0300)
+    $snap = "$tmp/mnt/maple/domains/.zfs/snapshot/uso-backup-20261101-0300";
     @mkdir("$snap/Win", 0700, true);
     @mkdir("$snap/Lin", 0700, true);
     @mkdir("$snap/Empty", 0700, true);
-    @mkdir("$tmp/mnt/master/isos", 0700, true);
+    @mkdir("$tmp/mnt/maple/isos", 0700, true);
     file_put_contents("$snap/Win/vdisk2.S1qcow2", $qhead(3, 'vdisk2.img', 'raw'));
     file_put_contents("$snap/Win/vdisk2.img", $mbr);
-    file_put_contents("$snap/Lin/top.qcow2", $qhead(3, '/mnt/master/isos/base.img', 'raw'));
+    file_put_contents("$snap/Lin/top.qcow2", $qhead(3, '/mnt/maple/isos/base.img', 'raw'));
     file_put_contents("$snap/Empty/vdisk1.img", str_repeat("\0", 2 << 20));
-    $ctx = ['fs' => ['master' => 'zfs'], 'zfs' => ["$tmp/mnt/master/domains" => 'master/domains', "$tmp/mnt/master" => 'master'],
-            'snaps' => ['master/domains' => [['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]]], 'asleep' => [], 'prefixes' => ['uso-backup-'],
+    $ctx = ['fs' => ['maple' => 'zfs'], 'zfs' => ["$tmp/mnt/maple/domains" => 'maple/domains', "$tmp/mnt/maple" => 'maple'],
+            'snaps' => ['maple/domains' => [['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]]], 'asleep' => [], 'prefixes' => ['uso-backup-'],
             'btrfs_dir' => '.btrfs-snap', 'mnt' => "$tmp/mnt", 'settings' => [], 'cfg' => [], 'zfs_kept' => []];
     $env = ['ctx' => $ctx];
     $disk = function (string $src, ?int $bytes = null) use (&$env): array {
-        return drillDoVmDisk(['source' => $src, 'snapshot' => 'master/domains@uso-backup-20261101-0300', 'run' => '20261101-0300', 'target' => 'hdc', 'bytes' => $bytes], $env);
+        return drillDoVmDisk(['source' => $src, 'snapshot' => 'maple/domains@uso-backup-20261101-0300', 'run' => '20261101-0300', 'target' => 'hdc', 'bytes' => $bytes], $env);
     };
-    $r = $disk('/mnt/master/domains/Win/vdisk2.S1qcow2');
+    $r = $disk('/mnt/maple/domains/Win/vdisk2.S1qcow2');
     same('drill VM disk: an overlay over its base, both in the snapshot, the base with a partition table — proven (L1, local)',
         ['ok', 'vm_chain_ok', 1, 'snapshot', 2, 'mbr'], [$r['state'], $r['code'], $r['level'], $r['copy'], $r['params']['chain'] ?? null, $r['params']['look'] ?? null]);
-    $r = $disk('/mnt/master/domains/Lin/top.qcow2');
-    same('drill VM disk: a backing file outside the run\'s snapshot — failed', ['failed', 'vm_chain_outside', '/mnt/master/isos/base.img'], [$r['state'], $r['code'], $r['params']['file'] ?? null]);
-    same('drill VM disk: not in the snapshot — failed', ['failed', 'vm_disk_missing'], array_values(array_intersect_key($disk('/mnt/master/domains/Gone/x.img'), ['state' => 1, 'code' => 1])));
-    same('drill VM disk: all zero — a warning, not a failure', ['warning', 'vm_disk_empty'], array_values(array_intersect_key($disk('/mnt/master/domains/Empty/vdisk1.img'), ['state' => 1, 'code' => 1])));
-    same('drill VM disk: another size than the manifest — a warning', ['warning', 'vm_disk_size'], array_values(array_intersect_key($disk('/mnt/master/domains/Win/vdisk2.S1qcow2', 12345), ['state' => 1, 'code' => 1])));
-    same('drill VM disk: no snapshot of the run — not checked', 'not_checked', drillDoVmDisk(['source' => '/mnt/master/domains/Win/x', 'snapshot' => '', 'run' => '20261101-0300', 'target' => 'hdc', 'bytes' => null], $env)['state']);
-    $env['ctx']['asleep'] = ['master' => true];
-    same('drill VM disk: its pool asleep — «asleep», never woken, never failed', ['asleep', 'asleep'], array_values(array_intersect_key($disk('/mnt/master/domains/Win/vdisk2.S1qcow2'), ['state' => 1, 'code' => 1])));
+    $r = $disk('/mnt/maple/domains/Lin/top.qcow2');
+    same('drill VM disk: a backing file outside the run\'s snapshot — failed', ['failed', 'vm_chain_outside', '/mnt/maple/isos/base.img'], [$r['state'], $r['code'], $r['params']['file'] ?? null]);
+    same('drill VM disk: not in the snapshot — failed', ['failed', 'vm_disk_missing'], array_values(array_intersect_key($disk('/mnt/maple/domains/Gone/x.img'), ['state' => 1, 'code' => 1])));
+    same('drill VM disk: all zero — a warning, not a failure', ['warning', 'vm_disk_empty'], array_values(array_intersect_key($disk('/mnt/maple/domains/Empty/vdisk1.img'), ['state' => 1, 'code' => 1])));
+    same('drill VM disk: another size than the manifest — a warning', ['warning', 'vm_disk_size'], array_values(array_intersect_key($disk('/mnt/maple/domains/Win/vdisk2.S1qcow2', 12345), ['state' => 1, 'code' => 1])));
+    same('drill VM disk: no snapshot of the run — not checked', 'not_checked', drillDoVmDisk(['source' => '/mnt/maple/domains/Win/x', 'snapshot' => '', 'run' => '20261101-0300', 'target' => 'hdc', 'bytes' => null], $env)['state']);
+    $env['ctx']['asleep'] = ['maple' => true];
+    same('drill VM disk: its pool asleep — «asleep», never woken, never failed', ['asleep', 'asleep'], array_values(array_intersect_key($disk('/mnt/maple/domains/Win/vdisk2.S1qcow2'), ['state' => 1, 'code' => 1])));
     // a large server's VM manifests read as he reads them: the disk, its snapshot of the run
     $win = rsVmPackage($man('vm-Windows11_VM'), 'Windows11_VM', '/x');
     same('drill VM disk: a large server\'s Windows11_VM — its overlay and the snapshot holding it', ['/mnt/user/domains/Windows11_VM/vdisk2.S20260801195224qcow2',
-        'master/domains/Windows11_VM@uso-backup-20261007-1052'], [$win['disks'][0]['source'] ?? null, $win['disks'][0]['snapshot'] ?? null]);
+        'maple/domains/Windows11_VM@uso-backup-20261007-1052'], [$win['disks'][0]['source'] ?? null, $win['disks'][0]['snapshot'] ?? null]);
 
     // ---- what blocks a drill, the deadline guard
     $now = 1793500000;
@@ -20991,7 +20991,7 @@ function testRestoreDrill(): void
         array_map('array_values', drillKopiaEntries(json_encode(['stream' => 'kopia:directory', 'entries' => [
             ['name' => 'db', 'type' => 'd', 'obj' => 'k' . str_repeat('1', 32)], ['name' => 'a.gz', 'type' => 'f', 'obj' => str_repeat('2', 32), 'size' => '7'],
             ['name' => '../x', 'type' => 'f', 'obj' => str_repeat('3', 32)], ['name' => 's', 'type' => 's', 'obj' => str_repeat('4', 32)], ['name' => 'y', 'type' => 'f', 'obj' => '$(rm)']]]))));
-    // a source of its own: <share>/<folder>/apps/<app>/… in Kopia; the same package in the local snapshot of the backup place (pool ripley)
+    // a source of its own: <share>/<folder>/apps/<app>/… in Kopia; the same package in the local snapshot of the backup place (pool rowan)
     @mkdir("$tmp/kopia", 0700, true);
     $o = fn (string $n) => (str_starts_with($n, 'd') ? 'k' : '') . str_pad(dechex(crc32($n)), 32, '0', STR_PAD_LEFT);
     $dir = fn (array $entries) => json_encode(['stream' => 'kopia:directory', 'entries' => $entries]);
@@ -21006,14 +21006,14 @@ function testRestoreDrill(): void
     foreach ($tree as $n => $entries) {
         file_put_contents("$tmp/kopia/" . $o($n), $dir($entries));
     }
-    $local = "$tmp/mnt/ripley/UnraidSecretaryOffice/.zfs/snapshot/uso-backup-20261101-0200/backup/apps/immich";
+    $local = "$tmp/mnt/rowan/UnraidSecretaryOffice/.zfs/snapshot/uso-backup-20261101-0200/backup/apps/immich";
     @mkdir("$local/db", 0700, true);
     file_put_contents("$local/compose.yaml", 'services: {}');
     file_put_contents("$local/db/pg.sql.gz", $dump);
-    $kctx = ['fs' => ['ripley' => 'zfs'], 'zfs' => ["$tmp/mnt/ripley/UnraidSecretaryOffice" => 'ripley/UnraidSecretaryOffice'],
-             'snaps' => ['ripley/UnraidSecretaryOffice' => [['name' => 'uso-backup-20261101-0200', 'time' => 1793500000]]], 'asleep' => [], 'prefixes' => ['uso-backup-'],
+    $kctx = ['fs' => ['rowan' => 'zfs'], 'zfs' => ["$tmp/mnt/rowan/UnraidSecretaryOffice" => 'rowan/UnraidSecretaryOffice'],
+             'snaps' => ['rowan/UnraidSecretaryOffice' => [['name' => 'uso-backup-20261101-0200', 'time' => 1793500000]]], 'asleep' => [], 'prefixes' => ['uso-backup-'],
              'btrfs_dir' => '.btrfs-snap', 'mnt' => "$tmp/mnt", 'settings' => [], 'zfs_kept' => [],
-             'cfg' => ['UnraidSecretaryOffice' => ['shareUseCache' => 'only', 'shareCachePool' => 'ripley']]];
+             'cfg' => ['UnraidSecretaryOffice' => ['shareUseCache' => 'only', 'shareCachePool' => 'rowan']]];
     $kj = drillJournalNew('20261101-050000-cdcd', ['scope' => 'now', 'deadline' => time() + 3600, 'steps' => [['do' => 'kopia', 'kind' => 'app', 'id' => 'immich', 'name' => 'immich', 'source' => '.apps/immich']]]);
     rsPrivateDir(drillDir($kj['id']));
     $GLOBALS['rs']['data'] = "$tmp/data/restore-drill";            // the job's own helpers write into the drill's folder
@@ -21034,7 +21034,7 @@ function testRestoreDrill(): void
     $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $kenv);
     same('drill Kopia sample: within what Kopia may still download — the dump left out, the small file read', [1, 12], [$sample['files'], $sample['bytes']]);
     $kenv['kopia_left'] = 1 << 20;
-    $kenv['ctx']['asleep'] = ['ripley' => true];
+    $kenv['ctx']['asleep'] = ['rowan' => true];
     $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $kenv);
     same('drill Kopia sample: the local snapshot asleep — read back from Kopia, not compared, never woken', [2, 0, 2], [$sample['files'], $sample['compared'], $sample['asleep']]);
     // the whole step: list (newest complete), structure, sample
@@ -22075,7 +22075,7 @@ function testLogsPartner(): void
             $made[] = dirname($f);
         }
         if (!is_file($f)) {
-            file_put_contents($f, "2026-10-08 00:14:11  2ec7accd 192.168.7.111 refused unknown_verb: rm -rf\n");
+            file_put_contents($f, "2026-10-08 00:14:11  2ec7accd 192.168.20.111 refused unknown_verb: rm -rf\n");
             $made[] = $f;
         }
     }
@@ -22148,12 +22148,12 @@ function testWatchmanNet(): void
     file_put_contents("$src/crontabs/root", "# nothing\n");
     file_put_contents($paths['ident'], "NAME=\"Tower\"\nUSE_SSH=\"yes\"\n");
     file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
-    file_put_contents($paths['disks_ini'], "[\"master\"]\nname=\"master\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n"
-        . "[\"hive\"]\nname=\"hive\"\ndevice=\"sdb\"\nrotational=\"1\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"15\"\nfsType=\"zfs\"\n"
-        . "[\"hive2\"]\nname=\"hive2\"\ndevice=\"sdc\"\nrotational=\"1\"\nspundown=\"1\"\ntype=\"Cache\"\nspindownDelay=\"15\"\n"
+    file_put_contents($paths['disks_ini'], "[\"maple\"]\nname=\"maple\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n"
+        . "[\"hazel\"]\nname=\"hazel\"\ndevice=\"sdb\"\nrotational=\"1\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"15\"\nfsType=\"zfs\"\n"
+        . "[\"hazel2\"]\nname=\"hazel2\"\ndevice=\"sdc\"\nrotational=\"1\"\nspundown=\"1\"\ntype=\"Cache\"\nspindownDelay=\"15\"\n"
         . "[\"disk1\"]\nname=\"disk1\"\ndevice=\"sdd\"\nrotational=\"1\"\nspundown=\"0\"\ntype=\"Data\"\nspindownDelay=\"-1\"\nfsType=\"xfs\"\n");
-    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"master\"\ncachePool2=\"\"\nexclusive=\"yes\"\n"
-        . "[\"media\"]\nname=\"media\"\nuseCache=\"only\"\ncachePool=\"hive\"\ncachePool2=\"\"\nexclusive=\"yes\"\n"
+    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"maple\"\ncachePool2=\"\"\nexclusive=\"yes\"\n"
+        . "[\"media\"]\nname=\"media\"\nuseCache=\"only\"\ncachePool=\"hazel\"\ncachePool2=\"\"\nexclusive=\"yes\"\n"
         . "[\"old\"]\nname=\"old\"\nuseCache=\"no\"\ncachePool=\"\"\ncachePool2=\"\"\nexclusive=\"no\"\n");
     file_put_contents("$src/net/br0/address", "02:00:00:00:00:20\n");
     file_put_contents("$src/net/lo/address", "00:00:00:00:00:00\n");
@@ -22436,11 +22436,11 @@ function testWatchmanNet(): void
     file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
     same('net: the array stopped — not read (rsyslog\'s file action is off then), positions kept', ['array', $posBefore], [$net()['look']['state'] ?? null, $net()['pos'] ?? null]);
     same('net: the folder\'s share — exclusive on an SSD pool awake; on a pool with a disk asleep: asleep; not known: not read',
-        [['master'], false, ['hive'], true, false],
+        [['maple'], false, ['hazel'], true, false],
         [watchnetBases('/mnt/user/syslog', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['bases'],
-         baseAsleep('master', watchnetSleeping(readCfg($paths['disks_ini'], true))),
+         baseAsleep('maple', watchnetSleeping(readCfg($paths['disks_ini'], true))),
          watchnetBases('/mnt/user/media', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['bases'],
-         baseAsleep('hive', watchnetSleeping(readCfg($paths['disks_ini'], true))),
+         baseAsleep('hazel', watchnetSleeping(readCfg($paths['disks_ini'], true))),
          watchnetBases('/mnt/user/nope', readCfg($paths['shares_ini'], true), readCfg($paths['disks_ini'], true))['known']]);
     same('net: an SSD whose spundown says 1 never sleeps for the office (only rotating disks do)', [false, true],
         [watchnetSleeping(['x' => ['name' => 'ssd', 'spundown' => '1', 'rotational' => '0']])['ssd'],
@@ -22472,7 +22472,7 @@ function testWatchmanNet(): void
         (function ($x) { ksort($x); return $x; })(array_map(fn ($f) => $f['ok'], $c)));
     $cfgFile(['server_folder' => '/mnt/user/media']);
     $c = $checks();
-    same('net checks: syslog_share_sleeps — a pool whose disks spin down: recommended', ['recommended', false, 'hive'],
+    same('net checks: syslog_share_sleeps — a pool whose disks spin down: recommended', ['recommended', false, 'hazel'],
         [$c['syslog_share_sleeps']['level'], $c['syslog_share_sleeps']['ok'], $c['syslog_share_sleeps']['params']['disks']]);
     $cfgFile(['server_folder' => '/mnt/user/old']);
     same('net checks: … an array-only share: required', ['required', false], [$checks()['syslog_share_sleeps']['level'], $checks()['syslog_share_sleeps']['ok']]);
@@ -22508,11 +22508,11 @@ function testWatchmanNet(): void
     $cfgFile(['remote_server' => '127.0.0.1']);
     $a = watchnetAdvisor($o);
     same('net advisor: Unraid\'s syslog server as it is — on, its share, where a share `syslog` belongs (the pools that never sleep; the array only all-SSD), the loop',
-        [true, 'syslog', ['master'], false, true],
+        [true, 'syslog', ['maple'], false, true],
         [$a['on'], $a['share'], $a['pools'], $a['array_ssd'], $a['loop']]);
     // where the share belongs, by disks.ini alone (2026-10-08: create a share, don't pick an existing one): a large server's
-    // shape - master (NVMe, delay 0), ripley (six SSDs, the default delay), sulaco (NVMe), the boot pool mother (SSDs, but the
-    // Boot slot's device - left out), hive (four HDDs at 15 min), the array of HDDs
+    // shape - maple (NVMe, delay 0), rowan (six SSDs, the default delay), spruce (NVMe), the boot pool moss (SSDs, but the
+    // Boot slot's device - left out), hazel (four HDDs at 15 min), the array of HDDs
     $pf = fn (string $disks, string $delay = '30') => (function () use ($o, $disks, $delay) {
         file_put_contents($o['disks_ini'] . '.x', $disks);
         file_put_contents($o['var_ini'] . '.x', "spindownDelay=\"$delay\"\n");
@@ -22522,10 +22522,10 @@ function testWatchmanNet(): void
     $dk = fn (string $n, string $dev, string $rot, string $delay, string $type = 'Cache', string $fs = '') =>
         "[\"$n\"]\nname=\"$n\"\ndevice=\"$dev\"\nrotational=\"$rot\"\nspundown=\"0\"\ntype=\"$type\"\nspindownDelay=\"$delay\"\n" . ($fs !== '' ? "fsType=\"$fs\"\n" : '');
     $homeserver = $dk('parity', 'sdo', '1', '-1', 'Parity') . $dk('disk1', 'sda', '1', '-1', 'Data', 'luks:btrfs') . $dk('disk2', 'sdq', '1', '-1', 'Data', 'luks:btrfs')
-        . $dk('hive', 'sdj', '1', '15', 'Cache', 'zfs') . $dk('hive2', 'sdg', '1', '15') . $dk('master', 'nvme0n1', '0', '0', 'Cache', 'luks:zfs') . $dk('master2', 'nvme1n1', '0', '0')
-        . $dk('mother', 'sde', '0', '-1', 'Cache', 'luks:zfs') . $dk('mother2', 'sdm', '0', '-1') . $dk('ripley', 'sdb', '0', '-1', 'Cache', 'luks:zfs') . $dk('ripley2', 'sdf', '0', '-1')
-        . $dk('sulaco', 'nvme2n1', '0', '-1', 'Cache', 'luks:zfs') . $dk('flash', 'sde', '0', '-1', 'Boot', 'zfs') . $dk('flash2', 'sdm', '0', '-1', 'Boot');
-    same('net advisor: a large server - master, ripley, sulaco; not mother (the boot pool), not hive (spins down), not the array (HDDs)', [['master', 'ripley', 'sulaco'], false], $pf($homeserver));
+        . $dk('hazel', 'sdj', '1', '15', 'Cache', 'zfs') . $dk('hazel2', 'sdg', '1', '15') . $dk('maple', 'nvme0n1', '0', '0', 'Cache', 'luks:zfs') . $dk('maple2', 'nvme1n1', '0', '0')
+        . $dk('moss', 'sde', '0', '-1', 'Cache', 'luks:zfs') . $dk('moss2', 'sdm', '0', '-1') . $dk('rowan', 'sdb', '0', '-1', 'Cache', 'luks:zfs') . $dk('rowan2', 'sdf', '0', '-1')
+        . $dk('spruce', 'nvme2n1', '0', '-1', 'Cache', 'luks:zfs') . $dk('flash', 'sde', '0', '-1', 'Boot', 'zfs') . $dk('flash2', 'sdm', '0', '-1', 'Boot');
+    same('net advisor: a large server - maple, rowan, spruce; not moss (the boot pool), not hazel (spins down), not the array (HDDs)', [['maple', 'rowan', 'spruce'], false], $pf($homeserver));
     // a test server: VM disks, all rotational=1 with the default delay - and the default is «Never» (var.ini spindownDelay 0):
     // big and cache never sleep; the array (HDDs by their word) stays out
     $usotest = $dk('disk1', 'sda', '1', '-1', 'Data', 'btrfs') . $dk('disk2', 'sdb', '1', '-1', 'Data', 'zfs') . $dk('big', 'vda', '1', '-1', 'Cache', 'zfs')
@@ -22836,8 +22836,8 @@ function testWatchmanNetMikrotik(): void
     file_put_contents("$src/crontabs/root", "# nothing\n");
     file_put_contents($paths['ident'], "NAME=\"Tower\"\nUSE_SSH=\"yes\"\n");
     file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
-    file_put_contents($paths['disks_ini'], "[\"master\"]\nname=\"master\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n");
-    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"master\"\ncachePool2=\"\"\nexclusive=\"yes\"\n");
+    file_put_contents($paths['disks_ini'], "[\"maple\"]\nname=\"maple\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n");
+    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"maple\"\ncachePool2=\"\"\nexclusive=\"yes\"\n");
     // the server is the lab's fake client (10.9.9.20, its MAC): the guide's drop-from-server lines are the server's
     file_put_contents("$src/net/br0/address", "52:54:00:4d:54:12\n");
     file_put_contents("$src/net/lo/address", "00:00:00:00:00:00\n");
@@ -23017,8 +23017,8 @@ function testWatchmanNetMikrotikBook(): void
     file_put_contents("$src/crontabs/root", "# nothing\n");
     file_put_contents($paths['ident'], "NAME=\"Tower\"\nUSE_SSH=\"yes\"\n");
     file_put_contents($paths['var_ini'], "fsState=\"Started\"\nspindownDelay=\"30\"\n");
-    file_put_contents($paths['disks_ini'], "[\"master\"]\nname=\"master\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n");
-    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"master\"\ncachePool2=\"\"\nexclusive=\"yes\"\n");
+    file_put_contents($paths['disks_ini'], "[\"maple\"]\nname=\"maple\"\ndevice=\"nvme0n1\"\nrotational=\"0\"\nspundown=\"0\"\ntype=\"Cache\"\nspindownDelay=\"0\"\nfsType=\"zfs\"\n");
+    file_put_contents($paths['shares_ini'], "[\"syslog\"]\nname=\"syslog\"\nuseCache=\"only\"\ncachePool=\"maple\"\ncachePool2=\"\"\nexclusive=\"yes\"\n");
     file_put_contents("$src/net/br0/address", "52:54:00:4d:54:12\n");
     file_put_contents("$src/net/lo/address", "00:00:00:00:00:00\n");
     file_put_contents($paths['arp'], "IP address       HW type     Flags       HW address            Mask     Device\n10.77.3.10       0x1         0x2         52:54:00:4d:54:03     *        br0\n");
@@ -24271,7 +24271,7 @@ function testReport(): void
     foreach (['Media', 'Backups', 'Fotos Familie', 'appdata', 'system'] as $s) {
         touch("$tmp/shares/$s.cfg");
     }
-    foreach (['cache', 'hive'] as $p) {
+    foreach (['cache', 'hazel'] as $p) {
         touch("$tmp/pools/$p.cfg");
     }
     file_put_contents("$tmp/passwd", "root:x:0:0::/root:/bin/bash\nnobody:x:99:100::/:/bin/false\nbenj:x:1000:100::/:/bin/false\n");
@@ -24279,7 +24279,7 @@ function testReport(): void
     file_put_contents("$tmp/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [['id' => 'p1', 'name' => 'Tower', 'address' => 'tower.lan', 'my_key' => $sshKey]]]));
     file_put_contents("$tmp/emby.json", json_encode(['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789abcdef']]]));
     file_put_contents("$tmp/supporter.json", json_encode(['key' => 'USO1.eyJ2IjoxfQ.MEUCIQD-sig']));
-    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hive'],
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hazel'],
             'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/partner", 'emby_settings' => "$tmp/emby.json", 'supporter' => "$tmp/supporter.json",
             'report_id_file' => "$tmp/office/report-id", 'hostname' => 'homeserver', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
             'hired' => ['caretaker', 'snapshot', 'backup'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log",
@@ -24296,21 +24296,21 @@ function testReport(): void
 
     // the scrubber
     $know = reportKnow($ctx);
-    same('report: shares and pools numbered by their names (Unraid\'s own shares kept)', [['Backups' => '‹share-1›', 'Fotos Familie' => '‹share-2›', 'Media' => '‹share-3›'], ['cache' => '‹pool-1›', 'hive' => '‹pool-2›']],
+    same('report: shares and pools numbered by their names (Unraid\'s own shares kept)', [['Backups' => '‹share-1›', 'Fotos Familie' => '‹share-2›', 'Media' => '‹share-3›'], ['cache' => '‹pool-1›', 'hazel' => '‹pool-2›']],
         [$know['shares'], $know['pools']]);
     $lines = [
         'moved /mnt/user/Media/My Film (2020)/My Film.mkv: done' => 'moved /mnt/user/‹share-3›/…: done',
-        'copied to /mnt/hive/Media/My Film (2020)/My Film.mkv' => 'copied to /mnt/‹pool-2›/‹share-3›/…',
+        'copied to /mnt/hazel/Media/My Film (2020)/My Film.mkv' => 'copied to /mnt/‹pool-2›/‹share-3›/…',
         'reads /mnt/user/appdata/UnraidSecretaryOffice/data/x.json' => 'reads /mnt/user/appdata/…',
         'reads "/mnt/disk1/Fotos Familie/2024/a.jpg", "/mnt/cache/Backups"' => 'reads "/mnt/disk1/‹share-2›/…", "/mnt/‹pool-1›/‹share-1›"',
-        'at 10.0.0.5. Then 192.168.7.59:8096/x, [fe80::1] and fd00::1234:5678; not 17:02:11' => 'at …. Then …:8096/x, […] and …; not 17:02:11',
-        'created hive/Media@uso-backup-20261008-0300, cache/Backups/sub@manual' => 'created ‹pool-2›/‹share-3›@uso-backup-20261008-0300, ‹pool-1›/‹share-1›/…@…',
-        'Tower (tower.lan) answered from 192.168.7.59 and fd00::1234:5678 via 3c:7c:3f:12:34:56' => '‹partner-1› (‹partner-2›) answered from … and … via 3c:7c:3f:…',
+        'at 10.0.0.5. Then 192.168.20.59:8096/x, [fe80::1] and fd00::1234:5678; not 17:02:11' => 'at …. Then …:8096/x, […] and …; not 17:02:11',
+        'created hazel/Media@uso-backup-20261008-0300, cache/Backups/sub@manual' => 'created ‹pool-2›/‹share-3›@uso-backup-20261008-0300, ‹pool-1›/‹share-1›/…@…',
+        'Tower (tower.lan) answered from 192.168.20.59 and fd00::1234:5678 via 3c:7c:3f:12:34:56' => '‹partner-1› (‹partner-2›) answered from … and … via 3c:7c:3f:…',
         'mail benj@example.com from homeserver, user benj' => 'mail ‹mail› from ‹server›, user ‹user-1›',
         'token ghp_0123456789abcdefABCDEF0123456789abcd and api_key=hunter2' => 'token … and api_key=…',
         'GET https://admin:hunter2@nas.example.org:8443/api?key=x and https://github.com/dropnook/x' => 'GET https://‹host›/… and https://github.com/…',
         "key abcdef01\x0123456789abcdef in a line, csrf 0123456789ABCDEF, GUID $guid" => 'key ••• in a line, csrf •••, GUID •••',
-        'the share Media is missing; Backups too; pool hive asleep' => 'the share ‹share-3› is missing; ‹share-1› too; pool ‹pool-2› asleep',
+        'the share Media is missing; Backups too; pool hazel asleep' => 'the share ‹share-3› is missing; ‹share-1› too; pool ‹pool-2› asleep',
         'backup.sh ran on HomeServer, ' . $sshKey => 'backup.sh ran on ‹server›, •••',
         'cleared /boot/config/plugins/dynamix.my.servers/x.cfg: ok' => 'cleared /boot/config/plugins/dynamix.my.servers/…: ok',
         'cleared /tmp/secret/stuff: ok' => 'cleared <path>: ok',
@@ -24318,7 +24318,7 @@ function testReport(): void
         'disk "/mnt/remotes/NAS_films" and /mnt/addons/UnraidSecretaryOffice/metrics' => 'disk "/mnt/remotes/…" and /mnt/addons/UnraidSecretaryOffice/…',
         'id 123e4567-e89b-12d3-a456-426614174000 done' => 'id <uuid> done',
     ];
-    $leaks = ['Media', 'Backups', 'Fotos', 'hive', 'Tower', 'tower.lan', '192.168', 'fd00', '12:34:56', 'benj', 'example', 'HomeServer', 'homeserver', 'ghp_', 'hunter2', 'admin',
+    $leaks = ['Media', 'Backups', 'Fotos', 'hazel', 'Tower', 'tower.lan', '192.168', 'fd00', '12:34:56', 'benj', 'example', 'HomeServer', 'homeserver', 'ghp_', 'hunter2', 'admin',
               'abcdef0123', '0123456789ABCDEF', $guid, 'AAAAC3', 'NAS_films', '/tmp/secret', 'My Film', '426614174000'];
     foreach ($lines as $line => $want) {
         $seen = [];
@@ -24330,8 +24330,8 @@ function testReport(): void
         same('report: scrubbing twice is once — ' . mb_substr($line, 0, 40), $got, reportScrub($got, $know));
     }
     $seen = [];
-    reportScrub('the share Media on hive', $know, $seen);
-    same('report: what was hidden, for the preview only', ['‹pool-2›' => 'hive', '‹share-3›' => 'Media'], (ksort($seen) ? $seen : $seen));
+    reportScrub('the share Media on hazel', $know, $seen);
+    same('report: what was hidden, for the preview only', ['‹pool-2›' => 'hazel', '‹share-3›' => 'Media'], (ksort($seen) ? $seen : $seen));
     same('report: a line is cut at 400 characters', 400, mb_strlen(reportScrub(str_repeat('word ', 200), $know)));
     same('report: Ms. Protocolli\'s comparing keeps its <path>', 'moved <path> to "<path>"', logsNormalizePaths('moved /mnt/user/Media/a.mkv to "/x/y z.mkv"'));
 
@@ -24368,22 +24368,22 @@ function testReport(): void
     // the desk's lines from agent.log (and .1): its own, «<id>:», and the agent's start and errors
     file_put_contents("$tmp/agent.log.1", "2026-10-08 09:00:00  Agent started (v1.43.0, PID 1, desks: caretaker)\n2026-10-08 09:00:01  Ms. Snapshotini: plan p saved\n");
     file_put_contents("$tmp/agent.log", "2026-10-08 10:00:00  Backup: started backup.sh (run) via at\n"
-        . "2026-10-08 10:00:01  Deleted: hive/Media@uso-plan-daily-20261001-0100\n"
+        . "2026-10-08 10:00:01  Deleted: hazel/Media@uso-plan-daily-20261001-0100\n"
         . "2026-10-08 10:00:02  snapshot: checks failed: /mnt/user/Media is gone\n"
         . "2026-10-08 10:00:03  Error: x (y.php:1)\n"
-        . "2026-10-08 10:00:04  Ms. Snapshotini: created hive/Media@manual\n");
+        . "2026-10-08 10:00:04  Ms. Snapshotini: created hazel/Media@manual\n");
     same('report: the desk\'s lines in their order, from both files', ['2026-10-08 09:00:00  Agent started (v1.43.0, PID 1, desks: caretaker)', '2026-10-08 09:00:01  Ms. Snapshotini: plan p saved',
-        '2026-10-08 10:00:01  Deleted: hive/Media@uso-plan-daily-20261001-0100', '2026-10-08 10:00:02  snapshot: checks failed: /mnt/user/Media is gone',
-        '2026-10-08 10:00:03  Error: x (y.php:1)', '2026-10-08 10:00:04  Ms. Snapshotini: created hive/Media@manual'], reportLogLines('snapshot', 40, "$tmp/agent.log"));
-    same('report: … at most n of the desk\'s', ['2026-10-08 10:00:03  Error: x (y.php:1)', '2026-10-08 10:00:04  Ms. Snapshotini: created hive/Media@manual'],
+        '2026-10-08 10:00:01  Deleted: hazel/Media@uso-plan-daily-20261001-0100', '2026-10-08 10:00:02  snapshot: checks failed: /mnt/user/Media is gone',
+        '2026-10-08 10:00:03  Error: x (y.php:1)', '2026-10-08 10:00:04  Ms. Snapshotini: created hazel/Media@manual'], reportLogLines('snapshot', 40, "$tmp/agent.log"));
+    same('report: … at most n of the desk\'s', ['2026-10-08 10:00:03  Error: x (y.php:1)', '2026-10-08 10:00:04  Ms. Snapshotini: created hazel/Media@manual'],
         array_slice(reportLogLines('snapshot', 1, "$tmp/agent.log"), -2));
     $seen = [];
     same('report: the log part scrubbed, the time and label as they are', "2026-10-08 09:00:00  Agent started (v1.43.0, PID 1, desks: caretaker)\n2026-10-08 10:00:00  Backup: started backup.sh (run) via at\n2026-10-08 10:00:03  Error: x (y.php:1)",
         reportLog('backup', $know, $seen, "$tmp/agent.log"));
 
     // the preview: its parts, the defaults, the token in RAM, no request
-    $words = ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => "It ran twice at 03:00 on 192.168.7.59.\nWhy?", 'name' => 'benj_forum'];
-    $ask = $words + ['lang' => 'de', 'browser' => 'de', 'error' => ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/hive/Media busy'], 'at' => 1760000000]];
+    $words = ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => "It ran twice at 03:00 on 192.168.20.59.\nWhy?", 'name' => 'benj_forum'];
+    $ask = $words + ['lang' => 'de', 'browser' => 'de', 'error' => ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/hazel/Media busy'], 'at' => 1760000000]];
     $pv = reportPreview($ask, $ctx + ['now' => 1760000100]);
     same('report: the preview\'s parts', ['versions', 'unraid', 'language', 'team', 'error', 'log'], array_keys($pv['parts']));
     same('report: … versions, Unraid, languages, the team', [['office' => AGENT_VERSION], '7.3.2', ['lang' => 'de', 'browser' => 'de'], ['backup', 'caretaker', 'snapshot']],
@@ -24391,7 +24391,7 @@ function testReport(): void
     same('report: … the last error, its params scrubbed', ['key' => 'command_failed', 'params' => ['detail' => 'zfs: /mnt/‹pool-2›/‹share-3› busy'], 'at' => 1760000000], $pv['parts']['error']);
     check('report: … the log of her desk, scrubbed', str_contains($pv['parts']['log'], 'Ms. Snapshotini: created ‹pool-2›/‹share-3›@…') && !str_contains($pv['parts']['log'], 'Backup:'), $pv['parts']['log']);
     same('report: … ticked by default (a problem: the log too)', ['versions', 'unraid', 'language', 'team', 'error', 'log'], $pv['ticked']);
-    same('report: … what was hidden, and a hint at the address in the text', [['‹pool-2›' => 'hive', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
+    same('report: … what was hidden, and a hint at the address in the text', [['‹pool-2›' => 'hazel', '‹share-3›' => 'Media'], ['address']], [(array) $pv['hidden'], $pv['hints']]);
     same('report: … the cap', [0, REPORT_CAP_DAY, REPORT_CAP_DAY, null, false], [$pv['n'], $pv['left'], $pv['cap'], $pv['next'], $pv['closed']]);
     $kept = "$tmp/run/{$pv['token']}.json";
     same('report: … kept in RAM under its token, 0600', [true, '600', '700'], [is_file($kept), decoct(fileperms($kept) & 0777), decoct(fileperms("$tmp/run") & 0777)]);
@@ -24446,11 +24446,11 @@ function testReport(): void
     // the .cfg override of the inbox's address
     $cfg = "$tmp/plugin.cfg";
     $urls = [];
-    foreach (['', 'FEEDBACK_URL="http://192.168.7.10:8787"', 'FEEDBACK_URL="https://feedback.example.org/"', 'FEEDBACK_URL="http://x/path"', 'FEEDBACK_URL="ftp://x"', 'FEEDBACK_URL="http://u:p@x"'] as $line) {
+    foreach (['', 'FEEDBACK_URL="http://192.168.20.10:8787"', 'FEEDBACK_URL="https://feedback.example.org/"', 'FEEDBACK_URL="http://x/path"', 'FEEDBACK_URL="ftp://x"', 'FEEDBACK_URL="http://u:p@x"'] as $line) {
         file_put_contents($cfg, "DATA_DIR=\"/mnt/user/appdata/x\"\n$line\n");
         $urls[] = officeFeedbackUrl($cfg);
     }
-    same('report: the inbox\'s address — the .cfg\'s FEEDBACK_URL when it is just scheme, host and port', [OFFICE_FEEDBACK_URL, 'http://192.168.7.10:8787', 'https://feedback.example.org',
+    same('report: the inbox\'s address — the .cfg\'s FEEDBACK_URL when it is just scheme, host and port', [OFFICE_FEEDBACK_URL, 'http://192.168.20.10:8787', 'https://feedback.example.org',
         OFFICE_FEEDBACK_URL, OFFICE_FEEDBACK_URL, OFFICE_FEEDBACK_URL], $urls);
 
     // the send, against a stand-in inbox
@@ -24502,7 +24502,7 @@ ROUTER);
         [$req['uri'] ?? null, $req['method'] ?? null, $req['ua'] ?? null, $req['type'] ?? null, array_key_exists('origin', $req) ? $req['origin'] : 'x', array_key_exists('referer', $req) ? $req['referer'] : 'x']);
     same('report: … the body is the preview', [$keptJ['rid'], $id, 'bug', 'snapshot', $words['title'], $words['text'], 'benj_forum', $keptJ['parts']['log']],
         [$body['rid'] ?? null, $body['report_id'] ?? null, $body['kind'] ?? null, $body['desk'] ?? null, $body['title'] ?? null, $body['text'] ?? null, $body['name'] ?? null, $body['log'] ?? null]);
-    check('report: … nothing of this server in it but what the preview showed', !str_contains($req['body'] ?? '', 'hive') && !str_contains($req['body'] ?? '', $guid) && !str_contains($req['body'] ?? '', 'HomeServer'));
+    check('report: … nothing of this server in it but what the preview showed', !str_contains($req['body'] ?? '', 'hazel') && !str_contains($req['body'] ?? '', $guid) && !str_contains($req['body'] ?? '', 'HomeServer'));
     same('report: … no body file left in RAM, the preview gone', [[], false], [glob("$tmp/run/*.body") ?: [], is_file($kept)]);
     $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? ['reports' => [[]]];
     same('report: reports.json — its shape, 0600', [['v', 'reports', 'closed_until'], ['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid'], 41, '600'],
@@ -25367,7 +25367,7 @@ function testBackupLetGo(): void
         $z('pool/appdata', 'uso-backup-20261002-0200', ['holds' => ['unraid-secretary-office']]),
         $z("pool/$P/a1b2c3d4/share-x", 'uso-backup-20261001-0200', ['partner' => ['id' => 'a1b2c3d4', 'gone' => true]]),
         $z("pool/$P/a1b2c3d4/share-y", 'uso-backup-20261001-0200'),
-        $z('hive/media', 'uso-backup-20261001-0200', ['asleep' => true]),
+        $z('hazel/media', 'uso-backup-20261001-0200', ['asleep' => true]),
         $z('pool/docker/abc', 'uso-backup-20261001-0200', ['docker' => true]),
         $z('pool/appdata/' . CL_TRASH . '-20261001-000000-foo', 'uso-backup-20261001-0200'),
     ]], 'btrfs' => ['devices' => [], 'snapshots' => [
