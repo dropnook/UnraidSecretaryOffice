@@ -2510,10 +2510,137 @@ function checkbox(text, checked, onchange, small) {
 }
 const setupSection = (title, sub) => section(title, sub);
 
+// ---- the setup's filter (Benj, 2026-10-10): a bar like the watch book's over the steps' rows — words (an app's, a VM's,
+// a share's or a folder's name; accents folded; not kept: a new visit starts with every row) and «only what's new» (the
+// rows marked new or waiting). Rows that don't fit aren't drawn, a step with none says so in one line; «n of m fit the
+// filter». It only hides: no decision changes, nothing the user unfolded folds (setup.open stays as it is).
+const sf = { text: '', onlyNew: false, bar: null, input: null, sw: null, cb: null, hits: null };
+/** Words as the filter compares them: lower case, without accents (ß → ss), like the watch book's */
+const plainWords = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\u00df/g, 'ss');
+const filterWords = (text) => plainWords(text).split(/\s+/).filter(Boolean);
+/** Does a row fit? flt {words, onlyNew}; hay: its names (a string or a list); isNew: marked new / waiting */
+function setupFits(flt, hay, isNew) {
+  if (flt.onlyNew && !isNew) return false;
+  if (!flt.words.length) return true;
+  const h = plainWords([].concat(hay).filter((x) => x !== null && x !== undefined && x !== '').join(' '));
+  return flt.words.every((w) => h.includes(w));
+}
+/** The filter of this drawing and what it met: rows in all (total), fitting (n), new ones (fresh), fitting in the step (step) */
+let fitting = { flt: { words: [], onlyNew: false }, on: false, n: 0, total: 0, fresh: 0, step: 0 };
+function fitStart() {
+  const flt = { words: filterWords(sf.text), onlyNew: sf.onlyNew };
+  fitting = { flt, on: !!(flt.words.length || flt.onlyNew), n: 0, total: 0, fresh: 0, step: 0 };
+}
+/** A row of a step: counted, true when it is drawn */
+function fitRow(hay, isNew) {
+  fitting.total++;
+  if (isNew) fitting.fresh++;
+  if (!setupFits(fitting.flt, hay, isNew)) return false;
+  fitting.n++;
+  fitting.step++;
+  return true;
+}
+/** A step built with the filter: no row of it fits — its head and one line instead of its content */
+function fitStep(build) {
+  fitting.step = 0;
+  const s = build();
+  if (fitting.on && !fitting.step) {
+    [...s.children].slice(1).forEach((c) => c.remove());
+    s.appendChild(el('p', 'bk-filter-none', T('setup.filter.none')));
+  }
+  return s;
+}
+/** What is new on its row (the same rules as its chip): a VM, an app (or new containers in it), a share or its waiting folders */
+const appIsNew = (a) => !!a.isNew || (a.newMembers || []).length > 0;
+const shareIsNew = (sh, ws) => setup.newItems.has('share:' + sh.name) || ws.length > 0;
+
+/** The bar: built once per visit, so typing in it goes on while the page is drawn anew (data-keep: core.js calm()) */
+function setupFilterBar() {
+  if (!sf.bar) {
+    const bar = el('div', 'toolbar bk-filterbar');
+    const input = el('input', 'search');
+    input.type = 'search';
+    input.placeholder = Office.t('common.filter');
+    input.setAttribute('aria-label', T('setup.filter.label'));
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.dataset.keep = '1';
+    const sw = el('label', 'switch');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    sw.append(cb, el('span', '', T('setup.filter.only_new')));
+    sw.title = T('setup.filter.only_new_hint');
+    const hits = el('span', 'bk-filter-hits');
+    hits.setAttribute('aria-live', 'polite');
+    bar.append(input, sw, hits);
+    input.oninput = () => { sf.text = input.value; Office.keepInPlace(input, renderSetup); };
+    cb.onchange = () => { sf.onlyNew = cb.checked; Office.keepInPlace(sw, renderSetup); };
+    Object.assign(sf, { bar, input, sw, cb, hits });
+  }
+  if (sf.input.value !== sf.text) sf.input.value = sf.text;
+  sf.cb.checked = sf.onlyNew;
+  return sf.bar;
+}
+/** After the steps: «n of m fit the filter»; «only what's new» only while something is new (or it is on) */
+function setupFilterDone() {
+  if (!sf.bar) return;
+  sf.hits.textContent = fitting.on ? T('setup.filter.hits', { n: fitting.n, total: fitting.total }) : '';
+  sf.sw.hidden = !sf.onlyNew && !fitting.fresh;
+}
+/** A new visit: the whole setup again (the words are not kept) */
+function setupFilterReset() {
+  sf.text = '';
+  sf.onlyNew = false;
+}
+
+/**
+ * Where «Decide…» (the callout of what waits) or a row's «Change…» on the main page wants to go — the setup is made to
+ * show it: the filter cleared (it would hide it); «waiting»: the first new thing in the order of the steps (a new VM, a
+ * new app, a new share or a folder waiting in one) and the filter set to «only what's new»; the row unfolded where rows
+ * unfold (a share's; a waiting folder: its share's row, the waiting folders are under it). Returns {anchor, part} for
+ * Office.reveal() once drawn — scrolled into view and marked like the search's hit — or null.
+ */
+function setupFocus() {
+  const f = setup.focus;
+  setup.focus = null;
+  setupFilterReset();
+  if (!f) return null;
+  if (f !== 'waiting') {
+    if (f.startsWith('vm:')) return { anchor: 'setup:' + f, part: 'setup.vms', name: f.slice(3) };
+    if (f.startsWith('app:')) return { anchor: 'setup:' + f, part: 'setup.apps', name: f.replace(/^app:(stack|ct):/, '') };
+    return { anchor: 'setup:share:' + f, part: 'setup.shares', name: f };    // its row unfolded by the one who asked (protectionDetail())
+  }
+  const first = setupFirstNew();
+  if (!first) return null;
+  sf.onlyNew = true;
+  if (first.open) setup.open.add(first.open);
+  return { anchor: first.anchor, part: first.part, name: first.name };
+}
+/** The first new thing as the steps draw it: {anchor, part, open (a share's row to unfold)} or null */
+function setupFirstNew() {
+  const plan = setup.plan;
+  const m = setup.model;
+  if (!plan || !m || !setup.draft) return null;
+  const vm = plan.vm_service ? m.vms.find((x) => x.isNew) : null;
+  if (vm) return { anchor: 'setup:vm:' + vm.name, part: 'setup.vms', name: vm.name };
+  const app = m.apps.find((a) => a.isNew) || m.apps.find(appIsNew);
+  if (app) return { anchor: 'setup:app:' + app.id, part: 'setup.apps', name: app.name };
+  const waits = waitingFolders();
+  for (const sh of plan.shares || []) {
+    const ws = waits.filter((w) => w.share === sh.name);
+    const open = sh.exists ? sh.name : null;
+    if (ws.length) return { anchor: `setup:wait:${ws[0].share}/${ws[0].dir}`, part: 'setup.shares', open, name: `${ws[0].share}/${ws[0].dir}` };
+    if (shareIsNew(sh, ws)) return { anchor: 'setup:share:' + sh.name, part: 'setup.shares', open, name: sh.name };
+  }
+  return null;
+}
+
 // ---- rendering
 function renderSetup() {
   const root = view;
   if (!root) return;
+  // typing in the filter while the page is drawn anew (a poll, the messenger's word): the field goes on with the focus
+  const typing = sf.input && document.activeElement === sf.input ? [sf.input.selectionStart, sf.input.selectionEnd] : null;
   root.innerHTML = '';
   const back = button(T('setup.back'), 'plain', () => Office.go(`#/${ID}`));
   const again = button(T('setup.replan'), 'plain', () => setupPlan(false));
@@ -2540,6 +2667,7 @@ function renderSetup() {
     [T('help.reasons'), T('help.reasons_text')],
     [T('setup.more'), T('help.details')],
     [T('help.new'), T('help.new_text')],
+    [T('help.filter'), T('help.filter_text')],
     [T('setup.apply'), T('help.apply')],
     [T('setup.forget_short'), T('help.forget')],
   ]));
@@ -2557,25 +2685,28 @@ function renderSetup() {
   if (!setup.plan) { setupBar(); return; }
 
   const plan = setup.plan;
+  // came from «Decide…» or «Change…» on the main page: the filter and the rows set so that it shows (setupFocus())
+  const target = setup.focus && setup.model && setup.draft ? setupFocus() : null;
   const start = plan.have_settings ? presetStartLine() : presetSection();   // a new server: where to start, the three cards;
   if (start) root.appendChild(start);                                       // set up: which start the draft came from, once chosen
-  root.appendChild(setupKopia(plan));          // 0 basics: where backups go, Kopia, the flash
-  root.appendChild(setupVms(plan));            // 1
-  root.appendChild(setupApps(plan));           // 2
-  root.appendChild(setupShares(plan));         // 3 what is left
-  root.appendChild(setupRetention(plan));      // 4
-  root.appendChild(setupGeneral(plan));        // everything else, rarely changed
+  root.appendChild(setupFilterBar());          // the filter over the steps' rows
+  if (typing) {
+    sf.input.focus({ preventScroll: true });
+    try { sf.input.setSelectionRange(typing[0], typing[1]); } catch (e) { /* not a text field's selection */ }
+  }
+  fitStart();
+  root.appendChild(fitStep(() => setupKopia(plan)));       // 0 basics: where backups go, Kopia, the flash
+  root.appendChild(fitStep(() => setupVms(plan)));         // 1
+  root.appendChild(fitStep(() => setupApps(plan)));        // 2
+  root.appendChild(fitStep(() => setupShares(plan)));      // 3 what is left
+  root.appendChild(fitStep(() => setupRetention(plan)));   // 4
+  root.appendChild(fitStep(() => setupGeneral(plan)));     // everything else, rarely changed
   const old = (plan.kopia.sources || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
-  if (old.length) root.appendChild(setupSources(old));
+  if (old.length) root.appendChild(fitStep(() => setupSources(old)));
+  setupFilterDone();
   root.appendChild(setupMessages(plan.messages));
   setupBar();
-  // came from "Change…" on the main page: show that share
-  if (setup.focus) {
-    const row = setup.focus === 'waiting' ? root.querySelector('.bk-isnew')
-      : [...root.querySelectorAll('[data-share], [data-focus]')].find((r) => (r.dataset.focus || r.dataset.share) === setup.focus);
-    setup.focus = null;
-    if (row) requestAnimationFrame(() => row.scrollIntoView({ block: 'start', behavior: 'smooth' }));
-  }
+  if (target) Office.reveal(target.anchor, { part: target.part, name: target.name });
 }
 
 function appliedCard(run) {
@@ -2837,7 +2968,12 @@ function setupShares(plan) {
   const thead = el('thead'); thead.appendChild(hr); table.appendChild(thead);
   const body = el('tbody');
   plan.shares.forEach((sh) => {
-    const tr = el('tr');
+    // the filter: its name, its folders at the top, its new folders; «only what's new»: a new share or one with new folders
+    const ws = waits.filter((w) => w.share === sh.name);
+    if (!fitRow([sh.name, ...(sh.top || []), ...ws.map((w) => w.dir)], shareIsNew(sh, ws))) return;
+    const wordsFit = !fitting.flt.words.length || setupFits({ words: fitting.flt.words, onlyNew: false }, sh.name, false);
+    const wsShown = wordsFit ? ws : ws.filter((w) => setupFits({ words: fitting.flt.words, onlyNew: false }, w.dir, true));
+    const tr = Office.place('setup:share:' + sh.name, el('tr'));
     tr.dataset.share = sh.name;
     const nameCell = el('th');
     const shareName = el('span', '', sh.name);
@@ -2908,13 +3044,12 @@ function setupShares(plan) {
       dtr.appendChild(td);
       body.appendChild(dtr);
     }
-    // its new folders: only local so far, waiting for a decision (engine 2.21)
-    const ws = waits.filter((w) => w.share === sh.name);
-    if (ws.length) {
+    // its new folders: only local so far, waiting for a decision (engine 2.21) - with filter words those they meet
+    if (wsShown.length) {
       const wtr = el('tr', 'bk-detail');
       const td = el('td');
       td.colSpan = 6;
-      td.appendChild(waitingBox(ws));
+      td.appendChild(waitingBox(wsShown));
       wtr.appendChild(td);
       body.appendChild(wtr);
     }
@@ -3033,7 +3168,7 @@ function waitingBox(ws) {
   if (presetNow() !== 'auto') head.append(' ', newChip());      // engine 2.31: the default decided them - Apply takes them in so
   box.appendChild(head);
   ws.forEach((w) => {
-    const row = el('div', 'bk-waitrow');
+    const row = Office.place(`setup:wait:${w.share}/${w.dir}`, el('div', 'bk-waitrow'));
     const name = el('span', 'mono', `/${w.dir}/`);
     const meta = [w.bytes ? fmt.size(w.bytes) : '', w.since ? T('setup.waiting_since', { when: fmt.relative(w.since) }) : ''].filter(Boolean).join(' · ');
     row.append(name);
@@ -3336,9 +3471,10 @@ function setupVms(plan) {
   const list = el('div', 'box');
   vms.forEach((x) => {
     const v = x.v;
+    if (!fitRow([v.name, ...x.folders.map((f) => f.dir)], x.isNew)) return;
     const k = (y) => `vm|${v.name}|${y}`;
     const l = levelOf('vm:' + v.name);
-    const row = el('div', 'row nocheck bk-vm' + (x.isNew ? ' bk-isnew' : ''));
+    const row = Office.place('setup:vm:' + v.name, el('div', 'row nocheck bk-vm' + (x.isNew ? ' bk-isnew' : '')));
     row.dataset.focus = 'vm:' + v.name;
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', v.name));
@@ -3406,10 +3542,11 @@ function setupApps(plan) {
   const list = el('div', 'box');
   let head = null;
   m.apps.forEach((a) => {
+    if (!fitRow([a.name, ...a.members, ...a.folders.map((f) => f.dir), ...a.deps.map((d) => d.share)], appIsNew(a))) return;
     const kind = a.isNew ? 'new' : a.stack ? 'stacks' : 'single';      // the new ones first: they wait for a decision
     if (head !== kind) { list.appendChild(el('div', 'bk-subhead', T('setup.apps_' + kind))); head = kind; }
     const l = levelOf('app:' + a.id);
-    const row = el('div', 'row nocheck bk-app' + (a.isNew ? ' bk-isnew' : ''));
+    const row = Office.place('setup:app:' + a.id, el('div', 'row nocheck bk-app' + (a.isNew ? ' bk-isnew' : '')));
     row.dataset.focus = 'app:' + a.id;
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', a.name));
@@ -3466,6 +3603,7 @@ function setupApps(plan) {
     }
   });
   m.skipped.forEach((c) => {
+    if (!fitRow(c.name, false)) return;
     const row = el('div', 'row nocheck');
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', c.name));
@@ -3479,7 +3617,7 @@ function setupApps(plan) {
     list.appendChild(row);
   });
   s.appendChild(list);
-  plan.missing_databases.forEach((md) => s.appendChild(el('p', 'callout warn', T('setup.db_missing', { stack: md.stack, service: md.service, type: md.type }))));
+  plan.missing_databases.filter((md) => !fitting.on || setupFits(fitting.flt, md.stack, false)).forEach((md) => s.appendChild(el('p', 'callout warn', T('setup.db_missing', { stack: md.stack, service: md.service, type: md.type }))));
   return s;
 }
 
@@ -3652,8 +3790,10 @@ function setupItems(plan) {
   wrap.appendChild(el('p', 'role bk-items-sub', T('setup.items_sub')));
   const list = el('div', 'box');
   list.appendChild(el('div', 'bk-subhead', T('setup.items')));
-  const row = (kind, name, offers) => {
+  const row = (kind, name, offers, isNew) => {
     const pre = `${kind}|${name}|`;
+    const folders = dget(pre + 'folder', []) || [];
+    if (!fitRow([name, ...folders.map((f) => f.split('/').slice(1).join('/'))], isNew)) return;
     const r = el('div', 'row nocheck bk-item');
     r.dataset.focus = `${kind}:${name}`;
     const main = el('div', 'row-main');
@@ -3661,7 +3801,6 @@ function setupItems(plan) {
     main.appendChild(nameEl);
     const meta = el('div', 'row-meta');
     meta.appendChild(el('span', '', T('setup.item_kind.' + kind)));
-    const folders = dget(pre + 'folder', []) || [];
     meta.appendChild(el('span', 'mono', folders.length ? folders.join(', ') : T('setup.item_pkg_only')));
     main.appendChild(meta);
     // offered rules: in its own folders -> its own rule; in a share that goes to Kopia by itself -> that share's rule
@@ -3714,8 +3853,8 @@ function setupItems(plan) {
       list.appendChild(d);
     }
   };
-  apps.forEach((a) => row('app', a.name, a.members.flatMap((n) => ((plan.containers.find((c) => c.name === n) || {}).offers || []))));
-  vms.forEach((x) => row('vm', x.name, []));
+  apps.forEach((a) => row('app', a.name, a.members.flatMap((n) => ((plan.containers.find((c) => c.name === n) || {}).offers || [])), appIsNew(a)));
+  vms.forEach((x) => row('vm', x.name, [], x.isNew));
   wrap.appendChild(list);
   return wrap;
 }
@@ -3723,7 +3862,7 @@ function setupItems(plan) {
 function setupSources(old) {
   const s = Office.place('setup.sources', setupSection(T('setup.sources'), T('setup.sources_sub')));
   const ul = el('ul', 'shortlist');
-  old.forEach((o) => ul.appendChild(el('li', '', o.source)));
+  old.filter((o) => fitRow(o.source, false)).forEach((o) => ul.appendChild(el('li', '', o.source)));
   s.appendChild(ul);
   s.appendChild(checkbox(T('setup.sources_manual'), setup.retire, (v) => { setup.retire = v; }, T('setup.sources_manual_hint')));
   return s;
@@ -4008,6 +4147,8 @@ Office.desk({
     clearTimeout(setupTimer);
     page = sub === 'setup' ? 'setup' : 'main';
     if (page === 'setup') {
+      setupFilterReset();                  // a new visit: every row again (the filter's words are not kept)
+      sf.bar = null;                       // its bar built anew in the language of now
       renderSetup();
       if (!state) await load(false);
       await setupLoad();
@@ -4097,7 +4238,7 @@ Office.places(ID, [
   ...[['setup_open', 'help.setup'], ['history', 'help.history'], ['drift', 'help.drift'], ['restore', 'help.restore']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
   ...[['setup.preset.title', 'help.preset_text'], ['help.draft', 'help.draft_text'], ['setup.replan', 'help.replan'], ['setup.measure', 'setup.measure_hint'],
-    ['help.reasons', 'help.reasons_text'], ['setup.more', 'help.details'], ['help.new', 'help.new_text'], ['setup.apply', 'help.apply'],
+    ['help.reasons', 'help.reasons_text'], ['setup.more', 'help.details'], ['help.new', 'help.new_text'], ['help.filter', 'help.filter_text'], ['setup.apply', 'help.apply'],
     ['setup.forget_short', 'help.forget']].map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
 
@@ -4126,6 +4267,8 @@ Office.placesFrom(ID, (s) => {
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.backup = {
     get setup() { return setup; },
+    get sf() { return sf; },
+    setupFits, filterWords, plainWords, setupFirstNew, setupFocus,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
