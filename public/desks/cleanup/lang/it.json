@@ -685,7 +685,7 @@
   "item.now_in": "ora è in {path}",
   "trash.parked_at": "messo via il {when} ({ago})",
   "section.icons": "Immagini mancanti",
-  "section.icons_sub": "Contenitori che nella pagina Docker e nella Dashboard di Unraid mostrano un punto interrogativo — così proprio non va.",
+  "section.icons_sub": "Contenitori e stack Compose che nella pagina Docker e nella Dashboard di Unraid mostrano un punto interrogativo — così proprio non va.",
   "tile.pictured": "hanno tutti un'immagine",
   "cat.icons.template": "Tramite il loro template",
   "cat.icons.template_text": "Imposto l'immagine nel template del contenitore — si vede subito",
@@ -695,6 +695,8 @@
   "cat.icons.none_text": "Né un template né uno stack del Compose Manager — solo ricreando il contenitore avrebbe un'immagine",
   "cat.icons.ok": "Hanno un'immagine",
   "cat.icons.ok_text": "Unraid mostra la loro immagine",
+  "cat.icons.stack": "Stack Compose senza un'immagine propria",
+  "cat.icons.stack_text": "Imposto l'immagine dello stack nel Compose Manager (icon_url) — quella della sua app principale, si vede subito",
   "why.no_template": "nessun template",
   "why.no_template_text": "L'ha creato la pagina Docker di Unraid, ma nessun template proprio in templates-user gli corrisponde (nome e immagine) — non c'è un posto dove tenere un'immagine.",
   "why.no_stack": "non nel Compose Manager",
@@ -757,6 +759,21 @@
   "src.office_text": "Un'immagine che hai caricato prima per lui, ancora nella cartella della segreteria ({detail}).",
   "src.upload": "caricata",
   "src.upload_text": "L'immagine che hai caricato — la tengo sull'unità flash nella cartella della segreteria e la imposto da lì.",
+  "pic.stack_name": "Stack {name}",
+  "pic.stack_containers": "I suoi contenitori: {names}",
+  "pic.stack_missing_text": "Il Compose Manager non ha un'immagine per questo stack (icon_url) — la pagina Docker di Unraid gli mostra davanti un punto interrogativo, anche se i suoi contenitori hanno immagini.",
+  "pic.stack_broken_text": "Il suo icon_url dice {value}, ma il Compose Manager non può mostrarlo (il file non c'è, o non è un indirizzo che accetta).",
+  "pic.stack_ok_text": "Il Compose Manager mostra un'immagine per questo stack. Niente da sistemare.",
+  "pic.how_stack": "Scrivo l'indirizzo nell'icon_url dello stack, come fanno le impostazioni dello stack del Compose Manager — la pagina Docker di Unraid la mostra al prossimo caricamento. Un'immagine di questo server, una caricata o una dal web che non è quadrata la copio prima nella cartella dello stack (icon.png): il Compose Manager mostra solo file da lì o sotto /mnt. Non riavvio niente. Prima il vecchio icon_url finisce nel mio ripostiglio.",
+  "pic.d.main": "App principale",
+  "pic.data_address": "un'immagine dentro l'indirizzo stesso (data:)",
+  "pic.own_hint_address": "Oppure la tua: l'indirizzo di un PNG (al massimo 1 MB) — la carico e la controllo prima di appenderla.",
+  "pic.stack_far": "La cartella di questo stack ({dir}) non è un posto da cui il Compose Manager mostra file — solo un indirizzo può essere la sua immagine.",
+  "pic.upload_hint_stack": "Dal tuo computer: PNG, JPEG, WebP, GIF o SVG. Il tuo browser ne fa un PNG quadrato di al massimo 256 × 256 pixel, e si invia solo quello; lo tengo nella cartella dello stack ({dir}).",
+  "src.stack_app": "immagine della sua app",
+  "src.stack_app_text": "L'immagine che il suo contenitore {detail} mostra nella pagina Docker.",
+  "d.stack": "Stack",
+  "icons.stack_note": "Stack: scrivo il loro icon_url nel Compose Manager — l'immagine compare al prossimo caricamento della pagina Docker. Non riavvio niente.",
   "loop.text": {
     "one": "Unraid {version} ha un difetto: per un contenitore senza immagine, la sua pagina Docker e la Dashboard chiedono question.png — un file che questa versione non include — ancora e ancora, circa mille volte al secondo, finché /var/log è pieno. 1 contenitore non ha un'immagine. Tieni chiuse quelle pagine finché non ne ha una, oppure metti subito un sostituto.",
     "other": "Unraid {version} ha un difetto: per un contenitore senza immagine, la sua pagina Docker e la Dashboard chiedono question.png — un file che questa versione non include — ancora e ancora, circa mille volte al secondo, finché /var/log è pieno. {n} contenitori non hanno un'immagine. Tieni chiuse quelle pagine finché non ne hanno una, oppure metti subito un sostituto."
@@ -771,8 +788,8 @@
     "other": "Appendere {n} immagini?"
   },
   "icons.text": {
-    "one": "Questo contenitore riceve la sua immagine:",
-    "other": "Questi {n} contenitori ricevono le loro immagini:"
+    "one": "Questo riceve la sua immagine:",
+    "other": "Questi {n} ricevono le loro immagini:"
   },
   "icons.at_once": "subito",
   "icons.after_up": "stabile dopo Compose Up",
@@ -797,12 +814,22 @@
     "one": "1 contenitore senza immagine",
     "other": "{n} contenitori senza immagine"
   },
+  "bubble.icon_stacks": {
+    "one": "1 stack Compose senza immagine",
+    "other": "{n} stack Compose senza immagine"
+  },
+  "fact.icon_stacks": {
+    "one": "1 stack Compose senza immagine",
+    "other": "{n} stack Compose senza immagine"
+  },
   "item.icon": "file prima della sua immagine",
   "restore.done_icon": "{name} è di nuovo com'era — l'immagine è di nuovo sparita (per uno stack: dal suo prossimo Compose Up).",
-  "help.icons_text": "Contenitori che nella pagina Docker e nella Dashboard di Unraid mostrano un punto interrogativo: nessuna immagine impostata, o una che Unraid non riesce a caricare. Per un contenitore da template imposto <Icon> nel suo template (si vede subito); per uno da uno stack del Compose Manager, l'etichetta nel file di override dello stack (stabile dal suo prossimo Compose Up). Le immagini vengono da questo server (chiamate come l'app nella cartella dockerMan/images di Unraid; per i contenitori Time Machine il logo Time Machine di Apple), da Community Applications su questo server, da una tabella di immagini note (un database nello stack di un'app riceve il logo del suo database) e, dopo il controllo, da un'ipotesi sul nome dell'immagine — indirizzi della raccolta aperta dashboard-icons; niente è incluso. Oppure caricane una tua nei dettagli di un contenitore: il tuo browser ne fa un PNG quadrato di al massimo 256 × 256 pixel, io lo tengo sull'unità flash nella cartella della segreteria e lo imposto da lì. Prima di cambiare un file, lo metto nel mio ripostiglio.",
+  "restore.done_stack_icon": "Stack {name}: la sua immagine nel Compose Manager è di nuovo com'era.",
+  "help.icons_text": "Contenitori che nella pagina Docker e nella Dashboard di Unraid mostrano un punto interrogativo: nessuna immagine impostata, o una che Unraid non riesce a caricare. Per un contenitore da template imposto <Icon> nel suo template (si vede subito); per uno da uno stack del Compose Manager, l'etichetta nel file di override dello stack (stabile dal suo prossimo Compose Up). Le immagini vengono da questo server (chiamate come l'app nella cartella dockerMan/images di Unraid; per i contenitori Time Machine il logo Time Machine di Apple), da Community Applications su questo server, da una tabella di immagini note (un database nello stack di un'app riceve il logo del suo database) e, dopo il controllo, da un'ipotesi sul nome dell'immagine — indirizzi della raccolta aperta dashboard-icons; niente è incluso. Oppure caricane una tua nei dettagli di un contenitore: il tuo browser ne fa un PNG quadrato di al massimo 256 × 256 pixel, io lo tengo sull'unità flash nella cartella della segreteria e lo imposto da lì. Prima di cambiare un file, lo metto nel mio ripostiglio. Uno stack Compose ha nel Compose Manager un'immagine propria (icon_url): se manca o punta nel vuoto, elenco anche lui e propongo l'immagine della sua app principale (mai quella del suo database o della sua cache) — scritta subito, la vecchia nel mio ripostiglio.",
   "help.loop": "Unraid 7.3.2",
   "help.loop_text": "Questa versione non include il punto interrogativo che mostra per i contenitori senza immagine, e le sue pagine lo chiedono all'infinito — /var/log si riempie in pochi minuti. Finché è così offro un sostituto (nella RAM, sparisce dopo un riavvio); quando Unraid lo corregge, il mio avviso sparisce.",
   "errors.cleanup_icon_has": "{name} ha già un'immagine.",
+  "errors.cleanup_icon_stack_far": "La cartella dello stack {name} ({path}) non è un posto da cui il Compose Manager mostra file — indica invece un indirizzo.",
   "errors.cleanup_icon_manual": "Lo stack di {name} ha il file di override impostato su «Manuale» — imposta l'icona nel Compose Manager.",
   "errors.cleanup_icon_indirect": "Lo stack di {name} usa il file di override accanto al suo file compose — imposta l'icona nel Compose Manager.",
   "errors.cleanup_icon_no_service": "Non trovo il servizio di {name} nel file compose del suo stack.",
