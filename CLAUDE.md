@@ -1338,7 +1338,7 @@ When more than one Claude chat works on the office, one of them is the
 
 1. PHP syntax: on the host `php -l` for every file in `agent/`, `src/`,
    `public/*.php`; `bash -n` for `plugin/scripts/*`, `plugin/event/*`, `backup/`.
-2. JS syntax (no Node on the dev Mac): `osascript -l JavaScript` with `new Function(src)`.
+2. JS syntax: `osascript -l JavaScript` with `new Function(src)` (or `node --check`; Node is on the dev Mac for the browser tools since 2026-10-10).
 3. Tests on the host: `php tests/run.php` (logic: cron, snapshot retention,
    Emby detection, the plugin's cron file — on copies; strings: `en`/`de`/`it`/`fr`/`es`
    keys identical, every language against English, every T('…'), check and error text exists).
