@@ -251,7 +251,7 @@ function embyProgressSpeed(array $samples, int $now): ?float
  * left: null without a speed. A user's: until their last remaining file in EmbyCache's queue is done (see the top).
  * The users: the one being copied, then by their next file's place in the queue, finished ones at the end.
  */
-function embyProgressView(array $p, array $samples, int $now): array
+function embyProgressView(array $p, array $samples, int $now, bool $stopping = false): array
 {
     $speed = embyProgressSpeed($samples, $now);
     $last = $samples ? $samples[count($samples) - 1] : null;
@@ -304,6 +304,25 @@ function embyProgressView(array $p, array $samples, int $now): array
     }
     $total['eta'] = $total['files'] > $total['done_files'] ? $eta(max(0, $total['bytes'] - $total['done_bytes'])) : 0;
     $total['running'] = $p['started'] > 0 ? max(0, $now - $p['started']) : null;
+    // asked to stop (the button, the mover): only the file it is on still counts (Benj, 2026-10-10) — the bar it belongs to
+    // and the total end with it, the others are `halted` (not in this run any more)
+    if ($stopping) {
+        $curEta = $cur !== null ? $eta(max(0, $cur['size'] - $part)) : 0;
+        $halt = function (array $c) use ($curEta): array {
+            if ($c['here']) {
+                $c['eta'] = $curEta;
+            } elseif ($c['files'] > $c['done_files']) {
+                $c['eta'] = null;
+                $c['halted'] = true;
+            }
+            return $c;
+        };
+        if ($back !== null && !$back['ended']) {
+            $back = $halt($back);
+        }
+        $users = array_map($halt, $users);
+        $total['eta'] = $curEta;
+    }
     return ['mode' => $p['mode'], 'phase' => $p['phase'], 'started' => $p['started'], 'back' => $back, 'users' => $users, 'total' => $total,
             'speed' => $speed !== null ? (int) round($speed) : null, 'current' => $shown];
 }
@@ -332,8 +351,8 @@ function embyProgressState(?array $job = null, ?array $paths = null, ?int $now =
     $real = !empty($job['running']) && in_array($job['mode'] ?? '', ['run', 'release'], true);
     $p = $real ? embyProgressRead($paths['file']) : null;
     return ['time' => $now, 'running' => !empty($job['running']), 'mode' => (string) ($job['mode'] ?? ''), 'real' => $real,
-            'stopping' => $real ? embyProgressStopping($stopFile ?? EMBY_DATA . '/office-stop.json') : null,
-            'progress' => $p !== null ? embyProgressView($p, embyProgressSamples($paths['samples'], $p['started']), $now) : null];
+            'stopping' => $stopping = ($real ? embyProgressStopping($stopFile ?? EMBY_DATA . '/office-stop.json') : null),
+            'progress' => $p !== null ? embyProgressView($p, embyProgressSamples($paths['samples'], $p['started']), $now, $stopping !== null) : null];
 }
 
 /**

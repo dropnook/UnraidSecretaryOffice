@@ -103,6 +103,7 @@
   "progress.min_secs": "{m} Min. {s} s",
   "progress.stop": "Anhalten nach dieser Datei",
   "progress.stopping": "Hält nach dieser Datei an …",
+  "progress.halted": "kommt in diesem Lauf nicht mehr dran",
   "help.progress": "Während EmbyCache läuft",
   "help.progress_text": "Während EmbyCache echt läuft, zeigt ein Balken pro Person, was für sie geplant und wie viel schon erledigt ist, darunter die Datei, die gerade kopiert wird, mit dem Grund, warum sie kommt; davor ein Balken für das, was zurück aufs Array geht. EmbyCache kopiert eine Datei nach der anderen, alle gemischt — die Restzeit einer Person zählt deshalb alles, was vor ihrer letzten Datei noch kommt; zuerst steht, wer gerade kopiert wird, dann der Reihe nach, wer fertig ist, unten mit der Dauer. Die Zeiten werden alle 10 s aus der mittleren Kopiergeschwindigkeit (Median) der letzten 10 Minuten gerechnet. «Anhalten nach dieser Datei» lässt die Datei, die gerade kopiert wird, fertig werden und hält dort an — der nächste Lauf macht weiter. «Rohausgabe» zeigt, was EmbyCache schreibt.",
   "refused": "nicht gestartet: {why}",

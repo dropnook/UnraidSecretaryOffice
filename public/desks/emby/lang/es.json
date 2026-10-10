@@ -103,6 +103,7 @@
   "progress.min_secs": "{m} min {s} s",
   "progress.stop": "Detener tras este archivo",
   "progress.stopping": "Se detiene tras este archivo …",
+  "progress.halted": "ya no en esta pasada",
   "help.progress": "Mientras EmbyCache trabaja",
   "help.progress_text": "Mientras EmbyCache trabaja de verdad, una barra por persona muestra lo previsto para ella y cuánto está hecho, debajo el archivo que se está copiando con el motivo por el que viene; antes, una barra para lo que vuelve al array. EmbyCache copia un archivo tras otro, los de todos mezclados: el tiempo restante de una persona cuenta por eso todo lo que viene aún antes de su último archivo; primero aquella cuyo archivo se copia, luego por turno, al final quienes terminaron con lo que tardaron. Los tiempos se calculan cada 10 s a partir de la velocidad de copia mediana de los últimos 10 minutos. «Detener tras este archivo» deja terminar el archivo que se copia y se detiene ahí — la próxima ejecución continúa. «Salida sin procesar» muestra lo que escribe EmbyCache.",
   "refused": "no iniciado: {why}",

@@ -2674,6 +2674,11 @@ function testEmbyProgress(): void
     check('progress view: no target path for the page', !str_contains(json_encode($v), $tmp));
     same('progress view: the bracket — how long the run has been going; nothing finished took a time yet, back without times none',
         [20, null, null], [$v['total']['running'], $v['users'][0]['took'], $v['back']['took']]);
+    // asked to stop (Benj, 2026-10-10): only the file it is on still counts — its bar and the total end with it, the rest is halted
+    $vs = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1020, true);
+    $curLeft = (int) ceil(max(0, $vs['current']['size'] - $vs['current']['done']) / (10 * $mb));
+    same('progress view: asked to stop — the total and the current user\'s bar: the rest of the current file; the other user halted',
+        [$curLeft, $curLeft, null, true], [$vs['total']['eta'], $vs['users'][0]['eta'], $vs['users'][1]['eta'], $vs['users'][1]['halted'] ?? null]);
     // the queue (Benj, 2026-10-10: «2 min» for 12 GB nothing of which had started while another's 49 GB file copied):
     // EmbyCache copies in path order, everyone mixed — a user is done when their LAST file is
     $smp = embyProgressSamples($paths['samples'], 1000);

@@ -521,7 +521,8 @@ function progRow(label, c, p, total) {
   const facts = [T('progress.files', { done: Number(c.done_files) || 0, n: Number(c.files) || 0 }),
     T('progress.bytes', { done: fmt.size(c.done_bytes || 0), size: fmt.size(c.bytes || 0) })];
   if (total && p.speed) facts.push(T('progress.speed', { rate: fmt.size(p.speed) }));
-  const left = done ? (typeof c.took === 'number' ? T('progress.took', { time: tookText(c.took) }) : T('progress.done')) : etaText(c.eta, total);
+  const left = done ? (typeof c.took === 'number' ? T('progress.took', { time: tookText(c.took) }) : T('progress.done'))
+    : c.halted ? T('progress.halted') : etaText(c.eta, total);      // asked to stop: not in this run any more
   if (left) facts.push(left);
   if (total && typeof c.running === 'number') facts.push(T('progress.running', { time: c.running < 60 ? T('progress.secs', { s: c.running }) : fmt.duration(c.running) }));
   top.append(el('span', 'jo-prog-name', label), el('span', 'jo-prog-facts', facts.join(' · ')));
