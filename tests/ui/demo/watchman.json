@@ -11,128 +11,107 @@
   "docker": true,
   "shares": true
  },
- "on_watch": 1791306276,
+ "on_watch": 1791304274,
  "open": {
-  "plugin_new": 3,
-  "cron_new": 1,
-  "container_new": 2,
-  "login_new_ip": 2,
-  "listen_new": 2,
-  "plugin_source": 1,
-  "door_new": 1,
-  "flow_gone": 1,
   "flow_written": 1,
-  "net_router_login": 1,
   "net_new_device": 1,
-  "net_ips_server": 2,
-  "net_firewall_change": 1,
-  "net_vpn_login": 1,
-  "net_blocked_from_server": 1,
-  "net_log_silent": 1,
-  "net_sender_new": 3
+  "login_new_ip": 1,
+  "container_new": 1,
+  "plugin_new": 1
  },
  "book": [
   {
-   "id": "w54e6489316",
-   "kind": "net_log_silent",
-   "group": "net",
+   "id": "wd5e04cb7da",
+   "kind": "login_new_ip",
+   "group": "login",
    "tell": true,
-   "attack": "T1562.006",
-   "time": 1791480649,
-   "last": 1791563474,
+   "attack": "T1078",
+   "time": 1791545474,
+   "last": 1791556274,
+   "count": 4,
+   "open": true,
+   "t": {
+    "ip": "192.168.178.34",
+    "user": "root",
+    "service": "WebGUI"
+   },
+   "p": {
+    "ip": "192.168.178.34",
+    "users": [
+     "root"
+    ],
+    "services": [
+     "web"
+    ]
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791469874,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "w8825237f13",
+   "kind": "flow_written",
+   "group": "flow",
+   "tell": true,
+   "attack": "T1486",
+   "time": 1791545474,
+   "last": 1791547874,
    "count": 1,
    "open": true,
    "t": {
+    "share": "Familienfotos",
+    "size": "18 GB",
+    "minutes": 40,
+    "usual": "",
+    "from": "192.168.178.34 (SMB)"
+   },
+   "p": {
+    "share": "Familienfotos",
+    "pct": 6,
+    "bytes": 19327352832,
+    "minutes": 40,
+    "usual": 0,
+    "limit": 1073741824,
+    "learning": true,
+    "peak": 19327352832,
+    "clients": [
+     "192.168.178.34"
+    ]
+   },
+   "noted": null,
+   "by": null,
+   "told": 1791545474,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "wfe162b7c9a",
+   "kind": "net_new_device",
+   "group": "net",
+   "tell": false,
+   "attack": "T1200",
+   "time": 1791531074,
+   "last": 1791531074,
+   "count": 1,
+   "open": true,
+   "t": {
+    "name": "Handy-Tochter",
+    "mac": "02:00:00:00:00:04",
+    "ip": "192.168.178.57",
+    "router": "Router"
+   },
+   "p": {
+    "sender": "192.168.178.1",
     "router": "Router",
-    "hours": 29
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "last": 1791459040,
-    "usual": 49,
-    "hours": 29
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791480649,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wbb38aac28c",
-   "kind": "net_sender_new",
-   "group": "net",
-   "tell": false,
-   "attack": "T1200",
-   "time": 1791547857,
-   "last": 1791547857,
-   "count": 1,
-   "open": true,
-   "t": {
-    "sender": "192.168.178.21",
-    "host": "192.168.178.21"
-   },
-   "p": {
-    "sender": "192.168.178.21",
-    "host": "",
-    "product": "",
-    "version": "",
-    "lines": 33
-   },
-   "noted": null,
-   "by": null,
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wda4a752ea7",
-   "kind": "net_sender_new",
-   "group": "net",
-   "tell": false,
-   "attack": "T1200",
-   "time": 1791546057,
-   "last": 1791546057,
-   "count": 1,
-   "open": true,
-   "t": {
-    "sender": "192.168.178.10",
-    "host": "192.168.178.10"
-   },
-   "p": {
-    "sender": "192.168.178.10",
-    "host": "",
-    "product": "",
-    "version": "",
-    "lines": 55
-   },
-   "noted": null,
-   "by": null,
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wd3e4169d75",
-   "kind": "net_sender_new",
-   "group": "net",
-   "tell": false,
-   "attack": "T1200",
-   "time": 1791546057,
-   "last": 1791546057,
-   "count": 1,
-   "open": true,
-   "t": {
-    "sender": "192.168.179.10",
-    "host": "192.168.179.10"
-   },
-   "p": {
-    "sender": "192.168.179.10",
-    "host": "",
-    "product": "",
-    "version": "",
-    "lines": 40
+    "mac": "02:00:00:00:00:04",
+    "ip": "192.168.178.57",
+    "name": "Handy-Tochter",
+    "network": "Default",
+    "taken": null,
+    "random": false,
+    "evidence": "Oct 10 03:12:07 Router CEF 402|Wireless Client Connected UNIFIclientAlias=Handy-Tochter UNIFIclientIp=192.168.178.57 msg=Handy-Tochter connected to Familien-WLAN"
    },
    "noted": null,
    "by": null,
@@ -146,1825 +125,26 @@
    "group": "array",
    "tell": false,
    "attack": "T1489",
-   "time": 1791530711,
-   "last": 1791530711,
+   "time": 1791491674,
+   "last": 1791491674,
    "count": 1,
    "open": false,
    "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.219 (SSH (publickey))"
+    "who": "root@192.168.178.20 (WebGUI)"
    },
    "p": {
     "logins": [
      {
-      "t": 1791529662,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791530703,
-      "ip": "192.168.178.219",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791530713,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w3b41b7080b",
-   "kind": "door_new",
-   "group": "host",
-   "tell": true,
-   "attack": "T1133",
-   "time": 1791437018,
-   "last": 1791530689,
-   "count": 2,
-   "open": true,
-   "t": {
-    "door": "",
-    "name": "wg0"
-   },
-   "p": {
-    "key": "wg:wg0",
-    "door": "wg",
-    "name": "wg0",
-    "port": null,
-    "issuer": null,
-    "peers": 1,
-    "new_peers": 1
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791437018,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w2a19a76ee8",
-   "kind": "plugin_new",
-   "group": "plugin",
-   "tell": true,
-   "attack": "T1543",
-   "time": 1791407111,
-   "last": 1791530689,
-   "count": 1,
-   "open": true,
-   "t": {
-    "name": "dwpython",
-    "source": "raw.githubusercontent.com/desertwitch"
-   },
-   "p": {
-    "name": "dwpython",
-    "source": "raw.githubusercontent.com/desertwitch",
-    "version": "2026.10.06"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791407111,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wfd4fc19641",
-   "kind": "plugin_source",
-   "group": "plugin",
-   "tell": true,
-   "attack": "T1195.002",
-   "time": 1791387527,
-   "last": 1791530689,
-   "count": 1,
-   "open": true,
-   "t": {
-    "name": "unraid-secretary-office",
-    "source": "github.com/dropnook",
-    "old": "github.com/dropnook"
-   },
-   "p": {
-    "name": "unraid-secretary-office",
-    "source": "github.com/dropnook",
-    "old": "github.com/dropnook"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791387527,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w2dbba062ab",
-   "kind": "plugin_new",
-   "group": "plugin",
-   "tell": true,
-   "attack": "T1543",
-   "time": 1791306576,
-   "last": 1791530689,
-   "count": 1,
-   "open": true,
-   "t": {
-    "name": "filesviewer",
-    "source": "raw.githubusercontent.com/Lazaros-Chalkidis"
-   },
-   "p": {
-    "name": "filesviewer",
-    "source": "raw.githubusercontent.com/Lazaros-Chalkidis",
-    "version": "2026.08.24"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791306576,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wa92b5cedfc",
-   "kind": "plugin_new",
-   "group": "plugin",
-   "tell": true,
-   "attack": "T1543",
-   "time": 1791306576,
-   "last": 1791530689,
-   "count": 1,
-   "open": true,
-   "t": {
-    "name": "fix.common.problems",
-    "source": "raw.githubusercontent.com/unraid"
-   },
-   "p": {
-    "name": "fix.common.problems",
-    "source": "raw.githubusercontent.com/unraid",
-    "version": "2026.05.16"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791306576,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wb44b5c2f92",
-   "kind": "cron_new",
-   "group": "sched",
-   "tell": true,
-   "attack": "T1053.003",
-   "time": 1791306576,
-   "last": 1791530689,
-   "count": 1,
-   "open": true,
-   "t": {
-    "lines": 1,
-    "jobs": "cron.d/filesviewer: 30 4 * * * /usr/bin/php filesviewer/include/filesviewer_recycle_cron.php",
-    "fix": ""
-   },
-   "p": {
-    "lines": 1,
-    "jobs": [
-     "cron.d/filesviewer: 30 4 * * * /usr/bin/php filesviewer/include/filesviewer_recycle_cron.php"
-    ],
-    "mtime": 1462903322,
-    "evidence": []
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791306576,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w60263f57e5",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791530629,
-   "last": 1791530629,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.219 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791530687,
-      "ip": "192.168.178.219",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791530689,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w043a3dc3dc",
-   "kind": "parity_check",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791530178,
-   "last": 1791530195,
-   "count": 1,
-   "open": false,
-   "t": {
-    "why": ""
-   },
-   "p": {
-    "reason": "unclean",
-    "action": "check P",
-    "correct": true,
-    "stop": "timeout",
-    "from": "diag",
-    "diag": "familienserver-diagnostics-20261009-0914.zip",
-    "kept": false,
-    "streak": 1,
-    "timeout": 45,
-    "held": "/mnt/disk2",
-    "busy": [
-     "/mnt/disk2"
-    ],
-    "vms": [],
-    "evidence": "unraid",
-    "end": 1791530195,
-    "exit": 0,
-    "errors": 0
-   },
-   "noted": 1791530182,
-   "by": "parity",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w10eeb60ac4",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791530180,
-   "last": 1791530180,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.219 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791529662,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791530182,
-      "ip": "192.168.178.219",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791530182,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w915f8925c3",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791530096,
-   "last": 1791530096,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.219 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791530155,
-      "ip": "192.168.178.219",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791530156,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w79d2e622c8",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791530000,
-   "last": 1791530000,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.219 (WebGUI), root@192.168.178.190 (SSH (publickey)), root@192.168.178.219 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791528310,
-      "ip": "192.168.178.219",
+      "t": 1791491624,
+      "ip": "192.168.178.20",
       "user": "root",
       "service": "web"
-     },
-     {
-      "t": 1791529662,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791529992,
-      "ip": "192.168.178.219",
-      "user": "root",
-      "service": "ssh:publickey"
      }
     ]
    },
-   "noted": 1791530002,
+   "noted": 1791491676,
    "by": "array",
    "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w39b1706544",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791529918,
-   "last": 1791529918,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.219 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791529972,
-      "ip": "192.168.178.219",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791529978,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wb2dda43023",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791527839,
-   "last": 1791527839,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.125 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791526157,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791526251,
-      "ip": "192.168.178.125",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791527841,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w84677cd4de",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791527758,
-   "last": 1791527758,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "–"
-   },
-   "p": {
-    "logins": []
-   },
-   "noted": 1791527817,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wd5e04cb7da",
-   "kind": "login_new_ip",
-   "group": "login",
-   "tell": true,
-   "attack": "T1078",
-   "time": 1791323648,
-   "last": 1791526251,
-   "count": 1352,
-   "open": true,
-   "t": {
-    "ip": "192.168.178.125",
-    "user": "root",
-    "service": "WebGUI, SSH (publickey)"
-   },
-   "p": {
-    "ip": "192.168.178.125",
-    "users": [
-     "root"
-    ],
-    "services": [
-     "web",
-     "ssh:publickey"
-    ]
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791323692,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w3a580811c6",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791501078,
-   "last": 1791501078,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.125 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791500041,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791501056,
-      "ip": "192.168.178.125",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791501080,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w93a0d0d9ea",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791500993,
-   "last": 1791500993,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "–"
-   },
-   "p": {
-    "logins": []
-   },
-   "noted": 1791501054,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wfe162b7c9a",
-   "kind": "net_new_device",
-   "group": "net",
-   "tell": false,
-   "attack": "T1200",
-   "time": 1791459316,
-   "last": 1791459316,
-   "count": 1,
-   "open": true,
-   "t": {
-    "name": "device-4",
-    "mac": "02:00:00:00:00:04",
-    "ip": "192.0.2.77",
-    "router": "Router"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "mac": "02:00:00:00:00:04",
-    "ip": "192.0.2.77",
-    "name": "device-4",
-    "network": "Default",
-    "taken": null,
-    "random": true,
-    "evidence": "Oct  8 13:30:37 Router CEF 402|Wired Client Connected UNIFIcategory=Client Devices UNIFIclientAlias=device-4 UNIFIclientHostname=device-4 UNIFIclientIp=192.0.2.77 UNIFIclientMac=02:00:00:… UNIFInetworkName=Default msg=device-4 connected to Sonos Kueche on port 5. IP: 192.0.2.77"
-   },
-   "noted": null,
-   "by": null,
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w8023c95ba4",
-   "kind": "net_blocked_from_server",
-   "group": "net",
-   "tell": true,
-   "attack": "T1071",
-   "time": 1791459039,
-   "last": 1791459039,
-   "count": 1,
-   "open": true,
-   "t": {
-    "dst": "203.0.113.9",
-    "port": "tcp/443",
-    "server": "192.168.178.111",
-    "router": "Router"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "key": "203.0.113.0/24 tcp/443",
-    "dst": "203.0.113.9",
-    "dpt": 443,
-    "proto": "TCP",
-    "server": "192.168.178.111",
-    "zone": "LAN_OUT",
-    "rule": "2000",
-    "action": "D",
-    "evidence": "Oct  8 13:30:39 Router kernel: [LAN_OUT-D-2000] IN=br0 OUT=eth4 SRC=192.168.178.111 DST=203.0.113.9 PROTO=TCP SPT=51234 DPT=443"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791459316,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w8825237f13",
-   "kind": "flow_written",
-   "group": "flow",
-   "tell": true,
-   "attack": "T1486",
-   "time": 1791457951,
-   "last": 1791459016,
-   "count": 1,
-   "open": true,
-   "t": {
-    "share": "cache/system",
-    "size": "120 KB",
-    "minutes": 6,
-    "usual": "",
-    "from": ""
-   },
-   "p": {
-    "share": "cache/system",
-    "pct": 0,
-    "bytes": 122880,
-    "minutes": 6,
-    "usual": 0,
-    "limit": 1073741824,
-    "learning": true,
-    "peak": 3110903808
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791457951,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wf5ba8983a8",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791458712,
-   "last": 1791458712,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791457871,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791458698,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791458714,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w63008f09e2",
-   "kind": "array_stop",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791458656,
-   "last": 1791458656,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791457871,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791458656,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791458657,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w5668eda953",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791457650,
-   "last": 1791457650,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791456971,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791457635,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791457651,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wc063e8ad2d",
-   "kind": "at_job",
-   "group": "sched",
-   "tell": true,
-   "attack": "T1053.002",
-   "time": 1791457647,
-   "last": 1791457647,
-   "count": 1,
-   "open": false,
-   "t": {
-    "cmd": "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php",
-    "when": "2026-10-08 13:17"
-   },
-   "p": {
-    "job": "a0000501c79765",
-    "when": 1791458220,
-    "cmd": "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php",
-    "uid": 0
-   },
-   "noted": 1791533723,
-   "by": "plugin",
-   "told": 1791457647,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w8e9e664fdb",
-   "kind": "array_stop",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791457346,
-   "last": 1791457346,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791456971,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791457346,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791457347,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wee17d287f0",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791457326,
-   "last": 1791457326,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.190 (SSH (publickey)), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791456971,
-      "ip": "192.168.178.190",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791457316,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791457328,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w86a678e52c",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791457244,
-   "last": 1791457244,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791457306,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791457307,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wd3eabf582d",
-   "kind": "flow_gone",
-   "group": "flow",
-   "tell": true,
-   "attack": "T1485",
-   "time": 1791437618,
-   "last": 1791456688,
-   "count": 2,
-   "open": true,
-   "t": {
-    "share": "paperless",
-    "size": "4.0 GB",
-    "minutes": 5,
-    "usual": "",
-    "more": ""
-   },
-   "p": {
-    "share": "paperless",
-    "disk": null,
-    "shares": [],
-    "kept": 0,
-    "asleep": [],
-    "pct": 100,
-    "part": true,
-    "clients": [
-     "192.168.178.136 (SSH)"
-    ],
-    "users": [],
-    "from": "clients",
-    "bytes": 4297957376,
-    "minutes": 5,
-    "usual": 0,
-    "limit": 1073741824,
-    "learning": true,
-    "peak": 4297957376
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791437618,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w3bf6add5b4",
-   "kind": "partner_paired",
-   "group": "partner",
-   "tell": false,
-   "attack": "T1098.004",
-   "time": 1791455162,
-   "last": 1791455162,
-   "count": 1,
-   "open": false,
-   "t": {
-    "name": "Grosseltern",
-    "address": "192.168.178.190"
-   },
-   "p": {
-    "id": "26bbb6eb",
-    "name": "Grosseltern",
-    "address": "192.168.178.190",
-    "from": "192.168.178.190",
-    "fp": "SHA256:a5468f92e0a6163490789d48cefd68cb2e783c9ee63",
-    "installed_by": "teamlead"
-   },
-   "noted": 1791455162,
-   "by": "office",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w8b0797eaff",
-   "kind": "net_vpn_login",
-   "group": "net",
-   "tell": true,
-   "attack": "T1133",
-   "time": 1791447850,
-   "last": 1791447850,
-   "count": 1,
-   "open": true,
-   "t": {
-    "user": "tochter-laptop",
-    "ip": "203.0.113.50",
-    "router": "Router"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "user": "tochter-laptop",
-    "ip": "203.0.113.50",
-    "how": "WireGuard",
-    "new_user": true,
-    "evidence": "Oct  8 13:30:39 Router CEF 600|VPN Client Connected UNIFIcategory=VPN UNIFIvpnType=WireGuard UNIFIvpnUser=tochter-laptop src=203.0.113.50 msg=tochter-laptop connected to WireGuard from 203.0.113.50"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791459316,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w5a3ee8d94c",
-   "kind": "net_router_config",
-   "group": "net",
-   "tell": false,
-   "attack": "T1562",
-   "time": 1791447800,
-   "last": 1791447800,
-   "count": 1,
-   "open": false,
-   "t": {
-    "admin": "Tochter",
-    "router": "Router",
-    "date": "2026-10-08"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "date": "2026-10-08",
-    "admins": [
-     "Tochter"
-    ],
-    "msgs": [
-     "Tochter made changes to WiFi: Familien-WLAN band steering changed"
-    ],
-    "evidence": "Oct  8 13:30:39 Router CEF 546|Admin Made Config Changes UNIFIcategory=Audit UNIFIsubCategory=Admin Activity UNIFIadmin=Tochter src=192.168.178.136 msg=Tochter made changes to WiFi: Familien-WLAN band steering changed"
-   },
-   "noted": 1791459316,
-   "by": "router",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w07568b1abf",
-   "kind": "net_firewall_change",
-   "group": "net",
-   "tell": true,
-   "attack": "T1562.004",
-   "time": 1791447780,
-   "last": 1791447780,
-   "count": 1,
-   "open": true,
-   "t": {
-    "area": "port_forward",
-    "admin": "Tochter",
-    "router": "Router"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "area": "port_forward",
-    "admins": [
-     "Tochter"
-    ],
-    "msgs": [
-     "Tochter made changes to Port Forwarding: rule Familienvideos-1 (TCP 32400) added"
-    ],
-    "evidence": "Oct  8 13:30:39 Router CEF 546|Admin Made Config Changes UNIFIcategory=Audit UNIFIsubCategory=Admin Activity UNIFIadmin=Tochter src=192.168.178.136 msg=Tochter made changes to Port Forwarding: rule Familienvideos-1 (TCP 32400) added"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791459316,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "waac5d29ba8",
-   "kind": "net_ips_server",
-   "group": "net",
-   "tell": true,
-   "attack": "T1595",
-   "time": 1791447725,
-   "last": 1791447725,
-   "count": 1,
-   "open": true,
-   "t": {
-    "signature": "ET MALWARE Possible Botnet C2 Beacon",
-    "remote": "203.0.113.66",
-    "server": "192.168.178.111",
-    "router": "Router"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "sig": "2030001",
-    "signature": "ET MALWARE Possible Botnet C2 Beacon",
-    "dir": "out",
-    "remote": "203.0.113.66",
-    "server": "192.168.178.111",
-    "dpt": 8443,
-    "proto": "TCP",
-    "risk": "high",
-    "evidence": "Oct  8 13:30:38 Router CEF 201|Threat Detected and Blocked UNIFIcategory=Security UNIFIsubCategory=Intrusion Prevention UNIFIipsSignature=ET MALWARE Possible Botnet C2 Beacon UNIFIipsSignatureId=2030001 UNIFIrisk=high proto=TCP src=192.168.178.111 spt=40112 dst=203.0.113.66 dpt=8443"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791459316,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w84833d7a59",
-   "kind": "net_ips_server",
-   "group": "net",
-   "tell": true,
-   "attack": "T1595",
-   "time": 1791447700,
-   "last": 1791447700,
-   "count": 1,
-   "open": true,
-   "t": {
-    "signature": "ET SCAN Suspicious inbound to mySQL port 3306",
-    "remote": "203.0.113.77",
-    "server": "192.168.178.111",
-    "router": "Router"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "sig": "2010937",
-    "signature": "ET SCAN Suspicious inbound to mySQL port 3306",
-    "dir": "in",
-    "remote": "203.0.113.77",
-    "server": "192.168.178.111",
-    "dpt": 3306,
-    "proto": "TCP",
-    "risk": "high",
-    "evidence": "Oct  8 13:30:38 Router CEF 201|Threat Detected and Blocked UNIFIcategory=Security UNIFIsubCategory=Intrusion Prevention UNIFIipsSignature=ET SCAN Suspicious inbound to mySQL port 3306 UNIFIipsSignatureId=2010937 UNIFIrisk=high proto=TCP src=203.0.113.77 spt=51515 dst=192.168.178.111 dpt=3306"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791459316,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w41acb2239b",
-   "kind": "login_new_ip",
-   "group": "login",
-   "tell": true,
-   "attack": "T1078",
-   "time": 1791361623,
-   "last": 1791444288,
-   "count": 471,
-   "open": false,
-   "t": {
-    "ip": "192.168.178.136",
-    "user": "root",
-    "service": "SSH (publickey), WebGUI"
-   },
-   "p": {
-    "ip": "192.168.178.136",
-    "users": [
-     "root"
-    ],
-    "services": [
-     "ssh:publickey",
-     "web"
-    ]
-   },
-   "noted": 1791444309,
-   "by": "page",
-   "told": 1791361644,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w57f8cbc78b",
-   "kind": "net_router_login",
-   "group": "net",
-   "tell": true,
-   "attack": "T1078",
-   "time": 1791443935,
-   "last": 1791443935,
-   "count": 1,
-   "open": true,
-   "t": {
-    "admin": "Tochter",
-    "ip": "192.168.178.191",
-    "router": "Router"
-   },
-   "p": {
-    "sender": "192.168.178.190",
-    "router": "Router",
-    "admin": "Tochter",
-    "ip": "192.168.178.191",
-    "method": "web",
-    "new_admin": false,
-    "evidence": "Oct  8 13:30:37 Router CEF 544|Network Accessed UNIFIcategory=Audit UNIFIaccessMethod=web UNIFIadmin=Tochter src=192.168.178.191 msg=Tochter accessed UniFi Network using the web. Source IP: 192.168.178.191"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791459316,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w5083c20876",
-   "kind": "snap_gone",
-   "group": "snap",
-   "tell": true,
-   "attack": "T1490",
-   "time": 1791436254,
-   "last": 1791438876,
-   "count": 2,
-   "open": false,
-   "t": {
-    "where": "cache",
-    "names": "cache/paperless@t",
-    "datasets": "cache/paperless"
-   },
-   "p": {
-    "where": "cache",
-    "fs": "zfs",
-    "datasets": [
-     "cache/paperless"
-    ],
-    "names": [
-     "cache/paperless@t"
-    ],
-    "series": [
-     "t"
-    ],
-    "held": 0,
-    "history": [
-     "2026-10-08 07:07:23 zfs destroy -r cache/paperless [user 0 (root) on FamilienServer:linux]"
-    ],
-    "evidence": [
-     "07:49:09 nfsrahead[327985]: skipping non-NFS device zfs-8"
-    ]
-   },
-   "noted": 1791444451,
-   "by": "page",
-   "told": 1791436254,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w4c7a66770e",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791437965,
-   "last": 1791437965,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (WebGUI), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791436629,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "web"
-     },
-     {
-      "t": 1791437961,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791437966,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w4446c99b98",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791437888,
-   "last": 1791437888,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791437945,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791437946,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wcb41de23c5",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791436717,
-   "last": 1791436717,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (WebGUI), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791436629,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "web"
-     },
-     {
-      "t": 1791436685,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791436718,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w31bf64e671",
-   "kind": "array_stop",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791436685,
-   "last": 1791436685,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (WebGUI), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791436629,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "web"
-     },
-     {
-      "t": 1791436685,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791436686,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w967f303e44",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791436252,
-   "last": 1791436252,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791436251,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791436254,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "wbddd76b648",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791436176,
-   "last": 1791436176,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791436225,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791436234,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wefd5a94556",
-   "kind": "cron_file",
-   "group": "sched",
-   "tell": false,
-   "attack": "T1053.003",
-   "time": 1791408027,
-   "last": 1791408027,
-   "count": 1,
-   "open": false,
-   "t": {
-    "file": "unraid-secretary-office/unraid-secretary-office.cron",
-    "plugin": "unraid-secretary-office",
-    "lines": 1,
-    "jobs": "30 4 * * * bash unraid-secretary-office/scripts/job.sh backup"
-   },
-   "p": {
-    "file": "unraid-secretary-office/unraid-secretary-office.cron",
-    "plugin": "unraid-secretary-office",
-    "new": true,
-    "office": true,
-    "lines": 1,
-    "jobs": [
-     "30 4 * * * bash unraid-secretary-office/scripts/job.sh backup"
-    ]
-   },
-   "noted": 1791408027,
-   "by": "schedule",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w0ff91622ed",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791371601,
-   "last": 1791371601,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791371601,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791371602,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w2d6da8a8cd",
-   "kind": "array_stop",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791371576,
-   "last": 1791371576,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791371576,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791371578,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w2dfd00c23e",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791366392,
-   "last": 1791366392,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (WebGUI), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791366098,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "web"
-     },
-     {
-      "t": 1791366383,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791366393,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w7c215ef4b8",
-   "kind": "server_boot",
-   "group": "array",
-   "tell": false,
-   "attack": "T1529",
-   "time": 1791366322,
-   "last": 1791366322,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791366373,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791366373,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w734cd95f15",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791366223,
-   "last": 1791366223,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (WebGUI), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791366098,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "web"
-     },
-     {
-      "t": 1791366223,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791366224,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w44d7b19c43",
-   "kind": "array_stop",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791365886,
-   "last": 1791365886,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (WebGUI), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791365651,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "web"
-     },
-     {
-      "t": 1791365886,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791365887,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wdba5bdde33",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791364288,
-   "last": 1791364288,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791364287,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791364289,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w68f3698957",
-   "kind": "listen_new",
-   "group": "host",
-   "tell": true,
-   "attack": "T1133",
-   "time": 1791363931,
-   "last": 1791363931,
-   "count": 1,
-   "open": true,
-   "t": {
-    "prog": "php",
-    "port": "4567"
-   },
-   "p": {
-    "prog": "php",
-    "port": 4567,
-    "addr": [
-     "*"
-    ],
-    "key": "tcp:4567"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791363931,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "wcef47810c4",
-   "kind": "at_job",
-   "group": "sched",
-   "tell": true,
-   "attack": "T1053.002",
-   "time": 1791361644,
-   "last": 1791361644,
-   "count": 1,
-   "open": false,
-   "t": {
-    "cmd": "sleep 10; /usr/local/emhttp/webGui/scripts/reload_services",
-    "when": "2026-10-07 10:27"
-   },
-   "p": {
-    "job": "=0000701c7911b",
-    "when": 1791361620,
-    "cmd": "sleep 10; /usr/local/emhttp/webGui/scripts/reload_services",
-    "uid": 0
-   },
-   "noted": 1791361950,
-   "by": "unraid",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w3935c23946",
-   "kind": "array_start",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791361643,
-   "last": 1791361643,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.125 (SSH (publickey)), root@192.168.178.136 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791360498,
-      "ip": "192.168.178.125",
-      "user": "root",
-      "service": "ssh:publickey"
-     },
-     {
-      "t": 1791361631,
-      "ip": "192.168.178.136",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791361644,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": false
-  },
-  {
-   "id": "w4b839bcde0",
-   "kind": "listen_new",
-   "group": "host",
-   "tell": true,
-   "attack": "T1133",
-   "time": 1791360748,
-   "last": 1791360748,
-   "count": 1,
-   "open": true,
-   "t": {
-    "prog": "php",
-    "port": "4444"
-   },
-   "p": {
-    "prog": "php",
-    "port": 4444,
-    "addr": [
-     "*"
-    ],
-    "key": "tcp:4444"
-   },
-   "noted": null,
-   "by": null,
-   "told": 1791360748,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "we2c751ce61",
-   "kind": "array_stop",
-   "group": "array",
-   "tell": false,
-   "attack": "T1489",
-   "time": 1791360447,
-   "last": 1791360447,
-   "count": 1,
-   "open": false,
-   "t": {
-    "who": "root@192.168.178.125 (SSH (publickey))"
-   },
-   "p": {
-    "logins": [
-     {
-      "t": 1791360446,
-      "ip": "192.168.178.125",
-      "user": "root",
-      "service": "ssh:publickey"
-     }
-    ]
-   },
-   "noted": 1791360448,
-   "by": "array",
-   "told": null,
-   "muted": null,
-   "night": true
-  },
-  {
-   "id": "w10bd9b6781",
-   "kind": "at_job",
-   "group": "sched",
-   "tell": true,
-   "attack": "T1053.002",
-   "time": 1791358611,
-   "last": 1791358611,
-   "count": 1,
-   "open": false,
-   "t": {
-    "cmd": "sleep 10; /usr/local/emhttp/webGui/scripts/reload_services",
-    "when": "2026-10-07 09:36"
-   },
-   "p": {
-    "job": "=0000401c790e8",
-    "when": 1791358560,
-    "cmd": "sleep 10; /usr/local/emhttp/webGui/scripts/reload_services",
-    "uid": 0
-   },
-   "noted": 1791361950,
-   "by": "unraid",
-   "told": 1791358611,
    "muted": null,
    "night": false
   },
@@ -1974,8 +154,8 @@
    "group": "container",
    "tell": true,
    "attack": "T1610",
-   "time": 1791322792,
-   "last": 1791322792,
+   "time": 1791466274,
+   "last": 1791466274,
    "count": 1,
    "open": true,
    "t": {
@@ -1993,66 +173,90 @@
    },
    "noted": null,
    "by": null,
-   "told": 1791322792,
+   "told": 1791466274,
    "muted": null,
    "night": false
   },
   {
-   "id": "w6477d0ca59",
+   "id": "w41acb2239b",
    "kind": "login_new_ip",
    "group": "login",
    "tell": true,
    "attack": "T1078",
-   "time": 1791312684,
-   "last": 1791312776,
-   "count": 6,
-   "open": true,
+   "time": 1791311474,
+   "last": 1791455474,
+   "count": 212,
+   "open": false,
    "t": {
-    "ip": "192.168.179.2",
+    "ip": "192.168.178.20",
     "user": "root",
-    "service": "SSH (publickey)"
+    "service": "WebGUI"
    },
    "p": {
-    "ip": "192.168.179.2",
+    "ip": "192.168.178.20",
     "users": [
      "root"
     ],
     "services": [
-     "ssh:publickey"
+     "web"
     ]
    },
-   "noted": null,
-   "by": null,
-   "told": 1791312892,
+   "noted": 1791315074,
+   "by": "page",
+   "told": 1791311474,
    "muted": null,
    "night": false
   },
   {
-   "id": "w5c519c4a94",
-   "kind": "container_new",
-   "group": "container",
+   "id": "wa92b5cedfc",
+   "kind": "plugin_new",
+   "group": "plugin",
    "tell": true,
-   "attack": "T1610",
-   "time": 1791307476,
-   "last": 1791307476,
+   "attack": "T1543",
+   "time": 1791383474,
+   "last": 1791383474,
    "count": 1,
    "open": true,
    "t": {
-    "name": "Node-Exporter",
-    "rights": "--network=host --pid=host -v /"
+    "name": "fix.common.problems",
+    "source": "raw.githubusercontent.com/unraid"
    },
    "p": {
-    "name": "Node-Exporter",
-    "image": "quay.io/prometheus/node-exporter:latest-distroless",
-    "tokens": [
-     "--network=host",
-     "--pid=host",
-     "-v /"
-    ]
+    "name": "fix.common.problems",
+    "source": "raw.githubusercontent.com/unraid",
+    "version": "2026.05.16"
    },
    "noted": null,
    "by": null,
-   "told": 1791307476,
+   "told": 1791383474,
+   "muted": null,
+   "night": false
+  },
+  {
+   "id": "w3bf6add5b4",
+   "kind": "partner_paired",
+   "group": "partner",
+   "tell": false,
+   "attack": "T1098.004",
+   "time": 1791347474,
+   "last": 1791347474,
+   "count": 1,
+   "open": false,
+   "t": {
+    "name": "Grosseltern",
+    "address": "100.84.12.7"
+   },
+   "p": {
+    "id": "26bbb6eb",
+    "name": "Grosseltern",
+    "address": "100.84.12.7",
+    "from": "100.84.12.7",
+    "fp": "SHA256:a5468f92e0a6163490789d48cefd68cb2e783c9ee63",
+    "installed_by": "teamlead"
+   },
+   "noted": 1791347474,
+   "by": "office",
+   "told": null,
    "muted": null,
    "night": false
   },
@@ -2062,8 +266,8 @@
    "group": "watch",
    "tell": false,
    "attack": null,
-   "time": 1791306276,
-   "last": 1791306276,
+   "time": 1791304274,
+   "last": 1791304274,
    "count": 1,
    "open": false,
    "t": {
@@ -2071,7 +275,7 @@
     "containers": 0,
     "special": 0,
     "plugins": 3,
-    "shares": 8,
+    "shares": 9,
     "open": 0
    },
    "p": {
@@ -2079,7 +283,7 @@
     "containers": 0,
     "special": 0,
     "plugins": 3,
-    "shares": 8,
+    "shares": 9,
     "open": 0
    },
    "noted": null,
@@ -2356,8 +560,8 @@
   }
  },
  "flow": {
-  "since": 1791306276,
-  "days": 2,
+  "since": 1791304274,
+  "days": 3,
   "learn": 7,
   "last": 1791563474,
   "can": {
@@ -3085,49 +1289,8 @@
  "syslog": {
   "on": false
  },
- "chains": [
-  {
-   "ids": [
-    "wdc05fb1798",
-    "wd5e04cb7da"
-   ],
-   "groups": [
-    "container",
-    "login"
-   ],
-   "first": 1791322792,
-   "last": 1791323648
-  },
-  {
-   "ids": [
-    "w3b41b7080b",
-    "wd3eabf582d"
-   ],
-   "groups": [
-    "host",
-    "flow"
-   ],
-   "first": 1791437018,
-   "last": 1791437618
-  },
-  {
-   "ids": [
-    "w8825237f13",
-    "w8023c95ba4"
-   ],
-   "groups": [
-    "flow",
-    "net"
-   ],
-   "first": 1791457951,
-   "last": 1791459039
-  }
- ],
- "night": {
-  "since": 1791530689,
-  "until": 1791530713,
-  "from": "flash"
- },
+ "chains": [],
+ "night": null,
  "limits": {
   "every": 300,
   "burst": 5,

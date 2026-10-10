@@ -124,5 +124,27 @@
   ],
   "viewport": true,
   "height": 1000
+ },
+ {
+  "nr": 6,
+  "desk": "watchman",
+  "moment": "book",
+  "title": "Der Nachtwächter - das Wachbuch: was anders war als sonst, mit «Weiss ich, danke»",
+  "route": "watchman",
+  "clip": [
+   "[data-place=\"book.title\"]",
+   ".wm-book"
+  ]
+ },
+ {
+  "nr": 6,
+  "desk": "watchman",
+  "moment": "watch",
+  "title": "Der Nachtwächter - auf Wache seit drei Tagen, Lernmodus bis nächste Woche",
+  "route": "watchman",
+  "clip": [
+   "[data-place=\"round.title\"]",
+   "#sso-desk .stats"
+  ]
  }
 ]
