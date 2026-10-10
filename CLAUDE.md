@@ -207,8 +207,13 @@ installed plugin (see the checklist).
   with `state/setup-plan.json` / `setup-status.json`). Never parse its log
   lines for anything new — extend the interface; reasons go out as codes
   (why/ctwhy) so the office can translate them — setup.sh's messages too, where the office should say them itself
-  (engine 2.34: `hint_code`, messages[] `code` + `params` → `setup.msg.<code>`, desk.js `setupMsgText()`; the server's
-  name from ident.cfg, `ub_host_name()`, never settings.ini's `[general] server`). Version lives in backup.sh, setup.sh, lib/common.sh and
+  (engine 2.34: `hint_code`, messages[] `code` + `params` → `setup.msg.<code>`; the server's
+  name from ident.cfg, `ub_host_name()`, never settings.ini's `[general] server`). **Since 2.39 every hint and warning
+  has a code** (`hint_as` / `wrn_as <code> <text> [key value]…`, `wrn_code` with JSON; a second line `more`): a new one
+  gets a code and `setup.msg.<code>` in all five languages (`testSetupMessages` greps setup.sh for them). setup_get
+  answers `notes` (`backupSetupNotes()`: one entry per level and code, an item per message; Docker volumes judged cache
+  or data, `backupVolumeIsCache()`), desk.js `setupNoteItems()` says them — `<code>_group` ({n}) / `_item` for several,
+  `_why` for what it means and what to do; an unknown code shows the engine's text. `ok` and `error` lines stay text. Version lives in backup.sh, setup.sh, lib/common.sh and
   backup/README.md. backup.sh and setup.sh are one `{ … }` block (since 2.14),
   so bash has read all of it before a run starts; keep it that way (code goes
   inside the block) and still replace files with a new file + `mv`, never by
