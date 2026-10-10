@@ -14,7 +14,7 @@ declare(strict_types=1);
  *   OFFICE_DATA_DIR   another data folder than the plugin's DATA_DIR
  */
 
-const OFFICE_VERSION = '1.56.2';
+const OFFICE_VERSION = '1.57.0';
 // where the tip jar leads after hiring someone ('' = no button, only the thank-you)
 const OFFICE_TIP_URL = 'https://paypal.me/dropnook';
 // the support page (OFFICE_SUPPORT_URL) lives in place.php since 1.48: the agent asks it for a tip's key (a claim)
