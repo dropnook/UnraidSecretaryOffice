@@ -2704,7 +2704,7 @@ function renderSetup() {
   const old = (plan.kopia.sources || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
   if (old.length) root.appendChild(fitStep(() => setupSources(old)));
   setupFilterDone();
-  root.appendChild(setupMessages(plan.messages));
+  root.appendChild(setupMessages(setupNotes(plan)));
   setupBar();
   if (target) Office.reveal(target.anchor, { part: target.part, name: target.name });
 }
@@ -2718,10 +2718,10 @@ function appliedCard(run) {
     b.disabled = !Office.agent.running;
     box.append(' ', T('schedule.after_setup'), ' ', b);
   }
-  const bad = (run.messages || []).filter((m) => m.level === 'error' || m.level === 'warn');
+  const bad = setupNotes(run).filter((g) => g.level === 'error' || g.level === 'warn');
   if (bad.length) {
     const ul = el('ul', 'bk-msgs');
-    bad.forEach((m) => ul.appendChild(el('li', msgClass(m), setupMsgText(m))));
+    bad.forEach((g) => setupNoteItems(g, false).forEach((li) => ul.appendChild(li)));
     box.appendChild(ul);
   }
   return box;
@@ -3872,27 +3872,74 @@ function setupSources(old) {
 const msgClass = (m) => 'bk-msg-' + String(m.level || 'info').replace(/[^a-z]/g, '');
 
 /**
- * A setup message in the office's words when the engine gave it a code (engine 2.34: messages[] `code` + `params` →
- * setup.msg.<code>; the server named as the Team Lead's menu does), else the engine's English text
+ * The setup's messages grouped (setup_get's `notes` beside `messages`, backupSetupNotes(): one entry per level and code
+ * with an item per message; engine 2.39 codes every hint and warning); an answer without them: one entry per message
  */
-function setupMsgText(m) {
-  if (!m.code || !Office.has(`${ID}.setup.msg.${m.code}`)) return m.text;
-  const p = m.params && typeof m.params === 'object' ? m.params : {};
-  return T('setup.msg.' + m.code, { ...p, host: Office.config.host || p.host || '' });
+const setupNotes = (o) => (o && Array.isArray(o.notes) ? o.notes
+  : ((o && o.messages) || []).map((m) => ({ level: m.level, step: m.step, code: m.code, items: [{ text: m.text, params: m.params }] })));
+
+/**
+ * A coded message's params for T(): a count as a number (plurals), a partner's reason (`pwhy`) in the office's words,
+ * the server named as the Team Lead's menu does (`host`, engine 2.34)
+ */
+function setupMsgParams(params) {
+  const p = { ...(params && typeof params === 'object' && !Array.isArray(params) ? params : {}) };
+  Object.keys(p).forEach((k) => { if (typeof p[k] === 'string' && /^\d{1,9}$/.test(p[k])) p[k] = Number(p[k]); });
+  if (p.pwhy !== undefined) p.pwhy = Office.has(`${ID}.partner.why_short.${p.pwhy}`) ? T('partner.why_short.' + p.pwhy) : String(p.pwhy);
+  p.host = Office.config.host || p.host || '';
+  return p;
 }
 
-function setupMessages(msgs) {
+/**
+ * The list items of one grouped setup message. A code the office knows: `setup.msg.<code>` per item; several items
+ * under `setup.msg.<code>_group` ({n}) as one entry listing them (`<code>_item` each, else the full line) when the
+ * group has such a heading, else a line each; `<code>_why` (what it means, what to do) once under the last line. A code
+ * it doesn't know, or none: the engine's English text with its second lines — never lost.
+ */
+function setupNoteItems(g, withStep) {
+  const head = (li) => { if (withStep) li.appendChild(el('span', 'bk-step', T('setup.step.' + (g.step || 'other')))); return li; };
+  const items = Array.isArray(g.items) ? g.items : [];
+  const key = 'setup.msg.' + g.code;
+  if (!g.code || !Office.has(`${ID}.${key}`)) {
+    return items.map((it) => {
+      const li = head(el('li', msgClass(g)));
+      li.appendChild(el('div', 'bk-msg-body', [it.text, ...(it.more || [])].filter(Boolean).join(' ')));
+      return li;
+    });
+  }
+  const lis = [];
+  if (items.length > 1 && Office.has(`${ID}.${key}_group`)) {
+    const li = head(el('li', msgClass(g)));
+    const body = li.appendChild(el('div', 'bk-msg-body', T(key + '_group', { ...setupMsgParams(items[0].params), n: items.length })));
+    const ul = body.appendChild(el('ul', 'bk-msg-items'));
+    const itemKey = Office.has(`${ID}.${key}_item`) ? key + '_item' : key;
+    items.forEach((it) => ul.appendChild(el('li', '', T(itemKey, setupMsgParams(it.params)))));
+    lis.push(li);
+  } else {
+    items.forEach((it) => {
+      const li = head(el('li', msgClass(g)));
+      li.appendChild(el('div', 'bk-msg-body', T(key, setupMsgParams(it.params))));
+      lis.push(li);
+    });
+  }
+  if (lis.length && Office.has(`${ID}.${key}_why`)) {
+    lis[lis.length - 1].lastChild.appendChild(el('div', 'bk-msg-why', T(key + '_why', setupMsgParams(items[0].params))));
+  }
+  return lis;
+}
+
+function setupMessages(notes) {
   const s = section(T('setup.messages'), T('setup.messages_sub'), { place: 'setup.messages' });
-  const counts = { error: 0, warn: 0 };
-  (msgs || []).forEach((m) => { if (counts[m.level] !== undefined) counts[m.level]++; });
-  const det = keepFold(el('details', 'bk-log'), 'messages', !!(counts.error || counts.warn));
-  det.appendChild(el('summary', '', T('setup.messages_sum', { messages: nOf('messages', (msgs || []).length), errors: nOf('errors', counts.error), warnings: nOf('warnings', counts.warn) })));
-  const ul = el('ul', 'bk-msgs');
-  (msgs || []).forEach((m) => {
-    const li = el('li', msgClass(m));
-    li.append(el('span', 'bk-step', T('setup.step.' + (m.step || 'other'))), setupMsgText(m));
-    ul.appendChild(li);
+  const counts = { all: 0, error: 0, warn: 0 };
+  notes.forEach((g) => {
+    const n = (g.items || []).length;
+    counts.all += n;
+    if (counts[g.level] !== undefined) counts[g.level] += n;
   });
+  const det = keepFold(el('details', 'bk-log'), 'messages', !!(counts.error || counts.warn));
+  det.appendChild(el('summary', '', T('setup.messages_sum', { messages: nOf('messages', counts.all), errors: nOf('errors', counts.error), warnings: nOf('warnings', counts.warn) })));
+  const ul = el('ul', 'bk-msgs');
+  notes.forEach((g) => setupNoteItems(g, true).forEach((li) => ul.appendChild(li)));
   det.appendChild(ul);
   s.appendChild(det);
   return s;

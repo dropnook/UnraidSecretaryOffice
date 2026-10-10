@@ -2114,12 +2114,135 @@ function backupSetupGet(): array
         }
         unset($share);
     }
+    $run = readJson("$data/state/setup-status.json");
+    if (is_array($plan)) {
+        $plan['notes'] = backupSetupNotes($plan['messages'] ?? null);   // the messages grouped, for the page
+    }
+    if (is_array($run)) {
+        $run['notes'] = backupSetupNotes($run['messages'] ?? null);
+    }
     return [
         'ok'     => true,
         'status' => backupSetupStatus(),
-        'run'    => readJson("$data/state/setup-status.json"),
+        'run'    => $run,
         'plan'   => $plan,
     ];
+}
+
+/**
+ * The setup's messages (a plan's or the last apply's) as the page shows them — `notes` beside `messages`. Engine 2.39
+ * gives every hint and warning a `code` and `params` (2.34: the «not agreed» hints); the page says a code in its own
+ * words (`setup.msg.<code>`, desk.js `setupNoteItems()`). Messages of the same level and code make ONE entry with an
+ * item each (three apps with Docker volumes → one entry listing them), in the order they came; a message with the code
+ * `more` is the second line of the one before it (kept as that item's `more`, shown only where the page falls back to
+ * the English). Docker volumes are judged here (`backupVolumeItems()`): cache or real data. A message without a code
+ * (ok and error lines, an older engine's plan, a code of an unknown shape) stays an entry of its own with its text —
+ * never lost. Pure.
+ *
+ * @return list<array{level: string, step: string, code?: string, items: list<array{text: string, params?: array, more?: list<string>}>}>
+ */
+function backupSetupNotes(mixed $messages): array
+{
+    if (!is_array($messages)) {
+        return [];
+    }
+    $str = fn ($v) => is_scalar($v) ? (string) $v : '';
+    $out = [];
+    $at = [];           // "<level>|<code>" → its entry
+    $last = null;       // [entry, item] the next `more` line belongs to
+    foreach ($messages as $m) {
+        if (!is_array($m)) {
+            continue;
+        }
+        $level = $str($m['level'] ?? '') ?: 'info';
+        $step = $str($m['step'] ?? '');
+        $text = $str($m['text'] ?? '');
+        $code = $str($m['code'] ?? '');
+        if ($code === 'more' && $last !== null) {
+            $out[$last[0]]['items'][$last[1]]['more'][] = trim($text);
+            continue;
+        }
+        if ($code === '' || $code === 'more' || !preg_match('/^[a-z][a-z0-9_]{0,63}$/D', $code)) {
+            $out[] = ['level' => $level, 'step' => $step, 'items' => [['text' => $text]]];
+            $last = [array_key_last($out), 0];
+            continue;
+        }
+        $params = is_array($m['params'] ?? null) ? $m['params'] : [];
+        $items = $code === 'docker_volumes' ? backupVolumeItems($params, $text)
+            : [[$code, ['text' => $text, 'params' => backupNoteParams($params)]]];
+        foreach ($items as [$c, $item]) {
+            $k = "$level|$c";
+            if (!isset($at[$k])) {
+                $out[] = ['level' => $level, 'step' => $step, 'code' => $c, 'items' => []];
+                $at[$k] = array_key_last($out);
+            }
+            $out[$at[$k]]['items'][] = $item;
+            $last = [$at[$k], array_key_last($out[$at[$k]]['items'])];
+        }
+    }
+    return $out;
+}
+
+/** A coded message's params as the page fills them in: names of a placeholder's shape, values plain text (≤ 500 characters) */
+function backupNoteParams(array $params): array
+{
+    $out = [];
+    foreach ($params as $k => $v) {
+        if (is_string($k) && preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $k) && (is_scalar($v) || $v === null)) {
+            $out[$k] = mb_substr((string) $v, 0, 500);
+        }
+    }
+    return $out;
+}
+
+/**
+ * The Docker volumes warning (engine 2.39: `docker_volumes` {app, volumes: [{name, target}]}) as items of
+ * `volumes_cache` (only caches that fill themselves again — `backupVolumeIsCache()` — harmless) and `volumes_data`
+ * (real data, not in the backup: bind-mount it into appdata); an app with both gets one of each. `paths` lists the
+ * paths in the container, a named volume's name beside its path; `n` how many. Without a usable list (another shape):
+ * the message as it came, under its own code — the page then shows the engine's text.
+ *
+ * @return list<array{0: string, 1: array}>
+ */
+function backupVolumeItems(array $params, string $text): array
+{
+    $app = is_scalar($params['app'] ?? null) ? mb_substr((string) $params['app'], 0, 200) : '';
+    $kinds = ['volumes_data' => [], 'volumes_cache' => []];
+    foreach (is_array($params['volumes'] ?? null) ? $params['volumes'] : [] as $v) {
+        if (!is_array($v)) {
+            continue;
+        }
+        $name = is_scalar($v['name'] ?? null) ? mb_substr((string) $v['name'], 0, 200) : '';
+        $target = is_scalar($v['target'] ?? null) ? mb_substr((string) $v['target'], 0, 300) : '';
+        if ($name === '' && $target === '') {
+            continue;
+        }
+        $label = $target === '' ? $name : ($name === '' ? $target : "$target ($name)");
+        $kinds[backupVolumeIsCache($target, $name) ? 'volumes_cache' : 'volumes_data'][] = $label;
+    }
+    $items = [];
+    foreach ($kinds as $code => $labels) {
+        if ($labels) {
+            $items[] = [$code, ['text' => $text, 'params' => ['app' => $app, 'paths' => implode(', ', $labels), 'n' => count($labels)]]];
+        }
+    }
+    return $items ?: [['docker_volumes', ['text' => $text, 'params' => backupNoteParams($params)]]];
+}
+
+/**
+ * Whether a Docker volume looks like a cache that fills itself again (downloaded models, thumbnails, temporary files):
+ * a part of its path in the container is cache/caches/.cache/tmp/temp/transcode(s) (`/cache`, `/root/.cache/huggingface`,
+ * `/var/tmp`), or its name has cache/tmp/temp as a word of its own (`model-cache`). Everything else counts as real data —
+ * when in doubt the page says «data» and how to keep it.
+ */
+function backupVolumeIsCache(string $target, string $name): bool
+{
+    foreach (explode('/', strtolower($target)) as $part) {
+        if (preg_match('/^\.?(cache|caches|tmp|temp|transcode|transcodes|transcoding)$/D', $part)) {
+            return true;
+        }
+    }
+    return $name !== '' && (bool) preg_match('/(^|[-_.])(cache|caches|tmp|temp)([-_.]|$)/D', strtolower($name));
 }
 
 const BACKUP_REPLAN_FILE = 'setup-replan.json';     // in the engine's state/: the office's note of its plan anew after an update

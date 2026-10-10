@@ -3870,7 +3870,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.38'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.39'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -5510,7 +5510,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.38', [1, '2.38'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -5543,13 +5543,14 @@ SH);
     check('setup plan 2.29: … and said: ask at the Team Lead (2.34: the server as ident.cfg names it)',
         str_contains($out, 'share:docs: not agreed with vault yet - ask at the Team Lead («Change what Fixture sends…»)'), $out);
     // 2.34: as a code the office translates (setup.msg.<code>), the share by its name, not the unit id (QA 2026-10-08, finding 10)
-    $coded = array_values(array_filter($plan['messages'] ?? [], fn ($m) => isset($m['code'])));
+    // (2.39: every hint and warning has a code - the «not agreed» ones are looked at here, the rest in testSetupMessages)
+    $coded = array_values(array_filter($plan['messages'] ?? [], fn ($m) => str_starts_with((string) ($m['code'] ?? ''), 'not_agreed')));
     same('setup plan 2.34: the «not agreed» hint as a code with its params', [['level' => 'hint', 'code' => 'not_agreed_share', 'params' => ['name' => 'docs', 'partner' => 'vault', 'host' => 'Fixture']]],
         array_map(fn ($m) => array_intersect_key($m, ['level' => 1, 'code' => 1, 'params' => 1]), $coded));
     check('setup plan 2.34: … the English text beside it; other messages without a code', ($coded[0]['text'] ?? '') !== '' && !array_filter($plan['messages'] ?? [], fn ($m) => array_key_exists('params', $m) && !isset($m['code'])));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
     check('setup plan 2.34: … the office has its words', isset($en['setup.msg.not_agreed_share'], $en['setup.msg.not_agreed_vm'], $en['setup.msg.not_agreed_place'], $en['setup.msg.place_not_agreed'])
-        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "T('setup.msg.' + m.code"));
+        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "const key = 'setup.msg.' + g.code"));
     // 2.33: the backup place's share is the unit `place` for a partner - its row takes the agreement of `place`, like place_partner
     // (up to 2.32 it looked for share:UnraidSecretaryOffice, said not_agreed, and the office showed it on the place - a partner test server, 2026-10-08)
     same('setup plan 2.33: the backup place\'s share row - agreed as `place`, partner_ok true', [true, true, null],
@@ -6020,7 +6021,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.38', [1, '2.38'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -26443,11 +26444,228 @@ function testHiddenStoreroom(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Engine 2.39: every hint and warning of the setup carries a code and params, and the office says them in its own words
+ * (backupSetupNotes() groups them for the page, desk.js setupNoteItems() renders `setup.msg.<code>`). The parser (codes,
+ * params, `more` lines, grouping, a fallback to the text for anything without a known shape, Docker volumes judged as
+ * cache or data), the strings (every code the engine can send has its words in all five languages, groups and their
+ * items fit together, no internal script names) and setup.sh --plan on a fixture server (stand-ins for docker with
+ * Kopia inside, zfs, virsh, mount and notify on PATH): the volumes, the Kopia sources and no hint or warning uncoded.
+ */
+function testSetupMessages(): void
+{
+    // --- the parser
+    $msgs = [
+        ['level' => 'ok', 'step' => 'environment', 'text' => 'zfs present'],
+        ['level' => 'warn', 'step' => 'containers', 'text' => "'ml' uses Docker volumes", 'code' => 'docker_volumes',
+         'params' => ['app' => 'ml', 'volumes' => [['name' => 'model-cache', 'target' => '/cache']]]],
+        ['level' => 'hint', 'step' => 'containers', 'text' => '         Fix: in the template, map a path', 'code' => 'more', 'params' => []],
+        ['level' => 'warn', 'step' => 'containers', 'text' => "'web' uses Docker volumes", 'code' => 'docker_volumes',
+         'params' => ['app' => 'web', 'volumes' => [['name' => '', 'target' => '/data']]]],
+        ['level' => 'warn', 'step' => 'containers', 'text' => "'db' uses Docker volumes", 'code' => 'docker_volumes',
+         'params' => ['app' => 'db', 'volumes' => [['name' => 'pgdata', 'target' => '/var/lib/postgresql/data'], ['name' => '', 'target' => '/tmp']]]],
+        ['level' => 'warn', 'step' => 'sources', 'text' => 'orphaned  /uso/a', 'code' => 'source_orphan', 'params' => ['path' => '/uso/a', 'source' => 'root@k:/uso/a']],
+        ['level' => 'warn', 'step' => 'sources', 'text' => 'orphaned  /uso/b', 'code' => 'source_orphan', 'params' => ['path' => '/uso/b', 'big' => ['x'], 'Bad-Key' => 'y', 'long' => str_repeat('z', 600)]],
+        ['level' => 'hint', 'step' => 'sources', 'text' => 'same code, another level', 'code' => 'source_orphan', 'params' => ['path' => '/uso/c']],
+        ['level' => 'hint', 'step' => 'basis', 'text' => 'an odd code', 'code' => 'Not-A-Code', 'params' => ['x' => '1']],
+        ['level' => 'hint', 'step' => 'basis', 'text' => 'a lone second line', 'code' => 'more'],      // follows the odd code
+        'not a message',
+    ];
+    $n = backupSetupNotes(array_merge([['level' => 'hint', 'step' => 'x', 'text' => 'first', 'code' => 'more']], $msgs));
+    same('setup messages: a `more` with nothing before it is a line of its own', [['level' => 'hint', 'step' => 'x', 'items' => [['text' => 'first']]]], array_slice($n, 0, 1));
+    $n = backupSetupNotes($msgs);
+    same('setup messages: grouped by level and code in the order they came; ok and odd codes stay lines of their own',
+        [['ok', null, 1], ['warn', 'volumes_cache', 2], ['warn', 'volumes_data', 2], ['warn', 'source_orphan', 2], ['hint', 'source_orphan', 1], ['hint', null, 1]],
+        array_map(fn ($g) => [$g['level'], $g['code'] ?? null, count($g['items'])], $n));
+    same('setup messages: Docker volumes judged - a cache (its path or name says so) apart from real data, an app with both in each; the names beside the paths',
+        [[['app' => 'ml', 'paths' => '/cache (model-cache)', 'n' => 1], ['app' => 'db', 'paths' => '/tmp', 'n' => 1]],
+         [['app' => 'web', 'paths' => '/data', 'n' => 1], ['app' => 'db', 'paths' => '/var/lib/postgresql/data (pgdata)', 'n' => 1]]],
+        [array_column($n[1]['items'], 'params'), array_column($n[2]['items'], 'params')]);
+    same('setup messages: the `more` line belongs to the message before it (trimmed), the engine\'s text kept',
+        [['Fix: in the template, map a path'], "'ml' uses Docker volumes"], [$n[1]['items'][0]['more'] ?? null, $n[1]['items'][0]['text']]);
+    same('setup messages: params - only names of a placeholder\'s shape, plain text, at most 500 characters',
+        ['path' => '/uso/b', 'long' => str_repeat('z', 500)], $n[3]['items'][1]['params']);
+    same('setup messages: an odd code falls back to the text, a `more` after it is its second line', [['text' => 'an odd code', 'more' => ['a lone second line']]], $n[5]['items']);
+    same('setup messages: an older plan without codes - one entry per message, its text', [['level' => 'warn', 'step' => 's', 'items' => [['text' => 'raw']]]],
+        backupSetupNotes([['level' => 'warn', 'step' => 's', 'text' => 'raw']]));
+    same('setup messages: nothing usable - none', [[], []], [backupSetupNotes(null), backupSetupNotes('x')]);
+    same('setup messages: volumes of another shape - the code as it came (the page shows the text)', ['docker_volumes', ['app' => 'x', 'volumes' => 'no']],
+        [backupSetupNotes([['level' => 'warn', 'text' => 't', 'code' => 'docker_volumes', 'params' => ['app' => 'x', 'volumes' => 'no']]])[0]['code'] ?? null,
+         backupSetupNotes([['level' => 'warn', 'text' => 't', 'code' => 'docker_volumes', 'params' => ['app' => 'x', 'volumes' => 'no']]])[0]['items'][0]['params'] ?? null]);
+    $cache = [];
+    foreach ([['/cache', ''], ['/root/.cache/huggingface', ''], ['/var/tmp', ''], ['/config/transcodes', ''], ['/data', 'model-cache'], ['/x', 'app_tmp'],
+              ['/data', ''], ['/config', ''], ['/var/lib/mysql', 'db'], ['/cached-data', ''], ['/models', 'cachet'], ['/temperature', '']] as [$t, $nm]) {
+        $cache[] = backupVolumeIsCache($t, $nm) ? 1 : 0;
+    }
+    same('setup messages: what counts as a cache - a path part or a name word cache/tmp/temp/transcode(s); else data', [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], $cache);
+
+    // --- the strings: every code the engine sends has the office's words
+    $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
+    preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code) "?([a-z][a-z0-9_]*)/', $sh, $m);
+    $codes = array_values(array_unique(array_filter($m[1], fn ($c) => !str_ends_with($c, '_'))));
+    preg_match_all('/\b(?:hint_as|wrn_as|hint_code) "([a-z_]+)_\$/', $sh, $dyn);
+    $more = [];
+    foreach (array_unique($dyn[1]) as $d) {
+        $more = array_merge($more, match ($d) {
+            'vm_no_snapshot' => ['vm_no_snapshot_block', 'vm_no_snapshot_live', 'vm_no_snapshot_missing', 'vm_no_snapshot_none'],
+            'partner_cannot', 'partner_off', 'not_agreed' => ["{$d}_share", "{$d}_vm", "{$d}_place"],
+            default => ["?$d"],
+        });
+    }
+    $codes = array_values(array_diff(array_merge($codes, $more), ['more', 'docker_volumes', 'vm_no_snapshot', 'partner_cannot', 'partner_off', 'not_agreed']));
+    check('setup messages: the engine\'s codes found (hint_as, wrn_as, wrn_code, hint_code; the built ones expanded)', count($codes) > 80 && !preg_grep('/^\?/', $codes), implode(' ', $codes));
+    $langs = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $langs[$l] = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+    }
+    $missing = [];
+    foreach (array_merge($codes, ['volumes_data', 'volumes_cache']) as $c) {
+        foreach ($langs as $l => $s) {
+            if (!isset($s["setup.msg.$c"])) {
+                $missing[] = "$l:$c";
+            }
+        }
+    }
+    same('setup messages: every code the engine sends has its words in all five languages (the volumes as cache and data)', [], $missing);
+    $en = $langs['en'];
+    $odd = [];
+    foreach (array_keys($en) as $k) {
+        if (preg_match('/^setup\.msg\.(.+)_(group|item|why)$/D', $k, $mm) && !isset($en["setup.msg.$mm[1]"])) {
+            $odd[] = "$k: no setup.msg.$mm[1]";
+        }
+        if (preg_match('/^setup\.msg\.(.+)_item$/D', $k, $mm) && !isset($en["setup.msg.$mm[1]_group"])) {
+            $odd[] = "$k: no _group";
+        }
+        if (preg_match('/^setup\.msg\.(.+)_group$/D', $k, $mm) && !str_contains((string) $en[$k], '{n}')) {
+            $odd[] = "$k: no {n}";
+        }
+    }
+    same('setup messages: a group\'s heading, its items and an explanation belong to a code; a heading counts {n}', [], $odd);
+    check('setup messages: the two examples asked for - the volumes say cache or data and what to do, the orphaned sources take space and are no longer thinned out (de)',
+        str_contains((string) $langs['de']['setup.msg.volumes_data_why'], '⟦Container Path⟧') && str_contains((string) $langs['de']['setup.msg.source_orphan'], 'die ich nicht mehr schicke')
+        && str_contains((string) $langs['de']['setup.msg.source_orphan_why'], 'nicht mehr ausgedünnt') && str_contains((string) ($langs['de']['setup.msg.volumes_cache']['one'] ?? ''), 'harmlos'));
+    preg_match_all('/STEP_ID=([a-z]+)/', $sh, $st);
+    same('setup messages: every step a message can come from has its name', [], array_values(array_filter(array_unique($st[1]), fn ($s) => !isset($en["setup.step.$s"]))));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('setup messages: the page renders the grouped notes (setup_get\'s notes) and falls back to the engine\'s text',
+        str_contains($js, 'function setupNoteItems(g, withStep)') && str_contains($js, "setupMessages(setupNotes(plan))") && str_contains($js, '[it.text, ...(it.more || [])]'));
+    check('setup messages: setup_get answers the notes beside plan and run', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "\$plan['notes'] = backupSetupNotes("));
+
+    // --- setup.sh --plan on a fixture server
+    $tmp = sys_get_temp_dir() . '/office-tests-setupmsg-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $pool = "$mnt/master";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    $data = "$tmp/data/unraid-backup";
+    foreach (["$tmp/bin", "$tmp/fake", "$data/state", "$tmp/boot/config/shares", "$root", "$mnt/user", "$pool/appdata/web", "$pool/appdata/kopia", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (['appdata', 'UnraidSecretaryOffice'] as $s) {
+        touch("$tmp/boot/config/shares/$s.cfg");
+    }
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+case "$1" in
+  info) exit 0 ;;
+  version) echo 29.0; exit 0 ;;
+  ps) printf 'id-kopia\nid-ml\nid-pg\nid-web\n'; exit 0 ;;
+  compose) exit 1 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *State.Running*) echo true ;;
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    shift
+    case "$1" in
+      cat) exit 0 ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list") echo '[]' ;;
+          "snapshot list") cat "$FAKE/snaps.json" ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *'-t filesystem'* ]] && cat \"\$FAKE/zfs.txt\"\nexit 0\n");
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nexit 1\n");
+    file_put_contents("$tmp/bin/umount", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nexit 0\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/fake/mounts", "master $pool zfs rw 0 0\nmaster/appdata $pool/appdata zfs rw 0 0\nmaster/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$tmp/fake/zfs.txt", $z('master', $pool, 1) . $z('master/appdata', "$pool/appdata", 5000) . $z('master/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"master\"]\nname=\"master\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    // Kopia's sources: one of a share it backs up, one under its root that is no share any more, one whose path is gone
+    // from the container, one of another identity
+    $src = fn ($u, $h, $p) => ['source' => ['userName' => $u, 'host' => $h, 'path' => $p], 'startTime' => '2026-10-01T02:00:00Z', 'stats' => ['totalSize' => 1]];
+    file_put_contents("$tmp/fake/snaps.json", json_encode([$src('root', 'kopia', '/uso/appdata'), $src('root', 'kopia', '/uso/oldshare'),
+        $src('root', 'kopia', '/backup-snapshots/olddata'), $src('admin', 'laptop', '/home/x')]));
+    $hex = str_repeat('ab12', 16);
+    $ct = fn ($name, $img, $mounts) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'], 'Mounts' => $mounts];
+    $bind = fn ($s, $d) => ['Type' => 'bind', 'Source' => $s, 'Destination' => $d, 'RW' => true];
+    $vol = fn ($nm, $d) => ['Type' => 'volume', 'Name' => $nm, 'Source' => "/var/lib/docker/volumes/$nm/_data", 'Destination' => $d, 'RW' => true];
+    file_put_contents("$tmp/fake/inspect.json", json_encode([
+        $ct('kopia', 'imagegenius/kopia', [$bind("$mnt/user/appdata/kopia", '/config'), $bind($root, '/uso')]),
+        $ct('ml', 'immich-machine-learning', [$vol('model-cache', '/cache')]),
+        $ct('pg', 'postgres:16', [$vol($hex, '/var/lib/postgresql/data')]),
+        $ct('web', 'nginx', [$bind("$mnt/user/appdata/web", '/config')])]));
+    file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
+        . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = ml\nknown = pg\nknown = web\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\nidentity = root@kopia\n"
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n");
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
+    $out = (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . ' --plan </dev/null') . ' 2>&1');
+    $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    $msgs = is_array($plan['messages'] ?? null) ? $plan['messages'] : [];
+    check('setup messages (engine): the plan was written', $msgs !== [], $out);
+    $by = fn (string $c) => array_values(array_map(fn ($m) => $m['params'] ?? null, array_filter($msgs, fn ($m) => ($m['code'] ?? '') === $c)));
+    same('setup messages (engine): the Docker volumes as a code - each app with its volumes: the name (empty: anonymous) and the path in the container',
+        [['app' => 'ml', 'volumes' => [['name' => 'model-cache', 'target' => '/cache']]], ['app' => 'pg', 'volumes' => [['name' => '', 'target' => '/var/lib/postgresql/data']]]],
+        $by('docker_volumes'));
+    $i = array_key_first(array_filter($msgs, fn ($m) => ($m['code'] ?? '') === 'docker_volumes'));
+    same('setup messages (engine): … its «Fix:» line right after it as `more`; the terminal keeps the English text', ['more', true, true],
+        [$msgs[$i + 1]['code'] ?? null, str_contains($out, "'ml' uses Docker volumes (model-cache at /cache)"), str_contains($out, 'Fix: in the template')]);
+    same('setup messages (engine): the Kopia sources - orphaned (under its root, no share any more), gone from the container, another identity',
+        [[['path' => '/uso/oldshare', 'source' => 'root@kopia:/uso/oldshare']], [['path' => '/backup-snapshots/olddata', 'source' => 'root@kopia:/backup-snapshots/olddata']], [['source' => 'admin@laptop:/home/x']]],
+        [$by('source_orphan'), $by('source_gone'), $by('source_foreign')]);
+    same('setup messages (engine): the live test that couldn\'t mount - coded with the root', [['root' => $root]], $by('kopia_probe_failed'));
+    same('setup messages (engine): no hint or warning without a code', [],
+        array_values(array_map(fn ($m) => $m['text'], array_filter($msgs, fn ($m) => in_array($m['level'] ?? '', ['hint', 'warn'], true) && ($m['code'] ?? '') === ''))));
+    $unknown = array_values(array_unique(array_filter(array_map(fn ($g) => $g['code'] ?? '', backupSetupNotes($msgs)), fn ($c) => $c !== '' && !isset($en["setup.msg.$c"]))));
+    same('setup messages (engine): every code of this plan has the office\'s words', [], $unknown);
+    $notes = array_column(array_filter(backupSetupNotes($msgs), fn ($g) => isset($g['code'])), null, 'code');
+    same('setup messages (engine): grouped for the page - ml a cache, pg data; two gone paths would be one entry',
+        [['ml'], ['pg']], [array_column(array_column($notes['volumes_cache']['items'] ?? [], 'params'), 'app'), array_column(array_column($notes['volumes_data']['items'] ?? [], 'params'), 'app')]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];

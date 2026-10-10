@@ -72,7 +72,11 @@
    {
     "level": "hint",
     "step": "offsite",
-    "text": "Kopia container found: kopia"
+    "text": "Kopia container found: kopia",
+    "code": "kopia_container",
+    "params": {
+     "name": "kopia"
+    }
    },
    {
     "level": "ok",
@@ -82,22 +86,68 @@
    {
     "level": "warn",
     "step": "containers",
-    "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+    "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+    "code": "docker_volumes",
+    "params": {
+     "app": "immich_server",
+     "volumes": [
+      {
+       "name": "",
+       "target": "/data"
+      }
+     ]
+    }
    },
    {
     "level": "hint",
     "step": "containers",
-    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server)."
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server).",
+    "code": "more",
+    "params": {}
    },
    {
     "level": "warn",
     "step": "containers",
-    "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+    "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+    "code": "docker_volumes",
+    "params": {
+     "app": "immich_redis",
+     "volumes": [
+      {
+       "name": "",
+       "target": "/data"
+      }
+     ]
+    }
    },
    {
     "level": "hint",
     "step": "containers",
-    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis)."
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis).",
+    "code": "more",
+    "params": {}
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "text": "'immich_machine_learning' uses Docker volumes (model-cache at /cache) - they live in the Docker folder (system) and are NOT in the backup.",
+    "code": "docker_volumes",
+    "params": {
+     "app": "immich_machine_learning",
+     "volumes": [
+      {
+       "name": "model-cache",
+       "target": "/cache"
+      }
+     ]
+    }
+   },
+   {
+    "level": "hint",
+    "step": "containers",
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_machine_learning).",
+    "code": "more",
+    "params": {}
    },
    {
     "level": "ok",
@@ -132,12 +182,16 @@
    {
     "level": "hint",
     "step": "general",
-    "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place"
+    "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+    "code": "flash_snapshot_local",
+    "params": {}
    },
    {
     "level": "hint",
     "step": "general",
-    "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way"
+    "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way",
+    "code": "libvirt_tar",
+    "params": {}
    },
    {
     "level": "hint",
@@ -153,17 +207,295 @@
    {
     "level": "hint",
     "step": "partners",
-    "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel"
+    "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel",
+    "code": "partner_how",
+    "params": {}
    },
    {
     "level": "hint",
     "step": "kopia",
-    "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3."
+    "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+    "code": "kopia_off",
+    "params": {}
    },
    {
     "level": "ok",
     "step": "plan",
     "text": "Plan written: /mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/state/setup-plan.json"
+   }
+  ],
+  "notes": [
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "Unraid 7.3.3"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "Docker 29.8.2"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "/mnt/user is mounted"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "zfs present"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "btrfs present"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "overlayfs present (shares across several bases)"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "Unraid notifications available"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "basis",
+    "items": [
+     {
+      "text": "settings.ini read - the decisions so far are the defaults"
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "offsite",
+    "code": "kopia_container",
+    "items": [
+     {
+      "text": "Kopia container found: kopia",
+      "params": {
+       "name": "kopia"
+      }
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "offsite",
+    "items": [
+     {
+      "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+     }
+    ]
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "code": "volumes_data",
+    "items": [
+     {
+      "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+      "params": {
+       "app": "immich_server",
+       "paths": "/data",
+       "n": 1
+      },
+      "more": [
+       "Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server)."
+      ]
+     },
+     {
+      "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+      "params": {
+       "app": "immich_redis",
+       "paths": "/data",
+       "n": 1
+      },
+      "more": [
+       "Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis)."
+      ]
+     }
+    ]
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "code": "volumes_cache",
+    "items": [
+     {
+      "text": "'immich_machine_learning' uses Docker volumes (model-cache at /cache) - they live in the Docker folder (system) and are NOT in the backup.",
+      "params": {
+       "app": "immich_machine_learning",
+       "paths": "/cache (model-cache)",
+       "n": 1
+      },
+      "more": [
+       "Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_machine_learning)."
+      ]
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'immich_postgres': postgres dump before every snapshot"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'immich_postgres': pg_dumpall present"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'mariadb-nextcloud': mariadb dump before every snapshot"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'mariadb-nextcloud': access through $MARIADB_ROOT_PASSWORD"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'Nextcloud': maintenance mode during the backup (occ /var/www/html/occ)"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "general",
+    "items": [
+     {
+      "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "code": "flash_snapshot_local",
+    "items": [
+     {
+      "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+      "params": []
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "code": "libvirt_tar",
+    "items": [
+     {
+      "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way",
+      "params": []
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "code": "not_agreed_share",
+    "items": [
+     {
+      "text": "share:appdata: not agreed with PartnerNAS yet - ask at the Team Lead («Change what Tower sends…»); until then it doesn't go there",
+      "params": {
+       "name": "appdata",
+       "partner": "PartnerNAS",
+       "host": "Tower"
+      }
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "code": "partner_how",
+    "items": [
+     {
+      "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel",
+      "params": []
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "kopia",
+    "code": "kopia_off",
+    "items": [
+     {
+      "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+      "params": []
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "plan",
+    "items": [
+     {
+      "text": "Plan written: /mnt/user/appdata/UnraidSecretaryOffice/data/unraid-backup/state/setup-plan.json"
+     }
+    ]
    }
   ]
  },
@@ -1202,7 +1534,11 @@
    {
     "level": "hint",
     "step": "offsite",
-    "text": "Kopia container found: kopia"
+    "text": "Kopia container found: kopia",
+    "code": "kopia_container",
+    "params": {
+     "name": "kopia"
+    }
    },
    {
     "level": "ok",
@@ -1212,22 +1548,68 @@
    {
     "level": "warn",
     "step": "containers",
-    "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+    "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+    "code": "docker_volumes",
+    "params": {
+     "app": "immich_server",
+     "volumes": [
+      {
+       "name": "",
+       "target": "/data"
+      }
+     ]
+    }
    },
    {
     "level": "hint",
     "step": "containers",
-    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server)."
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server).",
+    "code": "more",
+    "params": {}
    },
    {
     "level": "warn",
     "step": "containers",
-    "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup."
+    "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+    "code": "docker_volumes",
+    "params": {
+     "app": "immich_redis",
+     "volumes": [
+      {
+       "name": "",
+       "target": "/data"
+      }
+     ]
+    }
    },
    {
     "level": "hint",
     "step": "containers",
-    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis)."
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis).",
+    "code": "more",
+    "params": {}
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "text": "'immich_machine_learning' uses Docker volumes (model-cache at /cache) - they live in the Docker folder (system) and are NOT in the backup.",
+    "code": "docker_volumes",
+    "params": {
+     "app": "immich_machine_learning",
+     "volumes": [
+      {
+       "name": "model-cache",
+       "target": "/cache"
+      }
+     ]
+    }
+   },
+   {
+    "level": "hint",
+    "step": "containers",
+    "text": "         Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_machine_learning).",
+    "code": "more",
+    "params": {}
    },
    {
     "level": "ok",
@@ -1262,12 +1644,16 @@
    {
     "level": "hint",
     "step": "general",
-    "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place"
+    "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+    "code": "flash_snapshot_local",
+    "params": {}
    },
    {
     "level": "hint",
     "step": "general",
-    "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way"
+    "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way",
+    "code": "libvirt_tar",
+    "params": {}
    },
    {
     "level": "hint",
@@ -1283,12 +1669,281 @@
    {
     "level": "hint",
     "step": "partners",
-    "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel"
+    "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel",
+    "code": "partner_how",
+    "params": {}
    },
    {
     "level": "hint",
     "step": "kopia",
-    "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3."
+    "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+    "code": "kopia_off",
+    "params": {}
+   }
+  ],
+  "notes": [
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "Unraid 7.3.3"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "Docker 29.8.2"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "/mnt/user is mounted"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "zfs present"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "btrfs present"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "overlayfs present (shares across several bases)"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "Unraid notifications available"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "environment",
+    "items": [
+     {
+      "text": "The office's plugin schedules the nightly run (no User Scripts needed)"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "basis",
+    "items": [
+     {
+      "text": "settings.ini read - the decisions so far are the defaults"
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "offsite",
+    "code": "kopia_container",
+    "items": [
+     {
+      "text": "Kopia container found: kopia",
+      "params": {
+       "name": "kopia"
+      }
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "offsite",
+    "items": [
+     {
+      "text": "Without Kopia: local snapshots and dumps. Shares can be 'snapshot' or 'off'."
+     }
+    ]
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "code": "volumes_data",
+    "items": [
+     {
+      "text": "'immich_server' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+      "params": {
+       "app": "immich_server",
+       "paths": "/data",
+       "n": 1
+      },
+      "more": [
+       "Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_server)."
+      ]
+     },
+     {
+      "text": "'immich_redis' uses Docker volumes (anonymous at /data) - they live in the Docker folder (system) and are NOT in the backup.",
+      "params": {
+       "app": "immich_redis",
+       "paths": "/data",
+       "n": 1
+      },
+      "more": [
+       "Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_redis)."
+      ]
+     }
+    ]
+   },
+   {
+    "level": "warn",
+    "step": "containers",
+    "code": "volumes_cache",
+    "items": [
+     {
+      "text": "'immich_machine_learning' uses Docker volumes (model-cache at /cache) - they live in the Docker folder (system) and are NOT in the backup.",
+      "params": {
+       "app": "immich_machine_learning",
+       "paths": "/cache (model-cache)",
+       "n": 1
+      },
+      "more": [
+       "Fix: in the template, map a path into a backed-up share (e.g. /mnt/user/appdata/immich_machine_learning)."
+      ]
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'immich_postgres': postgres dump before every snapshot"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'immich_postgres': pg_dumpall present"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'mariadb-nextcloud': mariadb dump before every snapshot"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'mariadb-nextcloud': access through $MARIADB_ROOT_PASSWORD"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "databases",
+    "items": [
+     {
+      "text": "'Nextcloud': maintenance mode during the backup (occ /var/www/html/occ)"
+     }
+    ]
+   },
+   {
+    "level": "ok",
+    "step": "general",
+    "items": [
+     {
+      "text": "Backup place: /mnt/user/UnraidSecretaryOffice/backup"
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "code": "flash_snapshot_local",
+    "items": [
+     {
+      "text": "snapshot = local ZFS snapshot only (Kopia is off); tar = archive in the backup place",
+      "params": []
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "general",
+    "code": "libvirt_tar",
+    "items": [
+     {
+      "text": "tar = its contents every night as a whole in the backup place (server/libvirt.tar.gz); each VM's own configuration goes to its package either way",
+      "params": []
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "code": "not_agreed_share",
+    "items": [
+     {
+      "text": "share:appdata: not agreed with PartnerNAS yet - ask at the Team Lead («Change what Tower sends…»); until then it doesn't go there",
+      "params": {
+       "name": "appdata",
+       "partner": "PartnerNAS",
+       "host": "Tower"
+      }
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "partners",
+    "code": "partner_how",
+    "items": [
+     {
+      "text": "What goes to a partner is ticked per share and VM in Mr. Backupsy's setup («also to <partner>»); only ZFS datasets of their own travel",
+      "params": []
+     }
+    ]
+   },
+   {
+    "level": "hint",
+    "step": "kopia",
+    "code": "kopia_off",
+    "items": [
+     {
+      "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3.",
+      "params": []
+     }
+    ]
    }
   ]
  }
