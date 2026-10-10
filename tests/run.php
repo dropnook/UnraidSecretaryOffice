@@ -6495,18 +6495,27 @@ function testBackupNewLocalOffice(): void
     file_put_contents("$tmp/new-local.json", json_encode(['interface' => 1, 'folders' => [
         ['share' => 'appdata', 'folder' => 'bitcoin', 'bytes' => 5, 'first_seen' => 100], ['share' => 'appdata', 'folder' => 'decided'],
         ['share' => 'appdata', 'folder' => 'we ird[1]'], ['share' => 'appdata', 'folder' => 'a/b'], ['share' => 'loc', 'folder' => 'x'],
-        ['share' => 'old', 'folder' => 'x'], 'odd']]));
-    $w = backupWaiting($s, [['name' => 'oldvm', 'configured' => true], ['name' => 'newvm', 'configured' => false]],
-        ['c1' => '', 'kopia' => '', 'nc-app' => 'nextcloud', 'nc-redis' => 'nextcloud', 'btc' => '', 'imm-a' => 'immich', 'imm-b' => 'immich'], "$tmp/new-local.json");
-    same('office waiting: folders still undecided (decided, ignored, unwatched ones drop out)', [['appdata', 'bitcoin', 5, 100]],
+        ['share' => 'old', 'folder' => 'x'], ['share' => 'UnraidSecretaryOffice', 'folder' => 'olduser'], 'odd']]));
+    $apps = ['appdata' => ['docker'], 'domains' => ['vm']];
+    $cts = ['c1' => '', 'kopia' => '', 'nc-app' => 'nextcloud', 'nc-redis' => 'nextcloud', 'btc' => '', 'imm-a' => 'immich', 'imm-b' => 'immich'];
+    $w = backupWaiting($s, [['name' => 'oldvm', 'configured' => true], ['name' => 'newvm', 'configured' => false]], $cts, "$tmp/new-local.json", $apps);
+    same('office waiting: folders still undecided (decided, ignored, unwatched ones drop out; a data share\'s from an engine 2.36 too - it goes with its share, 2.37)', [['appdata', 'bitcoin', 5, 100]],
         array_map(fn ($f) => [$f['share'], $f['folder'], $f['bytes'], $f['first_seen']], $w['folders']));
+    same('office waiting: no app/VM share (docker.cfg unreadable) - no folder waits', [],
+        backupWaiting($s, [], $cts, "$tmp/new-local.json", [])['folders']);
+    @mkdir("$tmp/boot/config", 0700, true);
+    file_put_contents("$tmp/boot/config/docker.cfg", "DOCKER_APP_CONFIG_PATH=\"/mnt/cache/appdata/\"\n");
+    file_put_contents("$tmp/boot/config/domain.cfg", "DOMAINDIR=\"/mnt/user/vms/stuff/\"\n");
+    same('office: the app/VM shares by Unraid\'s settings - the share itself only (a path deeper inside a share names none), none without the files',
+        [['appdata' => ['docker']], []], [backupAppShares("$tmp/boot"), backupAppShares("$tmp/nothing")]);
     same('office waiting: new apps - none of their containers known (a known stack with a new member is not new)', ['btc', 'immich'], $w['apps']);
     same('office waiting: new VMs', ['newvm'], $w['vms']);
     same('office waiting: nothing before the first setup', ['folders' => [], 'apps' => [], 'vms' => []], backupWaiting([], [['name' => 'v', 'configured' => false]], [], "$tmp/new-local.json"));
-    same('protection: a recorded folder goes offsite, a new one only local, the backup place\'s folder always goes',
-        ['offsite', 'local', 'local', 'offsite', 'offsite', 'offsite'],
-        [backupProtection('/mnt/user/appdata/c1/x', 0, $s), backupProtection('/mnt/user/appdata/bitcoin', 0, $s), backupProtection('/mnt/user/appdata/kopia', 0, $s),
-         backupProtection('/mnt/user/UnraidSecretaryOffice/backup/apps', 0, $s), backupProtection('/mnt/user/old/anything', 0, $s), backupProtection('/mnt/user/appdata', 0, $s)]);
+    same('protection: a recorded folder goes offsite, a new one only local, the backup place\'s folder always goes; a data share\'s new folder goes with it (2.37)',
+        ['offsite', 'local', 'local', 'offsite', 'offsite', 'offsite', 'offsite', 'offsite'],
+        [backupProtection('/mnt/user/appdata/c1/x', 0, $s, $apps), backupProtection('/mnt/user/appdata/bitcoin', 0, $s, $apps), backupProtection('/mnt/user/appdata/kopia', 0, $s, $apps),
+         backupProtection('/mnt/user/UnraidSecretaryOffice/backup/apps', 0, $s, $apps), backupProtection('/mnt/user/old/anything', 0, $s, $apps), backupProtection('/mnt/user/appdata', 0, $s, $apps),
+         backupProtection('/mnt/user/UnraidSecretaryOffice/newuser', 0, $s, $apps), backupProtection('/mnt/user/appdata/bitcoin', 0, $s, [])]);
 
     // the setup assistant, under node
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -6519,7 +6528,7 @@ function testBackupNewLocalOffice(): void
         'time' => time(), 'have_settings' => true,
         'P' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'docker|no_stop' => ['btc', 'nc-redis'], 'docker|skip' => [], 'docker|known' => ['c1', 'c2', 'c3', 'btc', 'nc-app', 'nc-redis'],
                 'share|appdata|mode' => 'kopia', 'share|appdata|kopia_ignore' => ['/kopia/'], 'share|appdata|kopia_known' => ['/c1/', '/c2/', '/c3/', '/nc/'],
-                'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|UnraidSecretaryOffice|kopia_known' => ['/backup/'],
+                'share|UnraidSecretaryOffice|mode' => 'kopia',
                 'share|domains|mode' => 'snapshot', 'vm|oldvm|mode' => 'snapshot', 'vm|oldvm|prepare' => 'pause', 'vm|newvm|mode' => 'snapshot', 'vm|newvm|prepare' => 'none',
                 'vm|sharedvm|mode' => 'snapshot', 'vm|sharedvm|prepare' => 'none'],
         'O' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'docker|no_stop' => ['nc-redis'], 'docker|known' => ['c1', 'c2', 'c3', 'nc-app', 'nc-redis'],
@@ -6528,9 +6537,10 @@ function testBackupNewLocalOffice(): void
         'shares' => [
             ['name' => 'appdata', 'exists' => true, 'folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'c3', 'container' => 'c3'],
                 ['dir' => 'bitcoin', 'container' => 'btc'], ['dir' => 'nc', 'container' => 'nc-app']],
-             'waiting' => [['dir' => 'bitcoin', 'bytes' => null, 'first_seen' => null], ['dir' => 'manual[1]', 'bytes' => 1024, 'first_seen' => 100]]],
-            ['name' => 'UnraidSecretaryOffice', 'exists' => true, 'folders' => [], 'waiting' => []],
-            ['name' => 'domains', 'exists' => true, 'folders' => [], 'waiting' => []]],
+             'waiting' => [['dir' => 'bitcoin', 'bytes' => null, 'first_seen' => null], ['dir' => 'manual[1]', 'bytes' => 1024, 'first_seen' => 100]], 'app_share' => ['docker']],
+            // engine 2.37: a data share (app_share null) never has waiting folders - one an older plan named is not shown
+            ['name' => 'UnraidSecretaryOffice', 'exists' => true, 'folders' => [], 'waiting' => [['dir' => 'stale', 'bytes' => null, 'first_seen' => null]], 'app_share' => null],
+            ['name' => 'domains', 'exists' => true, 'folders' => [], 'waiting' => [], 'app_share' => ['vm']]],
         'containers' => [
             ['name' => 'c1', 'why' => 'writes', 'previous' => true, 'binds' => [['share' => 'appdata', 'path' => 'c1', 'rw' => true]], 'volumes' => []],
             ['name' => 'c2', 'why' => 'writes', 'previous' => true, 'binds' => [['share' => 'appdata', 'path' => 'c2', 'rw' => true]], 'volumes' => []],
@@ -6567,6 +6577,7 @@ b.waitSet(b.waitingFolders()[1], 'kopia');
 out.afterKopia = [b.setup.draft['share|appdata|kopia_known'], b.setup.draft['share|appdata|kopia_ignore']];
 b.setState({ waiting: { folders: [{ share: 'appdata', folder: 'bitcoin', bytes: 2048 }], apps: ['btc'], vms: [] } });
 out.callout = b.waitingText();
+out.appShares = b.appSharesText();
 console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/t.js", $js);
@@ -6587,8 +6598,9 @@ JS;
         [['setup.new_vm {"name":"newvm"}', 'setup.level.1, setup.vm_prep.none'], ['setup.new_vm {"name":"sharedvm"}', 'setup.level.0'],
          ['setup.new_app {"name":"btc"}', 'setup.level.1, setup.app_hold.run'], ['setup.new_member {"name":"nc-redis","app":"nextcloud"}', 'setup.level.2, setup.app_hold.stop'],
          ['appdata/bitcoin', 'setup.waiting_follows {"name":"btc","level":"setup.level.1"}'], ['appdata/manual[1]', 'setup.waiting_local']], $r['news']);
-    check('office setup: the first record of a share\'s folders is a change Apply makes (also an empty one)',
-        in_array('share|appdata|kopia_known', $r['changes'], true) && in_array('share|UnraidSecretaryOffice|kopia_known', $r['changes'], true), json_encode($r['changes']));
+    check('office setup: the first record of an app share\'s folders is a change Apply makes; a data share has none (engine 2.37 proposes none)',
+        in_array('share|appdata|kopia_known', $r['changes'], true) && !in_array('share|UnraidSecretaryOffice|kopia_known', $r['changes'], true), json_encode($r['changes']));
+    same('office setup: the default\'s footnote names the app/VM shares (the plan\'s app_share)', 'appdata and domains', $r['appShares'] ?? null);
     same('office setup: «local + Kopia» for a new folder - recorded, its rule goes', [['/c1/', '/c2/', '/c3/', '/nc/', '/manual[1]/'], ['/kopia/', '/bitcoin/']], $r['afterKopia']);
     same('office main page: the callout', 'waiting.callout {"n":2} waiting.folders {"n":1,"list":"appdata/bitcoin (2048 B)"} · waiting.apps {"n":1,"list":"btc"}', $r['callout']);
     exec('rm -rf ' . escapeshellarg($tmp));

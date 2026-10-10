@@ -24,6 +24,8 @@ declare(strict_types=1);
  * Since engine 2.21 new things stay local and keep running until the user decided: backupWaiting() lists the new
  * folders the engine left out of Kopia (state/new-local.json), the new apps (containers not in [docker] known) and
  * the new VMs (no [vm] section) for the main page; the setup decides about them (kopia_known / kopia_ignore).
+ * Since engine 2.37 a new folder inherits its share's level: only folders of the app/VM shares (backupAppShares())
+ * can wait - in a data share they go with the share.
  *
  * Since engine 2.20 a run that finds the lock busy is skipped, not lost: state/skipped.json (the last
  * attempt) and a history.jsonl line with "result": "skipped" — kept apart from the runs (history,
@@ -1182,14 +1184,17 @@ function backupZfsSnapSum(string $out, string $snap): ?int
 /**
  * What is new and waits for the user's decision — only local and kept running so far (engine 2.21):
  *   folders  the engine's state/new-local.json (the last run that reached Kopia), without those decided since:
- *            in kopia_known or kopia_ignore of their share now, or the share no longer goes to Kopia
+ *            in kopia_known or kopia_ignore of their share now, or the share no longer goes to Kopia; and (engine
+ *            2.37) only in the app/VM shares - a data share's folder goes with its share (an engine 2.36's file
+ *            may still name one until the next run)
  *   apps     containers not in [docker] known, grouped like the setup (a compose project or a single container);
  *            an app counts when none of its containers is known
  *   vms      VMs without a [vm "<name>"] section
  * Nothing before the first setup (no settings.ini) — then everything is still to be set up anyway.
- * $containers (name => compose project) and $file for the tests; otherwise docker ps and the engine's state.
+ * $containers (name => compose project), $file and $appShares for the tests; otherwise docker ps, the engine's state
+ * and backupAppShares().
  */
-function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null): array
+function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null, ?array $appShares = null): array
 {
     $out = ['folders' => [], 'apps' => [], 'vms' => []];
     if (!$s) {
@@ -1197,10 +1202,11 @@ function backupWaiting(array $s, array $vms, ?array $containers = null, ?string 
     }
     $kopiaOn = in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true);
     $j = readJson($file ?? BACKUP_DATA_DIR . '/state/new-local.json');
+    $appShares ??= backupAppShares();
     foreach (is_array($j['folders'] ?? null) ? $j['folders'] : [] as $f) {
         $share = is_array($f) && is_string($f['share'] ?? null) ? $f['share'] : '';
         $folder = is_array($f) && is_string($f['folder'] ?? null) ? $f['folder'] : '';
-        if ($share === '' || $folder === '' || preg_match('/[\x00-\x1f\/]/', $folder) || !$kopiaOn
+        if ($share === '' || $folder === '' || preg_match('/[\x00-\x1f\/]/', $folder) || !$kopiaOn || !isset($appShares[$share])
             || backupSetting($s, "share|$share", 'mode') !== 'kopia' || !isset($s["share|$share"]['kopia_known'])
             || in_array('*', $s["share|$share"]['kopia_known'], true)) {
             continue;

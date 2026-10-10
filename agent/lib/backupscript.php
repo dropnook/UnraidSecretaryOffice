@@ -363,14 +363,45 @@ function backupSetting(array $settings, string $section, string $key, ?string $d
 }
 
 /**
+ * Engine 2.37: the app/VM shares - the shares Unraid names as the place for app configs (docker.cfg
+ * DOCKER_APP_CONFIG_PATH) and for VMs (domain.cfg DOMAINDIR), only when that path is the share itself
+ * (/mnt/<user|pool>/<share>[/]); the engine's ub_app_shares_load(). Only there a new top-level folder waits for a
+ * decision (or follows its app/VM); in every other share it goes with its share. A file that can't be read: none.
+ * $boot for the tests (default /boot).
+ *
+ * @return array<string, list<string>>  share => ['docker'] / ['vm'] / both
+ */
+function backupAppShares(string $boot = '/boot'): array
+{
+    static $cache = [];
+    $files = ['docker' => ["$boot/config/docker.cfg", 'DOCKER_APP_CONFIG_PATH'], 'vm' => ["$boot/config/domain.cfg", 'DOMAINDIR']];
+    $stamp = $boot . '|' . implode('|', array_map(fn ($f) => (int) @filemtime($f[0]), $files));
+    if (isset($cache[$stamp])) {
+        return $cache[$stamp];
+    }
+    $out = [];
+    foreach ($files as $kind => [$file, $key]) {
+        $p = (string) (readCfg($file)[$key] ?? '');
+        if (preg_match('#^/mnt/([^/]+)/([^/]+)/?$#D', $p, $m) && !in_array($m[1], ['disks', 'remotes', 'addons', 'rootshare'], true)
+            && $m[2][0] !== '.' && !preg_match('/[@:"|\x00-\x1f]/', $m[2])) {
+            $out[$m[2]][] = $kind;
+        }
+    }
+    $cache = [$stamp => $out];
+    return $out;
+}
+
+/**
  * How is a path protected by the backup? For any desk that shows paths.
  *   offsite  local snapshot + Kopia      local  local snapshot (or dump) only
  *   none     not backed up               null   no backup set up (or can't tell)
  * Follows the same rules as the engine: share mode, Kopia ignore rules, a new top-level
- * folder (not in kopia_known, engine 2.21) only local, flash mode for /boot, and
- * /etc/libvirt lives in libvirt.img.
+ * folder of an app/VM share (not in kopia_known, engine 2.21; since 2.37 only there - in a data share
+ * it goes with the share) only local, flash mode for /boot, and /etc/libvirt lives in libvirt.img.
+ * A new folder of an app or VM going offsite counts as local here (its owner needs Docker's view).
+ * $appShares for the tests (backupAppShares()).
  */
-function backupProtection(string $path, int $depth = 0, ?array $settings = null): ?string
+function backupProtection(string $path, int $depth = 0, ?array $settings = null, ?array $appShares = null): ?string
 {
     static $cache = [];
     if ($settings === null) {           // the engine's settings.ini (tests pass their own)
@@ -439,9 +470,10 @@ function backupProtection(string $path, int $depth = 0, ?array $settings = null)
         }
     }
     // engine 2.21: a top-level folder that is not in kopia_known is new - only local until the user decides
-    // (an app's or VM's own part went offsite above; the backup place's own folder always goes)
+    // (an app's or VM's own part went offsite above; the backup place's own folder always goes); since 2.37
+    // only in an app/VM share - in a data share every folder goes with the share
     $top = explode('/', $rel, 2)[0];
-    if ($top !== '' && isset($s["share|$share"]['kopia_known']) && !array_intersect(["/$top/", '*'], $s["share|$share"]['kopia_known'])
+    if ($top !== '' && isset(($appShares ?? backupAppShares())[$share]) && isset($s["share|$share"]['kopia_known']) && !array_intersect(["/$top/", '*'], $s["share|$share"]['kopia_known'])
         && !($share === backupSetting($s, 'general', 'dumps_share') && $top === ($share === BACKUP_OFFICE_SHARE ? BACKUP_DESK_DIR : 'unraid-backup'))) {
         return 'local';
     }

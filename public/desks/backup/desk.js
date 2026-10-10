@@ -2246,12 +2246,24 @@ function presetNotes(kind, kst, measure, newOnly) {
   return out;
 }
 
-/** Under the cards, once for every start: what stays as it is, media servers, what comes later */
+/** The shares Unraid names as the place for app configs and VMs (engine 2.37, the plan's app_share) - joined as words */
+function appSharesText() {
+  const names = (setup.plan.shares || []).filter((x) => Array.isArray(x.app_share) && x.app_share.length).map((x) => x.name);
+  if (!names.length) return '';
+  try { return new Intl.ListFormat(Office.lang, { type: 'conjunction' }).format(names); } catch { return names.join(', '); }
+}
+
+/**
+ * Under the cards, once for every start: what stays as it is, media servers, new folders (engine 2.37: they go with a
+ * share that goes offsite; in the app/VM shares their app or VM decides), what comes later
+ */
 function presetCommon() {
   const plan = setup.plan;
   const kept = presetKeptList();
+  const apps = appSharesText();
   const text = [kept.length ? T('setup.preset.kept', { list: kept.join(', ') }) : '',
     setup.model.apps.some((a) => a.members.some((n) => (plan.containers.find((c) => c.name === n) || {}).media)) ? T('setup.preset.media') : '',
+    apps ? T('setup.preset.folders_follow', { list: apps }) : T('setup.preset.folders_follow_none'),
     plan.have_settings ? T('setup.preset.new_later') : ''].filter(Boolean).join(' ');
   return text ? el('p', 'role bk-preset-common', text) : null;
 }
@@ -2970,7 +2982,8 @@ function shareDetails(sh, plan) {
 // ---- what is new (engine 2.21): only local and kept running until the user decides here
 /**
  * The new folders (the plan's shares[].waiting) of the shares that go to Kopia in the draft, each with the app or
- * VM it belongs to - then that one's level decides; the others the user decides: only local or local + Kopia
+ * VM it belongs to - then that one's level decides; the others the user decides: only local or local + Kopia.
+ * Engine 2.37: only the app/VM shares (app_share) have such folders - in every other share a new folder goes with it.
  */
 function waitingFolders() {
   const m = setup.model;
@@ -2978,6 +2991,7 @@ function waitingFolders() {
   const out = [];
   (setup.plan.shares || []).forEach((sh) => {
     if (!(sh.waiting || []).length || dget(`share|${sh.name}|mode`) !== 'kopia') return;
+    if ('app_share' in sh && !(sh.app_share || []).length) return;
     sh.waiting.forEach((wf) => {
       const app = m.apps.find((a) => a.folders.some((f) => f.share === sh.name && f.dir === wf.dir));
       const vm = app ? null : m.vms.find((x) => x.folders.some((f) => f.share === sh.name && f.dir === wf.dir));
@@ -4113,7 +4127,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.backup = {
     get setup() { return setup; },
     setState: (s) => { state = s; },
-    setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText,
+    setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
