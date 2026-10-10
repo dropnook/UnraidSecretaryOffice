@@ -71,7 +71,7 @@ click. For the rest there are ready-made commands with your names and paths, and
 
 ### The restore drill
 
-Once a month (or every week, or only when you press *Practise now…*), at night after a backup that went well, Mr.
+Once a month (or every week in the night you choose, or only when you press *Practise now…*), at night after a backup that went well, Mr.
 Restori proves that what Mr. Backupsy keeps really comes back. He reads every package in full, plays the database dumps
 into throwaway containers without network, checks the media servers' database copies and the VMs' disks, and streams a
 sample back from Kopia to compare with the local snapshot — where an app's package goes to Kopia, one of its dumps is
