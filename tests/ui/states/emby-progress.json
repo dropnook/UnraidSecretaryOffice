@@ -1,0 +1,58 @@
+{
+ "time": 1791551074,
+ "running": true,
+ "mode": "run",
+ "real": true,
+ "progress": {
+  "mode": "run",
+  "phase": "fill",
+  "started": 1791550654,
+  "back": {
+   "files": 5,
+   "bytes": 9800000000,
+   "done_files": 5,
+   "done_bytes": 9800000000,
+   "eta": 0,
+   "ended": true,
+   "here": false
+  },
+  "users": [
+   {
+    "name": "Benj",
+    "server": "Nostromo",
+    "files": 4,
+    "bytes": 12400000000,
+    "done_files": 1,
+    "done_bytes": 5100000000,
+    "eta": 3480,
+    "here": true
+   },
+   {
+    "name": "Kids",
+    "server": "Nostromo",
+    "files": 6,
+    "bytes": 3300000000,
+    "done_files": 0,
+    "done_bytes": 0,
+    "eta": 1560,
+    "here": false
+   }
+  ],
+  "total": {
+   "files": 15,
+   "bytes": 25500000000,
+   "done_files": 6,
+   "done_bytes": 14900000000,
+   "eta": 5040
+  },
+  "speed": 2100000,
+  "current": {
+   "phase": "fill",
+   "rel": "Serien/The Expanse (2015)/Season 02/The Expanse - S02E05 - Home.mkv",
+   "size": 2600000000,
+   "done": 1150000000,
+   "source": "next_episode",
+   "title": "The Expanse – S02E05 Home"
+  }
+ }
+}

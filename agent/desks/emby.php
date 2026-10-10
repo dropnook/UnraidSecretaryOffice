@@ -87,6 +87,8 @@ desk('emby', [
         'letgo_seen'     => fn (array $r) => embyLetGoSeen(),
         // «Switch the mover schedule off…» (emby-mover.php): Unraid's own ⟦Mover schedule⟧ «Disabled», as its form sets it
         'mover_off'      => fn (array $r) => embyMoverOff($r) + ['state' => embyScan()],
+        // the part «progress» (desk.json): the live panel while EmbyCache runs for real (emby-progress.php) — two RAM files
+        'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState()],
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => embyJob('embycache', $args),
@@ -137,6 +139,7 @@ function embyScan(): array
 {
     $settings = embyReadSettings();
     $gather = embyGatherSettings();
+    $jobs = ['embycache' => embyJobInfo('embycache'), 'gather' => embyJobInfo('gather')];
     $state = [
         'time'       => time(),
         'python'     => embyPython(),
@@ -153,7 +156,8 @@ function embyScan(): array
             'last'     => readJson(GATHER_DATA . '/last-real.json'),
             'waiting'  => embyGatherWaiting(),
         ],
-        'jobs'       => ['embycache' => embyJobInfo('embycache'), 'gather' => embyJobInfo('gather')],
+        'jobs'       => $jobs,
+        'progress'   => embyProgressState($jobs['embycache'])['progress'],     // a real EmbyCache run: the live panel (emby-progress.php)
         'last'       => embyLastRun(),
         'history'    => array_slice(embyHistory(), 0, 20),
         'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
@@ -2138,13 +2142,14 @@ function embyRunWaiting(string $tool, string $waitDir = RUN_DIR): ?array
  * with $watchers (a real gather), Emby every $every seconds. The mover started, or someone watching → the stop request
  * ($stopFile: CONSOLIDATE_STOP, EMBYCACHE_STOP) is written once and the tool ends after the folder (the gather) or the
  * file (EmbyCache) it is on (exit 3, result `stopped`). Emby down or an unusable answer changes nothing during a run.
- * Returns the exit code, why it was asked to stop and who was watching then.
+ * Returns the exit code, why it was asked to stop and who was watching then. $tick (EmbyCache's live panel) is asked
+ * every half second.
  *
  * @param resource $proc
  * @return array{exit: int, stopped_for: ?array, stopped_why: ?string}
  */
 function embyRunWatch($proc, string $stopFile, bool $watchers, ?callable $look = null, ?callable $mover = null,
-                      int $every = EMBY_WATCH_DURING, int $moverEvery = EMBY_MOVER_LOOK): array
+                      int $every = EMBY_WATCH_DURING, int $moverEvery = EMBY_MOVER_LOOK, ?callable $tick = null): array
 {
     $look ??= fn () => embyWatching();
     $mover ??= fn (): bool => embyMoverRunning(null, getmypid());
@@ -2183,6 +2188,9 @@ function embyRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
                 writeAtomic($stopFile, jsonEncode(['time' => time(), 'who' => $asked, 'why' => 'watching']), 0600, 0, 0);
                 logLine('Jack Emby: someone started watching Emby — the gather stops after the current folder (' . embyWatchersLine($asked) . ')');
             }
+        }
+        if ($tick !== null) {
+            $tick();                    // EmbyCache's live panel: a speed sample every 10 s (emby-progress.php)
         }
         usleep(500000);
     }
@@ -2390,6 +2398,7 @@ function embyJob(string $tool, array $args): int
     @unlink("$dir/status.json");
     @unlink("$dir/office-stop.json");
 
+    $progress = null;                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
         if ($mode === 'measure') {
             embyWriteMeasureIni(embyMeasureShares(), embyReadSettings() ?? []);
@@ -2404,6 +2413,11 @@ function embyJob(string $tool, array $args): int
         $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
         $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = EMBY_APP;
+        if ($real) {                     // the live panel on his page (emby-progress.php): EmbyCache's progress in RAM
+            $progress = embyProgressPaths();
+            embyProgressClear($progress);
+            $env['EMBYCACHE_PROGRESS'] = $progress['file'];
+        }
     }
     $out = fopen("$dir/office-output.txt", 'w');
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'HOME' => '/root', 'LANG' => 'C.UTF-8'] + $env;
@@ -2413,12 +2427,16 @@ function embyJob(string $tool, array $args): int
         $exit = 127;
     } elseif ($real) {
         // stops after a folder (the gather) or a file (EmbyCache) when the mover starts — or someone starts watching (the gather)
-        ['exit' => $exit, 'stopped_for' => $stoppedFor, 'stopped_why' => $stoppedWhy] = embyRunWatch($proc, "$dir/office-stop.json", $tool === 'gather');
+        ['exit' => $exit, 'stopped_for' => $stoppedFor, 'stopped_why' => $stoppedWhy] = embyRunWatch($proc, "$dir/office-stop.json", $tool === 'gather',
+            tick: $progress !== null ? embyProgressTicker($progress) : null);
     } else {
         $exit = proc_close($proc);
     }
     fclose($out);
     @unlink("$dir/office-stop.json");
+    if ($progress !== null) {
+        embyProgressClear($progress);   // the panel goes with the run
+    }
     if ($hold) {
         flock($hold, LOCK_UN);
         fclose($hold);

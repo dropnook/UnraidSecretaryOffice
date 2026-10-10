@@ -16,16 +16,96 @@
   "embycache": "7.3.0 (2026-10-04)",
   "gather": "V11.4"
  },
- "configured": false,
- "settings": null,
- "shares": [],
- "cache": {
-  "files": 0,
-  "bytes": 0,
-  "groups": [],
-  "listed_at": null
+ "configured": true,
+ "settings": {
+  "instances": [
+   {
+    "servername": "EmbyServer",
+    "url": "http://192.168.1.111:8096",
+    "has_key": true,
+    "path_mappings": {
+     "/mnt/media/Filme": "/mnt/user/media/Filme",
+     "/mnt/media/Serien": "/mnt/user/media/Serien"
+    }
+   }
+  ],
+  "libraries": [
+   "Filme",
+   "Serien"
+  ],
+  "library_types": {
+   "Filme": "movies",
+   "Serien": "tvshows"
+  },
+  "valid_users": [],
+  "cache_path": "/mnt/big",
+  "cache_budget": "",
+  "number_episodes": 3,
+  "movie_share_percent": 50,
+  "max_episodes_per_series": 0,
+  "max_resume_items": 10,
+  "max_resume_movies": 10,
+  "max_resume_series": 10,
+  "max_favorite_series": 10,
+  "use_next_up": true,
+  "min_free_percent": 20,
+  "movie_mode": "folder",
+  "return_to_origin": true,
+  "array_source": "user0",
+  "array_path": "/mnt/user0",
+  "user_path": "/mnt/user",
+  "array_disks_glob": "/mnt/disk[0-9]*",
+  "create_share_root": false,
+  "mover_debug_level": 0
  },
- "pool": null,
+ "shares": [
+  {
+   "share": "media",
+   "fit": "ok",
+   "root": true,
+   "use": "yes",
+   "primary": "big",
+   "secondary": "",
+   "include": "",
+   "sizes": null,
+   "live": []
+  }
+ ],
+ "cache": {
+  "files": 12,
+  "bytes": 41200000000,
+  "groups": [
+   {
+    "name": "Serien/The Expanse (2015)",
+    "library": "Serien",
+    "share": "media",
+    "files": 8,
+    "bytes": 21000000000,
+    "since": 1791464674,
+    "disks": [
+     "disk2"
+    ]
+   },
+   {
+    "name": "Filme/Alien (1979)",
+    "library": "Filme",
+    "share": "media",
+    "files": 4,
+    "bytes": 20200000000,
+    "since": 1791291874,
+    "disks": [
+     "disk1"
+    ]
+   }
+  ],
+  "listed_at": 1791551014
+ },
+ "pool": {
+  "path": "/mnt/big",
+  "free_percent": 42.5,
+  "free": 1900000000000,
+  "min_free": 20
+ },
  "gather": {
   "settings": null,
   "ready": false,
@@ -34,9 +114,14 @@
  },
  "jobs": {
   "embycache": {
-   "running": false,
-   "size": 0,
-   "updated": null
+   "tool": "embycache",
+   "mode": "run",
+   "by": "office",
+   "started": 1791550654,
+   "pid": 4343,
+   "running": true,
+   "size": 18000,
+   "updated": 1791551071
   },
   "gather": {
    "running": false,
@@ -44,8 +129,58 @@
    "updated": null
   }
  },
- "last": null,
- "history": [],
+ "last": {
+  "tool": "embycache",
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791461074,
+  "finished": 1791463074,
+  "result": "ok",
+  "errors": 0,
+  "warnings": 1,
+  "cleanup": {
+   "planned": 5,
+   "done": 5,
+   "to_origin": 4,
+   "bytes_planned": 9800000000,
+   "bytes_done": 9800000000
+  },
+  "fill": {
+   "planned": 5,
+   "done": 5,
+   "bytes_planned": 8000000000,
+   "bytes_done": 8000000000
+  },
+  "protected": 0,
+  "incomplete": false
+ },
+ "history": [
+  {
+   "tool": "embycache",
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791461074,
+   "finished": 1791463074,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "run",
+    "result": "ok",
+    "cleanup": {
+     "planned": 5,
+     "done": 5,
+     "to_origin": 4
+    },
+    "fill": {
+     "planned": 5,
+     "done": 5,
+     "bytes_planned": 8000000000
+    },
+    "errors": 0,
+    "warnings": 1
+   }
+  }
+ ],
  "schedules": {
   "embycache": {
    "script": true,
@@ -142,5 +277,57 @@
  "waiting": {
   "embycache": null,
   "gather": null
+ },
+ "progress": {
+  "mode": "run",
+  "phase": "fill",
+  "started": 1791550654,
+  "back": {
+   "files": 5,
+   "bytes": 9800000000,
+   "done_files": 5,
+   "done_bytes": 9800000000,
+   "eta": 0,
+   "ended": true,
+   "here": false
+  },
+  "users": [
+   {
+    "name": "Benj",
+    "server": "Nostromo",
+    "files": 4,
+    "bytes": 12400000000,
+    "done_files": 1,
+    "done_bytes": 5100000000,
+    "eta": 3480,
+    "here": true
+   },
+   {
+    "name": "Kids",
+    "server": "Nostromo",
+    "files": 6,
+    "bytes": 3300000000,
+    "done_files": 0,
+    "done_bytes": 0,
+    "eta": 1560,
+    "here": false
+   }
+  ],
+  "total": {
+   "files": 15,
+   "bytes": 25500000000,
+   "done_files": 6,
+   "done_bytes": 14900000000,
+   "eta": 5040
+  },
+  "speed": 2100000,
+  "current": {
+   "phase": "fill",
+   "rel": "Serien/The Expanse (2015)/Season 02/The Expanse - S02E05 - Home.mkv",
+   "size": 2600000000,
+   "done": 1150000000,
+   "source": "next_episode",
+   "title": "The Expanse – S02E05 Home"
+  }
  }
 }
