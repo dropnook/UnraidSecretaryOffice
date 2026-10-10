@@ -93,12 +93,16 @@ function tookProgress(j) {
   progress = p.progress || null;
   stopping = p.stopping || null;
   progressAt = p.time;
+  redrawProgress();
+  scheduleProgress();
+}
+/** The panel drawn again in place */
+function redrawProgress() {
   if (progBox && progBox.isConnected) {
     const n = progressPanel();
     progBox.replaceWith(n);
     progBox = n;
   }
-  scheduleProgress();
 }
 
 // ------------------------------------------------------------------ helpers
@@ -505,7 +509,8 @@ function progressPanel() {
 async function stopAsk(b) {
   b.disabled = true;
   const j = await act('stop');
-  if (!j) b.disabled = !Office.agent.running;
+  if (!j) { b.disabled = !Office.agent.running; return; }
+  if (!stopping) { stopping = 'user'; redrawProgress(); }        // asked: grey until the run ends, whatever the answer carried
 }
 
 /** One bar: its name, done of planned (files, bytes), the total's speed, the time left (per user: their remaining bytes / the speed) */

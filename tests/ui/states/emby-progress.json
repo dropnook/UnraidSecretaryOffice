@@ -14,7 +14,8 @@
    "done_bytes": 9800000000,
    "eta": 0,
    "ended": true,
-   "here": false
+   "here": false,
+   "took": 80
   },
   "users": [
    {
@@ -25,7 +26,8 @@
     "done_files": 1,
     "done_bytes": 5100000000,
     "eta": 3480,
-    "here": true
+    "here": true,
+    "took": null
    },
    {
     "name": "Kids",
@@ -35,15 +37,28 @@
     "done_files": 0,
     "done_bytes": 0,
     "eta": 1560,
+    "here": false,
+    "took": null
+   },
+   {
+    "name": "Grosi",
+    "server": "Nostromo",
+    "files": 2,
+    "bytes": 4100000000,
+    "done_files": 2,
+    "done_bytes": 4100000000,
+    "eta": 0,
+    "took": 1950,
     "here": false
    }
   ],
   "total": {
-   "files": 15,
-   "bytes": 25500000000,
-   "done_files": 6,
-   "done_bytes": 14900000000,
-   "eta": 5040
+   "files": 17,
+   "bytes": 29600000000,
+   "done_files": 8,
+   "done_bytes": 19000000000,
+   "eta": 5040,
+   "running": 420
   },
   "speed": 2100000,
   "current": {
@@ -54,5 +69,6 @@
    "source": "next_episode",
    "title": "The Expanse – S02E05 Home"
   }
- }
+ },
+ "stopping": null
 }
