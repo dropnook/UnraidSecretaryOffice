@@ -21,7 +21,8 @@
 // with all of them small and named. A moment: {nr, desk, moment, title, route ('' = the reception), states {name: file, or {de, en}: a desk's,
 // part's or canned answer's (demo/post/<desk>.<action>) state from another file},
 // prepare [{click|hover|wait|scroll|select|fill: <css>, value (select, fill; or {de, en}), all (click every match), pause (ms)} | {js: …}…], clip (css, or a list: the box around all), pad, height,
-// viewport (true: the element is fixed - a dialog - and shot as the window shows it), hide [css…]}.
+// viewport (true: the element is fixed - a dialog - and shot as the window shows it), hide [css…], seed (the
+// greetings' dice; default from nr)}.
 //
 // Needs node and playwright-core (USO_PLAYWRIGHT=<its folder>, else found in node's own paths or npx's cache) and a
 // Chrome (USO_CHROME=<binary>, else Google Chrome in /Applications, else playwright's own Chromium) - like the click
@@ -211,6 +212,11 @@ async function shootMoment(browser, m, lang) {
   const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: 2,
     locale: LOCALES[lang] || lang, colorScheme: 'dark' });
   await ctx.addInitScript((l) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); } catch (e) { /* none */ } }, lang);
+  // the same greetings every time (Office.greet() picks one at random): Math.random seeded per moment (mulberry32)
+  await ctx.addInitScript((seed) => {
+    let a = seed >>> 0;
+    Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }, m.seed ?? m.nr * 7919);
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (x) => { if (x.type() === 'error') errors.push(x.text().slice(0, 200)); });
@@ -323,7 +329,7 @@ async function runMoments() {
       if (opt.verbose) console.log(`  ${r.fails.length ? 'FAIL' : 'ok  '} ${path.basename(r.file)}`);
     }
   }));
-  const sheet = await contactSheet(browser, all, true);
+  const sheet = await contactSheet(browser, [...all].sort((a, b) => a.nr - b.nr), true);
   await browser.close();
   results.sort((a, b) => a.file.localeCompare(b.file));
   const failed = results.filter((r) => r.fails.length);

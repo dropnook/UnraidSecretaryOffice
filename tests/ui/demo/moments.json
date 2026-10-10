@@ -6,7 +6,8 @@
   "title": "Empfang - das ganze Team auf einen Blick",
   "route": "",
   "clip": ".reception",
-  "pad": 12
+  "pad": 12,
+  "seed": 1
  },
  {
   "nr": 2,
@@ -122,7 +123,7 @@
   "route": "snapshot",
   "prepare": [
    {
-    "click": "label:has-text(\"Backupsis Snapshots\") input",
+    "js": "[...document.querySelectorAll(\"label\")].find((n) => n.textContent.startsWith(Office.t(\"snapshot.show_backup\"))).querySelector(\"input\").click()",
     "pause": 500
    },
    {
@@ -130,7 +131,7 @@
     "pause": 500
    },
    {
-    "click": "#sso-dialog .chip:has-text(\"Warum so verschieden\")",
+    "click": "#sso-dialog .chip[data-tip]",
     "pause": 400
    }
   ],
@@ -203,7 +204,7 @@
   ],
   "prepare": [
    {
-    "click": "[data-place=\"part.tidy\"] .cards > *:has-text(\"Abstellkammer\")",
+    "js": "[...document.querySelectorAll(\"[data-place=\\\"part.tidy\\\"] .cards > *\")].find((n) => n.textContent.includes(Office.t(\"cleanup.section.trash\"))).click()",
     "pause": 500
    }
   ]
@@ -269,7 +270,7 @@
   "route": "advisor",
   "prepare": [
    {
-    "click": "[data-place=\"ext.streamviewer\"] button:has-text(\"Mach ich für dich\")",
+    "js": "[...document.querySelectorAll(\"[data-place=\\\"ext.streamviewer\\\"] button\")].find((n) => n.textContent.includes(Office.t(\"advisor.do.plugin\"))).click()",
     "pause": 500
    }
   ],
