@@ -146,5 +146,50 @@
    "[data-place=\"round.title\"]",
    "#sso-desk .stats"
   ]
+ },
+ {
+  "nr": 7,
+  "desk": "cleanup",
+  "moment": "where",
+  "title": "Frau Putzteufel - «Wo liegt was»: die Orte, auf die es ankommt, und wie sie geschützt sind",
+  "route": "cleanup",
+  "clip": [
+   "[data-place=\"where.places\"]",
+   ".clw-places"
+  ]
+ },
+ {
+  "nr": 7,
+  "desk": "cleanup",
+  "moment": "shares",
+  "title": "Frau Putzteufel - jeder Share mit seinen Disks, Grösse und Schutz",
+  "route": "cleanup",
+  "prepare": [
+   {
+    "click": ".clw-sections > *:has-text(\"Shares\")",
+    "pause": 500
+   }
+  ],
+  "clip": [
+   "[data-place=\"where.details_title\"]",
+   ".clw-sections + .section"
+  ]
+ },
+ {
+  "nr": 7,
+  "desk": "cleanup",
+  "moment": "storeroom",
+  "title": "Frau Putzteufel - ihre Abstellkammer: weggeworfen wird nichts gleich",
+  "route": "cleanup",
+  "clip": [
+   "[data-place=\"part.tidy\"] .cl-part-head",
+   "[data-place=\"part.tidy\"] > .section > .section"
+  ],
+  "prepare": [
+   {
+    "click": "[data-place=\"part.tidy\"] .cards > *:has-text(\"Abstellkammer\")",
+    "pause": 500
+   }
+  ]
  }
 ]

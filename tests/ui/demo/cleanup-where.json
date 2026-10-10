@@ -20,13 +20,13 @@
   "mover": false,
   "scrubs": [],
   "docker": {
-   "running": 6,
+   "running": 9,
    "total": 10,
    "up": true
   },
   "vms": {
-   "running": 0,
-   "total": 3,
+   "running": 1,
+   "total": 1,
    "up": true
   },
   "scripts": [],
@@ -84,7 +84,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 1007284224,
+    "bytes": 40802189312,
     "source": "zfs"
    },
    "measure": "/mnt/cache/appdata",
@@ -187,7 +187,7 @@
      "rest": "kopia"
     }
    ],
-   "backup": "local"
+   "backup": "offsite"
   },
   {
    "name": "domains",
@@ -210,7 +210,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 358981632,
+    "bytes": 66571993088,
     "source": "zfs"
    },
    "measure": "/mnt/cache/domains",
@@ -234,20 +234,6 @@
      "path": "/mnt/user/domains/router/vdisks/home-assistant.img",
      "detail": null,
      "rest": "router/vdisks/home-assistant.img"
-    },
-    {
-     "kind": "vm",
-     "name": "Windows-11",
-     "path": "/mnt/user/domains/router/vdisks/windows-11.img",
-     "detail": null,
-     "rest": "router/vdisks/windows-11.img"
-    },
-    {
-     "kind": "vm",
-     "name": "Ubuntu-Test",
-     "path": "/mnt/user/domains/router/vdisks/ubuntu-test.img",
-     "detail": null,
-     "rest": "router/vdisks/ubuntu-test.img"
     }
    ],
    "backup": "local"
@@ -272,7 +258,10 @@
     "dataset": null,
     "missing": false
    },
-   "size": null,
+   "size": {
+    "bytes": 12884901888,
+    "source": "zfs"
+   },
    "measure": "/mnt/user/isos",
    "smb": {
     "export": "-",
@@ -311,7 +300,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 1303355392,
+    "bytes": 880468295680,
     "source": "zfs"
    },
    "measure": "/mnt/daten/Familienvideos",
@@ -361,7 +350,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 98304,
+    "bytes": 25769803776,
     "source": "zfs"
    },
    "measure": "/mnt/user/Dokumente",
@@ -387,7 +376,7 @@
      "rest": ""
     }
    ],
-   "backup": "local"
+   "backup": "offsite"
   },
   {
    "name": "Familienfotos",
@@ -410,7 +399,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 167837696,
+    "bytes": 332859965440,
     "source": "zfs"
    },
    "measure": "/mnt/daten/Familienfotos",
@@ -436,7 +425,7 @@
      "rest": ""
     }
    ],
-   "backup": "local"
+   "backup": "offsite"
   },
   {
    "name": "paperless",
@@ -458,7 +447,10 @@
     "dataset": null,
     "missing": false
    },
-   "size": null,
+   "size": {
+    "bytes": 6442450944,
+    "source": "zfs"
+   },
    "measure": "/mnt/cache/paperless",
    "smb": {
     "export": "-",
@@ -472,9 +464,59 @@
     "security": "public",
     "hosts": ""
    },
-   "has_cfg": false,
-   "used_by": [],
+   "has_cfg": true,
+   "used_by": [
+    {
+     "kind": "container",
+     "name": "paperless",
+     "path": "/mnt/user/paperless",
+     "detail": "/usr/src/paperless/media",
+     "rest": ""
+    }
+   ],
    "backup": "local"
+  },
+  {
+   "name": "Schule",
+   "comment": "",
+   "storage": {
+    "use_cache": "only",
+    "primary": "daten",
+    "secondary": null,
+    "exclusive": true,
+    "real": "/mnt/daten/Schule",
+    "pools": [
+     "daten",
+     "cache"
+    ],
+    "disks": [],
+    "unknown": [],
+    "include": [],
+    "exclude": [],
+    "allocator": "highwater",
+    "dataset": "daten/Schule",
+    "missing": false
+   },
+   "size": {
+    "bytes": 3221225472,
+    "source": "zfs"
+   },
+   "measure": "/mnt/daten/Schule",
+   "smb": {
+    "export": "-",
+    "security": "public",
+    "read": [],
+    "write": [],
+    "timemachine_limit": null
+   },
+   "nfs": {
+    "export": "-",
+    "security": "public",
+    "hosts": ""
+   },
+   "has_cfg": true,
+   "used_by": [],
+   "backup": "none"
   },
   {
    "name": "syslog",
@@ -497,7 +539,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 397312,
+    "bytes": 322122547,
     "source": "zfs"
    },
    "measure": "/mnt/daten/syslog",
@@ -538,7 +580,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 4170461184,
+    "bytes": 30064771072,
     "source": "zfs"
    },
    "measure": "/mnt/cache/system",
@@ -579,7 +621,7 @@
     "missing": false
    },
    "size": {
-    "bytes": 867065856,
+    "bytes": 2147483648,
     "source": "zfs"
    },
    "measure": "/mnt/daten/UnraidSecretaryOffice",
@@ -612,7 +654,7 @@
      "rest": "restore/kopia"
     }
    ],
-   "backup": "local"
+   "backup": "offsite"
   }
  ],
  "appdata": "appdata",
@@ -1451,11 +1493,11 @@
  "vms": [
   {
    "name": "Home-Assistant",
-   "state": "shut off",
-   "running": false,
-   "autostart": false,
+   "state": "running",
+   "running": true,
+   "autostart": true,
    "uuid": "5b9ee266-91fd-4743-81ce-95d9772b0d35",
-   "description": "USO MikroTik lab (dropnook/UnraidSecretaryOffice#2): RouterOS CHR from mikrotik.com, isolated libvirt networks only - never br0",
+   "description": "Home Assistant OS",
    "os": null,
    "template": null,
    "machine": "pc-i440fx-10.2",
@@ -1466,132 +1508,25 @@
    "nvram_copies": 0,
    "tpm": null,
    "xml": "/etc/libvirt/qemu/Home-Assistant.xml",
-   "cpus": 1,
-   "memory": 268435456,
+   "cpus": 2,
+   "memory": 4294967296,
    "disks": [
     {
      "device": "disk",
-     "source": "/mnt/user/domains/router/vdisks/home-assistant.img",
+     "source": "/mnt/user/domains/Home-Assistant/haos_ova.qcow2",
      "target": "vda",
      "bus": "virtio",
-     "format": "raw",
+     "format": "qcow2",
      "backup": "local",
      "chain": [],
-     "bytes": 134217728,
-     "allocated": 45495296,
+     "bytes": 34359738368,
+     "allocated": 9663676416,
      "sparse": false
     }
    ],
    "networks": [
     {
      "mac": "52:54:00:4d:54:01",
-     "source": "br0",
-     "model": "virtio"
-    },
-    {
-     "mac": "52:54:00:4d:54:02",
-     "source": "br0",
-     "model": "virtio"
-    },
-    {
-     "mac": "52:54:00:4d:54:03",
-     "source": "br0",
-     "model": "virtio"
-    }
-   ],
-   "passthrough": 0,
-   "graphics": null,
-   "snapshots": 0,
-   "config_backup": "local",
-   "agent": null
-  },
-  {
-   "name": "Windows-11",
-   "state": "shut off",
-   "running": false,
-   "autostart": false,
-   "uuid": "a053353f-5118-4575-80b7-e707d983069c",
-   "description": "USO MikroTik lab (dropnook/UnraidSecretaryOffice#2): RouterOS CHR from mikrotik.com, isolated libvirt networks only - never br0",
-   "os": null,
-   "template": null,
-   "machine": "pc-i440fx-10.2",
-   "firmware": "bios",
-   "secure_boot": false,
-   "loader": null,
-   "nvram": null,
-   "nvram_copies": 0,
-   "tpm": null,
-   "xml": "/etc/libvirt/qemu/Windows-11.xml",
-   "cpus": 1,
-   "memory": 268435456,
-   "disks": [
-    {
-     "device": "disk",
-     "source": "/mnt/user/domains/router/vdisks/windows-11.img",
-     "target": "vda",
-     "bus": "virtio",
-     "format": "raw",
-     "backup": "local",
-     "chain": [],
-     "bytes": 134217728,
-     "allocated": 45454336,
-     "sparse": false
-    }
-   ],
-   "networks": [
-    {
-     "mac": "52:54:00:4d:54:11",
-     "source": "br0",
-     "model": "virtio"
-    },
-    {
-     "mac": "52:54:00:4d:54:12",
-     "source": "br0",
-     "model": "virtio"
-    }
-   ],
-   "passthrough": 0,
-   "graphics": null,
-   "snapshots": 0,
-   "config_backup": "local",
-   "agent": null
-  },
-  {
-   "name": "Ubuntu-Test",
-   "state": "shut off",
-   "running": false,
-   "autostart": false,
-   "uuid": "a82c2239-38ca-4648-b94f-6ce60d04cc3d",
-   "description": "USO MikroTik lab (dropnook/UnraidSecretaryOffice#2): RouterOS CHR from mikrotik.com, isolated libvirt networks only - never br0",
-   "os": null,
-   "template": null,
-   "machine": "pc-i440fx-10.2",
-   "firmware": "bios",
-   "secure_boot": false,
-   "loader": null,
-   "nvram": null,
-   "nvram_copies": 0,
-   "tpm": null,
-   "xml": "/etc/libvirt/qemu/Ubuntu-Test.xml",
-   "cpus": 1,
-   "memory": 268435456,
-   "disks": [
-    {
-     "device": "disk",
-     "source": "/mnt/user/domains/router/vdisks/ubuntu-test.img",
-     "target": "vda",
-     "bus": "virtio",
-     "format": "raw",
-     "backup": "local",
-     "chain": [],
-     "bytes": 134217728,
-     "allocated": 65930240,
-     "sparse": false
-    }
-   ],
-   "networks": [
-    {
-     "mac": "52:54:00:4d:54:21",
      "source": "br0",
      "model": "virtio"
     }
@@ -2351,8 +2286,8 @@
   ]
  },
  "license": {
-  "type": "Trial",
-  "to": "Trial User",
+  "type": "Unleashed",
+  "to": "FamilienServer",
   "since": 1791302311,
   "expires": null,
   "limit": null,

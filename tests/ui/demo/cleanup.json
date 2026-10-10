@@ -1237,37 +1237,142 @@
  "trash": {
   "runs": [
    {
-    "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261007-000849",
-    "path": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261007-000849",
+    "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261009-111246",
+    "path": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261009-111246",
     "root": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash",
     "where": "appdata",
     "legacy": false,
     "purging": false,
-    "stamp": "20261007-000849",
-    "time": 1791324529,
+    "stamp": "20261009-111246",
+    "time": 1791459274,
     "items": [
      {
-      "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261007-000849|restore/8d1099e0/prometheus.restored-20261007-000716",
-      "kind": "leftover",
-      "name": "prometheus.restored-20261007-000716",
-      "label": "20261007-000716-cdcc",
-      "from": "/mnt/cache/appdata/prometheus.restored-20261007-000716",
-      "as": "restore/8d1099e0/prometheus.restored-20261007-000716",
+      "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20261009-111246|restore/Nextcloud.restored",
+      "label": "Nextcloud",
       "dataset": null,
       "zfs": null,
       "zfs_path": null,
       "present": true,
       "asleep": false,
       "volumes": [],
-      "images": []
+      "images": [],
+      "kind": "leftover",
+      "name": "Nextcloud.restored-20261009",
+      "from": "/mnt/cache/appdata/Nextcloud.restored",
+      "as": "restore/Nextcloud.restored"
      }
     ],
-    "bytes": 139264,
+    "bytes": 48234496,
+    "measuring": false,
+    "snaps": 0
+   },
+   {
+    "id": "/mnt/user/domains/.UnraidSecretaryOffice-trash/20261006-104246",
+    "path": "/mnt/user/domains/.UnraidSecretaryOffice-trash/20261006-104246",
+    "root": "/mnt/user/domains/.UnraidSecretaryOffice-trash",
+    "where": "domains",
+    "legacy": false,
+    "purging": false,
+    "stamp": "20261006-104246",
+    "time": 1791198274,
+    "items": [
+     {
+      "id": "/mnt/user/domains/.UnraidSecretaryOffice-trash/20261006-104246|Ubuntu-Test",
+      "label": "Ubuntu-Test",
+      "dataset": null,
+      "zfs": null,
+      "zfs_path": null,
+      "present": true,
+      "asleep": false,
+      "volumes": [],
+      "images": [],
+      "kind": "domain",
+      "name": "Ubuntu-Test",
+      "from": "/mnt/user/domains/Ubuntu-Test",
+      "as": "Ubuntu-Test"
+     },
+     {
+      "id": "/mnt/user/domains/.UnraidSecretaryOffice-trash/20261006-104246|libvirt/Ubuntu-Test.xml",
+      "label": "Ubuntu-Test",
+      "dataset": null,
+      "zfs": null,
+      "zfs_path": null,
+      "present": true,
+      "asleep": false,
+      "volumes": [],
+      "images": [],
+      "kind": "vmdef",
+      "name": "Ubuntu-Test",
+      "from": "/etc/libvirt/qemu/Ubuntu-Test.xml",
+      "as": "libvirt/Ubuntu-Test.xml"
+     }
+    ],
+    "bytes": 21474836480,
+    "measuring": false,
+    "snaps": 0
+   },
+   {
+    "id": "/boot/config/.UnraidSecretaryOffice-trash/20260928-094246",
+    "path": "/boot/config/.UnraidSecretaryOffice-trash/20260928-094246",
+    "root": "/boot/config/.UnraidSecretaryOffice-trash",
+    "where": "flash",
+    "legacy": false,
+    "purging": false,
+    "stamp": "20260928-094246",
+    "time": 1790503474,
+    "items": [
+     {
+      "id": "/boot/config/.UnraidSecretaryOffice-trash/20260928-094246|templates-user/my-Plex.xml",
+      "label": "Plex",
+      "dataset": null,
+      "zfs": null,
+      "zfs_path": null,
+      "present": true,
+      "asleep": false,
+      "volumes": [],
+      "images": [],
+      "kind": "template",
+      "name": "my-Plex.xml",
+      "from": "/boot/config/plugins/dockerMan/templates-user/my-Plex.xml",
+      "as": "templates-user/my-Plex.xml"
+     }
+    ],
+    "bytes": 4096,
+    "measuring": false,
+    "snaps": 0
+   },
+   {
+    "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20260928-094346",
+    "path": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20260928-094346",
+    "root": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash",
+    "where": "appdata",
+    "legacy": false,
+    "purging": false,
+    "stamp": "20260928-094346",
+    "time": 1790503534,
+    "items": [
+     {
+      "id": "/mnt/cache/appdata/.UnraidSecretaryOffice-trash/20260928-094346|plex",
+      "label": "plex",
+      "dataset": null,
+      "zfs": null,
+      "zfs_path": null,
+      "present": true,
+      "asleep": false,
+      "volumes": [],
+      "images": [],
+      "kind": "appdata",
+      "name": "plex",
+      "from": "/mnt/cache/appdata/plex",
+      "as": "plex"
+     }
+    ],
+    "bytes": 2254857830,
     "measuring": false,
     "snaps": 0
    }
   ],
-  "bytes": 139264
+  "bytes": 23777932902
  },
  "icons": {
   "list": [
