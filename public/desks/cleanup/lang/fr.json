@@ -818,8 +818,8 @@
   "section.leftovers": "Les restes de Monsieur Restori",
   "section.leftovers_sub": "Ce que Monsieur Restori a laissé à côté de ce qu'il a restauré — lui non plus ne jette jamais rien. Par restauration, tout droit de ses journaux.",
   "lo.where": {
-    "one": "D'après le journal de Monsieur Restori de {n} restauration — je ne regarde que là où il dit avoir mis quelque chose, jamais sur un disque endormi.",
-    "other": "D'après les journaux de Monsieur Restori de {n} restaurations — je ne regarde que là où il dit avoir mis quelque chose, jamais sur un disque endormi."
+    "one": "D'après les notes de Monsieur Restori sur {n} restauration — je ne regarde que là où il dit avoir mis quelque chose, jamais sur un disque endormi.",
+    "other": "D'après les notes de Monsieur Restori sur {n} restaurations — je ne regarde que là où il dit avoir mis quelque chose, jamais sur un disque endormi."
   },
   "lo.journal": "Ses restaurations →",
   "lo.kind.db": "Base de données de {what}",

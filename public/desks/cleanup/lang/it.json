@@ -818,8 +818,8 @@
   "section.leftovers": "Gli avanzi del signor Restori",
   "section.leftovers_sub": "Quello che il signor Restori ha lasciato accanto a ciò che ha ripristinato — nemmeno lui butta mai via niente. Per ripristino, direttamente dai suoi giornali.",
   "lo.where": {
-    "one": "Dal giornale del signor Restori di 1 ripristino — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby.",
-    "other": "Dai giornali del signor Restori di {n} ripristini — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby."
+    "one": "Dalle note del signor Restori su 1 ripristino — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby.",
+    "other": "Dalle note del signor Restori su {n} ripristini — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby."
   },
   "lo.journal": "I suoi ripristini →",
   "lo.kind.db": "Database di {what}",

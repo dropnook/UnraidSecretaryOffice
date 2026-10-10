@@ -818,8 +818,8 @@
   "section.leftovers": "Los restos del señor Restori",
   "section.leftovers_sub": "Lo que el señor Restori dejó junto a lo que restauró — él tampoco tira nunca nada. Por restauración, directamente de sus diarios.",
   "lo.where": {
-    "one": "Del diario del señor Restori de 1 restauración — solo miro donde dice que dejó algo, nunca en un disco en reposo.",
-    "other": "De los diarios del señor Restori de {n} restauraciones — solo miro donde dice que dejó algo, nunca en un disco en reposo."
+    "one": "De las notas del señor Restori sobre 1 restauración — solo miro donde dice que dejó algo, nunca en un disco en reposo.",
+    "other": "De las notas del señor Restori sobre {n} restauraciones — solo miro donde dice que dejó algo, nunca en un disco en reposo."
   },
   "lo.journal": "Sus restauraciones →",
   "lo.kind.db": "Base de datos de {what}",
