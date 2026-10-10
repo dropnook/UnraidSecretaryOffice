@@ -116,7 +116,9 @@ if (!chrome) {
   process.exit(3);
 }
 
-const { startHarness } = await import(path.join(REPO, 'tests', 'ui', 'harness.mjs'));
+const { startHarness, DEMO_NAMES_EN, renamed } = await import(path.join(REPO, 'tests', 'ui', 'harness.mjs'));
+// the family's names in the shot's language: German as the demo data has them, English for every other language
+const namesFor = (lang) => (lang === 'de' ? null : DEMO_NAMES_EN);
 
 // ------------------------------------------------------------------ one page: every shot of it
 const AROUND = 8;           // px of the page around a clipped element (the next thing on the page starts ~12 px below)
@@ -205,9 +207,10 @@ async function prepareStep(page, st, lang) {
 }
 
 async function shootMoment(browser, m, lang) {
+  m = { ...m, prepare: renamed(m.prepare, namesFor(lang)), clip: renamed(m.clip, namesFor(lang)) };   // its selectors name the family's shares too
   // a state per language where its words are the user's own (a report's title): {name: {de: file, en: file}}
   const alias = Object.fromEntries(Object.entries(m.states || {}).map(([k, v]) => [k, v && typeof v === 'object' ? v[lang] ?? v.en ?? k : v]));
-  const harness = await startHarness({ demo: true, alias });
+  const harness = await startHarness({ demo: true, alias, names: namesFor(lang) });
   const width = m.width || MOMENT_WIDTH;
   const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: 2,
     locale: LOCALES[lang] || lang, colorScheme: 'dark' });
@@ -351,7 +354,8 @@ if (opt.moments) await runMoments();
 // ------------------------------------------------------------------ all of them
 const started = Date.now();
 fs.mkdirSync(opt.out, { recursive: true });
-const harness = await startHarness({ demo: true });
+const harnesses = {};
+for (const lang of opt.langs) harnesses[lang] = await startHarness({ demo: true, names: namesFor(lang) });
 const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check', '--font-render-hinting=none'] });
 const jobs = [];
 for (const route of opt.routes) for (const theme of opt.themes) for (const lang of opt.langs) for (const width of opt.widths) jobs.push({ route, theme, lang, width });
@@ -360,13 +364,13 @@ let next = 0;
 await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, async () => {
   while (next < jobs.length) {
     const j = jobs[next++];
-    const r = await shootPage(browser, harness, j.route, j.theme, j.lang, j.width);
+    const r = await shootPage(browser, harnesses[j.lang], j.route, j.theme, j.lang, j.width);
     results.push(...r);
     if (opt.verbose) r.forEach((x) => console.log(`  ${x.fails.length ? 'FAIL' : 'ok  '} ${x.file ? path.basename(x.file) : `${j.route} ${j.theme} ${j.lang} ${j.width}`}`));
   }
 }));
 await browser.close();
-await harness.close();
+for (const h of Object.values(harnesses)) await h.close();
 
 results.sort((a, b) => String(a.file).localeCompare(String(b.file)));
 const failed = results.filter((r) => r.fails.length);

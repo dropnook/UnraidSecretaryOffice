@@ -30,6 +30,19 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..', '..');
 export const DEMO = path.join(HERE, 'demo');
+
+// The demo family's names in English (Benj, 2026-10-10: the English shots on GitHub showed «Grosseltern», «Familienfotos»):
+// ui-shots passes names: DEMO_NAMES_EN for an English shot - every state, canned answer and the host go through it as text
+export const DEMO_NAMES_EN = [['FamilienServer', 'FamilyServer'], ['Familienfotos', 'FamilyPhotos'], ['Familienvideos', 'FamilyVideos'],
+  ['Familienserien', 'FamilySeries'], ['Familienfilme', 'FamilyMovies'], ['Fotos-Grosseltern', 'Photos-Grandparents'],
+  ['Grosseltern', 'Grandparents'], ['Dokumente', 'Documents'], ['Handy-Tochter', 'Phone-Daughter'], ['Tochter', 'Daughter'],
+  ['Mutter', 'Mom'], ['Vater', 'Dad'], ['Schule', 'School'], ['daten', 'data']];
+export function renamed(v, names) {
+  if (!names || !names.length || v == null) return v;
+  let t = JSON.stringify(v);
+  for (const [a, b] of names) t = t.replace(new RegExp(`(?<![A-Za-zÀ-ÿ])${a}(?![A-Za-zÀ-ÿ])`, 'g'), b);
+  return JSON.parse(t);
+}
 const UNRAID = path.join(HERE, 'unraid');
 const PUBLIC = path.join(REPO, 'public');
 const BASE = '/plugins/unraid-secretary-office/';
@@ -115,7 +128,7 @@ export async function startHarness(opts = {}) {
   const statesDir = opts.statesDir || (opts.demo ? DEMO : path.join(HERE, 'states'));
   const list = desks();
   const stamp = Math.floor(Date.now() / 1000);
-  const host = opts.demo ? 'FamilienServer' : 'Tower';
+  const host = renamed(opts.demo ? 'FamilienServer' : 'Tower', opts.names);
   const alias = opts.alias || {};
   const agent = () => ({ running: true, version: VERSION, pid: 4242, started: stamp, host, desks: list.map((d) => d.id), pulse: Math.floor(Date.now() / 1000) });
   const config = () => ({
@@ -134,7 +147,7 @@ export async function startHarness(opts = {}) {
     if (overrides.has(name)) return overrides.get(name);
     const s = readJson(path.join(statesDir, `${alias[name] || name}.json`));
     // the demo's times as if looked at just now (the relative words - «2 days ago», «running for 6 min» - stay as written)
-    return opts.demo && s && typeof s.time === 'number' ? moveTimes(s, stamp - 5 - s.time) : s;
+    return renamed(opts.demo && s && typeof s.time === 'number' ? moveTimes(s, stamp - 5 - s.time) : s, opts.names);
   };
 
   function page() {
@@ -219,6 +232,7 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
           posts.push({ action, data: j, at: Date.now() });
           let canned = /^[a-z][a-z0-9_-]*\.[a-z][a-z0-9_]*$/.test(action) ? readJson(path.join(statesDir, 'post', `${alias[action] || action}.json`)) : null;
           if (opts.demo && canned && typeof canned.time === 'number') canned = moveTimes(canned, stamp - 5 - canned.time);
+          canned = renamed(canned, opts.names);
           answer(res, 200, { ok: true, ...(canned || {}), agent: agent() });
         });
         return undefined;

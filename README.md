@@ -11,7 +11,7 @@ where it makes sense, lets you act on it. Before anything changes they show you 
 with the office can keep each other's backups as partner offices, and the Night Watchman also reads what a UniFi
 or MikroTik router says about the server. It is a plugin: no container, no account, no cloud of ours, nothing locked.
 
-![The reception: the whole team at a glance](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception.png)
+[![The reception: the whole team at a glance](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception.png)](https://uso.dropnook.app/#reception-team)
 
 ## The staff
 
@@ -39,7 +39,7 @@ stays off (switch it on again in Mover Settings if you like). Hired
 again, his settings are as they were and the schedules stay off until you switch them on. *Change the order* at the
 reception puts the desks in the order you like.
 
-![Ms. Snapshotini: one snapshot in detail, why «used» and «new since» differ](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot.png)
+[![Ms. Snapshotini: one snapshot in detail, why «used» and «new since» differ](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot.png)](https://uso.dropnook.app/#snapshot-why)
 
 ## What happens, end to end
 
@@ -63,7 +63,7 @@ The whole run at a glance ([BPMN source](docs/diagrams/backup-run.bpmn), [German
 
 ![A backup run: Mr. Backupsy, apps and VMs, the partner office and the offsite upload as lanes](docs/diagrams/backup-run.svg)
 
-![Mr. Backupsy: a run going on — its steps, its offsite sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)
+[![Mr. Backupsy: a run going on — its steps, its offsite sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)](https://uso.dropnook.app/#backup-run)
 
 ### Getting something back
 
@@ -86,7 +86,7 @@ VM gets a **certificate**: which level is proven, from which copy, when; a step 
 wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
 interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
 
-![Mr. Restori: the drill passed — the level per app, the databases played back](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill.png)
+[![Mr. Restori: the drill passed — the level per app, the databases played back](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill.png)](https://uso.dropnook.app/#restore-drill)
 
 ### The Night Watchman's round
 
@@ -114,7 +114,7 @@ Unraid's diagnostics or its kept syslog show), or the server went off without sh
 parity at every start until a stop is clean again; he says so once, and the Team Lead lists which time-out to raise
 (Docker + VMs + a margin) until a later stop is clean. He never starts, pauses or cancels a check.
 
-![The Night Watchman's watch book: what was different from normal](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman.png)
+[![The Night Watchman's watch book: what was different from normal](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman.png)](https://uso.dropnook.app/#watchman-book)
 
 ### The search
 
@@ -145,7 +145,7 @@ than the one the office was tested on.
 header. A tile on Unraid's Dashboard shows the essentials: the messenger, the Team Lead's open points, the last and
 next backup. The green dot beside *⋯* means the messenger (the office's agent) checked in within the last 70 seconds.
 
-![Mr. Backupsy's setup: «Apply the settings?» — 1 proposal of mine · 1 change of yours](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup.png)
+[![Mr. Backupsy's setup: «Apply the settings?» — 1 proposal of mine · 1 change of yours](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup.png)](https://uso.dropnook.app/#backup-apply)
 
 ## Updates and removal
 
@@ -177,7 +177,7 @@ containers without a picture, and sends a report only when you send one yourself
 of your reports, asks where they stand. No account, no telemetry. The desks never wake a sleeping disk unless you ask;
 the scheduled backup does, unless you tell it to leave sleeping pools out.
 
-![Ms. Dustdevil's «Where is what»: the places that matter and how they are protected](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)
+[![Ms. Dustdevil's «Where is what»: the places that matter and how they are protected](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)](https://uso.dropnook.app/#cleanup-where)
 
 ## Languages and themes
 
@@ -203,7 +203,7 @@ makes it larger — both in your browser only.
 
 What was checked and what is still open: [HARDENING.md](HARDENING.md).
 
-![Ms. Dustdevil's storeroom: nothing is thrown away at once](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom.png)
+[![Ms. Dustdevil's storeroom: nothing is thrown away at once](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom.png)](https://uso.dropnook.app/#cleanup-storeroom)
 
 ## Partner offices
 
@@ -216,7 +216,7 @@ a **restore ticket** — a door for seven days that only hands over those copies
 pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
 
-![The Team Lead: a partner office at the grandparents', copies both ways](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner.png)
+[![The Team Lead: a partner office at the grandparents', copies both ways](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner.png)](https://uso.dropnook.app/#caretaker-partner)
 
 ## Notifications
 
@@ -262,7 +262,7 @@ stands — received, looked at, done — and, once the makers opened a public Gi
 («Issue #…»). For that the office asks the inbox when you open the dialog (each report at most once an hour), with
 nothing but the reports' numbers in the inbox and the office's report ID.
 
-![«Your reports»: a wish, built and public as Issue #14](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report.png)
+[![«Your reports»: a wish, built and public as Issue #14](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report.png)](https://uso.dropnook.app/#office-report)
 
 ## Special thanks
 
@@ -273,7 +273,7 @@ GPL-3.0-or-later. They ship with the office in `embycache/` and `gather/`, modif
 we changed is listed at the top of their READMEs. helmi1987 also tested the office early and sent the reports that made it
 better. Thank you, helmi1987 — a share of the tips goes to him.
 
-![Jack Emby live: EmbyCache gets ready for each person what they watch next](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live.png)
+[![Jack Emby live: EmbyCache gets ready for each person what they watch next](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live.png)](https://uso.dropnook.app/#emby-live)
 
 ## License
 
