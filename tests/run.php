@@ -24390,7 +24390,7 @@ ROUTER);
         ['number' => 9, 'state' => 'closed', 'answered' => true, 'updated' => null, 'public' => ['number' => 15, 'url' => "{$pub}15", 'state' => 'closed']],
         ['number' => 8, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => ['number' => 5, 'url' => 'https://github.com/evil/repo/issues/5']],
         ['number' => 7, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => ['number' => 6, 'url' => 'javascript:alert(1)//github.com/dropnook/UnraidSecretaryOffice/issues/6']],
-        ['number' => 6, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => ['number' => 7, 'url' => "{$pub}8"]],
+        ['number' => 6, 'state' => 'open', 'answered' => true, 'updated' => null, 'public' => ['number' => 7, 'url' => "{$pub}8"]],
         ['number' => 5, 'state' => 'weird', 'answered' => true],
         ['number' => 2, 'state' => 'closed', 'answered' => true, 'public' => null],      // not asked: not taken
     ]]);
@@ -24403,8 +24403,8 @@ ROUTER);
     check('report status: … nothing of the GUID, the ID or a title in the address', !str_contains($q['uri'] ?? '', reportId($ctx)) && !stripos(json_encode($q), $guid) && !str_contains(json_encode($q), 'Report '));
     same('report status: … no curl config left in RAM', [], glob("$tmp/run/status.*") ?: []);
     $by = array_column($list['reports'], null, 'title');
-    same('report status: open → received; answered, triaged (closed) or a public issue → seen; done only when the public issue is closed; unknown → no status',
-        ['received', 'seen', 'seen', 'done', 'received', 'received', 'received', null, null, null],
+    same('report status: open → received; open and answered → seen; closed without a public issue → done; with one → seen until it is closed, then done; unknown → no status',
+        ['received', 'done', 'seen', 'done', 'received', 'received', 'seen', null, null, null],
         array_map(fn ($n) => $by["Report $n"]['status'] ?? null, [12, 11, 10, 9, 8, 7, 6, 5, 4, 2]));
     same('report status: … the public issue only of the office\'s public repository, its number as in its address',
         [['number' => 14, 'url' => "{$pub}14"], ['number' => 15, 'url' => "{$pub}15"], null, null, null],

@@ -652,7 +652,7 @@ ID. **A desk's log lines** come by its labels (`REPORT_LOG_LABELS`, the start of
 **Where a report stands** (Benj, 2026-10-10): `office.reports` asks the Worker ONE `GET /api/status?ids=<n>,…` for the newest
 `REPORT_STATUS_MAX` (10) reports not looked at within `REPORT_STATUS_EVERY` (1 h; also after a failure) — the report ID as
 header `X-Office` (never the GUID), address and header in a 0600 curl config in RAM, https only, 8 s, nothing the user wrote
-(`reportStatusRefresh()`/`reportStatusAsk()`); open → `received`, answered or with a public issue → `seen`, closed → `done`,
+(`reportStatusRefresh()`/`reportStatusAsk()`); open → `received`, open and answered → `seen`, closed without a public issue → `done` (the decision was the end), with one → `seen` until that one is closed,
 the public issue only of `dropnook/UnraidSecretaryOffice` (`REPORT_PUBLIC_RE`); kept per entry as `status`, `public`
 {number, url}, `checked` (`reportEntryValid()` takes them only in that shape); a failure is silent (what was known stays).
 The page gets title, kind, desk, day, status, public — **never the private inbox's number or link** (they stay in

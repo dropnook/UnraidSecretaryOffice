@@ -883,10 +883,12 @@ function reportStatusAnswer(int $exit, string $out, array $asked): array
             continue;
         }
         $public = reportPublic($r['public'] ?? null);
-        // the inbox issue is closed once triaged — «done» only when its public issue is closed (Benj 2026-10-10: #12 → #14 still open)
+        // the inbox issue is closed once decided (the decision as its comment). With a public issue the work goes on there:
+        // «done» only when that one is closed (Benj 2026-10-10: #12 → #14 still open). Without one the closed inbox issue is
+        // the end (explained, answered, nothing to build): «done» (Benj, same evening: #13). Open but answered: «seen».
         $status = $public !== null
             ? ((($r['public']['state'] ?? null) === 'closed') ? 'done' : 'seen')
-            : ($r['state'] === 'closed' || ($r['answered'] ?? null) === true ? 'seen' : 'received');
+            : ($r['state'] === 'closed' ? 'done' : (($r['answered'] ?? null) === true ? 'seen' : 'received'));
         $got[$r['number']] = ['status' => $status, 'public' => $public];
     }
     return $got;
