@@ -33,8 +33,8 @@
   --surface:var(--mild-background-color);
   --surface2:color-mix(in srgb, var(--text-color) 7%, var(--mild-background-color));
   --ink:var(--text-color);
-  --ink2:color-mix(in srgb, var(--text-color) 80%, var(--background-color));
-  --muted:color-mix(in srgb, var(--text-color) 58%, var(--background-color));
+  --ink2:color-mix(in srgb, var(--text-color) 90%, var(--background-color));
+  --muted:color-mix(in srgb, var(--text-color) 80%, var(--background-color));
   --line:color-mix(in srgb, var(--text-color) 13%, var(--background-color));
   --line2:color-mix(in srgb, var(--text-color) 24%, var(--background-color));
   --accent:color-mix(in srgb, var(--brand-orange, #ff8c2f) 82%, var(--text-color));   /* readable on white, too */

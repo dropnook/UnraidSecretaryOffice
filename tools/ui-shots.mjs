@@ -222,9 +222,9 @@ async function shootMoment(browser, m, lang) {
   page.on('console', (x) => { if (x.type() === 'error') errors.push(x.text().slice(0, 200)); });
   page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
-  const res = { file: momentFile(m, lang), route: `${m.nr} ${m.desk}/${m.moment}`, shot: m.moment, theme: 'black', lang, width, fails: [] };
+  const res = { file: momentFile(m, lang), route: `${m.nr} ${m.desk}/${m.moment}`, shot: m.moment, theme: m.theme || 'black', lang, width, fails: [] };
   try {
-    await page.goto(`${harness.url}?theme=black#/${m.route || ''}`, { waitUntil: 'load' });
+    await page.goto(`${harness.url}?theme=${m.theme || 'black'}#/${m.route || ''}`, { waitUntil: 'load' });
     await page.waitForFunction((r) => window.Office && (r ? Office.current && document.querySelector('#sso-desk .section, #sso-desk section, #sso-desk .box')
       : document.querySelector('#sso-desk .reception .desk-card .facts li')), m.route || '', { timeout: 15000 });
     await page.evaluate(async () => {
