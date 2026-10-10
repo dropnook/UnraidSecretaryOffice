@@ -299,20 +299,6 @@
     "pause": 200
    },
    {
-    "fill": "#sso-dialog .sso-report input.input",
-    "value": {
-     "de": "Serien: neue Folgen auch für Gäste bereitlegen",
-     "en": "Series: get new episodes ready for guests too"
-    }
-   },
-   {
-    "fill": "#sso-dialog .sso-report-text",
-    "value": {
-     "de": "Wenn die Grosseltern zu Besuch sind, schauen sie mit dem Gast-Konto. Schön wäre, wenn Jack Emby auch dafür die nächsten Folgen auf den Cache holt.",
-     "en": "When the grandparents visit they watch with the guest account. It would be nice if Jack Emby got the next episodes onto the cache for it too."
-    }
-   },
-   {
     "click": "#sso-dialog .sso-report-yours > summary",
     "pause": 400
    },
@@ -322,7 +308,7 @@
    }
   ],
   "clip": [
-   "#sso-dialog"
+   "#sso-dialog .sso-report-yours"
   ],
   "viewport": true,
   "height": 900,
