@@ -338,6 +338,35 @@ async function runPage(browser, harness, route, theme, width) {
   } catch (e) {
     fail(`the run broke off: ${String(e.message).split('\n')[0].slice(0, 160)}`);
   }
+  // a log dialog (status line + a long log) fits the window at every text size: title and «Close» in sight
+  // (1.55.0 pushed «Close» below a short window - Benj, 2026-10-10); once per theme and width, on one page
+  if (route === 'emby') {
+    try {
+      await page.setViewportSize({ width, height: 650 });
+      for (const size of ['', 'medium', 'large']) {
+        const r = await page.evaluate((size) => {
+          const root = document.getElementById('sso');
+          if (size) root.dataset.size = size; else delete root.dataset.size;
+          const box = document.createElement('div');
+          const st = document.createElement('p');
+          st.textContent = 'status line';
+          const pre = document.createElement('pre');
+          pre.className = 'code';
+          pre.textContent = Array.from({ length: 400 }, (_, i) => 'line ' + i).join('\n');
+          box.append(st, pre);
+          const d = Office.dialog({ title: 'log', body: box, wide: 'log' });
+          const a = document.getElementById('sso-dialog').getBoundingClientRect();
+          const f = document.getElementById('sso-dialog-foot').getBoundingClientRect();
+          d.close();
+          delete root.dataset.size;
+          return { top: a.top, bottom: f.bottom, vh: innerHeight };
+        }, size);
+        if (r.top < 0 || r.bottom > r.vh + 1) fail(`log dialog cut at text size ${size || 'small'} (top ${Math.round(r.top)}, buttons end ${Math.round(r.bottom)} of ${r.vh})`);
+      }
+    } catch (e) {
+      fail(`log dialog check: ${String(e.message).split('\n')[0].slice(0, 120)}`);
+    }
+  }
   for (const e of [...new Set(errors)].slice(0, 5)) fail(`console: ${e}`);
   await ctx.close().catch(() => {});
   res.ms = Date.now() - t0;

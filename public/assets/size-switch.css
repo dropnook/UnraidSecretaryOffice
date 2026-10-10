@@ -36,6 +36,8 @@
 #sso[data-size]{
   .palette{max-height:min(calc(72vh / var(--zoom)), 560px)}
   .dialog{max-height:min(calc(88vh / var(--zoom)), 820px)}
+  .dialog.wide.log{max-height:calc(94vh / var(--zoom))}
+  .dialog.wide.log .dialog-body pre.code{max-height:none}
   .dialog-body pre.code{max-height:min(calc(60vh / var(--zoom)), calc(min(calc(88vh / var(--zoom)), 820px) - 220px))}
   .dialog-body pre.code.sso-report-log, .dialog-body pre.code.sso-report-text-shown{max-height:min(calc(40vh / var(--zoom)), 320px)}
   .tip{max-width:min(340px, calc(100vw / var(--zoom) - 16px))}
