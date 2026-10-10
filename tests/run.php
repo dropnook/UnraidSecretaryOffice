@@ -24427,8 +24427,8 @@ function testReport(): void
     // the Worker's answers in the office's words — by `error` (or its `key`), never by the HTTP status
     $a = fn (int $code, array $body, int $exit = 0) => reportAnswer($exit, json_encode($body) . "\n$code", 1760000000);
     same('report: answers mapped', ['ok', 'ok', 'report_closed', 'report_day', 'report_busy', 'report_refused', 'report_refused', 'report_failed', 'report_failed', 'report_failed', 'report_failed', 'report_busy', 'report_offline', 'report_offline'],
-        array_map(fn ($r) => $r['ok'] ? 'ok' : $r['key'], [$a(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]),
-            $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'again' => true]),
+        array_map(fn ($r) => $r['ok'] ? 'ok' : $r['key'], [$a(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/example/private-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]),
+            $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/example/private-inbox/issues/41', 'again' => true]),
             $a(403, ['ok' => false, 'error' => 'closed', 'key' => 'report_closed', 'by' => 'switch']), $a(429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'next' => '2025-10-16T09:00:00Z', 'retry_after' => 500000]),
             $a(429, ['ok' => false, 'error' => 'busy', 'key' => 'report_busy', 'retry_after' => 3600]), $a(400, ['ok' => false, 'error' => 'refused', 'key' => 'report_refused', 'why' => 'bad', 'field' => 'title']),
             $a(413, ['ok' => false, 'error' => 'refused', 'why' => 'too_big']), $a(502, ['ok' => false, 'error' => 'github', 'key' => 'report_failed']),
@@ -24440,8 +24440,8 @@ function testReport(): void
         [[($w = $a(429, ['ok' => false, 'error' => 'week', 'key' => 'report_week', 'retry_after' => 3600, 'cap' => 30]))['key'], $w['params']],
          [($w = $a(429, ['ok' => false, 'error' => 'week', 'retry_after' => 600, 'cap' => 'lots']))['key'], $w['params']],
          $a(429, ['ok' => false, 'error' => 'day'])['key'], $a(429, ['ok' => false, 'error' => 'x', 'key' => 'report_day'])['key']]);
-    same('report: … a link only to a GitHub issue', ['', 'https://github.com/dropnook/uso-inbox/issues/41'],
-        [$a(201, ['ok' => true, 'number' => 41, 'url' => 'javascript:alert(1)'])['url'], $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41'])['url']]);
+    same('report: … a link only to a GitHub issue', ['', 'https://github.com/example/private-inbox/issues/41'],
+        [$a(201, ['ok' => true, 'number' => 41, 'url' => 'javascript:alert(1)'])['url'], $a(200, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/example/private-inbox/issues/41'])['url']]);
 
     // the .cfg override of the inbox's address
     $cfg = "$tmp/plugin.cfg";
@@ -24477,7 +24477,7 @@ header('Content-Type: application/json');
 echo json_encode($body);
 ROUTER);
     $answer = fn (int $code, array $body) => file_put_contents("$tmp/answer.json", json_encode([$code, $body]));
-    $answer(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/dropnook/uso-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]);
+    $answer(201, ['ok' => true, 'number' => 41, 'url' => 'https://github.com/example/private-inbox/issues/41', 'ticket' => 'USO-41', 'left' => 1, 'next' => null]);
     // Unraid's php.ini prepends local_prepend.php, which ends every POST without its csrf_token: not for the stand-in
     $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
     for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
@@ -24495,7 +24495,7 @@ ROUTER);
     };
     $t0 = 1760000100;
     $r = $send($pv, ['versions', 'unraid', 'language', 'team', 'error', 'log'], $t0 + 5);
-    same('report: sent — the number, the link, 24 left', [true, 41, 'https://github.com/dropnook/uso-inbox/issues/41', REPORT_CAP_DAY - 1], [$r['ok'], $r['number'] ?? null, $r['url'] ?? null, $r['left'] ?? null]);
+    same('report: sent — the number, the link, 24 left', [true, 41, 'https://github.com/example/private-inbox/issues/41', REPORT_CAP_DAY - 1], [$r['ok'], $r['number'] ?? null, $r['url'] ?? null, $r['left'] ?? null]);
     $req = json_decode((string) @file_get_contents("$tmp/request-1.json"), true) ?? [];
     $body = json_decode($req['body'] ?? '', true) ?? [];
     same('report: … one POST to /api/report, JSON, the office\'s User-Agent, no Origin, no Referer', ['/api/report', 'POST', 'UnraidSecretaryOffice/' . AGENT_VERSION, 'application/json', null, null],
@@ -24556,7 +24556,7 @@ ROUTER);
     same('report: the cap counts the last 24 h only', [REPORT_CAP_DAY - 1, 1, REPORT_CAP_DAY], [$cap['n'], $cap['left'], $cap['cap']]);
 
     // the 25th of the day goes, the 26th is refused before any request
-    $answer(201, ['ok' => true, 'number' => 42, 'url' => 'https://github.com/dropnook/uso-inbox/issues/42', 'ticket' => 'USO-42', 'left' => 0, 'next' => '2025-10-16T09:00:00Z']);
+    $answer(201, ['ok' => true, 'number' => 42, 'url' => 'https://github.com/example/private-inbox/issues/42', 'ticket' => 'USO-42', 'left' => 0, 'next' => '2025-10-16T09:00:00Z']);
     $pv3 = reportPreview(['kind' => 'wish'] + $ask, $ctx + ['now' => $t0 + 50]);
     $r = $send($pv3, [], $t0 + 60, ['kind' => 'wish']);
     same('report: the 25th today — sent, none left', [true, 42, 0], [$r['ok'], $r['number'] ?? null, $r['left'] ?? null]);
@@ -24575,7 +24575,7 @@ ROUTER);
     $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
     same('report: … kept as it stood (a tolerant writer)', ['number' => 33, 'sent' => $t0], $rj['reports'][2] ?? null);
 
-    // what the stand-in got matches the Worker's rules (uso-support/feedback/worker.js: FIELDS, FACT_FIELDS, PART_RE …)
+    // what the stand-in got matches the Worker's rules (the Worker's feedback/worker.js: FIELDS, FACT_FIELDS, PART_RE …)
     $bad = [];
     for ($i = 1; $i <= $count(); $i++) {
         $q = json_decode((string) @file_get_contents("$tmp/request-$i.json"), true) ?? [];
@@ -24653,7 +24653,7 @@ ROUTER);
     // twelve reports (#1 the oldest) and one of another shape
     $reports = [['number' => 99, 'sent' => $t0]];
     for ($n = 1; $n <= 12; $n++) {
-        $reports[] = ['number' => $n, 'url' => "https://github.com/dropnook/uso-inbox/issues/$n", 'kind' => 'bug', 'title' => "Report $n", 'desk' => 'backup',
+        $reports[] = ['number' => $n, 'url' => "https://github.com/example/private-inbox/issues/$n", 'kind' => 'bug', 'title' => "Report $n", 'desk' => 'backup',
                       'sent' => $t0 - 1000 + $n, 'rid' => str_repeat('a', 32)];
     }
     file_put_contents("$tmp/office/reports.json", json_encode(['v' => 1, 'reports' => $reports, 'closed_until' => null]));
@@ -24685,7 +24685,7 @@ ROUTER);
         [['number' => 14, 'url' => "{$pub}14"], ['number' => 15, 'url' => "{$pub}15"], null, null, null],
         array_map(fn ($n) => $by["Report $n"]['public'] ?? null, [10, 9, 8, 7, 6]));
     $json = json_encode($list);
-    check('report status: the page gets neither the inbox\'s numbers nor its links', !str_contains($json, 'uso-inbox') && !array_filter($list['reports'], fn ($r) => isset($r['number']) || isset($r['url'])));
+    check('report status: the page gets neither the inbox\'s numbers nor its links', !str_contains($json, 'private-inbox') && !array_filter($list['reports'], fn ($r) => isset($r['number']) || isset($r['url'])));
     same('report status: … rows: kind, title, desk, sent, status, public', ['kind', 'title', 'desk', 'sent', 'status', 'public'], array_keys($by['Report 10']));
     $rj = $kept();
     $e10 = array_values(array_filter($rj['reports'], fn ($e) => ($e['number'] ?? 0) === 10))[0] ?? [];
@@ -24820,18 +24820,18 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   answers = {
     'office.reports': { ok: true, reports: [
       // an older agent's row still carries the inbox's number and link: never shown
-      { number: 40, url: 'https://github.com/dropnook/uso-inbox/issues/40', kind: 'wish', title: 'Darker', desk: 'office', sent: 1760000000, status: 'seen',
+      { number: 40, url: 'https://github.com/example/private-inbox/issues/40', kind: 'wish', title: 'Darker', desk: 'office', sent: 1760000000, status: 'seen',
         public: { number: 14, url: 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14' } },
       { kind: 'bug', title: 'Twice', desk: 'snapshot', sent: 1760000000, status: 'received', public: { number: 5, url: 'https://github.com/evil/repo/issues/5' } },
       { kind: 'question', title: 'Why', desk: 'office', sent: 1760000000, status: 'done', public: { number: 6, url: 'javascript:alert(1)//github.com/dropnook/UnraidSecretaryOffice/issues/6' } },
       { kind: 'bug', title: 'Old', desk: 'office', sent: 1760000000 },
-      { kind: 'bug', title: 'Odd', desk: 'office', sent: 1760000000, status: 'constructor', public: { number: 7, url: 'https://github.com/dropnook/UnraidSecretaryOffice/issues/7/../../uso-inbox' } },
+      { kind: 'bug', title: 'Odd', desk: 'office', sent: 1760000000, status: 'constructor', public: { number: 7, url: 'https://github.com/dropnook/UnraidSecretaryOffice/issues/7/../../private-inbox' } },
     ], n: 1, left: 1, cap: 2, next: null, closed: false },
     'office.report_preview': { ok: true, token: 'a'.repeat(32), ttl: 600, ticked: ['versions', 'unraid', 'language', 'team', 'error', 'log'], id: '1234abcd', hints: ['address'],
       hidden: { '‹share-1›': 'Media' }, n: 1, left: 1, cap: 2, next: null, closed: false,
       parts: { versions: { office: '1.44.0' }, unraid: '7.3.2', language: { lang: 'en', browser: 'de' }, team: ['caretaker', 'snapshot'],
         error: { key: 'command_failed', params: { detail: 'x' }, at: 1760000000 }, log: '2026-10-08 10:00:00  Ms. Snapshotini: created ‹pool-1›/‹share-1›@…' } },
-    'office.report_send': { ok: true, number: 41, url: 'https://github.com/dropnook/uso-inbox/issues/41', left: 0, n: 2, cap: 2, next: 1760600000 },
+    'office.report_send': { ok: true, number: 41, url: 'https://github.com/example/private-inbox/issues/41', left: 0, n: 2, cap: 2, next: 1760600000 },
   };
   O.errorText({ key: 'command_failed', params: { detail: 'zfs busy', deep: { x: 1 } } }, 'snapshot');
   const dlg = O.reportDialog('snapshot');
@@ -24841,7 +24841,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   out.opened = { title: byId['sso-dialog-title'].textContent, desk: desk.value, deskOptions: desk.children.map((o) => o.value), sendOff: send.disabled,
     asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className,
     issues: walk(body(), (n) => n.tag === 'a').filter((a) => !walk(one((n) => n.tag === 'details'), (x) => x === a).length).map((a) => a.href),
-    yours: text(one((n) => n.tag === 'details')).includes('Darker') && !text(one((n) => n.tag === 'details')).includes('#40') && !text(one((n) => n.tag === 'details')).includes('uso-inbox'),
+    yours: text(one((n) => n.tag === 'details')).includes('Darker') && !text(one((n) => n.tag === 'details')).includes('#40') && !text(one((n) => n.tag === 'details')).includes('private-inbox'),
     rows: walk(one((n) => n.tag === 'details'), (n) => n.tag === 'li').map((li) => ({ title: text(li.children[0]), meta: text(li.children[1]),
       chips: walk(li, (n) => /(^| )chip( |$)/.test(n.className)).map((c) => [c.className, text(c)]),
       links: walk(li, (n) => n.tag === 'a').map((a) => [a.href, text(a), a.target, a.rel]) })) };
@@ -25124,7 +25124,7 @@ function testReportImages(): void
     }
     file_put_contents("$tmp/router.php", '<?php $n = (int) @file_get_contents(__DIR__ . "/count") + 1; file_put_contents(__DIR__ . "/count", (string) $n);'
         . ' file_put_contents(__DIR__ . "/request-$n.json", file_get_contents("php://input")); header("Content-Type: application/json");'
-        . ' echo json_encode(["ok" => true, "number" => 50 + $n, "url" => "https://github.com/dropnook/uso-inbox/issues/" . (50 + $n)]);');
+        . ' echo json_encode(["ok" => true, "number" => 50 + $n, "url" => "https://github.com/example/private-inbox/issues/" . (50 + $n)]);');
     $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-d', 'post_max_size=16M', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
     for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
         usleep(100000);
@@ -25256,7 +25256,7 @@ const one = (f) => walk(body(), f)[0];
     'office.report_preview': { ok: true, token: 'a'.repeat(32), ttl: 600, ticked: ['versions', 'unraid', 'language', 'team', 'image1'], id: '1234abcd', hints: [], hidden: {},
       n: 0, left: 25, cap: 25, next: null, closed: false, images: [{ type: 'png', width: 1280, height: 720, bytes: 81234, scaled: false }],
       parts: { versions: { office: '1.51.0' }, unraid: '7.3.3', language: { lang: 'en', browser: 'en' }, team: ['caretaker'], log: '' } },
-    'office.report_send': { ok: true, number: 77, url: 'https://github.com/dropnook/uso-inbox/issues/77', left: 24, n: 1, cap: 25, next: null },
+    'office.report_send': { ok: true, number: 77, url: 'https://github.com/example/private-inbox/issues/77', left: 24, n: 1, cap: 25, next: null },
   };
   const dlg = O.reportDialog('office');
   await sleep(20);
