@@ -11,7 +11,7 @@ where it makes sense, lets you act on it. Before anything changes they show you 
 with the office can keep each other's backups as partner offices, and the Night Watchman also reads what a UniFi
 or MikroTik router says about the server. It is a plugin: no container, no account, no cloud of ours, nothing locked.
 
-![The reception: every desk's news at a glance](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception.png)
+![The reception: the whole team at a glance](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception.png)
 
 ## The staff
 
@@ -39,7 +39,7 @@ stays off (switch it on again in Mover Settings if you like). Hired
 again, his settings are as they were and the schedules stay off until you switch them on. *Change the order* at the
 reception puts the desks in the order you like.
 
-![Ms. Snapshotini's page](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot.png)
+![Ms. Snapshotini: one snapshot in detail, why «used» and «new since» differ](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot.png)
 
 ## What happens, end to end
 
@@ -56,7 +56,7 @@ retention. Something new — a folder in a share that goes to Kopia, an app, a V
 you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's
 notifications; stopping the array ends a run cleanly, and what it had stopped comes back right after the array starts.
 
-![Mr. Backupsy's overview](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)
+![Mr. Backupsy: a run going on — its steps, Kopia's sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)
 
 ### Getting something back
 
@@ -67,8 +67,6 @@ when you confirm does he start, on the server, one restore at a time and never d
 step; *Put back* undoes a restore, also one that failed. He never starts or recreates a container — he says what to
 click. For the rest there are ready-made commands with your names and paths, and a guide *onto a new server*.
 
-![Mr. Restori's page](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore.png)
-
 ### The restore drill
 
 Once a month (or every week in the night you choose, or only when you press *Practise now…*), at night after a backup that went well, Mr.
@@ -78,6 +76,8 @@ sample back from Kopia to compare with the local snapshot — where an app's pac
 read back from Kopia and played too. Each app and VM gets a **certificate**: which level is proven, from which copy,
 when. The drill wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after
 itself (what an interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
+
+![Mr. Restori: the drill passed — the level per app, the databases played back](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill.png)
 
 ### The Night Watchman's round
 
@@ -105,7 +105,7 @@ Unraid's diagnostics or its kept syslog show), or the server went off without sh
 parity at every start until a stop is clean again; he says so once, and the Team Lead lists which time-out to raise
 (Docker + VMs + a margin) until a later stop is clean. He never starts, pauses or cancels a check.
 
-![The Night Watchman's watch book](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman.png)
+![The Night Watchman's watch book: what was different from normal](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman.png)
 
 ### The search
 
@@ -113,8 +113,6 @@ The magnifier at the top right, or ⌘K / Ctrl+K inside the office, finds a desk
 of a setup or one of the Consultant's guides — in all five languages at once, forgiving a typo. It also finds what the
 desks know right now: a share, an app, a VM, a database, an open point, an entry of the watch book, a partner office.
 Choose one and the office takes you there, opens it and marks the place. It all runs in your browser.
-
-![The search](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/search.png)
 
 ## Install
 
@@ -136,7 +134,7 @@ than the one the office was tested on.
 header. A tile on Unraid's Dashboard shows the essentials: the messenger, the Team Lead's open points, the last and
 next backup. The green dot beside *⋯* means the messenger (the office's agent) checked in within the last 70 seconds.
 
-![Mr. Backupsy's setup](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup.png)
+![Mr. Backupsy's setup: «Apply the settings?» — 1 proposal of mine · 1 change of yours](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup.png)
 
 ## Updates and removal
 
@@ -168,7 +166,7 @@ picture, and sends a report only when you send one yourself (below) — and, whe
 asks where they stand. No account, no telemetry. The desks never wake a
 sleeping disk unless you ask; the scheduled backup does, unless you tell it to leave sleeping pools out.
 
-![Ms. Dustdevil's «Where is what»](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)
+![Ms. Dustdevil's «Where is what»: the places that matter and how they are protected](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)
 
 ## Languages and themes
 
@@ -194,6 +192,8 @@ makes it larger — both in your browser only.
 
 What was checked and what is still open: [HARDENING.md](HARDENING.md).
 
+![Ms. Dustdevil's storeroom: nothing is thrown away at once](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom.png)
+
 ## Partner offices
 
 Two Unraid servers with the office — yours, a family member's, a friend's — can keep each other's backups. Paired at
@@ -204,6 +204,8 @@ When a server is gone, the new one asks at its Team Lead (*Start from a partner'
 a **restore ticket** — a door for seven days that only hands over those copies; Mr. Restori's *Onto a new server*
 pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
+
+![The Team Lead: a partner office at the grandparents', copies both ways](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner.png)
 
 ## Notifications
 
@@ -248,6 +250,8 @@ stands — received, looked at, done — and, once the makers opened a public Gi
 that the office asks the inbox when you open the dialog (each report at most once an hour), with nothing but the
 reports' numbers in the inbox and the office's report ID.
 
+![«Your reports»: a wish, built and public as Issue #14](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report.png)
+
 ## Thanks
 
 Jack Emby's two tools are the work of **[helmi1987](https://github.com/helmi1987)**:
@@ -255,6 +259,8 @@ Jack Emby's two tools are the work of **[helmi1987](https://github.com/helmi1987
 [media-disk-gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate folders"), both
 GPL-3.0-or-later. They ship with the office in `embycache/` and `gather/`, modified and under the same licence — what
 we changed is listed at the top of their READMEs. Thank you, helmi1987 — a share of the tips goes to him.
+
+![Jack Emby live: EmbyCache gets ready for each person what they watch next](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live.png)
 
 ## License
 
