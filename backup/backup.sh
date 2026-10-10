@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.36 - 2026-10-09
+# unraid-backup - backup.sh                       Version 2.37 - 2026-10-10
+#   2.37 A new top-level folder inherits its share's level: in a data share that goes to Kopia it goes there too
+#        (nextcloud_data: a new user's folder), only the user's kopia_ignore leaves one out. Only in the shares Unraid
+#        names for app configs and VMs (docker.cfg DOCKER_APP_CONFIG_PATH, domain.cfg DOMAINDIR) a new folder follows
+#        its app or VM (container binds, VM disks): one going to Kopia takes it along, any other leaves it new and
+#        local as before. Rules a run set up to 2.36 for a data share's folders are taken away right before the upload
+#        (tolerated by the policy comparison until then); drift known_missing only for app/VM shares
 #   2.36 Ms. Dustdevil's storeroom is a hidden folder (.UnraidSecretaryOffice-trash, issue #7): datasets put away under
 #        either name are never snapshotted; [kopia] ignore with the old name's rule leaves out the new name too
 #   2.35 cfg_list readers no longer cut the pipe: a unit kept by two partners is never dropped from a run (partner_units

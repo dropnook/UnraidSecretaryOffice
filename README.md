@@ -52,9 +52,10 @@ shares stop briefly while their databases are dumped. Each app and VM gets a fre
 seconds while ZFS and btrfs **snapshots** freeze the shares, the packages and the VMs' disks; then everything starts
 again. Next the snapshots of what you ticked go to your **partner office**, then the **offsite** copy: Kopia uploads
 from the snapshots, encrypted, to your storage (S3, Backblaze B2, SFTP, WebDAV, a NAS …) — the flash first, then the
-apps, then the shares and VMs, the smallest first. Old snapshots go by your retention. Something new — a folder in a
-share that goes offsite, an app, a VM — stays local and keeps running until you decide in the setup; a new share waits
-for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. *Stop the run* ends a run
+apps, then the shares and VMs, the smallest first. Old snapshots go by your retention. A new folder simply goes with its share — offsite when
+the share goes offsite; only in appdata and domains (the shares Unraid keeps apps and VMs in) it follows the app or VM it
+belongs to. Something new — an app, a VM, a folder there of no app or VM going offsite — stays local and keeps running
+until you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. *Stop the run* ends a run
 cleanly, and its card says what it still waits for (apps stopping, a VM, the offsite upload); stopping the array ends
 it cleanly too, and what it had stopped comes back right after the array starts.
 
