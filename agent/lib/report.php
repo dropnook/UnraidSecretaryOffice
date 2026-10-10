@@ -16,8 +16,14 @@ declare(strict_types=1);
  *         FEEDBACK_URL="http://…" — tests), 20 s, the body from a 0600 file in RAM (never on the command line). One
  *         token sends once: claimed by a rename, a second send of it gets the first one's answer, never a second POST.
  *   office.reports {}
- *       → «Your reports» (data/office/reports.json, 0600) and how many are left for now.
- * Nothing leaves the server without the user's click on «Send». What goes is shown before, in full.
+ *       → «Your reports» (data/office/reports.json, 0600) and how many are left for now — each with where it stands
+ *         (received | seen | done) and the public issue the makers opened for it, if any. For that it does ONE GET
+ *         <inbox>/api/status?ids=<n>,… for the newest REPORT_STATUS_MAX reports not looked at for REPORT_STATUS_EVERY
+ *         (the Worker checks they are this office's by the report ID, sent as header X-Office — never the GUID):
+ *         curl through hostNet(), https only, REPORT_STATUS_TIMEOUT, address and header in a 0600 config file in RAM.
+ *         Only the inbox's numbers and the report ID go along — nothing the user wrote. A failure is silent (the rows
+ *         keep what was known). The inbox's numbers stay in reports.json for this; the page never gets them.
+ * Nothing user-written leaves the server without the user's click on «Send». What goes is shown before, in full.
  *
  * The caps: REPORT_CAP_DAY reports in 24 hours per office (Benj, 2026-10-09; up to 1.47 it was 2 in 7 days), checked
  * here first (reports.json) — the Worker is binding and counts by the report ID: sha256("uso-report:" + GUID), 64 hex,
@@ -65,6 +71,12 @@ const REPORT_IMG_RAM_MAX = 16 * 1024 * 1024;   // all previews' pictures in RAM 
 const REPORT_SEND_TIMEOUT = 20;                // seconds for a send …
 const REPORT_SEND_TIMEOUT_IMAGES = 90;         // … and for one with pictures (≤ ~5.5 MB up)
 const REPORT_KEEP        = 50;                 // «Your reports»: the newest kept
+const REPORT_STATUS_MAX     = 10;          // «Your reports»: where the newest this many stand is asked (the Worker's batch) …
+const REPORT_STATUS_EVERY   = 3600;        // … each at most once an hour …
+const REPORT_STATUS_TIMEOUT = 8;           // … in one GET of at most this many seconds
+const REPORT_STATUSES       = ['received', 'seen', 'done'];
+// the public issue a report became — only one of the office's public repository, never anything else the Worker says
+const REPORT_PUBLIC_RE      = '#^https://github\.com/dropnook/UnraidSecretaryOffice/issues/([0-9]{1,9})$#D';
 const REPORT_LANGS       = ['en', 'de', 'it', 'fr', 'es'];
 // Unraid's own shares and the office's: they stay in paths; every other share is the user's and becomes ‹share-N›
 const REPORT_SHARES_KEPT = ['appdata', 'system', 'domains', 'isos', 'UnraidSecretaryOffice'];
@@ -671,8 +683,9 @@ function reportPartsField(array $r): array
 // ===================================================================== reports.json and the caps
 
 /**
- * data/office/reports.json: {"v":1, "reports":[{number, url, kind, title, desk, sent, rid}], "closed_until": null|<time>}
- * — what a reader doesn't know (other keys, entries of another shape) is kept as it stood (a tolerant writer).
+ * data/office/reports.json: {"v":1, "reports":[{number, url, kind, title, desk, sent, rid, status?, public?, checked?}],
+ * "closed_until": null|<time>} — status/public/checked: where the report stood when last asked (reportStatusRefresh());
+ * what a reader doesn't know (other keys, entries of another shape) is kept as it stood (a tolerant writer).
  */
 function reportsRead(array $ctx = []): array
 {
@@ -688,7 +701,21 @@ function reportEntryValid(mixed $e): bool
 {
     return is_array($e) && is_int($e['number'] ?? null) && $e['number'] > 0 && is_string($e['url'] ?? null)
         && in_array($e['kind'] ?? null, REPORT_KINDS, true) && is_string($e['title'] ?? null) && is_string($e['desk'] ?? null)
-        && is_int($e['sent'] ?? null);
+        && is_int($e['sent'] ?? null)
+        // where it stood (reportStatusRefresh()): each optional, but only in the shape written
+        && (!array_key_exists('status', $e) || in_array($e['status'], REPORT_STATUSES, true))
+        && (!array_key_exists('checked', $e) || is_int($e['checked']))
+        && (!array_key_exists('public', $e) || $e['public'] === null || reportPublic($e['public']) === $e['public']);
+}
+
+/** A public issue in exactly the shape kept and shown: {number, url} of the office's public repository — else null */
+function reportPublic(mixed $p): ?array
+{
+    if (!is_array($p) || !is_string($p['url'] ?? null) || !preg_match(REPORT_PUBLIC_RE, $p['url'], $m)
+        || !is_int($p['number'] ?? null) || (string) $p['number'] !== $m[1]) {
+        return null;
+    }
+    return ['number' => $p['number'], 'url' => $p['url']];
 }
 
 function reportsWrite(array $j, array $ctx = []): void
@@ -724,17 +751,142 @@ function reportCap(array $j, int $now): array
     return ['n' => $n, 'left' => max(0, REPORT_CAP_DAY - $n), 'cap' => REPORT_CAP_DAY, 'next' => $next];
 }
 
-/** «Your reports» for the dialog: the newest first, and the cap */
+/**
+ * «Your reports» for the dialog: the newest first — each with where it stands (status: received | seen | done, absent
+ * while unknown) and its public issue ({number, url}, only the office's public repository) —, and the cap. Never the
+ * private inbox's number or link: those stay in reports.json for asking the Worker.
+ */
 function reportsAnswer(array $ctx = []): array
 {
     $now = $ctx['now'] ?? time();
-    $j = reportsRead($ctx);
+    $j = reportStatusRefresh(reportsRead($ctx), $now, $ctx);
     $list = [];
     foreach (array_reverse(array_values(array_filter($j['reports'], 'reportEntryValid'))) as $e) {
-        $list[] = ['number' => $e['number'], 'url' => reportIssueUrl($e['url']), 'kind' => $e['kind'], 'title' => $e['title'],
-                   'desk' => $e['desk'], 'sent' => $e['sent']];
+        $row = ['kind' => $e['kind'], 'title' => $e['title'], 'desk' => $e['desk'], 'sent' => $e['sent']];
+        if (isset($e['status'])) {
+            $row['status'] = $e['status'];
+        }
+        if (($pub = reportPublic($e['public'] ?? null)) !== null) {
+            $row['public'] = $pub;
+        }
+        $list[] = $row;
     }
     return ['ok' => true, 'reports' => $list, 'closed' => ($j['closed_until'] ?? 0) > $now] + reportCap($j, $now);
+}
+
+/**
+ * Where the newest REPORT_STATUS_MAX reports stand, asked of the Worker for those not looked at within
+ * REPORT_STATUS_EVERY — one GET for all (reportStatusAsk()). Each asked one gets `checked` (also when the ask failed:
+ * at most one try an hour); one the Worker answered gets `status` and `public` — one it left out (not this office's,
+ * gone) keeps what it had. Written back only when something was asked; a write that fails is no failure. No inbox
+ * (FEEDBACK_URL / OFFICE_FEEDBACK_URL empty): nothing asked, nothing written.
+ */
+function reportStatusRefresh(array $j, int $now, array $ctx = []): array
+{
+    $due = [];
+    foreach (array_reverse(array_keys($j['reports'])) as $i) {
+        $e = $j['reports'][$i];
+        if (!reportEntryValid($e)) {
+            continue;
+        }
+        if (count($due) >= REPORT_STATUS_MAX) {
+            break;
+        }
+        $checked = $e['checked'] ?? null;
+        $due[$i] = $checked === null || $checked <= $now - REPORT_STATUS_EVERY || $checked > $now + 300;
+    }
+    $ask = array_keys(array_filter($due));
+    $base = $ctx['url'] ?? officeFeedbackUrl();
+    if (!$ask || $base === '') {
+        return $j;
+    }
+    $answer = reportStatusAsk(array_map(fn ($i) => $j['reports'][$i]['number'], $ask), ['url' => $base] + $ctx);
+    foreach ($ask as $i) {
+        $e = &$j['reports'][$i];
+        $e['checked'] = $now;
+        $got = $answer[$e['number']] ?? null;
+        if ($got !== null) {
+            $e['status'] = $got['status'];
+            $e['public'] = $got['public'];
+        }
+        unset($e);
+    }
+    try {
+        reportsWrite($j, $ctx);
+    } catch (Throwable) {
+        // not kept: asked again next time
+    }
+    return $j;
+}
+
+/**
+ * GET <inbox>/api/status?ids=<n>,… with the report ID as header X-Office: curl through hostNet() (no shell), address
+ * and header in a 0600 curl config file in RAM (never on the command line), https only (http only when the plugin's
+ * .cfg says FEEDBACK_URL="http://…" — tests), REPORT_STATUS_TIMEOUT, no redirects, at most 64 KB back. Nothing else
+ * of this server goes along.
+ *
+ * @param int[] $numbers the inbox's numbers
+ * @return array<int, array{status: string, public: ?array}> per number the Worker answered — [] on any failure
+ */
+function reportStatusAsk(array $numbers, array $ctx = []): array
+{
+    $base = $ctx['url'] ?? officeFeedbackUrl();
+    $numbers = array_values(array_unique(array_filter($numbers, fn ($n) => is_int($n) && $n > 0 && $n < 1000000000)));
+    $dir = reportRunDir($ctx);
+    if ($base === '' || !$numbers || !reportRunDirReady($dir)) {
+        return [];
+    }
+    $file = "$dir/status." . bin2hex(random_bytes(6)) . '.curl';
+    $old = umask(0177);
+    $h = @fopen($file, 'x');
+    umask($old);
+    $config = 'url = "' . $base . '/api/status?ids=' . implode(',', array_slice($numbers, 0, REPORT_STATUS_MAX)) . "\"\n"
+        . 'header = "X-Office: ' . reportId($ctx) . "\"\n";
+    if (!$h || @fwrite($h, $config) !== strlen($config) || !fclose($h)) {
+        @unlink($file);
+        return [];
+    }
+    try {
+        [$exit, $out] = hostNet(['curl', '-s', '-S', '-m', (string) REPORT_STATUS_TIMEOUT, '--proto', str_starts_with($base, 'http://') ? '=http' : '=https',
+            '--max-redirs', '0', '--max-filesize', '65536', '-H', 'Accept: application/json',
+            '-A', 'UnraidSecretaryOffice/' . AGENT_VERSION, '-w', '\n%{http_code}', '-K', $file], REPORT_STATUS_TIMEOUT + 5);
+    } catch (Throwable) {
+        return [];
+    } finally {
+        @unlink($file);
+    }
+    return reportStatusAnswer($exit, $out, $numbers);
+}
+
+/**
+ * The Worker's 200 {ok: true, reports: [{number, state: open|closed, answered, public: {number, url, state}|null}]} in the
+ * office's words: closed → done; open and answered or with a public issue → seen; open → received. A public issue only
+ * of the office's public repository (REPORT_PUBLIC_RE). Only numbers that were asked; anything else → [].
+ *
+ * @return array<int, array{status: string, public: ?array}>
+ */
+function reportStatusAnswer(int $exit, string $out, array $asked): array
+{
+    $cut = strrpos(rtrim($out), "\n");
+    $code = (int) substr(rtrim($out), $cut === false ? 0 : $cut + 1);
+    if ($exit !== 0 || $code !== 200 || $cut === false) {
+        return [];
+    }
+    $body = json_decode(substr($out, 0, $cut), true, 8);
+    if (!is_array($body) || ($body['ok'] ?? null) !== true || !is_array($body['reports'] ?? null) || !array_is_list($body['reports'])) {
+        return [];
+    }
+    $got = [];
+    foreach ($body['reports'] as $r) {
+        if (!is_array($r) || !is_int($r['number'] ?? null) || !in_array($r['number'], $asked, true)
+            || !in_array($r['state'] ?? null, ['open', 'closed'], true)) {
+            continue;
+        }
+        $public = reportPublic($r['public'] ?? null);
+        $status = $r['state'] === 'closed' ? 'done' : (($r['answered'] ?? null) === true || $public !== null ? 'seen' : 'received');
+        $got[$r['number']] = ['status' => $status, 'public' => $public];
+    }
+    return $got;
 }
 
 /** A link to an issue the Worker answered — only https://github.com/<owner>/<repo>/issues/<n>; anything else '' */

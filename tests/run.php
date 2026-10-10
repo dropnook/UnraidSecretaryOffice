@@ -23440,7 +23440,8 @@ function testReport(): void
     $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hive'],
             'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/partner", 'emby_settings' => "$tmp/emby.json", 'supporter' => "$tmp/supporter.json",
             'report_id_file' => "$tmp/office/report-id", 'hostname' => 'nostromo', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
-            'hired' => ['caretaker', 'snapshot', 'backup'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log"];
+            'hired' => ['caretaker', 'snapshot', 'backup'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log",
+            'url' => ''];       // no inbox: «Your reports» asks nobody where they stand here (testReportStatus does)
     file_put_contents("$tmp/unraid-version", "version=\"7.3.2\"\n");
 
     // the report ID: of its own, kept, never the tip page's server ID
@@ -23641,7 +23642,7 @@ ROUTER);
         usleep(100000);
     }
     $logged = [];
-    $sctx = $ctx + ['url' => "http://127.0.0.1:$port", 'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }];
+    $sctx = ['url' => "http://127.0.0.1:$port", 'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }] + $ctx;
     $count = fn (): int => (int) @file_get_contents("$tmp/count");
     $send = function (array $pv, array $parts, int $now, array $over = []) use ($words, $sctx): array {
         try {
@@ -23727,8 +23728,8 @@ ROUTER);
     same('report: a 26th within 24 h — report_day, nobody asked', ['report_day', ['n' => REPORT_CAP_DAY, 'next' => $t0 + 5 + REPORT_DAY], $before], [$r['key'] ?? 'ok', $r['params'] ?? null, $count()]);
     same('report: … a day after the first, one goes again', 1, reportsAnswer(['now' => $t0 + 5 + REPORT_DAY] + $ctx)['left']);
     $list = reportsAnswer(['now' => $t0 + 100] + $ctx);
-    same('report: «Your reports» — newest first, as kept (an entry of another shape is none)', [[42, 123, 122], ['number', 'url', 'kind', 'title', 'desk', 'sent'], [41, 32, 31]],
-        [array_slice(array_column($list['reports'], 'number'), 0, 3), array_keys($list['reports'][0] ?? []), array_slice(array_column($list['reports'], 'number'), -3)]);
+    same('report: «Your reports» — newest first, as kept (an entry of another shape is none), never the inbox\'s number or link', [[$t0 + 60, $t0 + 28, $t0 + 27], ['kind', 'title', 'desk', 'sent'], [$t0 + 5, $t0 + 5 - REPORT_DAY, $t0 - 3 * 86400]],
+        [array_slice(array_column($list['reports'], 'sent'), 0, 3), array_keys($list['reports'][0] ?? []), array_slice(array_column($list['reports'], 'sent'), -3)]);
     $rj = json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
     same('report: … kept as it stood (a tolerant writer)', ['number' => 33, 'sent' => $t0], $rj['reports'][2] ?? null);
 
@@ -23757,6 +23758,145 @@ ROUTER);
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports', 'office.supporter_claim'];")
         && str_contains($api, '$office = in_array($action, OFFICE_AGENT_ACTIONS, true);'));
+    hardeningRm($tmp);
+}
+
+/**
+ * «Your reports» — where each stands (agent/lib/report.php reportStatusRefresh()): office.reports asks the Worker ONE
+ * GET /api/status?ids=… for the newest ten not looked at within the hour, the report ID as header X-Office (never the
+ * GUID, never on the command line or in the address), nothing the user wrote; open → received, answered or with a
+ * public issue → seen, closed → done; a public issue only of the office's public repository; kept in reports.json
+ * (status, public, checked); a failure is silent and keeps what was known; the page never gets the inbox's numbers.
+ */
+function testReportStatus(): void
+{
+    $tmp = hardeningTmp('report-status');
+    @mkdir("$tmp/office", 0700);
+    @mkdir("$tmp/run", 0700);
+    $guid = '0781-5583-3311-A1B2C3D4E5F6';
+    file_put_contents("$tmp/var.ini", "regGUID=\"$guid\"\n");
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $s = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($s) {
+            fclose($s);
+            $port = $try;
+        }
+    }
+    file_put_contents("$tmp/router.php", <<<'ROUTER'
+<?php
+$dir = __DIR__;
+$n = (int) @file_get_contents("$dir/count") + 1;
+file_put_contents("$dir/count", (string) $n);
+file_put_contents("$dir/request-$n.json", json_encode(['uri' => $_SERVER['REQUEST_URI'], 'method' => $_SERVER['REQUEST_METHOD'],
+    'office' => $_SERVER['HTTP_X_OFFICE'] ?? null, 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'accept' => $_SERVER['HTTP_ACCEPT'] ?? '',
+    'body' => file_get_contents('php://input')]));
+[$code, $body] = json_decode((string) file_get_contents("$dir/answer.json"), true);
+http_response_code($code);
+header('Content-Type: application/json');
+echo json_encode($body);
+ROUTER);
+    $answer = fn (int $code, mixed $body) => file_put_contents("$tmp/answer.json", json_encode([$code, $body]));
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $ctx = ['var_ini' => "$tmp/var.ini", 'report_id_file' => "$tmp/office/report-id", 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
+            'url' => "http://127.0.0.1:$port"];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    $req = fn (int $n): array => json_decode((string) @file_get_contents("$tmp/request-$n.json"), true) ?? [];
+    $kept = fn (): array => json_decode((string) @file_get_contents("$tmp/office/reports.json"), true) ?? [];
+    $t0 = 1760000100;
+    // twelve reports (#1 the oldest) and one of another shape
+    $reports = [['number' => 99, 'sent' => $t0]];
+    for ($n = 1; $n <= 12; $n++) {
+        $reports[] = ['number' => $n, 'url' => "https://github.com/dropnook/uso-inbox/issues/$n", 'kind' => 'bug', 'title' => "Report $n", 'desk' => 'backup',
+                      'sent' => $t0 - 1000 + $n, 'rid' => str_repeat('a', 32)];
+    }
+    file_put_contents("$tmp/office/reports.json", json_encode(['v' => 1, 'reports' => $reports, 'closed_until' => null]));
+    $pub = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/';
+    $answer(200, ['ok' => true, 'reports' => [
+        ['number' => 12, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => null],
+        ['number' => 11, 'state' => 'open', 'answered' => true, 'updated' => null, 'public' => null],
+        ['number' => 10, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => ['number' => 14, 'url' => "{$pub}14", 'state' => 'open']],
+        ['number' => 9, 'state' => 'closed', 'answered' => true, 'updated' => null, 'public' => ['number' => 15, 'url' => "{$pub}15", 'state' => 'closed']],
+        ['number' => 8, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => ['number' => 5, 'url' => 'https://github.com/evil/repo/issues/5']],
+        ['number' => 7, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => ['number' => 6, 'url' => 'javascript:alert(1)//github.com/dropnook/UnraidSecretaryOffice/issues/6']],
+        ['number' => 6, 'state' => 'open', 'answered' => false, 'updated' => null, 'public' => ['number' => 7, 'url' => "{$pub}8"]],
+        ['number' => 5, 'state' => 'weird', 'answered' => true],
+        ['number' => 2, 'state' => 'closed', 'answered' => true, 'public' => null],      // not asked: not taken
+    ]]);
+    $list = reportsAnswer(['now' => $t0] + $ctx);
+    $q = $req(1);
+    same('report status: one GET /api/status for the newest ten, no body', [1, 'GET', '/api/status?ids=12,11,10,9,8,7,6,5,4,3', ''],
+        [$count(), $q['method'] ?? null, $q['uri'] ?? null, $q['body'] ?? null]);
+    same('report status: … the report ID as header X-Office (never the GUID), the office\'s User-Agent, JSON', [reportId($ctx), 'UnraidSecretaryOffice/' . AGENT_VERSION, 'application/json'],
+        [$q['office'] ?? null, $q['ua'] ?? null, $q['accept'] ?? null]);
+    check('report status: … nothing of the GUID, the ID or a title in the address', !str_contains($q['uri'] ?? '', reportId($ctx)) && !stripos(json_encode($q), $guid) && !str_contains(json_encode($q), 'Report '));
+    same('report status: … no curl config left in RAM', [], glob("$tmp/run/status.*") ?: []);
+    $by = array_column($list['reports'], null, 'title');
+    same('report status: open → received, answered or a public issue → seen, closed → done; unknown → no status',
+        ['received', 'seen', 'seen', 'done', 'received', 'received', 'received', null, null, null],
+        array_map(fn ($n) => $by["Report $n"]['status'] ?? null, [12, 11, 10, 9, 8, 7, 6, 5, 4, 2]));
+    same('report status: … the public issue only of the office\'s public repository, its number as in its address',
+        [['number' => 14, 'url' => "{$pub}14"], ['number' => 15, 'url' => "{$pub}15"], null, null, null],
+        array_map(fn ($n) => $by["Report $n"]['public'] ?? null, [10, 9, 8, 7, 6]));
+    $json = json_encode($list);
+    check('report status: the page gets neither the inbox\'s numbers nor its links', !str_contains($json, 'uso-inbox') && !array_filter($list['reports'], fn ($r) => isset($r['number']) || isset($r['url'])));
+    same('report status: … rows: kind, title, desk, sent, status, public', ['kind', 'title', 'desk', 'sent', 'status', 'public'], array_keys($by['Report 10']));
+    $rj = $kept();
+    $e10 = array_values(array_filter($rj['reports'], fn ($e) => ($e['number'] ?? 0) === 10))[0] ?? [];
+    $e2 = array_values(array_filter($rj['reports'], fn ($e) => ($e['number'] ?? 0) === 2))[0] ?? [];
+    same('report status: kept in reports.json (status, public, checked); the eleventh not asked, the other shape untouched',
+        [['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid', 'checked', 'status', 'public'], 'seen', $t0, ['number', 'url', 'kind', 'title', 'desk', 'sent', 'rid'], ['number' => 99, 'sent' => $t0], '600'],
+        [array_keys($e10), $e10['status'] ?? null, $e10['checked'] ?? null, array_keys($e2), $rj['reports'][0] ?? null, decoct(@fileperms("$tmp/office/reports.json") & 0777)]);
+
+    // within the hour: nobody asked
+    reportsAnswer(['now' => $t0 + 3599] + $ctx);
+    same('report status: within the hour — nobody asked', 1, $count());
+    // a new report: only it is due
+    $rj['reports'][] = ['number' => 13, 'url' => '', 'kind' => 'wish', 'title' => 'Report 13', 'desk' => 'office', 'sent' => $t0 + 10, 'rid' => ''];
+    file_put_contents("$tmp/office/reports.json", json_encode($rj));
+    $answer(200, ['ok' => true, 'reports' => []]);         // left out (another office's, gone): it keeps what it had (nothing)
+    $list = reportsAnswer(['now' => $t0 + 20] + $ctx);
+    same('report status: a new report — only it asked; one left out has no status', ['/api/status?ids=13', false], [$req(2)['uri'] ?? null, isset($list['reports'][0]['status'])]);
+
+    // an hour later: the Worker fails — silent, what was known stays, and not asked again within the hour
+    foreach ([[500, ['ok' => false, 'error' => 'github']], [200, ['ok' => true, 'reports' => 'nonsense']], [200, 'not json'], [429, ['ok' => false, 'error' => 'busy']]] as $k => [$code, $b]) {
+        $answer($code, $b);
+        $now = $t0 + 3600 * ($k + 1) + 60;
+        $list = reportsAnswer(['now' => $now] + $ctx);
+        $by = array_column($list['reports'], null, 'title');
+        same("report status: the Worker says HTTP $code " . json_encode($b) . ' — silent, the statuses kept', [true, 'seen', ['number' => 14, 'url' => "{$pub}14"], 'done'],
+            [$list['ok'], $by['Report 10']['status'] ?? null, $by['Report 10']['public'] ?? null, $by['Report 9']['status'] ?? null]);
+    }
+    $before = $count();
+    reportsAnswer(['now' => $now + 10] + $ctx);
+    same('report status: … tried once an hour, also after a failure', $before, $count());
+    // no answer at all (nothing listening), and no inbox at all
+    proc_terminate($server);
+    proc_close($server);
+    $list = reportsAnswer(['now' => $now + 7200] + $ctx);
+    same('report status: no answer at all — silent', [true, 'done'], [$list['ok'], array_column($list['reports'], null, 'title')['Report 9']['status'] ?? null]);
+    $before = file_get_contents("$tmp/office/reports.json");
+    reportsAnswer(['now' => $now + 99999, 'url' => ''] + $ctx);
+    same('report status: no inbox — nothing asked, nothing written', $before, file_get_contents("$tmp/office/reports.json"));
+
+    // the shape: a status, a check or a public issue of another shape — the entry is none of ours
+    $bad = [['status' => 'lost'], ['checked' => '1'], ['public' => ['number' => 5, 'url' => 'https://github.com/evil/repo/issues/5']], ['public' => ['number' => '14', 'url' => "{$pub}14"]]];
+    $base = ['number' => 1, 'url' => '', 'kind' => 'bug', 'title' => 't', 'desk' => 'office', 'sent' => $t0];
+    same('report status: reportEntryValid — status, checked, public only in the shape written', [true, true, false, false, false, false],
+        array_merge([reportEntryValid($base + ['status' => 'done', 'checked' => $t0, 'public' => null]), reportEntryValid($base + ['public' => ['number' => 14, 'url' => "{$pub}14"]])],
+            array_map(fn ($b) => reportEntryValid($b + $base), $bad)));
+
+    // the source: https only, 8 s, the header from the config file, the doc block says so
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
+    check('report status: https only (http only by FEEDBACK_URL), 8 s, X-Office from a 0600 file', REPORT_STATUS_TIMEOUT === 8
+        && preg_match('/function reportStatusAsk\(.*?\n\}/s', $src, $m) && str_contains($m[0], "str_starts_with(\$base, 'http://') ? '=http' : '=https'")
+        && str_contains($m[0], "'-K', \$file") && str_contains($m[0], 'umask(0177)') && !str_contains($m[0], 'GUID') && str_contains($m[0], 'reportId($ctx)'));
+    check('report status: the doc block names the one GET office.reports does', str_contains($src, 'office.reports {}') && str_contains($src, 'ONE GET')
+        && str_contains($src, 'Nothing user-written leaves the server without the user\'s click on «Send».'));
     hardeningRm($tmp);
 }
 
@@ -25385,7 +25525,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
