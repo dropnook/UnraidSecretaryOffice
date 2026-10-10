@@ -332,5 +332,25 @@
     "en": "office.reports-en"
    }
   }
+ },
+ {
+  "nr": 12,
+  "desk": "cleanup",
+  "moment": "icons",
+  "title": "Frau Putzteufel ersetzt die fehlenden Immich-Icons: ihr Vorschlag pro Container, über den Compose-Stack",
+  "route": "cleanup",
+  "prepare": [
+   {
+    "js": "[...document.querySelectorAll(\"[data-place=\\\"part.tidy\\\"] .cards > *\")].find((n) => n.textContent.includes(Office.t(\"cleanup.section.icons\"))).click()",
+    "pause": 500
+   },
+   {
+    "js": "document.querySelectorAll(\"[data-place=\\\"part.tidy\\\"] .cl-info\").forEach((n) => { n.style.display = \"none\"; })",
+    "pause": 200
+   }
+  ],
+  "clip": [
+   "[data-place=\"part.tidy\"] > .section > .section"
+  ]
  }
 ]

@@ -734,7 +734,7 @@
  },
  "stacks": {
   "root": "/boot/config/plugins/compose.manager/projects",
-  "exists": false,
+  "exists": true,
   "list": []
  },
  "scripts": {
@@ -1413,23 +1413,53 @@
     "checking": false
    },
    {
-    "id": "icon:immich_postgres",
+    "id": "icon:immich_machine_learning",
     "kind": "icon",
-    "name": "immich_postgres",
-    "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+    "name": "immich_machine_learning",
+    "image": "ghcr.io/immich-app/immich-machine-learning:release",
     "state": "running",
-    "category": "none",
+    "category": "compose",
     "status": "missing",
     "value": "",
     "value_from": null,
     "shown": null,
     "template": null,
     "template_id": null,
-    "project": null,
+    "project": "immich",
+    "service": "immich-machine-learning",
+    "override": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
+    "path": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
+    "why": null,
+    "candidates": [
+     {
+      "url": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich.png",
+      "source": "table",
+      "detail": "immich",
+      "status": "ok"
+     }
+    ],
+    "force": false,
+    "suggest": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich.png",
+    "checking": false
+   },
+   {
+    "id": "icon:immich_postgres",
+    "kind": "icon",
+    "name": "immich_postgres",
+    "image": "ghcr.io/immich-app/postgres:14-vectorchord0.3.0-pgvectors0.2.0",
+    "state": "running",
+    "category": "compose",
+    "status": "missing",
+    "value": "",
+    "value_from": null,
+    "shown": null,
+    "template": null,
+    "template_id": null,
+    "project": "immich",
     "service": "database",
-    "override": null,
-    "path": null,
-    "why": "no_stack",
+    "override": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
+    "path": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
+    "why": null,
     "candidates": [
      {
       "url": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/postgres.png",
@@ -1446,25 +1476,31 @@
     "id": "icon:immich_redis",
     "kind": "icon",
     "name": "immich_redis",
-    "image": "valkey/valkey:8-bookworm",
+    "image": "docker.io/valkey/valkey:8-bookworm",
     "state": "running",
-    "category": "none",
+    "category": "compose",
     "status": "missing",
     "value": "",
     "value_from": null,
     "shown": null,
     "template": null,
     "template_id": null,
-    "project": null,
+    "project": "immich",
     "service": "redis",
-    "override": null,
-    "path": null,
-    "why": "no_stack",
+    "override": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
+    "path": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
+    "why": null,
     "candidates": [
      {
       "url": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/valkey.png",
       "source": "table",
       "detail": "valkey",
+      "status": "ok"
+     },
+     {
+      "url": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/redis.png",
+      "source": "guess",
+      "detail": "redis",
       "status": "ok"
      }
     ],
@@ -1478,21 +1514,34 @@
     "name": "immich_server",
     "image": "ghcr.io/immich-app/immich-server:release",
     "state": "running",
-    "category": "ok",
-    "status": "ok",
-    "value": "https://raw.githubusercontent.com/immich-app/immich/main/design/immich-logo.svg",
-    "value_from": "label",
+    "category": "compose",
+    "status": "missing",
+    "value": "",
+    "value_from": null,
     "shown": null,
     "template": null,
     "template_id": null,
-    "project": null,
+    "project": "immich",
     "service": "immich-server",
-    "override": null,
-    "path": null,
+    "override": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
+    "path": "/boot/config/plugins/compose.manager/projects/immich/docker-compose.override.yml",
     "why": null,
-    "candidates": [],
+    "candidates": [
+     {
+      "url": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich.png",
+      "source": "table",
+      "detail": "immich",
+      "status": "ok"
+     },
+     {
+      "url": "https://raw.githubusercontent.com/immich-app/immich/main/design/immich-logo.svg",
+      "source": "guess",
+      "detail": "immich-app",
+      "status": "ok"
+     }
+    ],
     "force": false,
-    "suggest": null,
+    "suggest": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich.png",
     "checking": false
    },
    {
@@ -1549,7 +1598,7 @@
     "state": "running",
     "category": "ok",
     "status": "ok",
-    "value": "https://raw.githubusercontent.com/Dokumente/server/master/core/img/favicon.png",
+    "value": "https://raw.githubusercontent.com/nextcloud/server/master/core/img/favicon.png",
     "value_from": "template",
     "shown": null,
     "template": "/boot/config/plugins/dockerMan/templates-user/my-Nextcloud.xml",
@@ -1620,7 +1669,7 @@
    "standin": true
   },
   "checking": false,
-  "ca_at": null,
+  "ca_at": 1791540274,
   "collection": "homarr-labs/dashboard-icons",
   "previews": [],
   "upload_dir": "/boot/config/plugins/unraid-secretary-office/icons"

@@ -1340,7 +1340,7 @@
     }
    ],
    "webui": "http://[IP]:[PORT:8080]/",
-   "icon": "https://raw.githubusercontent.com/Dokumente/server/master/core/img/favicon.png"
+   "icon": "https://raw.githubusercontent.com/nextcloud/server/master/core/img/favicon.png"
   },
   {
    "name": "Node-Exporter",

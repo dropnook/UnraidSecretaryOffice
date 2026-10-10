@@ -239,6 +239,10 @@ async function shootMoment(browser, m, lang) {
       if (!(await page.waitForSelector(sel, { state: 'visible', timeout: 8000 }).catch(() => null))) res.fails.push(`no «${sel}» on the page`);
     }
     if (!res.fails.length) {
+      // pictures (a container's icon) load lazily, and a clip below the window would show empty frames: all now, then wait
+      await page.evaluate(() => document.querySelectorAll('img[loading="lazy"]').forEach((i) => { i.loading = 'eager'; }));
+      await page.waitForFunction(() => [...document.images].every((i) => i.complete), null, { timeout: 8000 })
+        .catch(() => res.fails.push('a picture did not load'));
       await page.waitForTimeout(300);
       await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
       // the box around all the clip's elements, in the page's coordinates (or the window's, for a fixed one)
