@@ -2547,13 +2547,17 @@ function embyGateRefused(array $gate, string $tool, string $mode, string $by, in
  * (EmbyCache didn't accept its settings) or errors (done, with problems).
  * Report and dry runs stay quiet, so do runs that never started (refused)
  * and EmbyCache's "busy" (another EmbyCache was at work). A real run stopped
- * because Unraid's mover started ($why `mover`) is told (`stopped_mover`, normal), so is one the user asked to stop
- * on his page ($why `user`: `stopped_user`, normal).
+ * because Unraid's mover started ($why `mover`) is told (`stopped_mover`, normal); one the user asked to stop on his
+ * page ($why `user`) is not — he knows — unless it had errors.
  */
 function embyNotifyOutcome(string $mode, string $result, array $status, ?string $why = null): ?string
 {
-    if ($result === 'stopped' && in_array($why, ['mover', 'user'], true) && in_array($mode, ['run', 'release'], true)) {
-        return "stopped_$why";           // the mover started, or the user asked on his page: a normal note, no failure
+    if ($result === 'stopped' && $why === 'mover' && in_array($mode, ['run', 'release'], true)) {
+        return 'stopped_mover';          // the mover started: a normal note, no failure
+    }
+    if ($result === 'stopped' && $why === 'user') {
+        // the user asked on his page: he knows (Benj, 2026-10-10: «das muss nicht kommen») — only its errors are told
+        return in_array($mode, ['run', 'release'], true) && (int) ($status['errors'] ?? 0) > 0 ? 'errors' : null;
     }
     if ($mode === 'release') {
         // bringing everything back when he was let go: his page is gone, so a good end is told too (`ok`, normal)

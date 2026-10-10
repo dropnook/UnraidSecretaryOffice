@@ -2768,18 +2768,18 @@ function testEmbyProgress(): void
     $w = embyRunWatch($proc, "$tmp/stop.json", false, null, fn () => false, 0, 0);
     same('stop: the watch takes the why of a stop request it didn\'t write', [3, 'user', null, 'user'],
         [$w['exit'], $w['stopped_why'], $w['stopped_for'], json_decode((string) file_get_contents("$tmp/stop.json"), true)['why'] ?? null]);
-    same('stop: Unraid hears it — normal, like the mover\'s (a run, the release); a gather too', ['stopped_user', 'stopped_user', 'stopped_user'],
-        [embyNotifyOutcome('run', 'stopped', [], 'user'), embyNotifyOutcome('release', 'stopped', [], 'user'), embyNotifyOutcome('run', 'stopped', ['errors' => 0], 'user')]);
+    same('stop: Unraid doesn\'t hear it — the user asked, he knows (Benj 2026-10-10); only a stopped run\'s errors are told',
+        [null, null, null, 'errors', 'stopped_mover'],
+        [embyNotifyOutcome('run', 'stopped', [], 'user'), embyNotifyOutcome('release', 'stopped', [], 'user'), embyNotifyOutcome('run', 'stopped', ['errors' => 0], 'user'),
+         embyNotifyOutcome('run', 'stopped', ['errors' => 2], 'user'), embyNotifyOutcome('run', 'stopped', [], 'mover')]);
     $bin = "$tmp/notify";
     file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
     chmod($bin, 0755);
     $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
     putenv("OFFICE_NOTIFY_BIN=$bin");
     putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
-    embyNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 1], 'errors' => 0], 3, 'user');
-    $sent = (string) @file_get_contents("$tmp/notified");
-    check('stop: the notification — normal, «stopped (as you asked)», how many moved by then, not the mover\'s words', str_contains($sent, "-i\nnormal")
-        && str_contains($sent, 'stopped (as you asked)') && str_contains($sent, 'as you asked (2 files moved by then)') && !str_contains($sent, 'mover'), $sent);
+    $told = embyNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 1], 'errors' => 0], 3, 'user');
+    same('stop: no notification for a stop the user asked for', [false, ''], [$told, (string) @file_get_contents("$tmp/notified")]);
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
