@@ -63,6 +63,10 @@ The whole run at a glance ([BPMN source](docs/diagrams/backup-run.bpmn), [German
 
 ![A backup run: Mr. Backupsy, apps and VMs, the partner office and the offsite upload as lanes](docs/diagrams/backup-run.svg)
 
+What a new folder inherits ([BPMN source](docs/diagrams/new-folder.bpmn), [German](docs/diagrams/new-folder.de.svg)):
+
+![A new folder: in a data share it inherits the share's level; in appdata or domains the level of its app or VM; with no app or VM it stays local and waits for your decision](docs/diagrams/new-folder.svg)
+
 [![Mr. Backupsy: a run going on — its steps, its offsite sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)](https://uso.dropnook.app/#backup-run)
 
 ### Getting something back

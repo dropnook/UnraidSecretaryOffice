@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Defs_new_folder" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.51.1">
+  <bpmn:process id="new_folder" name="Neuer Ordner in einem Share" isExecutable="false">
+    <bpmn:startEvent id="S" name="Neuer Ordner innerhalb eines Shares">
+      <bpmn:outgoing>F1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="G1" name="appdata oder domains?">
+      <bpmn:incoming>F1</bpmn:incoming>
+      <bpmn:outgoing>F2</bpmn:outgoing>
+      <bpmn:outgoing>F4</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:task id="T1" name="Erbt die Stufe des Shares: ausser Haus, nur lokal oder nicht gesichert">
+      <bpmn:incoming>F2</bpmn:incoming>
+      <bpmn:outgoing>F3</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="E1">
+      <bpmn:incoming>F3</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="G2" name="Zu welcher App oder VM gehört er?">
+      <bpmn:incoming>F4</bpmn:incoming>
+      <bpmn:outgoing>F5</bpmn:outgoing>
+      <bpmn:outgoing>F7</bpmn:outgoing>
+      <bpmn:outgoing>F9</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:task id="T2" name="Erbt die Stufe der App/VM: geht mit ausser Haus">
+      <bpmn:incoming>F5</bpmn:incoming>
+      <bpmn:outgoing>F6</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="E2">
+      <bpmn:incoming>F6</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:task id="T3" name="Erbt die Stufe der App/VM: nur lokal (eine neue bekommt die Vorgabe)">
+      <bpmn:incoming>F7</bpmn:incoming>
+      <bpmn:outgoing>F8</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="E3">
+      <bpmn:incoming>F8</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:task id="T4" name="Kann nichts erben: bleibt lokal und wartet auf deine Entscheidung">
+      <bpmn:incoming>F9</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="E4">
+      <bpmn:incoming>F10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F1" sourceRef="S" targetRef="G1" />
+    <bpmn:sequenceFlow id="F2" name="Nein (Datenshare)" sourceRef="G1" targetRef="T1" />
+    <bpmn:sequenceFlow id="F3" sourceRef="T1" targetRef="E1" />
+    <bpmn:sequenceFlow id="F4" name="Ja" sourceRef="G1" targetRef="G2" />
+    <bpmn:sequenceFlow id="F5" name="einer, die ausser Haus geht" sourceRef="G2" targetRef="T2" />
+    <bpmn:sequenceFlow id="F6" sourceRef="T2" targetRef="E2" />
+    <bpmn:sequenceFlow id="F7" name="einer nur lokalen oder neuen" sourceRef="G2" targetRef="T3" />
+    <bpmn:sequenceFlow id="F8" sourceRef="T3" targetRef="E3" />
+    <bpmn:sequenceFlow id="F9" name="keiner" sourceRef="G2" targetRef="T4" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T4" targetRef="E4" />
+    <bpmn:textAnnotation id="A1">
+      <bpmn:text>appdata und domains: wo Unraid die Ordner der Apps und VMs ablegt (Docker- und VM-Einstellungen)</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="AS1" sourceRef="G1" targetRef="A1" />
+    <bpmn:textAnnotation id="A2">
+      <bpmn:text>Steht appdata bzw. domains selbst nur auf lokal, geht er erst nach dem nächsten «Übernehmen» mit</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="AS2" sourceRef="T2" targetRef="A2" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="new_folder">
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S">
+        <dc:Bounds x="152" y="250" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="112" y="292" width="116" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G1_di" bpmnElement="G1" isMarkerVisible="true">
+        <dc:Bounds x="265" y="243" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="209" y="193" width="65" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T1_di" bpmnElement="T1">
+        <dc:Bounds x="225" y="80" width="130" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E1_di" bpmnElement="E1">
+        <dc:Bounds x="397" y="97" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G2_di" bpmnElement="G2" isMarkerVisible="true">
+        <dc:Bounds x="555" y="243" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="468" y="193" width="112" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T2_di" bpmnElement="T2">
+        <dc:Bounds x="515" y="80" width="130" height="70" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E2_di" bpmnElement="E2">
+        <dc:Bounds x="687" y="97" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T3_di" bpmnElement="T3">
+        <dc:Bounds x="730" y="228" width="150" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E3_di" bpmnElement="E3">
+        <dc:Bounds x="932" y="250" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T4_di" bpmnElement="T4">
+        <dc:Bounds x="505" y="380" width="150" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E4_di" bpmnElement="E4">
+        <dc:Bounds x="697" y="402" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="A1_di" bpmnElement="A1">
+        <dc:Bounds x="220" y="490" width="180" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F1_di" bpmnElement="F1">
+        <di:waypoint x="188" y="268" />
+        <di:waypoint x="265" y="268" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F2_di" bpmnElement="F2">
+        <di:waypoint x="290" y="243" />
+        <di:waypoint x="290" y="150" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="306" y="185" width="90" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F3_di" bpmnElement="F3">
+        <di:waypoint x="355" y="115" />
+        <di:waypoint x="397" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F4_di" bpmnElement="F4">
+        <di:waypoint x="315" y="268" />
+        <di:waypoint x="555" y="268" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="434" y="274" width="12" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F5_di" bpmnElement="F5">
+        <di:waypoint x="580" y="243" />
+        <di:waypoint x="580" y="150" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="596" y="178" width="81" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F6_di" bpmnElement="F6">
+        <di:waypoint x="645" y="115" />
+        <di:waypoint x="687" y="115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F7_di" bpmnElement="F7">
+        <di:waypoint x="605" y="268" />
+        <di:waypoint x="730" y="268" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="620" y="274" width="84" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F8_di" bpmnElement="F8">
+        <di:waypoint x="880" y="268" />
+        <di:waypoint x="932" y="268" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F9_di" bpmnElement="F9">
+        <di:waypoint x="580" y="293" />
+        <di:waypoint x="580" y="380" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="596" y="325" width="30" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10">
+        <di:waypoint x="655" y="420" />
+        <di:waypoint x="697" y="420" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="AS1_di" bpmnElement="AS1">
+        <di:waypoint x="286" y="287" />
+        <di:waypoint x="300" y="490" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="A2_di" bpmnElement="A2">
+        <dc:Bounds x="760" y="62" width="220" height="56" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="AS2_di" bpmnElement="AS2">
+        <di:waypoint x="620" y="80" />
+        <di:waypoint x="760" y="88" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
