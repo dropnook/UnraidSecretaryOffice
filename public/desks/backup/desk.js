@@ -3492,12 +3492,14 @@ const placeShares = (plan) => plan.shares.map((x) => x.name).filter((n) => !['ap
  * What speaks against the share chosen as the backup place (the agent's backupPlaceFacts(): same pool as
  * appdata, no snapshots, a secondary storage, no redundancy) - warnings only, the choice stays the user's
  */
-function placeLines(sh) {
+function placeLines(sh, toKopia) {
   if (!sh) return [];
   const place = sh.place || (sh.method === 'live' ? [{ code: 'no_history', where: '' }] : []);
   const where = (w) => w || T('setup.place_array');
   return place.map((p) => {
-    if (p.code === 'same_pool') return { warn: true, text: T('setup.place_same_pool', { where: p.where }) };
+    // Benj 2026-10-10: with Kopia the packages are off the server anyway — no line; without, a hint, not a red alarm
+    // (another pool of the same server is no backup either — the basics above say so)
+    if (p.code === 'same_pool') return toKopia ? null : { warn: false, text: T('setup.place_same_pool', { where: p.where }) };
     if (p.code === 'no_history') return { warn: true, text: p.where ? T('setup.place_no_history', { where: p.where }) : T('setup.ds_no_history') };
     if (p.code === 'secondary') return { warn: true, text: T('setup.place_secondary', { where: where(p.where) }) };
     if (p.code === 'no_redundancy') return { warn: false, text: T('setup.place_no_redundancy', { where: where(p.where) }) };
@@ -3558,7 +3560,8 @@ function dumpsShareField(plan) {
   const f = field(T('setup.ds_label'), sel);
   f.appendChild(hint);
   // what speaks against it (another pool than appdata, snapshots, one place, redundancy): said, never blocked
-  placeLines(plan.shares.find((x) => x.name === sel.value)).forEach((l) => f.appendChild(el('small', l.warn ? 'missing' : '', l.text)));
+  const toKopia = !!(setup.locks[sel.value] && setup.locks[sel.value].lv === 2);
+  placeLines(plan.shares.find((x) => x.name === sel.value), toKopia).forEach((l) => f.appendChild(el('small', l.warn ? 'missing' : '', l.text)));
   f.appendChild(el('small', '', T('setup.ds_why')));
   return f;
 }

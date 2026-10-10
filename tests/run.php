@@ -6648,6 +6648,7 @@ const out = {};
 out.lines = b.placeLines({ place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_history', where: 'disk1' }, { code: 'no_history', where: '' },
   { code: 'secondary', where: '' }, { code: 'no_redundancy', where: 'cache' }, { code: 'odd', where: 'x' }] });
 out.old = [b.placeLines({ method: 'live' }), b.placeLines({ method: 'snap' }), b.placeLines(null)];
+out.kopia = b.placeLines({ place: [{ code: 'same_pool', where: 'cache' }, { code: 'no_redundancy', where: 'cache' }] }, true);
 const plan = (names) => ({ shares: names.map((name) => ({ name })) });
 out.intro = [b.placeIntro(plan(['appdata', 'system', 'domains', 'isos']), ''), b.placeIntro(plan(['appdata', 'isos', 'Backups']), ''),
   b.placeIntro(plan(['appdata', 'isos']), 'isos')];
@@ -6680,10 +6681,12 @@ JS;
         hardeningRm($tmp);
         return;
     }
-    same('backup place: the warnings\' texts - warn, the array named, redundancy only as information, unknown codes left out', [
-        ['warn' => true, 'text' => 'setup.place_same_pool {"where":"cache"}'], ['warn' => true, 'text' => 'setup.place_no_history {"where":"disk1"}'],
+    same('backup place: the warnings\' texts - warn (the same pool only a hint), the array named, redundancy only as information, unknown codes left out', [
+        ['warn' => false, 'text' => 'setup.place_same_pool {"where":"cache"}'], ['warn' => true, 'text' => 'setup.place_no_history {"where":"disk1"}'],
         ['warn' => true, 'text' => 'setup.ds_no_history'], ['warn' => true, 'text' => 'setup.place_secondary {"where":"setup.place_array"}'],
         ['warn' => false, 'text' => 'setup.place_no_redundancy {"where":"cache"}']], $r['lines']);
+    same('backup place: the same pool as appdata - a grey hint without Kopia, no line at all when the place goes to Kopia (Benj 2026-10-10)',
+        [['warn' => false, 'text' => 'setup.place_no_redundancy {"where":"cache"}']], $r['kopia']);
     same('backup place: an older agent\'s plan (no place) - the plan\'s live still warns', [[['warn' => true, 'text' => 'setup.ds_no_history']], [], []], $r['old']);
     same('backup place: Mr. Backupsy\'s word - no share to choose (only isos), choose one, none once chosen', ['setup.place_none', 'setup.place_choose', null], $r['intro']);
     same('backup place: before the new plan - the user\'s levels in the draft', [['c2'], ['c2', 'c3']], $r['before']);
