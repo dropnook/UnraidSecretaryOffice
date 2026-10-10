@@ -13,6 +13,8 @@ Umgebungsvariablen (gelten für alle Scripte):
   EMBYCACHE_LOG_LEVEL  DEBUG | INFO | WARNING; Default INFO
   EMBYCACHE_STATUS     optional: JSON-Datei, in die embycache_run.py am Ende das Ergebnis schreibt
                        (Modus, Zähler, Fehler) – für Programme, die EmbyCache starten (Unraid Secretary Office)
+  EMBYCACHE_PROGRESS   optional: JSON-Datei, die embycache_run.py im scharfen Lauf an jeder Dateigrenze neu schreibt
+                       (Phase, pro Benutzer geplant/erledigt, die Datei in Arbeit) – für eine Fortschrittsanzeige
 """
 import copy
 import fcntl
@@ -38,6 +40,7 @@ LOCK_FILE = BASE_DIR / "embycache.lock"
 LOG_DIR = BASE_DIR / "logs"
 ORIGIN_FILE = BASE_DIR / "embycache_origin.json"   # Cache-Pfad -> Array-Disk, von der die Datei kam
 STATUS_FILE = os.environ.get("EMBYCACHE_STATUS") or ""
+PROGRESS_FILE = os.environ.get("EMBYCACHE_PROGRESS") or ""
 
 MOVER_CANDIDATES = ["/usr/libexec/unraid/move", "/usr/local/sbin/move", "/usr/local/bin/move"]
 MOVER_PIDFILE = "/var/run/mover.pid"
@@ -608,5 +611,19 @@ def write_status(data):
         tmp = Path(STATUS_FILE + ".tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
         os.replace(tmp, STATUS_FILE)
+    except OSError:
+        pass
+
+
+def write_progress(data):
+    """Fortschritt des scharfen Laufs nach $EMBYCACHE_PROGRESS (atomar: neue Datei, dann umbenennen), wenn gesetzt."""
+    if not PROGRESS_FILE:
+        return
+    try:
+        tmp = f"{PROGRESS_FILE}.{os.getpid()}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, ensure_ascii=False) + "\n")
+        os.replace(tmp, PROGRESS_FILE)
     except OSError:
         pass

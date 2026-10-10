@@ -1,5 +1,8 @@
 {
   "order": 50,
   "icon": "🍿",
-  "refresh_after": 300
+  "refresh_after": 300,
+  "parts": {
+    "progress": { "refresh_after": 5, "action": "progress" }
+  }
 }

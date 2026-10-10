@@ -27,6 +27,15 @@ let poolLib = Office.store('emby.pool_lib') || '';    // the library chosen ther
 let poolWords = '';                                    // its filter words (not kept: a new visit starts with everything)
 let page = 'main';            // main | setup
 let outTimer = null;
+// the live panel while EmbyCache runs for real (agent/desks/emby-progress.php): the part «progress», asked every 10 s
+// while such a run goes (never otherwise); his state carries the same as of its look
+const PROGRESS_POLL = 10000;
+let progress = null;          // the panel's numbers (bars, bracket, the file being copied) — null: still planning
+let progressAt = 0;           // their time (the server's clock): the newer of the part and his state wins
+let progTimer = null;
+let progAsked = 0;            // when the part was last asked for (this browser's clock — never compared with the server's)
+let progBox = null;           // the panel on the page, redrawn in place
+let startKicks = 0;           // a real run just started from here: look again until it shows as running
 
 // ------------------------------------------------------------------ loading
 /** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
@@ -34,17 +43,60 @@ async function load(fresh) {
   return Office.loadState(ID, { fresh }, took);
 }
 function took(j) {
-  if (j.ok && j.state) state = j.state;
+  if (j.ok && j.state) stateIn(j.state);
   if (view && page === 'main') render();
+  scheduleProgress();
+}
+
+/** His state arrives: the panel's numbers with it, unless the part brought newer ones */
+function stateIn(s) {
+  state = s;
+  if (typeof s.time === 'number' && s.time >= progressAt) { progress = s.progress || null; progressAt = s.time; }
 }
 
 async function act(action, data, okText) {
   const j = await Office.api.post(`${ID}.${action}`, data || {});
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return null; }
-  if (j.state) state = j.state;
+  if (j.state) stateIn(j.state);
   if (okText) Office.toast(okText);
   if (view && page === 'main') render();
+  scheduleProgress();
   return j;
+}
+
+/** EmbyCache runs for real (run, or the let-go's release): the live panel instead of the output button */
+const realRun = () => !!(state && state.jobs && state.jobs.embycache.running && ['run', 'release'].includes(state.jobs.embycache.mode));
+
+/** While a real run goes: the part «progress» every 10 s (the first ask soon after the page shows the run); nothing otherwise */
+function scheduleProgress() {
+  clearTimeout(progTimer);
+  progTimer = null;
+  if (!view || page !== 'main' || !realRun()) return;
+  progTimer = setTimeout(askProgress, Math.max(300, PROGRESS_POLL - (Date.now() - progAsked)));
+}
+async function askProgress() {
+  if (!view || page !== 'main' || !realRun()) return;
+  progAsked = Date.now();
+  if (document.hidden || Office.dialogOpen() || Office.menuOpen()) { scheduleProgress(); return; }
+  try {
+    await Office.loadState(ID, { part: 'progress', fresh: true }, tookProgress);
+  } catch (e) {
+    scheduleProgress();
+    throw e;
+  }
+}
+function tookProgress(j) {
+  const p = j && j.ok ? j.part : null;
+  if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
+  if (!p.real) { progressAt = p.time; load(true); return; }        // the run ended: his state anew — the panel goes
+  progress = p.progress || null;
+  progressAt = p.time;
+  if (progBox && progBox.isConnected) {
+    const n = progressPanel();
+    progBox.replaceWith(n);
+    progBox = n;
+  }
+  scheduleProgress();
 }
 
 // ------------------------------------------------------------------ helpers
@@ -293,6 +345,7 @@ function render() {
     [T('report'), T('help.report')],
     [T('mode.dry'), T('help.dry')],
     [T('mode.run'), T('help.run')],
+    [T('help.progress'), T('help.progress_text')],
     [T('help.origin'), T('help.origin_text')],
     [T('gather'), T('help.gather_text')],
     [T('help.watch'), T('help.watch_text')],
@@ -314,7 +367,8 @@ function render() {
   if (mv) root.appendChild(mv);
   if (running()) {
     const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
-    p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
+    // a real EmbyCache run: its panel in the overview has the raw output
+    if (!realRun()) p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
     root.appendChild(p);
   }
   if (!state.configured) {
@@ -389,11 +443,94 @@ function overview() {
     if (last.incomplete) box.appendChild(el('div', 'warn-text', T('incomplete')));
     s.appendChild(box);
   }
+  // a real run going: the live panel where the output button was (its raw output a link inside); else the last run's
+  // output stays behind a small link beside the log
+  progBox = realRun() ? progressPanel() : null;
+  if (progBox) s.appendChild(progBox);
   const bar = el('div', 'toolbar');
   bar.appendChild(button(T('show_log'), 'small plain', () => showLog('embycache')));
-  if (state.jobs.embycache.mode) bar.appendChild(button(T('show_output', { mode: T('mode.' + state.jobs.embycache.mode) }), 'small plain', () => showOutput('embycache', false)));
+  if (state.jobs.embycache.mode && !progBox) bar.appendChild(link(T('show_output', { mode: T('mode.' + state.jobs.embycache.mode) }), () => showOutput('embycache', false)));
   s.appendChild(bar);
   return s;
+}
+
+/** A button that reads as a quiet link */
+function link(text, onclick) {
+  const b = el('button', 'jo-link', text);
+  b.type = 'button';
+  b.onclick = onclick;
+  return b;
+}
+
+/**
+ * The live panel (agent/desks/emby-progress.php): the bracket over everything (done of planned, speed, time left), under
+ * it «back to the array» (when the run moves files back) and a bar per Emby user with the time their part still takes;
+ * the file being copied small under its bar, with its reason. Before the first file: «working out what goes where».
+ */
+function progressPanel() {
+  const p = progress;
+  const box = el('div', 'box jo-prog running');
+  const head = el('div', 'jo-prog-head');
+  head.append(el('span', 'spin'), el('span', '', T('progress.title')));
+  box.appendChild(head);
+  if (!p || p.phase === 'plan') {
+    box.appendChild(el('div', 'jo-prog-line', T('progress.plan')));
+  } else if (!p.total || !p.total.files) {
+    box.appendChild(el('div', 'jo-prog-line', T('progress.nothing')));
+  } else {
+    box.appendChild(progRow(T('progress.total'), p.total, p, true));
+    const rows = el('div', 'jo-prog-rows');
+    if (p.back) rows.appendChild(progRow(T('progress.back'), p.back, p, false));
+    const servers = new Set((p.users || []).map((u) => u.server));
+    (p.users || []).forEach((u) => rows.appendChild(progRow(servers.size > 1 ? T('progress.server', { name: u.name, server: u.server }) : u.name, u, p, false)));
+    box.appendChild(rows);
+    const placed = (p.back && p.back.here) || (p.users || []).some((u) => u.here);
+    if (p.current && !placed) box.appendChild(progFile(p.current));
+  }
+  const foot = el('div', 'jo-prog-foot');
+  foot.appendChild(link(T('progress.raw'), () => showOutput('embycache', true)));
+  box.appendChild(foot);
+  return box;
+}
+
+/** One bar: its name, done of planned (files, bytes), the total's speed, the time left (per user: their remaining bytes / the speed) */
+function progRow(label, c, p, total) {
+  const done = !!c.ended || (c.files > 0 && c.done_files >= c.files);
+  const row = el('div', 'jo-prog-row' + (total ? ' total' : '') + (done ? ' done' : ''));
+  const top = el('div', 'jo-prog-top');
+  const facts = [T('progress.files', { done: Number(c.done_files) || 0, n: Number(c.files) || 0 }),
+    T('progress.bytes', { done: fmt.size(c.done_bytes || 0), size: fmt.size(c.bytes || 0) })];
+  if (total && p.speed) facts.push(T('progress.speed', { rate: fmt.size(p.speed) }));
+  const left = done ? T('progress.done') : etaText(c.eta, total);
+  if (left) facts.push(left);
+  top.append(el('span', 'jo-prog-name', label), el('span', 'jo-prog-facts', facts.join(' · ')));
+  row.appendChild(top);
+  const bar = el('div', total ? 'bar jo-prog-big' : 'bar thin');
+  const fill = el('i', 'snaps');
+  const share = c.bytes > 0 ? c.done_bytes / c.bytes : c.files > 0 ? c.done_files / c.files : 1;
+  fill.style.width = `${Math.max(0, Math.min(100, share * 100))}%`;
+  bar.appendChild(fill);
+  row.appendChild(bar);
+  if (c.here && p.current) row.appendChild(progFile(p.current));
+  return row;
+}
+
+/** «about 4 min left»; before the first speed (two samples, 10 s) only the total says it follows */
+function etaText(eta, total) {
+  if (typeof eta !== 'number') return total ? T('progress.eta_first') : '';
+  if (eta < 60) return T('progress.eta_soon');
+  return T('progress.eta', { time: fmt.duration(Math.ceil(eta / 60) * 60) });
+}
+
+/** The file being copied: its path, how much of it is there, why it comes («Continue watching «X – S01E02»») */
+function progFile(cur) {
+  const line = el('div', 'jo-prog-file');
+  line.append(el('span', 'jo-prog-rel', cur.rel || ''), el('span', '', T('progress.bytes', { done: fmt.size(cur.done || 0), size: fmt.size(cur.size || 0) })));
+  if (cur.source) {
+    const src = T('progress.source.' + cur.source);
+    line.appendChild(el('span', 'jo-prog-why', cur.title ? T('progress.why', { source: src, title: cur.title }) : src));
+  }
+  return line;
 }
 
 function peopleText(vu) {
@@ -773,8 +910,19 @@ async function gatherSettingsDialog() {
 async function startRun(tool, mode) {
   const j = await act(tool === 'gather' ? 'gather_start' : 'start_run', { mode });
   if (!j) return false;
+  if (tool === 'embycache' && mode === 'run') {
+    // a real run: its live panel on the page (no output dialog) — look again until the run shows as running
+    startKicks = 3;
+    kickStart();
+    return true;
+  }
   showOutput(tool, true);
   return true;
+}
+function kickStart() {
+  if (realRun() || startKicks <= 0 || !view) { startKicks = 0; return; }
+  startKicks -= 1;
+  setTimeout(() => { if (view && !realRun()) load(true).then(kickStart); }, 2500);
 }
 
 /** The output of the last run of a tool, following it while it runs */
@@ -946,11 +1094,8 @@ function initForm() {
       use_next_up: set.use_next_up ?? true,
       min_free_percent: set.min_free_percent ?? 20,
       return_to_origin: set.return_to_origin ?? true,
-      cleanup_tool: set.cleanup_tool || 'rsync',
-      fill_tool: set.fill_tool || 'rsync',
       array_source: set.array_source || 'user0',
       create_share_root: !!set.create_share_root,
-      mover_debug_level: set.mover_debug_level ?? 0,
     },
   };
 }
@@ -1172,14 +1317,11 @@ function renderSetup() {
     check(T('setup.next_up'), v.use_next_up, (x) => { v.use_next_up = x; }, T('setup.next_up_hint')));
   root.appendChild(s4);
 
-  // 5. more: the way back, the tools, where to read from
+  // 5. more: the way back and where to read from (both ways always rsync: Unraid's move binary is never Jack's choice)
   const s5 = section(T('setup.more'), T('setup.more_sub'), { place: 'setup.more' });
   const f5 = el('div', 'jo-form');
   f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
-  f5.appendChild(field(T('setup.cleanup_tool'), select(v, 'cleanup_tool', [['rsync', T('setup.tool_rsync_back')], ['mover', T('setup.tool_mover_back')]]), T('setup.cleanup_tool_hint')));
-  f5.appendChild(field(T('setup.fill_tool'), select(v, 'fill_tool', [['rsync', T('setup.tool_rsync_fill')], ['mover', T('setup.tool_mover_fill')]]), T('setup.fill_tool_hint')));
   f5.appendChild(field(T('setup.array_source'), select(v, 'array_source', [['user0', T('setup.source_user0')], ['disk', T('setup.source_disk')]]), T('setup.array_source_hint')));
-  f5.appendChild(field(T('setup.mover_debug'), number(v, 'mover_debug_level', 0, 3), T('setup.mover_debug_hint')));
   // only needed when a chosen share has no folder on the pool yet
   const shares = [...new Set(libraryList().filter((l) => form.chosenLibs.has(l.name))
     .flatMap((l) => l.at.filter(([i, p]) => !form.instances[i].skip.has(p)).map(([i, p]) => shareOf(form.instances[i].mappings[p]))).filter(Boolean))].sort();
@@ -1463,11 +1605,8 @@ async function saveSetup() {
     min_free_percent: v.min_free_percent,
     movie_mode: 'folder',          // always the whole folder: subtitles, preview images, nfo, extras
     return_to_origin: v.return_to_origin,
-    cleanup_tool: v.cleanup_tool,
-    fill_tool: v.fill_tool,
     array_source: v.array_source,
     create_share_root: v.create_share_root,
-    mover_debug_level: v.mover_debug_level,
   };
   const j = await act('save', { settings });
   if (!j) return;
@@ -1656,7 +1795,7 @@ Office.desk({
     // the caretaker's "Open" for a schedule
     if (sub === 'schedule' || sub === 'gather-schedule') { Office.subroute(''); scheduleDialog(sub === 'schedule' ? 'embycache' : 'gather'); }
   },
-  unmount() { view = null; clearTimeout(outTimer); letGoNote = null; },
+  unmount() { view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
@@ -1686,7 +1825,8 @@ Office.desk({
 
 // what his state holds for the search (core.js «items»): his Emby servers (the overview names them), the shares of the
 // chosen libraries, the runs his history shows
-Office.placesFrom(ID, (s) => {
+Office.placesFrom(ID, (s, part) => {
+  if (part) return [];                       // the part «progress» (the live panel) holds nothing to find
   const out = [];
   if (s.configured) {
     ((s.settings && s.settings.instances) || []).forEach((i) => {
@@ -1714,7 +1854,7 @@ Office.places(ID, [
   ...['import.title', 'setup.server', 'setup.libraries', 'setup.users', 'setup.scope', 'setup.more'].map((key) => ({ kind: 'step', key, ...SETUP })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
-  ...['what', 'tools', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['what', 'tools', 'progress', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['import.title', 'import.help'], ['setup.key', 'setup.help_key'], ['setup.mapping', 'setup.help_mapping'], ['setup.users', 'setup.help_users'],
     ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['setup.save', 'setup.help_save']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
@@ -1722,6 +1862,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection,
-    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords };
+    letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
+    progressPanel, setProgress: (p) => { progress = p; }, etaText };
 }
 })();

@@ -1495,6 +1495,8 @@ function testEmbyImport(): void
     same('import preview: Jack\'s values for what runs or isn\'t valid', ['mover_bin' => '', 'rsync_args' => ['-aAX', '--numeric-ids']],
         array_intersect_key($jackSet, ['mover_bin' => 1, 'rsync_args' => 1]));
     check('import preview: array_path with a slash is no change', !isset($jackSet['array_path']));
+    same('import preview: the old «mover» way back becomes Jack\'s rsync, said as his; rsync filling no change', ['cleanup_tool' => 'rsync', 'fill' => false],
+        ['cleanup_tool' => $jackSet['cleanup_tool'] ?? null, 'fill' => isset($jackSet['fill_tool'])]);
     $changes = array_column($e['changes'], null, 'key');
     same('import preview: a change, old → new', ['key' => 'min_free_percent', 'old' => 20, 'new' => 15], $changes['min_free_percent'] ?? null);
     same('import preview: a key Jack didn\'t have', ['old' => null, 'new' => '2.5T'], array_intersect_key($changes['cache_budget'] ?? [], ['old' => 1, 'new' => 1]));
@@ -1540,9 +1542,10 @@ function testEmbyImport(): void
     same('import done: copies are root\'s only', '600', substr(sprintf('%o', fileperms($done['backups'][0])), -3));
     $s = json_decode((string) file_get_contents("$jack/embycache/embycache_settings.json"), true);
     same('import done: the old key stays on the server', $key, $s['instances'][0]['api_key'] ?? null);
-    same('import done: settings as shown', [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', [], 1, 8, 'mover'],
+    same('import done: settings as shown (the old «mover» way back is rsync: Jack never selects the move binary)',
+        [$pool, 15, '', ['-aAX', '--numeric-ids'], true, '/mnt/user0', '2.5T', [], 1, 8, 'rsync', 'rsync'],
         [$s['cache_path'], $s['min_free_percent'], $s['mover_bin'], $s['rsync_args'], $s['return_to_origin'], $s['array_path'], $s['cache_budget'], $s['path_mappings'],
-         $s['max_resume_movies'], $s['max_resume_series'], $s['cleanup_tool']]);
+         $s['max_resume_movies'], $s['max_resume_series'], $s['cleanup_tool'], $s['fill_tool']]);
     check('import done: unknown keys gone', !isset($s['old_option']) && !isset($s['emby_token']));
     same('import done: people with their budget', ['u1' => ['budget' => '300G'], 'u2' => [], 'u3' => []], $s['valid_users']);
     same('import done: library types kept where the name matches', ['Filme' => 'movies'], $s['library_types']);
@@ -1584,7 +1587,8 @@ function testEmbyImport(): void
     file_put_contents("$tmp/jack2/embycache/embycache_settings.json", json_encode(['cache_path' => $pool, 'cleanup_tool' => 'rsync', 'mover_debug_level' => 1,
         'max_resume_series' => 4, 'max_resume_movies' => null, 'mover_bin' => '/mnt/user/x.sh', 'array_path' => '/mnt/elsewhere'], JSON_UNESCAPED_SLASHES));
     $d = array_column(embyImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
-    same('import, older install: Jack\'s own choices stay', [['cleanup_tool', true, 'rsync'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
+    same('import, older install: Jack\'s own choices stay (the way back is always rsync — his, not a choice kept)',
+        [['cleanup_tool', false, 'rsync'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
         array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level', 'max_resume_series']));
     same('import, older install: a null of Jack\'s is no value — his default', [false, 8], [$d['max_resume_movies']['kept'] ?? null, $d['max_resume_movies']['value'] ?? null]);
     $d = array_column(embyImportPlan($old, '', ['emby_dir' => "$tmp/nojack/embycache", 'gather_dir' => "$tmp/nojack/gather"] + $ctx)['preview']['embycache']['defaults'], null, 'key');
@@ -2523,6 +2527,314 @@ JS);
  * `#   python3 …`), not inside a `: <<'EOF'` block; a User Script whose schedule is off is listed but not enabled
  * (none, «disabled», «custom» without a line); cron files the same, the office's own left out.
  */
+/**
+ * Both ways always rsync (Benj, 2026-10-10: «we wait for Ms. Moverelli»): an old settings file with «mover» reads as
+ * rsync and is written so at the next save, whatever a request or an import carries; what Jack hands EmbyCache (its
+ * environment over any settings file) is rsync — EmbyCache's own load_config() says so; his setup page has no choice.
+ */
+function testEmbyRsync(): void
+{
+    $tmp = hardeningTmp('embyrsync');
+    same('rsync: an old «mover» reads as rsync, the rest kept', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/master'],
+        embyToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/master']));
+    same('rsync: none set (EmbyCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'], embyToolsRsync([]));
+    @mkdir("$tmp/emby", 0700, true);
+    @mkdir("$tmp/pool", 0700, true);
+    $inst = [['servername' => 'Emby', 'url' => 'http://192.168.7.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
+    file_put_contents("$tmp/emby/embycache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
+        'instances' => $inst], JSON_UNESCAPED_SLASHES));
+    $read = embyReadSettings("$tmp/emby");
+    same('rsync: an old settings file with «mover» reads as rsync (migrated on read)', ['rsync', 'rsync', "$tmp/pool"],
+        [$read['fill_tool'] ?? null, $read['cleanup_tool'] ?? null, $read['cache_path'] ?? null]);
+    same('rsync: the file itself untouched until the next save', 'mover', json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true)['cleanup_tool']);
+    check('rsync: the setup\'s save no longer takes the two keys from the page', !in_array('fill_tool', EMBY_SETTINGS, true) && !in_array('cleanup_tool', EMBY_SETTINGS, true));
+    $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('rsync: the save lays rsync over the request', (bool) preg_match('/\$cfg\[\$k\] = \$in\[\$k\];\s*\}\s*\}\s*\$cfg = embyToolsRsync\(\$cfg\);/', $code));
+    // the save's writer (also the import's): a request with «mover» is written as rsync
+    $cfg = $read;
+    $cfg['fill_tool'] = $cfg['cleanup_tool'] = 'mover';
+    @mkdir("$tmp/run", 0700, true);
+    embyWriteSettings($cfg, "$tmp/emby", "$tmp/run");
+    $saved = json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true);
+    same('rsync: a save that carries «mover» writes rsync (refused as a choice)', ['rsync', 'rsync'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
+    // what Jack hands EmbyCache: its environment wins over any settings file — EmbyCache's own load_config() says so
+    file_put_contents("$tmp/emby/old.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
+        'instances' => $inst], JSON_UNESCAPED_SLASHES));
+    $env = embyPyEnv();
+    same('rsync: Jack\'s environment for EmbyCache says rsync both ways', ['rsync', 'rsync'], [$env['EMBYCACHE_FILL_TOOL'] ?? null, $env['EMBYCACHE_CLEANUP_TOOL'] ?? null]);
+    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"])';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, EMBY_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + $env + ['EMBYCACHE_CONFIG' => "$tmp/emby/old.json"], 30);
+    same('rsync: EmbyCache run with Jack\'s environment on an old «mover» file — rsync both ways', [0, 'rsync|rsync'], [$exit, trim($out) ?: trim($err)]);
+    // the import: an old «mover» is Jack's rsync (tested with the whole import in testEmbyImport); never accepted as a value
+    same('rsync: «mover» is no valid value for the two keys', [false, true, false], [embyImportValueOk('cleanup_tool', 'mover', 'mover'),
+        embyImportValueOk('fill_tool', 'rsync', 'rsync'), embyImportValueOk('fill_tool', 'mover', 'rsync')]);
+    same('rsync: the import sets both itself', ['rsync', 'rsync'], [EMBY_IMPORT_FIXED['fill_tool'] ?? null, EMBY_IMPORT_FIXED['cleanup_tool'] ?? null]);
+    // his setup page: no choice of the tool left, nothing sent
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('rsync: the setup page has no tool select and sends none', !str_contains($js, 'cleanup_tool') && !str_contains($js, 'fill_tool'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The live panel while EmbyCache runs for real (emby-progress.php): its progress file read only in its shape, the part
+ * of the file being copied (rsync's temporary file next to the target), the job's samples every 10 s and the speed as
+ * their median (the first after two samples, a stall or a failed copy never negative), the ETAs (per user: their
+ * remaining bytes / the speed), the part «progress» only for a real run; EmbyCache itself on a fixture tree with a
+ * stand-in Emby (two users, a file going back, three coming): whose file, why, where to, at every file boundary — and
+ * nothing in a dry run; his page's panel under node.
+ */
+function testEmbyProgress(): void
+{
+    $tmp = hardeningTmp('embyprogress');
+    // the speed: the median of the rates between consecutive samples of the last 10 minutes
+    $mb = 1000000;
+    same('progress speed: none before two samples', [null, null], [embyProgressSpeed([], 1000), embyProgressSpeed([[990, 0, 'a', 0]], 1000)]);
+    same('progress speed: the first after one step of 10 s', 2.0 * $mb, embyProgressSpeed([[990, 0, 'a', 0], [1000, 20 * $mb, 'a', 0]], 1000));
+    same('progress speed: the median — a stall and a burst don\'t swing it', 2.0 * $mb, embyProgressSpeed([[960, 0, 'a', 0], [970, 20 * $mb, 'a', 0],
+        [980, 20 * $mb, 'a', 0], [990, 100 * $mb, 'a', 0], [1000, 120 * $mb, 'b', 0]], 1000));
+    same('progress speed: a failed copy\'s part gone counts as 0, never negative', 0.0, embyProgressSpeed([[990, 50, 'a', 0], [1000, 10, 'a', 0]], 1000));
+    same('progress speed: only the last 10 minutes', 1.0 * $mb, embyProgressSpeed([[0, 0, 'a', 0], [10, 900 * $mb, 'a', 0], [990, 900 * $mb, 'a', 0],
+        [1000, 910 * $mb, 'a', 0]], 1000));
+
+    // EmbyCache's file, only in its shape
+    $paths = embyProgressPaths("$tmp/run");
+    @mkdir("$tmp/run", 0700, true);
+    @mkdir("$tmp/mnt/pool/Filme/A", 0700, true);
+    $target = "$tmp/mnt/pool/Filme/A/a.mkv";
+    $prog = ['v' => 1, 'mode' => 'run', 'phase' => 'fill', 'started' => 1000, 'updated' => 1005,
+             'back' => ['files' => 2, 'bytes' => 300 * $mb, 'done_files' => 2, 'done_bytes' => 300 * $mb],
+             'users' => [['key' => 'Emby:u1', 'name' => 'Benj', 'server' => 'Emby', 'files' => 2, 'bytes' => 600 * $mb, 'done_files' => 1, 'done_bytes' => 200 * $mb],
+                         ['key' => 'Emby:u2', 'name' => "Ki\x01ds", 'server' => 'Emby', 'files' => 1, 'bytes' => 100 * $mb, 'done_files' => 0, 'done_bytes' => 0]],
+             'current' => ['phase' => 'fill', 'rel' => 'Filme/A/a.mkv', 'size' => 400 * $mb, 'target' => $target, 'user' => 'Emby:u1',
+                           'source' => 'resume', 'title' => 'A', 'since' => 1005]];
+    file_put_contents($paths['file'], json_encode($prog));
+    $p = embyProgressRead($paths['file']);
+    same('progress file: read in its shape (a name\'s control characters gone)', ['fill', 2, 'Ki ds', 'Filme/A/a.mkv', 'resume', $target],
+        [$p['phase'] ?? null, count($p['users'] ?? []), $p['users'][1]['name'] ?? null, $p['current']['rel'] ?? null, $p['current']['source'] ?? null, $p['current']['target'] ?? null]);
+    foreach (['another v' => ['v' => 2] + $prog, 'another phase' => ['phase' => 'copy'] + $prog] as $what => $bad) {
+        file_put_contents("$tmp/bad.json", json_encode(array_replace($prog, $bad)));
+        same("progress file: $what — not taken", null, embyProgressRead("$tmp/bad.json"));
+    }
+    file_put_contents("$tmp/bad.json", json_encode(array_replace($prog, ['current' => ['source' => 'rm -rf'] + $prog['current']])));
+    same('progress file: a reason it doesn\'t know — none', null, embyProgressRead("$tmp/bad.json")['current']['source'] ?? null);
+
+    // the part of the current file: rsync's .<name>.XXXXXX next to the target (one listing, one lstat), else the target itself
+    $root = "$tmp/mnt/";
+    $cur = $p['current'];
+    same('progress part: no temporary file, no target — 0', 0, embyProgressPartial($cur, $root));
+    file_put_contents("$tmp/mnt/pool/Filme/A/.a.mkv.Xy3kQ9", str_repeat('x', 5000));
+    file_put_contents("$tmp/mnt/pool/Filme/A/.a.mkv.toolong", str_repeat('x', 9000));
+    file_put_contents("$tmp/mnt/pool/Filme/A/.b.mkv.Xy3kQ9", str_repeat('x', 9000));
+    symlink('/etc/passwd', "$tmp/mnt/pool/Filme/A/.a.mkv.Lnk123");
+    same('progress part: rsync\'s temporary file (other names, a link left out)', 5000, embyProgressPartial($cur, $root));
+    same('progress part: never more than the file', 4000, embyProgressPartial(['size' => 4000] + $cur, $root));
+    same('progress part: a target outside the root or with «..» — 0', [0, 0], [embyProgressPartial($cur, "$tmp/elsewhere/"),
+        embyProgressPartial(['target' => "$tmp/mnt/pool/Filme/../Filme/A/a.mkv"] + $cur, $root)]);
+    array_map('unlink', glob("$tmp/mnt/pool/Filme/A/.*.*") ?: []);
+    @unlink("$tmp/mnt/pool/Filme/A/.a.mkv.Lnk123");
+    file_put_contents($target, str_repeat('y', 7000));
+    same('progress part: --inplace (or just renamed) — the target itself', 7000, embyProgressPartial($cur, $root));
+    unlink($target);
+
+    // the job's samples every 10 s (a stand-in for the part), the view: bars, bracket, ETAs, the file under its user
+    $part = 0;
+    $stand = function () use (&$part) { return $part; };
+    file_put_contents($paths['file'], json_encode(['phase' => 'plan', 'users' => [], 'back' => null, 'current' => null] + $prog));
+    same('progress samples: none while EmbyCache plans', false, embyProgressSample($paths, 1010, $stand));
+    file_put_contents($paths['file'], json_encode($prog));
+    $part = 50 * $mb;
+    check('progress samples: the first once it copies', embyProgressSample($paths, 1010, $stand));
+    $v = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1010);
+    same('progress view: after one sample — the time left follows (no speed), the part of the current file shown',
+        [null, null, 50 * $mb, 250 * $mb, true, false], [$v['speed'], $v['total']['eta'], $v['current']['done'], $v['users'][0]['done_bytes'], $v['users'][0]['here'], $v['users'][1]['here']]);
+    $part = 150 * $mb;
+    embyProgressSample($paths, 1020, $stand);
+    $v = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1020);
+    same('progress view: after 10 s — 10 MB/s, each user\'s time left from their remaining bytes, the total\'s from everything left',
+        [10 * $mb, 25, 10, 35, 650 * $mb, 1000 * $mb, true, 0],
+        [$v['speed'], $v['users'][0]['eta'], $v['users'][1]['eta'], $v['total']['eta'], $v['total']['done_bytes'], $v['total']['bytes'], $v['back']['ended'], $v['back']['eta']]);
+    check('progress view: no target path for the page', !str_contains(json_encode($v), $tmp));
+    // EmbyCache moved on to the next file after the sample: its part isn't the old file's
+    file_put_contents($paths['file'], json_encode(array_replace($prog, ['updated' => 1025, 'current' => ['rel' => 'Filme/B/b.mkv'] + $prog['current']])));
+    $v = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1026);
+    same('progress view: a newer file than the last sample — its part 0 until the next sample', 0, $v['current']['done']);
+    $old = json_decode((string) file_get_contents($paths['samples']), true);
+    file_put_contents($paths['file'], json_encode(array_replace($prog, ['started' => 2000])));
+    same('progress samples: another run\'s samples are not this run\'s', [], embyProgressSamples($paths['samples'], 2000));
+    same('progress samples: kept per run', 1000, $old['run']);
+
+    // the ticker: a sample at once when copying starts, then every 10 s; while planning it looks again after 2 s
+    $clock = 3000;
+    $tick = embyProgressTicker($paths, function () use (&$clock) { return $clock; });
+    file_put_contents($paths['file'], json_encode(array_replace($prog, ['started' => 3000, 'phase' => 'plan', 'current' => null])));
+    $tick();
+    file_put_contents($paths['file'], json_encode(array_replace($prog, ['started' => 3000])));
+    $clock = 3001;
+    $tick();
+    $n0 = count(embyProgressSamples($paths['samples'], 3000));
+    $clock = 3002;
+    $tick();
+    $n1 = count(embyProgressSamples($paths['samples'], 3000));
+    $clock = 3012;
+    $tick();
+    same('progress ticker: planning — looks again after 2 s; then a sample, the next after 10 s', [0, 1, 2], [$n0, $n1, count(embyProgressSamples($paths['samples'], 3000))]);
+
+    // the part «progress»: only a real EmbyCache run has a panel
+    $state = fn (array $job) => embyProgressState($job, $paths, 3020);
+    same('progress part: nothing runs — no panel', [false, false, null], array_values(array_intersect_key($state(['running' => false, 'mode' => 'run']), ['running' => 1, 'real' => 1, 'progress' => 1])));
+    same('progress part: a dry run — no panel', [true, false, null], array_values(array_intersect_key($state(['running' => true, 'mode' => 'dry']), ['running' => 1, 'real' => 1, 'progress' => 1])));
+    $r = $state(['running' => true, 'mode' => 'run']);
+    same('progress part: a real run — the panel', [true, true, 'fill', 2], [$r['running'], $r['real'], $r['progress']['phase'] ?? null, count($r['progress']['users'] ?? [])]);
+    embyProgressClear($paths);
+    same('progress part: the run ended — its files gone, no panel', [false, false, null], [is_file($paths['file']), is_file($paths['samples']), $state(['running' => true, 'mode' => 'run'])['progress']]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('progress: Jack\'s job sets EMBYCACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
+        (bool) preg_match('/if \(\$real\) \{[^}]*embyProgressClear\(\$progress\);\s*\$env\[\'EMBYCACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
+        && str_contains($src, 'tick: $progress !== null ? embyProgressTicker($progress) : null')
+        && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => embyProgressState()]"));
+    require_once OFFICE_DIR . '/src/desks.php';
+    same('progress: his desk.json asks the part «progress» from the agent', ['refresh_after' => 5, 'action' => 'progress'],
+        officeDeskParts(json_decode((string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.json'), true)['parts'] ?? null)['progress'] ?? null);
+
+    // EmbyCache itself: a stand-in Emby (Benj resumes «Alien», Kids «Brazil»), one old file going back, a stand-in rsync
+    // that notes the progress file before each copy
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        check('progress: python3 is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $py = "$tmp/py";
+    foreach (["$py/data", "$py/run", "$py/pool/Filme/Old", "$py/user0/Filme/Alien", "$py/user0/Filme/Brazil", "$py/user/Filme", "$py/shares", "$py/bin"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$py/pool/Filme/Old/old.mkv", str_repeat('o', 1500));
+    file_put_contents("$py/user0/Filme/Alien/Alien.mkv", str_repeat('a', 3000));
+    file_put_contents("$py/user0/Filme/Alien/Alien.srt", str_repeat('s', 10));
+    file_put_contents("$py/user0/Filme/Brazil/Brazil.mkv", str_repeat('b', 2000));
+    file_put_contents("$py/data/embycache_exclude.txt", "$py/pool/Filme/Old/old.mkv\n");
+    file_put_contents("$py/emby.py", <<<'PY'
+import http.server, json, sys, urllib.parse
+RESUME = {"u1": [{"Type": "Movie", "Id": "m1", "Name": "Alien", "Path": "/media/movies/Alien/Alien.mkv"}],
+          "u2": [{"Type": "Movie", "Id": "m2", "Name": "Brazil", "Path": "/media/movies/Brazil/Brazil.mkv"}]}
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        u = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        if u.path == "/Users":
+            body = [{"Id": "u1", "Name": "Benj"}, {"Id": "u2", "Name": "Kids"}]
+        elif u.path == "/Sessions":
+            body = []
+        elif u.path.endswith("/Items/Resume"):
+            body = {"Items": RESUME.get(u.path.split("/")[2], []) if q.get("IncludeItemTypes") == ["Movie"] else []}
+        else:
+            body = {"Items": []}
+        b = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+    def log_message(self, *a):
+        pass
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1] + ".tmp", "w").write(str(s.server_address[1]))
+import os; os.replace(sys.argv[1] + ".tmp", sys.argv[1])
+s.serve_forever()
+PY);
+    $emby = proc_open(['python3', "$py/emby.py", "$py/port"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$py/emby.err", 'w']], $pipes);
+    for ($i = 0; $i < 50 && !is_file("$py/port"); $i++) {
+        usleep(100000);
+    }
+    $port = (int) @file_get_contents("$py/port");
+    file_put_contents("$py/data/embycache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
+        'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares",
+        'api_timeout' => 3, 'min_free_percent' => 0, 'max_resume_movies' => 10, 'max_resume_series' => 0, 'max_favorite_series' => 0, 'use_next_up' => false,
+        'instances' => [['servername' => 'Test', 'url' => "http://127.0.0.1:$port", 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]],
+        JSON_UNESCAPED_SLASHES));
+    $rsync = trim((string) shell_exec('command -v rsync'));
+    file_put_contents("$py/bin/rsync", "#!/bin/bash\ncat \"\$EMBYCACHE_PROGRESS\" >> " . escapeshellarg("$py/seen.jsonl") . "\nexec " . escapeshellarg($rsync) . " \"\$@\"\n");
+    chmod("$py/bin/rsync", 0755);
+    $env = ['env', "PATH=$py/bin:" . getenv('PATH'), "EMBYCACHE_DIR=$py/data", "EMBYCACHE_STATUS=$py/data/status.json", "EMBYCACHE_PROGRESS=$py/run/progress.json",
+            'EMBYCACHE_FILL_TOOL=rsync', 'EMBYCACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/embycache/embycache_run.py'];
+    [$exit, $out, $err] = run($env, 120);
+    same('progress, EmbyCache dry run: no progress file (only real runs)', [0, false], [$exit, is_file("$py/run/progress.json")]);
+    [$exit, $out, $err] = run(array_merge($env, ['--run']), 120);
+    proc_terminate($emby);
+    proc_close($emby);
+    $st = readJson("$py/data/status.json") ?? [];
+    same('progress, EmbyCache real run: ok, 1 back, 3 onto the pool', [0, 'ok', 1, 3], [$exit, $st['result'] ?? null, $st['cleanup']['done'] ?? null, $st['fill']['done'] ?? null]);
+    $seen = array_values(array_filter(array_map(fn ($l) => json_decode($l, true), file("$py/seen.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [])));
+    $at = array_map(fn ($s) => [$s['phase'] ?? null, $s['current']['rel'] ?? null, $s['current']['user'] ?? null, $s['current']['source'] ?? null,
+        $s['current']['title'] ?? null, $s['current']['target'] ?? null], $seen);
+    same('progress, EmbyCache: before each copy — the phase, the file, whose, why, where to', [
+        ['back', 'Filme/Old/old.mkv', null, null, null, "$py/user0/Filme/Old/old.mkv"],
+        ['fill', 'Filme/Alien/Alien.mkv', 'Test:u1', 'resume', 'Alien', "$py/pool/Filme/Alien/Alien.mkv"],
+        ['fill', 'Filme/Alien/Alien.srt', 'Test:u1', 'resume', 'Alien', "$py/pool/Filme/Alien/Alien.srt"],
+        ['fill', 'Filme/Brazil/Brazil.mkv', 'Test:u2', 'resume', 'Brazil', "$py/pool/Filme/Brazil/Brazil.mkv"]], $at, $out . $err);
+    same('progress, EmbyCache: the plan before the first copy — back 1 of 1500 B; Benj 2 files 3010 B, Kids 1 file 2000 B',
+        [['files' => 1, 'bytes' => 1500, 'done_files' => 0, 'done_bytes' => 0], [['Benj', 2, 3010, 0], ['Kids', 1, 2000, 0]]],
+        [$seen[0]['back'] ?? null, array_map(fn ($u) => [$u['name'], $u['files'], $u['bytes'], $u['done_files']], $seen[0]['users'] ?? [])]);
+    same('progress, EmbyCache: Brazil\'s turn — Benj done, back done', [[2, 3010], [1, 1500]],
+        [[$seen[3]['users'][0]['done_files'] ?? null, $seen[3]['users'][0]['done_bytes'] ?? null], [$seen[3]['back']['done_files'] ?? null, $seen[3]['back']['done_bytes'] ?? null]]);
+    $end = embyProgressRead("$py/run/progress.json");
+    same('progress, EmbyCache: at the end — done, everything done, no file in work; Jack reads it in its shape',
+        ['done', null, [[1, 1], [2, 2], [1, 1]]], [$end['phase'] ?? null, $end === null ? 'x' : $end['current'],
+        array_map(fn ($c) => [$c['files'], $c['done_files']], array_merge([$end['back'] ?? []], $end['users'] ?? []))]);
+
+    // his page: the panel under node — the bracket, the bars, the file under its user, «Raw output»
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('progress: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+e.setProgress(null);
+out.plan = texts(e.progressPanel());
+const cur = { phase: 'fill', rel: 'Filme/A/a.mkv', size: 400, done: 150, source: 'resume', title: 'A' };
+e.setProgress({ phase: 'fill', speed: 10, current: cur,
+  back: { files: 2, bytes: 300, done_files: 2, done_bytes: 300, eta: 0, ended: true, here: false },
+  users: [{ name: 'Benj', server: 'Emby', files: 2, bytes: 600, done_files: 1, done_bytes: 300, eta: 1500, here: true },
+          { name: 'Kids', server: 'Emby', files: 1, bytes: 100, done_files: 0, done_bytes: 0, eta: 30, here: false }],
+  total: { files: 5, bytes: 1000, done_files: 3, done_bytes: 600, eta: null } });
+const p = e.progressPanel();
+const rows = p.children.find((c) => c.cls === 'jo-prog-rows');
+out.total = texts(p.children.find((c) => /total/.test(c.cls || '')));
+out.rows = rows.children.map((r) => [r.cls, texts(r.children[0]), r.children.length, r.children[1].children[0].style.width]);
+out.file = texts(rows.children[1].children[2]);
+out.raw = texts(p.children[p.children.length - 1]);
+out.eta = [e.etaText(null, true), e.etaText(null, false), e.etaText(30, false), e.etaText(1501, false)];
+process.stdout.write(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1'), true);
+    same('progress page: before the first file — working out what goes where', ['progress.title', 'progress.plan', 'progress.raw'], $o['plan'] ?? null);
+    same('progress page: the bracket — done of planned, the speed, the time left follows', ['progress.total',
+        'progress.files {"done":3,"n":5} · progress.bytes {"done":"600 B","size":"1000 B"} · progress.speed {"rate":"10 B"} · progress.eta_first'], $o['total'] ?? null);
+    same('progress page: back (done), a bar per user with their time left, the file under its user', [
+        ['jo-prog-row done', ['progress.back', 'progress.files {"done":2,"n":2} · progress.bytes {"done":"300 B","size":"300 B"} · progress.done'], 2, '100%'],
+        ['jo-prog-row', ['Benj', 'progress.files {"done":1,"n":2} · progress.bytes {"done":"300 B","size":"600 B"} · progress.eta {"time":"dur1500"}'], 3, '50%'],
+        ['jo-prog-row', ['Kids', 'progress.files {"done":0,"n":1} · progress.bytes {"done":"0 B","size":"100 B"} · progress.eta_soon'], 2, '0%']], $o['rows'] ?? null);
+    same('progress page: the file being copied — path, how much, why', ['Filme/A/a.mkv', 'progress.bytes {"done":"150 B","size":"400 B"}',
+        'progress.why {"source":"progress.source.resume","title":"A"}'], $o['file'] ?? null);
+    same('progress page: the raw output a link inside', ['progress.raw'], $o['raw'] ?? null);
+    same('progress page: the time left — only the total says it follows; under a minute; whole minutes up',
+        ['progress.eta_first', '', 'progress.eta_soon', 'progress.eta {"time":"dur1560"}'], $o['eta'] ?? null);
+    hardeningRm($tmp);
+}
+
 /**
  * The gather's cache switch (#14): the ini Jack writes, run by the gather on a fixture tree — off: the cache left alone;
  * on: the folders' files come to their disk, EmbyCache's list stays («ignored»), folders only on the cache stay or go to
@@ -25636,7 +25948,7 @@ function testHiddenStoreroom(): void
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],

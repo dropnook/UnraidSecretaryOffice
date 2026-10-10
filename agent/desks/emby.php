@@ -37,8 +37,11 @@ const EMBY_SIZES_ROOTS  = 64;      // disks/pools per share
 const EMBY_POOL_GROUPS  = 5000;    // what lies on the pool, by film/series folder: the current state, all of it (a bound against a broken list only)
 const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
-                       'fill_tool', 'cleanup_tool', 'return_to_origin', 'array_source', 'array_path', 'user_path',
+                       'return_to_origin', 'array_source', 'array_path', 'user_path',
                        'array_disks_glob', 'create_share_root', 'mover_debug_level'];
+// both ways always rsync (Benj, 2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
+// path for standalone users, Jack never selects it — not in his setup, not from an old settings file, not in what he hands it
+const EMBY_TOOLS_RSYNC = ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'];
 const GATHER_LOCK   = '/var/run/consolidate_master.lock';     // the gather's own lock (consolidate_master.sh)
 const EMBY_HISTORY  = 40;
 const EMBY_IGNORED  = '#^/(config|metadata|transcoding-temp|cache|logs|var|boot|tmp)#';   // Emby's own folders, never media
@@ -84,6 +87,8 @@ desk('emby', [
         'letgo_seen'     => fn (array $r) => embyLetGoSeen(),
         // «Switch the mover schedule off…» (emby-mover.php): Unraid's own ⟦Mover schedule⟧ «Disabled», as its form sets it
         'mover_off'      => fn (array $r) => embyMoverOff($r) + ['state' => embyScan()],
+        // the part «progress» (desk.json): the live panel while EmbyCache runs for real (emby-progress.php) — two RAM files
+        'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState()],
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => embyJob('embycache', $args),
@@ -134,6 +139,7 @@ function embyScan(): array
 {
     $settings = embyReadSettings();
     $gather = embyGatherSettings();
+    $jobs = ['embycache' => embyJobInfo('embycache'), 'gather' => embyJobInfo('gather')];
     $state = [
         'time'       => time(),
         'python'     => embyPython(),
@@ -150,7 +156,8 @@ function embyScan(): array
             'last'     => readJson(GATHER_DATA . '/last-real.json'),
             'waiting'  => embyGatherWaiting(),
         ],
-        'jobs'       => ['embycache' => embyJobInfo('embycache'), 'gather' => embyJobInfo('gather')],
+        'jobs'       => $jobs,
+        'progress'   => embyProgressState($jobs['embycache'])['progress'],     // a real EmbyCache run: the live panel (emby-progress.php)
         'last'       => embyLastRun(),
         'history'    => array_slice(embyHistory(), 0, 20),
         'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
@@ -251,10 +258,16 @@ function embyPools(): array
     return array_keys($pools);
 }
 
-function embyReadSettings(): ?array
+function embyReadSettings(string $dir = EMBY_DATA): ?array
 {
-    $j = json_decode((string) @file_get_contents(EMBY_DATA . '/embycache_settings.json'), true);
-    return is_array($j) ? $j : null;
+    $j = json_decode((string) @file_get_contents("$dir/embycache_settings.json"), true);
+    return is_array($j) ? embyToolsRsync($j) : null;
+}
+
+/** EmbyCache's settings as Jack uses them: an old 'mover' (or none — EmbyCache's own default) reads as rsync; the next save writes it so */
+function embyToolsRsync(array $s): array
+{
+    return array_replace($s, EMBY_TOOLS_RSYNC);
 }
 
 /** The settings as the page may see them — without the API keys */
@@ -747,6 +760,7 @@ function embySave(mixed $in): array
             $cfg[$k] = $in[$k];
         }
     }
+    $cfg = embyToolsRsync($cfg);                       // a fill_tool/cleanup_tool the request carries is ignored: always rsync
     $cfg['cache_budget'] = strtoupper(str_replace(' ', '', (string) ($cfg['cache_budget'] ?? '')));
     if (!in_array($cfg['cache_path'] ?? '', embyPools(), true)) {
         throw new Problem('emby_bad_pool', ['path' => (string) ($cfg['cache_path'] ?? '')]);
@@ -777,6 +791,7 @@ function embyWriteSettings(array $cfg, string $dir = EMBY_DATA, string $tmp = RU
     }
     embyDataDir($dir);
     @mkdir($tmp, 0700, true);
+    $cfg = embyToolsRsync($cfg);                       // whatever writes Jack's settings (his setup, the import): rsync both ways
     $file = writeNewFile("$tmp/.emby-settings", json_encode($cfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0600);
     if ($file === null) {
         throw new Problem('emby_config', ['detail' => "cannot write in $tmp"]);
@@ -839,10 +854,11 @@ function runEnv(array $command, array $env, int $timeout = 60): array
     return run(array_merge(['env'], $vars, $command), $timeout);
 }
 
-/** What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output */
+/** What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output — and rsync both ways (over any settings file) */
 function embyPyEnv(): array
 {
-    return ['EMBYCACHE_DIR' => EMBY_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1'];
+    return ['EMBYCACHE_DIR' => EMBY_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
+            'EMBYCACHE_FILL_TOOL' => EMBY_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => EMBY_TOOLS_RSYNC['cleanup_tool']];
 }
 
 // ===================================================================== the gather's settings
@@ -979,9 +995,9 @@ const EMBY_IMPORT_FILES = [   // the only files read in the old folder: name, si
     'origin'   => ['embycache_origin.json', 16777216],
     'ini'      => ['consolidate.ini', 65536],
 ];
-// set by Jack whatever the old file says (Unraid's views, the share configs); the mover only as EmbyCache finds it itself
+// set by Jack whatever the old file says (Unraid's views, the share configs, rsync both ways); the mover only as EmbyCache finds it itself
 const EMBY_IMPORT_FIXED = ['array_path' => '/mnt/user0', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*',
-                           'shares_cfg_dir' => '/boot/config/shares'];
+                           'shares_cfg_dir' => '/boot/config/shares'] + EMBY_TOOLS_RSYNC;
 const EMBY_MOVER_BINS   = ['', '/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];
 // rsync options an imported rsync_args may hold: plain switches only (no -e, no files, no remote shell)
 const EMBY_RSYNC_SHORT  = '/^-[aAXHSDglopPrtuvhxWcm]+$/D';
@@ -1520,7 +1536,7 @@ function embyImportValueOk(string $key, mixed $v, mixed $def): bool
                                      && !array_filter($v, fn ($a) => !is_string($a) || (!preg_match(EMBY_RSYNC_SHORT, $a) && !in_array($a, EMBY_RSYNC_LONG, true))),
         $key === 'cache_budget'   => is_string($v) && ($v === '' || (bool) preg_match('/^\d+(\.\d+)?[KMGTP]?B?$/D', $v)),
         $key === 'movie_mode'     => in_array($v, ['folder', 'file'], true),
-        in_array($key, ['fill_tool', 'cleanup_tool'], true) => in_array($v, ['rsync', 'mover'], true),
+        isset(EMBY_TOOLS_RSYNC[$key]) => $v === 'rsync',          // never 'mover' (Jack never selects Unraid's move binary)
         $key === 'array_source'   => in_array($v, ['user0', 'disk'], true),
         $key === 'mover_debug_level' => is_int($v) && $v >= 0 && $v <= 3,
         in_array($key, EMBY_IMPORT_PCT, true) => (is_int($v) || is_float($v)) && $v >= 0 && $v <= 100,
@@ -2126,13 +2142,14 @@ function embyRunWaiting(string $tool, string $waitDir = RUN_DIR): ?array
  * with $watchers (a real gather), Emby every $every seconds. The mover started, or someone watching → the stop request
  * ($stopFile: CONSOLIDATE_STOP, EMBYCACHE_STOP) is written once and the tool ends after the folder (the gather) or the
  * file (EmbyCache) it is on (exit 3, result `stopped`). Emby down or an unusable answer changes nothing during a run.
- * Returns the exit code, why it was asked to stop and who was watching then.
+ * Returns the exit code, why it was asked to stop and who was watching then. $tick (EmbyCache's live panel) is asked
+ * every half second.
  *
  * @param resource $proc
  * @return array{exit: int, stopped_for: ?array, stopped_why: ?string}
  */
 function embyRunWatch($proc, string $stopFile, bool $watchers, ?callable $look = null, ?callable $mover = null,
-                      int $every = EMBY_WATCH_DURING, int $moverEvery = EMBY_MOVER_LOOK): array
+                      int $every = EMBY_WATCH_DURING, int $moverEvery = EMBY_MOVER_LOOK, ?callable $tick = null): array
 {
     $look ??= fn () => embyWatching();
     $mover ??= fn (): bool => embyMoverRunning(null, getmypid());
@@ -2171,6 +2188,9 @@ function embyRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
                 writeAtomic($stopFile, jsonEncode(['time' => time(), 'who' => $asked, 'why' => 'watching']), 0600, 0, 0);
                 logLine('Jack Emby: someone started watching Emby — the gather stops after the current folder (' . embyWatchersLine($asked) . ')');
             }
+        }
+        if ($tick !== null) {
+            $tick();                    // EmbyCache's live panel: a speed sample every 10 s (emby-progress.php)
         }
         usleep(500000);
     }
@@ -2378,6 +2398,7 @@ function embyJob(string $tool, array $args): int
     @unlink("$dir/status.json");
     @unlink("$dir/office-stop.json");
 
+    $progress = null;                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
         if ($mode === 'measure') {
             embyWriteMeasureIni(embyMeasureShares(), embyReadSettings() ?? []);
@@ -2392,6 +2413,11 @@ function embyJob(string $tool, array $args): int
         $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
         $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = EMBY_APP;
+        if ($real) {                     // the live panel on his page (emby-progress.php): EmbyCache's progress in RAM
+            $progress = embyProgressPaths();
+            embyProgressClear($progress);
+            $env['EMBYCACHE_PROGRESS'] = $progress['file'];
+        }
     }
     $out = fopen("$dir/office-output.txt", 'w');
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'HOME' => '/root', 'LANG' => 'C.UTF-8'] + $env;
@@ -2401,12 +2427,16 @@ function embyJob(string $tool, array $args): int
         $exit = 127;
     } elseif ($real) {
         // stops after a folder (the gather) or a file (EmbyCache) when the mover starts — or someone starts watching (the gather)
-        ['exit' => $exit, 'stopped_for' => $stoppedFor, 'stopped_why' => $stoppedWhy] = embyRunWatch($proc, "$dir/office-stop.json", $tool === 'gather');
+        ['exit' => $exit, 'stopped_for' => $stoppedFor, 'stopped_why' => $stoppedWhy] = embyRunWatch($proc, "$dir/office-stop.json", $tool === 'gather',
+            tick: $progress !== null ? embyProgressTicker($progress) : null);
     } else {
         $exit = proc_close($proc);
     }
     fclose($out);
     @unlink("$dir/office-stop.json");
+    if ($progress !== null) {
+        embyProgressClear($progress);   // the panel goes with the run
+    }
     if ($hold) {
         flock($hold, LOCK_UN);
         fclose($hold);
