@@ -93,7 +93,8 @@ function unraidCss() {
 const TIME_KEYS = new Set(['time', 'started', 'finished', 'since', 'listed_at', 'updated', 'at', 'next', 'until', 'seen', 'pulse',
   'current_since', 'ended', 'last_passed', 'on_watch', 'looked', 'checked', 'sent', 'last', 'first', 'created', 'when', 'run_time',
   'published', 'measured_at', 'cache_at', 'strays_at', 'flash_at', 'ca_at', 'plan_time', 'state_time', 'last_heard', 'last_try',
-  'libvirt_time', 'mtime', 'abort_asked', 'from', 'to', 'ts', 'date', 'modified', 'expires', 'ack', 'noted', 'told']);
+  'libvirt_time', 'mtime', 'abort_asked', 'from', 'to', 'ts', 'date', 'modified', 'expires', 'ack', 'noted', 'told', 'local', 'kopia',
+  'kopia_played', 'good', 'paired', 'status_time', 'deadline', 'dump_time', 'newest', 'oldest', 'birth', 'start', 'end', 'stamp']);
 function moveTimes(v, delta) {
   if (Array.isArray(v)) return v.map((x) => moveTimes(x, delta));
   if (!v || typeof v !== 'object') return v;

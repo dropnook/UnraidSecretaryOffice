@@ -8,9 +8,50 @@
  },
  "certificate": null,
  "running": null,
- "drills": [],
+ "drills": [
+  {
+   "id": "20261010-005005-57db",
+   "scope": "weekly",
+   "created": 1791521074,
+   "started": 1791521074,
+   "ended": 1791521914,
+   "result": "passed",
+   "reason": null,
+   "counts": {
+    "ok": 15,
+    "failed": 0
+   }
+  },
+  {
+   "id": "20261003-011005-a3c1",
+   "scope": "weekly",
+   "created": 1790916274,
+   "started": 1790916274,
+   "ended": 1790917114,
+   "result": "passed",
+   "reason": null,
+   "counts": {
+    "ok": 15,
+    "failed": 0
+   }
+  },
+  {
+   "id": "20261002-011005-9e02",
+   "scope": "weekly",
+   "created": 1790311474,
+   "started": 1790311474,
+   "ended": 1790312314,
+   "result": "passed",
+   "reason": null,
+   "counts": {
+    "ok": 15,
+    "failed": 0
+   }
+  }
+ ],
  "ram": 6420000000,
  "next_backup": null,
  "packages_since": null,
- "auto": null
+ "auto": null,
+ "time": 1791551074
 }

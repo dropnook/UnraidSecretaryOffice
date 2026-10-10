@@ -80,5 +80,49 @@
   "clip": "#sso-dialog",
   "viewport": true,
   "height": 1000
+ },
+ {
+  "nr": 4,
+  "desk": "restore",
+  "moment": "drill",
+  "title": "Herr Restori - die Übung bestanden: Stufen pro App, Datenbanken zurückgespielt",
+  "route": "restore/drill",
+  "clip": [
+   ".rs-dr-head",
+   ".rs-dr-rows"
+  ],
+  "prepare": [
+   {
+    "click": "[data-key=\"dr:app:Nextcloud\"] .row-name",
+    "pause": 400
+   }
+  ]
+ },
+ {
+  "nr": 5,
+  "desk": "snapshot",
+  "moment": "why",
+  "title": "Frau Snapshotini - ein Snapshot im Detail, «Warum so verschieden?» erklärt",
+  "route": "snapshot",
+  "prepare": [
+   {
+    "click": "label:has-text(\"Backupsis Snapshots\") input",
+    "pause": 500
+   },
+   {
+    "click": "[data-id=\"zfs:daten/Familienfotos@uso-backup-20261009-0430\"] .row-name",
+    "pause": 500
+   },
+   {
+    "click": "#sso-dialog .chip:has-text(\"Warum so verschieden\")",
+    "pause": 400
+   }
+  ],
+  "clip": [
+   "#sso-dialog",
+   ".tip"
+  ],
+  "viewport": true,
+  "height": 1000
  }
 ]
