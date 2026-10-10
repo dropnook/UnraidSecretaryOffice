@@ -24663,8 +24663,9 @@ JS);
     check('report dialog: the ⋯ menu\'s item, only with an inbox, about the desk shown',
         str_contains($core, "if (CONFIG.report) items.push({ text: t('office.report_menu'), act: () => Office.reportDialog(Office.current ? Office.current.id : 'office') });"));
     $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
-    check('report dialog: the team lead\'s quiet button beside the tips, the office as a whole', str_contains($ct, "const report = el('button', 'btn small plain', T('report_button'));")
-        && str_contains($ct, "report.onclick = () => Office.reportDialog('office');"));
+    check('report dialog: the reception\'s quiet button right of «Change the order», the office as a whole; the team lead\'s is gone (2026-10-10)',
+        str_contains($core, "const report = el('button', 'btn small plain', t('office.report_menu'));")
+        && str_contains($core, "report.onclick = () => Office.reportDialog('office');") && !str_contains($ct, 'reportDialog'));
     $page = (string) file_get_contents(OFFICE_DIR . '/src/page.php');
     check('report dialog: the page learns whether there is an inbox, never its address', str_contains($page, "'report'    => officeFeedbackUrl() !== '',") && !str_contains($page, "=> officeFeedbackUrl(),"));
     hardeningRm($tmp);

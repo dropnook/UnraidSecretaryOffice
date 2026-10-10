@@ -122,8 +122,6 @@
   "help.supporter": "La secretaría es gratis y completa — nunca se bloquea nada. Una propina es bienvenida, y con ella llega una clave de apoyo; si la das en la página de propinas que abre el bote, la secretaría la recoge por sí sola. No desbloquea nada; solo detiene los recordatorios y muestra un agradecimiento junto a «Propinas y aumento» — su imagen crece con la propina, una pequeña historia de oficina: ☕ un café, ☕☕ una ronda, 🍰 un pastel, 🥂 todo el equipo brinda por un aumento. Se guardan varias claves, cada imagen aparece una vez — nunca un número.",
   "tip_button": "☕ Propinas y aumento",
   "tip_button_title": "Al equipo le alegra una propina (PayPal)",
-  "report_button": "Comentario…",
-  "report_button_title": "Contar un problema o un deseo a quienes construyen la secretaría — yo se lo paso",
   "supporter_plate": "{icon} ¡Gracias, {name}!",
   "supporter_names_two": "{a} y {b}",
   "supporter_names_more": "{a} y {n} más",

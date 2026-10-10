@@ -394,14 +394,6 @@ function teamSection() {
   tip.title = T('tip_button_title');
   tip.onclick = () => Office.tipJar();
   extra.push(tip);
-  if (Office.config.report && Office.reportDialog) {
-    // «Report a problem or a wish…»: he passes it on to the people who build the office (the office as a whole)
-    const report = el('button', 'btn small plain', T('report_button'));
-    report.type = 'button';
-    report.title = T('report_button_title');
-    report.onclick = () => Office.reportDialog('office');
-    extra.push(report);
-  }
   if (open.length > 1) {
     const b = el('button', 'btn small', T('hire_all', { n: open.length }));
     b.type = 'button';

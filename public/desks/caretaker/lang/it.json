@@ -122,8 +122,6 @@
   "help.supporter": "La segreteria è gratuita e completa — niente viene mai bloccato. Una mancia è benvenuta, e con essa arriva una chiave sostenitore; se la lasci dalla pagina delle mance aperta dal barattolo, la segreteria la va a prendere da sola. Non sblocca nulla; ferma solo i promemoria e mostra un ringraziamento accanto a «Mancia & aumento» — la sua immagine cresce con la mancia, una piccola storia d'ufficio: ☕ un caffè, ☕☕ un giro, 🍰 una torta, 🥂 tutto il team brinda a un aumento. Più chiavi restano, ogni immagine appare una volta — mai un numero.",
   "tip_button": "☕ Mancia & aumento",
   "tip_button_title": "Il team è felice di ricevere una mancia (PayPal)",
-  "report_button": "Segnalazione…",
-  "report_button_title": "Segnala un problema o un desiderio a chi costruisce la segreteria — lo passo io",
   "supporter_plate": "{icon} Grazie, {name}!",
   "supporter_names_two": "{a} e {b}",
   "supporter_names_more": "{a} e altri {n}",

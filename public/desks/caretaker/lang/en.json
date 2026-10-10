@@ -122,8 +122,6 @@
   "help.supporter": "The office is free and complete — nothing is ever locked. A tip is welcome, and with it comes a supporter key; when you tip through the tip page opened from the tip jar, the office fetches it by itself. It unlocks nothing; it only stops the reminders and puts a thank-you next to «Tips & pay rise» — its picture grows with the tip, a little office story: ☕ one coffee, ☕☕ a round, 🍰 a cake, 🥂 the whole team toasts a pay rise. Several keys are kept, each picture shown once — never a count.",
   "tip_button": "☕ Tips & pay rise",
   "tip_button_title": "The team is glad of a tip (PayPal)",
-  "report_button": "Report / wish…",
-  "report_button_title": "Tell the people who build the office about a problem or a wish — I'll pass it on",
   "supporter_plate": "{icon} Thank you, {name}!",
   "supporter_names_two": "{a} & {b}",
   "supporter_names_more": "{a} & {n} more",

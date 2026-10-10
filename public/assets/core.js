@@ -2027,6 +2027,14 @@ async function reception(root) {
     }
   }
   arrangeable(head, grid, cards);
+  // «Report a problem or a wish…» at the reception, right of «Change the order» (Benj, 2026-10-10 — was the team lead's
+  // button; the ⋯ menu keeps its entry, which starts with the desk shown)
+  if (CONFIG.report) {
+    const report = el('button', 'btn small plain', t('office.report_menu'));
+    report.type = 'button';
+    report.onclick = () => Office.reportDialog('office');
+    ($('.deskhead-actions', head) || head.appendChild(el('div', 'deskhead-actions'))).appendChild(report);
+  }
 }
 
 /**

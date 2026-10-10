@@ -44,7 +44,8 @@ Office.theme = {
     if (v === 'auto') ROOT.removeAttribute('data-theme'); else ROOT.dataset.theme = v;
     document.querySelectorAll('#sso .theme-switch').forEach(apply);
   },
-  /** The segmented control: three radios (the arrow keys move between them), an icon and a word each, a tip on each */
+  /** The segmented control: three radios (the arrow keys move between them), an icon each — the word is its name for
+   *  screen readers and stands in its tip (Benj, 2026-10-10: icons only, room for «Report a problem or a wish…») */
   control() {
     const box = el('div', 'seg theme-switch');
     box.setAttribute('role', 'radiogroup');
@@ -55,7 +56,9 @@ Office.theme = {
       b.setAttribute('role', 'radio');
       b.dataset.choice = c;
       b.dataset.tip = t(`office.theme_${c}_title`, { theme: unraidTheme() || t('common.unknown') });
-      b.append(icon(c), el('span', '', t(`office.theme_${c}`)));
+      b.setAttribute('aria-label', t(`office.theme_${c}`));
+      b.dataset.tip = t(`office.theme_${c}`) + ' — ' + b.dataset.tip;
+      b.append(icon(c));
       b.onclick = () => Office.theme.set(c);
       b.onkeydown = onKey;
       box.appendChild(b);
