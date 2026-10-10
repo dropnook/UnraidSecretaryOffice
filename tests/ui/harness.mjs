@@ -11,6 +11,13 @@
 //   …/api.php?a=places               no words (the search isn't what this is for)
 //   POST …/api.php                   noted (harness.posts); answered from tests/ui/states/post/<desk>.<action>.json when
 //                                    there, else {ok: true} - always with the agent, like the real api.php
+// Around the office the page is Unraid's: its colour palette and the theme variables of its black and white themes
+// (tests/ui/unraid/: Unraid 7.3's default-color-palette.css, themes/black.css and white.css as they are), its fonts
+// (Clear Sans, Bitstream Vera) and its body - so the page, dialogs and menus have Unraid's background and colours.
+// The theme: ?theme=black|white in the page's address, else the office's own switch (localStorage office.theme:
+// light = white), else black.
+// opts.demo serves tests/ui/demo instead of tests/ui/states: invented family data for screenshots (tools/ui-shots.mjs),
+// its times moved to now (a state's `time` and every time field beside it keep their distance to it).
 // No PHP, no dependencies: node's own http only. Nothing here touches a server.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -19,10 +26,12 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..', '..');
+export const DEMO = path.join(HERE, 'demo');
+const UNRAID = path.join(HERE, 'unraid');
 const PUBLIC = path.join(REPO, 'public');
 const BASE = '/plugins/unraid-secretary-office/';
 const VERSION = (/const OFFICE_VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(REPO, 'src', 'bootstrap.php'), 'utf8')) || [])[1] || '0.0.0';
-const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.html': 'text/html' };
+const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.html': 'text/html', '.woff': 'font/woff' };
 
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; } };
 
@@ -57,15 +66,45 @@ function strings(code) {
   return code === 'en' ? en : { ...en, ...layer(code) };
 }
 
+/**
+ * Unraid's look around the office: the palette on :root, each theme's variables on :root[data-unraid-theme=<name>]
+ * (the files' own `:root {` scoped so both can sit in one page), the fonts as default-fonts.css names them, the body
+ * as default-base.css draws it (html 62.5 %, body 1.3rem on the theme's background) with #displaybox's room (1rem).
+ */
+function unraidCss() {
+  const read = (f) => { try { return fs.readFileSync(path.join(UNRAID, f), 'utf8'); } catch (e) { return ''; } };
+  const theme = (name) => read(`${name}.css`).replace(/:root\s*\{/, `:root[data-unraid-theme="${name}"] {`);
+  const font = (family, weight, style, file) => `@font-face{font-family:${family};font-weight:${weight};font-style:${style};src:url('/webGui/styles/${file}') format('woff')}`;
+  return [
+    font('clear-sans', 'normal', 'normal', 'clear-sans.woff'), font('clear-sans', 'bold', 'normal', 'clear-sans-bold.woff'),
+    font('clear-sans', 'normal', 'italic', 'clear-sans-italic.woff'),
+    font('bitstream', 'normal', 'normal', 'bitstream.woff'), font('bitstream', 'bold', 'normal', 'bitstream-bold.woff'),
+    read('default-color-palette.css'), theme('black'), theme('white'),
+    'html{font-family:clear-sans,sans-serif;font-size:62.5%;height:100%}',
+    'body{font-size:1.3rem;color:var(--text-color);background-color:var(--background-color);margin:0;padding:1rem 1rem 4rem;'
+      + '-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}',
+  ].join('\n');
+}
+
+/** The fields of a state that hold a time (seconds) - moved with the state's own `time` for the demo */
+const TIME_KEYS = new Set(['time', 'started', 'finished', 'since', 'listed_at', 'updated', 'at', 'next', 'until', 'seen', 'pulse']);
+function moveTimes(v, delta) {
+  if (Array.isArray(v)) return v.map((x) => moveTimes(x, delta));
+  if (!v || typeof v !== 'object') return v;
+  const out = {};
+  for (const [k, x] of Object.entries(v)) out[k] = TIME_KEYS.has(k) && typeof x === 'number' && x > 1e9 ? x + delta : moveTimes(x, delta);
+  return out;
+}
+
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 /**
- * Start the harness. opts: port (0 = any free one), statesDir (default tests/ui/states), later (ms: the shown desk's
- * look comes stale and the new one that many ms later - off by default).
+ * Start the harness. opts: port (0 = any free one), statesDir (default tests/ui/states), demo (true: tests/ui/demo, its
+ * times moved to now), later (ms: the shown desk's look comes stale and the new one that many ms later - off by default).
  * Returns { url, posts, close(), setState(desk, state) }.
  */
 export async function startHarness(opts = {}) {
-  const statesDir = opts.statesDir || path.join(HERE, 'states');
+  const statesDir = opts.statesDir || (opts.demo ? DEMO : path.join(HERE, 'states'));
   const list = desks();
   const stamp = Math.floor(Date.now() / 1000);
   const agent = () => ({ running: true, version: VERSION, pid: 4242, started: stamp, host: 'Tower', desks: list.map((d) => d.id), pulse: Math.floor(Date.now() / 1000) });
@@ -81,7 +120,12 @@ export async function startHarness(opts = {}) {
   const overrides = new Map();
   const looks = new Map();          // desk[/part] -> how often asked: each look a second newer
   const posts = [];
-  const stateOf = (name) => (overrides.has(name) ? overrides.get(name) : readJson(path.join(statesDir, `${name}.json`)));
+  const stateOf = (name) => {
+    if (overrides.has(name)) return overrides.get(name);
+    const s = readJson(path.join(statesDir, `${name}.json`));
+    // the demo's times as if looked at just now (the relative words - «2 days ago», «running for 6 min» - stay as written)
+    return opts.demo && s && typeof s.time === 'number' ? moveTimes(s, stamp - 5 - s.time) : s;
+  };
 
   function page() {
     const css = [`assets/office.css`, `assets/theme-switch.css`, `assets/size-switch.css`, ...list.filter((d) => d.css).map((d) => `desks/${d.id}/desk.css`)];
@@ -90,11 +134,14 @@ export async function startHarness(opts = {}) {
     return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Secretary Office (harness)</title>
-<style>html,body{margin:0;padding:0}body{background:var(--harness-bg,#1c1b1b);padding:16px 10px}</style>
+<script>(function(){var t=(/[?&]theme=(black|white)(?:&|$)/.exec(location.search)||[])[1];if(!t){try{t=localStorage.getItem('office.theme')==='light'?'white':'black'}catch(e){t='black'}}document.documentElement.setAttribute('data-unraid-theme',t)})()</script>
+<style>
+${unraidCss()}
+</style>
 ${css.map((f) => `<link rel="stylesheet" href="${esc(BASE + f)}?v=${stamp}">`).join('\n')}
 </head><body>
 <div class="sso in-unraid" id="sso">
-<script>(function(){try{var t=localStorage.getItem('office.theme');if(t==='dark'||t==='light'){document.getElementById('sso').setAttribute('data-theme',t);document.body.style.setProperty('--harness-bg',t==='light'?'#f2f2f2':'#1c1b1b')}}catch(e){}})()</script>
+<script>(function(){try{var t=localStorage.getItem('office.theme');if(t==='dark'||t==='light'){document.getElementById('sso').setAttribute('data-theme',t)}}catch(e){}})()</script>
 <script>(function(){try{var s=localStorage.getItem('office.size');if(s==='medium'||s==='large'){document.getElementById('sso').setAttribute('data-size',s)}}catch(e){}})()</script>
 <header class="topbar">
   <nav class="desk-tabs" id="sso-tabs" aria-label="Desks"></nav>
@@ -187,6 +234,12 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
       res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
       return fs.createReadStream(file).pipe(res);
     }
+    // Unraid's fonts (tests/ui/unraid/)
+    const font = /^\/webGui\/styles\/([a-z-]+\.woff)$/.exec(p);
+    if (font && fs.existsSync(path.join(UNRAID, font[1]))) {
+      res.writeHead(200, { 'Content-Type': 'font/woff', 'Cache-Control': 'no-store' });
+      return fs.createReadStream(path.join(UNRAID, font[1])).pipe(res);
+    }
     // pictures of Unraid's and other plugins' a state names (icons): a blank one, never a 404 in the console
     if (/^\/(plugins|webGui|state)\/.*\.(png|jpe?g|svg|gif|ico)$/i.test(p)) {
       res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' });
@@ -203,7 +256,10 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
   };
 }
 
-// run on its own: `node tests/ui/harness.mjs [port]` serves until Ctrl-C (to look at a desk by hand in a browser of your own)
+// run on its own: `node tests/ui/harness.mjs [port] [--demo]` serves until Ctrl-C (to look at a desk by hand in a browser
+// of your own; --demo: the invented family data of tests/ui/demo)
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  startHarness({ port: Number(process.argv[2]) || 8099 }).then((h) => console.log(`harness: ${h.url}#/advisor`));
+  const demo = process.argv.includes('--demo');
+  const port = Number(process.argv.slice(2).find((a) => /^\d+$/.test(a))) || 8099;
+  startHarness({ port, demo }).then((h) => console.log(`harness: ${h.url}${demo ? '#/emby' : '#/advisor'}  (?theme=white for Unraid's white theme)`));
 }
