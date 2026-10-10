@@ -234,5 +234,32 @@
    ".lg-out .lg-line:last-of-type"
   ],
   "pad": 16
+ },
+ {
+  "nr": 9,
+  "desk": "advisor",
+  "moment": "card",
+  "title": "Der Berater - ein Externer, der noch fehlt: wofür er gut ist und wie er ins Haus kommt",
+  "route": "advisor",
+  "clip": [
+   "[data-place=\"ext.streamviewer\"]"
+  ]
+ },
+ {
+  "nr": 9,
+  "desk": "advisor",
+  "moment": "install",
+  "title": "Der Berater - «Mach ich für dich»: erst die Vorschau, dann installiert Unraid",
+  "route": "advisor",
+  "prepare": [
+   {
+    "click": "[data-place=\"ext.streamviewer\"] button:has-text(\"Mach ich für dich\")",
+    "pause": 500
+   }
+  ],
+  "clip": [
+   "#sso-dialog"
+  ],
+  "viewport": true
  }
 ]
