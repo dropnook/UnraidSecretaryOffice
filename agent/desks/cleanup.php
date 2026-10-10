@@ -1250,6 +1250,7 @@ function clIcons(array $docker, array $stacks): array
         $out[] = [
             'id'          => "icon:$name",
             'kind'        => 'icon',
+            'target'      => 'container',
             'name'        => $name,
             'image'       => $c['image'],
             'state'       => $c['state'],
@@ -1269,8 +1270,157 @@ function clIcons(array $docker, array $stacks): array
             'force'       => false,
         ];
     }
+    $out = array_merge($out, clIconStacks($stacks, $out));
     usort($out, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
     return $out;
+}
+
+/**
+ * Compose Manager's own picture of each stack: icon_url in the stack's folder,
+ * shown in front of the stack's row on Unraid's Docker page («?» without one).
+ * A stack with containers whose icon_url is missing, empty or points nowhere
+ * gets a row of its own, proposing its main app's picture (clIconMainRank():
+ * never its database or cache) — the picture that container shows, then those
+ * of its other apps, then the ones found for the main app when it has none.
+ * A picture on this server (or uploaded) is copied into the stack's folder
+ * first: Compose Manager only shows files from there or under /mnt.
+ * $icons: the containers' rows of clIcons().
+ *
+ *   category  ok     Compose Manager shows a picture for the stack
+ *             stack  none, written into its icon_url (shown at once)
+ */
+function clIconStacks(array $stacks, array $icons): array
+{
+    $byName = array_column($icons, null, 'name');
+    $out = [];
+    foreach ($stacks['list'] as $s) {
+        if (!$s['containers']) {
+            continue;                              // nothing to take a picture from
+        }
+        $folder = $s['folder'];
+        [$status, $value] = clStackIconStatus($s['dir']);
+        $copy = clStackIconCopyOk($s['dir']);
+        $ranked = [];
+        foreach ($s['containers'] as $m) {
+            $c = $byName[$m['name']] ?? null;
+            $rank = $c !== null ? clIconMainRank(['project' => $folder] + $c) : null;
+            if ($rank !== null) {
+                $ranked[] = [$rank, $c];
+            }
+        }
+        usort($ranked, fn ($a, $b) => $a[0] <=> $b[0] ?: strnatcasecmp($a[1]['name'], $b[1]['name']));
+        $candidates = [];
+        if ($status !== 'ok') {
+            foreach ($ranked as [, $c]) {
+                $url = $c['category'] === 'ok' ? clStackIconFrom($c, $copy) : null;
+                if ($url !== null) {
+                    $candidates[] = ['url' => $url, 'source' => 'stack_app', 'detail' => $c['name']];
+                }
+            }
+            $main = $ranked[0][1] ?? null;
+            foreach ($main !== null && $main['category'] !== 'ok' ? $main['candidates'] : [] as $x) {
+                if ($copy || !str_starts_with($x['url'], 'file://')) {
+                    $candidates[] = $x;
+                }
+            }
+            $seen = [];
+            $candidates = array_values(array_filter($candidates, function (array $x) use (&$seen): bool {
+                $new = !isset($seen[$x['url']]);
+                $seen[$x['url']] = true;
+                return $new;
+            }));
+        }
+        $shown = null;
+        if ($status === 'ok') {
+            $shown = str_starts_with($value, '/') ? "file://$value" : (strlen($value) <= 65536 ? $value : null);
+        }
+        $out[] = [
+            'id'          => "iconstack:$folder",
+            'kind'        => 'icon',
+            'target'      => 'stack',
+            'name'        => $s['name'],
+            'folder'      => $folder,
+            'image'       => '',
+            'state'       => '',
+            'containers'  => $s['containers'],
+            'main'        => $ranked[0][1]['name'] ?? null,
+            'category'    => $status === 'ok' ? 'ok' : 'stack',
+            'status'      => $status === 'ok' ? 'ok' : ($status === 'broken' ? 'broken' : 'missing'),
+            'value'       => $value === null ? '' : substr($value, 0, 1000),
+            'value_from'  => null,
+            'shown'       => $shown,
+            'template'    => null,
+            'template_id' => null,
+            'project'     => $folder,
+            'service'     => null,
+            'override'    => null,
+            'path'        => $s['dir'] . '/icon_url',
+            'dir'         => $s['dir'],
+            'copy_ok'     => $copy,
+            'why'         => null,
+            'candidates'  => $candidates,
+            'force'       => false,
+        ];
+    }
+    return $out;
+}
+
+/** A stack's icon_url: [ok | missing | empty | broken, what it says (null: no file)] */
+function clStackIconStatus(string $dir): array
+{
+    $file = "$dir/icon_url";
+    if (!is_file($file)) {
+        return ['missing', null];
+    }
+    $value = trim((string) @file_get_contents($file, false, null, 0, 1 << 20));
+    if ($value === '') {
+        return ['empty', ''];
+    }
+    return [clStackIconOk($value) ? 'ok' : 'broken', $value];
+}
+
+/**
+ * Does Compose Manager show this icon_url (StackInfo::getIconUrl(), IconCache.php)?
+ * An http(s) address, a data:image address, or a file under /mnt or its projects
+ * folder — that file there (unknown while its disk sleeps: never woken for it)
+ */
+function clStackIconOk(string $v): bool
+{
+    if (str_starts_with($v, 'http://') || str_starts_with($v, 'https://')) {
+        return filter_var($v, FILTER_VALIDATE_URL) !== false;
+    }
+    if (str_starts_with($v, 'data:')) {
+        return preg_match('/^data:image\/[a-z0-9.+-]+(?:;[a-z0-9.+-]+=[^;,]+)*(?:;base64)?,.+$/i', $v) === 1;
+    }
+    if (!str_starts_with($v, '/') || str_contains($v, '..') || !(str_starts_with($v, '/mnt/') || str_starts_with($v, CL_COMPOSE_DEF . '/'))) {
+        return false;
+    }
+    $there = clExists($v);
+    return $there === null || ($there && is_file($v) && (int) @filesize($v) > 0);
+}
+
+/** May a picture be copied into this stack's folder for icon_url — a place Compose Manager shows files from? */
+function clStackIconCopyOk(string $dir): bool
+{
+    return !str_contains($dir, '..') && preg_match('/[\x00-\x1f\x7f]/', $dir) !== 1
+        && (str_starts_with($dir, CL_COMPOSE_DEF . '/') || (str_starts_with($dir, '/mnt/') && clSafe($dir)));
+}
+
+/**
+ * The picture a stack's container shows, for the stack: its address, or (when
+ * it may be copied into the stack's folder) its file on this server or Unraid's
+ * copy of it — null when none of these
+ */
+function clStackIconFrom(array $c, bool $copy): ?string
+{
+    $v = (string) $c['value'];
+    if (preg_match('#^https?://#i', $v) && clIconUrlOk($v) && clStackIconOk($v)) {
+        return $v;
+    }
+    if (!$copy) {
+        return null;
+    }
+    return clIconLocal($v) ?? clIconLocal(CL_DM_RAM . '/' . $c['name'] . '-icon.png');
 }
 
 /** Every template Unraid reads, in the order it searches them (DockerTemplates::getTemplates('all')): file, Name, Repository, Icon */
@@ -1488,7 +1638,10 @@ function clIconPreviews(array $list, int $budget = CL_PREVIEW_BUDGET): array
 {
     $out = [];
     foreach ($list as $e) {
-        foreach ($e['category'] === 'ok' ? [] : $e['candidates'] as $c) {
+        // a stack's picture on this server is shown as it is (a container's through Unraid's copy)
+        $mine = (string) ($e['shown'] ?? '');
+        $own = $e['category'] === 'ok' && str_starts_with($mine, 'file://') && clSafe(substr($mine, 7)) ? [['url' => $mine]] : [];
+        foreach ($e['category'] === 'ok' ? $own : $e['candidates'] as $c) {
             $url = $c['url'];
             if (!str_starts_with($url, 'file://') || array_key_exists($url, $out)) {
                 continue;
@@ -1668,7 +1821,10 @@ function clIconTidy(string $dir): void
     }
 }
 
-/** Checks in the background whether the pictures found can be loaded (each again after a while; at a tour the ones that didn't) */
+/**
+ * Checks in the background whether the pictures found can be loaded (each again after a while; at a tour the ones that
+ * didn't) — addresses only: a file on this server was checked when it was found (clIconLocal()), curl won't open it
+ */
 function clIconQueue(array $icons, bool $again): void
 {
     $checked = clCache()['icons'] ?? [];
@@ -1677,7 +1833,7 @@ function clIconQueue(array $icons, bool $again): void
     foreach ($icons as $e) {
         foreach ($e['candidates'] as $c) {
             $r = $checked[$c['url']] ?? null;
-            if ($c['source'] !== 'local' && ($r === null || $now - (int) $r['at'] > ($r['ok'] ? CL_ICON_OK_TTL : ($again ? 0 : CL_ICON_BAD_TTL)))) {
+            if (!str_starts_with($c['url'], 'file://') && ($r === null || $now - (int) $r['at'] > ($r['ok'] ? CL_ICON_OK_TTL : ($again ? 0 : CL_ICON_BAD_TTL)))) {
                 $urls[$c['url']] = true;
             }
         }
@@ -1696,7 +1852,7 @@ function clIconState(array $list, array $cache, callable $pending): array
     foreach ($list as &$e) {
         $candidates = [];
         foreach ($e['candidates'] as $c) {
-            $r = $c['source'] === 'local' ? ['ok' => true] : ($checked[$c['url']] ?? null);
+            $r = str_starts_with($c['url'], 'file://') ? ['ok' => true] : ($checked[$c['url']] ?? null);
             $status = $r === null ? 'pending' : ($r['ok'] ? 'ok' : 'bad');
             if ($status !== 'bad') {
                 $candidates[] = $c + ['status' => $status];
@@ -1729,7 +1885,7 @@ function cleanupIconLoopRisk(?array $list = null): array
     if ($affected) {
         $list ??= $GLOBALS['clState']['icons']['list'] ?? null;
         if (is_array($list)) {
-            $n = count(array_filter($list, fn ($e) => $e['category'] !== 'ok'));
+            $n = count(array_filter($list, fn ($e) => $e['category'] !== 'ok' && ($e['target'] ?? 'container') === 'container'));
         } else {
             $names = houseContainers();
             foreach (readJson(CL_DM_JSON) ?? [] as $name => $info) {
@@ -4592,6 +4748,7 @@ function clIconsApply(array $items): array
     clGuard($state);
     $all = array_column($state['icons']['list'] ?? [], null, 'id');
     $todo = [];
+    $stackTodo = [];                               // stacks' own pictures (icon_url), hung after the containers'
     foreach ($items as $id => ['url' => $url, 'png' => $png]) {
         $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
         $p = ['name' => $e['name']];
@@ -4611,10 +4768,18 @@ function clIconsApply(array $items): array
         if ($png === null && !in_array($url, array_column($e['candidates'], 'url'), true) && !clIconUrlOk($url)) {
             throw new Problem('cleanup_icon_bad_url', ['url' => $url]);
         }
+        if (($e['target'] ?? 'container') === 'stack') {
+            // a file is copied into the stack's folder: only where Compose Manager shows it from
+            if (($png !== null || str_starts_with((string) $url, 'file://')) && !$e['copy_ok']) {
+                throw new Problem('cleanup_icon_stack_far', ['name' => $e['name'], 'path' => $e['dir']]);
+            }
+            $stackTodo[$id] = $e + ['pick' => $url, 'upload' => $png];
+            continue;
+        }
         $todo[$id] = $e + ['pick' => $url, 'upload' => $png];
     }
 
-    $web = array_values(array_unique(array_filter(array_column($todo, 'pick'), fn ($u) => is_string($u) && !str_starts_with($u, 'file://'))));
+    $web = array_values(array_unique(array_filter(array_column([...$todo, ...$stackTodo], 'pick'), fn ($u) => is_string($u) && !str_starts_with($u, 'file://'))));
     $dir = RUN_DIR . '/cleanup-icons-' . getmypid();
     $got = [];
     if ($web) {
@@ -4694,8 +4859,8 @@ function clIconsApply(array $items): array
                     $item['cache'] += clIconSeed($e['name'], $e['png']);
                     $item['uploads'] += $e['stored'] ?? [];
                 }
-                if ($first['category'] === 'compose') {
-                    $item['icon_url'] = clIconUrlFile(dirname($path), $list, $all);
+                if ($first['category'] === 'compose' && !in_array($first['project'], array_column($stackTodo, 'folder'), true)) {
+                    $item['icon_url'] = clIconUrlFile(dirname($path), $list, $all);     // unless the stack's own row is hung too
                 }
                 $runs[$trash]['items'][] = $item;
                 clManifestWrite($runs[$trash]);
@@ -4711,6 +4876,15 @@ function clIconsApply(array $items): array
                 logLine("Dustdevil could not hang pictures in $path: " . $p->getMessage());
             }
         }
+        foreach ($stackTodo as $id => $e) {
+            try {
+                clIconStackHang($e, $got, $root, $runs);
+                $results[] = ['id' => $id, 'ok' => true, 'how' => 'stack'];
+            } catch (Problem $p) {
+                $results[] = ['id' => $id, 'ok' => false, 'error' => $p->toArray()];
+                logLine("Dustdevil could not hang the picture of stack {$e['name']}: " . $p->getMessage());
+            }
+        }
     } finally {
         clIconTidy($dir);
         foreach ($stored as $file => $sum) {           // uploaded for a file I couldn't change: not kept
@@ -4723,6 +4897,98 @@ function clIconsApply(array $items): array
         }
     }
     return ['ok' => true, 'results' => $results, 'state' => clScan()];
+}
+
+/**
+ * A stack's own picture: its icon_url in Compose Manager's folder, the way its
+ * settings write it — an address as it is; a picture on this server, an uploaded
+ * one or one from the web that isn't square as a PNG copied into the stack's
+ * folder (icon.png, icon-2.png …; the same one there is used again). The old
+ * icon_url goes into the storeroom (kind "icon"; none: put back removes it, and
+ * the copy while unchanged). Shown on the Docker page's next load; nothing restarts.
+ * $got: the addresses fetched and checked (clIconFetchResults()); $runs: the storeroom's runs of this apply.
+ */
+function clIconStackHang(array $e, array $got, string $root, array &$runs): void
+{
+    $dir = $e['dir'];
+    $file = "$dir/icon_url";
+    $bytes = $e['upload'];
+    $value = null;
+    if ($bytes === null && str_starts_with($e['pick'], 'file://')) {
+        $src = clIconLocal($e['pick']) !== null ? substr($e['pick'], 7) : null;
+        $bytes = $src !== null ? (clIconSquare($src) ?? @file_get_contents($src, false, null, 0, CL_ICON_MAX + 1)) : false;
+        if (!is_string($bytes) || $bytes === '' || strlen($bytes) > CL_ICON_MAX) {
+            throw new Problem('cleanup_icon_fetch_failed', ['name' => $e['name'], 'url' => $e['pick']]);
+        }
+    } elseif ($bytes === null) {
+        $f = $got[$e['pick']] ?? null;
+        if (!($f['ok'] ?? false) || !clStackIconOk($e['pick'])) {
+            throw new Problem('cleanup_icon_fetch_failed', ['name' => $e['name'], 'url' => $e['pick']]);
+        }
+        $bytes = $e['copy_ok'] ? clIconSquare($f['file']) : null;      // Unraid would squeeze it
+        $value = $bytes === null ? $e['pick'] : null;
+    }
+    $copies = [];
+    try {
+        if ($value === null) {
+            $s = clStackIconStore($dir, $bytes);
+            $value = $s['path'];
+            $copies = $s['created'] ? [$s['path'] => $s['md5']] : [];
+        }
+        // as it is now: someone may have set one meanwhile
+        if (is_link($file) || (file_exists($file) && !is_file($file))) {
+            throw new Problem('cleanup_icon_write_failed', ['path' => $file]);
+        }
+        $old = is_file($file) ? @file_get_contents($file, false, null, 0, 1 << 20) : null;
+        if ($old === false) {
+            throw new Problem('cleanup_icon_write_failed', ['path' => $file]);
+        }
+        if ($old !== null && clStackIconOk(trim($old))) {
+            throw new Problem('cleanup_icon_has', ['name' => $e['name']]);
+        }
+        $trash = under($root, '/boot') ? CL_FLASH . '/' . CL_TRASH : dirname($root) . '/' . CL_TRASH;
+        $runs[$trash] ??= clRunCreate($trash);
+        $as = 'icons/' . substr(md5($dir), 0, 8) . '/icon_url';
+        clIconReplace($file, $value, $runs[$trash]['path'] . "/$as", $old === null ? '' : null);
+    } catch (Problem $p) {
+        foreach ($copies as $path => $sum) {
+            clIconUnstore($path, $sum, $dir);
+        }
+        throw $p;
+    }
+    $runs[$trash]['items'][] = ['kind' => 'icon', 'name' => 'icon_url', 'label' => $e['name'], 'from' => $file, 'as' => $as,
+                                'written' => md5($value), 'was' => $old === null ? 'missing' : 'there', 'icons' => [$e['name'] => $value],
+                                'cache' => [], 'uploads' => [], 'copies' => $copies];
+    clManifestWrite($runs[$trash]);
+    logLine("Dustdevil hung the picture of stack {$e['name']} ($file; the old state is in the storeroom)");
+}
+
+/**
+ * A picture for a stack's icon_url, kept in the stack's folder as icon.png (a new
+ * file of our own, then rename — the folder may lie in a share). The same picture
+ * there is used again; another file of that name stays and this one gets icon-2.png …
+ * @return array{path: string, created: bool, md5: string}
+ */
+function clStackIconStore(string $dir, string $png): array
+{
+    $sum = md5($png);
+    for ($i = 1; $i < 100; $i++) {
+        $path = "$dir/icon" . ($i > 1 ? "-$i" : '') . '.png';
+        if (is_file($path) && !is_link($path) && md5_file($path) === $sum) {
+            return ['path' => $path, 'created' => false, 'md5' => $sum];
+        }
+        if (!file_exists($path) && !is_link($path)) {
+            $tmp = writeNewFile("$dir/.icon", $png, 0644);
+            if ($tmp === null || file_exists($path) || !@rename($tmp, $path)) {
+                if ($tmp !== null) {
+                    @unlink($tmp);
+                }
+                throw new Problem('cleanup_icon_write_failed', ['path' => $path]);
+            }
+            return ['path' => $path, 'created' => true, 'md5' => $sum];
+        }
+    }
+    throw new Problem('cleanup_icon_write_failed', ['path' => "$dir/icon.png"]);
 }
 
 /**
@@ -5086,13 +5352,13 @@ function clIconMainRank(array $e): ?int
     return $rank;
 }
 
-/** Where a picture's file may be put back to: a user template, or the override file of a stack in Compose Manager's folder */
+/** Where a picture's file may be put back to: a user template, or the override file or icon_url of a stack in Compose Manager's folder */
 function clIconHome(string $from, string $composeRoot): string
 {
     if (dirname($from) === CL_TEMPLATES && preg_match('/^my-[^\/]+\.xml$/', basename($from))) {
         return CL_TEMPLATES;
     }
-    return in_array(basename($from), CL_OVERRIDE_FILES, true) && dirname($from, 2) === $composeRoot ? dirname($from) : '';
+    return (in_array(basename($from), CL_OVERRIDE_FILES, true) || basename($from) === 'icon_url') && dirname($from, 2) === $composeRoot ? dirname($from) : '';
 }
 
 /**
@@ -5100,7 +5366,7 @@ function clIconHome(string $from, string $composeRoot): string
  * while that is unchanged (Unraid rewrites a template whenever the container
  * is edited; that wouldn't be mine to throw away). What I added beside it goes
  * too, as far as nobody changed it: icon_url, the copies in Unraid's cache,
- * pictures the user uploaded for it.
+ * pictures the user uploaded for it, a stack's picture copied into its folder.
  */
 function clIconPutBack(string $stash, array $m, array $dirs = [CL_DM_RAM, CL_DM_DISK], string $iconDir = CL_ICON_DIR): void
 {
@@ -5129,6 +5395,9 @@ function clIconPutBack(string $stash, array $m, array $dirs = [CL_DM_RAM, CL_DM_
     }
     foreach ((array) ($m['uploads'] ?? []) as $file => $sum) {      // pictures uploaded for it: gone again, while unchanged
         clIconUnstore((string) $file, (string) $sum, $iconDir);
+    }
+    foreach ((array) ($m['copies'] ?? []) as $file => $sum) {       // a stack's picture copied into its folder: the same
+        clIconUnstore((string) $file, (string) $sum, dirname($from));
     }
 }
 
