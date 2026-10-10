@@ -89,6 +89,8 @@ desk('emby', [
         'mover_off'      => fn (array $r) => embyMoverOff($r) + ['state' => embyScan()],
         // the part «progress» (desk.json): the live panel while EmbyCache runs for real (emby-progress.php) — two RAM files
         'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState()],
+        // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (emby-progress.php)
+        'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyStopAsk(), 'state' => embyScan()],
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => embyJob('embycache', $args),
@@ -157,7 +159,8 @@ function embyScan(): array
             'waiting'  => embyGatherWaiting(),
         ],
         'jobs'       => $jobs,
-        'progress'   => embyProgressState($jobs['embycache'])['progress'],     // a real EmbyCache run: the live panel (emby-progress.php)
+        'progress'   => ($prog = embyProgressState($jobs['embycache']))['progress'],     // a real EmbyCache run: the live panel (emby-progress.php)
+        'stopping'   => $prog['stopping'],         // … asked to stop after the file it is on (why: user, mover)
         'last'       => embyLastRun(),
         'history'    => array_slice(embyHistory(), 0, 20),
         'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
@@ -2142,8 +2145,9 @@ function embyRunWaiting(string $tool, string $waitDir = RUN_DIR): ?array
  * with $watchers (a real gather), Emby every $every seconds. The mover started, or someone watching → the stop request
  * ($stopFile: CONSOLIDATE_STOP, EMBYCACHE_STOP) is written once and the tool ends after the folder (the gather) or the
  * file (EmbyCache) it is on (exit 3, result `stopped`). Emby down or an unusable answer changes nothing during a run.
- * Returns the exit code, why it was asked to stop and who was watching then. $tick (EmbyCache's live panel) is asked
- * every half second.
+ * A stop request it didn't write (his panel's «Stop after this file», emby.stop) is noticed too and its why taken
+ * (`user`). Returns the exit code, why it was asked to stop and who was watching then. $tick (EmbyCache's live panel)
+ * is asked every half second.
  *
  * @param resource $proc
  * @return array{exit: int, stopped_for: ?array, stopped_why: ?string}
@@ -2161,6 +2165,15 @@ function embyRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
         if (!$st['running']) {
             proc_close($proc);
             return ['exit' => (int) $st['exitcode'], 'stopped_for' => $why === 'watching' ? $asked : null, 'stopped_why' => $why];
+        }
+        if ($why === null) {
+            clearstatcache(true, $stopFile);
+            if (is_file($stopFile)) {         // asked from elsewhere (his panel): its why
+                $j = json_decode((string) @file_get_contents($stopFile, false, null, 0, 65536), true);
+                $why = in_array($j['why'] ?? null, ['mover', 'watching'], true) ? $j['why'] : 'user';
+                $asked = $why === 'watching' && is_array($j['who'] ?? null) ? $j['who'] : null;
+                logLine('Jack Emby: asked to stop (' . $why . ') — the ' . ($watchers ? 'gather stops after the current folder' : 'run stops after the current file'));
+            }
         }
         if ($why === null && time() - $lastMover >= $moverEvery) {
             $lastMover = time();
@@ -2461,12 +2474,13 @@ function embyJob(string $tool, array $args): int
             . $result . ', ' . (int) ($status['protected'] ?? 0) . ' still on the pool)');
     }
     if ($result === 'stopped') {
-        $note['why'] = $stoppedWhy === 'mover' ? 'mover' : 'watching';
+        $note['why'] = in_array($stoppedWhy, ['mover', 'user'], true) ? $stoppedWhy : 'watching';
         if ($note['why'] === 'watching') {
             $note['who'] = $stoppedFor ?? [];
         }
         logLine('Jack Emby: ' . ($tool === 'gather' ? 'the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders'
-            : "EmbyCache ($mode) stopped after the file it was on") . ' — ' . ($note['why'] === 'mover' ? "Unraid's mover started" : 'someone watches Emby'));
+            : "EmbyCache ($mode) stopped after the file it was on") . ' — ' . match ($note['why']) {
+                'mover' => "Unraid's mover started", 'user' => 'as asked on his page', default => 'someone watches Emby' });
     }
     embyRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(),
                   'exit' => $exit, 'result' => $result, 'status' => embyStatusShort($status)] + $note);
@@ -2533,12 +2547,13 @@ function embyGateRefused(array $gate, string $tool, string $mode, string $by, in
  * (EmbyCache didn't accept its settings) or errors (done, with problems).
  * Report and dry runs stay quiet, so do runs that never started (refused)
  * and EmbyCache's "busy" (another EmbyCache was at work). A real run stopped
- * because Unraid's mover started ($why `mover`) is told (`stopped_mover`, normal).
+ * because Unraid's mover started ($why `mover`) is told (`stopped_mover`, normal), so is one the user asked to stop
+ * on his page ($why `user`: `stopped_user`, normal).
  */
 function embyNotifyOutcome(string $mode, string $result, array $status, ?string $why = null): ?string
 {
-    if ($result === 'stopped' && $why === 'mover' && in_array($mode, ['run', 'release'], true)) {
-        return 'stopped_mover';
+    if ($result === 'stopped' && in_array($why, ['mover', 'user'], true) && in_array($mode, ['run', 'release'], true)) {
+        return "stopped_$why";           // the mover started, or the user asked on his page: a normal note, no failure
     }
     if ($mode === 'release') {
         // bringing everything back when he was let go: his page is gone, so a good end is told too (`ok`, normal)
@@ -2569,9 +2584,9 @@ function embyNotify(string $tool, string $mode, string $result, array $status, i
               + ($tool === 'gather' ? (int) ($status['conflicts'] ?? 0) + (int) ($status['full'] ?? 0) + (int) ($status['dirs_failed'] ?? 0) : 0);
     $message = trim((string) ($status['message'] ?? ''));
     $c = (array) ($status['cleanup'] ?? []);
-    if ($outcome === 'stopped_mover') {
+    if (in_array($outcome, ['stopped_mover', 'stopped_user'], true)) {
         $f = (array) ($status['fill'] ?? []);
-        $detail = officeNotifyText('emby', $tool === 'gather' ? 'notify.stopped_mover_gather' : ($mode === 'release' ? 'notify.stopped_mover_release' : 'notify.stopped_mover'),
+        $detail = officeNotifyText('emby', "notify.$outcome" . ($tool === 'gather' ? '_gather' : ($mode === 'release' ? '_release' : '')),
             $tool === 'gather' ? ['done' => (int) ($status['folders_done'] ?? 0), 'total' => (int) ($status['folders'] ?? 0)]
                                : ['n' => (int) ($c['done'] ?? 0) + (int) ($f['done'] ?? 0)], $lang)
                 . ($problems > 0 ? ' ' . officeNotifyText('emby', 'notify.problems', ['n' => $problems], $lang) : '');
@@ -2592,7 +2607,7 @@ function embyNotify(string $tool, string $mode, string $result, array $status, i
         officeNotifyText('emby', $release ? 'notify.subject_release' : 'notify.subject', ['tool' => officeNotifyText('emby', "notify.tool.$tool", [], $lang),
                                                      'result' => officeNotifyText('emby', "result.$outcome", [], $lang)], $lang),
         trim($detail . ($release ? '' : ' ' . officeNotifyText('emby', 'notify.see', [], $lang))),
-        ($release && $outcome === 'ok') || $outcome === 'stopped_mover' ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/emby'));
+        ($release && $outcome === 'ok') || in_array($outcome, ['stopped_mover', 'stopped_user'], true) ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/emby'));
     if ($sent) {
         logLine("Jack Emby: told Unraid's notifications — $tool ($mode) $outcome");
     }

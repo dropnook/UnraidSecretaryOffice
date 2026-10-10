@@ -2617,6 +2617,24 @@ function testEmbyProgress(): void
     }
     file_put_contents("$tmp/bad.json", json_encode(array_replace($prog, ['current' => ['source' => 'rm -rf'] + $prog['current']])));
     same('progress file: a reason it doesn\'t know — none', null, embyProgressRead("$tmp/bad.json")['current']['source'] ?? null);
+    // the fill's queue (2026-10-10): [[user index, bytes], …] and pos, only in that shape; started/ended of back and users
+    same('progress file: no queue — none, pos 0; no times — null', [null, 0, null, null], [$p['queue'], $p['pos'], $p['back']['started'], $p['users'][0]['ended']]);
+    $q = ['queue' => [[0, 200 * $mb], [1, 100 * $mb], [7, 5], [-1, 9]], 'pos' => 1,
+          'back' => ['started' => 900, 'ended' => 950] + $prog['back'], 'users' => [['started' => 960, 'ended' => 'x'] + $prog['users'][0], 'junk', $prog['users'][1]]];
+    file_put_contents("$tmp/q.json", json_encode(array_replace($prog, $q)));
+    $r = embyProgressRead("$tmp/q.json");
+    same('progress file: the queue — indexes onto the users taken (one left out: the next one\'s index moves), unknown ones nobody\'s; times',
+        [[[0, 200 * $mb], [-1, 100 * $mb], [-1, 5], [-1, 9]], 1, 2, [900, 950], [960, null]],
+        [$r['queue'], $r['pos'], count($r['users']), [$r['back']['started'], $r['back']['ended']], [$r['users'][0]['started'], $r['users'][0]['ended']]]);
+    file_put_contents("$tmp/q.json", json_encode(array_replace($prog, ['queue' => [[0, 200 * $mb], [2, 100 * $mb]], 'pos' => 1, 'users' => $prog['users']])));
+    same('progress file: … an index beyond the users — nobody\'s', [[0, 200 * $mb], [-1, 100 * $mb]], embyProgressRead("$tmp/q.json")['queue']);
+    foreach (['pos beyond it' => ['queue' => [[0, 1]], 'pos' => 2], 'no pos' => ['queue' => [[0, 1]]], 'a negative size' => ['queue' => [[0, -1]], 'pos' => 0],
+              'three in an entry' => ['queue' => [[0, 1, 2]], 'pos' => 0], 'a string' => ['queue' => [['0', 1]], 'pos' => 0],
+              'more than 5000' => ['queue' => array_fill(0, EMBY_PROGRESS_QUEUE + 1, [0, 1]), 'pos' => 0]] as $what => $bad) {
+        file_put_contents("$tmp/bad.json", json_encode(array_replace($prog, $bad)));
+        $r = embyProgressRead("$tmp/bad.json") ?? ['queue' => 'x', 'pos' => 'x'];
+        same("progress file: a queue with $what — none (each user's own estimate)", [null, 0], [$r['queue'], $r['pos']]);
+    }
 
     // the part of the current file: rsync's .<name>.XXXXXX next to the target (one listing, one lstat), else the target itself
     $root = "$tmp/mnt/";
@@ -2654,6 +2672,47 @@ function testEmbyProgress(): void
         [10 * $mb, 25, 10, 35, 650 * $mb, 1000 * $mb, true, 0],
         [$v['speed'], $v['users'][0]['eta'], $v['users'][1]['eta'], $v['total']['eta'], $v['total']['done_bytes'], $v['total']['bytes'], $v['back']['ended'], $v['back']['eta']]);
     check('progress view: no target path for the page', !str_contains(json_encode($v), $tmp));
+    same('progress view: the bracket — how long the run has been going; nothing finished took a time yet, back without times none',
+        [20, null, null], [$v['total']['running'], $v['users'][0]['took'], $v['back']['took']]);
+    // the queue (Benj, 2026-10-10: «2 min» for 12 GB nothing of which had started while another's 49 GB file copied):
+    // EmbyCache copies in path order, everyone mixed — a user is done when their LAST file is
+    $smp = embyProgressSamples($paths['samples'], 1000);
+    $view = fn (array $over) => embyProgressView(embyProgressRead((function () use ($paths, $prog, $over) {
+        file_put_contents($paths['file'], json_encode(array_replace($prog, $over)));
+        return $paths['file'];
+    })()), $smp, 1020);
+    $v = $view(['queue' => [[0, 200 * $mb], [0, 400 * $mb], [1, 100 * $mb]], 'pos' => 1]);
+    same('progress view, queue: Benj\'s file copying, Kids\' after it — Kids waits for Benj\'s rest (35 s, not 10); Benj 25; the total as before',
+        [['Benj', 25], ['Ki ds', 35], 35], [[$v['users'][0]['name'], $v['users'][0]['eta']], [$v['users'][1]['name'], $v['users'][1]['eta']], $v['total']['eta']]);
+    $grosi = ['v' => 1, 'mode' => 'run', 'phase' => 'fill', 'started' => 1000, 'updated' => 1005, 'back' => null,
+              'users' => [['key' => 'E:b', 'name' => 'bollermi', 'server' => 'E', 'files' => 3, 'bytes' => 12000 * $mb, 'done_files' => 0, 'done_bytes' => 0],
+                          ['key' => 'E:g', 'name' => 'Grosi', 'server' => 'E', 'files' => 1, 'bytes' => 49000 * $mb, 'done_files' => 0, 'done_bytes' => 0]],
+              'current' => ['phase' => 'fill', 'rel' => 'Filme/G/g.mkv', 'size' => 49000 * $mb, 'target' => $target, 'user' => 'E:g', 'source' => 'resume', 'title' => 'G', 'since' => 1005],
+              'queue' => [[1, 49000 * $mb], [0, 4000 * $mb], [0, 4000 * $mb], [0, 4000 * $mb]], 'pos' => 0];
+    $v = embyProgressView(embyProgressRead((function () use ($paths, $grosi) { file_put_contents($paths['file'], json_encode($grosi)); return $paths['file']; })()),
+        [[1000, 0, 'Filme/G/g.mkv', 0], [1010, 1000 * $mb, 'Filme/G/g.mkv', 1000 * $mb]], 1010);
+    same('progress view, queue: Grosi\'s 49 GB copying (1 GB there, 100 MB/s) — Grosi first (480 s), bollermi after all of it (600 s, not 120)',
+        [['Grosi', 480, true], ['bollermi', 600, false]], array_map(fn ($u) => [$u['name'], $u['eta'], $u['here']], $v['users']));
+    // still going back to the array: what is left of it comes first for everyone
+    $v = $view(['phase' => 'back', 'back' => ['files' => 2, 'bytes' => 300 * $mb, 'done_files' => 1, 'done_bytes' => 100 * $mb],
+                'current' => ['phase' => 'back', 'rel' => 'Filme/A/a.mkv', 'user' => null] + $prog['current'],
+                'users' => [array_replace($prog['users'][0], ['done_files' => 0, 'done_bytes' => 0]), $prog['users'][1]],
+                'queue' => [[0, 200 * $mb], [1, 100 * $mb], [0, 400 * $mb]], 'pos' => 0]);
+    same('progress view, queue: «back» still going (200 MB left, 150 of it there) — Kids after back and Benj\'s first (35 s), Benj after all (75 s); Benj first by his next file',
+        [['Benj', 75], ['Ki ds', 35]], array_map(fn ($u) => [$u['name'], $u['eta']], $v['users']));
+    // the order: the one being copied, then by their next file in the queue, finished ones at the end with how long they took
+    $three = ['users' => [['key' => 'Emby:u0', 'name' => 'Done', 'server' => 'Emby', 'files' => 1, 'bytes' => 50 * $mb, 'done_files' => 1, 'done_bytes' => 50 * $mb,
+                           'started' => 1001, 'ended' => 1081],
+                          array_replace($prog['users'][1], ['name' => 'Later']), array_replace($prog['users'][0], ['name' => 'Now'])],
+              'back' => ['started' => 990, 'ended' => 1000] + $prog['back'],
+              'queue' => [[0, 50 * $mb], [2, 200 * $mb], [2, 400 * $mb], [1, 100 * $mb]], 'pos' => 2];
+    $v = $view($three);
+    same('progress view, order: being copied, then by turn, finished at the end — it took 80 s; back took 10 s',
+        [['Now', true, null], ['Later', false, null], ['Done', false, 80], 10], [...array_map(fn ($u) => [$u['name'], $u['here'], $u['took']], $v['users']), $v['back']['took']]);
+    $v = $view(['queue' => [[0, 200 * $mb], [1, 100 * $mb], [0, 400 * $mb]], 'pos' => 2, 'current' => null]);
+    same('progress view, order: between two files nobody is copied — by their next file (Benj\'s next, Kids none left in the queue)',
+        ['Benj', 'Ki ds'], array_column($v['users'], 'name'));
+    file_put_contents($paths['file'], json_encode($prog));
     // EmbyCache moved on to the next file after the sample: its part isn't the old file's
     file_put_contents($paths['file'], json_encode(array_replace($prog, ['updated' => 1025, 'current' => ['rel' => 'Filme/B/b.mkv'] + $prog['current']])));
     $v = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1026);
@@ -2683,8 +2742,49 @@ function testEmbyProgress(): void
     $state = fn (array $job) => embyProgressState($job, $paths, 3020);
     same('progress part: nothing runs — no panel', [false, false, null], array_values(array_intersect_key($state(['running' => false, 'mode' => 'run']), ['running' => 1, 'real' => 1, 'progress' => 1])));
     same('progress part: a dry run — no panel', [true, false, null], array_values(array_intersect_key($state(['running' => true, 'mode' => 'dry']), ['running' => 1, 'real' => 1, 'progress' => 1])));
-    $r = $state(['running' => true, 'mode' => 'run']);
-    same('progress part: a real run — the panel', [true, true, 'fill', 2], [$r['running'], $r['real'], $r['progress']['phase'] ?? null, count($r['progress']['users'] ?? [])]);
+    $r = embyProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json");
+    same('progress part: a real run — the panel, not asked to stop', [true, true, 'fill', 2, null], [$r['running'], $r['real'], $r['progress']['phase'] ?? null, count($r['progress']['users'] ?? []), $r['stopping']]);
+
+    // «Stop after this file» (emby.stop): only while a real EmbyCache run goes; the mover guard's stop request with why user, once
+    foreach (['nothing runs' => ['running' => false, 'mode' => 'run'], 'a dry run' => ['running' => true, 'mode' => 'dry']] as $what => $job) {
+        $e = null;
+        try {
+            embyStopAsk($job, "$tmp/stop.json");
+        } catch (Problem $x) {
+            $e = $x->key;
+        }
+        same("stop: $what — refused, nothing written", ['emby_stop_none', false], [$e, file_exists("$tmp/stop.json")]);
+    }
+    same('stop: a real run — the stop request with why user, written once', [true, 'user', false],
+        [embyStopAsk(['running' => true, 'mode' => 'run'], "$tmp/stop.json"), json_decode((string) file_get_contents("$tmp/stop.json"), true)['why'] ?? null,
+         embyStopAsk(['running' => true, 'mode' => 'release'], "$tmp/stop.json")]);
+    same('stop: the part says it was asked (why); the mover\'s stop too; no panel, no word', ['user', 'mover', null],
+        [embyProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json")['stopping'],
+         (function () use ($tmp, $paths) { file_put_contents("$tmp/stop2.json", '{"why":"mover"}'); return embyProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop2.json")['stopping']; })(),
+         embyProgressState(['running' => false, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json")['stopping']]);
+    // the job's watch notices a stop request it didn't write and takes its why — the result `stopped`, why user
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    $proc = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', "$tmp/stop.json"], $null, $pipes);
+    $w = embyRunWatch($proc, "$tmp/stop.json", false, null, fn () => false, 0, 0);
+    same('stop: the watch takes the why of a stop request it didn\'t write', [3, 'user', null, 'user'],
+        [$w['exit'], $w['stopped_why'], $w['stopped_for'], json_decode((string) file_get_contents("$tmp/stop.json"), true)['why'] ?? null]);
+    same('stop: Unraid hears it — normal, like the mover\'s (a run, the release); a gather too', ['stopped_user', 'stopped_user', 'stopped_user'],
+        [embyNotifyOutcome('run', 'stopped', [], 'user'), embyNotifyOutcome('release', 'stopped', [], 'user'), embyNotifyOutcome('run', 'stopped', ['errors' => 0], 'user')]);
+    $bin = "$tmp/notify";
+    file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod($bin, 0755);
+    $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$bin");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    embyNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 1], 'errors' => 0], 3, 'user');
+    $sent = (string) @file_get_contents("$tmp/notified");
+    check('stop: the notification — normal, «stopped (as you asked)», how many moved by then, not the mover\'s words', str_contains($sent, "-i\nnormal")
+        && str_contains($sent, 'stopped (as you asked)') && str_contains($sent, 'as you asked (2 files moved by then)') && !str_contains($sent, 'mover'), $sent);
+    putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
+    putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('stop: the action asks embyStopAsk(); the job notes why user', str_contains($src, "'stop'           => fn (array \$r) => ['ok' => true, 'asked' => embyStopAsk(), 'state' => embyScan()]")
+        && str_contains($src, "\$note['why'] = in_array(\$stoppedWhy, ['mover', 'user'], true) ? \$stoppedWhy : 'watching';"));
     embyProgressClear($paths);
     same('progress part: the run ended — its files gone, no panel', [false, false, null], [is_file($paths['file']), is_file($paths['samples']), $state(['running' => true, 'mode' => 'run'])['progress']]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
@@ -2774,13 +2874,20 @@ PY);
         ['fill', 'Filme/Brazil/Brazil.mkv', 'Test:u2', 'resume', 'Brazil', "$py/pool/Filme/Brazil/Brazil.mkv"]], $at, $out . $err);
     same('progress, EmbyCache: the plan before the first copy — back 1 of 1500 B; Benj 2 files 3010 B, Kids 1 file 2000 B',
         [['files' => 1, 'bytes' => 1500, 'done_files' => 0, 'done_bytes' => 0], [['Benj', 2, 3010, 0], ['Kids', 1, 2000, 0]]],
-        [$seen[0]['back'] ?? null, array_map(fn ($u) => [$u['name'], $u['files'], $u['bytes'], $u['done_files']], $seen[0]['users'] ?? [])]);
+        [array_intersect_key($seen[0]['back'] ?? [], ['files' => 1, 'bytes' => 1, 'done_files' => 1, 'done_bytes' => 1]), array_map(fn ($u) => [$u['name'], $u['files'], $u['bytes'], $u['done_files']], $seen[0]['users'] ?? [])]);
+    same('progress, EmbyCache: the fill\'s queue in the order it copies (path order, users mixed), pos moving on before each copy',
+        [[[0, 3000], [0, 10], [1, 2000]], [0, 0, 1, 2]], [$seen[1]['queue'] ?? null, array_map(fn ($s) => $s['pos'] ?? null, $seen)]);
+    same('progress, EmbyCache: the times — back started at its first file, ended once the fill began; Benj started with Alien, no end before his last file',
+        [true, true, true, true, true], [is_int($seen[0]['back']['started'] ?? null), array_key_exists('ended', $seen[0]['back'] ?? []) && $seen[0]['back']['ended'] === null,
+         is_int($seen[1]['back']['ended'] ?? null), is_int($seen[2]['users'][0]['started'] ?? null), array_key_exists('ended', $seen[2]['users'][0] ?? []) && $seen[2]['users'][0]['ended'] === null]);
     same('progress, EmbyCache: Brazil\'s turn — Benj done, back done', [[2, 3010], [1, 1500]],
         [[$seen[3]['users'][0]['done_files'] ?? null, $seen[3]['users'][0]['done_bytes'] ?? null], [$seen[3]['back']['done_files'] ?? null, $seen[3]['back']['done_bytes'] ?? null]]);
     $end = embyProgressRead("$py/run/progress.json");
     same('progress, EmbyCache: at the end — done, everything done, no file in work; Jack reads it in its shape',
         ['done', null, [[1, 1], [2, 2], [1, 1]]], [$end['phase'] ?? null, $end === null ? 'x' : $end['current'],
         array_map(fn ($c) => [$c['files'], $c['done_files']], array_merge([$end['back'] ?? []], $end['users'] ?? []))]);
+    same('progress, EmbyCache: at the end — the queue all passed, every part with its start and end', [3, true],
+        [$end['pos'] ?? null, array_reduce(array_merge([$end['back'] ?? []], $end['users'] ?? []), fn ($ok, $c) => $ok && is_int($c['started']) && is_int($c['ended']) && $c['ended'] >= $c['started'], true)]);
 
     // his page: the panel under node — the bracket, the bars, the file under its user, «Raw output»
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -2804,12 +2911,18 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.childre
 const out = {};
 e.setProgress(null);
 out.plan = texts(e.progressPanel());
+const stopBtn = (p) => p.children[p.children.length - 1].children.find((c) => c.tag === 'button' && c.cls !== 'jo-link');
+out.stop_on = stopBtn(e.progressPanel()).disabled;
+e.setProgress(null, 'user');
+const asked = e.progressPanel();
+out.stopping = [texts(asked.children[asked.children.length - 1]), stopBtn(asked).disabled];
+e.setProgress(null);
 const cur = { phase: 'fill', rel: 'Filme/A/a.mkv', size: 400, done: 150, source: 'resume', title: 'A' };
 e.setProgress({ phase: 'fill', speed: 10, current: cur,
   back: { files: 2, bytes: 300, done_files: 2, done_bytes: 300, eta: 0, ended: true, here: false },
   users: [{ name: 'Benj', server: 'Emby', files: 2, bytes: 600, done_files: 1, done_bytes: 300, eta: 1500, here: true },
           { name: 'Kids', server: 'Emby', files: 1, bytes: 100, done_files: 0, done_bytes: 0, eta: 30, here: false }],
-  total: { files: 5, bytes: 1000, done_files: 3, done_bytes: 600, eta: null } });
+  total: { files: 5, bytes: 1000, done_files: 3, done_bytes: 600, eta: null, running: 30 } });
 const p = e.progressPanel();
 const rows = p.children.find((c) => c.cls === 'jo-prog-rows');
 out.total = texts(p.children.find((c) => /total/.test(c.cls || '')));
@@ -2817,19 +2930,39 @@ out.rows = rows.children.map((r) => [r.cls, texts(r.children[0]), r.children.len
 out.file = texts(rows.children[1].children[2]);
 out.raw = texts(p.children[p.children.length - 1]);
 out.eta = [e.etaText(null, true), e.etaText(null, false), e.etaText(30, false), e.etaText(1501, false)];
+out.took = [e.tookText(45), e.tookText(80), e.tookText(3700)];
+e.setProgress({ phase: 'fill', speed: 10, current: null,
+  back: { files: 2, bytes: 300, done_files: 2, done_bytes: 300, eta: 0, took: 80, ended: true, here: false },
+  users: [{ name: 'Kids', server: 'Emby', files: 1, bytes: 100, done_files: 1, done_bytes: 100, eta: 0, took: 45, here: false }],
+  total: { files: 3, bytes: 400, done_files: 3, done_bytes: 400, eta: 0, running: 720 } });
+const fin = e.progressPanel();
+out.finished = [texts(fin.children.find((c) => /total/.test(c.cls || ''))), fin.children.find((c) => c.cls === 'jo-prog-rows').children.map((r) => texts(r.children[0]))];
+out.summary = [e.runSummary({ tool: 'embycache', mode: 'run', result: 'stopped', why: 'user', status: { result: 'stopped', cleanup: {}, fill: {} } }),
+  e.runSummary({ tool: 'embycache', mode: 'run', result: 'stopped', why: 'mover', status: { result: 'stopped', cleanup: {}, fill: {} } }),
+  e.runSummary({ tool: 'gather', mode: 'run', result: 'stopped', why: 'user', status: { result: 'stopped', folders_done: 2, folders: 5 } })].map((t) => t.split(' · ')[0]);
 process.stdout.write(JSON.stringify(out));
 JS);
     $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1'), true);
-    same('progress page: before the first file — working out what goes where', ['progress.title', 'progress.plan', 'progress.raw'], $o['plan'] ?? null);
-    same('progress page: the bracket — done of planned, the speed, the time left follows', ['progress.total',
-        'progress.files {"done":3,"n":5} · progress.bytes {"done":"600 B","size":"1000 B"} · progress.speed {"rate":"10 B"} · progress.eta_first'], $o['total'] ?? null);
+    same('progress page: before the first file — working out what goes where; «Stop after this file» beside «Raw output»',
+        [['progress.title', 'progress.plan', 'progress.raw', 'progress.stop'], false], [$o['plan'] ?? null, $o['stop_on'] ?? null]);
+    same('progress page: asked to stop — «Stopping after this file …», the button grey', [['progress.stopping', 'progress.raw', 'progress.stop'], true], $o['stopping'] ?? null);
+    same('progress page: the bracket — done of planned, the speed, the time left follows, how long it runs', ['progress.total',
+        'progress.files {"done":3,"n":5} · progress.bytes {"done":"600 B","size":"1000 B"} · progress.speed {"rate":"10 B"} · progress.eta_first · progress.running {"time":"progress.secs {\"s\":30}"}'], $o['total'] ?? null);
     same('progress page: back (done), a bar per user with their time left, the file under its user', [
         ['jo-prog-row done', ['progress.back', 'progress.files {"done":2,"n":2} · progress.bytes {"done":"300 B","size":"300 B"} · progress.done'], 2, '100%'],
         ['jo-prog-row', ['Benj', 'progress.files {"done":1,"n":2} · progress.bytes {"done":"300 B","size":"600 B"} · progress.eta {"time":"dur1500"}'], 3, '50%'],
         ['jo-prog-row', ['Kids', 'progress.files {"done":0,"n":1} · progress.bytes {"done":"0 B","size":"100 B"} · progress.eta_soon'], 2, '0%']], $o['rows'] ?? null);
     same('progress page: the file being copied — path, how much, why', ['Filme/A/a.mkv', 'progress.bytes {"done":"150 B","size":"400 B"}',
         'progress.why {"source":"progress.source.resume","title":"A"}'], $o['file'] ?? null);
-    same('progress page: the raw output a link inside', ['progress.raw'], $o['raw'] ?? null);
+    same('progress page: the raw output a link inside, the stop button beside it', ['progress.raw', 'progress.stop'], $o['raw'] ?? null);
+    same('progress page: how long a finished part took — seconds, minutes and seconds, from an hour on hours and minutes',
+        ['progress.secs {"s":45}', 'progress.min_secs {"m":1,"s":20}', 'dur3700'], $o['took'] ?? null);
+    same('progress page: finished bars say how long they took, the bracket how long the run goes', [['progress.total',
+        'progress.files {"done":3,"n":3} · progress.bytes {"done":"400 B","size":"400 B"} · progress.speed {"rate":"10 B"} · progress.done · progress.running {"time":"dur720"}'],
+        [['progress.back', 'progress.files {"done":2,"n":2} · progress.bytes {"done":"300 B","size":"300 B"} · progress.took {"time":"progress.min_secs {\"m\":1,\"s\":20}"}'],
+         ['Kids', 'progress.files {"done":1,"n":1} · progress.bytes {"done":"100 B","size":"100 B"} · progress.took {"time":"progress.secs {\"s\":45}"}']]], $o['finished'] ?? null);
+    same('progress page: a run stopped on the user\'s wish says so (not the mover\'s words); the gather\'s too',
+        ['stopped_user_summary', 'stopped_mover_summary', 'gather_stopped_user {"done":2,"total":5}'], $o['summary'] ?? null);
     same('progress page: the time left — only the total says it follows; under a minute; whole minutes up',
         ['progress.eta_first', '', 'progress.eta_soon', 'progress.eta {"time":"dur1560"}'], $o['eta'] ?? null);
     hardeningRm($tmp);

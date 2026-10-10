@@ -12,7 +12,17 @@ declare(strict_types=1);
  * lstat, read only (the pool or the disk is awake: it is being written) — in a second RAM file
  * (`RUN_DIR/emby-progress-speed.json`, the last EMBY_PROGRESS_WINDOW seconds). The speed is the MEDIAN of the rates
  * between those samples (a stall or a burst doesn't swing it), there after the first step of 10 s (two samples);
- * every ETA is remaining bytes / that speed (per user: their remaining bytes).
+ * every ETA is bytes / that speed. The bracket's: everything left. A user's (Benj, 2026-10-10, the first real run on
+ * nostromo — «2 min» for 12 GB nothing of which had started while another's 49 GB file copied): EmbyCache fills one
+ * file after another, all users mixed, in path order, and writes that queue (`queue` [[user index, bytes], …], `pos` =
+ * how many are done or dropped): the bytes until the user's LAST remaining file is done — what is left of «back» while
+ * it goes, plus every remaining queue entry up to and including that file, minus what of the current one is there.
+ * Without a queue (none beyond 5000 files) their own remaining bytes. The bars: the one being copied first, then by
+ * the queue position of their next file, finished ones at the end; a finished bar says how long it took (`took`: the
+ * first file's start to the last one's end), the bracket how long the run has been going (`running`).
+ *
+ * «Stop after this file» (emby.stop, emby.php): the same stop request as the mover guard's (`office-stop.json` in his
+ * data folder, EMBYCACHE_STOP) with why `user`; the part says it was asked (`stopping`).
  *
  * His page asks the part `progress` (desk.json; the agent's action `progress`, two RAM reads, nothing written) every
  * 10 s while a real EmbyCache run goes, never otherwise. Both RAM files go when the run ends.
@@ -22,6 +32,7 @@ const EMBY_PROGRESS_EVERY  = 10;      // a sample of the bytes moved every 10 s 
 const EMBY_PROGRESS_WINDOW = 600;     // the speed: the median rate of the last 10 minutes
 const EMBY_PROGRESS_USERS  = 50;      // at most this many users' bars
 const EMBY_PROGRESS_SOURCES = ['resume', 'next_up', 'next_episode', 'favorite', 'other'];
+const EMBY_PROGRESS_QUEUE  = 5000;    // EmbyCache's fill queue: at most this many entries (more: none, each user's own estimate)
 
 /** The two RAM files of a real run: EmbyCache's progress and the job's speed samples */
 function embyProgressPaths(string $dir = RUN_DIR): array
@@ -51,10 +62,17 @@ function embyProgressText(mixed $v, int $max = 300): ?string
     return is_string($v) && $v !== '' ? mb_substr((string) preg_replace('/[\x00-\x1f\x7f]/u', ' ', $v), 0, $max) : null;
 }
 
+/** A time EmbyCache wrote (started, ended): a positive int, else null */
+function embyProgressTime(mixed $v): ?int
+{
+    return is_int($v) && $v > 0 ? $v : null;
+}
+
 /**
  * EmbyCache's progress file, taken only in its shape (v 1): phase, started/updated, back {files, bytes, done_files,
- * done_bytes}, users [{key, name, server, …}], current {phase, rel, size, target, user, source, title, since}. Null
- * when there is none or it isn't that.
+ * done_bytes, started, ended}, users [{key, name, server, …}], current {phase, rel, size, target, user, source, title,
+ * since}, queue [[user index, bytes], …] (indexes into the users taken here; -1 or one left out: nobody's) and pos
+ * (0…its length) — a queue not in that shape is none. Null when there is none or it isn't that.
  */
 function embyProgressRead(string $file): ?array
 {
@@ -66,12 +84,27 @@ function embyProgressRead(string $file): ?array
         return null;
     }
     $count = fn (mixed $c): ?array => is_array($c) ? ['files' => embyProgressInt($c['files'] ?? 0), 'bytes' => embyProgressInt($c['bytes'] ?? 0),
-        'done_files' => embyProgressInt($c['done_files'] ?? 0), 'done_bytes' => embyProgressInt($c['done_bytes'] ?? 0)] : null;
+        'done_files' => embyProgressInt($c['done_files'] ?? 0), 'done_bytes' => embyProgressInt($c['done_bytes'] ?? 0),
+        'started' => embyProgressTime($c['started'] ?? null), 'ended' => embyProgressTime($c['ended'] ?? null)] : null;
     $users = [];
-    foreach (array_slice(is_array($j['users'] ?? null) ? $j['users'] : [], 0, EMBY_PROGRESS_USERS) as $u) {
+    $index = [];                         // EmbyCache's user index -> ours
+    foreach (array_slice(is_array($j['users'] ?? null) ? array_values($j['users']) : [], 0, EMBY_PROGRESS_USERS) as $i => $u) {
         if (is_array($u) && is_string($u['key'] ?? null)) {
+            $index[$i] = count($users);
             $users[] = ['key' => $u['key'], 'name' => embyProgressText($u['name'] ?? null, 100) ?? '?', 'server' => embyProgressText($u['server'] ?? null, 100) ?? '']
                      + $count($u);
+        }
+    }
+    $queue = null;
+    if (is_array($j['queue'] ?? null) && array_is_list($j['queue']) && count($j['queue']) <= EMBY_PROGRESS_QUEUE
+        && is_int($j['pos'] ?? null) && $j['pos'] >= 0 && $j['pos'] <= count($j['queue'])) {
+        $queue = [];
+        foreach ($j['queue'] as $q) {
+            if (!is_array($q) || count($q) !== 2 || !is_int($q[0] ?? null) || !is_int($q[1] ?? null) || $q[1] < 0) {
+                $queue = null;
+                break;
+            }
+            $queue[] = [$index[$q[0]] ?? -1, $q[1]];
         }
     }
     $cur = is_array($j['current'] ?? null) ? $j['current'] : null;
@@ -84,7 +117,8 @@ function embyProgressRead(string $file): ?array
     }
     return ['mode' => in_array($j['mode'] ?? null, ['run', 'release'], true) ? $j['mode'] : 'run', 'phase' => $j['phase'],
             'started' => embyProgressInt($j['started'] ?? 0), 'updated' => embyProgressInt($j['updated'] ?? 0),
-            'back' => $count($j['back'] ?? null), 'users' => $users, 'current' => $current];
+            'back' => $count($j['back'] ?? null), 'users' => $users, 'current' => $current,
+            'queue' => $queue, 'pos' => $queue !== null ? $j['pos'] : 0];
 }
 
 /**
@@ -211,9 +245,11 @@ function embyProgressSpeed(array $samples, int $now): ?float
 }
 
 /**
- * What the page draws: the bars (back, per user), the bracket over all of them (total, speed, ETA) and the file being
- * copied under its bar with its reason. The current file's part from the newest sample, while that sample is of this
- * file and newer than EmbyCache's last word (else 0 — the next sample brings it). Seconds left: null without a speed.
+ * What the page draws: the bars (back, per user), the bracket over all of them (total, speed, ETA, how long the run has
+ * been going) and the file being copied under its bar with its reason. The current file's part from the newest sample,
+ * while that sample is of this file and newer than EmbyCache's last word (else 0 — the next sample brings it). Seconds
+ * left: null without a speed. A user's: until their last remaining file in EmbyCache's queue is done (see the top).
+ * The users: the one being copied, then by their next file's place in the queue, finished ones at the end.
  */
 function embyProgressView(array $p, array $samples, int $now): array
 {
@@ -222,21 +258,44 @@ function embyProgressView(array $p, array $samples, int $now): array
     $cur = $p['current'];
     $part = $cur !== null && $last !== null && $last[2] === $cur['rel'] && $last[0] >= $p['updated'] ? min($last[3], $cur['size']) : 0;
     $eta = fn (int $left): ?int => $speed !== null && $speed > 0 ? (int) ceil($left / $speed) : null;
-    $bar = function (array $c, bool $mine) use ($part, $eta): array {
+    $took = fn (array $c): ?int => $c['started'] !== null && $c['ended'] !== null ? max(0, $c['ended'] - $c['started']) : null;
+    $bar = function (array $c, bool $mine) use ($part, $eta, $took): array {
         $done = min($c['bytes'], $c['done_bytes'] + ($mine ? $part : 0));
+        $left = $c['files'] > $c['done_files'];
         return ['files' => $c['files'], 'bytes' => $c['bytes'], 'done_files' => $c['done_files'], 'done_bytes' => $done,
-                'eta' => $c['files'] > $c['done_files'] ? $eta(max(0, $c['bytes'] - $done)) : 0];
+                'eta' => $left ? $eta(max(0, $c['bytes'] - $done)) : 0, 'took' => $left ? null : $took($c)];
     };
     // the file being copied: under the bar it belongs to (`here`) — «back to the array», or its user's
     $shown = $cur === null ? null : ['phase' => $cur['phase'], 'rel' => $cur['rel'], 'size' => $cur['size'], 'done' => $part,
                                      'source' => $cur['source'], 'title' => $cur['title']];
     $inBack = ($cur['phase'] ?? '') === 'back';
     $back = $p['back'] !== null ? $bar($p['back'], $inBack) + ['ended' => in_array($p['phase'], ['fill', 'done'], true), 'here' => $inBack] : null;
-    $users = [];
-    foreach ($p['users'] as $u) {
-        $mine = ($cur['phase'] ?? '') === 'fill' && ($cur['user'] ?? null) === $u['key'];
-        $users[] = ['name' => $u['name'], 'server' => $u['server']] + $bar($u, $mine) + ['here' => $mine];
+    // the fill's queue: the bytes from now until each user's last remaining file is done (and their next file's place)
+    $backLeft = $back !== null && !$back['ended'] ? max(0, $back['bytes'] - $back['done_bytes']) : 0;
+    $fillPart = ($cur['phase'] ?? '') === 'fill' ? $part : 0;
+    $until = $next = [];
+    if ($p['queue'] !== null) {
+        $sum = 0;
+        for ($i = $p['pos'], $n = count($p['queue']); $i < $n; $i++) {
+            [$ui, $b] = $p['queue'][$i];
+            $sum += $b;
+            if ($ui >= 0) {
+                $until[$ui] = $sum;
+                $next[$ui] ??= $i;
+            }
+        }
     }
+    $users = [];
+    foreach ($p['users'] as $k => $u) {
+        $mine = ($cur['phase'] ?? '') === 'fill' && ($cur['user'] ?? null) === $u['key'];
+        $row = ['name' => $u['name'], 'server' => $u['server']] + $bar($u, $mine) + ['here' => $mine];
+        if ($u['files'] > $u['done_files'] && isset($until[$k])) {
+            $row['eta'] = $eta($backLeft + max(0, $until[$k] - $fillPart));
+        }
+        $users[] = ['row' => $row, 'k' => $k, 'left' => $u['files'] > $u['done_files'], 'next' => $next[$k] ?? PHP_INT_MAX];
+    }
+    usort($users, fn (array $a, array $b): int => [!$a['left'], !$a['row']['here'], $a['next'], $a['k']] <=> [!$b['left'], !$b['row']['here'], $b['next'], $b['k']]);
+    $users = array_column($users, 'row');
     $total = ['files' => 0, 'bytes' => 0, 'done_files' => 0, 'done_bytes' => 0];
     foreach (array_merge($back !== null ? [$back] : [], $users) as $c) {
         foreach ($total as $k => $_) {
@@ -244,15 +303,28 @@ function embyProgressView(array $p, array $samples, int $now): array
         }
     }
     $total['eta'] = $total['files'] > $total['done_files'] ? $eta(max(0, $total['bytes'] - $total['done_bytes'])) : 0;
+    $total['running'] = $p['started'] > 0 ? max(0, $now - $p['started']) : null;
     return ['mode' => $p['mode'], 'phase' => $p['phase'], 'started' => $p['started'], 'back' => $back, 'users' => $users, 'total' => $total,
             'speed' => $speed !== null ? (int) round($speed) : null, 'current' => $shown];
 }
 
+/** «Stop after this file» asked — the stop request in his data folder (EMBYCACHE_STOP): its why (user, mover, watching), else null */
+function embyProgressStopping(string $file): ?string
+{
+    clearstatcache(true, $file);
+    if (!is_file($file) || is_link($file)) {
+        return null;
+    }
+    $why = (json_decode((string) @file_get_contents($file, false, null, 0, 65536), true) ?: [])['why'] ?? null;
+    return in_array($why, ['mover', 'watching'], true) ? $why : 'user';
+}
+
 /**
  * The part `progress` (his page, every 10 s while a real EmbyCache run goes): whether it runs and, while it does, the
- * view — two RAM files and his office-run.json; nothing written, nothing on a disk asked.
+ * view and whether it was asked to stop — two RAM files, his office-run.json and a look for the stop request beside
+ * it; nothing written, nothing on a disk asked.
  */
-function embyProgressState(?array $job = null, ?array $paths = null, ?int $now = null): array
+function embyProgressState(?array $job = null, ?array $paths = null, ?int $now = null, ?string $stopFile = null): array
 {
     $now ??= time();
     $job ??= embyJobInfo('embycache');
@@ -260,5 +332,28 @@ function embyProgressState(?array $job = null, ?array $paths = null, ?int $now =
     $real = !empty($job['running']) && in_array($job['mode'] ?? '', ['run', 'release'], true);
     $p = $real ? embyProgressRead($paths['file']) : null;
     return ['time' => $now, 'running' => !empty($job['running']), 'mode' => (string) ($job['mode'] ?? ''), 'real' => $real,
+            'stopping' => $real ? embyProgressStopping($stopFile ?? EMBY_DATA . '/office-stop.json') : null,
             'progress' => $p !== null ? embyProgressView($p, embyProgressSamples($paths['samples'], $p['started']), $now) : null];
+}
+
+/**
+ * «Stop after this file» (his panel; Benj, 2026-10-10): only while a real EmbyCache run goes (run, release) — the same
+ * stop request the mover guard writes (`office-stop.json`, EMBYCACHE_STOP), why `user`, once; EmbyCache ends after the
+ * file it is on (exit 3, result `stopped`), embyRunWatch() takes the why from the file. Already asked: nothing new.
+ * Returns whether it was written now.
+ */
+function embyStopAsk(?array $job = null, ?string $file = null): bool
+{
+    $job ??= embyJobInfo('embycache');
+    $file ??= EMBY_DATA . '/office-stop.json';
+    if (empty($job['running']) || !in_array($job['mode'] ?? '', ['run', 'release'], true)) {
+        throw new Problem('emby_stop_none');
+    }
+    clearstatcache(true, $file);
+    if (file_exists($file) || is_link($file)) {
+        return false;
+    }
+    writeAtomic($file, jsonEncode(['time' => time(), 'why' => 'user']), 0600, 0, 0);
+    logLine('Jack Emby: asked EmbyCache (' . $job['mode'] . ') to stop after the file it is on — from his page');
+    return true;
 }

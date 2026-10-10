@@ -32,6 +32,7 @@ let outTimer = null;
 const PROGRESS_POLL = 10000;
 let progress = null;          // the panel's numbers (bars, bracket, the file being copied) — null: still planning
 let progressAt = 0;           // their time (the server's clock): the newer of the part and his state wins
+let stopping = null;          // «Stop after this file» asked (why: user, mover) — the button grey, «Stopping after this file …»
 let progTimer = null;
 let progAsked = 0;            // when the part was last asked for (this browser's clock — never compared with the server's)
 let progBox = null;           // the panel on the page, redrawn in place
@@ -51,7 +52,7 @@ function took(j) {
 /** His state arrives: the panel's numbers with it, unless the part brought newer ones */
 function stateIn(s) {
   state = s;
-  if (typeof s.time === 'number' && s.time >= progressAt) { progress = s.progress || null; progressAt = s.time; }
+  if (typeof s.time === 'number' && s.time >= progressAt) { progress = s.progress || null; stopping = s.stopping || null; progressAt = s.time; }
 }
 
 async function act(action, data, okText) {
@@ -90,6 +91,7 @@ function tookProgress(j) {
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
   if (!p.real) { progressAt = p.time; load(true); return; }        // the run ended: his state anew — the panel goes
   progress = p.progress || null;
+  stopping = p.stopping || null;
   progressAt = p.time;
   if (progBox && progBox.isConnected) {
     const n = progressPanel();
@@ -199,8 +201,8 @@ function runSummary(r) {
     if (r.mode === 'measure') return T('measure_summary', { n: Number(s.measured) || 0 });
     const notes = [];
     if (s.result === 'stopped') {
-      notes.push(r.why === 'mover' ? T('gather_stopped_mover', { done: s.folders_done || 0, total: s.folders || 0 })
-        : T('gather_stopped', { done: s.folders_done || 0, total: s.folders || 0 }) + whoText(r.who));
+      const n = { done: s.folders_done || 0, total: s.folders || 0 };
+      notes.push(r.why === 'mover' ? T('gather_stopped_mover', n) : r.why === 'user' ? T('gather_stopped_user', n) : T('gather_stopped', n) + whoText(r.who));
     }
     notes.push(gatherSummary(s));
     if (r.waited) notes.push(T('watch_note.waited', { min: Math.round(r.waited / 60) }));
@@ -211,8 +213,8 @@ function runSummary(r) {
   if (s.result === 'config') return s.message || T('result.config');
   if (s.mode === 'report' || r.mode === 'report') return s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '';
   const c = s.cleanup || {}; const f = s.fill || {};
-  // stopped after the file it was on: Unraid's mover started (emby-mover.php)
-  const stopped = s.result === 'stopped' ? T('stopped_mover_summary') + ' · ' : '';
+  // stopped after the file it was on: Unraid's mover started (emby-mover.php), or asked on his panel («Stop after this file»)
+  const stopped = s.result === 'stopped' ? T(r.why === 'user' ? 'stopped_user_summary' : 'stopped_mover_summary') + ' · ' : '';
   // everything back to the array when he was let go (emby-letgo.php)
   if ((s.mode || r.mode) === 'release') return stopped + T('release_summary', { back: c.done || 0, planned: c.planned || 0, origin: c.to_origin || 0, left: s.protected || 0 });
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
@@ -439,7 +441,9 @@ function overview() {
   if (wait) s.appendChild(moverWaitLine(wait));
   if (last && last.result) {
     const box = el('div', 'box jo-results');
-    box.appendChild(el('div', '', runSummary({ tool: 'embycache', mode: last.mode, status: last, result: last.result })));
+    // why it stopped lies in his list of runs (the run's own entry: the newest EmbyCache run that started)
+    const h = (state.history || []).find((r) => r.tool === 'embycache' && !['refused', 'skipped'].includes(r.result));
+    box.appendChild(el('div', '', runSummary({ tool: 'embycache', mode: last.mode, status: last, result: last.result, why: h && h.result === last.result ? h.why : null })));
     if (last.incomplete) box.appendChild(el('div', 'warn-text', T('incomplete')));
     s.appendChild(box);
   }
@@ -488,9 +492,20 @@ function progressPanel() {
     if (p.current && !placed) box.appendChild(progFile(p.current));
   }
   const foot = el('div', 'jo-prog-foot');
+  if (stopping) foot.appendChild(el('span', 'jo-prog-stopping', T('progress.stopping')));
   foot.appendChild(link(T('progress.raw'), () => showOutput('embycache', true)));
+  const stop = button(T('progress.stop'), 'small plain', () => stopAsk(stop));
+  stop.disabled = !!stopping || !Office.agent.running;
+  foot.appendChild(stop);
   box.appendChild(foot);
   return box;
+}
+
+/** «Stop after this file»: EmbyCache ends after the file it is on (emby.stop — the mover guard's stop request, why user) */
+async function stopAsk(b) {
+  b.disabled = true;
+  const j = await act('stop');
+  if (!j) b.disabled = !Office.agent.running;
 }
 
 /** One bar: its name, done of planned (files, bytes), the total's speed, the time left (per user: their remaining bytes / the speed) */
@@ -501,8 +516,9 @@ function progRow(label, c, p, total) {
   const facts = [T('progress.files', { done: Number(c.done_files) || 0, n: Number(c.files) || 0 }),
     T('progress.bytes', { done: fmt.size(c.done_bytes || 0), size: fmt.size(c.bytes || 0) })];
   if (total && p.speed) facts.push(T('progress.speed', { rate: fmt.size(p.speed) }));
-  const left = done ? T('progress.done') : etaText(c.eta, total);
+  const left = done ? (typeof c.took === 'number' ? T('progress.took', { time: tookText(c.took) }) : T('progress.done')) : etaText(c.eta, total);
   if (left) facts.push(left);
+  if (total && typeof c.running === 'number') facts.push(T('progress.running', { time: c.running < 60 ? T('progress.secs', { s: c.running }) : fmt.duration(c.running) }));
   top.append(el('span', 'jo-prog-name', label), el('span', 'jo-prog-facts', facts.join(' · ')));
   row.appendChild(top);
   const bar = el('div', total ? 'bar jo-prog-big' : 'bar thin');
@@ -513,6 +529,14 @@ function progRow(label, c, p, total) {
   row.appendChild(bar);
   if (c.here && p.current) row.appendChild(progFile(p.current));
   return row;
+}
+
+/** How long a finished bar took: «45 s», «1 min 20 s», from an hour on «1 h 5 min» */
+function tookText(s) {
+  s = Math.max(0, Math.round(Number(s) || 0));
+  if (s < 60) return T('progress.secs', { s });
+  if (s < 3600) return T('progress.min_secs', { m: Math.floor(s / 60), s: s % 60 });
+  return fmt.duration(s);
 }
 
 /** «about 4 min left»; before the first speed (two samples, 10 s) only the total says it follows */
@@ -1863,6 +1887,6 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
-    progressPanel, setProgress: (p) => { progress = p; }, etaText };
+    progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText };
 }
 })();
