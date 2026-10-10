@@ -6773,6 +6773,122 @@ JS;
 }
 
 /**
+ * The setup's filter (Benj, 2026-10-10): a bar like the watch book's over the steps' rows - words (names; accents
+ * folded; not kept) and «only what's new»; it only hides. «Decide…» on the main page opens the setup at the first new
+ * thing in the steps' order, the filter on «only what's new», a waiting folder's share row unfolded, revealed like the
+ * search's hit (Office.reveal(), .place-hit)
+ */
+function testSetupFilter(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('setup filter: the bar is built once per visit and typing in it holds up no new look (data-keep), the focus kept through a drawing',
+        str_contains($js, "input.dataset.keep = '1';") && str_contains($js, 'const typing = sf.input && document.activeElement === sf.input')
+        && str_contains($js, 'sf.input.focus({ preventScroll: true });'));
+    preg_match_all('/root\.appendChild\(fitStep\(\(\) => setup(\w+)\(/', $js, $m);
+    same('setup filter: every step goes through it (0 basics … 4 retention, the rest, old sources)', ['Kopia', 'Vms', 'Apps', 'Shares', 'Retention', 'General', 'Sources'], $m[1]);
+    check('setup filter: only hides - no dset() and no setup.open change in its code', (bool) preg_match('/function setupFits\(.*?\n\}\n/s', $js, $f)
+        && !str_contains($f[0], 'dset(') && !str_contains(substr($js, strpos($js, 'function fitStep('), 400), 'setup.open'));
+    check('setup filter: a new visit starts without words, «Decide…» is revealed like the search', str_contains($js, "setupFilterReset();                  // a new visit")
+        && str_contains($js, 'Office.reveal(target.anchor, { part: target.part, name: target.name })')
+        && str_contains($js, "setup.focus = 'waiting'; Office.go(`#/\${ID}/setup`)"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        $miss = array_values(array_filter(['setup.filter.label', 'setup.filter.only_new', 'setup.filter.only_new_hint', 'setup.filter.hits', 'setup.filter.none', 'help.filter', 'help.filter_text'],
+            fn ($k) => !isset($l[$k])));
+        same("setup filter: its texts in $code", [], $miss);
+    }
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('setup filter: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-filter');
+    $sh = fn (string $name, array $more = []) => $more + ['name' => $name, 'exists' => true, 'why' => 'previous', 'method' => 'snap', 'gb' => 1,
+        'folders' => [], 'waiting' => [], 'notes' => [], 'children' => [], 'top' => []];
+    $ct = fn (string $name, string $why, array $binds) => ['name' => $name, 'image' => "some/$name", 'why' => $why, 'previous' => $why !== 'new',
+        'running' => true, 'media' => '', 'kopia' => false, 'volumes' => [], 'project' => '',
+        'binds' => array_map(fn ($b) => ['share' => explode('/', $b, 2)[0], 'path' => explode('/', $b, 2)[1] ?? '', 'rw' => true], $binds)];
+    $vm = fn (string $name, string $why) => ['name' => $name, 'why' => $why, 'agent' => 'yes', 'snap' => 'yes', 'own' => ["master/domains/$name"],
+        'disks' => [['share' => 'domains', 'source' => "/mnt/master/domains/$name/vdisk1.img"]], 'bytes' => 1, 'apparent' => 1];
+    $plan = [
+        'time' => 1000, 'have_settings' => true, 'vm_service' => true, 'mount_root' => '/mnt/addons/UnraidSecretaryOffice/snapshots',
+        'P' => ['kopia|enabled' => 'yes', 'general|dumps_share' => 'UnraidSecretaryOffice', 'flash|mode' => 'off', 'docker|known' => ['c1', 'c2'],
+                'share|appdata|mode' => 'kopia', 'share|appdata|kopia_known' => ['/c1/', '/c2/'], 'share|UnraidSecretaryOffice|mode' => 'kopia',
+                'share|domains|mode' => 'snapshot', 'share|Écoles|mode' => 'snapshot', 'vm|old|mode' => 'snapshot', 'vm|old|prepare' => 'pause'],
+        'O' => ['kopia|enabled' => 'yes', 'share|appdata|mode' => 'kopia', 'share|UnraidSecretaryOffice|mode' => 'kopia', 'share|domains|mode' => 'snapshot',
+                'share|Écoles|mode' => 'snapshot'],
+        'shares' => [
+            $sh('appdata', ['app_share' => ['docker'], 'folders' => [['dir' => 'c1', 'container' => 'c1'], ['dir' => 'c2', 'container' => 'c2'], ['dir' => 'neu', 'container' => 'neu']],
+                'waiting' => [['dir' => 'loose', 'bytes' => 5, 'first_seen' => 900]], 'top' => ['c1', 'c2', 'neu', 'loose']]),
+            $sh('UnraidSecretaryOffice'), $sh('domains'), $sh('Écoles')],
+        'containers' => [$ct('c1', 'writes', ['appdata/c1']), $ct('c2', 'writes', ['appdata/c2']), $ct('neu', 'new', ['appdata/neu'])],
+        'vms' => [$vm('old', 'previous'), $vm('fresh', 'new')],
+        'databases' => [], 'nextcloud' => [], 'missing_databases' => [], 'bases' => [['name' => 'master', 'fs' => 'zfs', 'kind' => 'pool']],
+        'flash' => ['dataset' => '', 'fs' => 'vfat'],
+        'kopia' => ['container' => 'kopia', 'candidates' => ['kopia'], 'problem' => null, 'mappings' => [
+            ['source' => '/mnt/addons/UnraidSecretaryOffice/snapshots', 'target' => '/uso', 'rw' => false, 'main' => true]]],
+    ];
+    file_put_contents("$tmp/plan.json", json_encode($plan));
+    $test = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, store: () => null };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const out = {};
+const f = (text, onlyNew) => ({ words: b.filterWords(text), onlyNew });
+out.fits = [
+  b.setupFits(f('ecol'), 'Écoles', false), b.setupFits(f('ÉCOLES'), ['x', 'ecoles'], false), b.setupFits(f('strasse'), 'Hauptstraße', false),
+  b.setupFits(f('immich server'), ['immich', 'immich_server'], false), b.setupFits(f('immich nope'), ['immich', 'immich_server'], false),
+  b.setupFits(f('', true), 'x', false), b.setupFits(f('', true), 'x', true), b.setupFits(f('x', true), 'y', true), b.setupFits(f(''), [null, ''], false),
+];
+S.plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+b.setupDraftFromPlan();
+const first = () => { const x = b.setupFirstNew(); return x && [x.anchor, x.part, x.open || null]; };
+out.order = [first()];
+S.model.vms.forEach((x) => { x.isNew = false; });
+out.order.push(first());
+S.model.apps.forEach((a) => { a.isNew = false; a.newMembers = []; });
+out.order.push(first());
+S.newItems = new Set();
+S.draft['share|appdata|kopia_known'] = ['/c1/', '/c2/'];
+S.plan.shares[0].waiting = [];
+out.order.push(first());
+// «Decide…»: words cleared, «only what's new», the share's row unfolded; «Change…» of a VM: no «only new»
+S.plan.shares[0].waiting = [{ dir: 'loose', bytes: 5, first_seen: 900 }];
+b.sf.text = 'something'; S.open = new Set(); S.focus = 'waiting';
+const t1 = b.setupFocus();
+out.decide = [t1 && t1.anchor, b.sf.text, b.sf.onlyNew, [...S.open], S.focus];
+b.sf.text = 'x'; S.focus = 'vm:old';
+const t2 = b.setupFocus();
+out.change = [t2 && t2.anchor, t2 && t2.part, b.sf.text, b.sf.onlyNew];
+S.plan.shares[0].waiting = []; S.focus = 'waiting';
+out.nothing = [b.setupFocus(), b.sf.onlyNew];
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/t.js", $test);
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1';
+    $raw = (string) shell_exec($cmd);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('setup filter: ran under node', false, substr($raw, 0, 2000));
+        hardeningRm($tmp);
+        return;
+    }
+    same('setup filter: words folded (accents, ß, case), every word must meet, «only what\'s new» keeps only new rows', [true, true, true, true, false, false, true, false, true], $r['fits']);
+    same('setup filter: the first new thing in the steps\' order - a new VM, a new app, a waiting folder (its share unfolded), else nothing', [
+        ['setup:vm:fresh', 'setup.vms', null], ['setup:app:ct:neu', 'setup.apps', null], ['setup:wait:appdata/loose', 'setup.shares', 'appdata'], null], $r['order']);
+    same('setup filter: «Decide…» - the first new thing, the words cleared, «only what\'s new», its share\'s row unfolded, the wish used up',
+        ['setup:wait:appdata/loose', '', true, ['appdata'], null], $r['decide']);
+    same('setup filter: «Change…» of a VM - its row, the whole setup (no words, not «only new»)', ['setup:vm:old', 'setup.vms', '', false], $r['change']);
+    same('setup filter: «Decide…» with nothing new in the plan - nothing revealed, the whole setup', [null, false], $r['nothing']);
+    hardeningRm($tmp);
+}
+
+/**
  * Sleeping pools never go back to «wake» unasked (Benj, 2026-10-08 on nostromo: his «skip» became «wake» at an Apply
  * whose dialog listed only share and no_stop lines; reproduced on uso-test with a page holding a plan older than
  * settings.ini). The page sends general|asleep_pools only when the user chose it there (setupDecisions()), its dialog
@@ -26269,7 +26385,7 @@ function testHiddenStoreroom(): void
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

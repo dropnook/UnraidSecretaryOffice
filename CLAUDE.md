@@ -1040,7 +1040,16 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   per browser, `watchman.area`), «only open», «Unfold all» — all on the whole book; with filter words the rows unfold to
   their hits («2 of 8 fit the filter»). `bookView()` in desk.js is pure (no DOM): `tests/watchbook.js` runs it under node
   (also on the Mac). The deep link `#/watchman/entry/<id>` clears a filter that hides the entry, unfolds its row and its
-  details.
+  details. **Mr. Backupsy's setup** has the same bar above its steps (Benj, 2026-10-10; `setupFilterBar()`, `.bk-filterbar`):
+  words (the names of apps and their containers and folders, VMs, shares and their top and waiting folders; accents
+  folded; not kept — `mount()` empties it) and «only what's new» (the rows marked new or waiting; hidden while nothing is);
+  each step through `fitStep()`, rows through `fitRow()` — rows that don't fit aren't drawn, a step with none keeps its
+  head and one line (`setup.filter.none`), «n of m rows fit the filter»; it never changes a decision or `setup.open`. The
+  bar is built once per visit (`data-keep`, the focus and the selection kept through a drawing). «Decide…» (the callout of
+  what waits) and «Change…» go through `setupFocus()`: the words cleared; «Decide…» = the first new thing in the steps'
+  order (`setupFirstNew()`: a new VM, a new app, a waiting folder or a new share — its share's row unfolded) with «only
+  what's new» on, revealed by `Office.reveal('setup:<vm|app|share|wait>:…', {part: <its step>})` (`.place-hit`);
+  `testSetupFilter`.
 * **Backup protection** is always shown with `Office.backupChip(level)`
   (offsite / only local / not backed up), the level coming from
   `backupProtection()` in agent/lib/backupscript.php.
