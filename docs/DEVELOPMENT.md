@@ -184,8 +184,15 @@ active, `backup/` is left alone.
 * **Tests:** on an Unraid host, `php tests/run.php` in a copy of the clone — must end with 0 failed. Parts `logic`,
   `strings`, `hardening`, or single tests by name (`php tests/run.php testStrings`). They use the clone's `data/` and
   `public/`, a RAM folder of their own and stand-ins for zfs, docker, ssh and Kopia — never the plugin's data folder,
-  never the live agent. PHP syntax with `php -l`, shell with `bash -n`; there is no Node on the dev Mac, so JS syntax
-  goes through `osascript -l JavaScript` (CLAUDE.md, «Checklist for a change»).
+  never the live agent. PHP syntax with `php -l`, shell with `bash -n`; JS syntax goes through `osascript -l JavaScript`
+  (CLAUDE.md, «Checklist for a change») — Node is needed only for the browser tools below.
+* **Click test:** `bash tools/ui-clicks.sh` on the Mac (node, playwright-core and a Chrome; a headless browser with a
+  throwaway profile, never one with your sign-ins) builds every desk page from the clone's files with stub states
+  (`tests/ui/`) and clicks every section, row, group and tile that opens or closes — both themes, 1440 and 375 px; it
+  must stay as clicked, no console error, no horizontal scrolling. ≈ 2 min, exit ≠ 0 on any fault; `--only <route>,…`.
+* **Screenshots:** `bash tools/ui-shots.sh` — the same harness with invented family data (`tests/ui/demo/`, never a
+  real server's names) inside Unraid's look; `--moments` makes the product page's moments (black, 1280 px, de/en) with
+  a contact sheet. The README's pictures in `docs/screenshots/` are the English moments.
 * **Reports to the makers** (*⋯ → Report a problem or a wish…*): the inbox is `OFFICE_FEEDBACK_URL` in
   `src/place.php` (shared by the web side and the agent; `''` hides the feature), a Cloudflare Worker in the private
   repository `dropnook/uso-support` (`feedback/`, its SETUP.md has the request's exact shape) that opens an issue in
@@ -199,9 +206,14 @@ active, `backup/` is left alone.
   (agent/agent.php) don't match the version. The plugin's own version is a date (Unraid compares with `strcmp`).
 * **A release** is a tag `v<version>` on `main` with English notes for users; publishing it runs
   `.github/workflows/plugin.yml`, which builds and attaches the `.plg` and the `.txz`. Maintainers make it with
-  `tools/release.sh <version> --dry`, then without `--dry` — bump, suite, tag, the Action, then the test servers and the
-  main one, stopping at the first red step (Ctrl-C before the commit puts the version lines back); the checklist around
-  it is the release playbook (`release-playbook.md` in the maintainers' notes). The engine's own version lives in
+  `tools/release.sh <version> --dry`, then without `--dry` — bump, build, the click test, the suite on a test server,
+  the commit, `gh release create`, the Action, the release's assets, then the servers one after another (the partner
+  test server as the canary, watched 5 min, then the test server, then the main one), stopping at the first red step
+  (a red build, click test or suite, or Ctrl-C before the commit, puts the version lines back). `--no-nostromo` stops
+  before the main server, `--servers-only` does only the server part of a release that is out already. If the
+  release's Action run fails, run it by hand for the tag — `gh workflow run plugin.yml -f tag=v<version>` — and go on
+  with `--servers-only` once it is green. The checklist around it is the release playbook (`release-playbook.md` in the
+  maintainers' notes). The engine's own version lives in
   `backup.sh`, `setup.sh`, `lib/common.sh` and `backup/README.md`.
 
 ## Monitoring
