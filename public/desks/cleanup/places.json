@@ -25,7 +25,6 @@
     "where.help.copy",
     "where.help.labels",
     "where.help.rows",
-    "where.help.search",
     "where.help.tiles",
     "where.help.tour",
     "where.now",
@@ -74,7 +73,6 @@
     "where.help.copy_text",
     "where.help.labels_text",
     "where.help.rows_text",
-    "where.help.search_text",
     "where.help.tiles_text",
     "where.help.tour_text"
   ]

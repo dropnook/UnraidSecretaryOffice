@@ -2579,7 +2579,6 @@ function helpItems() {
     [T('where.help.tiles'), T('where.help.tiles_text')],
     [T('where.help.copy'), T('where.help.copy_text')],
     [T('where.help.rows'), T('where.help.rows_text')],
-    [T('where.help.search'), T('where.help.search_text')],
     [T('where.help.tour'), T('where.help.tour_text')],
     [T('where.help.asleep'), T('where.help.asleep_text')],
     [T('where.help.tunables'), T('where.help.tunables_text')],

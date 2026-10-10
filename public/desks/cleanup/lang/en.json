@@ -816,7 +816,7 @@
   "errors.cleanup_icon_fallback_not_needed": "No stand-in needed — Unraid has its question.png, or this version doesn't need one.",
   "errors.cleanup_icon_fallback_failed": "Could not put a stand-in at {path}.",
   "section.leftovers": "Mr. Restori's leftovers",
-  "section.leftovers_sub": "What Mr. Restori left next to what he brought back — he never throws anything away either. Per restore, straight from his journals.",
+  "section.leftovers_sub": "What Mr. Restori left next to what he brought back — he never throws anything away either. Per restore, straight from his records.",
   "lo.where": {
     "one": "From Mr. Restori's records of 1 restore — I only look where he says he put something, never on a sleeping disk.",
     "other": "From Mr. Restori's records of {n} restores — I only look where he says he put something, never on a sleeping disk."
@@ -1420,8 +1420,6 @@
   "where.help.copy_text": "Puts the path on the clipboard — for a terminal, the Files Viewer or a note for the day you need it.",
   "where.help.rows": "Rows in the tabs",
   "where.help.rows_text": "A click anywhere on a row unfolds its details; «Unfold all» opens every row of the tab. ⋯ has more for some rows.",
-  "where.help.search": "Where is …?",
-  "where.help.search_text": "Searches every tile of «Where is what» at once — names, paths, images, IPs — and filters the rooms of «Tidying up» by the same words. The numbers on the tiles show the hits.",
   "where.help.tour": "Tour",
   "where.help.tour_text": "Reads everything again right now — where everything is, and what lies around. Otherwise she looks again by herself when you open the page and her last look is a few minutes old (where everything is: 10 minutes).",
   "where.help.asleep": "Sleeping disks",

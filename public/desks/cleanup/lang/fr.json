@@ -816,7 +816,7 @@
   "errors.cleanup_icon_fallback_not_needed": "Pas besoin de remplaçant — Unraid a son question.png, ou cette version n'en a pas besoin.",
   "errors.cleanup_icon_fallback_failed": "Impossible de mettre un remplaçant à {path}.",
   "section.leftovers": "Les restes de Monsieur Restori",
-  "section.leftovers_sub": "Ce que Monsieur Restori a laissé à côté de ce qu'il a restauré — lui non plus ne jette jamais rien. Par restauration, tout droit de ses journaux.",
+  "section.leftovers_sub": "Ce que Monsieur Restori a laissé à côté de ce qu'il a restauré — lui non plus ne jette jamais rien. Par restauration, tout droit de ses notes.",
   "lo.where": {
     "one": "D'après les notes de Monsieur Restori sur {n} restauration — je ne regarde que là où il dit avoir mis quelque chose, jamais sur un disque endormi.",
     "other": "D'après les notes de Monsieur Restori sur {n} restaurations — je ne regarde que là où il dit avoir mis quelque chose, jamais sur un disque endormi."
@@ -1420,8 +1420,6 @@
   "where.help.copy_text": "Met le chemin dans le presse-papiers — pour un terminal, le Files Viewer ou une note pour le jour où tu en auras besoin.",
   "where.help.rows": "Lignes dans les onglets",
   "where.help.rows_text": "Un clic n'importe où sur une ligne déplie ses détails ; « Tout déplier » ouvre chaque ligne de l'onglet. ⋯ propose davantage pour certaines lignes.",
-  "where.help.search": "Où est … ?",
-  "where.help.search_text": "Cherche dans toutes les tuiles de « Où est quoi » à la fois — noms, chemins, images, IP — et filtre les pièces du « Rangement » avec les mêmes mots. Les nombres sur les tuiles montrent les résultats.",
   "where.help.tour": "Tournée",
   "where.help.tour_text": "Relit tout tout de suite — où tout se trouve et ce qui traîne. Sinon elle regarde à nouveau d'elle-même quand tu ouvres la page et que son dernier coup d'œil date de quelques minutes (où tout se trouve : 10 minutes).",
   "where.help.asleep": "Disques endormis",

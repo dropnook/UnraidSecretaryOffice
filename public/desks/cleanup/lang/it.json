@@ -816,7 +816,7 @@
   "errors.cleanup_icon_fallback_not_needed": "Nessun sostituto necessario — Unraid ha il suo question.png, oppure questa versione non ne ha bisogno.",
   "errors.cleanup_icon_fallback_failed": "Impossibile mettere un sostituto in {path}.",
   "section.leftovers": "Gli avanzi del signor Restori",
-  "section.leftovers_sub": "Quello che il signor Restori ha lasciato accanto a ciò che ha ripristinato — nemmeno lui butta mai via niente. Per ripristino, direttamente dai suoi giornali.",
+  "section.leftovers_sub": "Quello che il signor Restori ha lasciato accanto a ciò che ha ripristinato — nemmeno lui butta mai via niente. Per ripristino, direttamente dalle sue note.",
   "lo.where": {
     "one": "Dalle note del signor Restori su 1 ripristino — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby.",
     "other": "Dalle note del signor Restori su {n} ripristini — guardo solo dove dice di aver messo qualcosa, mai su un disco in standby."
@@ -1420,8 +1420,6 @@
   "where.help.copy_text": "Mette il percorso negli appunti — per un terminale, il Files Viewer o un promemoria per il giorno in cui ti servirà.",
   "where.help.rows": "Righe nelle schede",
   "where.help.rows_text": "Un clic ovunque su una riga ne apre i dettagli; «Apri tutto» apre tutte le righe della scheda. ⋯ offre di più per alcune righe.",
-  "where.help.search": "Dov'è …?",
-  "where.help.search_text": "Cerca in tutti i riquadri di «Cosa sta dove» insieme — nomi, percorsi, immagini, IP — e filtra le stanze di «Mettere in ordine» con le stesse parole. I numeri sui riquadri mostrano i risultati.",
   "where.help.tour": "Giro",
   "where.help.tour_text": "Rilegge subito tutto — dove sta tutto e cosa c'è in giro. Altrimenti torna a guardare da sola quando apri la pagina e il suo ultimo sguardo ha qualche minuto (dove sta tutto: 10 minuti).",
   "where.help.asleep": "Dischi in standby",

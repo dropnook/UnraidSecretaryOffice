@@ -816,7 +816,7 @@
   "errors.cleanup_icon_fallback_not_needed": "No hace falta sustituto — Unraid tiene su question.png, o esta versión no lo necesita.",
   "errors.cleanup_icon_fallback_failed": "No se pudo poner un sustituto en {path}.",
   "section.leftovers": "Los restos del señor Restori",
-  "section.leftovers_sub": "Lo que el señor Restori dejó junto a lo que restauró — él tampoco tira nunca nada. Por restauración, directamente de sus diarios.",
+  "section.leftovers_sub": "Lo que el señor Restori dejó junto a lo que restauró — él tampoco tira nunca nada. Por restauración, directamente de sus notas.",
   "lo.where": {
     "one": "De las notas del señor Restori sobre 1 restauración — solo miro donde dice que dejó algo, nunca en un disco en reposo.",
     "other": "De las notas del señor Restori sobre {n} restauraciones — solo miro donde dice que dejó algo, nunca en un disco en reposo."
@@ -1420,8 +1420,6 @@
   "where.help.copy_text": "Pone la ruta en el portapapeles — para una terminal, el Files Viewer o una nota para el día que la necesites.",
   "where.help.rows": "Filas en las pestañas",
   "where.help.rows_text": "Un clic en cualquier parte de una fila despliega sus detalles; «Desplegar todo» abre todas las filas de la pestaña. ⋯ ofrece más en algunas filas.",
-  "where.help.search": "¿Dónde está …?",
-  "where.help.search_text": "Busca en todos los mosaicos de «Qué está dónde» a la vez — nombres, rutas, imágenes, IPs — y filtra las habitaciones de «Ordenar» con las mismas palabras. Los números de los mosaicos muestran los resultados.",
   "where.help.tour": "Ronda",
   "where.help.tour_text": "Lo vuelve a leer todo ahora mismo — dónde está todo y qué hay tirado. Si no, vuelve a mirar ella sola cuando abres la página y su último vistazo tiene unos minutos (dónde está todo: 10 minutos).",
   "where.help.asleep": "Discos en reposo",

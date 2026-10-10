@@ -816,7 +816,7 @@
   "errors.cleanup_icon_fallback_not_needed": "Kein Platzhalter nötig — Unraid hat sein question.png, oder diese Version braucht keinen.",
   "errors.cleanup_icon_fallback_failed": "Konnte keinen Platzhalter nach {path} legen.",
   "section.leftovers": "Herrn Restoris Reste",
-  "section.leftovers_sub": "Was Herr Restori neben dem liegen liess, was er zurückgeholt hat — auch er wirft nie etwas weg. Pro Rückholung, direkt aus seinen Journalen.",
+  "section.leftovers_sub": "Was Herr Restori neben dem liegen liess, was er zurückgeholt hat — auch er wirft nie etwas weg. Pro Rückholung, direkt aus seinen Aufzeichnungen.",
   "lo.where": {
     "one": "Aus Herrn Restoris Aufzeichnungen zu 1 Rückholung — ich schaue nur dort, wo er sagt, dass er etwas hingelegt hat, nie auf einer schlafenden Disk.",
     "other": "Aus Herrn Restoris Aufzeichnungen zu {n} Rückholungen — ich schaue nur dort, wo er sagt, dass er etwas hingelegt hat, nie auf einer schlafenden Disk."
@@ -1420,8 +1420,6 @@
   "where.help.copy_text": "Legt den Pfad in die Zwischenablage — fürs Terminal, den Files Viewer oder eine Notiz für den Tag, an dem du ihn brauchst.",
   "where.help.rows": "Zeilen in den Reitern",
   "where.help.rows_text": "Ein Klick irgendwo auf eine Zeile klappt ihre Details auf; «Alle aufklappen» öffnet alle Zeilen des Reiters. ⋯ bietet bei manchen Zeilen mehr.",
-  "where.help.search": "Wo ist …?",
-  "where.help.search_text": "Sucht in allen Kacheln von «Wo ist was» zugleich — Namen, Pfade, Images, IPs — und filtert die Räume von «Aufräumen» nach denselben Wörtern. Die Zahlen an den Kacheln zeigen die Treffer.",
   "where.help.tour": "Rundgang",
   "where.help.tour_text": "Liest sofort alles neu ein — wo alles liegt und was herumliegt. Sonst schaut sie von selbst wieder nach, wenn du die Seite öffnest und ihr letzter Blick ein paar Minuten alt ist (wo alles liegt: 10 Minuten).",
   "where.help.asleep": "Schlafende Disks",
