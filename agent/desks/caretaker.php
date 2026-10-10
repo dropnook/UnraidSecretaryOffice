@@ -562,6 +562,8 @@ function caretakerChecks(): array
                 in_array('cleanup', staffHired(), true) ? '#/cleanup/tidy' : 'docker');      // her rooms: «Tidying up»
         }
     }
+    // a container pointing at a network Docker no longer has (deleted, or re-created with a new ID): it won't start
+    array_push($out, ...caretakerNetworkFindings());
 
     // other backup tools: worth knowing, so nothing runs twice by accident
     foreach (housePlugins() as $p) {
@@ -614,6 +616,146 @@ function caretakerUnraidTested(?string $version, string $tested = OFFICE_UNRAID_
     $nearMax = version_compare($version, implode('.', array_slice(explode('.', $max), 0, 2)), '>=');
     return finding('unraid_tested', 'recommended', !($beyond || $nearMax),
         ['version' => $version, 'tested' => $tested, 'next' => (string) ((int) $t[1] + 1)], 'plugins');
+}
+
+/**
+ * Containers whose network is gone — recommended: the office works on, the container doesn't. Docker keeps a
+ * container's networks by name and by ID (HostConfig.NetworkMode, NetworkSettings.Networks.<name>.NetworkID); a
+ * custom network deleted (or a Compose stack's network gone with its stack) leaves the name pointing nowhere, one
+ * deleted and created again under the same name has a new ID while the container still holds the old one — Docker
+ * prefers the ID for user-defined networks. Either way `docker start` fails («network … not found») and Unraid's
+ * autostart logs an error instead. One finding per container and network, a link to Unraid's Docker page.
+ * Read-only: `docker ps`, `docker inspect`, `docker network ls` — nothing is changed, no disk is woken. Nothing to
+ * say while Docker is down or its networks can't be listed.
+ *
+ * @param list<array>|null          $inspect   `docker inspect` of the containers (tests); null: ask Docker
+ * @param array<string,string>|null $networks  Docker's networks, full ID => name (tests); null: ask Docker
+ */
+function caretakerNetworkFindings(?array $inspect = null, ?array $networks = null): array
+{
+    if ($inspect === null || $networks === null) {
+        $facts = caretakerNetworkFacts();
+        if ($facts === null) {
+            return [];
+        }
+        [$inspect, $networks] = $facts;
+    }
+    $out = [];
+    foreach (caretakerNetworkGaps($inspect, $networks) as $g) {
+        $params = ['name' => $g['name'], 'network' => $g['network']];
+        $out[] = $g['recreated'] ? finding('network_recreated', 'recommended', false, $params, 'docker')
+                                 : finding('network_gone', 'recommended', false, $params, 'docker');
+    }
+    return $out;
+}
+
+/** The networks Docker has, from `docker network ls --no-trunc --format '{{.ID}}\t{{.Name}}'`: full ID => name */
+function caretakerNetworkList(string $ls): array
+{
+    $list = [];
+    foreach (rows($ls) as $f) {
+        if (count($f) === 2 && preg_match('/^[0-9a-f]{12,64}$/', $f[0]) && $f[1] !== '') {
+            $list[$f[0]] = $f[1];
+        }
+    }
+    return $list;
+}
+
+/**
+ * What caretakerNetworkGaps() needs, from Docker: [inspect of all containers, network list] — or null (Docker down,
+ * no answer). The networks are listed after the inspect: one created in between can't make a container look lost.
+ */
+function caretakerNetworkFacts(): ?array
+{
+    $docker = bin('docker');
+    if (!$docker || !file_exists('/var/run/docker.sock')) {
+        return null;
+    }
+    [$exit, $ids] = run([$docker, 'ps', '-aq', '--no-trunc'], 20);
+    $ids = array_values(array_filter(array_map('trim', explode("\n", $ids))));
+    if ($exit !== 0) {
+        return null;
+    }
+    if (!$ids) {
+        return [[], []];
+    }
+    // exit 1 when a container went away meanwhile — the others are still in the answer
+    [, $out] = run(array_merge([$docker, 'inspect'], $ids), 30);
+    $inspect = json_decode($out, true);
+    if (!is_array($inspect)) {
+        return null;
+    }
+    [$exit, $ls] = run([$docker, 'network', 'ls', '--no-trunc', '--format', '{{.ID}}\t{{.Name}}'], 20);
+    $networks = caretakerNetworkList($ls);
+    return $exit === 0 && $networks ? [$inspect, $networks] : null;
+}
+
+const CARETAKER_NET_BUILTIN = ['', 'default', 'bridge', 'host', 'none'];    // Docker's own: always there, found by name
+
+/**
+ * Which container points at which missing network. A network by its name in HostConfig.NetworkMode and as a key of
+ * NetworkSettings.Networks, by its ID in Networks.<name>.NetworkID (or a NetworkMode given as an ID). Docker's own
+ * networks (bridge, host, none, default) and `container:<other>` are fine. Sorted by container name.
+ *
+ * @param list<array>          $inspect
+ * @param array<string,string> $networks  full ID => name; empty: nothing to say (Docker always has its own three)
+ * @return list<array{name:string, network:string, recreated:bool}>  recreated: the name exists, the ID it holds doesn't
+ */
+function caretakerNetworkGaps(array $inspect, array $networks): array
+{
+    if (!$networks) {
+        return [];
+    }
+    $names = array_flip(array_map('strval', $networks));
+    $ids = array_flip(array_map('strval', array_keys($networks)));
+    $byId = function (string $ref, array $among): bool {
+        if (!preg_match('/^[0-9a-f]{12,64}$/', $ref)) {
+            return false;
+        }
+        foreach ($among as $id) {
+            if (str_starts_with((string) $id, $ref)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    $out = [];
+    foreach ($inspect as $c) {
+        $name = is_array($c) ? ltrim((string) ($c['Name'] ?? ''), '/') : '';
+        if ($name === '') {
+            continue;
+        }
+        $held = [];         // names and IDs this container's Networks already account for
+        foreach ((array) ($c['NetworkSettings']['Networks'] ?? []) as $net => $ep) {
+            $net = (string) $net;
+            if (in_array($net, CARETAKER_NET_BUILTIN, true)) {
+                continue;
+            }
+            $id = is_array($ep) ? (string) ($ep['NetworkID'] ?? '') : '';
+            $held[] = $net;
+            if ($id !== '') {
+                $held[] = $id;
+            }
+            if (!isset($names[$net])) {
+                if ($id === '' || !isset($ids[$id])) {          // still there by its ID: Docker finds it so
+                    $out[] = ['name' => $name, 'network' => $net, 'recreated' => false];
+                }
+            } elseif ($id !== '' && !isset($ids[$id])) {
+                $out[] = ['name' => $name, 'network' => $net, 'recreated' => true];
+            }
+        }
+        $mode = (string) ($c['HostConfig']['NetworkMode'] ?? '');
+        if (in_array($mode, CARETAKER_NET_BUILTIN, true) || str_starts_with($mode, 'container:')
+            || in_array($mode, $held, true) || $byId($mode, $held)) {
+            continue;
+        }
+        if (!isset($names[$mode]) && !$byId($mode, array_keys($ids))) {
+            $out[] = ['name' => $name, 'network' => preg_match('/^[0-9a-f]{64}$/', $mode) ? substr($mode, 0, 12) : $mode,
+                      'recreated' => false];
+        }
+    }
+    usort($out, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']) ?: strcmp($a['network'], $b['network']));
+    return $out;
 }
 
 /**
