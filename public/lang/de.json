@@ -295,6 +295,7 @@
   "office.size_small": "Kleine Schrift (die gewohnte Grösse)",
   "office.size_medium": "Mittlere Schrift",
   "office.size_large": "Grosse Schrift",
+  "office.size_tip": "{size} — nur in diesem Browser",
   "errors.logged_out": "Deine Anmeldung bei Unraid ist abgelaufen — bitte melde dich neu an.",
   "errors.stale_page": "Unraid hat die Anfrage abgelehnt: Die Seite ist veraltet (Server neu gestartet?). Lade sie neu und versuch es noch einmal.",
   "errors.report_closed": "Rückmeldungen sind gerade geschlossen. Dein Text bleibt — versuch es später wieder oder schreib im Forums-Thread.",

@@ -301,6 +301,7 @@
   "office.size_small": "Petit texte (la taille habituelle)",
   "office.size_medium": "Texte moyen",
   "office.size_large": "Grand texte",
+  "office.size_tip": "{size} — dans ce navigateur seulement",
   "errors.logged_out": "Ta session Unraid a pris fin — reconnecte-toi, s'il te plaît.",
   "errors.stale_page": "Unraid a refusé la demande : la page n'est plus à jour (le serveur a redémarré ?). Recharge-la et réessaie.",
   "errors.report_closed": "Les signalements sont fermés pour le moment. Ton texte est gardé — réessaie plus tard ou écris dans le fil du forum.",

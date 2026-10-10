@@ -295,6 +295,7 @@
   "office.size_small": "Small text (the usual size)",
   "office.size_medium": "Medium text",
   "office.size_large": "Large text",
+  "office.size_tip": "{size} — in this browser only",
   "errors.logged_out": "Your Unraid session has ended — please log in again.",
   "errors.stale_page": "Unraid rejected the request: the page is out of date (the server was restarted?). Reload it and try again.",
   "errors.report_closed": "Reports are closed for now. Your text is kept — please try again later, or write in the forum thread.",

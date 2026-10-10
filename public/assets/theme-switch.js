@@ -57,7 +57,6 @@ Office.theme = {
       b.dataset.choice = c;
       b.dataset.tip = t(`office.theme_${c}_title`, { theme: unraidTheme() || t('common.unknown') });
       b.setAttribute('aria-label', t(`office.theme_${c}`));
-      b.dataset.tip = t(`office.theme_${c}`) + ' — ' + b.dataset.tip;
       b.append(icon(c));
       b.onclick = () => Office.theme.set(c);
       b.onkeydown = onKey;

@@ -301,6 +301,7 @@
   "office.size_small": "Testo piccolo (la dimensione abituale)",
   "office.size_medium": "Testo medio",
   "office.size_large": "Testo grande",
+  "office.size_tip": "{size} — solo in questo browser",
   "errors.logged_out": "La tua sessione di Unraid è scaduta — accedi di nuovo.",
   "errors.stale_page": "Unraid ha rifiutato la richiesta: la pagina non è aggiornata (il server è stato riavviato?). Ricaricala e riprova.",
   "errors.report_closed": "Le segnalazioni sono chiuse per ora. Il tuo testo resta — riprova più tardi o scrivi nel thread del forum.",

@@ -39,7 +39,7 @@ Office.size = {
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-label', t(`office.size_${c}`));
       b.dataset.choice = c;
-      b.dataset.tip = t(`office.size_${c}`);
+      b.dataset.tip = t('office.size_tip', { size: t(`office.size_${c}`) });   // «… — in this browser only»
       b.onclick = () => Office.size.set(c);
       b.onkeydown = onKey;
       box.appendChild(b);
