@@ -6228,6 +6228,12 @@ b.dset('general|asleep_pools', 'wake'); out.freshWake = look();
 b.setup.plan = { ...JSON.parse(fs.readFileSync(process.argv[4], 'utf8')), time: 3000 }; b.setupDraftKeep(); out.keptAcrossPlan = look();
 // preset_new missing in settings.ini: the engine's auto, whatever the plan proposes
 load(process.argv[3]); b.setup.plan.P['general|preset_new'] = 'local'; out.presetSaved = b.setupSaved()['general|preset_new'];
+// a proposal of mine and a change of the user's: counted apart; «leave out» takes the proposal off, the user's stays
+// Benj 2026-10-10: a proposal of Mr. Backupsy's (keep_logs 60 → 30) beside the user's own «wake»
+load(process.argv[4]); b.setup.plan.P['general|keep_logs'] = '30'; b.setupDraftFromPlan(); out.splitMine = b.setupSplit();
+b.dset('general|asleep_pools', 'wake'); out.splitBoth = b.setupSplit();
+b.setupDecline('general|keep_logs'); out.splitDeclined = b.setupSplit();
+out.declinedSent = [b.setupDecisions()['general|keep_logs'], b.setupDecisions()['general|asleep_pools']];
 console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/t.js", $js);
@@ -6251,6 +6257,10 @@ JS;
     same('asleep kept: the choice survives a new plan and is still sent', ['wake', true], [$r['keptAcrossPlan']['sent'], $r['keptAcrossPlan']['listed']]);
     same('asleep kept: the rest of the draft still goes (one key fewer than the draft, _retire_sources added)', $r['freshWake']['n'] - 1, $r['freshUntouched']['n']);
     same('asleep kept: preset_new missing in settings.ini counts as the engine\'s auto', 'auto', $r['presetSaved']);
+    same('setup bar split: untouched — the plan\'s keep_logs is a proposal of mine, nothing of the user\'s', ['yours' => [], 'mine' => ['general|keep_logs']], $r['splitMine']);
+    same('setup bar split: «wake» chosen — «1 proposal of mine · 1 change of yours»', ['yours' => ['general|asleep_pools'], 'mine' => ['general|keep_logs']], $r['splitBoth']);
+    same('setup bar split: «leave out» the proposal — only the user\'s change is left, keep_logs sent as saved', [['yours' => ['general|asleep_pools'], 'mine' => []], ['60', 'wake']],
+        [$r['splitDeclined'], $r['declinedSent']]);
     hardeningRm($tmp);
 }
 

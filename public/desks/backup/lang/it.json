@@ -309,6 +309,10 @@
     "one": "1 mia proposta",
     "other": "{n} mie proposte"
   },
+  "setup.bar_changes_yours": {"one": "1 modifica tua", "other": "{n} modifiche tue"},
+  "setup.proposal": "Proposta",
+  "setup.proposal_tip": "Una proposta del Signor Backupsi — qui non hai cambiato niente.",
+  "setup.decline": "Non applicare",
   "setup.page": "Configura",
   "setup.sub_new": "Non è ancora configurato niente — questa è la mia proposta per questo server. Controlla, cambia, poi applica.",
   "setup.sub_have": "Le tue impostazioni attuali, più la mia proposta per tutto quello che è nuovo. Cambia, poi applica.",

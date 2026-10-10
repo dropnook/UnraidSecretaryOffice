@@ -1612,6 +1612,21 @@ function setupSummary() {
   return ul;
 }
 
+/** What Apply really changes in settings.ini (as its dialog lists it), split: `yours` the keys the user touched here,
+    `mine` the rest — proposals of Mr. Backupsy's, each one the user can leave out in the dialog (setupDecline()) */
+function setupSplit() {
+  const touched = new Set(setupEdits());
+  const { keys } = setupApplyChanges(setupSaved());
+  return { yours: keys.filter((k) => touched.has(k)), mine: keys.filter((k) => !touched.has(k)) };
+}
+
+/** «Don't take it»: a proposal of mine back to what settings.ini says now (Benj, 2026-10-10: no way to apply his change
+    without my proposal) — in the draft only; Apply then sends the saved value, the next plan may propose it again */
+function setupDecline(k) {
+  const saved = setupSaved();
+  if (saved[k] === undefined) delete setup.draft[k]; else setup.draft[k] = Array.isArray(saved[k]) ? [...saved[k]] : saved[k];
+}
+
 /** What the user changed against the assistant's proposal */
 function setupEdits() {
   const out = [];
@@ -1711,11 +1726,22 @@ function setupApply() {
       const ul = el('ul', 'shortlist');
       // the settings for the whole backup first - never lost among 80 share lines
       const general = (k) => (k.startsWith('general|') ? 0 : 1);
+      const touched = new Set(setupEdits());
       [...changes].sort((a, b) => general(a) - general(b)).slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
-        li.appendChild(el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
+        const what = el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
           : Array.isArray(saved[k]) && Array.isArray(view[k]) ? listChangeText(saved[k], view[k])
-          : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
+          : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`);
+        li.appendChild(what);
+        // a proposal of mine (the user didn't touch it): said so, and it can stay out of this Apply
+        if (!touched.has(k) && !/\|kopia_known$/.test(k)) {
+          what.appendChild(document.createTextNode(' '));
+          what.appendChild(chip(T('setup.proposal'), 'quiet', T('setup.proposal_tip')));
+          const no = el('button', 'btn small plain', T('setup.decline'));
+          no.type = 'button';
+          no.onclick = () => { setupDecline(k); renderSetup(); setupApply(); };      // the list anew, without it
+          what.appendChild(no);
+        }
         ul.appendChild(li);
       });
       box.appendChild(ul);
@@ -2384,10 +2410,12 @@ function presetDialog() {
 /** The bar at the bottom: how many changes, apply */
 function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
-  const edits = setupEdits().length;
-  // proposals: what Apply would change in the saved settings.ini although the user clicked nothing
   const fresh = !setup.plan.have_settings;     // nothing set up yet: Apply is how it starts
-  const proposals = fresh ? 0 : setupChanges(setupSaved(), setup.base || setup.plan.P).length;
+  // what Apply really changes in settings.ini, split (Benj, 2026-10-10: «1 Vorschlag von mir und 1 Änderung von dir»):
+  // the user's (a key they touched here) and mine (what changes although they clicked nothing — a proposal)
+  const split = fresh ? { mine: [], yours: [] } : setupSplit();
+  const proposals = split.mine.length;
+  const edits = fresh ? setupEdits().length : split.yours.length;
   const busy = setup.status && setup.status.running;
   if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
   // proposals only, set aside with «Discard» for this plan (Benj, 2026-10-09: the button was grey — no way to say no);
@@ -2396,8 +2424,9 @@ function setupBar() {
   if (!edits && !fresh && dismissed) { Office.selbar(null); return; }
   const chosen = presetChosen();               // a start of the user's: what it changes is the user's, not proposals of mine
   Office.selbar({
-    title: edits ? T('setup.bar_changes', { n: edits }) : fresh ? T('setup.bar_new')
-      : T(chosen ? 'setup.bar_changes' : 'setup.bar_proposals', { n: proposals }),
+    title: fresh ? (edits ? T('setup.bar_changes', { n: edits }) : T('setup.bar_new'))
+      : chosen ? T('setup.bar_changes', { n: edits + proposals })
+      : [proposals ? T('setup.bar_proposals', { n: proposals }) : '', edits ? T('setup.bar_changes_yours', { n: edits }) : ''].filter(Boolean).join(' · '),
     sub: [chosen ? presetStartText() : '', T('setup.bar_sub', { when: fmt.relative(setup.plan.time) })].filter(Boolean).join(' · '),
     buttons: [
       { text: T('setup.discard'), kind: 'plain', disabled: (!edits && (fresh || !proposals)) || busy, act: () => {
@@ -4075,7 +4104,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
-    letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText,
+    letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
   };
 }
 })();
