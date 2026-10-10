@@ -8,26 +8,26 @@
  "interface": 1,
  "compatible": true,
  "settings_found": true,
- "running": false,
+ "running": true,
  "status": {
   "interface": 1,
   "name": "unraid-backup",
   "version": "2.35",
   "mode": "backup",
-  "run": "20261009-0430",
-  "pid": 979442,
-  "started": 1791513001,
-  "updated": 1791513015,
-  "finished": 1791513014,
-  "phase": "done",
-  "result": "ok",
+  "run": "20261010-0430",
+  "pid": 4711,
+  "started": 1791549513,
+  "updated": 1791551069,
+  "finished": null,
+  "phase": "kopia",
+  "result": "running",
   "message": "",
   "errors": 0,
   "warnings": 0,
   "downtime_s": 72,
-  "snapshot": "uso-backup-20261009-0430",
+  "snapshot": "uso-backup-20261010-0430",
   "dump_bytes": 150554465,
-  "log": "run-20261009-0430.log",
+  "log": "run-20261010-0430.log",
   "drift": {
    "error": 0,
    "warn": 1,
@@ -184,8 +184,8 @@
     {
      "id": "2ec7accd",
      "unit": "place",
-     "snap": "uso-backup-20261009-0430",
-     "from": "uso-backup-20261008-0430",
+     "snap": "uso-backup-20261010-0430",
+     "from": "uso-backup-20261009-0430",
      "bytes": 151389568,
      "seconds": 4,
      "resumed": false,
@@ -194,8 +194,8 @@
     {
      "id": "2ec7accd",
      "unit": "share:Familienfotos",
-     "snap": "uso-backup-20261009-0430",
-     "from": "uso-backup-20261008-0430",
+     "snap": "uso-backup-20261010-0430",
+     "from": "uso-backup-20261009-0430",
      "bytes": 236978176,
      "seconds": 41,
      "resumed": false,
@@ -204,8 +204,8 @@
     {
      "id": "2ec7accd",
      "unit": "share:Dokumente",
-     "snap": "uso-backup-20261009-0430",
-     "from": "uso-backup-20261008-0430",
+     "snap": "uso-backup-20261010-0430",
+     "from": "uso-backup-20261009-0430",
      "bytes": 23722624,
      "seconds": 5,
      "resumed": false,
@@ -222,7 +222,7 @@
   "asleep": null,
   "kopia": {
    "enabled": true,
-   "state": "done",
+   "state": "running",
    "planned": [
     "Dokumente",
     "appdata",
@@ -231,38 +231,23 @@
     "UnraidSecretaryOffice",
     "flash"
    ],
-   "current": null,
-   "current_since": null,
+   "current": "Familienfotos",
+   "current_since": 1791550813,
    "done": [
     {
      "name": "Dokumente",
      "ok": true,
-     "seconds": 260
+     "seconds": 248
     },
     {
      "name": "appdata",
      "ok": true,
-     "seconds": 140
+     "seconds": 151
     },
     {
      "name": "vm:Home-Assistant",
      "ok": true,
-     "seconds": 95
-    },
-    {
-     "name": "Familienfotos",
-     "ok": true,
-     "seconds": 540
-    },
-    {
-     "name": "UnraidSecretaryOffice",
-     "ok": true,
-     "seconds": 60
-    },
-    {
-     "name": "flash",
-     "ok": true,
-     "seconds": 20
+     "seconds": 88
     }
    ],
    "skipped": [],
@@ -270,9 +255,13 @@
    "interrupted": null
   }
  },
- "step": null,
- "since": null,
- "holder": null,
+ "step": "kopia",
+ "since": 1791549513,
+ "holder": {
+  "holder": "backup",
+  "pid": 4711,
+  "since": 1791549513
+ },
  "paused": null,
  "left": null,
  "history": [

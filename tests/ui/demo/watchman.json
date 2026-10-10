@@ -2870,7 +2870,7 @@
     "ack": 0
    },
    {
-    "key": "share:media",
+    "key": "share:Familienvideos",
     "share": "Familienvideos",
     "disk": null,
     "fs": "zfs",
@@ -2885,7 +2885,7 @@
     "ack": 0
    },
    {
-    "key": "share:nextcloud",
+    "key": "share:Dokumente",
     "share": "Dokumente",
     "disk": null,
     "fs": "zfs",
@@ -2900,7 +2900,7 @@
     "ack": 0
    },
    {
-    "key": "share:photos",
+    "key": "share:Familienfotos",
     "share": "Familienfotos",
     "disk": null,
     "fs": "zfs",

@@ -3,12 +3,12 @@
   "running": false,
   "mode": "plan",
   "result": "ok",
-  "started": 1791505561,
-  "finished": 1791505562,
+  "started": 1791550990,
+  "finished": 1791551000,
   "written": false,
   "errors": 0,
   "warnings": 2,
-  "plan_time": 1791505562
+  "plan_time": 1791551000
  },
  "run": {
   "interface": 1,
@@ -170,7 +170,7 @@
  "plan": {
   "interface": 1,
   "version": "2.35",
-  "time": 1791505562,
+  "time": 1791551000,
   "have_settings": true,
   "asleep_pools": "wake",
   "asleep_nights": 7,
@@ -178,18 +178,13 @@
   "sizes_measured": false,
   "P": {
    "partner|2ec7accd|port": "22",
-   "share|domains|partner": [
-    "2ec7accd"
-   ],
    "general|keep_mounts": "no",
    "share|appdata|mode": "snapshot",
    "kopia|keep_monthly": "12",
-   "share|syslog|method": "auto",
    "flash|mode": "tar",
-   "share|syslog|exclude_dataset": [],
    "dump|immich_postgres|type": "postgres",
    "kopia|keep_weekly": "4",
-   "share|media|kopia_ignore": [],
+   "share|Familienvideos|kopia_ignore": [],
    "share|isos|method": "auto",
    "share|domains|mode": "snapshot",
    "libvirt|mode": "tar",
@@ -206,7 +201,7 @@
    "kopia|keep_latest": "7",
    "general|keep_logs": "60",
    "kopia|container": "kopia",
-   "share|media|exclude_dataset": [],
+   "share|Familienvideos|exclude_dataset": [],
    "share|domains|kopia_ignore": [],
    "share|UnraidSecretaryOffice|exclude_dataset": [],
    "general|min_free_gb": "8",
@@ -214,7 +209,7 @@
     "2ec7accd"
    ],
    "share|system|mode": "off",
-   "share|nextcloud|method": "auto",
+   "share|Dokumente|method": "auto",
    "share|system|method": "auto",
    "kopia|identity": "",
    "btrfs|snapshot_all": "no",
@@ -229,10 +224,7 @@
     "*SynoResource*",
     "_UnraidSecretaryOffice-trash*/"
    ],
-   "share|photos|kopia_ignore": [],
-   "share|appdata|partner": [
-    "2ec7accd"
-   ],
+   "share|Familienfotos|kopia_ignore": [],
    "kopia|keep_daily": "7",
    "share|isos|mode": "snapshot",
    "general|btrfs_snap_dir": ".btrfs-snap",
@@ -249,17 +241,16 @@
     "prometheus",
     "Node-Exporter"
    ],
-   "share|syslog|mode": "off",
    "share|domains|method": "auto",
-   "partner|2ec7accd|address": "192.168.178.190",
-   "share|photos|mode": "snapshot",
+   "partner|2ec7accd|address": "100.84.12.7",
+   "share|Familienfotos|mode": "snapshot",
    "general|server": "FamilienServer",
    "share|appdata|kopia_ignore": [],
    "share|system|exclude_dataset": [],
    "nextcloud|Nextcloud|preexisting_maintenance": "abort",
    "general|preset_new": "auto",
    "kopia|keep_hourly": "0",
-   "share|photos|exclude_dataset": [],
+   "share|Familienfotos|exclude_dataset": [],
    "general|snap_prefix": "uso-backup-",
    "share|UnraidSecretaryOffice|method": "auto",
    "general|asleep_pools": "wake",
@@ -269,23 +260,22 @@
    "share|isos|kopia_ignore": [],
    "kopia|enabled": "no",
    "btrfs|keep_days": "7",
-   "share|media|mode": "snapshot",
+   "share|Familienvideos|mode": "snapshot",
    "share|system|kopia_ignore": [],
    "drift|remind_days": "7",
-   "share|nextcloud|exclude_dataset": [],
+   "share|Dokumente|exclude_dataset": [],
    "share|domains|exclude_dataset": [],
    "share|paperless|kopia_ignore": [],
-   "share|syslog|kopia_ignore": [],
    "docker|skip": [],
    "share|paperless|method": "auto",
    "partner|2ec7accd|rate_mbit": "0",
    "share|UnraidSecretaryOffice|mode": "snapshot",
    "kopia|keep_annual": "3",
-   "share|nextcloud|mode": "snapshot",
-   "share|nextcloud|kopia_ignore": [],
+   "share|Dokumente|mode": "snapshot",
+   "share|Dokumente|kopia_ignore": [],
    "dump|mariadb-nextcloud|type": "mariadb",
    "zfs|retention": "7 4 6",
-   "share|photos|method": "auto",
+   "share|Familienfotos|method": "auto",
    "general|mount_root": "/mnt/addons/UnraidSecretaryOffice/snapshots",
    "partner|2ec7accd|name": "Grosseltern",
    "share|paperless|mode": "snapshot",
@@ -307,19 +297,25 @@
     "Node-Exporter"
    ],
    "drift|ignore": [],
-   "share|media|method": "auto"
+   "share|Familienvideos|method": "auto",
+   "share|Schule|mode": "snapshot",
+   "share|Schule|exclude_dataset": [],
+   "share|Schule|kopia_ignore": [],
+   "share|Familienfotos|partner": [
+    "2ec7accd"
+   ],
+   "share|Dokumente|partner": [
+    "2ec7accd"
+   ]
   },
   "O": {
    "partner|2ec7accd|port": "22",
    "general|keep_mounts": "no",
-   "share|domains|partner": [
-    "2ec7accd"
-   ],
    "kopia|keep_monthly": "12",
    "share|appdata|mode": "snapshot",
    "flash|mode": "tar",
    "dump|immich_postgres|type": "postgres",
-   "share|nextcloud|id": "zfs:8864978316551758463",
+   "share|Dokumente|id": "zfs:8864978316551758463",
    "kopia|keep_weekly": "4",
    "share|domains|mode": "snapshot",
    "libvirt|mode": "tar",
@@ -354,9 +350,6 @@
     "*SynoResource*",
     "_UnraidSecretaryOffice-trash*/"
    ],
-   "share|appdata|partner": [
-    "2ec7accd"
-   ],
    "kopia|keep_daily": "7",
    "share|isos|mode": "snapshot",
    "general|btrfs_snap_dir": ".btrfs-snap",
@@ -374,30 +367,30 @@
     "Node-Exporter"
    ],
    "share|system|id": "zfs:13515846597822135354",
-   "partner|2ec7accd|address": "192.168.178.190",
-   "share|photos|mode": "snapshot",
-   "share|nextcloud|locations": "daten, cache",
+   "partner|2ec7accd|address": "100.84.12.7",
+   "share|Familienfotos|mode": "snapshot",
+   "share|Dokumente|locations": "daten, cache",
    "general|server": "FamilienServer",
-   "share|media|locations": "daten",
+   "share|Familienvideos|locations": "daten",
    "nextcloud|Nextcloud|preexisting_maintenance": "abort",
    "kopia|keep_hourly": "0",
    "general|snap_prefix": "uso-backup-",
    "share|isos|locations": "disk1",
-   "share|photos|locations": "daten",
-   "share|photos|id": "zfs:749602814511649200",
+   "share|Familienfotos|locations": "daten",
+   "share|Familienfotos|id": "zfs:749602814511649200",
    "kopia|compression": "inherit",
    "share|domains|locations": "cache",
    "general|view_root": "/mnt/addons/UnraidSecretaryOffice/btrfs-snap",
    "kopia|enabled": "no",
    "btrfs|keep_days": "7",
-   "share|media|mode": "snapshot",
+   "share|Familienvideos|mode": "snapshot",
    "share|paperless|id": "ino:cache:8",
    "drift|remind_days": "7",
-   "share|media|id": "zfs:7255324485978589394",
+   "share|Familienvideos|id": "zfs:7255324485978589394",
    "partner|2ec7accd|rate_mbit": "0",
    "kopia|keep_annual": "3",
    "share|UnraidSecretaryOffice|mode": "snapshot",
-   "share|nextcloud|mode": "snapshot",
+   "share|Dokumente|mode": "snapshot",
    "dump|mariadb-nextcloud|type": "mariadb",
    "share|domains|id": "zfs:10695481905297575639",
    "zfs|retention": "7 4 6",
@@ -423,23 +416,24 @@
     "mariadb-nextcloud",
     "EmbyServer",
     "Node-Exporter"
+   ],
+   "share|Familienfotos|partner": [
+    "2ec7accd"
+   ],
+   "share|Dokumente|partner": [
+    "2ec7accd"
    ]
   },
   "pending": [
    {
     "op": "+",
-    "section": "share \"syslog\"",
-    "line": "id = zfs:1352789535575133982"
+    "section": "share \"Schule\"",
+    "line": "locations = daten"
    },
    {
     "op": "+",
-    "section": "share \"syslog\"",
-    "line": "locations = big"
-   },
-   {
-    "op": "+",
-    "section": "share \"syslog\"",
-    "line": "mode = off"
+    "section": "share \"Schule\"",
+    "line": "mode = snapshot"
    }
   ],
   "shares": [
@@ -453,7 +447,7 @@
     "where": "daten",
     "method": "snap",
     "layout": "single",
-    "gb": 0,
+    "gb": 2,
     "notes": [],
     "exists": true,
     "children": [],
@@ -480,7 +474,7 @@
     "where": "cache",
     "method": "snap",
     "layout": "single",
-    "gb": 0,
+    "gb": 38,
     "notes": [],
     "exists": true,
     "children": [],
@@ -520,9 +514,7 @@
     ],
     "syslog": false,
     "waiting": [],
-    "partner": [
-     "2ec7accd"
-    ],
+    "partner": [],
     "partner_ok": false,
     "partner_why": "not_agreed",
     "place": [],
@@ -542,18 +534,16 @@
     "where": "cache",
     "method": "snap",
     "layout": "single",
-    "gb": 0,
+    "gb": 60,
     "notes": [],
     "exists": true,
     "children": [],
     "folders": [],
     "syslog": false,
     "waiting": [],
-    "partner": [
-     "2ec7accd"
-    ],
-    "partner_ok": true,
-    "partner_why": null,
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "not_agreed",
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -571,7 +561,7 @@
     "where": "disk1",
     "method": "snap",
     "layout": "single",
-    "gb": null,
+    "gb": 12,
     "notes": [],
     "exists": true,
     "children": [],
@@ -598,7 +588,7 @@
     "where": "daten",
     "method": "snap",
     "layout": "single",
-    "gb": 1,
+    "gb": 820,
     "notes": [],
     "exists": true,
     "children": [],
@@ -625,16 +615,18 @@
     "where": "daten, cache",
     "method": "snap",
     "layout": "overlay",
-    "gb": 0,
+    "gb": 24,
     "notes": [],
     "exists": true,
     "children": [],
     "folders": [],
     "syslog": false,
     "waiting": [],
-    "partner": [],
-    "partner_ok": false,
-    "partner_why": "split",
+    "partner": [
+     "2ec7accd"
+    ],
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -652,16 +644,18 @@
     "where": "daten",
     "method": "snap",
     "layout": "single",
-    "gb": 0,
+    "gb": 310,
     "notes": [],
     "exists": true,
     "children": [],
     "folders": [],
     "syslog": false,
     "waiting": [],
-    "partner": [],
-    "partner_ok": false,
-    "partner_why": "not_agreed",
+    "partner": [
+     "2ec7accd"
+    ],
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -679,7 +673,7 @@
     "where": "cache",
     "method": "snap",
     "layout": "single",
-    "gb": null,
+    "gb": 6,
     "notes": [],
     "exists": true,
     "children": [],
@@ -697,21 +691,20 @@
     "top_many": false
    },
    {
-    "name": "syslog",
-    "mode": "off",
-    "why": "syslog",
+    "name": "Schule",
+    "mode": "snapshot",
+    "why": "new",
     "why_arg": "",
-    "why_text": "Unraid's syslog server writes here - the router's words, not yours",
+    "why_text": "new",
     "locations": "daten",
     "where": "daten",
     "method": "snap",
     "layout": "single",
-    "gb": 0,
+    "gb": 3,
     "notes": [],
     "exists": true,
     "children": [],
     "folders": [],
-    "syslog": true,
     "waiting": [],
     "partner": [],
     "partner_ok": false,
@@ -733,7 +726,7 @@
     "where": "cache",
     "method": "snap",
     "layout": "single",
-    "gb": 3,
+    "gb": 28,
     "notes": [],
     "exists": true,
     "children": [],
@@ -1090,7 +1083,7 @@
    {
     "id": "2ec7accd",
     "name": "Grosseltern",
-    "address": "192.168.178.190",
+    "address": "100.84.12.7",
     "port": 22,
     "rate_mbit": 0,
     "key": true,
@@ -1291,5 +1284,6 @@
     "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3."
    }
   ]
- }
+ },
+ "time": 1791551073
 }

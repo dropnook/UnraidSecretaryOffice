@@ -58,7 +58,7 @@
   "asleep": [],
   "volumes": [
    {
-    "id": "zfs:big",
+    "id": "zfs:daten",
     "fs": "zfs",
     "pool": "daten",
     "name": "daten",

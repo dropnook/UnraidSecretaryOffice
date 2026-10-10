@@ -23,5 +23,62 @@
   "title": "Der Teamchef - Partner-Sekretariat bei den Grosseltern (Kopien in beide Richtungen)",
   "route": "caretaker",
   "clip": "[data-ct=partners]"
+ },
+ {
+  "nr": 3,
+  "desk": "backup",
+  "moment": "run",
+  "title": "Herr Backupsi - eine Sicherung läuft: Schritte, Kopia-Quellen, wie lange noch",
+  "route": "backup",
+  "states": {
+   "backup": "backup-run"
+  },
+  "clip": ".bk-run"
+ },
+ {
+  "nr": 3,
+  "desk": "backup",
+  "moment": "proposals",
+  "title": "Herr Backupsi - Einrichten: sein Vorschlag und deine Änderung, bereit zum Prüfen",
+  "route": "backup/setup",
+  "prepare": [
+   {
+    "select": "tr[data-share=\"Familienvideos\"] select",
+    "value": "off",
+    "pause": 500
+   },
+   {
+    "js": "document.querySelector(\".bk-shares thead\").scrollIntoView({block:\"start\"}); window.scrollBy(0,-60)",
+    "pause": 400
+   }
+  ],
+  "clip": [
+   ".bk-shares thead",
+   ".bk-shares tr[data-share=\"Schule\"]",
+   ".selbar"
+  ],
+  "viewport": true,
+  "height": 900
+ },
+ {
+  "nr": 3,
+  "desk": "backup",
+  "moment": "apply",
+  "title": "Herr Backupsi - «Einstellungen übernehmen?»: 1 Vorschlag von mir · 1 Änderung von dir",
+  "route": "backup/setup",
+  "prepare": [
+   {
+    "select": "tr[data-share=\"Familienvideos\"] select",
+    "value": "off",
+    "pause": 500
+   },
+   {
+    "click": ".selbar .btn:not(.plain)",
+    "pause": 600
+   }
+  ],
+  "clip": "#sso-dialog",
+  "viewport": true,
+  "height": 1000
  }
 ]

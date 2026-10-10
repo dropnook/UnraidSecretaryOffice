@@ -19,7 +19,7 @@
 // something, clipped, after a small «prepare» (open a row, a dialog, a tooltip), each in its own demo state; black theme,
 // 1280 px, scale 2, de and en: <nr>-<desk>-<moment>-<lang>.png and a contact sheet (contact-sheet.html, contact-sheet-<lang>.png)
 // with all of them small and named. A moment: {nr, desk, moment, title, route ('' = the reception), states {name: file},
-// prepare [{click|hover|wait|scroll|js: …, all?, pause?}…], clip (css, or a list: the box around all), pad, height,
+// prepare [{click|hover|wait|scroll|select: <css>, value (select), all (click every match), pause (ms)} | {js: …}…], clip (css, or a list: the box around all), pad, height,
 // viewport (true: the element is fixed - a dialog - and shot as the window shows it), hide [css…]}.
 //
 // Needs node and playwright-core (USO_PLAYWRIGHT=<its folder>, else found in node's own paths or npx's cache) and a
@@ -185,7 +185,7 @@ const momentFile = (m, lang) => path.join(opt.out, `${String(m.nr).padStart(2, '
 
 /** One step of a moment's «prepare»: click, hover, wait for, scroll to an element, or run a bit of the page's JS */
 async function prepareStep(page, st) {
-  const sel = st.click || st.hover || st.wait || st.scroll;
+  const sel = st.click || st.hover || st.wait || st.scroll || st.select;
   if (sel) {
     const loc = page.locator(sel);
     await loc.first().waitFor({ state: 'visible', timeout: 8000 });
@@ -194,6 +194,7 @@ async function prepareStep(page, st) {
       for (let i = 0; i < n; i++) await loc.nth(i).click();
     } else if (st.hover) await loc.first().hover();
     else if (st.scroll) await loc.first().scrollIntoViewIfNeeded();
+    else if (st.select) await loc.first().selectOption(String(st.value));
   }
   if (st.js) await page.evaluate(st.js);
   await page.waitForTimeout(st.pause ?? 250);
