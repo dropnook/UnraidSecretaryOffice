@@ -285,7 +285,7 @@
   "partner.withdraw_text": "Its key goes; a partner who pastes the block afterwards can't pair with it any more.",
   "partner.address": "This server's address for the partner",
   "partner.address_other": "Another address…",
-  "partner.address_placeholder": "e.g. 100.101.102.103 or nostromo.tail1234.ts.net",
+  "partner.address_placeholder": "e.g. 100.101.102.103 or tower.tail1234.ts.net",
   "partner.address_hint": "Over WireGuard? Pick the tunnel's address (wg0) — it is listed while the tunnel is up (⟦Settings⟧ → ⟦VPN Manager⟧); the Consultant explains the route.",
   "partner.address_nowg": "No WireGuard tunnel is up right now.",
   "partner.port": "SSH port",

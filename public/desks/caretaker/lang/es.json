@@ -285,7 +285,7 @@
   "partner.withdraw_text": "Su clave se va; un socio que pegue el bloque después ya no puede emparejarse con él.",
   "partner.address": "La dirección de este servidor para el socio",
   "partner.address_other": "Otra dirección…",
-  "partner.address_placeholder": "p. ej. 100.101.102.103 o nostromo.tail1234.ts.net",
+  "partner.address_placeholder": "p. ej. 100.101.102.103 o tower.tail1234.ts.net",
   "partner.address_hint": "¿Por WireGuard? Elige la dirección del túnel (wg0) — aparece mientras el túnel está activo (⟦Settings⟧ → ⟦VPN Manager⟧); el consultor explica el camino.",
   "partner.address_nowg": "Ahora mismo no hay ningún túnel WireGuard activo.",
   "partner.port": "Puerto SSH",

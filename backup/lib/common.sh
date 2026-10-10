@@ -2606,11 +2606,11 @@ uri_escape() {
 # size of its newest complete snapshot, what Kopia read then with its ignore rules applied, or of a newer checkpoint
 # when that is larger) and the server's (ZFS's referenced for a share that is a dataset of its own, INV_BYTES; the
 # VM's disk files' own sizes, VM_APPARENT - since 2.26: Kopia reads a sparse vdisk whole, its holes as zeros, so a
-# 1.6 TB vdisk holding 21 GB is 1.6 TB of reading at its first upload (nostromo's Windows11_Gaming, 2026-10-07:
+# 1.6 TB vdisk holding 21 GB is 1.6 TB of reading at its first upload (a Windows VM with a 1.6 TB sparse disk, 2026-10-07:
 # 382 GB by its snapshot, 2 TB read in 2.7 h); up to 2.25 the allocated blocks, VM_BYTES, put such a VM far too
 # early) - the LARGER of the two when both are known, either alone when only one is. A complete
 # snapshot alone can be stale: a share whose folders were all ignored until the setup changed has a tiny complete
-# snapshot while its first real upload of terabytes is still going on in checkpoints (nostromo's Backups,
+# snapshot while its first real upload of terabytes is still going on in checkpoints (a large server's Backups,
 # 2026-10-07) - by that size it would go first; the checkpoint (or ZFS) says better. The server's overestimates a
 # share with big ignored parts, which only moves it later. An
 # unknown size goes last; equal sizes and the unknown keep their order (the shares as settings.ini lists
@@ -2778,7 +2778,7 @@ pruned_write() {
 # stopping or pausing, only once the user decided (Mr. Backupsy's setup, or setup.sh in a terminal):
 #   - a container not in [docker] known keeps running in a run (backup.sh build_stop_tiers; setup.sh
 #     proposes it so too); a VM without a [vm] section is not held (prepare none, as before)
-#   - a new top-level folder in a share that goes to Kopia (2.37, Benj 2026-10-10) - decided per FOLDER by
+#   - a new top-level folder in a share that goes to Kopia (2.37, 2026-10-10) - decided per FOLDER by
 #     where it lies, never because an app binds a share:
 #       * in a DATA share - every share but the two below, also one a container binds whole or in big parts
 #         as its data (Emby's films, Nextcloud's data, Immich's uploads) - it simply goes with its share:
@@ -2793,7 +2793,7 @@ pruned_write() {
 #         Compose project, else the container) or a VM's disk lies in it (top_owners_load). Such a folder
 #         follows its app/VM: one that goes offsite ([app|vm "<name>"] kopia = yes, or - settings from
 #         before 2.19 - another folder of it recorded in kopia_known of a share going to Kopia) takes it
-#         along. (2.38, Benj 2026-10-10) One that belongs only to EXISTING apps/VMs set only local (an app with a
+#         along. (2.38, 2026-10-10) One that belongs only to EXISTING apps/VMs set only local (an app with a
 #         container in [docker] known, a VM with a [vm "<name>"] section - none going offsite) is DECIDED: it
 #         stays local with them, silently - not new, no state/new-local.json entry, no notification, no drift.
 #         The share still goes to Kopia, so the run leaves it out exactly like a new folder (KEPT_RULES: rules
@@ -3473,7 +3473,7 @@ partner_unit_dataset() {
 
 # ub_host_name: this server's name as Unraid and the office's Team Lead say it («Change what <host> sends…») - ident.cfg
 # NAME (Settings -> Identification), else the kernel's; never settings.ini's [general] server, which keeps the name the
-# setup was first made under (2.34: USO-Test-Server on a Tower, QA 2026-10-08)
+# setup was first made under (2.34: a test server renamed after its setup, QA 2026-10-08)
 ub_host_name() {
     local n
     n="$(sed -n 's/^NAME="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$UB_BOOT/config/ident.cfg" 2>/dev/null | head -1)"
@@ -3641,7 +3641,7 @@ ub_asleep_load() { # the disks disks.ini calls spun down -> UB_SPUNDOWN[<disk>]=
     UB_SPUNDOWN=(); UB_ASLEEP_LOADED="yes"
     [[ -r "$UB_DISKS_INI" ]] || return 0
     # spun down AND rotating: Unraid puts SATA SSDs into standby too, but an SSD wakes in milliseconds and wears nothing
-    # worth sparing - never asleep for the engine (Benj, 2026-10-08; agent/lib/mounts.php diskAsleep() says the same);
+    # worth sparing - never asleep for the engine (2026-10-08; agent/lib/mounts.php diskAsleep() says the same);
     # rotational missing (an older disks.ini) = a rotating disk, as before
     while IFS= read -r n; do [[ -n "$n" ]] && UB_SPUNDOWN[$n]=1; done < <(awk '
         function flush() { if (name != "" && sd == "1" && rot != "0") print name; sd = ""; rot = "" }

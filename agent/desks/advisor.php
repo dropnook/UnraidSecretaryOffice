@@ -67,7 +67,7 @@ declare(strict_types=1);
  *               offers Kopia's retention (COMPLIANCE, N days) — Kopia then
  *               extends the locks at its full maintenance
  *
- * The network (group 'network', the night watchman's router lines — briefs/brief-router-soc-stage1.md 6): a new
+ * The network (group 'network', the night watchman's router lines — the router SOC plan, 6): a new
  * shape, a setting he explains and never changes — «Unraid's syslog server» (what rsyslog.cfg says, which pools a share
  * `syslog` of its own belongs on, the loop of ⟦Remote syslog server⟧, which senders have files: agent/lib/watchnet.php's
  * watchnetAdvisor()) —
@@ -179,7 +179,7 @@ const ADVISOR_KOPIA_SH = 'IFS= read -r KOPIA_PASSWORD || exit 64; IFS= read -r A
 /**
  * S3 providers offered in the page (only remembered for the recovery sheet; Kopia takes endpoint and region).
  * versitygw (2026-10): the recommended S3 server on a second Unraid — its posix backend answers the Object Lock probe like
- * AWS (200 Enabled / 404 ObjectLockConfigurationNotFoundError; briefs/versitygw-findings.md); minio stays accepted for
+ * AWS (200 Enabled / 404 ObjectLockConfigurationNotFoundError; the versitygw findings); minio stays accepted for
  * repositories set up with it, the page doesn't offer it any more (its community edition was archived in 2026-04)
  */
 const ADVISOR_S3_PROVIDERS = ['s3', 'aws', 'b2', 'r2', 'mega', 'wasabi', 'hetzner', 'idrive', 'versitygw', 'minio'];

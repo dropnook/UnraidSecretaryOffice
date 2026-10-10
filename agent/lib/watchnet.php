@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * The network as the night watchman sees it (stage 1 of the router SOC: UniFi, briefs/brief-router-soc-stage1.md; MikroTik
+ * The network as the night watchman sees it (stage 1 of the router SOC: UniFi, the router SOC plan; MikroTik
  * RouterOS 7 since #2 — parsed and typed, see «MikroTik RouterOS» below — with its own kinds: bursts of failed router
  * logins, a port losing its link, the internet away, the router restarted).
  * Read only, functions only — like partnerlook.php: the night watchman calls it from his round, the Team Lead for his
@@ -2289,7 +2289,7 @@ function watchnetFacts(array $o = []): array
             }
         }
     }
-    // where a new share `syslog` belongs (the Consultant's guide, Benj 2026-10-08): the pools that never sleep - every disk
+    // where a new share `syslog` belongs (the Consultant's guide, 2026-10-08): the pools that never sleep - every disk
     // an SSD or never spun down (watchnetAlwaysOn) -, never the boot pool (a pool on the device of a Boot slot: Unraid boots
     // from it; the partner door keeps its copies off it too); the array only when every data disk is an SSD
     $bootDev = [];

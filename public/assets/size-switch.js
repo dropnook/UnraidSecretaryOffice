@@ -1,5 +1,5 @@
 /* Unraid Secretary Office — the text-size switch at the reception: A · A · A
-   (for people with glasses, Benj 2026-10-08; size-switch.css says how it works and how to switch it off or remove it).
+   (for people with glasses, 2026-10-08; size-switch.css says how it works and how to switch it off or remove it).
 
    Small = the office as it always was: no data-size on #sso. Medium / Large = #sso[data-size] (CSS zoom), kept in this
    browser (Office.store 'size'); src/page.php sets the attribute from the same key before the first paint, so nothing

@@ -833,7 +833,7 @@ function backupEstimates(array $history): array
  * can't tell how long then; this does: the source's size (the ZFS snapshot Kopia reads,
  * backupSourceSize()), what the Kopia process has read so far (/proc/<pid>/io rchar) and its rate
  * between looks a few minutes apart (the page asks every few seconds while it is open; before a
- * second look: the average since the source started). Checked on nostromo, 2026-10-06 (2.36 TB,
+ * second look: the average since the source started). Checked on a large server, 2026-10-06 (2.36 TB,
  * 9 h): at 13:21 it had read 2.39 TB of 2.41 TB (the files' own sizes; holes of sparse files are
  * read too, so it may run a little past logicalreferenced — then "any moment now"), ~38 MB/s, done
  * at 13:28 as reckoned; wchar (what it sent: 1.18 TB) was no measure — compression and content the
@@ -1059,7 +1059,7 @@ function backupProcRead(int $pid, string $proc = '/proc'): ?int
 /**
  * What a process has read and written so far, in one look at /proc/<pid>/io: [rchar, wchar], each null
  * when not there. For a Kopia upload wchar is what it sent (to the repository, plus a little cache and
- * log) — about half of what it read on nostromo (compression, content the repository already had).
+ * log) — about half of what it read on a large server (compression, content the repository already had).
  *
  * @return array{0: ?int, 1: ?int}
  */
@@ -1076,7 +1076,7 @@ function backupProcIo(int $pid, string $proc = '/proc'): array
  * settings.ini names for the share. A VM's own source goes by the apparent size of the files in its
  * folders instead (backupApparentSize(): one stat per file, never a read) — Kopia reads a sparse vdisk
  * whole, its holes as zeros, so a 1.6 TB vdisk holding 21 GB is 1.6 TB of reading, while its snapshot's
- * logicalreferenced says 21 GB (nostromo's Windows11_Gaming, 2026-10-07: 382 GB by the snapshot, 2 TB
+ * logicalreferenced says 21 GB (a Windows VM with a 1.6 TB sparse disk, 2026-10-07: 382 GB by the snapshot, 2 TB
  * read, 2.7 h — the estimate was off by that). Its package (XML, NVRAM, TPM: a few MB) isn't counted.
  * Null when it can't be told (a place that isn't ZFS or sleeps, a folder that is no dataset, the flash).
  * $mnt: where the places are mounted (/mnt/<place>/<share>; tests pass a folder of their own).
@@ -1199,7 +1199,7 @@ function backupZfsSnapSum(string $out, string $snap): ?int
 function backupWaiting(array $s, array $vms, ?array $containers = null, ?string $file = null, ?array $appShares = null, ?callable $there = null): array
 {
     $out = ['folders' => [], 'apps' => [], 'vms' => []];
-    // a folder the last run noted that is gone by now waits for nothing (Benj, 2026-10-10: the callout stayed until the next
+    // a folder the last run noted that is gone by now waits for nothing (2026-10-10: the callout stayed until the next
     // run and «Decide…» found nothing to decide); looked at only where the share's disks are awake - never woken for it
     $there ??= function (string $share, string $folder) use ($s): bool {
         static $asleep = null;
@@ -1827,7 +1827,7 @@ function backupAbort(): array
     }
     logLine("Backup: sent SIGTERM to backup.sh (PID $pid)");
     // the abort said on the page until the run ends — the engine's trap runs only once its current command returns
-    // (a «docker stop -t 60» takes its minute; Benj 2026-10-10: «hängt es ohne Welle»); in RAM, for this PID only
+    // (a «docker stop -t 60» takes its minute; 2026-10-10: «hängt es ohne Welle»); in RAM, for this PID only
     writeAtomic(backupAbortFile(), jsonEncode(['pid' => $pid, 'at' => time()]), 0600);
     usleep(500000);
     return ['ok' => true, 'pid' => $pid, 'state' => backupScan()];
@@ -2012,11 +2012,11 @@ function backupChecks(): array
 /**
  * Whether the Kopia container comes back by itself after a reboot or an array stop: Unraid stops every container
  * at the array stop and, when Docker comes up again, starts only what is on its autostart list — a Kopia left off
- * makes the next run skip the whole offsite part, and `kopia_running` only notices it afterwards (nostromo,
+ * makes the next run skip the whole offsite part, and `kopia_running` only notices it afterwards (a large server,
  * 2026-10-07). A template container: a line in Unraid's autostart file, or Docker's own restart policy "always"
  * (Docker starts those itself when it comes up; "unless-stopped" doesn't — Unraid stopped it); a Compose stack's
  * container: Compose Manager's autostart of that stack. A must like `kopia_running`: without it the offsite backup
- * ends silently at the next reboot. The office only warns — it never starts Kopia itself (Benj's decision).
+ * ends silently at the next reboot. The office only warns — it never starts Kopia itself (decided so).
  *
  * @param array $summary  backupSettingsSummary(): only while Kopia is on, and only for the container the settings name
  * @param array $inspect  docker inspect of that container
@@ -2170,7 +2170,7 @@ function backupSetupReplan(?array $plan, array $state, ?array $note, bool $free,
 }
 
 /**
- * What speaks against each share as the backup place — Benj's points, warnings only: the office never
+ * What speaks against each share as the backup place — the five points, warnings only: the office never
  * blocks or changes the user's choice (the setup's step 0 shows them for the share chosen):
  *   same_pool      on a pool appdata lies on too: a failing pool takes the apps and their dumps together
  *   no_history     a part without snapshots (no ZFS/btrfs, or the plan found it "live"): the packages keep
@@ -2392,7 +2392,7 @@ function backupSetupApply(mixed $decisions, mixed $planTime = null): array
 }
 
 /**
- * Is the plan the page decided on older than settings.ini? (Benj, 2026-10-08 on nostromo: his «skip» for sleeping pools
+ * Is the plan the page decided on older than settings.ini? (2026-10-08 on a large server: its «skip» for sleeping pools
  * went back to «wake» at an Apply that never listed it.) The page sends every key of its plan's draft, and its dialog
  * compares with that plan's picture of settings.ini (`O`): made before settings.ini was last written - another tab
  * applied meanwhile, the same tab right after its own Apply, a terminal setup, a hand edit - it would put back what was

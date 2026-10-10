@@ -39,13 +39,13 @@ const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_s
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'return_to_origin', 'array_source', 'array_path', 'user_path',
                        'array_disks_glob', 'create_share_root', 'mover_debug_level'];
-// both ways always rsync (Benj, 2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
+// both ways always rsync (2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
 // path for standalone users, Jack never selects it — not in his setup, not from an old settings file, not in what he hands it
 const EMBY_TOOLS_RSYNC = ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'];
 const GATHER_LOCK   = '/var/run/consolidate_master.lock';     // the gather's own lock (consolidate_master.sh)
 const EMBY_HISTORY  = 40;
 const EMBY_IGNORED  = '#^/(config|metadata|transcoding-temp|cache|logs|var|boot|tmp)#';   // Emby's own folders, never media
-// Benj's rule (2026-10-06): never a real gather while someone watches Emby
+// the rule (2026-10-06): never a real gather while someone watches Emby
 const EMBY_WATCH_TIMEOUT = 5;       // seconds: an Emby that hasn't answered by then counts as down (the run may go)
 const EMBY_WATCH_PAGE    = 2;       // … asked from the page (in the agent's loop): shorter — the job itself asks again
 const EMBY_WATCH_EVERY   = 900;     // a scheduled gather that finds someone watching looks again every 15 min …
@@ -1837,7 +1837,7 @@ function embyImportBackup(string $dir, array $names, string $stamp): array
 // ===================================================================== who watches Emby (before and during a real gather)
 
 /*
- * Benj's rule (2026-10-06): Jack never starts a real gather while someone watches Emby — it moves
+ * The rule (2026-10-06): Jack never starts a real gather while someone watches Emby — it moves
  * files across the array disks and wakes every one of them. Before each real run he asks every
  * Emby server of EmbyCache's settings for its /Sessions (the key stays in this process: PHP's
  * curl, a header in memory — never a command line, a log or the page's state). A session with a
@@ -1992,7 +1992,7 @@ function embyWatching(?array $settings = null, ?callable $fetch = null): array
     return ['state' => 'unknown', 'who' => [], 'time' => $time];
 }
 
-/** «isp3: Film (iPad, paused); …» — for the office's log only */
+/** «anna: Film (iPad, paused); …» — for the office's log only */
 function embyWatchersLine(array $who): string
 {
     return implode('; ', array_map(fn ($w) => ($w['user'] ?: '?') . ': ' . ($w['title'] ?: '?')
@@ -2220,7 +2220,7 @@ function embyGatherWatch($proc, string $stopFile, ?callable $look = null, int $e
 /**
  * Starts a run from the page: through the host's atd as "php agent.php job
  * <tool> <mode> --office", so it lives on without the agent. A real gather
- * first asks Emby who watches (Benj's rule) — no override: whoever really
+ * first asks Emby who watches (the rule above) — no override: whoever really
  * wants it ends that session in Emby (its dashboard's Stop, or on the device)
  * or stops the Emby service himself.
  */
@@ -2335,7 +2335,7 @@ function embyJob(string $tool, array $args): int
         fwrite(STDERR, "$tool: not started ($p->key)\n");
         return 1;
     }
-    // a real run: never while Unraid's mover is at work; a real gather never while someone watches Emby (Benj's rule) —
+    // a real run: never while Unraid's mover is at work; a real gather never while someone watches Emby (the rule above) —
     // asked before any lock is taken
     $wait = null;
     $note = [];
@@ -2556,7 +2556,7 @@ function embyNotifyOutcome(string $mode, string $result, array $status, ?string 
         return 'stopped_mover';          // the mover started: a normal note, no failure
     }
     if ($result === 'stopped' && $why === 'user') {
-        // the user asked on his page: he knows (Benj, 2026-10-10: «das muss nicht kommen») — only its errors are told
+        // the user asked on his page: he knows (2026-10-10: «das muss nicht kommen») — only its errors are told
         return in_array($mode, ['run', 'release'], true) && (int) ($status['errors'] ?? 0) > 0 ? 'errors' : null;
     }
     if ($mode === 'release') {

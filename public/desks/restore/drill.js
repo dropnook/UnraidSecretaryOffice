@@ -431,7 +431,7 @@ function previewView(p) {
 }
 
 // ------------------------------------------------------------------ settings
-const KOPIA_GB_MAX = 100;  // the field's GB (Benj 2026-10-10: «sonst schreibt man zu viele Nullen»); kept as kopia_mb (≤ 102400)
+const KOPIA_GB_MAX = 100;  // the field's GB (2026-10-10: «sonst schreibt man zu viele Nullen»); kept as kopia_mb (≤ 102400)
 const KOPIA_GB_STEP = 0.5;
 
 /** MB as the field's GB: up to one decimal in the page's way of writing numbers, no «.0» */

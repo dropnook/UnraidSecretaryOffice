@@ -231,10 +231,10 @@ function inBackupRoots(string $path, array $roots): bool
  * starting that very moment takes it with `flock -n` and would skip the night. The PID in /proc/locks is the one that
  * took the lock — it may be long gone while backup.sh keeps the inherited handle. So only the entry itself counts.
  *
- * Through shfs (/mnt/user/… of a share that isn't exclusive — USOPartner's appdata, 2026-10-08) the lock lies on the
+ * Through shfs (/mnt/user/… of a share that isn't exclusive — a partner test server's appdata, 2026-10-08) the lock lies on the
  * disk's or pool's file: FUSE hands the flock down, and /proc/locks names that file (`00:28:266`), never the inode
  * stat() shows through /mnt/user. shfs numbers its inodes (st_dev << 48) | st_ino of the file behind (Unraid 7.3.2,
- * seen on ZFS and btrfs: Tower, USOPartner), so that file's id is looked for too — when the device it names is mounted
+ * seen on ZFS and btrfs, on two test servers), so that file's id is looked for too — when the device it names is mounted
  * (/proc/self/mountinfo). A FUSE file whose number doesn't name a mounted device (another scheme) is probed instead:
  * a non-blocking shared flock on a read-only handle, let go at once (flockProbe()).
  * $st and $mountinfo: the tests' (a file as shfs would show it).

@@ -269,7 +269,7 @@ function build(root) {
   v.scanBtn.append(el('span', 'spin'), T('scan'));
   v.scanBtn.title = T('scan_title');
   v.scanBtn.onclick = () => tour();
-  // no search field of her own any more (Benj 2026-10-10): the office's search finds her rooms' items and «Where is what»;
+  // no search field of her own any more (2026-10-10): the office's search finds her rooms' items and «Where is what»;
   // the page's filter `query` is still set by her findings' links (pick()) and shown with its «clear» above the rooms
   // wake the sleeping disks for this tour — off unless switched on, never remembered
   v.wakeLabel = el('label', 'switch clw-wake');
@@ -2222,7 +2222,7 @@ function advice() {
     const old = h.devices.filter((d) => d.smart && d.smart.hours > 50000);
     if (old.length) add('old_disks', 'info', { names: listNames(old.map((d) => `${d.name} (${fmt.number(d.smart.hours / 8760, 1)} ${T('where.adv.years')})`)), n: old.length }, { path: '/Main', text: T('where.adv.to_main') }, old.map((d) => d.name).join(','));
     const p = h.parity || {};
-    // no parity at all: one failed array disk and what was on it is gone (Benj, 2026-10-07: she should say so here too)
+    // no parity at all: one failed array disk and what was on it is gone (2026-10-07: she should say so here too)
     if (p.slots && !p.present) {
       const data = h.devices.filter((d) => d.type === 'Data').length;
       add('no_parity', 'advice', { n: data }, { path: '/Main', text: T('where.adv.to_main') }, 'none');
@@ -2260,7 +2260,7 @@ function advice() {
   }
 
   // VMs with a NIC of Unraid's «virtio-net» model (waVmNetModel()): no vhost, the network runs through the QEMU process —
-  // on nostromo one stream capped at 2.2 Gbit/s, 93 with «virtio». A performance hint, not a risk; the signature is the
+  // on a large server one stream capped at 2.2 Gbit/s, 93 with «virtio». A performance hint, not a risk; the signature is the
   // VMs' names (one more, or one changed, brings the tip back)
   const slowNet = (a.vm_netmodel || []).filter((n) => typeof n === 'string' && n !== '');
   if (slowNet.length) {
@@ -2268,7 +2268,7 @@ function advice() {
   }
 
   // the array's write method (waWriteMethod()): «Auto» is read/modify/write — only the target disk and parity spin, turbo
-  // write reads every other data disk. Nothing writes straight to the array: keep it (good to know, Benj 2026-10-09);
+  // write reads every other data disk. Nothing writes straight to the array: keep it (good to know, 2026-10-09);
   // shares that do: turbo write for big copies, or Squid's plugin. The signature: the method, those shares, the disks'
   // sleep and the plugin — one more share, a pool in front, a spin-down delay set bring the tip back
   const wm = a.write_method;
@@ -2288,7 +2288,7 @@ function advice() {
     }
   }
 
-  // ZFS's read cache and a VM with PCI passthrough (waZfsArc(); Benj, 2026-10-09): «Unlimited (Dynamic)» is right as a
+  // ZFS's read cache and a VM with PCI passthrough (waZfsArc(); 2026-10-09): «Unlimited (Dynamic)» is right as a
   // rule — the ARC gives RAM back under pressure. Only a passthrough VM pins all its RAM at once at its start: when the RAM
   // is that tight she names the VM and suggests a cap. The signature: the VM, its RAM and the ARC's limit (the containers'
   // memory moving a little doesn't bring the tip back)

@@ -778,7 +778,7 @@ function waVmNets($dom): array
 
 /**
  * The VMs (running or not) with a NIC of Unraid's «Network Model: virtio-net» (`<model type='virtio-net'/>`): QEMU's
- * virtio NIC without vhost, every packet through the QEMU process — on nostromo (2026-10-08, iperf3) a single stream
+ * virtio NIC without vhost, every packet through the QEMU process — on a large server (2026-10-08, iperf3) a single stream
  * capped at 2.2 Gbit/s, the same VMs with `virtio` (vhost-net in the kernel) did 93. A performance hint for Ms.
  * Dustdevil's «If I were you …» (`vm_netmodel`), names sorted.
  *
@@ -895,7 +895,7 @@ function waFileSizes(string $file): array
 
 /**
  * Is a disk file far bigger than what it holds — big enough that Kopia's first upload of it (the
- * holes read as zeros: a 1.6 TB vdisk holding 21 GB was 2.7 hours on nostromo, 2026-10-07) is worth
+ * holes read as zeros: a 1.6 TB vdisk holding 21 GB was 2.7 hours on a large server, 2026-10-07) is worth
  * Ms. Dustdevil's word? Apparent at least WA_SPARSE_RATIO times the allocated size AND the gap at
  * least WA_SPARSE_GAP: a 250 GB vdisk half used is normal (an hour at most, once), a 1.6 TB one
  * holding 21 GB isn't. Either size unknown: no.
@@ -1514,7 +1514,7 @@ function waWriteMethod(array $disk, array $disksIni, array $shares, ?array $turb
 }
 
 /**
- * ZFS's read cache (ARC) and the VMs (Benj, 2026-10-09). Unraid 7.3.3: «Tunable (zfs_arc_max)» lives as
+ * ZFS's read cache (ARC) and the VMs (2026-10-09). Unraid 7.3.3: «Tunable (zfs_arc_max)» lives as
  * `options zfs zfs_arc_max=<bytes>` in /boot/config/modprobe.d/zfs.conf; rc.modules.local writes 20 % of the installed
  * RAM there at boot when the line is missing (the default), «Unlimited (Dynamic)» writes 0 (the page also calls a
  * value of the whole RAM so). OpenZFS 2.4.4 then takes its own default (arc_os.c arc_default_max()): the larger of
@@ -1662,7 +1662,7 @@ const WA_SMART_BAD   = [5, 187, 197, 198];     // reallocated, uncorrectable, pe
 const WA_SMART_WATCH = [5, 187, 188, 197, 198, 199];
 
 /**
- * What the array's resync is doing to each array disk (Benj, 2026-10-08: nostromo's first parity build showed as a
+ * What the array's resync is doing to each array disk (2026-10-08: a large server's first parity build showed as a
  * red «DISK_INVALID» — Unraid keeps that status on a parity disk until its first sync is through, and on a disk being
  * rebuilt). var.ini while `mdResyncPos` > 0: `mdResyncAction` «recon P» / «recon Q» builds parity / parity2, «recon <n>»
  * rebuilds a data disk — while a recon runs every array disk Unraid still calls invalid is the one being built —,

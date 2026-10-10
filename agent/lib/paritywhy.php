@@ -2,10 +2,10 @@
 declare(strict_types=1);
 
 /*
- * Why a parity check runs (Benj, 2026-10-09: «a common Unraid side effect nobody understands») — the night watchman
+ * Why a parity check runs (2026-10-09: «a common Unraid side effect nobody understands») — the night watchman
  * notices and explains it in his watch book, the team lead carries the to-do while it applies (watchmanParityFinding()).
- * Read only: never a check started, paused or cancelled, never a time-out changed. What Unraid 7.3.3 does (read on Tower,
- * briefs/parity-reason-report.md):
+ * Read only: never a check started, paused or cancelled, never a time-out changed. What Unraid 7.3.3 does (read on a test server,
+ * the parity reason report):
  *
  *   /boot/config/forcesync   emhttpd touches it when it starts the array (syslog «shcmd (N): touch /boot/config/forcesync»)
  *                            and removes it when the array stops; rc.6 removes it too («Clean shutdown») once the md
@@ -56,7 +56,7 @@ const PARITYWHY_LIST_MAX     = 6;           // names kept per kind of blocker
 const PARITYWHY_MARGIN       = 30;          // seconds on top of the stops, for unmounting (the advice's margin)
 const PARITYWHY_HISTORY      = 10;          // boots remembered (streak of unclean ones)
 const PARITYWHY_PCT_DIR      = '/boot/config/plugins/parity.check.tuning';
-// Unraid's and the plugin's own lines (Unraid 7.3.3, Tower 2026-10-09)
+// Unraid's and the plugin's own lines (Unraid 7.3.3, a test server 2026-10-09)
 const PARITYWHY_UNCLEAN_RE   = '/\semhttpd(?:\[\d+\])?:\s+unclean shutdown detected\b/';
 const PARITYWHY_START_RE     = '/\skernel:\s+mdcmd \(\d+\): start\b/';
 const PARITYWHY_PCT_TAG      = '/\sParity (?:Check Tuning|Problem Assistant)(?:\[\d+\])?:\s/';

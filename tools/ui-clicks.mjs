@@ -339,7 +339,7 @@ async function runPage(browser, harness, route, theme, width) {
     fail(`the run broke off: ${String(e.message).split('\n')[0].slice(0, 160)}`);
   }
   // a log dialog (status line + a long log) fits the window at every text size: title and «Close» in sight
-  // (1.55.0 pushed «Close» below a short window - Benj, 2026-10-10); once per theme and width, on one page
+  // (1.55.0 pushed «Close» below a short window - 2026-10-10); once per theme and width, on one page
   if (route === 'emby') {
     try {
       await page.setViewportSize({ width, height: 650 });

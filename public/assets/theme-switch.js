@@ -1,5 +1,5 @@
 /* Unraid Secretary Office — the theme switch at the reception: Automatic · Dark · Light
-   (an experiment, Benj 2026-10-07; theme-switch.css says how it works and how to switch it off or remove it).
+   (an experiment, 2026-10-07; theme-switch.css says how it works and how to switch it off or remove it).
 
    Automatic = Unraid's theme: no data-theme on #sso, the office as it always was. Dark / Light = #sso[data-theme],
    kept in this browser (Office.store 'theme'); src/page.php sets the attribute from the same key before the first
@@ -45,7 +45,7 @@ Office.theme = {
     document.querySelectorAll('#sso .theme-switch').forEach(apply);
   },
   /** The segmented control: three radios (the arrow keys move between them), an icon each — the word is its name for
-   *  screen readers and stands in its tip (Benj, 2026-10-10: icons only, room for «Report a problem or a wish…») */
+   *  screen readers and stands in its tip (2026-10-10: icons only, room for «Report a problem or a wish…») */
   control() {
     const box = el('div', 'seg theme-switch');
     box.setAttribute('role', 'radiogroup');

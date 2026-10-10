@@ -24,11 +24,11 @@ const OFFICE_SPONSOR_URL = '';
 // account) and, once it exists, the forum thread ('' = not shown). The inbox itself is OFFICE_FEEDBACK_URL (src/place.php)
 const OFFICE_ISSUES_URL = 'https://github.com/dropnook/UnraidSecretaryOffice/issues';
 const OFFICE_FORUM_URL = '';
-// the theme switch at the reception — Automatic (Unraid's theme) · Dark · Light, per browser (an experiment, Benj
+// the theme switch at the reception — Automatic (Unraid's theme) · Dark · Light, per browser (an experiment,
 // 2026-10-07): false = nothing of it shows or loads (public/assets/theme-switch.css and .js, the lines in page.php
 // and core.js marked «theme-switch»); CLAUDE.md «Theme switch» says how to remove it for good
 const OFFICE_THEME_SWITCH = true;
-// the text-size switch at the reception — A · A · A, per browser (for people with glasses, Benj 2026-10-08): the small
+// the text-size switch at the reception — A · A · A, per browser (for people with glasses, 2026-10-08): the small
 // step is the office as it always was; false = nothing of it shows or loads (public/assets/size-switch.css and .js, the
 // lines in page.php and core.js marked «size-switch»); CLAUDE.md «Text size switch» says how to remove it for good
 const OFFICE_SIZE_SWITCH = true;

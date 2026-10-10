@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Mr. Restori across servers (stage 3 of briefs/uso-partner-zfs-plan.md; the federation concept's §3.9) — functions
+ * Mr. Restori across servers (stage 3 of the partner plan; the federation concept's §3.9) — functions
  * only, in a file of their own beside his desk: the agent's desk glob loads this file before restore.php, which
  * require_once's it; nothing here may use restore.php's constants at its top level.
  *

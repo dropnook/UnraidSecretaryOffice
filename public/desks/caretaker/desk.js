@@ -373,11 +373,11 @@ function teamSection() {
     const level = Office.supporterPictures(sup);
     const MARK = '\u0001';
     const plate = el('span', 'chip ok ct-supporter');
-    // its words by the highest level and how many keys of it (Benj, 2026-10-09: «Prost!», «jam-jam», «schon der 3. Kaffee»)
+    // its words by the highest level and how many keys of it (2026-10-09: «Prost!», «jam-jam», «schon der 3. Kaffee»)
     const top = level.top;
     const many = level.count(top);
     const variant = top === 'coffee' ? (many >= 3 ? 'coffee_many' : many === 2 ? 'coffee_two' : '') : `${top}_${many >= 2 ? 'more' : 'one'}`;
-    // several names on the keys: all of them — «Benj & Janine», from three on «Benj & 2 weitere» (Benj, 2026-10-09)
+    // several names on the keys: all of them — «Benj & Janine», from three on «Benj & 2 weitere» (2026-10-09)
     const names = Array.isArray(sup.names) && sup.names.length ? sup.names : [sup.name];
     const who = names.length === 1 ? names[0] : names.length === 2 ? T('supporter_names_two', { a: names[0], b: names[1] })
       : T('supporter_names_more', { a: names[0], n: names.length - 1 });

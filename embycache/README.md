@@ -103,7 +103,7 @@ Alle Pfade sind relativ zum **Script-Verzeichnis**, nicht zum Arbeitsverzeichnis
 
     "instances": [
         {
-            "servername": "Nostromo",
+            "servername": "Tower",
             "url": "http://192.168.7.10:8096",
             "api_key": "…",
             "path_mappings": {                 // Docker-Pfad -> Host-Pfad, nur gecachte Bibliotheken
@@ -169,7 +169,7 @@ Umgebungsvariablen: `EMBYCACHE_MODE` (dry / report / run), `EMBYCACHE_DIR`, `EMB
 Beispiel-Report (`--show-on-deck`, mit `--compact` ohne die Dateizeilen):
 
 ```
-=== Benj @ Nostromo ===  Budget: 312.40 GB von 833.33 GB (Filme 120.10 GB, Serien 192.30 GB)
+=== Benj @ Tower ===  Budget: 312.40 GB von 833.33 GB (Filme 120.10 GB, Serien 192.30 GB)
   Filme: 2 Einträge, 61.70 GB
     • Inception   [CACHE] 60.20 GB, 4 Dateien   (Weiterschauen)
       • [CACHE]   60.10 GB  Filme/Inception (2010)/Inception (2010).mkv

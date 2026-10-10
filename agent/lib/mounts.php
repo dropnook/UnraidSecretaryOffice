@@ -126,7 +126,7 @@ function sleepingDisks(): array
 }
 
 /**
- * One disk of disks.ini: asleep for the office only when Unraid spun it down AND it rotates (Benj, 2026-10-08). Unraid
+ * One disk of disks.ini: asleep for the office only when Unraid spun it down AND it rotates (2026-10-08). Unraid
  * puts SATA SSDs into standby too (`spundown="1"`, `rotational="0"`), but an SSD wakes in milliseconds and wears nothing
  * worth sparing — treating it as asleep would only leave it out (a night of `asleep_pools = skip`, a snapshot list) for
  * nothing. `rotational` missing (older disks.ini) = a rotating disk, as before. The engine's `ub_asleep_load` says the same.

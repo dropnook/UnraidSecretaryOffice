@@ -1513,7 +1513,7 @@ function setupDraftKeep() {
 /** Keys whose values differ between two sets of settings (nothing and empty count the same) */
 const empty = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length);
 // lists that are sets: their order is Docker's of the moment (it changes when a container is made anew) — never a change
-// in itself (Benj, 2026-10-09: «2 Änderungen» every time he opened the setup, the same containers in another order)
+// in itself (2026-10-09: «2 Änderungen» every time he opened the setup, the same containers in another order)
 const SET_KEYS = /^docker\|(no_stop|known|skip)$/;
 const asSet = (k, v) => (SET_KEYS.test(k) && Array.isArray(v) ? [...v].map(String).sort() : v);
 function diffKeys(a, b) {
@@ -1545,7 +1545,7 @@ function setupSaved() {
 const ENGINE_DEFAULTS = { 'general|asleep_pools': 'wake', 'general|preset_new': 'auto' };
 
 /**
- * Keys Apply sends only when the user chose them on this page (Benj, 2026-10-08 on nostromo: his «skip» since the day
+ * Keys Apply sends only when the user chose them on this page (2026-10-08 on a large server: its «skip» since the day
  * before went back to «wake» at an Apply that never listed it). The draft carries every key of the plan it was made
  * from; a page whose plan is older than settings.ini - a second tab, the same tab left open - would otherwise send the
  * old plan's value back, and the dialog, comparing with that plan's settings, could not see it. Left out, setup.sh
@@ -1573,7 +1573,7 @@ function setupApplyChanges(saved) {
 }
 
 /** A list's change in the apply dialog: only what comes and what goes («dazu: drop · weg: Grafana»), not both lists whole
- * (Benj, 2026-10-09: «wenn ich immer alles sehe, sehe ich nicht, welche 2 Apps geändert wurden»); order alone is none */
+ * (2026-10-09: «wenn ich immer alles sehe, sehe ich nicht, welche 2 Apps geändert wurden»); order alone is none */
 function listChangeText(was, is) {
   const a = was.map(String);
   const b = is.map(String);
@@ -1632,7 +1632,7 @@ function setupSplit() {
   return { yours: keys.filter((k) => touched.has(k)), mine: keys.filter((k) => !touched.has(k)) };
 }
 
-/** «Don't take it»: a proposal of mine back to what settings.ini says now (Benj, 2026-10-10: no way to apply his change
+/** «Don't take it»: a proposal of mine back to what settings.ini says now (2026-10-10: no way to apply his change
     without my proposal) — in the draft only; Apply then sends the saved value, the next plan may propose it again */
 function setupDecline(k) {
   const saved = setupSaved();
@@ -1899,7 +1899,7 @@ function setupForget() {
   });
 }
 
-// ---- the default (Benj, 2026-10-07/08): three of them - my own proposals, everything local only, everything local +
+// ---- the default (2026-10-07/08): three of them - my own proposals, everything local only, everything local +
 // Kopia. Chosen «for everything now» it sets the levels and share modes the way a click on every row would; chosen
 // «only for what is new» it does so for what came after the last setup. Either way it is stored at Apply as
 // [general] preset_new (engine 2.31) and from then on fills in whatever is new each time the draft is made
@@ -1961,7 +1961,7 @@ function presetItemKeys() {
 }
 
 /**
- * How an app is held under a start: media servers keep running (Benj's rule); an app that ran only because nothing
+ * How an app is held under a start: media servers keep running (the rule); an app that ran only because nothing
  * of it was backed up (not backed up at all, or its data only in shares that were off) is held as the engine
  * proposes - stopped when it now writes into what is backed up, Docker volumes too; all others as the plan says
  */
@@ -2010,7 +2010,7 @@ function presetApply(kind, items) {
   if (kind === 'kopia') waitingFolders().forEach((w) => { if (!w.owner && has(`wait:${w.share}/${w.dir}`)) waitSet(w, 'kopia'); });
 }
 
-/** Under the default «local + Kopia» a new share the engine finds big (over 500 GB) or can't size waits for the user (Benj, 2026-10-08) */
+/** Under the default «local + Kopia» a new share the engine finds big (over 500 GB) or can't size waits for the user (2026-10-08) */
 const PRESET_NEW_ASK = ['big', 'size_unknown'];
 const presetNewAsk = (sh, kind) => kind === 'kopia' && PRESET_NEW_ASK.includes(sh.why);
 
@@ -2435,14 +2435,14 @@ function presetDialog() {
 function setupBar() {
   if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
   const fresh = !setup.plan.have_settings;     // nothing set up yet: Apply is how it starts
-  // what Apply really changes in settings.ini, split (Benj, 2026-10-10: «1 Vorschlag von mir und 1 Änderung von dir»):
+  // what Apply really changes in settings.ini, split (2026-10-10: «1 Vorschlag von mir und 1 Änderung von dir»):
   // the user's (a key they touched here) and mine (what changes although they clicked nothing — a proposal)
   const split = fresh ? { mine: [], yours: [] } : setupSplit();
   const proposals = split.mine.length;
   const edits = fresh ? setupEdits().length : split.yours.length;
   const busy = setup.status && setup.status.running;
   if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
-  // proposals only, set aside with «Discard» for this plan (Benj, 2026-10-09: the button was grey — no way to say no);
+  // proposals only, set aside with «Discard» for this plan (2026-10-09: the button was grey — no way to say no);
   // a new plan (another «Look at the server again», an update) offers again; the list of changes still shows them
   const dismissed = Office.store('backup.proposals_dismissed') === String(setup.plan.time || '');
   if (!edits && !fresh && dismissed) { Office.selbar(null); return; }
@@ -2510,7 +2510,7 @@ function checkbox(text, checked, onchange, small) {
 }
 const setupSection = (title, sub) => section(title, sub);
 
-// ---- the setup's filter (Benj, 2026-10-10): a bar like the watch book's over the steps' rows — words (an app's, a VM's,
+// ---- the setup's filter (2026-10-10): a bar like the watch book's over the steps' rows — words (an app's, a VM's,
 // a share's or a folder's name; accents folded; not kept: a new visit starts with every row) and «only what's new» (the
 // rows marked new or waiting). Rows that don't fit aren't drawn, a step with none says so in one line; «n of m fit the
 // filter». It only hides: no decision changes, nothing the user unfolded folds (setup.open stays as it is).
@@ -2910,7 +2910,7 @@ function shareWhy(sh) {
 }
 
 /**
- * A setup row with «Details» / «Less» unfolds on a click of the row itself too (Benj, 2026-10-08: «clicking the bar
+ * A setup row with «Details» / «Less» unfolds on a click of the row itself too (2026-10-08: «clicking the bar
  * doesn't open or close any more»), like the protection table's rows: `.unfolds` (cursor, hover), the name a button
  * for the keyboard (Enter / Space) with aria-expanded, the «Details» button beside it in step. A click on a field, a
  * select, a label, a chip, a link or another button inside keeps its own job; selecting text folds nothing.
@@ -3661,7 +3661,7 @@ function placeLines(sh) {
   const place = sh.place || (sh.method === 'live' ? [{ code: 'no_history', where: '' }] : []);
   const where = (w) => w || T('setup.place_array');
   return place.map((p) => {
-    // the same pool as appdata: no line under the field (Benj 2026-10-10: «nicht sauber durchgedacht» — with Kopia no
+    // the same pool as appdata: no line under the field (2026-10-10: «nicht sauber durchgedacht» — with Kopia no
     // risk, without Kopia another pool of the same server is no backup either; a concept is on the parking lot)
     if (p.code === 'same_pool') return null;
     if (p.code === 'no_history') return { warn: true, text: p.where ? T('setup.place_no_history', { where: p.where }) : T('setup.ds_no_history') };
@@ -3678,7 +3678,7 @@ function placeIntro(plan, ds) {
 }
 
 /**
- * What matters for the backup place (Benj's five points) and the way to a new share in Unraid (Shares → Add
+ * What matters for the backup place (the five points) and the way to a new share in Unraid (Shares → Add
  * Share, same tab) - the office never creates it, the user decides where it lies; open while none is chosen
  */
 function placeGuide(plan) {
@@ -3737,7 +3737,7 @@ function setupGeneral(plan) {
   if (zfs) box.appendChild(Office.place('setup.g_prefix', field(T('setup.g_prefix'), textInput('general|snap_prefix', /^(?!uso-plan-|auto-)[a-z0-9_]+(?:-[a-z0-9_]+)*-$/), T('setup.g_prefix_hint'))));
   if (btrfs) {
     box.appendChild(Office.place('setup.g_btrfs_free', field(T('setup.g_btrfs_free'), textInput('btrfs|min_free_gb', /^\d+$/), T('setup.g_btrfs_free_hint'))));
-    // a snapshot needs the disk awake: with every disk, those that sleep at night are woken for it (Benj, 2026-10-07)
+    // a snapshot needs the disk awake: with every disk, those that sleep at night are woken for it (2026-10-07)
     const disks = plan.bases.filter((b) => b.fs === 'btrfs' && b.kind === 'disk').map((b) => b.name);
     box.appendChild(Office.place('setup.g_btrfs_all', checkbox(T('setup.g_btrfs_all'), dget('btrfs|snapshot_all') === 'yes', (v) => dset('btrfs|snapshot_all', v ? 'yes' : 'no'),
       disks.length ? T('setup.g_btrfs_all_wake', { n: disks.length, names: disks.join(', ') }) : '')));
@@ -3837,7 +3837,7 @@ function setupItems(plan) {
     lab.append(el('span', 'role', T('setup.item_ret')), ret);
     right.appendChild(lab);
     const open = setup.open.has(pre);
-    // the whole row unfolds to what Kopia leaves out (Benj: «otherwise you can't see the Kopia excludes»)
+    // the whole row unfolds to what Kopia leaves out («otherwise you can't see the Kopia excludes»)
     const toggle = () => setupToggleOpen(pre, r);
     const more = button(open ? T('setup.less') : T('setup.more'), 'small plain', toggle);
     right.appendChild(more);

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * The data folder's version, and the ONE place for migrations (2026-10-08, briefs/upgrade-audit.md).
+ * The data folder's version, and the ONE place for migrations (2026-10-08, the upgrade audit).
  *
  * Users update the office through Unraid's plugin manager and read no notes: a new version meets the data folder an
  * older one left (an update; a downgrade = remove + install of an older .plg; a reinstall over a kept data folder).
