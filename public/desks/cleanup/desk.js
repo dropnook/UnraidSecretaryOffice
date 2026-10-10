@@ -28,7 +28,7 @@ const GROUPS = {
   vms: ['broken', 'orphan', 'unused', 'check', 'media', 'unknown', 'used'],
   scripts: ['broken', 'dead', 'idle', 'used'],
   docker: ['drill', 'dangling', 'volume', 'unused', 'cache', 'used'],
-  icons: ['template', 'compose', 'none', 'ok'],
+  icons: ['template', 'compose', 'stack', 'none', 'ok'],
   leftovers: ['leftover', 'way_back', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV
   partners: ['leftover', 'dropped'],
 };
@@ -39,7 +39,7 @@ const CANDIDATES = {
   vms: ['broken', 'orphan', 'unused', 'check', 'media'],
   scripts: ['broken', 'dead', 'idle'],
   docker: ['drill', 'dangling', 'volume', 'unused', 'cache'],
-  icons: ['template', 'compose', 'none'],
+  icons: ['template', 'compose', 'stack', 'none'],
   leftovers: ['leftover', 'way_back'],
   partners: ['leftover', 'dropped'],
 };
@@ -120,7 +120,9 @@ const iconChoice = (e) => picks.get(e.id) || e.suggest || null;
 /** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning; a container only with a picture to hang */
 const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used')
   && !(e.kind === 'icon' && (e.category === 'ok' || e.category === 'none' || !iconChoice(e)));
+const isStackIcon = (e) => e.kind === 'icon' && e.target === 'stack';
 const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name')
+  : isStackIcon(e) ? T('pic.stack_name', { name: e.name })
   : e.kind === 'partner' && e.unit ? T('pa.dropped_name', { unit: e.unit, name: e.pair_name || e.name })
   : e.kind === 'drill' && e.what !== 'container' ? T('dl.name_' + (e.what === 'kopia_tmp' ? 'kopia_tmp' : 'kopia_dump'), { name: e.name.split('/').pop(), container: e.container || 'Kopia' }) : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
@@ -250,10 +252,7 @@ Office.desk({
     if (!Where.has()) await Where.load(false);
     if (!state) return { bubble: T('bubble.no_data'), facts: [] };
     const facts = [];
-    for (const sec of ROOMS) {
-      const c = candidates(sec);
-      if (c.length) facts.push(T('fact.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
-    }
+    for (const [key, c] of roomCounts()) facts.push(T('fact.' + key, { n: c.length, size: fmt.size(sum(c)) }));
     if (state.trash.runs.length) facts.push(T('fact.trash', { size: state.trash.bytes === null ? '…' : fmt.size(state.trash.bytes) }));
     const w = Where.reception();
     const bubble = [w.summary, bubbleText(), w.findings ? T('where.bubble.findings', { n: w.findings }) : ''].filter(Boolean).join(' ');
@@ -386,13 +385,23 @@ function renderBubble() {
   view.wakeLabel.hidden = !sleeping && !view.wake.checked;
 }
 
+/** What she found per room for her bubble and facts: [key, entries] — pictures missing for containers and for stacks apart */
+function roomCounts() {
+  const out = [];
+  for (const sec of ROOMS) {
+    const c = candidates(sec);
+    if (sec !== 'icons') { if (c.length) out.push([sec, c]); continue; }
+    const stacks = c.filter(isStackIcon);
+    if (c.length > stacks.length) out.push(['icons', c.filter((e) => !isStackIcon(e))]);
+    if (stacks.length) out.push(['icon_stacks', stacks]);
+  }
+  return out;
+}
+
 function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
   const found = [];
-  for (const sec of ROOMS) {
-    const c = candidates(sec);
-    if (c.length) found.push(T('bubble.' + sec, { n: c.length, size: fmt.size(sum(c)) }));
-  }
+  for (const [key, c] of roomCounts()) found.push(T('bubble.' + key, { n: c.length, size: fmt.size(sum(c)) }));
   let text = found.length ? T('bubble.found', { list: found.join(', ') }) : T('bubble.spotless');
   if (state.docker.enabled && !state.docker.ok) text = T('bubble.docker_down') + ' ' + text;
   if (state.trash.runs.length && state.trash.bytes !== null) text += ' ' + T('bubble.trash', { size: fmt.size(state.trash.bytes) });
@@ -739,7 +748,7 @@ function menuItems(e) {
   if (e.kind === 'stack' && e.file) items.push({ text: T('show_compose'), act: () => showFile(e) });
   if (e.kind === 'userscript' && e.exists) items.push({ text: T('show_script'), act: () => showFile(e) });
   if (e.kind === 'icon' && e.template_id) items.push({ text: T('show_xml'), act: () => showFile({ id: e.template_id, kind: 'template', file: e.template.split('/').pop() }) });
-  if (e.kind === 'icon' && e.category === 'compose' && e.project) items.push({ text: T('show_compose'), act: () => showFile({ id: 'stack:' + e.project, kind: 'stack', folder: e.project }) });
+  if (e.kind === 'icon' && (e.category === 'compose' || isStackIcon(e)) && e.project) items.push({ text: T('show_compose'), act: () => showFile({ id: 'stack:' + e.project, kind: 'stack', folder: e.project }) });
   if (e.parts && !e.parts.every((p) => p.file) || (e.kind === 'volume' && e.path)) {
     items.push({ text: T('measure_again'), act: () => measure([e.id]), disabled: !Office.agent.running || e.measuring });
   }
@@ -876,7 +885,7 @@ function exportCsv(sec) {
   } else {
     for (const e of entries(sec).filter(matches)) {
       const path = e.kind === 'stack' ? e.dir : e.path || (e.parts || []).map((p) => p.path).join(' ');
-      rows.push([T(`cat.${sec}.${e.category}`), e.kind === 'icon' ? T('d.container') : T('item.' + e.kind), label(e), e.bytes ?? '', csvDate(e.mtime || e.newest || e.created || e.time),
+      rows.push([T(`cat.${sec}.${e.category}`), isStackIcon(e) ? T('d.stack') : e.kind === 'icon' ? T('d.container') : T('item.' + e.kind), label(e), e.bytes ?? '', csvDate(e.mtime || e.newest || e.created || e.time),
         (e.used_by || []).map((u) => u.name).concat((e.containers || []).map((c) => c.name), e.container && e.container.name ? [e.container.name] : []).join(', '),
         (e.notes || []).map(noteText).join(' '), path || '']);
     }
@@ -1176,11 +1185,19 @@ function picture(url) {
 const shownIcon = (e) => (e.shown ? e.shown : /^https?:\/\//i.test(e.value) ? e.value : null);
 
 function iconMeta(e, meta) {
-  meta.appendChild(el('span', 'mono', e.image.replace(/@sha256:[0-9a-f]+$/i, '')));       // the digest in the details
+  const stack = isStackIcon(e);
+  if (stack) meta.appendChild(chip(`🧩 ${e.folder}`, 'quiet', T('pic.stack_containers', { names: e.containers.map((c) => c.name).join(', ') })));
+  else meta.appendChild(el('span', 'mono', e.image.replace(/@sha256:[0-9a-f]+$/i, '')));       // the digest in the details
   if (e.category === 'ok') return;
-  meta.appendChild(e.status === 'missing'
-    ? chip(T('pic.missing'), 'warn', T('pic.missing_text'))
-    : chip(T('pic.broken'), 'warn', T(e.value.startsWith('/') ? 'pic.broken_local_text' : 'pic.broken_text', { value: e.value })));
+  if (stack) {
+    meta.appendChild(e.status === 'missing'
+      ? chip(T('pic.missing'), 'warn', T('pic.stack_missing_text'))
+      : chip(T('pic.broken'), 'warn', T('pic.stack_broken_text', { value: e.value })));
+  } else {
+    meta.appendChild(e.status === 'missing'
+      ? chip(T('pic.missing'), 'warn', T('pic.missing_text'))
+      : chip(T('pic.broken'), 'warn', T(e.value.startsWith('/') ? 'pic.broken_local_text' : 'pic.broken_text', { value: e.value })));
+  }
   if (e.category === 'template') meta.appendChild(chip('📄 ' + e.template.split('/').pop(), 'accent', T('pic.via_template_text', { path: e.template })));
   if (e.category === 'compose') meta.appendChild(chip(`🧩 ${e.project} · ${e.service || '?'}`, 'accent', e.override ? T('pic.via_compose_text', { path: e.override }) : T('cat.icons.compose_text')));
   if (e.category === 'none' || e.why) return;
@@ -1194,13 +1211,20 @@ function iconMeta(e, meta) {
 
 function iconDetail(e) {
   const box = el('div');
-  box.appendChild(kv([
+  const stack = isStackIcon(e);
+  box.appendChild(kv(stack ? [
+    [T('d.stack'), e.name === e.folder ? e.name : `${e.name} · ${e.folder}`],
+    [T('d.containers'), e.containers.map((c) => c.name).join(', ')],
+    [T('pic.d.main'), e.main || T('d.none')],
+    [T('pic.d.now'), e.value ? (e.value.startsWith('data:') ? T('pic.data_address') : e.value) : T('d.none'), !!e.value && !e.value.startsWith('data:')],
+    [T('pic.d.where'), e.path, true],
+  ] : [
     [T('d.container'), `${e.name} · ${e.state}`],
     [T('d.image'), e.image, true],
     [T('pic.d.now'), e.value ? `${e.value}${e.value_from ? ` (${T('pic.from.' + e.value_from)})` : ''}` : T('d.none'), !!e.value],
     [T('pic.d.where'), e.category === 'ok' ? '' : e.path, true],
   ]));
-  if (e.category === 'ok') { box.appendChild(el('p', 'role', T('pic.ok_text'))); return box; }
+  if (e.category === 'ok') { box.appendChild(el('p', 'role', T(stack ? 'pic.stack_ok_text' : 'pic.ok_text'))); return box; }
   box.appendChild(el('p', 'role', T('pic.how_' + e.category)));
   if (e.why) box.appendChild(el('p', 'role', T(`why.${e.why}_text`)));
   if (e.category === 'none' || e.why) return box;
@@ -1244,6 +1268,10 @@ function iconDetail(e) {
   input.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); take(); } };
   own.append(input, use);
 
+  if (stack && !e.copy_ok) {      // a file can't go into its folder: addresses only
+    box.append(list, own, el('p', 'role', T('pic.own_hint_address')), el('p', 'role', T('pic.stack_far', { dir: e.dir })));
+    return box;
+  }
   // or a picture from this computer: the browser makes a small square PNG of it, only that goes to the server
   const upload = el('div', 'cl-pic-own');
   const file = el('input');
@@ -1262,7 +1290,8 @@ function iconDetail(e) {
   };
   upload.append(file, up);
   if (chosen && chosen.startsWith('data:')) upload.append(picture(chosen), el('span', 'role', T('src.upload')));
-  box.append(list, own, el('p', 'role', T('pic.own_hint')), upload, el('p', 'role', T('pic.upload_hint', { dir: (state.icons || {}).upload_dir || '' })));
+  box.append(list, own, el('p', 'role', T('pic.own_hint')), upload,
+    el('p', 'role', stack ? T('pic.upload_hint_stack', { dir: e.dir }) : T('pic.upload_hint', { dir: (state.icons || {}).upload_dir || '' })));
   return box;
 }
 
@@ -1346,13 +1375,14 @@ async function iconsDialog() {
   list.forEach((e) => {
     const li = el('li');
     const name = el('span', 'cl-pic-name');
-    name.append(picture(iconChoice(e)), el('span', '', e.name));
-    li.append(name, el('span', 'cl-pic-when', T(e.category === 'template' ? 'icons.at_once' : 'icons.after_up')));
+    name.append(picture(iconChoice(e)), el('span', '', label(e)));
+    li.append(name, el('span', 'cl-pic-when', T(e.category === 'compose' ? 'icons.after_up' : 'icons.at_once')));
     ul.appendChild(li);
   });
   box.appendChild(ul);
   if (list.some((e) => e.category === 'template')) box.appendChild(el('p', 'role', T('icons.template_note')));
   if (list.some((e) => e.category === 'compose')) box.appendChild(el('p', 'callout', T('icons.compose_note')));
+  if (list.some(isStackIcon)) box.appendChild(el('p', 'role', T('icons.stack_note')));
   box.appendChild(el('p', 'role', T('icons.undo_note')));
   Office.dialog({
     title: T('icons.title', { n: list.length }),
@@ -1791,7 +1821,7 @@ async function restore(it, button) {
   if (!j.ok) { button.disabled = false; Office.toast(Office.errorText(j.error, ID), true); return; }
   const r = j.results[0];
   if (r && !r.ok) Office.toast(Office.errorText(r.error, ID), true);
-  else Office.toast(T(it.kind === 'stack' ? 'restore.done_stack' : it.kind === 'icon' ? 'restore.done_icon' : it.kind === 'volume' ? 'restore.done_volume' : 'restore.done', { name: it.kind === 'icon' ? it.label || it.name : it.name }));
+  else Office.toast(T(it.kind === 'stack' ? 'restore.done_stack' : it.kind === 'icon' && it.name === 'icon_url' ? 'restore.done_stack_icon' : it.kind === 'icon' ? 'restore.done_icon' : it.kind === 'volume' ? 'restore.done_volume' : 'restore.done', { name: it.kind === 'icon' ? it.label || it.name : it.name }));
   setState(j.state);
 }
 

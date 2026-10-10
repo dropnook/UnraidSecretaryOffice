@@ -685,7 +685,7 @@
   "item.now_in": "now in {path}",
   "trash.parked_at": "put away {when} ({ago})",
   "section.icons": "Missing pictures",
-  "section.icons_sub": "Containers that show a question mark on Unraid's Docker page and Dashboard — that simply won't do.",
+  "section.icons_sub": "Containers and Compose stacks that show a question mark on Unraid's Docker page and Dashboard — that simply won't do.",
   "tile.pictured": "all have a picture",
   "cat.icons.template": "Through their template",
   "cat.icons.template_text": "I set the picture in the container's template — it shows at once",
@@ -695,6 +695,8 @@
   "cat.icons.none_text": "Neither a template nor a Compose Manager stack — only re-creating the container would give it a picture",
   "cat.icons.ok": "Have a picture",
   "cat.icons.ok_text": "Unraid shows their picture",
+  "cat.icons.stack": "Compose stacks without a picture of their own",
+  "cat.icons.stack_text": "I set the stack's picture in the Compose Manager (icon_url) — its main app's picture, shown at once",
   "why.no_template": "no template",
   "why.no_template_text": "Unraid's Docker page made it, but no template of its own in templates-user matches it (name and image) — there is nowhere to keep a picture.",
   "why.no_stack": "not in the Compose Manager",
@@ -757,6 +759,21 @@
   "src.office_text": "A picture you uploaded for it earlier, still in the office's folder ({detail}).",
   "src.upload": "uploaded",
   "src.upload_text": "The picture you uploaded — I keep it on the flash in the office's folder and set it from there.",
+  "pic.stack_name": "Stack {name}",
+  "pic.stack_containers": "Its containers: {names}",
+  "pic.stack_missing_text": "The Compose Manager has no picture for this stack (icon_url) — Unraid's Docker page shows a question mark in front of it, even when its containers have pictures.",
+  "pic.stack_broken_text": "Its icon_url says {value}, but the Compose Manager can't show that (no such file, or not an address it takes).",
+  "pic.stack_ok_text": "The Compose Manager shows a picture for this stack. Nothing to straighten.",
+  "pic.how_stack": "I write the address into the stack's icon_url, the way the Compose Manager's stack settings do — Unraid's Docker page shows it the next time it loads. A picture on this server, an uploaded one, or one from the web that isn't square I copy into the stack's folder first (icon.png): the Compose Manager only shows files from there or under /mnt. Nothing restarts. The old icon_url goes into my storeroom first.",
+  "pic.d.main": "Main app",
+  "pic.data_address": "a picture inside the address itself (data:)",
+  "pic.own_hint_address": "Or your own: the address of a PNG (at most 1 MB) — I load and check it before I hang it.",
+  "pic.stack_far": "This stack's folder ({dir}) isn't a place the Compose Manager shows files from — only an address can be its picture.",
+  "pic.upload_hint_stack": "From your computer: PNG, JPEG, WebP, GIF or SVG. Your browser makes a square PNG of at most 256 × 256 pixels out of it, and only that is sent; I keep it in the stack's folder ({dir}).",
+  "src.stack_app": "its app's picture",
+  "src.stack_app_text": "The picture its container {detail} shows on the Docker page.",
+  "d.stack": "Stack",
+  "icons.stack_note": "Stacks: I write their icon_url in the Compose Manager — the picture shows on the Docker page's next load. I don't restart anything.",
   "loop.text": {
     "one": "Unraid {version} has a fault: for a container without a picture, its Docker page and Dashboard ask for question.png — a file this version doesn't ship — again and again, about a thousand times a second, until /var/log is full. 1 container has no picture. Keep those pages closed until it has one, or put a stand-in in place now.",
     "other": "Unraid {version} has a fault: for a container without a picture, its Docker page and Dashboard ask for question.png — a file this version doesn't ship — again and again, about a thousand times a second, until /var/log is full. {n} containers have no picture. Keep those pages closed until they have one, or put a stand-in in place now."
@@ -771,8 +788,8 @@
     "other": "Hang {n} pictures?"
   },
   "icons.text": {
-    "one": "This container gets its picture:",
-    "other": "These {n} containers get their pictures:"
+    "one": "This one gets its picture:",
+    "other": "These {n} get their pictures:"
   },
   "icons.at_once": "at once",
   "icons.after_up": "lasting after Compose Up",
@@ -797,12 +814,22 @@
     "one": "1 container without a picture",
     "other": "{n} containers without a picture"
   },
+  "bubble.icon_stacks": {
+    "one": "1 Compose stack without a picture",
+    "other": "{n} Compose stacks without a picture"
+  },
+  "fact.icon_stacks": {
+    "one": "1 Compose stack without a picture",
+    "other": "{n} Compose stacks without a picture"
+  },
   "item.icon": "file before its picture",
   "restore.done_icon": "{name} is back as it was — the picture is gone again (for a stack: from its next Compose Up).",
-  "help.icons_text": "Containers that show a question mark on Unraid's Docker page and Dashboard: no picture set, or one Unraid can't load. For a container from a template I set the <Icon> in its template (shown at once); for one from a Compose Manager stack, the label in the stack's override file (lasting from its next Compose Up). Pictures come from this server (named like the app in Unraid's dockerMan/images folder; Apple's Time Machine logo for Time Machine containers), from Community Applications on this server, a table of well-known images (a database in an app's stack gets its database's logo) and, once checked, a guess from the image's name — addresses from the open dashboard-icons collection; nothing is bundled. Or upload your own in a container's details: your browser makes a square PNG of at most 256 × 256 pixels, I keep it on the flash in the office's folder and set it from there. Before I change a file, it goes into my storeroom.",
+  "restore.done_stack_icon": "Stack {name}: its picture in the Compose Manager is back as it was.",
+  "help.icons_text": "Containers that show a question mark on Unraid's Docker page and Dashboard: no picture set, or one Unraid can't load. For a container from a template I set the <Icon> in its template (shown at once); for one from a Compose Manager stack, the label in the stack's override file (lasting from its next Compose Up). Pictures come from this server (named like the app in Unraid's dockerMan/images folder; Apple's Time Machine logo for Time Machine containers), from Community Applications on this server, a table of well-known images (a database in an app's stack gets its database's logo) and, once checked, a guess from the image's name — addresses from the open dashboard-icons collection; nothing is bundled. Or upload your own in a container's details: your browser makes a square PNG of at most 256 × 256 pixels, I keep it on the flash in the office's folder and set it from there. Before I change a file, it goes into my storeroom. A Compose stack has a picture of its own in the Compose Manager (icon_url): when it has none, or one that points nowhere, I list it too and offer its main app's picture (never its database's or cache's) — written at once, the old one into my storeroom.",
   "help.loop": "Unraid 7.3.2",
   "help.loop_text": "This version doesn't ship the question mark it shows for containers without a picture, and its pages ask for it endlessly — /var/log fills up within minutes. While that is so, I offer a stand-in (in RAM, gone after a reboot); once Unraid fixes it, my warning goes away.",
   "errors.cleanup_icon_has": "{name} already has a picture.",
+  "errors.cleanup_icon_stack_far": "The folder of stack {name} ({path}) isn't a place the Compose Manager shows files from — give an address instead.",
   "errors.cleanup_icon_manual": "{name}'s stack has its override file set to «Manual» — set the icon in the Compose Manager.",
   "errors.cleanup_icon_indirect": "{name}'s stack uses the override file next to its compose file — set the icon in the Compose Manager.",
   "errors.cleanup_icon_no_service": "I can't find {name}'s service in its stack's compose file.",

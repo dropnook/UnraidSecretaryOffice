@@ -13022,6 +13022,169 @@ function testStrings(): void
 }
 
 /** Ms. Dustdevil squares pictures that aren't square (Unraid would squeeze them) */
+/**
+ * A Compose stack's own picture (Compose Manager's icon_url): listed when it is missing, empty or points nowhere,
+ * proposing its main app's picture (never its database's); hung into icon_url with the old state in the storeroom,
+ * a picture copied into the stack's folder when it must be a file; put back — on copies in a temporary folder.
+ */
+function testIconStacks(): void
+{
+    // what Compose Manager shows (StackInfo::getIconUrl(), IconCache.php)
+    foreach (['https://x/a.png' => true, 'http://x:8080/a.png?b=1' => true, 'HTTPS://x/a.png' => false, 'https://' => false,
+              'data:image/png;base64,iVBORw0K' => true, 'data:text/html,<b>' => false, 'file:///boot/x.png' => false, 'ftp://x/a.png' => false,
+              '/etc/x.png' => false, CL_COMPOSE_DEF . '/../x.png' => false,
+              CL_COMPOSE_DEF . '/office-tests-none-' . getmypid() . '/icon.png' => false] as $v => $want) {
+        same('stack icon: Compose Manager shows ' . json_encode($v), $want, clStackIconOk((string) $v));
+    }
+    same('stack icon: a copy may go into its projects folder only', [true, false, false, false],
+        [clStackIconCopyOk(CL_COMPOSE_DEF . '/web'), clStackIconCopyOk('/tmp/web'), clStackIconCopyOk(CL_COMPOSE_DEF . '/../web'), clStackIconCopyOk(CL_COMPOSE_DEF . "/a\nb")]);
+    same('stack icon: home of icon_url', '/r/p', clIconHome('/r/p/icon_url', '/r'));
+    same('stack icon: no home deeper or elsewhere', '', clIconHome('/r/p/q/icon_url', '/r') . clIconHome('/x/p/icon_url', '/r'));
+
+    $tmp = sys_get_temp_dir() . '/office-tests-stackicons-' . getmypid();
+    $root = "$tmp/projects";
+    foreach (['missing', 'empty', 'nowhere', 'odd', 'present', 'lonely', 'bare'] as $f) {
+        @mkdir("$root/$f", 0700, true);
+    }
+    file_put_contents("$root/empty/icon_url", "  \n");
+    file_put_contents("$root/nowhere/icon_url", CL_COMPOSE_DEF . '/office-tests-none-' . getmypid() . '/icon.png');
+    file_put_contents("$root/odd/icon_url", 'file:///boot/config/x.png');
+    file_put_contents("$root/present/icon_url", "https://x/present.png\n");
+    $stack = fn (string $f, array $names) => ['folder' => $f, 'dir' => "$root/$f", 'name' => ucfirst($f),
+                                               'containers' => array_map(fn ($n) => ['name' => $n, 'state' => 'running'], $names)];
+    $row = fn (string $name, string $service, string $image, string $category, string $value, array $candidates = []) =>
+        ['id' => "icon:$name", 'name' => $name, 'service' => $service, 'image' => $image, 'project' => null, 'category' => $category,
+         'value' => $value, 'candidates' => $candidates];
+    $icons = [
+        $row('missing-db', 'db', 'mariadb:11', 'ok', 'https://x/mariadb.png'),
+        $row('missing-app', 'app', 'example/notes:2', 'ok', 'https://x/notes.png'),
+        $row('missing-ml', 'machine-learning', 'example/notes-ml:2', 'ok', 'https://x/ml.png'),
+        $row('empty-web', 'web', 'nginx', 'ok', 'https://x/web.png'),
+        $row('nowhere', 'nowhere', 'example/board', 'ok', 'https://x/board.png'),
+        $row('odd-server', 'server', 'example/odd', 'ok', 'file:///boot/config/plugins/x/odd.png'),
+        $row('present-app', 'app', 'example/p', 'ok', 'https://x/p.png'),
+        $row('lonely-redis', 'redis', 'redis', 'ok', 'https://x/redis.png'),
+        $row('bare-app', 'app', 'example/bare', 'compose', '', [['url' => 'file:///boot/x.png', 'source' => 'dockerman', 'detail' => 'x'],
+                                                              ['url' => 'https://x/bare.png', 'source' => 'ca', 'detail' => 'example/bare']]),
+    ];
+    $stacks = ['list' => [$stack('missing', ['missing-db', 'missing-app', 'missing-ml']), $stack('empty', ['empty-web']), $stack('nowhere', ['nowhere']),
+                          $stack('odd', ['odd-server']), $stack('present', ['present-app']), $stack('lonely', ['lonely-redis']), $stack('bare', ['bare-app']),
+                          $stack('idle', [])]];
+    $rows = array_column(clIconStacks($stacks, $icons), null, 'folder');
+    same('stack rows: one per stack with containers', ['missing', 'empty', 'nowhere', 'odd', 'present', 'lonely', 'bare'], array_keys($rows));
+    same('stack rows: what they are', ['missing' => ['stack', 'missing', ''], 'empty' => ['stack', 'missing', ''], 'nowhere' => ['stack', 'broken', CL_COMPOSE_DEF . '/office-tests-none-' . getmypid() . '/icon.png'],
+                                       'odd' => ['stack', 'broken', 'file:///boot/config/x.png'], 'present' => ['ok', 'ok', 'https://x/present.png'],
+                                       'lonely' => ['stack', 'missing', ''], 'bare' => ['stack', 'missing', '']],
+        array_map(fn ($e) => [$e['category'], $e['status'], $e['value']], $rows));
+    $r = $rows['missing'];
+    same('stack row: its fields', ['iconstack:missing', 'icon', 'stack', 'Missing', "$root/missing/icon_url", "$root/missing", false, 'missing-app'],
+        [$r['id'], $r['kind'], $r['target'], $r['name'], $r['path'], $r['dir'], $r['copy_ok'], $r['main']]);
+    same('stack row: its main app first, a side part after, never the database', [['https://x/notes.png', 'stack_app', 'missing-app'], ['https://x/ml.png', 'stack_app', 'missing-ml']],
+        array_map(fn ($c) => [$c['url'], $c['source'], $c['detail']], $r['candidates']));
+    same('stack row: a picture on the server only where it may be copied to', [], $rows['odd']['candidates']);
+    same('stack row: only a database or cache — nothing to propose', [null, []], [$rows['lonely']['main'], $rows['lonely']['candidates']]);
+    same('stack row: the main app without a picture — what was found for it (addresses only here)', ['https://x/bare.png'], array_column($rows['bare']['candidates'], 'url'));
+    same('stack row: present — shown, nothing proposed', ['https://x/present.png', []], [$rows['present']['shown'], $rows['present']['candidates']]);
+    file_put_contents("$tmp/p.png", "\x89PNG\r\n\x1a\nxx");
+    same('stack row: a file it shows is previewed', ["file://$tmp/p.png"], array_keys(clIconPreviews([['category' => 'ok', 'shown' => "file://$tmp/p.png", 'candidates' => []]])));
+
+    // hanging: an address as it is; the old state (none) into the storeroom; put back removes it
+    $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');
+    file_put_contents("$tmp/square.png", $png);
+    $e = $rows['missing'] + ['pick' => 'https://x/notes.png', 'upload' => null];
+    $e['copy_ok'] = true;
+    $got = ['https://x/notes.png' => ['ok' => true, 'file' => "$tmp/square.png"]];
+    $runs = [];
+    clIconStackHang($e, $got, $root, $runs);
+    $run = $runs["$tmp/" . CL_TRASH] ?? null;
+    same('hang: icon_url is the address', 'https://x/notes.png', @file_get_contents("$root/missing/icon_url"));
+    $as = 'icons/' . substr(md5("$root/missing"), 0, 8) . '/icon_url';
+    $item = $run['items'][0] ?? [];
+    same('hang: the storeroom knows it', ['icon', 'icon_url', 'Missing', "$root/missing/icon_url", $as, md5('https://x/notes.png'), 'missing', []],
+        [$item['kind'] ?? null, $item['name'] ?? null, $item['label'] ?? null, $item['from'] ?? null, $item['as'] ?? null, $item['written'] ?? null, $item['was'] ?? null, $item['copies'] ?? null]);
+    same('hang: the manifest is written', 1, count((array) ((readJson($run['path'] . '/manifest.json') ?? [])['items'] ?? [])));
+    check('hang: the shape a storeroom entry must have', clTrashAsOk($as, 'icon', $run['stamp']));
+    check('hang: nothing copied for an address', !file_exists("$root/missing/icon.png"));
+    try {
+        clIconStackHang($e, $got, $root, $runs);
+        check('hang: refused once it has a picture', false);
+    } catch (Problem $p) {
+        same('hang: refused once it has a picture', 'cleanup_icon_has', $p->key);
+    }
+    clIconPutBack($run['path'] . "/$as", $item);
+    check('put back: icon_url gone again, out of the storeroom', !file_exists("$root/missing/icon_url") && !file_exists($run['path'] . "/$as"));
+
+    // an upload over an icon_url that points nowhere: copied into the stack's folder, the old one kept
+    $old = (string) file_get_contents("$root/nowhere/icon_url");
+    $e = $rows['nowhere'] + ['pick' => null, 'upload' => $png];
+    $e['copy_ok'] = true;
+    $runs = [];
+    clIconStackHang($e, [], $root, $runs);
+    $run = $runs["$tmp/" . CL_TRASH];
+    $item = $run['items'][0];
+    $as = $item['as'];
+    same('upload: icon_url names the copy', "$root/nowhere/icon.png", @file_get_contents("$root/nowhere/icon_url"));
+    same('upload: the copy is the picture', md5($png), (string) @md5_file("$root/nowhere/icon.png"));
+    same('upload: the old icon_url in the storeroom', $old, @file_get_contents($run['path'] . "/$as"));
+    same('upload: what put back takes away', ['there', ["$root/nowhere/icon.png" => md5($png)]], [$item['was'], $item['copies']]);
+    file_put_contents("$root/nowhere/icon_url", 'https://x/someone-else.png');
+    try {
+        clIconPutBack($run['path'] . "/$as", $item);
+        check('put back: refused once icon_url changed', false);
+    } catch (Problem $p) {
+        same('put back: refused once icon_url changed', 'cleanup_icon_changed', $p->key);
+    }
+    file_put_contents("$root/nowhere/icon_url", "$root/nowhere/icon.png");
+    clIconPutBack($run['path'] . "/$as", $item);
+    same('put back: the old icon_url again', $old, @file_get_contents("$root/nowhere/icon_url"));
+    check('put back: the copy gone', !file_exists("$root/nowhere/icon.png"));
+
+    // the same picture again is used again (not removed by put back); another file of that name stays
+    file_put_contents("$root/empty/icon.png", 'not ours');
+    $e = $rows['empty'] + ['pick' => null, 'upload' => $png];
+    $e['copy_ok'] = true;
+    $runs = [];
+    clIconStackHang($e, [], $root, $runs);
+    $item = $runs["$tmp/" . CL_TRASH]['items'][0];
+    same('copy: beside a file of that name', "$root/empty/icon-2.png", @file_get_contents("$root/empty/icon_url"));
+    same('copy: theirs stays', 'not ours', @file_get_contents("$root/empty/icon.png"));
+    same('copy: the empty icon_url kept', "  \n", @file_get_contents($runs["$tmp/" . CL_TRASH]['path'] . '/' . $item['as']));
+    same('copy: the same picture is used again', ['path' => "$root/empty/icon-2.png", 'created' => false, 'md5' => md5($png)], clStackIconStore("$root/empty", $png));
+    file_put_contents("$root/empty/icon-2.png", 'changed');
+    clIconPutBack($runs["$tmp/" . CL_TRASH]['path'] . '/' . $item['as'], $item);
+    same('put back: empty icon_url again, a changed copy stays', ["  \n", 'changed'], [@file_get_contents("$root/empty/icon_url"), @file_get_contents("$root/empty/icon-2.png")]);
+
+    // a picture from the web that isn't square: a square copy (Unraid would squeeze it); without a place for files: the address
+    if (function_exists('imagecreatetruecolor')) {
+        $im = imagecreatetruecolor(300, 100);
+        imagepng($im, "$tmp/wide.png");
+        $e = $rows['lonely'] + ['pick' => 'https://x/wide.png', 'upload' => null];
+        $got = ['https://x/wide.png' => ['ok' => true, 'file' => "$tmp/wide.png"]];
+        $runs = [];
+        clIconStackHang($e, $got, $root, $runs);
+        same('wide, no place for files: the address', 'https://x/wide.png', @file_get_contents("$root/lonely/icon_url"));
+        unlink("$root/lonely/icon_url");
+        $e['copy_ok'] = true;
+        $runs = [];
+        clIconStackHang($e, $got, $root, $runs);
+        $size = @getimagesize("$root/lonely/icon.png");
+        same('wide: a square copy', ["$root/lonely/icon.png", 256, 256], [@file_get_contents("$root/lonely/icon_url"), $size[0] ?? null, $size[1] ?? null]);
+    }
+    // what can't be hung: a file not on this server, an address that didn't load — nothing left behind
+    $e = $rows['bare'] + ['pick' => 'file:///boot/office-tests-none.png', 'upload' => null];
+    $e['copy_ok'] = true;
+    foreach (['a file that is not there' => [$e, []], 'an address that did not load' => [['pick' => 'https://x/bare.png'] + $e, ['https://x/bare.png' => ['ok' => false]]]] as $what => [$x, $got]) {
+        $runs = [];
+        try {
+            clIconStackHang($x, $got, $root, $runs);
+            check("hang refused: $what", false);
+        } catch (Problem $p) {
+            same("hang refused: $what", ['cleanup_icon_fetch_failed', false, []], [$p->key, file_exists("$root/bare/icon_url"), glob("$root/bare/*") ?: []]);
+        }
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testIconSquare(): void
 {
     if (!function_exists('imagecreatetruecolor')) {
@@ -26665,7 +26828,7 @@ SH);
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
