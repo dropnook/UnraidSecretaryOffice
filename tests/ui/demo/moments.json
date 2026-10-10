@@ -45,7 +45,7 @@
   "nr": 3,
   "desk": "backup",
   "moment": "run",
-  "title": "Herr Backupsi - eine Sicherung läuft: Schritte, Kopia-Quellen, wie lange noch",
+  "title": "Herr Backupsi - eine Sicherung läuft: Schritte, Quellen ausser Haus, wie lange noch",
   "route": "backup",
   "states": {
    "backup": "backup-run"

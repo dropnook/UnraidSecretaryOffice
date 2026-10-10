@@ -18,8 +18,8 @@ or MikroTik router says about the server. It is a plugin: no container, no accou
 | | Desk | What they do for you |
 |---|---|---|
 | 👥 | **The Team Lead** | Suggests whom to hire for your server and tells you what is left to do — *still to do*, *recommended*, *good to know* — each with a link into Unraid. Pairs partner offices and hands a gone server's copies to a new one. |
-| 💾 | **Mr. Backupsy** | Sets up and runs the nightly backup: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia. Shows what a run is doing, how the last runs went and which share is protected how. |
-| 📦 | **Mr. Restori** | Brings back databases, folders, whole shares, templates and VM configurations — from the packages, the local snapshots, Kopia or a partner office. Puts aside what he replaces, never deletes it, and can undo every restore. Practises restores on his own: the restore drill. |
+| 💾 | **Mr. Backupsy** | Sets up and runs the nightly backup: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia — per share, app and VM: not backed up, local, or local + offsite. Shows what a run is doing, how the last runs went and which share is protected how. |
+| 📦 | **Mr. Restori** | Brings back databases, folders, whole shares, templates and VM configurations — from the packages, the local snapshots, the offsite copy (Kopia) or a partner office. Puts aside what he replaces, never deletes it, and can undo every restore. Practises restores on his own: the restore drill. |
 | 📸 | **Ms. Snapshotini** | Every ZFS, btrfs and VM snapshot on the server: create, delete with an estimate of the space freed, rename, hold. Schedules with a simple retention that only ever clears away her own. The entries a deleted VM leaves in Unraid's snapshot list — Unraid's VM page can't remove them — she takes out once nothing of them is left on disk (into the storeroom; put back any time). |
 | 🏮 | **The Night Watchman** | Says how securely the server stands, and keeps a watch book of what is different from normal — logins, containers, plugins, the flash, schedules, data flow, vanished snapshots, and what your router reports. Changes nothing himself. |
 | 🧹 | **Ms. Dustdevil** | Knows where everything lies and gives advice on keeping it in order. Clears away what nobody uses — templates, stacks, appdata folders, Docker's leftovers — into a storeroom first, never deleting at once (Docker's volumes are copied in before Docker removes them; only images and the build cache, which can be downloaded again, and volumes mounted from elsewhere go for good). Gives containers without a picture a logo. |
@@ -31,7 +31,7 @@ A fresh office has only the Team Lead. He looks at your server and suggests whom
 ZFS or btrfs, no Ms. Snapshotini). Hire whom you need, let them go later — their data and settings stay; Mr. Restori
 asks to come together with Mr. Backupsy, and *Hire together with Mr. Backupsy* hires both. Mr. Backupsy's *Let
 go* offers «Also clear away what he kept here»: his packages go to Ms. Dustdevil's storeroom and his own local
-snapshots are deleted — his settings, Kopia's and the partners' copies stay. Letting Jack Emby go switches off his
+snapshots are deleted — his settings and the offsite copies (in your storage and at the partners) stay. Letting Jack Emby go switches off his
 two schedules (a run that is going finishes); «Also bring the prepared films back to the array» moves what EmbyCache
 keeps on the pool back, the way its cleanup does (never while someone watches), and «Also take my list out of Mover
 Tuning again» (on by default) puts Mover Tuning's two settings back as they were before him; Unraid's mover schedule
@@ -45,39 +45,40 @@ reception puts the desks in the order you like.
 
 ### The scheduled backup
 
-At the time you chose under Mr. Backupsy's *Schedule…*, the backup engine starts on the server — the office needn't
-be open. VMs you set to shut down go down first; Nextcloud goes into maintenance mode; the apps that write into
-backed-up shares stop briefly while their databases are dumped. Each app and VM gets a fresh **package** in the backup
-place (templates or compose files, the dumps, the VM's configuration). The VMs you chose are frozen or paused for a
-few seconds while ZFS and btrfs **snapshots** freeze the shares, the packages and the VMs' disks; then everything starts
-again. Next the snapshots of what you ticked go to your **partner office**, then **Kopia** uploads from the snapshots,
-encrypted — the flash first, then the apps, then the shares and VMs, the smallest first. Old snapshots go by your
-retention. Something new — a folder in a share that goes to Kopia, an app, a VM — stays local and keeps running until
-you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's
-notifications. *Stop the run* ends a run cleanly, and its card says what it still waits for (apps stopping, a VM,
-Kopia); stopping the array ends it cleanly too, and what it had stopped comes back right after the array starts.
+At the time you chose under Mr. Backupsy's *Schedule…*, the backup engine starts on the server — the office needn't be
+open. VMs you set to shut down go down first; Nextcloud goes into maintenance mode; the apps that write into backed-up
+shares stop briefly while their databases are dumped. Each app and VM gets a fresh **package** in the backup place
+(templates or compose files, the dumps, the VM's configuration). The VMs you chose are frozen or paused for a few
+seconds while ZFS and btrfs **snapshots** freeze the shares, the packages and the VMs' disks; then everything starts
+again. Next the snapshots of what you ticked go to your **partner office**, then the **offsite** copy: Kopia uploads
+from the snapshots, encrypted, to your storage (S3, Backblaze B2, SFTP, WebDAV, a NAS …) — the flash first, then the
+apps, then the shares and VMs, the smallest first. Old snapshots go by your retention. Something new — a folder in a
+share that goes offsite, an app, a VM — stays local and keeps running until you decide in the setup; a new share waits
+for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. *Stop the run* ends a run
+cleanly, and its card says what it still waits for (apps stopping, a VM, the offsite upload); stopping the array ends
+it cleanly too, and what it had stopped comes back right after the array starts.
 
-![Mr. Backupsy: a run going on — its steps, Kopia's sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)
+![Mr. Backupsy: a run going on — its steps, its offsite sources, how long still](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png)
 
 ### Getting something back
 
 Mr. Restori lists every app and VM with what can come back from where, with dates: its package, the local snapshots of
-its folders, Kopia, a partner office. Choose a database, a folder, a share, the templates or a VM's configuration, and
-he shows exactly what will happen — the steps, which containers stop and for how long, what goes aside where. Only
-when you confirm does he start, on the server, one restore at a time and never during a backup. «Restored» lists every
-restore with its steps and what went aside where; *Put back* undoes one, also one that failed. He never starts or
-recreates a container — he says what to click. For the rest there are ready-made commands with your names and paths,
-and a guide *onto a new server*.
+its folders, the offsite copy (Kopia), a partner office. Choose a database, a folder, a share, the templates or a VM's
+configuration, and he shows exactly what will happen — the steps, which containers stop and for how long, what goes
+aside where. Only when you confirm does he start, on the server, one restore at a time and never during a backup.
+«Restored» lists every restore with its steps and what went aside where; *Put back* undoes one, also one that failed.
+He never starts or recreates a container — he says what to click. For the rest there are ready-made commands with your
+names and paths, and a guide *onto a new server*.
 
 ### The restore drill
 
 Once a month (or every week in the night you choose, or only when you press *Practise now…*), at night after a backup
 that went well, Mr. Restori proves that what Mr. Backupsy keeps really comes back. He reads every package in full,
 plays the database dumps into throwaway containers without network, checks the media servers' database copies and the
-VMs' disks, and streams a sample back from Kopia (as many GB as you allow) to compare with the local snapshot — where
-an app's package goes to Kopia, one of its dumps is read back from Kopia and played too. Each app and VM gets a
-**certificate**: which level is proven, from which copy, when; a step that failed shows its error. The drill wakes no
-disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
+VMs' disks, and streams a sample back from the offsite copy (as many GB as you allow) to compare with the local
+snapshot — where an app's package goes offsite, one of its dumps is read back from there and played too. Each app and
+VM gets a **certificate**: which level is proven, from which copy, when; a step that failed shows its error. The drill
+wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
 interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
 
 ![Mr. Restori: the drill passed — the level per app, the databases played back](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill.png)
@@ -165,11 +166,11 @@ any more.
 | The plugin package, where the data folder is, the schedules, partner keys, uploaded container pictures | the flash, `/boot/config/plugins/unraid-secretary-office/` |
 | The code, the messenger's sign of life, the snapshots mounted during a run, the numbers for Prometheus | RAM — nothing of the office lands on the pool every few seconds, so a pool of hard disks can sleep |
 
-Nothing leaves the server unless you set it up: Kopia to the storage you chose, partner offices to the partner. The
-office itself only asks GitHub once a day whether a new version is out, checks logo addresses for containers without a
-picture, and sends a report only when you send one yourself (below) — and, when you open the list of your reports,
-asks where they stand. No account, no telemetry. The desks never wake a
-sleeping disk unless you ask; the scheduled backup does, unless you tell it to leave sleeping pools out.
+Nothing leaves the server unless you set it up: the offsite copy (Kopia) to the storage you chose, partner offices to
+the partner. The office itself only asks GitHub once a day whether a new version is out, checks logo addresses for
+containers without a picture, and sends a report only when you send one yourself (below) — and, when you open the list
+of your reports, asks where they stand. No account, no telemetry. The desks never wake a sleeping disk unless you ask;
+the scheduled backup does, unless you tell it to leave sleeping pools out.
 
 ![Ms. Dustdevil's «Where is what»: the places that matter and how they are protected](https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png)
 
