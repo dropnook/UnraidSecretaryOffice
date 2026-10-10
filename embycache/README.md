@@ -22,11 +22,15 @@
 >   the user ticks «bring the films back».
 > * `EMBYCACHE_STOP` (a file): once it exists, a real run (`--run`, `--release`) stops after the file it is on — never
 >   in the middle of a copy; what is still on the pool stays on the exclude list; result `stopped`, exit code 3. Jack
->   writes it when Unraid's mover starts during a run (the mover would move the same files).
+>   writes it when Unraid's mover starts during a run (the mover would move the same files), or when the user asks
+>   for it on his page («Stop after this file»).
 > * `EMBYCACHE_PROGRESS` (a file): a real run (`--run`, `--release`) rewrites it at every file boundary (atomic) — the
->   phase (plan, back, fill, done), «back to the array» and per Emby user what is planned and done (files, bytes), the
->   file being copied with its target, its user and its reason (`resume`, `next_up`, `next_episode`, `favorite`). Jack
->   draws a live panel from it (and stats rsync's temporary file next to the target for the bytes inside the file).
+>   phase (plan, back, fill, done), «back to the array» and per Emby user what is planned and done (files, bytes) with
+>   `started`/`ended` (the first file's start, the last one's end), the file being copied with its target, its user and
+>   its reason (`resume`, `next_up`, `next_episode`, `favorite`), and the fill's queue — `queue` = `[[user index, bytes],
+>   …]` in the order the files are copied (path order, all users mixed; only what isn't on the pool yet; none beyond
+>   5000 files), `pos` = how many of them are done or dropped. Jack draws a live panel from it (when each user will be
+>   done, how long each part took; he stats rsync's temporary file next to the target for the bytes inside the file).
 > * Not taken over: `embycache_setup.py` (Jack is the setup) and `embycache_cleaner.py`
 >   (on a share whose primary is the pool it would take every new film for an orphan).
 >

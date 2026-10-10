@@ -53,10 +53,11 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
   EMBYCACHE_STATUS            JSON-Datei für das Ergebnis des Laufs (siehe embycache_lib.py)
   EMBYCACHE_PROGRESS          JSON-Datei mit dem Fortschritt des scharfen Laufs (--run, --release), an jeder Dateigrenze
                               neu geschrieben: Phase (plan | back | fill | done), «Zurück aufs Array» geplant/erledigt,
-                              pro Benutzer geplant/erledigt (Dateien, Bytes), die Datei in Arbeit mit Ziel und Grund
+                              pro Benutzer geplant/erledigt (Dateien, Bytes) mit Beginn/Ende, die Datei in Arbeit mit
+                              Ziel und Grund, die Warteschlange des Befüllens (queue, pos: wer wann dran ist)
   EMBYCACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
                               Kopie); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
-                              «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete)
+                              «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete, oder auf Wunsch)
 
 Beispiel User Scripts (Unraid):  cd /mnt/user/system/scripts/embycache && python3 embycache_run.py --run
 """
@@ -119,14 +120,21 @@ class Progress:
     """EMBYCACHE_PROGRESS: nur im scharfen Lauf und nur, wenn gesetzt; an jeder Dateigrenze neu geschrieben (atomar).
     Für ein Programm, das den Lauf zeigt: die Phase, «Zurück aufs Array» und pro Benutzer geplant/erledigt, die Datei in
     Arbeit mit ihrem Ziel (dort liegt rsyncs temporäre Datei .<name>.XXXXXX – deren Grösse ist der Stand in der Datei).
-    Geplant ist, was der Lauf vorhat; was er unterwegs auslässt (läuft gerade, Freiplatz, Fehler), fällt aus «geplant»."""
+    Geplant ist, was der Lauf vorhat; was er unterwegs auslässt (läuft gerade, Freiplatz, Fehler), fällt aus «geplant».
+    «Zurück aufs Array» und jeder Benutzer: started (Beginn der ersten Datei) und ended (Ende der letzten).
+    Das Befüllen kopiert eine Datei nach der anderen, alle Benutzer gemischt, nach Pfad: queue = [[Index in users, Bytes],
+    …] in genau dieser Reihenfolge (nur, was nicht schon auf dem Cache liegt), pos = wie viele davon erledigt sind
+    (kopiert oder ausgelassen) – so weiss ein Programm, wann jeder Benutzer fertig ist. Mehr als QUEUE_MAX: keine queue."""
+
+    QUEUE_MAX = 5000
 
     def __init__(self, mode, on):
         self.on = on
         now = int(time.time())
         self.data = {"v": 1, "mode": mode, "phase": "plan", "started": now, "updated": now,
-                     "back": None, "users": [], "current": None}
+                     "back": None, "users": [], "current": None, "queue": None, "pos": 0}
         self.users = {}   # UserPlan.key -> Eintrag in data["users"]
+        self.qidx = {}    # id(OnDeckFile) -> ihre Stelle in der queue
         self.write()
 
     def write(self):
@@ -135,15 +143,19 @@ class Progress:
             write_progress(self.data)
 
     def phase(self, phase):
+        b = self.data["back"]
+        if self.data["phase"] == "back" and phase != "back" and b is not None and b.get("started") and not b.get("ended"):
+            b["ended"] = int(time.time())
         self.data["phase"] = phase
         self.data["current"] = None
         self.write()
 
     def plan_back(self, files, nbytes):
-        self.data["back"] = {"files": files, "bytes": nbytes, "done_files": 0, "done_bytes": 0}
+        self.data["back"] = {"files": files, "bytes": nbytes, "done_files": 0, "done_bytes": 0, "started": None, "ended": None}
 
     def plan_fill(self, planner, files):
-        """Pro Benutzer, was noch vom Array auf den Cache kommt – in der Reihenfolge der Planung."""
+        """Pro Benutzer, was noch vom Array auf den Cache kommt – in der Reihenfolge der Planung; dazu die queue in der
+        Reihenfolge, in der fill() kopiert."""
         todo = {}
         for f in files:
             if not f.on_cache:
@@ -153,15 +165,32 @@ class Progress:
         for u in planner.users.values():
             if u.key in todo:
                 entry = {"key": u.key, "name": u.name, "server": u.server, "files": todo[u.key][0], "bytes": todo[u.key][1],
-                         "done_files": 0, "done_bytes": 0}
+                         "done_files": 0, "done_bytes": 0, "started": None, "ended": None}
                 self.users[u.key] = entry
                 self.data["users"].append(entry)
+        index = {e["key"]: i for i, e in enumerate(self.data["users"])}
+        order = [f for f in sorted(files, key=lambda x: str(x.rel)) if not f.on_cache]      # wie fill()
+        if len(order) <= self.QUEUE_MAX:
+            self.data["queue"] = [[index.get(f.user, -1), int(f.size)] for f in order]
+            self.qidx = {id(f): i for i, f in enumerate(order)}
+
+    def _passed(self, f, entry):
+        """Eine Datei der queue ist erledigt (kopiert oder ausgelassen); ihr Benutzer ohne Rest: ended."""
+        i = self.qidx.get(id(f))
+        if i is not None:
+            self.data["pos"] = max(self.data["pos"], i + 1)
+        if entry is not None and entry["done_files"] >= entry["files"] and entry.get("started") and not entry.get("ended"):
+            entry["ended"] = int(time.time())
 
     def start(self, phase, rel, size, target, f=None):
         """Eine Datei beginnt (vor dem rsync): wer, was, wohin."""
+        now = int(time.time())
+        entry = self.users.get(f.user) if f is not None else self.data["back"] if phase == "back" else None
+        if entry is not None and not entry.get("started"):
+            entry["started"] = now
         self.data["current"] = {"phase": phase, "rel": str(rel), "size": int(size), "target": str(target),
                                 "user": f.user if f is not None else None, "source": f.source if f is not None else None,
-                                "title": f.title if f is not None else None, "since": int(time.time())}
+                                "title": f.title if f is not None else None, "since": now}
         self.write()
 
     def done(self, size, f=None):
@@ -170,6 +199,8 @@ class Progress:
         if entry is not None:
             entry["done_files"] += 1
             entry["done_bytes"] += int(size)
+        if f is not None:
+            self._passed(f, entry)
         self.data["current"] = None
         self.write()
 
@@ -179,6 +210,7 @@ class Progress:
         if entry is not None:
             entry["files"] = max(entry["done_files"], entry["files"] - 1)
             entry["bytes"] = max(entry["done_bytes"], entry["bytes"] - f.size)
+        self._passed(f, entry)
         if write:
             self.data["current"] = None
             self.write()
@@ -583,7 +615,7 @@ class Runner:
         """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
         if not self.stopped and self.run_mode and stop_requested():
             self.stopped = True
-            log.warning("Anhalten verlangt (EMBYCACHE_STOP – das Office: der Unraid-Mover startete): "
+            log.warning("Anhalten verlangt (EMBYCACHE_STOP – das Office: der Unraid-Mover startete, oder auf Wunsch): "
                         "nach der aktuellen Datei ist Schluss, was noch auf dem Cache liegt, bleibt geschützt")
         return self.stopped
 
