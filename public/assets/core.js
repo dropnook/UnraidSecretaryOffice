@@ -668,11 +668,13 @@ let closeDialog = null;
 Office.dialogOpen = () => !!closeDialog;
 
 /** buttons: [{text, kind, act}] — when act() returns false the dialog stays open.
+    wide: true = 760 px; 'log' = as wide and tall as the window allows (logs with long lines, Benj 2026-10-10).
     onClose() runs however the dialog ends (button, Escape, click outside, another dialog). */
 Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
   if (closeDialog) closeDialog();
   const backdrop = $('#sso-dialog-backdrop');
   $('#sso-dialog').classList.toggle('wide', !!wide);
+  $('#sso-dialog').classList.toggle('log', wide === 'log');
   $('#sso-dialog-title').textContent = title;
   const box = $('#sso-dialog-body');
   box.innerHTML = '';
@@ -2318,7 +2320,7 @@ function languageDialog() {
 // ------------------------------------------------------------------ office menu, help, log
 async function showLog() {
   const pre = el('pre', 'code', t('common.loading'));
-  Office.dialog({ title: t('office.log'), body: pre, wide: true });
+  Office.dialog({ title: t('office.log'), body: pre, wide: 'log' });
   const j = await Office.api.get({ a: 'log' });
   if (!j.ok && j.error) {
     pre.textContent = t('office.log_failed');

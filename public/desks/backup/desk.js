@@ -1402,7 +1402,7 @@ async function showLog(name, follow) {
     if (first || atEnd) pre.scrollTop = pre.scrollHeight;
     if (follow && live()) timer = setTimeout(() => fetchLog(false), LIVE_POLL);
   };
-  Office.dialog({ title: name, body: box, wide: true, onClose: () => clearTimeout(timer) });
+  Office.dialog({ title: name, body: box, wide: 'log', onClose: () => clearTimeout(timer) });
   fetchLog(true);
 }
 

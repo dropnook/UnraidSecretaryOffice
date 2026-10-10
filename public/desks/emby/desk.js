@@ -784,7 +784,7 @@ async function showOutput(tool, follow) {
   const status = el('p', 'role');
   const box = el('div');
   box.append(status, pre);
-  const dlg = Office.dialog({ title: T('output_title.' + tool), body: box, wide: true, onClose: () => clearTimeout(outTimer) });
+  const dlg = Office.dialog({ title: T('output_title.' + tool), body: box, wide: 'log', onClose: () => clearTimeout(outTimer) });
   let wasRunning = false;
   const tick = async () => {
     const j = await Office.api.post(`${ID}.output`, { tool });
@@ -805,7 +805,7 @@ async function showOutput(tool, follow) {
 
 async function showLog(tool) {
   const pre = el('pre', 'code', Office.t('common.loading'));
-  Office.dialog({ title: tool === 'gather' ? 'consolidate.log' : 'embycache.log', body: pre, wide: true });
+  Office.dialog({ title: tool === 'gather' ? 'consolidate.log' : 'embycache.log', body: pre, wide: 'log' });
   const j = await Office.api.post(`${ID}.log`, { tool });
   pre.textContent = j.ok ? (j.text || T('output_empty')) : Office.errorText(j.error, ID);
   pre.scrollTop = pre.scrollHeight;

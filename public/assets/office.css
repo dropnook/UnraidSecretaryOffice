@@ -489,6 +489,8 @@
 .dialog-backdrop:not([hidden]){display:flex}
 .dialog{background:var(--surface); border:1px solid var(--line); border-radius:8px; box-shadow:0 24px 60px -20px rgba(0,0,0,.6); width:min(560px,100%); max-height:min(88vh,820px); display:flex; flex-direction:column}
 .dialog.wide{width:min(760px,100%)}
+.dialog.wide.log{width:min(1600px,100%); max-height:94vh}
+.dialog.wide.log .dialog-body pre.code{max-height:calc(94vh - 190px)}
 .dialog h3{padding:17px 22px 0; font-size:17px}
 .dialog-body{padding:12px 22px 4px; overflow:auto; font-size:14.5px; color:var(--ink2)}
 .dialog-body p{margin:0 0 11px}
