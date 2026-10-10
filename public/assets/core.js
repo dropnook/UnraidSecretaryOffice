@@ -723,9 +723,29 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
   }
   document.addEventListener('keydown', onKey);
   backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  backdrop.onwheel = dialogWheel;
   closeDialog = close;
   return { buttons: made, close };
 };
+
+/**
+ * The page behind an open dialog never scrolls (Benj, 2026-10-10: scrolling a log in a dialog scrolled the page once
+ * the log was at its end): the wheel goes to what can scroll that way inside the dialog, else nowhere
+ */
+function dialogWheel(e) {
+  const dy = e.deltaY, dx = e.deltaX;
+  const box = $('#sso-dialog');
+  for (let n = e.target; n && n !== e.currentTarget; n = n.parentElement) {
+    if (!box.contains(n) || n.nodeType !== 1) continue;
+    const st = getComputedStyle(n);
+    const canY = /(auto|scroll)/.test(st.overflowY) && n.scrollHeight > n.clientHeight
+      && ((dy < 0 && n.scrollTop > 0) || (dy > 0 && n.scrollTop + n.clientHeight < n.scrollHeight - 1));
+    const canX = /(auto|scroll)/.test(st.overflowX) && n.scrollWidth > n.clientWidth
+      && ((dx < 0 && n.scrollLeft > 0) || (dx > 0 && n.scrollLeft + n.clientWidth < n.scrollWidth - 1));
+    if (canY || canX) return;          // this one scrolls: the browser does it
+  }
+  e.preventDefault();
+}
 
 Office.showErrors = function showErrors(title, errors, desk) {
   const box = el('div');
