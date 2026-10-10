@@ -1674,7 +1674,7 @@ Office.reportDialog = function reportDialog(deskId) {
       const li = el('li');
       const head = el('span', 'sso-report-yours-title', r.title);     // no inbox number: the inbox is private (2026-10-10)
       li.appendChild(head);
-      li.appendChild(el('span', '', t('office.report_yours_row', { kind: t(`office.report_kind_${r.kind}`),
+      li.appendChild(el('span', 'sso-report-yours-meta', t('office.report_yours_row', { kind: t(`office.report_kind_${r.kind}`),
         desk: r.desk === 'office' ? t('office.report_desk_office') : t(`${r.desk}.name`), day: Office.fmt.date(r.sent) })));
       // where it stands (the agent asks the inbox at most hourly; unknown: nothing shown) and the public issue made of it
       const stand = el('span', 'sso-report-yours-state');
