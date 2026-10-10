@@ -171,12 +171,22 @@ function stepName(st) {
   return what && what !== st.name ? `${st.name} · ${what}` : st.name;
 }
 
+/** How the next drill comes on its own — weekly names the night */
+function schedText(sched) {
+  return T('drill.sched.' + sched, sched === 'weekly' ? { night: nightName(weekday()) } : {});
+}
+
+/** The night a weekly drill takes: the day it ends on (0 = Sunday — the night from Saturday to Sunday) */
+const weekday = () => { const w = dstate && dstate.settings && dstate.settings.weekday; return Number.isInteger(w) && w >= 0 && w <= 6 ? w : 0; };
+const nightName = (w) => T('drill.night.' + w);
+const NIGHTS = [1, 2, 3, 4, 5, 6, 0];   // the select's order: the night to Monday first, the night to Sunday last
+
 /** The last drill in one line, how the next one comes, what was downloaded */
 function headline() {
   const box = el('div', 'rs-dr-head');
   const sched = (dstate && dstate.settings && dstate.settings.schedule) || 'monthly';
   if (!cert || !cert.last) {
-    box.appendChild(el('p', 'callout', T('drill.none') + ' ' + T('drill.sched.' + sched)));
+    box.appendChild(el('p', 'callout', T('drill.none') + ' ' + schedText(sched)));
     return box;
   }
   const l = cert.last;
@@ -192,7 +202,7 @@ function headline() {
   const facts = [];
   if (l.egress) facts.push(T('drill.egress', { size: x.fmt.size(l.egress) }));
   if (cert.last_passed && l.result !== 'passed') facts.push(T('drill.last_passed', { when: x.date(cert.last_passed) }));
-  facts.push(T('drill.sched.' + sched));
+  facts.push(schedText(sched));
   box.appendChild(el('p', 'role', facts.join(' ')));
   return box;
 }
@@ -267,9 +277,25 @@ function itemsDetail(items) {
     li.append(' · ', codeText(it.code, it.params));
     if (['ok', 'warning'].includes(it.result)) li.append(' ', levelChip(it));
     if (it.state_time) li.append(' · ', T('drill.state_of', { when: x.date(it.state_time) }));
+    if (it.detail && !['ok', 'asleep'].includes(it.result)) li.appendChild(detailView(it));
     ul.appendChild(li);
   });
   return ul;
+}
+
+const DETAIL_LINES = 3;    // what a tool said under a failed item: up to three lines shown, the rest folded under them
+
+/** What the tool said, as the certificate keeps it (cut on the server): the first lines, the rest on a click */
+function detailView(it) {
+  const lines = String(it.detail).split('\n');
+  const box = el('div', 'rs-dr-detail');
+  box.appendChild(el('pre', 'code rs-j-detail', lines.slice(0, DETAIL_LINES).join('\n')));
+  if (lines.length > DETAIL_LINES) {
+    const rest = lines.length - DETAIL_LINES;
+    box.appendChild(x.fold(`drill-detail:${it.kind}:${it.of}:${it.id}:${it.copy}:${it.what}`, T('drill.detail_more', { n: rest }),
+      el('pre', 'code rs-j-detail', lines.slice(DETAIL_LINES).join('\n'))));
+  }
+  return box;
 }
 
 /** His last drills, each with its journal on a click */
@@ -405,34 +431,79 @@ function previewView(p) {
 }
 
 // ------------------------------------------------------------------ settings
+const KOPIA_GB_MAX = 100;  // the field's GB (Benj 2026-10-10: «sonst schreibt man zu viele Nullen»); kept as kopia_mb (≤ 102400)
+const KOPIA_GB_STEP = 0.5;
+
+/** MB as the field's GB: up to one decimal in the page's way of writing numbers, no «.0» */
+function kopiaGb(mb) {
+  const gb = Math.round(mb / 1024 * 10) / 10;
+  try { return new Intl.NumberFormat(Office.locale, { maximumFractionDigits: 1, useGrouping: false }).format(gb); } catch (e) { return String(gb); }
+}
+
+/** The field's text as GB — a comma or a point as the decimal sign; null when it is no number from 0 to 100 */
+function parseGb(text) {
+  const t = String(text).trim().replace(',', '.');
+  if (!/^\d+(\.\d*)?$|^\.\d+$/.test(t)) return null;
+  const gb = Number(t);
+  return Number.isFinite(gb) && gb >= 0 && gb <= KOPIA_GB_MAX ? gb : null;
+}
+
 function settingsDialog() {
   const s = { ...(dstate.settings || {}) };
+  s.weekday = weekday();
   const body = el('div', 'rs-opts');
   const way = el('div', 'field');
   way.appendChild(el('div', 'field-title', T('drill.set_schedule')));
+  const night = el('select', 'input rs-dr-night');
+  night.setAttribute('aria-label', T('drill.set_weekday'));
+  NIGHTS.forEach((w) => {
+    const o = el('option', '', T('drill.set_night', { night: nightName(w) }));
+    o.value = String(w);
+    night.appendChild(o);
+  });
+  night.value = String(s.weekday);
+  let weeklyHint = null;
+  const nightOn = () => {
+    night.disabled = s.schedule !== 'weekly';
+    weeklyHint.textContent = T('drill.set.weekly_hint', { night: nightName(s.weekday) });
+  };
+  night.onchange = () => { s.weekday = Number(night.value); nightOn(); };
   ['monthly', 'weekly', 'off'].forEach((v) => {
     const l = el('label', 'check');
     const r = el('input');
     r.type = 'radio';
     r.name = 'rs-dr-sched';
     r.checked = s.schedule === v;
-    r.onchange = () => { s.schedule = v; };
+    r.onchange = () => { s.schedule = v; nightOn(); };
     const text = el('span', '', T('drill.set.' + v));
-    text.appendChild(el('small', '', T('drill.set.' + v + '_hint')));
+    const hint = el('small', '', v === 'weekly' ? '' : T('drill.set.' + v + '_hint'));
+    if (v === 'weekly') weeklyHint = hint;
+    text.appendChild(hint);
     l.append(r, text);
     way.appendChild(l);
+    if (v === 'weekly') way.appendChild(night);
   });
+  nightOn();
   body.appendChild(way);
   const f = el('div', 'field');
   const lab = el('label', '', T('drill.set_kopia'));
-  const inp = el('input', 'input');
-  inp.type = 'number';
-  inp.min = '0';
-  inp.max = '102400';
-  inp.step = '128';
+  const inp = el('input', 'input rs-dr-gb');
+  inp.type = 'text';
+  inp.inputMode = 'decimal';
+  inp.autocomplete = 'off';
   inp.id = 'rs-dr-kopia';
   lab.htmlFor = inp.id;
-  inp.value = String(s.kopia_mb ?? 1024);
+  const mb0 = Number.isInteger(s.kopia_mb) ? s.kopia_mb : 1024;
+  const shown = kopiaGb(mb0);
+  inp.value = shown;
+  // ↑/↓ step by half a GB, like a number field would (a number field takes no comma in every browser)
+  inp.onkeydown = (e) => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const now = parseGb(inp.value) ?? mb0 / 1024;
+    const next = Math.min(KOPIA_GB_MAX, Math.max(0, (Math.round(now / KOPIA_GB_STEP) + (e.key === 'ArrowUp' ? 1 : -1)) * KOPIA_GB_STEP));
+    inp.value = kopiaGb(next * 1024);
+  };
   f.append(lab, inp, el('small', 'role', T('drill.set_kopia_hint')));
   body.appendChild(f);
   ['live_catalog', 'live_sqlite'].forEach((k) => {
@@ -453,8 +524,12 @@ function settingsDialog() {
       text: T('drill.save'),
       kind: '',
       act: async () => {
-        const mb = parseInt(inp.value, 10);
-        const j = await Office.api.post(`${ID}.drill_set`, { schedule: s.schedule, kopia_mb: Number.isFinite(mb) ? Math.max(0, mb) : 1024,
+        // the text as shown: the MB as they were (50000 MB shown as 48.8 GB stays 50000, not 49971)
+        const same = inp.value.trim() === shown;
+        const gb = same ? null : parseGb(inp.value);
+        if (!same && gb === null) { Office.toast(T('drill.set_kopia_bad', { max: KOPIA_GB_MAX }), true); inp.focus(); return false; }
+        const mb = same ? mb0 : Math.round(gb * 1024);
+        const j = await Office.api.post(`${ID}.drill_set`, { schedule: s.schedule, weekday: s.weekday, kopia_mb: mb,
           live_catalog: !!s.live_catalog, live_sqlite: !!s.live_sqlite });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         dstate = j;
@@ -487,6 +562,7 @@ Office.restoreDrill = {
   stop() { clearTimeout(timer); timer = null; },
 };
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine, poll, job: () => job };
+  globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine, poll, job: () => job,
+    kopiaGb, parseGb, detailView, schedText, setState: (d) => { dstate = d; } };
 }
 })();

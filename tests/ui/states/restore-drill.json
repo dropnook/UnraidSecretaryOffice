@@ -4,14 +4,14 @@
   "id": "20261008-011005-57db",
   "started": 1791414613,
   "ended": 1791414614,
-  "result": "passed",
+  "result": "failed",
   "scope": "now",
   "egress": 0,
-  "items": 6,
+  "items": 8,
   "proven": 6,
   "warnings": 0,
-  "failed": 0,
-  "not_checked": 0,
+  "failed": 1,
+  "not_checked": 1,
   "asleep": 0
  },
  "last_passed": 1791414614,
@@ -149,6 +149,47 @@
    },
    "seconds": 0,
    "at": 1791414614
+  },
+  {
+   "kind": "dump",
+   "of": "app",
+   "id": "Grafana",
+   "name": "Grafana",
+   "what": "grafana-db",
+   "level": 1,
+   "copy": "snapshot",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "failed",
+   "code": "play_failed",
+   "params": {
+    "container": "grafana-db",
+    "seconds": 12
+   },
+   "seconds": 12,
+   "at": 1791414613,
+   "detail": "ERROR:  syntax error at or near \"CRATE\"\nERROR:  relation \"public.dashboard\" does not exist\nERROR:  relation \"public.dashboard_tag\" does not exist\nERROR:  relation \"public.alert_rule\" does not exist\nERROR:  current transaction is aborted, commands ignored until end of transaction block"
+  },
+  {
+   "kind": "dump",
+   "of": "app",
+   "id": "prometheus",
+   "name": "prometheus",
+   "what": "prometheus-db",
+   "level": 1,
+   "copy": "snapshot",
+   "run": "20261008-0015",
+   "state_time": 1791411300,
+   "result": "not_checked",
+   "code": "dump_no_room",
+   "params": {
+    "container": "prometheus-db",
+    "need_mb": 1806,
+    "ram_mb": 1806
+   },
+   "seconds": 9,
+   "at": 1791414613,
+   "detail": "PANIC:  could not write to file \"pg_wal/xlogtemp.104\": No space left on device\nconnection to server was lost"
   }
  ],
  "lose": [
