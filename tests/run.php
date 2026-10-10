@@ -23969,13 +23969,22 @@ const one = (f) => walk(body(), f)[0];
 const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
 (async () => {
   await sleep(30);
-  O.strings = { 'office.report_sent': 'Sent. Thank you!', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' } };
+  O.strings = { 'office.report_sent': 'Sent. Thank you!', 'office.report_hidden': 'Hidden: {list}', 'errors.report_day': { one: '{n} in 24 hours; next from {when}.', other: '{n} in 24 hours; next from {when}.' },
+    'office.report_status.received': 'Received', 'office.report_status.seen': 'Looked at', 'office.report_status.done': 'Done', 'office.report_public': 'Public issue #{number}' };
   O.agent = { running: true };
   O.desk({ id: 'snapshot' });
   O.desk({ id: 'caretaker' });
   const out = {};
   answers = {
-    'office.reports': { ok: true, reports: [{ number: 40, url: '', kind: 'wish', title: 'Darker', desk: 'office', sent: 1760000000 }], n: 1, left: 1, cap: 2, next: null, closed: false },
+    'office.reports': { ok: true, reports: [
+      // an older agent's row still carries the inbox's number and link: never shown
+      { number: 40, url: 'https://github.com/dropnook/uso-inbox/issues/40', kind: 'wish', title: 'Darker', desk: 'office', sent: 1760000000, status: 'seen',
+        public: { number: 14, url: 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14' } },
+      { kind: 'bug', title: 'Twice', desk: 'snapshot', sent: 1760000000, status: 'received', public: { number: 5, url: 'https://github.com/evil/repo/issues/5' } },
+      { kind: 'question', title: 'Why', desk: 'office', sent: 1760000000, status: 'done', public: { number: 6, url: 'javascript:alert(1)//github.com/dropnook/UnraidSecretaryOffice/issues/6' } },
+      { kind: 'bug', title: 'Old', desk: 'office', sent: 1760000000 },
+      { kind: 'bug', title: 'Odd', desk: 'office', sent: 1760000000, status: 'constructor', public: { number: 7, url: 'https://github.com/dropnook/UnraidSecretaryOffice/issues/7/../../uso-inbox' } },
+    ], n: 1, left: 1, cap: 2, next: null, closed: false },
     'office.report_preview': { ok: true, token: 'a'.repeat(32), ttl: 600, ticked: ['versions', 'unraid', 'language', 'team', 'error', 'log'], id: '1234abcd', hints: ['address'],
       hidden: { '‹share-1›': 'Media' }, n: 1, left: 1, cap: 2, next: null, closed: false,
       parts: { versions: { office: '1.44.0' }, unraid: '7.3.2', language: { lang: 'en', browser: 'de' }, team: ['caretaker', 'snapshot'],
@@ -23988,8 +23997,12 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   const desk = one((n) => n.tag === 'select');
   const send = dlg.buttons[1];
   out.opened = { title: byId['sso-dialog-title'].textContent, desk: desk.value, deskOptions: desk.children.map((o) => o.value), sendOff: send.disabled,
-    asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className, issues: walk(body(), (n) => n.tag === 'a').map((a) => a.href),
-    yours: text(one((n) => n.tag === 'details')).includes('Darker') && !text(one((n) => n.tag === 'details')).includes('#40') };
+    asked: posts.map((p) => p.a), wide: byId['sso-dialog'].className,
+    issues: walk(body(), (n) => n.tag === 'a').filter((a) => !walk(one((n) => n.tag === 'details'), (x) => x === a).length).map((a) => a.href),
+    yours: text(one((n) => n.tag === 'details')).includes('Darker') && !text(one((n) => n.tag === 'details')).includes('#40') && !text(one((n) => n.tag === 'details')).includes('uso-inbox'),
+    rows: walk(one((n) => n.tag === 'details'), (n) => n.tag === 'li').map((li) => ({ title: text(li.children[0]), meta: text(li.children[1]),
+      chips: walk(li, (n) => /(^| )chip( |$)/.test(n.className)).map((c) => [c.className, text(c)]),
+      links: walk(li, (n) => n.tag === 'a').map((a) => [a.href, text(a), a.target, a.rel]) })) };
   const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
   const area = one((n) => n.tag === 'textarea');
   title.value = 'Her plan ran twice'; title.oninput();
@@ -24051,6 +24064,15 @@ JS);
     same('report dialog: opens wide with the desk shown, asks only for «Your reports», «Send» off', ['office.report_title', 'snapshot', ['office', 'caretaker', 'snapshot'], true, ['office.reports'], true],
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
+    $pub14 = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14';
+    same('report dialog: «Your reports» — title, kind · desk · day, where it stands, the public issue (only the public repository\'s, a new tab)', [
+        ['title' => 'Darker', 'chips' => [['chip accent', 'Looked at']], 'links' => [[$pub14, 'Public issue #14', '_blank', 'noopener noreferrer']]],
+        ['title' => 'Twice', 'chips' => [['chip quiet', 'Received']], 'links' => []],
+        ['title' => 'Why', 'chips' => [['chip ok', 'Done']], 'links' => []],
+        ['title' => 'Old', 'chips' => [], 'links' => []],
+        ['title' => 'Odd', 'chips' => [], 'links' => []]],
+        array_map(fn ($row) => ['title' => $row['title'], 'chips' => $row['chips'], 'links' => $row['links']], $o['rows']));
+    same('report dialog: … the row\'s kind · desk · day stays second', array_fill(0, 5, 'office.report_yours_row'), array_column($o['rows'], 'meta'));   // no strings loaded: the key
     same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.'], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];

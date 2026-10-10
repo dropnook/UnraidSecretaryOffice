@@ -1363,7 +1363,7 @@ Office.supporterAsk = async function supporterAsk(answer) {
 // ------------------------------------------------------------------ «Report a problem or a wish…»
 /*
  * The office's reports to its makers (agent/lib/report.php, briefs/uso-feedback-concept.md). The page only asks the
- * agent: office.reports (the list, the cap), office.report_preview (everything that would be sent, part by part, a
+ * agent: office.reports (the list — where each stands, its public issue —, the cap), office.report_preview (everything that would be sent, part by part, a
  * token — no network) and, on «Send» only, office.report_send (the previewed parts still ticked). «Send» stays off
  * until the preview was looked at; a word changed after it: the preview goes, «Send» with it. The draft is kept per
  * browser (Office.store report.draft) — a click outside or Escape loses nothing. The office shows only its own words
@@ -1385,6 +1385,9 @@ const REPORT_IMAGES_MAX = 3;
 const REPORT_IMAGE_PARTS = ['image1', 'image2', 'image3'];
 const REPORT_IMAGE_BYTES = 2 * 1024 * 1024;      // as the browser has it; the agent makes it ≤ 1.5 MB
 const REPORT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+// «Your reports»: where one stands (agent/lib/report.php reportStatusAnswer()) and the only public issues linked
+const REPORT_STATUS_CHIP = { received: 'quiet', seen: 'accent', done: 'ok' };
+const REPORT_PUBLIC_RE = /^https:\/\/github\.com\/dropnook\/UnraidSecretaryOffice\/issues\/(\d{1,9})$/;
 const utf8Bytes = (s) => (typeof TextEncoder === 'function' ? new TextEncoder().encode(s).length : unescape(encodeURIComponent(s)).length);
 
 /** The page's last error of a desk as the agent takes it: a key, at most 8 plain params, a time */
@@ -1651,6 +1654,17 @@ Office.reportDialog = function reportDialog(deskId) {
       li.appendChild(head);
       li.appendChild(el('span', '', t('office.report_yours_row', { kind: t(`office.report_kind_${r.kind}`),
         desk: r.desk === 'office' ? t('office.report_desk_office') : t(`${r.desk}.name`), day: Office.fmt.date(r.sent) })));
+      // where it stands (the agent asks the inbox at most hourly; unknown: nothing shown) and the public issue made of it
+      const stand = el('span', 'sso-report-yours-state');
+      if (Object.prototype.hasOwnProperty.call(REPORT_STATUS_CHIP, r.status)) {
+        stand.appendChild(el('span', `chip ${REPORT_STATUS_CHIP[r.status]}`, t(`office.report_status.${r.status}`)));
+      }
+      const pub = r.public || {};
+      if (Office.safeHref(pub.url) && REPORT_PUBLIC_RE.test(pub.url)) {
+        if (stand.children.length) stand.append(' ');
+        stand.appendChild(link(pub.url, t('office.report_public', { number: String(pub.url.match(REPORT_PUBLIC_RE)[1]) })));
+      }
+      if (stand.children.length) li.appendChild(stand);
       ul.appendChild(li);
     });
     yours.appendChild(ul);
