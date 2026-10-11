@@ -15594,11 +15594,56 @@ function testWhereAfterWatchman(): void
     foreach (array_keys(WATCH_POSTURE) as $id) {
         check("where: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["where.adv.$id.title"]));
     }
-    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'security'] as $id) {
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'vm_migratable', 'security'] as $id) {
         check("where: tip $id is hers", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     $advice = waAdvice([], [], []);
     same('where: her advice reads no security settings any more', [false, false, false], [isset($advice['telnet']), isset($advice['ftp']), isset($advice['cpu'])]);
+}
+
+/**
+ * Ms. Dustdevil's tip about «Migratable» On (2026-10-12): Unraid's VM form sets `cpumigrate = on` for new VMs, the switch
+ * only exists with CPU mode Host Passthrough (`<cpu mode='host-passthrough' migratable='on'>`); libvirt then hides CPU
+ * features a live migration couldn't take along — no RAM or CPU cost, but the guest sees fewer capabilities. Read from
+ * the VM's XML (as waVm() reads it, never virsh): XML files the shape uso-test's have — on, off, and a VM in emulated
+ * mode (no switch: no tip). Good to know, never «needs resources».
+ */
+function testWhereVmMigratable(): void
+{
+    $tmp = hardeningTmp('wamigrate');
+    $xml = fn (string $name, string $cpu) => "<?xml version='1.0' encoding='UTF-8'?>\n<domain type='kvm'>\n  <name>$name</name>\n  <memory unit='KiB'>1048576</memory>\n"
+        . "  <vcpu placement='static'>2</vcpu>\n  <os>\n    <type arch='x86_64' machine='pc-q35-9.2'>hvm</type>\n  </os>\n$cpu  <clock offset='utc'/>\n  <devices/>\n</domain>\n";
+    file_put_contents("$tmp/Lab-On.xml", $xml('Lab-On', "  <cpu mode='host-passthrough' check='none' migratable='on'/>\n"));
+    file_put_contents("$tmp/Lab-Off.xml", $xml('Lab-Off', "  <cpu mode='host-passthrough' check='none' migratable='off'>\n    <topology sockets='1' dies='1' clusters='1' cores='1' threads='2'/>\n  </cpu>\n"));
+    file_put_contents("$tmp/Emulated.xml", $xml('Emulated', "  <cpu mode='custom' match='exact' check='none'>\n    <model fallback='forbid'>qemu64</model>\n  </cpu>\n"));
+    file_put_contents("$tmp/NoCpu.xml", $xml('NoCpu', ''));
+    $dom = fn (string $name) => simplexml_load_string((string) file_get_contents("$tmp/$name.xml"));
+    same('wa vm migratable: Host Passthrough with «Migratable» On — yes; Off, emulated, no <cpu>, unreadable — no', [true, false, false, false, false],
+        [waVmCpuMigratable($dom('Lab-On')), waVmCpuMigratable($dom('Lab-Off')), waVmCpuMigratable($dom('Emulated')), waVmCpuMigratable($dom('NoCpu')), waVmCpuMigratable(false)]);
+    $vms = array_map(fn ($n) => ['name' => $n, 'cpu_migratable' => waVmCpuMigratable($dom($n))], ['Lab-On', 'Lab-Off', 'Emulated', 'NoCpu']);
+    $vms[] = ['name' => 'a-Second', 'cpu_migratable' => true];
+    $vms[] = ['name' => 'Odd', 'cpu_migratable' => 'yes'];
+    same('wa vm migratable: the VMs with it, sorted — never Off, emulated, an odd shape', ['a-Second', 'Lab-On'], waVmMigratable($vms));
+    same('wa vm migratable: only Off and emulated VMs — no tip', [], waVmMigratable([$vms[1], $vms[2]]));
+    same('wa vm migratable: her advice carries the names', ['a-Second', 'Lab-On'], waAdvice([], [], [], $vms)['vm_migratable']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php');
+    check('wa vm migratable: waVm() reads it from the VM\'s XML (no virsh for it)', str_contains($src, "'cpu_migratable' => waVmCpuMigratable(\$dom),")
+        && !preg_match('/function waVmCpuMigratable[^}]*virsh/s', $src));
+    hardeningRm($tmp);
+
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('where: the «Migratable» tip is hers — info, the names, a link to Unraid\'s VMs page, the names as its signature',
+        str_contains($js, "add('vm_migratable', 'info', { names: listNames(migratable, 3), n: migratable.length }, { path: '/VMs', text: T('where.adv.to_vms') }, migratable.join(','));"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/cleanup/lang/$l.json"), true) ?: [];
+        $why = (string) ($t['where.adv.vm_migratable.why'] ?? '');
+        check("where ($l): the «Migratable» tip names the way in Unraid — ⟦VMs⟧ → ⟦Edit⟧ → ⟦Migratable⟧ beside ⟦CPU Mode⟧ (⟦Host Passthrough⟧), Off, the VM stopped",
+            str_contains($t['where.adv.vm_migratable.title']['other'] ?? '', '{names}') && str_contains($why, '⟦VMs⟧') && str_contains($why, '⟦Edit⟧')
+            && substr_count($why, '⟦Migratable⟧') === 2 && substr_count($why, '⟦CPU Mode⟧') === 2 && str_contains($why, '⟦Host Passthrough⟧') && str_contains($why, '→ Off'));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/de.json'), true) ?: [];
+    check('where (de): «kann Leistung kosten», never «braucht Ressourcen»', str_contains($de['where.adv.vm_migratable.why'] ?? '', 'kann Leistung kosten')
+        && !str_contains($de['where.adv.vm_migratable.why'] ?? '', 'Ressourcen'));
 }
 
 /**
@@ -26775,7 +26820,7 @@ function testSections(): void
     $g = (int) strpos($css, '/* the active tile (tiles v2');
     $glow = substr($css, $g, (int) strpos($css, '/* the switcher\'s row and body', $g) - $g);
     check('sections: the glow has no animation', !preg_match('/animation\s*:|transition\s*:|@keyframes/', $glow));
-    $want = ['en' => ['Filter on', 'Open', '◂ All'], 'de' => ['Filter aktiv', 'Offen', '◂ Alle'], 'it' => ['Filtro attivo', 'Aperto', '◂ Tutti'],
+    $want = ['en' => ['Filter on', 'Open', '◂ All'], 'de' => ['Filter aktiv', 'Geöffnet', '◂ Alle'], 'it' => ['Filtro attivo', 'Aperto', '◂ Tutti'],
         'fr' => ['Filtre actif', 'Ouvert', '◂ Tout'], 'es' => ['Filtro activo', 'Abierto', '◂ Todo']];
     foreach ($want as $code => $words) {
         $lang = langFile(OFFICE_WEB . "/lang/$code.json");
@@ -28464,6 +28509,49 @@ function testSnapPoolSplit(): void
 }
 
 /**
+ * Ms. Snapshotini's «Array» card (2026-10-12): every array disk is a row there, btrfs and ZFS alike. A ZFS-formatted
+ * array disk is a one-disk pool named disk<N>; the agent tells it by Unraid's bookkeeping (disks.ini type="Data"), never
+ * by the name — a pool someone called «disk9» keeps its card. Her btrfs disks carry the same flag (a btrfs pool or an
+ * unassigned disk is no array disk). Stand-ins for zfs, zpool and disks.ini in a temporary folder.
+ */
+function testSnapArrayDisks(): void
+{
+    same('array disks: disks.ini type="Data" only — not parity, a pool (whatever its name), the flash; the name field before the section',
+        ['disk1' => true, 'disk2' => true],
+        snapshotArrayDisks(['parity' => ['name' => 'parity', 'type' => 'Parity'], 'disk1' => ['name' => 'disk1', 'type' => 'Data', 'fsType' => 'btrfs'],
+            'x' => ['name' => 'disk2', 'type' => 'Data', 'fsType' => 'zfs'], 'disk9' => ['name' => 'disk9', 'type' => 'Cache', 'fsType' => 'zfs'],
+            'flash' => ['name' => 'flash', 'type' => 'Flash'], 'broken' => 'x']));
+    $tmp = hardeningTmp('snaparray');
+    file_put_contents("$tmp/disks.ini", "[\"parity\"]\nname=\"parity\"\ntype=\"Parity\"\n[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"btrfs\"\nspundown=\"0\"\n"
+        . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\nfsType=\"zfs\"\nspundown=\"1\"\n[\"disk9\"]\nname=\"disk9\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
+        . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = list ] && printf 'cache\\t100\\t10\\t90\\t10\\tONLINE\\t1\\ndisk2\\t200\\t20\\t180\\t10\\tONLINE\\t0\\ndisk9\\t300\\t30\\t270\\t10\\tONLINE\\t0\\n'\nexit 0\n");
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nexit 0\n");
+    chmod("$tmp/zpool", 0755);
+    chmod("$tmp/zfs", 0755);
+    $before = [$GLOBALS['disksIni'] ?? null, $GLOBALS['snapshotHost'] ?? null];
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'docker' => null];
+    $z = snapshotReadZfs(null, false);
+    same('array disks: her ZFS pools carry `array` — disk2 (an array disk, asleep: still one) yes, cache and the pool called disk9 no',
+        [['cache', false, false], ['disk2', true, true], ['disk9', false, false]], array_map(fn ($p) => [$p['name'], $p['array'], $p['asleep']], $z['pools']));
+    $GLOBALS['disksIni'] = $before[0];
+    $GLOBALS['snapshotHost'] = $before[1];
+    if ($before[0] === null) {
+        unset($GLOBALS['disksIni']);
+    }
+    if ($before[1] === null) {
+        unset($GLOBALS['snapshotHost']);
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/snapshot.php');
+    check('array disks: her btrfs disks carry the same flag', str_contains($src, "'array'   => isset(\$arrayDisks[\$name]),"));
+    $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/snapshot.json'), true) ?: [];
+    $arr = array_filter((array) ($demo['zfs']['pools'] ?? []), fn ($p) => !empty($p['array']));
+    check('array disks: the demo state shows «Array» with both kinds (a btrfs disk and a ZFS array disk)', $arr !== [] && !empty($demo['btrfs']['devices']));
+    hardeningRm($tmp);
+}
+
+/**
  * Jack's and Ms. Snapshotini's pages on the section switcher (tiles v2, CLAUDE.md «Tiles», 2026-10-12), read in their
  * code: Office.sections() with their start tiles (Pool / none), their tiles and sections; real buttons (no role="button"
  * on a tile — her list's group heads fold, they are no tiles), no scrollIntoView for a tile (Jack's one is a dialog's
@@ -28522,10 +28610,11 @@ function testTilesMediaPages(): void
         && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.place(`plan:\${job}`")
         && str_contains($emby, "...sw.places().map(") && str_contains($emby, "route: `#/\${ID}/history`"));
     // Ms. Snapshotini
-    check('snapshot page: the switcher — no start tile; pool cards, the btrfs disks\' rows, the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
+    check('snapshot page: the switcher — no start tile; pool cards, the array disks\' rows (btrfs and ZFS), the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
         str_contains($snap, "const sw = Office.sections({") && str_contains($snap, "default: '',")
-        && str_contains($snap, "({ id: POOL + p.name, place: `pool:\${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })")
-        && str_contains($snap, "({ id: POOL + d.name, place: `pool:\${d.name}`, section: 'list', filters: d.name, tile: (a) => btrfsRow(d, a) })")
+        && str_contains($snap, "...ownPools().map((p) => ({ id: POOL + p.name, place: `pool:\${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })")
+        && str_contains($snap, "({ id: POOL + x.name, place: `pool:\${x.name}`, section: 'list', filters: x.name, tile: (a) => diskRow(x, a) })")
+        && str_contains($snap, "function ownPools() { return (state?.zfs?.pools || []).filter((p) => p.array !== true); }")
         && str_contains($snap, "{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs',")
         && str_contains($snap, "{ id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(),")
         && str_contains($snap, "{ id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list',")
@@ -28533,8 +28622,9 @@ function testTilesMediaPages(): void
     check('snapshot page: the pool kept as snapshot.pool (the one filter kept), back once her state has its tile; the old «Storage» head and the tile wrapper gone',
         str_contains($snap, "Office.store('snapshot.pool', String(id).startsWith(POOL) ? id.slice(POOL.length) : null);")
         && str_contains($snap, "if (filterPools().has(name)) sw.pick(POOL + name, 'route');") && !str_contains($snap, "T('storage.sub')") && !str_contains($snap, 'sp-tilewrap'));
-    check('snapshot page: a btrfs disk\'s row is a real button with the switcher\'s click, pressed state, glow and mark; the card holding them is no tile',
-        str_contains($snap, "const row = asTile(Office.place(`pool:\${d.name}`, el('button', 'minirow'") && str_contains($snap, "card.removeAttribute('aria-pressed');")
+    check('snapshot page: a disk\'s row is a real button with the switcher\'s click, pressed state, glow and mark, its tag (btrfs / ZFS) on it; the card holding them is no tile',
+        str_contains($snap, "const row = asTile(Office.place(`pool:\${x.name}`, el('button', 'minirow'")
+        && str_contains($snap, "el('span', 'tag', x.kind === 'zfs' ? 'ZFS' : 'btrfs')") && str_contains($snap, "card.removeAttribute('aria-pressed');")
         && str_contains($snap, "row.classList.add('tile-on');") && str_contains($snap, "node.setAttribute('aria-pressed', a.pressed ? 'true' : 'false');"));
     check('snapshot page: «Snapshots» card — how many and what they take, what the switches hide; the empty list counts the hidden ones (never «0 of 0»)',
         str_contains($snap, "lines.push(T('snaps_tile.hidden', { what: what.join(', ') }));") && str_contains($snap, "view.bar.done(n, state ? listed().length : 0, sw.note('list'));")
@@ -28549,6 +28639,52 @@ function testTilesMediaPages(): void
     check('snapshot page: a disk row\'s mark on a line of its own', str_contains($css, '.minirow .tile-mark{position:static; grid-column:1 / -1; justify-self:start}'));
 }
 
+
+/**
+ * Ms. Dustdevil clears away what nobody uses — what something still needs can't be chosen at all (2026-10-12, Benj's
+ * finding: a VM's disk in use could be ticked, «In die Abstellkammer…» offered the red «Trotzdem…»). A template whose
+ * container exists, an appdata folder, a VM's folder or disk image in use: no checkbox to tick, a title saying what to do,
+ * and the agent refuses them even when a stale page sends `force`. A stack in use («let go») and Mr. Restori's way back
+ * keep the warning and «anyway».
+ */
+function testCleanupInUseLocked(): void
+{
+    $refused = function (array $e, bool $force): ?string {
+        try {
+            clParkCheck($e + ['why' => null, 'name' => 'x', 'file' => 'my-x.xml', 'folder' => 'x'], $force);
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $locked = [['kind' => 'template', 'category' => 'in_use', 'force' => true], ['kind' => 'appdata', 'category' => 'used', 'force' => true],
+               ['kind' => 'domain', 'category' => 'used', 'force' => true], ['kind' => 'iso', 'category' => 'used', 'force' => true]];
+    same('in use locked: a template, appdata folder, VM folder or disk image in use is refused — with and without force',
+        array_fill(0, 8, 'cleanup_in_use'), array_merge(array_map(fn ($e) => $refused($e, true), $locked), array_map(fn ($e) => $refused($e, false), $locked)));
+    same('in use locked: a stack in use and Mr. Restori\'s way back park with force (the «anyway»), are refused without it',
+        [null, null, 'cleanup_in_use', 'cleanup_in_use'],
+        [$refused(['kind' => 'stack', 'category' => 'in_use', 'force' => true], true), $refused(['kind' => 'leftover', 'category' => 'leftover', 'force' => true], true),
+         $refused(['kind' => 'stack', 'category' => 'in_use', 'force' => true], false), $refused(['kind' => 'leftover', 'category' => 'leftover', 'force' => true], false)]);
+    same('in use locked: what nobody uses parks as before (force or not)', [null, null],
+        [$refused(['kind' => 'appdata', 'category' => 'unused', 'force' => false], false), $refused(['kind' => 'domain', 'category' => 'unused', 'force' => false], true)]);
+    same('in use locked: a reason not to (why) still comes first', 'cleanup_docker_down',
+        (function () { try { clParkCheck(['kind' => 'template', 'why' => 'docker_down', 'force' => true, 'file' => 'a.xml'], true); return null; } catch (Problem $p) { return $p->key; } })());
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('in use locked: clPark() asks clParkCheck() for every entry', str_contains($src, "        clParkCheck(\$e, \$force);\n        \$todo[] = \$e;"));
+
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('in use locked: the page names the same kinds as the agent', str_contains($js, "const IN_USE_LOCKED = ['" . implode("', '", CL_IN_USE_LOCKED) . "'];"));
+    check('in use locked: not selectable — the row\'s checkbox disabled with the why as its title and the row\'s, the group\'s says it too',
+        str_contains($js, "&& !(removable(e) && e.category === 'used') && !inUseLocked(e)") && str_contains($js, "cb.title = lockedText(e);\n    r.title = cb.title;")
+        && str_contains($js, "cb.title = !can.length && items.some(inUseLocked) ? T('in_use_locked.group') : T('select_group');"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/cleanup/lang/$l.json"), true) ?: [];
+        check("in use locked ($l): a why per kind and the group's; the dead «anyway» callouts of the three rooms gone, the stacks' and the leftovers' kept",
+            isset($t['in_use_locked.template'], $t['in_use_locked.appdata'], $t['in_use_locked.domain'], $t['in_use_locked.iso'], $t['in_use_locked.group'], $t['park.in_use_stacks'], $t['park.in_use_leftovers'])
+            && str_contains($t['in_use_locked.template'], '{unused}') && str_contains($t['in_use_locked.appdata'], '{group}')
+            && !isset($t['park.in_use_templates']) && !isset($t['park.in_use_appdata']) && !isset($t['park.in_use_vms']));
+    }
+}
 
 /**
  * Ms. Dustdevil's tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»): two pages as tabs («Where is what» / «Tidying up»,
@@ -29242,8 +29378,8 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages',
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

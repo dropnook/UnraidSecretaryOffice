@@ -2786,6 +2786,11 @@
    "disk_timeout": 90
   },
   "vm_netmodel": [],
+  "vm_migratable": [
+   "uso-lab-chr",
+   "uso-lab-client",
+   "uso-lab-old"
+  ],
   "write_method": {
    "method": "auto",
    "parity": 1,

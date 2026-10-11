@@ -4,7 +4,8 @@
  * other tools', Docker's last), sources without a snapshot left out, «All» from the pool's usedbysnapshots, the first
  * sized line «≥ … freed by deleting», the others «≥ …», each with the tip why «at least»; btrfs (and Docker) counts only.
  * And her row on the section switcher (tiles v2, a stand-in for Office.sections()): the tiles from her state in order,
- * the pool tiles filtering her list, the pool kept as snapshot.pool (a section tile or nothing forgets it), the
+ * the pool tiles filtering her list, «Array» holding every array disk (btrfs and ZFS, by the agent's `array` flag —
+ * never the name), a btrfs pool a card of its own, the pool kept as snapshot.pool (a section tile or nothing forgets it), the
  * «Snapshots» card with what the switches hide, her list counting what they hide («0 of 57», never «0 of 0»).
  *
  *   node tests/snappool.js public/desks/snapshot/desk.js     → one JSON line {pass, fail: [[name, got, want], …]}
@@ -83,6 +84,12 @@ same('split btrfs: counts only — not sized, no «All» size, no bytes', [bs.si
   [false, null, [['backup', 2, null], ['manual', 1, null]]]);
 same('split btrfs: in words — no size, no «≥», no tip', S.splitLines(bs).map((l) => [l.text, l.tip]),
   [['split.all {"n":"3"}', ''], ['split.line {"source":"split.backup","n":"2"}', ''], ['split.line {"source":"split.manual","n":"1"}', '']]);
+const mixed = [...bt, { id: 'z1', fs: 'zfs', pool: 'disk3', name: 'uso-backup-20261009-0430', used: 50 }, { id: 'z2', fs: 'zfs', pool: 'disk9', name: 'manual-x', used: 5 }];
+same('split «Array»: its disks\' snapshots only (btrfs and ZFS, by name), counts only when mixed',
+  [S.poolSplit(mixed, { fs: 'btrfs', names: ['disk1', 'disk3'] }).lines.map((l) => [l.key, l.n, l.bytes]), S.poolSplit(mixed, { fs: 'btrfs', names: ['disk1', 'disk3'] }).n],
+  [[['backup', 2, null], ['manual', 1, null]], 3]);
+same('split «Array» of ZFS disks only: sized, «All» from their usedbysnapshots together', [S.poolSplit(mixed, { fs: 'zfs', names: ['disk3', 'disk9'], snapused: 70 }).used,
+  S.poolSplit(mixed, { fs: 'zfs', names: ['disk3', 'disk9'], snapused: 70 }).lines.map((l) => [l.key, l.n, l.bytes])], [70, [['backup', 1, 50], ['manual', 1, 5]]]);
 same('split: no «≥» anywhere without a size', S.splitLines(bs).some((l) => l.text.includes('line_free') || l.text.includes('line_size')), false);
 
 // ------------------------------------------------------------------ her row on the section switcher (tiles v2)
@@ -99,9 +106,9 @@ const st = {
 S.setState(st);
 S.setView(view);               // after her state: a desk with a page would draw itself
 const tiles = () => spec.tiles();
-same('row: her tiles from her state — a card per ZFS pool, the btrfs card and a row per disk, the VMs, «Schedules», «Snapshots» last; no start tile',
+same('row: her tiles from her state — a card per ZFS pool, «Array» and a row per disk, the VMs, «Schedules», «Snapshots» last; no start tile',
   [spec.default, tiles().map((x) => [x.id, typeof x.section === 'string' ? x.section : 'own', x.filters || '', x.place || ''])],
-  ['', [['pool:daten', 'list', 'daten', 'pool:daten'], ['pool:cache', 'list', 'cache', 'pool:cache'], ['card:btrfs', 'list', '', ''], ['pool:disk1', 'list', 'disk1', 'pool:disk1'],
+  ['', [['pool:daten', 'list', 'daten', 'pool:daten'], ['pool:cache', 'list', 'cache', 'pool:cache'], ['card:array', 'list', '', ''], ['pool:disk1', 'list', 'disk1', 'pool:disk1'],
     ['pool:VMs', 'list', 'VMs', 'pool:VMs'], ['plans', 'own', '', 'tile.plans'], ['snapshots', 'list', '', 'tile.snapshots']]]);
 spec.onPick('pool:daten', 'click');
 const a1 = stored['snapshot.pool'];
@@ -122,6 +129,27 @@ same('list: Mr. Backupsy\'s switched on — his snapshots in the list, no longer
 view.backupShow.box.checked = false;
 active = '';
 const card = S.snapsCard({ on: () => {}, pressed: false });
+// the array's ZFS disk (disks.ini type="Data": the agent's `array`), a pool someone called «disk9», a btrfs pool outside the array
+const st2 = JSON.parse(JSON.stringify(st));
+st2.zfs.pools.push({ name: 'disk2', snapused: 3, count: 1, array: true }, { name: 'disk9', snapused: 0, count: 0, array: false });
+st2.zfs.snapshots.push(zsnap('disk2', 'manual-20261002-0900'));
+st2.btrfs.devices.push({ name: 'fast', mount: '/mnt/fast', array: false }, { name: 'disk10', mount: '/mnt/disk10', array: true });
+S.setView(null);              // her state anew without drawing (no page here)
+S.setState(st2);
+S.setView(view);
+same('row: «Array» holds every array disk — btrfs and the ZFS disk2, in Unraid\'s order (disk10 after disk2) —; disk9 (no array disk) and the btrfs pool «fast» cards of their own',
+  tiles().map((x) => x.id), ['pool:daten', 'pool:cache', 'pool:disk9', 'card:array', 'pool:disk1', 'pool:disk2', 'pool:disk10', 'card:btrfs:fast', 'pool:fast', 'pool:VMs', 'plans', 'snapshots']);
+same('row: the cards\' disks — kinds and titles', S.diskCards().map((g) => [g.id, g.title, g.disks.map((x) => x.kind + ':' + x.name)]),
+  [['card:array', 'array', ['btrfs:disk1', 'zfs:disk2', 'btrfs:disk10']], ['card:btrfs:fast', 'fast', ['btrfs:fast']]]);
+same('row: the ZFS disk\'s row filters her list by its pool, as its card did', tiles().find((x) => x.id === 'pool:disk2').filters, 'disk2');
+active = 'pool:disk2';
+view.backupShow.box.checked = true;
+same('list: the ZFS array disk\'s tile — only its snapshots', [S.poolFilter(), S.filtered().map((x) => x.id)], ['disk2', ['zfs:disk2/ds@manual-20261002-0900']]);
+view.backupShow.box.checked = false;
+active = '';
+S.setView(null);
+S.setState(st);
+S.setView(view);
 same('«Snapshots» card: how many (Docker\'s layers not) and what they take, what the switches hide', [card.o.name, card.o.lines],
   ['snapshots', ['count {"n":5} · 657B', 'snaps_tile.hidden {"what":"count.hidden_backup {\\"n\\":2}, count.hidden_partner {\\"n\\":1}"}']]);
 console.log(JSON.stringify(out));

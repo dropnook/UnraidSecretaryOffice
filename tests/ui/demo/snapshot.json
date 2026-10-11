@@ -20,7 +20,8 @@
     "count": 25,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": false
    },
    {
     "name": "cache",
@@ -36,7 +37,8 @@
     "count": 22,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": false
    },
    {
     "name": "disk2",
@@ -48,11 +50,12 @@
     "frag": 1,
     "used": 1130496,
     "avail": 24443273216,
-    "snapused": 0,
-    "count": 0,
+    "snapused": 49152,
+    "count": 2,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": true
    }
   ],
   "asleep": [],
@@ -287,6 +290,19 @@
     "refer": 98304,
     "snapused": 0,
     "mount": "/mnt/disk2",
+    "children": 1
+   },
+   {
+    "id": "zfs:disk2/Hoerbuecher",
+    "fs": "zfs",
+    "pool": "disk2",
+    "name": "disk2/Hoerbuecher",
+    "type": "filesystem",
+    "used": 1032192,
+    "avail": 24443273216,
+    "refer": 983040,
+    "snapused": 49152,
+    "mount": "/mnt/disk2/Hoerbuecher",
     "children": 0
    }
   ],
@@ -1184,6 +1200,42 @@
     "path": "/mnt/cache/Dokumente/.zfs/snapshot/uso-backup-20261009-0430",
     "docker": false,
     "mounts": []
+   },
+   {
+    "id": "zfs:disk2/Hoerbuecher@manual-20261005-1830",
+    "fs": "zfs",
+    "pool": "disk2",
+    "vol": "zfs:disk2/Hoerbuecher",
+    "ds": "disk2/Hoerbuecher",
+    "name": "manual-20261005-1830",
+    "t": 1791205474,
+    "used": 32768,
+    "refer": 983040,
+    "written": 32768,
+    "holds": [],
+    "clones": [],
+    "guid": "7412369852014785236",
+    "path": "/mnt/disk2/Hoerbuecher/.zfs/snapshot/manual-20261005-1830",
+    "docker": false,
+    "mounts": []
+   },
+   {
+    "id": "zfs:disk2/Hoerbuecher@vor-dem-aufraeumen",
+    "fs": "zfs",
+    "pool": "disk2",
+    "vol": "zfs:disk2/Hoerbuecher",
+    "ds": "disk2/Hoerbuecher",
+    "name": "vor-dem-aufraeumen",
+    "t": 1791378274,
+    "used": 16384,
+    "refer": 983040,
+    "written": 16384,
+    "holds": [],
+    "clones": [],
+    "guid": "8523697410258963147",
+    "path": "/mnt/disk2/Hoerbuecher/.zfs/snapshot/vor-dem-aufraeumen",
+    "docker": false,
+    "mounts": []
    }
   ],
   "docker_parent": null,
@@ -1199,7 +1251,8 @@
     "free": 33230077952,
     "asleep": false,
     "scanned": 1791551074,
-    "error": null
+    "error": null,
+    "array": true
    }
   ],
   "snapshots": [

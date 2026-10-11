@@ -20,7 +20,8 @@
     "count": 25,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": false
    },
    {
     "name": "cache",
@@ -36,7 +37,8 @@
     "count": 22,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": false
    },
    {
     "name": "disk2",
@@ -52,7 +54,8 @@
     "count": 0,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": true
    }
   ],
   "asleep": [],
@@ -1199,7 +1202,8 @@
     "free": 33230077952,
     "asleep": false,
     "scanned": 1791551074,
-    "error": null
+    "error": null,
+    "array": true
    }
   ],
   "snapshots": [
