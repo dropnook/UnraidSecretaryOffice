@@ -307,6 +307,15 @@ async function bar() {
   desk.appendChild(box);
   b.done(1, 3);
   same('focus: … and again at the next drawing', doc.activeElement === input, true);
+  // the desk builds its section detached and appends it after done() (the watchman's bookSection())
+  desk.replaceChildren();
+  const section = O.el('section');
+  section.appendChild(box);
+  b.done(1, 3);
+  same('focus: the bar still detached at done() — not yet', doc.activeElement === input, false);
+  desk.appendChild(section);
+  await Promise.resolve();
+  same('focus: … back once the desk\'s drawing is through (a microtask later)', doc.activeElement === input, true);
   input.blur();
   const other = O.el('input');
   desk.appendChild(other);

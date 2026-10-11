@@ -1205,6 +1205,17 @@ Office.filterBar = function filterBar(opts) {
   }, 0));
   ['input', 'keyup', 'mouseup', 'select'].forEach((ev) => input.addEventListener(ev, keepRange));
   const later = (what, anchor) => Promise.resolve().then(() => change(anchor, what));
+  /** the control that had the focus gets it back, unless the user is elsewhere; false while the bar isn't on the page */
+  const refocus = () => {
+    const f = s.focus, a = document.activeElement;
+    if (!f || !box.contains(f)) return true;
+    if (!f.isConnected) return false;
+    if (a !== f && (!a || a === document.body) && !f.hidden) {
+      f.focus({ preventScroll: true });
+      if (f === input && s.range) { try { input.setSelectionRange(s.range[0], s.range[1]); } catch (e) { /* not a text field's selection */ } }
+    }
+    return true;
+  };
 
   const bar = {
     el: box,
@@ -1229,11 +1240,8 @@ Office.filterBar = function filterBar(opts) {
         chip.setAttribute('aria-label', t('common.filter_clear_tile', { name: f.tile }));
         noteHits.textContent = '· ' + said;
       } else noteHits.textContent = '';
-      const a = document.activeElement;
-      if (s.focus && s.focus.isConnected && box.contains(s.focus) && !s.focus.hidden && a !== s.focus && (!a || a === document.body)) {
-        s.focus.focus({ preventScroll: true });
-        if (s.focus === input && s.range) { try { input.setSelectionRange(s.range[0], s.range[1]); } catch (e) { /* not a text field's selection */ } }
-      }
+      // the bar may still hang in a section the desk appends after done(): then once its drawing is through
+      if (s.focus && !refocus()) Promise.resolve().then(refocus);
       return bar;
     },
     options(list) {
