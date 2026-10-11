@@ -446,6 +446,7 @@
 .stat-sub{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
 .stat.alert .stat-value{color:var(--warn)}
 & button.stat{font:inherit; text-align:left; cursor:pointer; color:inherit}
+& button.stat{display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch}   /* a button centres its content: lined up like a div tile */
 & button.stat:hover{border-color:var(--line2)}
 /* a number tile that filters or shows (core.js Office.stat, aria-pressed): on, it looks like .card.active; a button.stat
    without aria-pressed (it opens a dialog) keeps the hover only */

@@ -140,7 +140,6 @@
   "kopia_count": "Hors site {ok}/{total}",
   "old_step": "Étape actuelle : {step}",
   "stat.last": "Dernière sauvegarde",
-  "stat.duration": "A duré",
   "stat.downtime": "conteneurs arrêtés {duration}",
   "stat.kopia": "Hors site",
   "stat.kopia_all": "tous les partages envoyés",
@@ -323,7 +322,6 @@
   "setup.filter.label": "Filtrer la configuration : noms d'applis, de VM, de partages, de dossiers",
   "setup.filter.only_new": "Seulement les nouveautés",
   "setup.filter.only_new_hint": "N'afficher que les lignes marquées nouvelles ou qui attendent ta décision",
-  "setup.filter.hits": {"one": "{n} ligne sur {total} correspond au filtre", "other": "{n} lignes sur {total} correspondent au filtre"},
   "setup.filter.none": "Rien dans cette étape ne correspond au filtre.",
   "setup.sub_new": "Rien n'est encore configuré — voici ma proposition pour ce serveur. Vérifie-la, modifie-la, puis applique.",
   "setup.sub_have": "Tes réglages actuels, plus ma proposition pour tout ce qui est nouveau. Modifie, puis applique.",
@@ -954,7 +952,6 @@
     "other": "{n} périphériques passés directement — sur un autre serveur, le XML de la VM doit être adapté."
   },
   "vm.where_to_change": "À régler dans « Configurer… » → VM.",
-  "stat.containers": "Conteneurs",
   "stat.ct_stopped": {
     "one": "{n} arrêté pour le snapshot",
     "other": "{n} arrêtés pour le snapshot"
@@ -1388,5 +1385,23 @@
   "letgo.done_journal": "J'ai noté chaque étape dans {file} (dans le dossier « backup » du dossier de données du secrétariat).",
   "letgo.failed": "Rien n'a été rangé : {error} J'ai été renvoyé quand même — mes paquets et snapshots sont où ils étaient.",
   "errors.backup_letgo_journal": "Je ne peux pas écrire mes notes dans {path} — je n'ai donc rien rangé.",
-  "errors.backup_letgo_delete_failed": "Impossible de supprimer {name} : {detail}"
+  "errors.backup_letgo_delete_failed": "Impossible de supprimer {name} : {detail}",
+  "stat.next": "prochaine sauvegarde {when}",
+  "partner.short_now": "{name} : envoi en cours",
+  "partner.short_never": "{name} : rien envoyé encore",
+  "partner.short_sent": "{name} : envoyé {when}",
+  "partner.short_failed": {"one": "{n} échec", "other": "{n} échecs"},
+  "partner.short_skipped": {"one": "{n} ignoré", "other": "{n} ignorés"},
+  "tile.kopia": "Hors site",
+  "tile.dumps": "Applis avec un dump de base de données",
+  "tile.apps": "Applis (paquets)",
+  "tile.vms": "VM",
+  "tile.flash": "Flash (/boot)",
+  "protect.filter_label": "Filtrer le tableau : noms de partages, de VM et d’applis, protection, pool",
+  "protect.only_off": "Seulement ce qui n’est pas protégé",
+  "protect.only_off_hint": "Partages pas sauvegardés, VM non configurées ou laissées de côté, paquets avec erreurs",
+  "history_filter_label": "Filtrer les sauvegardes : date, résultat",
+  "filter_none": "Rien ici ne correspond au filtre.",
+  "help.tiles": "Tuiles",
+  "help.tiles_text": "Les tuiles de l’aperçu montrent où en sont les choses. Une tuile avec une liste derrière — hors site, bases de données, paquets, VM, la flash — ne montre plus que ses lignes dans « Tout est-il protégé ? » après un clic ; un second clic, le nom dans la ligne au-dessus du tableau ou « Tout afficher » montre de nouveau tout. « Planification » ouvre son réglage. Les barres au-dessus du tableau et des sauvegardes trouvent les lignes par leurs mots. Rien d’un filtre n’est gardé : à chaque visite, tout s’affiche."
 }

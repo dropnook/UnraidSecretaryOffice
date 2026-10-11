@@ -140,7 +140,6 @@
   "kopia_count": "Fuori sede {ok}/{total}",
   "old_step": "Passo attuale: {step}",
   "stat.last": "Ultimo backup",
-  "stat.duration": "Durata",
   "stat.downtime": "contenitori fermi {duration}",
   "stat.kopia": "Fuori sede",
   "stat.kopia_all": "tutte le condivisioni salvate",
@@ -323,7 +322,6 @@
   "setup.filter.label": "Filtra la configurazione: nomi di app, VM, condivisioni, cartelle",
   "setup.filter.only_new": "Solo le novità",
   "setup.filter.only_new_hint": "Mostra solo le righe segnate come nuove o in attesa della tua decisione",
-  "setup.filter.hits": {"one": "{n} riga su {total} corrisponde al filtro", "other": "{n} righe su {total} corrispondono al filtro"},
   "setup.filter.none": "Niente in questo passo corrisponde al filtro.",
   "setup.sub_new": "Non è ancora configurato niente — questa è la mia proposta per questo server. Controlla, cambia, poi applica.",
   "setup.sub_have": "Le tue impostazioni attuali, più la mia proposta per tutto quello che è nuovo. Cambia, poi applica.",
@@ -954,7 +952,6 @@
     "other": "{n} dispositivi in passthrough — su un altro server l'XML della VM va adattato."
   },
   "vm.where_to_change": "Si imposta in «Configura…» → VM.",
-  "stat.containers": "Contenitori",
   "stat.ct_stopped": {
     "one": "1 fermato per lo snapshot",
     "other": "{n} fermati per lo snapshot"
@@ -1373,5 +1370,23 @@
   "letgo.done_journal": "Ho annotato ogni passo in {file} (nella cartella «backup» della cartella dati della segreteria).",
   "letgo.failed": "Non è stato messo via niente: {error} Sono stato licenziato lo stesso — i miei pacchetti e snapshot sono dov'erano.",
   "errors.backup_letgo_journal": "Non riesco a scrivere i miei appunti in {path} — quindi non ho messo via niente.",
-  "errors.backup_letgo_delete_failed": "Non è stato possibile eliminare {name}: {detail}"
+  "errors.backup_letgo_delete_failed": "Non è stato possibile eliminare {name}: {detail}",
+  "stat.next": "prossimo backup {when}",
+  "partner.short_now": "{name}: sta inviando",
+  "partner.short_never": "{name}: ancora niente inviato",
+  "partner.short_sent": "{name}: inviato {when}",
+  "partner.short_failed": {"one": "1 fallito", "other": "{n} falliti"},
+  "partner.short_skipped": {"one": "1 saltato", "other": "{n} saltati"},
+  "tile.kopia": "Fuori sede",
+  "tile.dumps": "App con un dump del database",
+  "tile.apps": "App (pacchetti)",
+  "tile.vms": "VM",
+  "tile.flash": "Unità flash (/boot)",
+  "protect.filter_label": "Filtra la tabella: nomi di condivisioni, VM e app, protezione, pool",
+  "protect.only_off": "Solo ciò che non è protetto",
+  "protect.only_off_hint": "Condivisioni senza backup, VM non configurate o escluse, pacchetti con errori",
+  "history_filter_label": "Filtra i backup: data, esito",
+  "filter_none": "Qui niente corrisponde al filtro.",
+  "help.tiles": "Riquadri",
+  "help.tiles_text": "I riquadri della panoramica mostrano come stanno le cose. Uno con un elenco dietro — fuori sede, database, pacchetti, VM, l’unità flash — con un clic mostra in «È tutto protetto?» solo le sue righe; un secondo clic, il nome nella riga sopra la tabella o «Mostra tutto» mostrano di nuovo tutto. «Pianificazione» apre la sua impostazione. Le barre sopra la tabella e i backup trovano le righe dalle loro parole. Di un filtro non resta niente: a ogni visita si vede tutto."
 }

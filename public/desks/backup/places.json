@@ -12,6 +12,7 @@
     "help.results",
     "help.rules",
     "help.run",
+    "help.tiles",
     "help.vms",
     "help.waiting",
     "history",
@@ -44,7 +45,12 @@
     "setup.shares",
     "setup.sources",
     "setup.vms",
-    "setup_open"
+    "setup_open",
+    "tile.apps",
+    "tile.dumps",
+    "tile.flash",
+    "tile.kopia",
+    "tile.vms"
   ],
   "texts": [
     "help.apply",
@@ -67,6 +73,7 @@
     "help.rules_text",
     "help.run_text",
     "help.setup",
+    "help.tiles_text",
     "help.vms_text",
     "help.waiting_text",
     "setup.measure_hint"
