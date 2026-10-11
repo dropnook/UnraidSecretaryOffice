@@ -2,7 +2,7 @@
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Defs_sicherung" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Camunda Modeler" exporterVersion="5.51.1">
   <bpmn:signal id="Sig_array" name="Array wird gestoppt" />
   <bpmn:collaboration id="Collab">
-    <bpmn:participant id="Pool" name="Eine Sicherung" processRef="sicherung" />
+    <bpmn:participant id="Pool" name="Ein Backup" processRef="sicherung" />
     <bpmn:textAnnotation id="A2">
       <bpmn:text>Ohne Partner fällt dieser Schritt weg.</bpmn:text>
     </bpmn:textAnnotation>
@@ -107,7 +107,7 @@
       <bpmn:incoming>F13</bpmn:incoming>
       <bpmn:outgoing>F14</bpmn:outgoing>
     </bpmn:task>
-    <bpmn:endEvent id="E" name="Sicherung fertig">
+    <bpmn:endEvent id="E" name="Backup fertig">
       <bpmn:incoming>F14</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:boundaryEvent id="B1" name="Array wird gestoppt" attachedToRef="T8">
@@ -203,7 +203,7 @@
       <bpmndi:BPMNShape id="E_di" bpmnElement="E">
         <dc:Bounds x="1752" y="192" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1731" y="232" width="78" height="14" />
+          <dc:Bounds x="1737" y="232" width="66" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="A3_di" bpmnElement="A3">
