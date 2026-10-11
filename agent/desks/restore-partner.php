@@ -88,7 +88,7 @@ function rspSources(): array
         }
         $state ??= partnerStateRead();
         $status = $state['pairs'][$p['id']]['status'] ?? null;
-        $units = rspPairUnits($p['send']['units'], is_array($status) ? ($status['agreed'] ?? null) : null, rspHeld($p['id']));
+        $units = rspPairUnits(partnerSendUnits($p['id']), is_array($status) ? ($status['agreed'] ?? null) : null, rspHeld($p['id']));
         if ($units) {
             $out[] = ['id' => $p['id'], 'name' => $p['name'], 'kind' => 'pair', 'of' => null, 'units' => $units, 'expires' => null, 'pair' => $p];
         }
@@ -102,8 +102,9 @@ function rspSources(): array
 }
 
 /**
- * What a pair's partner may hold of mine: what I send (send.units), what it agreed to keep (its status' `agreed`, kept by
- * the mutual watch — a unit I no longer send stays there and its door still sends it back), and what its `list` actually
+ * What a pair's partner may hold of mine: what I send (the levels in Mr. Backupsy's setup, partnerSendUnits()), what it
+ * received or agreed to keep (its status' `agreed`, kept by the mutual watch — a unit I no longer send stays there and
+ * its door still sends it back), and what its `list` actually
  * found at the last look (held.json: a unit with moments there is shown whatever the lists say). In that order, each once,
  * only in the unit's exact shape.
  *

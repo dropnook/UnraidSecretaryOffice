@@ -51,16 +51,14 @@ desk('caretaker', [
         'notify_set'    => fn (array $r) => caretakerNotifySet($r['on'] ?? null),
         'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
         'unack'         => fn (array $r) => caretakerAck($r['sig'] ?? null, false),
-        'partner_add'    => fn (array $r) => partner_add($r),
-        'partner_accept' => fn (array $r) => partner_accept($r),
-        'partner_finish' => fn (array $r) => partner_finish($r),
-        'partner_end'    => fn (array $r) => partner_end($r),
+        // the pairing (since 1.60 the Team Lead only pairs: the levels in Mr. Backupsy's setup say what goes, the door
+        // takes any unit up to the quota); after each of them his cards anew at once (caretakerPartnerDone())
+        'partner_add'    => fn (array $r) => caretakerPartnerDone(partner_add($r)),
+        'partner_accept' => fn (array $r) => caretakerPartnerDone(partner_accept($r)),
+        'partner_finish' => fn (array $r) => caretakerPartnerDone(partner_finish($r)),
+        'partner_end'    => fn (array $r) => caretakerPartnerDone(partner_end($r)),
         'partner_state'  => fn (array $r) => partner_state($r),
-        'partner_ping'   => fn (array $r) => partner_ping($r),
-        // what a pair's agreement covers, changed without a new pairing (2.29): the sender asks, the receiver decides
-        'partner_change' => fn (array $r) => partner_change($r),
-        'partner_wish'   => fn (array $r) => partner_wish($r),
-        'partner_keep_less' => fn (array $r) => partner_keep_less($r),
+        'partner_ping'   => fn (array $r) => caretakerPartnerDone(partner_ping($r)),
         // restore tickets (stage 3): a gone server's copies handed to a new server
         'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
         'partner_ticket_make'   => fn (array $r) => partner_ticket_make($r),
@@ -137,6 +135,15 @@ function caretakerScan(bool $checkUpdate = false): array
 function caretakerTick(): void
 {
     $now = time();
+    // the door (a first knock of a pair) or the mutual watch's job left a marker: his cards anew now, not at the next tour
+    if (partnerRescanDue()) {
+        $GLOBALS['ctLastScan'] = $now;
+        try {
+            caretakerScan();
+        } catch (Throwable $e) {
+            logLine('Partner offices: the cards anew after a pairing failed: ' . $e->getMessage());
+        }
+    }
     if ($now < ($GLOBALS['ctNextLook'] ?? 0)) {
         return;
     }
@@ -812,6 +819,22 @@ function caretakerApiUp(string $sock = CARETAKER_API_SOCK, string $rc = CARETAKE
 
 // ===================================================================== partner offices
 
+/**
+ * After a pairing action (add, accept, finish, end, «Ask now»): his state anew at once — caretaker.json holds the new
+ * cards when the page reloads (until 1.59 a reload said «No partner yet» until the next tour). The action's answer goes
+ * back as it is; a tour that fails is only logged.
+ */
+function caretakerPartnerDone(array $answer): array
+{
+    $GLOBALS['ctLastScan'] = time();
+    try {
+        caretakerScan();
+    } catch (Throwable $e) {
+        logLine('Partner offices: the cards anew after the pairing failed: ' . $e->getMessage());
+    }
+    return $answer;
+}
+
 /** His state's `partners`: the cards (agent/lib/partner.php partnerPublic(): files only, never a key or a block) */
 function caretakerPartners(): array
 {
@@ -873,7 +896,8 @@ function caretakerPartnerWatch(): int
     }
     $acks = caretakerAckRead(caretakerAckFile());
     $finding = fn (array $p, array $e) => finding('partner_silent', 'recommended', false, partnerSilentParams($p, $e), '#/caretaker');
-    partnerWatch(
+    $before = partnerStateRead();
+    $after = partnerWatch(
         fn (array $p, array $e) => caretakerAckHas($acks, 'caretaker', $finding($p, $e)),
         function (array $p, array $e) {
             $lang = officeNotifyLang();
@@ -890,15 +914,18 @@ function caretakerPartnerWatch(): int
             return $sent;
         },
     );
+    // something a card shows changed (reachable, what they keep, an older partner's agreed list): the Team Lead's tick
+    // draws his cards anew at its next round (this job is a process of its own, without the desks)
+    $card = fn (array $st) => array_map(fn ($e) => array_intersect_key((array) $e, array_flip(['reachable', 'why', 'answer', 'status', 'offer'])), (array) ($st['pairs'] ?? []));
+    if ($card($before) !== $card($after)) {
+        partnerRescanAsk();
+    }
     flock($lock, LOCK_UN);
     fclose($lock);
     return 0;
 }
 
-/**
- * partner_silent per pair (recommended; in place while it answers); partner_wish while a partner would also like to send
- * something (a hint — the traffic light stays as it is, the chip on its card is the place to decide): from the files only
- */
+/** partner_silent per pair (recommended; in place while it answers): from the files only */
 function caretakerPartnerFindings(): array
 {
     $out = [];
@@ -908,9 +935,6 @@ function caretakerPartnerFindings(): array
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
         $silent = partnerSilent($p, $e, $now);
         $out[] = finding('partner_silent', 'recommended', !$silent, $silent ? partnerSilentParams($p, $e) : ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker');
-        if (partnerWish($p) !== null) {
-            $out[] = finding('partner_wish', 'hint', false, ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker');
-        }
     }
     return $out;
 }
