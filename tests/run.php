@@ -2425,6 +2425,37 @@ function testEmbyMover(): void
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     same('mover moverelli: Unraid\'s own schedule on as well — that is said first', 'schedule', embyMoverRule()['why']);
     @unlink("$tmp/dynamix/mover.cron");
+    // hired but not set up (no smart_mover.ini — she refuses all her own runs): she doesn't count, his rule is exactly
+    // the one without her — through her own moverelliExcludeLook(); then an ini without his list, then one with it
+    $mo = "$tmp/moverelli";
+    mkdir($mo, 0700, true);
+    $GLOBALS['embyMoverHost']['moverelli'] = fn () => moverelliExcludeLook($mo, true);
+    $ruleOf = fn ($r) => [$r['ok'], $r['way'], $r['why'], $r['moverelli'], embyMoverProblem($r)?->key, embyMoverFinding($r)['id'], embyMoverFinding($r)['ok'],
+        array_key_exists('moverelli', embyMoverState($r))];
+    $without = function () use ($ruleOf) { $was = $GLOBALS['embyMoverHost']['moverelli']; $GLOBALS['embyMoverHost']['moverelli'] = fn () => null;
+        $r = $ruleOf(embyMoverRule()); $GLOBALS['embyMoverHost']['moverelli'] = $was; return $r; };
+    $notHired = $without();
+    same('mover moverelli: hired, no smart_mover.ini — as without her: real runs go, way «disabled», nothing said of her, no finding',
+        [[true, 'disabled', null, null, null, 'mover', true, false], $notHired], [$ruleOf(embyMoverRule()), $notHired]);
+    file_put_contents("$tmp/dynamix/mover.cron", $daily);
+    same('mover moverelli: … Unraid\'s schedule on — the same refusal as without her', [$without(), 'schedule'], [$ruleOf(embyMoverRule()), embyMoverRule()['why']]);
+    @unlink("$tmp/dynamix/mover.cron");
+    $cfgWas = (string) file_get_contents($cfg);
+    [$installed, $hired] = [true, false];
+    file_put_contents($cfg, $fresh);
+    same('mover moverelli: … Mover Tuning without his list — the same as without her (tuning_list), not her way', [$without(), 'tuning_list', false],
+        [$ruleOf(embyMoverRule()), embyMoverRule()['why'], embyMoverRule()['way'] === 'moverelli']);
+    file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt\n\n[Filme]\nexcludes = \n");
+    $r = embyMoverRule();
+    same('mover moverelli: … her ini there, his list not in it — refused (moverelli_list), his shares named, his finding', [false, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['mover_moverelli', false]],
+        [$r['ok'], $r['why'], $r['moverelli']['uncovered'] ?? null, embyMoverProblem($r)?->key, [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok']]]);
+    file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt,$list\n");
+    $r = embyMoverRule();
+    same('mover moverelli: … her ini keeps his list out — real runs go her way, Mover Tuning\'s list doesn\'t count', [true, 'moverelli', null, []],
+        [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'] ?? null]);
+    same('mover moverelli: … not hired — her ini doesn\'t count', null, moverelliExcludeLook($mo, false));
+    file_put_contents($cfg, $cfgWas);
+    [$installed, $hired] = [false, true];
     unset($GLOBALS['embyMoverHost']['moverelli']);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('mover moverelli: his runs never beside one of hers (embyRunCheck asks moverelliBusy())',
@@ -27315,6 +27346,16 @@ function testMoverelliGates(): void
     flock($lock, LOCK_UN);
     fclose($lock);
     $v['emby'] = ['lists' => ['/mnt/user/appdata/x/embycache_exclude.txt', "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    // not set up yet (no smart_mover.ini): refused as not configured, she doesn't count for Jack — no «his list», no point
+    rename("$dir/smart_mover.ini", "$dir/smart_mover.ini.aside");
+    $okNow = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return $p->key; } };
+    same('moverelli gate: Jack Emby hired, she has no ini — refused as not configured, his list not asked for (page, Team Lead), not for his rule',
+        ['moverelli_not_configured', [], [], null, ['configured']],
+        [$okNow(), moverelliScan($h)['jack']['uncovered'], moverelliJackUncovered($v['emby'], $dir), moverelliExcludeLook($dir, true),
+         array_values(array_map(fn ($f) => $f['id'], moverelliChecks($h)))]);
+    rename("$dir/smart_mover.ini.aside", "$dir/smart_mover.ini");
+    same('moverelli gate: … her ini back — his rule reads it while she is hired, not otherwise', [true, null],
+        [is_array(moverelliExcludeLook($dir, true)), moverelliExcludeLook($dir, false)]);
     same('moverelli gate: Jack Emby hired, his list not kept out — a real run refused, his shares named', [1, 'moverelli_emby_list', 'Docs, Filme'],
         [moverelliJob(['run', '--office'], $h), $last(), moverelliHistory($dir)[0]['shares'] ?? null]);
     same('moverelli gate: … the page and the Team Lead say so', [['Docs', 'Filme'], false],

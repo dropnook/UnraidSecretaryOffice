@@ -32,7 +32,8 @@ declare(strict_types=1);
  *   - a share override (shareOverrideConfig/<share>.cfg with moverOverride="yes") whose own filelistf is «No», or «Yes»
  *     with another file, for one of his shares → `tuning_override`.
  * Its «Move All from Primary->Secondary» (omovercfg) drops the filters above its threshold: said, not refused.
- * Ms. Moverelli (agent/desks/moverelli.php) runs the bundled Smart Mover on the office's schedule: while she is hired,
+ * Ms. Moverelli (agent/desks/moverelli.php) runs the bundled Smart Mover on the office's schedule: while she is hired
+ * and set up (her smart_mover.ini there — without it she runs nothing and counts as not hired here),
  * her smart_mover.ini must keep his list out for each of his shares — the file in `global_excludes` or in the share's
  * `excludes=`, or the share `skip=yes` — else she would carry his films back (`moverelli_list`); kept, real runs go that
  * way (`way` «moverelli») — an alternative to Mover Tuning's list: then Mover Tuning (installed or not, its list or a
@@ -86,7 +87,7 @@ function embyMoverHost(): array
         'var_ini'    => $h['var_ini'] ?? EMBY_MOVER_VAR,
         'emcmd'      => $h['emcmd'] ?? (getenv('OFFICE_EMCMD_BIN') ?: EMBY_EMCMD),
         'wait'       => $h['wait'] ?? fn (int $ms) => usleep($ms * 1000),
-        // Ms. Moverelli while hired: what her smart_mover.ini keeps out (moverelliExcludeLook()), else null
+        // Ms. Moverelli while hired and set up: what her smart_mover.ini keeps out (moverelliExcludeLook()), else null
         'moverelli'  => $h['moverelli'] ?? fn (): ?array => function_exists('moverelliExcludeLook') ? moverelliExcludeLook() : null,
     ];
 }
@@ -353,7 +354,7 @@ function embyMoverelliUncovered(array $look, array $lists, array $shares): array
 /**
  * The rule: may EmbyCache and the gather run for real? {ok, way: disabled|moverelli|null, why: null|schedule|
  * moverelli_list|tuning_list|tuning_force|tuning_override, schedule: Unraid's own (cron, else as set) or null, tuning:
- * embyTuningLook(), moverelli: null (not hired) or {uncovered: his shares her ini doesn't keep his list away from}}.
+ * embyTuningLook(), moverelli: null (not hired, or no smart_mover.ini yet) or {uncovered: his shares her ini doesn't keep his list away from}}.
  * Unraid's own schedule «Disabled» always; with Mover Tuning installed also nothing of its own that takes his files.
  * $enforce: his list is entered into Mover Tuning when it isn't (only while he is hired).
  */
@@ -418,7 +419,7 @@ function embyMoverState(?array $rule = null): array
     return ['ok' => $rule['ok'], 'way' => $rule['way'], 'why' => $rule['why'], 'schedule' => $rule['schedule'], 'running' => embyMoverRunning(),
             'tuning' => $t['installed'] ? array_intersect_key($t, array_flip(['installed', 'listed', 'file', 'changed', 'error', 'force', 'overrides', 'move_all', 'by_jack']))
                                         : ['installed' => false]]
-         + (($rule['moverelli'] ?? null) !== null ? ['moverelli' => $rule['moverelli']] : []);     // only while Ms. Moverelli is hired
+         + (($rule['moverelli'] ?? null) !== null ? ['moverelli' => $rule['moverelli']] : []);     // only while Ms. Moverelli is hired and set up
 }
 
 /**

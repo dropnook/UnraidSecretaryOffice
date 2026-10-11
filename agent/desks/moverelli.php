@@ -528,12 +528,20 @@ function moverelliSave(mixed $in, ?array $h = null): array
 }
 
 /**
- * What her ini keeps out, for Jack Emby's rule (embyMoverRule()): null while she isn't hired, else {global: [files],
- * shares: {share: {skip, excludes: [files]}}} — her own lists among the files.
+ * What her ini keeps out, for Jack Emby's rule (embyMoverRule()): null while she isn't hired or has no smart_mover.ini
+ * yet (not set up: she refuses all her own runs, so she doesn't count for his rule at all — as if not hired), else
+ * {global: [files], shares: {share: {skip, excludes: [files]}}} — her own lists among the files. $hired: the tests.
  */
-function moverelliExcludeLook(?string $dir = null): ?array
+function moverelliExcludeLook(?string $dir = null, ?bool $hired = null): ?array
 {
-    return moverelliHired() ? moverelliExcludeFrom($dir ?? MOVERELLI_DATA) : null;
+    $dir ??= MOVERELLI_DATA;
+    return ($hired ?? moverelliHired()) && moverelliConfigured($dir) ? moverelliExcludeFrom($dir) : null;
+}
+
+/** Is she set up — her smart_mover.ini there? (Without it every run of hers is refused: moverelli_not_configured) */
+function moverelliConfigured(string $dir): bool
+{
+    return is_file("$dir/smart_mover.ini");
 }
 
 function moverelliExcludeFrom(string $dir): array
@@ -619,10 +627,10 @@ function moverelliBusy(string $dir = MOVERELLI_DATA): bool
     return moverelliJobInfo($dir)['running'] || flockHeld("$dir/office-run.lock") || flockHeld("$dir/smartmover.lock");
 }
 
-/** Jack Emby's shares her ini doesn't keep EmbyCache's list away from (none while he isn't hired) */
+/** Jack Emby's shares her ini doesn't keep EmbyCache's list away from (none while he isn't hired or she isn't set up) */
 function moverelliJackUncovered(?array $emby, string $dir): array
 {
-    return $emby === null ? [] : embyMoverelliUncovered(moverelliExcludeFrom($dir), $emby['lists'], $emby['shares']);
+    return $emby === null || !moverelliConfigured($dir) ? [] : embyMoverelliUncovered(moverelliExcludeFrom($dir), $emby['lists'], $emby['shares']);
 }
 
 function moverelliScan(?array $h = null): array
@@ -674,7 +682,7 @@ function moverelliRunCheck(string $mode, array $h): void
     if (!moverelliUnraidOk($v)) {
         throw new Problem('moverelli_unraid_old', ['version' => $v !== '' ? $v : '?', 'needed' => MOVERELLI_UNRAID]);
     }
-    if (!is_file("$h[dir]/smart_mover.ini")) {
+    if (!moverelliConfigured($h['dir'])) {
         throw new Problem('moverelli_not_configured');
     }
     if (!is_file("$h[app]/custommover_run.sh")) {
@@ -1024,7 +1032,7 @@ function moverelliMoverOff(array $r, ?array $host = null): array
 function moverelliSetSchedule(?string $cron, ?array $h = null): array
 {
     $h ??= moverelliHost();
-    if ($cron !== null && !is_file("$h[dir]/smart_mover.ini")) {
+    if ($cron !== null && !moverelliConfigured($h['dir'])) {
         throw new Problem('moverelli_not_configured');
     }
     $live = officeJobSetSchedule('moverelli', $cron);
@@ -1058,7 +1066,7 @@ function moverelliChecks(?array $h = null): array
 {
     $h ??= moverelliHost();
     $out = [];
-    $configured = is_file("$h[dir]/smart_mover.ini");
+    $configured = moverelliConfigured($h['dir']);
     $out[] = finding('configured', 'required', $configured, [], '#/moverelli/setup');
     if (!$configured) {
         return $out;
