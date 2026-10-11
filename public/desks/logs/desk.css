@@ -31,7 +31,7 @@
 & button.lg-star.on{color:var(--warn)}
 .lg-favs{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:8px 2px 0}
 .lg-favs .lg-fav.active{border-color:var(--accent); color:var(--accent-ink); background:var(--accent-soft)}
-/* her tour: the tiles, a small tile per log, the list of the open one */
+/* the row: her tour's tiles and «Read out»; under it the chosen section */
 .lg-pct{margin-left:auto; font-size:12px; font-weight:600; color:var(--ink2); white-space:nowrap; font-variant-numeric:tabular-nums}
 .lg-pct.warn{color:var(--warn)}
 .lg-pct.danger{color:var(--danger)}
@@ -42,11 +42,14 @@
 .lg-counts b{font-weight:650}
 .lg-counts b.e{color:var(--danger)}
 .lg-counts b.w{color:var(--warn)}
-.lg-srcs{display:grid; gap:8px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 170px), 1fr)); margin-top:10px}
-.lg-srcs .card{padding:8px 11px; gap:3px; box-shadow:none}
-.lg-srcs .card-name{font-size:13px; font-weight:600}
-.lg-tour-body:not(:empty){margin-top:14px}
+/* «Errors & warnings»: a chip per log in its bar — pressed while the list shows only that log (the note line says so) */
+.lg-chips{display:flex; flex-wrap:wrap; gap:6px; flex:1 1 100%; order:-1}
+& button.lg-src-chip{display:inline-flex; align-items:center; gap:8px; cursor:pointer; font:inherit; font-size:12.5px; padding:3px 10px; max-width:100%}
+& button.lg-src-chip:hover{border-color:var(--accent)}
+& button.lg-src-chip[aria-pressed=true]{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink)}
+.lg-src-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
 .lg-view{display:flex; flex-direction:column; gap:8px}
+.row.lg-readable{cursor:pointer}            /* the whole row reads its log out (it unfolds nothing) */
 .lg-note{margin:0 2px}
 .lg-quiet{cursor:help; border-bottom:1px dotted var(--muted)}
 .lg-subhead{display:flex; align-items:center; gap:6px 10px; flex-wrap:wrap; padding:8px 10px 8px 12px; background:var(--surface2); border-top:1px solid var(--line)}

@@ -28746,6 +28746,7 @@ JS;
  */
 const SECTIONS_DESKS = [
     'restore' => [],
+    'logs' => [],
 ];
 
 /**
