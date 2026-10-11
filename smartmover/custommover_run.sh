@@ -43,6 +43,9 @@
 #                             share with an ERROR (counted as an error) instead of a WARN
 #   CUSTOMMOVER_EXCLUDES_OPTIONAL  comma separated exclude files that may be missing: one that is gone
 #                             counts as an empty list (INFO), even with CUSTOMMOVER_EXCLUDES_REQUIRED=1
+# Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
+#   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
+#   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
 #
 # INI (smart_mover.ini):
 #   [GLOBAL]  mover_bin, log_file, min_age (days), age_stat (ctime|mtime), global_excludes (comma list),
@@ -53,7 +56,7 @@
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
 #   /abs/path/file.mkv     protects exactly that file (an EmbyCache exclude list works as-is)
-#                          office: absolute entries are taken literally — [ ] * ? are part of the name
+#                          absolute entries are taken literally: [ ] * ? are part of the name
 #   *.nfo  or  Season 0*   glob against the file name (no slash) or the full path (with slash)
 #   anything else          substring match on the full path (legacy behaviour)
 #   /mnt/user/<share>/...  and /mnt/user0/<share>/... are translated to the scanned source root
@@ -252,8 +255,8 @@ pool_used_pct() {  # pool
 }
 
 # ------------------------------------------------------------------ Excludes
-# office: an absolute entry names exactly one file or folder, so find must match it literally —
-# escape what find's -path reads as a pattern (\ [ ] * ?): «Film (2020) [1080p].mkv» is no bracket expression.
+# An absolute entry names exactly one file or folder, so find must match it literally:
+# escape what find's -path reads as a pattern (\ [ ] * ?), e.g. «Film (2020) [1080p].mkv».
 find_literal() {  # path -> FIND_LITERAL (no subshell: an EmbyCache list has many lines)
     local s="$1" bs='\'
     s="${s//"$bs"/"$bs$bs"}"; s="${s//"["/"$bs["}"; s="${s//"]"/"$bs]"}"; s="${s//"*"/"$bs*"}"; s="${s//"?"/"$bs?"}"
@@ -287,7 +290,7 @@ build_excludes() {  # share_name source_root exclude_files(comma list)...
             line="${line/#$MNT\/user\/$share/$src}"
             line="${line/#$MNT\/user0\/$share/$src}"
             case "$line" in
-                /*)  # absolute path: file or subtree (office: matched literally)
+                /*)  # absolute path: file or subtree, matched literally
                     find_literal "$line"
                     EXCL_ARGS+=(-o -path "$FIND_LITERAL" -o -path "$FIND_LITERAL/*") ;;
                 *[\*\?\[]*)  # glob

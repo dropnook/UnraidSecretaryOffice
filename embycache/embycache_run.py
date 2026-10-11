@@ -526,7 +526,8 @@ class Planner:
         share = float(self.cfg["movie_share_percent"]) / 100.0
         user_budgets = self.cfg["user_budgets"]
         active = [u for u in self.users.values() if u.has_candidates()]
-        explicit = {u.key: user_budgets[u.key.split(":", 1)[1]] for u in active if u.key.split(":", 1)[1] in user_budgets}
+        # upstream 9d14374: by the user's id, not the key «server:id» split (a server name with «:» broke it)
+        explicit = {u.key: user_budgets[u.uid] for u in active if u.uid in user_budgets}
         pool = total - sum(explicit.values())
         if pool < 0:
             log.warning(f"Feste Benutzer-Budgets ({human(sum(explicit.values()))}) übersteigen cache_budget ({human(total)})")
@@ -1123,7 +1124,6 @@ class Runner:
         loc = Locations(cfg, cfg["instances"][0]["_mappings"])
         current = {str(loc.on_cache(f.rel)) for f in files}
         protected = set()
-        exclude_written = False
         try:
             if planner.errors or not sessions_ok:
                 log.warning("Planung unvollständig (Emby nicht vollständig erreichbar) – Cleanup wird übersprungen, "
@@ -1138,7 +1138,6 @@ class Runner:
             if self.run_mode:
                 on_cache = {str(loc.on_cache(f.rel)) for f in files if loc.on_cache(f.rel).exists()}
                 write_exclude(on_cache | protected)
-                exclude_written = True
                 # Herkunft nur für Dateien, die das Script weiter auf dem Cache hält
                 write_origin({p: d for p, d in self.origin.items() if p in on_cache | protected})
         if self.run_mode:
