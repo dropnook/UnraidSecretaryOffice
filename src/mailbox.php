@@ -47,6 +47,11 @@ function agentInfo(): array
         // the data folder comes with the array: say why nobody answers
         $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
         $info['no_data'] = ['array' => (string) ($var['fsState'] ?? ''), 'dir' => OFFICE_DATA_USER];
+        // the agent creates its folder only in an appdata that is there (agent.php makeDataDir()): say when it isn't
+        $appdata = dirname(OFFICE_DATA_USER, 2);
+        if (($var['fsState'] ?? '') === 'Started' && !is_dir($appdata)) {
+            $info['no_data']['appdata'] = $appdata;
+        }
     }
     unset($info['night']);
     if (!$info['running'] && ($night = officeNightShift()) !== null) {

@@ -546,7 +546,7 @@ Office.setAgent = function setAgent(info) {
   const no = Office.agent.no_data;
   state.className = 'agent-state ' + (Office.agent.running ? 'on' : night ? 'night' : 'off');
   $('#sso-state-label').textContent = t(Office.agent.running ? 'agent.label_on' : night ? 'agent.label_night'
-    : no ? (no.array !== 'Started' ? 'agent.label_array' : 'agent.label_no_data') : 'agent.label_off');
+    : no ? (no.array !== 'Started' ? 'agent.label_array' : no.appdata ? 'agent.label_no_appdata' : 'agent.label_no_data') : 'agent.label_off');
   state.title = dot.title;
   dot.removeAttribute('title');
   const notice = $('#sso-notice');
@@ -567,8 +567,11 @@ Office.setAgent = function setAgent(info) {
     notice.innerHTML = '';
     notice.className = 'notice';
     notice.dataset.kind = 'agent';
-    notice.append(el('strong', '', t(stopped ? 'agent.array_stopped_title' : 'agent.no_data_title')), ' ',
-      stopped ? t('agent.array_stopped_text') : t('agent.no_data_text', { dir: Office.agent.no_data.dir }));
+    const appdata = !stopped && Office.agent.no_data.appdata;     // appdata itself is gone: he never makes a share
+    notice.append(el('strong', '', t(stopped ? 'agent.array_stopped_title' : appdata ? 'agent.no_appdata_title' : 'agent.no_data_title')), ' ',
+      stopped ? t('agent.array_stopped_text')
+        : appdata ? t('agent.no_appdata_text', { dir: Office.agent.no_data.dir, appdata })
+          : t('agent.no_data_text', { dir: Office.agent.no_data.dir }));
     notice.hidden = false;
   } else {
     notice.innerHTML = '';
