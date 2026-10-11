@@ -17725,8 +17725,8 @@ const out = { registry: {}, marks: {} };
   O.current = null;
   out.unhired = O.search.find('emby').map((r) => [r.desk, r.hired]);
   out.full = O.search.find('partn').slice(0, 1);
-  console.log(JSON.stringify(out));
-  process.exit(0);
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
 })().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
 JS);
     $queries = ['before' => ['Partn', 'Partnr', 'Pratner', 'Partner offices', 'Accueil', 'Empfang', 'xq'],
