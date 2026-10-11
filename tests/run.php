@@ -15450,11 +15450,56 @@ function testWhereAfterWatchman(): void
     foreach (array_keys(WATCH_POSTURE) as $id) {
         check("where: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["where.adv.$id.title"]));
     }
-    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'security'] as $id) {
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'vm_migratable', 'security'] as $id) {
         check("where: tip $id is hers", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     $advice = waAdvice([], [], []);
     same('where: her advice reads no security settings any more', [false, false, false], [isset($advice['telnet']), isset($advice['ftp']), isset($advice['cpu'])]);
+}
+
+/**
+ * Ms. Dustdevil's tip about «Migratable» On (2026-10-12): Unraid's VM form sets `cpumigrate = on` for new VMs, the switch
+ * only exists with CPU mode Host Passthrough (`<cpu mode='host-passthrough' migratable='on'>`); libvirt then hides CPU
+ * features a live migration couldn't take along — no RAM or CPU cost, but the guest sees fewer capabilities. Read from
+ * the VM's XML (as waVm() reads it, never virsh): XML files the shape uso-test's have — on, off, and a VM in emulated
+ * mode (no switch: no tip). Good to know, never «needs resources».
+ */
+function testWhereVmMigratable(): void
+{
+    $tmp = hardeningTmp('wamigrate');
+    $xml = fn (string $name, string $cpu) => "<?xml version='1.0' encoding='UTF-8'?>\n<domain type='kvm'>\n  <name>$name</name>\n  <memory unit='KiB'>1048576</memory>\n"
+        . "  <vcpu placement='static'>2</vcpu>\n  <os>\n    <type arch='x86_64' machine='pc-q35-9.2'>hvm</type>\n  </os>\n$cpu  <clock offset='utc'/>\n  <devices/>\n</domain>\n";
+    file_put_contents("$tmp/Lab-On.xml", $xml('Lab-On', "  <cpu mode='host-passthrough' check='none' migratable='on'/>\n"));
+    file_put_contents("$tmp/Lab-Off.xml", $xml('Lab-Off', "  <cpu mode='host-passthrough' check='none' migratable='off'>\n    <topology sockets='1' dies='1' clusters='1' cores='1' threads='2'/>\n  </cpu>\n"));
+    file_put_contents("$tmp/Emulated.xml", $xml('Emulated', "  <cpu mode='custom' match='exact' check='none'>\n    <model fallback='forbid'>qemu64</model>\n  </cpu>\n"));
+    file_put_contents("$tmp/NoCpu.xml", $xml('NoCpu', ''));
+    $dom = fn (string $name) => simplexml_load_string((string) file_get_contents("$tmp/$name.xml"));
+    same('wa vm migratable: Host Passthrough with «Migratable» On — yes; Off, emulated, no <cpu>, unreadable — no', [true, false, false, false, false],
+        [waVmCpuMigratable($dom('Lab-On')), waVmCpuMigratable($dom('Lab-Off')), waVmCpuMigratable($dom('Emulated')), waVmCpuMigratable($dom('NoCpu')), waVmCpuMigratable(false)]);
+    $vms = array_map(fn ($n) => ['name' => $n, 'cpu_migratable' => waVmCpuMigratable($dom($n))], ['Lab-On', 'Lab-Off', 'Emulated', 'NoCpu']);
+    $vms[] = ['name' => 'a-Second', 'cpu_migratable' => true];
+    $vms[] = ['name' => 'Odd', 'cpu_migratable' => 'yes'];
+    same('wa vm migratable: the VMs with it, sorted — never Off, emulated, an odd shape', ['a-Second', 'Lab-On'], waVmMigratable($vms));
+    same('wa vm migratable: only Off and emulated VMs — no tip', [], waVmMigratable([$vms[1], $vms[2]]));
+    same('wa vm migratable: her advice carries the names', ['a-Second', 'Lab-On'], waAdvice([], [], [], $vms)['vm_migratable']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php');
+    check('wa vm migratable: waVm() reads it from the VM\'s XML (no virsh for it)', str_contains($src, "'cpu_migratable' => waVmCpuMigratable(\$dom),")
+        && !preg_match('/function waVmCpuMigratable[^}]*virsh/s', $src));
+    hardeningRm($tmp);
+
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('where: the «Migratable» tip is hers — info, the names, a link to Unraid\'s VMs page, the names as its signature',
+        str_contains($js, "add('vm_migratable', 'info', { names: listNames(migratable, 3), n: migratable.length }, { path: '/VMs', text: T('where.adv.to_vms') }, migratable.join(','));"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/cleanup/lang/$l.json"), true) ?: [];
+        $why = (string) ($t['where.adv.vm_migratable.why'] ?? '');
+        check("where ($l): the «Migratable» tip names the way in Unraid — ⟦VMs⟧ → ⟦Edit⟧ → ⟦Migratable⟧ beside ⟦CPU Mode⟧ (⟦Host Passthrough⟧), Off, the VM stopped",
+            str_contains($t['where.adv.vm_migratable.title']['other'] ?? '', '{names}') && str_contains($why, '⟦VMs⟧') && str_contains($why, '⟦Edit⟧')
+            && substr_count($why, '⟦Migratable⟧') === 2 && substr_count($why, '⟦CPU Mode⟧') === 2 && str_contains($why, '⟦Host Passthrough⟧') && str_contains($why, '→ Off'));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/de.json'), true) ?: [];
+    check('where (de): «kann Leistung kosten», never «braucht Ressourcen»', str_contains($de['where.adv.vm_migratable.why'] ?? '', 'kann Leistung kosten')
+        && !str_contains($de['where.adv.vm_migratable.why'] ?? '', 'Ressourcen'));
 }
 
 /**
@@ -29128,7 +29173,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];

@@ -2362,6 +2362,14 @@ function advice() {
     add('vm_netmodel', 'info', { names: listNames(slowNet, 3), n: slowNet.length }, { path: '/VMs', text: T('where.adv.to_vms') }, slowNet.join(','));
   }
 
+  // VMs with Host Passthrough and «Migratable» On (waVmMigratable(), Unraid's default for new VMs): libvirt hides the CPU
+  // features a live migration couldn't take along — no RAM or CPU cost, but the guest sees less of the CPU; Unraid never
+  // moves a VM to another server. Good to know; the signature is the VMs' names (one more brings the tip back)
+  const migratable = (a.vm_migratable || []).filter((n) => typeof n === 'string' && n !== '');
+  if (migratable.length) {
+    add('vm_migratable', 'info', { names: listNames(migratable, 3), n: migratable.length }, { path: '/VMs', text: T('where.adv.to_vms') }, migratable.join(','));
+  }
+
   // the array's write method (waWriteMethod()): «Auto» is read/modify/write — only the target disk and parity spin, turbo
   // write reads every other data disk. Nothing writes straight to the array: keep it (good to know, 2026-10-09);
   // shares that do: turbo write for big copies, or Squid's plugin. The signature: the method, those shares, the disks'
