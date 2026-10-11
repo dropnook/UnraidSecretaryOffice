@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.41 - 2026-10-12
+#   2.42 A VM held otherwise than set up warns with a code (status.json warning_items); one off after its deadline doesn't
 #   2.41 Every drift note carries a code and its parameters (drift.json items: params {key: value}, beside code and
 #        value - value only for the codes from before 2.41): the office says them in its own words and languages; the
 #        English text stays as it was (log, drift.txt, the notification). Nothing else changed
@@ -468,7 +469,7 @@ vm_hold_begin() { # the shutdown requests, all together
         if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"
         else
             unset "VM_SHUT_ASKED[$n]"
-            warn "VM '$n' did not take the shutdown request - it keeps running and is paused for the snapshot instead"
+            warn_code vm_shutdown_refused "VM '$n' did not take the shutdown request - it keeps running and is paused for the snapshot instead" name="$n"
         fi
     done
 }
@@ -479,7 +480,8 @@ vm_hold_begin() { # the shutdown requests, all together
 # not one after the other. A VM that didn't take the request isn't waited for. While waiting, a VM
 # still running gets the request again every VM_SHUTDOWN_RETRY seconds: Windows swallows the first
 # ACPI power button event while idle with the display off (harmless while a guest shuts down).
-# One not off by its deadline keeps running until vm_hold pauses it (never forced off).
+# One not off by its deadline keeps running until vm_hold pauses it (never forced off) - the warning comes there (2.42):
+# one that goes off meanwhile (while the apps stop) was shut down as set up.
 # abort: a run stopped early waits only for the VMs still going down after its request, until their
 # deadline, so that vm_release can start them again - no new requests.
 vm_shutdown_wait() {
@@ -504,7 +506,7 @@ vm_shutdown_wait() {
             now="$(date +%s)"
             if (( now >= ${deadline[$n]} )); then
                 [[ "$mode" == "abort" ]] \
-                    || warn "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - it keeps running and is paused for the snapshot instead"
+                    || log "  VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - it keeps running and is paused for the snapshot unless it goes off by then"
                 continue
             fi
             left+=( "$n" )
@@ -533,20 +535,22 @@ vm_hold() { # right before the snapshots: freeze, pause - also a VM that wasn't 
                 VM_SHUT_DOWN[$n]=1; log "  VM '$n': shut down (after its deadline)"; continue
             fi
             # never forced off: paused instead, the guest decides about its own shutdown. It ran
-            # until now - held from the pause on
+            # until now - held from the pause on. A VM that didn't take the request was warned about then
+            [[ -n "${VM_SHUT_ASKED[$n]:-}" ]] && warn_code vm_not_shut_down \
+                "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - paused for the snapshot instead" name="$n" seconds="$VM_SHUTDOWN_TIMEOUT"
             unset "VM_HELD_AT[$n]"; p="pause"
         fi
         if [[ "$p" == "freeze" ]]; then
             VM_HELD[$n]="frozen"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
             if timeout 60 virsh domfsfreeze "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': file systems frozen"; continue; fi
-            warn "VM '$n': the guest agent did not freeze its file systems - paused instead"
+            warn_code vm_not_frozen "VM '$n': the guest agent did not freeze its file systems - paused instead" name="$n"
             unset "VM_HELD[$n]"; p="pause"
         fi
         if [[ "$p" == "pause" ]]; then
             VM_HELD[$n]="paused"; VM_HELD_AT[$n]="${VM_HELD_AT[$n]:-$(date +%s)}"; save_restore_state
             if timeout 30 virsh suspend "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': paused"
             else
-                warn "VM '$n' could not be paused - it keeps running (crash-consistent)"
+                warn_code vm_not_paused "VM '$n' could not be paused - it keeps running (crash-consistent)" name="$n"
                 unset "VM_HELD[$n]" "VM_HELD_AT[$n]"; save_restore_state
                 vm_note "$n" "$(vm_prepare "$n")" "failed" 0
             fi
@@ -3593,7 +3597,11 @@ run_report() {
         case "$d" in
             off|kept_running|not_running|planned) continue ;;
             shutdown) d="shut down for $(dur_n "$secs")" ;;
-            paused)   d="paused for $(dur_n "$secs")" ;;
+            paused)   case "$p" in
+                          shutdown) d="did not shut down - paused for $(dur_n "$secs")" ;;
+                          freeze)   d="not frozen - paused for $(dur_n "$secs")" ;;
+                          *)        d="paused for $(dur_n "$secs")" ;;
+                      esac ;;
             frozen)   d="frozen for $(dur_n "$secs")" ;;
             failed)   d="could not be paused - kept running" ;;
             *)        d="$d for $(dur_n "$secs")" ;;

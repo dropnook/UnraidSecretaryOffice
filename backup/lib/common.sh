@@ -102,6 +102,16 @@ _log_line() {
 }
 log()  { _log_line "$(_ts)  $*"; }
 warn() { WARNINGS=$((WARNINGS+1)); _log_line "$(_ts)  WARNING: $*"; }
+# warn_code <code> <text> [key=value]...  (2.42) - a warning the office says in its own words: counted and logged like
+#   warn (the English text), and noted in WARN_ITEMS ("code<US>key=value<US>...") - status.json "warning_items":
+#   [{code, params: {key: value}}]. So far the VMs held otherwise than set up (backup.sh vm_hold_begin, vm_hold)
+declare -ga WARN_ITEMS=()
+warn_code() {
+    local c="$1" t="$2" p="" kv
+    shift 2
+    for kv in "$@"; do p+=$'\x1f'"$kv"; done
+    WARN_ITEMS+=( "$c$p" ); warn "$t"
+}
 err()  { ERRORS=$((ERRORS+1));     _log_line "$(_ts)  ERROR: $*"; }
 
 # ub_notify <subject> <short text> [normal|warning|alert] [long text]
@@ -2260,13 +2270,16 @@ status_json() {
     partner="$(partner_status_json)" || partner="null"
     asleep="$(asleep_status_json)" || asleep="null"
     why="$(kopia_skipped_why_json)" || why='{}'
+    local witems
+    witems="$(printf '%s\n' "${WARN_ITEMS[@]}" | jq -R 'select(length > 0) | split("\u001f")
+        | {code: .[0], params: ([.[1:][] | capture("^(?<k>[^=]+)=(?<v>.*)$"; "s") | {(.k): .v}] | add // {})}' | jq -sc .)" || witems='[]'
     [[ -n "$why" ]] || why='{}'
     jq -nc \
         --arg name "$UB_NAME" --arg version "$UB_VERSION" --argjson interface "$UB_INTERFACE" \
         --arg mode "$ST_MODE" --arg run "${TS:-}" --argjson pid "$$" \
         --argjson started "$ST_STARTED" --argjson updated "$(date +%s)" --argjson finished "$ST_FINISHED" \
         --arg phase "$ST_PHASE" --arg result "$ST_RESULT" --arg message "$ST_MESSAGE" \
-        --argjson errors "${ERRORS:-0}" --argjson warnings "${WARNINGS:-0}" \
+        --argjson errors "${ERRORS:-0}" --argjson warnings "${WARNINGS:-0}" --argjson warning_items "${witems:-[]}" \
         --argjson downtime "${DOWNTIME:-0}" --arg snapshot "${SNAP_NAME:-}" \
         --argjson dump_bytes "${ST_DUMP_BYTES:-0}" --arg log "$(basename "${LOG_FILE:-}")" \
         --argjson drift "$drift" --argjson planned "$plan" --argjson done "$done_" \
@@ -2278,7 +2291,7 @@ status_json() {
         --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
         '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
-          message: $message, errors: $errors, warnings: $warnings, downtime_s: $downtime,
+          message: $message, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
           new_local: $new_local, partner: $partner, partner_ok: $p_ok, partner_failed: $p_failed, partner_skipped: $p_skipped,
           asleep: $asleep,
