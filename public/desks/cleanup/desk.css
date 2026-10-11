@@ -13,6 +13,12 @@
 /* missing pictures: a small frame in front of the name, the choice in the details */
 .cl-pic{display:inline-flex; align-items:center; justify-content:center; flex:none; width:28px; height:28px; border-radius:6px; overflow:hidden; background:var(--surface2); font-size:14px; line-height:1}
 .cl-pic img{width:100%; height:100%; object-fit:contain; display:block}
+/* a logo in the dark themes (black, gray) sits on a soft light tile: a dark one (valkey's navy, immich_redis) vanished on
+   the dark backing (2026-10-12); a picture's colours can't be read across origins, so every logo gets it, on white the
+   quiet backing as before */
+.cl-pic:not(.cl-pic-none){padding:2px; background:color-mix(in srgb, #fff 84%, var(--surface))}
+:is(.Theme--white, .Theme--azure, [data-unraid-theme=white]) &:not([data-theme=dark]) .cl-pic:not(.cl-pic-none),
+&[data-theme=light] .cl-pic:not(.cl-pic-none){background:var(--surface2)}
 .cl-pic.cl-pic-none{background:transparent; border:1px dashed var(--line2)}
 .cl-pic-name{display:flex; align-items:center; gap:8px; min-width:0}
 .cl-pic-list{display:flex; flex-direction:column; gap:6px; margin:10px 0 8px}
