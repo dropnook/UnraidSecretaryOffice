@@ -748,6 +748,7 @@ function waVm(string $name, string $state, int $snapshots, array $roots, array $
         'memory'      => $memory,
         'disks'       => $disks,
         'networks'    => $nets,
+        'cpu_migratable' => waVmCpuMigratable($dom),
         'passthrough' => $passthrough,
         'graphics'    => $vnc,
         'snapshots'   => $snapshots,
@@ -794,6 +795,43 @@ function waVmNetModel(array $vms): array
                 $names[] = $vm['name'];
                 break;
             }
+        }
+    }
+    sort($names, SORT_NATURAL | SORT_FLAG_CASE);
+    return array_values(array_unique($names));
+}
+
+/**
+ * Unraid's «Migratable» (VM form, beside «CPU Mode», only for Host Passthrough; Custom.form.php sets `cpumigrate = on`
+ * for new VMs): `<cpu mode='host-passthrough' migratable='on'>` in the VM's XML. libvirt then hides the CPU features
+ * that would stand in a live migration's way (invtsc …) — no RAM or CPU cost, but the guest sees fewer capabilities
+ * (performance, timers); libvirt itself says it only makes a migration safe between identical hosts. True only for that
+ * exact pair (no attribute, «off», another mode: false).
+ *
+ * @param \SimpleXMLElement|false $dom
+ */
+function waVmCpuMigratable($dom): bool
+{
+    if (!$dom || !$dom->cpu) {
+        return false;
+    }
+    return (string) ($dom->cpu['mode'] ?? '') === 'host-passthrough' && (string) ($dom->cpu['migratable'] ?? '') === 'on';
+}
+
+/**
+ * The VMs (running or not) with Host Passthrough and «Migratable» On (waVmCpuMigratable()): nobody moves VMs between
+ * servers with Unraid — Off gives the guest the whole CPU. A performance hint for Ms. Dustdevil's «If I were you …»
+ * (`vm_migratable`), names sorted.
+ *
+ * @param list<array> $vms waVms()
+ * @return list<string>
+ */
+function waVmMigratable(array $vms): array
+{
+    $names = [];
+    foreach ($vms as $vm) {
+        if (is_array($vm) && ($vm['cpu_migratable'] ?? false) === true && is_string($vm['name'] ?? null) && $vm['name'] !== '') {
+            $names[] = $vm['name'];
         }
     }
     sort($names, SORT_NATURAL | SORT_FLAG_CASE);
@@ -1451,6 +1489,7 @@ function waAdvice(array $shares, array $roots, array $asleep, array $vms = [], a
         'exclusive'      => waExclusive($shares, $roots, $asleep, $share),
         'vm_stop'        => waVmStop($domain, readCfg(WA_VAR_INI)),
         'vm_netmodel'    => waVmNetModel($vms),
+        'vm_migratable'  => waVmMigratable($vms),
         'write_method'   => waWriteMethod($disk, readCfg(disksIniFile(), true), $shares,
             is_file(WA_PLUGINS . '/' . WA_TURBO . '.plg') ? readCfg(WA_PLUGINS . '/' . WA_TURBO . '/settings.ini') : null),
         'zfs_arc'        => waZfsArc(in_array('zfs', array_column($roots, 'fs'), true), (string) @file_get_contents(WA_ZFS_CONF),

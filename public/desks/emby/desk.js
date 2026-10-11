@@ -1315,6 +1315,7 @@ function libraryList() {
 function renderSetup() {
   if (!view) return;
   const root = view;
+  const spot = focusSpot();         // the control a click redraws the page from keeps the focus (focusBack())
   root.innerHTML = '';
   // the tabs say where one is (no «← Back», no head button): under them the page's head line, his setup words its sub line
   root.appendChild(deskHead());
@@ -1333,10 +1334,121 @@ function renderSetup() {
   root.appendChild(ph);
   if (!state) return;
   if (!form) initForm();
-  const connected = form.instances.some((i) => i.server);
-  if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the tools before
+  if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the tools before (a hint over the row)
+  // the row of his setup's steps and under it the step chosen (none: every step in order — the page as before the tiles)
+  const sw = setupSwitcher();
+  root.appendChild(sw.el);
+  sw.render();
+  // the save bar under all (only once a server is connected: before, there is nothing of the form to save)
+  if (connected()) {
+    const save = button(T('setup.save'), '', saveSetup);
+    save.disabled = running();
+    const foot = el('div', 'toolbar');
+    foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
+    root.appendChild(foot);
+  }
+  focusBack(spot);
+}
 
-  // 1. servers
+// ---- the setup's steps as tiles (tiles v2, CLAUDE.md «Tiles», 2026-10-12): a row with a number tile per step — servers,
+// libraries, people, pool and amount, the way back, and (once he is set up) taking over an earlier install; a click shows
+// that step alone under the row, nothing chosen = every step in order, the second click = all again; kept as
+// emby.setup.tile, a step's route #/emby/setup/<tile>. The form lives across every drawing (form): a click in a step draws
+// the page anew from it — the typed values stay, the focus comes back to the control clicked (focusSpot()/focusBack()).
+/** [tile id, lang key (the step's title: the tile's label, its place for the search)] in the steps' order */
+const SETUP_TILES = [['servers', 'setup.server'], ['libraries', 'setup.libraries'], ['users', 'setup.users'], ['scope', 'setup.scope'],
+  ['more', 'setup.more'], ['import', 'import.title']];
+const connected = () => !!form && form.instances.some((i) => i.server);
+let setupSw = null;
+/** The setup's row and its steps (core.js's section switcher) — one per page life */
+function setupSwitcher() {
+  if (setupSw) return setupSw;
+  setupSw = Office.sections({
+    id: `${ID}/setup`,           // the routes #/emby/setup/<tile>
+    key: 'emby.setup.tile',
+    bodyId: 'jo-setup-steps',
+    grid: 'stats jo-setup-tiles',
+    default: '',                 // the start: every step (the page as it always was)
+    tiles: () => setupTileList(),
+    wants: (sub) => SETUP_TILES.some(([id]) => id === sub),      // a route before his state is in
+  });
+  return setupSw;
+}
+
+/** The tiles for the switcher: setupTileData() as it stands, each with its step as its section (none before his state) */
+function setupTileList() {
+  if (!state || !form) return [];
+  return setupTileData().map((d) => ({ id: d.id, key: d.key, place: `setup.tile.${d.id}`,
+    tile: (a) => Office.stat({ label: T(d.key), value: d.value, sub: d.sub.filter(Boolean), alert: d.alert, ...a }), section: () => setupStep(d.id) }));
+}
+/** One step's section */
+function setupStep(id) {
+  if (id === 'servers') return setupServers();
+  if (id === 'libraries') return setupLibraries();
+  if (id === 'users') return setupUsers();
+  if (id === 'scope') return setupScope();
+  if (id === 'more') return setupMore();
+  return importSection();
+}
+
+/** The people of all connected servers, each once */
+const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
+/** The way back and reading from the array as they come (EmbyCache's defaults) */
+const MORE_DEFAULTS = { return_to_origin: true, array_source: 'user0', create_share_root: false };
+
+/**
+ * His setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the steps' order — the servers (how many,
+ * how many connected), the libraries (chosen of all, their folders on the cache), the people (chosen of all; none chosen =
+ * everyone), pool and amount (the pool, or the budget), the way back (as it comes or changed), taking over an earlier
+ * install (once he is set up). Before a server is connected (every visit starts so) the libraries and people as saved.
+ */
+function setupTileData() {
+  const v = form.values;
+  const on = connected();
+  const out = [];
+  out.push({ id: 'servers', key: 'setup.server', value: String(form.instances.length),
+    sub: [T('setup.tile.connected', { n: form.instances.filter((i) => i.server).length })], alert: false });
+  const libs = libraryList();
+  const chosenLibs = libs.filter((l) => form.chosenLibs.has(l.name));
+  const cached = chosenLibs.reduce((n, l) => n + l.at.filter(([i, p]) => !form.instances[i].skip.has(p)).length, 0);
+  out.push({ id: 'libraries', key: 'setup.libraries', value: on ? T('setup.tile.of', { n: chosenLibs.length, total: libs.length }) : String(form.chosenLibs.size),
+    sub: [on ? T('setup.tile.folders', { n: cached }) : T('setup.tile.saved')], alert: false });
+  const people = everyone();
+  const chosen = on ? people.filter((id) => form.chosenUsers.has(id)).length : form.chosenUsers.size;
+  out.push({ id: 'users', key: 'setup.users', value: !chosen ? T('setup.tile.everyone') : on ? T('setup.tile.of', { n: chosen, total: people.length }) : String(chosen),
+    sub: [on ? '' : T('setup.tile.saved')], alert: false });
+  const pool = String(v.cache_path || '').replace('/mnt/', '') || '–';
+  out.push({ id: 'scope', key: 'setup.scope', value: v.budget_mode ? (String(v.cache_budget || '').trim() || '–') : pool,
+    sub: [v.budget_mode ? T('setup.tile.budget_line', { pool }) : T('setup.tile.count_line', { n: Number(v.number_episodes) || 0 })], alert: false });
+  const changed = Object.keys(MORE_DEFAULTS).some((k) => v[k] !== MORE_DEFAULTS[k]);
+  out.push({ id: 'more', key: 'setup.more', value: T(changed ? 'setup.tile.changed' : 'setup.tile.default'), sub: [], alert: false });
+  if (state.configured) out.push({ id: 'import', key: 'import.title', value: T('setup.tile.optional'), sub: [], alert: false });
+  return out;
+}
+
+/** A step that needs a connected server, before one is: its head and one line saying so */
+function notYet(s) {
+  s.appendChild(el('p', 'role jo-not-yet', T('setup.after_connect', { where: T('setup.server') })));
+  return s;
+}
+
+/** The control that has the focus inside a step: its step and its place among the step's controls (the page is drawn anew) */
+function focusSpot() {
+  const a = typeof document !== 'undefined' ? document.activeElement : null;
+  const sec = a && view && view.contains(a) && a.closest ? a.closest('[data-section]') : null;
+  if (!sec) return null;
+  return { section: sec.dataset.section, i: [...sec.querySelectorAll('input, select, textarea, button')].indexOf(a) };
+}
+/** … and back to the same control once drawn anew (no scroll: the page stays where it was) */
+function focusBack(spot) {
+  if (!spot || spot.i < 0 || !view) return;
+  const sec = view.querySelector(`[data-section="${spot.section}"]`);
+  const x = sec ? sec.querySelectorAll('input, select, textarea, button')[spot.i] : null;
+  if (x && document.activeElement !== x) x.focus({ preventScroll: true });
+}
+
+/** 1. servers: address and key of each Emby instance, «Connect» */
+function setupServers() {
   const s1 = section(T('setup.server'), T('setup.server_sub'), { place: 'setup.server' });
   form.instances.forEach((inst, idx) => {
     const box = el('div', 'box jo-instance');
@@ -1375,10 +1487,13 @@ function renderSetup() {
   const bar1 = el('div', 'toolbar');
   bar1.appendChild(add);
   s1.appendChild(bar1);
-  root.appendChild(s1);
-  if (!connected) { root.appendChild(el('p', 'callout', T('setup.connect_first'))); return; }
+  if (!connected()) s1.appendChild(el('p', 'callout', T('setup.connect_first')));
+  return s1;
+}
 
-  // 2. libraries and their folders
+/** 2. libraries and their folders */
+function setupLibraries() {
+  if (!connected()) return notYet(section(T('setup.libraries'), T('setup.libraries_sub'), { place: 'setup.libraries' }));
   const v = form.values;
   const pool = v.cache_path.replace('/mnt/', '');
   const s2 = section(T('setup.libraries'), T('setup.libraries_sub'), { place: 'setup.libraries' });
@@ -1421,15 +1536,19 @@ function renderSetup() {
     box2.appendChild(row);
   });
   s2.appendChild(box2);
-  root.appendChild(s2);
+  return s2;
+}
 
-  // 3. people
-  const everyone = [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
-  const all = button(T('setup.users_all'), 'small plain', () => { everyone.forEach((id) => form.chosenUsers.add(id)); renderSetup(); });
+/** 3. people */
+function setupUsers() {
+  if (!connected()) return notYet(section(T('setup.users'), T('setup.users_sub'), { place: 'setup.users' }));
+  const v = form.values;
+  const people = everyone();
+  const all = button(T('setup.users_all'), 'small plain', () => { people.forEach((id) => form.chosenUsers.add(id)); renderSetup(); });
   const none = button(T('setup.users_none'), 'small plain', () => { form.chosenUsers.clear(); renderSetup(); });
   const pick = el('div', 'toolbar');
   pick.append(all, none);
-  const s3 = section(T('setup.users'), T('setup.users_sub'), everyone.length ? pick : null, { place: 'setup.users' });
+  const s3 = section(T('setup.users'), T('setup.users_sub'), people.length ? pick : null, { place: 'setup.users' });
   const f3 = el('div', 'jo-users');
   const seen = new Set();
   form.instances.forEach((inst) => (inst.users || []).forEach((u) => {
@@ -1446,9 +1565,13 @@ function renderSetup() {
     f3.appendChild(wrap);
   }));
   s3.appendChild(f3);
-  root.appendChild(s3);
+  return s3;
+}
 
-  // 4. pool and amount: what applies to both, then films and series apart
+/** 4. pool and amount: what applies to both, then films and series apart */
+function setupScope() {
+  if (!connected()) return notYet(section(T('setup.scope'), T('setup.scope_sub'), { place: 'setup.scope' }));
+  const v = form.values;
   const s4 = section(T('setup.scope'), T('setup.scope_sub'), { place: 'setup.scope' });
   const f4 = el('div', 'jo-form');
   const poolSel = el('select', 'picker');
@@ -1489,9 +1612,13 @@ function renderSetup() {
     field(T('setup.resume_series'), number(v, 'max_resume_series', 0, 999), T('setup.resume_series_hint')),
     field(T('setup.favorites'), number(v, 'max_favorite_series', 0, 999), T('setup.zero_off')),
     check(T('setup.next_up'), v.use_next_up, (x) => { v.use_next_up = x; }, T('setup.next_up_hint')));
-  root.appendChild(s4);
+  return s4;
+}
 
-  // 5. more: the way back and where to read from (both ways always rsync: Unraid's move binary is never Jack's choice)
+/** 5. more: the way back and where to read from (both ways always rsync: Unraid's move binary is never Jack's choice) */
+function setupMore() {
+  if (!connected()) return notYet(section(T('setup.more'), T('setup.more_sub'), { place: 'setup.more' }));
+  const v = form.values;
   const s5 = section(T('setup.more'), T('setup.more_sub'), { place: 'setup.more' });
   const f5 = el('div', 'jo-form');
   f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
@@ -1506,14 +1633,7 @@ function renderSetup() {
   f5.appendChild(rootOpt);
   f5.appendChild(el('p', 'role', T('setup.fixed_paths')));
   s5.appendChild(f5);
-  root.appendChild(s5);
-
-  const save = button(T('setup.save'), '', saveSetup);
-  save.disabled = running();
-  const foot = el('div', 'toolbar');
-  foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
-  root.appendChild(foot);
-  if (state.configured) root.appendChild(importSection());
+  return s5;
 }
 
 // ------------------------------------------------------------------ taking over an earlier install
@@ -1983,6 +2103,9 @@ Office.desk({
     view = root;
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : 'main';
     if (page === 'setup') {
+      // #/emby/setup/<tile> (the search, a step's place) picks that step exactly like a click, the address keeps its page;
+      // else the step chosen last (emby.setup.tile), none = every step
+      if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');
       if (!state) await load(false);
       await Office.freshState(ID);      // the form starts from his settings: from a fresh look, never a stale one
       if (view !== root || page !== 'setup') return;
@@ -2069,7 +2192,11 @@ Office.places(ID, [
   // his tiles (CLAUDE.md «Tiles», the switcher's places): each sets its choice as a click would
   ...sw.places().map((p) => (['tile.pool', 'tile.shares'].includes(p.anchor) ? { ...p, shown: configured } : p)),
   { kind: 'section', key: 'tools' },
-  ...['import.title', 'setup.server', 'setup.libraries', 'setup.users', 'setup.scope', 'setup.more'].map((key) => ({ kind: 'step', key, ...SETUP })),
+  // the setup's steps by the route of their tile (a step stands under the row only while its tile is chosen — or none is);
+  // the steps' tiles (place setup.tile.<id>, #/emby/setup/<tile> picks it like a click) with the steps' words: the step
+  // stays the one result of the search
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/${ID}/setup/${id}` })),
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
   ...['what', 'tools', 'progress', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
@@ -2081,7 +2208,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page,
+    renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText };
 }

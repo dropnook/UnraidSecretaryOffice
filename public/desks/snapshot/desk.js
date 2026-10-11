@@ -407,23 +407,23 @@ function buttons() {
 
 // ------------------------------------------------------------------ the tiles (tiles v2)
 /*
- * Her row (tiles v2, CLAUDE.md «Tiles»): a tile is a section. A card per ZFS pool, the btrfs disks (a row each in one
- * card), the VMs — each a filter tile: «Snapshots» with only its snapshots (the note line names it); «Schedules» —
+ * Her row (tiles v2, CLAUDE.md «Tiles»): a tile is a section. A card per pool, «Array» with every array disk (a row
+ * each in one card, btrfs and ZFS alike — like Unraid's Main page), the VMs — each a filter tile: «Snapshots» with only its snapshots (the note line names it); «Schedules» —
  * their section; «Snapshots» at the end — the list unfiltered. Nothing chosen (her start): the whole page — the list
  * (at its first tile, the first pool), then the schedules. The pool tiles' choice stays kept as snapshot.pool (the one
  * filter the concept keeps: a pool is where one looks); a section tile's as snapshot.tile, as the switcher keeps it.
  */
 const POOL = 'pool:';
-let btrfsBox = null;               // the btrfs card being drawn: its disks' rows go into it
+let diskBoxes = new Map();         // the disk cards being drawn (the array's, a btrfs pool's): disk name → {card, rows}
 let pendingPool = null;            // a kept pool waiting for her state (its tile comes with it)
 const sw = Office.sections({
   id: ID,                          // kept as snapshot.tile, routes #/snapshot/<tile>
   grid: 'cards sp-tiles',
   default: '',
   tiles: () => [
-    ...(state?.zfs?.pools || []).map((p) => ({ id: POOL + p.name, place: `pool:${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })),
-    ...((state?.btrfs?.devices || []).length ? [{ id: 'card:btrfs', section: 'list', tile: () => btrfsCard(state.btrfs) },
-      ...state.btrfs.devices.map((d) => ({ id: POOL + d.name, place: `pool:${d.name}`, section: 'list', filters: d.name, tile: (a) => btrfsRow(d, a) }))] : []),
+    ...ownPools().map((p) => ({ id: POOL + p.name, place: `pool:${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })),
+    ...diskCards().flatMap((g) => [{ id: g.id, section: 'list', tile: () => diskCard(g) },
+      ...g.disks.map((x) => ({ id: POOL + x.name, place: `pool:${x.name}`, section: 'list', filters: x.name, tile: (a) => diskRow(x, a) }))]),
     ...(state?.vm?.available ? [{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs', tile: (a) => vmCard(state.vm, a) }] : []),
     { id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(), tile: (a) => plansCard(a) },
     { id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list', tile: (a) => snapsCard(a) },
@@ -435,6 +435,24 @@ const sw = Office.sections({
     Office.store('snapshot.pool', String(id).startsWith(POOL) ? id.slice(POOL.length) : null);
   },
 });
+/** The ZFS pools with a card of their own: every pool but the array's ZFS disks (their rows are in «Array») */
+function ownPools() { return (state?.zfs?.pools || []).filter((p) => p.array !== true); }
+/**
+ * The disk cards (holders in the row, no tiles themselves): «Array» with every array disk — Unraid's disk1, disk2 …,
+ * btrfs ones and ZFS-formatted ones (a one-disk pool each), told by the agent's `array` (disks.ini type="Data", never
+ * the name: a pool may be called «disk9») — and a card for each btrfs filesystem outside it (a btrfs pool, an
+ * unassigned disk). A disk is in the array or outside, never both. A state from before 1.59 has no flag: its btrfs
+ * disks are the array's, its ZFS pools pools. → [{id, title, disks: [{kind: 'btrfs'|'zfs', name, d|p}]}]
+ */
+function diskCards() {
+  const btrfs = state?.btrfs?.devices || [];
+  const of = (d) => ({ kind: 'btrfs', name: d.name, d });
+  const arr = [...btrfs.filter((d) => d.array !== false).map(of),
+    ...(state?.zfs?.pools || []).filter((p) => p.array === true).map((p) => ({ kind: 'zfs', name: p.name, p }))]
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
+  return [...(arr.length ? [{ id: 'card:array', title: T('array'), disks: arr }] : []),
+    ...btrfs.filter((d) => d.array === false).map((d) => ({ id: 'card:btrfs:' + d.name, title: d.name, disks: [of(d)] }))];
+}
 /** The tile filter: a pool's, a disk's or the VMs' name — null: all */
 function poolFilter() {
   const a = sw.active();
@@ -463,16 +481,17 @@ function refocus(tile) {
 
 /**
  * A pool's snapshots by where they come from (decision 3 of the tiles rebuild) — pure, the tests run it under node.
- * list: her snapshots; pool: a ZFS pool of her state ({name, snapused, fs}) — only its snapshots —, or {fs: 'btrfs'}
- * (no name: the whole list). src: source() (where one comes from). Returns {n (without Docker's), used (the pool's
+ * list: her snapshots; pool: a ZFS pool of her state ({name, snapused, fs}) — only its snapshots —, or a disk card's
+ * {fs: 'btrfs', names} (its disks' snapshots; neither name nor names: the whole list). src: source() (where one comes from). Returns {n (without Docker's), used (the pool's
  * usedbysnapshots — what all of them hold together; null without), sized (ZFS: each snapshot's `used`; btrfs: counts
  * only), lines: [{key, n, bytes}]} — backup, plans, manual, partner, other, docker (last); sources without one left out;
  * bytes the sum of `used` (a lower bound: what several share is in none's `used`), null when not sized and for Docker.
  */
 const SPLIT_ORDER = ['backup', 'plans', 'manual', 'partner', 'other', 'docker'];
 function poolSplit(list, pool, src = source) {
-  const mine = (Array.isArray(list) ? list : []).filter((s) => s && (!pool.name || s.pool === pool.name));
-  const sized = pool.fs !== 'btrfs' && pool.fs !== 'vm';
+  const want = Array.isArray(pool.names) ? new Set(pool.names) : pool.name ? new Set([pool.name]) : null;
+  const mine = (Array.isArray(list) ? list : []).filter((s) => s && (!want || want.has(s.pool)));
+  const sized = pool.fs === 'zfs';
   const by = new Map(SPLIT_ORDER.map((k) => [k, { key: k, n: 0, bytes: 0 }]));
   for (const s of mine) {
     const x = src(s);
@@ -560,30 +579,48 @@ function spaceBar(total, used, snapshots) {
 }
 
 
+/** A disk of a disk card as one shape: its sizes, its snapshots, when she last read it */
+function diskFacts(x) {
+  if (x.kind === 'zfs') {
+    const p = x.p;
+    const total = p.used !== null && p.used !== undefined ? p.used + p.avail : p.size;
+    return { total, used: p.used !== null && p.used !== undefined ? p.used : p.alloc, mount: `/mnt/${p.name}`, asleep: !!p.asleep, error: null,
+      n: p.count || 0, read: p.asleep && !p.looked ? null : (p.looked || null), bad: !p.asleep && p.health && p.health !== 'ONLINE' ? p.health : '' };
+  }
+  const d = x.d;
+  return { total: d.size, used: d.size - d.free, mount: d.mount, asleep: !!d.asleep, error: d.error || null,
+    n: (state?.btrfs?.snapshots || []).filter((s) => s.ds === d.mount).length, read: d.scanned || null, bad: '' };
+}
+
 /**
- * The array's btrfs disks in one card (no tile itself — a holder in the row): a row per disk, each a filter tile
+ * A disk card (no tile itself — a holder in the row): «Array» or a btrfs pool, a row per disk, each a filter tile
  * (each drawn into it by its own tile), the split by source under them, the foot with «Wake & scan»
  */
-function btrfsCard(part) {
-  const card = el('div', 'card sp-btrfs' + (part.devices.length > 3 ? ' wide' : ''));
-  const asleep = part.devices.filter((d) => d.asleep);
+function diskCard(g) {
+  const card = el('div', 'card sp-disks' + (g.disks.length > 3 ? ' wide' : ''));
+  const facts = g.disks.map(diskFacts);
+  const asleep = g.disks.filter((x, i) => facts[i].asleep);
   const head = el('div', 'card-head');
-  head.append(el('span', 'card-name', T('array')), el('span', 'tag', 'btrfs'));
+  head.append(el('span', 'card-name', g.title));
   head.append(el('span', 'status quiet', asleep.length ? T('asleep_count', { n: asleep.length }) : T('all_awake')));
   card.appendChild(head);
   const rows = el('div', 'minirows');
   card.appendChild(rows);
-  btrfsBox = { card, rows, part };
-  // by source, counts only (btrfs knows no size per snapshot)
-  if (part.snapshots.length) card.appendChild(splitBox(poolSplit(part.snapshots, { fs: 'btrfs' })));
+  g.disks.forEach((x) => diskBoxes.set(x.name, { card, rows }));
+  // by source: counts only (btrfs knows no size per snapshot) — sized only when every disk is ZFS
+  const names = g.disks.map((x) => x.name);
+  const mine = snaps.filter((s) => (s.fs === 'btrfs' || s.fs === 'zfs') && names.includes(s.pool));
+  const zfsOnly = g.disks.every((x) => x.kind === 'zfs');
+  const sp = poolSplit(mine, zfsOnly ? { fs: 'zfs', names, snapused: g.disks.reduce((t, x) => t + (x.p.snapused || 0), 0) } : { fs: 'btrfs', names });
+  if (mine.length) card.appendChild(splitBox(sp));
   const foot = el('div', 'card-foot');
-  const last = Math.max(0, ...part.devices.map((d) => d.scanned || 0));
-  foot.append(el('span', '', `${T('count', { n: part.snapshots.length })} · ${last ? Office.t('common.scanned_ago', { when: fmt.relative(last) }) : T('never_read')}`));
+  const last = Math.max(0, ...facts.map((f) => f.read || 0));
+  foot.append(el('span', '', `${T('count', { n: sp.n })} · ${last ? Office.t('common.scanned_ago', { when: fmt.relative(last) }) : T('never_read')}`));
   if (asleep.length) {
     const w = el('button', 'btn plain small', T('wake_scan'));
     w.type = 'button';
     w.disabled = !Office.agent.running || busy;
-    w.title = T('wake_scan_title', { disks: asleep.map((d) => d.name).join(', ') });
+    w.title = T('wake_scan_title', { disks: asleep.map((x) => x.name).join(', ') });
     w.onclick = () => scan(true);
     foot.appendChild(w);
   }
@@ -592,36 +629,38 @@ function btrfsCard(part) {
 }
 
 /**
- * A btrfs disk's row in the array's card — a filter tile of the switcher drawn into that card (the switcher draws
- * nothing for it: null), so it carries what the switcher would set: the click, pressed, data-tile, data-filters, the
- * glow and its mark; the card itself is no tile (no aria-pressed)
+ * A disk's row in its card (btrfs or ZFS, its tag on the row) — a filter tile of the switcher drawn into that card (the
+ * switcher draws nothing for it: null), so it carries what the switcher would set: the click, pressed, data-tile,
+ * data-filters, the glow and its mark; the card itself is no tile (no aria-pressed)
  */
-function btrfsRow(d, a) {
-  if (!btrfsBox) return null;
-  const { card, rows, part } = btrfsBox;
+function diskRow(x, a) {
+  const box = diskBoxes.get(x.name);
+  if (!box) return null;
+  const { card, rows } = box;
   card.removeAttribute('aria-pressed');
   card.removeAttribute('aria-controls');
-  const n = part.snapshots.filter((s) => s.ds === d.mount).length;
-  const row = asTile(Office.place(`pool:${d.name}`, el('button', 'minirow' + (d.asleep ? ' asleep' : '') + (a.active ? ' active' : ''))), a);
-  row.addEventListener('click', () => refocus(POOL + d.name));        // drawn anew: the focus back on it
-  row.dataset.tile = POOL + d.name;
+  const f = diskFacts(x);
+  const row = asTile(Office.place(`pool:${x.name}`, el('button', 'minirow' + (f.asleep ? ' asleep' : '') + (a.active ? ' active' : ''))), a);
+  row.addEventListener('click', () => refocus(POOL + x.name));        // drawn anew: the focus back on it
+  row.dataset.tile = POOL + x.name;
   row.dataset.shows = 'list';
   row.dataset.filters = a.filters;
   row.setAttribute('aria-controls', a.controls);
   const bar = el('div', 'bar thin');
   const i = el('i', 'data');
-  i.style.width = `${d.size ? (d.size - d.free) / d.size * 100 : 0}%`;
+  i.style.width = `${f.total ? Math.max(0, Math.min(100, f.used / f.total * 100)) : 0}%`;
   bar.appendChild(i);
-  let info = d.scanned ? T('count', { n }) : T('never_read');
-  if (d.asleep) info = '💤 ' + info;
-  if (d.error) info = '⚠ ' + T('error');
+  let info = f.read ? T('count', { n: f.n }) : T('never_read');
+  if (f.asleep) info = '💤 ' + info;
+  if (f.bad) info = '⚠ ' + f.bad;
+  if (f.error) info = '⚠ ' + T('error');
   row.title = [
-    T('disk_used', { mount: d.mount, used: fmt.size(d.size - d.free), total: fmt.size(d.size) }),
-    d.scanned ? T('last_read', { when: fmt.date(d.scanned) }) : T('never_searched'),
-    d.asleep ? T('asleep_hint') : '',
-    d.error ? Office.errorText(d.error, ID) : '',
+    T('disk_used', { mount: f.mount, used: fmt.size(f.used), total: fmt.size(f.total) }),
+    f.read ? T('last_read', { when: fmt.date(f.read) }) : T('never_searched'),
+    f.asleep ? T('asleep_hint') : '',
+    f.error ? Office.errorText(f.error, ID) : '',
   ].filter(Boolean).join('\n');
-  row.append(el('span', 'minirow-name', d.name), bar, el('span', 'minirow-info', info));
+  row.append(el('span', 'minirow-name', x.name), el('span', 'tag', x.kind === 'zfs' ? 'ZFS' : 'btrfs'), bar, el('span', 'minirow-info', info));
   if (a.active) {
     row.classList.add('tile-on');
     const m = el('span', 'tile-mark', a.mark);
@@ -2070,6 +2109,6 @@ Office.placesFrom(ID, (s) => {
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.snapshot = { setState, poolSplit, splitLines, source, sw, build, render, hiddenCounts, filtered, listed, snapsCard, plansCard,
-    setView: (v) => { view = v; }, view: () => view, pickPending, poolFilter };
+    setView: (v) => { view = v; }, view: () => view, pickPending, poolFilter, diskCards };
 }
 })();
