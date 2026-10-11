@@ -681,5 +681,6 @@
   "errors.emby_mover_moverelli_list": "Real runs only once Ms. Moverelli keeps my list out of her runs for {shares}: on her setup page add EmbyCache's list ({file}) to the files to leave alone — for all shares or for these.",
   "mover.ok.moverelli": "Ms. Moverelli keeps my list out of her runs — what EmbyCache puts on the pool stays there.",
   "check.mover_moverelli": "Ms. Moverelli leaves EmbyCache's files on the pool",
-  "check.mover_moverelli_how": "Ms. Moverelli → «Set up…»: add EmbyCache's list to the files to leave alone (all shares, or {shares})."
+  "check.mover_moverelli_how": "Ms. Moverelli → «Set up…»: add EmbyCache's list to the files to leave alone (all shares, or {shares}).",
+  "plans.moverelli_after": "Ms. Moverelli follows: right after each scheduled real EmbyCache run she moves what has had its time on the pool — the array's disks spin up once. Runs started here by hand don't start her."
 }

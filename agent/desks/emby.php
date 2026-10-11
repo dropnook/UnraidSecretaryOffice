@@ -165,6 +165,8 @@ function embyScan(): array
         'last_status' => readJson(EMBY_DATA . '/status.json'),       // what the last run of any mode did: the result box under the tiles
         'history'    => array_slice($history, 0, 20),
         'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
+        // Ms. Moverelli follows his real EmbyCache runs (her schedule «right after Jack Emby») — a quiet line under his schedules
+        'moverelli_after' => function_exists('moverelliFollowsJack') && moverelliFollowsJack(),
         'foreign'    => embyForeignSchedules(),
         'pools'      => embyPools(),
         'share_info' => embyShareInfo(),
@@ -2403,7 +2405,30 @@ function embyJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
+    embyRunAfter($tool, $mode, $by);
     return $exit;
+}
+
+/**
+ * The very end of a run that ran (embyJob(): his bookkeeping done, his marker finished, his locks let go): a SCHEDULED
+ * real EmbyCache run (`run` from the office's cron file — whatever its outcome; one started on his page doesn't count, the
+ * owner's correction 2026-10-11) hands Ms. Moverelli's real run to atd while she follows him (moverelliAfterEmby(),
+ * moverelli.php) — the array's disks spin up once. Refused and skipped starts never get here.
+ */
+function embyRunAfter(string $tool, string $mode, string $by): bool
+{
+    if (!function_exists('moverelliAfterEmby')) {
+        return false;
+    }
+    try {
+        if (moverelliAfterEmby($tool, $mode, $by)) {
+            logLine('Jack Emby: Ms. Moverelli follows his scheduled EmbyCache run — her run handed to at');
+            return true;
+        }
+    } catch (Throwable $e) {
+        fwrite(STDERR, "$tool: Ms. Moverelli not started: {$e->getMessage()}\n");
+    }
+    return false;
 }
 
 /**

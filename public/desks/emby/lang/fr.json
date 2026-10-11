@@ -681,5 +681,6 @@
   "errors.emby_mover_moverelli_list": "Des exécutions réelles seulement quand Madame Moverelli tient ma liste hors de ses exécutions pour {shares} : sur sa page de configuration, ajoute la liste d'EmbyCache ({file}) aux fichiers à laisser en place — pour tous les partages ou pour ceux-ci.",
   "mover.ok.moverelli": "Madame Moverelli tient ma liste hors de ses exécutions — ce qu'EmbyCache met sur le pool y reste.",
   "check.mover_moverelli": "Madame Moverelli laisse les fichiers d'EmbyCache sur le pool",
-  "check.mover_moverelli_how": "Madame Moverelli → « Configurer… » : ajouter la liste d'EmbyCache aux fichiers à laisser en place (tous les partages, ou {shares})."
+  "check.mover_moverelli_how": "Madame Moverelli → « Configurer… » : ajouter la liste d'EmbyCache aux fichiers à laisser en place (tous les partages, ou {shares}).",
+  "plans.moverelli_after": "Madame Moverelli suit : juste après chaque exécution réelle planifiée d'EmbyCache, elle déplace ce qui a fait son temps sur le pool — les disques de l'array ne démarrent qu'une fois. Les exécutions lancées ici à la main ne la lancent pas."
 }

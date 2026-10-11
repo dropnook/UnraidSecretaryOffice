@@ -681,5 +681,6 @@
   "errors.emby_mover_moverelli_list": "Echte Läufe erst, wenn Frau Moverelli meine Liste für {shares} aus ihren Läufen heraushält: Auf ihrer Einrichtungsseite EmbyCaches Liste ({file}) zu den Dateien geben, die sie liegen lässt — für alle Shares oder für diese.",
   "mover.ok.moverelli": "Frau Moverelli hält meine Liste aus ihren Läufen heraus — was EmbyCache auf den Pool legt, bleibt dort.",
   "check.mover_moverelli": "Frau Moverelli lässt EmbyCaches Dateien auf dem Pool",
-  "check.mover_moverelli_how": "Frau Moverelli → «Einrichten…»: EmbyCaches Liste zu den Dateien geben, die sie liegen lässt (alle Shares oder {shares})."
+  "check.mover_moverelli_how": "Frau Moverelli → «Einrichten…»: EmbyCaches Liste zu den Dateien geben, die sie liegen lässt (alle Shares oder {shares}).",
+  "plans.moverelli_after": "Frau Moverelli folgt: gleich nach jedem geplanten echten EmbyCache-Lauf verschiebt sie, was seine Zeit auf dem Pool gehabt hat — die Disks des Arrays laufen nur einmal an. Läufe, die hier von Hand gestartet werden, starten sie nicht."
 }

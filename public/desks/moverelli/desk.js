@@ -94,9 +94,12 @@ const jack = () => (state && state.jack) || { busy: false, list: null, uncovered
 const foreign = () => (state && state.foreign) || { tuning: { installed: false, active: false, lines: [] }, scripts: [] };
 /** May real runs go: Unraid's schedule off, Mover Tuning without a schedule of its own */
 const othersOff = () => mover().off && !foreign().tuning.active;
+/** Her schedule «right after Jack Emby's scheduled EmbyCache runs»: chosen, Jack hired, his EmbyCache on a schedule; idle = nothing starts her */
+const after = () => (state && state.after) || { on: false, jack: false, jack_scheduled: false, idle: false };
 /** «cache», «array» in words: the array is named in the page's language */
 const where = (x) => (x === 'array' ? T('array') : x || '–');
 function schedText(sc) {
+  if (after().on) return T('schedule.after_short');
   if (!sc || !sc.enabled) return T('not_scheduled');
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
@@ -129,7 +132,7 @@ function bubbleText() {
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (running()) return T('bubble.running');
   if (!othersOff()) return T('bubble.dry');
-  if (!state.schedule.enabled) return T('bubble.no_schedule');
+  if (!state.schedule.enabled && !after().on) return T('bubble.no_schedule');
   return T('bubble.ready');
 }
 
@@ -228,6 +231,8 @@ function render() {
     root.appendChild(moverNotice());
     foreignNotices().forEach((n) => root.appendChild(n));
   }
+  const idle = afterNotice();
+  if (idle) root.appendChild(idle);
   const j = jack();
   if (j.busy && !running()) root.appendChild(el('p', 'callout', T('notice.jack_busy')));
   if ((j.uncovered || []).length) {
@@ -268,7 +273,9 @@ function overview() {
   const m = mover();
   stat(stats, T('unraid_schedule'), m.off ? T('unraid_off') : T('unraid_on'), m.off ? T('unraid_off_sub') : (m.schedule ? fmt.cron(m.schedule) : ''), !m.off);
   const sc = state.schedule;
-  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'), !sc.enabled, () => scheduleDialog());
+  const af = after();
+  stat(stats, T('schedule'), schedText(sc), af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : (sc.enabled ? T('by_office') : T('schedule_set')),
+    af.on ? af.idle : !sc.enabled, () => scheduleDialog());
   const g = state.settings.global;
   stat(stats, T('rules'), T('rule_age', { n: g.min_age, stat: g.age_stat }),
     g.move_when_used_above ? T('rule_threshold', { pct: g.move_when_used_above }) : T('rule_always'));
@@ -454,6 +461,14 @@ async function showLog() {
   pre.scrollTop = pre.scrollHeight;
 }
 
+/** «Right after Jack Emby» chosen, but nothing starts her by herself: Jack let go, or his EmbyCache without a schedule */
+function afterNotice() {
+  if (!state || !state.configured || !after().idle) return null;
+  const p = el('p', 'callout warn', T(after().jack ? 'notice.after_idle_off' : 'notice.after_idle_letgo') + ' ');
+  p.appendChild(button(T('schedule_title'), 'small', scheduleDialog)).disabled = !Office.agent.running;
+  return p;
+}
+
 // ------------------------------------------------------------------ her schedule
 /** When Smart Mover runs for real on its own: once a night (default 05:15), a cron expression, or not at all */
 async function scheduleDialog() {
@@ -470,7 +485,8 @@ async function scheduleDialog() {
   const cur = (sc.enabled && sc.custom) || '';
   const pad = (n) => String(n).padStart(2, '0');
   const m2 = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cur);
-  let mode = !sc.enabled ? 'daily' : m2 ? 'daily' : 'custom';
+  const af = after();
+  let mode = af.on ? 'after' : !sc.enabled ? 'daily' : m2 ? 'daily' : 'custom';
   const time = el('input', 'input');
   time.type = 'time';
   time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : '05:15';
@@ -480,12 +496,13 @@ async function scheduleDialog() {
   const box = el('div', 'mo-schedule');
   box.appendChild(el('p', '', T('schedule.intro')));
   if (!othersOff()) box.appendChild(el('p', 'callout warn', T('schedule.unraid_on')));
-  const option = (id, text, hint, extra) => {
+  const option = (id, text, hint, extra, off) => {
     const label = el('label', 'check');
     const input = el('input');
     input.type = 'radio';
     input.name = 'mo-schedule';
     input.checked = mode === id;
+    input.disabled = !!off;
     input.onchange = () => { mode = id; update(); };
     const span = el('span', '', text);
     if (hint) span.appendChild(el('small', '', hint));
@@ -499,6 +516,8 @@ async function scheduleDialog() {
   };
   option('daily', T('schedule.nightly'), T('schedule.nightly_hint'), time);
   option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
+  // the third way (2026-10-11): right after Jack Emby's scheduled EmbyCache runs — only while he is with us
+  option('after', T('schedule.after'), af.jack ? T('schedule.after_hint') : T('schedule.after_no_jack'), null, !af.jack && mode !== 'after');
   option('off', T('schedule.off'), T('schedule.off_hint'));
   const update = () => { time.disabled = mode !== 'daily'; cron.disabled = mode !== 'custom'; };
   update();
@@ -514,11 +533,11 @@ async function scheduleDialog() {
           const [h, m] = time.value.split(':').map(Number);
           expr = `${m} ${h} * * *`;
         } else if (mode === 'custom') expr = cron.value.trim();
-        const j = await Office.api.post(`${ID}.schedule`, { cron: expr });
+        const j = await Office.api.post(`${ID}.schedule`, mode === 'after' ? { cron: null, after: 'emby' } : { cron: expr, after: '' });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         if (j.state) state = j.state;
         if (!j.live) Office.toast(T('schedule.not_live'), true);
-        else Office.toast(expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
+        else Office.toast(mode === 'after' ? T('schedule.saved_after') : expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
         if (view && page === 'main') render();
         return true;
       } },
@@ -939,6 +958,6 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText };
+    importPreview, importDone, importFileText, scheduleDialog, overview, bubbleText, afterNotice, schedText };
 }
 })();

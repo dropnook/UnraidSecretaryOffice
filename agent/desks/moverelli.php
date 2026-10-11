@@ -29,6 +29,8 @@ const MOVERELLI_MODES     = ['list' => ['--list-shares'], 'dry' => [], 'run' => 
 const MOVERELLI_UNRAID    = '7.3.2';        // the oldest Unraid she works on
 const MOVERELLI_HISTORY   = 40;
 const MOVERELLI_STALE     = 8 * 86400;      // her schedule is set, but nothing ran for this long: the Team Lead says so
+const MOVERELLI_AFTER_GRACE = 6 * 3600;     // «right after Jack Emby»: his real run ended this long ago and nothing of hers ran since
+const MOVERELLI_AFTER_ARG = '--after-emby'; // her job handed to atd right after one of Jack Emby's scheduled real EmbyCache runs
 const MOVERELLI_LOG_TAIL  = 512 * 1024;
 const MOVERELLI_FILES_MAX = 20;             // exclude files per scope (global, a share)
 const MOVERELLI_LINES_MAX = 2000;           // lines of one of her own exclude lists
@@ -62,7 +64,8 @@ desk('moverelli', [
         'save'      => fn (array $r) => moverelliSave($r['settings'] ?? null),
         'start_run' => fn (array $r) => moverelliStart(textField($r, 'mode')),
         'stop'      => fn (array $r) => ['ok' => true, 'asked' => moverelliStopAsk(), 'state' => moverelliScan()],
-        'schedule'  => fn (array $r) => moverelliSetSchedule(cronField($r)),
+        // her schedule: a time (a cron line), «right after Jack Emby» ({cron: null, after: "emby"}) or off — one of them
+        'schedule'  => fn (array $r) => moverelliSetSchedule(cronField($r), null, optText($r, 'after')),
         'output'    => fn (array $r) => moverelliOutput(),
         'log'       => fn (array $r) => moverelliLog(),
         // «Switch Unraid's mover schedule off…»: Unraid's own ⟦Mover schedule⟧ «Disabled», as its form sets it (emby-mover.php)
@@ -95,7 +98,7 @@ function moverelliHost(): array
         'mover_running' => $h['mover_running'] ?? fn (?int $self = null): bool => embyMoverRunning(null, $self),
         'jack_busy'     => $h['jack_busy'] ?? fn (): bool => embyAnyRunning(),
         'emby'          => $h['emby'] ?? fn (): ?array => moverelliJackLists(),
-        'scheduled'     => $h['scheduled'] ?? fn (): bool => officeJobSchedule('moverelli')['enabled'],
+        'scheduled'     => $h['scheduled'] ?? fn (): bool => officeJobSchedule('moverelli', $h['cron_file'] ?? OFFICE_CRON)['enabled'],
         'gate'          => $h['gate'] ?? [],         // embyRunGate()'s options (the tests: sleep, now, array, max)
         'look_every'    => $h['look_every'] ?? EMBY_MOVER_LOOK,     // during a real run: is Unraid's mover at work? every … s
         'waitdir'       => $h['waitdir'] ?? RUN_DIR,
@@ -110,6 +113,12 @@ function moverelliHost(): array
         'unraid_cron'   => $h['unraid_cron'] ?? EMBY_MOVER_CRON,
         // taking over an earlier install (moverelliImportContext()): what the tests put in place of the server's pools, disks, tree
         'import'        => $h['import'] ?? [],
+        // her schedule's line (the office's cron file; the tests: a file of their own, not applied) and «right after Jack Emby»
+        'cron_file'     => $h['cron_file'] ?? OFFICE_CRON,
+        'cron_apply'    => $h['cron_apply'] ?? true,
+        'launch'        => $h['launch'] ?? fn (array $args) => hostLaunch('moverelli', $args),
+        'emby_scheduled' => $h['emby_scheduled'] ?? fn (): bool => officeJobSchedule('embycache')['enabled'],
+        'emby_runs'     => $h['emby_runs'] ?? fn (): array => embyHistory(),
     ];
 }
 
@@ -694,7 +703,9 @@ function moverelliScan(?array $h = null): array
         'stopping'   => $stop !== null ? (($stop['why'] ?? '') === 'mover' ? 'mover' : 'user') : null,
         'last'       => readJson("$dir/status.json"),
         'history'    => array_slice(moverelliHistory($dir), 0, 20),
-        'schedule'   => officeJobSchedule('moverelli'),
+        'schedule'   => officeJobSchedule('moverelli', $h['cron_file']),
+        // «right after Jack Emby»: chosen, Jack hired, his EmbyCache on a schedule — idle: chosen, but nothing starts her by herself
+        'after'      => moverelliAfterState($h, $emby),
         // Jack Emby: a run of his going (hers wait), EmbyCache's list and his shares her ini doesn't keep it away from
         'jack'       => ['busy' => ($h['jack_busy'])(), 'list' => $emby['lists'][0] ?? null, 'uncovered' => moverelliJackUncovered($emby, $dir)],
     ];
@@ -824,7 +835,7 @@ function moverelliJob(array $args, ?array $h = null): int
 {
     $h ??= moverelliHost();
     $dir = $h['dir'];
-    $by = in_array('--office', $args, true) ? 'office' : 'schedule';
+    $by = in_array('--office', $args, true) ? 'office' : (in_array(MOVERELLI_AFTER_ARG, $args, true) ? 'emby' : 'schedule');
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     // let go (or never hired): a schedule line left in the office's cron file moves nothing — said in the log only
@@ -854,8 +865,10 @@ function moverelliJob(array $args, ?array $h = null): int
     $note = [];
     if ($real) {
         $asked = time();
-        $gate = embyRunGate('moverelli', $by, ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],
-            'mover' => fn (): bool => ($h['mover_running'])(), 'scheduled' => $h['scheduled']] + $h['gate']);
+        // started after Jack Emby: waits for Unraid's mover like a scheduled run, for as long as she still follows him
+        $gate = embyRunGate('moverelli', $by === 'office' ? 'office' : 'schedule', ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],
+            'mover' => fn (): bool => ($h['mover_running'])(),
+            'scheduled' => $by === 'emby' ? fn (): bool => moverelliAfterChoice($dir) === 'emby' : $h['scheduled']] + $h['gate']);
         if (!$gate['go']) {
             if (in_array($gate['result'], ['refused', 'skipped'], true)) {
                 moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => $asked, 'finished' => time(), 'result' => $gate['result'],
@@ -966,7 +979,7 @@ function moverelliRemember(array $entry, string $dir = MOVERELLI_DATA): void
     $runs = moverelliHistory($dir);
     $top = $runs[0] ?? null;
     $same = array_flip(['mode', 'by', 'result', 'why']);
-    if (($entry['result'] ?? '') === 'refused' && ($entry['by'] ?? '') === 'schedule' && is_array($top)
+    if (($entry['result'] ?? '') === 'refused' && in_array($entry['by'] ?? '', ['schedule', 'emby'], true) && is_array($top)
         && array_intersect_key($top, $same) == array_intersect_key($entry, $same)) {
         $entry += ['first' => (int) ($top['first'] ?? $top['started'] ?? 0), 'times' => (int) ($top['times'] ?? 1) + 1];
         array_shift($runs);
@@ -1062,18 +1075,105 @@ function moverelliMoverOff(array $r, ?array $host = null): array
     }
 }
 
-/** Her schedule: a line in the office's cron file (a real run); when it was set is noted for the Team Lead */
-function moverelliSetSchedule(?string $cron, ?array $h = null): array
+/**
+ * Her schedule — one of three (the owner's decision, 2026-10-11): off, at a time (a line in the office's cron file, a
+ * real run), or right after Jack Emby's scheduled real EmbyCache runs ($after «emby»: her cron line goes; a time switches «after
+ * Jack» off). When it was set and the choice are noted in office-schedule.json for the Team Lead and her page.
+ */
+function moverelliSetSchedule(?string $cron, ?array $h = null, string $after = ''): array
 {
     $h ??= moverelliHost();
-    if ($cron !== null && !moverelliConfigured($h['dir'])) {
+    if (!in_array($after, ['', 'emby'], true) || ($after === 'emby' && $cron !== null)) {
+        throw new Problem('bad_request');
+    }
+    if (($cron !== null || $after === 'emby') && !moverelliConfigured($h['dir'])) {
         throw new Problem('moverelli_not_configured');
     }
-    $live = officeJobSetSchedule('moverelli', $cron);
+    if ($after === 'emby' && ($h['emby'])() === null) {
+        throw new Problem('moverelli_after_no_jack');
+    }
+    $live = officeJobSetSchedule('moverelli', $cron, $h['cron_file'], (bool) $h['cron_apply']);
     moverelliDataDir($h['dir']);
-    writeAtomic("$h[dir]/office-schedule.json", jsonEncode(['set' => time(), 'cron' => $cron]), 0600, 0, 0);
-    logLine('Ms. Moverelli: schedule ' . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
+    writeAtomic("$h[dir]/office-schedule.json", jsonEncode(['v' => 1, 'set' => time(), 'cron' => $cron, 'after' => $after === 'emby' ? 'emby' : null]), 0600, 0, 0);
+    logLine('Ms. Moverelli: schedule ' . ($after === 'emby' ? "set to right after Jack Emby's scheduled EmbyCache runs"
+        : ($cron !== null ? "set to $cron" : 'switched off')) . ($live ? '' : ' (not in the crontab yet)'));
     return ['ok' => true, 'live' => $live, 'state' => moverelliScan($h)];
+}
+
+/** Does she follow Jack Emby's scheduled real EmbyCache runs? 'emby' or null (also for a file of another shape — read tolerantly) */
+function moverelliAfterChoice(string $dir): ?string
+{
+    return (readJson("$dir/office-schedule.json")['after'] ?? null) === 'emby' ? 'emby' : null;
+}
+
+/** For her state: «right after Jack Emby» chosen, Jack hired, his EmbyCache on a schedule of its own; idle = chosen, but nothing starts her by herself */
+function moverelliAfterState(array $h, ?array $emby): array
+{
+    $on = moverelliAfterChoice($h['dir']) === 'emby';
+    $jack = $emby !== null;
+    $jackScheduled = $jack && (bool) ($h['emby_scheduled'])();
+    return ['on' => $on, 'jack' => $jack, 'jack_scheduled' => $jackScheduled, 'idle' => $on && !$jackScheduled];
+}
+
+/** For Jack Emby's page: she is hired, set up and follows his scheduled real EmbyCache runs */
+function moverelliFollowsJack(?array $h = null): bool
+{
+    $h ??= moverelliHost();
+    return ($h['hired'])() && moverelliConfigured($h['dir']) && moverelliAfterChoice($h['dir']) === 'emby';
+}
+
+/**
+ * The end of one of Jack Emby's jobs (embyJob(): after his own bookkeeping, his marker finished, his locks released):
+ * a SCHEDULED real EmbyCache run that ran (from the office's cron file, $by `schedule` — whatever its outcome, the disks
+ * spin anyway) hands her real run to atd while she follows him (hired, set up, «right after Jack Emby»). A real run
+ * started on his page doesn't (the owner's correction, 2026-10-11), nor do dry runs, reports, measuring, the gather or
+ * the let-go's release. Never inline in his process: her job goes through all her gates as a scheduled one does.
+ */
+function moverelliAfterEmby(string $tool, string $mode, string $by, ?array $h = null): bool
+{
+    if ($tool !== 'embycache' || $mode !== 'run' || $by !== 'schedule') {
+        return false;
+    }
+    $h ??= moverelliHost();
+    if (!moverelliFollowsJack($h)) {
+        return false;
+    }
+    try {
+        ($h['launch'])([PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', MOVERELLI_AFTER_ARG]);
+    } catch (Throwable $e) {
+        logLine("Ms. Moverelli: not started after Jack Emby's run — " . ($e instanceof Problem ? ($e->params['detail'] ?? $e->key) : $e->getMessage()));
+        return false;
+    }
+    logLine("Ms. Moverelli: Smart Mover (run) handed to at — right after Jack Emby's scheduled EmbyCache run");
+    return true;
+}
+
+/**
+ * «Right after Jack Emby»: did a run of hers go after his last scheduled real EmbyCache run? true; false when his run ended more
+ * than MOVERELLI_AFTER_GRACE ago and nothing of hers ran since (refused and skipped don't count); null when he had none
+ * since she was set so, or it is too early to tell.
+ */
+function moverelliRanAfterJack(string $dir, array $jackRuns, ?int $now = null): ?bool
+{
+    $now ??= time();
+    $set = (int) (readJson("$dir/office-schedule.json")['set'] ?? 0);
+    $jack = null;
+    foreach ($jackRuns as $r) {
+        if (is_array($r) && ($r['tool'] ?? '') === 'embycache' && ($r['mode'] ?? '') === 'run' && ($r['by'] ?? '') === 'schedule'
+            && !in_array($r['result'] ?? '', ['refused', 'skipped'], true)) {
+            $jack = $r;
+            break;
+        }
+    }
+    if ($jack === null || (int) ($jack['started'] ?? 0) < $set) {
+        return null;
+    }
+    foreach (moverelliHistory($dir) as $r) {
+        if (is_array($r) && !in_array($r['result'] ?? '', ['refused', 'skipped'], true) && (int) ($r['started'] ?? 0) >= (int) $jack['started']) {
+            return true;
+        }
+    }
+    return $now - (int) ($jack['finished'] ?? $jack['started']) > MOVERELLI_AFTER_GRACE ? false : null;
 }
 
 /**
@@ -1106,7 +1206,8 @@ function moverelliChecks(?array $h = null): array
         return $out;
     }
     $scheduled = ($h['scheduled'])();
-    $out[] = finding('schedule', 'recommended', $scheduled, [], '#/moverelli/schedule');
+    $after = moverelliAfterChoice($h['dir']) === 'emby';
+    $out[] = finding('schedule', 'recommended', $scheduled || $after, [], '#/moverelli/schedule');
     // no other mover on a schedule of its own while she is in charge — else both move the same shares
     $f = moverelliForeign($h);
     $out[] = finding('unraid_schedule', 'required', $f['unraid'] === null, ['schedule' => (string) $f['unraid']], '#/moverelli');
@@ -1114,7 +1215,12 @@ function moverelliChecks(?array $h = null): array
         $out[] = finding('tuning_schedule', 'required', !$f['tuning']['active'], ['schedule' => (string) ($f['tuning']['lines'][0]['cron'] ?? '')], '#/moverelli');
     }
     $out[] = finding('foreign_scripts', 'recommended', !$f['scripts'], ['where' => implode(', ', $f['scripts'])], 'userscripts');
-    if ($scheduled) {
+    if ($after) {
+        // «right after Jack Emby»: nothing starts her while he is let go or his EmbyCache has no schedule; did she follow his last scheduled run?
+        $emby = ($h['emby'])();
+        $out[] = finding('after_idle', 'recommended', $emby !== null && (bool) ($h['emby_scheduled'])(), [], '#/moverelli/schedule');
+        $out[] = finding('ran_after', 'recommended', moverelliRanAfterJack($h['dir'], ($h['emby_runs'])()), [], '#/moverelli');
+    } elseif ($scheduled) {
         $out[] = finding('ran', 'recommended', moverelliRanLately($h['dir']), ['days' => intdiv(MOVERELLI_STALE, 86400)], '#/moverelli');
     }
     $emby = ($h['emby'])();

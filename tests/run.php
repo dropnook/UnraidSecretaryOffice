@@ -28885,6 +28885,214 @@ JS);
 }
 
 /**
+ * Her third way (2026-10-11, the owner's decision): «right after Jack Emby's scheduled EmbyCache runs» — one of off / a
+ * time / after Jack (a time switches it off, it removes her cron line); only a SCHEDULED real EmbyCache run that ran
+ * hands her real run to atd (whatever its outcome) — one started on his page, dry runs, reports, the release and the
+ * gather don't; not hired / not set up / not chosen → nothing; her job so started goes through all her gates and is
+ * recorded `by: emby`; the Team Lead's points when nothing starts her; her page and Jack's line.
+ */
+function testMoverelliAfterEmby(): void
+{
+    $tmp = hardeningTmp('moverelli-after');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $launched = [];
+    $v['emby_sched'] = true;
+    $v['emby_runs'] = [];
+    $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false,
+        'launch' => function (array $args) use (&$launched) { $launched[] = $args; },
+        'emby_scheduled' => function () use (&$v) { return $v['emby_sched']; },
+        'emby_runs' => function () use (&$v) { return $v['emby_runs']; }];
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    $err = function (callable $f): string {
+        try {
+            $f();
+            return 'none';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $line = fn (): ?string => officeCronLines("$tmp/office.cron")['moverelli'] ?? null;
+    $jack = ['lists' => ['/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt'], 'shares' => []];
+
+    // (1) the choice: none by default; not set up / Jack not hired / with a time / an unknown word — refused
+    same('moverelli after: no choice by default; refused while she isn\'t set up', [null, 'moverelli_not_configured'],
+        [moverelliAfterChoice($dir), $err(fn () => moverelliSetSchedule(null, $h, 'emby'))]);
+    moverelliSave(moverelliTestSettings(), $h);
+    same('moverelli after: refused without Jack Emby, with a time beside it, with another word', ['moverelli_after_no_jack', 'bad_request', 'bad_request'],
+        [$err(fn () => moverelliSetSchedule(null, $h, 'emby')), $err(fn () => moverelliSetSchedule('15 5 * * *', $h, 'emby')),
+         $err(fn () => moverelliSetSchedule(null, $h, 'jack'))]);
+    $v['emby'] = $jack;
+    moverelliSetSchedule('15 5 * * *', $h);
+    same('moverelli after: a time — her cron line, no «after Jack»', ['15 5 * * *', null], [$line(), moverelliAfterChoice($dir)]);
+    $r = moverelliSetSchedule(null, $h, 'emby');
+    same('moverelli after: «after Jack» — her cron line goes, the choice kept in her folder, her state says so', [null, 'emby', 'emby',
+        ['on' => true, 'jack' => true, 'jack_scheduled' => true, 'idle' => false]],
+        [$line(), moverelliAfterChoice($dir), readJson("$dir/office-schedule.json")['after'] ?? null, $r['state']['after']]);
+    moverelliSetSchedule('0 4 * * *', $h);
+    same('moverelli after: a time again switches «after Jack» off', ['0 4 * * *', null], [$line(), moverelliAfterChoice($dir)]);
+    moverelliSetSchedule(null, $h);
+    same('moverelli after: off — neither', [null, null], [$line(), moverelliAfterChoice($dir)]);
+    file_put_contents("$dir/office-schedule.json", '{"after": ["emby"], "set": "x"}');
+    same('moverelli after: a file of another shape reads as no choice', null, moverelliAfterChoice($dir));
+
+    // (2) what starts her: only a scheduled real EmbyCache run that ran; once, with her job's command line
+    moverelliSetSchedule(null, $h, 'emby');
+    $want = [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--after-emby'];
+    $launched = [];
+    $got = [];
+    foreach ([['embycache', 'run', 'schedule'], ['embycache', 'run', 'office'], ['embycache', 'dry', 'schedule'], ['embycache', 'report', 'schedule'],
+              ['embycache', 'release', 'letgo'], ['embycache', 'release', 'schedule'], ['gather', 'run', 'schedule'], ['gather', 'measure', 'office']] as [$tool, $mode, $by]) {
+        $got["$tool $mode $by"] = moverelliAfterEmby($tool, $mode, $by, $h);
+    }
+    same('moverelli after: a scheduled real EmbyCache run starts her — one started on his page, dry runs, reports, the release and the gather don\'t',
+        ['embycache run schedule' => true, 'embycache run office' => false, 'embycache dry schedule' => false, 'embycache report schedule' => false,
+         'embycache release letgo' => false, 'embycache release schedule' => false, 'gather run schedule' => false, 'gather measure office' => false], $got);
+    same('moverelli after: … handed to atd once, as her own job with its mark', [$want], $launched);
+    check('moverelli after: … through hostLaunch(), whose job file carries the office\'s mark (the night watchman knows it as the office\'s own)',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "'launch'        => \$h['launch'] ?? fn (array \$args) => hostLaunch('moverelli', \$args),")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php'), '$script = "#!/bin/sh\\n" . HOST_LAUNCH_MARK'));
+    $launched = [];
+    same('moverelli after: Jack\'s side (embyRunAfter) hands it on the same way', [true, false, [$want]],
+        [embyRunAfter('embycache', 'run', 'schedule'), embyRunAfter('embycache', 'run', 'office'), $launched]);
+    // in his job: once, at its very end — after his list of runs and his finished marker, after every outcome of a run
+    // that ran (errors, stopped); refused and skipped starts return before
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $job = substr($src, (int) strpos($src, 'function embyJob('), (int) strpos($src, 'function embyGateRefused(') - (int) strpos($src, 'function embyJob('));
+    $at = (int) strpos($job, 'embyRunAfter($tool, $mode, $by);');
+    check('moverelli after: Jack\'s job calls it once, after his bookkeeping (list of runs, finished marker, notification), right before its end',
+        substr_count($job, 'embyRunAfter($tool, $mode, $by);') === 1 && $at > (int) strrpos($job, "embyRemember(['tool' => \$tool, 'mode' => \$mode, 'by' => \$by, 'started' => \$started")
+        && $at > (int) strrpos($job, "writeAtomic(\"\$dir/office-run.json\"") && $at > (int) strrpos($job, 'embyNotify(')
+        && str_starts_with(trim(substr($job, $at + strlen('embyRunAfter($tool, $mode, $by);'))), 'return $exit;'));
+    check('moverelli after: … his marker gives the start lock back long before (her run is never refused for his)', (int) strpos($job, 'embyMoversUnlock($movers);', (int) strpos($job, '$started = time();')) < $at);
+
+    // (3) not hired, not set up, not chosen — nothing
+    $launched = [];
+    $v['hired'] = false;
+    $a = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
+    $v['hired'] = true;
+    rename("$dir/smart_mover.ini", "$dir/smart_mover.ini.x");
+    $b = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
+    rename("$dir/smart_mover.ini.x", "$dir/smart_mover.ini");
+    moverelliSetSchedule('15 5 * * *', $h);
+    $c = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
+    same('moverelli after: not hired, not set up, a time of her own — nothing handed on', [false, false, false, []], [$a, $b, $c, $launched]);
+    moverelliSetSchedule(null, $h, 'emby');
+
+    // (4) her job so started: all her gates, recorded `by: emby`
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/bin/notify");
+    $v['own'] = ['set' => '40 3 * * *', 'cron' => '40 3 * * *'];
+    $exit = moverelliJob(['run', '--after-emby'], $h);
+    $top = moverelliHistory($dir)[0] ?? [];
+    same('moverelli after: started after Jack, Unraid\'s schedule on — refused like a scheduled one, recorded «by emby»', [1, 'refused', 'moverelli_schedule', 'emby'],
+        [$exit, $top['result'] ?? null, $top['why'] ?? null, $top['by'] ?? null]);
+    moverelliJob(['run', '--after-emby'], $h);
+    same('moverelli after: … refused again for the same reason counts up', [2, 1], [(int) (moverelliHistory($dir)[0]['times'] ?? 0), count(moverelliHistory($dir))]);
+    $v['own'] = ['set' => '', 'cron' => null];
+    $exit = moverelliJob(['run', '--after-emby'], $h);
+    $top = moverelliHistory($dir)[0] ?? [];
+    same('moverelli after: … with nothing in the way it runs, «by emby»', [0, 'run', 'emby', 'ok'], [$exit, $top['mode'] ?? null, $top['by'] ?? null, $top['result'] ?? null]);
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+
+    // (5) the Team Lead: nothing starts her while Jack is let go or his EmbyCache has no schedule; did she follow his last scheduled run?
+    $ids = fn (): array => array_column(array_map(fn ($f) => ['id' => $f['id'], 'ok' => $f['ok']], moverelliChecks($h)), 'ok', 'id');
+    $c = $ids();
+    same('moverelli after: checks — her schedule counts as set, something starts her, no «ran» of her cron', [true, true, false],
+        [$c['schedule'] ?? null, $c['after_idle'] ?? null, array_key_exists('ran', $c)]);
+    $v['emby_sched'] = false;
+    $off = $ids()['after_idle'] ?? null;
+    $v['emby_sched'] = true;
+    $v['emby'] = null;
+    $gone = $ids()['after_idle'] ?? null;
+    $state = moverelliScan($h)['after'];
+    $v['emby'] = $jack;
+    same('moverelli after: … his EmbyCache without a schedule, Jack let go — the point is open; her state idle', [false, false, ['on' => true, 'jack' => false, 'jack_scheduled' => false, 'idle' => true]],
+        [$off, $gone, $state]);
+    $set = (int) readJson("$dir/office-schedule.json")['set'];
+    $jr = fn (string $by, int $at) => ['tool' => 'embycache', 'mode' => 'run', 'by' => $by, 'result' => 'ok', 'started' => $at, 'finished' => $at + 60];
+    file_put_contents("$dir/office-history.json", json_encode(['runs' => []]));
+    same('moverelli after: «did she follow?» — his scheduled run hours ago, nothing of hers: no; too early: unknown; his page-started run: not counted; none since she was set so: unknown',
+        [false, null, null, null], [moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 3600),
+         moverelliRanAfterJack($dir, [$jr('office', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set - 10)], $set + 7 * 3600)]);
+    moverelliRemember(['mode' => 'run', 'by' => 'emby', 'started' => $set + 100, 'finished' => $set + 200, 'result' => 'ok'], $dir);
+    same('moverelli after: … hers ran after it: yes', true, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
+    same('moverelli after: Jack\'s page — she follows (hired, set up, chosen)', [true, false], [moverelliFollowsJack($h), (function () use ($h) { moverelliSetSchedule(null, $h); return moverelliFollowsJack($h); })()]);
+    unset($GLOBALS['moverelliHost']);
+
+    // (6) her page (under node, where it is): the third choice, its notice, the overview
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('moverelli after page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+const dialogs = [];
+const posts = [];
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B' }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+  dialog: (o) => dialogs.push(o), freshState: async () => true, toast: () => {}, errorText: (e) => 'err:' + e.key,
+  api: { post: async (a, d) => { posts.push([a, d]); return { ok: true, live: true }; } } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const radios = (n) => (typeof n === 'string' ? [] : [...(n.tag === 'input' ? [n] : []), ...n.children.flatMap(radios)]);
+const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, job: {}, schedule: { enabled: false }, history: [], shares: [],
+  mover: { off: true }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, settings: { global: { min_age: 0, age_stat: 'ctime', move_when_used_above: 0 } }, last: null };
+(async () => {
+  const out = {};
+  m.setState({ ...base, after: { on: true, jack: true, jack_scheduled: false, idle: true } });
+  out.notice = texts(m.afterNotice());
+  out.sched = m.schedText(base.schedule);
+  out.bubble = m.bubbleText();
+  out.overview = texts(m.overview());
+  await m.scheduleDialog();
+  const box = dialogs[0].body;
+  out.options = texts(box);
+  out.checked = radios(box).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
+  await dialogs[0].buttons[1].act();
+  out.post = posts[0];
+  m.setState({ ...base, after: { on: false, jack: false, jack_scheduled: false, idle: false } });
+  out.notice2 = m.afterNotice();
+  await m.scheduleDialog();
+  out.checked2 = radios(dialogs[1].body).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
+  out.options2 = texts(dialogs[1].body);
+  m.setState({ ...base, after: { on: true, jack: false, jack_scheduled: false, idle: true } });
+  out.notice3 = texts(m.afterNotice());
+  console.log(JSON.stringify(out));
+})();
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
+    check('moverelli after page: it runs', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    same('moverelli after page: chosen, his EmbyCache without a schedule — the notice and its button; the schedule says «after Jack Emby»; not «no schedule»',
+        [['notice.after_idle_off ', 'schedule_title'], 'schedule.after_short', 'bubble.ready'],
+        [$o['notice'] ?? null, $o['sched'] ?? null, $o['bubble'] ?? null]);
+    check('moverelli after page: the overview — «after Jack Emby» with «nothing starts me by myself»',
+        in_array('schedule.after_short', $o['overview'] ?? [], true) && in_array('schedule.after_idle_sub', $o['overview'] ?? [], true));
+    same('moverelli after page: the dialog — the third choice with its words, chosen, sent as {cron: null, after: emby}',
+        [true, true, [[false, false], [false, false], [true, false], [false, false]], ['moverelli.schedule', ['cron' => null, 'after' => 'emby']]],
+        [in_array('schedule.after', $o['options'] ?? [], true), in_array('schedule.after_hint', $o['options'] ?? [], true), $o['checked'] ?? null, $o['post'] ?? null]);
+    same('moverelli after page: Jack not hired — the choice offered disabled with why, no notice; chosen and Jack let go — the other notice',
+        [[[true, false], [false, false], [false, true], [false, false]], true, null, ['notice.after_idle_letgo ', 'schedule_title']],
+        [$o['checked2'] ?? null, in_array('schedule.after_no_jack', $o['options2'] ?? [], true), array_key_exists('notice2', $o) ? $o['notice2'] : 'x', $o['notice3'] ?? null]);
+    // Jack Emby's page: one quiet line under his schedules while she follows him
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('moverelli after: Jack\'s page — the line under his schedules, only while she follows (his state\'s moverelli_after)',
+        str_contains($js, "if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'), "'moverelli_after' => function_exists('moverelliFollowsJack') && moverelliFollowsJack(),"));
+    hardeningRm($tmp);
+}
+
+/**
  * Mr. Backupsy's overview tiles (the tiles rebuild, 2026-10-11 — CLAUDE.md «Tiles»): under node (tests/backuptiles.js —
  * skipped where node is missing; it runs on the Mac as it is) which tile filters what (a fixture server: rows after each
  * tile, words, «only what isn't protected»), «Took» and «Containers» inside «Last backup», the tour only when newer than the
@@ -30016,7 +30224,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliSharesGone',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
