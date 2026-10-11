@@ -842,7 +842,6 @@
   "diff.compression": "compresión: {have} en Kopia, {want} aquí",
   "check.mnt_folders": "Nada de la secretaría directamente en /mnt",
   "check.mnt_folders_how": "Fix Common Problems señala con razón {folders}. Las instantáneas van en /mnt/addons (el sitio de Unraid para eso, en la RAM, sin datos propios): en la plantilla de «{name}» cambia solo la ⟦Host Path⟧ del mapeo de instantáneas a {path} (la ⟦Container Path⟧ y «⟦Read Only - Slave⟧» se quedan) y luego señor Backupsi → «Configurar…» → Aplicar. La próxima copia quita las carpetas antiguas.",
-  "stat.by_office": "puesta aquí",
   "schedule.no_settings": "Primero hay que configurarme: «Configurar…» → Aplicar. Después podrás elegir una hora aquí.",
   "help.vms": "VMs",
   "help.vms_text": "Sus discos están en la instantánea de su recurso compartido (normalmente domains). Lo que importa es cómo se trata una VM en marcha durante los segundos de la instantánea: congelar (el agente invitado vacía y congela sus sistemas de archivos — lo mejor), pausar (se para esos segundos), apagar (limpiamente, tarda minutos) o nada (sigue funcionando, solo consistente como tras un cuelgue). Una VM en un dataset propio puede quedar excluida o conservar sus instantáneas más o menos tiempo. Se configura en «Configurar…» → VMs.",

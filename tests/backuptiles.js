@@ -90,8 +90,8 @@ same('last backup: the result, its date and how long it took in the first sub li
 same('last backup: the containers\' part in the second (downtime, stopped, kept running)', last.sub[1],
   'stat.downtime {"duration":"1 min"} · stat.ct_stopped {"n":2} · stat.ct_kept {"n":6}');
 same('last backup: no third line while no tour came after it', last.sub.length, 2);
-same('schedule: the time, the next backup and «set here»', [byKey('schedule').value, byKey('schedule').sub],
-  ['cron(30 4 * * *)', [`stat.next {"when":"rel(${NOW + 18000})"} · stat.by_office`]]);
+same('schedule: the time and the next backup (no «set here» — the list shows what is set, 2026-10-12)', [byKey('schedule').value, byKey('schedule').sub],
+  ['cron(30 4 * * *)', [`stat.next {"when":"rel(${NOW + 18000})"}`]]);
 same('partners: one short line per partner, the whole text in the tip (the section has a row each, the search\'s anchor)',
   [byKey('partners').sub, byKey('partners').tip.startsWith('partner.tile_sent'), byKey('partners').alert],
   [[`partner.short_sent {"name":"Vault","when":"rel(${NOW - 600})"} · partner.short_skipped {"n":1}`], true, true]);

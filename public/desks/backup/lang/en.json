@@ -836,7 +836,6 @@
   "diff.compression": "compression: {have} in Kopia, {want} here",
   "check.mnt_folders": "Nothing of the office directly in /mnt",
   "check.mnt_folders_how": "Fix Common Problems rightly reports {folders}. The snapshots belong under /mnt/addons (Unraid's place for that, in RAM, no data of its own): in the template of «{name}» change only the ⟦Host Path⟧ of the snapshot mapping to {path} (⟦Container Path⟧ and «⟦Read Only - Slave⟧» stay), then Mr. Backupsy → «Set up…» → Apply. The next run removes the old folders.",
-  "stat.by_office": "set here",
   "schedule.no_settings": "First I need to be set up: \"Set up…\" → Apply. Then you can pick a time here.",
   "help.vms": "VMs",
   "help.vms_text": "Their disks are in the snapshot of their share (usually domains). What matters is how a running VM is treated for the seconds of the snapshot: freeze (the guest agent flushes and freezes its file systems — best), pause (stops for those seconds), shutdown (cleanly, takes minutes) or none (keeps running, only crash-consistent). A VM in a dataset of its own can be left out or keep its snapshots longer or shorter. Set up in «Set up…» → VMs.",

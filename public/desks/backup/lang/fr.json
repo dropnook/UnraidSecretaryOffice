@@ -842,7 +842,6 @@
   "diff.compression": "compression : {have} dans Kopia, {want} ici",
   "check.mnt_folders": "Rien du secrétariat directement dans /mnt",
   "check.mnt_folders_how": "Fix Common Problems signale à juste titre {folders}. Les snapshots ont leur place sous /mnt/addons (l'endroit prévu par Unraid, en RAM, sans données à lui) : dans le modèle de « {name} », change seulement le ⟦Host Path⟧ du mappage des snapshots en {path} (le ⟦Container Path⟧ et « ⟦Read Only - Slave⟧ » restent), puis Monsieur Backupsi → « Configurer… » → Appliquer. La prochaine sauvegarde supprime les anciens dossiers.",
-  "stat.by_office": "réglée ici",
   "schedule.no_settings": "Il faut d'abord me configurer : « Configurer… » → Appliquer. Ensuite tu pourras choisir une heure ici.",
   "help.vms": "VM",
   "help.vms_text": "Leurs disques sont dans le snapshot de leur partage (en général domains). Ce qui compte, c'est comment une VM en marche est traitée pendant les secondes du snapshot : figer (l'agent invité vide et fige ses systèmes de fichiers — le mieux), pause (s'arrête pendant ces secondes), éteindre (proprement, prend des minutes) ou rien (continue de tourner, seulement cohérent comme après un crash). Une VM dans un dataset à part peut être laissée de côté ou garder ses snapshots plus ou moins longtemps. À régler dans « Configurer… » → VM.",

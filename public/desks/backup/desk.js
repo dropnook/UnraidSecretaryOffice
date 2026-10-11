@@ -719,7 +719,7 @@ function overviewTiles() {
   const sc = state.schedule || {};
   const value = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
   const next = sc.enabled && sc.next ? T('stat.next', { when: fmt.relative(sc.next) }) : '';
-  add({ key: 'schedule', label: T('stat.schedule'), value, sub: [sc.enabled ? [next, T('stat.by_office')].filter(Boolean).join(' · ') : T('stat.schedule_hint')],
+  add({ key: 'schedule', label: T('stat.schedule'), value, sub: [sc.enabled ? next : T('stat.schedule_hint')],
     alert: !sc.enabled });
   const c = state.containers;
   // Kopia: the last run's sources, the container, the repository and whether its policies match
@@ -1467,7 +1467,6 @@ function scheduleSection() {
       const took = typicalDuration();
       if (took) meta.appendChild(el('span', '', T('schedule.duration', { duration: fmt.duration(took), end: fmt.time(sc.next + took) })));
     }
-    meta.appendChild(el('span', 'note', T('stat.by_office')));
   }
   main.appendChild(meta);
   row.appendChild(main);

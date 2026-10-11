@@ -836,7 +836,6 @@
   "diff.compression": "Kompression: in Kopia {have}, hier {want}",
   "check.mnt_folders": "Nichts vom Sekretariat direkt in /mnt",
   "check.mnt_folders_how": "Fix Common Problems meldet zu Recht {folders}. Die Snapshots gehören unter /mnt/addons (Unraids Ort dafür, im RAM, ohne eigene Daten): im Template von «{name}» beim Snapshot-Mapping nur den ⟦Host Path⟧ auf {path} ändern (⟦Container Path⟧ und «⟦Read Only - Slave⟧» bleiben), dann Herr Backupsi → «Einrichten…» → Übernehmen. Das nächste Backup räumt die alten Ordner weg.",
-  "stat.by_office": "hier eingestellt",
   "schedule.no_settings": "Zuerst muss ich eingerichtet sein: «Einrichten…» → Übernehmen. Dann kannst du hier eine Zeit wählen.",
   "help.vms": "VMs",
   "help.vms_text": "Ihre Disks stecken im Snapshot ihres Shares (meist domains). Wichtig ist, wie eine laufende VM die Sekunden des Snapshots erlebt: einfrieren (der Gast-Agent schreibt alles weg und friert die Dateisysteme ein — am besten), anhalten (für diese Sekunden), herunterfahren (sauber, dauert Minuten) oder weiterlaufen lassen (nur absturzkonsistent). Eine VM in einem eigenen Dataset kann man auch auslassen oder ihre Snapshots länger oder kürzer behalten. Einstellen unter «Einrichten…» → VMs.",
