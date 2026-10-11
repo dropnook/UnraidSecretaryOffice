@@ -5,6 +5,12 @@
   "moment": "team",
   "title": "Empfang - das ganze Team auf einen Blick",
   "route": "",
+  "prepare": [
+   {
+    "js": "document.querySelectorAll(\".reception .desk-card[data-desk=\\\"moverelli\\\"]\").forEach((n) => n.remove())",
+    "pause": 300
+   }
+  ],
   "clip": ".reception",
   "pad": 12,
   "seed": 1
@@ -23,7 +29,16 @@
   "moment": "shares",
   "title": "Jack Emby - die Shares der Bibliotheken: wie viel auf welcher Disk und welchem Pool liegt",
   "route": "emby",
-  "clip": "section:has(> [data-place=\"shares\"])"
+  "clip": [
+   ".jo-tiles",
+   "section:has(> [data-place=\"shares\"])"
+  ],
+  "prepare": [
+   {
+    "click": "[data-place=\"tile.shares\"]",
+    "pause": 500
+   }
+  ]
  },
  {
   "nr": 10,
@@ -169,10 +184,10 @@
   "desk": "cleanup",
   "moment": "where",
   "title": "Frau Putzteufel - «Wo liegt was»: die Orte, auf die es ankommt, und wie sie geschützt sind",
-  "route": "cleanup",
+  "route": "cleanup/where",
   "clip": [
-   "[data-place=\"where.places\"]",
-   ".clw-places"
+   ".clw-tiles",
+   "section:has(> [data-place=\"where.head.places\"])"
   ]
  },
  {
@@ -180,16 +195,15 @@
   "desk": "cleanup",
   "moment": "shares",
   "title": "Frau Putzteufel - jeder Share mit seinen Disks, Grösse und Schutz",
-  "route": "cleanup",
+  "route": "cleanup/where",
   "prepare": [
    {
-    "click": ".clw-sections > *:has-text(\"Shares\")",
+    "click": "[data-place=\"where.shares\"]",
     "pause": 500
    }
   ],
   "clip": [
-   "[data-place=\"where.details_title\"]",
-   ".clw-sections + .section"
+   "section:has(> [data-place=\"where.head.shares\"])"
   ]
  },
  {
@@ -197,14 +211,14 @@
   "desk": "cleanup",
   "moment": "storeroom",
   "title": "Frau Putzteufel - ihre Abstellkammer: weggeworfen wird nichts gleich",
-  "route": "cleanup",
+  "route": "cleanup/tidy",
   "clip": [
    "[data-place=\"part.tidy\"] .cl-part-head",
-   "[data-place=\"part.tidy\"] > .section > .section"
+   "section[data-place=\"room-section.trash\"]"
   ],
   "prepare": [
    {
-    "js": "[...document.querySelectorAll(\"[data-place=\\\"part.tidy\\\"] .cards > *\")].find((n) => n.textContent.includes(Office.t(\"cleanup.section.trash\"))).click()",
+    "click": "[data-place=\"room.trash\"]",
     "pause": 500
    }
   ]
@@ -217,7 +231,7 @@
   "route": "logs",
   "prepare": [
    {
-    "click": ".lg-srcs > *:has-text(\"Syslog\")",
+    "click": "[data-place=\"tile.found\"]",
     "pause": 500
    },
    {
@@ -226,7 +240,8 @@
    }
   ],
   "clip": [
-   ".lg-tour"
+   ".lg-tiles",
+   "section:has(> [data-place=\"found.title\"])"
   ]
  },
  {
@@ -324,10 +339,10 @@
   "desk": "cleanup",
   "moment": "icons",
   "title": "Frau Putzteufel ersetzt die fehlenden Immich-Icons: ihr Vorschlag pro Container, über den Compose-Stack",
-  "route": "cleanup",
+  "route": "cleanup/tidy",
   "prepare": [
    {
-    "js": "[...document.querySelectorAll(\"[data-place=\\\"part.tidy\\\"] .cards > *\")].find((n) => n.textContent.includes(Office.t(\"cleanup.section.icons\"))).click()",
+    "click": "[data-place=\"room.icons\"]",
     "pause": 500
    },
    {
@@ -336,7 +351,7 @@
    }
   ],
   "clip": [
-   "[data-place=\"part.tidy\"] > .section > .section"
+   "section[data-place=\"room-section.icons\"]"
   ]
  }
 ]
