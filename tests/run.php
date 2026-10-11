@@ -6784,9 +6784,11 @@ JS;
 function testSetupFilter(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    check('setup filter: the bar is built once per visit and typing in it holds up no new look (data-keep), the focus kept through a drawing',
-        str_contains($js, "input.dataset.keep = '1';") && str_contains($js, 'const typing = sf.input && document.activeElement === sf.input')
-        && str_contains($js, 'sf.input.focus({ preventScroll: true });'));
+    // since the tiles rebuild (2026-10-11) the bar is core.js's Office.filterBar (data-keep, the focus and the selection kept
+    // through a drawing — testFilterBar): built once per visit, appended at every drawing, told what fits after the steps
+    check('setup filter: the bar is Office.filterBar, built once per visit, appended at every drawing, «n of m» after the steps',
+        str_contains($js, 'sfBar = Office.filterBar({') && str_contains($js, 'root.appendChild(setupFilter().el);')
+        && str_contains($js, 'sfBar.done(fitting.n, fitting.total, { onlyAvail: fitting.fresh > 0 })'));
     preg_match_all('/root\.appendChild\(fitStep\(\(\) => setup(\w+)\(/', $js, $m);
     same('setup filter: every step goes through it (0 basics … 4 retention, the rest, old sources)', ['Kopia', 'Vms', 'Apps', 'Shares', 'Retention', 'General', 'Sources'], $m[1]);
     check('setup filter: only hides - no dset() and no setup.open change in its code', (bool) preg_match('/function setupFits\(.*?\n\}\n/s', $js, $f)
@@ -6796,7 +6798,7 @@ function testSetupFilter(): void
         && str_contains($js, "setup.focus = 'waiting'; Office.go(`#/\${ID}/setup`)"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
-        $miss = array_values(array_filter(['setup.filter.label', 'setup.filter.only_new', 'setup.filter.only_new_hint', 'setup.filter.hits', 'setup.filter.none', 'help.filter', 'help.filter_text'],
+        $miss = array_values(array_filter(['setup.filter.label', 'setup.filter.only_new', 'setup.filter.only_new_hint', 'setup.filter.none', 'help.filter', 'help.filter_text'],
             fn ($k) => !isset($l[$k])));
         same("setup filter: its texts in $code", [], $miss);
     }
@@ -6837,12 +6839,23 @@ const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, store: () => null };
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, store: () => null,
+  // a stand-in for core.js's filter bar (its own behaviour is testFilterBar's): words and «only …», set and reset
+  filterBar: () => {
+    const s = { text: '', only: false };
+    const bar = { el: {}, read: () => ({ words: Office.filterWords(s.text), only: s.only, pick: '', tile: '' }),
+      set(v) { if (v.text !== undefined) s.text = v.text; if (v.only !== undefined) s.only = !!v.only; return bar; },
+      reset() { s.text = ''; s.only = false; return bar; }, done() { return bar; }, tile() { return bar; } };
+    return bar;
+  } };
+// core.js's matcher as it is (Office.fold / filterWords / fits)
+const core = fs.readFileSync(process.argv[4], 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
 const out = {};
-const f = (text, onlyNew) => ({ words: b.filterWords(text), onlyNew });
+const f = (text, onlyNew) => ({ words: Office.filterWords(text), onlyNew });
 out.fits = [
   b.setupFits(f('ecol'), 'Écoles', false), b.setupFits(f('ÉCOLES'), ['x', 'ecoles'], false), b.setupFits(f('strasse'), 'Hauptstraße', false),
   b.setupFits(f('immich server'), ['immich', 'immich_server'], false), b.setupFits(f('immich nope'), ['immich', 'immich_server'], false),
@@ -6862,10 +6875,10 @@ S.plan.shares[0].waiting = [];
 out.order.push(first());
 // «Decide…»: words cleared, «only what's new», the share's row unfolded; «Change…» of a VM: no «only new»
 S.plan.shares[0].waiting = [{ dir: 'loose', bytes: 5, first_seen: 900 }];
-b.sf.text = 'something'; S.open = new Set(); S.focus = 'waiting';
+b.setupFilter().set({ text: 'something' }); S.open = new Set(); S.focus = 'waiting';
 const t1 = b.setupFocus();
 out.decide = [t1 && t1.anchor, b.sf.text, b.sf.onlyNew, [...S.open], S.focus];
-b.sf.text = 'x'; S.focus = 'vm:old';
+b.setupFilter().set({ text: 'x' }); S.focus = 'vm:old';
 const t2 = b.setupFocus();
 out.change = [t2 && t2.anchor, t2 && t2.part, b.sf.text, b.sf.onlyNew];
 S.plan.shares[0].waiting = []; S.focus = 'waiting';
@@ -6873,7 +6886,8 @@ out.nothing = [b.setupFocus(), b.sf.onlyNew];
 console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/t.js", $test);
-    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1';
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json")
+        . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1';
     $raw = (string) shell_exec($cmd);
     $r = json_decode($raw, true);
     if (!is_array($r)) {
@@ -26940,12 +26954,76 @@ SH);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * Mr. Backupsy's overview tiles (the tiles rebuild, 2026-10-11 — CLAUDE.md «Tiles»): under node (tests/backuptiles.js —
+ * skipped where node is missing; it runs on the Mac as it is) which tile filters what (a fixture server: rows after each
+ * tile, words, «only what isn't protected»), «Took» and «Containers» inside «Last backup», the tour only when newer than the
+ * backup, the schedule a button without aria-pressed, a filtering tile with nothing to show a div, the backups' words. Then
+ * desk.js read as text: no hand-made role=button tile and no scrollIntoView left, tile filters / words / switches never in
+ * Office.store, the sub-routes #/backup/<tile> set the filter like a click, the places, the agent's schedule with `next`.
+ */
+function testBackupTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    same('backup tiles: no scrollIntoView left (a tile filters, the search reveals)', 0, substr_count($js, 'scrollIntoView'));
+    preg_match_all("/setAttribute\\('role', 'button'\\)/", $js, $m, PREG_OFFSET_CAPTURE);
+    $roles = array_map(fn ($x) => preg_match_all('/\nfunction (\w+)\(/', substr($js, 0, $x[1]), $f) ? end($f[1]) : '?', $m[0]);
+    same('backup tiles: no hand-made role=button tile — the only one is a setup row\'s name (CLAUDE.md «Rows»)', ['setupUnfold'], $roles);
+    check('backup tiles: no tabindex/onkeydown tiles, the old clickable() and the desk\'s own stat() gone',
+        !str_contains($js, 'bk-clickable') && !preg_match('/\nfunction stat\(/', $js) && !str_contains($js, 'const clickable ='));
+    preg_match_all("/Office\\.store\\('(backup\\.[a-z_.]+)'/", $js, $m);
+    same('backup tiles: Office.store only for what was kept before (no tile filter, word or switch)', ['backup.proposals_dismissed'], array_values(array_unique($m[1])));
+    preg_match_all('/Office\.filterBar\(\{(.*?)\}\);?\n/s', $js, $m);
+    same('backup tiles: three bars (the table, the backups, the setup), none with a select (nothing of a bar is kept)',
+        [3, 0], [count($m[1]), count(array_filter($m[1], fn ($b) => str_contains($b, 'select:')))]);
+    check('backup tiles: a new visit drops the bars and the tile filter; #/backup/<tile> sets it like a click and the address goes back to #/backup',
+        str_contains($js, "protBar = null;\n      histBar = null;\n      protTile = PROT_TILES.includes(sub) ? sub : '';")
+        && str_contains($js, "if (protTile || sub === SHOW) Office.subroute('');"));
+    check('backup tiles: a tile click keeps the tiles in place and draws the table anew (no scroll)',
+        str_contains($js, "Office.keepInPlace(grid, () => {\n    protTile = protTile === key ? '' : key;\n    protRedraw();"));
+    check('backup tiles: the note line is the bar\'s (the tile\'s name, «Show all» clears it), «only …» offered while something is unprotected',
+        str_contains($js, "bar.done(v.n, v.total, { tile: protTile ? T('tile.' + protTile) : '', clear: () => { protTile = ''; }, onlyAvail: v.off > 0 });"));
+    check('backup tiles: every tile a place of the search (kind tile, #/backup/<tile>), the search\'s rows through #/backup/show',
+        str_contains($js, "...PROT_TILES.map((t) => ({ kind: 'tile', key: `tile.\${t}`, route: `#/\${ID}/\${t}`")
+        && substr_count($js, 'route: ITEM_ROUTE }') === 5);
+    $places = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/places.json'), true);
+    same('backup tiles: places.json lists the five tiles and the help term', [], array_values(array_diff(
+        ['tile.apps', 'tile.dumps', 'tile.flash', 'tile.kopia', 'tile.vms', 'help.tiles'], $places['keys'] ?? [])));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        $miss = array_values(array_filter(['stat.next', 'tile.kopia', 'tile.dumps', 'tile.apps', 'tile.vms', 'tile.flash', 'protect.filter_label', 'protect.only_off',
+            'protect.only_off_hint', 'history_filter_label', 'filter_none', 'partner.short_now', 'partner.short_never', 'partner.short_sent', 'partner.short_failed',
+            'partner.short_skipped', 'help.tiles', 'help.tiles_text'], fn ($k) => !isset($l[$k])));
+        same("backup tiles: the texts in $code", [], $miss);
+    }
+    $sc = backupSchedule();
+    check('backup tiles: the agent hands the page the schedule\'s next run (officeJobSchedule() through backupSchedule())',
+        array_key_exists('next', $sc) && array_key_exists('script', $sc) && ($sc['enabled'] ? is_int($sc['next']) : $sc['next'] === null));
+    $node = testsNode();
+    if ($node === '') {
+        check('backup tiles: node is missing here - skipped', true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/backuptiles.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check('backup tiles: ran under node', false, $raw);
+        return;
+    }
+    check("backup tiles: the overview and the table under node ({$r['pass']} checks)", $r['pass'] >= 40 && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check('backup tiles: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
