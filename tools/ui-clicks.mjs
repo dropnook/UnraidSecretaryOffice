@@ -25,7 +25,8 @@
 // into view (a row's details, a group's rows), the tiles last -, then once more back, in reverse. What opens a dialog,
 // a menu or another page isn't a toggle: closed again, counted as skipped. Actions that only post (buttons without
 // aria-expanded) are never clicked; a button.stat without aria-pressed opens something else (a dialog) - never clicked,
-// counted as skipped. Many alike (rows of one list) are capped: 5 of a kind per section, 60 a page.
+// counted as skipped. Many alike (rows of one list) are capped: 5 of a kind per section, 60 a page - never the tiles
+// of a section switcher (the row is the page's table of contents).
 // Every page in a context of its own (a fresh profile: nothing remembered from another page).
 //
 //   node tools/ui-clicks.mjs [--only advisor,backup/setup] [--themes dark,light] [--widths 1440,375] [--jobs 6] [-v]
@@ -119,7 +120,10 @@ const PAGE_HELPERS = () => {
     if (kind === 'row') return words((e.querySelector('.row-name, td, th') || e).textContent);
     if (kind === 'group') return words((e.querySelector('.group-title, .group-name, strong, span') || e).textContent);
     if (kind === 'expand') return (e.id || e.className || e.tagName).toString().slice(0, 40);
-    return words(e.textContent);
+    // a tile's words without its mark («Open», «Filter on» - there only while it is on): one key on and off
+    const mark = e.querySelector(':scope > .tile-mark');
+    const text = e.textContent;
+    return words(mark && text.endsWith(mark.textContent) ? text.slice(0, text.length - mark.textContent.length) : text);
   }
   function all() {
     const d = desk();
@@ -137,7 +141,10 @@ const PAGE_HELPERS = () => {
       ranks.set(base, n);
       const section = e.closest('section, .section');
       const sectionPlace = section && section.querySelector('[data-place]');
-      out.push({ e, kind, key: `${base}|${n}`, group: `${kind}|${sectionPlace ? sectionPlace.dataset.place : ''}` });
+      // a tile of the section switcher (Office.sections) is never capped: the row is the page's table of contents
+      const v2 = kind === 'tile' && !!e.dataset.tile && !!e.parentElement && !!e.parentElement.parentElement
+        && [...e.parentElement.parentElement.children].some((x) => x.matches('[data-sections-body]'));
+      out.push({ e, kind, key: `${base}|${n}`, group: `${kind}|${sectionPlace ? sectionPlace.dataset.place : ''}`, v2 });
     });
     return out;
   }
@@ -151,7 +158,7 @@ const PAGE_HELPERS = () => {
   }
   window.__uc = {
     list: () => all().filter((c) => visible(c.e) && !c.e.disabled && !c.e.closest('[disabled]'))
-      .map(({ kind, key, group }) => ({ kind, key, group })),
+      .map(({ kind, key, group, v2 }) => ({ kind, key, group, v2 })),
     snap: () => Object.fromEntries(all().map((c) => [c.key, stateOf(c.e, c.kind)])),
     // mark the one to click (and where: a row's name, never its chips or buttons) - false when it isn't there
     mark(key) {
@@ -273,7 +280,7 @@ async function runPage(browser, harness, route, theme, width) {
         known.add(c.key);
         const n = (per.get(c.group) || 0) + 1;
         per.set(c.group, n);
-        if (n > opt.perGroup || list.length + picked.length >= opt.perPage) { res.capped++; continue; }
+        if (!c.v2 && (n > opt.perGroup || list.length + picked.length >= opt.perPage)) { res.capped++; continue; }
         picked.push(c);
       }
       return picked;

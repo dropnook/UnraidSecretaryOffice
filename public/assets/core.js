@@ -1506,8 +1506,15 @@ Office.sections = function sections(opts) {
       const head = body.querySelector('.section-head');
       if (!head) return;
       const r = head.getBoundingClientRect();
-      if (isPhone()) window.scrollTo({ top: Math.max(0, Math.round(r.top + window.scrollY - above)), behavior: 'auto' });
-      else if ((r.top < above || r.bottom > window.innerHeight) && head.scrollIntoView) head.scrollIntoView({ block: 'nearest' }); /* reveal */
+      if (isPhone()) {
+        // a short section: room below it, so its head can stand at the top (given back as the user scrolls up — relaxDesk)
+        const top = Math.max(0, Math.round(r.top + window.scrollY - above));
+        const desk = $('#sso-desk');
+        const doc = document.documentElement;
+        const short = top + window.innerHeight - (doc.scrollHeight || 0);
+        if (desk && short > 0) desk.style.minHeight = Math.max(desk.offsetHeight, parseFloat(desk.style.minHeight) || 0) + short + 'px';
+        window.scrollTo({ top, behavior: 'auto' });
+      } else if ((r.top < above || r.bottom > window.innerHeight) && head.scrollIntoView) head.scrollIntoView({ block: 'nearest' }); /* reveal */
       return;
     }
     // nothing active: on a phone back to the row — the tile that went off in view (at the top), when it isn't
