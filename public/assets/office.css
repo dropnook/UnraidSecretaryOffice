@@ -457,6 +457,54 @@
 .card-name + .card-chip{margin-left:auto}         /* chips and the count on the head's right (Office.tile) */
 .card-chip + .card-count{margin-left:6px}
 
+/* the active tile (tiles v2, core.js Office.sections / tileMark: .tile-on beside aria-pressed=true) — a ring, a glow and
+   a mark top right, built alike in both themes from the accent; no animation. :focus-visible keeps its outline outside */
+.tile-on, & button.card[aria-pressed=true], & button.stat[aria-pressed=true]{
+  position:relative;
+  border-color:var(--accent);
+  background:var(--accent-soft);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent),
+             0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+/* on white (Unraid's white or azure theme, the office's own Light): the glow is paler there — the ring stronger, the
+   glow tighter (the theme switch's Dark over a white Unraid keeps the dark one) */
+:is(.Theme--white, .Theme--azure, [data-unraid-theme=white]) &:not([data-theme=dark]) .tile-on,
+&[data-theme=light] .tile-on{
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 75%, transparent),
+             0 0 10px 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+/* the mark: «Filter on» / «Open» (common.tile_filter / tile_open), visual only — aria-pressed says it */
+.tile-mark{
+  position:absolute; top:6px; right:8px;
+  font-size:10.5px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap;
+  color:var(--on-fill); background:var(--accent);
+  border-radius:999px; padding:1px 7px; line-height:16px; pointer-events:none;
+}
+.stat .tile-mark{top:7px}                          /* the number tile has less air above its label */
+.tile-on .card-head{padding-right:72px}            /* room for the mark beside the chips and the count */
+.tile-on .stat-label{padding-right:72px}
+
+/* the switcher's row and body (Office.sections): the sections as the page spaces them */
+.sections, .sections-body{display:flex; flex-direction:column; gap:22px; min-width:0}
+.sections-body:empty{display:none}
+/* «◂ All» in the chosen section's head: a phone's way back to the row (the head is sticky there) */
+& button.section-all{
+  display:none; font:inherit; font-size:12px; line-height:22px; padding:0 10px; cursor:pointer; flex:none;
+  background:var(--accent-soft); border:1px solid transparent; color:var(--accent-ink);
+}
+& button.section-all:hover{border-color:var(--accent)}
+
+/* a desk's two pages as tabs under the bubble (core.js Office.pages): like the desk tabs, a size smaller, the active one
+   with the accent underneath */
+.desk-pages{display:flex; gap:2px; margin-top:12px; border-bottom:1px solid var(--line2); max-width:760px}
+.desk-pages a{
+  display:inline-flex; align-items:center; justify-content:center; min-height:34px; padding:5px 16px;
+  font-size:13px; font-weight:550; color:var(--ink2); text-decoration:none; white-space:nowrap;
+  border-bottom:2px solid transparent; margin-bottom:-1px;
+}
+.desk-pages a:hover{color:var(--ink); background:var(--surface2)}
+.desk-pages a[aria-selected=true]{color:var(--ink); border-bottom-color:var(--accent); font-weight:650}
+
 /* reception */
 .reception{display:grid; gap:16px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr))}
 .desk-card{
@@ -620,6 +668,17 @@
   .stat-sub{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
   /* the filter bar: the words a line of their own, the select, the switch and the extras under them */
   .filterbar .filter-words{flex:1 1 100%}
+  /* the active tile's mark a little smaller; a desk's two tabs half the width each, 40 px high */
+  .tile-mark{font-size:10px; padding:1px 6px}
+  .tile-on .card-head, .tile-on .stat-label{padding-right:64px}
+  .desk-pages{max-width:none}
+  .desk-pages a{flex:1 1 0; min-height:40px; padding:5px 8px; white-space:normal; text-align:center}
+}
+/* the phone's viewport rule (Office.sections): the chosen section's head stays at the top under Unraid's header while its
+   section scrolls (core.js sets its top), «◂ All» in it */
+@media (max-width:767px){
+  .section-head.sticky{position:sticky; z-index:6; background:var(--bg); padding:4px 0}
+  & button.section-all{display:inline-flex; align-items:center}
 }
 @media (max-width:380px){
   .btn{padding:6px 10px}

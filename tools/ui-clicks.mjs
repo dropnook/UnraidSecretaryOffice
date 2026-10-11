@@ -15,12 +15,18 @@
 //   - a tile with data-filters="<id>" (core.js Office.stat / Office.tile): while it is on, #<id> shows the filter bar's
 //     note line (.filter-note, visible); off, the line is gone (unless another tile filtering #<id> is on) - the note
 //     line and the rows under #<id> are the tile's own change, not another's,
+//   - a tile of the section switcher (core.js Office.sections - its row stands beside [data-sections-body], tiles v2):
+//     on, it carries aria-pressed=true, .tile-on and a visible .tile-mark; the body holds its section alone (one
+//     .section-head) and of all section heads under the row only that one is in the window - after the click's move
+//     (a desktop brings it in, a phone scrolls it to the top); off, no tile glows and the body holds every section the
+//     row's tiles show, in their order (a desk without [data-sections-body] is checked as before),
 //   - no console error, no page error, no horizontal scrolling (after the first paint and after each round of clicks).
 // Two rounds: every candidate clicked once (opened or closed) - first what the page shows, then what that brought
 // into view (a row's details, a group's rows), the tiles last -, then once more back, in reverse. What opens a dialog,
 // a menu or another page isn't a toggle: closed again, counted as skipped. Actions that only post (buttons without
 // aria-expanded) are never clicked; a button.stat without aria-pressed opens something else (a dialog) - never clicked,
-// counted as skipped. Many alike (rows of one list) are capped: 5 of a kind per section, 60 a page.
+// counted as skipped. Many alike (rows of one list) are capped: 5 of a kind per section, 60 a page - never the tiles
+// of a section switcher (the row is the page's table of contents).
 // Every page in a context of its own (a fresh profile: nothing remembered from another page).
 //
 //   node tools/ui-clicks.mjs [--only advisor,backup/setup] [--themes dark,light] [--widths 1440,375] [--jobs 6] [-v]
@@ -114,7 +120,10 @@ const PAGE_HELPERS = () => {
     if (kind === 'row') return words((e.querySelector('.row-name, td, th') || e).textContent);
     if (kind === 'group') return words((e.querySelector('.group-title, .group-name, strong, span') || e).textContent);
     if (kind === 'expand') return (e.id || e.className || e.tagName).toString().slice(0, 40);
-    return words(e.textContent);
+    // a tile's words without its mark («Open», «Filter on» - there only while it is on): one key on and off
+    const mark = e.querySelector(':scope > .tile-mark');
+    const text = e.textContent;
+    return words(mark && text.endsWith(mark.textContent) ? text.slice(0, text.length - mark.textContent.length) : text);
   }
   function all() {
     const d = desk();
@@ -132,7 +141,10 @@ const PAGE_HELPERS = () => {
       ranks.set(base, n);
       const section = e.closest('section, .section');
       const sectionPlace = section && section.querySelector('[data-place]');
-      out.push({ e, kind, key: `${base}|${n}`, group: `${kind}|${sectionPlace ? sectionPlace.dataset.place : ''}` });
+      // a tile of the section switcher (Office.sections) is never capped: the row is the page's table of contents
+      const v2 = kind === 'tile' && !!e.dataset.tile && !!e.parentElement && !!e.parentElement.parentElement
+        && [...e.parentElement.parentElement.children].some((x) => x.matches('[data-sections-body]'));
+      out.push({ e, kind, key: `${base}|${n}`, group: `${kind}|${sectionPlace ? sectionPlace.dataset.place : ''}`, v2 });
     });
     return out;
   }
@@ -146,7 +158,7 @@ const PAGE_HELPERS = () => {
   }
   window.__uc = {
     list: () => all().filter((c) => visible(c.e) && !c.e.disabled && !c.e.closest('[disabled]'))
-      .map(({ kind, key, group }) => ({ kind, key, group })),
+      .map(({ kind, key, group, v2 }) => ({ kind, key, group, v2 })),
     snap: () => Object.fromEntries(all().map((c) => [c.key, stateOf(c.e, c.kind)])),
     // mark the one to click (and where: a row's name, never its chips or buttons) - false when it isn't there
     mark(key) {
@@ -184,6 +196,31 @@ const PAGE_HELPERS = () => {
         && (t.getAttribute('aria-pressed') === 'true' || t.classList.contains('active')));
       return { id, list: !!box, note, others };
     },
+    // a tile of the section switcher (Office.sections: its row's parent holds [data-sections-body]): what the v2 rule
+    // asks after its click - null for any other tile
+    sections(key) {
+      const c = all().find((x) => x.key === key);
+      if (!c || c.kind !== 'tile' || !c.e.dataset.tile) return null;
+      const grid = c.e.parentElement;
+      const body = grid && grid.parentElement ? [...grid.parentElement.children].find((x) => x.matches('[data-sections-body]')) : null;
+      if (!body) return null;
+      const menu = document.getElementById('menu');
+      const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.getBoundingClientRect().bottom : 0;
+      const inView = (e) => { const r = e.getBoundingClientRect(); return r.bottom > above + 1 && r.top < innerHeight - 1; };
+      const name = (h) => words(h.textContent).slice(0, 30);
+      const heads = [...body.querySelectorAll('.section-head')].filter(visible);
+      const under = [...desk().querySelectorAll('.section-head')].filter((h) => visible(h) && (grid.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING));
+      const tiles = [...grid.children].filter((x) => x.dataset.tile);
+      const shows = [];
+      tiles.forEach((x) => { if (x.dataset.shows && !shows.includes(x.dataset.shows)) shows.push(x.dataset.shows); });
+      const mark = c.e.querySelector('.tile-mark');
+      return {
+        tile: c.e.dataset.tile, on: c.e.getAttribute('aria-pressed') === 'true', glow: c.e.classList.contains('tile-on'), mark: !!mark && visible(mark),
+        shows: c.e.dataset.shows, active: body.dataset.active || '', drawn: (body.dataset.sections || '').split(' ').filter(Boolean), all: shows,
+        glowing: tiles.filter((x) => x.classList.contains('tile-on')).length, heads: heads.length,
+        headInView: heads.length === 1 && inView(heads[0]), othersInView: under.filter((h) => !heads.includes(h) && inView(h)).map(name),
+      };
+    },
     // number tiles that open something else (no aria-pressed): never clicked, counted as skipped
     openers: () => [...desk().querySelectorAll('button.stat:not([aria-pressed])')].filter((e) => visible(e)).length,
     within(a, b) {           // b lies inside a's own part (an unfolded row's details, a group's rows, a details' body)
@@ -212,7 +249,7 @@ const PAGE_HELPERS = () => {
 // ------------------------------------------------------------------ one page
 async function runPage(browser, harness, route, theme, width) {
   const t0 = Date.now();
-  const res = { route, theme, width, tested: 0, skipped: 0, capped: 0, hidden: 0, fails: [], ms: 0 };
+  const res = { route, theme, width, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
   const fail = (what) => { if (res.fails.length < 40 && !res.fails.includes(what)) res.fails.push(what); };
   const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US', deviceScaleFactor: 1 });
   await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, theme);
@@ -243,7 +280,7 @@ async function runPage(browser, harness, route, theme, width) {
         known.add(c.key);
         const n = (per.get(c.group) || 0) + 1;
         per.set(c.group, n);
-        if (n > opt.perGroup || list.length + picked.length >= opt.perPage) { res.capped++; continue; }
+        if (!c.v2 && (n > opt.perGroup || list.length + picked.length >= opt.perPage)) { res.capped++; continue; }
         picked.push(c);
       }
       return picked;
@@ -314,11 +351,12 @@ async function runPage(browser, harness, route, theme, width) {
         fail(`${c.kind} «${short(c.key)}»: its click changed ${kindOf(k)} «${short(k)}» too (${before[k]} → ${after[k]})`);
       }
       await noteCheck(c, after[c.key], 'its click');
+      await sectionsCheck(c, 'its click', true);
       // the desk draws itself anew right after (as at every answer of the agent, which brings the messenger's word)
       await page.evaluate(() => Office.setAgent({ ...Office.agent }));
       await settle(80);
       const redrawn = await snap();
-      if (c.key in redrawn) await noteCheck(c, redrawn[c.key], 'the desk drew itself anew');
+      if (c.key in redrawn) { await noteCheck(c, redrawn[c.key], 'the desk drew itself anew'); await sectionsCheck(c, 'the desk drew itself anew', false); }
       for (const [k, v] of Object.entries(after)) {
         if (!(k in redrawn) || redrawn[k] === v) continue;
         fail(k === c.key ? `${c.kind} «${short(c.key)}» (${v} by the click): ${redrawn[k]} again once the desk drew itself anew`
@@ -334,6 +372,28 @@ async function runPage(browser, harness, route, theme, width) {
       if (!n.list) fail(`tile «${short(c.key)}» filters #${n.id}, which isn't on the page (${when})`);
       else if (state === 'on' && !n.note) fail(`tile «${short(c.key)}» is on: no note line (.filter-note) in #${n.id} (${when})`);
       else if (state === 'off' && n.note && !n.others) fail(`tile «${short(c.key)}» is off: the note line in #${n.id} is still there (${when})`);
+    }
+    // a tile of the section switcher (tiles v2): on - it glows with its mark, its section alone under the row and in the
+    // window (view: after the click's move); off - nothing glows, every section of the row in its order
+    async function sectionsCheck(c, when, view) {
+      if (c.kind !== 'tile') return;
+      const v = await page.evaluate((k) => __uc.sections(k), c.key);
+      if (!v) return;
+      res.sections = (res.sections || 0) + (view ? 1 : 0);
+      const at = `tile «${short(c.key)}» (${when})`;
+      if (v.on) {
+        if (!v.glow || !v.mark) fail(`${at}: on, but ${!v.glow ? 'no .tile-on' : ''}${!v.glow && !v.mark ? ' and ' : ''}${!v.mark ? 'no visible .tile-mark' : ''}`);
+        if (v.glowing !== 1) fail(`${at}: ${v.glowing} tiles glow, one should`);
+        if (v.active !== v.tile) fail(`${at}: on, but the body says «${v.active || 'nothing'}» is active`);
+        if (v.drawn.join(' ') !== v.shows) fail(`${at}: the body holds «${v.drawn.join(' ') || 'nothing'}» - its section «${v.shows}» alone should stand there`);
+        if (v.heads !== 1) fail(`${at}: ${v.heads} section heads in the body - one (its section's)`);
+        if (view && v.heads === 1 && !v.headInView) fail(`${at}: its section's head isn't in the window after the click`);
+        if (view && v.othersInView.length) fail(`${at}: other section heads under the row in the window too: ${v.othersInView.join(' / ')}`);
+      } else {
+        if (v.glow || v.mark || v.glowing) fail(`${at}: off, but ${v.glowing || 1} tile(s) still glow or carry the mark`);
+        if (v.active) fail(`${at}: off, but the body says ${v.active} is active`);
+        if (v.drawn.join(' ') !== v.all.join(' ')) fail(`${at}: nothing active - the body holds «${v.drawn.join(' ')}», the row's tiles show «${v.all.join(' ')}» (a section that draws nothing?)`);
+      }
     }
     async function afterRound(round) {
       if (!expected) return;
@@ -443,5 +503,6 @@ for (const r of failed) {
   for (const f of r.fails) console.log(`  - ${f}`);
 }
 const clicks = results.reduce((s, r) => s + r.tested, 0);
-console.log(`\nui clicks: ${results.length} pages, ${clicks} toggles clicked twice, ${failed.length} failed - ${((Date.now() - started) / 1000).toFixed(0)} s`);
+const v2 = results.reduce((s, r) => s + r.sections, 0);
+console.log(`\nui clicks: ${results.length} pages, ${clicks} toggles clicked twice${v2 ? `, ${v2} switcher clicks checked (tiles v2)` : ''}, ${failed.length} failed - ${((Date.now() - started) / 1000).toFixed(0)} s`);
 process.exit(failed.length ? 1 : 0);

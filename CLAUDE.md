@@ -897,26 +897,70 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   a chip or buttons in `.bk-right` / `.rs-right` under the text).
 * **Remembered per browser** (`Office.store`, prefix `office.`): choices —
   chosen tiles (a section, a corner, a pool), selects, favourites; never filter
-  words, «only …» switches or tile filters (2026-10-11, «Tiles» below). Tests in
+  words, «only …» switches or tile filters (2026-10-11, «Tiles» below). A desk's section tile is
+  `<desk>.tile` (`Office.sections()`; a desk keeps a key it had: `restore.section`, `logs.tile` …, '' = nothing
+  chosen), Ms. Dustdevil's last page `cleanup.page` (`Office.pages()`, for `#/cleanup` without a page). Tests in
   the browser save and restore those keys — the user's own pane shares them.
 * **Sections:** `Office.sectionHead(title, explanation, ...extras)` — a title
   bar (Unraid's inside Unraid) with counts, status and buttons on its right, the
   explanation right under it. No explanatory text floating on the right.
-* **Tiles (2026-10-11, the tiles rebuild): a tile shows a number and decides which rows below are seen.** Two shapes,
-  one behaviour: the number tile (`.stat`) and the choice tile (`.card`); one with something behind it is a real
-  `<button>`, one with nothing behind it stays a `div` (and doesn't look clickable). **The first click shows or filters,
-  the second shows all again** — a choice tile opens its section below (the others close; nothing open is valid), a
-  number tile that counts a list filters that list to what it counts (looking pressed like `.card.active`). The one
-  exception is a tile that opens a dialog (a schedule): no toggle, and its sub line says so («set here» / «tap to set»).
-  **The page says what is filtered in one place:** the filter bar's note line right above the list («The list shows
-  only: [VMs ×] · 1 of 12 fit — Show all», `bar.done()`), never a sentence in a section head or a callout. **Stored:** a
-  tile's choice (section, corner, pool) by the desk in `Office.store` — read at every render («What the user opened stays
-  open»); **never stored:** filter words, «only …» switches, tile filters (`mount()` empties them: `bar.reset()`); a
-  select (area, library, source) is a choice and is kept (`<key>.pick`). Every tile click inside `Office.keepInPlace(<the
-  tile grid>, …)`, no `scrollIntoView`; `aria-pressed` on every toggling tile, `aria-controls` = the section or list it
-  shows, `data-filters` = the id of the element holding the filtered list and its bar (the click test looks for the note
-  line there). Phone: number tiles two columns, the sub line clamped to two lines (the whole text in `tip`); choice tiles
-  one column. A tile is a place with a sub-route (`#/<desk>/<tile>`) that sets the choice exactly like a click.
+* **Tiles (2026-10-11, tiles v2 — the rule of the afternoon; the morning's rebuild built the parts): a tile is a
+  section.** The row of tiles is the page's table of contents: each tile stands for one section under it and carries its
+  summary (a number, a state); a tile without a section goes (or gets a short section of its own — a head and a few rows),
+  facts without a section go into a section head's line or the bubble. **A click shows that section alone** under the row
+  — every other section is gone, not folded; a filter tile (Mr. Backupsy's «VMs») shows its section filtered, and only it.
+  **Nothing active = the whole page**, every section in the row's order; the second click on the active tile = nothing
+  active; each desk has one start tile (or none). **The active tile glows** (`.tile-on`: a ring and a glow from the
+  accent, both themes and Unraid's white, no animation) and carries a mark top right — «Filter on» / «Open»
+  (`common.tile_filter` / `common.tile_open`, `.tile-mark`, aria-hidden: `aria-pressed` says it). **The chosen section is
+  in view after the click** (the viewport rule): on a desktop (≥ 768 px) its head stands right under the row anyway and is
+  brought in with `scrollIntoView({block: 'nearest'})` only when it isn't; on a phone the page scrolls so the head stands at
+  the top under Unraid's header (a short section gets room below it, given back as the user scrolls up), the head is
+  sticky there (`.section-head.sticky`) with a chip «◂ All» (`common.tile_all`) — after «◂ All», the bar's «Show all» or
+  the second tap the page goes back to the row when the tile that went off isn't in view. Order: `keepInPlace(the row)`
+  first, then that one move; the focus stays on the clicked tile. **Hints are no section:** what stands above the row
+  (the desk head, the bubble, the page help, callouts, a live panel) stays at every click, so does a footer under all.
+  Two shapes, one behaviour: the number tile (`.stat`) and the choice tile (`.card`), both real `<button>`s under the
+  switcher (a `div` only where nothing is behind it). **The page says what is filtered in one place:** the filter bar's
+  note line right above the list («The list shows only: [VMs ×] · 1 of 12 fit — Show all», `bar.done()`), never a
+  sentence in a section head or a callout. **Stored:** a section tile's choice (`<desk>.tile`), a corner, a pool, a select
+  (`<key>.pick`) — read at every render («What the user opened stays open»); **never stored:** filter words, «only …»
+  switches, filter tiles (the store keeps the last section choice while one is on — a new visit starts there;
+  `mount()` empties the bar: `bar.reset()`). `aria-pressed` on
+  every toggling tile, `aria-controls` = the body it shows into, `data-filters` = the id of the section holding the
+  filtered list and its bar — the switcher sets all three. Phone: number tiles two columns, the sub line clamped to two
+  lines (the whole text in `tip`); choice tiles one column. A tile is a place with a sub-route (`#/<desk>/<tile>`) that
+  sets the choice exactly like a click. **Two tabs = two pages** (`Office.pages()`): a page has its own actions and its
+  own state (Mr. Backupsy's and Jack Emby's setup, Ms. Dustdevil's «Where is what» / «Tidy up») — two at most; everything
+  else (Mr. Restori's drill, Ms. Protocolli's reader) is a section of the one page, a tile. Until a desk is moved
+  (`SECTIONS_DESKS` in tests/run.php names the moved ones) it keeps the morning's shape: a choice tile opens its section,
+  a number tile filters its list, a schedule tile opens its dialog (no toggle, its sub line says so).
+  **The switcher (core.js):** `Office.sections({id, key, grid, tiles, sections, default, onPick(id, how), wants})` → `sw`
+  — `tiles` (a list or a function: the row's order = the «nothing active» page's) of `{id, key, tile: (a) =>
+  Office.stat|tile({…, ...a}), section: () => node | '<name>', filters}`: the builder spreads the helper's `a` = {on,
+  pressed, active, controls, filters, mark, place} (the click, the attributes, the mark — what it leaves out the switcher
+  sets anyway, `data-tile` and `data-shows` too); `section` a node holding one `.section-head` (null: none) or the name of
+  a shared one in `sections` (each once on the «nothing active» page, at its first tile); `filters` = the filter's words for
+  the note line (a filter tile, never stored); `key` = the tile's lang key (its place); `default` the start tile ('' =
+  none, only while the store has no choice); `onPick(id, how)` before anything is drawn — how = click | route | store |
+  all («◂ All») | clear (the bar) — the desk sets its filter state there; `wants(sub)` a sub-route of a tile the list has
+  only later (a partner's). `sw.el` (`.sections`: the row `sw.grid` with `grid`'s classes, the body `sw.body`
+  `[data-sections-body]` with `data-active` and `data-sections` — the click test reads them), `sw.render()` (a new
+  state, every answer of the agent: the choice stays, in `keepInPlace(sw.grid)`), `sw.pick(id[, how])` (like a click; the
+  active one again → nothing; `'route'`: no toggle, no move — a link that opens a section), `sw.active()`, `sw.mount(sub)`
+  (from `mount(root, sub)`: a tile's sub-route picks it and the address goes back to `#/<desk>` — true; else the stored
+  choice or the default, a filter tile off — false, sub is the desk's), `sw.places()` (`kind: 'tile'` entries of the tiles
+  with a key, for `Office.places()`), `sw.note(name)` → `{tile, clear}` for `bar.done()` of section `name`, `sw.clear()`.
+  **The tabs:** `Office.deskHead(desk, {bubble, actions, pages: {list, current, store}})` → a `.desk-pages` tablist under
+  the bubble (above the page help; `Office.pages(desk, list, current, store)` builds it, null unless exactly two): two
+  `<a role="tab" aria-selected>` whose hrefs are the routes (`#/backup`, `#/backup/setup` …), a click = `Office.go()`;
+  `store` keeps the page shown for a route without one (`Office.pageFrom(list, sub, store)` → the page to draw); no crumb,
+  no «← Back», no head button for the other page (callout buttons that lead there stay); 375 px: one row, two half-width
+  tabs, 40 px. Tests: `testSections`, `testDeskPages` (tests/sections.js under node), `tools/ui-clicks.sh` (on a desk with
+  `[data-sections-body]`, after every tile click: aria-pressed, `.tile-on` and a visible mark; the body its section alone,
+  of the section heads under the row only that one in the window; off: nothing glows, the body every section of the row),
+  `bash tools/ui-tiles.sh --only <route>` (every tile before/after as viewport screenshots, dark, de, 1440 and 390, with
+  `log.txt` — into `$USO_SHOTS/<date>-tiles/`): how a desk proves its tiles.
   **The helpers (core.js):**
   `Office.filterBar({key, label, only: {text, hint}, select: {label, all}, extra: [nodes], min, onChange(f, what)})` —
   built once per visit and held by the desk across its renders (it keeps its text, focus and selection; `data-keep`);
@@ -929,19 +973,23 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   `bar.set({text, only, pick})` (a link or a deep link fills or clears it, no `onChange`). `onChange` runs inside
   `keepInPlace(<the control>)` with `what` = words | only | pick | tile | all | gone. Pure, also under node:
   `Office.fold(text)`, `Office.filterWords(text)`, `Office.fits(words, hay)` (hay a string or a list, joined with
-  `\u0001`). `Office.stat({label, value, sub, alert, tip, on, pressed, controls, filters, id, place, cls})` → `div.stat`,
+  `\u0001`). `Office.stat({label, value, sub, alert, tip, on, pressed, controls, filters, id, place, cls, mark})` → `div.stat`,
   or `button.stat` with `on` (`pressed` true/false → `aria-pressed`; left out → a dialog opener, no `aria-pressed`; `sub`
   may be a list). `Office.tile({name, icon, chip, count, lines, active, on, controls, filters, tip, id, place, cls,
-  extra})` → `button.card[aria-pressed]` (`div.card` without `on`): head icon · name · chips · count, `lines` each a
+  extra, mark})` → `button.card[aria-pressed]` (`div.card` without `on`): head icon · name · chips · count, `lines` each a
   string (`.card-line`), `[left, right]` (`.card-figures`) or a node. Both attach `on` with `addEventListener`; the desk
-  wraps its own `keepInPlace`. Tests: `testFilterWords`, `testFilterBar` (tests/filter.js, core.js under node),
+  wraps its own `keepInPlace`; `mark` = the mark's text, shown while pressed / active (the switcher gives it). Tests:
+  `testFilterWords`, `testFilterBar` (tests/filter.js, core.js under node),
   `tools/ui-clicks.sh` (a `button.stat[aria-pressed]` is a tile; `data-filters` → the note line on, gone off),
   **`testTilesConvention`** (every `public/desks/*/*.js` read for the rule, a fault with its file and line: no
   `role="button"` in markup or on a `.stat`/`.card`; no `scrollIntoView(` unless its line carries `/* reveal */` — a jump
   a link asked for: restore's row, the reader, a dialog's error line; no folding of a desk's own (`normalize('NFD')`,
   `.replace(/ß/`); every hand-built `button.card` with `aria-pressed`; no `Office.store` key naming filter / words / only /
   query; every filtering tile a place — a `kind: 'tile'` of `Office.places()` with a sub-route and its key in five
-  languages, or for a tile per thing of the state an anchor its `placesFrom` gives, `pool:<name>`). For contributors:
+  languages, or for a tile per thing of the state an anchor its `placesFrom` gives, `pool:<name>`; and for a desk of
+  `SECTIONS_DESKS`: it uses `Office.sections()`, no `renderTiles`+`renderSection` pair of its own, no `hidden` on a
+  section, every function that makes a section head reached from the switcher's spec — or named there as being on its
+  other page). For contributors:
   docs/DEVELOPMENT.md «Tiles and lists» (a minimal desk and the checklist), CONTRIBUTING.md.
 * **Search (2026-10-08 — phase 1, static places; phase 2, items; phase 3, texts):** the magnifier in the top line (`#sso-search`, made by core.js
   before `#sso-state`; nothing in page.php) or ⌘K / Ctrl+K while the office has the focus (or nothing outside `#sso` was

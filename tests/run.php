@@ -26576,6 +26576,86 @@ function testFilterBar(): void
     testsFilterJs('bar', 'filter bar', 45);
 }
 
+/** tests/sections.js <part> under node: one JSON line {pass, fail} — checked by $label, at least $min checks */
+function testsSectionsJs(string $part, string $label, int $min): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check("$label: node is missing here - skipped", true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/sections.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg($part) . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check("$label: ran under node", false, $raw);
+        return;
+    }
+    check("$label: core.js under node ({$r['pass']} checks)", $r['pass'] >= $min && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check("$label: " . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * The section switcher of tiles v2 (core.js Office.sections, CLAUDE.md «Tiles»: a tile is a section): the API, the glow
+ * and the mark in office.css (both themes, Unraid's white one, no animation), the marks' and «◂ All»'s words in five
+ * languages; then under node (tests/sections.js sections): pick / the second click / the default / the store / a tile's
+ * route / a tile the list has later, the «nothing active» page in the row's order (a shared section once), a filter tile
+ * never stored with data-filters on its section and its words for the bar, the attributes and the mark, the sticky head
+ * with «◂ All», the viewport rule (phone: the head to the top; desktop: block nearest only when out of view), the focus,
+ * places(). In a real browser: tools/ui-clicks.sh on a desk with [data-sections-body].
+ */
+function testSections(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    check('sections: core.js has Office.sections', (bool) preg_match('/^Office\.sections = function/m', $core));
+    $at = (int) strpos($core, 'Office.sections = function');
+    $fn = substr($core, $at, (int) strpos($core, '// ------------------------------------------------------------------ staff', $at) - $at);
+    check('sections: a filter tile is never kept (the store gets \'\' while one is on)', str_contains($fn, "Office.store(key, isFilter(x) ? '' : next)"));
+    check('sections: the desktop\'s move is block nearest, marked as a reveal', str_contains($fn, "head.scrollIntoView({ block: 'nearest' }); /* reveal */"));
+    check('sections: the focus stays on the clicked tile without a scroll', str_contains($fn, 'focus({ preventScroll: true })'));
+    check('sections: nothing hidden — no section is drawn with hidden', !preg_match('/\.hidden\s*=/', $fn));
+    foreach (['.tile-on, & button.card[aria-pressed=true], & button.stat[aria-pressed=true]{', '.tile-mark{', ':is(.Theme--white, .Theme--azure, [data-unraid-theme=white]) &:not([data-theme=dark]) .tile-on',
+        '&[data-theme=light] .tile-on', '.section-head.sticky{position:sticky', '& button.section-all{'] as $rule) {
+        check("sections: office.css has $rule", str_contains($css, $rule));
+    }
+    $g = (int) strpos($css, '/* the active tile (tiles v2');
+    $glow = substr($css, $g, (int) strpos($css, '/* the switcher\'s row and body', $g) - $g);
+    check('sections: the glow has no animation', !preg_match('/animation\s*:|transition\s*:|@keyframes/', $glow));
+    $want = ['en' => ['Filter on', 'Open', '◂ All'], 'de' => ['Filter aktiv', 'Offen', '◂ Alle'], 'it' => ['Filtro attivo', 'Aperto', '◂ Tutti'],
+        'fr' => ['Filtre actif', 'Ouvert', '◂ Tout'], 'es' => ['Filtro activo', 'Abierto', '◂ Todo']];
+    foreach ($want as $code => $words) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("sections: the marks and «◂ All» in $code", $words, [$lang['common.tile_filter'] ?? null, $lang['common.tile_open'] ?? null, $lang['common.tile_all'] ?? null]);
+    }
+    testsSectionsJs('sections', 'sections', 50);
+}
+
+/**
+ * A desk's two pages as tabs (core.js Office.pages / Office.pageFrom / Office.deskHead({pages}), CLAUDE.md «Tiles»: two
+ * tabs = two pages): the API, the CSS (desktop, and at 375 px one row of two half-width tabs, 40 px), «Overview» in five
+ * languages; under node (tests/sections.js pages): two tabs, role tab, aria-selected, href = the route, a third (and a
+ * single one) refused, a click is Office.go() (⌘ / Ctrl the browser's), the kept page, the tabs under the bubble.
+ */
+function testDeskPages(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    check('desk pages: core.js has Office.pages and Office.pageFrom', (bool) preg_match('/^Office\.pages = function/m', $core) && (bool) preg_match('/^Office\.pageFrom = function/m', $core));
+    check('desk pages: Office.deskHead takes pages', str_contains($core, 'Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, pages })'));
+    check('desk pages: office.css has the tab row and the active tab\'s accent underline',
+        str_contains($css, '.desk-pages{') && str_contains($css, '.desk-pages a[aria-selected=true]{color:var(--ink); border-bottom-color:var(--accent)'));
+    $phone = substr($css, (int) strpos($css, '.tile-mark{font-size:10px'), 400);
+    check('desk pages: at 375 px two half-width tabs, 40 px high', str_contains($phone, '.desk-pages a{flex:1 1 0; min-height:40px'));
+    foreach (['en' => 'Overview', 'de' => 'Überblick', 'it' => 'Panoramica', 'fr' => 'Aperçu', 'es' => 'Resumen'] as $code => $word) {
+        same("desk pages: «Overview» in $code", $word, langFile(OFFICE_WEB . "/lang/$code.json")['common.page_overview'] ?? null);
+    }
+    testsSectionsJs('pages', 'desk pages', 12);
+}
+
 /**
  * A job's schedule says when it runs next (officeJobSchedule() `next`, for the desks' schedule tiles): on a cron file of
  * the test's own — an enabled line's next run is in the future, matches its expression and is the first that does; a
@@ -28579,6 +28659,165 @@ JS;
     $lines = array_map(fn ($x) => (int) explode(' ', explode(':', $x, 2)[1])[0], $r['faults']);
     same('tiles convention: a made-up desk — role=button on a .stat, scrollIntoView, own folding (twice), a card without aria-pressed, a filter kept, role="button" in markup, a filtering tile without a place, one whose key lacks a language, one whose tile has no sub-route (a folding head, a reveal, a choice kept, a pressed card and a tile of the search pass)',
         [3, 4, 6, 7, 9, 10, 11, 26, 36, 56], $lines);
+
+    // tiles v2: the desks on the section switcher (SECTIONS_DESKS — each desk group adds its desk when it moves it over)
+    $v2 = [];
+    foreach (SECTIONS_DESKS as $d => $elsewhere) {
+        $deskFiles = glob(OFFICE_WEB . "/desks/$d/*.js") ?: [];
+        check("tiles convention: SECTIONS_DESKS names a desk with scripts ($d)", (bool) $deskFiles);
+        foreach ($deskFiles as $f) {
+            $v2 = array_merge($v2, sectionsConventionFaults($d, basename($f), (string) file_get_contents($f), $elsewhere));
+        }
+    }
+    foreach ($v2 as $x) {
+        check("tiles convention: $x", false);
+    }
+    check('tiles convention: the desks in SECTIONS_DESKS keep the v2 rule (a tile is a section: Office.sections())', !$v2);
+    $goodV2 = <<<'JS'
+const sw = Office.sections({ id: ID, tiles: () => [
+  { id: 'apps', key: 'tile.apps', tile: (a) => Office.tile({ name: T('tile.apps'), ...a }), section: () => appsSection() },
+  { id: 'vms', key: 'tile.vms', tile: (a) => Office.stat({ label: T('tile.vms'), ...a }), section: 'prot', filters: T('tile.vms') },
+], sections: { prot: protection } });
+function appsSection() {
+  const s = el('section', 'section');
+  s.appendChild(section(T('apps.title'), T('apps.sub')));
+  return s;
+}
+function protection() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('prot.title'), ''));
+  return s;
+}
+function section(title, sub) { return Office.sectionHead(title, sub); }
+function setupPage() {
+  return Office.sectionHead(T('setup.title'), '');
+}
+JS;
+    same('tiles convention v2: a made-up desk on the switcher (a section helper, a head on its other page named) — no fault',
+        [], sectionsConventionFaults('x', 'desk.js', $goodV2, ['setupPage']));
+    $badV2 = <<<'JS'
+const sections = ['apps', 'vms'];
+function renderTiles() {
+  sections.forEach((s) => grid.appendChild(Office.tile({ name: s, on: () => pick(s), active: s === section })));
+}
+function renderSection() {
+  body.appendChild(appsSection());
+}
+function appsSection() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('apps.title'), ''));
+  return s;
+}
+function plans() {
+  const plansSection = el('section', 'section');
+  plansSection.hidden = !open;
+  plansSection.appendChild(Office.sectionHead(T('plans.title'), ''));
+  return plansSection;
+}
+JS;
+    $at = fn (array $faults) => array_map(fn ($x) => preg_replace('~^desks/x/([^ ]+) .*$~', '$1', $x), $faults);
+    same('tiles convention v2: a made-up desk with its own switcher — no Office.sections(), a renderTiles+renderSection pair, a hidden section',
+        ['desk.js:1', 'desk.js:5', 'desk.js:15'], $at(sectionsConventionFaults('x', 'desk.js', $badV2, [])));
+    $strayV2 = $goodV2 . <<<'JS'
+
+function stray() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('stray.title'), ''));
+  return s;
+}
+function notices() {
+  return [section(T('notice.title'), '')];
+}
+JS;
+    same('tiles convention v2: on the switcher, but a section head beside it (by core\'s helper and by the desk\'s own) and a head of the other page not named',
+        ['desk.js:16', 'desk.js:19', 'desk.js:24'], $at(sectionsConventionFaults('x', 'desk.js', $strayV2, [])));
+}
+
+/**
+ * The desks moved onto the section switcher of tiles v2 (Office.sections()) — each desk group adds its desk with the
+ * functions whose section heads stand on another page of the desk (its setup page …), never under the row:
+ *   'backup' => ['setupPage', …]
+ * Empty while no desk is moved (2026-10-11: Worker 0 built the helper, the groups move the desks).
+ */
+const SECTIONS_DESKS = [];
+
+/**
+ * The faults of one desk script against the v2 rule (testTilesConvention): a desk of SECTIONS_DESKS uses Office.sections()
+ * (its desk.js), has no renderTiles+renderSection pair of its own, never sets hidden on a section (a section not chosen
+ * isn't drawn), and every function of its desk.js that makes a section head (Office.sectionHead, or a helper of its own
+ * around it) is reached from the switcher's spec — the tiles' sections and `sections` — or named in $elsewhere.
+ * ["desks/<desk>/<file>:<line> …"]
+ */
+function sectionsConventionFaults(string $desk, string $file, string $js, array $elsewhere): array
+{
+    $lines = explode("\n", $js);
+    $faults = [];
+    $fault = function (int $i, string $what) use (&$faults, $desk, $file): void {
+        $faults[] = "desks/$desk/$file:" . ($i + 1) . " $what";
+    };
+    // the top-level functions: name -> [line, body]
+    $fns = [];
+    $cur = '';
+    foreach ($lines as $i => $l) {
+        if (preg_match('/^(?:async\s+)?function\s+(\w+)\s*\(|^(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|\w+\s*=>)/', $l, $m)) {
+            $cur = $m[1] !== '' ? $m[1] : $m[2];
+            $fns[$cur] = [$i, ''];
+        }
+        if ($cur !== '') {
+            $fns[$cur][1] .= $l . "\n";
+        }
+        if (preg_match('/^\}/', $l) || ($cur !== '' && preg_match('/^(?:async\s+)?function\s+\w+\s*\(.*\}\s*$|^(?:const|let)\s+\w+\s*=.*;\s*(\/\/.*)?$/', $l))) {
+            $cur = '';
+        }
+    }
+    $at = strpos($js, 'Office.sections(');
+    if ($file === 'desk.js' && $at === false) {
+        $fault(0, 'no Office.sections() — a desk of SECTIONS_DESKS draws its tiles and sections through the switcher (CLAUDE.md «Tiles»)');
+    }
+    if (isset($fns['renderTiles'], $fns['renderSection'])) {
+        $fault($fns['renderSection'][0], 'a renderTiles()+renderSection() pair of its own — Office.sections() is the switcher');
+    }
+    foreach ($lines as $i => $l) {
+        if (preg_match('/\b\w*[sS]ection\w*\.hidden\s*=(?!=)/', $l) || (str_contains($l, "el('section'") && str_contains($l, 'hidden'))) {
+            $fault($i, 'hidden on a section — a section not chosen is not drawn (Office.sections())');
+        }
+    }
+    if ($file !== 'desk.js' || $at === false) {
+        return $faults;
+    }
+    // the switcher's spec: Office.sections( … ) up to its closing parenthesis
+    $depth = 0;
+    $end = strlen($js);
+    for ($k = $at + strlen('Office.sections'); $k < strlen($js); $k++) {
+        $c = $js[$k];
+        if ($c === '(') {
+            $depth++;
+        } elseif ($c === ')' && --$depth === 0) {
+            $end = $k;
+            break;
+        }
+    }
+    $spec = substr($js, $at, $end - $at);
+    $names = fn (string $text) => array_values(array_filter(array_keys($fns), fn ($n) => preg_match('/(?<![\w.])' . preg_quote($n, '/') . '\b/', $text)));
+    $reached = array_fill_keys($names($spec), true);
+    for ($todo = array_keys($reached); $todo;) {
+        $n = array_pop($todo);
+        foreach ($names($fns[$n][1]) as $m) {
+            if (!isset($reached[$m])) {
+                $reached[$m] = true;
+                $todo[] = $m;
+            }
+        }
+    }
+    // what makes a section head: Office.sectionHead, and a helper of the desk's own around it
+    $makers = array_keys(array_filter($fns, fn ($f) => str_contains($f[1], 'Office.sectionHead(')));
+    foreach ($fns as $n => [$line, $bodyText]) {
+        $makes = str_contains($bodyText, 'Office.sectionHead(') || (bool) array_filter($makers, fn ($w) => $w !== $n && preg_match('/(?<![\w.])' . preg_quote($w, '/') . '\(/', $bodyText));
+        if ($makes && !isset($reached[$n]) && !in_array($n, $elsewhere, true)) {
+            $fault($line, "$n() makes a section head the switcher doesn't draw — a section hangs on Office.sections() (a tile's section or `sections`); one on another page goes into SECTIONS_DESKS");
+        }
+    }
+    return $faults;
 }
 
 /**
@@ -28697,7 +28936,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
