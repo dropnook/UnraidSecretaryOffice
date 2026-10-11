@@ -1277,8 +1277,9 @@ function testEmbyPool(): void
         && ($c['groups'][1]['since'] ?? PHP_INT_MAX) < $first['since']);
     same('pool list: the same time — by name', ['Film.001', 'Film.002'], [$c['groups'][1]['title'] ?? null, $c['groups'][2]['title'] ?? null]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    check('pool page: the library kept per browser, the filter words never', str_contains($js, "Office.store('emby.pool_lib', poolLib || null)")
-        && str_contains($js, "let poolLib = Office.store('emby.pool_lib') || '';") && !preg_match('/Office\.store(Json)?\([^)]*poolWords/', $js) && !str_contains($js, 'emby.pool_words'));
+    check('pool page: the bar is Office.filterBar — the library kept per browser (emby.pool.pick; emby.pool_lib taken over once), words and «only new» never',
+        str_contains($js, "Office.filterBar({ key: 'emby.pool'") && str_contains($js, "Office.store('emby.pool.pick', old)") && str_contains($js, "Office.store('emby.pool_lib', null)")
+        && !preg_match("/Office\\.store(Json)?\\('emby\\.pool(_words|\\.words|\\.only)/", $js));
 
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
@@ -1294,26 +1295,35 @@ function testEmbyPool(): void
     $groups[] = ['share' => 'Filme', 'title' => 'Zorro', 'files' => 1, 'bytes' => 7, 'origin' => []];
     $groups[] = ['share' => 'Filme', 'title' => 'Alien', 'files' => 2, 'origin' => []];                    // an older agent: no size, no time
     $state = ['settings' => ['cache_path' => '/mnt/maple'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]],
-        'cache' => ['files' => 700, 'bytes' => 12345, 'listed_at' => 900, 'groups' => $groups]];
+        'cache' => ['files' => 700, 'bytes' => 12345, 'listed_at' => 900, 'groups' => $groups],
+        'history' => [['tool' => 'embycache', 'mode' => 'report', 'started' => 1100, 'finished' => 1101, 'result' => 'ok'],
+                      ['tool' => 'embycache', 'mode' => 'run', 'started' => 1030, 'finished' => 1090, 'result' => 'ok']]];
     file_put_contents("$tmp/state.json", json_encode($state));
     file_put_contents("$tmp/t.js", <<<'JS'
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
-  disabled: false, value: '', appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} };
+  disabled: false, value: '', isConnected: true, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} };
   Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
-globalThis.Option = function Option(text, value) { return { tag: 'option', textContent: text, value, children: [] }; };
-const stored = {};
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}` }, desk: () => {}, places: () => {},
+const stored = { 'office-other': 1 };
+const fold = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss');
+const bars = [];
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, number: (n) => String(n) }, desk: () => {}, places: () => {},
   placesFrom: () => {}, placesTook: () => {}, storeJson: () => null, agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => n,
-  sectionHead: (title, sub, ...x) => el('div', 'section-head', title) };
+  sectionHead: (title, sub, ...x) => el('div', 'section-head', title), fold, filterWords: (t) => fold(t).split(/\s+/).filter(Boolean),
+  fits: (w, hay) => { const h = (Array.isArray(hay) ? hay.filter((x) => x != null && x !== '') : [hay]).map(fold).join('\u0001'); return w.every((x) => h.includes(x)); },
+  // a stand-in for the bar (core.js Office.filterBar is tested on its own: testFilterBar)
+  filterBar: (o) => { const b = { o, words: [], only: false, pick: stored[o.key + '.pick'] || '', el: el('div', 'filterbar'), opts: null, doneArgs: null,
+    read() { return { words: this.words, only: this.only, pick: this.pick, tile: '' }; }, done(n, t, d) { this.doneArgs = [n, t, !!(d && d.onlyAvail !== false)]; return this; },
+    options(l) { this.opts = l; return this; }, reset() { this.words = []; this.only = false; return this; }, set() { return this; }, tile() { return this; } };
+    bars.push(b); return b; } };
 globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
 const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const g = state.cache.groups;
-const W = (s) => e.plainWords(s).split(/\s+/).filter(Boolean);
+const W = (s) => Office.filterWords(s);
 const names = (v) => v.rows.map((r) => r.title);
 const out = {};
 let v = e.poolView(g, { lib: '', words: [], shown: 30 });
@@ -1323,30 +1333,46 @@ out.lib = [names(v), v.shown];
 out.words = ['amelie', 'disk3', 'serie 07', 'filme zorro', 'serien disk1 zz'].map((w) => names(e.poolView(g, { lib: '', words: W(w), shown: 30 })));
 out.libWords = names(e.poolView(g, { lib: 'Serien', words: W('alien'), shown: 30 }));
 out.shown = [e.poolView(g, { lib: '', words: [], shown: 60 }).shown, e.poolView([], { lib: '', words: [], shown: 30 })];
-// the section: 30 rows, «Show 13 more», the select with counts; then the words, the library (kept), more
+out.since = names(e.poolView(g, { lib: '', words: [], since: 1035, shown: 30 }));
+// the section: the library of the old key taken over once; 30 rows, «Show 13 more», the select's options; then the
+// words, the library, «only new» (from the last real run's start), more
+stored['emby.pool_lib'] = 'Filme';
 e.setState(state);
+e.bars();
+const bar = bars.find((b) => b.o.key === 'emby.pool');
+out.migrated = [stored['emby.pool.pick'], stored['emby.pool_lib'], bar.pick];
+bar.pick = '';
 const all = (n) => (typeof n === 'string' ? [] : [n, ...n.children.flatMap(all)]);
 const sec = e.poolSection();
 const rows = () => all(sec).filter((n) => n.className === 'row nocheck');
 const more = () => all(sec).find((n) => n.tag === 'button');
-const pick = all(sec).find((n) => n.tag === 'select');
-const search = all(sec).find((n) => n.tag === 'input');
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
-out.section = [rows().length, more() && more().textContent, pick.children.map((o) => o.textContent), texts(rows()[0]).slice(1)];
+out.section = [rows().length, more() && more().textContent, bar.opts, texts(rows()[0]).slice(1), bar.doneArgs, sec.children.includes(bar.el), sec.id];
 more().onclick();
 out.more = [rows().length, more() ? more().textContent : null];
 out.noSize = texts(rows().find((r) => texts(r)[0] === 'Alien') || { textContent: '', children: [] });
-search.value = 'zorro';
-search.oninput();
-out.search = [rows().length, texts(rows()[0])[0], stored['emby.pool_lib'] === undefined];
-search.value = '';
-search.oninput();
-pick.value = 'Filme';
-pick.onchange();
-out.pick = [rows().length, stored['emby.pool_lib']];
-search.value = 'nothing-like-this';
-search.oninput();
+const change = (what) => bar.o.onChange(bar.read(), what);
+bar.words = W('ZÓRRO');
+change('words');
+out.search = [rows().length, texts(rows()[0])[0], bar.doneArgs];
+bar.words = [];
+bar.pick = 'Filme';
+change('pick');
+out.pick = [rows().length, bar.doneArgs];
+bar.pick = '';
+bar.only = true;
+change('only');
+out.only = [rows().length, texts(rows()[0])[0], texts(rows()[rows().length - 1])[0]];
+bar.only = false;
+bar.words = W('nothing-like-this');
+change('words');
 out.empty = all(sec).filter((n) => n.className === 'empty').map((n) => n.textContent);
+bar.words = [];
+state.history = [state.history[0]];               // a report only: no real run — «only new» has nothing to go by
+e.setState(state);
+e.poolSection();
+out.noReal = bar.doneArgs[2];
+out.keys = Object.keys(stored).filter((k) => k.startsWith('emby.')).sort();
 console.log(JSON.stringify(out));
 JS);
     $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1';
@@ -1359,14 +1385,19 @@ JS);
         [['Amélie.2001'], ['Amélie.2001'], ['Serie.07'], ['Zorro'], []], $r['words'] ?? null, $raw);
     same('pool view: the words within the library', [], $r['libWords'] ?? null, $raw);
     same('pool view: more shown; nothing there', [43, ['libs' => [], 'rows' => [], 'shown' => 0]], $r['shown'] ?? null, $raw);
-    same('pool page: 30 rows, «Show 13 more», the select with counts, a row: library, files, size beside them, the disk, since when', [30,
-        'pool.more {"n":13}', ['pool.lib_all', 'pool.lib_n {"lib":"Filme","n":3}', 'pool.lib_n {"lib":"Serien","n":40}'],
-        ['Serien', 'files_n {"n":16}', '40000B', 'origin {"disks":"disk1"}', 'pool.since {"date":"D1040"}']], $r['section'] ?? null, $raw);
+    same('pool view: «only new» — what came onto the pool from then on', ['Serie.40', 'Serie.39', 'Serie.38', 'Serie.37', 'Serie.36', 'Serie.35'], $r['since'] ?? null, $raw);
+    same('pool page: the library of the old key taken over once (the old key gone), the bar starts with it', ['Filme', null, 'Filme'], $r['migrated'] ?? null, $raw);
+    same('pool page: 30 rows, «Show 13 more», the select with counts, a row: library, files, size beside them, the disk, since when; «43 of 43», the switch there; the bar in the section', [30,
+        'pool.more {"n":13}', [['Filme', 'Filme', 3], ['Serien', 'Serien', 40]],
+        ['Serien', 'files_n {"n":16}', '40000B', 'origin {"disks":"disk1"}', 'pool.since {"date":"D1040"}'], [43, 43, true], true, 'jo-pool'], $r['section'] ?? null, $raw);
     same('pool page: a row of an older agent — no size, no time', ['Alien', 'Filme', 'files_n {"n":2}', 'origin_unknown'], $r['noSize'] ?? null, $raw);
     same('pool page: «Show more» — all 43, no button left', [43, null], $r['more'] ?? null, $raw);
-    same('pool page: the words narrow it (and are never kept)', [1, 'Zorro', true], $r['search'] ?? null, $raw);
-    same('pool page: the library narrows it and is kept in this browser', [3, 'Filme'], $r['pick'] ?? null, $raw);
+    same('pool page: the words narrow it (accents folded, «1 of 43»)', [1, 'Zorro', [1, 43, true]], $r['search'] ?? null, $raw);
+    same('pool page: the library narrows it', [3, [3, 43, true]], $r['pick'] ?? null, $raw);
+    same('pool page: «only new» — what the last real run brought (from its start on, a later report doesn\'t count)', [11, 'Serie 40', 'Serie 30'], $r['only'] ?? null, $raw);
     same('pool page: nothing fits', ['pool.empty_filter'], $r['empty'] ?? null, $raw);
+    same('pool page: no real run — «only new» goes (onlyAvail false)', false, $r['noReal'] ?? null, $raw);
+    same('pool page: only the choices are kept (the pool section open or not, the library) — never words or «only new»', ['emby.pool.pick', 'emby.pool_lib'], $r['keys'] ?? null, $raw);
     hardeningRm($tmp);
 }
 
@@ -18153,8 +18184,8 @@ JS);
         [['app:nextcloud', '#/restore/apps'], ['vm:win11', '#/restore/vms'], ['db:nextcloud:apps/nextcloud/db/mariadb-nextcloud.sql.gz', '#/restore/dbs'],
          ['tile.partner:a1b2c3d4', '#/restore/partner:a1b2c3d4'], ['dr:app:nextcloud', '#/restore/drill'], ['dr:share', '#/restore/drill']],
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['restore'] ?? []));
-    same('search items snapshot: pools and disks, schedules, datasets with snapshots (not Docker\'s)',
-        [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
+    same('search items snapshot: pools and disks, schedules (their section opens: #/snapshot/plans), datasets with snapshots (not Docker\'s)',
+        [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot/plans'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['snapshot'] ?? []));
     $c = $r['items']['cleanup'] ?? [];
     check('search items cleanup: what she would clear away (capped at 120), not what is in use; «Where is what»: shares, containers, disks, appdata folders',
@@ -26940,12 +26971,221 @@ SH);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * Jack's «Last run» while EmbyCache runs (the tiles rebuild, 2026-10-11): every start removed status.json and the tile
+ * read it — «never» while a run went, a report shown as the last run. Now embyLastRun() and the page's lastRuns() read
+ * his list of runs: the newest real run (run, release) is it, else the newest of any mode; refused and skipped starts
+ * didn't run; status.json only for the result box (last_status). Under node (stand-ins for the office): the tiles of
+ * «How I work» — «Last run» with how long it took and a newer report under it, «running since» while one goes, a div
+ * when nothing ran; «Schedules» (2 active · next, off), «Ready on the pool»; the «Emby» tile gone; a click on «Last run»
+ * filters «Recent runs» to EmbyCache's (the bar's note line names it), a second shows all.
+ */
+function testEmbyLastRunDuringRun(): void
+{
+    $tmp = hardeningTmp('embylast');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $real = ['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => 1000, 'finished' => 1720, 'exit' => 0, 'result' => 'ok',
+             'status' => ['errors' => 0, 'warnings' => 1]];
+    embyRemember($real, $tmp);
+    embyRemember(['tool' => 'gather', 'mode' => 'run', 'by' => 'schedule', 'started' => 1800, 'finished' => 1900, 'exit' => 0, 'result' => 'ok'], $tmp);
+    embyRemember(['tool' => 'embycache', 'mode' => 'report', 'by' => 'office', 'started' => 2000, 'finished' => 2010, 'exit' => 0, 'result' => 'ok'], $tmp);
+    embyRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => 2100, 'finished' => 2100, 'result' => 'refused', 'why' => 'emby_mover_schedule'], $tmp);
+    check('last run: no status.json (a run just started) — his list still knows the last run', !is_file("$tmp/status.json") && embyLastRun(embyHistory($tmp)) !== null);
+    same('last run: a report and a refused start after a real run — the real run is it', [1000, 'run'],
+        [embyLastRun(embyHistory($tmp))['started'] ?? null, embyLastRun(embyHistory($tmp))['mode'] ?? null]);
+    same('last run: only a dry run — that one; only refused and skipped starts, or none — null', [1500, null, null], [
+        embyLastRun([['tool' => 'gather', 'mode' => 'run', 'started' => 1600, 'result' => 'ok'], ['tool' => 'embycache', 'mode' => 'dry', 'started' => 1500, 'result' => 'ok']])['started'] ?? null,
+        embyLastRun([['tool' => 'embycache', 'mode' => 'run', 'started' => 1, 'result' => 'refused'], ['tool' => 'embycache', 'mode' => 'run', 'started' => 2, 'result' => 'skipped']]),
+        embyLastRun([])]);
+    same('last run: a release (his let-go) counts as real', 'release', embyLastRun([['tool' => 'embycache', 'mode' => 'dry', 'started' => 9, 'result' => 'ok'],
+        ['tool' => 'embycache', 'mode' => 'release', 'started' => 5, 'result' => 'ok']])['mode'] ?? null);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $fn = substr($src, (int) strpos($src, 'function embyLastRun('), 900);
+    check('last run: his state takes it from his list; status.json only for the result box (last_status)',
+        str_contains($src, "'last'       => embyLastRun(\$history = embyHistory())") && str_contains($src, "'last_status' => readJson(EMBY_DATA . '/status.json')")
+        && str_contains($src, "'history'    => array_slice(\$history, 0, 20)") && !str_contains(substr($fn, 0, (int) strpos($fn, "\n}\n")), 'status.json'));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('last run on his page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $state = ['configured' => true, 'settings' => ['libraries' => ['Filme'], 'max_resume_movies' => 10, 'number_episodes' => 3, 'instances' => [['servername' => 'Wohnzimmer', 'url' => 'http://x']]],
+        'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]], 'pool' => null,
+        'cache' => ['files' => 12, 'bytes' => 4000, 'listed_at' => 1700, 'groups' => []],
+        'schedules' => ['embycache' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '30 4 * * *', 'next' => 4000],
+                        'gather' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '0 3 * * 0', 'next' => 5000]],
+        'history' => embyHistory($tmp)];
+    file_put_contents("$tmp/state.json", json_encode($state));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
+  disabled: false, value: '', isConnected: true, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} };
+  Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
+const stored = {};
+const bars = [];
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, time: (t) => `H${t}`, number: (n) => String(n),
+  duration: (s) => `${s}s`, cron: (c) => `C(${c})` }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, storeJson: () => null,
+  agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => { n.dataset.place = k; return n; },
+  sectionHead: (title) => el('div', 'section-head', title), fits: (w) => !w.length, errorText: (x) => x.key,
+  stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
+  filterBar: (o) => { const b = { o, el: el('div', 'filterbar'), read() { return { words: [], only: false, pick: '', tile: '' }; },
+    done(n, t, d) { this.doneArgs = [n, t, (d && d.tile) || '']; this.clear = d && d.clear; return this; }, options() { return this; }, reset() { return this; } }; bars.push(b); return b; } };
+globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const out = {};
+const tiles = () => { const box = el('div', 'stats'); e.fillStats(box); return box.children.map((c) => c.o); };
+const byLabel = (l) => tiles().find((o) => o.label === l);
+e.setState(state);
+e.bars();
+const lr = e.lastRuns(state.history);
+out.pick = [lr.main && lr.main.started, lr.newer && lr.newer.mode];
+let t = byLabel('last_run');
+out.last = [t.value, t.sub, t.alert, t.pressed, t.filters, t.controls, typeof t.on];
+out.labels = tiles().map((o) => o.label);
+out.plans = (() => { const p = byLabel('schedules'); return [p.value, p.sub, p.alert, p.pressed, p.controls]; })();
+out.pool = (() => { const p = byLabel('on_pool'); return [p.value, p.sub, p.pressed, p.controls]; })();
+// a click on «Last run»: «Recent runs» only EmbyCache's, the note line names it; again: all
+const sec = e.historySection();
+const runsBar = bars.find((b) => b.o.key === 'emby.runs');
+const rows = () => sec.children.find((c) => c.className === 'box').children.filter((c) => c.className === 'row nocheck').length;
+out.runs = [sec.id, rows(), runsBar.doneArgs];
+byLabel('last_run').on({});
+out.filtered = [rows(), runsBar.doneArgs, byLabel('last_run').pressed];
+runsBar.clear('tile');
+out.cleared = byLabel('last_run').pressed;
+byLabel('last_run').on({});
+byLabel('last_run').on({});
+out.again = [rows(), runsBar.doneArgs[2]];
+// «Schedules» and «Ready on the pool»: a click opens / closes (kept); off: «off», alert
+byLabel('schedules').on({});
+byLabel('on_pool').on({});
+out.stored = [stored['emby.plans_open'], stored['emby.pool_open'], byLabel('schedules').pressed, byLabel('on_pool').pressed];
+state.schedules.embycache.enabled = false;
+state.schedules.gather.enabled = false;
+// while a run goes: «running since», the kind; nothing ran yet: «never», a div
+state.jobs.embycache = { running: true, started: 3000, mode: 'run' };
+e.setState(state);
+t = byLabel('last_run');
+out.running = [t.value, t.sub, typeof t.on];
+out.off = [byLabel('schedules').value, byLabel('schedules').alert];
+state.jobs.embycache = { running: false };
+state.history = [{ tool: 'embycache', mode: 'run', started: 5, finished: 5, result: 'refused' }];
+e.setState(state);
+t = byLabel('last_run');
+out.never = [t.value, t.sub, typeof t.on, t.pressed];
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1');
+    $r = json_decode($raw, true);
+    same('last run on his page: the same pick as the agent — the real run, the newer report beside it', [1000, 'report'], $r['pick'] ?? null, $raw);
+    same('last run on his page: when it ended, «Real run · took 12 min · 0 errors · 1 warning», the newer report under it; it filters «Recent runs»', [
+        'R1720', ['mode.run · last.took {"time":"progress.min_secs {\"m\":12,\"s\":0}"} · counts {"errors":"count.errors {\"n\":0}","warnings":"count.warnings {\"n\":1}"}',
+                  'last.newer {"mode":"mode.report","when":"R2010"}'], false, false, 'jo-runs', 'jo-runs', 'function'], $r['last'] ?? null, $raw);
+    same('his tiles: the «Emby» tile gone — scope, last run, schedules, what is ready (no pool size in this state)', ['mode', 'last_run', 'schedules', 'on_pool'], $r['labels'] ?? null, $raw);
+    same('his tiles: «Schedules» — 2 active, the next of both, the frequencies under it; it opens their list', ['plans.active {"n":2,"when":"H4000"}',
+        'plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}', false, false, 'jo-plans'], $r['plans'] ?? null, $raw);
+    same('his tiles: «Ready on the pool» — files and size, as of when; the section open unless closed', ['pool_tile.value {"files":"count.files {\"n\":12}","size":"4000B"}',
+        'pool_tile.as_of {"when":"R1700"}', true, 'jo-pool'], $r['pool'] ?? null, $raw);
+    same('«Recent runs»: all of them, the bar with nothing filtering', ['jo-runs', 4, [4, 4, '']], $r['runs'] ?? null, $raw);
+    same('«Last run» clicked: only EmbyCache\'s runs (a refused start too), the note line names it, the tile pressed', [3, [3, 4, 'tool.embycache'], true], $r['filtered'] ?? null, $raw);
+    same('… the chip clears it (the tile not pressed any more); clicked twice: all again', [false, [4, '']], [$r['cleared'] ?? null, $r['again'] ?? null], $raw);
+    same('«Schedules» and «Ready on the pool» clicked: their choice kept (the list open, the section closed)', ['1', '0', true, false], $r['stored'] ?? null, $raw);
+    same('while EmbyCache runs: «running since 14:05 · Real run» — never «never»', ['last.running {"time":"H3000"}', ['mode.run'], 'function'], $r['running'] ?? null, $raw);
+    same('no schedule on: «off», as a warning', ['plans.off', true], $r['off'] ?? null, $raw);
+    same('nothing ran (a refused start only): «never», nothing to filter — a div', ['never', [], 'undefined', null], $r['never'] ?? null, $raw);
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Snapshotini's pool tiles split by source (decision 3 of the tiles rebuild): tests/snappool.js runs desk.js's
+ * poolSplit()/splitLines() under node — sums, the «≥» wording and its tip, sources without a snapshot left out, btrfs
+ * without sizes.
+ */
+function testSnapPoolSplit(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('pool split: node is missing here - skipped', true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/snappool.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/snapshot/desk.js') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check('pool split: ran under node', false, $raw);
+        return;
+    }
+    check("pool split: desk.js under node ({$r['pass']} checks)", $r['pass'] >= 9 && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check('pool split: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * The tiles rule on Jack's and Ms. Snapshotini's pages (CLAUDE.md «Tiles», 2026-10-11), read in their code: real buttons
+ * (no role="button" on a tile — her list's group heads fold, they are no tiles), no scrollIntoView for a tile (Jack's
+ * one is a dialog's error line), every tile click inside Office.keepInPlace, aria-pressed / aria-controls / data-filters;
+ * the filter bars are Office.filterBar; what is kept per browser only the listed choices; his «Emby» tile gone; the
+ * routes of their tiles (and the Team Lead's old links to his schedules).
+ */
+function testTilesMediaPages(): void
+{
+    $emby = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    $keys = function (string $js): array {
+        preg_match_all("/Office\\.store(?:Json)?\\(\\s*'([^']+)'/", $js, $m);
+        preg_match_all("/Office\\.filterBar\\(\\{\\s*key:\\s*'([^']+)'/", $js, $b);
+        $k = array_merge($m[1], array_map(fn ($x) => "$x.pick", $b[1]));
+        $k = array_values(array_unique($k));
+        sort($k);
+        return $k;
+    };
+    same('emby page: kept per browser only the choices — the schedules\' list and the pool section open, the pool\'s library (its old key taken over), the runs\' bar has no select',
+        ['emby.plans_open', 'emby.pool.pick', 'emby.pool_lib', 'emby.pool_open', 'emby.runs.pick'], $keys($emby));
+    check('emby page: the runs\' bar has no select (its <key>.pick never written)', !preg_match("/key:\\s*'emby\\.runs',[^}]*select:/", $emby));
+    same('snapshot page: kept per browser only the choices — grouping, folds, the three switches, the pool, the schedules open, the source',
+        ['snapshot.', 'snapshot.docker', 'snapshot.folded', 'snapshot.grouping', 'snapshot.list.pick', 'snapshot.plans_open', 'snapshot.pool'], $keys($snap));
+    check('pages: no role="button" on a tile (her group heads fold — the only one)', !str_contains($emby, "'role', 'button'") && substr_count($snap, "'role', 'button'") === 1
+        && str_contains($snap, "const head = el('div', 'group-head');\n  head.tabIndex = 0;\n  head.setAttribute('role', 'button');"));
+    check('pages: no scrollIntoView for a tile (Jack\'s one: a dialog\'s error line)', !str_contains($snap, 'scrollIntoView') && substr_count($emby, 'scrollIntoView') === 1
+        && str_contains($emby, "box.style.display = '';\n  box.scrollIntoView({ block: 'nearest' });"));
+    check('emby page: the «Emby» tile gone (server and address stay in the head and the setup), the tools a line', !str_contains($emby, "'Emby', inst") && !str_contains($emby, 'stat(stats')
+        && str_contains($emby, "const line = el('div', 'row-meta jo-tools');"));
+    check('emby page: his tiles toggle in place — Office.stat with pressed, aria-controls, «Last run» filters «Recent runs» (data-filters on the section holding its bar)',
+        str_contains($emby, "pressed: runsTile === 'embycache',\n    controls: 'jo-runs', filters: 'jo-runs'") && str_contains($emby, "s.id = 'jo-runs';\n  s.appendChild(runsBar.el);")
+        && str_contains($emby, "pressed: plansOpen() });") && str_contains($emby, "pressed: poolOpen() });") && str_contains($emby, "Office.keepInPlace(dom.stats, () => {"));
+    check('emby page: the routes of his tiles and the Team Lead\'s links to his schedules (the list open, the row revealed)',
+        str_contains($emby, "route: '#/emby/plans'") && str_contains($emby, "route: '#/emby/pool'") && str_contains($emby, "route: '#/emby/runs'")
+        && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.reveal(`plan:\${plan}`)")
+        && str_contains($emby, "Office.place(`plan:\${job}`"));
+    check('snapshot page: pool tiles — aria-pressed, aria-controls and data-filters her list, a click inside keepInPlace, the choice kept; the sentence in the head gone',
+        str_contains($snap, "node.setAttribute('aria-pressed', poolFilter === name ? 'true' : 'false');") && str_contains($snap, "node.dataset.filters = 'sp-list';")
+        && str_contains($snap, "list.id = 'sp-list';") && str_contains($snap, "Office.keepInPlace(view.pools, () => {\n    setPool(")
+        && str_contains($snap, "Office.store('snapshot.pool', poolFilter);") && !str_contains($snap, 'storage.filtered'));
+    check('snapshot page: «Schedules» in a parent of its own at the end of the row, their section folded until opened, her suggestion a button, #/snapshot/plans',
+        str_contains($snap, "const wrap = el('div', 'sp-tilewrap');\n  wrap.appendChild(plansCard());") && str_contains($snap, "box.hidden = !plansOpen();")
+        && str_contains($snap, "b.onclick = () => planDialog(null, suggestion());") && str_contains($snap, "if (sub === 'plans') Office.store('snapshot.plans_open', '1');"));
+    check('snapshot page: the search field is Office.filterBar — words folded (Office.fits), the source its select, the switches beside; deleting sees only the rows shown',
+        str_contains($snap, "Office.filterBar({ key: 'snapshot.list'") && str_contains($snap, 'Office.fits(f.words, snapHay(s))')
+        && str_contains($snap, "extra: [v.foldBtn, v.backupShow.label, v.partnerShow.label, v.dockerSwitch]")
+        && str_contains($snap, "for (const id of [...selection]) if (!ids.has(id)) selection.delete(id);"));
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.css');
+    check('snapshot page: the wrapper takes no place of its own in the grid', str_contains($css, '.sp-tilewrap{display:contents}'));
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
