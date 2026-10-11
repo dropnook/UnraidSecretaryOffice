@@ -1082,123 +1082,16 @@ function embyImportDo(array $r): array
     return ['ok' => true, 'done' => embyImportScrub($done, $plan['secrets']), 'state' => embyScan()];
 }
 
-/**
- * The folder typed for an earlier install, checked before anything in it is read: absolute, no
- * "." or "..", under /mnt/user/<share>, a pool, an array disk or User Scripts' folder on the
- * flash; the disks behind it awake (Jack never wakes one); every part a real folder — no link,
- * but Unraid's own of an exclusive share (/mnt/user/<share> → ../<pool>/<share>). Returns the
- * real folder to read from.
- */
+/** The folder typed for an earlier install, checked before anything in it is read (agent/lib/import.php, shared with Ms. Moverelli) — never one of his own */
 function embyImportFolder(string $path, array $ctx): string
 {
-    $path = rtrim($path, '/');
-    if (strlen($path) > 1024 || !preg_match('#^(/[^/\x00-\x1f\x7f]+)+$#D', $path)
-        || array_intersect(explode('/', substr($path, 1)), ['.', '..'])) {
-        throw new Problem('emby_import_folder', ['path' => $path]);
-    }
-    $pools = (array) $ctx['pools'];
-    if (preg_match('#^/mnt/user/([^/]+)(?:/|$)#', $path, $m)) {
-        if (!preg_match('/^[\w.\- ]+$/uD', $m[1])) {
-            throw new Problem('emby_import_where', ['path' => $path]);
-        }
-        $bases = embyImportShareBases($m[1], $ctx);
-    } elseif (preg_match('#^/mnt/(disk\d+)(?:/|$)#', $path, $m) || (preg_match('#^/mnt/([^/]+)(?:/|$)#', $path, $m) && in_array("/mnt/{$m[1]}", $pools, true))) {
-        $bases = [$m[1]];
-    } elseif (preg_match('#^/boot/config/plugins/user\.scripts/scripts/[^/]+(?:/|$)#', $path)) {
-        $bases = [];                                    // the flash never sleeps
-    } else {
-        throw new Problem('emby_import_where', ['path' => $path]);
-    }
-    $sleeping = array_values(array_filter($bases, fn ($b) => baseAsleep((string) $b, (array) $ctx['asleep'])));
-    if ($sleeping) {
-        throw new Problem('emby_import_asleep', ['path' => $path, 'disks' => implode(', ', $sleeping)]);
-    }
-    $fs = (string) ($ctx['fs'] ?? '');
-    $real = '';
-    foreach (explode('/', substr($path, 1)) as $i => $part) {
-        $next = "$real/$part";
-        clearstatcache(true, $fs . $next);
-        $st = @lstat($fs . $next);
-        if ($st && ($st['mode'] & 0170000) === 0120000 && $i === 2 && str_starts_with($path, '/mnt/user/')) {
-            // an exclusive share: exactly ../<pool>/<share> or /mnt/<pool>/<share>, an awake pool of this server
-            $to = (string) @readlink($fs . $next);
-            if (preg_match('#^(?:\.\./|/mnt/)([^/]+)/([^/]+)/?$#D', $to, $t) && $t[2] === $part && in_array("/mnt/{$t[1]}", $pools, true)) {
-                if (baseAsleep($t[1], (array) $ctx['asleep'])) {
-                    throw new Problem('emby_import_asleep', ['path' => $path, 'disks' => $t[1]]);
-                }
-                $next = "/mnt/{$t[1]}/$part";
-                clearstatcache(true, $fs . $next);
-                $st = @lstat($fs . $next);
-            }
-        }
-        if (!$st) {
-            throw new Problem('emby_import_missing', ['path' => $path]);
-        }
-        if (($st['mode'] & 0170000) === 0120000) {
-            throw new Problem('emby_import_link', ['path' => $next]);
-        }
-        if (($st['mode'] & 0170000) !== 0040000) {
-            throw new Problem('emby_import_missing', ['path' => $path]);
-        }
-        $real = $next;
-    }
-    foreach ([$ctx['emby_dir'], $ctx['gather_dir']] as $own) {
-        if (realpath($fs . $real) === realpath((string) $own)) {
-            throw new Problem('emby_import_own', ['path' => $path]);
-        }
-    }
-    return $fs . $real;
+    return importFolder($path, $ctx + ['own' => [$ctx['emby_dir'], $ctx['gather_dir']]], 'emby_import');
 }
 
-/** The disks and pools a share may lie on (its config on the flash; never a look at the disks) */
-function embyImportShareBases(string $share, array $ctx): array
-{
-    $cfg = ($ctx['share_cfg'])($share);
-    $use = (string) ($cfg['shareUseCache'] ?? 'no');
-    $bases = [];
-    if ($use !== 'no') {
-        foreach (['shareCachePool', 'shareCachePool2'] as $k) {
-            if (($cfg[$k] ?? '') !== '') {
-                $bases[] = (string) $cfg[$k];
-            }
-        }
-    }
-    if ($use === 'no' || ($use !== 'only' && ($cfg['shareCachePool2'] ?? '') === '')) {     // the array is its primary or secondary
-        $include = array_filter(array_map('trim', explode(',', (string) ($cfg['shareInclude'] ?? ''))));
-        $bases = array_merge($bases, $include ?: array_filter(array_keys((array) $ctx['asleep']), fn ($d) => preg_match('/^disk\d+$/D', (string) $d)));
-    }
-    return array_values(array_unique(array_map('strval', $bases)));
-}
-
-/** One of the known files in the old folder: a plain file of its own (no link, no second hard link), at most $cap bytes; null when it isn't there */
+/** One of the known files in the old folder (importRead(): plain, one hard link, at most $cap bytes); null when it isn't there */
 function embyImportRead(string $dir, string $name, int $cap): ?string
 {
-    $file = "$dir/$name";
-    clearstatcache(true, $file);
-    $st = @lstat($file);
-    if (!$st) {
-        return null;
-    }
-    if (($st['mode'] & 0170000) !== 0100000 || $st['nlink'] !== 1) {
-        throw new Problem('emby_import_file', ['file' => $name]);
-    }
-    if ($st['size'] > $cap) {
-        throw new Problem('emby_import_big', ['file' => $name]);
-    }
-    $h = @fopen($file, 'rb');
-    $fst = $h ? fstat($h) : false;
-    if (!$h || !$fst || $fst['ino'] !== $st['ino'] || $fst['dev'] !== $st['dev'] || ($fst['mode'] & 0170000) !== 0100000) {
-        if ($h) {
-            fclose($h);
-        }
-        throw new Problem('emby_import_file', ['file' => $name]);
-    }
-    $data = (string) stream_get_contents($h, $cap + 1);
-    fclose($h);
-    if (strlen($data) > $cap) {
-        throw new Problem('emby_import_big', ['file' => $name]);
-    }
-    return $data;
+    return importRead($dir, $name, $cap, 'emby_import');
 }
 
 /** EmbyCache's own DEFAULTS (the version that ships with the office), asked from embycache_lib.py */
@@ -1573,7 +1466,7 @@ function embyImportThere(string $host, array $ctx): ?bool
     if (($m[2] ?? '') === '') {
         return true;                                   // the share itself: its config is on the flash
     }
-    foreach (embyImportShareBases($m[1], $ctx) as $b) {
+    foreach (importShareBases($m[1], $ctx) as $b) {
         if (baseAsleep($b, (array) $ctx['asleep'])) {
             return null;
         }
@@ -1829,22 +1722,10 @@ function embyImportApply(array $do, array $ctx): array
             'origin' => isset($do['embycache']['origin']) ? count($do['embycache']['origin']) : null];
 }
 
-/** A copy of each of these files of Jack's that exists (plain files only), named <file>.before-import-<time> */
+/** A copy of each of these files of Jack's that exists (importBackup(): plain files only), named <file>.before-import-<time> */
 function embyImportBackup(string $dir, array $names, string $stamp): array
 {
-    $made = [];
-    foreach (array_keys($names) as $name) {
-        $file = "$dir/$name";
-        clearstatcache(true, $file);
-        $st = @lstat($file);
-        if (!$st || ($st['mode'] & 0170000) !== 0100000) {
-            continue;
-        }
-        $copy = "$file.before-import-$stamp";
-        writeAtomic($copy, (string) file_get_contents($file), 0600, 0, 0);
-        $made[] = $copy;
-    }
-    return $made;
+    return importBackup($dir, $names, $stamp);
 }
 
 // ===================================================================== who watches Emby (before and during a real gather)

@@ -80,6 +80,7 @@ require __DIR__ . '/lib/metrics.php';
 require __DIR__ . '/lib/migrate.php';
 require __DIR__ . '/lib/report.php';
 require __DIR__ . '/lib/supporter.php';     // the key a tip made, asked of the support page (office.supporter_claim)
+require __DIR__ . '/lib/import.php';        // taking over an earlier install: the folder and file checks (Jack Emby, Ms. Moverelli)
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }
