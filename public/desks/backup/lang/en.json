@@ -124,7 +124,7 @@
   "src_first": "first time",
   "src_first_hint": "Nothing of this source is offsite yet (it is new, or the repository is): all of it goes up once. How long that takes comes from its size and what has been read so far, not from earlier runs.",
   "eta_first": "No estimate yet — a first upload is going on.",
-  "vm_shutdown_now": "VMs shut down first — the apps keep running until then (at most 5 minutes; one that doesn't shut down is paused for the snapshot instead).",
+  "vm_shutdown_now": "VMs shut down first — the apps keep running until then (at most 5 minutes; a VM that can't be shut down is paused for the snapshot instead).",
   "downtime_was": "containers were stopped for {duration}",
   "downtime_short": "down {duration}",
   "counts": "{errors}, {warnings}",
@@ -1450,5 +1450,9 @@
   "history_filter_label": "Filter the backups: date, result",
   "filter_none": "Nothing here fits the filter.",
   "help.tiles": "Tiles",
-  "help.tiles_text": "The tiles are the page’s table of contents: each one sums up a section, and a click shows that section alone — a second click, «◂ All» or «Show all» shows the whole page again. «Last backup» shows the backups, «Schedule» its time with «Change…», «Protection» the whole table «Is everything protected?»; offsite, databases, packages, VMs and the flash show it with only their rows (the line above the table names the filter). «Partners», «Changed» and «Restore» show their own sections. The section you open stays open at your next visit; a filter and the words in the bars above the table and the backups are never kept. While a backup runs, its card stands in the tiles’ place and the whole page shows."
+  "help.tiles_text": "The tiles are the page’s table of contents: each one sums up a section, and a click shows that section alone — a second click, «◂ All» or «Show all» shows the whole page again. «Last backup» shows the backups, «Schedule» its time with «Change…», «Protection» the whole table «Is everything protected?»; offsite, databases, packages, VMs and the flash show it with only their rows (the line above the table names the filter). «Partners», «Changed» and «Restore» show their own sections. The section you open stays open at your next visit; a filter and the words in the bars above the table and the backups are never kept. While a backup runs, its card stands in the tiles’ place and the whole page shows.",
+  "warn_code.vm_not_shut_down": "{name} could not be shut down — paused instead; the run didn't quite follow the setup.",
+  "warn_code.vm_shutdown_refused": "{name} didn't take the request to shut down — paused instead; the run didn't quite follow the setup.",
+  "warn_code.vm_not_frozen": "{name}: its guest agent didn't freeze the file systems — paused instead; the run didn't quite follow the setup.",
+  "warn_code.vm_not_paused": "{name} could not be paused — it kept running, its disks only crash-consistent; the run didn't quite follow the setup."
 }

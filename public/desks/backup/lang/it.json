@@ -127,7 +127,7 @@
   "src_first": "prima volta",
   "src_first_hint": "Di questa sorgente non c'è ancora niente fuori sede (è nuova, o lo è il repository): tutto viene caricato una volta. Quanto ci vuole lo dicono la sua dimensione e ciò che è già stato letto, non i backup precedenti.",
   "eta_first": "Ancora nessuna stima — è in corso un primo caricamento.",
-  "vm_shutdown_now": "Prima si spengono le VM — fino ad allora le app continuano a girare (al massimo 5 minuti; una che non si spegne viene invece messa in pausa per lo snapshot).",
+  "vm_shutdown_now": "Prima si spengono le VM — fino ad allora le app continuano a girare (al massimo 5 minuti; una VM che non si riesce a spegnere viene invece messa in pausa per lo snapshot).",
   "downtime_was": "i contenitori sono stati fermi per {duration}",
   "downtime_short": "fermo {duration}",
   "counts": "{errors}, {warnings}",
@@ -1456,5 +1456,9 @@
   "history_filter_label": "Filtra i backup: data, esito",
   "filter_none": "Qui niente corrisponde al filtro.",
   "help.tiles": "Riquadri",
-  "help.tiles_text": "I riquadri sono l’indice della pagina: ognuno riassume una sezione, e un clic mostra solo quella sezione — un secondo clic, «◂ Tutti» o «Mostra tutto» mostra di nuovo tutta la pagina. «Ultimo backup» mostra i backup, «Pianificazione» il suo orario con «Modifica…», «Protezione» tutta la tabella «È tutto protetto?»; fuori sede, database, pacchetti, VM e l’unità flash la mostrano solo con le loro righe (la riga sopra la tabella nomina il filtro). «Partner», «Modificato» e «Ripristino» mostrano le loro sezioni. La sezione che apri resta aperta alla visita successiva; un filtro e le parole nelle barre sopra la tabella e i backup non vengono mai conservati. Mentre un backup è in corso, la sua scheda sta al posto dei riquadri e si vede tutta la pagina."
+  "help.tiles_text": "I riquadri sono l’indice della pagina: ognuno riassume una sezione, e un clic mostra solo quella sezione — un secondo clic, «◂ Tutti» o «Mostra tutto» mostra di nuovo tutta la pagina. «Ultimo backup» mostra i backup, «Pianificazione» il suo orario con «Modifica…», «Protezione» tutta la tabella «È tutto protetto?»; fuori sede, database, pacchetti, VM e l’unità flash la mostrano solo con le loro righe (la riga sopra la tabella nomina il filtro). «Partner», «Modificato» e «Ripristino» mostrano le loro sezioni. La sezione che apri resta aperta alla visita successiva; un filtro e le parole nelle barre sopra la tabella e i backup non vengono mai conservati. Mentre un backup è in corso, la sua scheda sta al posto dei riquadri e si vede tutta la pagina.",
+  "warn_code.vm_not_shut_down": "{name} non si è lasciata spegnere — messa in pausa; il backup non ha seguito esattamente la configurazione.",
+  "warn_code.vm_shutdown_refused": "{name} non ha accettato la richiesta di spegnersi — messa in pausa; il backup non ha seguito esattamente la configurazione.",
+  "warn_code.vm_not_frozen": "{name}: il guest agent non ha congelato i file system — messa in pausa; il backup non ha seguito esattamente la configurazione.",
+  "warn_code.vm_not_paused": "{name} non si è lasciata mettere in pausa — ha continuato a girare, i dischi solo coerenti come dopo un crash; il backup non ha seguito esattamente la configurazione."
 }

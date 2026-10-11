@@ -651,6 +651,8 @@ function backupRunFromStatus(array $j): array
         'message'    => (string) ($j['message'] ?? ''),
         'errors'     => (int) ($j['errors'] ?? 0),
         'warnings'   => (int) ($j['warnings'] ?? 0),
+        // engine 2.42: the warnings the office says in its own words (the VMs held otherwise than set up)
+        'warning_items' => backupWarningItems($j['warning_items'] ?? null),
         'downtime'   => (int) ($j['downtime_s'] ?? 0),
         'dump_bytes' => (int) ($j['dump_bytes'] ?? 0),
         'packages'   => is_array($j['packages'] ?? null) ? ['apps' => (int) ($j['packages']['apps'] ?? 0), 'vms' => (int) ($j['packages']['vms'] ?? 0),
@@ -671,6 +673,30 @@ function backupRunFromStatus(array $j): array
         'version'    => (string) ($j['version'] ?? ''),
         'source'     => 'status',
     ];
+}
+
+/**
+ * A run's coded warnings (engine 2.42, status.json warning_items: [{code, params: {key: value}}]) - the page says them
+ * as warn_code.<code>. Only codes and params in the shape the engine writes, at most 20; everything else dropped.
+ *
+ * @return list<array{code: string, params: array<string, string>}>
+ */
+function backupWarningItems(mixed $items): array
+{
+    $out = [];
+    foreach (is_array($items) ? array_slice($items, 0, 20) : [] as $w) {
+        if (!is_array($w) || !is_string($w['code'] ?? null) || !preg_match('/^[a-z][a-z0-9_]{0,39}$/D', $w['code'])) {
+            continue;
+        }
+        $params = [];
+        foreach (is_array($w['params'] ?? null) ? $w['params'] : [] as $k => $v) {
+            if (is_string($k) && preg_match('/^[a-z][a-z0-9_]{0,19}$/D', $k) && is_string($v) && preg_match('/^[^\x00-\x1f]{0,200}$/uD', $v)) {
+                $params[$k] = $v;
+            }
+        }
+        $out[] = ['code' => $w['code'], 'params' => $params];
+    }
+    return $out;
 }
 
 /**
@@ -728,7 +754,7 @@ function backupAsleepRun(mixed $a): ?array
 function backupRunFromLog(string $path, string $run, int $started): array
 {
     $r = ['run' => $run, 'started' => $started, 'finished' => 0, 'result' => 'failed', 'message' => 'interrupted',
-          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_asleep' => [], 'asleep' => null,
+          'errors' => 0, 'warnings' => 0, 'warning_items' => [], 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_asleep' => [], 'asleep' => null,
           'kopia_interrupted' => null, 'kopia_first' => null,
           'log' => basename($path), 'version' => '', 'source' => 'log'];
     $h = @fopen($path, 'r');

@@ -127,7 +127,7 @@
   "src_first": "première fois",
   "src_first_hint": "Rien de cette source n'est encore hors site (elle est nouvelle, ou le dépôt l'est) : tout est envoyé une fois. La durée se déduit de sa taille et de ce qui a déjà été lu, pas des sauvegardes précédentes.",
   "eta_first": "Pas encore d'estimation — un premier envoi est en cours.",
-  "vm_shutdown_now": "Les VM s'éteignent d'abord — les applis tournent jusque-là (5 minutes au plus ; une VM qui ne s'éteint pas est mise en pause pour le snapshot à la place).",
+  "vm_shutdown_now": "Les VM s'éteignent d'abord — les applis tournent jusque-là (5 minutes au plus ; une VM qui ne peut pas être éteinte est mise en pause pour le snapshot à la place).",
   "downtime_was": "les conteneurs ont été arrêtés pendant {duration}",
   "downtime_short": "arrêt {duration}",
   "counts": "{errors}, {warnings}",
@@ -1471,5 +1471,9 @@
   "history_filter_label": "Filtrer les sauvegardes : date, résultat",
   "filter_none": "Rien ici ne correspond au filtre.",
   "help.tiles": "Tuiles",
-  "help.tiles_text": "Les tuiles sont la table des matières de la page : chacune résume une section, et un clic montre cette section seule — un second clic, «◂ Tout» ou «Tout afficher» montre de nouveau toute la page. «Dernière sauvegarde» montre les sauvegardes, «Planification» son heure avec «Modifier…», «Protection» tout le tableau «Tout est-il protégé ?» ; hors site, bases de données, paquets, VM et la flash le montrent avec leurs seules lignes (la ligne au-dessus du tableau nomme le filtre). «Partenaires», «Modifié» et «Restauration» montrent leurs propres sections. La section que tu ouvres reste ouverte à ta prochaine visite ; un filtre et les mots des barres au-dessus du tableau et des sauvegardes ne sont jamais gardés. Pendant une sauvegarde, sa carte prend la place des tuiles et toute la page est visible."
+  "help.tiles_text": "Les tuiles sont la table des matières de la page : chacune résume une section, et un clic montre cette section seule — un second clic, «◂ Tout» ou «Tout afficher» montre de nouveau toute la page. «Dernière sauvegarde» montre les sauvegardes, «Planification» son heure avec «Modifier…», «Protection» tout le tableau «Tout est-il protégé ?» ; hors site, bases de données, paquets, VM et la flash le montrent avec leurs seules lignes (la ligne au-dessus du tableau nomme le filtre). «Partenaires», «Modifié» et «Restauration» montrent leurs propres sections. La section que tu ouvres reste ouverte à ta prochaine visite ; un filtre et les mots des barres au-dessus du tableau et des sauvegardes ne sont jamais gardés. Pendant une sauvegarde, sa carte prend la place des tuiles et toute la page est visible.",
+  "warn_code.vm_not_shut_down": "{name} n'a pas pu être éteinte — mise en pause à la place ; la sauvegarde n'a pas tout à fait suivi la configuration.",
+  "warn_code.vm_shutdown_refused": "{name} n'a pas accepté la demande d'extinction — mise en pause à la place ; la sauvegarde n'a pas tout à fait suivi la configuration.",
+  "warn_code.vm_not_frozen": "{name} : son agent invité n'a pas figé les systèmes de fichiers — mise en pause à la place ; la sauvegarde n'a pas tout à fait suivi la configuration.",
+  "warn_code.vm_not_paused": "{name} n'a pas pu être mise en pause — elle a continué de tourner, ses disques seulement cohérents comme après un crash ; la sauvegarde n'a pas tout à fait suivi la configuration."
 }

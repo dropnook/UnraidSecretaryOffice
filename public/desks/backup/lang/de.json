@@ -124,7 +124,7 @@
   "src_first": "zum ersten Mal",
   "src_first_hint": "Von dieser Quelle liegt noch nichts ausser Haus (sie ist neu, oder das Repository): Alles geht einmal hoch. Wie lange das dauert, ergibt sich aus ihrer Grösse und dem, was schon gelesen ist — nicht aus früheren Backups.",
   "eta_first": "Noch keine Schätzung — ein erster Upload läuft.",
-  "vm_shutdown_now": "Zuerst fahren VMs herunter — die Apps laufen bis dahin weiter (höchstens 5 Minuten; eine, die nicht herunterfährt, wird stattdessen für den Snapshot angehalten).",
+  "vm_shutdown_now": "Zuerst fahren VMs herunter — die Apps laufen bis dahin weiter (höchstens 5 Minuten; eine VM, die nicht heruntergefahren werden kann, wird stattdessen für den Snapshot angehalten).",
   "downtime_was": "Container standen {duration} still",
   "downtime_short": "Stillstand {duration}",
   "counts": "{errors}, {warnings}",
@@ -1450,5 +1450,9 @@
   "history_filter_label": "Backups filtern: Datum, Ergebnis",
   "filter_none": "Hier passt nichts zum Filter.",
   "help.tiles": "Kacheln",
-  "help.tiles_text": "Die Kacheln sind das Inhaltsverzeichnis der Seite: Jede fasst einen Abschnitt zusammen, ein Klick zeigt nur diesen Abschnitt — ein zweiter Klick, «◂ Alle» oder «Alles zeigen» zeigt wieder die ganze Seite. «Letztes Backup» zeigt die Backups, «Zeitplan» seine Zeit mit «Ändern…», «Schutz» die ganze Tabelle «Ist alles geschützt?»; ausser Haus, Datenbanken, Pakete, VMs und der Flash zeigen sie nur mit ihren Zeilen (die Zeile über der Tabelle nennt den Filter). «Partner», «Geändert» und «Zurückholen» zeigen ihre eigenen Abschnitte. Der Abschnitt, den du öffnest, bleibt beim nächsten Besuch offen; ein Filter und die Wörter in den Leisten über der Tabelle und den Backups bleiben nie. Während ein Backup läuft, steht seine Karte an der Stelle der Kacheln und die ganze Seite ist zu sehen."
+  "help.tiles_text": "Die Kacheln sind das Inhaltsverzeichnis der Seite: Jede fasst einen Abschnitt zusammen, ein Klick zeigt nur diesen Abschnitt — ein zweiter Klick, «◂ Alle» oder «Alles zeigen» zeigt wieder die ganze Seite. «Letztes Backup» zeigt die Backups, «Zeitplan» seine Zeit mit «Ändern…», «Schutz» die ganze Tabelle «Ist alles geschützt?»; ausser Haus, Datenbanken, Pakete, VMs und der Flash zeigen sie nur mit ihren Zeilen (die Zeile über der Tabelle nennt den Filter). «Partner», «Geändert» und «Zurückholen» zeigen ihre eigenen Abschnitte. Der Abschnitt, den du öffnest, bleibt beim nächsten Besuch offen; ein Filter und die Wörter in den Leisten über der Tabelle und den Backups bleiben nie. Während ein Backup läuft, steht seine Karte an der Stelle der Kacheln und die ganze Seite ist zu sehen.",
+  "warn_code.vm_not_shut_down": "{name} liess sich nicht herunterfahren — angehalten; der Lauf entsprach nicht genau der Einrichtung.",
+  "warn_code.vm_shutdown_refused": "{name} nahm die Bitte zum Herunterfahren nicht an — angehalten; der Lauf entsprach nicht genau der Einrichtung.",
+  "warn_code.vm_not_frozen": "{name}: Der Gast-Agent hat die Dateisysteme nicht eingefroren — angehalten; der Lauf entsprach nicht genau der Einrichtung.",
+  "warn_code.vm_not_paused": "{name} liess sich nicht anhalten — sie lief weiter, ihre Disks nur absturzkonsistent; der Lauf entsprach nicht genau der Einrichtung."
 }

@@ -287,6 +287,7 @@ function bubbleText() {
     if (last.result === 'ok') out.push(k.length ? T('bubble.last_ok_kopia', { when, ok, total: k.length }) : T('bubble.last_ok', { when }));
     else if (arrayStopped(last)) out.push(T('bubble.last_array_stop', { when }));
     else out.push(T('bubble.last_' + last.result, { when, errors: last.errors, warnings: last.warnings, n: last.result === 'errors' ? last.errors : last.warnings }));
+    out.push(...warnLines(last));
     if (asleepUnits(last)) out.push(T('bubble.asleep_left', { n: asleepUnits(last), pools: (last.asleep.pools || []).join(', ') }));
     const age = Date.now() / 1000 - (last.finished || last.started);
     if (age > 36 * 3600) out.push(T('bubble.old', { days: Math.floor(age / 86400) }));
@@ -1396,6 +1397,7 @@ function historySection() {
     if (r.packages && (r.packages.apps || r.packages.vms)) meta.appendChild(el('span', '', T('pk.history', { apps: nOf('apps', r.packages.apps), vms: nOf('vms', r.packages.vms) })));
     if (r.errors || r.warnings) meta.appendChild(el('span', '', T('counts', { errors: nOf('errors', r.errors), warnings: nOf('warnings', r.warnings) })));
     if (r.message && r.result !== 'ok') meta.append(el('span', 'note', messageText(r.message)));
+    warnLines(r).forEach((w) => meta.append(el('span', 'note', w)));
     main.appendChild(meta);
     row.appendChild(main);
     const took = (r.finished || r.started) - r.started;
@@ -1444,6 +1446,23 @@ function driftText(d) {
   }
   if (d.code && Office.has(`${ID}.message.${d.code}`)) return T('message.' + d.code, { detail: p.value });
   return d.text;
+}
+
+/**
+ * A run's coded warnings in the office's words (engine 2.42, warning_items: a VM paused instead of shut down or frozen,
+ * one that couldn't be paused) - warn_code.<code>; a code unknown here or a sentence missing a parameter is left out
+ * (the count stays in the run's line, the log has the engine's English)
+ */
+function warnLines(r) {
+  return ((r && r.warning_items) || []).map((w) => {
+    const key = `${ID}.warn_code.${w && w.code}`;
+    if (!w || typeof w.code !== 'string' || !Office.has(key)) return '';
+    const p = {};
+    Object.entries(w.params && typeof w.params === 'object' ? w.params : {}).forEach(([k, v]) => { if (typeof v === 'string') p[k] = v; });
+    const raw = Office.strings[key];
+    const need = typeof raw === 'string' ? [...raw.matchAll(/\{(\w+)\}/g)].map((m) => m[1]) : [];
+    return need.every((k) => p[k] !== undefined) ? T('warn_code.' + w.code, p) : '';
+  }).filter(Boolean);
 }
 
 function driftSection() {

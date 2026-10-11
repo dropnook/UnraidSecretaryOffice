@@ -127,7 +127,7 @@
   "src_first": "primera vez",
   "src_first_hint": "De esta fuente aún no hay nada fuera de casa (es nueva, o lo es el repositorio): todo se sube una vez. Cuánto tarda sale de su tamaño y de lo que ya se ha leído, no de copias anteriores.",
   "eta_first": "Todavía no hay estimación — hay una primera subida en curso.",
-  "vm_shutdown_now": "Primero se apagan las VMs — hasta entonces las apps siguen funcionando (como mucho 5 minutos; una que no se apaga se pausa para la instantánea en su lugar).",
+  "vm_shutdown_now": "Primero se apagan las VMs — hasta entonces las apps siguen funcionando (como mucho 5 minutos; una VM que no se puede apagar se pausa para la instantánea en su lugar).",
   "downtime_was": "los contenedores estuvieron detenidos {duration}",
   "downtime_short": "parada {duration}",
   "counts": "{errors}, {warnings}",
@@ -1471,5 +1471,9 @@
   "history_filter_label": "Filtrar las copias: fecha, resultado",
   "filter_none": "Aquí nada coincide con el filtro.",
   "help.tiles": "Mosaicos",
-  "help.tiles_text": "Los mosaicos son el índice de la página: cada uno resume una sección, y un clic muestra solo esa sección — un segundo clic, «◂ Todo» o «Mostrar todo» vuelve a mostrar toda la página. «Última copia» muestra las copias, «Programación» su hora con «Cambiar…», «Protección» toda la tabla «¿Está todo protegido?»; fuera de casa, bases de datos, paquetes, VM y el flash la muestran solo con sus filas (la línea sobre la tabla nombra el filtro). «Socios», «Cambiado» y «Restauración» muestran sus propias secciones. La sección que abres sigue abierta en tu próxima visita; un filtro y las palabras de las barras sobre la tabla y las copias nunca se guardan. Mientras corre una copia, su tarjeta ocupa el lugar de los mosaicos y se ve toda la página."
+  "help.tiles_text": "Los mosaicos son el índice de la página: cada uno resume una sección, y un clic muestra solo esa sección — un segundo clic, «◂ Todo» o «Mostrar todo» vuelve a mostrar toda la página. «Última copia» muestra las copias, «Programación» su hora con «Cambiar…», «Protección» toda la tabla «¿Está todo protegido?»; fuera de casa, bases de datos, paquetes, VM y el flash la muestran solo con sus filas (la línea sobre la tabla nombra el filtro). «Socios», «Cambiado» y «Restauración» muestran sus propias secciones. La sección que abres sigue abierta en tu próxima visita; un filtro y las palabras de las barras sobre la tabla y las copias nunca se guardan. Mientras corre una copia, su tarjeta ocupa el lugar de los mosaicos y se ve toda la página.",
+  "warn_code.vm_not_shut_down": "{name} no se pudo apagar — pausada en su lugar; la copia no siguió exactamente la configuración.",
+  "warn_code.vm_shutdown_refused": "{name} no aceptó la petición de apagarse — pausada en su lugar; la copia no siguió exactamente la configuración.",
+  "warn_code.vm_not_frozen": "{name}: su agente invitado no congeló los sistemas de archivos — pausada en su lugar; la copia no siguió exactamente la configuración.",
+  "warn_code.vm_not_paused": "{name} no se pudo pausar — siguió funcionando, sus discos solo consistentes como tras un corte; la copia no siguió exactamente la configuración."
 }
