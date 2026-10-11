@@ -4160,7 +4160,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.41'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.42'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -4386,10 +4386,10 @@ SH);
     // by hand: a value it doesn't know - the run refuses the file (like any bad value), the setup takes it as auto and says so
     file_put_contents("$data/settings.ini", preg_replace('/\npreset_new = auto\n/', "\npreset_new = maybe\n", (string) file_get_contents("$data/settings.ini")));
     $bad = $sh("cfg_load $data/settings.ini; cfg_validate >/dev/null; printf '%s' \"\${CFG_ERRORS[*]}\"");
-    check('preset_new: settings.ini takes auto, local or kopia only', str_contains($bad, "preset_new = 'maybe' is invalid (auto/local/kopia)"), $bad);
+    check('preset_new: settings.ini takes auto, local or kopia only', str_contains($bad, "preset_new = 'maybe' is invalid (auto/local/kopia/partner/kopia_partner)"), $bad);
     $out = $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
-    $warned = array_filter($plan['messages'] ?? [], fn ($m) => ($m['level'] ?? '') === 'warn' && str_contains($m['text'] ?? '', "preset_new = 'maybe' is not auto, local or kopia"));
+    $warned = array_filter($plan['messages'] ?? [], fn ($m) => ($m['level'] ?? '') === 'warn' && str_contains($m['text'] ?? '', "preset_new = 'maybe' is not auto, local, kopia, partner or kopia_partner"));
     same('preset_new: a value it doesn\'t know - auto in the plan, with a warning', ['auto', 'auto', true], [$plan['preset_new'] ?? null, $plan['P']['general|preset_new'] ?? null, (bool) $warned], $out);
     $pnApply('local');
     // --forget: settings.ini goes aside with the key in it - the next setup starts as on a new server (auto)
@@ -6455,7 +6455,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.41', [1, '2.41'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.42', [1, '2.42'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -18919,7 +18919,7 @@ JS);
         (function ($a) { sort($a); return $a; })($anchors('caretaker')));
     $pairs = array_column(array_filter($r['items']['caretaker'] ?? [], fn ($e) => $e['label'] === 'PartnerNAS'), 'sub', 'anchor');
     same('search items caretaker: two pairs with one partner told apart by the way the copies go (the card\'s words)',
-        ['partner:e5f6a7b8' => 'Partner offices · Tower sends', 'partner:c9d0e1f2' => 'Partner offices · Tower keeps'], $pairs);
+        ['partner:e5f6a7b8' => 'Partner offices · Tower sends to PartnerNAS', 'partner:c9d0e1f2' => 'Partner offices · Tower keeps of PartnerNAS'], $pairs);
     check('search items caretaker: … worded as his list words them', in_array('Kopia container «kopia» is running', $labels('caretaker'), true), json_encode($labels('caretaker')));
     $w = $r['items']['watchman'] ?? [];
     $entries = array_values(array_filter($w, fn ($e) => str_starts_with($e['anchor'], 'entry:')));
@@ -25188,11 +25188,11 @@ function testRequestTypes(): void
         $answers[] = $ask(['action' => "caretaker.$a", 'step' => ['x']]);
         $answers[] = $ask(['action' => "caretaker.$a", 'step' => 'do', 'address' => ['x']]);
     }
-    foreach (['partner_ping', 'partner_end', 'partner_change', 'partner_wish', 'partner_keep_less', 'partner_ticket_end'] as $a) {
+    foreach (['partner_ping', 'partner_end', 'partner_ticket_end'] as $a) {
         $answers[] = $ask(['action' => "caretaker.$a", 'id' => ['x'], 'step' => 'look']);
     }
     $answers[] = $ask(['action' => 'caretaker.partner_ticket_make', 'pair' => ['x']]);
-    same('types: partner_* with arrays where strings belong — bad_request', array_fill(0, 11, 'bad_request'), $answers);
+    same('types: partner_* with arrays where strings belong — bad_request', array_fill(0, 8, 'bad_request'), $answers);
     same('types: emby.output / emby.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
         [$ask(['action' => 'emby.output', 'tool' => '../x']), $ask(['action' => 'emby.log', 'tool' => '../x'])]);
     same('types: restore.drill_set with nothing it knows — refused, not an ok that changed nothing', 'bad_request', $ask(['action' => 'restore.drill_set', 'x' => 1]));
