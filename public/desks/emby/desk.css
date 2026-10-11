@@ -1,9 +1,10 @@
 /* Jack Emby */
 #sso{   /* nested in the office's element, like office.css */
 .jo-bar{width:120px}
-/* «Ready on the pool»'s bar (the filter's words, the library): wraps on a phone */
-.jo-poolbar{margin:0 0 8px}
-.jo-poolbar .picker{max-width:100%; min-width:0}
+/* the schedules' list under the tiles (the tile «Schedules» opens it) and the tools' quiet line */
+.jo-plans{min-height:0; margin:10px 0 0}
+.jo-plans > .row:first-child{border-top:0}
+.jo-tools{margin:0 0 4px; font-size:12.5px}
 .jo-more{margin:8px 12px}
 /* Unraid's mover and EmbyCache's files (emby-mover.php): why only dry runs and the switch — or that the schedule is off */
 .jo-mover{margin:0 0 12px}
