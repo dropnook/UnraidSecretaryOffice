@@ -617,6 +617,8 @@
   .stats{grid-template-columns:repeat(auto-fill, minmax(min(100%, 150px), 1fr))}
   .stat-value{font-size:17px}
   .stat-sub{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+  /* the filter bar: the words a line of their own, the select, the switch and the extras under them */
+  .filterbar .filter-words{flex:1 1 100%}
 }
 @media (max-width:380px){
   .btn{padding:6px 10px}
