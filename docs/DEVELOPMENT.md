@@ -313,7 +313,9 @@ active, `backup/` is left alone.
   must stay as clicked, no console error, no horizontal scrolling. ≈ 2 min, exit ≠ 0 on any fault; `--only <route>,…`.
 * **Screenshots:** `bash tools/ui-shots.sh` — the same harness with invented family data (`tests/ui/demo/`, never a
   real server's names) inside Unraid's look; `--moments` makes the product page's moments (black, 1280 px, de/en) with
-  a contact sheet. The README's pictures in `docs/screenshots/` are the English moments.
+  a contact sheet, `--moments --themes black,white` each of them in Unraid's black and white theme. The README's
+  pictures in `docs/screenshots/` are the English moments, `<name>-dark.png` and `<name>-light.png` in a `<picture>`
+  that follows the reader's theme (the names without a theme are the dark ones, for the Community Applications listing).
 * **Reports to the makers** (*⋯ → Report a problem or a wish…*): the inbox is `OFFICE_FEEDBACK_URL` in
   `src/place.php` (shared by the web side and the agent; `''` hides the feature), a Cloudflare Worker in the maintainer's private
   repository (`feedback/`, its SETUP.md has the request's exact shape) that opens an issue in

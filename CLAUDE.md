@@ -1523,7 +1523,9 @@ When more than one Claude chat works on the office, one of them is the
    `$USO_SHOTS/<date>/` (default `~/uso-shots/<date>/`). `--moments [nr,…]`: the product page's moments
    (`tests/ui/demo/moments.json`: per desk a clipped element after a small «prepare» - click, fill, select, js -, each
    in its demo state, `states` naming another file of the folder, e.g. `backup-run.json`), black, 1280 px, de/en,
-   seeded greetings, into `shots/<date>-moments/` with `contact-sheet.html/-de.png/-en.png`. Prepare steps stay
+   seeded greetings, into `shots/<date>-moments/` with `contact-sheet.html/-de.png/-en.png`; with `--themes black,white`
+   each moment per theme (`<nr>-<desk>-<moment>-<theme>-<lang>.png`, the sheet shows them side by side) — the product
+   page and README.md show both, following the viewer's theme. Prepare steps stay
    language-neutral (`Office.t(…)` in a js step, not a German text selector). Neither tests/ nor tools/ go into the plugin package.
 
 ## Layout
