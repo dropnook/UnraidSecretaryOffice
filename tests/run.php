@@ -8386,6 +8386,135 @@ function testRestoreShares(): void
 }
 
 /**
+ * Mr. Restori and a Nextcloud restored from the engine's snapshot (the end-to-end test of 2026-10-11 on a large server:
+ * the restored Nextcloud answered «maintenance» to every request): where its config.php lies on the host (the official
+ * image, a bind of its own for config, linuxserver's), which restore brings it back (its config folder in what comes
+ * back, the engine's moment, swapped — not a copy, not another app's folder, not another snapshot), the plan's step
+ * after the containers' start and its note, and the step itself on a stand-in docker: occ as Nextcloud's user while the
+ * container runs, a warning naming the command when it doesn't run or occ refuses — never failed.
+ */
+function testRestoreNextcloud(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsnc-' . getmypid();
+    $mnt = "$tmp/mnt";
+    $ctx0 = ['fs' => ['hazel' => 'zfs']];
+    $b = fn (string $src, string $dest) => ['source' => $src, 'dest' => $dest, 'rw' => true];
+    same('restore nextcloud: config.php beside occ, through the deepest bind, as the share path', [
+            '/mnt/user/zzapps/zz-nc/config', '/mnt/user/zzapps/zz-ncconf', '/mnt/user/zzapps/zz-lsio/www/nextcloud/config',
+            '/mnt/user/zzapps/zz-lsio/www/nextcloud/config', null, null],
+        [rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzapps/zz-nc', '/var/www/html'), $b('/mnt/user/zzdata', '/var/www/html/data')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzapps/zz-nc', '/var/www/html'), $b('/mnt/hazel/zzapps/zz-ncconf/', '/var/www/html/config')], $ctx0),
+         rsNcConfigDir('/app/www/public/occ', [$b('/mnt/user/zzapps/zz-lsio', '/config')], $ctx0),
+         rsNcConfigDir('/config/www/nextcloud/occ', [$b('/mnt/user/zzapps/zz-lsio', '/config')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzdata', '/var/www/html/data')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/var/lib/docker/volumes/nc/_data', '/var/www/html')], $ctx0)]);
+    $ncs = [['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data', 'same_as' => '', 'config' => '/mnt/user/zzapps/zz-nc/config'],
+            ['container' => 'zz-nc-cron', 'occ' => '/var/www/html/occ', 'user' => 'www-data', 'same_as' => 'zz-nc-app', 'config' => '/mnt/user/zzapps/zz-nc/config']];
+    same('restore nextcloud: brought back with its folder or its whole share — once per instance, never a neighbour\'s',
+        [['zz-nc-app'], ['zz-nc-app'], [], [], ['zz-nc-cron']],
+        [array_column(rsNcBack($ncs, ['/mnt/user/zzapps/zz-nc']), 'container'), array_column(rsNcBack($ncs, ['/mnt/user/zzapps']), 'container'),
+         array_column(rsNcBack($ncs, ['/mnt/user/zzapps/zz-nc-old', '/mnt/user/zzapps/zz-other']), 'container'),
+         array_column(rsNcBack([['container' => 'x', 'config' => null]], ['/mnt/user/zzapps']), 'container'),
+         array_column(rsNcBack([$ncs[1]], ['/mnt/user/zzapps/zz-nc']), 'container')]);
+
+    // the plan: a share zzapps on hazel (an exclusive share: /mnt/user/zzapps is the link), the Nextcloud's folder and another app's
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [str_contains(implode(' ', $paths), 'zz-nc') ? ['zz-nc-db', 'zz-nc-app'] : ['zz-other'], []];
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $snap = fn (string $name): string => "$mnt/hazel/zzapps/.zfs/snapshot/$name";
+    $put("$mnt/hazel/zzapps/zz-nc/config/config.php", "<?php \$CONFIG = ['maintenance' => false];");
+    $put("$mnt/hazel/zzapps/zz-other/x.txt", 'live');
+    $put($snap('uso-backup-20261011-0300') . '/zz-nc/config/config.php', "<?php \$CONFIG = ['maintenance' => true];");
+    $put($snap('uso-backup-20261011-0300') . '/zz-other/x.txt', 'snap');
+    $put($snap('manual-y') . '/zz-nc/config/config.php', "<?php \$CONFIG = ['maintenance' => false];");
+    $put("$mnt/user");
+    symlink("$mnt/hazel/zzapps", "$mnt/user/zzapps");
+    $T0 = (int) strtotime('2026-10-11 03:00');
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzapps" => 'zz-hazel/zzapps'],
+        'snaps' => ['zz-hazel/zzapps' => [['name' => 'uso-backup-20261011-0300', 'time' => $T0], ['name' => 'manual-y', 'time' => $T0 + 3600]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzapps' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzapps' => ['exclusive' => 'yes']], 'old_shares' => null, 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz-nc', 'id' => 'zz-nc', 'vm_state' => null, 'nextcloud' => $ncs];
+    $other = ['kind' => 'app', 'name' => 'zz-other', 'id' => 'zz-other', 'vm_state' => null, 'nextcloud' => []];
+    $stamp = '20261011-120000';
+    $plan = function (string $path, string $moment, string $mode, array $who) use ($ctx, $stamp): array {
+        $c = $ctx;
+        return rsPlanFilesFor($path, $moment, $mode, false, $who, $stamp, $c);
+    };
+    $p = $plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'swap', $owner);
+    same('restore nextcloud: swapped from the engine\'s snapshot — maintenance off after the containers\' start, nothing blocks',
+        [['copy', 'stop', 'aside', 'move', 'start', 'maintenance_off'], [], ['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data']],
+        [array_column($p['steps'], 'do'), array_column($p['blockers'], 'key'), array_intersect_key(end($p['steps']), array_flip(['container', 'occ', 'user']))]);
+    same('restore nextcloud: said under «Afterwards», with the command', ['after.files_swap', 'after.nextcloud_maintenance', 'zz-nc-app', 'www-data', '/var/www/html/occ'],
+        [$p['after'][0]['key'] ?? null, $p['after'][1]['key'] ?? null, $p['after'][1]['params']['container'] ?? null, $p['after'][1]['params']['user'] ?? null,
+         $p['after'][1]['params']['occ'] ?? null]);
+    $whole = $plan('/mnt/user/zzapps', 'run:20261011-0300', 'swap', $owner + ['nextcloud' => $ncs]);
+    same('restore nextcloud: the whole share brings its folder back too', 'maintenance_off', end($whole['steps'])['do'] ?? null);
+    $none = fn (array $p) => [in_array('maintenance_off', array_column($p['steps'], 'do'), true), in_array('after.nextcloud_maintenance', array_column($p['after'], 'key'), true)];
+    same('restore nextcloud: not for a copy, another snapshot, another app\'s folder, an app without Nextcloud',
+        [[false, false], [false, false], [false, false], [false, false]],
+        [$none($plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'copy', $owner)), $none($plan('/mnt/user/zzapps/zz-nc', 'name:manual-y', 'swap', $owner)),
+         $none($plan('/mnt/user/zzapps/zz-other', 'run:20261011-0300', 'swap', $owner)), $none($plan('/mnt/user/zzapps/zz-other', 'run:20261011-0300', 'swap', $other))]);
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/restore/lang/en.json'), true) ?: [];
+    check('restore nextcloud: the step, its notes and the line have words',
+        isset($en['step.maintenance_off'], $en['sn.nc_not_running'], $en['sn.nc_maintenance_failed'], $en['after.nextcloud_maintenance']));
+
+    // the step on a stand-in docker: a running one, a stopped one, one whose occ refuses
+    $put("$tmp/bin/docker", "#!/bin/sh\necho \"\$*\" >> " . escapeshellarg("$tmp/docker.calls") . "\n"
+        . "case \"\$*\" in\n"
+        . "  *inspect*zz-nc-app*|*inspect*zz-nc-bad*) echo true ;;\n"
+        . "  *inspect*) echo 'Error: No such object' >&2; exit 1 ;;\n"
+        . "  *exec*zz-nc-bad*) echo 'Nextcloud is not installed' >&2; exit 1 ;;\n"
+        . "  *exec*) echo 'Maintenance mode disabled' ;;\n"
+        . "esac\n");
+    chmod("$tmp/bin/docker", 0755);
+    $GLOBALS['rs']['docker'] = "$tmp/bin/docker";
+    $GLOBALS['rs']['nc_wait'] = 0;
+    $id = "$stamp-ab12";
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $i = count($j['steps']) - 1;
+    $r = rsStep($j, $i);
+    same('restore nextcloud: occ as Nextcloud\'s user while the container runs', ['ok', "inspect -f {{.State.Running}} zz-nc-app\nexec -u www-data zz-nc-app php /var/www/html/occ maintenance:mode --off"],
+        [$r['state'], trim((string) @file_get_contents("$tmp/docker.calls"))]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['container'] = 'zz-nc-gone';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: a container that doesn\'t run — a warning naming the command, occ not asked', ['warning', 'nc_not_running',
+            'docker exec -u www-data zz-nc-gone php /var/www/html/occ maintenance:mode --off', 1],
+        [$r['state'], $r['note'] ?? null, $r['params']['command'] ?? null, count(file("$tmp/docker.calls"))]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['container'] = 'zz-nc-bad';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: occ refuses — three tries, then a warning (never failed)', ['warning', 'nc_maintenance_failed', 3, 'Nextcloud is not installed'],
+        [$r['state'], $r['note'] ?? null, count(preg_grep('/^exec /', file("$tmp/docker.calls"))), $r['detail'] ?? null]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['user'] = 'www-data; rm -rf /';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: a step of an odd shape runs nothing', ['warning', false], [$r['state'], is_file("$tmp/docker.calls")]);
+
+    unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+          $GLOBALS['rs']['docker'], $GLOBALS['rs']['nc_wait']);
+    $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Mr. Restori's findings of 2026-10-06 (a VM's folder in domains, a ZFS dataset of its own): sizes from the source by a
  * du that sees an unmounted ZFS snapshot, allocated and apparent (sparse), ZFS sources counted with their data's own
  * size where the target doesn't compress; an empty folder counts as nothing there («put in place», it goes aside); the
@@ -28404,7 +28533,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
