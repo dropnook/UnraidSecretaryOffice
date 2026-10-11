@@ -8879,7 +8879,7 @@ function testRestoreFindings(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false, fmt: {} };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, sections: () => ({ places: () => [] }), has: () => false, fmt: {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
 const sizes = { measuring: true, need: null, paths: ['/a', '/b'], scale: { '/a': 1.25 }, compresses: false, free: 100 };
@@ -9006,7 +9006,7 @@ function testRestoreDatabases(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false,
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, sections: () => ({ places: () => [] }), has: () => false,
   fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
@@ -28437,12 +28437,17 @@ JS);
 function testRestoreTiles(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
-    check('restore tiles: one bar over the open list, Office.filterBar (words, «only what\'s gone»), never kept, emptied by a new visit',
-        str_contains($js, "key: 'restore.list'") && str_contains($js, "only: { text: T('list.only_missing')") && str_contains($js, 'bar().reset();')
+    check('restore tiles: a bar over each list, Office.filterBar (words, «only what\'s gone»), never kept, emptied by a new visit',
+        str_contains($js, 'key: `restore.list.${list}`') && str_contains($js, "only: { text: T('list.only_missing')") && str_contains($js, 'listBars.forEach((b) => b.reset());')
         && !preg_match("/Office\\.store\\('restore\\.list/", $js));
     check('restore tiles: … over Apps, VMs and Databases (gone apps, missing VMs; a database group keeps its head over what fits)',
-        preg_match_all('/[=(] ?barRows\(s, /', $js) === 3 && str_contains($js, '(a) => !a.present') && str_contains($js, "(v) => v.state === 'missing'")
+        preg_match_all("/[=(] ?barRows\\(s, '(apps|vms|dbs)', /", $js) === 3 && str_contains($js, '(a) => !a.present') && str_contains($js, "(v) => v.state === 'missing'")
         && str_contains($js, 'box.appendChild(dbHead(g.app));'));
+    // tiles v2 (CLAUDE.md «Tiles»): his row on core's switcher — «Apps» to start, his old key, a partner's tile before the
+    // state names it, nothing chosen = every section; a link opens a section without closing it
+    check('restore tiles: on Office.sections() — restore.section, «Apps» to start, partner:<id> wanted before the state, no pair of his own',
+        str_contains($js, "key: 'restore.section'") && str_contains($js, "default: 'apps'") && str_contains($js, 'wants: (sub) => /^partner:[0-9a-f]{8}$/.test(sub)')
+        && !preg_match('/^function (renderTiles|renderSection)\\(/m', $js) && str_contains($js, "sw.pick(sec, 'route');"));
     $node = testsNode();
     if ($node === '') {
         check('restore tiles: node is missing here - skipped', true);
@@ -28739,7 +28744,9 @@ JS;
  *   'backup' => ['setupPage', …]
  * Empty while no desk is moved (2026-10-11: Worker 0 built the helper, the groups move the desks).
  */
-const SECTIONS_DESKS = [];
+const SECTIONS_DESKS = [
+    'restore' => [],
+];
 
 /**
  * The faults of one desk script against the v2 rule (testTilesConvention): a desk of SECTIONS_DESKS uses Office.sections()
