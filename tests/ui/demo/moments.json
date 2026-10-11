@@ -5,6 +5,12 @@
   "moment": "team",
   "title": "Empfang - das ganze Team auf einen Blick",
   "route": "",
+  "prepare": [
+   {
+    "js": "document.querySelectorAll(\".reception .desk-card[data-desk=\\\"moverelli\\\"]\").forEach((n) => n.remove())",
+    "pause": 300
+   }
+  ],
   "clip": ".reception",
   "pad": 12,
   "seed": 1
