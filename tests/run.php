@@ -26614,7 +26614,7 @@ function testSections(): void
     check('sections: core.js has Office.sections', (bool) preg_match('/^Office\.sections = function/m', $core));
     $at = (int) strpos($core, 'Office.sections = function');
     $fn = substr($core, $at, (int) strpos($core, '// ------------------------------------------------------------------ staff', $at) - $at);
-    check('sections: a filter tile is never kept (the store gets \'\' while one is on)', str_contains($fn, "Office.store(key, isFilter(x) ? '' : next)"));
+    check('sections: a filter tile is never kept (the store keeps the last section choice while one is on)', str_contains($fn, 'if (!isFilter(x)) Office.store(key, next);'));
     check('sections: the desktop\'s move is block nearest, marked as a reveal', str_contains($fn, "head.scrollIntoView({ block: 'nearest' }); /* reveal */"));
     check('sections: the focus stays on the clicked tile without a scroll', str_contains($fn, 'focus({ preventScroll: true })'));
     check('sections: nothing hidden — no section is drawn with hidden', !preg_match('/\.hidden\s*=/', $fn));
