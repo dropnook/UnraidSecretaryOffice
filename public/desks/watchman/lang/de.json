@@ -343,6 +343,8 @@
   "watch.title": "Was ich im Auge behalte",
   "watch.sub": "Was normal ist: was er sah, als er die Wache übernahm, und was du seither zur Kenntnis genommen hast. Was sicherer wird (weniger Rechte, ein geschlossener Share), wird von selbst normal. Gezählt und aufgelistet wird, was jetzt da ist: Was weg ist (ein Container, ein Plugin, ein Share), fällt aus der Liste — er merkt es sich noch eine Weile, damit, was unverändert zurückkommt, keine Meldung ist.",
   "watch.none": "Das hält er auf seinem ersten Rundgang fest.",
+  "watch.filter.label": "Liste filtern: Container, Plugins, Adressen, Namen",
+  "watch.filter.none": "Nichts, was ich im Auge behalte, passt zum Filter.",
   "watch.ips": "Bekannte Anmeldeadressen",
   "watch.ips_sum": {"one": "eine Adresse", "other": "{n} Adressen"},
   "watch.fail_ips": "Adressen, die bekanntlich scheitern",

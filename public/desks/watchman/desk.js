@@ -48,7 +48,12 @@ const openGroups = Office.storeJson('watchman.groups') || {};     // groups of �
 const unfolded = new Set();     // entries unfolded on this visit
 let bookRows = [];              // the book's unfoldable rows: {open(), set(open)}
 let bookLabel = null;           // brings «Unfold all» up to date
-let watchGroups = [];           // {open(), set(open)}
+let watchGroups = [];           // the groups of «What I keep an eye on» drawn now: {open(), set(open)}
+// «What I keep an eye on»'s bar (core.js Office.filterBar, built once like the book's and held across the renders): its
+// words are never kept — a new visit starts with the whole list, the groups folded as kept in this browser
+let watchBar = null;
+let watchWords = [];            // the bar's words while the list is drawn (group() reads them)
+const watchShut = new Set();    // groups folded by hand while filter words unfold them (forgotten with the words)
 let showKnownTips = false;      // posture tips you know about: shown on request
 let wanted = null;              // an entry the search asked for (#/watchman/entry/<id>): the book shows rows down to it
 
@@ -997,10 +1002,11 @@ const flowLimits = () => {
     new: fmt.size(l.new || 50 * 1024 ** 3), part: l.part || 20 };
 };
 
-/** docker run flags as small code chips */
+/** docker run flags as small code chips (their words for the list's filter: wmWords, read by item()) */
 function flags(tokens) {
   const box = el('span', 'wm-flags');
   (tokens || []).forEach((t) => box.appendChild(el('span', 'wm-flag', t)));
+  box.wmWords = (tokens || []).map(String);
   return box;
 }
 
@@ -1327,8 +1333,13 @@ function netDetails(e, p, add) {
 }
 
 // ------------------------------------------------------------------ what he keeps an eye on
+/**
+ * One thing he keeps an eye on: its name, its sub lines, its chips (flags()). Its hay for the list's filter (wmHay, built
+ * here once per drawing): the name, every sub line, the chips' words — what the row shows, nothing more.
+ */
 function item(name, parts, extra, label) {
   const r = el('div', 'row nocheck wm-item');
+  r.wmHay = [name, ...parts.filter(Boolean), ...((extra && extra.wmWords) || [])];
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name' + (label ? ' text' : ''), name));
   const meta = el('div', 'row-meta');
@@ -1339,21 +1350,55 @@ function item(name, parts, extra, label) {
   return r;
 }
 
-/** A tinted title bar that folds its rows (closed unless opened, remembered in this browser) */
-function group(key, title, sum, rows) {
-  const box = Office.place(`watch:${key}`, el('div', 'group' + (openGroups[key] ? '' : ' closed')));
+/**
+ * What the filter words leave of a group (pure: tests/watchfilter.js). Words in its head — title, summary and the
+ * group's own extra words («Docker» for the two container groups) — keep the whole group as it is; else each item (a row
+ * with a hay: item()) fits on its own words together with the head (the words may fall on both: «container immich»), a
+ * row without one (a note, a link, a switch) goes. A group with nothing left is not shown. No words: everything.
+ *   head: [title, summary, …], hays: per row its hay or null → {shown, whole, rows: [bool per row], n (items that fit), total (items)}
+ */
+function groupFit(words, head, hays) {
+  const total = hays.filter(Boolean).length;
+  if (!words || !words.length || Office.fits(words, head)) return { shown: true, whole: true, rows: hays.map(() => true), n: total, total };
+  const rows = hays.map((h) => !!h && Office.fits(words, [...head, ...h]));
+  const n = rows.filter(Boolean).length;
+  return { shown: n > 0, whole: false, rows, n, total };
+}
+/** The whole list's count from its groups' fits: {n, total, shown (groups shown)} — the bar's «n of m fit» */
+const fitTally = (fits) => fits.reduce((a, f) => ({ n: a.n + f.n, total: a.total + f.total, shown: a.shown + (f.shown ? 1 : 0) }), { n: 0, total: 0, shown: 0 });
+/**
+ * Is a group open? Without words as kept in this browser (opened: 'watchman.groups'); with words every group shown is
+ * unfolded, unless folded by hand meanwhile (shut) — the kept state stays untouched, «Show all» brings it back
+ */
+const groupOpen = (key, words, opened, shut) => ((words && words.length) ? !shut.has(key) : !!opened[key]);
+
+/**
+ * A tinted title bar that folds its rows (closed unless opened, remembered in this browser). With filter words
+ * (watchWords) only its fitting rows (groupFit(); more: words the group is found by besides its title and summary),
+ * unfolded, its summary followed by «n of m fit»; box.wmFit says what was left — the section leaves out a group with nothing.
+ */
+function group(key, title, sum, rows, more) {
+  const fit = groupFit(watchWords, [title, sum, ...(more || [])], rows.map((x) => x.wmHay || null));
+  const words = watchWords.length > 0;
+  const box = Office.place(`watch:${key}`, el('div', 'group' + (groupOpen(key, watchWords, openGroups, watchShut) ? '' : ' closed')));
+  box.wmFit = fit;
   const head = el('div', 'group-head');
   head.tabIndex = 0;
   head.setAttribute('role', 'button');
   const mid = el('div', 'group-mid');
   const tl = el('div', 'group-title');
   tl.appendChild(el('span', '', title));
-  mid.append(tl, el('div', 'group-meta', sum));
+  mid.append(tl, el('div', 'group-meta', words && !fit.whole ? `${sum} · ${Office.t('common.filter_hits', { n: fit.n, total: fit.total })}` : sum));
   head.append(el('span', 'group-arrow', '▼'), mid);
   const body = el('div', 'group-rows');
-  rows.forEach((x) => body.appendChild(x));
+  const drawn = rows.filter((x, i) => fit.rows[i]);
+  drawn.forEach((x) => body.appendChild(x));
   const set = (open) => {
     box.classList.toggle('closed', !open);
+    if (words) {             // folded or unfolded while the words are typed: for as long as they are
+      if (open) watchShut.delete(key); else watchShut.add(key);
+      return;
+    }
     if (open) openGroups[key] = true; else delete openGroups[key];
     Office.storeJson('watchman.groups', openGroups);
   };
@@ -1361,9 +1406,27 @@ function group(key, title, sum, rows) {
   head.onclick = (e) => { toggle(); if (e.detail > 0) head.blur(); };
   head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } };
   box.append(head, body);
-  if (rows.length) watchGroups.push({ open: () => !box.classList.contains('closed'), set });
-  else head.classList.add('wm-empty-group');
+  if (drawn.length && fit.shown) watchGroups.push({ open: () => !box.classList.contains('closed'), set });
+  else if (!drawn.length) head.classList.add('wm-empty-group');
   return box;
+}
+
+/**
+ * The list's bar (core.js Office.filterBar), built once and held across the renders like the book's: the words over
+ * every group's title and summary and each item in it (groupFit()); «n of m fit» over all items and «Show all» in its note
+ * line. «Unfold all» stays right of the section's head.
+ */
+function watchBarGet() {
+  if (watchBar) return watchBar;
+  watchBar = Office.filterBar({
+    key: 'watchman.watch',
+    label: T('watch.filter.label'),
+    onChange: (f, what) => {
+      if (what === 'words' || what === 'all') watchShut.clear();
+      if (view) sw.render();
+    },
+  });
+  return watchBar;
 }
 
 function watchSection() {
@@ -1373,24 +1436,29 @@ function watchSection() {
   s.appendChild(Office.sectionHead(T('watch.title'), T('watch.sub'), unfold, { place: 'watch.title' }));
   const box = el('div', 'box wm-watchlist');
   const w = state.watch;
+  watchGroups = [];
   if (!w) {
     box.appendChild(el('p', 'empty', T('watch.none')));
     unfold.hidden = true;
     s.appendChild(box);
     return s;
   }
-  box.appendChild(group('ips', T('watch.ips'), T('watch.ips_sum', { n: w.ips.length }),
+  const bar = watchBarGet();
+  s.appendChild(bar.el);
+  watchWords = bar.read().words;
+  const gs = [];
+  gs.push(group('ips', T('watch.ips'), T('watch.ips_sum', { n: w.ips.length }),
     w.ips.map((x) => item(x.ip, [(x.users || []).join(', '), (x.services || []).join(', '), T('watch.last_seen', { when: fmt.relative(x.last) })]))));
   if (w.fail_ips.length) {
-    box.appendChild(group('fail_ips', T('watch.fail_ips'), T('watch.fail_ips_sum', { n: w.fail_ips.length }),
+    gs.push(group('fail_ips', T('watch.fail_ips'), T('watch.fail_ips_sum', { n: w.fail_ips.length }),
       w.fail_ips.map((x) => item(x.ip, [T('watch.since', { when: fmt.date(x.since) }), x.quiet ? T('watch.quiet', { n: x.quiet }) : '',
         T('watch.last_seen', { when: fmt.relative(x.last) })]))));
   }
   const c = w.containers;
-  box.appendChild(group('containers', T('watch.containers'),
+  gs.push(group('containers', T('watch.containers'),
     c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : T('watch.containers_wait'),
-    c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : []));
-  box.appendChild(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
+    c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : [], ['Docker']));
+  gs.push(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
     w.plugins.map((x) => item(x.name, [x.source || T('watch.no_source'), x.version || '']))));
   const f = w.flash || { extra: [], users: [], keys: [] };
   const flash = [
@@ -1400,18 +1468,22 @@ function watchSection() {
   ];
   if (f.keys.length) f.keys.forEach((k) => flash.push(item(T('watch.keys'), [k.user, [k.type, k.comment].filter(Boolean).join(' '), k.fp], null, true)));
   else flash.push(item(T('watch.keys'), [T('watch.keys_none')], null, true));
-  box.appendChild(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length,
+  gs.push(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length,
     users: T('watch.flash_users', { n: f.users.length }), keys: T('watch.flash_keys', { n: f.keys.length }) }), flash));
   const sh = w.shares;
-  box.appendChild(group('shares', T('watch.shares'),
+  gs.push(group('shares', T('watch.shares'),
     !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
     sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
-  box.appendChild(schedGroup(w.sched));
-  box.appendChild(hostGroup(w.host));
-  if (w.partner && (w.partner.pairs.length || w.partner.strays.length)) box.appendChild(partnerGroup(w.partner));
-  box.appendChild(netGroup(state.net));
-  box.appendChild(snapGroup(state.snaps));
-  flowGroups(state.flow).forEach((g) => box.appendChild(g));
+  gs.push(schedGroup(w.sched));
+  gs.push(hostGroup(w.host));
+  if (w.partner && (w.partner.pairs.length || w.partner.strays.length)) gs.push(partnerGroup(w.partner));
+  gs.push(netGroup(state.net));
+  gs.push(snapGroup(state.snaps));
+  gs.push(...flowGroups(state.flow));
+  const tally = fitTally(gs.map((g) => g.wmFit));
+  gs.filter((g) => g.wmFit.shown).forEach((g) => box.appendChild(g));
+  if (!tally.shown) box.appendChild(el('p', 'empty', T('watch.filter.none')));
+  watchWords = [];
   const label = () => {
     unfold.textContent = watchGroups.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
     unfold.hidden = !watchGroups.length;
@@ -1424,6 +1496,7 @@ function watchSection() {
   box.addEventListener('click', () => setTimeout(label, 0));
   label();
   s.appendChild(box);
+  bar.done(tally.n, tally.total);
   return s;
 }
 
@@ -1630,7 +1703,8 @@ function flowGroups(f) {
   const gc = grafanaRow('flow_clients');
   if (gc) clients.push(gc);
   out.push(group('flow_clients', T('watch.flow_clients'),
-    T('watch.flow_clients_sum', { learning: overall, n: (f.clients || []).length, size: fmt.size(total(f.clients, 'day')) }), clients));
+    T('watch.flow_clients_sum', { learning: overall, n: (f.clients || []).length, size: fmt.size(total(f.clients, 'day')) })
+      + (can.office ? ' · ' + T('watch.flow_office_now') : ''), clients));
 
   // containers: the top senders
   const cts = [];
@@ -1642,7 +1716,7 @@ function flowGroups(f) {
   if (can.host && can.host.length) cts.push(item(can.host.join(', '), [T('watch.flow_host')]));
   if (f.idle) cts.push(note(T('watch.flow_idle', { n: f.idle })));
   out.push(group('flow_containers', T('watch.flow_containers'),
-    can.docker === false ? T('watch.flow_no_docker') : T('watch.flow_containers_sum', { size: fmt.size(total(f.containers, 'day')) }), cts));
+    can.docker === false ? T('watch.flow_no_docker') : T('watch.flow_containers_sum', { size: fmt.size(total(f.containers, 'day')) }), cts, ['Docker']));
 
   // written into ZFS shares
   const zfs = can.zfs;
@@ -1683,7 +1757,6 @@ function flowGroups(f) {
     [T('watch.flow_smb_hours', { n: x.hours }), learningText(x.learning, f), T('watch.last_seen', { when: fmt.relative(x.last) })])));
   out.push(group('flow_smb', T('watch.flow_smb'), smbState || T('watch.flow_smb_sum', {
     users: T('watch.flow_smb_users', { n: smb.users.length }), machines: T('watch.flow_smb_machines', { n: smb.clients.length }) }), rows));
-  if (can.office) out[0].querySelector('.group-meta').textContent += ' · ' + T('watch.flow_office_now');
   return out;
 }
 
@@ -1697,6 +1770,8 @@ Office.desk({
     const m = /^entry\/([\w-]{1,64})$/.exec(sub || '');
     if (m) wanted = m[1];
     bookBarGet().reset();          // a new visit: the whole book (the area is a choice and stays)
+    watchBarGet().reset();         // … and the whole of what he keeps an eye on, folded as kept
+    watchShut.clear();
     sw.mount(m ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
     render();
     await load(false);
@@ -1764,6 +1839,7 @@ Office.placesFrom(ID, (s) => {
 });
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName };
+  globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
+    groupFit, fitTally, groupOpen, watchSection };
 }
 })();

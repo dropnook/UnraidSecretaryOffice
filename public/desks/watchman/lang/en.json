@@ -343,6 +343,8 @@
   "watch.title": "What I keep an eye on",
   "watch.sub": "What is normal: what he saw when he took over the watch, and what you noted since. What gets safer (fewer rights, a share closed) becomes normal by itself. Counted and listed is what is there now: what went (a container, a plugin, a share) leaves the list — he still remembers it a while, so one that comes back as it was is no news.",
   "watch.none": "He records it on his first round.",
+  "watch.filter.label": "Filter the list: containers, plugins, addresses, names",
+  "watch.filter.none": "Nothing I keep an eye on fits the filter.",
   "watch.ips": "Known login addresses",
   "watch.ips_sum": {"one": "one address", "other": "{n} addresses"},
   "watch.fail_ips": "Addresses known for failing",
