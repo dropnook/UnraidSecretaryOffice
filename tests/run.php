@@ -27616,6 +27616,11 @@ function testMoverelliForeign(): void
 /** Her page under node: the notices (Unraid's schedule, Mover Tuning's, the scripts, always the hint), the run list's words */
 function testMoverelliPage(): void
 {
+    // a desk in training is no candidate at the Team Lead's «The team» (2026-10-11 on a test server: she stood there twice —
+    // «could come» with a hire button, and her training row): staff() leaves training desks out, her own row says it
+    $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('moverelli: the Team Lead lists a desk in training in her own row only, never as a candidate (staff() skips d.training)',
+        str_contains($ct, 'if (d && !d.training) out.push('));
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('moverelli page: node is missing here - skipped', true);

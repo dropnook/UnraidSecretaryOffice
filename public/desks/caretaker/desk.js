@@ -98,7 +98,8 @@ function staff() {
   const out = [];
   for (const [id, s] of Object.entries((state && state.staff) || {})) {
     const d = Office.desks.get(id);
-    if (d) out.push({ ...s, id, desk: d, hired: !!d.hired });
+    // a desk in training (desk.json "training") is no candidate: her own row below, nobody can hire her yet
+    if (d && !d.training) out.push({ ...s, id, desk: d, hired: !!d.hired });
   }
   // who works here first, in the order set at the reception (core.js Office.deskRank); then who could come, by desk.json's order
   return out.sort((a, b) => (b.hired - a.hired)
