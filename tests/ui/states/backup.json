@@ -217,12 +217,28 @@
   "partner_skipped": 1,
   "asleep": null,
   "kopia": {
-   "enabled": false,
-   "state": "off",
+   "enabled": true,
+   "state": "done",
    "planned": [],
    "current": null,
    "current_since": null,
-   "done": [],
+   "done": [
+    {
+     "name": "flash",
+     "ok": true,
+     "seconds": 41
+    },
+    {
+     "name": "nextcloud",
+     "ok": true,
+     "seconds": 95
+    },
+    {
+     "name": "photos",
+     "ok": true,
+     "seconds": 312
+    }
+   ],
    "skipped": [],
    "skipped_why": [],
    "interrupted": null
@@ -250,7 +266,26 @@
     "errors": 0,
     "stale": 0
    },
-   "kopia": [],
+   "kopia": [
+    {
+     "name": "flash",
+     "ok": true,
+     "seconds": 41,
+     "finished": 1791513074
+    },
+    {
+     "name": "nextcloud",
+     "ok": true,
+     "seconds": 95,
+     "finished": 1791513174
+    },
+    {
+     "name": "photos",
+     "ok": true,
+     "seconds": 312,
+     "finished": 1791513494
+    }
+   ],
    "kopia_skipped": [],
    "kopia_asleep": [],
    "asleep": null,
@@ -880,10 +915,10 @@
    "EmbyServer",
    "Node-Exporter"
   ],
-  "flash": "tar",
+  "flash": "snapshot",
   "libvirt": "tar",
   "libvirt_img": "/mnt/user/system/libvirt/libvirt.img",
-  "kopia_enabled": false,
+  "kopia_enabled": true,
   "kopia_container": "kopia",
   "kopia_keep": {
    "latest": "7",
@@ -955,6 +990,28 @@
    "last": null
   },
   {
+   "name": "flash",
+   "mode": "kopia",
+   "method": "flash",
+   "retention": null,
+   "kopia_retention": null,
+   "ignores": [],
+   "excluded": [],
+   "locations": [
+    "boot"
+   ],
+   "fs": [
+    "zfs"
+   ],
+   "last": {
+    "time": 1791513074,
+    "ok": true,
+    "seconds": 41,
+    "good": 1791513074
+   },
+   "flash": true
+  },
+  {
    "name": "isos",
    "mode": "snapshot",
    "method": "auto",
@@ -988,7 +1045,7 @@
   },
   {
    "name": "nextcloud",
-   "mode": "snapshot",
+   "mode": "kopia",
    "method": "auto",
    "retention": null,
    "kopia_retention": null,
@@ -1001,11 +1058,16 @@
    "fs": [
     "zfs"
    ],
-   "last": null
+   "last": {
+    "time": 1791513174,
+    "ok": true,
+    "seconds": 95,
+    "good": 1791513174
+   }
   },
   {
    "name": "photos",
-   "mode": "snapshot",
+   "mode": "kopia",
    "method": "auto",
    "retention": null,
    "kopia_retention": null,
@@ -1017,7 +1079,12 @@
    "fs": [
     "zfs"
    ],
-   "last": null
+   "last": {
+    "time": 1791513494,
+    "ok": true,
+    "seconds": 312,
+    "good": 1791513494
+   }
   },
   {
    "name": "speedtest",
@@ -1141,7 +1208,7 @@
   "kopia": {
    "name": "kopia",
    "exists": true,
-   "running": false
+   "running": true
   }
  },
  "partners": [
@@ -1654,7 +1721,8 @@
   "script": true,
   "frequency": "custom",
   "custom": "30 4 * * *",
-  "enabled": true
+  "enabled": true,
+  "next": 1791565473
  },
  "logs": [
   {
