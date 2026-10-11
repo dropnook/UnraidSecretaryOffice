@@ -146,13 +146,12 @@
     "pause": 500
    },
    {
-    "click": "#sso-dialog .chip[data-tip]",
+    "click": "#sso-dialog .sp-why",
     "pause": 400
    }
   ],
   "clip": [
-   "#sso-dialog",
-   ".tip"
+   "#sso-dialog"
   ],
   "viewport": true,
   "height": 1000

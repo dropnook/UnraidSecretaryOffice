@@ -2034,9 +2034,20 @@ function properties(s) {
   if (s.written !== null && s.written !== undefined) {
     const dd = line(T('p.written'), fmt.size(s.written), T('p.written_hint'));
     if (s.used !== null && s.used !== undefined && s.written > s.used) {   // 3.6 GB new but 88 KB used: why (inbox #13)
-      const why = el('span', 'chip', T('p.written_why'));
-      why.dataset.tip = T('p.written_why_tip');
-      dd.appendChild(why);
+      // unfolds under the chip, in the dialog's flow (2026-10-12: as a tip it covered the path below and left a piece
+      // of it peeking out at the right)
+      const why = el('button', 'chip sp-why', T('p.written_why'));
+      const text = el('small', 'sp-why-text', T('p.written_why_tip'));
+      text.id = 'sp-why-text';
+      text.hidden = true;
+      why.type = 'button';
+      why.setAttribute('aria-expanded', 'false');
+      why.setAttribute('aria-controls', text.id);
+      why.onclick = () => {
+        text.hidden = !text.hidden;
+        why.setAttribute('aria-expanded', String(!text.hidden));
+      };
+      dd.append(why, text);
     }
   }
   if (s.fs === 'zfs') line(T('p.held'), s.holds && s.holds.length ? Office.t('common.yes') + ' — ' + s.holds.join(', ') : Office.t('common.no'));
