@@ -956,28 +956,16 @@
   },
   "where.now": "What's going on",
   "where.uptime": "up {time}",
-  "where.stat.array": "Array",
   "where.stat.started": "started",
   "where.stat.resync": "{action} {percent} %",
   "where.stat.mover": "mover is running",
   "where.stat.no_parity": "no parity check running",
   "where.stat.running": "running",
-  "where.stat.smb": "SMB sessions",
-  "where.stat.docker": "Docker",
-  "where.stat.vms": "VMs",
-  "where.stat.smart": "SMART",
-  "where.filter_label": "Filter the open corner: names, paths, chips",
+  "where.filter_label": "Filter the corners: names, paths, chips",
   "where.only_odd": "Only what needs a look",
   "where.only_odd_hint": "Only the rows with a warning (red or orange chips)",
   "where.filter_none": "Nothing here fits the filter.",
   "where.stat.nobody": "nobody connected",
-  "where.stat.scripts": "User scripts",
-  "where.stat.none_running": "none running",
-  "where.stat.backup": "Backup engine",
-  "where.stat.backup_running": "running",
-  "where.stat.backup_idle": "idle",
-  "where.stat.since": "since {time}",
-  "where.stat.scrub": "ZFS scrub",
   "where.stat.load": "Load",
   "where.stat.load_sub": "1 · 5 · 15 minutes",
   "where.section.shares": "Shares",
@@ -1205,7 +1193,6 @@
   },
   "where.find.license_expires": "the Unraid license runs out {when}",
   "where.find.license_check": "the license check says: {detail}",
-  "where.stat.temp": "Hottest disk",
   "where.stat.temp_warm": {
     "one": "{n} above its threshold",
     "other": "{n} above their threshold"
@@ -1217,11 +1204,6 @@
     "other": "{n} disks with errors"
   },
   "where.stat.smart_ok": "no errors",
-  "where.stat.smart_notes": {
-    "one": "{n} disk with timeouts/CRC (cable?)",
-    "other": "{n} disks with timeouts/CRC (cables?)"
-  },
-  "where.stat.notices": "Unraid notices",
   "where.stat.notices_sub": "Unread: {alerts} · {warnings}",
   "where.stat.license": "License",
   "where.stat.license_until": "until {when}",
@@ -1449,8 +1431,8 @@
   "where.boot.license_tpm": "The license ({file}) is bound to the TPM of this mainboard: on the same mainboard there is nothing to transfer. Only a new mainboard needs a license transfer (⟦Tools⟧ → ⟦Registration⟧).",
   "where.boot.license_flash": "The license ({file}) is bound to the boot stick's GUID ({guid}): with a new stick, transfer it to the new GUID (⟦Tools⟧ → ⟦Registration⟧).",
   "where.boot.license_other": "The license ({file}) belongs to a GUID that is neither this stick's nor this TPM's — check it under ⟦Tools⟧ → ⟦Registration⟧.",
-  "where.help.tiles": "Tiles under «Where things are»",
-  "where.help.tiles_text": "Each tile is a place with files that matter. Its label shows the weakest protection among them (the system log in RAM and Docker's image data don't count — they are rebuilt anyway). A click opens the paths with their size and protection.",
+  "where.help.tiles": "Places under «Where things are»",
+  "where.help.tiles_text": "Each row is a place with files that matter. Its label shows the weakest protection among them (the system log in RAM and Docker's image data don't count — they are rebuilt anyway). A click on the row opens the paths with their size and protection.",
   "where.help.copy": "Copy",
   "where.help.copy_text": "Puts the path on the clipboard — for a terminal, the Files Viewer or a note for the day you need it.",
   "where.help.rows": "Rows in the tabs",
@@ -1473,8 +1455,6 @@
     "one": "Tour done in {ms} ms — 1 disk woken.",
     "other": "Tour done in {ms} ms — {n} disks woken."
   },
-  "where.details_title": "Everything in detail",
-  "where.details_hint": "pick a tile — independent of «Where things are»",
   "where.place.cron": "Cron jobs",
   "where.place.cron_sub": {
     "one": "1 job",
@@ -1487,7 +1467,6 @@
   "where.loc.cron_d_note": "Generated — changes here are overwritten.",
   "where.loc.crontab": "root's own crontab (crontab -e)",
   "where.loc.crontab_note": "Gone after a reboot.",
-  "where.look": "look",
   "where.sum.shares": {
     "one": "1 share",
     "other": "{n} shares"
@@ -1526,7 +1505,6 @@
   "where.tip.passthrough": "Devices of the host (e.g. a GPU or USB controller) passed straight into the VM — on another server they may not exist.",
   "where.tip.autostart_vm": "Starts when the VM service starts.",
   "where.tip.vm_snapshot": "VM snapshots — open Ms. Snapshotini",
-  "where.now_sub": "Live from the server — a tap on a tile opens its corner below, a second closes it again.",
   "where.wake_failed": "Didn't wake up: {disks} — what lies there is shown as it was before.",
   "where.pool_label": "Pool {name}",
   "where.devices_n": {
@@ -1737,5 +1715,19 @@
   "errors.cleanup_volume_no_space": "Not enough space for a copy of {name} in {path}: {need} needed, {free} free — it stays in Docker.",
   "errors.cleanup_volume_copy_failed": "Copying {name} into my storeroom failed, so it stays in Docker: {detail}",
   "errors.cleanup_volume_back_failed": "Putting {name} back into Docker failed — the copy stays in my storeroom: {detail}",
-  "errors.cleanup_volume_exists": "Docker already has a volume named {name} — I won't copy over it. Remove or rename that one first."
+  "errors.cleanup_volume_exists": "Docker already has a volume named {name} — I won't copy over it. Remove or rename that one first.",
+  "where.tile.advice": "Advice",
+  "where.tile.advice_none": "none",
+  "where.tile.advice_known": {"one": "{n} hidden", "other": "{n} hidden"},
+  "count.advice": {"one": "{n} tip", "other": "{n} tips"},
+  "count.places": {"one": "{n} place", "other": "{n} places"},
+  "count.sessions": {"one": "{n} session", "other": "{n} sessions"},
+  "where.tile.docker_sub": "running · {stacks}",
+  "where.tile.smart": "SMART: {state}",
+  "where.tile.array": "Array {state} · {more}",
+  "where.tile.scripts_running": {"one": "{n} running", "other": "{n} running"},
+  "where.tile.scripts_sub": "{scripts} · {cron}",
+  "where.tile.backup_idle": "Engine idle",
+  "where.tile.backup_running": "running since {time}",
+  "where.scrub_running": "ZFS scrub running: {list}"
 }

@@ -18367,7 +18367,7 @@ const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const FX = JSON.parse(fs.readFileSync(fixturesFile, 'utf8'));
 const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
   classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-  appendChild(c) { this.children.push(c); return c; }, get lastChild() { return this.children[this.children.length - 1] || null; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  appendChild(c) { this.children.push(c); return c; }, get lastChild() { return this.children[this.children.length - 1] || null; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {}, replaceChildren() {},
   setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
   querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
   getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
@@ -28322,11 +28322,13 @@ function testTilesMediaPages(): void
 
 
 /**
- * Ms. Dustdevil's tiles (the tiles rebuild, 2026-10-11): the number tiles of «What's going on» open their corner of
- * «Everything in detail» (STAT_CORNERS: each a corner that exists, aria-controls the open corner's body), «License» no
- * longer leads to the disks and leaves the grid with «Load» (the head's line says both), nothing on her page jumps
- * (no scrollIntoView), and a link of what she noticed fills the bars — under node, core.js and her desk.js on a
- * stand-in page with the click test's stub states.
+ * Ms. Dustdevil's tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»): two pages as tabs («Where is what» / «Tidying up»,
+ * cleanup.page), each a row of tiles on the section switcher. «Where is what»: 13 tiles (her advice, «Where things are»,
+ * the eleven corners) — the number row «What's going on» is gone, its live numbers on the corner tiles (STAT_CORNERS
+ * stays as data: an old #/cleanup/where/stat:<tile> opens its corner), «License» and «Load» on the page's head line,
+ * the start «Where things are»; «Tidying up»: the rooms, nothing chosen = every room. A tile's route opens it on its page,
+ * a link of what she noticed fills both bars and lands in its corner — also from «Tidying up» (the page changes first).
+ * Under node: core.js and her desk.js on a stand-in page with the click test's stub states.
  */
 function testCleanupTiles(): void
 {
@@ -28336,22 +28338,21 @@ function testCleanupTiles(): void
     $map = array_column(array_map(fn ($p) => [$p[1], $p[2]], $pairs), 1, 0);
     preg_match("/const Where = \\(\\(\\) => \\{\\s*const SECTIONS = \\[([^\\]]*)\\]/", $js, $w);
     preg_match_all("/'(\\w+)'/", $w[1] ?? '', $corners);
-    check('cleanup tiles: the number tiles with a corner behind them (array, Docker, VMs, SMB, User Scripts, the engine, the hottest disk, SMART, notices)',
+    check('cleanup tiles: STAT_CORNERS stays as data — the number tiles of before (array, Docker, VMs, SMB, User Scripts, the engine, the hottest disk, SMART, notices)',
         array_keys($map) === ['array', 'docker', 'vms', 'smb', 'scripts', 'backup', 'temp', 'smart', 'notices'], json_encode($map));
-    same('cleanup tiles: … each opens a corner that exists', [], array_values(array_diff($map, $corners[1] ?? [])));
-    check('cleanup tiles: … aria-controls the open corner (its body clw-corner), data-filters the section with its bar (clw-details), pressed while it opened it',
-        str_contains($js, "controls: corner ? 'clw-corner' : null, filters: corner ? 'clw-details' : null")
-        && str_contains($js, "v.sectionBody.id = 'clw-corner'") && str_contains($js, "v.sectionBox.id = 'clw-details'")
-        && str_contains($js, 'pressed: corner ? statTile === id && section === corner : null'));
-    check('cleanup tiles: «License» no longer leads to the disks, «License» and «Load» are no tiles (the head\'s line says them)',
-        !isset($map['license']) && !isset($map['load']) && !preg_match("/tile\\(\\s*'(license|load)'/", $js) && !preg_match("/tile\\(\\s*T\\('where\\.stat\\.(license|load)'\\)/", $js)
-        && (bool) preg_match("/view\\.nowHint\\.textContent = \\[[^;]*T\\('where\\.stat\\.license'\\)[^;]*T\\('where\\.stat\\.load'\\)/s", $js));
-    check('cleanup tiles: nothing on her page jumps (no scrollIntoView — tiles and corners in keepInPlace)', !str_contains($js, 'scrollIntoView')
-        && str_contains($js, 'Office.keepInPlace(view.stats, ') && str_contains($js, 'Office.keepInPlace(view.tabs, ') && str_contains($js, 'Office.keepInPlace(view.placeTiles, '));
-    check('cleanup tiles: the places and corners carry aria-pressed', substr_count($js, "card.setAttribute('aria-pressed', String(place === g.id))") === 1
-        && substr_count($js, "card.setAttribute('aria-pressed', String(section === id))") === 1);
-    check('cleanup tiles: no warning callout for a filter any more — the bars say it', !str_contains($js, 'filter_on') && !str_contains($js, 'filterMark'));
-    check('cleanup tiles: the two bars (her rooms, the open corner) are Office.filterBar, never kept',
+    same('cleanup tiles: … each names a corner that exists (its numbers sit on that corner\'s tile)', [], array_values(array_diff($map, $corners[1] ?? [])));
+    check('cleanup tiles: two pages as tabs, the last one kept as cleanup.page (#/cleanup opens it)',
+        str_contains($js, "pages: { list: PAGES(), current: page, store: PAGE_KEY }") && str_contains($js, "const PAGE_KEY = 'cleanup.page';")
+        && str_contains($js, "Office.pageFrom(PAGES(), s, PAGE_KEY)"));
+    check('cleanup tiles: two switchers — «Where is what» (start «Where things are», cleanup.where.tile) and «Tidying up» (no start, cleanup.section)',
+        (bool) preg_match("/key: STORE \\+ 'tile',[^}]*default: 'places'/s", $js) && (bool) preg_match("/key: 'cleanup\\.section',[^}]*default: ''/s", $js)
+        && substr_count($js, 'Office.sections({') === 2);
+    check('cleanup tiles: «License» and «Load» are no tiles — the page\'s head line says them; no number row, no stat: places any more',
+        (bool) preg_match("/line\\.textContent = \\[[^;]*T\\('where\\.stat\\.license'\\)[^;]*T\\('where\\.stat\\.load'\\)/s", $js)
+        && !str_contains($js, "route: `#/cleanup/where/stat:") && !str_contains($js, 'renderStats') && !str_contains($js, 'statTile'));
+    check('cleanup tiles: nothing of her own jumps (no scrollIntoView; the switcher makes the one move)', !str_contains($js, 'scrollIntoView'));
+    check('cleanup tiles: no warning callout for a filter — the bars say it', !str_contains($js, 'filter_on') && !str_contains($js, 'filterMark'));
+    check('cleanup tiles: the two bars (her rooms, the corners) are Office.filterBar, never kept',
         str_contains($js, "key: 'cleanup.tidy'") && str_contains($js, "key: 'cleanup.where'") && !preg_match("/Office\\.store\\('cleanup\\.(tidy|where)\\.(words|only|filter)/", $js));
 
     $node = testsNode();
@@ -28373,19 +28374,21 @@ const fs = require('fs');
 const [core, desk, fxFile] = process.argv.slice(2);
 const FX = JSON.parse(fs.readFileSync(fxFile, 'utf8'));
 const CONFIG = { desks: [{ id: 'cleanup', hired: true, order: 1, refresh_after: 600 }], languages: [{ code: 'en' }], base: '', staff_order: [], stamp: 1, version: 'test', host: 'Tower' };
-const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], value: '',
+const mk = () => ({ nodeType: 1, style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], value: '',
   classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
   appendChild(c) { this.children.push(c); return c; }, get lastChild() { return this.children[this.children.length - 1] || null; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {}, after() {}, before() {},
-  insertBefore(c) { this.children.push(c); return c; }, replaceChildren() {},
+  insertBefore(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; },
   setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
-  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  querySelector: () => mk(), querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
   getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
 globalThis.window = globalThis;
 globalThis.Node = function Node() {};
+globalThis.DocumentFragment = function DocumentFragment() {};
 globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+const kept = {};
+globalThis.localStorage = { getItem: (k) => (k in kept ? kept[k] : null), setItem(k, v) { kept[k] = String(v); }, removeItem(k) { delete kept[k]; } };
 globalThis.navigator = { languages: ['en'], platform: 'Linux' };
-globalThis.history = { replaceState() {} };
+globalThis.history = { replaceState(a, b, url) { globalThis.location.hash = url; } };
 globalThis.location = { hash: '', reload() {} };
 globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
   querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), createDocumentFragment: () => mk(),
@@ -28400,16 +28403,39 @@ globalThis.OFFICE_DESK_TESTS = {};
 (0, eval)(fs.readFileSync(core, 'utf8'));
 (0, eval)(fs.readFileSync(desk, 'utf8'));
 const out = {};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 (async () => {
   const d = Office.desks.get('cleanup');
   const ct = OFFICE_DESK_TESTS.cleanup;
-  d.mount(mk(), 'where');
-  await new Promise((r) => setTimeout(r, 150));
+  const ws = ct.where.sw;
+  Office.current = d;
+  const visit = async (sub) => { d.unmount(); d.mount(mk(), sub); await wait(120); };
+  const body = (sw) => [sw.body.dataset.active, sw.body.dataset.sections];
+  // the first visit: «Where is what», its start «Where things are»
+  await visit('');
+  out.first = [ct.page(), kept['office.cleanup.page'] || null, ...body(ws)];
+  out.tiles = ws.grid.children.map((n) => n.dataset.tile);
+  const faces = ct.where.faces();
+  out.faces = Object.fromEntries(Object.entries(faces).map(([k, f]) => [k, [String(f.value), [].concat(f.sub).filter(Boolean).join(' | '), !!f.alert]]));
+  // a tile's route on her page, an old number tile's address, the other page
+  await visit('where/vms');
+  out.vms = [ct.page(), ...body(ws), location.hash];
+  await visit('where/stat:temp');
+  out.temp = body(ws);
+  await visit('tidy');
+  out.tidy = [ct.page(), kept['office.cleanup.page'], ...body(ct.tidy)];
+  await visit('tidy/docker');
+  out.room = [ct.page(), ...body(ct.tidy), location.hash];
+  await visit('');
+  out.again = [ct.page()];
+  // a link of what she noticed: from «Tidying up» her page changes first, the link's words in both bars, its corner open
   const f = ct.findings();
   out.finding = f.length ? f[0].text : null;
   out.before = ct.query();
   if (f.length) f[0].go();
-  out.after = ct.query();
+  out.hash = location.hash;
+  await visit(location.hash.replace(/^#\/cleanup\//, ''));
+  out.after = [ct.page(), ct.query(), ...body(ws)];
   d.unmount();
   out.gone = ct.query();
   fs.writeFileSync(fxFile + '.out', JSON.stringify(out));
@@ -28423,9 +28449,28 @@ JS);
         check('cleanup tiles: her page under node', false, is_array($r) ? (string) $r['error'] : $raw);
         return;
     }
+    $sys = $where['system'];
+    same('cleanup tiles: the first visit opens «Where is what» (kept as cleanup.page), «Where things are» alone under the row',
+        ['where', 'where', 'places', 'places'], $r['first']);
+    same('cleanup tiles: one row of 13 tiles — her advice, «Where things are», the eleven corners',
+        ['advice', 'places', 'shares', 'folders', 'docker', 'vms', 'disks', 'access', 'network', 'scripts', 'backups', 'notices', 'plugins'], $r['tiles']);
+    same('cleanup tiles: the corner tiles carry the live numbers — Docker and VMs running of all, the hottest disk, SMB sessions, the engine',
+        ["{$sys['docker']['running']} / {$sys['docker']['total']}", $sys['vms']['total'] ? "{$sys['vms']['running']} / {$sys['vms']['total']}" : '–', true, true, true],
+        [$r['faces']['docker'][0] ?? null, $r['faces']['vms'][0] ?? null, (bool) preg_match('/°C$|^–$/u', (string) ($r['faces']['disks'][0] ?? '')),
+         str_contains((string) ($r['faces']['network'][0] ?? ''), 'count.sessions') || preg_match('/\d/', (string) ($r['faces']['network'][0] ?? '')) === 1,
+         ($r['faces']['backups'][0] ?? '') !== '']);
+    check('cleanup tiles: … the disks\' tile says SMART and the array under the temperature', str_contains((string) ($r['faces']['disks'][1] ?? ''), ' | '), json_encode($r['faces']['disks'] ?? null));
+    same('cleanup tiles: #/cleanup/where/vms — the VMs corner alone, «Where things are» gone, the address keeps its page',
+        ['where', 'vms', 'vms', '#/cleanup/where'], $r['vms']);
+    same('cleanup tiles: an old number tile\'s address (stat:temp) opens its corner (disks)', ['disks', 'disks'], $r['temp']);
+    same('cleanup tiles: «Tidying up» — no tile chosen, every room shown, the page kept', 'tidy', $r['tidy'][0] ?? null);
+    check('cleanup tiles: … every room in the row\'s order', ($r['tidy'][1] ?? null) === 'tidy' && ($r['tidy'][2] ?? null) === '' && str_starts_with((string) ($r['tidy'][3] ?? ''), 'templates ')
+        && str_ends_with((string) ($r['tidy'][3] ?? ''), ' trash'), json_encode($r['tidy']));
+    same('cleanup tiles: #/cleanup/tidy/docker — Docker\'s leftovers alone; #/cleanup then opens the page seen last',
+        [['tidy', 'docker', 'docker', '#/cleanup/tidy'], ['tidy']], [$r['room'], $r['again']]);
     check('cleanup tiles: her first finding is the share whose pool is missing', str_contains((string) $r['finding'], 'where.find.missing_pool'), (string) $r['finding']);
-    same('cleanup tiles: a link of what she noticed fills both bars with its words (the rooms\' and the open corner\'s), the visit\'s end empties them',
-        ['', 'media', ''], [$r['before'], $r['after'], $r['gone']]);
+    same('cleanup tiles: its link from «Tidying up» goes to «Where is what» with «Shares» open and its words in both bars; the visit\'s end empties them',
+        ['', '#/cleanup/where/shares', ['where', 'media', 'shares', 'shares'], ''], [$r['before'], $r['hash'], $r['after'], $r['gone']]);
 }
 
 /**
@@ -28748,6 +28793,8 @@ const SECTIONS_DESKS = [
     'restore' => [],
     'logs' => [],
     'watchman' => ['roundHead'],     // «The last round»: the row's head over the tiles (a hint, it stays at every click)
+    // Ms. Dustdevil: her two pages, two switchers — the first in her desk.js is «Tidying up»'s, these make «Where is what»'s sections
+    'cleanup' => ['whereSection', 'whereAdvice', 'wherePlaces', 'whereCorner'],
 ];
 
 /**

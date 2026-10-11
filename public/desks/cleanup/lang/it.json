@@ -956,28 +956,16 @@
   },
   "where.now": "Cosa succede adesso",
   "where.uptime": "acceso da {time}",
-  "where.stat.array": "Array",
   "where.stat.started": "avviato",
   "where.stat.resync": "{action} {percent} %",
   "where.stat.mover": "il Mover è in esecuzione",
   "where.stat.no_parity": "nessun controllo di parità in corso",
   "where.stat.running": "in esecuzione",
-  "where.stat.smb": "Sessioni SMB",
-  "where.stat.docker": "Docker",
-  "where.stat.vms": "VM",
-  "where.stat.smart": "SMART",
-  "where.filter_label": "Filtra l'angolo aperto: nomi, percorsi, chip",
+  "where.filter_label": "Filtra gli angoli: nomi, percorsi, chip",
   "where.only_odd": "Solo ciò che va guardato",
   "where.only_odd_hint": "Solo le righe con un avviso (chip rossi o arancioni)",
   "where.filter_none": "Qui niente corrisponde al filtro.",
   "where.stat.nobody": "nessuno connesso",
-  "where.stat.scripts": "User script",
-  "where.stat.none_running": "nessuno in esecuzione",
-  "where.stat.backup": "Motore di backup",
-  "where.stat.backup_running": "backup in corso",
-  "where.stat.backup_idle": "a riposo",
-  "where.stat.since": "dalle {time}",
-  "where.stat.scrub": "Scrub ZFS",
   "where.stat.load": "Carico",
   "where.stat.load_sub": "1 · 5 · 15 minuti",
   "where.section.shares": "Condivisioni",
@@ -1205,7 +1193,6 @@
   },
   "where.find.license_expires": "la licenza di Unraid scade {when}",
   "where.find.license_check": "il controllo della licenza dice: {detail}",
-  "where.stat.temp": "Disco più caldo",
   "where.stat.temp_warm": {
     "one": "{n} sopra la sua soglia",
     "other": "{n} sopra la loro soglia"
@@ -1217,11 +1204,6 @@
     "other": "{n} dischi con errori"
   },
   "where.stat.smart_ok": "nessun errore",
-  "where.stat.smart_notes": {
-    "one": "{n} disco con timeout/CRC (cavo?)",
-    "other": "{n} dischi con timeout/CRC (cavi?)"
-  },
-  "where.stat.notices": "Avvisi di Unraid",
   "where.stat.notices_sub": "Non letti: {alerts} · {warnings}",
   "where.stat.license": "Licenza",
   "where.stat.license_until": "fino al {when}",
@@ -1449,8 +1431,8 @@
   "where.boot.license_tpm": "La licenza ({file}) è legata al TPM di questa scheda madre: con la stessa scheda madre non c'è niente da trasferire. Solo una nuova scheda madre richiede un trasferimento della licenza (⟦Tools⟧ → ⟦Registration⟧).",
   "where.boot.license_flash": "La licenza ({file}) è legata al GUID della chiavetta di avvio ({guid}): con una nuova chiavetta, trasferiscila al nuovo GUID (⟦Tools⟧ → ⟦Registration⟧).",
   "where.boot.license_other": "La licenza ({file}) appartiene a un GUID che non è né quello di questa chiavetta né quello di questo TPM — controlla in ⟦Tools⟧ → ⟦Registration⟧.",
-  "where.help.tiles": "Riquadri sotto «Dov'è cosa»",
-  "where.help.tiles_text": "Ogni riquadro è un posto con file che contano. La sua etichetta mostra la protezione più debole tra questi (il log di sistema nella RAM e i dati delle immagini Docker non contano — si ricostruiscono comunque). Un clic apre i percorsi con dimensione e protezione.",
+  "where.help.tiles": "Posti sotto «Dov'è cosa»",
+  "where.help.tiles_text": "Ogni riga è un posto con file che contano. La sua etichetta mostra la protezione più debole tra questi (il log di sistema nella RAM e i dati delle immagini Docker non contano — si ricostruiscono comunque). Un clic sulla riga apre i percorsi con dimensione e protezione.",
   "where.help.copy": "Copia",
   "where.help.copy_text": "Mette il percorso negli appunti — per un terminale, il Files Viewer o un promemoria per il giorno in cui ti servirà.",
   "where.help.rows": "Righe nelle schede",
@@ -1473,8 +1455,6 @@
     "one": "Giro finito in {ms} ms — 1 disco svegliato.",
     "other": "Giro finito in {ms} ms — {n} dischi svegliati."
   },
-  "where.details_title": "Tutto nel dettaglio",
-  "where.details_hint": "scegli un riquadro — indipendente da «Dov'è cosa»",
   "where.place.cron": "Job cron",
   "where.place.cron_sub": {
     "one": "1 job",
@@ -1487,7 +1467,6 @@
   "where.loc.cron_d_note": "Generata — le modifiche qui vengono sovrascritte.",
   "where.loc.crontab": "La crontab di root (crontab -e)",
   "where.loc.crontab_note": "Sparisce dopo un riavvio.",
-  "where.look": "guarda",
   "where.sum.shares": {
     "one": "1 condivisione",
     "other": "{n} condivisioni"
@@ -1526,7 +1505,6 @@
   "where.tip.passthrough": "Dispositivi dell'host (ad es. una GPU o un controller USB) passati direttamente alla VM — su un altro server potrebbero non esserci.",
   "where.tip.autostart_vm": "Parte quando parte il servizio VM.",
   "where.tip.vm_snapshot": "Snapshot delle VM — apri la signora Snapshotini",
-  "where.now_sub": "Dal vivo dal server — un tocco su un riquadro apre il suo angolo più sotto, un secondo lo richiude.",
   "where.wake_failed": "Non si sono svegliati: {disks} — ciò che c'è lì lo mostro com'era prima.",
   "where.pool_label": "Pool {name}",
   "where.devices_n": {
@@ -1737,5 +1715,19 @@
   "errors.cleanup_volume_no_space": "Non c'è abbastanza spazio per una copia di {name} in {path}: servono {need}, liberi {free} — resta in Docker.",
   "errors.cleanup_volume_copy_failed": "La copia di {name} nel mio ripostiglio non è riuscita, quindi resta in Docker: {detail}",
   "errors.cleanup_volume_back_failed": "Rimettere {name} in Docker non è riuscito — la copia resta nel mio ripostiglio: {detail}",
-  "errors.cleanup_volume_exists": "Docker ha già un volume chiamato {name} — non ci copio sopra. Rimuovi o rinomina prima quello."
+  "errors.cleanup_volume_exists": "Docker ha già un volume chiamato {name} — non ci copio sopra. Rimuovi o rinomina prima quello.",
+  "where.tile.advice": "Consigli",
+  "where.tile.advice_none": "nessuno",
+  "where.tile.advice_known": {"one": "{n} nascosto", "other": "{n} nascosti"},
+  "count.advice": {"one": "{n} consiglio", "other": "{n} consigli"},
+  "count.places": {"one": "{n} posto", "other": "{n} posti"},
+  "count.sessions": {"one": "{n} sessione", "other": "{n} sessioni"},
+  "where.tile.docker_sub": "in esecuzione · {stacks}",
+  "where.tile.smart": "SMART: {state}",
+  "where.tile.array": "Array {state} · {more}",
+  "where.tile.scripts_running": {"one": "{n} in esecuzione", "other": "{n} in esecuzione"},
+  "where.tile.scripts_sub": "{scripts} · {cron}",
+  "where.tile.backup_idle": "Motore fermo",
+  "where.tile.backup_running": "in corso dalle {time}",
+  "where.scrub_running": "Scrub ZFS in corso: {list}"
 }
