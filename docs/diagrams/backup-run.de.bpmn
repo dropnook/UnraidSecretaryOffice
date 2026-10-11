@@ -4,7 +4,7 @@
   <bpmn:collaboration id="Collab">
     <bpmn:participant id="Pool" name="Ein Backup" processRef="sicherung" />
     <bpmn:textAnnotation id="A2">
-      <bpmn:text>Ohne Partner fällt dieser Schritt weg.</bpmn:text>
+      <bpmn:text>Fällt weg, wenn kein Share und keine VM die Stufe «lokal + Partner» hat. Volle Obergrenze beim Partner: eine Warnung, das Backup läuft weiter.</bpmn:text>
     </bpmn:textAnnotation>
     <bpmn:textAnnotation id="A1">
       <bpmn:text>Ab hier laufen Apps und VMs wieder - die Kopien brauchen keinen Stillstand.</bpmn:text>
@@ -305,7 +305,7 @@
         <di:waypoint x="1380" y="652" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="A2_di" bpmnElement="A2">
-        <dc:Bounds x="1260" y="470" width="200" height="50" />
+        <dc:Bounds x="1260" y="470" width="300" height="84" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="A1_di" bpmnElement="A1">
         <dc:Bounds x="1120" y="310" width="250" height="50" />

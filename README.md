@@ -68,6 +68,10 @@ What a new folder inherits ([BPMN source](docs/diagrams/new-folder.bpmn), [Germa
 
 <a name="diagram-new-folder"><img src="docs/diagrams/new-folder.svg" alt="A new folder: in a data share it inherits the share&#x27;s level; in appdata or domains the level of its app or VM; with no app or VM it stays local and waits for your decision"></a>
 
+A partner office, from the pairing to the copies ([BPMN source](docs/diagrams/partner-pairing.bpmn), [German](docs/diagrams/partner-pairing.de.svg)):
+
+<a name="diagram-partner-pairing"><img src="docs/diagrams/partner-pairing.svg" alt="Partner offices: the Team Leads pair, the receiver sets its rules, Mr. Backupsy&#x27;s level says what goes, every backup sends through the door, the partner keeps by its rules"></a>
+
 <a name="backup-run"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-light.png" alt="Mr. Backupsy: a run going on — its steps, its offsite sources, how long still"></picture></a>
 
 ### Getting something back
@@ -213,9 +217,11 @@ What was checked and what is still open: [HARDENING.md](HARDENING.md).
 ## Partner offices
 
 Two Unraid servers with the office — yours, a family member's, a friend's — can keep each other's backups. Paired at
-the Team Lead (two blocks to paste, one safety code to compare), with every backup the ZFS snapshots of what you tick go to
-the partner — after the first one only what changed — through SSH; the partner keeps them with its own retention and
-you can never delete them there. Mr. Restori's *At <partner>* brings them back into a new dataset beside the original.
+the Team Lead (two blocks to paste, one safety code to compare; the receiver sets its rules once: the pool, a quota, its
+retention), the level **local + partner** per share and VM in Mr. Backupsy's setup says what goes: with every backup
+their ZFS snapshots go to the partner — after the first one only what changed — through SSH; the partner's door takes
+any of them up to the quota, keeps them with its own retention, and you can never delete them there. Mr. Restori's
+*At <partner>* brings them back into a new dataset beside the original.
 When a server is gone, the new one asks at its Team Lead (*Start from a partner's copy…*) and the partner answers with
 a **restore ticket** — a door for seven days that only hands over those copies; Mr. Restori's *Onto a new server*
 pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,
