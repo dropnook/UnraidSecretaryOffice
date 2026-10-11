@@ -749,7 +749,7 @@
   "drill.set.monthly": "Monatlich",
   "drill.set.monthly_hint": "Nachts (00:00–07:00), gleich nach dem ersten Backup des Monats, das gut ging.",
   "drill.set.weekly": "Wöchentlich",
-  "drill.set.weekly_hint": "Einmal pro Woche, in der Nacht {night} (00:00–07:00), gleich nach einem Backup, das gut ging; gab es in dieser Nacht keines, holt eine spätere Nacht sie nach.",
+  "drill.set.weekly_hint": "Einmal pro Woche, in der Nacht {night} (00:00–07:00), gleich nach einem fertig erstellten Backup. Wurde in dieser Nacht kein Backup erstellt, macht Herr Restori die Übung erst beim nächsten erfolgreichen Backup.",
   "drill.set_weekday": "Welche Nacht",
   "drill.set_night": "In der Nacht {night}",
   "drill.night.0": "von Samstag auf Sonntag",
