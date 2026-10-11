@@ -26631,7 +26631,7 @@ function testSections(): void
     $g = (int) strpos($css, '/* the active tile (tiles v2');
     $glow = substr($css, $g, (int) strpos($css, '/* the switcher\'s row and body', $g) - $g);
     check('sections: the glow has no animation', !preg_match('/animation\s*:|transition\s*:|@keyframes/', $glow));
-    $want = ['en' => ['Filter on', 'Open', '◂ All'], 'de' => ['Filter aktiv', 'Offen', '◂ Alle'], 'it' => ['Filtro attivo', 'Aperto', '◂ Tutti'],
+    $want = ['en' => ['Filter on', 'Open', '◂ All'], 'de' => ['Filter aktiv', 'Geöffnet', '◂ Alle'], 'it' => ['Filtro attivo', 'Aperto', '◂ Tutti'],
         'fr' => ['Filtre actif', 'Ouvert', '◂ Tout'], 'es' => ['Filtro activo', 'Abierto', '◂ Todo']];
     foreach ($want as $code => $words) {
         $lang = langFile(OFFICE_WEB . "/lang/$code.json");

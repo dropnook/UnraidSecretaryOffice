@@ -11,7 +11,7 @@
 .sp-split .card-line{overflow-wrap:anywhere}
 .sp-split .sp-split-line{font-size:12.5px; color:var(--muted)}
 .card-line.quiet{color:var(--muted)}
-/* a card of her row while it carries the switcher's mark (top right, «Filter aktiv» / «Offen» — wider than core's room
+/* a card of her row while it carries the switcher's mark (top right, «Filter aktiv» / «Geöffnet» — wider than core's room
    for it): the head keeps the mark's corner free, its status («online», «1 VM») or chip goes onto a line of its own then */
 .sp-tiles > .card.tile-on > .card-head{flex-wrap:wrap; row-gap:2px; padding-right:118px}
 .sp-tiles > .card.tile-on > .card-head > .status{flex-basis:100%; margin-left:0}
