@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.41"
+UB_VERSION="2.42"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -373,7 +373,7 @@ cfg_validate() {
     _val "general|notify_success" '^(yes|no)$'              "yes/no"
     _val "general|asleep_pools"  '^(wake|skip)$'            "wake/skip"
     # since 2.31: Mr. Backupsy's default for new things - only setup.sh and the office read it, never a run
-    _val "general|preset_new"    '^(auto|local|kopia)$'     "auto/local/kopia"
+    _val "general|preset_new"    '^(auto|local|kopia|partner|kopia_partner)$'     "auto/local/kopia/partner/kopia_partner"
     _val "general|snap_prefix"   '^[a-z0-9_]+(-[a-z0-9_]+)*-$' "lower-case letters/digits, words joined by -, ends with -"
     # Ms. Snapshotini's schedules name theirs uso-plan-<plan>-...: never the engine's prefix (its retention would take them)
     [[ "$(cfg "general|snap_prefix")" == uso-plan-* ]] && CFG_ERRORS+=( "general|snap_prefix = '$(cfg "general|snap_prefix")' is invalid (uso-plan- belongs to Ms. Snapshotini's schedules)" )
@@ -2289,7 +2289,8 @@ status_json() {
         --argjson packages "${ST_PACKAGES:-null}" --argjson new_local "${ST_NEW_LOCAL:-null}" \
         --argjson partner "${partner:-null}" --argjson p_ok "${#ST_PARTNER_DONE[@]}" --argjson p_failed "${#ST_PARTNER_FAILED[@]}" \
         --argjson p_skipped "${#ST_PARTNER_SKIPPED[@]}" --argjson asleep "${asleep:-null}" --argjson skipped_why "$why" \
-        '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid,
+        --arg skipk "${SKIPK:-0}" \
+        '{interface: $interface, name: $name, version: $version, mode: $mode, run: $run, pid: $pid, skip_kopia: ($skipk == "1"),
           started: $started, updated: $updated, finished: $finished, phase: $phase, result: $result,
           message: $message, errors: $errors, warnings: $warnings, warning_items: $warning_items, downtime_s: $downtime,
           snapshot: $snapshot, dump_bytes: $dump_bytes, log: $log, drift: $drift, vms: $vms, packages: $packages,
@@ -3582,32 +3583,12 @@ partner_pairs_load() {
                  and (.address | type) == "string" and (.address | test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}$"))
                  and (.port | type) == "number" and .port >= 1 and .port <= 65535 and .port == (.port | floor)
                  and (.my_key | type) == "string"
-                 and (.send.units | type) == "array" and (.send.units | length) <= 64
-                 and all(.send.units[]; type == "string" and test("^((share|vm):[A-Za-z0-9][A-Za-z0-9._-]{0,63}|place)$")))
+                 and ((.send.units // []) | type) == "array" and ((.send.units // []) | length) <= 64
+                 and all((.send.units // [])[]; type == "string" and test("^((share|vm):[A-Za-z0-9][A-Za-z0-9._-]{0,63}|place)$")))
         | [.id, .name, .address, (.port | tostring),
            ((.send.rate_mbit // 0) | if type == "number" and . >= 0 then floor else 0 end | tostring),
-           (.send.units | join(" "))] | join("|")' "$f" 2>/dev/null)
+           ((.send.units // []) | join(" "))] | join("|")' "$f" 2>/dev/null)
     return 0
-}
-
-# partner_agreed_load -> PAIR_AGREED[id] = " unit unit ... " for every pair of pairs.json this office sends to (2.29);
-# returns 1 (and PAIR_AGREED empty) without that file - then nothing is known of an agreement and nothing is skipped
-# for it (the door decides, as before)
-declare -gA PAIR_AGREED=()
-partner_agreed_load() {
-    local line id units
-    PAIR_AGREED=()
-    partner_pairs_load || return 1
-    for line in "${PAIRS[@]}"; do
-        IFS='|' read -r id _ _ _ _ units <<<"$line"
-        [[ -n "$id" && -z "${PAIR_AGREED[$id]+x}" ]] && PAIR_AGREED[$id]=" $units "
-    done
-    return 0
-}
-# partner_agreed <id> <unit> -> 0 when that pair's agreement covers the unit - or nothing is known of it (no pairs.json,
-# a pair it doesn't name: the door decides)
-partner_agreed() {
-    [[ -z "${PAIR_AGREED[$1]+x}" || "${PAIR_AGREED[$1]}" == *" $2 "* ]]
 }
 
 # --- What the phase did, for status.json (section 7) ---------------------------
@@ -3615,7 +3596,8 @@ ST_PARTNER_IDS=()         # "id|name" of the partners this run sends to (empty: 
 ST_PARTNER_PLAN=()        # "id|unit" in the phase's order
 ST_PARTNER_CUR=""         # "id|unit" being sent
 ST_PARTNER_CUR_T=0
-ST_PARTNER_CUR_BYTES=0    # what left so far (pv's count, every 10 s)
+ST_PARTNER_CUR_BYTES=0    # what left so far (pv's count, every 10 s - status.json every 10 s too since 2.42)
+ST_PARTNER_CUR_EST=0      # 2.42: what zfs send -nP reckoned for this transfer (0 = unknown: a resumed one)
 ST_PARTNER_DONE=()        # "id|unit|snap|from|bytes|seconds|resumed(1/0)"
 ST_PARTNER_SKIPPED=()     # "id|unit|why"
 ST_PARTNER_FAILED=()      # "id|unit|why"
@@ -3634,9 +3616,9 @@ partner_status_json() {
     fl="$(printf '%s\n' "${ST_PARTNER_FAILED[@]}" | jq -R 'select(length > 0) | split("|") | {id: .[0], unit: .[1], why: .[2]}' | jq -sc .)" || fl='[]'
     jq -nc --argjson partners "${ids:-[]}" --argjson planned "${plan:-[]}" --argjson done "${done_:-[]}" \
         --argjson skipped "${sk:-[]}" --argjson failed "${fl:-[]}" --arg cur "$ST_PARTNER_CUR" --argjson since "${ST_PARTNER_CUR_T:-0}" \
-        --argjson bytes "${ST_PARTNER_CUR_BYTES:-0}" --arg intr "$ST_PARTNER_INTERRUPTED" \
+        --argjson bytes "${ST_PARTNER_CUR_BYTES:-0}" --argjson est "${ST_PARTNER_CUR_EST:-0}" --arg intr "$ST_PARTNER_INTERRUPTED" \
         '{partners: $partners, planned: $planned,
-          current: (if $cur == "" then null else ($cur | split("|") | {id: .[0], unit: .[1], since: $since, bytes: $bytes}) end),
+          current: (if $cur == "" then null else ($cur | split("|") | {id: .[0], unit: .[1], since: $since, bytes: $bytes, estimate: (if $est > 0 then $est else null end)}) end),
           done: $done, skipped: $skipped, failed: $failed,
           interrupted: (if $intr == "" then null else ($intr | split("|") | {id: .[0], unit: .[1]}) end)}'
 }

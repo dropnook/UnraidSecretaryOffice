@@ -394,9 +394,13 @@ then writes one line into `authorized_keys`: a key that can only reach the offic
 partner's address, a forced command — `agent/partner-door.php`): it may receive into its own datasets, list and send
 back its own copies and say how the office is; it can't browse the server, run a command or delete the history kept of
 its copies. The way is always SSH; the copies at the partner are plain (for a friend, Kopia is the encrypted way).
-Units are datasets only: a share that is a dataset of its own, a VM with one, the backup place. Every 15 minutes each
-office asks its partners how they are. *Change what <host> sends…* asks the partner through its door; the partner's
-Team Lead answers *Keep it too* or *No*.
+Units are datasets only: a share that is a dataset of its own, a VM with one, the backup place. **The Team Lead only
+pairs** (since 1.60): the receiver's consent is the pairing — its rules (pool, quota, retention, wake) at *Accept a
+partner…*, its door takes any unit of the pair up to the quota, at any time; what a server sends is the level
+*local + partner* per share and VM in Mr. Backupsy's setup (settings.ini `partner = <id>`). A unit the receiver never
+saw before is chipped «new» on its card; one nothing came of for 30 days «no longer comes» (Ms. Dustdevil offers to put
+it away). Every 15 minutes each office asks its partners how they are; a partner office up to 1.59 keeps only what its
+Team Lead agreed to, so the mutual watch offers it the units through its door until it is updated.
 
 The nightly sending is the engine's phase `partner` (backup/README.md, «Partner offices»). **Bringing it back:** Mr.
 Restori's tile *At <partner>* lists per unit the partner's snapshots; *Bring back…* pulls one through the door into a

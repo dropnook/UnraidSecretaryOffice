@@ -483,12 +483,6 @@
      "share:Familienfotos",
      "share:Dokumente"
     ],
-    "wanted": [
-     "place",
-     "share:Familienfotos",
-     "share:Dokumente"
-    ],
-    "offered": null,
     "offer": {
      "time": 1791444993,
      "ok": true,
@@ -496,17 +490,11 @@
      "pending": []
     },
     "status_time": 1791561334,
-    "wish": null,
     "receive": {
      "pool": "daten",
      "quota_gb": 50,
      "retention": "7 4 6",
-     "window": "00:00-00:00",
-     "wake": true,
-     "units": [
-      "share:Fotos-Grosseltern",
-      "place"
-     ]
+     "wake": true
     },
     "door": "open",
     "they_keep": {
@@ -552,7 +540,8 @@
       "share:Familienfotos",
       "share:Dokumente"
      ],
-     "wish": []
+     "wish": [],
+     "takes_all": true
     },
     "i_keep": {
      "pair": "2ec7accd",
@@ -562,14 +551,24 @@
        "bytes": 3153920,
        "seconds": 0,
        "time": 1791471681,
-       "snaps": 7
+       "snaps": 7,
+       "first": 1791011681
       },
       "share:Fotos-Grosseltern": {
        "snap": "uso-backup-20261008-1701",
        "bytes": 52428800,
        "seconds": 0,
        "time": 1791471681,
-       "snaps": 7
+       "snaps": 7,
+       "first": 1791011681
+      },
+      "vm:Pi-hole": {
+       "snap": "uso-backup-20261010-0430",
+       "bytes": 83886080,
+       "seconds": 6,
+       "time": 1791557734,
+       "snaps": 1,
+       "first": 1791557734
       }
      },
      "used_bytes": 18790481920,
@@ -579,7 +578,38 @@
      "bytes": 412090368,
      "mbit": 48.6
     },
-    "tickets": []
+    "tickets": [],
+    "older": false,
+    "named": null,
+    "i_keep_units": [
+     {
+      "unit": "place",
+      "snap": "uso-backup-20261008-1701",
+      "snaps": 7,
+      "time": 1791471681,
+      "first": 1791011681,
+      "new": true,
+      "stale": false
+     },
+     {
+      "unit": "share:Fotos-Grosseltern",
+      "snap": "uso-backup-20261008-1701",
+      "snaps": 7,
+      "time": 1791471681,
+      "first": 1791011681,
+      "new": true,
+      "stale": false
+     },
+     {
+      "unit": "vm:Pi-hole",
+      "snap": "uso-backup-20261010-0430",
+      "snaps": 1,
+      "time": 1791557734,
+      "first": 1791557734,
+      "new": true,
+      "stale": false
+     }
+    ]
    }
   ],
   "pending": [],

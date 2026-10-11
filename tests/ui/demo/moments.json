@@ -352,5 +352,87 @@
   "clip": [
    "section[data-place=\"room-section.icons\"]"
   ]
+ },
+ {
+  "nr": 3,
+  "desk": "backup",
+  "moment": "partner-run",
+  "title": "Herr Backupsi - Backup ohne Upload ausser Haus: der Schritt «Partner» mit Rate und Schätzung",
+  "route": "backup",
+  "states": {
+   "backup": "backup-run-partner"
+  },
+  "clip": ".bk-run"
+ },
+ {
+  "nr": 3,
+  "desk": "backup",
+  "moment": "levels",
+  "title": "Herr Backupsi - Einrichten: die Stufe pro VM mit fünf Feldern, grau wo kein eigenes Dataset",
+  "route": "backup/setup",
+  "prepare": [
+   {
+    "js": "document.querySelector('[data-place=\"setup.vms\"]').scrollIntoView({block: 'start'}); window.scrollBy(0, -60)",
+    "pause": 400
+   }
+  ],
+  "clip": "[data-place=\"setup.vms\"]"
+ },
+ {
+  "nr": 3,
+  "desk": "backup",
+  "moment": "preset",
+  "title": "Herr Backupsi - «Die Vorgabe»: vier Karten, auf der Karte ausser Haus das Häkchen «auch an die Grosseltern»",
+  "route": "backup/setup",
+  "prepare": [
+   {
+    "js": "[...document.querySelectorAll('.bk-pagehead button')].find((b) => b.textContent.startsWith(Office.t('backup.setup.preset.open'))).click()",
+    "pause": 700
+   }
+  ],
+  "clip": "#sso-dialog",
+  "viewport": true,
+  "height": 1100
+ },
+ {
+  "nr": 3,
+  "desk": "backup",
+  "moment": "start-nokopia",
+  "title": "Herr Backupsi - «Backup starten…»: ohne Upload ausser Haus gehen die Kopien trotzdem zu den Grosseltern",
+  "route": "backup",
+  "prepare": [
+   {
+    "js": "[...document.querySelectorAll('.deskhead-actions button')].find((b) => b.textContent === Office.t('backup.start')).click()",
+    "pause": 700
+   }
+  ],
+  "clip": "#sso-dialog",
+  "viewport": true,
+  "height": 800
+ },
+ {
+  "nr": 10,
+  "desk": "caretaker",
+  "moment": "accept",
+  "title": "Der Teamchef - «Partner annehmen…»: die Zustimmung einmal, mit Pool, Obergrenze und Aufbewahrung",
+  "route": "caretaker",
+  "prepare": [
+   {
+    "js": "[...document.querySelectorAll('[data-ct=partners] .section-head button')].find((b) => b.textContent === Office.t('caretaker.partner.accept')).click()",
+    "pause": 500
+   },
+   {
+    "fill": ".ct-ppaste",
+    "value": "BLOCK-A",
+    "pause": 200
+   },
+   {
+    "js": "[...document.querySelectorAll('#sso-dialog button')].find((b) => b.textContent === Office.t('caretaker.partner.look')).click()",
+    "pause": 900
+   }
+  ],
+  "clip": "#sso-dialog",
+  "viewport": true,
+  "height": 1300
  }
 ]

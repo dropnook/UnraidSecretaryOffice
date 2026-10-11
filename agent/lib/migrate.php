@@ -55,6 +55,12 @@ function officeMigrateSteps(): array
             => implode(', ', officeMigrateWhere($dir, $to)) ?: 'nothing to change'],
         // staff.json: a desk that went into another one written as that one — until 1.43 the web side rewrote it
         ['id' => 'staff-merged', 'version' => '1.44.0', 'run' => fn (string $dir, string $to): string => officeMigrateStaff($dir, $to)],
+        // pairs.json without the units agreed per pair and the receiving window (the Team Lead only pairs; the levels
+        // in Mr. Backupsy's setup say what goes, the door takes any unit up to the quota) — agent/lib/partner.php
+        ['id' => 'partner-simple', 'version' => '1.60.0', 'run' => function (string $dir, string $to): string {
+            require_once __DIR__ . '/partner.php';
+            return partnerMigrateSimple($dir);
+        }],
     ];
 }
 

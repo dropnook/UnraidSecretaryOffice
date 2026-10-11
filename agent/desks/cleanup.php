@@ -43,7 +43,7 @@ declare(strict_types=1);
  *              gone from data/partner/pairs.json (agent/lib/partnerlook.php) — awake pools only, the size from zfs
  *              list; put away with zfs rename next to the storeroom (the run's manifest on the flash), never while
  *              the partner door receives for that pair. Also a pair's unit datasets (<pair>/<unit>) whose unit the
- *              pair's receive.units no longer names (the Team Lead's «Keep less of …»): renamed into the partners'
+ *              pair's door received nothing of for 30 days (the unit stopped coming): renamed into the partners'
  *              place on the same pool (<…-partners>/.UnraidSecretaryOffice-trash-<run>-<unit>-<pair>), never while a
  *              transfer of the door names that unit
  *   icons      containers without a picture on Unraid's Docker page and
@@ -3081,7 +3081,7 @@ function clPartnerUnitBusy(array $doors, string $id, string $unit, string $datas
  * What ended partnerships left (agent/lib/partnerlook.php): on the awake ZFS pools, every
  * <pool>/UnraidSecretaryOffice-partners/<pair> whose pair is gone from data/partner/pairs.json — a leftover of her
  * room «partners», its size ZFS's `used` (its units and their snapshots), `why` transfer while the door receives for
- * it; and of a pair still there every unit dataset <pair>/<unit> its receive.units no longer names (category
+ * it; and of a pair still there every unit dataset <pair>/<unit> nothing came of for PARTNER_STALE_DAYS (category
  * `dropped`, `unit`, `pair_name`; `why` transfer while a transfer of the door names that unit). Also every dataset
  * of the partners' places (her storeroom's parked ones are found by it — never mounted) and the sleeping pools (not
  * looked at). Tests: `$GLOBALS['clPartnerHost']` = pools [awake, asleep], zfs (a callable
@@ -3108,9 +3108,14 @@ function clPartners(?array $host = null): array
     }
     $places = partnerLookPlaces($awake, $host['zfs'] ?? null) ?? [];
     $pairs = partnerLookPairs($host['pairs'] ?? null);
-    $keeps = [];                                // what I still keep of each pair (its receive.units; none: nothing)
+    // what still comes of each pair: a unit received within PARTNER_STALE_DAYS (received/<id>.json; since 1.60 the door
+    // takes any unit — one that stopped coming keeps its snapshots for good, so she offers to put it away); without a
+    // record of the pair nothing is known: nothing of it is dust
+    $now = $host['now'] ?? time();
+    $keeps = [];
     foreach (partnerPairs($host['pairs'] ?? null) as $p) {
-        $keeps[$p['id']] = (array) ($p['receive']['units'] ?? []);
+        $got = partnerReceived($p['id']);
+        $keeps[$p['id']] = $got === null ? null : array_column(array_filter(partnerReceivedUnits($got, $now), fn ($u) => !$u['stale']), 'unit');
     }
     $doors = partnerLookDoors($host['run'] ?? partnerRunDir(), $host['alive'] ?? null);
     $busy = array_flip(array_column($doors, 'pair'));
@@ -3123,11 +3128,11 @@ function clPartners(?array $host = null): array
         foreach ($pl['ids'] as $id => $x) {
             $there[$x['dataset']] = true;
             if (isset($pairs[$id])) {
-                // a pair of today: the door keeps its copies — but a unit the agreement no longer names is dust
+                // a pair of today: the door keeps its copies — but a unit that stopped coming (stale) is dust
                 foreach ($x['units'] as $uds => $used) {
                     $uds = (string) $uds;
                     $unit = clPartnerUnitOf($uds);
-                    if ($unit === null || in_array($unit, $keeps[$id] ?? [], true)) {
+                    if ($unit === null || !isset($keeps[$id]) || in_array($unit, $keeps[$id], true)) {
                         continue;
                     }
                     $ds = $x['dataset'] . "/$uds";

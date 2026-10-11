@@ -683,11 +683,6 @@
      "place",
      "share:domains"
     ],
-    "wanted": [
-     "place",
-     "share:domains"
-    ],
-    "offered": null,
     "offer": {
      "time": 1791444993,
      "ok": true,
@@ -697,7 +692,6 @@
      ]
     },
     "status_time": 1791561334,
-    "wish": null,
     "receive": null,
     "door": null,
     "they_keep": {
@@ -743,14 +737,18 @@
       "share:domains",
       "place"
      ],
-     "wish": []
+     "wish": [],
+     "takes_all": true
     },
     "i_keep": null,
     "last_transfer": {
      "bytes": 151389568,
      "mbit": 1211.1
     },
-    "tickets": []
+    "tickets": [],
+    "older": false,
+    "named": null,
+    "i_keep_units": []
    },
    {
     "id": "26bbb6eb",
@@ -771,21 +769,13 @@
     "tailnet": null,
     "sends": false,
     "send_units": [],
-    "wanted": [],
-    "offered": null,
     "offer": null,
     "status_time": null,
-    "wish": null,
     "receive": {
      "pool": "big",
      "quota_gb": 0,
      "retention": "7 4 6",
-     "window": "00:00-00:00",
-     "wake": true,
-     "units": [
-      "share:pdata",
-      "place"
-     ]
+     "wake": true
     },
     "door": "open",
     "they_keep": null,
@@ -811,7 +801,29 @@
      "time": 1791471681
     },
     "last_transfer": null,
-    "tickets": []
+    "tickets": [],
+    "older": false,
+    "named": null,
+    "i_keep_units": [
+     {
+      "unit": "place",
+      "snap": "uso-backup-20261008-1701",
+      "snaps": 4,
+      "time": 1791471681,
+      "first": 1791471681,
+      "new": true,
+      "stale": false
+     },
+     {
+      "unit": "share:pdata",
+      "snap": "uso-backup-20261008-1701",
+      "snaps": 4,
+      "time": 1791471681,
+      "first": 1791471681,
+      "new": true,
+      "stale": false
+     }
+    ]
    }
   ],
   "pending": [],
