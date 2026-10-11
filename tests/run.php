@@ -3400,6 +3400,168 @@ function testDetailsKept(): void
         && str_contains($ad, '!told.has(id)') && !str_contains($ad, 'let told = false;'));
 }
 
+/**
+ * Engine 2.40: an [app "<name>"] section whose app is gone (2026-10-11, an end-to-end test on a large server: a Nextcloud
+ * twin stack removed, its `[app "zz-uso-nc"] kopia = yes / folder = appdata/zz-uso-nc` stayed after every Apply). setup.sh
+ * --plan and --apply on a fixture server (stand-ins for docker with Kopia inside, zfs, virsh, mount, notify): the plan marks
+ * it gone in apps[] with its keys and leaves it out of P, says so once (app_gone); Apply removes the section — also when the
+ * decisions still name it — and nothing else: an app that is a Compose project and one that is a single container stay;
+ * Docker not answering: nobody knows, the section stays. The page's side: step 2 lists it like a gone share, the apply
+ * dialog one line, the decisions never carry it.
+ */
+function testSetupGoneApp(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-goneapp-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    $pool = "$mnt/maple";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/unraid-backup/state", "$tmp/boot/config/shares", $root, "$mnt/user",
+              "$pool/appdata/kopia", "$pool/appdata/c1", "$pool/appdata/solo", "$pool/appdata/zz-uso-nc", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (['appdata', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data/unraid-backup UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+# «down»: the daemon doesn't answer its version (ub_docker_answers) and lists nothing - the environment step's info still passes
+[[ -e "$FAKE/down" && "$1" != info ]] && exit 1
+case "$1" in
+  info) exit 0 ;;
+  version) echo 29.0; exit 0 ;;
+  ps) cat "$FAKE/ids" 2>/dev/null; exit 0 ;;
+  compose) exit 1 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *State.Running*) echo true ;;
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    shift
+    case "$1" in
+      cat) exit 0 ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list") echo '[]' ;;
+          "snapshot list") echo '[]' ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *'-t filesystem'* ]] && cat \"\$FAKE/zfs.txt\"\nexit 0\n");
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nmkdir -p \"\${@: -1}\"\n");
+    file_put_contents("$tmp/bin/umount", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nexit 0\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+        . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$tmp/fake/zfs.txt", $z('maple', $pool, 1) . $z('maple/appdata', "$pool/appdata", 5000) . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"maple\"]\nname=\"maple\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\n");
+    $ct = fn ($name, $img, $binds, $labels = []) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => $labels ?: new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
+        'Mounts' => array_map(fn ($b) => ['Type' => 'bind', 'Source' => $b[0], 'Destination' => $b[1], 'RW' => true], $binds)];
+    // the Nextcloud stack zz-uso-nc is gone; c1 is the Compose project «web», solo a single container
+    file_put_contents("$tmp/fake/inspect.json", json_encode([
+        $ct('kopia', 'imagegenius/kopia', [["$mnt/user/appdata/kopia", '/config'], [$root, '/uso']]),
+        $ct('c1', 'nginx', [["$mnt/user/appdata/c1", '/config']], ['com.docker.compose.project' => 'web', 'com.docker.compose.service' => 'c1']),
+        $ct('solo', 'redis', [["$mnt/user/appdata/solo", '/data']])]));
+    $data = "$tmp/data/unraid-backup";
+    $settings = "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
+        . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = c1\nknown = solo\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\n"
+        . "identity = root@kopia\nignore = _UnraidSecretaryOffice-trash*/\nignore = .UnraidSecretaryOffice-trash*/\n"
+        . "[app \"solo\"]\nkopia = yes\nfolder = appdata/solo\n[app \"web\"]\nkopia = yes\nfolder = appdata/c1\nkopia_retention = 1 0 7 4 6 0\n"
+        . "[app \"zz-uso-nc\"]\nkopia = yes\nfolder = appdata/zz-uso-nc\nkopia_ignore = /appdata/zz-uso-nc/cache/\n"
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n";
+    file_put_contents("$data/settings.ini", $settings);
+    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
+    $readPlan = fn () => json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    $apps = array_column($plan['apps'] ?? [], null, 'name');
+    same('gone app: the plan lists every [app] section, the gone one marked with its keys', [
+            ['solo', 'web', 'zz-uso-nc'], [false, false, true],
+            ['folder' => ['appdata/zz-uso-nc'], 'kopia' => 'yes', 'kopia_ignore' => ['/appdata/zz-uso-nc/cache/']]],
+        [array_keys($apps), array_column($plan['apps'] ?? [], 'gone'), (function ($k) { ksort($k); return $k; })($apps['zz-uso-nc']['keys'] ?? [])], $out);
+    $P = $plan['P'] ?? [];
+    same('gone app: its keys are no proposal any more, the others\' are (a Compose project, a single container)', [[], 'yes', '1 0 7 4 6 0', 'yes'],
+        [array_values(array_filter(array_keys($P), fn ($k) => str_starts_with($k, 'app|zz-uso-nc|'))), $P['app|web|kopia'] ?? null, $P['app|web|kopia_retention'] ?? null, $P['app|solo|kopia'] ?? null]);
+    same('gone app: settings.ini as it is in O', 'yes', $plan['O']['app|zz-uso-nc|kopia'] ?? null);
+    $said = array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'));
+    same('gone app: said once, as a hint with its name', [1, 'hint', ['name' => 'zz-uso-nc']], [count($said), $said[0]['level'] ?? null, $said[0]['params'] ?? null]);
+    $pend = implode("\n", array_map(fn ($p) => ($p['sign'] ?? '') . ($p['section'] ?? '') . ' ' . ($p['line'] ?? ''), $plan['pending'] ?? []));
+    check('gone app: what Apply would change names the section\'s lines', str_contains($pend, 'zz-uso-nc'), $pend);
+
+    // Apply with the office's draft (every key of P): the section goes, nothing else of the user's
+    file_put_contents("$tmp/dec.json", json_encode($P + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('gone app: Apply removes its section', !str_contains($ini, 'zz-uso-nc'), $ini . $out);
+    check('gone app: the apps that are there keep theirs, retention too', str_contains($ini, "[app \"solo\"]\nkopia = yes\nfolder = appdata/solo\n")
+        && str_contains($ini, "[app \"web\"]\nkopia = yes\nfolder = appdata/c1\nkopia_retention = 1 0 7 4 6 0\n"), $ini);
+    check('gone app: the shares and the rest as they were', str_contains($ini, "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n") && str_contains($ini, "container = kopia\n"), $ini);
+    $plan = $readPlan();
+    $setup('--plan');
+    $plan = $readPlan();
+    same('gone app: the next plan - nothing gone, nothing said', [['solo', 'web'], []],
+        [array_column($plan['apps'] ?? [], 'name'), array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'))]);
+
+    // an older page still sends the gone app's keys: setup.sh drops them anyway
+    file_put_contents("$data/settings.ini", $settings);
+    $setup('--plan');
+    $P = $readPlan()['P'] ?? [];
+    file_put_contents("$tmp/dec.json", json_encode($P + ['app|zz-uso-nc|kopia' => 'yes', 'app|zz-uso-nc|folder' => ['appdata/zz-uso-nc'], '_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('gone app: decisions that still name it - removed all the same', !str_contains($ini, 'zz-uso-nc') && str_contains($ini, '[app "web"]'), $ini . $out);
+
+    // Docker not answering (its version; no container listed): nobody knows what is gone - the section stays, nothing said
+    file_put_contents("$data/settings.ini", $settings);
+    touch("$tmp/fake/down");
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    same('gone app: Docker not answering - nothing marked gone, the keys stay proposed', [[false, false, false], 'yes', []],
+        [array_column($plan['apps'] ?? [], 'gone'), $plan['P']['app|zz-uso-nc|kopia'] ?? null,
+         array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'))], $out);
+    @unlink("$tmp/fake/down");
+
+    // the page: step 2 like a gone share (no level), the apply dialog one line per gone app, never in the decisions
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('gone app (page): read from the plan\'s apps[] gone; never sent, never counted key by key',
+        str_contains($js, 'const goneApps = (plan) =>') && str_contains($js, "Object.keys(out).forEach((k) => { if (goneAppKey(k, setup.plan)) delete out[k]; });")
+        && str_contains($js, "goneAppKey(k, setup.plan) ? `app|\${k.split('|')[1]}|` : k"));
+    check('gone app (page): step 2 shows it with «gone» and no level, the dialog says «entry will be removed»',
+        str_contains($js, "list.appendChild(el('div', 'bk-subhead', T('setup.apps_gone')))") && str_contains($js, "right.appendChild(chip(T('setup.gone'), 'warn'));")
+        && str_contains($js, "const li = el('li', '', T('setup.ch_app_gone', { name: a.name }));"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    check('gone app (page): its words', isset($en['setup.msg.app_gone'], $en['setup.apps_gone'], $en['setup.app_gone_had'], $en['setup.ch_app_gone']));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testSetupListDiff(): void
 {
     // the apply dialog (2026-10-09): the same containers in another order are no change; a list shows only what
@@ -3954,7 +4116,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.39'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.40'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -5594,7 +5756,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.40', [1, '2.40'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -6105,7 +6267,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.40', [1, '2.40'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -8381,6 +8543,135 @@ function testRestoreShares(): void
         array_values(rsShareSpace('zzdrop', $c)));
 
     unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users']);
+    $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Mr. Restori and a Nextcloud restored from the engine's snapshot (the end-to-end test of 2026-10-11 on a large server:
+ * the restored Nextcloud answered «maintenance» to every request): where its config.php lies on the host (the official
+ * image, a bind of its own for config, linuxserver's), which restore brings it back (its config folder in what comes
+ * back, the engine's moment, swapped — not a copy, not another app's folder, not another snapshot), the plan's step
+ * after the containers' start and its note, and the step itself on a stand-in docker: occ as Nextcloud's user while the
+ * container runs, a warning naming the command when it doesn't run or occ refuses — never failed.
+ */
+function testRestoreNextcloud(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsnc-' . getmypid();
+    $mnt = "$tmp/mnt";
+    $ctx0 = ['fs' => ['hazel' => 'zfs']];
+    $b = fn (string $src, string $dest) => ['source' => $src, 'dest' => $dest, 'rw' => true];
+    same('restore nextcloud: config.php beside occ, through the deepest bind, as the share path', [
+            '/mnt/user/zzapps/zz-nc/config', '/mnt/user/zzapps/zz-ncconf', '/mnt/user/zzapps/zz-lsio/www/nextcloud/config',
+            '/mnt/user/zzapps/zz-lsio/www/nextcloud/config', null, null],
+        [rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzapps/zz-nc', '/var/www/html'), $b('/mnt/user/zzdata', '/var/www/html/data')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzapps/zz-nc', '/var/www/html'), $b('/mnt/hazel/zzapps/zz-ncconf/', '/var/www/html/config')], $ctx0),
+         rsNcConfigDir('/app/www/public/occ', [$b('/mnt/user/zzapps/zz-lsio', '/config')], $ctx0),
+         rsNcConfigDir('/config/www/nextcloud/occ', [$b('/mnt/user/zzapps/zz-lsio', '/config')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzdata', '/var/www/html/data')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/var/lib/docker/volumes/nc/_data', '/var/www/html')], $ctx0)]);
+    $ncs = [['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data', 'same_as' => '', 'config' => '/mnt/user/zzapps/zz-nc/config'],
+            ['container' => 'zz-nc-cron', 'occ' => '/var/www/html/occ', 'user' => 'www-data', 'same_as' => 'zz-nc-app', 'config' => '/mnt/user/zzapps/zz-nc/config']];
+    same('restore nextcloud: brought back with its folder or its whole share — once per instance, never a neighbour\'s',
+        [['zz-nc-app'], ['zz-nc-app'], [], [], ['zz-nc-cron']],
+        [array_column(rsNcBack($ncs, ['/mnt/user/zzapps/zz-nc']), 'container'), array_column(rsNcBack($ncs, ['/mnt/user/zzapps']), 'container'),
+         array_column(rsNcBack($ncs, ['/mnt/user/zzapps/zz-nc-old', '/mnt/user/zzapps/zz-other']), 'container'),
+         array_column(rsNcBack([['container' => 'x', 'config' => null]], ['/mnt/user/zzapps']), 'container'),
+         array_column(rsNcBack([$ncs[1]], ['/mnt/user/zzapps/zz-nc']), 'container')]);
+
+    // the plan: a share zzapps on hazel (an exclusive share: /mnt/user/zzapps is the link), the Nextcloud's folder and another app's
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [str_contains(implode(' ', $paths), 'zz-nc') ? ['zz-nc-db', 'zz-nc-app'] : ['zz-other'], []];
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $snap = fn (string $name): string => "$mnt/hazel/zzapps/.zfs/snapshot/$name";
+    $put("$mnt/hazel/zzapps/zz-nc/config/config.php", "<?php \$CONFIG = ['maintenance' => false];");
+    $put("$mnt/hazel/zzapps/zz-other/x.txt", 'live');
+    $put($snap('uso-backup-20261011-0300') . '/zz-nc/config/config.php', "<?php \$CONFIG = ['maintenance' => true];");
+    $put($snap('uso-backup-20261011-0300') . '/zz-other/x.txt', 'snap');
+    $put($snap('manual-y') . '/zz-nc/config/config.php', "<?php \$CONFIG = ['maintenance' => false];");
+    $put("$mnt/user");
+    symlink("$mnt/hazel/zzapps", "$mnt/user/zzapps");
+    $T0 = (int) strtotime('2026-10-11 03:00');
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzapps" => 'zz-hazel/zzapps'],
+        'snaps' => ['zz-hazel/zzapps' => [['name' => 'uso-backup-20261011-0300', 'time' => $T0], ['name' => 'manual-y', 'time' => $T0 + 3600]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzapps' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzapps' => ['exclusive' => 'yes']], 'old_shares' => null, 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz-nc', 'id' => 'zz-nc', 'vm_state' => null, 'nextcloud' => $ncs];
+    $other = ['kind' => 'app', 'name' => 'zz-other', 'id' => 'zz-other', 'vm_state' => null, 'nextcloud' => []];
+    $stamp = '20261011-120000';
+    $plan = function (string $path, string $moment, string $mode, array $who) use ($ctx, $stamp): array {
+        $c = $ctx;
+        return rsPlanFilesFor($path, $moment, $mode, false, $who, $stamp, $c);
+    };
+    $p = $plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'swap', $owner);
+    same('restore nextcloud: swapped from the engine\'s snapshot — maintenance off after the containers\' start, nothing blocks',
+        [['copy', 'stop', 'aside', 'move', 'start', 'maintenance_off'], [], ['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data']],
+        [array_column($p['steps'], 'do'), array_column($p['blockers'], 'key'), array_intersect_key(end($p['steps']), array_flip(['container', 'occ', 'user']))]);
+    same('restore nextcloud: said under «Afterwards», with the command', ['after.files_swap', 'after.nextcloud_maintenance', 'zz-nc-app', 'www-data', '/var/www/html/occ'],
+        [$p['after'][0]['key'] ?? null, $p['after'][1]['key'] ?? null, $p['after'][1]['params']['container'] ?? null, $p['after'][1]['params']['user'] ?? null,
+         $p['after'][1]['params']['occ'] ?? null]);
+    $whole = $plan('/mnt/user/zzapps', 'run:20261011-0300', 'swap', $owner + ['nextcloud' => $ncs]);
+    same('restore nextcloud: the whole share brings its folder back too', 'maintenance_off', end($whole['steps'])['do'] ?? null);
+    $none = fn (array $p) => [in_array('maintenance_off', array_column($p['steps'], 'do'), true), in_array('after.nextcloud_maintenance', array_column($p['after'], 'key'), true)];
+    same('restore nextcloud: not for a copy, another snapshot, another app\'s folder, an app without Nextcloud',
+        [[false, false], [false, false], [false, false], [false, false]],
+        [$none($plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'copy', $owner)), $none($plan('/mnt/user/zzapps/zz-nc', 'name:manual-y', 'swap', $owner)),
+         $none($plan('/mnt/user/zzapps/zz-other', 'run:20261011-0300', 'swap', $owner)), $none($plan('/mnt/user/zzapps/zz-other', 'run:20261011-0300', 'swap', $other))]);
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/restore/lang/en.json'), true) ?: [];
+    check('restore nextcloud: the step, its notes and the line have words',
+        isset($en['step.maintenance_off'], $en['sn.nc_not_running'], $en['sn.nc_maintenance_failed'], $en['after.nextcloud_maintenance']));
+
+    // the step on a stand-in docker: a running one, a stopped one, one whose occ refuses
+    $put("$tmp/bin/docker", "#!/bin/sh\necho \"\$*\" >> " . escapeshellarg("$tmp/docker.calls") . "\n"
+        . "case \"\$*\" in\n"
+        . "  *inspect*zz-nc-app*|*inspect*zz-nc-bad*) echo true ;;\n"
+        . "  *inspect*) echo 'Error: No such object' >&2; exit 1 ;;\n"
+        . "  *exec*zz-nc-bad*) echo 'Nextcloud is not installed' >&2; exit 1 ;;\n"
+        . "  *exec*) echo 'Maintenance mode disabled' ;;\n"
+        . "esac\n");
+    chmod("$tmp/bin/docker", 0755);
+    $GLOBALS['rs']['docker'] = "$tmp/bin/docker";
+    $GLOBALS['rs']['nc_wait'] = 0;
+    $id = "$stamp-ab12";
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $i = count($j['steps']) - 1;
+    $r = rsStep($j, $i);
+    same('restore nextcloud: occ as Nextcloud\'s user while the container runs', ['ok', "inspect -f {{.State.Running}} zz-nc-app\nexec -u www-data zz-nc-app php /var/www/html/occ maintenance:mode --off"],
+        [$r['state'], trim((string) @file_get_contents("$tmp/docker.calls"))]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['container'] = 'zz-nc-gone';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: a container that doesn\'t run — a warning naming the command, occ not asked', ['warning', 'nc_not_running',
+            'docker exec -u www-data zz-nc-gone php /var/www/html/occ maintenance:mode --off', 1],
+        [$r['state'], $r['note'] ?? null, $r['params']['command'] ?? null, count(file("$tmp/docker.calls"))]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['container'] = 'zz-nc-bad';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: occ refuses — three tries, then a warning (never failed)', ['warning', 'nc_maintenance_failed', 3, 'Nextcloud is not installed'],
+        [$r['state'], $r['note'] ?? null, count(preg_grep('/^exec /', file("$tmp/docker.calls"))), $r['detail'] ?? null]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['user'] = 'www-data; rm -rf /';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: a step of an odd shape runs nothing', ['warning', false], [$r['state'], is_file("$tmp/docker.calls")]);
+
+    unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+          $GLOBALS['rs']['docker'], $GLOBALS['rs']['nc_wait']);
     $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -28404,7 +28695,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
