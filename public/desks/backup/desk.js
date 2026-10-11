@@ -110,6 +110,29 @@ function partnerName(id, run) {
 const partnerWhyShort = (w) => (Office.has(`${ID}.partner.why_short.${w}`) ? T('partner.why_short.' + w) : w);
 /** How many units a run's partner phase has done with so far (sent, skipped, failed) */
 const partnerDoneCount = (p) => ((p && p.done) || []).length + ((p && p.skipped) || []).length + ((p && p.failed) || []).length;
+/** A run's mode as the card titles it: a --no-kopia run (engine 2.42: status.json skip_kopia) is «Backup without the offsite upload» */
+const runModeOf = (s) => (s && s.mode === 'backup' && s.skip_kopia ? 'nokopia' : (s && s.mode) || 'backup');
+/**
+ * The transfer going on, as the agent reckons it (state.partners[].current: rate = the median of the last 10 minutes,
+ * estimate from zfs send -nP, eta): «To vault: appdata — 1.2 of ~4.3 GB · 85 MB/s · about 1 min left (2 of 3 done)»
+ */
+function partnerRateOf(s) {
+  const pc = s && s.partner && s.partner.current;
+  if (!pc) return null;
+  const mine = ((state && state.partners) || []).find((x) => x.id === pc.id);
+  const c = mine && mine.current && mine.current.unit === pc.unit ? mine.current : null;
+  return { bytes: pc.bytes || 0, estimate: (c && c.estimate) || pc.estimate || null, rate: c && typeof c.rate === 'number' ? c.rate : null,
+    eta: c && typeof c.eta === 'number' ? c.eta : null };
+}
+function partnerNowText(s) {
+  const pc = s.partner.current;
+  const r = partnerRateOf(s) || { bytes: pc.bytes || 0, estimate: null, rate: null, eta: null };
+  const base = { name: partnerName(pc.id, s.partner), unit: unitLabel(pc.unit), n: partnerDoneCount(s.partner), total: (s.partner.planned || []).length };
+  const parts = [r.estimate ? T('partner.now_of', { ...base, done: fmt.size(r.bytes), size: fmt.size(r.estimate) }) : T('partner.now', { ...base, size: fmt.size(r.bytes) })];
+  if (r.rate) parts.push(T('partner.rate', { rate: fmt.size(r.rate) }));
+  if (r.eta !== null && r.rate) parts.push(r.eta < 60 ? T('partner.left_soon') : T('partner.left', { left: fmt.duration(Math.ceil(r.eta / 60) * 60) }));
+  return parts.join(' · ');
+}
 
 /** The own Kopia source of an app or VM (state.items), if it has one */
 const itemOf = (kind, name) => (state && state.items || []).find((i) => i.kind === kind && i.name === name) || null;
@@ -235,7 +258,12 @@ function progress() {
     return e;
   };
 
-  if (step < KOPIA_STEP) {
+  const pr = s.phase === 'partner' ? partnerRateOf(s) : null;
+  if (pr && pr.eta !== null && pr.rate) {
+    // a unit on its way to a partner (engine 2.42): what is left of this transfer at the measured rate, then Kopia's sources
+    remaining += pr.eta;
+    planned.forEach((n) => { remaining += sourceLeft(n); });
+  } else if (step < KOPIA_STEP) {
     if (est.before) remaining += Math.max(0, est.before - (now - s.started));
     else if (!planned.length && est.total) remaining += Math.max(0, est.total - (now - s.started));
     else known = false;
@@ -474,7 +502,7 @@ function runningCard() {
   const card = el('div', 'card bk-run');
 
   const top = el('div', 'card-head');
-  top.append(el('span', 'card-name', s ? T('mode.' + s.mode) : T('mode.backup')), chip(T('result.running'), 'accent'));
+  top.append(el('span', 'card-name', s ? T('mode.' + runModeOf(s)) : T('mode.backup')), chip(T('result.running'), 'accent'));
   const since = s ? s.started : state.since;
   if (since) top.appendChild(el('span', 'status quiet', T('since', { time: fmt.time(since), duration: fmt.duration(Date.now() / 1000 - since) })));
   card.appendChild(top);
@@ -500,9 +528,9 @@ function runningCard() {
     const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));
     // struck through - and why: offsite switched off, or on but nothing goes this time. Not while the run still looks
     // around (step 0 has no plan yet — 2026-10-11 on nostromo the step stood struck through at 0 % and Kopia then sent 31)
-    if (name === 'kopia' && !p.planned.length && (p.step > 0 || (state.settings && state.settings.kopia_enabled === false))) {
+    if (name === 'kopia' && (s.skip_kopia || (!p.planned.length && (p.step > 0 || (state.settings && state.settings.kopia_enabled === false))))) {
       li.classList.add('skipped');
-      li.dataset.tip = state.settings && state.settings.kopia_enabled === false ? T('step.kopia_skipped_off') : T('step.kopia_skipped_none');
+      li.dataset.tip = s.skip_kopia ? T('step.kopia_skipped_nokopia') : state.settings && state.settings.kopia_enabled === false ? T('step.kopia_skipped_off') : T('step.kopia_skipped_none');
     }
     steps.appendChild(li);
   });
@@ -525,11 +553,7 @@ function runningCard() {
   if (s.packages && s.packages.written) line.append(' · ', T('pk.run_packed', { apps: nOf('apps', s.packages.apps), vms: nOf('vms', s.packages.vms) }));
   card.appendChild(line);
   if (s.phase === 'vm_shutdown') card.appendChild(el('div', 'card-line', T('vm_shutdown_now')));
-  if (s.phase === 'partner' && s.partner && s.partner.current) {
-    const pc = s.partner.current;
-    card.appendChild(el('div', 'card-line', T('partner.now', { name: partnerName(pc.id, s.partner), unit: unitLabel(pc.unit), size: fmt.size(pc.bytes || 0),
-      n: partnerDoneCount(s.partner), total: (s.partner.planned || []).length })));
-  }
+  if (s.phase === 'partner' && s.partner && s.partner.current) card.appendChild(el('div', 'card-line', partnerNowText(s)));
   if (p.first) card.appendChild(el('div', 'card-line', firstText(p.first, false)));
 
   // what is paused right now: stopped containers, Nextcloud in maintenance mode
@@ -1603,8 +1627,11 @@ async function chooseRun() {
     input.checked = m === mode;
     input.onchange = () => { mode = m; };
     const text = el('span', '', T('mode.' + m));
-    // a full backup sends to Kopia only while it is switched on in the settings: say what really happens
-    text.appendChild(el('small', '', T(m === 'backup' && !kopia ? 'mode_hint.backup_local' : 'mode_hint.' + m)));
+    // a full backup sends to Kopia only while it is switched on in the settings: say what really happens; a run without
+    // the offsite upload still sends to the partners whose units have a partner level (engine 2.42)
+    const to = m === 'nokopia' ? ((state.partners || []).filter((p) => (p.units || []).length).map((p) => p.name)) : [];
+    text.appendChild(el('small', '', to.length ? T('mode_hint.nokopia_partners', { partners: to.join(', ') })
+      : T(m === 'backup' && !kopia ? 'mode_hint.backup_local' : 'mode_hint.' + m)));
     label.append(input, text);
     box.appendChild(label);
   });
@@ -1746,9 +1773,36 @@ function setupDraftFromPlan() {
   setup.newItems = setupNewItems(setup.plan, setupSaved());
   const covered = (k) => !!(c && c.all && (!c.items || c.items.has(k)));
   presetApplyNew(presetNow(), new Set([...setup.newItems].filter((k) => !covered(k))));
+  setupMigrated();
   setup.base = clone(setup.draft);         // what the assistant proposes (with the default), before the user clicks
   setup.baseLevels = { ...setup.levels };
   setup.baseHeld = { ...setup.held };
+}
+
+/**
+ * The units the pairs sent up to 1.59 (the migration step partner-simple, plan.migrated {id: [unit…]} — only those
+ * settings.ini lacks the partner line for): proposed at «local + partner» as the draft's proposal, the user applies.
+ * Only a unit that can travel and is backed up; the place through general|partner_place
+ */
+function setupMigrated() {
+  const plan = setup.plan;
+  const mig = plan.migrated && typeof plan.migrated === 'object' ? plan.migrated : {};
+  const ids = setupPartners().map((p) => p.id);
+  const place = dget('general|dumps_share', '');
+  Object.entries(mig).forEach(([id, units]) => {
+    if (!ids.includes(id) || !Array.isArray(units)) return;
+    units.forEach((u) => {
+      let key = null;
+      let ok = false;
+      const m = /^(share|vm):(.+)$/.exec(String(u));
+      if (u === 'place') { const row = plan.shares.find((x) => x.name === place); key = row ? 'general|partner_place' : null; ok = !!(row && row.partner_ok && dget(`share|${place}|mode`, 'off') !== 'off'); }
+      else if (m && m[1] === 'share') { const row = plan.shares.find((x) => x.name === m[2]); key = row && row.name !== place ? `share|${m[2]}|partner` : null; ok = !!(row && row.partner_ok && dget(`share|${m[2]}|mode`, 'off') !== 'off'); }
+      else if (m && m[1] === 'vm') { const v = (plan.vms || []).find((x) => x.name === m[2]); key = v ? `vm|${m[2]}|partner` : null; ok = !!(v && v.partner_ok && levelOf('vm:' + m[2]) > 0); }
+      if (!key || !ok) return;
+      const now = dget(key, []) || [];
+      if (!now.includes(id)) dset(key, [...now, id]);
+    });
+  });
 }
 
 /**
@@ -2189,7 +2243,13 @@ function setupForget() {
 // [general] preset_new (engine 2.31) and from then on fills in whatever is new each time the draft is made
 // (setupDraftFromPlan()). setupDerive() does the rest as always, every row stays the user's to change, and
 // nothing counts before Apply - the run reads settings.ini only.
-const PRESETS = ['auto', 'local', 'kopia'];
+const PRESETS = ['auto', 'local', 'partner', 'kopia', 'kopia_partner'];       // the engine's [general] preset_new values (2.31; 2.42 the two with a partner)
+/** The cards: «local + partner» only with a pair; «local + offsite» carries the tick «also to the partner» (kopia_partner) */
+const presetCardsOf = () => (setupPartners().length ? ['auto', 'local', 'partner', 'kopia'] : ['auto', 'local', 'kopia']);
+const presetCardOf = (kind) => (kind === 'kopia_partner' ? 'kopia' : kind);
+/** The partners this office sends to, as the plan has them (paired at the Team Lead; engine 2.27 partners[]) */
+const setupPartners = () => ((setup.plan && setup.plan.partners) || []);
+const presetToPartner = (kind) => kind === 'partner' || kind === 'kopia_partner';
 /** The plan's reasons for a share the engine never backs up on its own (setup.sh share_propose()) */
 const PRESET_KEEP = ['system', 'name_bad', 'kopia_workdir', 'syslog', 'timemachine', 'drift_ignore', 'domains'];
 /** A Kopia container's own working folders (setup.sh kopia_workdir()) */
@@ -2267,14 +2327,17 @@ function presetHold(a, before) {
  * too. `items`: only these (what was there when the start was chosen), null = everything. «auto» = the plan as it is.
  */
 function presetApply(kind, items) {
-  if (kind !== 'local' && kind !== 'kopia') return;
+  if (!PRESETS.includes(kind) || kind === 'auto') return;
   const m = setup.model;
   const plan = setup.plan;
   const has = (k) => !items || items.has(k);
-  const lv = kind === 'kopia' ? 2 : 1;
-  dset('kopia|enabled', kind === 'kopia' ? 'yes' : 'no');
+  const offsite = presetCardOf(kind) === 'kopia';
+  const lv = offsite ? 2 : 1;
+  dset('kopia|enabled', offsite ? 'yes' : 'no');
   // Kopia off: what went there stays local (like unticking «Back up with Kopia»)
-  if (kind === 'local') Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
+  if (!offsite) Object.keys(setup.draft).forEach((k) => { if (/^share\|.+\|mode$/.test(k) && setup.draft[k] === 'kopia') setup.draft[k] = 'snapshot'; });
+  // the partner levels (2.42): every unit that can travel to every partner — or to none
+  presetPartners(presetToPartner(kind), has);
   const before = { ...setup.levels };
   m.apps.forEach((a) => { if (has('app:' + a.id)) setup.levels['app:' + a.id] = lv; });
   m.vms.forEach((x) => {
@@ -2291,7 +2354,25 @@ function presetApply(kind, items) {
   setupDerive();
   m.apps.forEach((a) => { if (has('app:' + a.id)) setup.held[a.id] = presetHold(a, before['app:' + a.id] ?? 0); });
   setupDerive();
-  if (kind === 'kopia') waitingFolders().forEach((w) => { if (!w.owner && has(`wait:${w.share}/${w.dir}`)) waitSet(w, 'kopia'); });
+  if (offsite) waitingFolders().forEach((w) => { if (!w.owner && has(`wait:${w.share}/${w.dir}`)) waitSet(w, 'kopia'); });
+}
+
+/**
+ * The partner lists of a default: on — every share, VM and the backup place that is a dataset of its own (partner_ok)
+ * goes to every partner; off — to none. Only the items `has` names (a default for new things: the new ones)
+ */
+function presetPartners(on, has) {
+  const plan = setup.plan;
+  const ids = setupPartners().map((p) => p.id);
+  if (!ids.length) return;
+  const set = (key, ok) => { if (on && ok) dset(key, [...ids]); else if (!on) dset(key, []); };
+  const place = dget('general|dumps_share', '');
+  plan.shares.forEach((sh) => {
+    if (!sh.exists || !has('share:' + sh.name)) return;
+    if (sh.name === place) set('general|partner_place', !!sh.partner_ok);
+    else set(`share|${sh.name}|partner`, !!sh.partner_ok);
+  });
+  (plan.vms || []).forEach((v) => { if (has('vm:' + v.name)) set(`vm|${v.name}|partner`, !!v.partner_ok); });
 }
 
 /** Under the default «local + Kopia» a new share the engine finds big (over 500 GB) or can't size waits for the user (2026-10-08) */
@@ -2332,10 +2413,11 @@ function setupNewItems(plan, saved) {
  * (presetKeep, a VM it can't snapshot). «auto»: nothing - my proposals, new things wait for a decision.
  */
 function presetApplyNew(kind, items) {
-  if ((kind !== 'local' && kind !== 'kopia') || !items || !items.size) return;
+  if (!PRESETS.includes(kind) || kind === 'auto' || !items || !items.size) return;
   const m = setup.model;
   const plan = setup.plan;
-  const lv = kind === 'kopia' && dget('kopia|enabled') === 'yes' ? 2 : 1;
+  const lv = presetCardOf(kind) === 'kopia' && dget('kopia|enabled') === 'yes' ? 2 : 1;
+  if (presetToPartner(kind)) presetPartners(true, (k) => items.has(k));       // new units that can travel go to the partners too
   const apps = m.apps.filter((a) => items.has('app:' + a.id));
   apps.forEach((a) => { setup.levels['app:' + a.id] = lv; });
   m.vms.forEach((x) => {
@@ -2344,7 +2426,7 @@ function presetApplyNew(kind, items) {
     setup.levels['vm:' + x.name] = lv;
   });
   plan.shares.forEach((sh) => {
-    if (sh.exists && items.has('share:' + sh.name) && !presetKeep(sh, plan) && !presetNewAsk(sh, kind)) dset(`share|${sh.name}|mode`, LV[lv]);
+    if (sh.exists && items.has('share:' + sh.name) && !presetKeep(sh, plan) && !presetNewAsk(sh, presetCardOf(kind))) dset(`share|${sh.name}|mode`, LV[lv]);
   });
   setupDerive();
   apps.forEach((a) => { setup.held[a.id] = presetHold(a, 0); });   // kept running so far only because it was new
@@ -2501,6 +2583,7 @@ function presetNotes(kind, kst, measure, newOnly) {
   };
   if (kind === 'auto') return out;
   if (kind === 'local') note(T('setup.preset.local_note'), 'warn');
+  if (kind === 'partner') note(T('setup.preset.partner_note'));
   if (kind === 'kopia') {
     if (!kst.ok) {
       note(T('setup.preset.kopia_none'), 'warn').append(' ', kopiaHelpLink());
@@ -2560,8 +2643,13 @@ function presetCards(current, onPick, measure, newOnly) {
   g.setAttribute('aria-label', T('setup.preset.title'));
   const busy = !!(setup.status && setup.status.running);
   const kst = presetKopiaState(plan);
-  PRESETS.forEach((kind) => {
-    const on = kind === current;
+  const cards = presetCardsOf();
+  const partnerNames = setupPartners().map((p) => p.name).join(', ');
+  presetCards.partnerTick = presetCards.partnerTick === undefined ? true : presetCards.partnerTick;      // the offsite card's «also to the partner» (on until unticked)
+  if (current === 'kopia_partner') presetCards.partnerTick = true;
+  else if (current === 'kopia') presetCards.partnerTick = false;
+  cards.forEach((kind) => {
+    const on = kind === presetCardOf(current);
     const off = busy || (kind === 'kopia' && !kst.ok);
     const c = el('div', 'bk-preset' + (on ? ' on' : '') + (off ? ' off' : ''));
     c.dataset.preset = kind;
@@ -2575,11 +2663,23 @@ function presetCards(current, onPick, measure, newOnly) {
     if (on && kind === presetNow() && presetChanged()) head.appendChild(chip(T('setup.preset.changed'), 'quiet'));
     c.appendChild(head);
     c.appendChild(el('p', '', T(kind === 'auto' ? (plan.have_settings ? 'setup.preset.auto_have' : 'setup.preset.auto_new')
-      : newOnly ? `setup.preset.${kind}_new_text` : `setup.preset.${kind}_text`)));
+      : newOnly ? `setup.preset.${kind}_new_text` : `setup.preset.${kind}_text`, { partners: partnerNames })));
     presetNotes(kind, kst, measure, newOnly).forEach((n) => c.appendChild(n));
+    // the offsite card with a pair: one line «also to {partner}» (on) — the default is then kopia_partner (2.42)
+    const kindOf = () => (kind === 'kopia' && partnerNames && presetCards.partnerTick ? 'kopia_partner' : kind);
+    if (kind === 'kopia' && partnerNames) {
+      const line = el('label', 'check bk-preset-tick');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = presetCards.partnerTick;
+      cb.disabled = off;
+      cb.onchange = () => { presetCards.partnerTick = cb.checked; if (on) onPick(kindOf(), c); };
+      line.append(cb, el('span', '', T('setup.preset.kopia_partner_tick', { partners: partnerNames })));
+      c.appendChild(line);
+    }
     const pick = (e) => {
-      if (off || (e && e.target && e.target.closest && e.target.closest('a, button'))) return;   // its links and buttons keep their click
-      onPick(kind, c);
+      if (off || (e && e.target && e.target.closest && e.target.closest('a, button, input, label'))) return;   // its links, buttons and the tick keep their click
+      onPick(kindOf(), c);
     };
     c.onclick = pick;
     c.onkeydown = (e) => {
@@ -3227,19 +3327,12 @@ function setupKopia(plan) {
   s.appendChild(basics);
   const pl = presetLine(plan);              // engine 2.31: the default for new things
   if (pl) s.appendChild(pl);
-  // engine 2.27: the partner offices this office sends to (paired at the Team Lead) - and the backup place to them too
+  // engine 2.27/2.42: the partner offices this office sends to (paired at the Team Lead) - and the backup place to them as a level
   if ((plan.partners || []).length) {
     const line = el('p', 'role bk-partners-line', T('partner.setup_line', { names: plan.partners.map((p) => p.name + (p.key ? '' : ` (${T('partner.no_key')})`)).join(', ') }));
     s.appendChild(line);
-    const ds = dget('general|dumps_share', '');
-    const row = plan.shares.find((x) => x.name === ds);
-    if (row) {
-      const chips = partnerChips('general|partner_place', row.partner_ok, row.partner_why, dget(`share|${ds}|mode`, 'off') === 'off');
-      if (chips) {
-        chips.prepend(el('span', 'role', T('partner.place')));
-        s.appendChild(chips);
-      }
-    }
+    const pl = placeLevelPick(plan);
+    if (pl) s.appendChild(Office.place('partner.place', pl));
   }
   s.appendChild(placeGuide(plan));
   const on = dget('kopia|enabled') === 'yes';
@@ -3379,6 +3472,39 @@ function setupToggleOpen(key, row) {
   });
 }
 
+/**
+ * A share's mode select (step 3): off | local snapshot | snapshot + offsite — with a pair also «snapshot + partner» and
+ * «snapshot + partner + offsite» (2.42; the value is the mode, the partner part the draft's list `pKey`); the partner
+ * options are greyed with the engine's reason when the share isn't a ZFS dataset of its own
+ */
+function modeSelect(sh, modes, pKey) {
+  const key = `share|${sh.name}|mode`;
+  const withPartner = !!(pKey && setupPartners().length);
+  const pOn = withPartner && partnerListOf(pKey).length > 0;
+  const sel = el('select', 'picker');
+  const options = [];
+  modes.forEach((o) => {
+    options.push({ value: o, mode: o, partner: false, text: T('setup.mode.' + o) });
+    if (withPartner && o !== 'off') options.push({ value: o + '+partner', mode: o, partner: true, text: T('setup.mode.' + o + '_partner') });
+  });
+  options.forEach((o) => {
+    const opt = new Option(o.text, o.value);
+    if (o.partner && !sh.partner_ok) { opt.disabled = true; opt.title = T('partner.why.' + (sh.partner_why || 'no_dataset')); }
+    sel.appendChild(opt);
+  });
+  const mode = dget(key, modes[modes.length - 1]);
+  const now = options.find((o) => o.mode === mode && o.partner === (pOn && mode !== 'off')) || options.find((o) => o.mode === mode) || options[options.length - 1];
+  sel.value = now.value;
+  sel.onchange = () => {
+    const o = options.find((x) => x.value === sel.value) || now;
+    dset(key, o.mode);
+    if (withPartner) partnerListSet(pKey, o.partner);
+    setupDerive();
+    Office.keepInPlace(sel, () => renderSetup());
+  };
+  return sel;
+}
+
 function setupShares(plan) {
   const s = Office.place('setup.shares', setupSection(T('setup.shares'), T('setup.shares_sub')));
   const kopiaOn = dget('kopia|enabled') === 'yes';
@@ -3415,32 +3541,29 @@ function setupShares(plan) {
     tr.appendChild(el('td', 'num', sh.gb === null ? '' : sh.gb < 0 ? '> ?' : fmt.size(sh.gb * 1073741824)));
     const modeCell = el('td');
     const lock = setup.locks[sh.name];
+    const isPlace = sh.name === dget('general|dumps_share', '');
+    // the share's partner list (2.42): the select's partner options set it — the backup place has its own switch in «Basics»
+    const pKey = isPlace ? null : `share|${sh.name}|partner`;
     // the backup place: at least local, Kopia on top is the user's choice
     const atLeast = lock && lock.min ? LV.slice(lock.lv).filter((o) => kopiaOn || o !== 'kopia').reverse() : null;
     if (sh.exists && atLeast && atLeast.length > 1) {
-      const sel = selectInput(`share|${sh.name}|mode`, atLeast, (o) => T('setup.mode.' + o));
-      if (!atLeast.includes(sel.value)) sel.value = atLeast[atLeast.length - 1];
+      const sel = modeSelect(sh, atLeast, pKey);
       sel.title = T('setup.lock_place_hint');
-      sel.onchange = () => { dset(`share|${sh.name}|mode`, sel.value); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
       modeCell.appendChild(sel);
     } else if (sh.exists && lock) {
-      // fixed by the VMs and apps above (or the backup place)
-      const sel = selectInput(`share|${sh.name}|mode`, [LV[lock.lv]], (o) => T('setup.mode.' + o));
-      sel.disabled = true;
+      // fixed by the VMs and apps above (or the backup place) — the partner part stays the user's
+      const sel = modeSelect(sh, [LV[lock.lv]], pKey);
+      if (!pKey || !setupPartners().length) sel.disabled = true;
       sel.title = T(lock.min ? 'setup.lock_place_hint' : 'setup.lock_hint');
       modeCell.appendChild(sel);
     } else if (sh.exists) {
       const opts = kopiaOn ? ['kopia', 'snapshot', 'off'] : ['snapshot', 'off'];
-      const sel = selectInput(`share|${sh.name}|mode`, opts, (o) => T('setup.mode.' + o));
-      if (!opts.includes(sel.value)) sel.value = 'snapshot';
-      sel.onchange = () => { dset(`share|${sh.name}|mode`, sel.value); setupDerive(); Office.keepInPlace(sel, () => renderSetup()); };
-      modeCell.appendChild(sel);
+      modeCell.appendChild(modeSelect(sh, opts, pKey));
     } else {
       modeCell.appendChild(chip(T('setup.gone'), 'warn'));
     }
-    if (sh.exists) {
-      const isPlace = sh.name === dget('general|dumps_share', '');
-      const pc = partnerChips(isPlace ? 'general|partner_place' : `share|${sh.name}|partner`, !!sh.partner_ok, sh.partner_why, dget(`share|${sh.name}|mode`, 'off') === 'off');
+    if (sh.exists && pKey) {
+      const pc = partnerChoice(pKey, !!sh.partner_ok, sh.partner_why, dget(`share|${sh.name}|mode`, 'off') === 'off');
       if (pc) modeCell.appendChild(pc);
     }
     tr.appendChild(modeCell);
@@ -3860,28 +3983,91 @@ function setupDeriveItems() {
   });
 }
 
-/** nicht | lokal | lokal + Kopia */
-function levelPick(key, onPick) {
+/**
+ * The level switch: off | local | local + partner | local + offsite | local + partner + offsite (2.42: the two partner
+ * fields only with a pair — `partner` {key, ok, why} names the unit's partner list in the draft; grey with the engine's
+ * reason when the unit isn't a ZFS dataset of its own). The kopia level (0, 1, 2) stays in setup.levels; the partner
+ * part is the draft's list (every partner, or the chips' choice with two and more). Five fields wrap at 390 px (desk.css).
+ */
+const LEVEL_FIELDS = [{ id: 0, lv: 0, partner: false, key: '0' }, { id: 1, lv: 1, partner: false, key: '1' }, { id: 'p', lv: 1, partner: true, key: 'partner' },
+  { id: 2, lv: 2, partner: false, key: '2' }, { id: 'pk', lv: 2, partner: true, key: 'partner_kopia' }];
+/** The draft's partner list of a unit, only partners of the plan */
+function partnerListOf(key) {
+  const ids = setupPartners().map((p) => p.id);
+  return (dget(key, []) || []).filter((id) => ids.includes(id));
+}
+/** The partner level on: the list every partner (the first time), the chips' choice after */
+function partnerListSet(key, on) {
+  if (!on) { dset(key, []); return; }
+  if (!partnerListOf(key).length) dset(key, setupPartners().map((p) => p.id));
+}
+function levelPick(key, onPick, partner) {
   const max = dget('kopia|enabled') === 'yes' ? 2 : 1;
   const now = levelOf(key);
-  const g = el('div', 'bk-seg');
+  const withPartner = !!(partner && setupPartners().length);
+  const pOn = withPartner && partnerListOf(partner.key).length > 0;
+  const fields = LEVEL_FIELDS.filter((f) => f.lv <= max && (withPartner || !f.partner));
+  const nowId = (fields.find((f) => f.lv === now && f.partner === (now > 0 && pOn)) || fields[0]).id;
+  const g = el('div', 'bk-seg' + (fields.length > 3 ? ' bk-seg-five' : ''));
   g.setAttribute('role', 'radiogroup');
-  for (let l = 0; l <= max; l++) {
-    const b = el('button', l === now ? 'on' : '', T('setup.level.' + l));
+  fields.forEach((f) => {
+    const b = el('button', f.id === nowId ? 'on' : '', T('setup.level.' + f.key));
     b.type = 'button';
     b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(l === now));
-    b.title = T('setup.level_hint.' + l);
+    b.setAttribute('aria-checked', String(f.id === nowId));
+    b.title = T('setup.level_hint.' + f.key, { partners: setupPartners().map((p) => p.name).join(', ') });
+    if (f.partner && !partner.ok) { b.disabled = true; b.title = T('partner.why.' + (partner.why || 'no_dataset')); }
     b.onclick = () => {
-      if (l === now) return;
-      setup.levels[key] = l;
-      if (onPick) onPick(l);
+      if (f.id === nowId) return;
+      setup.levels[key] = f.lv;
+      if (withPartner) partnerListSet(partner.key, f.partner);
+      if (onPick) onPick(f.lv);
       setupDerive();
       Office.keepInPlace(g, () => renderSetup());
     };
     g.appendChild(b);
-  }
+  });
   return g;
+}
+
+/** Two and more partners: a chip per partner under the switch while a partner level is on (unticking the last one = «local») */
+function partnerChoice(key, ok, why, off) {
+  if (setupPartners().length < 2 || !partnerListOf(key).length) return null;
+  return partnerChips(key, ok, why, off);
+}
+
+/** The backup place in «Basics» (2.42): local · local + partner — its offsite part is its share's mode in step 3 */
+function placeLevelPick(plan) {
+  const ds = dget('general|dumps_share', '');
+  const row = plan.shares.find((x) => x.name === ds);
+  if (!row || !setupPartners().length) return null;
+  const key = 'general|partner_place';
+  const on = partnerListOf(key).length > 0;
+  const off = dget(`share|${ds}|mode`, 'off') === 'off';
+  const wrap = el('div', 'bk-place-level');
+  const g = el('div', 'bk-seg');
+  g.setAttribute('role', 'radiogroup');
+  [{ id: 'l', partner: false, key: '1' }, { id: 'p', partner: true, key: 'partner' }].forEach((f) => {
+    const now = f.partner === on;
+    const b = el('button', now ? 'on' : '', T('setup.level.' + f.key));
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(now));
+    b.title = T(f.partner ? 'partner.place_hint' : 'setup.level_hint.1', { partners: setupPartners().map((p) => p.name).join(', ') });
+    if (f.partner && !row.partner_ok) { b.disabled = true; b.title = T('partner.why.' + (row.partner_why || 'no_dataset')); }
+    else if (f.partner && off) { b.disabled = true; b.title = T('partner.off_hint'); }
+    b.onclick = () => {
+      if (now) return;
+      partnerListSet(key, f.partner);
+      setupDerive();
+      Office.keepInPlace(g, () => renderSetup());
+    };
+    g.appendChild(b);
+  });
+  wrap.append(el('span', 'role', T('partner.place')), g);
+  const chips = partnerChoice(key, !!row.partner_ok, row.partner_why, off);
+  if (chips) wrap.appendChild(chips);
+  return wrap;
 }
 
 /** Step 1: which VMs are wanted back, and how each one is held for the snapshot */
@@ -3921,13 +4107,13 @@ function setupVms(plan) {
     if (l === 0 && !x.own && x.shares.some((sh) => dget(`share|${sh}|mode`, 'off') !== 'off')) {
       main.appendChild(el('div', 'row-meta', T('setup.vm_off_shared', { share: x.shares.join(', ') })));
     }
-    const pc = partnerChips(k('partner'), !!v.partner_ok, v.partner_why, l === 0);
+    const pc = partnerChoice(k('partner'), !!v.partner_ok, v.partner_why, l === 0);
     if (pc) main.appendChild(pc);
     row.appendChild(main);
 
     const right = el('div', 'bk-right');
-    // from "not" up: freeze or pause proposed again (a VM of its own could keep running at "not")
-    right.appendChild(levelPick('vm:' + v.name, (nl) => { if (l === 0 && nl > 0) dset(k('prepare'), undefined); }));
+    // from "off" up: freeze or pause proposed again (a VM of its own could keep running at "off")
+    right.appendChild(levelPick('vm:' + v.name, (nl) => { if (l === 0 && nl > 0) dset(k('prepare'), undefined); }, { key: k('partner'), ok: !!v.partner_ok, why: v.partner_why }));
     if (l > 0) {
       // keep running (none): only in a dataset of its own - sharing one, it would be "not" (engine 2.21: a new VM's proposal)
       const prep = selectInput(k('prepare'), x.own ? ['freeze', 'pause', 'shutdown', 'none'] : ['freeze', 'pause', 'shutdown'], (o) => T('setup.vm_prep.' + o));
@@ -4789,6 +4975,8 @@ if (globalThis.OFFICE_DESK_TESTS) {
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
+    presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
   };

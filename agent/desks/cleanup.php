@@ -3109,11 +3109,13 @@ function clPartners(?array $host = null): array
     $places = partnerLookPlaces($awake, $host['zfs'] ?? null) ?? [];
     $pairs = partnerLookPairs($host['pairs'] ?? null);
     // what still comes of each pair: a unit received within PARTNER_STALE_DAYS (received/<id>.json; since 1.60 the door
-    // takes any unit — one that stopped coming keeps its snapshots for good, so she offers to put it away)
+    // takes any unit — one that stopped coming keeps its snapshots for good, so she offers to put it away); without a
+    // record of the pair nothing is known: nothing of it is dust
     $now = $host['now'] ?? time();
     $keeps = [];
     foreach (partnerPairs($host['pairs'] ?? null) as $p) {
-        $keeps[$p['id']] = array_column(array_filter(partnerReceivedUnits(partnerReceived($p['id']), $now), fn ($u) => !$u['stale']), 'unit');
+        $got = partnerReceived($p['id']);
+        $keeps[$p['id']] = $got === null ? null : array_column(array_filter(partnerReceivedUnits($got, $now), fn ($u) => !$u['stale']), 'unit');
     }
     $doors = partnerLookDoors($host['run'] ?? partnerRunDir(), $host['alive'] ?? null);
     $busy = array_flip(array_column($doors, 'pair'));
@@ -3130,7 +3132,7 @@ function clPartners(?array $host = null): array
                 foreach ($x['units'] as $uds => $used) {
                     $uds = (string) $uds;
                     $unit = clPartnerUnitOf($uds);
-                    if ($unit === null || in_array($unit, $keeps[$id] ?? [], true)) {
+                    if ($unit === null || !isset($keeps[$id]) || in_array($unit, $keeps[$id], true)) {
                         continue;
                     }
                     $ds = $x['dataset'] . "/$uds";
