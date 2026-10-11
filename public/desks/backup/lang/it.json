@@ -590,7 +590,7 @@
   "setup.msg.volumes_data_group": "{n} app tengono dati in volumi Docker — stanno nella cartella di Docker e NON sono nel backup:",
   "setup.msg.volumes_data_item": "{app}: {paths}",
   "setup.msg.volumes_data_why": "Cosa fare: dai a quel percorso una cartella in appdata. Ferma l'app e copia il contenuto del volume in una cartella sotto /mnt/user/appdata/; poi nella scheda ⟦Docker⟧ apri l'app con ⟦Edit⟧, ⟦Add another Path, Port, Variable, Label or Device⟧ con il percorso sopra come ⟦Container Path⟧ e quella cartella come ⟦Host Path⟧, e ⟦Apply⟧ (uno stack Compose: un bind mount nel suo file compose). Da allora finisce nel backup con appdata.",
-  "setup.msg.volumes_cache": {"one": "{app} tiene solo una cache in un volume Docker ({paths}) — non è nel backup, ma è innocuo: dopo un ripristino si riempie da sola.", "other": "{app} tiene solo cache in volumi Docker ({paths}) — non sono nel backup, ma è innocuo: dopo un ripristino si riempiono da sole."},
+  "setup.msg.volumes_cache": {"one": "{app} ha un volume Docker che serve solo da cache ({paths}). Non è nel backup — va bene così: dopo un ripristino l'app ne scarica di nuovo il contenuto da sola.", "other": "{app} ha volumi Docker che servono solo da cache ({paths}). Non sono nel backup — va bene così: dopo un ripristino l'app ne scarica di nuovo il contenuto da sola."},
   "setup.msg.volumes_cache_group": "{n} app tengono solo cache in volumi Docker — non sono nel backup, ma è innocuo:",
   "setup.msg.volumes_cache_item": "{app}: {paths}",
   "setup.msg.volumes_cache_why": "Una cache (modelli scaricati, miniature, file temporanei) si ricrea quando manca — dopo un ripristino l'app all'inizio ci mette solo un po' di più. Niente da fare.",

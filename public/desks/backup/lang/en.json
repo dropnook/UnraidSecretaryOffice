@@ -584,7 +584,7 @@
   "setup.msg.volumes_data_group": "{n} apps keep data in Docker volumes — they lie in Docker's own folder and are NOT in the backup:",
   "setup.msg.volumes_data_item": "{app}: {paths}",
   "setup.msg.volumes_data_why": "What to do: give that path a folder in appdata. Stop the app and copy what the volume holds into a folder under /mnt/user/appdata/; then on the ⟦Docker⟧ tab ⟦Edit⟧ the app, ⟦Add another Path, Port, Variable, Label or Device⟧ with the path above as ⟦Container Path⟧ and that folder as ⟦Host Path⟧, and ⟦Apply⟧ (a Compose stack: a bind mount in its compose file). From then on it is backed up with appdata.",
-  "setup.msg.volumes_cache": {"one": "{app} keeps only a cache in a Docker volume ({paths}) — not in the backup, but harmless: it fills itself again after a restore.", "other": "{app} keeps only caches in Docker volumes ({paths}) — not in the backup, but harmless: they fill themselves again after a restore."},
+  "setup.msg.volumes_cache": {"one": "{app} has a Docker volume that only serves as a cache ({paths}). It is not in the backup — that is fine: after a restore the app downloads its contents again by itself.", "other": "{app} has Docker volumes that only serve as caches ({paths}). They are not in the backup — that is fine: after a restore the app downloads their contents again by itself."},
   "setup.msg.volumes_cache_group": "{n} apps keep only caches in Docker volumes — not in the backup, but harmless:",
   "setup.msg.volumes_cache_item": "{app}: {paths}",
   "setup.msg.volumes_cache_why": "A cache (downloaded models, thumbnails, temporary files) is made anew when it is missing — after a restore the app only takes longer at first. Nothing to do.",
