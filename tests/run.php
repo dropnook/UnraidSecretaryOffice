@@ -4518,17 +4518,19 @@ SH);
         return $found;
     };
     // every run its own minute (the tests' clock)
-    $run = function (string $args = '') use ($env, $clock): string {
+    $run = function (string $args = '', string $more = '') use ($env, $clock): string {
         testsClockRun($clock);
-        return testsClockRan('vm order', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null") . ' 2>&1'));
+        return testsClockRan('vm order', (string) shell_exec('bash -c ' . escapeshellarg("$env $more; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " $args </dev/null") . ' 2>&1'));
     };
     $log = fn () => (string) @file_get_contents("$data/logs/latest.log");
     $status = fn () => json_decode((string) @file_get_contents("$data/state/status.json"), true) ?: [];
 
-    // --- a night with a VM that shuts down, one that ignores it, one that goes off late, one paused
-    $settings(['vmshut' => 'shutdown', 'vmdeaf' => 'shutdown', 'vmlate' => 'shutdown', 'vmpause' => 'pause']);
-    $night(['vmshut' => 'obey', 'vmdeaf' => 'deaf', 'vmlate' => 'late', 'vmpause' => 'obey']);
-    $out = $run();
+    // --- a night with a VM that shuts down, one that ignores it, one that goes off late, one paused, one to freeze whose
+    // guest agent doesn't answer (2.42: the notification goes out here - its level)
+    $settings(['vmshut' => 'shutdown', 'vmdeaf' => 'shutdown', 'vmlate' => 'shutdown', 'vmpause' => 'pause', 'vmslow' => 'freeze']);
+    $night(['vmshut' => 'obey', 'vmdeaf' => 'deaf', 'vmlate' => 'late', 'vmpause' => 'obey', 'vmslow' => 'obey']);
+    @unlink("$fake/notify.log");
+    $out = $run('', 'UB_NO_NOTIFY=0');
     $ev = $events();
     $s = $status();
     $l = $log();
@@ -4559,11 +4561,25 @@ SH);
     check('vm order: seconds held — a shutdown from its request, the ignored one from its pause',
         ($byVm['vmshut']['seconds'] ?? 0) >= 4 && ($byVm['vmdeaf']['seconds'] ?? 99) < 4, json_encode($s['vms'] ?? null));
     $pos = fn (string $needle) => ($p = strpos($l, $needle)) === false ? null : $p;
-    $order = [$pos('VMs: shutting down 3 before anything stops'), $pos("VM 'vmshut': shut down"), $pos("WARNING: VM 'vmdeaf' did not shut down within 4 s"),
-              $pos('Nextcloud ...'), $pos('Pausing apps: 1'), $pos("VM 'vmdeaf': paused"), $pos("VM 'vmlate': shut down (after its deadline)"), $pos('Creating snapshots')];
+    // 2.42: the deadline is a plain line; the warning comes when the VM is really paused instead (vm_hold)
+    $order = [$pos('VMs: shutting down 3 before anything stops'), $pos("VM 'vmshut': shut down"), $pos("  VM 'vmdeaf' did not shut down within 4 s"),
+              $pos('Nextcloud ...'), $pos('Pausing apps: 1'), $pos("WARNING: VM 'vmdeaf' did not shut down within 4 s"), $pos("VM 'vmdeaf': paused"),
+              $pos("VM 'vmlate': shut down (after its deadline)"), $pos('Creating snapshots')];
     $sorted = $order;
     sort($sorted);
     check('vm order: the log tells it in that order', !in_array(null, $order, true) && $order === $sorted, json_encode($order) . "\n" . $l);
+    // engine 2.42: the VMs held otherwise than set up are coded warnings - the one off late is none
+    same('vm order: status.json warning_items — the ignored shutdown and the failed freeze, coded (the late one: none)',
+        [['code' => 'vm_not_shut_down', 'params' => ['name' => 'vmdeaf', 'seconds' => '4']], ['code' => 'vm_not_frozen', 'params' => ['name' => 'vmslow']]],
+        $s['warning_items'] ?? null);
+    same('vm order: two warnings, the result «warnings», last-run.json carries the items',
+        [2, 'warnings', $s['warning_items'] ?? null],
+        [$s['warnings'] ?? null, $s['result'] ?? null, (json_decode((string) @file_get_contents("$data/state/last-run.json"), true) ?: [])['warning_items'] ?? null]);
+    check('vm order: no WARNING line for the VM off after its deadline', !preg_match("/WARNING: VM 'vmlate'/", $l), $l);
+    $note = (string) @file_get_contents("$fake/notify.log");
+    check('vm order: the notification is a warning, not an alert, and says why the VMs were paused',
+        str_contains($note, '-s Unraid Secretary Office: Backup with warnings') && str_contains($note, '-i warning') && !str_contains($note, '-i alert')
+        && str_contains($note, 'did not shut down - paused for') && str_contains($note, 'not frozen - paused for'), $note);
     check('vm order: nothing left in state/vms', !file_exists("$data/state/vms"));
 
     // --- a night without a VM to shut down: no wait, no line, the same order as before
@@ -4630,6 +4646,98 @@ SH);
     same('vm order: killed — the next start starts it again', [['virsh start vmslow'], false], [array_column($events(), 1), file_exists("$data/state/vms")]);
     same('vm order: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.42 on the page: a VM held otherwise than set up (a shutdown past its deadline, a guest agent that didn't
+ * freeze → paused) is a coded warning in status.json / last-run.json warning_items; the agent passes it through
+ * (backupRunFromStatus, only what the engine's shape allows), Mr. Backupsy's bubble and the run's row say it in the
+ * office's words (warn_code.<code>, five languages) - here the German sentence under node. The running card's
+ * sentence vm_shutdown_now names «a VM», not «one» (read as one of the apps).
+ */
+function testBackupVmWarn(): void
+{
+    $run = backupRunFromStatus(['run' => '20261011-0300', 'started' => 1000, 'finished' => 2000, 'result' => 'warnings', 'warnings' => 2,
+        'warning_items' => [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows_11_Tom_1', 'seconds' => '300', 'Bad' => 'x', 'n' => ['x']]],
+            ['code' => 'Not a code'], 'junk', ['code' => 'vm_not_frozen', 'params' => ['name' => "a\nb"]]]]);
+    same('vm warn: the agent passes the coded warnings through, only in the engine\'s shape',
+        [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows_11_Tom_1', 'seconds' => '300']], ['code' => 'vm_not_frozen', 'params' => []]],
+        $run['warning_items']);
+    same('vm warn: an older engine\'s run — none', [], backupRunFromStatus(['run' => 'x'])['warning_items']);
+    $codes = ['vm_not_shut_down', 'vm_shutdown_refused', 'vm_not_frozen', 'vm_not_paused'];
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    foreach ($codes as $c) {
+        check("vm warn: the engine writes $c", str_contains($engine, "warn_code $c "));
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        same("vm warn: the sentences in $code, each with {name}", $codes,
+            array_values(array_filter($codes, fn ($c) => str_contains((string) ($l["warn_code.$c"] ?? ''), '{name}'))));
+        check("vm warn: vm_shutdown_now in $code names a VM", str_contains((string) ($l['vm_shutdown_now'] ?? ''), 'VM'));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true);
+    same('vm warn: the German running sentence, as Benj wrote it',
+        'Zuerst fahren VMs herunter — die Apps laufen bis dahin weiter (höchstens 5 Minuten; eine VM, die nicht heruntergefahren werden kann, wird stattdessen für den Snapshot angehalten).',
+        $de['vm_shutdown_now'] ?? null);
+    $node = testsNode();
+    if ($node === '') {
+        check('vm warn: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('vm-warn');
+    file_put_contents("$tmp/run.json", json_encode($run));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, coreFile, langFile, runFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const strings = {};
+Object.entries(JSON.parse(fs.readFileSync(langFile, 'utf8'))).forEach(([k, v]) => { strings['backup.' + k] = v; });
+const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (m, k) => (p && p[k] !== undefined ? String(p[k]) : m));
+const scope = (id) => (k, p) => {
+  let s = strings[id + '.' + k];
+  if (s && typeof s === 'object') s = (p && Number(p.n) === 1) ? s.one : s.other;
+  return s === undefined ? k : fill(s, p);
+};
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+globalThis.Office = { scope, t: scope('office'), el, strings, has: (k) => k in strings,
+  fmt: { size: (b) => b + ' B', relative: () => 'gestern', duration: (s) => s + ' s', date: (t) => 'D' + t, time: () => 'T' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
+    mount: () => false, pick() {}, render() {}, clear() {} }),
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+run.finished = Math.floor(Date.now() / 1000) - 3600;
+run.warnings = 1;
+run.warning_items = run.warning_items.slice(0, 1);
+const out = {};
+b.setState({ found: true, running: false, history: [run], drift: { items: [] } });
+out.bubble = b.bubbleText();
+out.lines = b.warnLines(run);
+// a code unknown here, a sentence missing its parameter, an older run: nothing said (the count stays)
+out.unknown = b.warnLines({ warning_items: [{ code: 'vm_new_thing', params: { name: 'x' } }, { code: 'vm_not_frozen', params: {} }] });
+out.none = b.warnLines({});
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/lang/de.json') . ' ' . escapeshellarg("$tmp/run.json") . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r)) {
+        check('vm warn: ran under node', false, $raw);
+        return;
+    }
+    $want = 'Windows_11_Tom_1 liess sich nicht herunterfahren — angehalten; der Lauf entsprach nicht genau der Einrichtung.';
+    same('vm warn: Mr. Backupsy\'s bubble — the warning, then the VM in German', ['Das letzte Backup gestern endete mit einer Warnung.', $want],
+        array_slice($r['bubble'] ?? [], 0, 2));
+    same('vm warn: the run\'s line', [$want], $r['lines'] ?? null);
+    same('vm warn: an unknown code, a missing parameter, an older run — nothing said', [[], []], [$r['unknown'] ?? null, $r['none'] ?? null]);
 }
 
 /**
@@ -29688,7 +29796,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
