@@ -247,7 +247,7 @@
     "address": "100.84.12.7"
    },
    "p": {
-    "id": "26bbb6eb",
+    "id": "2ec7accd",
     "name": "Grosseltern",
     "address": "100.84.12.7",
     "from": "100.84.12.7",
@@ -410,7 +410,7 @@
      "user": "root",
      "fp": "SHA256:a5468f92e0a6163490789d48cefd68cb2e783c9ee63",
      "type": "ssh-ed25519",
-     "comment": "uso-partner:26bbb6eb"
+     "comment": "uso-partner:2ec7accd"
     }
    ]
   },
@@ -537,19 +537,9 @@
      "id": "2ec7accd",
      "name": "Grosseltern",
      "address": "192.168.178.190",
-     "door": false,
-     "line": "missing",
-     "sends": true,
-     "receives": false,
-     "trust": "mine"
-    },
-    {
-     "id": "26bbb6eb",
-     "name": "Grosseltern",
-     "address": "192.168.178.190",
      "door": true,
      "line": "ok",
-     "sends": false,
+     "sends": true,
      "receives": true,
      "trust": "mine"
     }

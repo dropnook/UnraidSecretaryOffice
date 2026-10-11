@@ -239,17 +239,6 @@
     "sig": "caretaker:partner_silent:349ef76fd79f64c7"
    },
    {
-    "id": "partner_silent",
-    "level": "recommended",
-    "ok": true,
-    "params": {
-     "name": "Grosseltern",
-     "pair": "26bbb6eb"
-    },
-    "link": "#/caretaker",
-    "sig": "caretaker:partner_silent:a542605c9b2a7a81"
-   },
-   {
     "id": "syslog_share_sleeps",
     "level": "recommended",
     "ok": true,
@@ -508,8 +497,18 @@
     },
     "status_time": 1791561334,
     "wish": null,
-    "receive": null,
-    "door": null,
+    "receive": {
+     "pool": "daten",
+     "quota_gb": 50,
+     "retention": "7 4 6",
+     "window": "00:00-00:00",
+     "wake": true,
+     "units": [
+      "share:Fotos-Grosseltern",
+      "place"
+     ]
+    },
+    "door": "open",
     "they_keep": {
      "name": "Grosseltern",
      "array": "started",
@@ -555,52 +554,8 @@
      ],
      "wish": []
     },
-    "i_keep": null,
-    "last_transfer": {
-     "bytes": 412090368,
-     "mbit": 48.6
-    },
-    "tickets": []
-   },
-   {
-    "id": "26bbb6eb",
-    "name": "Grosseltern",
-    "address": "100.84.12.7",
-    "port": 22,
-    "public": false,
-    "trust": "mine",
-    "paired": 1791455144,
-    "last_heard": 1791561328,
-    "last_try": null,
-    "reachable": true,
-    "why": null,
-    "array": "started",
-    "night": null,
-    "version": "1.55.1",
-    "silent": false,
-    "tailnet": null,
-    "sends": false,
-    "send_units": [],
-    "wanted": [],
-    "offered": null,
-    "offer": null,
-    "status_time": null,
-    "wish": null,
-    "receive": {
-     "pool": "daten",
-     "quota_gb": 50,
-     "retention": "7 4 6",
-     "window": "00:00-00:00",
-     "wake": true,
-     "units": [
-      "share:Fotos-Grosseltern",
-      "place"
-     ]
-    },
-    "door": "open",
-    "they_keep": null,
     "i_keep": {
-     "pair": "26bbb6eb",
+     "pair": "2ec7accd",
      "units": {
       "place": {
        "snap": "uso-backup-20261008-1701",
@@ -620,7 +575,10 @@
      "used_bytes": 18790481920,
      "time": 1791471681
     },
-    "last_transfer": null,
+    "last_transfer": {
+     "bytes": 412090368,
+     "mbit": 48.6
+    },
     "tickets": []
    }
   ],
