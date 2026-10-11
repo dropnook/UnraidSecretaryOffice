@@ -2432,7 +2432,8 @@ Office.avatar = function avatar(id, big) {
 
 /*
  * A desk's two pages (2026-10-11, tiles v2 — CLAUDE.md «Tiles»: two tabs = two pages, each with its own actions and its
- * own state; everything else is a section of one page, a tile): a tab row under the bubble, above the page help.
+ * own state; everything else is a section of one page, a tile): a tab strip across the head's width, under the bubble
+ * and the actions, above the page help — tabs like a browser's, the active one open towards the page below.
  *   Office.pages(desk, list, current[, store]) → <nav class="desk-pages" role="tablist">, or null when list isn't two
  *     list: [{id: '', text: t('common.page_overview')}, {id: 'setup', text: T('page.setup')}] — exactly two, never more
  *     current: the id shown; each tab an <a role="tab" aria-selected href="#/<desk>[/<id>]"> — today's routes; a click
@@ -2496,12 +2497,13 @@ Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, page
     asofNodes.set(desk.id, asof);
     paintAsOf(desk.id, asof);
     text.appendChild(asof);
-    if (tabsNav) text.appendChild(tabsNav);
   }
   head.appendChild(text);
   const act = el('div', 'deskhead-actions');
   (actions || []).forEach((a) => act.appendChild(a));
   head.appendChild(act);
+  // the two pages as a tab strip across the head's whole width, last — the active tab opens into the page under it
+  if (tabsNav) head.appendChild(tabsNav);
   return { head, bubble: b, actions: act, pages: tabsNav };
 };
 

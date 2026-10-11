@@ -26646,8 +26646,10 @@ function testDeskPages(): void
     $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
     check('desk pages: core.js has Office.pages and Office.pageFrom', (bool) preg_match('/^Office\.pages = function/m', $core) && (bool) preg_match('/^Office\.pageFrom = function/m', $core));
     check('desk pages: Office.deskHead takes pages', str_contains($core, 'Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, pages })'));
-    check('desk pages: office.css has the tab row and the active tab\'s accent underline',
-        str_contains($css, '.desk-pages{') && str_contains($css, '.desk-pages a[aria-selected=true]{color:var(--ink); border-bottom-color:var(--accent)'));
+    check('desk pages: office.css has the strip across the head (tabs like a browser\'s) and the active tab open towards the page',
+        str_contains($css, '.desk-pages{display:flex; align-items:flex-end; gap:5px; flex-basis:100%;')
+        && str_contains($css, '.desk-pages a[aria-selected=true]{color:var(--ink); font-weight:650; background:var(--bg); border-color:var(--accent); border-bottom-color:var(--bg)}'));
+    check('desk pages: the strip is the head\'s last child (core.js), never in the text column', str_contains($core, "if (tabsNav) head.appendChild(tabsNav);") && !str_contains($core, 'text.appendChild(tabsNav)'));
     $phone = substr($css, (int) strpos($css, '.tile-mark{font-size:10px'), 400);
     check('desk pages: at 375 px two half-width tabs, 40 px high', str_contains($phone, '.desk-pages a{flex:1 1 0; min-height:40px'));
     foreach (['en' => 'Overview', 'de' => 'Überblick', 'it' => 'Panoramica', 'fr' => 'Aperçu', 'es' => 'Resumen'] as $code => $word) {

@@ -374,12 +374,11 @@ function pages() {
     ['where', 'tidy', 'tidy', '', 'setup']);
   stored['office.cleanup.page'] = 'gone';
   same('pageFrom: a kept page that isn\'t one — the first', O.pageFrom(two, '', 'cleanup.page'), 'where');
-  // in the head: under the bubble (the head's text column, after it), returned as pages
+  // in the head: a strip across its whole width, its last child (after the text column and the actions), returned as pages
   const h = O.deskHead({ id: 'shelf' }, { bubble: 'Hello', actions: [], pages: { list, current: '' } });
-  const text = h.head.find('deskhead-text');
-  const kids = text.children.map((c) => c.className || c.tagName);
-  same('deskHead: the tabs in the text column after the bubble, returned as pages', [!!h.pages, kids.indexOf('desk-pages') > kids.indexOf('bubble'), kids[kids.length - 1], h.pages && h.pages.children[0].getAttribute('aria-selected')],
-    [true, true, 'desk-pages', 'true']);
+  const kids = h.head.children.map((c) => c.className || c.tagName);
+  same('deskHead: the tabs the head\'s last child, after the text column and the actions, returned as pages', [!!h.pages, kids.indexOf('desk-pages') > kids.indexOf('deskhead-actions'), kids[kids.length - 1], !h.head.find('deskhead-text').find('desk-pages'), h.pages && h.pages.children[0].getAttribute('aria-selected')],
+    [true, true, 'desk-pages', true, 'true']);
   const plain = O.deskHead({ id: 'shelf' }, { bubble: 'Hello', actions: [] });
   same('deskHead: no pages — no tabs, as before', [plain.pages, !!plain.head.find('desk-pages')], [null, false]);
   const sub = O.deskHead({ id: 'shelf' }, { page: 'Set up', pages: { list, current: 'setup' } });

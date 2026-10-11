@@ -951,8 +951,10 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   (from `mount(root, sub)`: a tile's sub-route picks it and the address goes back to `#/<desk>` — true; else the stored
   choice or the default, a filter tile off — false, sub is the desk's), `sw.places()` (`kind: 'tile'` entries of the tiles
   with a key, for `Office.places()`), `sw.note(name)` → `{tile, clear}` for `bar.done()` of section `name`, `sw.clear()`.
-  **The tabs:** `Office.deskHead(desk, {bubble, actions, pages: {list, current, store}})` → a `.desk-pages` tablist under
-  the bubble (above the page help; `Office.pages(desk, list, current, store)` builds it, null unless exactly two): two
+  **The tabs:** `Office.deskHead(desk, {bubble, actions, pages: {list, current, store}})` → a `.desk-pages` tablist as the
+  head's last child, a strip across its whole width under the bubble and the actions (above the page help; tabs like a
+  browser's: the active one on the page's background with the accent round it and no line underneath, open towards the
+  page below — Benj, 2026-10-11; `Office.pages(desk, list, current, store)` builds it, null unless exactly two): two
   `<a role="tab" aria-selected>` whose hrefs are the routes (`#/backup`, `#/backup/setup` …), a click = `Office.go()`;
   `store` keeps the page shown for a route without one (`Office.pageFrom(list, sub, store)` → the page to draw); no crumb,
   no «← Back», no head button for the other page (callout buttons that lead there stay); 375 px: one row, two half-width
