@@ -886,8 +886,9 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   look could be had: never act on a stale list. Tests: `testApiLook`, `testLookPage` (core.js under node).
 * **Head:** `Office.deskHead(...)` — the bubble across the width up to the actions; inside it the words (`.bubble-text`,
   what the desk gets back as `bubble` and writes into — the signature survives every redraw) and at its end, on the right,
-  the signature `.deskhead-sign`: the avatar and the name like a letter's close (2026-10-11, Benj; a phone shows the
-  avatar alone, the active desk tab says the name; no pointer — who speaks stands in the bubble). No role line:
+  the signature `.deskhead-sign`: the avatar and the name like a letter's close, floated right at the words' end — on the
+  last line while it fits there, else under it (2026-10-11, Benj; a phone shows the avatar alone, the active desk tab says
+  the name; no pointer — who speaks stands in the bubble). No role line:
   «Kümmert sich um …» is said where the Team Lead introduces the team (`<desk>.role` stays for him and the reception's
   cards). A subpage (no bubble) keeps the avatar left of its column. Then right
   after it `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded

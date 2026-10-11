@@ -804,11 +804,13 @@
    subpage, the reception) keeps the avatar left of its column. */
 #sso{
   .deskhead-text:has(.deskhead-sign){gap:0}
-  .deskhead-text .bubble:has(.deskhead-sign){margin-top:0; max-width:none; align-self:stretch; display:flex; flex-direction:column; padding-bottom:7px}
+  .deskhead-text .bubble:has(.deskhead-sign){margin-top:0; max-width:none; align-self:stretch; display:flow-root}
   .deskhead-text .bubble:has(.deskhead-sign)::after{display:none}
-  .deskhead-sign{display:flex; align-items:center; gap:10px; align-self:flex-end; margin:6px 0 0 0}
-  .deskhead-sign .avatar{width:36px; height:36px; font-size:18px}
-  .deskhead-sign h1{font-size:16px; margin:0; color:var(--ink)}
+  .deskhead-text .bubble-text{display:inline}
+  /* the signature floats right at the words' end: on the last line while it fits there, else under it */
+  .deskhead-sign{float:right; display:inline-flex; align-items:center; gap:9px; margin:0 0 0 18px; line-height:1}
+  .deskhead-sign .avatar{width:30px; height:30px; font-size:15px}
+  .deskhead-sign h1{font-size:15px; margin:0; color:var(--ink)}
   .deskhead:has(.deskhead-sign) + .page-help{margin-left:0}
   @media (max-width:767px){
     .deskhead-sign h1{display:none}
