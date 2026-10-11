@@ -2477,22 +2477,28 @@ Office.pageFrom = function pageFrom(list, sub, store) {
 /** The desk head every secretary uses: avatar, name, role, speech bubble, actions — and a desk's two pages as tabs */
 Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, pages }) {
   const head = el('div', 'deskhead');
-  head.appendChild(Office.avatar(desk.id));
   const text = el('div', 'deskhead-text');
-  const b = el('div', 'bubble');
+  const box = el('div', 'bubble');                 // the bubble: the words, then the signature inside it
+  const b = el('div', 'bubble-text');              // what the desk writes into (returned as bubble)
   const tabsNav = pages ? Office.pages(desk.id, pages.list, pages.current, pages.store) : null;
   if (page && !tabsNav) {
-    // a page of the desk (its setup …): the desk as a way back, the page's name big, no bubble
+    // a page of the desk (its setup …): the avatar left, the desk as a way back, the page's name big, no bubble
     head.classList.add('subpage');
+    head.appendChild(Office.avatar(desk.id));
     const crumb = el('a', 'deskhead-crumb', t(`${desk.id}.name`));
     crumb.href = `#/${desk.id}`;
     text.append(crumb, el('h1', '', page));
     if (pageSub) text.appendChild(el('div', 'role', pageSub));
   } else {
-    // the name only — the role («Kümmert sich um …») is said where the Team Lead introduces the team (2026-10-11, Benj)
-    text.append(el('h1', '', t(`${desk.id}.name`)));
+    // the bubble across the width, its words first and, inside it at the end on the right, the signature — the avatar
+    // and the name, like a letter's close (2026-10-11, Benj; a phone shows the avatar alone, the active desk tab says
+    // the name). The desk writes into `bubble` (the words) only, so the signature stays through every redraw. No role
+    // line: the role («Kümmert sich um …») is said where the Team Lead introduces the team.
     if (bubble) b.append(bubble);
-    text.appendChild(b);
+    const sign = el('div', 'deskhead-sign');
+    sign.append(Office.avatar(desk.id), el('h1', '', t(`${desk.id}.name`)));
+    box.append(b, sign);
+    text.appendChild(box);
     // «As of …» while the page shows a state older than the desk looks after (paintAsOf())
     const asof = el('div', 'role');
     asofNodes.set(desk.id, asof);
