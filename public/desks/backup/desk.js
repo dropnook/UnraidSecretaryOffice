@@ -1413,10 +1413,35 @@ function historySection() {
   return box;
 }
 
-/** A difference in the office's words where the engine gave a code (2.18+), its own words otherwise */
+/**
+ * A drift note's parameters: the engine's params (2.41+, strings), over the value of the codes from before 2.41 (as
+ * share and value); derived: where (a new share's places and its size)
+ */
+function driftParams(d) {
+  const v = typeof d.value === 'string' ? d.value : '';
+  const own = d.params && typeof d.params === 'object' && !Array.isArray(d.params) ? d.params : {};
+  const p = { share: v, value: v };
+  Object.keys(own).forEach((k) => { if (typeof own[k] === 'string' || typeof own[k] === 'number') p[k] = String(own[k]); });
+  if (p.locations !== undefined) {
+    const b = Number(p.bytes);
+    p.where = [p.locations, p.bytes && b > 0 ? fmt.size(b) : ''].filter(Boolean).join(', ');
+  }
+  return p;
+}
+
+/**
+ * A difference in the office's words: drift_code.<code> with its parameters (2.41+; before: the value) — the engine's
+ * English text when the code is unknown here or a placeholder of the sentence has no parameter (an older engine)
+ */
 function driftText(d) {
-  if (d.code && Office.has(`${ID}.drift_code.${d.code}`)) return T('drift_code.' + d.code, { share: d.value || '', value: d.value || '' });
-  if (d.code && Office.has(`${ID}.message.${d.code}`)) return T('message.' + d.code, { detail: d.value || '' });
+  const p = driftParams(d);
+  const key = `${ID}.drift_code.${d.code}`;
+  if (d.code && Office.has(key)) {
+    const raw = Office.strings[key];
+    const need = typeof raw === 'string' ? [...raw.matchAll(/\{(\w+)\}/g)].map((m) => m[1]) : [];
+    if (need.every((k) => p[k] !== undefined)) return T('drift_code.' + d.code, p);
+  }
+  if (d.code && Office.has(`${ID}.message.${d.code}`)) return T('message.' + d.code, { detail: p.value });
   return d.text;
 }
 
@@ -4757,6 +4782,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
     setupFilter,
     setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
+    driftText, driftParams,
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,

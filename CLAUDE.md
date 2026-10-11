@@ -213,7 +213,11 @@ installed plugin (see the checklist).
   gets a code and `setup.msg.<code>` in all five languages (`testSetupMessages` greps setup.sh for them). setup_get
   answers `notes` (`backupSetupNotes()`: one entry per level and code, an item per message; Docker volumes judged cache
   or data, `backupVolumeIsCache()`), desk.js `setupNoteItems()` says them — `<code>_group` ({n}) / `_item` for several,
-  `_why` for what it means and what to do; an unknown code shows the engine's text. `ok` and `error` lines stay text. Version lives in backup.sh, setup.sh, lib/common.sh and
+  `_why` for what it means and what to do; an unknown code shows the engine's text. `ok` and `error` lines stay text.
+  **Since 2.41 every drift note has a code** (`drift_add <level> <text> <code> [value] [key=value]…`; drift.json items
+  `params` — strings —, `value` only for the codes from before 2.41): a new one gets `drift_code.<code>` in all five
+  languages whose placeholders are its params (desk.js `driftText()`; `testDriftCodes` greps common.sh and backup.sh);
+  the engine's own notification and drift.txt stay English. Version lives in backup.sh, setup.sh, lib/common.sh and
   backup/README.md. backup.sh and setup.sh are one `{ … }` block (since 2.14),
   so bash has read all of it before a run starts; keep it that way (code goes
   inside the block) and still replace files with a new file + `mv`, never by

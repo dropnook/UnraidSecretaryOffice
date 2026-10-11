@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.40 - 2026-10-11
+# unraid-backup - setup.sh                        Version 2.41 - 2026-10-12
+#   2.41 (backup.sh only: every drift note carries a code and its parameters for the office)
 #   2.40 An [app "<name>"] section whose app is gone (no container of that name or Compose project any more, Docker
 #        answering) is removed like a gone share's entry: never carried into the proposals, said once (hint app_gone);
 #        the plan lists every [app] section of settings.ini as apps[] {name, gone, keys} for the office
