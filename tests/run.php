@@ -7036,11 +7036,17 @@ function testSetupFilter(): void
         str_contains($js, 'setup.focus && setup.model && setup.draft && !busy ? setupFocus() : null'));
     // since the tiles rebuild (2026-10-11) the bar is core.js's Office.filterBar (data-keep, the focus and the selection kept
     // through a drawing — testFilterBar): built once per visit, appended at every drawing, told what fits after the steps
-    check('setup filter: the bar is Office.filterBar, built once per visit, appended at every drawing, «n of m» after the steps',
-        str_contains($js, 'sfBar = Office.filterBar({') && str_contains($js, 'root.appendChild(setupFilter().el);')
-        && str_contains($js, 'sfBar.done(fitting.n, fitting.total, { onlyAvail: fitting.fresh > 0 })'));
-    preg_match_all('/root\.appendChild\(fitStep\(\(\) => setup(\w+)\(/', $js, $m);
+    // since the setup's tiles (2026-10-12) the bar is ONE for the whole page, between the row of steps and the steps; the
+    // step chosen is its note line's chip, «Show all» every step again; «only what's new» counted over every step
+    check('setup filter: the bar is Office.filterBar, built once per visit, under the row of steps, «n of m» after the steps drawn',
+        str_contains($js, 'sfBar = Office.filterBar({') && str_contains($js, 'sw.el.insertBefore(bar, sw.body);')
+        && str_contains($js, "sfBar.done(fitting.n, fitting.total, { tile: key ? T(key) : '', clear: () => setupSwitcher().clear(), onlyAvail: c.vms + c.apps + c.shares > 0 });")
+        && str_contains($js, "onChange: () => setupSwitcher().render() });"));
+    preg_match('/function setupStepNode\(id, plan\) \{(.*?)\n\}/s', $js, $f);
+    preg_match_all('/return setup(\w+)\(/', $f[1] ?? '', $m);
     same('setup filter: every step goes through it (0 basics … 4 retention, the rest, old sources)', ['Kopia', 'Vms', 'Apps', 'Shares', 'Retention', 'General', 'Sources'], $m[1]);
+    check('setup filter: … each step a section of the switcher through fitStep, the first starts the count, the last tells the bar',
+        str_contains($js, "if (id === shown[0]) fitStart();\n  const s = id === 'messages' ? setupMessages(setupNotes(plan)) : fitStep(() => setupStepNode(id, plan));\n  if (id === shown[shown.length - 1]) setupFilterDone();"));
     check('setup filter: only hides - no dset() and no setup.open change in its code', (bool) preg_match('/function setupFits\(.*?\n\}\n/s', $js, $f)
         && !str_contains($f[0], 'dset(') && !str_contains(substr($js, strpos($js, 'function fitStep('), 400), 'setup.open'));
     check('setup filter: a new visit starts without words, «Decide…» is revealed like the search', str_contains($js, "setupFilterReset();                  // a new visit")
@@ -7153,6 +7159,144 @@ JS;
     same('setup filter: «Change…» of a VM - its row, the whole setup (no words, not «only new»)', ['setup:vm:old', 'setup.vms', '', false], $r['change']);
     same('setup filter: «Decide…» with nothing new in the plan - nothing revealed, the whole setup', [null, false], $r['nothing']);
     hardeningRm($tmp);
+}
+
+/**
+ * The setup pages' tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»: Mr. Backupsy's and Jack Emby's setup steps on a switcher
+ * of their own). Read in the code: the switchers (kept as backup.setup.tile / emby.setup.tile, no start tile, the routes
+ * #/<desk>/setup/<tile> taken in mount()), the steps' and settings' places by their tile's route. Under node, with the demo
+ * plan (tests/ui/demo/post/backup.setup_get.json) and Jack's demo state: every tile names a section, in the steps' order,
+ * the figures as the plan says (VMs, apps, shares, the backup place, the retention, the messages), the chip «new»; Jack's
+ * before a server is connected (as saved) and after.
+ */
+function testSetupTiles(): void
+{
+    $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $em = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('setup tiles: Mr. Backupsy\'s steps on a switcher of their own — backup.setup.tile, no start tile, #/backup/setup/<tile>',
+        str_contains($bk, "id: `\${ID}/setup`,") && str_contains($bk, "key: 'backup.setup.tile',") && str_contains($bk, "tiles: () => setupTileList(),")
+        && str_contains($bk, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
+    check('setup tiles: Jack Emby\'s too — emby.setup.tile, no start tile, #/emby/setup/<tile>',
+        str_contains($em, "id: `\${ID}/setup`,") && str_contains($em, "key: 'emby.setup.tile',") && str_contains($em, "tiles: () => setupTileList(),")
+        && str_contains($em, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
+    check('setup tiles: «Decide…» / «Change…» pick the target\'s step first, then reveal its row',
+        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';\n  if (tile) sw.pick(tile, 'route'); else sw.render();"));
+    check('setup tiles: the steps\' and settings\' places go by their tile\'s route (a step stands under the row only while its tile is chosen)',
+        str_contains($bk, "route: setupRoute(STEP_TILE[key]) } : {})") && str_contains($bk, "route: setupRoute(STEP_TILE[PART[key] || 'setup.general'])")
+        && str_contains($em, "...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/\${ID}/setup/\${id}` })),"));
+    check('setup tiles: Jack\'s form keeps the focus through a drawing (the control clicked gets it back)',
+        str_contains($em, "const spot = focusSpot();") && str_contains($em, "focusBack(spot);\n}"));
+    foreach (['backup' => ['setup.tile.local', 'setup.tile.offsite', 'setup.tile.no_place', 'setup.tile.on', 'setup.tile.new', 'setup.tile.u_d', 'setup.tile.u_w',
+        'setup.tile.u_m', 'setup.tile.u_y', 'setup.tile.ret_offsite', 'setup.tile.changed', 'setup.tile.unchanged', 'setup.tile.settings'],
+        'emby' => ['setup.after_connect', 'setup.tile.connected', 'setup.tile.of', 'setup.tile.folders', 'setup.tile.saved', 'setup.tile.everyone',
+        'setup.tile.budget_line', 'setup.tile.count_line', 'setup.tile.default', 'setup.tile.changed', 'setup.tile.optional']] as $desk => $want) {
+        foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+            $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$desk/lang/$code.json"), true);
+            same("setup tiles: $desk's tile words in $code", [], array_values(array_filter($want, fn ($k) => !isset($l[$k]))));
+        }
+    }
+    $node = testsNode();
+    if ($node === '') {
+        check('setup tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-tiles');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, emFile, coreFile, planFile, embyFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+let spec = null;
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: (o) => { spec = o; return { el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
+    mount: () => false, pick() {}, render() {}, clear() {} }; },
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const out = {};
+S.plan = JSON.parse(fs.readFileSync(planFile, 'utf8')).plan;
+b.setupDraftFromPlan();
+const data = b.setupTileData(S.plan);
+out.ids = data.map((d) => d.id);
+out.keys = data.map((d) => d.key);
+out.known = data.every((d) => b.SETUP_TILES.some(([id, key]) => id === d.id && key === d.key));
+out.fig = Object.fromEntries(data.map((d) => [d.id, [d.value, d.sub.filter(Boolean), !!d.alert, d.fresh]]));
+out.model = { vms: S.model.vms.length, apps: S.model.apps.length };
+// the switcher's tiles: each with its own section (a function) and its place
+b.setupSwitcher();
+const list = spec.tiles();
+out.list = list.map((x) => [x.id, typeof x.section, x.place]);
+out.spec = [spec.id, spec.key, spec.default, spec.wants('vms'), spec.wants('nope')];
+// a new share in the plan: its tile carries the chip
+const extra = { ...S.plan.shares[0], name: 'Neu', why: 'new' };
+S.newItems.add('share:Neu');
+S.plan.shares.push(extra);
+out.newShare = b.setupTileData(S.plan).find((d) => d.id === 'shares');
+// no backup place: Basics says so, alert
+delete S.draft['general|dumps_share'];
+out.noPlace = b.setupTileData(S.plan)[0];
+// Jack Emby
+spec = null;
+(0, eval)(fs.readFileSync(emFile, 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const st = JSON.parse(fs.readFileSync(embyFile, 'utf8'));
+e.setState(st);
+e.initForm();
+out.emby = e.setupTileData().map((d) => [d.id, d.key, d.value, d.sub.filter(Boolean)]);
+out.embyList = e.setupTileList().map((x) => [x.id, typeof x.section, x.place]);
+e.setState({ ...st, configured: false });
+out.embyNew = e.setupTileData().map((d) => d.id);
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/backup.setup_get.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r)) {
+        check('setup tiles: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    $plan = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/post/backup.setup_get.json'), true)['plan'];
+    $old = array_filter($plan['kopia']['sources'] ?? [], fn ($x) => in_array($x['state'] ?? '', ['orphan', 'gone'], true));
+    same('setup tiles: a tile per step in the steps\' order (old Kopia sources only when there are), each a step\'s title',
+        array_merge(['basics', 'vms', 'apps', 'shares', 'retention', 'more'], $old ? ['sources'] : [], ['messages']), $r['ids']);
+    check('setup tiles: … each one of SETUP_TILES (its id and key)', $r['known'] === true);
+    same('setup tiles: every tile hangs on the switcher with its own section and the place setup.tile.<id>',
+        array_map(fn ($id) => [$id, 'function', "setup.tile.$id"], $r['ids']), $r['list']);
+    same('setup tiles: the switcher — #/backup/setup/<tile>, kept as backup.setup.tile, no start tile, a step\'s route before the plan',
+        ['backup/setup', 'backup.setup.tile', '', true, false], $r['spec']);
+    same('setup tiles: VMs, apps, shares — how many the plan has', [(string) $r['model']['vms'], (string) $r['model']['apps'], (string) count($plan['shares'])],
+        [$r['fig']['vms'][0], $r['fig']['apps'][0], $r['fig']['shares'][0]]);
+    check('setup tiles: … with «n backed up» under each', str_starts_with($r['fig']['vms'][1][0] ?? '', 'setup.tile.on') && str_starts_with($r['fig']['shares'][1][0] ?? '', 'setup.tile.on'));
+    $parts = explode(' + ', $r['fig']['basics'][1][0] ?? '');
+    same('setup tiles: Basics — the places the backups go to (the backup place, Kopia when on, the partners sent to), counted',
+        [(string) count($parts), 'setup.tile.local', false], [$r['fig']['basics'][0], $parts[0], $r['fig']['basics'][2]]);
+    same('setup tiles: … no backup place: said, the tile in alert', ['setup.tile.no_place', true], [$r['noPlace']['sub'][0], $r['noPlace']['alert']]);
+    $z = preg_split('/\s+/', trim((string) ($plan['P']['zfs|retention'] ?? '')));
+    same('setup tiles: Retention — the local ZFS snapshots\' «d w m» in short figures',
+        "setup.tile.u_d {\"n\":{$z[0]}} · setup.tile.u_w {\"n\":{$z[1]}} · setup.tile.u_m {\"n\":{$z[2]}}", $r['fig']['retention'][0]);
+    $notes = isset($plan['notes']) ? array_sum(array_map(fn ($g) => count($g['items'] ?? []), $plan['notes'])) : count($plan['messages'] ?? []);
+    same('setup tiles: «What the setup checked» — its messages counted', (string) $notes, $r['fig']['messages'][0]);
+    same('setup tiles: a new share — its tile counts it and carries the chip «new»', [(string) (count($plan['shares']) + 1), $r['fig']['shares'][3] + 1], [$r['newShare']['value'], $r['newShare']['fresh']]);
+    same('setup tiles: Jack — servers, libraries, people, pool and amount, the way back, the import (once set up), each with its section and place',
+        [['servers', 'function', 'setup.tile.servers'], ['libraries', 'function', 'setup.tile.libraries'], ['users', 'function', 'setup.tile.users'],
+         ['scope', 'function', 'setup.tile.scope'], ['more', 'function', 'setup.tile.more'], ['import', 'function', 'setup.tile.import']], $r['embyList']);
+    $set = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/emby.json'), true)['settings'];
+    same('setup tiles: Jack before a server is connected — one server, none connected, the libraries and people as saved, the pool',
+        [['servers', 'setup.server', '1', ['setup.tile.connected {"n":0}']], ['libraries', 'setup.libraries', (string) count($set['libraries']), ['setup.tile.saved']],
+         ['users', 'setup.users', 'setup.tile.everyone', ['setup.tile.saved']],
+         ['scope', 'setup.scope', str_replace('/mnt/', '', $set['cache_path']), ['setup.tile.count_line {"n":' . $set['number_episodes'] . '}']],
+         ['more', 'setup.more', 'setup.tile.default', []], ['import', 'import.title', 'setup.tile.optional', []]], $r['emby']);
+    same('setup tiles: Jack not set up yet — no import tile (it stands over the row)', ['servers', 'libraries', 'users', 'scope', 'more'], $r['embyNew']);
 }
 
 /**
@@ -28830,6 +28974,17 @@ function setupPage() {
 JS;
     same('tiles convention v2: a made-up desk on the switcher (a section helper, a head on its other page named) — no fault',
         [], sectionsConventionFaults('x', 'desk.js', $goodV2, ['setupPage']));
+    $twoV2 = $goodV2 . <<<'JS'
+
+const setupSw = Office.sections({ id: `${ID}/setup`, tiles: () => [
+  { id: 'vms', key: 'setup.vms', tile: (a) => Office.stat({ label: T('setup.vms'), ...a }), section: () => setupVms() },
+] });
+function setupVms() {
+  return section(T('setup.vms'), '');
+}
+JS;
+    same('tiles convention v2: a second switcher (the desk\'s other page) reaches its own sections — no fault',
+        [], sectionsConventionFaults('x', 'desk.js', $twoV2, ['setupPage']));
     $badV2 = <<<'JS'
 const sections = ['apps', 'vms'];
 function renderTiles() {
@@ -28880,11 +29035,11 @@ const SECTIONS_DESKS = [
     'watchman' => ['roundHead'],     // «The last round»: the row's head over the tiles (a hint, it stays at every click)
     // Ms. Dustdevil: her two pages, two switchers — the first in her desk.js is «Tidying up»'s, these make «Where is what»'s sections
     'cleanup' => ['whereSection', 'whereAdvice', 'wherePlaces', 'whereCorner'],
-    // Mr. Backupsy (2026-10-11, sections-backup): the setup page's steps and its head (the other tab), and the running card
-    // that stands in the row's place while a run goes on (a live panel above the sections, like Jack Emby's)
-    'backup' => ['renderSetup', 'setupSection', 'presetSection', 'setupKopia', 'setupVms', 'setupApps', 'setupShares', 'setupRetention', 'setupGeneral',
-        'setupSources', 'setupMessages', 'runningCard'],
-    'emby' => ['renderSetup', 'importSection'],        // Jack Emby's setup page (#/emby/setup, the tab «Setup»)
+    // Mr. Backupsy: the running card that stands in the row's place while a run goes on (a live panel above the sections,
+    // like Jack Emby's) and the setup's start cards over its row of steps (a new server: where to start — 2026-10-12, his
+    // setup's steps on a switcher of their own)
+    'backup' => ['runningCard', 'presetSection'],
+    'emby' => ['importSection'],        // Jack Emby's setup: «Take over an earlier install» over the row until he is set up (later its tile)
     'snapshot' => [],
 ];
 
@@ -28932,19 +29087,23 @@ function sectionsConventionFaults(string $desk, string $file, string $js, array 
     if ($file !== 'desk.js' || $at === false) {
         return $faults;
     }
-    // the switcher's spec: Office.sections( … ) up to its closing parenthesis
-    $depth = 0;
-    $end = strlen($js);
-    for ($k = $at + strlen('Office.sections'); $k < strlen($js); $k++) {
-        $c = $js[$k];
-        if ($c === '(') {
-            $depth++;
-        } elseif ($c === ')' && --$depth === 0) {
-            $end = $k;
-            break;
+    // the switchers' specs: every Office.sections( … ) up to its closing parenthesis (a desk with two pages may have a
+    // switcher per page — Ms. Dustdevil's, Mr. Backupsy's and Jack Emby's setup steps)
+    $spec = '';
+    for ($from = $at; $from !== false; $from = strpos($js, 'Office.sections(', $from + 1)) {
+        $depth = 0;
+        $end = strlen($js);
+        for ($k = $from + strlen('Office.sections'); $k < strlen($js); $k++) {
+            $c = $js[$k];
+            if ($c === '(') {
+                $depth++;
+            } elseif ($c === ')' && --$depth === 0) {
+                $end = $k;
+                break;
+            }
         }
+        $spec .= substr($js, $from, $end - $from) . "\n";
     }
-    $spec = substr($js, $at, $end - $at);
     $names = fn (string $text) => array_values(array_filter(array_keys($fns), fn ($n) => preg_match('/(?<![\w.])' . preg_quote($n, '/') . '\b/', $text)));
     $reached = array_fill_keys($names($spec), true);
     for ($todo = array_keys($reached); $todo;) {
@@ -29082,7 +29241,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
