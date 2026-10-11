@@ -164,7 +164,7 @@ const PAGE_HELPERS = () => {
     mark(key) {
       document.querySelectorAll('[data-uc]').forEach((x) => x.removeAttribute('data-uc'));
       const c = all().find((x) => x.key === key);
-      if (!c) return false;
+      if (!c || !visible(c.e)) return false;      // not there, or hidden by an earlier click (a row of a group it closed)
       let t = c.e;
       if (c.kind === 'row') t = c.e.querySelector('.row-name') || c.e.querySelector('td, th') || c.e;
       if (c.kind === 'group') t = c.e.querySelector('.group-title, .group-name') || c.e;

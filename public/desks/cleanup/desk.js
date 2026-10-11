@@ -213,7 +213,7 @@ function noteChips(e) {
 /* Her two pages (tiles v2, CLAUDE.md «Tiles»: two tabs = two pages) — «Where is what» (#/cleanup/where, the block
    `Where` at the end) and «Tidying up» (#/cleanup/tidy): tabs under the bubble, #/cleanup opens the one seen last
    (`cleanup.page`, the first visit «Where is what»). One bubble for both, the head's «Tour» and «wake sleeping disks»
-   on both; each page has its own row of tiles (Office.sections()), its own state, its own bar. */
+   on both; each page has its own row of tiles (the section switcher), its own state, its own bar. */
 const PAGES = () => [{ id: 'where', text: T('part.where') }, { id: 'tidy', text: T('part.tidy') }];
 const PAGE_KEY = 'cleanup.page';
 let pendingWords = null;      // a finding's words, carried over to the other page (Where.pick from «Tidying up»)
@@ -330,7 +330,7 @@ function build(root, page) {
   // «Tidying up» — her rooms and the storeroom: hints over the row (what she can't do now, the bar over the rooms), then
   // the rooms' row and the room chosen (none: every room, in the row's order)
   v.partTidy = Office.place('part.tidy', part(T('part.tidy'), T('part.tidy_sub')));
-  v.partTidy.querySelector('.cl-part-head').appendChild(Office.place('rooms', el('p', 'cl-part-sub', T('rooms_sub'))));
+  v.partTidy.head.appendChild(Office.place('rooms', el('p', 'cl-part-sub', T('rooms_sub'))));
   root.appendChild(v.partTidy);
   v.notice = el('div', 'cl-notice');
   v.partTidy.append(v.notice, roomBar().el, tidySw.el);
@@ -343,6 +343,7 @@ function part(title, sub) {
   const head = el('div', 'cl-part-head');
   head.append(el('div', 'cl-part-title', title), el('p', 'cl-part-sub', sub));
   box.appendChild(head);
+  box.head = head;
   return box;
 }
 
@@ -429,7 +430,7 @@ function renderNotice() {
   if (state.docker.enabled && !state.docker.ok) box.appendChild(el('p', 'callout warn', T('notice.docker_down')));
 }
 
-// ------------------------------------------------------------------ the rooms' tiles (Office.sections())
+// ------------------------------------------------------------------ the rooms' tiles (the section switcher)
 function tileLine(sec) {
   if (sec === 'trash') {
     const runs = state.trash.runs;
@@ -444,7 +445,7 @@ function tileLine(sec) {
 }
 
 /*
- * Her rooms: a tile is a room (Office.sections(): the room chosen alone under the row, none chosen = every room in the
+ * Her rooms: a tile is a room (core.js Office.sections — the room chosen alone under the row, none chosen = every room in the
  * row's order — they are short, mostly «all in use»); the choice kept as `cleanup.section`, a room's route
  * #/cleanup/tidy/<room>. The bar over the rooms filters what is shown.
  */
@@ -491,7 +492,7 @@ function roomDone() {
 
 /** One room: its head (CSV, «empty all»), what she knows about it, its list in groups — a section of the switcher */
 function roomSection(sec) {
-  const s = el('section', 'section');
+  const s = Office.place(`room-section.${sec}`, el('section', 'section'));    // its rows' and groups' place: theirs, not another room's
   s.id = 'cl-room-' + sec;
   shown = [];
   const right = [];
@@ -514,12 +515,14 @@ function roomSection(sec) {
   const info = { templates: templatesInfo, appdata: appdataInfo, vms: vmsInfo, scripts: scriptsInfo, docker: dockerInfo, icons: iconsInfo,
     leftovers: leftoversInfo, partners: partnersInfo }[sec];
   if (info) s.appendChild(info());
-  if (sec === 'stacks' && !state.stacks.exists) s.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root })));
-  else if (sec === 'trash') renderTrash(s);
-  else if (sec === 'leftovers') renderLeftovers(s);
-  else renderList(s, sec);
+  const list = el('div', 'cl-room-list');
+  if (sec === 'stacks' && !state.stacks.exists) list.appendChild(emptyNote(T('empty.no_compose', { path: state.stacks.root })));
+  else if (sec === 'trash') renderTrash(list);
+  else if (sec === 'leftovers') renderLeftovers(list);
+  else renderList(list, sec);
   const mine = shown;
-  if (mine.length > 1) s.insertBefore(unfoldBar(s, mine), s.querySelector('.box'));
+  if (mine.length > 1) s.appendChild(unfoldBar(list, mine));
+  s.appendChild(list);
   roomDone();               // the bar over the rooms: what the rooms drawn hold (the last room drawn says it for all)
   return s;
 }
@@ -2541,7 +2544,7 @@ function build(root) {
   const v = {};
   // the server, Unraid, up since, the licence, the load, when she looked — the head line of the row (wraps, never cut)
   v.now = Office.place('where.now', el('p', 'cl-part-sub clw-now'));
-  (root.querySelector('.cl-part-head') || root).appendChild(v.now);
+  (root.head || root).appendChild(v.now);
   v.hints = el('div', 'clw-hints');           // hints, no section: a ZFS scrub going on; nothing known yet
   root.append(v.hints, sw.el);
   view = v;
@@ -2589,7 +2592,7 @@ function renderNow() {
   if ((sys.scrubs || []).length) hints.appendChild(el('p', 'callout warn', T('where.scrub_running', { list: sys.scrubs.map((x) => `${x.pool}: ${x.text}`).join(' · ') })));
 }
 
-// ------------------------------------------------------------------ the tiles (Office.sections())
+// ------------------------------------------------------------------ the tiles (the section switcher)
 /*
  * One row of 13 tiles (tiles v2, CLAUDE.md «Tiles»): her advice, «Where things are» and the eleven corners — each the
  * summary of its section under the row, the live numbers of the old row «What's going on» on the corners they belong
@@ -2969,7 +2972,7 @@ function barCorner() {
 
 /** A corner — a section of the switcher: its head (the tile's summary under it), the bar (see barCorner), its rows */
 function whereCorner(id) {
-  const s = el('section', 'section');
+  const s = Office.place(`where-corner.${id}`, el('section', 'section'));   // its rows' and groups' place: theirs, not another corner's
   s.id = 'clw-c-' + id;
   s.appendChild(Office.sectionHead(T('where.section.' + id), sectionSummary(id).sub, { place: `where.head.${id}` }));
   if (barCorner() === id) {
@@ -3684,6 +3687,8 @@ return {
   setHooks(h) { hooks = { ...hooks, ...h }; },
   /** the visit ends: the bar's words and its switch go (never kept) */
   unmount() { view = null; clearTimeout(sizeTimer); if (bar) bar.reset(); },
+  /** tests/run.php (testCleanupTiles): the switcher and what each tile says */
+  test: { sw, faces: () => (state ? Object.fromEntries(TILES.map((id) => [id, tileFace(id)])) : null) },
 };
 })();
 
@@ -3728,6 +3733,6 @@ if (globalThis.OFFICE_DESK_TESTS) {
   // query(): the rooms' words, and the corner's too where they differ (they never should)
   const both = () => { const a = words().join(' '), b = Where.words(); return a === b ? a : `${a}|${b}`; };
   globalThis.OFFICE_DESK_TESTS.cleanup = { query: both, setQuery: (q) => { roomBar().set({ text: q }); Where.setWords(q); }, setState: (s) => { state = s; },
-    findings: () => Where.findings() };
+    findings: () => Where.findings(), where: Where.test, tidy: tidySw, page: () => (view ? view.page : null) };
 }
 })();
