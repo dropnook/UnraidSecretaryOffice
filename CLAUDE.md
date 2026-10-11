@@ -894,9 +894,10 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   (QA 2026-10-08); Mr. Backupsy's messages carry `bk-msg-<level>` (`msgClass()`). A desk.css grid that overrides
   office.css's `.kv` or a row's columns brings its own phone rule (`@media (max-width:640px)`: labels above values,
   a chip or buttons in `.bk-right` / `.rs-right` under the text).
-* **Remembered per browser** (`Office.store`, prefix `office.`): filters,
-  chosen tiles, favourites. Tests in the browser save and restore those keys —
-  the user's own pane shares them.
+* **Remembered per browser** (`Office.store`, prefix `office.`): choices —
+  chosen tiles (a section, a corner, a pool), selects, favourites; never filter
+  words, «only …» switches or tile filters (2026-10-11, «Tiles» below). Tests in
+  the browser save and restore those keys — the user's own pane shares them.
 * **Sections:** `Office.sectionHead(title, explanation, ...extras)` — a title
   bar (Unraid's inside Unraid) with counts, status and buttons on its right, the
   explanation right under it. No explanatory text floating on the right.

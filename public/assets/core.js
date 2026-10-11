@@ -1155,7 +1155,8 @@ Office.filterBar = function filterBar(opts) {
     if (o.only.hint) sw.title = o.only.hint;
     box.appendChild(sw);
   }
-  (o.extra || []).filter(Boolean).forEach((x) => box.appendChild(x));
+  const extras = (o.extra || []).filter(Boolean);
+  extras.forEach((x) => box.appendChild(x));
   const hits = el('span', 'filter-hits');
   hits.setAttribute('aria-live', 'polite');
   box.appendChild(hits);
@@ -1224,14 +1225,17 @@ Office.filterBar = function filterBar(opts) {
       const x = d || {};
       if ('tile' in x) s.tile = x.tile || '';
       if (x.clear) s.clear = x.clear;
-      if (sw) {
-        const avail = x.onlyAvail !== false;
-        sw.hidden = !avail;
-        if (!avail && cb.checked) { cb.checked = false; later('gone', box); }    // nothing to switch to: off, drawn anew
-      }
+      const avail = x.onlyAvail !== false;
+      if (sw && !avail && cb.checked) { cb.checked = false; later('gone', box); }    // nothing to switch to: off, drawn anew
       const f = read();
       const filtering = !!(f.words.length || f.only || f.pick || f.tile);
-      box.hidden = !(total >= min || filtering);
+      // a short list with nothing filtering: the filter's own controls go, the extras (a desk's own buttons) stay —
+      // the bar itself only without them
+      const quiet = !(total >= min || filtering);
+      input.hidden = quiet;
+      if (sel) sel.hidden = quiet;
+      if (sw) sw.hidden = quiet || !avail;
+      box.hidden = quiet && !extras.length;
       const said = t('common.filter_hits', { n, total });
       hits.textContent = filtering && !f.tile ? said : '';
       note.hidden = !f.tile;

@@ -201,9 +201,13 @@ async function bar() {
   same('bar: no inline handlers', [input.oninput, cb.onchange, sel.onchange, chip.onclick, all.onclick].map((x) => x === undefined || x === null), [true, true, true, true, true]);
 
   b.done(3, 3);
-  same('done: below the threshold, nothing filtering — hidden', [box.hidden, hits.textContent, note.hidden], [true, '', true]);
+  same('done: below the threshold, nothing filtering — the filter\'s own controls gone, the extras stay (and the bar with them)',
+    [box.hidden, input.hidden, sel.hidden, sw.hidden, hits.textContent, note.hidden], [false, true, true, true, '', true]);
+  const bare = mk({ extra: [] });
+  bare.done(3, 3);
+  same('done: below the threshold without extras — the whole bar hidden', bare.el.hidden, true);
   b.done(10, 10);
-  same('done: from FILTER_MIN rows on — shown, no hits text', [box.hidden, hits.textContent], [false, '']);
+  same('done: from FILTER_MIN rows on — shown, no hits text', [box.hidden, input.hidden, sel.hidden, sw.hidden, hits.textContent], [false, false, false, false, '']);
   const small = mk({ min: 3 });
   small.done(3, 3);
   same('done: min overrides the threshold', small.el.hidden, false);
