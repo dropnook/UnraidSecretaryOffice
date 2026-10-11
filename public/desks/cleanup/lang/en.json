@@ -239,9 +239,12 @@
     "other": "These {n} folders go into my storeroom:"
   },
   "park.down": "Still has containers — I stop them first with docker compose down (named volumes stay): {names}",
-  "park.in_use_templates": "Still in use: {names}. The container keeps running, but Unraid's Docker page can't edit it any more without its template.",
   "park.in_use_stacks": "Still in use: {names}. They are stopped and won't start again until you put them back.",
-  "park.in_use_appdata": "Still needed: {names}. Whatever uses it won't find its data any more — a running container keeps writing into the storeroom until it is restarted.",
+  "in_use_locked.template": "Still in use — delete its container first; then the template lies under «{unused}» (or «{leftover}») and can go.",
+  "in_use_locked.appdata": "Still in use — first delete what names it (the container, template, stack or VM); then the folder lies under «{group}» and can go.",
+  "in_use_locked.domain": "Still in use — delete the VM first (or whatever else names it); then the folder lies under «{group}» and can go.",
+  "in_use_locked.iso": "Still in use — first take it out where it is named (the VM, or the file on the flash beside it); then it lies under «{group}» and can go.",
+  "in_use_locked.group": "Still in use — what something still needs, I don't clear away.",
   "park.where_templates": "On the flash, in /boot/config/.UnraidSecretaryOffice-trash. Put back any time until you empty the storeroom.",
   "park.where_stacks": "Next to the projects folder, in .UnraidSecretaryOffice-trash (on the flash by default). Put back any time until you empty the storeroom.",
   "park.where_appdata": "On the same pool, in the folder .UnraidSecretaryOffice-trash of the share — only renamed, nothing is copied. Put back any time until you empty the storeroom.",
@@ -420,7 +423,6 @@
     "one": "This goes into my storeroom:",
     "other": "These {n} things go into my storeroom:"
   },
-  "park.in_use_vms": "Still in use: {names}. The VM won't find it any more until you put it back.",
   "park.where_vms": "Folders and disk images stay on their pool, in .UnraidSecretaryOffice-trash of their share; NVRAM, TPM states and snapshot lists in libvirt.img (/etc/libvirt/.UnraidSecretaryOffice-trash). Put back any time until you empty the storeroom.",
   "park.zfs": "ZFS datasets are renamed next to the storeroom (.UnraidSecretaryOffice-trash-<time>-<name>) — at once, with their snapshots.",
   "zfs": "ZFS dataset",

@@ -28497,6 +28497,52 @@ function testTilesMediaPages(): void
 
 
 /**
+ * Ms. Dustdevil clears away what nobody uses — what something still needs can't be chosen at all (2026-10-12, Benj's
+ * finding: a VM's disk in use could be ticked, «In die Abstellkammer…» offered the red «Trotzdem…»). A template whose
+ * container exists, an appdata folder, a VM's folder or disk image in use: no checkbox to tick, a title saying what to do,
+ * and the agent refuses them even when a stale page sends `force`. A stack in use («let go») and Mr. Restori's way back
+ * keep the warning and «anyway».
+ */
+function testCleanupInUseLocked(): void
+{
+    $refused = function (array $e, bool $force): ?string {
+        try {
+            clParkCheck($e + ['why' => null, 'name' => 'x', 'file' => 'my-x.xml', 'folder' => 'x'], $force);
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $locked = [['kind' => 'template', 'category' => 'in_use', 'force' => true], ['kind' => 'appdata', 'category' => 'used', 'force' => true],
+               ['kind' => 'domain', 'category' => 'used', 'force' => true], ['kind' => 'iso', 'category' => 'used', 'force' => true]];
+    same('in use locked: a template, appdata folder, VM folder or disk image in use is refused — with and without force',
+        array_fill(0, 8, 'cleanup_in_use'), array_merge(array_map(fn ($e) => $refused($e, true), $locked), array_map(fn ($e) => $refused($e, false), $locked)));
+    same('in use locked: a stack in use and Mr. Restori\'s way back park with force (the «anyway»), are refused without it',
+        [null, null, 'cleanup_in_use', 'cleanup_in_use'],
+        [$refused(['kind' => 'stack', 'category' => 'in_use', 'force' => true], true), $refused(['kind' => 'leftover', 'category' => 'leftover', 'force' => true], true),
+         $refused(['kind' => 'stack', 'category' => 'in_use', 'force' => true], false), $refused(['kind' => 'leftover', 'category' => 'leftover', 'force' => true], false)]);
+    same('in use locked: what nobody uses parks as before (force or not)', [null, null],
+        [$refused(['kind' => 'appdata', 'category' => 'unused', 'force' => false], false), $refused(['kind' => 'domain', 'category' => 'unused', 'force' => false], true)]);
+    same('in use locked: a reason not to (why) still comes first', 'cleanup_docker_down',
+        (function () { try { clParkCheck(['kind' => 'template', 'why' => 'docker_down', 'force' => true, 'file' => 'a.xml'], true); return null; } catch (Problem $p) { return $p->key; } })());
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('in use locked: clPark() asks clParkCheck() for every entry', str_contains($src, "        clParkCheck(\$e, \$force);\n        \$todo[] = \$e;"));
+
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('in use locked: the page names the same kinds as the agent', str_contains($js, "const IN_USE_LOCKED = ['" . implode("', '", CL_IN_USE_LOCKED) . "'];"));
+    check('in use locked: not selectable — the row\'s checkbox disabled with the why as its title and the row\'s, the group\'s says it too',
+        str_contains($js, "&& !(removable(e) && e.category === 'used') && !inUseLocked(e)") && str_contains($js, "cb.title = lockedText(e);\n    r.title = cb.title;")
+        && str_contains($js, "cb.title = !can.length && items.some(inUseLocked) ? T('in_use_locked.group') : T('select_group');"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/cleanup/lang/$l.json"), true) ?: [];
+        check("in use locked ($l): a why per kind and the group's; the dead «anyway» callouts of the three rooms gone, the stacks' and the leftovers' kept",
+            isset($t['in_use_locked.template'], $t['in_use_locked.appdata'], $t['in_use_locked.domain'], $t['in_use_locked.iso'], $t['in_use_locked.group'], $t['park.in_use_stacks'], $t['park.in_use_leftovers'])
+            && str_contains($t['in_use_locked.template'], '{unused}') && str_contains($t['in_use_locked.appdata'], '{group}')
+            && !isset($t['park.in_use_templates']) && !isset($t['park.in_use_appdata']) && !isset($t['park.in_use_vms']));
+    }
+}
+
+/**
  * Ms. Dustdevil's tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»): two pages as tabs («Where is what» / «Tidying up»,
  * cleanup.page), each a row of tiles on the section switcher. «Where is what»: 13 tiles (her advice, «Where things are»,
  * the eleven corners) — the number row «What's going on» is gone, its live numbers on the corner tiles (STAT_CORNERS
@@ -29174,7 +29220,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

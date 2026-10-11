@@ -239,9 +239,12 @@
     "other": "Diese {n} Ordner kommen in meine Abstellkammer:"
   },
   "park.down": "Hat noch Container — die stoppe ich zuerst mit docker compose down (Named Volumes bleiben): {names}",
-  "park.in_use_templates": "Noch in Betrieb: {names}. Der Container läuft weiter, aber Unraids Docker-Seite kann ihn ohne sein Template nicht mehr bearbeiten.",
   "park.in_use_stacks": "Noch in Betrieb: {names}. Sie werden gestoppt und starten erst wieder, wenn du sie zurücklegst.",
-  "park.in_use_appdata": "Wird noch gebraucht: {names}. Was ihn benutzt, findet seine Daten nicht mehr — ein laufender Container schreibt bis zum nächsten Neustart in die Abstellkammer weiter.",
+  "in_use_locked.template": "Noch in Betrieb — lösche zuerst seinen Container, dann liegt das Template bei «{unused}» (oder «{leftover}») und kann weg.",
+  "in_use_locked.appdata": "Noch in Betrieb — lösche zuerst, was ihn nennt (den Container, das Template, den Stack oder die VM), dann liegt der Ordner bei «{group}» und kann weg.",
+  "in_use_locked.domain": "Noch in Betrieb — lösche zuerst die VM (oder was ihn sonst nennt), dann liegt der Ordner bei «{group}» und kann weg.",
+  "in_use_locked.iso": "Noch in Betrieb — nimm es zuerst dort heraus, wo es genannt ist (in der VM oder der Datei auf dem Flash daneben), dann liegt es bei «{group}» und kann weg.",
+  "in_use_locked.group": "Noch in Betrieb — was noch gebraucht wird, räume ich nicht weg.",
   "park.where_templates": "Auf den Flash, in /boot/config/.UnraidSecretaryOffice-trash. Zurücklegen geht jederzeit, bis du die Abstellkammer leerst.",
   "park.where_stacks": "Neben den Projektordner, in .UnraidSecretaryOffice-trash (normalerweise auf dem Flash). Zurücklegen geht jederzeit, bis du die Abstellkammer leerst.",
   "park.where_appdata": "Auf demselben Pool, in den Ordner .UnraidSecretaryOffice-trash des Shares — nur umbenannt, nichts wird kopiert. Zurücklegen geht jederzeit, bis du die Abstellkammer leerst.",
@@ -420,7 +423,6 @@
     "one": "Das kommt in meine Abstellkammer:",
     "other": "Diese {n} Sachen kommen in meine Abstellkammer:"
   },
-  "park.in_use_vms": "Noch in Betrieb: {names}. Die VM findet es nicht mehr, bis du es zurücklegst.",
   "park.where_vms": "Ordner und Abbilder bleiben auf ihrem Pool, in .UnraidSecretaryOffice-trash ihres Shares; NVRAM, TPM-Zustände und Snapshot-Listen in libvirt.img (/etc/libvirt/.UnraidSecretaryOffice-trash). Zurücklegen geht jederzeit, bis du die Abstellkammer leerst.",
   "park.zfs": "ZFS-Datasets werden neben die Abstellkammer umbenannt (.UnraidSecretaryOffice-trash-<Zeit>-<Name>) — sofort, mitsamt ihren Snapshots.",
   "zfs": "ZFS-Dataset",

@@ -239,9 +239,12 @@
     "other": "Ces {n} dossiers vont dans mon débarras :"
   },
   "park.down": "A encore des conteneurs — je les arrête d'abord avec docker compose down (les volumes nommés restent) : {names}",
-  "park.in_use_templates": "Encore utilisés : {names}. Le conteneur continue de tourner, mais la page Docker d'Unraid ne peut plus le modifier sans son modèle.",
   "park.in_use_stacks": "Encore utilisées : {names}. Elles sont arrêtées et ne redémarreront pas tant que tu ne les remets pas en place.",
-  "park.in_use_appdata": "Encore nécessaires : {names}. Ce qui les utilise ne trouvera plus ses données — un conteneur en marche continue d'écrire dans le débarras jusqu'à son redémarrage.",
+  "in_use_locked.template": "Encore utilisé — supprime d'abord son conteneur, ensuite le modèle se range sous « {unused} » (ou « {leftover} ») et peut partir.",
+  "in_use_locked.appdata": "Encore utilisé — supprime d'abord ce qui le nomme (le conteneur, le modèle, la stack ou la VM), ensuite le dossier se range sous « {group} » et peut partir.",
+  "in_use_locked.domain": "Encore utilisé — supprime d'abord la VM (ou ce qui le nomme encore), ensuite le dossier se range sous « {group} » et peut partir.",
+  "in_use_locked.iso": "Encore utilisé — retire-le d'abord de là où il est nommé (la VM, ou le fichier sur la flash à côté), ensuite il se range sous « {group} » et peut partir.",
+  "in_use_locked.group": "Encore utilisé — ce dont quelque chose a encore besoin, je ne le range pas.",
   "park.where_templates": "Sur la flash, dans /boot/config/.UnraidSecretaryOffice-trash. Remis en place quand tu veux, jusqu'à ce que tu vides le débarras.",
   "park.where_stacks": "À côté du dossier des projets, dans .UnraidSecretaryOffice-trash (sur la flash par défaut). Remis en place quand tu veux, jusqu'à ce que tu vides le débarras.",
   "park.where_appdata": "Sur le même pool, dans le dossier .UnraidSecretaryOffice-trash du partage — seulement renommé, rien n'est copié. Remis en place quand tu veux, jusqu'à ce que tu vides le débarras.",
@@ -420,7 +423,6 @@
     "one": "Ceci va dans mon débarras :",
     "other": "Ces {n} choses vont dans mon débarras :"
   },
-  "park.in_use_vms": "Encore utilisés : {names}. La VM ne le trouvera plus tant que tu ne le remets pas en place.",
   "park.where_vms": "Les dossiers et les images disque restent sur leur pool, dans .UnraidSecretaryOffice-trash de leur partage ; NVRAM, états TPM et listes de snapshots dans libvirt.img (/etc/libvirt/.UnraidSecretaryOffice-trash). Remis en place quand tu veux, jusqu'à ce que tu vides le débarras.",
   "park.zfs": "Les datasets ZFS sont renommés à côté du débarras (.UnraidSecretaryOffice-trash-<time>-<name>) — d'un coup, avec leurs snapshots.",
   "zfs": "Dataset ZFS",

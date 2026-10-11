@@ -119,8 +119,18 @@ const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(
 const removable = (e) => ['image', 'volume', 'cache', 'drill'].includes(e.kind);
 /** The picture a container would get: the one chosen here, else the first one found that loads */
 const iconChoice = (e) => picks.get(e.id) || e.suggest || null;
-/** Docker's leftovers in use can't be chosen at all; everything else in use only with a warning; a container only with a picture to hang */
-const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used')
+/**
+ * What something still needs can't be chosen at all (2026-10-12; the agent's CL_IN_USE_LOCKED): a template whose
+ * container exists, an appdata folder, a VM's folder or disk image in use — and Docker's leftovers in use. Only a stack
+ * in use («let go») and Mr. Restori's way back keep the warning and «anyway».
+ */
+const IN_USE_LOCKED = ['template', 'appdata', 'domain', 'iso'];
+const inUseLocked = (e) => !!e.force && IN_USE_LOCKED.includes(e.kind);
+/** Why a row in use can't be chosen, and what to do: delete its user first — then it lies in the group that can go */
+const lockedText = (e) => T('in_use_locked.' + e.kind, e.kind === 'template' ? { unused: T('cat.templates.unused'), leftover: T('cat.templates.leftover') }
+  : { group: T(e.kind === 'appdata' ? 'cat.appdata.unused' : e.kind === 'iso' ? 'cat.vms.media' : 'cat.vms.unused') });
+/** Docker's leftovers in use and what IN_USE_LOCKED names can't be chosen at all; a container only with a picture to hang */
+const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used') && !inUseLocked(e)
   && !(e.kind === 'icon' && (e.category === 'ok' || e.category === 'none' || !iconChoice(e)));
 const isStackIcon = (e) => e.kind === 'icon' && e.target === 'stack';
 const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name')
@@ -637,7 +647,7 @@ function group(sec, cat, items) {
   const cb = el('input');
   cb.type = 'checkbox';
   cb.disabled = !can.length;
-  cb.title = T('select_group');
+  cb.title = !can.length && items.some(inUseLocked) ? T('in_use_locked.group') : T('select_group');
   const sync = () => {
     const n = can.filter((e) => selection.has(e.id)).length;
     cb.checked = n > 0 && n === can.length;
@@ -726,6 +736,10 @@ function row(e, groupSync, sec) {
   cb.checked = selection.has(e.id);
   cb.disabled = !selectable(e);
   cb.setAttribute('aria-label', T('select_one', { name: label(e) }));
+  if (inUseLocked(e)) {         // still needed: no choosing it, the row says why and what to do
+    cb.title = lockedText(e);
+    r.title = cb.title;
+  }
   cb.onchange = () => {
     if (cb.checked && selRoom !== sec && selection.size) { pickRoom(sec); selection.add(e.id); renderSection(); updateSelbar(); return; }
     selRoom = sec;
