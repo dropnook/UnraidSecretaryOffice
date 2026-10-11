@@ -27502,7 +27502,7 @@ function testSetupMessages(): void
     same('setup messages: a group\'s heading, its items and an explanation belong to a code; a heading counts {n}', [], $odd);
     check('setup messages: the two examples asked for - the volumes say cache or data and what to do, the orphaned sources take space and are no longer thinned out (de)',
         str_contains((string) $langs['de']['setup.msg.volumes_data_why'], '⟦Container Path⟧') && str_contains((string) $langs['de']['setup.msg.source_orphan'], 'die ich nicht mehr schicke')
-        && str_contains((string) $langs['de']['setup.msg.source_orphan_why'], 'nicht mehr ausgedünnt') && str_contains((string) ($langs['de']['setup.msg.volumes_cache']['one'] ?? ''), 'harmlos'));
+        && str_contains((string) $langs['de']['setup.msg.source_orphan_why'], 'nicht mehr ausgedünnt') && str_contains((string) ($langs['de']['setup.msg.volumes_cache']['one'] ?? ''), 'das ist in Ordnung'));
     preg_match_all('/STEP_ID=([a-z]+)/', $sh, $st);
     same('setup messages: every step a message can come from has its name', [], array_values(array_filter(array_unique($st[1]), fn ($s) => !isset($en["setup.step.$s"]))));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
