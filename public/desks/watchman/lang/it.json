@@ -30,6 +30,7 @@
   "stat.last": "Ultimo giro",
   "stat.next": "Prossimo giro",
   "stat.open": "Non ancora preso atto",
+  "stat.open_tip": "Mostra solo queste nel registro di guardia — un secondo clic mostra di nuovo tutto",
   "stat.since": "Di guardia da",
   "stat.learning_until": "Modalità apprendimento: sta ancora imparando cosa è normale — fino al {when} ({left})",
   "stat.learned": "Ha imparato cosa è normale",

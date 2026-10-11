@@ -38,9 +38,11 @@ let view = null;
 let timer = null;
 let before = null;              // entry ids before a round this page asked for: say how many came
 let shown = PAGE;
-let onlyOpen = Office.store('watchman.only_open') === '1';
-let area = Office.store('watchman.area') || '';    // the book's area filter ('' = all areas), kept in this browser
-let filterText = '';            // the book's filter words (not kept: a new visit starts with the whole book)
+// the book's filter bar (core.js Office.filterBar, built once): its words and «only open» are never kept (a new visit
+// starts with the whole book), its area select is a choice, kept in this browser ('watchman.book.pick')
+let bookBar = null;
+let bookFill = null;            // draws the book's rows anew (the bar's onChange, the tile «Not noted yet»)
+let openTile = null;            // the tile «Not noted yet» as drawn: its pressed state follows the switch
 const foldsOpen = new Set();    // rows of the book that fold several entries, unfolded on this visit (their keys)
 const foldsShut = new Set();    // … folded again by hand while filter words unfold them all
 const openGroups = Office.storeJson('watchman.groups') || {};     // groups of «What I keep an eye on» that are open
@@ -247,6 +249,31 @@ function stat(label, value, sub, cls, tip) {
   return b;
 }
 
+/** Anything open in the book? (what «only open» could show) */
+const bookHasOpen = () => (state.book || []).some((e) => e && e.open);
+
+/**
+ * «Not noted yet»: a tile (CLAUDE.md «Tiles») that sets the book's «only open» — pressed while it is set (by the tile or
+ * the switch), a second click shows the whole book again; with nothing open in the book there is nothing behind it (a div)
+ */
+function openStat(grid) {
+  const n = openCount();
+  const bar = bookBarGet();
+  const can = bookHasOpen();
+  openTile = Office.stat({
+    label: T('stat.open'), value: fmt.number(n), alert: !!n, id: 'wm-stat-open', place: 'stat.open',
+    sub: n ? T('stat.open_kinds', { n: Object.keys(state.open || {}).length }) : T('stat.open_none'),
+    tip: can ? T('stat.open_tip') : '',
+    on: can ? () => Office.keepInPlace(grid, () => {
+      bar.set({ only: !bar.read().only });
+      shown = PAGE;
+      if (bookFill) bookFill(); else render();
+    }) : null,
+    pressed: can ? bar.read().only : null, controls: can ? 'wm-book' : null, filters: can ? 'wm-book' : null,
+  });
+  return openTile;
+}
+
 function roundSection() {
   const s = el('section', 'section');
   const r = state.round || {};
@@ -257,9 +284,7 @@ function roundSection() {
     r.last ? fmt.date(r.last) + (r.duration_ms ? ' · ' + T('stat.took', { ms: r.duration_ms }) : '') : ''));
   stats.appendChild(stat(T('stat.next'), running() ? T('stat.running') : r.next ? fmt.relative(r.next) : '–',
     !running() && r.next ? fmt.date(r.next) : ''));
-  const n = openCount();
-  stats.appendChild(stat(T('stat.open'), fmt.number(n),
-    n ? T('stat.open_kinds', { n: Object.keys(state.open || {}).length }) : T('stat.open_none'), n ? 'alert' : ''));
+  stats.appendChild(openStat(stats));
   const since = stat(T('stat.since'), state.on_watch ? fmt.relative(state.on_watch) : T('stat.never'),
     state.on_watch ? fmt.date(state.on_watch) : '');
   // still learning what is normal for the data flow? and until when (2026-10-10)
@@ -433,7 +458,7 @@ const entryArea = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net' : e.
 /** What folds with what (beside the area and the day): the same kind — a router's log too long is a kind of its own */
 const foldKind = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net_too_much' : e.kind);
 /** Words as the filter compares them: lower case, without accents */
-const plainWords = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const plainWords = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss');
 
 /**
  * The watch book as his page shows it — no DOM, nothing of the page's state (tests/watchbook.js runs it under node).
@@ -521,8 +546,48 @@ function foldName(r) {
     : T('fold.any', { n: r.members.length, area: areaName(r.area) });
 }
 
+/**
+ * The book's bar (core.js Office.filterBar), built once and held across the renders: the words (entryHay), the area
+ * (counts per area, kept per browser — today's 'watchman.area' read once into the bar's key), «only open» (never kept),
+ * «Unfold all»; all on the whole book. «n of m fit» stands in the bar; while «only open» is set the note line says it.
+ */
+function bookBarGet() {
+  if (bookBar) return bookBar;
+  const old = Office.store('watchman.area');
+  if (old && !Office.store('watchman.book.pick')) Office.store('watchman.book.pick', old);
+  if (old) Office.store('watchman.area', null);
+  const unfold = el('button', 'btn small plain');
+  unfold.type = 'button';
+  unfold.onclick = () => {
+    const open = bookRows.some((x) => !x.open());
+    Office.keepInPlace(unfold, () => {
+      bookRows.filter((x) => x.fold).forEach((x) => x.set(open));       // the folded rows first: their entries come or go
+      bookRows.filter((x) => !x.fold).forEach((x) => x.set(open));
+    });
+    bookLabel();
+  };
+  bookLabel = () => {
+    unfold.textContent = bookRows.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
+    unfold.hidden = bookRows.length < 2;
+  };
+  bookBar = Office.filterBar({
+    key: 'watchman.book',
+    label: T('book.filter_label'),
+    only: { text: T('book.only_open') },
+    select: { label: T('book.area_label'), all: T('book.area_all') },
+    extra: [unfold],
+    onChange: (f, what) => {
+      if (what === 'words' || what === 'all') foldsShut.clear();
+      if (what !== 'gone') shown = PAGE;
+      if (bookFill) bookFill();
+    },
+  });
+  return bookBar;
+}
+
 function bookSection() {
   const s = el('section', 'section');
+  s.id = 'wm-book';
   const extras = [];
   if (openCount()) {
     const all = el('button', 'btn small', T('ack_all'));
@@ -533,64 +598,31 @@ function bookSection() {
     extras.push(all);
   }
   s.appendChild(Office.sectionHead(T('book.title'), T('book.sub'), ...extras, { place: 'book.title' }));
-
-  // the bar: the filter's words, the area (counts per area), «only open», «unfold all» — the words and the area work on
-  // the whole book, not only on the rows shown
-  const bar = el('div', 'toolbar wm-bookbar');
-  const search = el('input', 'search');
-  search.type = 'search';
-  search.placeholder = Office.t('common.filter');
-  search.setAttribute('aria-label', T('book.filter_label'));
-  search.autocomplete = 'off';
-  search.spellcheck = false;
-  search.value = filterText;
-  const pick = el('select', 'picker');
-  pick.setAttribute('aria-label', T('book.area_label'));
-  const sw = el('label', 'switch');
-  const cb = el('input');
-  cb.type = 'checkbox';
-  cb.checked = onlyOpen;
-  sw.append(cb, el('span', '', T('book.only_open')));
-  const unfold = el('button', 'btn small plain');
-  unfold.type = 'button';
-  bar.append(search, pick, sw, unfold);
-  s.appendChild(bar);
+  const bar = bookBarGet();
+  s.appendChild(bar.el);
 
   const box = el('div', 'box wm-book');
-  bookLabel = () => {
-    unfold.textContent = bookRows.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
-    unfold.hidden = bookRows.length < 2;
-  };
-  unfold.onclick = () => {
-    const open = bookRows.some((x) => !x.open());
-    Office.keepInPlace(unfold, () => {
-      bookRows.filter((x) => x.fold).forEach((x) => x.set(open));       // the folded rows first: their entries come or go
-      bookRows.filter((x) => !x.fold).forEach((x) => x.set(open));
+  const look = (asked) => {
+    const f = bar.read();
+    return bookView(state.book, {
+      onlyOpen: f.only, area: f.pick, words: f.words, hay: entryHay, day: fmt.dayKey,
+      chains: state.chains, shown, page: PAGE, wanted: asked,
     });
-    bookLabel();
   };
-  const look = (asked) => bookView(state.book, {
-    onlyOpen, area, words: plainWords(filterText).split(/\s+/).filter(Boolean), hay: entryHay, day: fmt.dayKey,
-    chains: state.chains, shown, page: PAGE, wanted: asked,
-  });
   const fillAreas = (v) => {
-    pick.innerHTML = '';
-    pick.appendChild(new Option(T('book.area_all'), ''));
+    const pick = bar.read().pick;
     const list = v.areas.map(([a, n]) => [a, n, areaName(a)]);
-    if (area && !list.some(([a]) => a === area)) list.push([area, 0, areaName(area)]);     // chosen, none left now: it stays
-    list.sort((x, y) => x[2].localeCompare(y[2], Office.locale))
-      .forEach(([a, n, name]) => pick.appendChild(new Option(T('book.area_n', { area: name, n }), a)));
-    pick.value = area;
+    if (pick && !list.some(([a]) => a === pick)) list.push([pick, 0, areaName(pick)]);     // chosen, none left now: it stays
+    list.sort((x, y) => x[2].localeCompare(y[2], Office.locale));
+    bar.options(list.map(([a, n, name]) => [a, T('book.area_n', { area: name, n })]));
   };
   const fill = () => {
     box.innerHTML = '';
     bookRows = [];
     let v = look(wanted);
     if (v.hidden) {          // the entry asked for (the search, a link) hides behind the words or the area: the whole book
-      filterText = '';
-      search.value = '';
-      area = '';
-      if (onlyOpen && !(state.book || []).some((e) => e.id === wanted && e.open)) { onlyOpen = false; cb.checked = false; }
+      const open = (state.book || []).some((e) => e.id === wanted && e.open);
+      bar.set({ text: '', pick: '', ...(open ? {} : { only: false }) });
       v = look(wanted);
     }
     if (v.wanted) {
@@ -600,14 +632,14 @@ function bookSection() {
       wanted = null;
     }
     fillAreas(v);
+    const f = bar.read();
     // what may belong together: always on the whole book; with the words or an area, only a chain with an entry shown
     const drawn = new Set(v.rows.flatMap((r) => r.members.map((e) => e.id)));
-    const narrowed = !!(filterText.trim() || area);
+    const narrowed = !!(f.words.length || f.pick);
     (state.chains || []).filter((c) => !narrowed || (c.ids || []).some((id) => drawn.has(id))).forEach((c) => box.appendChild(chainCallout(c)));
     v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x) : entryRow(x.members[0])) : dayHead(x.day)));
     if (!v.rows.length) {
-      const filtered = filterText.trim() || area;
-      box.appendChild(el('p', 'empty', filtered ? T('book.empty_filter') : onlyOpen ? T('book.empty_open') : T('book.empty')));
+      box.appendChild(el('p', 'empty', narrowed ? T('book.empty_filter') : f.only ? T('book.empty_open') : T('book.empty')));
     }
     if (v.rows.length > v.shown) {
       const more = el('button', 'btn small plain wm-more', T('book.more', { n: Math.min(PAGE, v.rows.length - v.shown) }));
@@ -616,25 +648,16 @@ function bookSection() {
       box.appendChild(more);
     }
     bookLabel();
+    // the tile «Not noted yet» is pressed while «only open» is set (by it or by the switch); the note line names it
+    const can = bookHasOpen();
+    if (openTile && openTile.matches('button')) openTile.setAttribute('aria-pressed', f.only ? 'true' : 'false');
+    const total = (state.book || []).length;
+    bar.done(v.rows.reduce((a, r) => a + r.members.length, 0), total, {
+      tile: f.only && can ? T('stat.open') : '', onlyAvail: can,
+      clear: (what) => { if (what === 'tile') bar.set({ only: false }); },
+    });
   };
-  search.oninput = () => {
-    filterText = search.value;
-    foldsShut.clear();
-    shown = PAGE;
-    fill();
-  };
-  pick.onchange = () => {
-    area = pick.value;
-    Office.store('watchman.area', area || null);
-    shown = PAGE;
-    Office.keepInPlace(pick, fill);
-  };
-  cb.onchange = () => {
-    onlyOpen = cb.checked;
-    Office.store('watchman.only_open', onlyOpen ? '1' : null);
-    shown = PAGE;
-    Office.keepInPlace(sw, fill);
-  };
+  bookFill = fill;
   fill();
   s.appendChild(box);
   return s;
@@ -657,7 +680,7 @@ function foldRow(x) {
   const n = x.members.length;
   const first = x.members[0];
   const watch = first.kind === 'watch';
-  const words = !!filterText.trim();
+  const words = !!(bookBar && bookBar.read().words.length);
   const wrap = el('div', 'wm-fold');
   const r = el('div', 'row nocheck wm-entry wm-fold-head unfolds' + (x.open ? ' wm-open' : ''));
   r.dataset.fold = x.key;
@@ -1621,15 +1644,18 @@ function flowGroups(f) {
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  /** sub: «entry/<id>» (the search's): that entry of the book among the rows shown */
+  /** sub: «entry/<id>» (the search's): that entry of the book among the rows shown; «open»: only what's not noted yet */
   async mount(root, sub) {
     view = root;
     const m = /^entry\/([\w-]{1,64})$/.exec(sub || '');
     if (m) { wanted = m[1]; Office.subroute(''); }
+    const bar = bookBarGet();
+    bar.reset();          // a new visit: the whole book (the area is a choice and stays)
+    if (sub === 'open') { bar.set({ only: true }); Office.subroute(''); }     // the tile «Not noted yet», as a click sets it
     render();
     await load(false);
   },
-  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; bookLabel = null; wanted = null; },
+  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; bookFill = null; openTile = null; wanted = null; },
   poll() { if (!running()) load(false); },
   started() { if (hired() && !state) load(false); },      // his picture shows the mark on every page
   agentChanged() { if (view) render(); },
@@ -1658,6 +1684,7 @@ Office.places(ID, [
   { kind: 'section', key: 'posture.title' },
   { kind: 'section', key: 'book.title' },
   { kind: 'section', key: 'watch.title' },
+  { kind: 'tile', key: 'stat.open', route: `#/${ID}/open` },
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',

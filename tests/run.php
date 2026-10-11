@@ -26080,8 +26080,9 @@ function testWatchBookView(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
     check('watch book: «All n: I know, thanks» notes a folded row\'s open entries in one request (ack_some with their ids)',
         str_contains($js, "Office.api.post(`\${ID}.ack_some`, { ids: list.map((e) => e.id) })"));
-    check('watch book: the area is kept per browser, the filter\'s words are not',
-        str_contains($js, "Office.store('watchman.area', area || null)") && !preg_match("/Office\\.store\\('watchman\\.(filter|search|words)/", $js));
+    check('watch book: the area is kept per browser (the bar\'s select under watchman.book.pick), the filter\'s words and «only open» are not',
+        (bool) preg_match("/Office\\.filterBar\\(\\{\\s*key: 'watchman\\.book',.{0,300}?select: \\{/s", $js)
+        && !preg_match("/Office\\.store\\('watchman\\.(filter|search|words|only_open)/", $js));
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('watch book view: node is missing here - skipped', true);

@@ -30,6 +30,7 @@
   "stat.last": "Dernière ronde",
   "stat.next": "Prochaine ronde",
   "stat.open": "Pas encore noté",
+  "stat.open_tip": "N'afficher que celles-ci dans la main courante — un second clic affiche à nouveau tout",
   "stat.since": "De veille depuis",
   "stat.learning_until": "Mode apprentissage : apprend encore ce qui est normal — jusqu'au {when} ({left})",
   "stat.learned": "A appris ce qui est normal",
