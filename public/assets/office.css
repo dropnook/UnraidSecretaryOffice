@@ -252,7 +252,7 @@
 .deskhead-crumb:hover{color:var(--accent)}
 .role{font-size:13px; color:var(--muted)}
 .bubble{
-  position:relative; margin-top:8px; align-self:flex-start; max-width:760px;
+  position:relative; margin-top:8px; align-self:flex-start; max-width:1180px;   /* wide rather than tall (2026-10-11): the text column's width up to the actions; capped for very wide screens */
   background:var(--surface); border:1px solid var(--line); border-radius:10px;
   padding:9px 13px; font-size:14px; color:var(--ink2); box-shadow:var(--shadow);
 }
@@ -795,4 +795,16 @@
   &.in-unraid .page{padding:12px 0 6px}
   &.in-unraid .footer{padding:4px 0 12px}
 }
+}
+
+/* the desk head's text column on a desktop (2026-10-11, Benj: the space right of the bubble was wasted): name and role
+   left, the bubble right beside them up to the actions, its pointer on its left towards the name — the head is half as
+   tall; a head without a bubble (a subpage) and the phone keep the column */
+#sso{
+  @media (min-width:768px){
+    .deskhead-text:has(.bubble){display:grid; grid-template-columns:minmax(200px,300px) minmax(0,1fr); grid-template-rows:auto auto 1fr; column-gap:22px; align-items:start}
+    .deskhead-text:has(.bubble) h1, .deskhead-text:has(.bubble) .role{grid-column:1}
+    .deskhead-text .bubble{grid-column:2; grid-row:1 / span 3; margin-top:0; max-width:none}
+    .deskhead-text .bubble::before{left:-7px; top:16px; transform:rotate(-45deg)}
+  }
 }
