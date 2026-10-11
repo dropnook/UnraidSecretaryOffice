@@ -498,8 +498,9 @@ function runningCard() {
   const shown = STEPS.map(([name], i) => [name, i]).filter(([name]) => name !== 'partner' || s.partner);
   shown.forEach(([name, i]) => {
     const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));
-    if (name === 'kopia' && !p.planned.length) {
-      // struck through - and why: offsite switched off, or on but nothing goes this time
+    // struck through - and why: offsite switched off, or on but nothing goes this time. Not while the run still looks
+    // around (step 0 has no plan yet — 2026-10-11 on nostromo the step stood struck through at 0 % and Kopia then sent 31)
+    if (name === 'kopia' && !p.planned.length && (p.step > 0 || (state.settings && state.settings.kopia_enabled === false))) {
       li.classList.add('skipped');
       li.dataset.tip = state.settings && state.settings.kopia_enabled === false ? T('step.kopia_skipped_off') : T('step.kopia_skipped_none');
     }
