@@ -1444,6 +1444,7 @@ Office.sections = function sections(opts) {
     if (!n || !n.nodeType) return null;
     // the one place for these: what the desk's builder left out, the helper sets anyway
     n.dataset.tile = x.id;
+    n.dataset.shows = nameOf(x);                            // the section it shows (the click test compares the body)
     n.setAttribute('aria-pressed', on ? 'true' : 'false');
     n.setAttribute('aria-controls', body.id);
     if (filt) n.dataset.filters = a.filters; else delete n.dataset.filters;
