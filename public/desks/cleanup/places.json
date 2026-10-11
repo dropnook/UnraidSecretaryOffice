@@ -20,7 +20,6 @@
     "section.trash",
     "section.vms",
     "where.adv.title",
-    "where.details_title",
     "where.help.asleep",
     "where.help.copy",
     "where.help.labels",
@@ -40,15 +39,7 @@
     "where.section.scripts",
     "where.section.shares",
     "where.section.vms",
-    "where.stat.array",
-    "where.stat.backup",
-    "where.stat.docker",
-    "where.stat.notices",
-    "where.stat.scripts",
-    "where.stat.smart",
-    "where.stat.smb",
-    "where.stat.temp",
-    "where.stat.vms"
+    "where.tile.advice"
   ],
   "texts": [
     "help.appdata_text",
