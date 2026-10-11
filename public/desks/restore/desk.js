@@ -1181,7 +1181,7 @@ function openApp(id) {
   bar().set({ text: '', only: false });
   pick('apps');
   const r = view.body.querySelector(`[data-key="${CSS.escape('app:' + id)}"]`);
-  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });     /* reveal */ // the row a link asked for
 }
 
 /** One dump, or one media server's copies: container, size, the night, where the package is kept; «Restore…» */
@@ -2044,7 +2044,7 @@ function openJournal(id) {
   expanded.add('j:' + id);
   pick('journal');
   const r = view && view.body.querySelector(`[data-key="${CSS.escape('j:' + id)}"]`);
-  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });     /* reveal */ // the row a link asked for
 }
 
 // ------------------------------------------------------------------ desk

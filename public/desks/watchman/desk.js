@@ -457,8 +457,8 @@ async function postureAck(x, on, b) {
 const entryArea = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net' : e.group || 'watch');
 /** What folds with what (beside the area and the day): the same kind — a router's log too long is a kind of its own */
 const foldKind = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net_too_much' : e.kind);
-/** Words as the filter compares them: lower case, without accents */
-const plainWords = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss');
+/** Words as the filter compares them: lower case, without accents, ß as ss — core's Office.fold, as the bar's own */
+const plainWords = (s) => Office.fold(s);
 
 /**
  * The watch book as his page shows it — no DOM, nothing of the page's state (tests/watchbook.js runs it under node).

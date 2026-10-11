@@ -19,6 +19,7 @@ let has = () => true;
 globalThis.Office = {
   scope: (desk) => (k, p) => T(`${desk}.${k}`, p), t: T, el: () => ({}), store: () => null, storeJson: () => null,
   desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: (k) => has(k),
+  fold: (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/ß/g, 'ss'),     // core.js Office.fold
   fmt: { size: (b) => b + ' B', relative: () => 'now', dayKey: (s) => new Date(s * 1000).toISOString().slice(0, 10) },
 };
 const file = process.argv[2] || path.join(__dirname, '../public/desks/watchman/desk.js');

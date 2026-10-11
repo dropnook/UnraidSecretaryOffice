@@ -183,7 +183,7 @@ function showError(box, error) {
     box.append(watchList((error.params || {}).who), el('p', '', T('watch.no_override')), el('p', '', endSessionText('watch.end_then_start')));
   }
   box.style.display = '';
-  box.scrollIntoView({ block: 'nearest' });
+  box.scrollIntoView({ block: 'nearest' });     /* reveal */ // the error line inside its dialog
 }
 
 /** One line about how a run went, from the tool's status */
