@@ -17335,9 +17335,9 @@ const out = {};
   await sleep(250);
   console.error = consoleError;
   out.heals = { thrown, calls: calls.slice(), healed, errors };
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -17436,9 +17436,9 @@ const toasts = () => (byId['sso-toasts'] ? byId['sso-toasts'].children.map((c) =
   await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
   out.saidAgain = toasts().slice(before);
   out.delays = [O.pollDelay(2000, 0), O.pollDelay(2000, 1), O.pollDelay(2000, 2), O.pollDelay(2000, 3), O.pollDelay(2000, 20)];
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -17517,9 +17517,9 @@ const look = () => { const n = byId['sso-update']; return n ? { hidden: n.hidden
   out.laterStays = look().hidden;
   O.setAgent({ running: true, version: '1.44.0' });
   out.newer = look();
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -17727,7 +17727,7 @@ const out = { registry: {}, marks: {} };
   out.full = O.search.find('partn').slice(0, 1);
   // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
   process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $queries = ['before' => ['Partn', 'Partnr', 'Pratner', 'Partner offices', 'Accueil', 'Empfang', 'xq'],
                 'after' => ['Partner offices', 'secretariats partenaires', 'Sécrétariats', 'Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción', 'größe', 'GRÖSSE', 'grosse', 'tem', 'Tean']];
@@ -25171,9 +25171,9 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await sleep(10);
   out.reopened = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0].value;
   dlg3.close();
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -25579,9 +25579,9 @@ const one = (f) => walk(body(), f)[0];
   const s = posts.find((p) => p.a === 'office.report_send') || {};
   out.sent = { parts: s.parts, checked: s.images_checked };
   dlg.close();
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
