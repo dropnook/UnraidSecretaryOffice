@@ -197,7 +197,7 @@
   "source.parity": "Paritätsprüfungen",
   "source.user_script": "{name}",
   "help.source": "Protokoll",
-  "help.source_text": "Rund ums Sekretariat (Hausbote, Herrn Backupsis Backups, Jacks EmbyCache), Unraids eigene Protokolle (Syslog, Kernel, VMs, Weboberfläche, Samba …), was jedes User Script zuletzt ausgegeben hat, und die Protokolle jedes Containers.",
+  "help.source_text": "Rund ums Sekretariat (Hausbote, die Backups von Herrn Backupsi, Jacks EmbyCache), Unraids eigene Protokolle (Syslog, Kernel, VMs, Weboberfläche, Samba …), was jedes User Script zuletzt ausgegeben hat, und die Protokolle jedes Containers.",
   "help.live": "Wie tail -f: Ich hole alle zwei Sekunden, was dazugekommen ist. Wer nach oben scrollt, kann in Ruhe lesen — ich springe erst wieder ans Ende, wenn du unten bist.",
   "help.only": "Zeigt nur die Zeilen, die nach Fehler (rot) oder Warnung (gelb) klingen — nach denselben Regeln wie mein Rundgang (siehe «Was ich zähle»). Ob etwas wirklich schlimm ist, weiss ich nicht.",
   "help.red": "error …",

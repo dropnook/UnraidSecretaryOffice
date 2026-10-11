@@ -812,7 +812,7 @@
   "drill.code.vm_no_snapshot": "kein Snapshot dieses Backups enthält die Disk",
   "drill.code.asleep": "ihre Disk schläft — nicht angeschaut, nie geweckt",
   "drill.code.vm_disk_missing": "die Disk ist nicht im Snapshot des Backups: {file}",
-  "drill.code.vm_chain_outside": "eine Basisdatei der Disk liegt ausserhalb des Snapshots des Backups: {file}",
+  "drill.code.vm_chain_outside": "eine Basisdatei der Disk liegt ausserhalb des Snapshots aus diesem Backup: {file}",
   "drill.code.vm_disk_empty": "ihr erstes MiB ist ganz leer — eine leere Disk?",
   "drill.code.vm_disk_size": "vollständig, aber eine andere Grösse, als das Manifest sagt",
   "drill.code.vm_chain_ok": "vollständig im Snapshot (Dateien in ihrer Kette: {chain})",

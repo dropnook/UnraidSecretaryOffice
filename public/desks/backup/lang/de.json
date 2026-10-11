@@ -299,7 +299,7 @@
   "setup.sum_level.2": "Lokal + ausser Haus",
   "setup.apply_hint": "Herr Backupsi prüft alles nochmals, behält die bisherige settings.ini, schreibt die neue und gleicht — wenn ausser Haus gesichert wird — Kopias Policies an. Der Zeitplan bleibt, wie er ist.",
   "setup.apply_hint_new": "Herr Backupsi prüft alles nochmals, schreibt die settings.ini und — wenn ausser Haus gesichert wird — Kopias Policies. Ein Backup startet dabei nicht.",
-  "setup.apply_responsibility": "Prüf nach den ersten Backups, ob wirklich alles im Backup ist, was du brauchst, und probier ab und zu aus, ob sich etwas zurückholen lässt — ein Backup kann fehlerhaft oder unvollständig sein, und deine Daten bleiben deine Verantwortung.",
+  "setup.apply_responsibility": "Prüfe nach dem ersten Lauf alle erstellten Backups, ob wirklich alles korrekt gesichert wurde, so wie du es erwartet hast, und probiere ab und zu aus, ob sich etwas zurückholen lässt — ein Backup kann fehlerhaft oder unvollständig sein, und deine Daten bleiben deine Verantwortung.",
   "setup.bar_changes": {
     "one": "1 Änderung",
     "other": "{n} Änderungen"
