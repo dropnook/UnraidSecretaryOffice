@@ -6358,8 +6358,8 @@ function testBackupAsleepOffice(): void
         same("asleep office: the texts ($lang)", [], array_values(array_filter($keys, fn ($k) => !isset($l[$k]))));
     }
     $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true) ?: [];
-    check('asleep office: German words - «ausgelassen», der Share, die Sicherung', str_contains($de['asleep.left_out']['other'] ?? '', 'ausgelassen')
-        && str_contains($de['setup.asleep.skip_hint'] ?? '', 'ein Share') && str_contains($de['setup.asleep.wake_hint'] ?? '', 'Sicherung'));
+    check('asleep office: German words - «ausgelassen», der Share, das Backup', str_contains($de['asleep.left_out']['other'] ?? '', 'ausgelassen')
+        && str_contains($de['setup.asleep.skip_hint'] ?? '', 'ein Share') && str_contains($de['setup.asleep.wake_hint'] ?? '', 'Backup'));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('asleep office: desk.js - the switch in step 0 (general|asleep_pools, only with an engine that knows it), chips from the plan, the run\'s units',
         str_contains($js, "dset('general|asleep_pools', o)") && str_contains($js, 'plan.asleep_pools === undefined') && str_contains($js, 'asleepChip(sh.asleep_bases)')
@@ -11225,7 +11225,7 @@ function testNotify(): void
     same('notify: subject in Unraid\'s language', 'Unraid Secretary Office: Etwas Neues zu erledigen', $c[0]['-s'] ?? null);
     same('notify: event as the engine\'s', 'Unraid Secretary Office', $c[0]['-e'] ?? null);
     same('notify: a warning', 'warning', $c[0]['-i'] ?? null);
-    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Eine Sicherung ist geplant'), $c[0]['-d'] ?? '');
+    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Ein Backup ist geplant'), $c[0]['-d'] ?? '');
     check('notify: long text with what to do, lines as Unraid\'s \n', str_contains($c[0]['-m'] ?? '', 'Herr Backupsi → Zeitplan')
         && str_contains($c[0]['-m'] ?? '', '\n') && !str_contains($c[0]['-m'] ?? '', "\n"), $c[0]['-m'] ?? '');
     $page = caretakerNotifyPublic(readJson($file) ?? []);
