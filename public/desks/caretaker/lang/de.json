@@ -260,7 +260,7 @@
   "partner.quota_used": "{used} von {total} ({pct} %)",
   "partner.quota_none": "{used}, ohne Obergrenze",
   "partner.nothing": "nichts",
-  "partner.unit_place": "die Backup-Ablage",
+  "partner.unit_place": "Backup-Ablage",
   "partner.unit_share": "Share {name}",
   "partner.unit_vm": "VM {name}",
   "partner.unit_why.not_dataset": "kein eigenes Dataset — nicht dabei",

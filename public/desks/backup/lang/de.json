@@ -1059,7 +1059,7 @@
   "pk.vm_none": "noch keins — das nächste Backup schreibt es",
   "restore.pk": "Pakete",
   "restore.pk_text": "In {path}: apps/<app>/ (Templates oder Compose-Dateien, Datenbank-Dumps), vms/<vm>/ (XML, UEFI-Variablen, TPM-Zustand), server/ (Share-Einstellungen, das ganze libvirt.img, die Listen der Images), flash/. Ältere Stände: in den Snapshots dieses Shares oder ausser Haus.",
-  "setup.lock_place": "die Backup-Ablage — ihre Snapshots bewahren den Verlauf der Pakete",
+  "setup.lock_place": "der Backup-Ablage — ihre Snapshots bewahren den Verlauf der Pakete",
   "setup.lock_place_hint": "Die Pakete bewahren ihren Verlauf in den Snapshots dieses Shares: mindestens ein lokaler Snapshot. Ausser Haus obendrauf entscheidest du.",
   "setup.ds_no_history": "dieser Share kann keine Snapshots (kein ZFS oder btrfs) — die Pakete hätten keinen Verlauf; besser ein Share auf einem ZFS- oder btrfs-Pool",
   "setup.place_array": "das Array",
