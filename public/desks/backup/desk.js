@@ -56,7 +56,7 @@ function schedule() {
 
 // ------------------------------------------------------------------ helpers
 /** Durations, with seconds when it was quick */
-const dur = (seconds) => (seconds < 60 ? `${Math.max(0, Math.round(seconds))} s` : fmt.duration(seconds));
+const dur = (seconds) => (seconds < 60 ? `${Math.max(0, Math.round(seconds))}\u00a0s` : fmt.duration(seconds));   // «13 s» never broken apart
 
 function chip(text, cls, title) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);

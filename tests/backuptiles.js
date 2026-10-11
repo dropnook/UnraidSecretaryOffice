@@ -86,7 +86,7 @@ same('tiles: the row\'s ids are the switcher\'s (TILES), in its order', tiles.ma
   B.TILES.map(([id]) => id).filter((id) => tiles.some((t) => t.key === id)));
 const last = byKey('last');
 same('last backup: the result, its date and how long it took in the first sub line',
-  [last.value, last.sub[0]], ['result.warnings', `date(${NOW - 3600}) · 14 s`]);
+  [last.value, last.sub[0]], ['result.warnings', `date(${NOW - 3600}) · 14\u00a0s`]);
 same('last backup: the containers\' part in the second (downtime, stopped, kept running)', last.sub[1],
   'stat.downtime {"duration":"1 min"} · stat.ct_stopped {"n":2} · stat.ct_kept {"n":6}');
 same('last backup: no third line while no tour came after it', last.sub.length, 2);
