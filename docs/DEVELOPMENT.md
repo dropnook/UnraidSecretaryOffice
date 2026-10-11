@@ -160,6 +160,97 @@ says so (`shown: () => …`, `part: '<anchor>'`). What its state holds worth fin
 `Office.loadState()` brings (≤ 200 items, its own words, never a log line, a secret or a path the page doesn't show).
 `php tests/run.php testSearchPlaces testSearchItems testSearchGuides` says what is missing. See the existing desks.
 
+## Tiles and lists
+
+Every desk's tiles and lists behave the same way, and they are built with core.js's helpers — never with filter code
+or tile markup of the desk's own. A tile shows a number (`Office.stat`) or a choice (`Office.tile`) and decides which
+rows below are seen: one with something behind it is a real `<button>`, one with nothing behind it stays a plain `div`.
+The first click shows or filters, the second shows everything again (a tile that opens a dialog, like a schedule, is
+the one exception). A list gets one `Office.filterBar` under its section head — the filter words, maybe an «only …»
+switch and a select — and the bar's note line is the one place that says what is filtered («The list shows only:
+[Empty ×] · 3 of 12 fit — Show all»). What the user chose (an open section, a corner, a pool, a select) is kept per
+browser; filter words, «only …» switches and tile filters never are — a new visit starts with the whole list. A tile is
+also a place of the search with a sub-route (`#/<desk>/<tile>`) that sets it exactly like a click. CLAUDE.md, «Tiles»,
+has the whole rule and every helper's options.
+
+A minimal desk with a list of boxes, a number tile and a tile that filters the list to the empty boxes (the shape of
+Mr. Backupsy's protection tiles and the night watchman's book bar):
+
+```js
+const ID = 'shelf';
+const T = Office.scope(ID);
+const { el } = Office;
+let state = { boxes: [] };
+let view = null;
+let emptyOnly = false;              // the tile's filter: never stored
+let bar = null;                     // the list's bar: built once per visit, held across renders (it keeps its text and focus)
+
+function listBar() {
+  bar = bar || Office.filterBar({ key: 'shelf.list', label: T('list.filter_label'),
+    only: { text: T('list.only_labelled') }, onChange: () => render() });
+  return bar;
+}
+
+function render() {
+  const boxes = state.boxes;
+  const grid = el('div', 'stats');
+  grid.append(
+    Office.stat({ label: T('stat.boxes'), value: String(boxes.length) }),            // nothing behind it: a div
+    Office.stat({ label: T('stat.empty'), value: String(boxes.filter((b) => !b.items).length),
+      on: () => Office.keepInPlace(grid, () => { emptyOnly = !emptyOnly; render(); }),
+      pressed: emptyOnly, controls: 'sh-list', filters: 'sh-list', place: 'tile.empty' }));
+  const list = el('section', 'section');
+  list.id = 'sh-list';                                                                // the list and its bar
+  const f = listBar().read();
+  list.append(Office.sectionHead(T('list.title'), T('list.sub'), { place: 'list.title' }), bar.el);
+  const fits = boxes.filter((b) => (!emptyOnly || !b.items) && (!f.only || b.label)
+    && Office.fits(f.words, [b.name, b.label ? T('chip.labelled') : '']));
+  fits.forEach((b) => list.appendChild(el('div', 'row', b.name)));
+  view.replaceChildren(grid, list);
+  bar.done(fits.length, boxes.length, { tile: emptyOnly ? T('stat.empty') : '',
+    clear: () => { emptyOnly = false; }, onlyAvail: boxes.some((b) => b.label) });
+}
+
+Office.desk({
+  id: ID,
+  mount(root, sub) {
+    view = root;
+    listBar().reset();                    // a new visit: no words, no switch, no tile filter
+    emptyOnly = sub === 'empty';          // #/shelf/empty (the search) sets the tile exactly like a click
+    if (sub) Office.subroute('');         // and the address goes back to #/shelf
+    render();
+    Office.loadState(ID, {}, (j) => { if (j.ok && j.state) state = j.state; if (view) render(); });
+  },
+  unmount() { view = null; },
+});
+
+Office.places(ID, [
+  { kind: 'section', key: 'list.title' },
+  { kind: 'tile', key: 'stat.empty', anchor: 'tile.empty', route: '#/shelf/empty' },
+]);
+```
+
+`places.json` beside it lists the same keys (each in all five `lang/*.json`):
+
+```json
+{ "keys": ["list.title", "stat.empty"], "texts": [] }
+```
+
+A new tile or list, checked off:
+
+* a tile that does something is a real `<button>` (`Office.stat` / `Office.tile` with `on`) — never a `div` with
+  `role="button"`; one with nothing behind it stays a `div`;
+* `aria-pressed` on every tile that toggles (`pressed` / `active`), `aria-controls` = the section or list it shows,
+  `data-filters` = the id of the element that holds the filtered list and its bar;
+* every tile click inside `Office.keepInPlace(<the tile grid>, …)`, never `scrollIntoView` (a jump a link asks for —
+  to a row, a dialog's error line — carries `/* reveal */` on its line);
+* the list's words matched with `Office.fits(f.words, …)` — no folding of the desk's own; `bar.done()` after the rows;
+* a place with a sub-route the desk's `mount(root, sub)` takes, its key in all five languages and in `places.json`;
+* `Office.store` keeps a choice (a section, a corner, a pool, a select's `<key>.pick`), never a filter: `mount()` empties
+  the bar with `bar.reset()`;
+* `bash tools/ui-clicks.sh --only <desk>` clicks every tile twice (a stub state in `tests/ui/states/` that gives the tile
+  something to filter), `php tests/run.php testTilesConvention` reads every desk for the rules above.
+
 ## Adding a language
 
 Copy `public/lang/en.json` to `public/lang/<code>.json` and translate it (set `_meta.name` and `_meta.locale`), and do
