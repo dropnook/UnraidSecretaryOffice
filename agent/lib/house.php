@@ -444,14 +444,14 @@ function cronValid(string $cron): bool
 
 /*
  * Jobs run on a schedule even when nobody has the office open: Mr.
- * Backupsy's nightly run, Ms. Snapshotini's plans (every 5 minutes) and Jack
- * Emby's EmbyCache and media gather.
+ * Backupsy's nightly run, Ms. Snapshotini's plans (every 5 minutes), Jack
+ * Emby's EmbyCache and media gather, and Ms. Moverelli's Smart Mover.
  * The office writes them into its own cron file on the flash — Unraid adds
  * every installed plugin's *.cron to root's crontab (update_cron) — and
  * scripts/job.sh runs them only while the array is started.
  */
 const OFFICE_CRON = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron';
-const OFFICE_JOBS = ['backup', 'snapshots', 'embycache', 'gather'];     // in this order in the cron file
+const OFFICE_JOBS = ['backup', 'snapshots', 'embycache', 'gather', 'moverelli'];     // in this order in the cron file
 
 function officeJobCommand(string $job): string
 {

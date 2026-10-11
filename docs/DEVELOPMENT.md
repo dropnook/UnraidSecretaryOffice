@@ -39,11 +39,11 @@ and the checklist for a change; where the two differ, CLAUDE.md is right. The ba
   (`event/stopping`) — it never holds the array up. While the array isn't started (after a stop; from boot until the
   first start) `scripts/agent.sh` runs the Night Watchman's **night shift** instead: RAM and the flash only, never
   anything under `/mnt`. The page and the Dashboard tile say so.
-* **Long jobs outlive the agent.** Backup runs, restores, the drill and Jack Emby's runs go to the host's `atd`, never
+* **Long jobs outlive the agent.** Backup runs, restores, the drill, Jack Emby's and Ms. Moverelli's runs go to the host's `atd`, never
   as children of the agent (`agent.sh stop` ends the agent's whole session). The restore drill plays dumps — also ones
   read back from Kopia into RAM — in throwaway containers without network and writes a certificate
   (`agent/desks/restore-drill.php`; what an interrupted one left, Ms. Dustdevil removes through the drill's sweeper).
-* **Schedules** (the nightly backup, Ms. Snapshotini's plans, EmbyCache, the gather) are lines in the plugin's cron file
+* **Schedules** (the nightly backup, Ms. Snapshotini's plans, EmbyCache, the gather, the Smart Mover) are lines in the plugin's cron file
   `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`, calling `scripts/job.sh <job>`, which runs
   only while the array is started. `agent-watch.cron` next to it looks at the heartbeat every 5 minutes.
 * **The backup engine** (`backup/`: `backup.sh`, `setup.sh`, `lib/common.sh`, bash) runs on its own from the cron file.
@@ -88,6 +88,7 @@ data/
 ├── partner/               the Team Lead's pairs, tickets, the door's log (root only)
 ├── restore/, restore-drill/   Mr. Restori's journals, the drill's runs, certificates and its record of throwaways
 ├── embycache/, gather/    Jack Emby's tools: their settings, lists and status files
+├── moverelli/             Ms. Moverelli's Smart Mover: smart_mover.ini, excludes/, its log and status, her runs
 └── advisor/, caretaker/, cleanup/, snapshot/, watchman/   the desks' own folders
 ```
 
@@ -99,7 +100,7 @@ folder. The agent keeps `data/office.json` and runs the migrations at its start,
 deleting (what it rewrites goes aside as `<name>.before-<version>`), tried again at the next start when it failed. New
 keys are additive and read with a default; keys a reader doesn't know are kept; no rename of a key, file, path or name
 without a step that rewrites it. The `.plg` refuses an update or a removal while a backup run or setup, a restore or
-drill, or one of Jack Emby's runs is active; it unpacks the new version beside the running one, checks it, then swaps
+drill, one of Jack Emby's runs or one of Ms. Moverelli's is active; it unpacks the new version beside the running one, checks it, then swaps
 the folders (`testPlgGuard`, `testPlgInstall`, `testPlgRemove`). Details: CLAUDE.md «Updates».
 
 ## Adding a desk
@@ -250,6 +251,8 @@ and the plugin's look at the agent write English.
   that failed — part of the run's warning; a share left out 7 nights in a row because its pool slept (warning, once).
 * **Ms. Snapshotini:** a schedule had problems (warning); a schedule's target is gone — once per target (warning).
 * **Jack Emby:** a real EmbyCache or gather run failed or had problems (warning) — reports and dry runs stay quiet.
+* **Ms. Moverelli:** a real Smart Mover run failed or had problems (warning); one stopped because Unraid's mover started
+  (normal) — lists, dry runs and a stop asked on her page stay quiet.
 * **Mr. Restori:** a drill couldn't prove that everything comes back (warning), once per drill.
 * **The Team Lead:** something new under *Still to do* that stayed for half an hour (warning), once — again only if it
   was solved and came back. He looks every 30 minutes, also with the office closed; a switch on his page turns it off.

@@ -1,0 +1,25 @@
+/* Ms. Moverelli */
+#sso{   /* nested in the office's element, like office.css */
+/* Unraid's mover schedule: why only lists and dry runs, the switch — or that it is off */
+.mo-mover{margin:0 0 12px}
+.mo-mover > p{margin:0 0 4px; overflow-wrap:anywhere}
+.mo-mover .toolbar{margin-top:6px}
+/* the hint that scripts calling a mover belong switched off too */
+.mo-hint{margin:0 0 12px; overflow-wrap:anywhere}
+/* the last run: its summary, a line per share */
+.mo-results{min-height:0; padding:9px 12px; font-size:12.5px; color:var(--ink2); display:flex; flex-direction:column; gap:3px}
+.mo-share-line{color:var(--muted); overflow-wrap:anywhere}
+/* a quiet link (the last run's output beside the log) */
+.mo-link{background:none; border:0; padding:0; margin:0 4px; color:var(--accent); font:inherit; font-size:12.5px; text-decoration:underline; cursor:pointer}
+.mo-link:hover{text-decoration-thickness:2px}
+/* the setup: fields in a grid, a share per fold */
+.mo-form{display:grid; gap:0 18px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 280px), 1fr)); align-items:start; margin:0 0 8px}
+.mo-form > .check, .mo-form > .btn{grid-column:1 / -1; justify-self:start}
+.mo-form textarea{width:100%; min-width:0; box-sizing:border-box}
+.mo-share{min-height:0; display:block; padding:8px 14px; margin:0 0 8px}
+.mo-share > summary{cursor:pointer; font-weight:600; display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; overflow-wrap:anywhere}
+.mo-share[open] > summary{margin-bottom:8px}
+.mo-schedule-field{margin:0 0 8px 25px}
+.mo-credit{margin:12px 0 0; max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
+.mo-credit b{color:var(--ink2); font-weight:600}
+}

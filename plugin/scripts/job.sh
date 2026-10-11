@@ -6,6 +6,7 @@
 #   job.sh snapshots   Ms. Snapshotini's schedules: the snapshots that are due
 #   job.sh embycache   Jack Emby: EmbyCache (what's watched next onto the pool)
 #   job.sh gather      Jack Emby: the media gather (folders together on one disk)
+#   job.sh moverelli   Ms. Moverelli: a real Smart Mover run (the bundled smartmover/)
 #   job.sh watch       is the agent at work? (agent-watch.cron, written by scripts/agent.sh)
 #
 # Only while the array is started (agent.sh's array_started): the office's data
@@ -22,8 +23,8 @@ RUN=/var/run/unraid-secretary-office
 
 cd / || exit 1
 case "$1" in
-    backup|snapshots|embycache|gather|watch) ;;
-    *) echo "Usage: bash $0 backup|snapshots|embycache|gather|watch"; exit 2 ;;
+    backup|snapshots|embycache|gather|moverelli|watch) ;;
+    *) echo "Usage: bash $0 backup|snapshots|embycache|gather|moverelli|watch"; exit 2 ;;
 esac
 
 # the minute this job last started, in a stamp of its own, read and written under its lock;
@@ -46,5 +47,5 @@ source "$DIR/scripts/agent.sh" 2>/dev/null && array_started || exit 0
 case "$1" in
     backup)    exec bash "$DIR/backup/backup.sh" ;;
     snapshots) exec php "$DIR/agent/agent.php" job snapshot-plans ;;
-    embycache|gather) exec php "$DIR/agent/agent.php" job "$1" ;;
+    embycache|gather|moverelli) exec php "$DIR/agent/agent.php" job "$1" ;;
 esac

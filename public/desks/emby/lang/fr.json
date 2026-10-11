@@ -655,5 +655,10 @@
   "check.mover_force": "Mover Tuning ne déplace rien de force selon une planification",
   "check.mover_force_how": "Mover Tuning → « Force move all files on a schedule » → « No » : il lance le mover d'Unraid, qui ne connaît pas la liste d'EmbyCache.",
   "check.mover_override": "Les réglages par partage de Mover Tuning gardent la liste d'EmbyCache",
-  "check.mover_override_how": "Réglages propres de Mover Tuning pour {shares} : mettre « Ignore files listed inside of a text file » sur « Use global »."
+  "check.mover_override_how": "Réglages propres de Mover Tuning pour {shares} : mettre « Ignore files listed inside of a text file » sur « Use global ».",
+  "errors.emby_moverelli_running": "Le Smart Mover de Madame Moverelli tourne en ce moment — ses exécutions et les miennes ne vont jamais en même temps. Attends qu'elle ait fini.",
+  "errors.emby_mover_moverelli_list": "Des exécutions réelles seulement quand Madame Moverelli tient ma liste hors de ses exécutions pour {shares} : sur sa page de configuration, ajoute la liste d'EmbyCache ({file}) aux fichiers à laisser en place — pour tous les partages ou pour ceux-ci.",
+  "mover.ok.moverelli": "Madame Moverelli tient ma liste hors de ses exécutions — ce qu'EmbyCache met sur le pool y reste.",
+  "check.mover_moverelli": "Madame Moverelli laisse les fichiers d'EmbyCache sur le pool",
+  "check.mover_moverelli_how": "Madame Moverelli → « Configurer… » : ajouter la liste d'EmbyCache aux fichiers à laisser en place (tous les partages, ou {shares})."
 }

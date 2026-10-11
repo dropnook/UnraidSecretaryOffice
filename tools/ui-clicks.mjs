@@ -41,7 +41,7 @@ const REPO = path.resolve(HERE, '..');
 const require = createRequire(import.meta.url);
 
 // ------------------------------------------------------------------ the call
-const ROUTES = ['caretaker', 'backup', 'backup/setup', 'restore', 'snapshot', 'cleanup/tidy', 'cleanup/where', 'logs', 'watchman', 'advisor', 'emby', 'emby/setup'];
+const ROUTES = ['caretaker', 'backup', 'backup/setup', 'restore', 'snapshot', 'cleanup/tidy', 'cleanup/where', 'logs', 'watchman', 'advisor', 'emby', 'emby/setup', 'moverelli', 'moverelli/setup'];
 const opt = { only: null, themes: ['dark', 'light'], widths: [1440, 375], jobs: 6, verbose: false, perGroup: 5, perPage: 60 };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {

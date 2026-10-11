@@ -1,0 +1,287 @@
+{
+ "time": 1791672002,
+ "unraid": {
+  "version": "7.3.3",
+  "ok": true,
+  "needed": "7.3.2"
+ },
+ "engine": "V7",
+ "configured": true,
+ "settings": {
+  "global": {
+   "min_age": 30,
+   "age_stat": "ctime",
+   "move_when_used_above": 70,
+   "move_prefer_shares": true,
+   "mover_debug": 0,
+   "max_list": 50,
+   "files": [
+    "/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"
+   ],
+   "patterns": [
+    "*.nfo"
+   ]
+  },
+  "shares": {
+   "Familienfilme": {
+    "skip": false,
+    "min_age": 14,
+    "age_stat": null,
+    "move_when_used_above": null,
+    "files": [],
+    "patterns": [
+     "Trailers"
+    ]
+   }
+  }
+ },
+ "shares": [
+  {
+   "share": "Familienfilme",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": true,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 14,
+   "age_stat": "ctime",
+   "threshold": 70,
+   "excludes": 3
+  },
+  {
+   "share": "Familienfotos",
+   "use": "no",
+   "primary": "",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "Familienserien",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": 70,
+   "excludes": 2
+  },
+  {
+   "share": "appdata",
+   "use": "only",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "isos",
+   "use": "prefer",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "prefer",
+   "from": "array",
+   "to": "cache",
+   "state": "moves",
+   "min_age": 0,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  }
+ ],
+ "mover": {
+  "off": true,
+  "schedule": null,
+  "running": false
+ },
+ "foreign": {
+  "tuning": {
+   "installed": false,
+   "lines": [],
+   "active": false
+  },
+  "scripts": []
+ },
+ "job": {
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791585902,
+  "pid": 4242,
+  "finished": 1791586502,
+  "exit": 0,
+  "running": false,
+  "size": 4200
+ },
+ "stopping": null,
+ "last": {
+  "mode": "run",
+  "result": "ok",
+  "exit": 0,
+  "started": 1791585902,
+  "finished": 1791586502,
+  "files": 10,
+  "bytes": 27400000000,
+  "moved": 9,
+  "left": 1,
+  "errors": 0,
+  "stop_share": "",
+  "message": "",
+  "shares": [
+   {
+    "share": "Familienfilme",
+    "state": "moved",
+    "files": 3,
+    "bytes": 18000000000,
+    "moved": 3,
+    "left": 0,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "70",
+    "excludes": ""
+   },
+   {
+    "share": "Familienserien",
+    "state": "moved",
+    "files": 7,
+    "bytes": 9400000000,
+    "moved": 6,
+    "left": 1,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "70",
+    "excludes": ""
+   }
+  ]
+ },
+ "history": [
+  {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791585902,
+   "finished": 1791586502,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "run",
+    "result": "ok",
+    "files": 10,
+    "bytes": 27400000000,
+    "moved": 9,
+    "left": 1,
+    "errors": 0,
+    "stop_share": "",
+    "message": "",
+    "shares": [
+     {
+      "share": "Familienfilme",
+      "state": "moved",
+      "files": 3,
+      "bytes": 18000000000,
+      "moved": 3,
+      "left": 0
+     },
+     {
+      "share": "Familienserien",
+      "state": "moved",
+      "files": 7,
+      "bytes": 9400000000,
+      "moved": 6,
+      "left": 1
+     }
+    ]
+   }
+  },
+  {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791499502,
+   "finished": 1791499502,
+   "result": "refused",
+   "why": "moverelli_schedule",
+   "schedule": "40 3 * * *",
+   "times": 3,
+   "first": 1791326402
+  },
+  {
+   "mode": "dry",
+   "by": "office",
+   "started": 1791240002,
+   "finished": 1791240042,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "dry",
+    "result": "ok",
+    "files": 12,
+    "bytes": 48000000000,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": []
+   }
+  },
+  {
+   "mode": "list",
+   "by": "office",
+   "started": 1791239902,
+   "finished": 1791239903,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "list",
+    "result": "ok",
+    "files": 0,
+    "bytes": 0,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": [
+     {
+      "share": "a",
+      "state": "list"
+     },
+     {
+      "share": "b",
+      "state": "list"
+     }
+    ]
+   }
+  }
+ ],
+ "schedule": {
+  "script": true,
+  "frequency": "custom",
+  "custom": "15 5 * * *",
+  "enabled": true
+ },
+ "jack": {
+  "busy": false,
+  "list": null,
+  "uncovered": []
+ }
+}

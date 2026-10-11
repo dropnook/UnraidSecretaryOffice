@@ -32,6 +32,13 @@ declare(strict_types=1);
  *   - a share override (shareOverrideConfig/<share>.cfg with moverOverride="yes") whose own filelistf is «No», or «Yes»
  *     with another file, for one of his shares → `tuning_override`.
  * Its «Move All from Primary->Secondary» (omovercfg) drops the filters above its threshold: said, not refused.
+ * Ms. Moverelli (agent/desks/moverelli.php) runs the bundled Smart Mover on the office's schedule: while she is hired,
+ * her smart_mover.ini must keep his list out for each of his shares — the file in `global_excludes` or in the share's
+ * `excludes=`, or the share `skip=yes` — else she would carry his films back (`moverelli_list`); kept, real runs go that
+ * way (`way` «moverelli») — an alternative to Mover Tuning's list: then Mover Tuning (installed or not, its list or a
+ * share's override) doesn't count, only its forced move on a schedule. Her runs and his never run at the same time
+ * (embyRunCheck(), moverelliRunCheck()); their starts take one lock (embyMoversLock()), so two cron jobs of the same
+ * minute can't both pass the check.
  * ⟦Move now⟧ in ⟦Mover Settings⟧ and on the Main page start Unraid's mover by hand — a hand's doing: the guards below
  * stop his run, his page says so.
  *
@@ -58,6 +65,7 @@ const EMBY_MOVER_MAX       = 7200;     // … for up to 2 h, then that run is sk
 const EMBY_MOVER_LOOK      = 5;        // during a real run: is the mover at work? every 5 s
 const EMBY_MOVER_VAR       = '/var/local/emhttp/var.ini';        // emhttpd's live settings (what ⟦Mover Settings⟧ shows)
 const EMBY_EMCMD           = '/usr/local/sbin/emcmd';            // Unraid's way to send emhttpd a form, as its pages do
+const EMBY_MOVERS_LOCK     = 'movers-start.lock';                 // in RUN_DIR: his and Ms. Moverelli's run starts, one at a time
 
 /** Where the rule reads and writes — the tests' stand-ins in $GLOBALS['embyMoverHost'] */
 function embyMoverHost(): array
@@ -78,6 +86,8 @@ function embyMoverHost(): array
         'var_ini'    => $h['var_ini'] ?? EMBY_MOVER_VAR,
         'emcmd'      => $h['emcmd'] ?? (getenv('OFFICE_EMCMD_BIN') ?: EMBY_EMCMD),
         'wait'       => $h['wait'] ?? fn (int $ms) => usleep($ms * 1000),
+        // Ms. Moverelli while hired: what her smart_mover.ini keeps out (moverelliExcludeLook()), else null
+        'moverelli'  => $h['moverelli'] ?? fn (): ?array => function_exists('moverelliExcludeLook') ? moverelliExcludeLook() : null,
     ];
 }
 
@@ -262,6 +272,36 @@ function embyTuningOverrides(string $dir, array $shares, array $lists): array
     return $off;
 }
 
+/**
+ * The start lock Jack's and Ms. Moverelli's runs share: held only from the check «nothing of the other going» until the
+ * run's own marker (office-run.json, its lock) is written — waited for up to $wait s; null when it couldn't be had.
+ */
+function embyMoversLock(int $wait = 30, string $dir = RUN_DIR): mixed
+{
+    @mkdir($dir, 0700, true);
+    $f = @fopen("$dir/" . EMBY_MOVERS_LOCK, 'c');
+    if (!$f) {
+        return null;
+    }
+    $until = microtime(true) + $wait;
+    do {
+        if (flock($f, LOCK_EX | LOCK_NB)) {
+            return $f;
+        }
+        usleep(100000);
+    } while (microtime(true) < $until);
+    fclose($f);
+    return null;
+}
+
+function embyMoversUnlock(mixed $f): void
+{
+    if (is_resource($f)) {
+        flock($f, LOCK_UN);
+        fclose($f);
+    }
+}
+
 /** The first active line of a cron file matching $pattern (no comment lines), its five time fields; or null */
 function embyMoverCronLine(string $text, string $pattern): ?string
 {
@@ -289,8 +329,31 @@ function embyMoverScheduleOff(array $own): bool
 }
 
 /**
- * The rule: may EmbyCache and the gather run for real? {ok, way: disabled|null, why: null|schedule|tuning_list|
- * tuning_force|tuning_override, schedule: Unraid's own (cron, else as set) or null, tuning: embyTuningLook()}.
+ * His shares Ms. Moverelli's smart_mover.ini doesn't keep his list away from: neither the share's `excludes` nor
+ * `global_excludes` names one of $lists, and the share isn't `skip=yes`. $look: moverelliExcludeLook()'s
+ * {global: [files], shares: {share: {skip, excludes: [files]}}}.
+ */
+function embyMoverelliUncovered(array $look, array $lists, array $shares): array
+{
+    $out = [];
+    $global = array_values(array_filter((array) ($look['global'] ?? []), 'is_string'));
+    foreach ($shares as $share) {
+        if (!is_string($share)) {
+            continue;
+        }
+        $own = (array) ($look['shares'][$share] ?? []);
+        if (!empty($own['skip']) || array_intersect($lists, array_merge($global, array_values(array_filter((array) ($own['excludes'] ?? []), 'is_string'))))) {
+            continue;
+        }
+        $out[] = $share;
+    }
+    return $out;
+}
+
+/**
+ * The rule: may EmbyCache and the gather run for real? {ok, way: disabled|moverelli|null, why: null|schedule|
+ * moverelli_list|tuning_list|tuning_force|tuning_override, schedule: Unraid's own (cron, else as set) or null, tuning:
+ * embyTuningLook(), moverelli: null (not hired) or {uncovered: his shares her ini doesn't keep his list away from}}.
  * Unraid's own schedule «Disabled» always; with Mover Tuning installed also nothing of its own that takes his files.
  * $enforce: his list is entered into Mover Tuning when it isn't (only while he is hired).
  */
@@ -299,16 +362,23 @@ function embyMoverRule(bool $enforce = true, ?array $h = null): array
     $h ??= embyMoverHost();
     $own = embyMoverOwn($h);
     $t = embyTuningLook($h, $enforce && ($h['hired'])());
+    $m = ($h['moverelli'])();
+    $lists = ($h['lists'])();
+    $uncovered = $m === null ? [] : embyMoverelliUncovered($m, $lists, ($h['shares'])());
+    // Ms. Moverelli hired and keeping his list out replaces Mover Tuning's list: only its forced schedule still counts
     $why = match (true) {
         !embyMoverScheduleOff($own)                  => 'schedule',
+        (bool) $uncovered                            => 'moverelli_list',
+        $m !== null                                  => $t['installed'] && $t['force'] ? 'tuning_force' : null,
         !$t['installed']                             => null,
         !$t['listed']                                => 'tuning_list',
         $t['force']                                  => 'tuning_force',
         (bool) $t['overrides']                       => 'tuning_override',
         default                                      => null,
     };
-    return ['ok' => $why === null, 'way' => $why === null ? 'disabled' : null, 'why' => $why,
-            'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null), 'tuning' => $t];
+    return ['ok' => $why === null, 'way' => $why === null ? ($m !== null ? 'moverelli' : 'disabled') : null, 'why' => $why,
+            'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null), 'tuning' => $t,
+            'moverelli' => $m === null ? null : ['uncovered' => $uncovered, 'file' => $lists[0] ?? '']];
 }
 
 /** The rule as a refusal of a real run, or null */
@@ -321,12 +391,21 @@ function embyMoverProblem(array $rule): ?Problem
         'tuning_list'     => 'emby_mover_tuning_list',
         'tuning_force'    => 'emby_mover_tuning_force',
         'tuning_override' => 'emby_mover_tuning_override',
+        'moverelli_list'  => 'emby_mover_moverelli_list',
         default           => 'emby_mover_schedule',
     };
     return new Problem($key, array_filter([
         'schedule' => $rule['schedule'] ?? null,
-        'file'     => $rule['why'] === 'tuning_list' ? ($rule['tuning']['file'] ?? null) : null,
-        'shares'   => $rule['why'] === 'tuning_override' ? implode(', ', $rule['tuning']['overrides']) : null,
+        'file'     => match ($rule['why']) {
+            'tuning_list'     => $rule['tuning']['file'] ?? null,
+            'moverelli_list'  => $rule['moverelli']['file'] ?? null,      // EmbyCache's list — also without Mover Tuning
+            default           => null,
+        },
+        'shares'   => match ($rule['why']) {
+            'tuning_override' => implode(', ', $rule['tuning']['overrides']),
+            'moverelli_list'  => implode(', ', $rule['moverelli']['uncovered'] ?? []),
+            default           => null,
+        },
         'detail'   => $rule['tuning']['error'] ?? null,
     ], fn ($v) => $v !== null));
 }
@@ -338,7 +417,8 @@ function embyMoverState(?array $rule = null): array
     $t = $rule['tuning'];
     return ['ok' => $rule['ok'], 'way' => $rule['way'], 'why' => $rule['why'], 'schedule' => $rule['schedule'], 'running' => embyMoverRunning(),
             'tuning' => $t['installed'] ? array_intersect_key($t, array_flip(['installed', 'listed', 'file', 'changed', 'error', 'force', 'overrides', 'move_all', 'by_jack']))
-                                        : ['installed' => false]];
+                                        : ['installed' => false]]
+         + (($rule['moverelli'] ?? null) !== null ? ['moverelli' => $rule['moverelli']] : []);     // only while Ms. Moverelli is hired
 }
 
 /**
@@ -364,10 +444,12 @@ function embyMoverLogging(array $h): ?string
  * afterwards (emhttpd answers when it is done; up to 3 s more): share.cfg says "" and no mover.cron line runs — else
  * refused with what is still there (`emby_mover_off_failed`). Already off: nothing is sent. Logged. Only while he is
  * hired (the agent's gate, agentDeskMayAct()). ⟦Move now⟧ by hand stays possible — his guards stop a run then.
+ * Ms. Moverelli's «Switch Unraid's mover schedule off…» is the same (moverelliMoverOff(); $log writes her name in the log).
  * {ok, already, was: the schedule it had, or null}
  */
-function embyMoverOff(array $r, ?array $h = null): array
+function embyMoverOff(array $r, ?array $h = null, ?callable $log = null): array
 {
+    $log ??= fn (string $text) => logLine("Jack Emby: $text");
     if (($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
@@ -392,10 +474,10 @@ function embyMoverOff(array $r, ?array $h = null): array
     $said = mb_substr(trim($out . ' ' . $err), 0, 300);
     if (!embyMoverScheduleOff($own)) {
         $left = $own['set'] !== '' ? "share.cfg still says shareMoverSchedule=\"{$own['set']}\"" : "mover.cron still runs «{$own['cron']}»";
-        logLine("Jack Emby: could not switch Unraid's mover schedule off — $left" . ($exit !== 0 ? " (emcmd: exit $exit $said)" : ''));
+        $log("could not switch Unraid's mover schedule off — $left" . ($exit !== 0 ? " (emcmd: exit $exit $said)" : ''));
         throw new Problem('emby_mover_off_failed', ['detail' => $left . ($exit !== 0 && $said !== '' ? " — $said" : '')]);
     }
-    logLine("Jack Emby: switched Unraid's mover schedule off (Mover Settings → Disabled; it was «{$was}», mover logging kept: $logging)"
+    $log("switched Unraid's mover schedule off (Mover Settings → Disabled; it was «{$was}», mover logging kept: $logging)"
         . ($exit !== 0 ? " — emcmd said: exit $exit $said" : ''));
     return ['ok' => true, 'already' => false, 'was' => $was];
 }

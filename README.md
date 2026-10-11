@@ -155,7 +155,7 @@ next backup. The green dot beside *⋯* means the messenger (the office's agent)
 ## Updates and removal
 
 **Updating** works like any plugin, under *Plugins*; the Team Lead also says when a new version is out. While a
-backup, a restore or drill, or one of Jack Emby's runs is going on, the update refuses — try again when it is done. The
+backup, a restore or drill, one of Jack Emby's runs or one of Ms. Moverelli's is going on, the update refuses — try again when it is done. The
 new version is unpacked and checked beside the running one; your data stays and is brought up to date at the first
 start, what is rewritten put aside. A page left open offers to reload; a recommendation you put aside with «I know,
 thanks» comes back once when an update changes what it says.
@@ -275,7 +275,9 @@ Jack Emby's two tools are the work of **[helmi1987](https://github.com/helmi1987
 [EmbyCache](https://github.com/helmi1987/embycache-for-unraid) and
 [media-disk-gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate folders"), both
 GPL-3.0-or-later. They ship with the office in `embycache/` and `gather/`, modified and under the same licence — what
-we changed is listed at the top of their READMEs. helmi1987 also tested the office early and sent the reports that made it
+we changed is listed at the top of their READMEs. Ms. Moverelli (still in training) runs his
+[Smart Mover](https://github.com/helmi1987/custom-mover-for-unraid), shipped in `smartmover/` with the office's changes
+listed in its README, GPL-3.0-or-later. helmi1987 also tested the office early and sent the reports that made it
 better. Thank you, helmi1987 — a share of the tips goes to him.
 
 <a name="emby-live"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live.png" alt="Jack Emby live: EmbyCache gets ready for each person what they watch next"></a>

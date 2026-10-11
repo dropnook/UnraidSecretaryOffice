@@ -1,0 +1,287 @@
+{
+ "time": 1791671988,
+ "unraid": {
+  "version": "7.3.3",
+  "ok": true,
+  "needed": "7.3.2"
+ },
+ "engine": "V7",
+ "configured": true,
+ "settings": {
+  "global": {
+   "min_age": 30,
+   "age_stat": "ctime",
+   "move_when_used_above": 70,
+   "move_prefer_shares": true,
+   "mover_debug": 0,
+   "max_list": 50,
+   "files": [
+    "/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"
+   ],
+   "patterns": [
+    "*.nfo"
+   ]
+  },
+  "shares": {
+   "media": {
+    "skip": false,
+    "min_age": 14,
+    "age_stat": null,
+    "move_when_used_above": null,
+    "files": [],
+    "patterns": [
+     "Trailers"
+    ]
+   }
+  }
+ },
+ "shares": [
+  {
+   "share": "appdata",
+   "use": "only",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "backup",
+   "use": "no",
+   "primary": "",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "downloads",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": 70,
+   "excludes": 2
+  },
+  {
+   "share": "isos",
+   "use": "prefer",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "prefer",
+   "from": "array",
+   "to": "cache",
+   "state": "moves",
+   "min_age": 0,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "media",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": true,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 14,
+   "age_stat": "ctime",
+   "threshold": 70,
+   "excludes": 3
+  }
+ ],
+ "mover": {
+  "off": true,
+  "schedule": null,
+  "running": false
+ },
+ "foreign": {
+  "tuning": {
+   "installed": false,
+   "lines": [],
+   "active": false
+  },
+  "scripts": []
+ },
+ "job": {
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791585888,
+  "pid": 4242,
+  "finished": 1791586488,
+  "exit": 0,
+  "running": false,
+  "size": 4200
+ },
+ "stopping": null,
+ "last": {
+  "mode": "run",
+  "result": "ok",
+  "exit": 0,
+  "started": 1791585888,
+  "finished": 1791586488,
+  "files": 14,
+  "bytes": 24100000000,
+  "moved": 13,
+  "left": 1,
+  "errors": 0,
+  "stop_share": "",
+  "message": "",
+  "shares": [
+   {
+    "share": "media",
+    "state": "moved",
+    "files": 5,
+    "bytes": 21000000000,
+    "moved": 4,
+    "left": 1,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "70",
+    "excludes": ""
+   },
+   {
+    "share": "downloads",
+    "state": "moved",
+    "files": 9,
+    "bytes": 3100000000,
+    "moved": 9,
+    "left": 0,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "70",
+    "excludes": ""
+   }
+  ]
+ },
+ "history": [
+  {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791585888,
+   "finished": 1791586488,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "run",
+    "result": "ok",
+    "files": 14,
+    "bytes": 24100000000,
+    "moved": 13,
+    "left": 1,
+    "errors": 0,
+    "stop_share": "",
+    "message": "",
+    "shares": [
+     {
+      "share": "media",
+      "state": "moved",
+      "files": 5,
+      "bytes": 21000000000,
+      "moved": 4,
+      "left": 1
+     },
+     {
+      "share": "downloads",
+      "state": "moved",
+      "files": 9,
+      "bytes": 3100000000,
+      "moved": 9,
+      "left": 0
+     }
+    ]
+   }
+  },
+  {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791499488,
+   "finished": 1791499488,
+   "result": "refused",
+   "why": "moverelli_schedule",
+   "schedule": "40 3 * * *",
+   "times": 3,
+   "first": 1791326388
+  },
+  {
+   "mode": "dry",
+   "by": "office",
+   "started": 1791239988,
+   "finished": 1791240028,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "dry",
+    "result": "ok",
+    "files": 12,
+    "bytes": 48000000000,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": []
+   }
+  },
+  {
+   "mode": "list",
+   "by": "office",
+   "started": 1791239888,
+   "finished": 1791239889,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "list",
+    "result": "ok",
+    "files": 0,
+    "bytes": 0,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": [
+     {
+      "share": "a",
+      "state": "list"
+     },
+     {
+      "share": "b",
+      "state": "list"
+     }
+    ]
+   }
+  }
+ ],
+ "schedule": {
+  "script": true,
+  "frequency": "custom",
+  "custom": "15 5 * * *",
+  "enabled": true
+ },
+ "jack": {
+  "busy": false,
+  "list": null,
+  "uncovered": []
+ }
+}

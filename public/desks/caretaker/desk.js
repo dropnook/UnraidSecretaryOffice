@@ -444,13 +444,9 @@ function trainingRow(d) {
   meta.appendChild(el('span', 'chip quiet', T('in_training')));
   meta.appendChild(el('span', '', Office.t(`${d.id}.role`)));
   main.appendChild(meta);
-  main.appendChild(el('div', 'row-detail', Office.t(`${d.id}.training`)));
+  main.appendChild(el('div', 'row-detail', Office.t(`${d.id}.training`)));    // what she will do, «hireable soon»
   r.appendChild(main);
-  const b = el('button', 'btn small plain', T('training_tip'));
-  b.type = 'button';
-  b.title = T('training_tip_title');
-  b.onclick = () => Office.tipJar();
-  r.appendChild(b);
+  r.appendChild(el('span'));     // nothing to click: no hire button, no tip (the tip jar is in the head)
   return r;
 }
 

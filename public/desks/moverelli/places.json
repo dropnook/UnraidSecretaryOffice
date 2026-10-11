@@ -1,0 +1,34 @@
+{
+  "keys": [
+    "help.emby",
+    "help.rules",
+    "help.schedule",
+    "help.unraid",
+    "help.what",
+    "history",
+    "list",
+    "mode.dry",
+    "mode.run",
+    "overview",
+    "setup.files",
+    "setup.global",
+    "setup.save",
+    "setup.shares",
+    "shares",
+    "tools"
+  ],
+  "texts": [
+    "help.dry",
+    "help.emby_text",
+    "help.list",
+    "help.rules_text",
+    "help.run",
+    "help.schedule_text",
+    "help.unraid_text",
+    "help.what_text",
+    "setup.help_files",
+    "setup.help_global",
+    "setup.help_save",
+    "setup.help_shares"
+  ]
+}

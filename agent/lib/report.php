@@ -97,6 +97,7 @@ const REPORT_LOG_LABELS = [
     'backup'    => ['Backup: ', 'Mr. Backup: '],
     'restore'   => ['Mr. Restori'],
     'emby'      => ['Jack Emby: '],
+    'moverelli' => ['Ms. Moverelli: '],
     'logs'      => ['Ms. Protocolli: '],
     'cleanup'   => ['Dustdevil', 'cleanup: ', 'Measured '],
     'watchman'  => ['Night watchman: '],

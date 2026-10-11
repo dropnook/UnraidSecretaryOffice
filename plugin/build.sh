@@ -44,7 +44,7 @@ pkg="$stage/$name"
 mkdir -p "$pkg" dist
 
 cp -R public/. "$pkg/"
-cp -R src agent backup embycache gather monitoring "$pkg/"
+cp -R src agent backup embycache gather smartmover monitoring "$pkg/"
 cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE "$pkg/"
 # Unraid shows the plugin's README.md in its list under Plugins: a short one of its own
@@ -53,7 +53,7 @@ find "$pkg" \( -name '.DS_Store' -o -name '._*' -o -name '.smbdelete*' -o -name 
 
 find "$pkg" -type d -exec chmod 755 {} +
 find "$pkg" -type f -exec chmod 644 {} +
-chmod 755 "$pkg"/scripts/* "$pkg"/event/* "$pkg"/backup/*.sh "$pkg"/gather/*.sh "$pkg"/agent/agent.php
+chmod 755 "$pkg"/scripts/* "$pkg"/event/* "$pkg"/backup/*.sh "$pkg"/gather/*.sh "$pkg"/smartmover/*.sh "$pkg"/agent/agent.php
 
 txz="dist/$name-$version.txz"
 if tar --version 2>/dev/null | grep -q GNU; then

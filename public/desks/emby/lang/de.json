@@ -655,5 +655,10 @@
   "check.mover_force": "Mover Tuning verschiebt nichts erzwungen nach Zeitplan",
   "check.mover_force_how": "Mover Tuning → «Force move all files on a schedule» → «No»: Das startet Unraids eigenen Mover, und der kennt EmbyCaches Liste nicht.",
   "check.mover_override": "Mover Tunings Share-Einstellungen behalten EmbyCaches Liste",
-  "check.mover_override_how": "Mover Tunings eigene Einstellungen für {shares}: «Ignore files listed inside of a text file» auf «Use global» stellen."
+  "check.mover_override_how": "Mover Tunings eigene Einstellungen für {shares}: «Ignore files listed inside of a text file» auf «Use global» stellen.",
+  "errors.emby_moverelli_running": "Gerade läuft Frau Moverellis Smart Mover — ihre Läufe und meine gehen nie gleichzeitig. Warte, bis sie fertig ist.",
+  "errors.emby_mover_moverelli_list": "Echte Läufe erst, wenn Frau Moverelli meine Liste für {shares} aus ihren Läufen heraushält: Auf ihrer Einrichtungsseite EmbyCaches Liste ({file}) zu den Dateien geben, die sie liegen lässt — für alle Shares oder für diese.",
+  "mover.ok.moverelli": "Frau Moverelli hält meine Liste aus ihren Läufen heraus — was EmbyCache auf den Pool legt, bleibt dort.",
+  "check.mover_moverelli": "Frau Moverelli lässt EmbyCaches Dateien auf dem Pool",
+  "check.mover_moverelli_how": "Frau Moverelli → «Einrichten…»: EmbyCaches Liste zu den Dateien geben, die sie liegen lässt (alle Shares oder {shares})."
 }
