@@ -56,7 +56,7 @@ function schedule() {
 
 // ------------------------------------------------------------------ helpers
 /** Durations, with seconds when it was quick */
-const dur = (seconds) => (seconds < 60 ? `${Math.max(0, Math.round(seconds))} s` : fmt.duration(seconds));
+const dur = (seconds) => (seconds < 60 ? `${Math.max(0, Math.round(seconds))}\u00a0s` : fmt.duration(seconds));   // «13 s» never broken apart
 
 function chip(text, cls, title) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);
@@ -300,22 +300,35 @@ function bubbleText() {
 }
 
 // ------------------------------------------------------------------ rendering
-function render() {
-  const root = view;
-  root.innerHTML = '';
+// his two pages as tabs in the head (CLAUDE.md «Tiles», two tabs = two pages): the overview (#/backup, always) and the
+// setup (#/backup/setup) — no crumb, no «← Back», no head button «Set up…» (the callouts' buttons that lead there stay)
+const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('setup.page') }];
+
+/** The desk's own actions, in the head on both pages: a tour and «Start a run…» — while a run goes on, stopping it */
+function deskActions() {
   const actions = [];
   if (state && state.found) {
     if (live()) {
       actions.push(button(T(stopKey('abort')), 'danger plain', abortRun));      // grey once asked (the card says what it waits for)
     } else {
-      actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/${ID}/setup`)));
       actions.push(button(T('check'), 'plain', () => startRun('check')));
       actions.push(button(T('start'), '', chooseRun));
     }
     actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()) || (live() && !!state.abort_asked); });
   }
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText().join(' ')), actions });
-  root.appendChild(head);
+  return actions;
+}
+
+/** The desk head of either page: the bubble, the desk's actions, the two tabs */
+function deskHeadOf(current) {
+  return Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText().join(' ')), actions: deskActions(),
+    pages: { list: PAGES(), current } }).head;
+}
+
+function render() {
+  const root = view;
+  root.innerHTML = '';
+  root.appendChild(deskHeadOf(''));
   root.appendChild(Office.pageHelp(ID, [
     [T('help.run'), T('help.run_text')],
     [T('help.results'), T('help.results_text')],
@@ -337,14 +350,19 @@ function render() {
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   if (!state.found) { root.appendChild(missing()); return; }
 
+  // hints over the row: they stay at every click
   notices().forEach((n) => root.appendChild(n));
-  if (protTile && !protTileCounts()[protTile]) protTile = '';     // the tile counts nothing any more (a new look): off
-  root.appendChild(live() ? runningCard() : summary());
-  root.appendChild(protection());
-  root.appendChild(historySection());
-  if ((state.drift && state.drift.items || []).length) root.appendChild(driftSection());
-  root.appendChild(restoreSection());
-  // quiet and plain: no backup is a guarantee, the data stays the user's responsibility
+  const s = switcher();
+  // a run going on: its card in the row's place, and the whole page under it (nothing to pick without the row)
+  if (live()) {
+    root.appendChild(runningCard());
+    if (s.active()) s.pick('', 'route');
+  }
+  s.grid.hidden = live();
+  Office.place('overview', s.grid);
+  root.appendChild(s.el);
+  s.render();
+  // the footer, quiet and plain, under every section: no backup is a guarantee, the data stays the user's responsibility
   root.appendChild(el('p', 'bk-disclaimer', T('disclaimer')));
 }
 
@@ -568,61 +586,62 @@ function runningCard() {
   return box;
 }
 
-// ---- the overview's tiles (2026-10-11, the tiles rebuild — CLAUDE.md «Tiles»): a number tile that counts rows of «Is
-// everything protected?» filters it to them (the first click on, the same tile again off, one tile at a time; never
-// stored — mount() clears it, a reload shows everything); the schedule opens its dialog (no toggle — its sub line says
-// so); the rest only show. overviewTiles() is pure (no DOM: tests/backuptiles.js runs it under node), summary() draws it.
+// ---- the overview's tiles (tiles v2, 2026-10-11 — CLAUDE.md «Tiles»: a tile is a section). The row is the page's table
+// of contents, the section switcher holds it: a click shows that tile's section alone under the row, the second click (or
+// «◂ All», «Show all») the whole page again in the row's order; nothing active at the start. «Last backup» → the backups,
+// «Schedule» → a row section with «Change…», «Offsite» / «Databases» / «Packages» / «VMs» / «Flash» → «Is everything
+// protected?» filtered (filter tiles: never stored), «Protection» → the table whole, «Partners» → a row per partner,
+// «Changed» → what changed since the setup, «Restore» → where the backups lie. Hints over the row (the callouts) and
+// the footer stay at every click; a run going on puts its card in the row's place and shows the whole page.
+// overviewTiles() is pure (no DOM: tests/backuptiles.js runs it under node), tileList() hands it to the switcher.
 const PROT_ID = 'bk-protection';                  // the section holding the table and its bar: aria-controls, data-filters
 const PROT_TILES = ['kopia', 'dumps', 'apps', 'vms', 'flash'];
-const SHOW = 'show';                           // #/backup/show: the search's way to a row — clears every filter first
-const ITEM_ROUTE = `#/${ID}/${SHOW}`;
-let protTile = '';                             // the tile that filters the table now ('' = none) — never stored
+// every tile in the row's order with its lang key (its place and route #/backup/<id>) and the section it shows
+const TILES = [['last', 'stat.last', 'history'], ['schedule', 'stat.schedule', 'schedule'], ['kopia', 'tile.kopia', 'prot'],
+  ['dumps', 'tile.dumps', 'prot'], ['apps', 'tile.apps', 'prot'], ['vms', 'tile.vms', 'prot'], ['flash', 'tile.flash', 'prot'],
+  ['prot', 'tile.prot', 'prot'], ['partners', 'partner.tile', 'partners'], ['drift', 'tile.drift', 'drift'], ['restore', 'tile.restore', 'restore']];
+const TILE_KEY = Object.fromEntries(TILES.map(([id, key]) => [id, key]));
+const TILE_SECTION = Object.fromEntries(TILES.map(([id, , s]) => [id, s]));
+const tileRoute = (id) => `#/${ID}/${id}`;
 let protBar = null;                            // the table's filter bar, built once per visit (mount() drops it)
 let histBar = null;                            // the history's
 let protShown = [];                            // the rows drawn now that unfold: {open(), set(open)} — «Unfold all»
+let sw = null;                                 // the switcher, made at the first draw (switcher())
 
-/** No run going on: how the last one went, and what comes next — the tiles as Office.stat */
-function summary() {
-  const box = section(T('overview'), T('overview_sub'), { place: 'overview' });
-  const stats = el('div', 'stats bk-stats');
-  const counts = protTileCounts();
-  overviewTiles().forEach((d) => stats.appendChild(tileNode(d, stats, counts)));
-  box.appendChild(stats);
-  return box;
-}
+/** The filter tile that is on ('' = none): the table shows only its rows — never stored (the switcher keeps no filter) */
+const protFilter = () => { const a = sw ? sw.active() : ''; return PROT_TILES.includes(a) ? a : ''; };
 
-/** A tile that filters is a button while it has rows to show (or is on); otherwise it only shows */
-const protTileLive = (key, counts) => (counts[key] || 0) > 0 || protTile === key;
-
-/** One tile of overviewTiles() as Office.stat: a filtering one a button with aria-pressed, the schedule a dialog opener */
-function tileNode(d, grid, counts) {
-  const o = { label: d.label, value: d.value, alert: d.alert, tip: d.tip, cls: d.cls,
-    sub: d.sub.map((x) => (typeof x === 'string' ? x : Office.place(x.place, el('span', '', x.text)))) };
-  if (d.dialog) o.on = () => scheduleDialog();
-  if (d.filters) {
-    Object.assign(o, { place: `tile.${d.filters}` });
-    if (protTileLive(d.filters, counts)) {
-      Object.assign(o, { on: () => protTileClick(d.filters, grid), pressed: protTile === d.filters, controls: PROT_ID, filters: PROT_ID });
-    }
-  }
-  const node = Office.stat(o);
-  if (d.filters) node.dataset.tile = d.filters;
-  return node;
-}
-
-/** A filtering tile clicked: on (another one off), or off again — the tiles stay where they are, the table is drawn anew */
-function protTileClick(key, grid) {
-  Office.keepInPlace(grid, () => {
-    protTile = protTile === key ? '' : key;
-    protRedraw();
+/** The row and the sections under it (core.js's section switcher) — one per page life, drawn anew with every state */
+function switcher() {
+  if (sw) return sw;
+  sw = Office.sections({
+    id: ID,                      // kept as backup.tile, routes #/backup/<tile>, places tile.<tile>
+    grid: 'stats bk-stats',
+    default: '',                 // the start: no tile — the whole page (his page is a report, the most important on top)
+    tiles: () => tileList(),
+    sections: { prot: () => protection() },
   });
+  return sw;
 }
-/** The table anew in its place (and the tiles pressed or not) — the tiles and the rest of the page as they are */
-function protRedraw() {
-  if (!view || !state || !state.found) return;
-  view.querySelectorAll('button.stat[data-tile]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.tile === protTile ? 'true' : 'false'));
-  const old = view.querySelector('#' + PROT_ID);
-  if (old) old.replaceWith(protection());
+
+/**
+ * The tiles for the switcher: overviewTiles() as they stand (without a state yet every tile of TILES, so a route or the
+ * search can name any of them), each with the section it shows — the table shared by the filter tiles and «Protection»
+ */
+function tileList() {
+  const own = { history: () => historySection(), schedule: () => scheduleSection(), partners: () => partnersSection(),
+    drift: () => driftSection(), restore: () => restoreSection() };
+  const shows = (id) => (TILE_SECTION[id] === 'prot' ? 'prot' : own[TILE_SECTION[id]]);
+  const filters = (id) => (PROT_TILES.includes(id) ? T('tile.' + id) : undefined);      // a filter tile: its name in the note line
+  if (!state || !state.found) return TILES.map(([id, key]) => ({ id, key, section: shows(id), filters: filters(id), tile: () => null }));
+  return overviewTiles().map((d) => ({ id: d.key, key: TILE_KEY[d.key], section: shows(d.key), filters: filters(d.filters),
+    tile: (a) => tileNode(d, a) }));
+}
+
+/** One tile of overviewTiles() as Office.stat — the switcher's attributes (a: the click, aria-pressed, the mark …) spread in;
+ *  its place for the search is tile.<id> (the switcher's own, named here too) */
+function tileNode(d, a) {
+  return Office.stat({ label: d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.${d.key}` });
 }
 
 /** «2 hours ago» etc.: durations with seconds when quick (dur), the containers' part of the last backup in one line */
@@ -647,7 +666,8 @@ function partnerShort(p) {
   return parts.join(' · ');
 }
 /** … and in full: what went, how much, how fast, what was skipped or failed and why; while a run sends to it, what now */
-function partnerLong(p) {
+const partnerLong = (p) => partnerParts(p).join(' · ');
+function partnerParts(p) {
   const l = p.last;
   const parts = [];
   if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: unitLabel(p.current.unit), size: fmt.size(p.current.bytes || 0) }));
@@ -658,44 +678,49 @@ function partnerLong(p) {
     if (l.skipped.length) parts.push(T('partner.tile_skipped', { n: l.skipped.length, why: [...new Set(l.skipped.map((x) => partnerWhyShort(x.why)))].join(', ') }));
     if (l.failed.length) parts.push(T('partner.tile_failed', { n: l.failed.length, why: [...new Set(l.failed.map((x) => partnerWhyShort(x.why)))].join(', ') }));
   }
-  return parts.join(' · ');
+  return parts;
 }
 const partnerTrouble = (p) => !!(p.last && !p.current && (p.last.failed.length || p.last.skipped.some((x) => !['array_stopping', 'signal'].includes(x.why))));
 
 /** A sub line long enough to be clamped on a phone gets the whole text as its tip too */
-const tipOf = (subs) => { const t = subs.map((x) => (typeof x === 'string' ? x : x.text)).filter(Boolean).join('\n'); return t.length > 48 ? t : ''; };
+const tipOf = (subs) => { const t = subs.filter(Boolean).join('\n'); return t.length > 48 ? t : ''; };
+
+/** Mr. Restori's desk, when the office has it (his drill's certificate counts only while he works here) */
+const restoriHired = () => { const r = Office.desks && Office.desks.get ? Office.desks.get('restore') : null; return !!(r && r.hired); };
 
 /**
- * The overview's tiles, pure (no DOM): [{key, label, value, sub: [text | {text, place}], alert, tip, cls, filters (a
- * PROT_TILES key: the rows it counts in «Is everything protected?»), dialog (opens the schedule)}]. The last backup
- * (with how long it took and the containers' part), the schedule, the last tour or dry run (only when newer than the
- * last backup), offsite (Kopia), databases, packages, VMs, partners, the flash.
+ * The overview's tiles, pure (no DOM): [{key (the tile's id: TILES), label, value, sub: [text], alert, tip, cls,
+ * section (the section it shows: history | schedule | prot | partners | drift | restore), filters (a PROT_TILES key: the
+ * rows it leaves in «Is everything protected?»; null: the section whole)}], in the row's order. The last backup (how
+ * long it took, the containers' part, and a tour or dry run when newer), the schedule, offsite (Kopia), databases,
+ * packages, VMs, the flash, the protection in all, the partners (when there are), what changed since the setup (when
+ * something did), getting things back.
  */
 function overviewTiles() {
   const set = state.settings || {};
   const out = [];
-  const add = (d) => out.push({ sub: [], alert: false, filters: null, dialog: false, ...d, tip: d.tip || tipOf(d.sub || []) });
+  const add = (d) => out.push({ sub: [], alert: false, filters: null, ...d, section: TILE_SECTION[d.key], tip: d.tip || tipOf(d.sub || []) });
   const last = lastRun();
   const s = status();
+  // a tour or a dry run after the last backup: the last backup's third line (an older one is noise beside it)
+  const tour = s && s.mode !== 'backup' && s.finished && (!last || s.finished > (last.finished || last.started))
+    ? T('stat.tour_line', { what: T('stat.last_' + s.mode), result: T('result.' + s.result), when: fmt.relative(s.finished) }) : '';
+  const tourBad = !!tour && s.result !== 'ok';
   if (last) {
     const when = [arrayStopped(last) ? T('stat.last_array_stop', { when: fmt.date(last.started, true) }) : fmt.date(last.started, true)];
     if (last.finished) when.push(dur(last.finished - last.started));
     // engine 2.28: the shares it left out because their pool slept (the user's choice - the result stays ok)
     if (asleepUnits(last)) when.push(T('asleep.left_out', { n: asleepUnits(last) }));
-    add({ key: 'last', label: T('stat.last'), value: T('result.' + last.result), sub: [when.join(' · '), containersLine(last)].filter(Boolean),
-      alert: last.result !== 'ok' && !arrayStopped(last) });
+    add({ key: 'last', label: T('stat.last'), value: T('result.' + last.result), sub: [when.join(' · '), containersLine(last), tour].filter(Boolean),
+      alert: (last.result !== 'ok' && !arrayStopped(last)) || tourBad });
   } else {
-    add({ key: 'last', label: T('stat.last'), value: '–', sub: [T('bubble.no_runs')] });
+    add({ key: 'last', label: T('stat.last'), value: '–', sub: [T('bubble.no_runs'), tour].filter(Boolean), alert: tourBad });
   }
   const sc = state.schedule || {};
   const value = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
   const next = sc.enabled && sc.next ? T('stat.next', { when: fmt.relative(sc.next) }) : '';
   add({ key: 'schedule', label: T('stat.schedule'), value, sub: [sc.enabled ? [next, T('stat.by_office')].filter(Boolean).join(' · ') : T('stat.schedule_hint')],
-    alert: !sc.enabled, dialog: !!sc.script });
-  // a tour or a dry run after the last backup (an older one is noise beside it)
-  if (s && s.mode !== 'backup' && s.finished && (!last || s.finished > (last.finished || last.started))) {
-    add({ key: 'tour', label: T('stat.last_' + s.mode), value: T('result.' + s.result), sub: [fmt.relative(s.finished)], alert: s.result !== 'ok' });
-  }
+    alert: !sc.enabled });
   const c = state.containers;
   // Kopia: the last run's sources, the container, the repository and whether its policies match
   if (set.kopia_enabled) {
@@ -747,7 +772,7 @@ function overviewTiles() {
     add({ key: 'apps', label: T('stat.packages'), value: T('stat.pk_value', { apps: nOf('apps', pk.apps.length - pk.apps.filter((a) => a.stale).length),
       vms: nOf('vms', pk.vms.length - pk.vms.filter((v) => v.stale).length) }), sub: [sub.join(' · ')], alert: bad > 0, filters: 'apps' });
   } else if (state.packages && state.packages.old_runs) {
-    add({ key: 'apps', label: T('stat.packages'), value: '–', sub: [T('stat.pk_first')] });
+    add({ key: 'apps', label: T('stat.packages'), value: '–', sub: [T('stat.pk_first')], filters: 'apps' });
   }
   const vms = state.vms || [];
   if (vms.length) {
@@ -758,13 +783,6 @@ function overviewTiles() {
     });
     const sub = ['freeze', 'pause', 'shutdown', 'none', 'off', 'unset'].filter((k) => count[k]).map((k) => T('stat.vm_' + k, { n: count[k] }));
     add({ key: 'vms', label: T('stat.vms'), value: String(vms.length), sub: [sub.join(' · ')], alert: !!count.unset, filters: 'vms' });
-  }
-  // the partner offices (engine 2.27): one short line per partner (its place for the search), the whole text in the tip
-  const partners = state.partners || [];
-  if (partners.length) {
-    add({ key: 'partners', label: T('partner.tile'), value: partners.map((p) => p.name).join(', '), cls: 'bk-ptile',
-      sub: partners.map((p) => ({ text: partnerShort(p), place: `partner:${p.id}` })), tip: partners.map(partnerLong).join('\n'),
-      alert: partners.some(partnerTrouble) });
   }
   const flash = set.flash || 'off';
   const fl = (state.shares || []).find((x) => x.flash);
@@ -780,6 +798,28 @@ function overviewTiles() {
     fsub = t ? T('stat.flash_last', { when: fmt.relative(t) }) : T('never');
   } else { fv = T('stat.flash_off'); falert = true; }
   add({ key: 'flash', label: T('stat.flash'), value: fv, sub: fsub ? [fsub] : [], alert: falert, filters: 'flash' });
+  // the protection in all: the table whole — how many rows lie offsite, only local, nowhere
+  const rows = protRows();
+  const lv = (l) => rows.filter((r) => r.level === l).length;
+  const off = rows.filter((r) => r.off).length;
+  add({ key: 'prot', label: T('tile.prot'), value: off ? T('stat.prot_off', { n: off }) : T('stat.prot_ok'),
+    sub: [T('protection_sum', { kopia: lv('offsite'), snapshot: lv('local'), off: lv('none') })], alert: off > 0 });
+  // the partner offices (engine 2.27): one short line per partner, the whole text in the tip — the section has a row each
+  const partners = state.partners || [];
+  if (partners.length) {
+    add({ key: 'partners', label: T('partner.tile'), value: partners.map((p) => p.name).join(', '), cls: 'bk-ptile',
+      sub: partners.map(partnerShort), tip: partners.map(partnerLong).join('\n'), alert: partners.some(partnerTrouble) });
+  }
+  // what changed on the server since the setup (the engine's drift) — only while something did
+  const drift = (state.drift && state.drift.items) || [];
+  if (drift.length) {
+    add({ key: 'drift', label: T('tile.drift'), value: T('stat.drift_n', { n: drift.length }),
+      sub: state.drift.time ? [T('drift_checked', { when: fmt.relative(state.drift.time) })] : [], alert: drift.some((d) => d.level !== 'info') });
+  }
+  // getting things back: where the backups lie, Mr. Restori's way — and his drill's certificate while he works here
+  const dr = restoriHired() ? state.drill : null;
+  add({ key: 'restore', label: T('tile.restore'), value: dr ? T(dr.result === 'failed' ? 'stat.drill_failed' : 'stat.drill_passed') : Office.t('restore.name'),
+    sub: [dr ? fmt.date(dr.ended) : T('stat.restore_where')], alert: !!dr && dr.result === 'failed' });
   return out;
 }
 
@@ -800,6 +840,16 @@ function protRows() {
       hay: [s.flash ? T('flash') : s.name, word(level), s.mode === 'kopia' && !kopiaOn ? T('mode_kopia_off') : '', s.method === 'live' ? T('live') : '',
         ...(s.locations || [])] });
   });
+  // the flash kept as an archive in its package (or not at all) is no share of the engine's — still a row of its own here,
+  // so «Flash» always has its line: the archive as protected as the backup place, none at all = not backed up
+  if (!rows.some((r) => r.x.flash)) {
+    const flash = (state.settings && state.settings.flash) || 'off';
+    const level = flash === 'tar' ? placeLevel(kopiaOn) : 'none';
+    const rank = { offsite: 0, local: 1, none: 2 };
+    rows.splice(rows.filter((r) => rank[r.level] <= rank[level]).length, 0, { kind: 'share', id: '\u0000flash', name: T('flash'), level, off: level === 'none',
+      tiles: ['flash', ...(level === 'offsite' ? ['kopia'] : [])],
+      x: { name: 'flash', flash: true, mode: flash, archive: true }, hay: [T('flash'), word(level), flash === 'tar' ? T('stat.flash_tar') : ''] });
+  }
   (state.vms || []).forEach((v) => {
     const level = vmLevel(v, kopiaOn);
     const pools = [...new Set((v.own || []).map((d) => String(d).split('/')[0]))];
@@ -859,7 +909,7 @@ function protFilterBar() {
   });
   all.classList.add('bk-unfold-all');
   protBar = Office.filterBar({ key: 'backup.protect', label: T('protect.filter_label'), only: { text: T('protect.only_off'), hint: T('protect.only_off_hint') },
-    extra: [all], onChange: () => protRedraw() });
+    extra: [all], onChange: () => switcher().render() });
   protBar.all = all;
   return protBar;
 }
@@ -885,7 +935,7 @@ function protection() {
   const bar = protFilterBar();
   box.appendChild(bar.el);
   const rows = protRows();
-  const f = { ...bar.read(), tile: protTile };
+  const f = { ...bar.read(), tile: protFilter() };
   const v = protView(rows, f);
 
   const wrap = el('div', 'box table-wrap');
@@ -946,6 +996,7 @@ function protection() {
     if (!v.groups.share.length) none();
     v.groups.share.forEach((r) => {
       const s = r.x;
+      if (s.archive) { body.appendChild(flashArchiveRow(r)); return; }
       const tr = Office.place(s.flash ? 'row:flash' : `row:share:${s.name}`, el('tr'));
       const name = el('th', '', r.name);
       tr.appendChild(name);
@@ -1038,11 +1089,13 @@ function protection() {
       unfolding(tr, name, r.id, () => pkDetail(a));
     });
   }
+  if (!v.groups.share && !v.groups.vm && !(v.groups.app && pk)) none();      // a filter tile with no row (nothing goes offsite)
   table.appendChild(body);
   wrap.appendChild(table);
   box.appendChild(wrap);
   protAllLabel();
-  bar.done(v.n, v.total, { tile: protTile ? T('tile.' + protTile) : '', clear: () => { protTile = ''; }, onlyAvail: v.off > 0 });
+  // the note line names the filter tile that is on (its × and «Show all»: nothing active — the whole page again)
+  bar.done(v.n, v.total, { ...switcher().note('prot'), onlyAvail: v.off > 0 });
 
   const set = state.settings || {};
   const facts = [];
@@ -1054,6 +1107,22 @@ function protection() {
   } else facts.push(T('fact.kopia_off'));
   box.appendChild(el('p', 'role', facts.join(' · ')));
   return box;
+}
+
+/** The flash's row when it is kept as an archive in its package (or not at all): no share of the engine's, no rules */
+function flashArchiveRow(r) {
+  const tr = Office.place('row:flash', el('tr'));
+  tr.appendChild(el('th', '', r.name));
+  const modeCell = el('td');
+  modeCell.appendChild(Office.backupChip(r.level));
+  if (r.x.mode === 'tar') modeCell.append(' ', chip(T('stat.flash_tar')));
+  const pk = packages();
+  const tarRun = (state.dumps || []).find((d) => d.flash);
+  const t = r.x.mode !== 'tar' ? null : pk && pk.flash ? pk.flash.time : tarRun ? tarRun.time : null;
+  const lastCell = el('td', '', t ? fmt.relative(t) : '');
+  if (t) lastCell.title = fmt.date(t);
+  tr.append(modeCell, lastCell, el('td'), el('td', '', r.x.mode === 'tar' && pk ? `${pk.base}/flash` : ''));
+  return tr;
 }
 
 /** The backup place's own protection: its share's mode (the packages' history lies in its snapshots) */
@@ -1289,10 +1358,7 @@ function historyRows() {
 /** The history's bar: words only (no «only …», no tile) — not kept */
 function histFilterBar() {
   if (!histBar) {
-    histBar = Office.filterBar({ key: 'backup.history', label: T('history_filter_label'), onChange: () => {
-      const old = view && view.querySelector('#' + HIST_ID);
-      if (old) old.replaceWith(historySection());
-    } });
+    histBar = Office.filterBar({ key: 'backup.history', label: T('history_filter_label'), onChange: () => switcher().render() });
   }
   return histBar;
 }
@@ -1373,6 +1439,63 @@ function driftSection() {
   const hint = el('p', 'role', T('drift_hint') + ' ');
   hint.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
   box.appendChild(hint);
+  return box;
+}
+
+/** «Schedule» as a section of one row: how often, the next backup and when it should be done — «Change…» opens the dialog */
+function scheduleSection() {
+  const sc = state.schedule || {};
+  const change = button(T('schedule.change'), 'small', scheduleDialog);
+  change.disabled = !Office.agent.running;           // the messenger away: nobody would take the request
+  const box = section(T('schedule.title'), T('schedule.section_sub'), change, { place: 'schedule.title' });
+  const list = el('div', 'box');
+  const row = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  const meta = el('div', 'row-meta');
+  if (!sc.script) {
+    main.appendChild(el('div', 'row-name text', T('stat.not_scheduled')));
+    meta.appendChild(el('span', 'note', T('schedule.no_settings')));
+  } else if (!sc.enabled) {
+    main.appendChild(el('div', 'row-name text', T('schedule.off')));
+    meta.append(chip(T('stat.not_scheduled'), 'warn'), el('span', 'note', T('schedule.off_hint')));
+  } else {
+    main.appendChild(el('div', 'row-name text', sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)));
+    if (sc.next) {
+      const next = el('span', '', T('stat.next', { when: fmt.relative(sc.next) }));
+      next.title = fmt.date(sc.next);
+      meta.appendChild(next);
+      const took = typicalDuration();
+      if (took) meta.appendChild(el('span', '', T('schedule.duration', { duration: fmt.duration(took), end: fmt.time(sc.next + took) })));
+    }
+    meta.appendChild(el('span', 'note', T('stat.by_office')));
+  }
+  main.appendChild(meta);
+  row.appendChild(main);
+  list.appendChild(row);
+  box.appendChild(list);
+  return box;
+}
+
+/** «Partners» as a section: a row per partner office — what the last backup sent there, how fast, what was left out and why */
+function partnersSection() {
+  const box = section(T('partner.section'), T('partner.section_sub'), { place: 'partner.section' });
+  const list = el('div', 'box');
+  (state.partners || []).forEach((p) => {
+    const row = Office.place(`partner:${p.id}`, el('div', 'row nocheck'));
+    const main = el('div', 'row-main');
+    const [first, ...rest] = partnerParts(p);
+    main.appendChild(el('div', 'row-name text', first));
+    const meta = el('div', 'row-meta');
+    if (p.current) meta.appendChild(chip(T('result.running'), 'accent'));
+    else if (p.last && p.last.failed.length) meta.appendChild(chip(T('failed'), 'danger'));
+    else if (partnerTrouble(p)) meta.appendChild(chip(T('result.skipped'), 'warn'));
+    rest.forEach((x) => meta.appendChild(el('span', '', x)));
+    if ((p.units || []).length) meta.appendChild(el('span', 'note', T('partner.units_line', { list: p.units.map(unitLabel).join(', ') })));
+    main.appendChild(meta);
+    row.appendChild(main);
+    list.appendChild(row);
+  });
+  box.appendChild(list);
   return box;
 }
 
@@ -2750,7 +2873,6 @@ function renderSetup() {
   const root = view;
   if (!root) return;
   root.innerHTML = '';
-  const back = button(T('setup.back'), 'plain', () => Office.go(`#/${ID}`));
   const again = button(T('setup.replan'), 'plain', () => setupPlan(false));
   const measure = button(T('setup.measure'), 'plain', () => setupPlan(true));
   const forget = button(T('setup.forget_short') + ' …', 'plain', setupForget);
@@ -2765,8 +2887,16 @@ function renderSetup() {
   forget.hidden = !(setup.plan && setup.plan.have_settings);
   preset.hidden = forget.hidden;
   const pageSub = setup.plan ? T(setup.plan.have_settings ? 'setup.sub_have' : 'setup.sub_new') : '';
-  const { head } = Office.deskHead(Office.desks.get(ID), { page: T('setup.page'), pageSub, actions: [back, again, measure, preset, forget] });
-  root.appendChild(head);
+  root.appendChild(deskHeadOf('setup'));
+  // the page's own head line under the tabs: its name, what it is, and the page's actions on the right
+  const ph = el('div', 'bk-pagehead');
+  const pt = el('div', 'bk-pagehead-text');
+  pt.appendChild(el('div', 'bk-pagehead-title', T('setup.page')));
+  if (pageSub) pt.appendChild(el('p', 'bk-pagehead-sub', pageSub));
+  const pa = el('div', 'bk-pagehead-actions');
+  pa.append(again, measure, preset, forget);
+  ph.append(pt, pa);
+  root.appendChild(ph);
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('setup.preset.title'), T('help.preset_text')],
     [T('help.draft'), T('help.draft_text')],
@@ -4320,7 +4450,7 @@ Office.desk({
   async mount(root, sub) {
     view = root;
     clearTimeout(setupTimer);
-    page = sub === 'setup' ? 'setup' : 'main';
+    page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : 'main';     // #/backup and every tile's route: the overview
     if (page === 'setup') {
       sfBar = null;                        // its bar built anew in the language of now
       setupFilterReset();                  // a new visit: every row again (words and «only …» are not kept)
@@ -4333,16 +4463,14 @@ Office.desk({
       }
     } else {
       Office.selbar(null);
-      // a new visit (#/backup/show: the search's way to a row — whatever filtered it before): the table and the history unfiltered (words, «only …», a tile filter are never kept), the bars
-      // built anew in the language of now; #/backup/<tile> (the search) sets the tile's filter exactly like a click —
-      // and the address goes back to #/backup, so a reload shows everything
+      // a new visit: the table and the history unfiltered (words, «only …» and a filter tile are never kept), the bars
+      // built anew in the language of now; #/backup/<tile> (the search, its rows, the team lead's «Open» of the schedule)
+      // picks that tile exactly like a click and the address goes back to #/backup — else the last section chosen
       protBar = null;
       histBar = null;
-      protTile = PROT_TILES.includes(sub) ? sub : '';
-      if (protTile || sub === SHOW) Office.subroute('');
+      switcher().mount(sub);
       render();
       await load(false);
-      if (sub === 'schedule') { Office.subroute(''); scheduleDialog(); }    // the caretaker's "Open"
     }
   },
   unmount() {
@@ -4390,9 +4518,9 @@ Office.desk({
 // page, then the setup's steps and fixed settings (#/backup/setup) — the rows per share, app and VM are a later phase
 const SETUP = { route: '#/backup/setup', crumb: 'setup.page' };
 // what his pages draw only in some states (core.js shown, asked when the search looks; not known yet: listed): the main
-// page's sections once the engine is found (a run going on: «now» instead of the overview; drift only with something
-// drifted), the setup's start cards for a new server, the old Kopia sources, the settings its plan has (ZFS, btrfs,
-// libvirt, Kopia switched on)
+// page's sections once the engine is found (a run going on: «now» instead of the row; drift and partners only with
+// something drifted, a partner), the tiles the row has now, the setup's start cards for a new server, the old Kopia
+// sources, the settings its plan has (ZFS, btrfs, libvirt, Kopia switched on)
 const mainShown = (f) => () => !state || (!!state.found && f());
 const planShown = (f) => () => !setup.plan || !setup.draft || !!f(setup.plan);
 const hasFs = (fs) => (p) => (p.bases || []).some((b) => b.fs === fs);
@@ -4400,6 +4528,7 @@ const kopiaOn = () => dget('kopia|enabled') === 'yes';
 const SHOWN = {
   now: mainShown(() => live()), overview: mainShown(() => !live()), protection: mainShown(() => true), history: mainShown(() => true),
   drift: mainShown(() => ((state.drift && state.drift.items) || []).length > 0), restore: mainShown(() => true),
+  'schedule.title': mainShown(() => true), 'partner.section': mainShown(() => (state.partners || []).length > 0),
   'setup.preset.title': planShown((p) => !p.have_settings),
   'setup.sources': planShown((p) => ((p.kopia && p.kopia.sources) || []).some((x) => x.state === 'orphan' || x.state === 'gone')),
   'setup.g_prefix': planShown(hasFs('zfs')), 'setup.g_zfs': planShown(hasFs('zfs')),
@@ -4410,11 +4539,15 @@ const SHOWN = {
 const PART = { 'setup.ds_label': 'setup.kopia', 'setup.g_flash': 'setup.kopia', 'setup.g_zfs': 'setup.retention', 'setup.g_btrfs_days': 'setup.retention' };
 const when = (key) => ({ ...(SHOWN[key] ? { shown: SHOWN[key] } : {}), ...(PART[key] || key.startsWith('setup.g_') || key.startsWith('setup.p_')
   ? { part: PART[key] || 'setup.general' } : {}) });
+// a section's route is its tile's: the switcher shows it alone, whatever was chosen before (the row and «now» are always there)
+const SECTION_TILE = { protection: 'prot', history: 'last', 'schedule.title': 'schedule', 'partner.section': 'partners', drift: 'drift', restore: 'restore' };
 Office.places(ID, [
-  ...['now', 'overview', 'protection', 'history', 'drift', 'restore'].map((key) => ({ kind: 'section', key, ...when(key) })),
-  // the tiles that filter «Is everything protected?» — #/backup/<tile> sets the filter like a click (mount()); listed
-  // while the overview draws them as buttons (a run going on: no overview; a tile with no row to show: no button)
-  ...PROT_TILES.map((t) => ({ kind: 'tile', key: `tile.${t}`, route: `#/${ID}/${t}`, shown: mainShown(() => !live() && !!protTileCounts()[t]) })),
+  ...['now', 'overview', 'protection', 'history', 'schedule.title', 'partner.section', 'drift', 'restore']
+    .map((key) => ({ kind: 'section', key, ...(SECTION_TILE[key] ? { route: tileRoute(SECTION_TILE[key]) } : {}), ...when(key) })),
+  // every tile of the row (the switcher gives each its place tile.<id>, #/backup/<tile> picks it like a click — mount()), listed
+  // while the row has it (a run going on: no row; partners, drift: only when there are)
+  ...TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `tile.${id}`, route: tileRoute(id),
+    shown: mainShown(() => !live() && overviewTiles().some((d) => d.key === id)) })),
   ...['setup.preset.title', 'setup.kopia', 'setup.vms', 'setup.apps', 'setup.shares', 'setup.retention', 'setup.general', 'setup.sources',
     'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP, ...when(key) })),
   ...['setup.ds_label', 'setup.g_flash', 'setup.g_prefix', 'setup.g_btrfs_free', 'setup.g_btrfs_all', 'setup.g_libvirt', 'setup.g_notify',
@@ -4435,16 +4568,18 @@ Office.placesFrom(ID, (s) => {
   if (!s.found) return out;
   const kopiaOn = !!(s.settings && s.settings.kopia_enabled);
   const level = (mode) => (mode === 'kopia' ? (kopiaOn ? 'offsite' : 'local') : mode === 'snapshot' ? 'local' : 'none');
+  // a row's way is the tile showing its section alone (the table whole, the backups, the partners) — like a click
+  const prot = tileRoute('prot');
   (s.shares || []).forEach((x) => out.push({ text: x.flash ? T('flash') : x.name, sub: `${T('protection')} · ${Office.t('protect.' + level(x.mode))}`,
-    anchor: x.flash ? 'row:flash' : `row:share:${x.name}`, route: ITEM_ROUTE }));
-  (s.vms || []).forEach((v) => out.push({ text: v.name, sub: `${T('protection')} · ${T('vm.group')}`, anchor: `row:vm:${v.name}`, route: ITEM_ROUTE }));
+    anchor: x.flash ? 'row:flash' : `row:share:${x.name}`, route: prot }));
+  (s.vms || []).forEach((v) => out.push({ text: v.name, sub: `${T('protection')} · ${T('vm.group')}`, anchor: `row:vm:${v.name}`, route: prot }));
   const pk = s.packages;
-  if (pk && pk.found) (pk.apps || []).forEach((a) => out.push({ text: a.name, sub: `${T('protection')} · ${T('pk.group')}`, anchor: `row:app:${a.folder}`, route: ITEM_ROUTE }));
+  if (pk && pk.found) (pk.apps || []).forEach((a) => out.push({ text: a.name, sub: `${T('protection')} · ${T('pk.group')}`, anchor: `row:app:${a.folder}`, route: prot }));
   // the runs as his history lists them: the newest 20, the skipped ones between them
   [...(s.history || []).slice(0, 20).map((r) => ({ t: r.started, r })), ...(s.skips || []).map((k) => ({ t: k.time }))]
     .sort((a, b) => b.t - a.t).slice(0, 20).filter((x) => x.r)
-    .forEach(({ r }) => out.push({ text: fmt.date(r.started, true), sub: `${T('history')} · ${T('result.' + r.result)}`, anchor: `run:${r.started}`, route: ITEM_ROUTE }));
-  (s.partners || []).forEach((p) => out.push({ text: p.name, sub: T('partner.tile'), anchor: `partner:${p.id}`, route: ITEM_ROUTE }));
+    .forEach(({ r }) => out.push({ text: fmt.date(r.started, true), sub: `${T('history')} · ${T('result.' + r.result)}`, anchor: `run:${r.started}`, route: tileRoute('last') }));
+  (s.partners || []).forEach((p) => out.push({ text: p.name, sub: T('partner.tile'), anchor: `partner:${p.id}`, route: tileRoute('partners') }));
   return out;
 });
 
@@ -4455,8 +4590,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
     setupFilter,
     setupFits, setupFirstNew, setupFocus,
-    overviewTiles, tileNode, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID,
-    get protTile() { return protTile; }, setProtTile: (t) => { protTile = t; },
+    overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,

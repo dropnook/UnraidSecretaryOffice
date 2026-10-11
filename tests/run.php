@@ -28069,25 +28069,43 @@ function testBackupTiles(): void
     preg_match_all('/Office\.filterBar\(\{(.*?)\}\);?\n/s', $js, $m);
     same('backup tiles: three bars (the table, the backups, the setup), none with a select (nothing of a bar is kept)',
         [3, 0], [count($m[1]), count(array_filter($m[1], fn ($b) => str_contains($b, 'select:')))]);
-    check('backup tiles: a new visit drops the bars and the tile filter; #/backup/<tile> sets it like a click and the address goes back to #/backup',
-        str_contains($js, "protBar = null;\n      histBar = null;\n      protTile = PROT_TILES.includes(sub) ? sub : '';")
-        && str_contains($js, "if (protTile || sub === SHOW) Office.subroute('');"));
-    check('backup tiles: a tile click keeps the tiles in place and draws the table anew (no scroll)',
-        str_contains($js, "Office.keepInPlace(grid, () => {\n    protTile = protTile === key ? '' : key;\n    protRedraw();"));
-    check('backup tiles: the note line is the bar\'s (the tile\'s name, «Show all» clears it), «only …» offered while something is unprotected',
-        str_contains($js, "bar.done(v.n, v.total, { tile: protTile ? T('tile.' + protTile) : '', clear: () => { protTile = ''; }, onlyAvail: v.off > 0 });"));
-    check('backup tiles: every tile a place of the search (kind tile, #/backup/<tile>), the search\'s rows through #/backup/show',
-        str_contains($js, "...PROT_TILES.map((t) => ({ kind: 'tile', key: `tile.\${t}`, route: `#/\${ID}/\${t}`")
-        && substr_count($js, 'route: ITEM_ROUTE }') === 5);
+    // tiles v2 (a tile is a section): the row on Office.sections(), the tabs, the setup's head line
+    check('backup tiles: the row is the switcher (Office.sections(), grid stats bk-stats, no start tile, the table shared as `prot`)',
+        str_contains($js, "sw = Office.sections({\n    id: ID,") && str_contains($js, "grid: 'stats bk-stats',") && str_contains($js, "default: '',")
+        && str_contains($js, "tiles: () => tileList(),") && str_contains($js, "sections: { prot: () => protection() },"));
+    check('backup tiles: the tile builder spreads the switcher\'s attributes into Office.stat (no click, aria-pressed or place of its own)',
+        str_contains($js, "return Office.stat({ label: d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.\${d.key}` });")
+        && !str_contains($js, 'protTileClick') && !str_contains($js, 'protRedraw') && !preg_match('/\nfunction summary\(/', $js));
+    check('backup tiles: a new visit drops the bars; #/backup/<tile> picks the tile like a click (the switcher, the address back to #/backup)',
+        str_contains($js, "protBar = null;\n      histBar = null;\n      switcher().mount(sub);"));
+    check('backup tiles: the table\'s filter is the active filter tile, its note line the switcher\'s (its × and «Show all» = nothing active)',
+        str_contains($js, "const f = { ...bar.read(), tile: protFilter() };")
+        && str_contains($js, "bar.done(v.n, v.total, { ...switcher().note('prot'), onlyAvail: v.off > 0 });"));
+    check('backup tiles: both bars draw through the switcher (no section replaced by hand)', substr_count($js, 'onChange: () => switcher().render()') === 2);
+    check('backup tiles: a run going on — its card in the row\'s place, the whole page under it',
+        str_contains($js, "if (s.active()) s.pick('', 'route');") && str_contains($js, 's.grid.hidden = live();'));
+    check('backup tiles: every tile a place of the search (kind tile, its anchor tile.<id>, #/backup/<tile>), the rows and sections through their tile',
+        str_contains($js, "...TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `tile.\${id}`, route: tileRoute(id),")
+        && !str_contains($js, 'ITEM_ROUTE') && substr_count($js, 'route: prot }') === 3);
+    check('backup tiles: two tabs «Overview» / «Set up» on both pages, no crumb, «← Back» or head button «Set up…»',
+        str_contains($js, "pages: { list: PAGES(), current } }).head;") && substr_count($js, 'deskHeadOf(') === 3
+        && !str_contains($js, "T('setup.back')") && !str_contains($js, "page: T('setup.page')")
+        && !str_contains($js, "actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/\${ID}/setup`)));"));
+    check('backup tiles: the setup\'s page actions in its own head line under the tabs',
+        str_contains($js, "pa.append(again, measure, preset, forget);"));
     $places = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/places.json'), true);
-    same('backup tiles: places.json lists the five tiles and the help term', [], array_values(array_diff(
-        ['tile.apps', 'tile.dumps', 'tile.flash', 'tile.kopia', 'tile.vms', 'help.tiles'], $places['keys'] ?? [])));
+    same('backup tiles: places.json lists every tile, the new sections and the help term', [], array_values(array_diff(
+        ['stat.last', 'stat.schedule', 'tile.apps', 'tile.dumps', 'tile.flash', 'tile.kopia', 'tile.vms', 'tile.prot', 'partner.tile', 'tile.drift', 'tile.restore',
+            'schedule.title', 'partner.section', 'help.tiles'], $places['keys'] ?? [])));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
-        $miss = array_values(array_filter(['stat.next', 'tile.kopia', 'tile.dumps', 'tile.apps', 'tile.vms', 'tile.flash', 'protect.filter_label', 'protect.only_off',
+        $miss = array_values(array_filter(['stat.next', 'tile.kopia', 'tile.dumps', 'tile.apps', 'tile.vms', 'tile.flash', 'tile.prot', 'tile.drift', 'tile.restore',
+            'stat.prot_ok', 'stat.prot_off', 'stat.drift_n', 'stat.tour_line', 'stat.drill_passed', 'stat.drill_failed', 'stat.restore_where',
+            'schedule.change', 'schedule.section_sub', 'partner.section', 'partner.section_sub', 'partner.units_line', 'protect.filter_label', 'protect.only_off',
             'protect.only_off_hint', 'history_filter_label', 'filter_none', 'partner.short_now', 'partner.short_never', 'partner.short_sent', 'partner.short_failed',
             'partner.short_skipped', 'help.tiles', 'help.tiles_text'], fn ($k) => !isset($l[$k])));
         same("backup tiles: the texts in $code", [], $miss);
+        same("backup tiles: «← Back» and the overview's sub line gone in $code", [], array_values(array_filter(['setup.back', 'overview_sub'], fn ($k) => isset($l[$k]))));
     }
     $sc = backupSchedule();
     check('backup tiles: the agent hands the page the schedule\'s next run (officeJobSchedule() through backupSchedule())',
@@ -28787,7 +28805,7 @@ JS;
  * The desks moved onto the section switcher of tiles v2 (Office.sections()) — each desk group adds its desk with the
  * functions whose section heads stand on another page of the desk (its setup page …), never under the row:
  *   'backup' => ['setupPage', …]
- * Empty while no desk is moved (2026-10-11: Worker 0 built the helper, the groups move the desks).
+ * (2026-10-11: Worker 0 built the helper, the groups move the desks.)
  */
 const SECTIONS_DESKS = [
     'restore' => [],
@@ -28795,6 +28813,10 @@ const SECTIONS_DESKS = [
     'watchman' => ['roundHead'],     // «The last round»: the row's head over the tiles (a hint, it stays at every click)
     // Ms. Dustdevil: her two pages, two switchers — the first in her desk.js is «Tidying up»'s, these make «Where is what»'s sections
     'cleanup' => ['whereSection', 'whereAdvice', 'wherePlaces', 'whereCorner'],
+    // Mr. Backupsy (2026-10-11, sections-backup): the setup page's steps and its head (the other tab), and the running card
+    // that stands in the row's place while a run goes on (a live panel above the sections, like Jack Emby's)
+    'backup' => ['renderSetup', 'setupSection', 'presetSection', 'setupKopia', 'setupVms', 'setupApps', 'setupShares', 'setupRetention', 'setupGeneral',
+        'setupSources', 'setupMessages', 'runningCard'],
 ];
 
 /**

@@ -1,10 +1,12 @@
 /*
- * Mr. Backupsy's overview tiles and the table they filter (public/desks/backup/desk.js, under node; the tiles rebuild,
- * 2026-10-11): overviewTiles() — which tiles, what each says, which one filters what, the schedule a dialog opener, the
- * last backup carrying how long it took and the containers' part, the tour shown only when newer than the backup, one
- * short line per partner —, tileNode() (button with aria-pressed / dialog opener / div), protRows() + protView() — the
- * rows each tile leaves, the bar's words and «only what isn't protected», a group with no fit keeping its head —, and
- * historyRows() (the backups' words). The matcher is core.js's own (Office.fold / filterWords / fits, read from it).
+ * Mr. Backupsy's overview tiles and the table they filter (public/desks/backup/desk.js, under node; tiles v2, 2026-10-11 —
+ * a tile is a section): overviewTiles() — which tiles in the row's order, what each says, the section each shows and
+ * which filters the table, the last backup carrying how long it took, the containers' part and a newer tour, the
+ * schedule a section (no dialog opener), «Protection», «Changed» and «Restore» —, tileList() (what the switcher gets: ids,
+ * keys, sections, the filter's words; every tile before a state), tileNode() (Office.stat with the switcher's attributes
+ * spread in), protRows() + protView() — the rows each tile leaves (the flash's own row as an archive or not backed up),
+ * the bar's words and «only what isn't protected», a group with no fit keeping its head — and historyRows() (the
+ * backups' words). The matcher is core.js's own (Office.fold / filterWords / fits, read from it).
  *
  *   node tests/backuptiles.js public/desks/backup/desk.js public/assets/core.js   → one JSON line {pass, fail: [[name, got, want], …]}
  *
@@ -69,71 +71,110 @@ const base = () => ({
   dumps: [], drift: null,
 });
 
-// ---------------------------------------------------------------- overviewTiles()
+// ---------------------------------------------------------------- overviewTiles(): a tile is a section (tiles v2)
 B.setState(base());
 let tiles = B.overviewTiles();
 const byKey = (k) => tiles.find((t) => t.key === k) || null;
-same('tiles: which, in order (no «Took», no «Containers» of their own; the tour only when newer)',
-  tiles.map((t) => t.key), ['last', 'schedule', 'kopia', 'dumps', 'apps', 'vms', 'partners', 'flash']);
-same('tiles: which filters what', tiles.map((t) => t.filters), [null, null, 'kopia', 'dumps', 'apps', 'vms', null, 'flash']);
-same('tiles: only the schedule opens a dialog', tiles.filter((t) => t.dialog).map((t) => t.key), ['schedule']);
+same('tiles: which, in the row\'s order (no «Took», «Containers» or «Last tour» of their own; drift only with something drifted)',
+  tiles.map((t) => t.key), ['last', 'schedule', 'kopia', 'dumps', 'apps', 'vms', 'flash', 'prot', 'partners', 'restore']);
+same('tiles: the section each shows (the table shared by the filter tiles and «Protection»)', tiles.map((t) => t.section),
+  ['history', 'schedule', 'prot', 'prot', 'prot', 'prot', 'prot', 'prot', 'partners', 'restore']);
+same('tiles: which filters the table (the others show their section whole)', tiles.map((t) => t.filters),
+  [null, null, 'kopia', 'dumps', 'apps', 'vms', 'flash', null, null, null]);
+same('tiles: no dialog opener any more (the schedule is a section with «Change…»)', tiles.filter((t) => 'dialog' in t).length, 0);
+same('tiles: the row\'s ids are the switcher\'s (TILES), in its order', tiles.map((t) => t.key),
+  B.TILES.map(([id]) => id).filter((id) => tiles.some((t) => t.key === id)));
 const last = byKey('last');
 same('last backup: the result, its date and how long it took in the first sub line',
-  [last.value, last.sub[0]], ['result.warnings', `date(${NOW - 3600}) · 14 s`]);
+  [last.value, last.sub[0]], ['result.warnings', `date(${NOW - 3600}) · 14\u00a0s`]);
 same('last backup: the containers\' part in the second (downtime, stopped, kept running)', last.sub[1],
   'stat.downtime {"duration":"1 min"} · stat.ct_stopped {"n":2} · stat.ct_kept {"n":6}');
+same('last backup: no third line while no tour came after it', last.sub.length, 2);
 same('schedule: the time, the next backup and «set here»', [byKey('schedule').value, byKey('schedule').sub],
   ['cron(30 4 * * *)', [`stat.next {"when":"rel(${NOW + 18000})"} · stat.by_office`]]);
-same('partners: one short line per partner (its place for the search), the whole text in the tip',
+same('partners: one short line per partner, the whole text in the tip (the section has a row each, the search\'s anchor)',
   [byKey('partners').sub, byKey('partners').tip.startsWith('partner.tile_sent'), byKey('partners').alert],
-  [[{ text: `partner.short_sent {"name":"Vault","when":"rel(${NOW - 600})"} · partner.short_skipped {"n":1}`, place: 'partner:p1' }], true, true]);
+  [[`partner.short_sent {"name":"Vault","when":"rel(${NOW - 600})"} · partner.short_skipped {"n":1}`], true, true]);
 same('flash: snapshot + offsite, its last copy', [byKey('flash').value, byKey('flash').sub], ['stat.flash_offsite', [`stat.flash_last {"when":"rel(${NOW - 7200})"}`]]);
+same('protection: the rows not protected as its value, the levels in its line, alert while any',
+  [byKey('prot').value, byKey('prot').sub, byKey('prot').alert],
+  ['stat.prot_off {"n":4}', ['protection_sum {"kopia":4,"snapshot":5,"off":2}'], true]);
+same('restore: without Mr. Restori\'s certificate his name and where the backups lie', [byKey('restore').value, byKey('restore').sub, byKey('restore').alert],
+  ['restore.name', ['stat.restore_where'], false]);
 
-// the tour: shown only when it finished after the last backup
+// the tour: the last backup's third line, only when it finished after the last backup
 let s = base();
 s.status = { mode: 'check', finished: NOW - 60, result: 'ok' };
 B.setState(s);
-same('tour: newer than the last backup - shown after the schedule', B.overviewTiles().map((t) => t.key).slice(0, 3), ['last', 'schedule', 'tour']);
+same('tour: newer than the last backup - the last backup\'s third line, no tile of its own',
+  [B.overviewTiles().find((t) => t.key === 'last').sub[2], B.overviewTiles().some((t) => t.key === 'tour')],
+  [`stat.tour_line {"what":"stat.last_check","result":"result.ok","when":"rel(${NOW - 60})"}`, false]);
+s.status = { mode: 'check', finished: NOW - 60, result: 'errors' };
+B.setState(s);
+same('tour: one that went wrong makes the tile alert', B.overviewTiles().find((t) => t.key === 'last').alert, true);
 s.status = { mode: 'dryrun', finished: NOW - 7200, result: 'ok' };
 B.setState(s);
-same('tour: older than the last backup - not shown', B.overviewTiles().some((t) => t.key === 'tour'), false);
+same('tour: older than the last backup - not said', B.overviewTiles().find((t) => t.key === 'last').sub.length, 2);
 s.history = [];
 B.setState(s);
-same('tour: no backup yet - shown', B.overviewTiles().map((t) => t.key).slice(0, 3), ['last', 'schedule', 'tour']);
+same('tour: no backup yet - said under «no backup yet»', B.overviewTiles().find((t) => t.key === 'last').sub,
+  ['bubble.no_runs', `stat.tour_line {"what":"stat.last_dryrun","result":"result.ok","when":"rel(${NOW - 7200})"}`]);
 // the schedule off; Docker off; no settings yet
 s = base();
 s.schedule = { script: true, frequency: 'disabled', custom: null, enabled: false, next: null };
 s.containers = { up: false };
 B.setState(s);
 tiles = B.overviewTiles();
-same('schedule off: «not scheduled», alert, «click to set it», still a dialog', [byKey('schedule').value, byKey('schedule').alert, byKey('schedule').sub, byKey('schedule').dialog],
-  ['stat.not_scheduled', true, ['stat.schedule_hint'], true]);
+same('schedule off: «not scheduled», alert, «click to set it», its section', [byKey('schedule').value, byKey('schedule').alert, byKey('schedule').sub, byKey('schedule').section],
+  ['stat.not_scheduled', true, ['stat.schedule_hint'], 'schedule']);
 same('Docker off: said in the last backup\'s sub line', byKey('last').sub[1], 'common.docker_off');
-s.schedule = { script: false, frequency: 'disabled', custom: null, enabled: false, next: null };
+// drift and the drill
+s = base();
+s.drift = { time: NOW - 300, items: [{ level: 'warn', code: '', value: '', text: 'x' }, { level: 'info', code: '', value: '', text: 'y' }] };
 B.setState(s);
-same('no settings: the schedule opens nothing', B.overviewTiles().find((t) => t.key === 'schedule').dialog, false);
-
-// ---------------------------------------------------------------- tileNode(): button, dialog opener, div
-B.setState(base());
-const counts = B.protTileCounts();
-same('counts: rows each tile shows (offsite: appdata, the flash, a VM with its own source, an app with its own; dumps; apps; VMs; flash)',
-  counts, { kopia: 4, flash: 1, vms: 3, apps: 3, dumps: 1 });
 tiles = B.overviewTiles();
-B.setProtTile('');
-const node = (k) => B.tileNode(tiles.find((t) => t.key === k), {}, counts).o;
-const sched = node('schedule');
-same('schedule tile: a button without aria-pressed (opens its dialog), no data-filters',
-  [typeof sched.on, 'pressed' in sched, sched.filters || null], ['function', false, null]);
-const vmsTile = node('vms');
-same('VMs tile: a button, aria-pressed false, controls and filters the table\'s section, a place of its own',
-  [typeof vmsTile.on, vmsTile.pressed, vmsTile.controls, vmsTile.filters, vmsTile.place], ['function', false, B.PROT_ID, B.PROT_ID, 'tile.vms']);
-B.setProtTile('vms');
-same('VMs tile on: aria-pressed true', B.tileNode(tiles.find((t) => t.key === 'vms'), {}, counts).o.pressed, true);
-B.setProtTile('');
-same('last backup and partners: no click (div)', [node('last').on, node('partners').on], [undefined, undefined]);
-same('a filtering tile with no row to show: a div (marked as its place still)',
-  [B.tileNode(tiles.find((t) => t.key === 'dumps'), {}, { ...counts, dumps: 0 }).o.on, B.tileNode(tiles.find((t) => t.key === 'dumps'), {}, { ...counts, dumps: 0 }).o.place],
-  [undefined, 'tile.dumps']);
+same('drift: a tile «Changed» before «Restore» while something drifted — its count, when checked, alert for a warning',
+  [tiles.map((t) => t.key).slice(-2), byKey('drift').value, byKey('drift').sub, byKey('drift').alert, byKey('drift').section],
+  [['drift', 'restore'], 'stat.drift_n {"n":2}', [`drift_checked {"when":"rel(${NOW - 300})"}`], true, 'drift']);
+s.drift.items = [{ level: 'info', code: '', value: '', text: 'y' }];
+B.setState(s);
+same('drift: only infos - no alert', B.overviewTiles().find((t) => t.key === 'drift').alert, false);
+Office.desks = new Map([['restore', { hired: true }]]);
+s.drill = { result: 'failed', ended: NOW - 86400, proven: 5, total: 6, failed: ['immich'] };
+B.setState(s);
+same('restore: Mr. Restori hired — his drill\'s certificate, a failed one alerts', ['value', 'sub', 'alert'].map((k) => B.overviewTiles().find((t) => t.key === 'restore')[k]),
+  ['stat.drill_failed', [`date(${NOW - 86400})`], true]);
+delete Office.desks;
+
+// ---------------------------------------------------------------- tileList() and tileNode(): what the switcher gets
+B.setState(base());
+let list = B.tileList();
+same('tileList: the switcher\'s tiles — id, lang key (its place), the filter\'s words in the note line',
+  list.map((x) => [x.id, x.key, x.filters || null]),
+  [['last', 'stat.last', null], ['schedule', 'stat.schedule', null], ['kopia', 'tile.kopia', 'tile.kopia'], ['dumps', 'tile.dumps', 'tile.dumps'],
+    ['apps', 'tile.apps', 'tile.apps'], ['vms', 'tile.vms', 'tile.vms'], ['flash', 'tile.flash', 'tile.flash'], ['prot', 'tile.prot', null],
+    ['partners', 'partner.tile', null], ['restore', 'tile.restore', null]]);
+same('tileList: the filter tiles and «Protection» share the table (prot), every other tile brings its own section',
+  list.map((x) => (typeof x.section === 'string' ? x.section : typeof x.section)),
+  ['function', 'function', 'prot', 'prot', 'prot', 'prot', 'prot', 'prot', 'function', 'function']);
+B.setState(null);
+list = B.tileList();
+same('tileList: no state yet - every tile of the row (a route or the search may name any), the filter tiles marked as such',
+  [list.map((x) => x.id), list.filter((x) => x.filters).map((x) => x.id)],
+  [B.TILES.map(([id]) => id), ['kopia', 'dumps', 'apps', 'vms', 'flash']]);
+B.setState(base());
+tiles = B.overviewTiles();
+const attrs = { on: () => 1, pressed: true, active: true, controls: 'backup-sections', filters: 'bk-protection', mark: 'common.tile_filter', place: 'tile.vms' };
+const vmsNode = B.tileNode(tiles.find((t) => t.key === 'vms'), attrs).o;
+same('tileNode: Office.stat with the tile\'s words and the switcher\'s attributes spread in (the click, pressed, controls, filters, mark, place)',
+  [vmsNode.label, vmsNode.value, typeof vmsNode.on, vmsNode.pressed, vmsNode.controls, vmsNode.filters, vmsNode.mark, vmsNode.place],
+  ['stat.vms', '3', 'function', true, 'backup-sections', 'bk-protection', 'common.tile_filter', 'tile.vms']);
+same('tileNode: a partner\'s sub line is plain text (the anchor partner:<id> is its row in the section)', B.tileNode(tiles.find((t) => t.key === 'partners'), {}).o.sub.every((x) => typeof x === 'string'), true);
+
+// ---------------------------------------------------------------- the counts: rows each filter tile leaves
+B.setState(base());
+same('counts: rows each tile shows (offsite: appdata, the flash, a VM with its own source, an app with its own; dumps; apps; VMs; flash)',
+  B.protTileCounts(), { kopia: 4, flash: 1, vms: 3, apps: 3, dumps: 1 });
 
 // ---------------------------------------------------------------- protView(): what each tile leaves, words, «only …»
 const rows = B.protRows();
@@ -172,7 +213,15 @@ same('Kopia off: no offsite tile at all', B.overviewTiles().some((t) => t.key ==
 s.settings.flash = 'tar';
 s.shares = s.shares.filter((x) => !x.flash);
 B.setState(s);
-same('flash as an archive: no row to show - the tile filters nothing', B.protTileCounts().flash || 0, 0);
+same('flash as an archive: a row of its own (as protected as the backup place: media is a snapshot share - local)',
+  [B.protTileCounts().flash, B.protRows().filter((r) => r.id === '\u0000flash').map((r) => [r.name, r.level, r.off, r.x.archive])],
+  [1, [['flash', 'local', false, true]]]);
+same('flash as an archive: its row stands with the local shares (before what isn\'t backed up)', B.protRows().filter((r) => r.kind === 'share').map((r) => r.name),
+  ['appdata', 'Écoles', 'media', 'flash', 'system']);
+s.settings.flash = 'off';
+B.setState(s);
+same('flash not backed up: its row says so and counts as unprotected', B.protRows().filter((r) => r.id === '\u0000flash').map((r) => [r.level, r.off]), [['none', true]]);
+same('flash not backed up: the protection tile counts it', B.overviewTiles().find((t) => t.key === 'prot').value, 'stat.prot_off {"n":5}');
 
 // ---------------------------------------------------------------- historyRows(): the backups' words
 B.setState(base());
