@@ -1,7 +1,7 @@
 > **In the Unraid Secretary Office** this is the Smart Mover Ms. Moverelli looks after: taken from
 > [helmi1987/custom-mover-for-unraid](https://github.com/helmi1987/custom-mover-for-unraid)
-> (V7, commit `6382fb488ac4d7519742940afd191ec36e1656bf`, 2026-10-10 — with the ZFS-aware threshold) by Stefan Diethelm
-> (helmi1987). Ms. Moverelli writes its settings (`data/moverelli/smart_mover.ini`, her own exclude lists in
+> (V7, commit `6382fb488ac4d7519742940afd191ec36e1656bf`, 2026-10-10 — with the ZFS-aware threshold) by
+> helmi1987. Ms. Moverelli writes its settings (`data/moverelli/smart_mover.ini`, her own exclude lists in
 > `data/moverelli/excludes/`), runs it (`--list-shares`, the dry run, `--run`) and schedules it; its data lives in
 > `data/moverelli`. Only `custommover_run.sh` is taken over. The office's changes against that commit — each one
 > switched on by an environment variable the office sets; without them the script behaves exactly as upstream:
@@ -41,7 +41,7 @@
 > Dynamix Cache Directories plugin keeps the folder structure in RAM, so the scan rarely spins a disk up. There is no
 > sleep gate; `move_prefer_shares=no`, or `skip=yes` per share, leaves them out.
 >
-> **Licence:** the original is by Stefan Diethelm (helmi1987); this copy is published under GPL-3.0-or-later, as part
+> **Licence:** the original is by helmi1987; this copy is published under GPL-3.0-or-later, as part
 > of the office. (The upstream repository has no LICENSE file of its own at the commit above.)
 
 # Smart Mover for Unraid (upstream README, as of 6382fb4)
