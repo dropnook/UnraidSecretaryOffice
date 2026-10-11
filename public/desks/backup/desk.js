@@ -2778,7 +2778,7 @@ let sfBar = null;
 function setupFilter() {
   if (!sfBar) {
     sfBar = Office.filterBar({ key: 'backup.setup', label: T('setup.filter.label'),
-      only: { text: T('setup.filter.only_new'), hint: T('setup.filter.only_new_hint') }, onChange: () => renderSetup() });
+      only: { text: T('setup.filter.only_new'), hint: T('setup.filter.only_new_hint') }, onChange: () => setupSwitcher().render() });
   }
   return sfBar;
 }
@@ -2817,9 +2817,20 @@ function fitStep(build) {
 const appIsNew = (a) => !!a.isNew || (a.newMembers || []).length > 0;
 const shareIsNew = (sh, ws) => setup.newItems.has('share:' + sh.name) || ws.length > 0;
 
-/** After the steps: «n of m fit» and the switch «only what's new» only while something is new (or it is on) */
+/**
+ * After the steps drawn: «n of m fit» (of the steps under the row — the one chosen, or all), the switch «only what's new»
+ * only while some step has something new (counted over every step, not only the one shown — setupNewCounts()), and the
+ * chosen step as the note line's chip: «The list shows only: [2 · Your apps ×] · 8 of 8 fit», its × and «Show all» = every
+ * step again — for a step with rows (VMs, apps, shares, old sources) or while words or «only what's new» filter (a step
+ * of fields alone would read «0 of 0 fit»). The switcher's sw.note() names only a filter tile; a step's tile is a section
+ * tile (kept as backup.setup.tile) — so the chip comes from here, through the bar's own `tile`.
+ */
 function setupFilterDone() {
-  if (sfBar) sfBar.done(fitting.n, fitting.total, { onlyAvail: fitting.fresh > 0 });
+  if (!sfBar) return;
+  const id = setupSw ? setupSw.active() : '';
+  const key = id && (fitting.total > 0 || fitting.on) ? (SETUP_TILES.find(([t]) => t === id) || [])[1] : '';
+  const c = setup.plan && setup.model && setup.draft ? setupNewCounts(setup.plan) : { vms: 0, apps: 0, shares: 0 };
+  sfBar.done(fitting.n, fitting.total, { tile: key ? T(key) : '', clear: () => setupSwitcher().clear(), onlyAvail: c.vms + c.apps + c.shares > 0 });
 }
 /** A new visit, or a deep link that must show its target: the whole setup again (words and «only what's new» off) */
 function setupFilterReset() {
@@ -2929,22 +2940,170 @@ function renderSetup() {
   const target = setup.focus && setup.model && setup.draft && !busy ? setupFocus() : null;
   const start = plan.have_settings ? presetStartLine() : presetSection();   // a new server: where to start, the three cards;
   if (start) root.appendChild(start);                                       // set up: which start the draft came from, once chosen
-  // the filter over the steps' rows (typing in it while the page is drawn anew: the bar keeps its text, focus and
-  // selection — setupFilterDone() gives them back)
-  root.appendChild(setupFilter().el);
-  fitStart();
-  root.appendChild(fitStep(() => setupKopia(plan)));       // 0 basics: where backups go, Kopia, the flash
-  root.appendChild(fitStep(() => setupVms(plan)));         // 1
-  root.appendChild(fitStep(() => setupApps(plan)));        // 2
-  root.appendChild(fitStep(() => setupShares(plan)));      // 3 what is left
-  root.appendChild(fitStep(() => setupRetention(plan)));   // 4
-  root.appendChild(fitStep(() => setupGeneral(plan)));     // everything else, rarely changed
-  const old = (plan.kopia.sources || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
-  if (old.length) root.appendChild(fitStep(() => setupSources(old)));
-  setupFilterDone();
-  root.appendChild(setupMessages(setupNotes(plan)));
+  // the row of the steps and under it the step chosen (none: every step in order — the page as before the tiles); the ONE
+  // filter bar stands between the row and the steps (typing in it while the page is drawn anew: the bar keeps its text,
+  // focus and selection — setupFilterDone() gives them back after the steps)
+  const sw = setupSwitcher();
+  const bar = setupFilter().el;
+  if (bar.parentNode !== sw.el) {
+    [...sw.el.children].forEach((c) => { if (c !== sw.grid && c !== sw.body) c.remove(); });     // a bar of an earlier visit
+    sw.el.insertBefore(bar, sw.body);
+  }
+  root.appendChild(sw.el);
+  // «Decide…» / «Change…»: the target's step shows alone (its tile picked like a link), then its row is revealed
+  const tile = target ? STEP_TILE[target.part] : '';
+  if (tile) sw.pick(tile, 'route'); else sw.render();
   setupBar();
   if (target) Office.reveal(target.anchor, { part: target.part, name: target.name });
+}
+
+// ---- the steps as tiles (tiles v2, CLAUDE.md «Tiles», 2026-10-12): a row with a number tile per step; a click shows that
+// step alone under the row, nothing chosen = every step in order, the second click = all again; the choice kept as
+// backup.setup.tile, a step's route #/backup/setup/<tile>. Hints over the row stay at every click (the page's head line,
+// the help, the applied card, the callouts, the start cards / start line); the filter bar is one for the whole page.
+/** [tile id, lang key (the step's title: the tile's label, its place for the search)] in the steps' order */
+const SETUP_TILES = [['basics', 'setup.kopia'], ['vms', 'setup.vms'], ['apps', 'setup.apps'], ['shares', 'setup.shares'],
+  ['retention', 'setup.retention'], ['more', 'setup.general'], ['sources', 'setup.sources'], ['messages', 'setup.messages']];
+/** The step (its place) a row of «Decide…» / «Change…» lies in → its tile */
+const STEP_TILE = { 'setup.kopia': 'basics', 'setup.vms': 'vms', 'setup.apps': 'apps', 'setup.shares': 'shares', 'setup.retention': 'retention',
+  'setup.general': 'more', 'setup.sources': 'sources', 'setup.messages': 'messages' };
+const setupRoute = (id) => `#/${ID}/setup/${id}`;
+let setupSw = null;
+/** The setup's row and its steps (core.js's section switcher) — one per page life, drawn anew with every plan and click */
+function setupSwitcher() {
+  if (setupSw) return setupSw;
+  setupSw = Office.sections({
+    id: `${ID}/setup`,           // the routes #/backup/setup/<tile>
+    key: 'backup.setup.tile',
+    bodyId: 'bk-setup-steps',
+    grid: 'stats bk-setup-tiles',
+    default: '',                 // the start: every step (the page as it always was)
+    tiles: () => setupTileList(),
+    wants: (sub) => SETUP_TILES.some(([id]) => id === sub),      // a route before the plan is in
+  });
+  return setupSw;
+}
+const oldSources = (plan) => ((plan.kopia && plan.kopia.sources) || []).filter((s) => s.state === 'orphan' || s.state === 'gone');
+
+/** The tiles for the switcher: setupTileData() as it stands, each with its step as its section (none before the plan) */
+function setupTileList() {
+  const plan = setup.plan;
+  if (!plan || !setup.draft || !setup.model) return [];
+  const list = setupTileData(plan);
+  const ids = list.map((d) => d.id);
+  return list.map((d) => ({ id: d.id, key: d.key, place: `setup.tile.${d.id}`, tile: (a) => setupTileNode(d, a), section: () => setupStep(d.id, plan, ids) }));
+}
+
+/** One tile as Office.stat — the switcher's attributes (the click, aria-pressed, the mark, its place) spread in */
+function setupTileNode(d, a) {
+  const sub = d.sub.filter(Boolean);
+  if (d.fresh) sub.push(chip(T('setup.tile.new', { n: d.fresh }), 'accent bk-tile-new'));
+  return Office.stat({ label: T(d.key), value: d.value, sub, alert: d.alert, tip: d.tip, ...a });
+}
+
+/**
+ * One step as a section of the switcher — through the filter (fitStep: a step with no fitting row keeps its head and one
+ * line); the first step of this drawing starts the count, the last tells the bar «n of m» (ids: the row's order)
+ */
+function setupStep(id, plan, ids) {
+  const shown = setupSw && setupSw.active() ? [setupSw.active()] : ids;
+  if (id === shown[0]) fitStart();
+  const s = id === 'messages' ? setupMessages(setupNotes(plan)) : fitStep(() => setupStepNode(id, plan));
+  if (id === shown[shown.length - 1]) setupFilterDone();
+  return s;
+}
+/** The step's own section */
+function setupStepNode(id, plan) {
+  if (id === 'basics') return setupKopia(plan);          // 0 basics: where backups go, Kopia, the flash
+  if (id === 'vms') return setupVms(plan);               // 1
+  if (id === 'apps') return setupApps(plan);             // 2
+  if (id === 'shares') return setupShares(plan);         // 3 what is left
+  if (id === 'retention') return setupRetention(plan);   // 4
+  if (id === 'more') return setupGeneral(plan);          // everything else, rarely changed
+  return setupSources(oldSources(plan));                 // old Kopia sources (a tile only when there are)
+}
+
+/** What is new per step (the same rules as the rows' chips): VMs, apps (or new containers in one), shares with new folders */
+function setupNewCounts(plan) {
+  const m = setup.model;
+  const waits = waitingFolders();
+  return {
+    vms: plan.vm_service ? m.vms.filter((x) => x.isNew).length : 0,
+    apps: m.apps.filter(appIsNew).length,
+    shares: (plan.shares || []).filter((sh) => shareIsNew(sh, waits.filter((w) => w.share === sh.name))).length,
+  };
+}
+
+/** A retention as short figures: «7 d · 4 w · 6 m» (the parts that are numbers; none → '') */
+function retFigure(parts) {
+  return parts.filter(([, n]) => /^\d+$/.test(String(n ?? '').trim())).map(([u, n]) => T('setup.tile.u_' + u, { n: Number(n) })).join(' · ');
+}
+/** The settings «More settings» shows (as setupGeneral() draws them) */
+function moreKeys(plan) {
+  const zfs = (plan.bases || []).some((b) => b.fs === 'zfs');
+  const btrfs = (plan.bases || []).some((b) => b.fs === 'btrfs');
+  return [...(zfs ? ['general|snap_prefix'] : []), ...(btrfs ? ['btrfs|min_free_gb', 'btrfs|snapshot_all'] : []),
+    ...(plan.P && plan.P['libvirt|mode'] !== undefined ? ['libvirt|mode'] : []), 'general|notify_success',
+    ...(dget('kopia|enabled') === 'yes' ? ['kopia|compression', 'kopia|ignore'] : [])];
+}
+
+/**
+ * The setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert, fresh (rows marked new in its step), tip}] in the
+ * steps' order — Basics (how many places the backups go to: local, offsite, partners), VMs, apps, shares (how many the plan
+ * has, how many are backed up), retention (what the local snapshots keep, offsite Kopia's), more settings (changed here or
+ * not), old Kopia sources (only when there are), what the setup checked (its messages). Needs setup.plan, draft and model.
+ */
+function setupTileData(plan) {
+  const m = setup.model;
+  const kopiaOn = dget('kopia|enabled') === 'yes';
+  const fresh = setupNewCounts(plan);
+  const out = [];
+  // 0 basics: where the backups go — the backup place (local), Kopia (offsite), the partners something is sent to
+  const ds = dget('general|dumps_share', '');
+  const goes = [...(ds ? [T('setup.tile.local')] : []), ...(kopiaOn ? [T('setup.tile.offsite')] : []),
+    ...(plan.partners || []).filter((p) => partnerUnits(setup.draft, p.id).length).map((p) => p.name)];
+  const kProblem = kopiaOn && plan.kopia && plan.kopia.problem && plan.kopia.problem !== 'off';
+  out.push({ id: 'basics', key: 'setup.kopia', value: String(goes.length), sub: [ds ? goes.join(' + ') : T('setup.tile.no_place'),
+    kProblem ? T('setup.tile.kopia_problem') : ''], alert: !ds || !!kProblem, fresh: 0, tip: ds ? T('setup.tile.place', { share: ds }) : '' });
+  // 1 VMs, 2 apps: how many the plan has, how many are backed up (at least local)
+  const vmsOn = m.vms.filter((x) => levelOf('vm:' + x.name) > 0).length;
+  out.push(plan.vm_service
+    ? { id: 'vms', key: 'setup.vms', value: String(m.vms.length), sub: [T('setup.tile.on', { n: vmsOn })], alert: false, fresh: fresh.vms }
+    : { id: 'vms', key: 'setup.vms', value: '–', sub: [T('setup.tile.vm_off')], alert: false, fresh: 0 });
+  out.push({ id: 'apps', key: 'setup.apps', value: String(m.apps.length), sub: [T('setup.tile.on', { n: m.apps.filter((a) => levelOf('app:' + a.id) > 0).length })],
+    alert: false, fresh: fresh.apps });
+  // 3 shares: the table's rows, those backed up
+  const shares = plan.shares || [];
+  out.push({ id: 'shares', key: 'setup.shares', value: String(shares.length),
+    sub: [T('setup.tile.on', { n: shares.filter((sh) => sh.exists !== false && dget(`share|${sh.name}|mode`, 'off') !== 'off').length })], alert: false, fresh: fresh.shares });
+  // 4 retention: the local snapshots' (ZFS «d w m», else btrfs days), offsite Kopia's own
+  const zfs = (plan.bases || []).some((b) => b.fs === 'zfs');
+  const btrfs = (plan.bases || []).some((b) => b.fs === 'btrfs');
+  const z = String(dget('zfs|retention', '') || '').trim().split(/\s+/);
+  const local = zfs ? retFigure([['d', z[0]], ['w', z[1]], ['m', z[2]]]) : btrfs ? retFigure([['d', dget('btrfs|keep_days', '')]]) : '';
+  const off = kopiaOn ? retFigure([['d', dget('kopia|keep_daily')], ['w', dget('kopia|keep_weekly')], ['m', dget('kopia|keep_monthly')], ['y', dget('kopia|keep_annual')]]) : '';
+  out.push({ id: 'retention', key: 'setup.retention', value: local || '–',
+    sub: [kopiaOn ? T('setup.tile.ret_offsite', { what: off || T('setup.tile.ret_kopia_own') }) : ''], alert: false, fresh: 0 });
+  // more settings: changed here (not applied yet) or as they are
+  const keys = moreKeys(plan);
+  const base = setup.base || plan.P || {};
+  const changed = keys.filter((k) => !same(asSet(k, base[k]), asSet(k, setup.draft[k])) && !(empty(base[k]) && empty(setup.draft[k]))).length;
+  out.push({ id: 'more', key: 'setup.general', value: T(changed ? 'setup.tile.changed' : 'setup.tile.unchanged'),
+    sub: [T('setup.tile.settings', { n: keys.length })], alert: false, fresh: 0 });
+  // old Kopia sources: only when there are
+  const old = oldSources(plan);
+  if (old.length) out.push({ id: 'sources', key: 'setup.sources', value: String(old.length), sub: [T('setup.tile.sources_sub')], alert: false, fresh: 0 });
+  // what the setup checked: its messages, errors and warnings
+  const counts = { all: 0, error: 0, warn: 0 };
+  setupNotes(plan).forEach((g) => {
+    const n = (g.items || []).length;
+    counts.all += n;
+    if (counts[g.level] !== undefined) counts[g.level] += n;
+  });
+  out.push({ id: 'messages', key: 'setup.messages', value: String(counts.all),
+    sub: [counts.error || counts.warn ? [counts.error ? nOf('errors', counts.error) : '', counts.warn ? nOf('warnings', counts.warn) : ''].filter(Boolean).join(' · ') : ''],
+    alert: counts.error > 0, fresh: 0 });
+  return out;
 }
 
 function appliedCard(run) {
@@ -4454,6 +4613,9 @@ Office.desk({
     if (page === 'setup') {
       sfBar = null;                        // its bar built anew in the language of now
       setupFilterReset();                  // a new visit: every row again (words and «only …» are not kept)
+      // #/backup/setup/<tile> (the search, a step's place) picks that step exactly like a click, the address keeps its page;
+      // else the step chosen last (backup.setup.tile), none = every step
+      if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');
       renderSetup();
       if (!state) await load(false);
       await setupLoad();
@@ -4548,10 +4710,16 @@ Office.places(ID, [
   // while the row has it (a run going on: no row; partners, drift: only when there are)
   ...TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `tile.${id}`, route: tileRoute(id),
     shown: mainShown(() => !live() && overviewTiles().some((d) => d.key === id)) })),
+  // the setup's steps and settings by the route of their step's tile (a step stands under the row only while its tile is
+  // chosen — or none is); the start cards over the row by the page's
   ...['setup.preset.title', 'setup.kopia', 'setup.vms', 'setup.apps', 'setup.shares', 'setup.retention', 'setup.general', 'setup.sources',
-    'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP, ...when(key) })),
+    'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP, ...(STEP_TILE[key] ? { route: setupRoute(STEP_TILE[key]) } : {}), ...when(key) })),
   ...['setup.ds_label', 'setup.g_flash', 'setup.g_prefix', 'setup.g_btrfs_free', 'setup.g_btrfs_all', 'setup.g_libvirt', 'setup.g_notify',
-    'setup.p_compression', 'setup.p_ignore', 'setup.g_zfs', 'setup.g_btrfs_days'].map((key) => ({ kind: 'setting', key, ...SETUP, ...when(key) })),
+    'setup.p_compression', 'setup.p_ignore', 'setup.g_zfs', 'setup.g_btrfs_days']
+    .map((key) => ({ kind: 'setting', key, ...SETUP, ...when(key), route: setupRoute(STEP_TILE[PART[key] || 'setup.general']) })),
+  // the steps' tiles (the switcher gives each its place setup.tile.<id>, #/backup/setup/<tile> picks it like a click — mount());
+  // their words are the steps' own, so the search keeps the step (above) as the one result
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: setupRoute(id), ...when(key) })),
   ...['run', 'results', 'tiles', 'protection', 'rules', 'vms', 'packages', 'items', 'waiting', 'buttons'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['setup_open', 'help.setup'], ['history', 'help.history'], ['drift', 'help.drift'], ['restore', 'help.restore']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
@@ -4589,7 +4757,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get setup() { return setup; },
     get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
     setupFilter,
-    setupFits, setupFirstNew, setupFocus,
+    setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
