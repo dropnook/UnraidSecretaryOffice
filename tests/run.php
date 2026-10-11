@@ -27404,6 +27404,279 @@ function testHiddenStoreroom(): void
 }
 
 /**
+ * The engine's drift notes in the office's words (engine 2.41; Benj 2026-10-12: «Geändert seit der Einrichtung» showed
+ * «App 'zz-uso-nc' has a Kopia source of its own …» in English). Read in the engine: every `drift_add <level> "<text>"`
+ * of lib/common.sh and backup.sh names a code (a snake_case word; the backup place's `dumps_<problem>` is said as
+ * `message.dumps_*`), the codes from before 2.41 keep their value, every code has `drift_code.<code>` in all five
+ * languages and each placeholder of it is a param of the call (`share`/`value` for a value, `where` for `locations`).
+ * In bash: the checks of a gone app and a gone VM and drift_json_write — drift.json with `params` (a name with | and ",
+ * a text with a newline). Under node: driftText() with the German strings — every code of the engine in German, the
+ * codes from before 2.41 by their value, an item without params whose sentence needs one, an unknown code and no code
+ * by the engine's text.
+ */
+function testDriftCodes(): void
+{
+    $calls = driftCalls([OFFICE_DIR . '/backup/lib/common.sh', OFFICE_DIR . '/backup/backup.sh']);
+    check('drift codes: the engine\'s drift_add calls found (' . count($calls) . ')', count($calls) >= 43);
+    same('drift codes: every drift_add names a code', [], array_values(array_map(fn ($c) => "{$c['file']}:{$c['line']}",
+        array_filter($calls, fn ($c) => count($c['words']) < 2))));
+    $codes = [];          // code => [allowed placeholders of each call]
+    $bad = [];
+    foreach ($calls as $c) {
+        $code = $c['words'][1] ?? '';
+        if ($code === '"dumps_$DUMPS_PROBLEM"') {
+            continue;
+        }
+        if (!preg_match('/^[a-z][a-z0-9_]*$/D', $code)) {
+            $bad[] = "{$c['file']}:{$c['line']} $code";
+            continue;
+        }
+        $value = $c['words'][2] ?? '""';
+        $keys = [];
+        foreach (array_slice($c['words'], 3) as $w) {
+            if (preg_match('/^([a-z_]+)=/', $w, $m)) {
+                $keys[] = $m[1];
+            } else {
+                $bad[] = "{$c['file']}:{$c['line']} $code: not key=value: $w";
+            }
+        }
+        if ($value !== '""') {
+            array_push($keys, 'share', 'value');
+        }
+        if (in_array('locations', $keys, true)) {
+            $keys[] = 'where';
+        }
+        $codes[$code][] = $keys;
+    }
+    same('drift codes: each a snake_case word, its params key=value', [], $bad);
+    check('drift codes: the dynamic one is the backup place\'s', (bool) array_filter($calls, fn ($c) => ($c['words'][1] ?? '') === '"dumps_$DUMPS_PROBLEM"'));
+    $old = ['place_no_history', 'place_not_kopia', 'new_waiting', 'known_missing', 'new_container', 'new_database', 'new_nextcloud', 'new_vm'];
+    same('drift codes: the codes from before 2.41 keep their value', [], array_values(array_filter($old,
+        fn ($k) => !isset($codes[$k]) || array_filter($codes[$k], fn ($keys) => !in_array('value', $keys, true)))));
+    $miss = [];
+    $holes = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true);
+        foreach ($codes as $code => $each) {
+            $s = $l["drift_code.$code"] ?? null;
+            if (!is_string($s)) {
+                $miss[] = "$lang drift_code.$code";
+                continue;
+            }
+            preg_match_all('/\{(\w+)\}/', $s, $m);
+            foreach ($each as $keys) {
+                foreach (array_diff($m[1], $keys) as $k) {
+                    $holes[] = "$lang drift_code.$code {{$k}}";
+                }
+            }
+        }
+        foreach (['missing', 'unknown', 'forbidden', 'off'] as $p) {
+            if (!is_string($l["message.dumps_$p"] ?? null)) {
+                $miss[] = "$lang message.dumps_$p";
+            }
+        }
+    }
+    same('drift codes: every code has its words in all five languages (' . count($codes) . ' codes)', [], $miss);
+    same('drift codes: every placeholder is a param of the call', [], array_values(array_unique($holes)));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
+    check('drift codes: Benj\'s finding has words of its own', str_contains($en['drift_code.app_source_orphan'] ?? '', '«{name}»'));
+
+    // --- in bash: the checks and drift.json
+    $tmp = hardeningTmp('drift-codes');
+    file_put_contents("$tmp/s.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = /mnt/addons/UnraidSecretaryOffice/snapshots\n"
+        . "[kopia]\nenabled = yes\n[share \"appdata\"]\nmode = kopia\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n"
+        . "[app \"zz-uso-nc\"]\nkopia = yes\nfolder = appdata/zz-uso-nc\n[vm \"Old VM\"]\nmode = snapshot\nprepare = freeze\n");
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $script = "UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; cfg_load $tmp/s.ini; cfg_validate >/dev/null; apply_settings;"
+        . ' CT_NAMES=(); CT_PROJECT=(); VM_SERVICE=yes; VM_NAMES=(); PLAN_MOUNT=(appdata UnraidSecretaryOffice); PLAN_KITEMS=("app|zz-uso-nc|zz-uso-nc");'
+        . ' drift_check_items; drift_check_vms;'
+        . ' drift_add warn "New share \'a|b\'"$\'\\n\'"line 2" share_new "" name=\'a|b "c" x=y\' locations="disk1, maple" bytes=12;'
+        . " UB_STATE=$tmp/state; mkdir -p \$UB_STATE; KP_CHECKED=no; drift_json_write; cat \$UB_STATE/drift.json";
+    $raw = (string) shell_exec('bash -c ' . escapeshellarg($script) . ' 2>&1');
+    $dj = json_decode($raw, true);
+    same('drift codes (bash): a gone app\'s and a gone VM\'s notes with code and params, value only for old codes; a name with | " = and a text with a newline',
+        [['info', 'app_source_orphan', '', ['name' => 'zz-uso-nc']], ['info', 'vm_gone', '', ['name' => 'Old VM']],
+         ['warn', 'share_new', '', ['name' => 'a|b "c" x=y', 'locations' => 'disk1, maple', 'bytes' => '12'], "New share 'a|b'\nline 2"]],
+        array_map(fn ($i) => array_merge([$i['level'] ?? null, $i['code'] ?? null, $i['value'] ?? null, $i['params'] ?? null],
+            ($i['code'] ?? '') === 'share_new' ? [$i['text'] ?? null] : []), $dj['items'] ?? [$raw]));
+    check('drift codes (bash): the English text stays as it was', str_starts_with($dj['items'][0]['text'] ?? '', "App 'zz-uso-nc' has a Kopia source of its own in settings.ini"));
+    $empty = json_decode((string) shell_exec('bash -c ' . escapeshellarg("source $lib >/dev/null 2>&1; UB_STATE=$tmp/state2; mkdir -p \$UB_STATE; KP_CHECKED=no;"
+        . ' drift_json_write; cat $UB_STATE/drift.json') . ' 2>&1'), true);
+    same('drift codes (bash): no drift = an empty list', [], $empty['items'] ?? null);
+
+    // --- under node: the desk's words
+    $node = testsNode();
+    if ($node === '') {
+        check('drift codes: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $items = [];
+    foreach ($codes as $code => $each) {
+        $p = [];
+        foreach ($each[0] as $k) {
+            if (!in_array($k, ['share', 'value', 'where'], true)) {
+                $p[$k] = $k === 'bytes' ? '2048' : "P-$k";
+            }
+        }
+        $items[] = ['level' => 'warn', 'code' => $code, 'value' => in_array('value', $each[0], true) ? 'V-value' : '', 'params' => $p, 'text' => "EN $code"];
+    }
+    $cases = [
+        ['level' => 'info', 'code' => 'app_source_orphan', 'value' => '', 'params' => ['name' => 'zz-uso-nc'],
+         'text' => "App 'zz-uso-nc' has a Kopia source of its own in settings.ini but no container of it exists any more - what is left of it still goes there"],
+        ['level' => 'info', 'code' => 'new_container', 'value' => 'web', 'text' => 'an engine 2.40\'s'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'params' => ['name' => 'Schule', 'locations' => 'daten', 'bytes' => '3221225472'], 'text' => 'demo'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'params' => ['name' => 'Schule', 'locations' => 'daten', 'bytes' => ''], 'text' => 'no size'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'text' => 'without params'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'params' => ['name', 'x'], 'text' => 'params a list'],
+        ['level' => 'warn', 'code' => 'brand_new', 'value' => 'x', 'params' => ['name' => 'x'], 'text' => 'unknown code'],
+        ['level' => 'warn', 'text' => 'an engine 2.17\'s'],
+        ['level' => 'error', 'code' => 'dumps_missing', 'value' => 'UnraidSecretaryOffice', 'params' => ['share' => 'UnraidSecretaryOffice'], 'text' => 'dumps'],
+    ];
+    file_put_contents("$tmp/items.json", json_encode(['items' => $items, 'cases' => $cases]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, coreFile, langDir, itemsFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+const strings = {};
+const interp = (s, p) => (s === undefined ? '?' : String(s).replace(/\{(\w+)\}/g, (m, k) => (p && p[k] !== undefined && p[k] !== null ? String(p[k]) : m)));
+const T = (k, p) => interp(strings['backup.' + k], p);
+globalThis.Office = { scope: () => T, t: (k, p) => interp(strings[k], p), el, strings,
+  fmt: { size: (b) => (b / 1073741824 >= 1 ? Math.round(b / 1073741824) + ' GB' : Math.round(b / 1024) + ' KB'), relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: (k) => strings[k] !== undefined, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const { items, cases } = JSON.parse(fs.readFileSync(itemsFile, 'utf8'));
+const out = {};
+for (const lang of ['de', 'en']) {
+  Object.keys(strings).forEach((k) => delete strings[k]);
+  const l = JSON.parse(fs.readFileSync(`${langDir}/${lang}.json`, 'utf8'));
+  Object.keys(l).forEach((k) => { strings['backup.' + k] = l[k]; });
+  out[lang] = { items: items.map((d) => b.driftText(d)), cases: cases.map((d) => b.driftText(d)) };
+}
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/lang') . ' ' . escapeshellarg("$tmp/items.json") . ' 2>&1');
+    $r = json_decode((string) trim($raw), true);
+    if (!is_array($r)) {
+        check('drift codes: driftText under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    $notGerman = [];
+    foreach ($items as $i => $d) {
+        $de = $r['de']['items'][$i] ?? '';
+        if ($de === $d['text'] || preg_match('/\{\w+\}/', $de) || $de === ($r['en']['items'][$i] ?? '')) {
+            $notGerman[] = "{$d['code']}: $de";
+        }
+    }
+    same('drift codes (node): every code of the engine in German, its params filled in (' . count($items) . ')', [], $notGerman);
+    $c = $r['de']['cases'];
+    check('drift codes (node): Benj\'s finding in German', str_starts_with($c[0], 'Die App «zz-uso-nc» hat in der Einrichtung eine eigene Kopia-Quelle'), $c[0]);
+    check('drift codes (node): a code from before 2.41 by its value (an older engine)', str_starts_with($c[1], 'Neuer Container web — '), $c[1]);
+    same('drift codes (node): a new share with its places and size, without a size',
+        ['Neuer Share «Schule» (daten, 3 GB) — noch nicht in der Einrichtung, darum nicht gesichert.', 'Neuer Share «Schule» (daten) — noch nicht in der Einrichtung, darum nicht gesichert.'],
+        [$c[2], $c[3]]);
+    same('drift codes (node): without params, params a list, an unknown code, no code — the engine\'s text', ['without params', 'params a list', 'unknown code', 'an engine 2.17\'s'],
+        array_slice($c, 4, 4));
+    $l = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true);
+    same('drift codes (node): the backup place\'s problem as its message', $l['message.dumps_missing'] ?? '', $c[8]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The engine's drift_add calls, read like bash reads them: per call file, line, level and its words as written (the
+ * text, the code, the value, key=value …) up to the end of the command.
+ */
+function driftCalls(array $files): array
+{
+    $out = [];
+    foreach ($files as $f) {
+        $src = (string) file_get_contents($f);
+        $n = strlen($src);
+        $off = 0;
+        while (preg_match('/(?<![\w-])drift_add (info|warn|error) /', $src, $m, PREG_OFFSET_CAPTURE, $off)) {
+            $pos = $m[0][1] + strlen($m[0][0]) - 1;
+            $words = [];
+            while (true) {
+                while ($pos < $n && ($src[$pos] === ' ' || $src[$pos] === "\t" || substr($src, $pos, 2) === "\\\n")) {
+                    $pos += $src[$pos] === '\\' ? 2 : 1;
+                }
+                if ($pos >= $n || str_contains(";&|\n})", $src[$pos])) {
+                    break;
+                }
+                [$word, $pos] = driftBashWord($src, $pos);
+                $words[] = $word;
+            }
+            $out[] = ['file' => basename($f), 'line' => substr_count(substr($src, 0, $m[0][1]), "\n") + 1, 'level' => $m[1][0], 'words' => $words];
+            $off = max($pos, $m[0][1] + 1);
+        }
+    }
+    return $out;
+}
+
+/** One bash word from $i: [its text as written, the index after it] — quotes, $'…', $( … ), ${ … } nested */
+function driftBashWord(string $s, int $i): array
+{
+    $start = $i;
+    $n = strlen($s);
+    while ($i < $n && !str_contains(" \t\n;&|)", $s[$i])) {
+        $i = driftBashPart($s, $i);
+    }
+    return [substr($s, $start, $i - $start), $i];
+}
+
+/** The index after the quoting or expansion that starts at $i (one character when none does) */
+function driftBashPart(string $s, int $i): int
+{
+    $n = strlen($s);
+    $c = $s[$i];
+    $next = $s[$i + 1] ?? '';
+    if ($c === '\\') {
+        return $i + 2;
+    }
+    if ($c === "'") {
+        $e = strpos($s, "'", $i + 1);
+        return $e === false ? $n : $e + 1;
+    }
+    if ($c === '$' && $next === "'") {
+        for ($i += 2; $i < $n && $s[$i] !== "'"; $i += $s[$i] === '\\' ? 2 : 1) {
+        }
+        return $i + 1;
+    }
+    if ($c === '"') {
+        for ($i++; $i < $n && $s[$i] !== '"';) {
+            $i = $s[$i] === "'" ? $i + 1 : driftBashPart($s, $i);      // a ' inside "…" is a letter
+        }
+        return $i + 1;
+    }
+    if ($c === '$' && ($next === '(' || $next === '{')) {
+        $close = $next === '(' ? ')' : '}';
+        for ($i += 2, $depth = 1; $i < $n;) {
+            $ch = $s[$i];
+            if ($ch === $close && --$depth === 0) {
+                return $i + 1;
+            }
+            if ($ch === $next) {
+                $depth++;
+            }
+            $i = ($ch === $next || $ch === $close) ? $i + 1 : driftBashPart($s, $i);
+        }
+        return $n;
+    }
+    return $i + 1;
+}
+
+/**
  * Engine 2.39: every hint and warning of the setup carries a code and params, and the office says them in its own words
  * (backupSetupNotes() groups them for the page, desk.js setupNoteItems() renders `setup.msg.<code>`). The parser (codes,
  * params, `more` lines, grouping, a fallback to the text for anything without a known shape, Docker volumes judged as
@@ -29378,7 +29651,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
