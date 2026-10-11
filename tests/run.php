@@ -11783,6 +11783,12 @@ function testIcons(): void
 /** The Consultant: which container is which external, and whether the node exporter reads the office's folder */
 function testAdvisor(): void
 {
+    // his scan reads the plugin and container lists fresh (2026-10-11: his fresh look right after a plugin job answered
+    // «missing» from a list another caller had cached seconds before the plugin manager registered the plugin)
+    $src = (string) file_get_contents(__DIR__ . '/../agent/desks/advisor.php');
+    check('advisor: the scan never takes the cached plugin or container list', str_contains($src, '$plugins = housePlugins(true);') && str_contains($src, '$containers = houseContainers(true);'));
+    $house = (string) file_get_contents(__DIR__ . '/../agent/lib/house.php');
+    check('house: housePlugins() and houseContainers() take $fresh', str_contains($house, 'function housePlugins(bool $fresh = false)') && str_contains($house, 'function houseContainers(bool $fresh = false)') && substr_count($house, 'if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE)') === 2);
     foreach (['quay.io/prometheus/node-exporter:latest-distroless' => 'node-exporter', 'prom/prometheus' => 'prometheus',
               'grafana/grafana:12.1.0' => 'grafana', 'grafana/loki:maple' => 'loki', 'registry:5000/Team/App:1' => 'app',
               'bitnami/node-exporter@sha256:ab12' => 'node-exporter', 'redis' => 'redis'] as $image => $want) {

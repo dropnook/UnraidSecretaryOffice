@@ -27,11 +27,15 @@ function finding(string $id, string $level, ?bool $ok, array $params = [], ?stri
     return ['id' => $id, 'level' => $level, 'ok' => $ok, 'params' => $params, 'link' => $link];
 }
 
-/** @return array<string, array{name:string, author:?string, version:?string}> installed plugins by .plg name */
-function housePlugins(): array
+/**
+ * @return array<string, array{name:string, author:?string, version:?string}> installed plugins by .plg name
+ * $fresh: never the cache — a look that must see a plugin registered a moment ago (the Consultant's scan, 2026-10-11:
+ * his fresh look right after a plugin job read a list another caller had cached seconds before the registration)
+ */
+function housePlugins(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if ($cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
         return $cache;
     }
     $cache = [];
@@ -50,11 +54,11 @@ function housePlugin(string $name): bool
     return isset(housePlugins()[$name]);
 }
 
-/** @return array<string, array{name:string, image:string, running:bool}> all containers */
-function houseContainers(): array
+/** @return array<string, array{name:string, image:string, running:bool}> all containers ($fresh: never the cache) */
+function houseContainers(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if ($cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
         return $cache;
     }
     $cache = [];

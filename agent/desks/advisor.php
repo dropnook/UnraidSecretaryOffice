@@ -234,8 +234,10 @@ function advisorMedia(): ?string
 
 function advisorScan(): array
 {
-    $plugins = housePlugins();
-    $containers = houseContainers();
+    // fresh lists, never the 20 s cache: his look follows an install he just made (a plugin job, Unraid's form) and
+    // must see it — a glob and one docker ps per look, a few ms
+    $plugins = housePlugins(true);
+    $containers = houseContainers(true);
     $media = advisorMedia();
     $env = advisorEnv($containers);
     $externals = [];
