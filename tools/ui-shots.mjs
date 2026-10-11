@@ -220,10 +220,23 @@ async function shootMoment(browser, m, lang, theme) {
   const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: 2,
     locale: LOCALES[lang] || lang, colorScheme: theme === 'white' ? 'light' : 'dark' });
   await ctx.addInitScript((l) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); } catch (e) { /* none */ } }, lang);
-  // the same greetings every time (Office.greet() picks one at random): Math.random seeded per moment (mulberry32)
+  // the same greetings every time (Office.greet() picks one at random): Math.random seeded per moment (mulberry32),
+  // and for each desk's greeting seeded anew from the moment's seed and the desk's id - the desks' states arrive in any
+  // order, so one stream for all would give a desk another greeting in the other theme or language
   await ctx.addInitScript((seed) => {
-    let a = seed >>> 0;
-    Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const stream = (s) => { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+    Math.random = stream(seed);
+    const hash = (x) => [...String(x)].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
+    let office;
+    Object.defineProperty(window, 'Office', { configurable: true, get: () => office, set: (o) => {
+      office = o;
+      let greet;
+      Object.defineProperty(o, 'greet', { configurable: true, enumerable: true, get: () => greet && ((id) => {
+        const keep = Math.random;
+        Math.random = stream(seed ^ hash(id));
+        try { return greet(id); } finally { Math.random = keep; }
+      }), set: (f) => { greet = f; } });
+    } });
   }, m.seed ?? m.nr * 7919);
   const page = await ctx.newPage();
   const errors = [];
