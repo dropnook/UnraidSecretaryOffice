@@ -21,6 +21,8 @@
   "checked_at": "Revisado {when}",
   "todo": "Pendiente",
   "todo_text": "Sin esto, un escritorio no puede hacer (parte de) su trabajo. Solo tú puedes hacerlo — en el propio Unraid.",
+  "list.filter_label": "Filtrar sus listas: lo que dice un punto, el escritorio",
+  "list.none_fit": "Aquí nada coincide con el filtro.",
   "advice": "Recomendado",
   "advice_text": "No es obligatorio, pero hace la vida más fácil o más segura.",
   "hints": "Conviene saber",
