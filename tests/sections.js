@@ -249,7 +249,7 @@ function sections() {
   same('… drawn', drawn(), 'sched');
   tileEl('vms').click();
   sw.mount('');
-  same('a new visit after a filter tile: nothing active (a filter is never kept)', sw.active(), '');
+  same('a new visit after a filter tile: the last section choice (a filter is never kept, the choice before it stays)', sw.active(), 'sched');
   sw.pick('prot');
   sw.mount('');
   same('pick() from the desk keeps a section tile like a click', sw.active(), 'prot');
@@ -264,7 +264,7 @@ function sections() {
 
   // routes: #/shelf/<tile> sets it like a click, the address back to #/shelf
   replaced.length = 0;
-  same('route: a tile\'s sub-route picks it', [sw.mount('vms'), sw.active(), replaced, stored['office.shelf.tile']], [true, 'vms', ['#/shelf'], '']);
+  same('route: a tile\'s sub-route picks it (a filter tile: the store untouched)', [sw.mount('vms'), sw.active(), replaced.slice(), stored['office.shelf.tile']], [true, 'vms', ['#/shelf'], 'gone']);
   same('route: a section tile\'s route is kept', [sw.mount('sched'), sw.active(), stored['office.shelf.tile']], [true, 'sched', 'sched']);
   same('route: a sub nobody\'s tile is the desk\'s (false), the kept choice stands', [sw.mount('setup'), sw.active()], [false, 'sched']);
   // a tile the list only has later (wants): chosen at once, drawn once it is there

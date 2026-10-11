@@ -1367,7 +1367,7 @@ Office.tile = function tile(o) {
  *         section: () => node       // a section tile: its own section (a node holding one .section-head; null: none)
  *                | 'name',          // … or a section of `sections` (shared by several tiles)
  *         filters: T('stat.vms') }  // a filter tile: that shared section filtered — its name in the bar's note line;
- *                                   //   never kept (the store gets '' while one is on)
+ *                                   //   never kept (the store keeps the last section choice; a new visit starts there)
  *     sections: { name: () => node },   // the shared sections: each once on the «nothing active» page, at its first tile
  *     default: 'apps',              // the start tile ('' = nothing) — only while the store has no choice
  *     onPick(id, how) {},           // how: click | route | store (a visit without a tile's route) | all («◂ All») |
@@ -1473,13 +1473,7 @@ Office.sections = function sections(opts) {
     const f = document.activeElement;
     const had = f && f !== grid && grid.contains(f) ? (f.dataset || {}).tile : null;
     nodes.clear();
-    grid.replaceChildren();
-    list().forEach((x) => {
-      const n = tileNode(x, cur);
-      if (!n) return;
-      nodes.set(x.id, n);
-      grid.appendChild(n);
-    });
+    // the body first: the sections' ids are what the tiles' data-filters point at (a desk's own id stays its own)
     body.replaceChildren();
     const drawn = [];
     const add = (name) => {
@@ -1494,6 +1488,13 @@ Office.sections = function sections(opts) {
     else list().forEach((x) => add(nameOf(x)));
     body.dataset.active = cur;
     body.dataset.sections = drawn.join(' ');
+    grid.replaceChildren();
+    list().forEach((x) => {
+      const n = tileNode(x, cur);
+      if (!n) return;
+      nodes.set(x.id, n);
+      grid.appendChild(n);
+    });
     if (had && nodes.has(had) && document.activeElement !== nodes.get(had)) nodes.get(had).focus({ preventScroll: true });
   }
 
@@ -1531,7 +1532,7 @@ Office.sections = function sections(opts) {
     if (h === 'click' && next === was) next = '';
     chosen = next;
     const x = tileOf(next);
-    Office.store(key, isFilter(x) ? '' : next);            // a filter tile is never kept
+    if (!isFilter(x)) Office.store(key, next);             // a filter tile is never kept: the last section choice stays
     if (o.onPick) o.onPick(current(), h);
     if (grid.isConnected) Office.keepInPlace(grid, draw); else draw();
     if (h === 'route') return;
@@ -1550,7 +1551,7 @@ Office.sections = function sections(opts) {
       const s = String(sub || '');
       if (s && (tileOf(s) || (o.wants && o.wants(s)))) {
         chosen = s;
-        Office.store(key, isFilter(tileOf(s)) ? '' : s);
+        if (!isFilter(tileOf(s))) Office.store(key, s);
         if (o.onPick) o.onPick(current(), 'route');
         Office.subroute('');
         return true;

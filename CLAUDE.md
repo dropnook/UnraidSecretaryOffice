@@ -925,7 +925,8 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   note line right above the list («The list shows only: [VMs ×] · 1 of 12 fit — Show all», `bar.done()`), never a
   sentence in a section head or a callout. **Stored:** a section tile's choice (`<desk>.tile`), a corner, a pool, a select
   (`<key>.pick`) — read at every render («What the user opened stays open»); **never stored:** filter words, «only …»
-  switches, filter tiles (the store says '' while one is on; `mount()` empties the bar: `bar.reset()`). `aria-pressed` on
+  switches, filter tiles (the store keeps the last section choice while one is on — a new visit starts there;
+  `mount()` empties the bar: `bar.reset()`). `aria-pressed` on
   every toggling tile, `aria-controls` = the body it shows into, `data-filters` = the id of the section holding the
   filtered list and its bar — the switcher sets all three. Phone: number tiles two columns, the sub line clamped to two
   lines (the whole text in `tip`); choice tiles one column. A tile is a place with a sub-route (`#/<desk>/<tile>`) that
