@@ -4010,7 +4010,13 @@ function rsDoCopy(array &$j, int $i): array
         return rsFail('mkdir_failed', ['path' => $to]);
     }
     $log = rsDir($j['id']) . '/log.txt';
-    $args = $file ? [$sources[0], $to] : array_merge(array_map(fn ($x) => "$x/", $sources), ["$to/"]);
+    // rsync 3.5.1 (Unraid 7.3.3) refuses a path through a symlink another user owns («refusing to follow a symlink owned by
+    // an untrusted user», exit 3, 2026-10-11 on a large server): /mnt/user/<share> of an exclusive share is Unraid's link
+    // to its pool, owned by nobody — so rsync gets the pool path (officeUnraidPath(), the same place), the journal keeps
+    // the share's
+    $rsTo = officeUnraidPath($to);
+    $rsFrom = array_map('officeUnraidPath', $sources);
+    $args = $file ? [$rsFrom[0], $rsTo] : array_merge(array_map(fn ($x) => "$x/", $rsFrom), ["$rsTo/"]);
     // --sparse: a VM disk's holes stay holes (without it a 108 GB vdisk holding 16 GB is written out in full on XFS or
     // btrfs); a local copy is a whole-file copy, so it always works — never together with --inplace
     $p = proc_open(array_merge(['rsync', '-aHX', '--sparse', '--numeric-ids', '--info=progress2', '--no-inc-recursive'], $args),

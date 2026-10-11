@@ -7827,6 +7827,11 @@ function testBackupKopiaAutostart(): void
  */
 function testRestore(): void
 {
+    // rsync 3.5.1 refuses a destination through a symlink another user owns — an exclusive share's /mnt/user/<share> is
+    // Unraid's link, owned by nobody (2026-10-11, a large server: «rsync exit 3» on every files restore into appdata)
+    $rs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('restore copy: rsync gets the pool path of an exclusive share (officeUnraidPath), the journal keeps the share\'s',
+        str_contains($rs, '$rsTo = officeUnraidPath($to);') && str_contains($rs, "\$rsFrom = array_map('officeUnraidPath', \$sources);"));
     $tmp = sys_get_temp_dir() . '/office-tests-restore-' . getmypid();
     $put = function (string $file, mixed $data) use ($tmp): void {
         @mkdir(dirname("$tmp/$file"), 0700, true);
