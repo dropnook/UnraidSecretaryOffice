@@ -1,6 +1,7 @@
 /* Mr. Restori */
 #sso{   /* nested in the office's element, like office.css */
 .rs-tiles{margin-top:2px}
+.rs-tiles .card-figures > span:last-child{margin-left:auto; text-align:right}     /* wrapped under a long line (the drill's «weekly (night before Mon)»): still on the right */
 .rs-tile-icon{font-size:18px; line-height:1}
 .rs-body{display:flex; flex-direction:column; gap:18px; min-width:0}
 .rs-foot{margin:6px 0 0}

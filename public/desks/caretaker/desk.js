@@ -25,6 +25,9 @@ let state = null;
 let view = null;
 let showDone = false;
 let showNoted = false;
+// the bar over his lists (core.js Office.filterBar, built once): words only, over every list (to do, advice, hints, in
+// place, noted) — it shows itself only from Office.FILTER_MIN open points on, so a quiet server sees nothing; never kept
+let listBar = null;
 
 // «Partner offices» lives in partner.js beside this file (loaded once; its version mark: this file's and the strings')
 const ME = document.currentScript && document.currentScript.src;
@@ -156,8 +159,15 @@ function render() {
   root.appendChild(teamSection());                  // who works here comes first
   if (Office.supporter().ask) root.appendChild(askCallout());
   root.appendChild(officeSection());
-  if (g.todo.length) root.appendChild(list('todo', T('todo_count', { n: g.todo.length }), T('todo_text'), g.todo));
-  if (g.advice.length) root.appendChild(list('advice', T('advice_count', { n: g.advice.length }), T('advice_text'), g.advice));
+  const b = bar();
+  const filtering = b.read().words.length > 0;
+  const fit = { todo: g.todo.filter(fits), advice: g.advice.filter(fits), hints: g.hints.filter(fits), noted: g.noted.filter(fits), done: g.done.filter(fits) };
+  const lists = el('div', 'ct-lists');
+  lists.id = 'ct-lists';
+  lists.appendChild(b.el);
+  root.appendChild(lists);
+  if (g.todo.length) root.appendChild(list('todo', T('todo_count', { n: g.todo.length }), T('todo_text'), fit.todo));
+  if (g.advice.length) root.appendChild(list('advice', T('advice_count', { n: g.advice.length }), T('advice_text'), fit.advice));
   if (!g.todo.length && !g.advice.length) {
     const ok = el('div', 'box');
     const p = el('div', 'empty');
@@ -167,11 +177,24 @@ function render() {
   }
   root.appendChild(notifySection());
   if (Office.ctPartner) root.appendChild(Office.ctPartner.section(state));    // partner.js
-  if (g.hints.length) root.appendChild(list('hints', T('hints_count', { n: g.hints.length }), T('hints_text'), g.hints));
-  root.appendChild(doneSection(g.done));
-  if (g.noted.length) root.appendChild(notedSection(g.noted));       // put aside: folded, at the end
+  if (g.hints.length) root.appendChild(list('hints', T('hints_count', { n: g.hints.length }), T('hints_text'), fit.hints));
+  root.appendChild(doneSection(g.done, filtering ? fit.done : null));
+  if (g.noted.length) root.appendChild(notedSection(g.noted, filtering ? fit.noted : null));       // put aside: folded, at the end
   root.appendChild(el('p', 'role', T('checked_at', { when: fmt.relative(state.time) })));
+  // «n of m fit» over the points still open and those noted (what is in place is filtered too, but doesn't make the bar come)
+  const counted = ['todo', 'advice', 'hints', 'noted'];
+  b.done(counted.reduce((a, k) => a + fit[k].length, 0), counted.reduce((a, k) => a + g[k].length, 0));
 }
+
+/** The bar over his lists, built once */
+function bar() {
+  if (!listBar) listBar = Office.filterBar({ key: 'caretaker.list', label: T('list.filter_label'), onChange: () => { if (view) render(); } });
+  return listBar;
+}
+/** A point's words for the bar: what it says, what to do, the desk, its level */
+const fits = (f) => Office.fits(listBar ? listBar.read().words : [], [text(f), text(f, '_how'), Office.t(f.desk + '.name'), T('level.' + f.level)]);
+/** «Nothing fits» in a list the bar empties (its head stays) */
+const noFit = () => el('p', 'empty', T('list.none_fit'));
 
 function list(key, title, sub, items) {
   const s = el('section', 'section');
@@ -179,6 +202,7 @@ function list(key, title, sub, items) {
   s.appendChild(Office.sectionHead(title, sub));
   const box = el('div', 'box');
   items.forEach((f) => box.appendChild(row(f)));
+  if (!items.length) box.appendChild(noFit());
   s.appendChild(box);
   return s;
 }
@@ -504,7 +528,8 @@ function fire(id) {
   Office.fireDialog(id, () => load(true));
 }
 
-function doneSection(items) {
+/** What is in place — folded; fits: what the bar's words leave (null: not filtering) */
+function doneSection(items, fits) {
   const s = el('section', 'section');
   s.dataset.ct = 'done';
   const toggle = el('button', 'btn small plain', showDone ? T('hide') : T('show'));
@@ -513,7 +538,8 @@ function doneSection(items) {
   s.appendChild(Office.sectionHead(T('done', { n: items.length }), T('done_sub'), toggle, { place: 'done' }));
   if (showDone) {
     const box = el('div', 'box');
-    items.forEach((f) => {
+    if (fits && !fits.length) box.appendChild(noFit());
+    (fits || items).forEach((f) => {
       const r = el('div', 'row nocheck');
       const main = el('div', 'row-main');
       main.appendChild(el('div', 'row-name text', '✓ ' + text(f)));
@@ -529,7 +555,7 @@ function doneSection(items) {
 }
 
 /** What the user put aside with «I know, thanks» — folded, each with «Bring back» */
-function notedSection(items) {
+function notedSection(items, fits) {
   const s = el('section', 'section');
   s.dataset.ct = 'noted';
   const toggle = el('button', 'btn small plain', showNoted ? T('hide') : T('show'));
@@ -538,7 +564,8 @@ function notedSection(items) {
   s.appendChild(Office.sectionHead(T('noted', { n: items.length }), T('noted_sub'), toggle, { place: 'noted' }));
   if (showNoted) {
     const box = el('div', 'box');
-    items.forEach((f) => box.appendChild(row(f)));
+    if (fits && !fits.length) box.appendChild(noFit());
+    (fits || items).forEach((f) => box.appendChild(row(f)));
     s.appendChild(box);
   }
   return s;
@@ -549,6 +576,7 @@ Office.desk({
   id: ID,
   async mount(root) {
     view = root;
+    bar().reset();        // a new visit: every point (the bar's words are never kept)
     render();
     await load(false);
   },

@@ -30,6 +30,7 @@
   "stat.last": "Last round",
   "stat.next": "Next round",
   "stat.open": "Not noted yet",
+  "stat.open_tip": "Show only these in the watch book — a second click shows all of it again",
   "stat.since": "On watch since",
   "stat.learning_until": "Learning mode: still learning what is normal — until {when} ({left})",
   "stat.learned": "Has learned what is normal",

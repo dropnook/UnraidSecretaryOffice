@@ -18067,7 +18067,7 @@ const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const FX = JSON.parse(fs.readFileSync(fixturesFile, 'utf8'));
 const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
   classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  appendChild(c) { this.children.push(c); return c; }, get lastChild() { return this.children[this.children.length - 1] || null; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
   setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
   querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
   getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
@@ -26182,8 +26182,9 @@ function testWatchBookView(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
     check('watch book: «All n: I know, thanks» notes a folded row\'s open entries in one request (ack_some with their ids)',
         str_contains($js, "Office.api.post(`\${ID}.ack_some`, { ids: list.map((e) => e.id) })"));
-    check('watch book: the area is kept per browser, the filter\'s words are not',
-        str_contains($js, "Office.store('watchman.area', area || null)") && !preg_match("/Office\\.store\\('watchman\\.(filter|search|words)/", $js));
+    check('watch book: the area is kept per browser (the bar\'s select under watchman.book.pick), the filter\'s words and «only open» are not',
+        (bool) preg_match("/Office\\.filterBar\\(\\{\\s*key: 'watchman\\.book',.{0,300}?select: \\{/s", $js)
+        && !preg_match("/Office\\.store\\('watchman\\.(filter|search|words|only_open)/", $js));
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('watch book view: node is missing here - skipped', true);
@@ -27935,13 +27936,191 @@ function testTilesMediaPages(): void
 }
 
 
+/**
+ * Ms. Dustdevil's tiles (the tiles rebuild, 2026-10-11): the number tiles of «What's going on» open their corner of
+ * «Everything in detail» (STAT_CORNERS: each a corner that exists, aria-controls the open corner's body), «License» no
+ * longer leads to the disks and leaves the grid with «Load» (the head's line says both), nothing on her page jumps
+ * (no scrollIntoView), and a link of what she noticed fills the bars — under node, core.js and her desk.js on a
+ * stand-in page with the click test's stub states.
+ */
+function testCleanupTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    preg_match('/const STAT_CORNERS = \{([^}]*)\}/', $js, $m);
+    preg_match_all("/(\\w+): '(\\w+)'/", $m[1] ?? '', $pairs, PREG_SET_ORDER);
+    $map = array_column(array_map(fn ($p) => [$p[1], $p[2]], $pairs), 1, 0);
+    preg_match("/const Where = \\(\\(\\) => \\{\\s*const SECTIONS = \\[([^\\]]*)\\]/", $js, $w);
+    preg_match_all("/'(\\w+)'/", $w[1] ?? '', $corners);
+    check('cleanup tiles: the number tiles with a corner behind them (array, Docker, VMs, SMB, User Scripts, the engine, the hottest disk, SMART, notices)',
+        array_keys($map) === ['array', 'docker', 'vms', 'smb', 'scripts', 'backup', 'temp', 'smart', 'notices'], json_encode($map));
+    same('cleanup tiles: … each opens a corner that exists', [], array_values(array_diff($map, $corners[1] ?? [])));
+    check('cleanup tiles: … aria-controls the open corner (its body clw-corner), data-filters the section with its bar (clw-details), pressed while it opened it',
+        str_contains($js, "controls: corner ? 'clw-corner' : null, filters: corner ? 'clw-details' : null")
+        && str_contains($js, "v.sectionBody.id = 'clw-corner'") && str_contains($js, "v.sectionBox.id = 'clw-details'")
+        && str_contains($js, 'pressed: corner ? statTile === id && section === corner : null'));
+    check('cleanup tiles: «License» no longer leads to the disks, «License» and «Load» are no tiles (the head\'s line says them)',
+        !isset($map['license']) && !isset($map['load']) && !preg_match("/tile\\(\\s*'(license|load)'/", $js) && !preg_match("/tile\\(\\s*T\\('where\\.stat\\.(license|load)'\\)/", $js)
+        && (bool) preg_match("/view\\.nowHint\\.textContent = \\[[^;]*T\\('where\\.stat\\.license'\\)[^;]*T\\('where\\.stat\\.load'\\)/s", $js));
+    check('cleanup tiles: nothing on her page jumps (no scrollIntoView — tiles and corners in keepInPlace)', !str_contains($js, 'scrollIntoView')
+        && str_contains($js, 'Office.keepInPlace(view.stats, ') && str_contains($js, 'Office.keepInPlace(view.tabs, ') && str_contains($js, 'Office.keepInPlace(view.placeTiles, '));
+    check('cleanup tiles: the places and corners carry aria-pressed', substr_count($js, "card.setAttribute('aria-pressed', String(place === g.id))") === 1
+        && substr_count($js, "card.setAttribute('aria-pressed', String(section === id))") === 1);
+    check('cleanup tiles: no warning callout for a filter any more — the bars say it', !str_contains($js, 'filter_on') && !str_contains($js, 'filterMark'));
+    check('cleanup tiles: the two bars (her rooms, the open corner) are Office.filterBar, never kept',
+        str_contains($js, "key: 'cleanup.tidy'") && str_contains($js, "key: 'cleanup.where'") && !preg_match("/Office\\.store\\('cleanup\\.(tidy|where)\\.(words|only|filter)/", $js));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('cleanup tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/uso-cleanup-tiles-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $where = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/cleanup-where.json'), true);
+    $rooms = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/cleanup.json'), true);
+    // one finding first: a share whose pool is missing (her link opens «Shares» with its name in the bars)
+    foreach ($where['shares'] as $i => $s) {
+        $where['shares'][$i]['storage']['missing'] = $s['name'] === 'media';
+    }
+    file_put_contents("$tmp/fx.json", json_encode(['where' => $where, 'rooms' => $rooms['state'] ?? $rooms]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [core, desk, fxFile] = process.argv.slice(2);
+const FX = JSON.parse(fs.readFileSync(fxFile, 'utf8'));
+const CONFIG = { desks: [{ id: 'cleanup', hired: true, order: 1, refresh_after: 600 }], languages: [{ code: 'en' }], base: '', staff_order: [], stamp: 1, version: 'test', host: 'Tower' };
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], value: '',
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, get lastChild() { return this.children[this.children.length - 1] || null; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {}, after() {}, before() {},
+  insertBefore(c) { this.children.push(c); return c; }, replaceChildren() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'], platform: 'Linux' };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), createDocumentFragment: () => mk(),
+  addEventListener() {}, removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+globalThis.fetch = async (url) => {
+  const u = new URLSearchParams(String(url).split('?')[1] || '');
+  const look = (k, data) => ({ ok: true, [k]: data, age: 5, stale: false, refreshing: false, refresh_after: 600 });
+  const a = u.get('a') === 'part' && u.get('part') === 'where' ? look('part', FX.where) : u.get('a') === 'state' ? look('state', FX.rooms) : { ok: false };
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+globalThis.OFFICE_DESK_TESTS = {};
+(0, eval)(fs.readFileSync(core, 'utf8'));
+(0, eval)(fs.readFileSync(desk, 'utf8'));
+const out = {};
+(async () => {
+  const d = Office.desks.get('cleanup');
+  const ct = OFFICE_DESK_TESTS.cleanup;
+  d.mount(mk(), 'where');
+  await new Promise((r) => setTimeout(r, 150));
+  const f = ct.findings();
+  out.finding = f.length ? f[0].text : null;
+  out.before = ct.query();
+  if (f.length) f[0].go();
+  out.after = ct.query();
+  d.unmount();
+  out.gone = ct.query();
+  fs.writeFileSync(fxFile + '.out', JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { fs.writeFileSync(fxFile + '.out', JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/assets/core.js', OFFICE_WEB . '/desks/cleanup/desk.js', "$tmp/fx.json"])) . ' 2>&1');
+    $r = json_decode((string) @file_get_contents("$tmp/fx.json.out"), true);
+    exec('rm -rf ' . escapeshellarg($tmp));
+    if (!is_array($r) || isset($r['error'])) {
+        check('cleanup tiles: her page under node', false, is_array($r) ? (string) $r['error'] : $raw);
+        return;
+    }
+    check('cleanup tiles: her first finding is the share whose pool is missing', str_contains((string) $r['finding'], 'where.find.missing_pool'), (string) $r['finding']);
+    same('cleanup tiles: a link of what she noticed fills both bars with its words (the rooms\' and the open corner\'s), the visit\'s end empties them',
+        ['', 'media', ''], [$r['before'], $r['after'], $r['gone']]);
+}
+
+/**
+ * Mr. Restori's tiles (the tiles rebuild, 2026-10-11): one bar over the open list (Apps, VMs, Databases — Office.filterBar,
+ * words and «only what's gone», never kept), the databases' groups keep their heads over what fits; the drill's tile says
+ * how often he practises (off, monthly, weekly with its night, «after the next backup» when one is due — as the agent
+ * reckons it) — under node, drill.js alone.
+ */
+function testRestoreTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore tiles: one bar over the open list, Office.filterBar (words, «only what\'s gone»), never kept, emptied by a new visit',
+        str_contains($js, "key: 'restore.list'") && str_contains($js, "only: { text: T('list.only_missing')") && str_contains($js, 'bar().reset();')
+        && !preg_match("/Office\\.store\\('restore\\.list/", $js));
+    check('restore tiles: … over Apps, VMs and Databases (gone apps, missing VMs; a database group keeps its head over what fits)',
+        preg_match_all('/[=(] ?barRows\(s, /', $js) === 3 && str_contains($js, '(a) => !a.present') && str_contains($js, "(v) => v.state === 'missing'")
+        && str_contains($js, 'box.appendChild(dbHead(g.app));'));
+    $node = testsNode();
+    if ($node === '') {
+        check('restore tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/uso-restore-tiles-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => true,
+  api: { get: async () => ({ ok: true, part: null }) }, agent: { running: true }, locale: 'en' };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const fmt = { size: (b) => b + ' B', date: (t) => 'D' + t, relative: (t) => 'R' + t, time: (t) => 'T' + t, duration: (s) => s + 's' };
+Office.restoreDrill.init({ T, fmt, date: fmt.date, tiles: () => {}, redraw: () => {}, shown: () => true });
+const d = OFFICE_DESK_TESTS.drill;
+const at = (y, m, day, h) => new Date(y, m - 1, day, h || 3).getTime() / 1000;
+const now = at(2026, 10, 14, 15);          // a Wednesday afternoon
+const out = {};
+d.setCert({ interface: 1, last: { result: 'passed', proven: 3, failed: 0, started: at(2026, 10, 4), ended: at(2026, 10, 4) } });
+out.unknown = d.freqText(now);
+out.tile = d.tileLine();
+d.setState({ settings: { schedule: 'off' } });
+out.off = d.freqText(now);
+d.setState({ settings: { schedule: 'monthly' } });
+out.monthly = d.freqText(now);                                       // a drill this month: the next one next month
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 9, 28), ended: at(2026, 9, 28) } });
+out.monthlyDue = d.freqText(now);                                    // none this month yet: after the next backup
+d.setState({ settings: { schedule: 'weekly', weekday: 1 } });        // the night before Monday
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 10, 12), ended: at(2026, 10, 12) } });
+out.weekly = d.freqText(now);                                        // Monday's drill done: next Monday
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 10, 5), ended: at(2026, 10, 5) } });
+out.weeklyDue = d.freqText(now);                                     // Monday 12th passed without one: caught up
+d.setCert(null);
+out.never = d.freqText(now);
+out.tileNone = d.tileLine();
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/drill.js') . ' 2>&1');
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $o = json_decode($raw, true);
+    if (!is_array($o)) {
+        check('restore tiles: drill.js under node', false, $raw);
+        return;
+    }
+    same('restore tiles: the drill tile — before his settings are known the time of the last drill stays on its right',
+        [null, 'drill.tile_passed {"n":3,"failed":0}', true], [$o['unknown'], $o['tile'][0] ?? null, str_starts_with((string) ($o['tile'][1] ?? ''), 'R')]);
+    same('restore tiles: … then how often: off, monthly (done this month), after the next backup (none this month)',
+        ['drill.freq.off', 'drill.freq.monthly', 'drill.freq.due'], [$o['off'], $o['monthly'], $o['monthlyDue']]);
+    same('restore tiles: … weekly names its night (the day it ends on), a night that passed without one is caught up, none yet: due',
+        ['drill.freq.weekly {"day":"Mon"}', 'drill.freq.due', 'drill.freq.due', ['drill.tile_none', 'drill.freq.due']],
+        [$o['weekly'], $o['weeklyDue'], $o['never'], $o['tileNone']]);
+}
+
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

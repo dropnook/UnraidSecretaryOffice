@@ -8,7 +8,6 @@
 .cl-info .callout{margin:4px 0 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
 .cl-lines{white-space:pre-line; overflow-wrap:anywhere}
 .cl-trash-row .row-meta .mono{overflow-wrap:anywhere}
-.cl-filter-note{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0}
 .cl-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
 .box > .row.cl-single:first-child{border-top:0}
 /* missing pictures: a small frame in front of the name, the choice in the details */
@@ -76,6 +75,7 @@
 }
 
 .clw-wake{font-size:12.5px}
+.clw-now-hint{white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere}
 
 .clw-sections{grid-template-columns:repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap:10px}
 .clw-section{padding:10px 12px 9px; gap:5px}

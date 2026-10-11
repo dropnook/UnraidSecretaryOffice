@@ -21,6 +21,8 @@
   "checked_at": "Vérifié {when}",
   "todo": "Encore à faire",
   "todo_text": "Sans cela, un bureau ne peut pas faire (une partie de) son travail. Toi seul peux le faire — dans Unraid lui-même.",
+  "list.filter_label": "Filtrer ses listes : ce que dit un point, le bureau",
+  "list.none_fit": "Rien ici ne correspond au filtre.",
   "advice": "Recommandé",
   "advice_text": "Pas obligatoire, mais ça rend la vie plus facile ou plus sûre.",
   "hints": "Bon à savoir",

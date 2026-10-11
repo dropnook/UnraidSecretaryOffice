@@ -21,6 +21,8 @@
   "checked_at": "Controllato {when}",
   "todo": "Ancora da fare",
   "todo_text": "Senza queste cose una scrivania non può fare il suo lavoro (o una parte). Puoi farle solo tu — in Unraid stesso.",
+  "list.filter_label": "Filtra i suoi elenchi: cosa dice un punto, la scrivania",
+  "list.none_fit": "Qui niente corrisponde al filtro.",
   "advice": "Consigliato",
   "advice_text": "Non è un obbligo, ma rende la vita più facile o più sicura.",
   "hints": "Buono a sapersi",

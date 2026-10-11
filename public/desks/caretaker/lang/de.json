@@ -21,6 +21,8 @@
   "checked_at": "Geprüft {when}",
   "todo": "Noch zu tun",
   "todo_text": "Ohne das kann ein Schreibtisch seine Arbeit (teilweise) nicht machen. Das kannst nur du erledigen — in Unraid selbst.",
+  "list.filter_label": "Seine Listen filtern: was ein Punkt sagt, der Schreibtisch",
+  "list.none_fit": "Hier passt nichts zum Filter.",
   "advice": "Empfohlen",
   "advice_text": "Kein Muss, aber es macht das Leben einfacher oder sicherer.",
   "hints": "Gut zu wissen",

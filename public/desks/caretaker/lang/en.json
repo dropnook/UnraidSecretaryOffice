@@ -21,6 +21,8 @@
   "checked_at": "Checked {when}",
   "todo": "Still to do",
   "todo_text": "Without these, a desk can't do (part of) its job. Only you can do them — in Unraid itself.",
+  "list.filter_label": "Filter his lists: what a point says, the desk",
+  "list.none_fit": "Nothing here fits the filter.",
   "advice": "Recommended",
   "advice_text": "Not a must, but it makes life easier or safer.",
   "hints": "Good to know",

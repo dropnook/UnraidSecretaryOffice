@@ -39,7 +39,16 @@
     "where.section.plugins",
     "where.section.scripts",
     "where.section.shares",
-    "where.section.vms"
+    "where.section.vms",
+    "where.stat.array",
+    "where.stat.backup",
+    "where.stat.docker",
+    "where.stat.notices",
+    "where.stat.scripts",
+    "where.stat.smart",
+    "where.stat.smb",
+    "where.stat.temp",
+    "where.stat.vms"
   ],
   "texts": [
     "help.appdata_text",

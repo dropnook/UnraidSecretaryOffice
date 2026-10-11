@@ -30,6 +30,7 @@
   "stat.last": "Última ronda",
   "stat.next": "Próxima ronda",
   "stat.open": "Aún sin anotar",
+  "stat.open_tip": "Mostrar solo estas en el libro de guardia — un segundo clic vuelve a mostrar todo",
   "stat.since": "De guardia desde",
   "stat.learning_until": "Modo aprendizaje: aún aprende qué es normal — hasta el {when} ({left})",
   "stat.learned": "Ya sabe qué es normal",

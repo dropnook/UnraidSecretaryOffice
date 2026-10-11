@@ -317,18 +317,9 @@ function counts(errors, warnings) {
   return box;
 }
 
-function card(id, cls) {
-  const c = el('button', 'card' + (cls ? ' ' + cls : '') + (tile === id ? ' active' : ''));
-  c.type = 'button';
-  c.setAttribute('aria-pressed', String(tile === id));
-  c.onclick = () => openTile(tile === id ? '' : id);         // the open tile closes again
-  return c;
-}
-
-function figures(left, right) {
-  const f = el('div', 'card-figures');
-  f.append(el('span', '', left), el('span', '', right || ''));
-  return f;
+/** A tile (core.js Office.tile): pressed while open, the open one closes again — o: name, chip, lines, cls, tip */
+function card(id, o) {
+  return Office.tile({ ...o, active: tile === id, on: () => openTile(tile === id ? '' : id) });
 }
 
 function renderTour() {
@@ -348,57 +339,42 @@ function renderTiles() {
   // /var/log — how full, right now
   const v = varlog();
   if (v) {
-    const c = card('varlog');
-    const head = el('div', 'card-head');
-    head.append(el('span', 'card-name', '/var/log'), el('span', 'lg-pct ' + fillLevel(v), v.pct + ' %'));
     const bar = el('div', 'bar');
     const used = el('i', 'lg-used ' + fillLevel(v));
     used.style.width = Math.min(100, v.pct) + '%';
     bar.appendChild(used);
     const files = tour?.varlog?.count;
-    c.append(head, bar, figures(T('tile.varlog_of', { used: fmt.size(v.used), total: fmt.size(v.total) }),
-      files !== undefined ? T('tile.varlog_files', { n: files }) : ''));
-    tiles.appendChild(c);
+    tiles.appendChild(card('varlog', { name: '/var/log', chip: el('span', 'lg-pct ' + fillLevel(v), v.pct + ' %'), lines: [bar,
+      [T('tile.varlog_of', { used: fmt.size(v.used), total: fmt.size(v.total) }), files !== undefined ? T('tile.varlog_files', { n: files }) : '']] }));
   }
 
   // the containers' logs
   const d = tour?.docker;
-  const dc = card('docker');
-  const dh = el('div', 'card-head');
-  dh.appendChild(el('span', 'card-name', T('tile.docker')));
   if (d && d.ok) {
     const r = d.rotation || {};
-    dc.append(dh, el('div', 'card-line', T('tile.docker_size', { size: fmt.size(d.total || 0) })),
-      figures(T('tile.docker_count', { n: (d.containers || []).length }), r.on ? T('tile.rotation_on', { size: r.size || '?', files: r.files || '?' }) : T('tile.rotation_off')));
+    tiles.appendChild(card('docker', { name: T('tile.docker'), lines: [T('tile.docker_size', { size: fmt.size(d.total || 0) }),
+      [T('tile.docker_count', { n: (d.containers || []).length }), r.on ? T('tile.rotation_on', { size: r.size || '?', files: r.files || '?' }) : T('tile.rotation_off')]] }));
   } else {
-    dc.classList.add('empty-card');
-    dc.append(dh, el('div', 'card-line', !tour || !tour.time ? T('tile.no_tour') : d && d.enabled === false ? T('docker.disabled') : T('tile.docker_off')));
+    tiles.appendChild(card('docker', { name: T('tile.docker'), cls: 'empty-card',
+      lines: [!tour || !tour.time ? T('tile.no_tour') : d && d.enabled === false ? T('docker.disabled') : T('tile.docker_off')] }));
   }
-  tiles.appendChild(dc);
 
   // what sounded like an error or a warning
-  const fc = Office.place('tile.found', card('found'));
-  const fh = el('div', 'card-head');
-  fh.appendChild(el('span', 'card-name', T('tile.found')));
   if (tour && tour.time) {
     const line = el('div', 'card-line');
     line.appendChild(counts(tour.errors || 0, tour.warnings || 0));
-    fc.append(fh, line, figures(T('tile.found_logs', { n: noisy().length }), tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) })));
+    tiles.appendChild(card('found', { name: T('tile.found'), place: 'tile.found', lines: [line,
+      [T('tile.found_logs', { n: noisy().length }), tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) })]] }));
   } else {
-    fc.classList.add('empty-card');
-    fc.append(fh, el('div', 'card-line', T('tile.no_tour')));
+    tiles.appendChild(card('found', { name: T('tile.found'), place: 'tile.found', cls: 'empty-card', lines: [T('tile.no_tour')] }));
   }
-  tiles.appendChild(fc);
 
   // a small tile per log that had something (the loudest; the rest are in «Errors & warnings»)
   view.srcTiles.innerHTML = '';
   const loud = noisy();
   const shownTiles = loud.length > SRC_TILES ? loud.slice(0, SRC_TILES - 1) : loud;
   for (const s of shownTiles) {
-    const c = card('src:' + s.id, 'lg-src-tile');
-    c.title = sourceLabel(s);
-    c.append(el('span', 'card-name', sourceLabel(s)), counts(s.errors, s.warnings));
-    view.srcTiles.appendChild(c);
+    view.srcTiles.appendChild(card('src:' + s.id, { name: sourceLabel(s), tip: sourceLabel(s), cls: 'lg-src-tile', lines: [counts(s.errors, s.warnings)] }));
   }
   if (loud.length > shownTiles.length) {
     const rest = loud.slice(shownTiles.length);
