@@ -2,7 +2,7 @@
 #sso{   /* nested in the office's element, like office.css */
 .cl-tile-icon{font-size:17px; line-height:1}
 .cl-count{margin-left:auto; font-size:13px; font-weight:650; color:var(--accent-ink); background:var(--accent-soft); border-radius:999px; padding:1px 8px; font-variant-numeric:tabular-nums}
-.cl-unfold{justify-content:flex-end; padding:0}
+.cl-unfold{justify-content:flex-end}
 .cl-info{display:flex; flex-direction:column; gap:4px; margin:0 2px}
 .cl-info p{margin:0}
 .cl-info .callout{margin:4px 0 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
@@ -43,7 +43,9 @@
 /* «Where is what» (up to 1.30 Ms. Whereabouts' page; its classes clw-) */
 .row.unfolds .row-detail{cursor:auto}
 .row.open{background:color-mix(in srgb, var(--surface2) 45%, var(--surface))}
-.clw-unfold{justify-content:flex-end; padding:0}
+/* «Unfold all» on the right, 2 px in like every toolbar (the filter field right above it; 2026-10-12: padding 0 put it
+   2 px past the field's edge) */
+.clw-unfold{justify-content:flex-end}
 
 /* «Where things are»: a place per row — icon and name, its main path and what is in it, its weakest protection on the right */
 .clw-place-row .row-name{display:flex; align-items:center; gap:8px}
