@@ -30,6 +30,9 @@ let jobTimer = null;
 const journals = new Map();                   // id -> {loading, journal, log, error} — a journal unfolded on the page
 const journalShown = new Map();               // id -> {box, fill, fail}: the journal's box drawn last (the page re-renders while one loads)
 let agentWas = null;                          // the agent running when the page was drawn last
+// the bar over the open list — Apps, VMs, Databases (core.js Office.filterBar, built once): its words (name, the chips,
+// partners) and «only what's missing» — never kept, a new visit starts with the whole list
+let listBar = null;
 
 // ------------------------------------------------------------------ loading
 /** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
@@ -475,13 +478,43 @@ function unfoldingRow(key, name, meta, detail, right) {
   return r;
 }
 
+// ------------------------------------------------------------------ the bar over the open list
+function bar() {
+  if (listBar) return listBar;
+  listBar = Office.filterBar({
+    key: 'restore.list',
+    label: T('list.filter_label'),
+    only: { text: T('list.only_missing'), hint: T('list.only_missing_hint') },
+    onChange: () => { if (view) renderSection(); },
+  });
+  return listBar;
+}
+
+/**
+ * The rows of a list the bar leaves: each [x, meta] with its words — its name and what its chips say (package, data,
+ * partners) — and whether it is missing; «n of m fit» said by the bar, its switch only while something is missing
+ */
+function barRows(s, list, wordsOf, missing) {
+  const b = bar();
+  const f = b.read();
+  s.appendChild(b.el);
+  const fits = list.filter((x) => (!f.only || missing(x)) && Office.fits(f.words, wordsOf(x)));
+  b.done(fits.length, list.length, { onlyAvail: list.some(missing) });
+  return fits;
+}
+/** «Nothing fits» under the bar */
+const noFit = () => el('p', 'empty', T('list.none_fit'));
+
 // ------------------------------------------------------------------ apps
 function appsSection() {
   const list = apps();
   const s = sectionBox(T('apps'), T('apps_sub'), list.length > 1 ? unfoldAll() : null, { place: 'apps' });
   if (!list.length) { s.appendChild(el('p', 'empty', state.place.found ? T('apps_none') : T('apps_no_packages'))); return s; }
+  const metas = new Map(list.map((a) => [a, appMeta(a)]));
+  const fits = barRows(s, list, (a) => [a.name, a.id, metas.get(a).textContent], (a) => !a.present);
   const box = el('div', 'box');
-  list.forEach((a) => box.appendChild(appRow(a)));
+  fits.forEach((a) => box.appendChild(appRow(a, metas.get(a))));
+  if (!fits.length) box.appendChild(noFit());
   s.appendChild(box);
   const files = el('p', 'role rs-foot');
   files.append(T('apps_files'), ' ');
@@ -515,14 +548,18 @@ function atPartnerChip(c) {
   return x;
 }
 
-function appRow(a) {
+function appMeta(a) {
   const meta = el('div', 'row-meta');
   meta.appendChild(el('span', '', T('type.' + (a.type || 'container'))));
   if (!a.present) meta.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
   rowChips(meta, a, a.dumps.length ? [chip(T('chip.dumps', { n: a.dumps.length }), '', T('chip.dumps_hint'))] : [], []);
   const drilled = Office.restoreDrill && Office.restoreDrill.appChip('app', a.id);
   if (drilled) meta.appendChild(drilled);
-  return unfoldingRow('app:' + a.id, a.name, meta, () => appDetail(a));
+  return meta;
+}
+
+function appRow(a, meta) {
+  return unfoldingRow('app:' + a.id, a.name, meta || appMeta(a), () => appDetail(a));
 }
 
 function containerChips(list) {
@@ -957,8 +994,11 @@ function vmsSection() {
   const lv = state.server && state.server.libvirt;
   if (lv) s.appendChild(vmAllFold(lv));
   if (!list.length) { s.appendChild(el('p', 'empty', T('vms_none'))); return s; }
+  const metas = new Map(list.map((v) => [v, vmMeta(v)]));
+  const fits = barRows(s, list, (v) => [v.name, v.id, metas.get(v).textContent], (v) => v.state === 'missing');
   const box = el('div', 'box');
-  list.forEach((v) => box.appendChild(vmRow(v)));
+  fits.forEach((v) => box.appendChild(vmRow(v, metas.get(v))));
+  if (!fits.length) box.appendChild(noFit());
   s.appendChild(box);
   return s;
 }
@@ -979,13 +1019,17 @@ function vmStateChip(v) {
   return chip(v.state === 'running' ? T('vm.running') : v.state === 'shut off' ? T('vm.off') : v.state, v.state === 'running' ? 'ok' : '', T('vm.state_hint'));
 }
 
-function vmRow(v) {
+function vmMeta(v) {
   const meta = el('div', 'row-meta');
   meta.appendChild(vmStateChip(v));
   rowChips(meta, v, v.tpm ? [chip(T('vm.tpm'), 'quiet', T('vm.tpm_hint'))] : [], []);
   const drilled = Office.restoreDrill && Office.restoreDrill.appChip('vm', v.id);
   if (drilled) meta.appendChild(drilled);
-  return unfoldingRow('vm:' + v.id, v.name, meta, () => vmDetail(v));
+  return meta;
+}
+
+function vmRow(v, meta) {
+  return unfoldingRow('vm:' + v.id, v.name, meta || vmMeta(v), () => vmDetail(v));
 }
 
 function vmDetail(v) {
@@ -1103,11 +1147,17 @@ function dbsSection() {
   const n = groups.reduce((s, g) => s + g.items.length, 0);
   const s = sectionBox(T('dbs'), T('dbs_sub'), n > 1 ? unfoldAll() : null, { place: 'dbs' });
   if (!groups.length) { s.appendChild(el('p', 'empty', apps().length || state.place.found ? T('dbs_none') : T('apps_no_packages'))); return s; }
+  // the bar over every entry; a group keeps its head over the entries that fit (its app's name counts for each)
+  const all = groups.flatMap((g) => g.items.map((x) => ({ g, x, meta: dbMeta(g.app, x) })));
+  const fits = new Set(barRows(s, all, (r) => [r.g.app.name, dbName(r.x), r.x.container, r.x.file, r.meta.textContent], (r) => !r.g.app.present));
   const box = el('div', 'box');
   groups.forEach((g) => {
+    const rows = all.filter((r) => r.g === g && fits.has(r));
+    if (!rows.length) return;
     box.appendChild(dbHead(g.app));
-    g.items.forEach((x) => box.appendChild(dbRow(g.app, x)));
+    rows.forEach((r) => box.appendChild(dbRow(g.app, r.x, r.meta)));
   });
+  if (!fits.size) box.appendChild(noFit());
   s.appendChild(box);
   return s;
 }
@@ -1125,16 +1175,17 @@ function dbHead(a) {
   return h;
 }
 
-/** «Apps» with the app's row unfolded and in view */
+/** «Apps» with the app's row unfolded and in view (the bar's filter cleared: it could hide that row) */
 function openApp(id) {
   expanded.add('app:' + id);
+  bar().set({ text: '', only: false });
   pick('apps');
   const r = view.body.querySelector(`[data-key="${CSS.escape('app:' + id)}"]`);
   if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 /** One dump, or one media server's copies: container, size, the night, where the package is kept; «Restore…» */
-function dbRow(a, x) {
+function dbMeta(a, x) {
   const meta = el('div', 'row-meta');
   const ct = a.containers.find((c) => c.name === x.container);
   meta.appendChild(ct ? containerChips([ct]) : el('span', 'mono', x.container));
@@ -1143,6 +1194,11 @@ function dbRow(a, x) {
   if (x.kind === 'sqlite') meta.appendChild(x.checked ? chip(T('sq.checked'), 'ok', T('sq.checked_hint')) : chip(T('sq.unchecked'), '', T('sq.unchecked_hint')));
   const kept = Office.backupChip(a.package_protection);
   if (kept) meta.appendChild(kept);
+  return meta;
+}
+
+function dbRow(a, x, given) {
+  const meta = given || dbMeta(a, x);
   const right = el('div', 'rs-right');
   right.appendChild(restoreButton(T('db.button'), dbRequest(a, x), dbTitle(a, x)));
   const r = unfoldingRow(x.key, dbName(x), meta, () => dbDetail(a, x), right);
@@ -2009,6 +2065,7 @@ function loadDrill() {
     if (!Office.restoreDrill) return;
     Office.restoreDrill.init(drillHelpers());
     if (view && section === 'drill') Office.restoreDrill.refresh();
+    else if (view) Office.restoreDrill.settings();
   };
   (document.currentScript && document.currentScript.parentNode || document.body || document.head).appendChild(s);
 }
@@ -2019,9 +2076,11 @@ Office.desk({
   /** sub: a section (#/restore/drill — the Team Lead's and Mr. Backupsy's links; the others the search's) — that one open */
   async mount(root, sub) {
     view = root;
+    bar().reset();        // a new visit (or the search's way to a row): the whole list
     if (SECTIONS.includes(sub) || /^partner:[0-9a-f]{8}$/.test(sub)) { section = sub; Office.store('restore.section', section); }
     render();
     if (section === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
+    else if (Office.restoreDrill) Office.restoreDrill.settings();       // the drill tile's frequency
     await load(false);
     pollJob();             // a restore started elsewhere shows at once
   },

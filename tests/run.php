@@ -27048,12 +27048,82 @@ JS);
         ['', 'media', ''], [$r['before'], $r['after'], $r['gone']]);
 }
 
+/**
+ * Mr. Restori's tiles (the tiles rebuild, 2026-10-11): one bar over the open list (Apps, VMs, Databases — Office.filterBar,
+ * words and «only what's gone», never kept), the databases' groups keep their heads over what fits; the drill's tile says
+ * how often he practises (off, monthly, weekly with its night, «after the next backup» when one is due — as the agent
+ * reckons it) — under node, drill.js alone.
+ */
+function testRestoreTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore tiles: one bar over the open list, Office.filterBar (words, «only what\'s gone»), never kept, emptied by a new visit',
+        str_contains($js, "key: 'restore.list'") && str_contains($js, "only: { text: T('list.only_missing')") && str_contains($js, 'bar().reset();')
+        && !preg_match("/Office\\.store\\('restore\\.list/", $js));
+    check('restore tiles: … over Apps, VMs and Databases (gone apps, missing VMs; a database group keeps its head over what fits)',
+        preg_match_all('/[=(] ?barRows\(s, /', $js) === 3 && str_contains($js, '(a) => !a.present') && str_contains($js, "(v) => v.state === 'missing'")
+        && str_contains($js, 'box.appendChild(dbHead(g.app));'));
+    $node = testsNode();
+    if ($node === '') {
+        check('restore tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/uso-restore-tiles-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => true,
+  api: { get: async () => ({ ok: true, part: null }) }, agent: { running: true }, locale: 'en' };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const fmt = { size: (b) => b + ' B', date: (t) => 'D' + t, relative: (t) => 'R' + t, time: (t) => 'T' + t, duration: (s) => s + 's' };
+Office.restoreDrill.init({ T, fmt, date: fmt.date, tiles: () => {}, redraw: () => {}, shown: () => true });
+const d = OFFICE_DESK_TESTS.drill;
+const at = (y, m, day, h) => new Date(y, m - 1, day, h || 3).getTime() / 1000;
+const now = at(2026, 10, 14, 15);          // a Wednesday afternoon
+const out = {};
+d.setCert({ interface: 1, last: { result: 'passed', proven: 3, failed: 0, started: at(2026, 10, 4), ended: at(2026, 10, 4) } });
+out.unknown = d.freqText(now);
+out.tile = d.tileLine();
+d.setState({ settings: { schedule: 'off' } });
+out.off = d.freqText(now);
+d.setState({ settings: { schedule: 'monthly' } });
+out.monthly = d.freqText(now);                                       // a drill this month: the next one next month
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 9, 28), ended: at(2026, 9, 28) } });
+out.monthlyDue = d.freqText(now);                                    // none this month yet: after the next backup
+d.setState({ settings: { schedule: 'weekly', weekday: 1 } });        // the night before Monday
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 10, 12), ended: at(2026, 10, 12) } });
+out.weekly = d.freqText(now);                                        // Monday's drill done: next Monday
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 10, 5), ended: at(2026, 10, 5) } });
+out.weeklyDue = d.freqText(now);                                     // Monday 12th passed without one: caught up
+d.setCert(null);
+out.never = d.freqText(now);
+out.tileNone = d.tileLine();
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/drill.js') . ' 2>&1');
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $o = json_decode($raw, true);
+    if (!is_array($o)) {
+        check('restore tiles: drill.js under node', false, $raw);
+        return;
+    }
+    same('restore tiles: the drill tile — before his settings are known the time of the last drill stays on its right',
+        [null, 'drill.tile_passed {"n":3,"failed":0}', true], [$o['unknown'], $o['tile'][0] ?? null, str_starts_with((string) ($o['tile'][1] ?? ''), 'R')]);
+    same('restore tiles: … then how often: off, monthly (done this month), after the next backup (none this month)',
+        ['drill.freq.off', 'drill.freq.monthly', 'drill.freq.due'], [$o['off'], $o['monthly'], $o['monthlyDue']]);
+    same('restore tiles: … weekly names its night (the day it ends on), a night that passed without one is caught up, none yet: due',
+        ['drill.freq.weekly {"day":"Mon"}', 'drill.freq.due', 'drill.freq.due', ['drill.tile_none', 'drill.freq.due']],
+        [$o['weekly'], $o['weeklyDue'], $o['never'], $o['tileNone']]);
+}
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testCleanupTiles'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testCleanupTiles', 'testRestoreTiles'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
