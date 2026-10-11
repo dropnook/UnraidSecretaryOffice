@@ -306,6 +306,13 @@
    ],
    "share|Dokumente|partner": [
     "2ec7accd"
+   ],
+   "vm|Home-Assistant|mode": "snapshot",
+   "vm|Home-Assistant|prepare": "freeze",
+   "vm|Windows-Spiele|mode": "snapshot",
+   "vm|Windows-Spiele|prepare": "freeze",
+   "vm|Home-Assistant|partner": [
+    "2ec7accd"
    ]
   },
   "O": {
@@ -422,6 +429,13 @@
    ],
    "share|Dokumente|partner": [
     "2ec7accd"
+   ],
+   "vm|Home-Assistant|mode": "snapshot",
+   "vm|Home-Assistant|prepare": "freeze",
+   "vm|Windows-Spiele|mode": "snapshot",
+   "vm|Windows-Spiele|prepare": "freeze",
+   "vm|Home-Assistant|partner": [
+    "2ec7accd"
    ]
   },
   "pending": [
@@ -515,8 +529,8 @@
     "syslog": false,
     "waiting": [],
     "partner": [],
-    "partner_ok": false,
-    "partner_why": "not_agreed",
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -542,8 +556,8 @@
     "syslog": false,
     "waiting": [],
     "partner": [],
-    "partner_ok": false,
-    "partner_why": "not_agreed",
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -596,8 +610,8 @@
     "syslog": false,
     "waiting": [],
     "partner": [],
-    "partner_ok": false,
-    "partner_why": "not_agreed",
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -707,8 +721,8 @@
     "folders": [],
     "waiting": [],
     "partner": [],
-    "partner_ok": false,
-    "partner_why": "not_agreed",
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -734,8 +748,8 @@
     "syslog": false,
     "waiting": [],
     "partner": [],
-    "partner_ok": false,
-    "partner_why": "not_agreed",
+    "partner_ok": true,
+    "partner_why": null,
     "place": [],
     "asleep_bases": [],
     "pool_asleep": false,
@@ -1077,7 +1091,62 @@
     "preexisting": "abort"
    }
   ],
-  "vms": [],
+  "vms": [
+   {
+    "name": "Home-Assistant",
+    "state": "running",
+    "agent": "yes",
+    "tpm": false,
+    "hostdev": 0,
+    "snap": "yes",
+    "own": [
+     "cache/domains/Home-Assistant"
+    ],
+    "disks": [
+     {
+      "share": "domains",
+      "source": "/mnt/user/domains/Home-Assistant/vdisk1.img",
+      "bytes": 9100000000,
+      "apparent": 32000000000
+     }
+    ],
+    "why": "previous",
+    "partner": [
+     "2ec7accd"
+    ],
+    "partner_ok": true,
+    "partner_why": null,
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "bytes": 9100000000,
+    "apparent": 32000000000
+   },
+   {
+    "name": "Windows-Spiele",
+    "state": "running",
+    "agent": "yes",
+    "tpm": false,
+    "hostdev": 0,
+    "snap": "yes",
+    "own": [],
+    "disks": [
+     {
+      "share": "domains",
+      "source": "/mnt/user/domains/Windows-Spiele/vdisk1.img",
+      "bytes": 61000000000,
+      "apparent": 128000000000
+     }
+    ],
+    "why": "previous",
+    "partner": [],
+    "partner_ok": false,
+    "partner_why": "not_dataset",
+    "asleep_bases": [],
+    "pool_asleep": false,
+    "bytes": 61000000000,
+    "apparent": 128000000000
+   }
+  ],
   "vm_service": true,
   "partners": [
    {
@@ -1283,7 +1352,8 @@
     "step": "kopia",
     "text": "Kopia is off - skipped. To switch it on: setup.sh again, step 3."
    }
-  ]
+  ],
+  "migrated": {}
  },
  "time": 1791551073
 }

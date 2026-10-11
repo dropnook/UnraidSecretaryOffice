@@ -1,0 +1,61 @@
+{
+ "ok": true,
+ "partner": {
+  "id": "7b1e2c3d",
+  "name": "Grosseltern",
+  "address": "100.84.12.7",
+  "port": 22,
+  "public": false,
+  "host_keys": [
+   "SHA256:Yk3d0m8f9pQ2sT4vW6xZ8aB1cD3eF5gH7iJ9kL0mN2o"
+  ],
+  "key": "SHA256:aB1cD3eF5gH7iJ9kL0mN2oP4qR6sT8uV0wX2yZ4aB6c",
+  "units": [
+   "place",
+   "share:Fotos-Grosseltern"
+  ],
+  "trust": "mine",
+  "receive": null
+ },
+ "pools": [
+  {
+   "name": "daten",
+   "free": 1529260032000,
+   "asleep": false
+  },
+  {
+   "name": "cache",
+   "free": 412090368000,
+   "asleep": false
+  }
+ ],
+ "defaults": {
+  "quota_gb": 0,
+  "retention": "7 4 6",
+  "wake": true
+ },
+ "line": "restrict,from=\"100.84.12.7\",command=\"/usr/local/emhttp/plugins/unraid-secretary-office/scripts/partner-door.sh 7b1e2c3d\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGrosseltern0000000000000000000000000000 uso-partner:7b1e2c3d",
+ "name": "FamilienServer",
+ "addresses": [
+  "100.84.12.3",
+  "192.168.1.10"
+ ],
+ "port": 22,
+ "units": [
+  {
+   "id": "place",
+   "label": "UnraidSecretaryOffice",
+   "dataset": "daten/UnraidSecretaryOffice",
+   "ok": true,
+   "why": null
+  },
+  {
+   "id": "share:Familienfotos",
+   "label": "Familienfotos",
+   "dataset": "daten/Familienfotos",
+   "ok": true,
+   "why": null
+  }
+ ],
+ "host_key": true
+}
