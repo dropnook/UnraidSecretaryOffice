@@ -28619,9 +28619,12 @@ function testMoverelliImport(): void
     $v = [];
     moverelliFixture($tmp, $v);
     $fs = "$tmp/fs";
-    $dir = "$fs/mnt/cache/appdata/moverelli";                       // her data folder, where the fake tree can reach it
+    $root = "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data";       // the office's data folder, where the fake tree can reach it
+    $dir = "$root/moverelli";                                           // hers
     $old = '/mnt/user/system/scripts/smartmover';
-    foreach (["$fs$old", "$fs/mnt/user/system/excludes", "$fs/mnt/user/Sleepy/old", "$fs/mnt/cache/appdata/embycache", $dir,
+    $messy = '/mnt/user/system/scripts/messy';
+    $jackOld = '/mnt/user/system/scripts/jackold';
+    foreach (["$fs$old", "$fs$messy", "$fs$jackOld", "$fs/mnt/user/system/excludes", "$fs/mnt/user/Sleepy/old", "$fs/mnt/cache/appdata/embycache", $dir, "$root/embycache",
               "$fs/boot/config/plugins/user.scripts/scripts/oldmover", "$fs/etc"] as $d) {
         @mkdir($d, 0700, true);
     }
@@ -28631,7 +28634,8 @@ function testMoverelliImport(): void
         file_put_contents("$tmp/shares/$s.cfg", $cfg);
     }
     $GLOBALS['moverelliHost']['dir'] = $dir;
-    $GLOBALS['moverelliHost']['import'] = ['fs' => $fs, 'pools' => ['/mnt/cache'], 'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false]];
+    $GLOBALS['moverelliHost']['import'] = ['fs' => $fs, 'pools' => ['/mnt/cache'], 'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false],
+                                           'own_below' => [$root], 'emby_dirs' => ["$root/embycache"]];
     $jackList = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
     $h = moverelliHost();
     $err = function (callable $f): string {
@@ -28645,11 +28649,11 @@ function testMoverelliImport(): void
     // the old install: an ini written by hand over the years (CRLF), its lists
     file_put_contents("$fs$old/smart_mover.ini", implode("\r\n", ['# Smart Mover', '[GLOBAL]', 'mover_bin=/usr/libexec/unraid/move',
         "log_file=$old/smart_mover.log", 'min_age=30', 'age_stat=atime', 'move_when_used_above=', 'move_prefer_shares=no', 'mover_debug=7', 'max_list=100',
-        'colour=blue', 'global_excludes=/mnt/user/system/excludes/global.txt, /mnt/user/system/excludes/missing.txt,/mnt/user/Sleepy/old/ex.txt', '',
+        'colour=blue', 'global_excludes=/mnt/user/system/excludes/global.txt', '',
         '[Filme]', 'min_age=14', 'min_age=99', 'excludes=/mnt/user/appdata/embycache/embycache_exclude.txt,/mnt/user/system/excludes/filme.txt', '',
-        '[Docs]', 'skip=maybe', 'move_when_used_above=80', 'excludes=/etc/passwd', '', '[Back]', 'skip=yes', 'mover_bin=/x', '', '[Gone]', 'min_age=3', '',
+        '[Docs]', 'skip=maybe', 'move_when_used_above=80', '', '[Back]', 'skip=yes', 'mover_bin=/x', '', '[Gone]', 'min_age=3', '',
         '[bad/name]', 'skip=yes']) . "\r\n");
-    file_put_contents("$fs/mnt/user/system/excludes/global.txt", "# what stays\n*.nfo\n\n  /mnt/user/Filme/Kids/  \n*.nfo\n; old\nbad\x01line\n");
+    file_put_contents("$fs/mnt/user/system/excludes/global.txt", "# what stays\n*.nfo\n\n  /mnt/user/Filme/Kids/  \n*.nfo\n; old\n");
     file_put_contents("$fs/mnt/user/system/excludes/filme.txt", "*.nfo\r\n/mnt/user/Filme/Extras\r\n");
     file_put_contents("$fs/mnt/cache/appdata/embycache/embycache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
     file_put_contents("$fs/etc/passwd", "root:x:0:0\n");
@@ -28660,8 +28664,11 @@ function testMoverelliImport(): void
          'moverelli_import_nothing', 'bad_request', 'moverelli_import_none'],
         [$err(fn () => moverelliImportPreview(['folder' => '/mnt/user/Sleepy/old'], $h)), $err(fn () => moverelliImportPreview(['folder' => '/etc'], $h)),
          $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/system/nothing'], $h)), $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/system/../x'], $h)),
-         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/moverelli'], $h)), $err(fn () => moverelliImportPreview(['folder' => '  '], $h)),
+         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data/moverelli'], $h)), $err(fn () => moverelliImportPreview(['folder' => '  '], $h)),
          $err(fn () => moverelliImportPreview(['folder' => ['/x']], $h)), $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/system/excludes'], $h))]);
+    same('moverelli import: the office\'s data folder and anything in it — refused (Jack\'s folder too)', ['moverelli_import_own', 'moverelli_import_own'],
+        [$err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data'], $h)),
+         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache'], $h))]);
     same('moverelli import: User Scripts\' folder on the flash is a place she reads (no ini there)', 'moverelli_import_none',
         $err(fn () => moverelliImportPreview(['folder' => '/boot/config/plugins/user.scripts/scripts/oldmover'], $h)));
 
@@ -28681,15 +28688,51 @@ function testMoverelliImport(): void
         array_map(fn ($x) => [$x['share'], array_map(fn ($y) => [$y['key'], $y['value']], $x['values'])], $p['shares']));
     $lists = array_column($p['lists'], null, 'scope');
     same('moverelli import: the lists — taken, files copied or not read with why, EmbyCache\'s a frozen copy', [
-        'GLOBAL' => [2, 1, [['copied', null, 3, 2, false], ['not_read', 'missing', null, null, null], ['not_read', 'asleep', null, null, null]]],
-        'Filme'  => [3, 0, [['copied', null, 1, 1, true], ['copied', null, 2, 2, false]]],
-        'Docs'   => [0, 0, [['not_read', 'not_allowed', null, null, null]]]],
+        'GLOBAL' => [2, 0, [['copied', null, 3, 2, false]]],
+        'Filme'  => [3, 0, [['copied', null, 1, 1, true], ['copied', null, 2, 2, false]]]],
         array_map(fn ($l) => [$l['taken'], $l['bad'], array_map(fn ($f) => [$f['how'], $f['why'] ?? null, $f['lines'] ?? null, $f['new'] ?? null, $f['frozen'] ?? null], $l['files'])], $lists));
     same('moverelli import: … a few entries shown, never more', ['*.nfo', '/mnt/user/Filme/Kids/'], $lists['GLOBAL']['sample']);
-    same('moverelli import: … nothing of hers yet, ready, Jack not hired, no run going', [false, [], true, false, false, 0],
-        [$p['configured'], $p['gone'], $p['ready'], $p['jack'], $p['running'], $p['jack_lists']]);
+    same('moverelli import: … nothing of hers yet, ready, nothing blocks, Jack not hired, no run going', [false, [], true, [], false, false, 0, []],
+        [$p['configured'], $p['gone'], $p['ready'], $p['blocked'], $p['jack'], $p['running'], $p['jack_lists'], $p['jack_uncovered']]);
     check('moverelli import: a preview writes nothing', !is_file("$dir/smart_mover.ini") && !is_dir("$dir/excludes"));
     $first = $p;
+
+    // a protecting list that can't be had never silently disappears (the owner's rule): each blocks, said with what to do;
+    // so does a bad age or fill (its fallback 0 would move at once / always)
+    file_put_contents("$fs$messy/smart_mover.ini", implode("\n", ['[GLOBAL]', 'min_age=abc', 'mover_debug=9', 'global_excludes=/mnt/user/system/excludes/missing.txt,'
+        . '/mnt/user/Sleepy/old/ex.txt,/etc/passwd,/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_settings.json,'
+        . '/mnt/user/system/excludes/binary.lst,/mnt/user/system/excludes/bad.txt', '[Docs]', 'move_when_used_above=101']) . "\n");
+    file_put_contents("$root/embycache/embycache_settings.json", "{\"instances\": []}\n");
+    file_put_contents("$fs/mnt/user/system/excludes/binary.lst", "abc\0def\n");
+    file_put_contents("$fs/mnt/user/system/excludes/bad.txt", "ok.txt\nbad\x01line\n" . str_repeat('x', 1001) . "\n");
+    $m = moverelliImportPreview(['folder' => $messy], $h)['preview'];
+    same('moverelli import: what blocks — a bad age, lists missing, asleep, not allowed (outside, the office\'s own data), binary, lines her lists can\'t take, a bad fill', [
+        ['GLOBAL', 'value', 'min_age'], ['GLOBAL', 'not_read', 'missing'], ['GLOBAL', 'not_read', 'asleep'], ['GLOBAL', 'not_read', 'not_allowed'],
+        ['GLOBAL', 'not_read', 'not_allowed'], ['GLOBAL', 'not_read', 'binary'], ['GLOBAL', 'bad_lines', 2], ['Docs', 'value', 'move_when_used_above']],
+        array_map(fn ($b) => [$b['scope'], $b['why'], $b['key'] ?? $b['reason'] ?? $b['n'] ?? null], $m['blocked']));
+    same('moverelli import: … not ready, the import refused; a bad debug level only named (its default does no harm)', [false, 'moverelli_import_blocked', [['GLOBAL', 'mover_debug', 'bad']]],
+        [$m['ready'], $err(fn () => moverelliImportDo(['folder' => $messy, 'token' => $m['token']], $h)),
+         array_map(fn ($x) => [$x['section'], $x['key'], $x['why']], array_values(array_filter($m['left'], fn ($x) => $x['why'] === 'bad')))]);
+    check('moverelli import: … nothing of the office\'s data read into the preview', !str_contains(json_encode($m), 'instances'));
+    $m1 = $m;
+
+    // Jack Emby's own list in the office's data folder: not hired — copied (a frozen copy); hired — named (below)
+    file_put_contents("$fs$jackOld/smart_mover.ini", "[Filme]\nexcludes=/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\n");
+    file_put_contents("$root/embycache/embycache_exclude.txt", "/mnt/cache/Filme/B/b.mkv\n");
+    $j = moverelliImportPreview(['folder' => $jackOld], $h)['preview'];
+    same('moverelli import: Jack\'s own list in the office\'s data, he isn\'t hired — read all the same, a frozen copy', [true, [], 1, [['copied', true]]],
+        [$j['ready'], $j['blocked'], $j['lists'][0]['taken'] ?? null, array_map(fn ($f) => [$f['how'], $f['frozen'] ?? null], $j['lists'][0]['files'] ?? [])]);
+
+    // at most so much read over all lists of one import: a file beyond — «too big», which blocks
+    $GLOBALS['moverelliHost']['import']['read_cap'] = 20;
+    $b = moverelliImportPreview(['folder' => $old], moverelliHost())['preview'];
+    same('moverelli import: the read cap — a list bigger than it is not read, blocks', [false, ['GLOBAL', 'not_read', 'big']],
+        [$b['ready'], [$b['blocked'][0]['scope'] ?? null, $b['blocked'][0]['why'] ?? null, $b['blocked'][0]['reason'] ?? null]]);
+    $GLOBALS['moverelliHost']['import']['read_cap'] = 60;
+    $b = moverelliImportPreview(['folder' => $old], moverelliHost())['preview'];
+    same('moverelli import: … counted over all lists: the first fits, the next ones are past the cap', [['Filme', 'not_read', 'big'], ['Filme', 'not_read', 'big']],
+        array_map(fn ($x) => [$x['scope'], $x['why'], $x['reason']], $b['blocked']));
+    unset($GLOBALS['moverelliHost']['import']['read_cap']);
 
     // her settings before: something of her own, a share the old install doesn't have
     moverelliSave(moverelliTestSettings(['min_age' => 2, 'patterns' => ['*.part']], ['Arr' => ['skip' => true, 'min_age' => null, 'age_stat' => null,
@@ -28749,6 +28792,14 @@ function testMoverelliImport(): void
     $filme = array_column($p['lists'], null, 'scope')['Filme'];
     same('moverelli import: Jack hired — his list named, not copied; the other list copied', [true, 1, 2, [['jack', $jackList], ['copied', null]]],
         [$p['jack'], $p['jack_lists'], $filme['taken'], array_map(fn ($f) => [$f['how'], $f['to'] ?? null], $filme['files'])]);
+    $jd = moverelliImportPreview(['folder' => $jackOld], $h)['preview'];
+    same('moverelli import: … his own list in the office\'s data folder named too, never read', [true, [['jack', $jackList]]],
+        [$jd['ready'], array_map(fn ($f) => [$f['how'], $f['to'] ?? null], $jd['lists'][0]['files'] ?? [])]);
+    $v['emby']['shares'] = ['Filme', 'Docs'];
+    same('moverelli import: … a share of his the import leaves uncovered — a warning, no block', [['Docs'], true],
+        [moverelliImportPreview(['folder' => $old], $h)['preview']['jack_uncovered'], moverelliImportPreview(['folder' => $old], $h)['preview']['ready']]);
+    $v['emby']['shares'] = ['Filme'];
+    same('moverelli import: … all of his covered — no warning', [], $p['jack_uncovered']);
     moverelliImportDo(['folder' => $old, 'token' => $p['token']], $h);
     $ini = (string) file_get_contents("$dir/smart_mover.ini");
     same('moverelli import: … Filme keeps his list in her ini, her own list only the rest — his shares covered', [true, "*.nfo\n/mnt/user/Filme/Extras\n", []],
@@ -28777,7 +28828,7 @@ function testMoverelliImport(): void
         hardeningRm($tmp);
         return;
     }
-    file_put_contents("$tmp/data.json", json_encode(['p' => $first, 'done' => $done]));
+    file_put_contents("$tmp/data.json", json_encode(['p' => $first, 'done' => $done, 'messy' => $m1]));
     file_put_contents("$tmp/t.js", <<<'JS'
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
@@ -28797,17 +28848,19 @@ m.importPreview(d.p, '/x');
 m.importPreview({ ...d.p, running: true }, '/x');
 m.importPreview({ ...d.p, ready: false, blocked: [{ scope: 'GLOBAL', why: 'lines', max: 2000 }] }, '/x');
 m.importDone(d.done);
+m.importPreview(d.messy, '/x');
+m.importPreview({ ...d.p, jack_uncovered: ['Docs'] }, '/x');
 console.log(JSON.stringify(dialogs.map((x) => ({ title: x.title, body: texts(x.body), buttons: (x.buttons || []).map((b) => b.text) }))));
 JS);
     $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js')
         . ' ' . escapeshellarg("$tmp/data.json") . ' 2>&1'), true);
-    check('moverelli import page: it runs', is_array($o) && count($o) === 4, json_encode($o));
+    check('moverelli import page: it runs', is_array($o) && count($o) === 6, json_encode($o));
     $o = is_array($o) ? $o : [];
     $body = $o[0]['body'] ?? [];
     $has = fn (array $b, string $x): bool => in_array($x, $b, true);
     same('moverelli import page: the preview — the old values (a default marked), the shares, the lists file by file, what is left out and skipped', [true, true, true, true, true, true, true, true, true, true],
         [$has($body, 'import.preview_bubble'), $has($body, 'age_stat.ctime · import.default'), $has($body, 'setup.min_age'), $has($body, 'setup.min_age: 14'),
-         $has($body, 'import.scope_global — import.taken {"entries":"count.entries {\"n\":2}"}'), $has($body, 'import.how.not_read.asleep'),
+         $has($body, 'import.scope_global — import.taken {"entries":"count.entries {\"n\":2}"}'), $has($body, 'import.how.copied {"entries":"count.entries {\\"n\\":3}"}'),
          $has($body, 'import.how.frozen'), $has($body, 'import.why.hers {"value":"/usr/libexec/unraid/move"}'), $has($body, 'import.skip_why.no_share'),
          $has($body, 'import.backup_note')]);
     same('moverelli import page: «Take over» only when ready and no run of hers goes', [['common.cancel', 'import.go'], ['common.cancel'], ['common.cancel']],
@@ -28815,6 +28868,15 @@ JS);
     same('moverelli import page: … a run going or a list too long — said why', [true, true, true],
         [$has($o[1]['body'] ?? [], 'errors.moverelli_running'), $has($o[2]['body'] ?? [], 'errors.moverelli_import_blocked'),
          $has($o[2]['body'] ?? [], 'import.block.lines {"scope":"import.scope_global","max":2000}')]);
+    $mb = $o[4]['body'] ?? [];
+    same('moverelli import page: what blocks — each said with what to do, no «Take over»', [true, true, true, true, true, true, ['common.cancel']],
+        [$has($mb, 'import.block.value {"scope":"import.scope_global","key":"setup.min_age","reason":"import.why.bad.number {\\"value\\":\\"abc\\"}"}'),
+         $has($mb, 'import.block.not_read.missing {"scope":"import.scope_global","file":"/mnt/user/system/excludes/missing.txt"}'),
+         $has($mb, 'import.block.not_read.asleep {"scope":"import.scope_global","file":"/mnt/user/Sleepy/old/ex.txt"}'),
+         $has($mb, 'import.block.not_read.binary {"scope":"import.scope_global","file":"/mnt/user/system/excludes/binary.lst"}'),
+         $has($mb, 'import.block.bad_lines {"scope":"import.scope_global","n":2}'), $has($mb, 'import.how.not_read.binary'), $o[4]['buttons'] ?? null]);
+    same('moverelli import page: Jack\'s shares left uncovered — her own warning, «Take over» still offered', [true, ['common.cancel', 'import.go']],
+        [$has($o[5]['body'] ?? [], 'errors.moverelli_emby_list {"shares":"Docs"}'), $o[5]['buttons'] ?? null]);
     $end = $o[3]['body'] ?? [];
     same('moverelli import page: the end — switch the old script off (named while on), a dry run first, her copies', [true, true, true, true],
         [$has($end, 'import.done_switch_off import.done_still {"where":"User Scripts: smartmover"}'), $has($end, 'import.done_dry'),

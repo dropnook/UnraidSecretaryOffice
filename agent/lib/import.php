@@ -14,7 +14,8 @@ declare(strict_types=1);
  * has the texts in its lang files (Jack: emby_import, Ms. Moverelli: moverelli_import).
  *
  * $ctx: pools (["/mnt/<pool>", …]), asleep (sleepingDisks()), share_cfg (fn(share): its cfg as key => value), fs (a
- * prefix for the tests' fake tree, '' on the server), own (the desk's folders that are never read from).
+ * prefix for the tests' fake tree, '' on the server), own (the desk's folders that are never read from), own_below
+ * (optional: folders never read from, nor anything below them — the office's data folder for Ms. Moverelli).
  */
 
 /** The folder typed for an earlier install, checked before anything in it is read. Returns the real folder to read from. */
@@ -71,9 +72,16 @@ function importFolder(string $path, array $ctx, string $prefix): string
         }
         $real = $next;
     }
+    $here = realpath($fs . $real);
     foreach ((array) ($ctx['own'] ?? []) as $own) {
         $mine = realpath((string) $own);
-        if ($mine !== false && realpath($fs . $real) === $mine) {
+        if ($mine !== false && $here === $mine) {
+            throw new Problem("{$prefix}_own", ['path' => $path]);
+        }
+    }
+    foreach ((array) ($ctx['own_below'] ?? []) as $own) {
+        $mine = realpath((string) $own);
+        if ($mine !== false && $here !== false && ($here === $mine || str_starts_with($here, rtrim($mine, '/') . '/'))) {
             throw new Problem("{$prefix}_own", ['path' => $path]);
         }
     }
@@ -103,6 +111,26 @@ function importShareBases(string $share, array $ctx): array
 /** One known file in the old folder: a plain file of its own (no link, no second hard link), at most $cap bytes; null when it isn't there */
 function importRead(string $dir, string $name, int $cap, string $prefix): ?string
 {
+    $h = importOpen($dir, $name, $cap, $prefix);
+    if ($h === null) {
+        return null;
+    }
+    $data = (string) stream_get_contents($h, $cap + 1);
+    fclose($h);
+    if (strlen($data) > $cap) {
+        throw new Problem("{$prefix}_big", ['file' => $name]);
+    }
+    return $data;
+}
+
+/**
+ * The same checks as importRead(), the file opened for reading (the caller reads it — line by line — and closes it,
+ * keeping to $cap itself: the file may grow meanwhile); null when it isn't there.
+ *
+ * @return resource|null
+ */
+function importOpen(string $dir, string $name, int $cap, string $prefix)
+{
     $file = "$dir/$name";
     clearstatcache(true, $file);
     $st = @lstat($file);
@@ -123,12 +151,7 @@ function importRead(string $dir, string $name, int $cap, string $prefix): ?strin
         }
         throw new Problem("{$prefix}_file", ['file' => $name]);
     }
-    $data = (string) stream_get_contents($h, $cap + 1);
-    fclose($h);
-    if (strlen($data) > $cap) {
-        throw new Problem("{$prefix}_big", ['file' => $name]);
-    }
-    return $data;
+    return $h;
 }
 
 /** A copy of each of these files of the desk's that exists (plain files only), named <file>.before-import-<stamp>, next to it */

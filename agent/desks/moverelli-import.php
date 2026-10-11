@@ -12,15 +12,21 @@ declare(strict_types=1);
  *   - the keys her setup knows ([GLOBAL] min_age, age_stat, move_when_used_above, move_prefer_shares, mover_debug,
  *     max_list; per share skip, min_age, age_stat, move_when_used_above), each checked like her setup page's values — a
  *     value that fails is named with why and left out (the GLOBAL key then gets Smart Mover's default, a share's «as
- *     for all»); a GLOBAL key left out or empty gets Smart Mover's default, as the old install had it;
+ *     for all») — but a bad min_age or move_when_used_above blocks the import (their fallback 0 would move at once /
+ *     always); a GLOBAL key left out or empty gets Smart Mover's default, as the old install had it;
  *   - mover_bin and log_file stay hers (named); keys she doesn't know are named and left out; sections of shares this
  *     server has no cfg for are named as skipped;
  *   - the exclude lists (global_excludes, a share's excludes): their CONTENT is copied into her own lists
  *     (excludes/global.txt, excludes/share-<share>.txt) — merged, de-duplicated, comments and blank lines dropped, the
- *     order kept. Each file is read only when it is a plain file in a folder she may read from (the same checks), on
- *     awake disks, size-capped; otherwise it is named as not read (asleep, missing, not allowed, too big). EmbyCache's
+ *     order kept. Each file is read line by line, only when it is a plain text file (no NUL in its first 4 KB) in a
+ *     folder she may read from (the same checks, never the office's own data folder), on awake disks, at most 2 MB and
+ *     8 MB over all lists of one import. A protecting list that can't be had never silently disappears (the owner's
+ *     rule): a list not read (asleep, missing, not allowed, too big, binary) or a line her lists can't take blocks the
+ *     import, said with what to do; the user fixes it and looks again. EmbyCache's
  *     list (embycache_exclude.txt): while Jack Emby is hired it is not copied — the scope names Jack's own list instead,
- *     the way her setup's «Add Jack Emby's list» does; while he isn't, it is copied like any other (a frozen copy, said).
+ *     the way her setup's «Add Jack Emby's list» does; while he isn't, it is copied like any other (a frozen copy, said),
+ *     also from his own data folder. Jack hired and a share of his left uncovered by the result: a warning (her real
+ *     runs are refused until his list is added), no block.
  * The import replaces her settings as a whole (the old install's behaviour, not a mix) — the preview says what of hers
  * goes. Preview first (what will be set, per list how many entries, what is left out and why), then the import with the
  * preview's token (over the preview, what will be written and her files now): refused while a run of hers goes, a copy
@@ -31,7 +37,9 @@ declare(strict_types=1);
 const MOVERELLI_IMPORT_INI       = 'smart_mover.ini';
 const MOVERELLI_IMPORT_INI_CAP   = 262144;          // bytes of the old smart_mover.ini
 const MOVERELLI_IMPORT_LIST_CAP  = 2097152;         // bytes of one old exclude list (her own lists hold at most 2000 lines of ≤ 1000 bytes)
+const MOVERELLI_IMPORT_READ_CAP  = 8388608;         // bytes read over all old exclude lists of one import (beyond: «too big», which blocks)
 const MOVERELLI_IMPORT_FILES_MAX = 50;              // exclude files one scope of the old ini may name
+const MOVERELLI_IMPORT_NO_FALLBACK = ['min_age', 'move_when_used_above'];     // a bad one blocks: its default (0) moves at once / always
 const MOVERELLI_IMPORT_SAMPLE    = 3;               // entries of a list the preview shows
 const MOVERELLI_IMPORT_EMBY      = 'embycache_exclude.txt';
 const MOVERELLI_IMPORT_GLOBAL    = ['min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list', 'global_excludes'];
@@ -53,6 +61,10 @@ function moverelliImportContext(?array $h = null): array
         'shares'    => moverelliShareNames($sharesDir, $h['shares_ini']),
         'emby'      => ($h['emby'])(),
         'own'       => [$h['dir'], "$h[dir]/excludes"],
+        // never read from the office's own data (as the agent reaches it, and as set) — but Jack Emby's list (emby_dirs)
+        'own_below' => array_values(array_unique([DATA_DIR, DATA_DIR_USER])),
+        'emby_dirs' => array_values(array_unique([EMBY_DATA, dataPathUser(EMBY_DATA)])),
+        'read_cap'  => MOVERELLI_IMPORT_READ_CAP,
     ];
 }
 
@@ -122,6 +134,15 @@ function moverelliImportPlan(string $folder, array $ctx): array
     $ini = moverelliIniParse($text);
     $left = $skipped = $blocked = $lists = [];
     $show = fn (string $v): string => mb_substr($v, 0, 120);
+    $budget = ['left' => (int) ($ctx['read_cap'] ?? MOVERELLI_IMPORT_READ_CAP)];
+    // a bad age or fill blocks (its fallback 0 would move at once / always); other bad values keep the default, named
+    $bad = function (string $sec, string $k, string $why, string $v) use (&$left, &$blocked, $show): void {
+        if (in_array($k, MOVERELLI_IMPORT_NO_FALLBACK, true)) {
+            $blocked[] = ['scope' => $sec, 'why' => 'value', 'key' => $k, 'reason' => $why, 'value' => $show($v)];
+        } else {
+            $left[] = ['section' => $sec, 'key' => $k, 'why' => 'bad', 'reason' => $why, 'value' => $show($v)];
+        }
+    };
 
     // [GLOBAL]: the keys she knows, checked; empty or left out = Smart Mover's default (what the old install had)
     $g = $ini['GLOBAL'] ?? [];
@@ -136,14 +157,14 @@ function moverelliImportPlan(string $folder, array $ctx): array
             $left[] = ['section' => 'GLOBAL', 'key' => $k, 'why' => 'hers', 'value' => $show($v)];
         } elseif (!in_array($k, MOVERELLI_IMPORT_GLOBAL, true)) {
             $left[] = ['section' => 'GLOBAL', 'key' => mb_substr($k, 0, 80), 'why' => 'unknown'];
-        } elseif (($bad = moverelliImportValue($k, $v, $value)) !== null) {
-            $left[] = ['section' => 'GLOBAL', 'key' => $k, 'why' => 'bad', 'reason' => $bad, 'value' => $show($v)];
+        } elseif (($why = moverelliImportValue($k, $v, $value)) !== null) {
+            $bad('GLOBAL', $k, $why, $v);
         } else {
             $global[$k] = $value;
             $taken[$k] = true;
         }
     }
-    [$global['files'], $global['patterns'], $lists[]] = moverelliImportLists('GLOBAL', (string) ($g['global_excludes'] ?? ''), $ctx, $blocked);
+    [$global['files'], $global['patterns'], $lists[]] = moverelliImportLists('GLOBAL', (string) ($g['global_excludes'] ?? ''), $ctx, $blocked, $budget);
     $values = [];
     foreach (array_keys(MOVERELLI_DEFAULTS) as $k) {
         $values[] = ['key' => $k, 'value' => $global[$k], 'old' => isset($taken[$k])];
@@ -173,15 +194,15 @@ function moverelliImportPlan(string $folder, array $ctx): array
             }
             if (!in_array($k, MOVERELLI_IMPORT_SHARE, true)) {
                 $left[] = ['section' => $sec, 'key' => mb_substr($k, 0, 80), 'why' => 'unknown'];
-            } elseif (($bad = moverelliImportValue($k, $v, $value)) !== null) {
-                $left[] = ['section' => $sec, 'key' => $k, 'why' => 'bad', 'reason' => $bad, 'value' => $show($v)];
+            } elseif (($why = moverelliImportValue($k, $v, $value)) !== null) {
+                $bad($sec, $k, $why, $v);
             } else {
                 $row[$k] = $value;
                 $given[] = ['key' => $k, 'value' => $value];
             }
         }
         if (($vals['excludes'] ?? '') !== '') {
-            [$row['files'], $row['patterns'], $lists[]] = moverelliImportLists($sec, (string) $vals['excludes'], $ctx, $blocked);
+            [$row['files'], $row['patterns'], $lists[]] = moverelliImportLists($sec, (string) $vals['excludes'], $ctx, $blocked, $budget);
         }
         if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null || $row['files'] || $row['patterns']) {
             $shares[$sec] = $row;
@@ -209,6 +230,8 @@ function moverelliImportPlan(string $folder, array $ctx): array
         'gone'       => $gone,
         'jack'       => $ctx['emby'] !== null,
         'jack_lists' => count(array_filter($lists, fn ($l) => in_array('jack', array_column($l['files'], 'how'), true))),
+        // Jack Emby hired: his shares the imported settings don't keep EmbyCache's list away from (her real runs are refused then)
+        'jack_uncovered' => moverelliImportJackUncovered($set, $ctx['emby']),
         'ready'      => !$blocked,
     ];
     // the token: what the page saw, what will be written, and her own files as they are now
@@ -253,12 +276,26 @@ function moverelliImportValue(string $key, string $v, mixed &$value): ?string
     return null;
 }
 
+/** Jack Emby's shares the settings to be written don't keep EmbyCache's list away from (embyMoverelliUncovered(), as her rule will see it); [] while he isn't hired */
+function moverelliImportJackUncovered(array $set, ?array $emby): array
+{
+    if ($emby === null) {
+        return [];
+    }
+    $look = ['global' => $set['global']['files'], 'shares' => []];
+    foreach ($set['shares'] as $share => $s) {
+        $look['shares'][(string) $share] = ['skip' => $s['skip'], 'excludes' => $s['files']];
+    }
+    return embyMoverelliUncovered($look, (array) ($emby['lists'] ?? []), array_map('strval', (array) ($emby['shares'] ?? [])));
+}
+
 /**
  * A scope's exclude files of the old ini (a comma list): their lines copied — merged, de-duplicated, comments and blank
  * lines dropped, the order kept; EmbyCache's list while Jack Emby is hired: his own list named instead. Returns [files
- * (Jack's list or none), lines, the report for the preview]; a scope she can't take whole goes into $blocked.
+ * (Jack's list or none), lines, the report for the preview]. What would let something protected move blocks the import
+ * ($blocked): a list not read, a line her lists can't take, more than her lists hold. $budget: bytes left to read.
  */
-function moverelliImportLists(string $scope, string $value, array $ctx, array &$blocked): array
+function moverelliImportLists(string $scope, string $value, array $ctx, array &$blocked, array &$budget): array
 {
     $names = moverelliList($value);
     $files = $lines = $seen = $report = [];
@@ -277,13 +314,14 @@ function moverelliImportLists(string $scope, string $value, array $ctx, array &$
             $report[] = $entry + ['how' => 'jack', 'to' => $jack];
             continue;
         }
-        [$text, $why] = moverelliImportListRead($f, $ctx);
-        if ($text === null) {
+        [$read, $why] = moverelliImportListRead($f, $ctx, $budget, $emby);
+        if ($read === null) {
             $report[] = $entry + ['how' => 'not_read', 'why' => $why];
+            $blocked[] = ['scope' => $scope, 'why' => 'not_read', 'file' => $entry['file'], 'reason' => $why];
             continue;
         }
         $n = $new = 0;
-        foreach (preg_split('/\r?\n/', $text) ?: [] as $line) {
+        foreach ($read as $line) {
             $line = trim($line);
             if ($line === '' || $line[0] === '#' || $line[0] === ';') {
                 continue;
@@ -307,6 +345,9 @@ function moverelliImportLists(string $scope, string $value, array $ctx, array &$
             break;
         }
     }
+    if ($bad > 0) {
+        $blocked[] = ['scope' => $scope, 'why' => 'bad_lines', 'n' => $bad];
+    }
     if (count($lines) > MOVERELLI_LINES_MAX) {
         $blocked[] = ['scope' => $scope, 'why' => 'lines', 'max' => MOVERELLI_LINES_MAX];
     }
@@ -314,14 +355,34 @@ function moverelliImportLists(string $scope, string $value, array $ctx, array &$
     return [$files, $lines, ['scope' => $scope, 'taken' => count($lines), 'bad' => $bad, 'sample' => $sample, 'files' => $report]];
 }
 
-/** One old exclude file: read only in a folder she may read from (importFolder()), plain and size-capped. [text, null] or [null, why] */
-function moverelliImportListRead(string $file, array $ctx): array
+/** Is this EmbyCache list Jack Emby's own (in his data folder, which lies in the office's)? */
+function moverelliImportIsJackList(string $file, array $ctx): bool
+{
+    $here = realpath(($ctx['fs'] ?? '') . dirname($file));
+    foreach ((array) ($ctx['emby_dirs'] ?? []) as $d) {
+        if ($here !== false && $here === realpath((string) $d)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * One old exclude file, line by line: only in a folder she may read from (importFolder() — never the office's own data,
+ * but Jack Emby's own EmbyCache list there), plain, a text (no NUL in its first 4 KB), at most MOVERELLI_IMPORT_LIST_CAP
+ * bytes and what is left of the import's $budget. [lines, null] or [null, why: asleep|missing|not_allowed|big|binary].
+ */
+function moverelliImportListRead(string $file, array $ctx, array &$budget, bool $emby = false): array
 {
     if (!str_starts_with($file, '/')) {
         return [null, 'not_allowed'];
     }
+    if ($emby && moverelliImportIsJackList($file, $ctx)) {
+        unset($ctx['own_below']);
+    }
+    $cap = max(0, min(MOVERELLI_IMPORT_LIST_CAP, (int) $budget['left']));
     try {
-        $text = importRead(importFolder(dirname($file), $ctx, 'moverelli_import'), basename($file), MOVERELLI_IMPORT_LIST_CAP, 'moverelli_import');
+        $h = importOpen(importFolder(dirname($file), $ctx, 'moverelli_import'), basename($file), $cap, 'moverelli_import');
     } catch (Problem $p) {
         return [null, match ($p->key) {
             'moverelli_import_asleep'  => 'asleep',
@@ -330,5 +391,26 @@ function moverelliImportListRead(string $file, array $ctx): array
             default                    => 'not_allowed',
         }];
     }
-    return $text === null ? [null, 'missing'] : [$text, null];
+    if ($h === null) {
+        return [null, 'missing'];
+    }
+    $head = (string) fread($h, 4096);
+    if (str_contains($head, "\0")) {
+        fclose($h);
+        $budget['left'] -= strlen($head);
+        return [null, 'binary'];
+    }
+    rewind($h);
+    $lines = [];
+    $read = 0;
+    while (($line = fgets($h)) !== false) {
+        $read += strlen($line);
+        if ($read > $cap) {
+            break;
+        }
+        $lines[] = $line;
+    }
+    fclose($h);
+    $budget['left'] -= $read;
+    return $read > $cap ? [null, 'big'] : [$lines, null];
 }

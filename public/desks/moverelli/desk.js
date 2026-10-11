@@ -770,13 +770,26 @@ function importFileText(f) {
   return T('import.how.not_read.' + (f.why || 'not_allowed'));
 }
 
+/** What stops the import, with what to do: a list not read, lines her lists can't take, a bad age or fill, too much */
+function importBlockText(b) {
+  const scope = importScope(b.scope);
+  if (b.why === 'not_read') return T('import.block.not_read.' + (b.reason || 'not_allowed'), { scope, file: b.file });
+  if (b.why === 'bad_lines') return T('import.block.bad_lines', { scope, n: Number(b.n) || 0 });
+  if (b.why === 'value') {
+    return T('import.block.value', { scope, key: T(IMPORT_LABEL[b.key] || 'setup.min_age'), reason: T('import.why.bad.' + b.reason, { value: b.value }) });
+  }
+  if (b.why === 'files') return T('import.block.files', { scope, n: b.n, max: b.max });
+  return T('import.block.lines', { scope, max: b.max });
+}
+
 function importPreview(p, folder) {
   const box = el('div');
   box.appendChild(el('p', '', T('import.preview_bubble')));
   const kv = el('dl', 'kv');
   kv.append(el('dt', '', T('import.folder')), el('dd', 'mono', p.folder));
   box.appendChild(kv);
-  (p.blocked || []).forEach((b) => box.appendChild(el('p', 'callout warn', T('import.block.' + b.why, { scope: importScope(b.scope), ...(b.n !== undefined ? { n: b.n } : {}), max: b.max }))));
+  (p.blocked || []).forEach((b) => box.appendChild(el('p', 'callout warn', importBlockText(b))));
+  if ((p.jack_uncovered || []).length) box.appendChild(el('p', 'callout warn', T('errors.moverelli_emby_list', { shares: p.jack_uncovered.join(', ') })));
   if (p.configured) {
     box.appendChild(el('p', 'callout', T('import.replaces') + (p.gone.length ? ' ' + T('import.gone', { shares: p.gone.join(', ') }) : '')));
   }
