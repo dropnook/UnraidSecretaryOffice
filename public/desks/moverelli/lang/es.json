@@ -2,7 +2,7 @@
   "name": "Señora Moverelli",
   "role": "Experta en mudanzas — lleva al array lo que ha estado bastante tiempo en el pool, y deja en paz lo que debe quedarse",
   "visit": "Ir a ver a la Señora Moverelli",
-  "training": "Completa el mover de Unraid con el Smart Mover de helmi1987 — todavía en formación, pronto podrás contratarla.",
+  "training": "Completa el mover de Unraid con el Smart Mover de helmi1987 y trabaja codo con codo con Jack Emby, si ha sido contratado — todavía en formación, pronto podrás contratarla.",
   "fire_note": "Si me despides, mis ejecuciones se detienen: una programación mía que quede en el archivo cron de la oficina no hace nada mientras no esté contratada (apágala antes en «Programación» si quieres que desaparezca). Una ejecución en curso termina primero su recurso compartido — nunca interrumpo un movimiento a medias. La programación del mover de Unraid se queda como está: vuelve a encenderla en ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ si la quieres de nuevo.",
   "greet.1": "¡Cajas hechas, etiquetas puestas!",
   "greet.2": "Lo viejo al array, lo nuevo se queda a mano.",

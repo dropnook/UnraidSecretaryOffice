@@ -2,7 +2,7 @@
   "name": "Frau Moverelli",
   "role": "Zügeldame — bringt aufs Array, was lange genug auf dem Pool lag, und lässt in Ruhe, was bleiben soll",
   "visit": "Frau Moverelli besuchen",
-  "training": "Sie ergänzt Unraids Mover mit helmi1987s Smart Mover — noch in Ausbildung, bald anstellbar.",
+  "training": "Sie ergänzt Unraids Mover mit helmi1987s Smart Mover und arbeitet Hand in Hand mit Jack Emby, sofern er eingestellt wurde — noch in Ausbildung, bald anstellbar.",
   "fire_note": "Lässt du mich gehen, laufe ich nicht mehr: Ein Zeitplan von mir, der in der Cron-Datei des Sekretariats bleibt, tut nichts, solange ich nicht eingestellt bin (schalte ihn vorher unter «Zeitplan» aus, wenn er weg soll). Ein laufender Lauf bringt seinen Share noch zu Ende — ich höre nie mitten im Verschieben auf. Unraids eigener Mover-Zeitplan bleibt, wie er ist: Unter ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ schaltest du ihn wieder ein, wenn du ihn zurück willst.",
   "greet.1": "Kisten gepackt, Etiketten drauf!",
   "greet.2": "Altes aufs Array, Neues bleibt nah.",

@@ -2,7 +2,7 @@
   "name": "Ms. Moverelli",
   "role": "Removals lady — moves what has sat on the pool long enough to the array, and leaves alone what should stay",
   "visit": "Visit Ms. Moverelli",
-  "training": "She completes Unraid's mover with helmi1987's Smart Mover — still in training, soon ready to hire.",
+  "training": "She completes Unraid's mover with helmi1987's Smart Mover and works hand in hand with Jack Emby, if he has been hired — still in training, soon ready to hire.",
   "fire_note": "Letting me go stops my runs: a schedule of mine left in the office's cron file does nothing while I'm not hired (switch it off first under «Schedule» if you want it gone). A run that is going finishes its share first — I never stop a move halfway. Unraid's own mover schedule stays as it is: switch it on again under ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ if you want it back.",
   "greet.1": "Boxes packed, labels on!",
   "greet.2": "Old things to the array, new things stay close.",
