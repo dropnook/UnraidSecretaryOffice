@@ -29,6 +29,9 @@
 .wm-fix{display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; min-width:0}
 .wm-fix code{flex:1 1 260px; min-width:0; padding:4px 6px; border-radius:4px; background:var(--surface2)}
 .wm-fix .wm-note{flex-basis:100%}
+/* «The last round»: the row's head — one line of facts, his two switches on its right, the notes under it */
+.wm-round{display:flex; flex-direction:column; gap:8px; margin-bottom:12px}
+.wm-round-line{cursor:help}
 .wm-notes{display:flex; flex-direction:column; gap:6px}
 .wm-notes .callout, .wm-notes .role{margin:0}
 /* how secure it stands: a tip, its link into Unraid and «I know, thanks» on the right (under it on a phone) */

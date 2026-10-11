@@ -19,6 +19,7 @@ let dstate = null;         // restore.drill_state: settings, his drills, the one
 let job = null;            // data/restore-drill-job.json (api part "drill-job") while a drill runs
 let timer = null;
 let loading = false;
+let asked = false;         // the section asked for his look once this visit (it stands on the whole page too: never again and again)
 const opened = new Map();  // drill id -> {journal, log, error, loading}
 
 const T = (k, p) => x.T(k, p);
@@ -156,7 +157,7 @@ function section() {
   const s = x.sectionBox(T('drill.title'), T('drill.sub'), ...actions, { place: 'drill.title' });
   if (!dstate && !cert) {
     s.appendChild(el('p', 'empty', Office.agent.running ? Office.t('common.loading') : T('drill.no_agent')));
-    if (!loading && Office.agent.running) refresh();
+    if (!loading && !asked && Office.agent.running) { asked = true; refresh(); }
     return s;
   }
   if (live()) s.appendChild(runningBox());
@@ -590,7 +591,7 @@ Office.restoreDrill = {
     const bad = items.some((it) => it.result === 'failed');
     return x.chip(bad ? T('drill.chip_failed') : T('drill.chip_proven', { when: x.fmt.relative(cert.last.ended) }), bad ? 'danger' : 'ok', T('drill.chip_hint'));
   },
-  stop() { clearTimeout(timer); timer = null; },
+  stop() { clearTimeout(timer); timer = null; asked = false; },
 };
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine, poll, job: () => job,

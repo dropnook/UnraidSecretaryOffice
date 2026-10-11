@@ -1,6 +1,7 @@
 {
   "keys": [
     "docker.title",
+    "found.title",
     "help.counted",
     "help.favorites",
     "help.grouped",
@@ -12,9 +13,8 @@
     "live",
     "only_problems",
     "reading",
-    "tile.found",
+    "tile.read",
     "tour",
-    "tour_section",
     "varlog.title"
   ],
   "texts": [
