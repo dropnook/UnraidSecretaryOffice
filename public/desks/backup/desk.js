@@ -1673,11 +1673,17 @@ const ENGINE_DEFAULTS = { 'general|asleep_pools': 'wake', 'general|preset_new': 
  */
 const ONLY_CHOSEN = ['general|asleep_pools'];
 
-/** The decisions Apply sends: the draft, without the keys of ONLY_CHOSEN the user didn't choose here */
+/** The [app] sections of settings.ini whose app is gone (engine 2.40, the plan's apps[] marked gone): Apply removes them */
+const goneApps = (plan) => ((plan && Array.isArray(plan.apps)) ? plan.apps : []).filter((a) => a && a.gone && typeof a.name === 'string' && a.name !== '');
+/** Is this key one of a gone app's section? */
+const goneAppKey = (k, plan) => goneApps(plan).some((a) => k.startsWith(`app|${a.name}|`));
+
+/** The decisions Apply sends: the draft, without the keys of ONLY_CHOSEN the user didn't choose here, never a gone app's */
 function setupDecisions() {
   const out = { ...setup.draft, _retire_sources: setup.retire ? 'yes' : 'no' };
   const base = setup.base || setup.plan.P || {};
   ONLY_CHOSEN.forEach((k) => { if (same(base[k], setup.draft[k])) delete out[k]; });
+  Object.keys(out).forEach((k) => { if (goneAppKey(k, setup.plan)) delete out[k]; });
   return out;
 }
 
@@ -1689,6 +1695,7 @@ function setupApplyChanges(saved) {
   const sent = setupDecisions();
   const view = { ...setup.draft };
   ONLY_CHOSEN.forEach((k) => { if (!(k in sent)) { if (saved[k] === undefined) delete view[k]; else view[k] = saved[k]; } });
+  Object.keys(view).forEach((k) => { if (goneAppKey(k, setup.plan)) delete view[k]; });
   return { view, keys: setupChanges(saved, view) };
 }
 
@@ -1748,7 +1755,8 @@ function setupSummary() {
     `mine` the rest — proposals of Mr. Backupsy's, each one the user can leave out in the dialog (setupDecline()) */
 function setupSplit() {
   const touched = new Set(setupEdits());
-  const { keys } = setupApplyChanges(setupSaved());
+  // a gone app's section counts once, as its dialog line does (engine 2.40)
+  const keys = [...new Set(setupApplyChanges(setupSaved()).keys.map((k) => (goneAppKey(k, setup.plan) ? `app|${k.split('|')[1]}|` : k)))];
   return { yours: keys.filter((k) => touched.has(k)), mine: keys.filter((k) => !touched.has(k)) };
 }
 
@@ -1852,9 +1860,12 @@ function setupApply() {
     const saved = setupSaved();
     // what Apply really sends (setupApplyChanges()); the units' partner lists have their own group below («To partners»)
     const { view, keys } = setupApplyChanges(saved);
-    const changes = keys.filter((k) => !/^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$/.test(k));
-    box.appendChild(el('p', '', changes.length ? T('setup.apply_text', { n: changes.length }) : T('setup.apply_none')));
-    if (changes.length) {
+    // a gone app's section (engine 2.40): one line «gone — entry will be removed», never key by key, never declined
+    const gone = goneApps(setup.plan).filter((a) => keys.some((k) => k.startsWith(`app|${a.name}|`)));
+    const changes = keys.filter((k) => !/^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$/.test(k) && !goneAppKey(k, setup.plan));
+    const total = changes.length + gone.length;
+    box.appendChild(el('p', '', total ? T('setup.apply_text', { n: total }) : T('setup.apply_none')));
+    if (total) {
       const ul = el('ul', 'shortlist');
       // the settings for the whole backup first - never lost among 80 share lines
       const general = (k) => (k.startsWith('general|') ? 0 : 1);
@@ -1874,6 +1885,11 @@ function setupApply() {
           no.onclick = () => { setupDecline(k); renderSetup(); setupApply(); };      // the list anew, without it
           what.appendChild(no);
         }
+        ul.appendChild(li);
+      });
+      gone.forEach((a) => {
+        const li = el('li', '', T('setup.ch_app_gone', { name: a.name }));
+        li.appendChild(el('span', '', T('setup.why.gone')));
         ul.appendChild(li);
       });
       box.appendChild(ul);
@@ -3629,7 +3645,8 @@ function setupVms(plan) {
 function setupApps(plan) {
   const s = Office.place('setup.apps', setupSection(T('setup.apps'), T('setup.apps_sub')));
   const m = setup.model;
-  if (!m.apps.length && !m.skipped.length) { s.appendChild(el('p', 'empty', T('setup.apps_none'))); return s; }
+  const gone = goneApps(plan);
+  if (!m.apps.length && !m.skipped.length && !gone.length) { s.appendChild(el('p', 'empty', T('setup.apps_none'))); return s; }
   const shareOf = (n) => plan.shares.find((x) => x.name === n);
   const list = el('div', 'box');
   let head = null;
@@ -3705,6 +3722,25 @@ function setupApps(plan) {
     // in .bk-right like the other rows: at phone width it goes under the description instead of squeezing it
     const right = el('div', 'bk-right');
     right.appendChild(chip(T(c.kopia ? 'setup.ct_kopia' : 'setup.ct_office'), 'quiet'));
+    row.appendChild(right);
+    list.appendChild(row);
+  });
+  // in settings.ini, gone from the server (engine 2.40): like a gone share — no level, Apply removes the entry
+  let goneHead = false;
+  gone.forEach((a) => {
+    const folders = a.keys && Array.isArray(a.keys.folder) ? a.keys.folder : [];
+    if (!fitRow([a.name, ...folders], false)) return;
+    if (!goneHead) { list.appendChild(el('div', 'bk-subhead', T('setup.apps_gone'))); goneHead = true; }
+    const row = el('div', 'row nocheck bk-app bk-gone');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', a.name));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(el('span', '', T('setup.why.gone')));
+    if (a.keys && a.keys.kopia === 'yes' && folders.length) meta.appendChild(el('span', '', T('setup.app_gone_had', { list: folders.join(', ') })));
+    main.appendChild(meta);
+    row.appendChild(main);
+    const right = el('div', 'bk-right');
+    right.appendChild(chip(T('setup.gone'), 'warn'));
     row.appendChild(right);
     list.appendChild(row);
   });

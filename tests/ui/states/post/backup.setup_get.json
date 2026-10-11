@@ -755,6 +755,10 @@
     "mariadb-nextcloud",
     "EmbyServer",
     "Node-Exporter"
+   ],
+   "app|zz-old-stack|kopia": "yes",
+   "app|zz-old-stack|folder": [
+    "appdata/zz-old-stack"
    ]
   },
   "pending": [
@@ -1944,6 +1948,18 @@
       "params": []
      }
     ]
+   }
+  ],
+  "apps": [
+   {
+    "name": "zz-old-stack",
+    "gone": true,
+    "keys": {
+     "kopia": "yes",
+     "folder": [
+      "appdata/zz-old-stack"
+     ]
+    }
    }
   ]
  }

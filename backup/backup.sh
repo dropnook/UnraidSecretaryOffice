@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.39 - 2026-10-10
+# unraid-backup - backup.sh                       Version 2.40 - 2026-10-11
+#   2.40 (setup.sh only: an [app] section whose app is gone is removed like a gone share's entry)
 #   2.39 (setup.sh only: every hint and warning of the setup carries a code for the office)
 #   2.38 A new folder of an app/VM share inherits the level of its app or VM also when that one was set up before and
 #        is only local ([docker] known / a [vm] section, no kopia = yes): decided, it stays local silently - no
