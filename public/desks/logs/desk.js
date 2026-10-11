@@ -43,7 +43,7 @@ const opts = {
   lines: Number(Office.store('logs.lines')) || 500,
   follow: Office.store('logs.follow') !== '0',
   wrap: Office.store('logs.wrap') === '1',
-  only: Office.store('logs.only') === '1',
+  only: false,                // «only problems» is a filter: never kept (CLAUDE.md «Tiles»)
   query: '',
 };
 let favs = Office.storeJson('logs.favorites') || DEFAULT_FAVS.slice();    // source ids, in the order they were starred
@@ -240,7 +240,7 @@ function build(root) {
     const input = el('input');
     input.type = 'checkbox';
     input.checked = opts[key];
-    input.onchange = () => { opts[key] = input.checked; Office.store('logs.' + key, input.checked ? '1' : '0'); onchange(); };
+    input.onchange = () => { opts[key] = input.checked; if (key !== 'only') Office.store('logs.' + key, input.checked ? '1' : '0'); onchange(); };
     label.append(input, el('span', '', text));
     return label;
   };
@@ -378,12 +378,9 @@ function renderTiles() {
   }
   if (loud.length > shownTiles.length) {
     const rest = loud.slice(shownTiles.length);
-    const c = el('button', 'card lg-src-tile lg-src-more');
-    c.type = 'button';
-    c.onclick = () => openTile('found');
-    c.append(el('span', 'card-name', T('tile.more_logs', { n: rest.length })),
-      counts(rest.reduce((n, s) => n + s.errors, 0), rest.reduce((n, s) => n + s.warnings, 0)));
-    view.srcTiles.appendChild(c);
+    // «n more logs»: the rest are in «Errors & warnings» — the same tile behind it (pressed while that is open)
+    view.srcTiles.appendChild(card('found', { name: T('tile.more_logs', { n: rest.length }), cls: 'lg-src-tile lg-src-more',
+      lines: [counts(rest.reduce((n, s) => n + s.errors, 0), rest.reduce((n, s) => n + s.warnings, 0))] }));
   }
   view.srcTiles.hidden = !view.srcTiles.children.length;
 }
@@ -624,7 +621,7 @@ function openLog(id, kind) {
     if (n > opts.lines) { opts.lines = n; view.lines.value = String(n); }      // for this reading — not remembered
   }
   if (opts.query) { opts.query = ''; view.query.value = ''; }
-  view.readSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  view.readSection.scrollIntoView({ block: 'start', behavior: 'smooth' });     /* reveal */ // the reader a tour line asked for
   if (id !== opts.source) pick(id, true); else restart(true);
 }
 

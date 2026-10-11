@@ -639,7 +639,7 @@ function btrfsCard(part) {
 }
 
 function vmCard(part) {
-  const card = poolTileAttrs(el('button', 'card' + (poolFilter === 'VMs' ? ' active' : '') + (part.snapshots.length ? '' : ' empty-card')), 'VMs');
+  const card = poolTileAttrs(Office.place('pool:VMs', el('button', 'card' + (poolFilter === 'VMs' ? ' active' : '') + (part.snapshots.length ? '' : ' empty-card'))), 'VMs');
   card.type = 'button';
   const head = el('div', 'card-head');
   head.append(el('span', 'card-name', 'VMs'), el('span', 'tag', 'libvirt'));

@@ -27,6 +27,10 @@ plugin and a desk are built). In short:
   where it can't be avoided — say so in the pull request.
 * **Every text in all five languages** (`en`, `de`, `it`, `fr`, `es`), never hard-coded in JS or PHP; Unraid's own
   labels as `⟦English label⟧` tokens.
+* **Tiles and lists** follow CLAUDE.md «Tiles» and docs/DEVELOPMENT.md «Tiles and lists»: they are built with core.js's
+  shared helpers — `Office.filterBar`, `Office.stat`, `Office.tile`, `Office.fits` — never with filter code or tile markup
+  of a desk's own. A pull request that brings its own is asked to move onto the helpers; `testTilesConvention` and the
+  click test (`tools/ui-clicks.sh`) check it.
 * **The web side never touches the host;** everything that needs the system goes through the agent. Never wake sleeping
   disks, never block the array stop, never change a setting without a preview and a confirmation.
 * **Tests:** `php tests/run.php <test> …` on an Unraid server (a copy of the repository is enough; it never touches the

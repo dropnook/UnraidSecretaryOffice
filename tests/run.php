@@ -28123,13 +28123,285 @@ JS);
 }
 
 
+/**
+ * The tiles rule for every desk (CLAUDE.md «Tiles», docs/DEVELOPMENT.md «Tiles and lists», 2026-10-11), read in the
+ * code of every public/desks/<id>/*.js — so a new desk, or a contributor's change, is told what to move onto core's
+ * helpers (Office.stat, Office.tile, Office.filterBar, Office.fits), each fault with its file and line:
+ *   - no role="button" in markup, and none set on a .stat / .card (a tile is a real <button>; a group's head or a row's
+ *     name that folds may carry one — CLAUDE.md «Rows»);
+ *   - no scrollIntoView( — a tile click keeps the page in place (Office.keepInPlace); a jump a link asked for (to a row,
+ *     the reader, a dialog's error line) carries the marker comment reveal on its line;
+ *   - no word folding of a desk's own (normalize('NFD'), .replace(/ß/): Office.fold, Office.filterWords, Office.fits;
+ *   - every button.card a desk builds by hand sets aria-pressed (itself, or through a helper that does);
+ *   - Office.store / storeJson keys never name a filter, words, «only …» or a query (a filter is never kept);
+ *   - every tile that filters (filters: beside controls:, or data-filters) is a place of the search: a kind 'tile' entry of
+ *     the desk's Office.places() whose anchor its place mark meets, whose route is a sub-route #/<desk>/… and whose key
+ *     is in all five languages — or, a tile per thing of the state (a pool), an item anchor the desk's placesFrom gives.
+ * The desks' places come from core.js and the desks under node (a stand-in page, as testSearchPlaces); without node
+ * the place check is skipped. A made-up desk with every fault proves the reader finds them.
+ */
+function testTilesConvention(): void
+{
+    $codes = ['en', 'de', 'it', 'fr', 'es'];
+    $files = glob(OFFICE_WEB . '/desks/*/*.js') ?: [];
+    sort($files);
+    $desks = array_values(array_unique(array_map(fn ($f) => basename(dirname($f)), $files)));
+    $langs = [];
+    foreach ($desks as $d) {
+        foreach ($codes as $c) {
+            $langs[$d][$c] = is_file(OFFICE_WEB . "/desks/$d/lang/$c.json") ? langFile(OFFICE_WEB . "/desks/$d/lang/$c.json") : [];
+        }
+    }
+    $hasKey = fn (string $desk) => fn (string $key) => count(array_filter($codes, fn ($c) => isset($langs[$desk][$c][$key]))) === count($codes);
+
+    // the desks' places of kind tile, from core.js and every desk.js under node
+    $tiles = null;
+    $node = testsNode();
+    if ($node !== '') {
+        $tmp = hardeningTmp('tiles-convention');
+        file_put_contents("$tmp/config.json", json_encode(['desks' => array_map(fn ($d) => ['id' => $d, 'hired' => true, 'order' => 1],
+            array_values(array_filter($desks, fn ($d) => is_file(OFFICE_WEB . "/desks/$d/desk.json")))),
+            'languages' => array_map(fn ($c) => ['code' => $c], $codes), 'base' => '', 'staff_order' => [], 'stamp' => 1, 'version' => 'test']));
+        file_put_contents("$tmp/t.js", <<<'JS'
+// core.js and every desk.js on a stand-in page: each desk's places of kind tile
+const fs = require('fs');
+const [core, desksDir, configFile] = process.argv.slice(2);
+const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'], platform: 'Linux' };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), addEventListener() {},
+  removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+globalThis.OFFICE_DESK_TESTS = {};
+globalThis.fetch = async (url) => ({ redirected: false, url, ok: true, status: 200, json: async () => ({ ok: false }), text: async () => '{}' });
+(0, eval)(fs.readFileSync(core, 'utf8'));
+const O = globalThis.Office;
+const out = {};
+for (const d of CONFIG.desks) (0, eval)(fs.readFileSync(`${desksDir}/${d.id}/desk.js`, 'utf8'));
+for (const d of CONFIG.desks) out[d.id] = O.placesOf(d.id).filter((p) => p.kind === 'tile').map((p) => ({ key: p.key, anchor: p.anchor, route: p.route }));
+process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+            . escapeshellarg(OFFICE_WEB . '/desks') . ' ' . escapeshellarg("$tmp/config.json") . ' 2>&1');
+        hardeningRm($tmp);
+        $tiles = json_decode($raw, true);
+        check('tiles convention: the desks\' places under node', is_array($tiles), $raw);
+        $tiles = is_array($tiles) ? $tiles : null;
+    } else {
+        check('tiles convention: node is missing here - the places of filtering tiles not checked', true);
+    }
+
+    $faults = [];
+    $sites = 0;
+    foreach ($files as $f) {
+        $d = basename(dirname($f));
+        $r = tilesConventionFaults($d, basename($f), (string) file_get_contents($f), $tiles === null ? null : ($tiles[$d] ?? []), $hasKey($d));
+        $faults = array_merge($faults, $r['faults']);
+        $sites += $r['sites'];
+    }
+    // one line per fault, readable: what to change, where
+    foreach ($faults as $x) {
+        check("tiles convention: $x", false);
+    }
+    check('tiles convention: every desk keeps the tiles rule (CLAUDE.md «Tiles», docs/DEVELOPMENT.md «Tiles and lists»)', !$faults);
+    check("tiles convention: … the reader saw the desks' scripts and their filtering tiles (" . count($files) . " files, $sites tiles that filter)",
+        count($files) >= 10 && $sites >= 6);
+
+    // a made-up desk with every fault (and what is allowed beside them): the reader finds each one, on its line
+    $bad = <<<'JS'
+function tile() {
+  const t = el('div', 'stat');
+  t.setAttribute('role', 'button');
+  t.scrollIntoView({ block: 'start' });
+}
+const fold = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const c = el('button', 'card x-tile');
+c.onclick = go;
+Office.store('x.filter_words', '1');
+box.innerHTML = '<div class="card" role="button">';
+const ss = (s) => s.replace(/ß/g, 'ss');
+// what is allowed: a group's head that folds, a reveal, a choice kept, a card that says it is pressed
+function group() {
+  const head = el('div', 'group-head');
+  head.setAttribute('role', 'button');
+  row.scrollIntoView({ block: 'nearest' });     /* reveal */
+  Office.store('x.section', 'a');
+}
+const d = el('button', 'card');
+d.setAttribute('aria-pressed', 'false');
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'A', on: go, pressed: false, controls: 'x-list', filters: 'x-list' }));
+
+
+
+
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'B', on: go, pressed: false, controls: 'x-list', filters: 'x-list', place: 'tile.b' }));
+
+
+
+
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'C', on: go, pressed: false, controls: 'x-list', filters: 'x-list', place: `tile.${x}` }));
+
+
+
+
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'D', on: go, pressed: false, controls: 'x-list', filters: 'x-list', place: 'tile.d' }));
+JS;
+    $places = [['key' => 'tile.b', 'anchor' => 'tile.b', 'route' => '#/x/b'], ['key' => 'tile.c', 'anchor' => 'tile.c', 'route' => '#/x/c'],
+        ['key' => 'tile.d', 'anchor' => 'tile.d', 'route' => '#/x']];
+    $r = tilesConventionFaults('x', 'desk.js', $bad, $places, fn ($k) => $k !== 'tile.b');
+    $lines = array_map(fn ($x) => (int) explode(' ', explode(':', $x, 2)[1])[0], $r['faults']);
+    same('tiles convention: a made-up desk — role=button on a .stat, scrollIntoView, own folding (twice), a card without aria-pressed, a filter kept, role="button" in markup, a filtering tile without a place, one whose key lacks a language, one whose tile has no sub-route (a folding head, a reveal, a choice kept, a pressed card and a tile of the search pass)',
+        [3, 4, 6, 7, 9, 10, 11, 26, 36, 56], $lines);
+}
+
+/**
+ * The faults of one desk script against the tiles rule (testTilesConvention): {faults: ["desks/<desk>/<file>:<line> …"],
+ * sites: the tiles that filter it saw}. $tiles: the desk's places of kind tile [{key, anchor, route}] (null: not
+ * known — the place check is left out); $hasKey(key): that key in all five languages of the desk.
+ */
+function tilesConventionFaults(string $desk, string $file, string $js, ?array $tiles, callable $hasKey): array
+{
+    $lines = explode("\n", $js);
+    $faults = [];
+    $fault = function (int $i, string $what) use (&$faults, $desk, $file): void {
+        $faults[] = "desks/$desk/$file:" . ($i + 1) . " $what";
+    };
+    // the function each line is in (top level: «function x(», «const x = (…) =>», «const x = function»), and the helpers
+    // that set aria-pressed or data-filters on the node they are handed
+    $fnOf = [];
+    $body = [];
+    $cur = '';
+    foreach ($lines as $i => $l) {
+        $def = (bool) preg_match('/^(?:async\s+)?function\s+(\w+)\s*\(|^(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|\w+\s*=>)/', $l, $m);
+        if ($def) {
+            $cur = $m[1] !== '' ? $m[1] : $m[2];
+        }
+        $fnOf[$i] = $cur;
+        if ($cur !== '') {
+            $body[$cur] = ($body[$cur] ?? '') . $l . "\n";
+        }
+        if (preg_match('/^\}/', $l) || ($def && preg_match('/;\s*(\/\/.*)?$/', $l))) {
+            $cur = '';          // the end of a function, or a helper on one line
+        }
+    }
+    $pressHelpers = array_keys(array_filter($body, fn ($b) => str_contains($b, "'aria-pressed'")));
+    $filterHelpers = array_keys(array_filter($body, fn ($b) => (bool) preg_match('/\.dataset\.filters\s*=/', $b)));
+    preg_match_all('/anchor:\s*`([a-z]+:)\$\{/', $js, $m);
+    $itemPrefixes = array_values(array_unique($m[1]));
+    $calls = fn (array $names, string $l) => (bool) array_filter($names, fn ($n) => preg_match('/(?<![\w.])' . preg_quote($n, '/') . '\(/', $l)
+        && !preg_match('/function\s+' . preg_quote($n, '/') . '\(|(?:const|let)\s+' . preg_quote($n, '/') . '\s*=/', $l));
+    $window = fn (int $i, int $before, int $after) => implode("\n", array_slice($lines, max(0, $i - $before), $before + $after + 1 - max(0, $before - $i)));
+
+    $sites = [];          // [line, the lines around it where its place mark is]
+    foreach ($lines as $i => $l) {
+        // a tile is a <button>: no role="button" in markup, none on a .stat / .card
+        if (preg_match("/role=\\\\?[\"']button/", $l)) {
+            $fault($i, 'role="button" in markup — a tile is a real <button> (Office.stat / Office.tile with on)');
+        }
+        if (preg_match("/(\\w+)\\.setAttribute\\('role', 'button'\\)|(\\w+)\\.role\\s*=\\s*'button'/", $l, $m)) {
+            $var = $m[1] !== '' ? $m[1] : $m[2];
+            for ($j = $i; $j >= max(0, $i - 15); $j--) {
+                if (preg_match('/\b(?:const|let|var)\s+' . preg_quote($var, '/') . "\\s*=.*?el\\('\\w+', '([^']*)'/", $lines[$j], $e)) {
+                    if (preg_match('/(^|\s)(stat|card)(\s|$)/', $e[1])) {
+                        $fault($i, "role=button on a .{$e[1]} — a tile is a real <button> (Office.stat / Office.tile with on)");
+                    }
+                    break;
+                }
+            }
+        }
+        // nothing jumps: a tile click keeps the page in place; a jump a link asked for says so
+        if (str_contains($l, 'scrollIntoView(') && !str_contains($l, '/* reveal */')) {
+            $fault($i, 'scrollIntoView — a tile click keeps the page in place (Office.keepInPlace); a jump a link asked for carries /* reveal */');
+        }
+        // the words of a filter are folded by core
+        if (preg_match('/\.normalize\(\s*[\'"]NFK?D[\'"]|\.replace\(\/ß\//u', $l)) {
+            $fault($i, 'word folding of its own — Office.fold / Office.filterWords / Office.fits');
+        }
+        // a card built by hand that does something says whether it is pressed
+        if (preg_match("/el\\('button', '([^']*)'/", $l, $m) && preg_match('/(^|\s)card(\s|$)/', $m[1])) {
+            if (!str_contains($window($i, 0, 12), 'aria-pressed') && !$calls($pressHelpers, $l)) {
+                $fault($i, 'a button.card without aria-pressed — Office.tile({…, active, on}) sets it');
+            }
+        }
+        // a filter is never kept
+        if (preg_match('/Office\.store(?:Json)?\(\s*([^,)]*)/', $l, $m) && preg_match('/filter|words|only|query/i', $m[1])) {
+            $fault($i, "Office.store({$m[1]}) — filter words, «only …» switches and tile filters are never kept (mount() empties them: bar.reset())");
+        }
+        // the tiles that filter: Office.stat / Office.tile with filters (beside controls), data-filters set by hand or a helper
+        if (preg_match('/\bfilters:\s*(?!null\b)\S/', $l) && str_contains($window($i, 3, 3), 'controls:')) {
+            $sites[] = [$i, $window($i, 8, 8)];
+        } elseif (preg_match('/\.dataset\.filters\s*=/', $l) && !in_array($fnOf[$i], $filterHelpers, true)) {
+            $sites[] = [$i, $window($i, 8, 8)];
+        } elseif ($calls($filterHelpers, $l)) {
+            $sites[] = [$i, $window($i, 1, 1)];
+        }
+    }
+    if ($tiles !== null) {
+        foreach ($sites as [$i, $around]) {
+            preg_match_all('/(?:place:\s*|Office\.place\(\s*)([\'`])((?:(?!\1).)+)\1/', $around, $m);
+            if (!$m[2]) {
+                $fault($i, 'a tile that filters has no place (place: … on Office.stat / Office.tile, or Office.place) — a tile is a place with a sub-route');
+                continue;
+            }
+            $met = false;
+            foreach ($m[2] as $anchor) {
+                $re = '/^' . implode('.+', array_map(fn ($p) => preg_quote($p, '/'), preg_split('/\$\{[^}]*\}/', $anchor))) . '$/';
+                foreach ($tiles as $t) {
+                    if (preg_match($re, (string) $t['anchor']) && preg_match('~^#/' . preg_quote($desk, '~') . '/.+~', (string) $t['route']) && $hasKey((string) $t['key'])) {
+                        $met = true;
+                    }
+                }
+                if (preg_match('/^([a-z]+:)/', $anchor, $p) && in_array($p[1], $itemPrefixes, true)) {
+                    $met = true;          // a tile per thing of the state (a pool): found as its item
+                }
+            }
+            if (!$met) {
+                $fault($i, 'a tile that filters, place ' . implode(' / ', $m[2]) . " — no place of kind 'tile' in Office.places() meets it with a sub-route #/$desk/… and its key in all five languages");
+            }
+        }
+    }
+    return ['faults' => $faults, 'sites' => count($sites)];
+}
+
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

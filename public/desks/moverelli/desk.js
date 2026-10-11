@@ -82,7 +82,7 @@ function showError(box, error) {
   box.innerHTML = '';
   box.appendChild(el('div', '', Office.errorText(error, ID)));
   box.style.display = '';
-  box.scrollIntoView({ block: 'nearest' });
+  box.scrollIntoView({ block: 'nearest' });     /* reveal */ // the error line inside its dialog
 }
 
 const running = () => !!(state && state.job && state.job.running);
