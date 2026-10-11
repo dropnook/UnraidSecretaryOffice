@@ -1232,7 +1232,7 @@ function partnerWatch(callable $muted, callable $tell, ?int $now = null): array
  */
 function partnerSendUnits(string $id): array
 {
-    $s = readCfg(BACKUP_DATA_DIR . '/settings.ini', true);
+    $s = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
     foreach (backupPartnersFromSettings($s) as $p) {
         if ($p['id'] === $id) {
             return array_values(array_filter($p['units'], fn ($u) => is_string($u) && preg_match(PARTNER_UNIT_RE, $u)));
@@ -2460,7 +2460,9 @@ function partner_ticket_make(array $r): array
     if ($pair === null) {
         throw new Problem('partner_unknown');
     }
-    if ($pair['receive'] === null) {
+    // the units this office holds of the pair (received/<id>.json — since 1.60 the pair names none): those the ticket hands out
+    $held = $pair['receive'] !== null ? array_column(partnerReceivedUnits(partnerReceived($pair['id']), time()), 'unit') : [];
+    if (!$held) {
         throw new Problem('partner_ticket_nothing', ['name' => $pair['name']]);
     }
     $n = partnerTicketBlockDecode($r['block'] ?? null, 'N');
@@ -2480,7 +2482,7 @@ function partner_ticket_make(array $r): array
     $step = optText($r, 'step', 'look');
     if ($step === 'look') {
         return ['ok' => true, 'new' => ['id' => $n['id'], 'name' => $n['name'], 'address' => $n['address'], 'public' => !partnerAddressPrivate($n['address']),
-                'key' => partnerFingerprint($n['pub_key'])], 'of' => $pair['name'], 'units' => $pair['receive']['units'], 'expires' => $expires,
+                'key' => partnerFingerprint($n['pub_key'])], 'of' => $pair['name'], 'units' => $held, 'expires' => $expires,
                 'line' => $from !== null ? partnerTicketLine($n['id'], $from, $n['pub_key'], $expires) : null, 'name' => partnerMyName(),
                 'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(), 'host_key' => partnerHostKeys() !== []];
     }
@@ -2496,7 +2498,7 @@ function partner_ticket_make(array $r): array
     }
     [$address, $port] = partnerAddressFrom($r);
     $ticket = ['id' => $n['id'], 'of' => $pair['id'], 'name' => $n['name'], 'address' => $n['address'], 'from' => $from,
-               'key' => (string) partnerFingerprint($n['pub_key']), 'created' => $now, 'expires' => $expires, 'units' => $pair['receive']['units']];
+               'key' => (string) partnerFingerprint($n['pub_key']), 'created' => $now, 'expires' => $expires, 'units' => $held];
     $tickets = partnerTickets();
     // the record first, then the line: the night watchman takes a line written right after its ticket for the office's own
     partnerTicketsWrite(array_merge($tickets, [$ticket]));
@@ -2513,7 +2515,7 @@ function partner_ticket_make(array $r): array
     partnerLog("ticket {$n['id']} for {$n['name']} ({$n['address']}): the copies of {$pair['name']} ({$pair['id']}) until " . date('Y-m-d H:i', $expires)
         . ($closed ? " - {$pair['name']}'s own line removed" : ''));
     $block = partnerBlockEncode(['v' => 1, 'block' => 'T', 'id' => $n['id'], 'name' => partnerMyName(), 'of' => $pair['name'], 'address' => $address,
-        'port' => $port, 'host_keys' => $host, 'units' => $pair['receive']['units'], 'expires' => $expires]);
+        'port' => $port, 'host_keys' => $host, 'units' => $held, 'expires' => $expires]);
     return ['ok' => true, 'block' => $block, 'code' => partnerTicketCode($n['pub_key'], $host), 'expires' => $expires, 'closed' => $closed,
             'public' => !partnerAddressPrivate($address), 'partners' => partnerPublic()];
 }
