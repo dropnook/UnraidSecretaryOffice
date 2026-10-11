@@ -1192,6 +1192,48 @@ function rsAppFolders(array $app, array &$ctx): array
 }
 
 /**
+ * Where a Nextcloud keeps its config.php on the host, as /mnt/user/<share>/<…> (null: not bound from a share): the
+ * folder next to its occ (the official image: /var/www/html/config; linuxserver's /app/www/public/config links to
+ * /config/www/nextcloud/config), through the container's deepest bind that holds it. The engine switches the
+ * maintenance mode on in that config.php before the snapshots — a files restore of the folder holding it brings it
+ * back on (rsNcBack).
+ */
+function rsNcConfigDir(string $occ, array $binds, array $ctx): ?string
+{
+    $dir = dirname($occ);
+    $wanted = ["$dir/config"];
+    if ($dir === '/app/www/public') {
+        $wanted[] = '/config/www/nextcloud/config';
+    }
+    foreach ($wanted as $w) {
+        $best = null;
+        foreach ($binds as $b) {
+            $d = rtrim((string) ($b['dest'] ?? ''), '/');
+            if ($d !== '' && is_string($b['source'] ?? null) && under($w, $d) && ($best === null || strlen($d) > strlen($best[0]))) {
+                $best = [$d, rtrim($b['source'], '/')];
+            }
+        }
+        $sp = $best !== null ? rsSharePath($best[1] . substr($w, strlen($best[0])), $ctx) : null;
+        if ($sp) {
+            return rtrim("/mnt/user/{$sp[0]}/{$sp[1]}", '/');
+        }
+    }
+    return null;
+}
+
+/**
+ * The Nextclouds (an app's `nextcloud` entries with their `config`) whose config folder lies in one of $paths
+ * (/mnt/user/<share>/…) — one per instance: a sibling of the same config.php (same_as) only when its first isn't hit.
+ */
+function rsNcBack(array $ncs, array $paths): array
+{
+    $hit = array_values(array_filter($ncs, fn ($n) => is_array($n) && is_string($n['config'] ?? null) && $n['config'] !== ''
+        && array_filter($paths, fn ($p) => under((string) $n['config'], (string) $p))));
+    $names = array_column($hit, 'container');
+    return array_values(array_filter($hit, fn ($n) => ($n['same_as'] ?? '') === '' || !in_array($n['same_as'], $names, true)));
+}
+
+/**
  * The shares an app or VM keeps its data in, as they are now (rsShareNow): before data comes back they must be
  * there — a missing one the user creates in Unraid himself (its old settings shown as information).
  */
@@ -1290,6 +1332,10 @@ function rsScan(): array
     };
     foreach ($pk['apps'] ?? [] as $a) {
         [$folders, $whole] = rsAppFolders($a, $ctx);
+        foreach ($a['nextcloud'] as $k => $nc) {
+            $binds = array_values(array_filter($a['containers'], fn ($x) => $x['name'] === $nc['container']))[0]['binds'] ?? [];
+            $a['nextcloud'][$k]['config'] = rsNcConfigDir($nc['occ'], $binds, $ctx);
+        }
         foreach ($a['containers'] as &$c) {
             $c['now'] = isset($containers[$c['name']]) ? ($containers[$c['name']]['running'] ? 'running' : 'stopped') : 'missing';
             unset($c['binds']);
@@ -2086,7 +2132,7 @@ function rsUnitOwner(array $state, string $path): ?array
     foreach ($state['apps'] ?? [] as $a) {
         foreach (array_merge($a['folders'], $a['shares'] ?? []) as $f) {
             if (($f['path'] ?? null) === $path) {
-                return ['kind' => 'app', 'name' => $a['name'], 'id' => $a['id'], 'vm_state' => null];
+                return ['kind' => 'app', 'name' => $a['name'], 'id' => $a['id'], 'vm_state' => null, 'nextcloud' => (array) ($a['nextcloud'] ?? [])];
             }
         }
     }
@@ -2459,6 +2505,13 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             $plan['putback_pre'] = [['do' => 'stop', 'containers' => $users]];
             $plan['putback_post'] = [['do' => 'start', 'containers' => $users, 'only_stopped' => true]];
         }
+        // a Nextcloud's config folder from the engine's snapshot (or what Kopia or a partner kept of one): the engine
+        // switched the maintenance mode on before the snapshots, so config.php comes back with it on — switched off
+        // with occ once its container runs (never config.php by hand); a db restore needs none (the mode lives in config.php)
+        $ncOff = !empty($moment['ours']) || !empty($moment['kopia']) ? rsNcBack((array) ($owner['nextcloud'] ?? []), array_map(fn ($n) => "/mnt/user/$share/$n", $chosen)) : [];
+        foreach ($ncOff as $n) {
+            $steps[] = ['do' => 'maintenance_off', 'container' => (string) $n['container'], 'occ' => (string) $n['occ'], 'user' => (string) $n['user']];
+        }
         if ($parents) {
             $plan['notes'][] = ['key' => 'note.files_parents', 'params' => ['names' => implode(', ', $parents)]];
         }
@@ -2468,6 +2521,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             : ['key' => 'after.files_place', 'params' => ['path' => implode(', ', $targets)]];
         if ($emptyAsides) {
             $plan['after'][] = ['key' => 'after.files_empty_aside', 'params' => ['aside' => implode(', ', $emptyAsides)]];
+        }
+        foreach ($ncOff as $n) {
+            $plan['after'][] = ['key' => 'after.nextcloud_maintenance', 'params' => ['container' => (string) $n['container'], 'occ' => (string) $n['occ'], 'user' => (string) $n['user']]];
         }
     } else {
         $plan['after'][] = ['key' => 'after.files_copy', 'params' => ['path' => implode(', ', $restored)]];
@@ -3250,6 +3306,7 @@ function rsStep(array &$j, int $i): array
         'autostart' => rsDoVirsh($j, ['autostart', (string) $s['name']]),
         'kopia'     => rsDoKopia($j, $i),
         'vms_off'   => rsDoVmsOff($s),
+        'maintenance_off' => rsDoMaintenanceOff($j, $s),
         'pull'      => rsDoPull($j, $i),
         'mount'     => rsDoMount($j, $s),
         'drop'      => rsDoDrop($j, $s),
@@ -3449,6 +3506,44 @@ function rsDoStart(array &$j, array $s): array
                 'detail' => $detail, 'started' => $started];
     }
     return ['state' => 'ok', 'started' => $started];
+}
+
+/**
+ * A Nextcloud restored from the engine's snapshot: its config.php came back with the maintenance mode on (the
+ * engine switches it on before the snapshots) — `occ maintenance:mode --off` as its user, only while its container
+ * runs (Nextcloud may need a moment after the start: up to three tries). Never failed: a container that doesn't run
+ * or an occ that refuses is a warning naming the command for the user; config.php is never touched by hand.
+ */
+function rsDoMaintenanceOff(array &$j, array $s): array
+{
+    $c = (string) ($s['container'] ?? '');
+    $occ = (string) ($s['occ'] ?? '');
+    $user = (string) ($s['user'] ?? '');
+    $words = ['container' => $c, 'command' => "docker exec -u $user $c php $occ maintenance:mode --off"];
+    if (!preg_match(RS_NAME_PATTERN, $c) || !preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/D', $user)
+        || !preg_match('#^(/[A-Za-z0-9_.-]+)+/occ$#D', $occ) || str_contains($occ, '/..') || str_contains($occ, '/./')) {
+        return ['state' => 'warning', 'note' => 'nc_maintenance_failed', 'params' => $words];
+    }
+    $docker = (string) ($GLOBALS['rs']['docker'] ?? 'docker');      // tests: a stand-in
+    [$exit, $out] = run([$docker, 'inspect', '-f', '{{.State.Running}}', $c], 20);
+    if ($exit !== 0 || trim($out) !== 'true') {
+        return ['state' => 'warning', 'note' => 'nc_not_running', 'params' => $words];
+    }
+    $detail = '';
+    for ($try = 1; $try <= 3; $try++) {
+        [$exit, $out, $err] = rsRun($j, [$docker, 'exec', '-u', $user, $c, 'php', $occ, 'maintenance:mode', '--off'], 120);
+        if ($exit === 0) {
+            return ['state' => 'ok'];
+        }
+        $detail = mb_substr(trim($err !== '' ? $err : $out), 0, 600);
+        if ($try < 3) {
+            sleep((int) ($GLOBALS['rs']['nc_wait'] ?? 5));
+            if (rsBeat($j)) {
+                break;
+            }
+        }
+    }
+    return ['state' => 'warning', 'note' => 'nc_maintenance_failed', 'params' => $words, 'detail' => $detail];
 }
 
 // --------------------------------------------------------------------- databases
@@ -4010,7 +4105,13 @@ function rsDoCopy(array &$j, int $i): array
         return rsFail('mkdir_failed', ['path' => $to]);
     }
     $log = rsDir($j['id']) . '/log.txt';
-    $args = $file ? [$sources[0], $to] : array_merge(array_map(fn ($x) => "$x/", $sources), ["$to/"]);
+    // rsync 3.5.1 (Unraid 7.3.3) refuses a path through a symlink another user owns («refusing to follow a symlink owned by
+    // an untrusted user», exit 3, 2026-10-11 on a large server): /mnt/user/<share> of an exclusive share is Unraid's link
+    // to its pool, owned by nobody — so rsync gets the pool path (officeUnraidPath(), the same place), the journal keeps
+    // the share's
+    $rsTo = officeUnraidPath($to);
+    $rsFrom = array_map('officeUnraidPath', $sources);
+    $args = $file ? [$rsFrom[0], $rsTo] : array_merge(array_map(fn ($x) => "$x/", $rsFrom), ["$rsTo/"]);
     // --sparse: a VM disk's holes stay holes (without it a 108 GB vdisk holding 16 GB is written out in full on XFS or
     // btrfs); a local copy is a whole-file copy, so it always works — never together with --inplace
     $p = proc_open(array_merge(['rsync', '-aHX', '--sparse', '--numeric-ids', '--info=progress2', '--no-inc-recursive'], $args),

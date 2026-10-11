@@ -1207,7 +1207,7 @@ globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
   disabled: false, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}` }, desk: () => {}, places: () => {}, placesFrom: () => {},
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}` }, desk: () => {}, places: () => {}, placesFrom: () => {},
   placesTook: () => {}, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => { n.dataset.place = k; return n; },
   sectionHead: (title, sub, ...x) => { const h = el('div', 'section-head', title); x.filter((y) => y && y.tag).forEach((y) => h.appendChild(y)); return h; } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
@@ -1277,8 +1277,9 @@ function testEmbyPool(): void
         && ($c['groups'][1]['since'] ?? PHP_INT_MAX) < $first['since']);
     same('pool list: the same time — by name', ['Film.001', 'Film.002'], [$c['groups'][1]['title'] ?? null, $c['groups'][2]['title'] ?? null]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    check('pool page: the library kept per browser, the filter words never', str_contains($js, "Office.store('emby.pool_lib', poolLib || null)")
-        && str_contains($js, "let poolLib = Office.store('emby.pool_lib') || '';") && !preg_match('/Office\.store(Json)?\([^)]*poolWords/', $js) && !str_contains($js, 'emby.pool_words'));
+    check('pool page: the bar is Office.filterBar — the library kept per browser (emby.pool.pick; emby.pool_lib taken over once), words and «only new» never',
+        str_contains($js, "Office.filterBar({ key: 'emby.pool'") && str_contains($js, "Office.store('emby.pool.pick', old)") && str_contains($js, "Office.store('emby.pool_lib', null)")
+        && !preg_match("/Office\\.store(Json)?\\('emby\\.pool(_words|\\.words|\\.only)/", $js));
 
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
@@ -1294,26 +1295,35 @@ function testEmbyPool(): void
     $groups[] = ['share' => 'Filme', 'title' => 'Zorro', 'files' => 1, 'bytes' => 7, 'origin' => []];
     $groups[] = ['share' => 'Filme', 'title' => 'Alien', 'files' => 2, 'origin' => []];                    // an older agent: no size, no time
     $state = ['settings' => ['cache_path' => '/mnt/maple'], 'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]],
-        'cache' => ['files' => 700, 'bytes' => 12345, 'listed_at' => 900, 'groups' => $groups]];
+        'cache' => ['files' => 700, 'bytes' => 12345, 'listed_at' => 900, 'groups' => $groups],
+        'history' => [['tool' => 'embycache', 'mode' => 'report', 'started' => 1100, 'finished' => 1101, 'result' => 'ok'],
+                      ['tool' => 'embycache', 'mode' => 'run', 'started' => 1030, 'finished' => 1090, 'result' => 'ok']]];
     file_put_contents("$tmp/state.json", json_encode($state));
     file_put_contents("$tmp/t.js", <<<'JS'
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
-  disabled: false, value: '', appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} };
+  disabled: false, value: '', isConnected: true, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} };
   Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
-globalThis.Option = function Option(text, value) { return { tag: 'option', textContent: text, value, children: [] }; };
-const stored = {};
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}` }, desk: () => {}, places: () => {},
+const stored = { 'office-other': 1 };
+const fold = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss');
+const bars = [];
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, number: (n) => String(n) }, desk: () => {}, places: () => {},
   placesFrom: () => {}, placesTook: () => {}, storeJson: () => null, agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => n,
-  sectionHead: (title, sub, ...x) => el('div', 'section-head', title) };
+  sectionHead: (title, sub, ...x) => el('div', 'section-head', title), fold, filterWords: (t) => fold(t).split(/\s+/).filter(Boolean),
+  fits: (w, hay) => { const h = (Array.isArray(hay) ? hay.filter((x) => x != null && x !== '') : [hay]).map(fold).join('\u0001'); return w.every((x) => h.includes(x)); },
+  // a stand-in for the bar (core.js Office.filterBar is tested on its own: testFilterBar)
+  filterBar: (o) => { const b = { o, words: [], only: false, pick: stored[o.key + '.pick'] || '', el: el('div', 'filterbar'), opts: null, doneArgs: null,
+    read() { return { words: this.words, only: this.only, pick: this.pick, tile: '' }; }, done(n, t, d) { this.doneArgs = [n, t, !!(d && d.onlyAvail !== false)]; return this; },
+    options(l) { this.opts = l; return this; }, reset() { this.words = []; this.only = false; return this; }, set() { return this; }, tile() { return this; } };
+    bars.push(b); return b; } };
 globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
 const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const g = state.cache.groups;
-const W = (s) => e.plainWords(s).split(/\s+/).filter(Boolean);
+const W = (s) => Office.filterWords(s);
 const names = (v) => v.rows.map((r) => r.title);
 const out = {};
 let v = e.poolView(g, { lib: '', words: [], shown: 30 });
@@ -1323,30 +1333,46 @@ out.lib = [names(v), v.shown];
 out.words = ['amelie', 'disk3', 'serie 07', 'filme zorro', 'serien disk1 zz'].map((w) => names(e.poolView(g, { lib: '', words: W(w), shown: 30 })));
 out.libWords = names(e.poolView(g, { lib: 'Serien', words: W('alien'), shown: 30 }));
 out.shown = [e.poolView(g, { lib: '', words: [], shown: 60 }).shown, e.poolView([], { lib: '', words: [], shown: 30 })];
-// the section: 30 rows, «Show 13 more», the select with counts; then the words, the library (kept), more
+out.since = names(e.poolView(g, { lib: '', words: [], since: 1035, shown: 30 }));
+// the section: the library of the old key taken over once; 30 rows, «Show 13 more», the select's options; then the
+// words, the library, «only new» (from the last real run's start), more
+stored['emby.pool_lib'] = 'Filme';
 e.setState(state);
+e.bars();
+const bar = bars.find((b) => b.o.key === 'emby.pool');
+out.migrated = [stored['emby.pool.pick'], stored['emby.pool_lib'], bar.pick];
+bar.pick = '';
 const all = (n) => (typeof n === 'string' ? [] : [n, ...n.children.flatMap(all)]);
 const sec = e.poolSection();
 const rows = () => all(sec).filter((n) => n.className === 'row nocheck');
 const more = () => all(sec).find((n) => n.tag === 'button');
-const pick = all(sec).find((n) => n.tag === 'select');
-const search = all(sec).find((n) => n.tag === 'input');
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
-out.section = [rows().length, more() && more().textContent, pick.children.map((o) => o.textContent), texts(rows()[0]).slice(1)];
+out.section = [rows().length, more() && more().textContent, bar.opts, texts(rows()[0]).slice(1), bar.doneArgs, sec.children.includes(bar.el), sec.id];
 more().onclick();
 out.more = [rows().length, more() ? more().textContent : null];
 out.noSize = texts(rows().find((r) => texts(r)[0] === 'Alien') || { textContent: '', children: [] });
-search.value = 'zorro';
-search.oninput();
-out.search = [rows().length, texts(rows()[0])[0], stored['emby.pool_lib'] === undefined];
-search.value = '';
-search.oninput();
-pick.value = 'Filme';
-pick.onchange();
-out.pick = [rows().length, stored['emby.pool_lib']];
-search.value = 'nothing-like-this';
-search.oninput();
+const change = (what) => bar.o.onChange(bar.read(), what);
+bar.words = W('ZÓRRO');
+change('words');
+out.search = [rows().length, texts(rows()[0])[0], bar.doneArgs];
+bar.words = [];
+bar.pick = 'Filme';
+change('pick');
+out.pick = [rows().length, bar.doneArgs];
+bar.pick = '';
+bar.only = true;
+change('only');
+out.only = [rows().length, texts(rows()[0])[0], texts(rows()[rows().length - 1])[0]];
+bar.only = false;
+bar.words = W('nothing-like-this');
+change('words');
 out.empty = all(sec).filter((n) => n.className === 'empty').map((n) => n.textContent);
+bar.words = [];
+state.history = [state.history[0]];               // a report only: no real run — «only new» has nothing to go by
+e.setState(state);
+e.poolSection();
+out.noReal = bar.doneArgs[2];
+out.keys = Object.keys(stored).filter((k) => k.startsWith('emby.')).sort();
 console.log(JSON.stringify(out));
 JS);
     $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1';
@@ -1359,14 +1385,19 @@ JS);
         [['Amélie.2001'], ['Amélie.2001'], ['Serie.07'], ['Zorro'], []], $r['words'] ?? null, $raw);
     same('pool view: the words within the library', [], $r['libWords'] ?? null, $raw);
     same('pool view: more shown; nothing there', [43, ['libs' => [], 'rows' => [], 'shown' => 0]], $r['shown'] ?? null, $raw);
-    same('pool page: 30 rows, «Show 13 more», the select with counts, a row: library, files, size beside them, the disk, since when', [30,
-        'pool.more {"n":13}', ['pool.lib_all', 'pool.lib_n {"lib":"Filme","n":3}', 'pool.lib_n {"lib":"Serien","n":40}'],
-        ['Serien', 'files_n {"n":16}', '40000B', 'origin {"disks":"disk1"}', 'pool.since {"date":"D1040"}']], $r['section'] ?? null, $raw);
+    same('pool view: «only new» — what came onto the pool from then on', ['Serie.40', 'Serie.39', 'Serie.38', 'Serie.37', 'Serie.36', 'Serie.35'], $r['since'] ?? null, $raw);
+    same('pool page: the library of the old key taken over once (the old key gone), the bar starts with it', ['Filme', null, 'Filme'], $r['migrated'] ?? null, $raw);
+    same('pool page: 30 rows, «Show 13 more», the select with counts, a row: library, files, size beside them, the disk, since when; «43 of 43», the switch there; the bar in the section', [30,
+        'pool.more {"n":13}', [['Filme', 'Filme', 3], ['Serien', 'Serien', 40]],
+        ['Serien', 'files_n {"n":16}', '40000B', 'origin {"disks":"disk1"}', 'pool.since {"date":"D1040"}'], [43, 43, true], true, 'jo-pool'], $r['section'] ?? null, $raw);
     same('pool page: a row of an older agent — no size, no time', ['Alien', 'Filme', 'files_n {"n":2}', 'origin_unknown'], $r['noSize'] ?? null, $raw);
     same('pool page: «Show more» — all 43, no button left', [43, null], $r['more'] ?? null, $raw);
-    same('pool page: the words narrow it (and are never kept)', [1, 'Zorro', true], $r['search'] ?? null, $raw);
-    same('pool page: the library narrows it and is kept in this browser', [3, 'Filme'], $r['pick'] ?? null, $raw);
+    same('pool page: the words narrow it (accents folded, «1 of 43»)', [1, 'Zorro', [1, 43, true]], $r['search'] ?? null, $raw);
+    same('pool page: the library narrows it', [3, [3, 43, true]], $r['pick'] ?? null, $raw);
+    same('pool page: «only new» — what the last real run brought (from its start on, a later report doesn\'t count)', [11, 'Serie 40', 'Serie 30'], $r['only'] ?? null, $raw);
     same('pool page: nothing fits', ['pool.empty_filter'], $r['empty'] ?? null, $raw);
+    same('pool page: no real run — «only new» goes (onlyAvail false)', false, $r['noReal'] ?? null, $raw);
+    same('pool page: only the choices are kept (the pool section open or not, the library) — never words or «only new»', ['emby.pool.pick', 'emby.pool_lib'], $r['keys'] ?? null, $raw);
     hardeningRm($tmp);
 }
 
@@ -1877,7 +1908,7 @@ globalThis.document = { createTextNode: (t) => t };
 const posts = [];
 let answer = () => ({ ok: false });
 const dialogs = [];
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', cron: (c) => 'C(' + c + ')', date: (t) => 'D' + t, relative: () => 'now' },
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', cron: (c) => 'C(' + c + ')', date: (t) => 'D' + t, relative: () => 'now' },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n,
   errorText: (e, d) => 'err:' + (d || '') + ':' + e.key, dialog: (o) => dialogs.push(o),
   api: { post: async (a, body) => { posts.push([a, body]); return answer(a, body); } } };
@@ -2519,7 +2550,7 @@ const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
 globalThis.document = { createTextNode: (t) => t };
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
   placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key + ':' + JSON.stringify(e.params || {}) };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
@@ -2992,7 +3023,7 @@ const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
 globalThis.document = { createTextNode: (t) => t };
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t },
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
@@ -3125,7 +3156,7 @@ const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? ''
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
 globalThis.document = { createTextNode: (t) => t };
 globalThis.Option = function (text, value) { this.text = text; this.value = value; };
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
   placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
@@ -3398,6 +3429,168 @@ function testDetailsKept(): void
     $ad = (string) file_get_contents(OFFICE_WEB . '/desks/advisor/desk.js');
     check('details: the Consultant tells network_seen once per guide and page, not once per render', str_contains($ad, 'const told = new Set();')
         && str_contains($ad, '!told.has(id)') && !str_contains($ad, 'let told = false;'));
+}
+
+/**
+ * Engine 2.40: an [app "<name>"] section whose app is gone (2026-10-11, an end-to-end test on a large server: a Nextcloud
+ * twin stack removed, its `[app "zz-uso-nc"] kopia = yes / folder = appdata/zz-uso-nc` stayed after every Apply). setup.sh
+ * --plan and --apply on a fixture server (stand-ins for docker with Kopia inside, zfs, virsh, mount, notify): the plan marks
+ * it gone in apps[] with its keys and leaves it out of P, says so once (app_gone); Apply removes the section — also when the
+ * decisions still name it — and nothing else: an app that is a Compose project and one that is a single container stay;
+ * Docker not answering: nobody knows, the section stays. The page's side: step 2 lists it like a gone share, the apply
+ * dialog one line, the decisions never carry it.
+ */
+function testSetupGoneApp(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-goneapp-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $root = "$mnt/addons/UnraidSecretaryOffice/snapshots";
+    $pool = "$mnt/maple";
+    foreach (["$tmp/bin", "$tmp/fake", "$tmp/data/unraid-backup/state", "$tmp/boot/config/shares", $root, "$mnt/user",
+              "$pool/appdata/kopia", "$pool/appdata/c1", "$pool/appdata/solo", "$pool/appdata/zz-uso-nc", "$pool/UnraidSecretaryOffice/backup"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (['appdata', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data/unraid-backup UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares"
+         . " UB_DISKS_INI=$tmp/fake/disks.ini UB_NOTIFY_BIN=$tmp/bin/notify UB_MOUNTS_FILE=$tmp/fake/mounts FAKE=$tmp/fake FAKE_ROOT=$root";
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+# «down»: the daemon doesn't answer its version (ub_docker_answers) and lists nothing - the environment step's info still passes
+[[ -e "$FAKE/down" && "$1" != info ]] && exit 1
+case "$1" in
+  info) exit 0 ;;
+  version) echo 29.0; exit 0 ;;
+  ps) cat "$FAKE/ids" 2>/dev/null; exit 0 ;;
+  compose) exit 1 ;;
+  top) printf 'PID UID COMMAND\n7 0 /app/kopia server start\n'; exit 0 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in
+        *State.Running*) echo true ;;
+        *Mounts*) printf '%s\x1e/uso\x1efalse\x1erslave\n' "$FAKE_ROOT" ;;
+      esac
+      exit 0
+    fi
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift
+    while [[ "$1" == -* ]]; do case "$1" in -u|-e) shift 2 ;; *) shift ;; esac; done
+    shift
+    case "$1" in
+      cat) exit 0 ;;
+      kopia)
+        shift; [[ "$1" == --no-progress ]] && shift
+        case "$1 ${2:-}" in
+          "repository status") cat "$FAKE/repo.json" ;;
+          "policy list") echo '[]' ;;
+          "snapshot list") echo '[]' ;;
+          --version*) echo "0.23.0 build" ;;
+        esac
+        exit 0 ;;
+    esac
+    exit 1 ;;
+esac
+exit 0
+SH);
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *'-t filesystem'* ]] && cat \"\$FAKE/zfs.txt\"\nexit 0\n");
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user ]]\n");
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nmkdir -p \"\${@: -1}\"\n");
+    file_put_contents("$tmp/bin/umount", "#!/bin/bash\nexit 0\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nexit 0\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    file_put_contents("$tmp/fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\n"
+        . "shfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp, $ref) => "$n\t$mp\ton\t" . crc32($n) . "\t$ref\t-\n";
+    file_put_contents("$tmp/fake/zfs.txt", $z('maple', $pool, 1) . $z('maple/appdata', "$pool/appdata", 5000) . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice", 10));
+    file_put_contents("$tmp/fake/disks.ini", "[\"maple\"]\nname=\"maple\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/fake/repo.json", json_encode(['configFile' => '/config/repository.config', 'storage' => ['type' => 'filesystem'], 'clientOptions' => ['username' => 'root', 'hostname' => 'kopia']]));
+    file_put_contents("$tmp/fake/ids", "id1\nid2\nid3\n");
+    $ct = fn ($name, $img, $binds, $labels = []) => ['Name' => "/$name", 'Id' => "id-$name", 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => $labels ?: new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'],
+        'Mounts' => array_map(fn ($b) => ['Type' => 'bind', 'Source' => $b[0], 'Destination' => $b[1], 'RW' => true], $binds)];
+    // the Nextcloud stack zz-uso-nc is gone; c1 is the Compose project «web», solo a single container
+    file_put_contents("$tmp/fake/inspect.json", json_encode([
+        $ct('kopia', 'imagegenius/kopia', [["$mnt/user/appdata/kopia", '/config'], [$root, '/uso']]),
+        $ct('c1', 'nginx', [["$mnt/user/appdata/c1", '/config']], ['com.docker.compose.project' => 'web', 'com.docker.compose.service' => 'c1']),
+        $ct('solo', 'redis', [["$mnt/user/appdata/solo", '/data']])]));
+    $data = "$tmp/data/unraid-backup";
+    $settings = "[general]\nserver = Test\nmount_root = $root\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\nsnap_prefix = uso-backup-\n"
+        . "dumps_share = UnraidSecretaryOffice\n[docker]\nstop = all\nknown = kopia\nknown = c1\nknown = solo\n[flash]\nmode = off\n[kopia]\nenabled = yes\ncontainer = kopia\n"
+        . "identity = root@kopia\nignore = _UnraidSecretaryOffice-trash*/\nignore = .UnraidSecretaryOffice-trash*/\n"
+        . "[app \"solo\"]\nkopia = yes\nfolder = appdata/solo\n[app \"web\"]\nkopia = yes\nfolder = appdata/c1\nkopia_retention = 1 0 7 4 6 0\n"
+        . "[app \"zz-uso-nc\"]\nkopia = yes\nfolder = appdata/zz-uso-nc\nkopia_ignore = /appdata/zz-uso-nc/cache/\n"
+        . "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n";
+    file_put_contents("$data/settings.ini", $settings);
+    $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
+    $readPlan = fn () => json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    $apps = array_column($plan['apps'] ?? [], null, 'name');
+    same('gone app: the plan lists every [app] section, the gone one marked with its keys', [
+            ['solo', 'web', 'zz-uso-nc'], [false, false, true],
+            ['folder' => ['appdata/zz-uso-nc'], 'kopia' => 'yes', 'kopia_ignore' => ['/appdata/zz-uso-nc/cache/']]],
+        [array_keys($apps), array_column($plan['apps'] ?? [], 'gone'), (function ($k) { ksort($k); return $k; })($apps['zz-uso-nc']['keys'] ?? [])], $out);
+    $P = $plan['P'] ?? [];
+    same('gone app: its keys are no proposal any more, the others\' are (a Compose project, a single container)', [[], 'yes', '1 0 7 4 6 0', 'yes'],
+        [array_values(array_filter(array_keys($P), fn ($k) => str_starts_with($k, 'app|zz-uso-nc|'))), $P['app|web|kopia'] ?? null, $P['app|web|kopia_retention'] ?? null, $P['app|solo|kopia'] ?? null]);
+    same('gone app: settings.ini as it is in O', 'yes', $plan['O']['app|zz-uso-nc|kopia'] ?? null);
+    $said = array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'));
+    same('gone app: said once, as a hint with its name', [1, 'hint', ['name' => 'zz-uso-nc']], [count($said), $said[0]['level'] ?? null, $said[0]['params'] ?? null]);
+    $pend = implode("\n", array_map(fn ($p) => ($p['sign'] ?? '') . ($p['section'] ?? '') . ' ' . ($p['line'] ?? ''), $plan['pending'] ?? []));
+    check('gone app: what Apply would change names the section\'s lines', str_contains($pend, 'zz-uso-nc'), $pend);
+
+    // Apply with the office's draft (every key of P): the section goes, nothing else of the user's
+    file_put_contents("$tmp/dec.json", json_encode($P + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('gone app: Apply removes its section', !str_contains($ini, 'zz-uso-nc'), $ini . $out);
+    check('gone app: the apps that are there keep theirs, retention too', str_contains($ini, "[app \"solo\"]\nkopia = yes\nfolder = appdata/solo\n")
+        && str_contains($ini, "[app \"web\"]\nkopia = yes\nfolder = appdata/c1\nkopia_retention = 1 0 7 4 6 0\n"), $ini);
+    check('gone app: the shares and the rest as they were', str_contains($ini, "[share \"appdata\"]\nmode = kopia\nkopia_ignore = /kopia/\n") && str_contains($ini, "container = kopia\n"), $ini);
+    $plan = $readPlan();
+    $setup('--plan');
+    $plan = $readPlan();
+    same('gone app: the next plan - nothing gone, nothing said', [['solo', 'web'], []],
+        [array_column($plan['apps'] ?? [], 'name'), array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'))]);
+
+    // an older page still sends the gone app's keys: setup.sh drops them anyway
+    file_put_contents("$data/settings.ini", $settings);
+    $setup('--plan');
+    $P = $readPlan()['P'] ?? [];
+    file_put_contents("$tmp/dec.json", json_encode($P + ['app|zz-uso-nc|kopia' => 'yes', 'app|zz-uso-nc|folder' => ['appdata/zz-uso-nc'], '_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('gone app: decisions that still name it - removed all the same', !str_contains($ini, 'zz-uso-nc') && str_contains($ini, '[app "web"]'), $ini . $out);
+
+    // Docker not answering (its version; no container listed): nobody knows what is gone - the section stays, nothing said
+    file_put_contents("$data/settings.ini", $settings);
+    touch("$tmp/fake/down");
+    $out = $setup('--plan');
+    $plan = $readPlan();
+    same('gone app: Docker not answering - nothing marked gone, the keys stay proposed', [[false, false, false], 'yes', []],
+        [array_column($plan['apps'] ?? [], 'gone'), $plan['P']['app|zz-uso-nc|kopia'] ?? null,
+         array_values(array_filter($plan['messages'] ?? [], fn ($m) => ($m['code'] ?? '') === 'app_gone'))], $out);
+    @unlink("$tmp/fake/down");
+
+    // the page: step 2 like a gone share (no level), the apply dialog one line per gone app, never in the decisions
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('gone app (page): read from the plan\'s apps[] gone; never sent, never counted key by key',
+        str_contains($js, 'const goneApps = (plan) =>') && str_contains($js, "Object.keys(out).forEach((k) => { if (goneAppKey(k, setup.plan)) delete out[k]; });")
+        && str_contains($js, "goneAppKey(k, setup.plan) ? `app|\${k.split('|')[1]}|` : k"));
+    check('gone app (page): step 2 shows it with «gone» and no level, the dialog says «entry will be removed»',
+        str_contains($js, "list.appendChild(el('div', 'bk-subhead', T('setup.apps_gone')))") && str_contains($js, "right.appendChild(chip(T('setup.gone'), 'warn'));")
+        && str_contains($js, "const li = el('li', '', T('setup.ch_app_gone', { name: a.name }));"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
+    check('gone app (page): its words', isset($en['setup.msg.app_gone'], $en['setup.apps_gone'], $en['setup.app_gone_had'], $en['setup.ch_app_gone']));
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 function testSetupListDiff(): void
@@ -3954,7 +4147,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.39'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.41'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -5594,7 +5787,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.41', [1, '2.41'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -6105,7 +6298,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.39', [1, '2.39'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.41', [1, '2.41'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -6196,8 +6389,8 @@ function testBackupAsleepOffice(): void
         same("asleep office: the texts ($lang)", [], array_values(array_filter($keys, fn ($k) => !isset($l[$k]))));
     }
     $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true) ?: [];
-    check('asleep office: German words - «ausgelassen», der Share, die Sicherung', str_contains($de['asleep.left_out']['other'] ?? '', 'ausgelassen')
-        && str_contains($de['setup.asleep.skip_hint'] ?? '', 'ein Share') && str_contains($de['setup.asleep.wake_hint'] ?? '', 'Sicherung'));
+    check('asleep office: German words - «ausgelassen», der Share, das Backup', str_contains($de['asleep.left_out']['other'] ?? '', 'ausgelassen')
+        && str_contains($de['setup.asleep.skip_hint'] ?? '', 'ein Share') && str_contains($de['setup.asleep.wake_hint'] ?? '', 'Backup'));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('asleep office: desk.js - the switch in step 0 (general|asleep_pools, only with an engine that knows it), chips from the plan, the run\'s units',
         str_contains($js, "dset('general|asleep_pools', o)") && str_contains($js, 'plan.asleep_pools === undefined') && str_contains($js, 'asleepChip(sh.asleep_bases)')
@@ -6868,11 +7061,23 @@ JS;
 function testSetupFilter(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    check('setup filter: the bar is built once per visit and typing in it holds up no new look (data-keep), the focus kept through a drawing',
-        str_contains($js, "input.dataset.keep = '1';") && str_contains($js, 'const typing = sf.input && document.activeElement === sf.input')
-        && str_contains($js, 'sf.input.focus({ preventScroll: true });'));
-    preg_match_all('/root\.appendChild\(fitStep\(\(\) => setup(\w+)\(/', $js, $m);
+    // «Decide…» while the plan is made anew (2026-10-11 on a large server): the old plan has no new thing, so the bar
+    // would hide the switch and turn it off (onlyAvail false) and the focus would be spent — kept until the plan is there
+    check('setup filter: «Decide…» keeps its focus while the plan is being made anew (not spent on the old plan)',
+        str_contains($js, 'setup.focus && setup.model && setup.draft && !busy ? setupFocus() : null'));
+    // since the tiles rebuild (2026-10-11) the bar is core.js's Office.filterBar (data-keep, the focus and the selection kept
+    // through a drawing — testFilterBar): built once per visit, appended at every drawing, told what fits after the steps
+    // since the setup's tiles (2026-10-12) the bar is ONE for the whole page, between the row of steps and the steps; the
+    // step chosen is its note line's chip, «Show all» every step again; «only what's new» counted over every step
+    check('setup filter: the bar is Office.filterBar, built once per visit, under the row of steps, «n of m» after the steps drawn',
+        str_contains($js, 'sfBar = Office.filterBar({') && str_contains($js, 'sw.el.insertBefore(bar, sw.body);')
+        && str_contains($js, "sfBar.done(fitting.n, fitting.total, { tile: key ? T(key) : '', clear: () => setupSwitcher().clear(), onlyAvail: c.vms + c.apps + c.shares > 0 });")
+        && str_contains($js, "onChange: () => setupSwitcher().render() });"));
+    preg_match('/function setupStepNode\(id, plan\) \{(.*?)\n\}/s', $js, $f);
+    preg_match_all('/return setup(\w+)\(/', $f[1] ?? '', $m);
     same('setup filter: every step goes through it (0 basics … 4 retention, the rest, old sources)', ['Kopia', 'Vms', 'Apps', 'Shares', 'Retention', 'General', 'Sources'], $m[1]);
+    check('setup filter: … each step a section of the switcher through fitStep, the first starts the count, the last tells the bar',
+        str_contains($js, "if (id === shown[0]) fitStart();\n  const s = id === 'messages' ? setupMessages(setupNotes(plan)) : fitStep(() => setupStepNode(id, plan));\n  if (id === shown[shown.length - 1]) setupFilterDone();"));
     check('setup filter: only hides - no dset() and no setup.open change in its code', (bool) preg_match('/function setupFits\(.*?\n\}\n/s', $js, $f)
         && !str_contains($f[0], 'dset(') && !str_contains(substr($js, strpos($js, 'function fitStep('), 400), 'setup.open'));
     check('setup filter: a new visit starts without words, «Decide…» is revealed like the search', str_contains($js, "setupFilterReset();                  // a new visit")
@@ -6880,7 +7085,7 @@ function testSetupFilter(): void
         && str_contains($js, "setup.focus = 'waiting'; Office.go(`#/\${ID}/setup`)"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
-        $miss = array_values(array_filter(['setup.filter.label', 'setup.filter.only_new', 'setup.filter.only_new_hint', 'setup.filter.hits', 'setup.filter.none', 'help.filter', 'help.filter_text'],
+        $miss = array_values(array_filter(['setup.filter.label', 'setup.filter.only_new', 'setup.filter.only_new_hint', 'setup.filter.none', 'help.filter', 'help.filter_text'],
             fn ($k) => !isset($l[$k])));
         same("setup filter: its texts in $code", [], $miss);
     }
@@ -6921,12 +7126,23 @@ const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => Math.round(s) + ' s' },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, store: () => null };
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, store: () => null,
+  // a stand-in for core.js's filter bar (its own behaviour is testFilterBar's): words and «only …», set and reset
+  filterBar: () => {
+    const s = { text: '', only: false };
+    const bar = { el: {}, read: () => ({ words: Office.filterWords(s.text), only: s.only, pick: '', tile: '' }),
+      set(v) { if (v.text !== undefined) s.text = v.text; if (v.only !== undefined) s.only = !!v.only; return bar; },
+      reset() { s.text = ''; s.only = false; return bar; }, done() { return bar; }, tile() { return bar; } };
+    return bar;
+  } };
+// core.js's matcher as it is (Office.fold / filterWords / fits)
+const core = fs.readFileSync(process.argv[4], 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const b = OFFICE_DESK_TESTS.backup;
 const S = b.setup;
 const out = {};
-const f = (text, onlyNew) => ({ words: b.filterWords(text), onlyNew });
+const f = (text, onlyNew) => ({ words: Office.filterWords(text), onlyNew });
 out.fits = [
   b.setupFits(f('ecol'), 'Écoles', false), b.setupFits(f('ÉCOLES'), ['x', 'ecoles'], false), b.setupFits(f('strasse'), 'Hauptstraße', false),
   b.setupFits(f('immich server'), ['immich', 'immich_server'], false), b.setupFits(f('immich nope'), ['immich', 'immich_server'], false),
@@ -6946,10 +7162,10 @@ S.plan.shares[0].waiting = [];
 out.order.push(first());
 // «Decide…»: words cleared, «only what's new», the share's row unfolded; «Change…» of a VM: no «only new»
 S.plan.shares[0].waiting = [{ dir: 'loose', bytes: 5, first_seen: 900 }];
-b.sf.text = 'something'; S.open = new Set(); S.focus = 'waiting';
+b.setupFilter().set({ text: 'something' }); S.open = new Set(); S.focus = 'waiting';
 const t1 = b.setupFocus();
 out.decide = [t1 && t1.anchor, b.sf.text, b.sf.onlyNew, [...S.open], S.focus];
-b.sf.text = 'x'; S.focus = 'vm:old';
+b.setupFilter().set({ text: 'x' }); S.focus = 'vm:old';
 const t2 = b.setupFocus();
 out.change = [t2 && t2.anchor, t2 && t2.part, b.sf.text, b.sf.onlyNew];
 S.plan.shares[0].waiting = []; S.focus = 'waiting';
@@ -6957,7 +7173,8 @@ out.nothing = [b.setupFocus(), b.sf.onlyNew];
 console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/t.js", $test);
-    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1';
+    $cmd = escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json")
+        . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1';
     $raw = (string) shell_exec($cmd);
     $r = json_decode($raw, true);
     if (!is_array($r)) {
@@ -6973,6 +7190,144 @@ JS;
     same('setup filter: «Change…» of a VM - its row, the whole setup (no words, not «only new»)', ['setup:vm:old', 'setup.vms', '', false], $r['change']);
     same('setup filter: «Decide…» with nothing new in the plan - nothing revealed, the whole setup', [null, false], $r['nothing']);
     hardeningRm($tmp);
+}
+
+/**
+ * The setup pages' tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»: Mr. Backupsy's and Jack Emby's setup steps on a switcher
+ * of their own). Read in the code: the switchers (kept as backup.setup.tile / emby.setup.tile, no start tile, the routes
+ * #/<desk>/setup/<tile> taken in mount()), the steps' and settings' places by their tile's route. Under node, with the demo
+ * plan (tests/ui/demo/post/backup.setup_get.json) and Jack's demo state: every tile names a section, in the steps' order,
+ * the figures as the plan says (VMs, apps, shares, the backup place, the retention, the messages), the chip «new»; Jack's
+ * before a server is connected (as saved) and after.
+ */
+function testSetupTiles(): void
+{
+    $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $em = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('setup tiles: Mr. Backupsy\'s steps on a switcher of their own — backup.setup.tile, no start tile, #/backup/setup/<tile>',
+        str_contains($bk, "id: `\${ID}/setup`,") && str_contains($bk, "key: 'backup.setup.tile',") && str_contains($bk, "tiles: () => setupTileList(),")
+        && str_contains($bk, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
+    check('setup tiles: Jack Emby\'s too — emby.setup.tile, no start tile, #/emby/setup/<tile>',
+        str_contains($em, "id: `\${ID}/setup`,") && str_contains($em, "key: 'emby.setup.tile',") && str_contains($em, "tiles: () => setupTileList(),")
+        && str_contains($em, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
+    check('setup tiles: «Decide…» / «Change…» pick the target\'s step first, then reveal its row',
+        str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';\n  if (tile) sw.pick(tile, 'route'); else sw.render();"));
+    check('setup tiles: the steps\' and settings\' places go by their tile\'s route (a step stands under the row only while its tile is chosen)',
+        str_contains($bk, "route: setupRoute(STEP_TILE[key]) } : {})") && str_contains($bk, "route: setupRoute(STEP_TILE[PART[key] || 'setup.general'])")
+        && str_contains($em, "...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/\${ID}/setup/\${id}` })),"));
+    check('setup tiles: Jack\'s form keeps the focus through a drawing (the control clicked gets it back)',
+        str_contains($em, "const spot = focusSpot();") && str_contains($em, "focusBack(spot);\n}"));
+    foreach (['backup' => ['setup.tile.local', 'setup.tile.offsite', 'setup.tile.no_place', 'setup.tile.on', 'setup.tile.new', 'setup.tile.u_d', 'setup.tile.u_w',
+        'setup.tile.u_m', 'setup.tile.u_y', 'setup.tile.ret_offsite', 'setup.tile.changed', 'setup.tile.unchanged', 'setup.tile.settings'],
+        'emby' => ['setup.after_connect', 'setup.tile.connected', 'setup.tile.of', 'setup.tile.folders', 'setup.tile.saved', 'setup.tile.everyone',
+        'setup.tile.budget_line', 'setup.tile.count_line', 'setup.tile.default', 'setup.tile.changed', 'setup.tile.optional']] as $desk => $want) {
+        foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+            $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$desk/lang/$code.json"), true);
+            same("setup tiles: $desk's tile words in $code", [], array_values(array_filter($want, fn ($k) => !isset($l[$k]))));
+        }
+    }
+    $node = testsNode();
+    if ($node === '') {
+        check('setup tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('setup-tiles');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, emFile, coreFile, planFile, embyFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+let spec = null;
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: (o) => { spec = o; return { el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
+    mount: () => false, pick() {}, render() {}, clear() {} }; },
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const out = {};
+S.plan = JSON.parse(fs.readFileSync(planFile, 'utf8')).plan;
+b.setupDraftFromPlan();
+const data = b.setupTileData(S.plan);
+out.ids = data.map((d) => d.id);
+out.keys = data.map((d) => d.key);
+out.known = data.every((d) => b.SETUP_TILES.some(([id, key]) => id === d.id && key === d.key));
+out.fig = Object.fromEntries(data.map((d) => [d.id, [d.value, d.sub.filter(Boolean), !!d.alert, d.fresh]]));
+out.model = { vms: S.model.vms.length, apps: S.model.apps.length };
+// the switcher's tiles: each with its own section (a function) and its place
+b.setupSwitcher();
+const list = spec.tiles();
+out.list = list.map((x) => [x.id, typeof x.section, x.place]);
+out.spec = [spec.id, spec.key, spec.default, spec.wants('vms'), spec.wants('nope')];
+// a new share in the plan: its tile carries the chip
+const extra = { ...S.plan.shares[0], name: 'Neu', why: 'new' };
+S.newItems.add('share:Neu');
+S.plan.shares.push(extra);
+out.newShare = b.setupTileData(S.plan).find((d) => d.id === 'shares');
+// no backup place: Basics says so, alert
+delete S.draft['general|dumps_share'];
+out.noPlace = b.setupTileData(S.plan)[0];
+// Jack Emby
+spec = null;
+(0, eval)(fs.readFileSync(emFile, 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const st = JSON.parse(fs.readFileSync(embyFile, 'utf8'));
+e.setState(st);
+e.initForm();
+out.emby = e.setupTileData().map((d) => [d.id, d.key, d.value, d.sub.filter(Boolean)]);
+out.embyList = e.setupTileList().map((x) => [x.id, typeof x.section, x.place]);
+e.setState({ ...st, configured: false });
+out.embyNew = e.setupTileData().map((d) => d.id);
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/backup.setup_get.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r)) {
+        check('setup tiles: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    $plan = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/post/backup.setup_get.json'), true)['plan'];
+    $old = array_filter($plan['kopia']['sources'] ?? [], fn ($x) => in_array($x['state'] ?? '', ['orphan', 'gone'], true));
+    same('setup tiles: a tile per step in the steps\' order (old Kopia sources only when there are), each a step\'s title',
+        array_merge(['basics', 'vms', 'apps', 'shares', 'retention', 'more'], $old ? ['sources'] : [], ['messages']), $r['ids']);
+    check('setup tiles: … each one of SETUP_TILES (its id and key)', $r['known'] === true);
+    same('setup tiles: every tile hangs on the switcher with its own section and the place setup.tile.<id>',
+        array_map(fn ($id) => [$id, 'function', "setup.tile.$id"], $r['ids']), $r['list']);
+    same('setup tiles: the switcher — #/backup/setup/<tile>, kept as backup.setup.tile, no start tile, a step\'s route before the plan',
+        ['backup/setup', 'backup.setup.tile', '', true, false], $r['spec']);
+    same('setup tiles: VMs, apps, shares — how many the plan has', [(string) $r['model']['vms'], (string) $r['model']['apps'], (string) count($plan['shares'])],
+        [$r['fig']['vms'][0], $r['fig']['apps'][0], $r['fig']['shares'][0]]);
+    check('setup tiles: … with «n backed up» under each', str_starts_with($r['fig']['vms'][1][0] ?? '', 'setup.tile.on') && str_starts_with($r['fig']['shares'][1][0] ?? '', 'setup.tile.on'));
+    $parts = explode(' + ', $r['fig']['basics'][1][0] ?? '');
+    same('setup tiles: Basics — the places the backups go to (the backup place, Kopia when on, the partners sent to), counted',
+        [(string) count($parts), 'setup.tile.local', false], [$r['fig']['basics'][0], $parts[0], $r['fig']['basics'][2]]);
+    same('setup tiles: … no backup place: said, the tile in alert', ['setup.tile.no_place', true], [$r['noPlace']['sub'][0], $r['noPlace']['alert']]);
+    $z = preg_split('/\s+/', trim((string) ($plan['P']['zfs|retention'] ?? '')));
+    same('setup tiles: Retention — the local ZFS snapshots\' «d w m» in short figures',
+        "setup.tile.u_d {\"n\":{$z[0]}} · setup.tile.u_w {\"n\":{$z[1]}} · setup.tile.u_m {\"n\":{$z[2]}}", $r['fig']['retention'][0]);
+    $notes = isset($plan['notes']) ? array_sum(array_map(fn ($g) => count($g['items'] ?? []), $plan['notes'])) : count($plan['messages'] ?? []);
+    same('setup tiles: «What the setup checked» — its messages counted', (string) $notes, $r['fig']['messages'][0]);
+    same('setup tiles: a new share — its tile counts it and carries the chip «new»', [(string) (count($plan['shares']) + 1), $r['fig']['shares'][3] + 1], [$r['newShare']['value'], $r['newShare']['fresh']]);
+    same('setup tiles: Jack — servers, libraries, people, pool and amount, the way back, the import (once set up), each with its section and place',
+        [['servers', 'function', 'setup.tile.servers'], ['libraries', 'function', 'setup.tile.libraries'], ['users', 'function', 'setup.tile.users'],
+         ['scope', 'function', 'setup.tile.scope'], ['more', 'function', 'setup.tile.more'], ['import', 'function', 'setup.tile.import']], $r['embyList']);
+    $set = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/emby.json'), true)['settings'];
+    same('setup tiles: Jack before a server is connected — one server, none connected, the libraries and people as saved, the pool',
+        [['servers', 'setup.server', '1', ['setup.tile.connected {"n":0}']], ['libraries', 'setup.libraries', (string) count($set['libraries']), ['setup.tile.saved']],
+         ['users', 'setup.users', 'setup.tile.everyone', ['setup.tile.saved']],
+         ['scope', 'setup.scope', str_replace('/mnt/', '', $set['cache_path']), ['setup.tile.count_line {"n":' . $set['number_episodes'] . '}']],
+         ['more', 'setup.more', 'setup.tile.default', []], ['import', 'import.title', 'setup.tile.optional', []]], $r['emby']);
+    same('setup tiles: Jack not set up yet — no import tile (it stands over the row)', ['servers', 'libraries', 'users', 'scope', 'more'], $r['embyNew']);
 }
 
 /**
@@ -7809,6 +8164,11 @@ function testBackupKopiaAutostart(): void
  */
 function testRestore(): void
 {
+    // rsync 3.5.1 refuses a destination through a symlink another user owns — an exclusive share's /mnt/user/<share> is
+    // Unraid's link, owned by nobody (2026-10-11, a large server: «rsync exit 3» on every files restore into appdata)
+    $rs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('restore copy: rsync gets the pool path of an exclusive share (officeUnraidPath), the journal keeps the share\'s',
+        str_contains($rs, '$rsTo = officeUnraidPath($to);') && str_contains($rs, "\$rsFrom = array_map('officeUnraidPath', \$sources);"));
     $tmp = sys_get_temp_dir() . '/office-tests-restore-' . getmypid();
     $put = function (string $file, mixed $data) use ($tmp): void {
         @mkdir(dirname("$tmp/$file"), 0700, true);
@@ -8363,6 +8723,135 @@ function testRestoreShares(): void
 }
 
 /**
+ * Mr. Restori and a Nextcloud restored from the engine's snapshot (the end-to-end test of 2026-10-11 on a large server:
+ * the restored Nextcloud answered «maintenance» to every request): where its config.php lies on the host (the official
+ * image, a bind of its own for config, linuxserver's), which restore brings it back (its config folder in what comes
+ * back, the engine's moment, swapped — not a copy, not another app's folder, not another snapshot), the plan's step
+ * after the containers' start and its note, and the step itself on a stand-in docker: occ as Nextcloud's user while the
+ * container runs, a warning naming the command when it doesn't run or occ refuses — never failed.
+ */
+function testRestoreNextcloud(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rsnc-' . getmypid();
+    $mnt = "$tmp/mnt";
+    $ctx0 = ['fs' => ['hazel' => 'zfs']];
+    $b = fn (string $src, string $dest) => ['source' => $src, 'dest' => $dest, 'rw' => true];
+    same('restore nextcloud: config.php beside occ, through the deepest bind, as the share path', [
+            '/mnt/user/zzapps/zz-nc/config', '/mnt/user/zzapps/zz-ncconf', '/mnt/user/zzapps/zz-lsio/www/nextcloud/config',
+            '/mnt/user/zzapps/zz-lsio/www/nextcloud/config', null, null],
+        [rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzapps/zz-nc', '/var/www/html'), $b('/mnt/user/zzdata', '/var/www/html/data')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzapps/zz-nc', '/var/www/html'), $b('/mnt/hazel/zzapps/zz-ncconf/', '/var/www/html/config')], $ctx0),
+         rsNcConfigDir('/app/www/public/occ', [$b('/mnt/user/zzapps/zz-lsio', '/config')], $ctx0),
+         rsNcConfigDir('/config/www/nextcloud/occ', [$b('/mnt/user/zzapps/zz-lsio', '/config')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/mnt/user/zzdata', '/var/www/html/data')], $ctx0),
+         rsNcConfigDir('/var/www/html/occ', [$b('/var/lib/docker/volumes/nc/_data', '/var/www/html')], $ctx0)]);
+    $ncs = [['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data', 'same_as' => '', 'config' => '/mnt/user/zzapps/zz-nc/config'],
+            ['container' => 'zz-nc-cron', 'occ' => '/var/www/html/occ', 'user' => 'www-data', 'same_as' => 'zz-nc-app', 'config' => '/mnt/user/zzapps/zz-nc/config']];
+    same('restore nextcloud: brought back with its folder or its whole share — once per instance, never a neighbour\'s',
+        [['zz-nc-app'], ['zz-nc-app'], [], [], ['zz-nc-cron']],
+        [array_column(rsNcBack($ncs, ['/mnt/user/zzapps/zz-nc']), 'container'), array_column(rsNcBack($ncs, ['/mnt/user/zzapps']), 'container'),
+         array_column(rsNcBack($ncs, ['/mnt/user/zzapps/zz-nc-old', '/mnt/user/zzapps/zz-other']), 'container'),
+         array_column(rsNcBack([['container' => 'x', 'config' => null]], ['/mnt/user/zzapps']), 'container'),
+         array_column(rsNcBack([$ncs[1]], ['/mnt/user/zzapps/zz-nc']), 'container')]);
+
+    // the plan: a share zzapps on hazel (an exclusive share: /mnt/user/zzapps is the link), the Nextcloud's folder and another app's
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [str_contains(implode(' ', $paths), 'zz-nc') ? ['zz-nc-db', 'zz-nc-app'] : ['zz-other'], []];
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $snap = fn (string $name): string => "$mnt/hazel/zzapps/.zfs/snapshot/$name";
+    $put("$mnt/hazel/zzapps/zz-nc/config/config.php", "<?php \$CONFIG = ['maintenance' => false];");
+    $put("$mnt/hazel/zzapps/zz-other/x.txt", 'live');
+    $put($snap('uso-backup-20261011-0300') . '/zz-nc/config/config.php', "<?php \$CONFIG = ['maintenance' => true];");
+    $put($snap('uso-backup-20261011-0300') . '/zz-other/x.txt', 'snap');
+    $put($snap('manual-y') . '/zz-nc/config/config.php', "<?php \$CONFIG = ['maintenance' => false];");
+    $put("$mnt/user");
+    symlink("$mnt/hazel/zzapps", "$mnt/user/zzapps");
+    $T0 = (int) strtotime('2026-10-11 03:00');
+    $ctx = [
+        'fs' => ['hazel' => 'zfs'], 'zfs' => ["$mnt/hazel/zzapps" => 'zz-hazel/zzapps'],
+        'snaps' => ['zz-hazel/zzapps' => [['name' => 'uso-backup-20261011-0300', 'time' => $T0], ['name' => 'manual-y', 'time' => $T0 + 3600]]],
+        'asleep' => [], 'prefixes' => ['uso-backup-', 'unraidbackup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzapps' => ['shareUseCache' => 'only', 'shareCachePool' => 'hazel']],
+        'mnt' => $mnt, 'user' => "$mnt/user", 'disks' => ['hazel' => ['name' => 'hazel', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzapps' => ['exclusive' => 'yes']], 'old_shares' => null, 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz-nc', 'id' => 'zz-nc', 'vm_state' => null, 'nextcloud' => $ncs];
+    $other = ['kind' => 'app', 'name' => 'zz-other', 'id' => 'zz-other', 'vm_state' => null, 'nextcloud' => []];
+    $stamp = '20261011-120000';
+    $plan = function (string $path, string $moment, string $mode, array $who) use ($ctx, $stamp): array {
+        $c = $ctx;
+        return rsPlanFilesFor($path, $moment, $mode, false, $who, $stamp, $c);
+    };
+    $p = $plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'swap', $owner);
+    same('restore nextcloud: swapped from the engine\'s snapshot — maintenance off after the containers\' start, nothing blocks',
+        [['copy', 'stop', 'aside', 'move', 'start', 'maintenance_off'], [], ['container' => 'zz-nc-app', 'occ' => '/var/www/html/occ', 'user' => 'www-data']],
+        [array_column($p['steps'], 'do'), array_column($p['blockers'], 'key'), array_intersect_key(end($p['steps']), array_flip(['container', 'occ', 'user']))]);
+    same('restore nextcloud: said under «Afterwards», with the command', ['after.files_swap', 'after.nextcloud_maintenance', 'zz-nc-app', 'www-data', '/var/www/html/occ'],
+        [$p['after'][0]['key'] ?? null, $p['after'][1]['key'] ?? null, $p['after'][1]['params']['container'] ?? null, $p['after'][1]['params']['user'] ?? null,
+         $p['after'][1]['params']['occ'] ?? null]);
+    $whole = $plan('/mnt/user/zzapps', 'run:20261011-0300', 'swap', $owner + ['nextcloud' => $ncs]);
+    same('restore nextcloud: the whole share brings its folder back too', 'maintenance_off', end($whole['steps'])['do'] ?? null);
+    $none = fn (array $p) => [in_array('maintenance_off', array_column($p['steps'], 'do'), true), in_array('after.nextcloud_maintenance', array_column($p['after'], 'key'), true)];
+    same('restore nextcloud: not for a copy, another snapshot, another app\'s folder, an app without Nextcloud',
+        [[false, false], [false, false], [false, false], [false, false]],
+        [$none($plan('/mnt/user/zzapps/zz-nc', 'run:20261011-0300', 'copy', $owner)), $none($plan('/mnt/user/zzapps/zz-nc', 'name:manual-y', 'swap', $owner)),
+         $none($plan('/mnt/user/zzapps/zz-other', 'run:20261011-0300', 'swap', $owner)), $none($plan('/mnt/user/zzapps/zz-other', 'run:20261011-0300', 'swap', $other))]);
+    $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/restore/lang/en.json'), true) ?: [];
+    check('restore nextcloud: the step, its notes and the line have words',
+        isset($en['step.maintenance_off'], $en['sn.nc_not_running'], $en['sn.nc_maintenance_failed'], $en['after.nextcloud_maintenance']));
+
+    // the step on a stand-in docker: a running one, a stopped one, one whose occ refuses
+    $put("$tmp/bin/docker", "#!/bin/sh\necho \"\$*\" >> " . escapeshellarg("$tmp/docker.calls") . "\n"
+        . "case \"\$*\" in\n"
+        . "  *inspect*zz-nc-app*|*inspect*zz-nc-bad*) echo true ;;\n"
+        . "  *inspect*) echo 'Error: No such object' >&2; exit 1 ;;\n"
+        . "  *exec*zz-nc-bad*) echo 'Nextcloud is not installed' >&2; exit 1 ;;\n"
+        . "  *exec*) echo 'Maintenance mode disabled' ;;\n"
+        . "esac\n");
+    chmod("$tmp/bin/docker", 0755);
+    $GLOBALS['rs']['docker'] = "$tmp/bin/docker";
+    $GLOBALS['rs']['nc_wait'] = 0;
+    $id = "$stamp-ab12";
+    rsPrivateDir(rsData());
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $i = count($j['steps']) - 1;
+    $r = rsStep($j, $i);
+    same('restore nextcloud: occ as Nextcloud\'s user while the container runs', ['ok', "inspect -f {{.State.Running}} zz-nc-app\nexec -u www-data zz-nc-app php /var/www/html/occ maintenance:mode --off"],
+        [$r['state'], trim((string) @file_get_contents("$tmp/docker.calls"))]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['container'] = 'zz-nc-gone';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: a container that doesn\'t run — a warning naming the command, occ not asked', ['warning', 'nc_not_running',
+            'docker exec -u www-data zz-nc-gone php /var/www/html/occ maintenance:mode --off', 1],
+        [$r['state'], $r['note'] ?? null, $r['params']['command'] ?? null, count(file("$tmp/docker.calls"))]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['container'] = 'zz-nc-bad';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: occ refuses — three tries, then a warning (never failed)', ['warning', 'nc_maintenance_failed', 3, 'Nextcloud is not installed'],
+        [$r['state'], $r['note'] ?? null, count(preg_grep('/^exec /', file("$tmp/docker.calls"))), $r['detail'] ?? null]);
+    @unlink("$tmp/docker.calls");
+    $j['steps'][$i]['user'] = 'www-data; rm -rf /';
+    $r = rsStep($j, $i);
+    same('restore nextcloud: a step of an odd shape runs nothing', ['warning', false], [$r['state'], is_file("$tmp/docker.calls")]);
+
+    unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users'],
+          $GLOBALS['rs']['docker'], $GLOBALS['rs']['nc_wait']);
+    $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Mr. Restori's findings of 2026-10-06 (a VM's folder in domains, a ZFS dataset of its own): sizes from the source by a
  * du that sees an unmounted ZFS snapshot, allocated and apparent (sparse), ZFS sources counted with their data's own
  * size where the target doesn't compress; an empty folder counts as nothing there («put in place», it goes aside); the
@@ -8565,7 +9054,7 @@ function testRestoreFindings(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false, fmt: {} };
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, sections: () => ({ places: () => [] }), has: () => false, fmt: {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
 const sizes = { measuring: true, need: null, paths: ['/a', '/b'], scale: { '/a': 1.25 }, compresses: false, free: 100 };
@@ -8692,7 +9181,7 @@ function testRestoreDatabases(): void
 const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => false,
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, sections: () => ({ places: () => [] }), has: () => false,
   fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
@@ -10911,7 +11400,7 @@ function testNotify(): void
     same('notify: subject in Unraid\'s language', 'Unraid Secretary Office: Etwas Neues zu erledigen', $c[0]['-s'] ?? null);
     same('notify: event as the engine\'s', 'Unraid Secretary Office', $c[0]['-e'] ?? null);
     same('notify: a warning', 'warning', $c[0]['-i'] ?? null);
-    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Eine Sicherung ist geplant'), $c[0]['-d'] ?? '');
+    check('notify: what is missing in the bell', str_contains($c[0]['-d'] ?? '', 'Herr Backupsi — Ein Backup ist geplant'), $c[0]['-d'] ?? '');
     check('notify: long text with what to do, lines as Unraid\'s \n', str_contains($c[0]['-m'] ?? '', 'Herr Backupsi → Zeitplan')
         && str_contains($c[0]['-m'] ?? '', '\n') && !str_contains($c[0]['-m'] ?? '', "\n"), $c[0]['-m'] ?? '');
     $page = caretakerNotifyPublic(readJson($file) ?? []);
@@ -11469,6 +11958,12 @@ function testIcons(): void
 /** The Consultant: which container is which external, and whether the node exporter reads the office's folder */
 function testAdvisor(): void
 {
+    // his scan reads the plugin and container lists fresh (2026-10-11: his fresh look right after a plugin job answered
+    // «missing» from a list another caller had cached seconds before the plugin manager registered the plugin)
+    $src = (string) file_get_contents(__DIR__ . '/../agent/desks/advisor.php');
+    check('advisor: the scan never takes the cached plugin or container list', str_contains($src, '$plugins = housePlugins(true);') && str_contains($src, '$containers = houseContainers(true);'));
+    $house = (string) file_get_contents(__DIR__ . '/../agent/lib/house.php');
+    check('house: housePlugins() and houseContainers() take $fresh', str_contains($house, 'function housePlugins(bool $fresh = false)') && str_contains($house, 'function houseContainers(bool $fresh = false)') && substr_count($house, 'if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE)') === 2);
     foreach (['quay.io/prometheus/node-exporter:latest-distroless' => 'node-exporter', 'prom/prometheus' => 'prometheus',
               'grafana/grafana:12.1.0' => 'grafana', 'grafana/loki:maple' => 'loki', 'registry:5000/Team/App:1' => 'app',
               'bitnami/node-exporter@sha256:ab12' => 'node-exporter', 'redis' => 'redis'] as $image => $want) {
@@ -15130,11 +15625,56 @@ function testWhereAfterWatchman(): void
     foreach (array_keys(WATCH_POSTURE) as $id) {
         check("where: security tip $id is the watchman's now", !str_contains($js, "add('$id',") && !isset($en["where.adv.$id.title"]));
     }
-    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'security'] as $id) {
+    foreach (['system_array', 'mover', 'compose_build', 'spindown_default', 'spindown_some', 'old_disks', 'no_parity', 'parity', 'ups', 'syslog', 'cron_dead', 'vm_windows', 'vm_sparse', 'vm_netmodel', 'vm_migratable', 'security'] as $id) {
         check("where: tip $id is hers", str_contains($js, "add('$id',") && isset($en["where.adv.$id.title"], $en["where.adv.$id.why"]));
     }
     $advice = waAdvice([], [], []);
     same('where: her advice reads no security settings any more', [false, false, false], [isset($advice['telnet']), isset($advice['ftp']), isset($advice['cpu'])]);
+}
+
+/**
+ * Ms. Dustdevil's tip about «Migratable» On (2026-10-12): Unraid's VM form sets `cpumigrate = on` for new VMs, the switch
+ * only exists with CPU mode Host Passthrough (`<cpu mode='host-passthrough' migratable='on'>`); libvirt then hides CPU
+ * features a live migration couldn't take along — no RAM or CPU cost, but the guest sees fewer capabilities. Read from
+ * the VM's XML (as waVm() reads it, never virsh): XML files the shape uso-test's have — on, off, and a VM in emulated
+ * mode (no switch: no tip). Good to know, never «needs resources».
+ */
+function testWhereVmMigratable(): void
+{
+    $tmp = hardeningTmp('wamigrate');
+    $xml = fn (string $name, string $cpu) => "<?xml version='1.0' encoding='UTF-8'?>\n<domain type='kvm'>\n  <name>$name</name>\n  <memory unit='KiB'>1048576</memory>\n"
+        . "  <vcpu placement='static'>2</vcpu>\n  <os>\n    <type arch='x86_64' machine='pc-q35-9.2'>hvm</type>\n  </os>\n$cpu  <clock offset='utc'/>\n  <devices/>\n</domain>\n";
+    file_put_contents("$tmp/Lab-On.xml", $xml('Lab-On', "  <cpu mode='host-passthrough' check='none' migratable='on'/>\n"));
+    file_put_contents("$tmp/Lab-Off.xml", $xml('Lab-Off', "  <cpu mode='host-passthrough' check='none' migratable='off'>\n    <topology sockets='1' dies='1' clusters='1' cores='1' threads='2'/>\n  </cpu>\n"));
+    file_put_contents("$tmp/Emulated.xml", $xml('Emulated', "  <cpu mode='custom' match='exact' check='none'>\n    <model fallback='forbid'>qemu64</model>\n  </cpu>\n"));
+    file_put_contents("$tmp/NoCpu.xml", $xml('NoCpu', ''));
+    $dom = fn (string $name) => simplexml_load_string((string) file_get_contents("$tmp/$name.xml"));
+    same('wa vm migratable: Host Passthrough with «Migratable» On — yes; Off, emulated, no <cpu>, unreadable — no', [true, false, false, false, false],
+        [waVmCpuMigratable($dom('Lab-On')), waVmCpuMigratable($dom('Lab-Off')), waVmCpuMigratable($dom('Emulated')), waVmCpuMigratable($dom('NoCpu')), waVmCpuMigratable(false)]);
+    $vms = array_map(fn ($n) => ['name' => $n, 'cpu_migratable' => waVmCpuMigratable($dom($n))], ['Lab-On', 'Lab-Off', 'Emulated', 'NoCpu']);
+    $vms[] = ['name' => 'a-Second', 'cpu_migratable' => true];
+    $vms[] = ['name' => 'Odd', 'cpu_migratable' => 'yes'];
+    same('wa vm migratable: the VMs with it, sorted — never Off, emulated, an odd shape', ['a-Second', 'Lab-On'], waVmMigratable($vms));
+    same('wa vm migratable: only Off and emulated VMs — no tip', [], waVmMigratable([$vms[1], $vms[2]]));
+    same('wa vm migratable: her advice carries the names', ['a-Second', 'Lab-On'], waAdvice([], [], [], $vms)['vm_migratable']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php');
+    check('wa vm migratable: waVm() reads it from the VM\'s XML (no virsh for it)', str_contains($src, "'cpu_migratable' => waVmCpuMigratable(\$dom),")
+        && !preg_match('/function waVmCpuMigratable[^}]*virsh/s', $src));
+    hardeningRm($tmp);
+
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.js');
+    check('where: the «Migratable» tip is hers — info, the names, a link to Unraid\'s VMs page, the names as its signature',
+        str_contains($js, "add('vm_migratable', 'info', { names: listNames(migratable, 3), n: migratable.length }, { path: '/VMs', text: T('where.adv.to_vms') }, migratable.join(','));"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/cleanup/lang/$l.json"), true) ?: [];
+        $why = (string) ($t['where.adv.vm_migratable.why'] ?? '');
+        check("where ($l): the «Migratable» tip names the way in Unraid — ⟦VMs⟧ → ⟦Edit⟧ → ⟦Migratable⟧ beside ⟦CPU Mode⟧ (⟦Host Passthrough⟧), Off, the VM stopped",
+            str_contains($t['where.adv.vm_migratable.title']['other'] ?? '', '{names}') && str_contains($why, '⟦VMs⟧') && str_contains($why, '⟦Edit⟧')
+            && substr_count($why, '⟦Migratable⟧') === 2 && substr_count($why, '⟦CPU Mode⟧') === 2 && str_contains($why, '⟦Host Passthrough⟧') && str_contains($why, '→ Off'));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/lang/de.json'), true) ?: [];
+    check('where (de): «kann Leistung kosten», never «braucht Ressourcen»', str_contains($de['where.adv.vm_migratable.why'] ?? '', 'kann Leistung kosten')
+        && !str_contains($de['where.adv.vm_migratable.why'] ?? '', 'Ressourcen'));
 }
 
 /**
@@ -17366,9 +17906,9 @@ const out = {};
   await sleep(250);
   console.error = consoleError;
   out.heals = { thrown, calls: calls.slice(), healed, errors };
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -17467,9 +18007,9 @@ const toasts = () => (byId['sso-toasts'] ? byId['sso-toasts'].children.map((c) =
   await O.api.get({ a: 'part', desk: 'restore', part: 'job' });
   out.saidAgain = toasts().slice(before);
   out.delays = [O.pollDelay(2000, 0), O.pollDelay(2000, 1), O.pollDelay(2000, 2), O.pollDelay(2000, 3), O.pollDelay(2000, 20)];
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -17548,9 +18088,9 @@ const look = () => { const n = byId['sso-update']; return n ? { hidden: n.hidden
   out.laterStays = look().hidden;
   O.setAgent({ running: true, version: '1.44.0' });
   out.newer = look();
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -17756,9 +18296,9 @@ const out = { registry: {}, marks: {} };
   O.current = null;
   out.unhired = O.search.find('emby').map((r) => [r.desk, r.hired]);
   out.full = O.search.find('partn').slice(0, 1);
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $queries = ['before' => ['Partn', 'Partnr', 'Pratner', 'Partner offices', 'Accueil', 'Empfang', 'xq'],
                 'after' => ['Partner offices', 'secretariats partenaires', 'Sécrétariats', 'Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción', 'größe', 'GRÖSSE', 'grosse', 'tem', 'Tean']];
@@ -18053,7 +18593,7 @@ const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const FX = JSON.parse(fs.readFileSync(fixturesFile, 'utf8'));
 const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
   classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  appendChild(c) { this.children.push(c); return c; }, get lastChild() { return this.children[this.children.length - 1] || null; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {}, replaceChildren() {},
   setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
   querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
   getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
@@ -18239,8 +18779,8 @@ JS);
         [['app:nextcloud', '#/restore/apps'], ['vm:win11', '#/restore/vms'], ['db:nextcloud:apps/nextcloud/db/mariadb-nextcloud.sql.gz', '#/restore/dbs'],
          ['tile.partner:a1b2c3d4', '#/restore/partner:a1b2c3d4'], ['dr:app:nextcloud', '#/restore/drill'], ['dr:share', '#/restore/drill']],
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['restore'] ?? []));
-    same('search items snapshot: pools and disks, schedules, datasets with snapshots (not Docker\'s)',
-        [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
+    same('search items snapshot: pools and disks, schedules (their section opens: #/snapshot/plans), datasets with snapshots (not Docker\'s)',
+        [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot/plans'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['snapshot'] ?? []));
     $c = $r['items']['cleanup'] ?? [];
     check('search items cleanup: what she would clear away (capped at 120), not what is in use; «Where is what»: shares, containers, disks, appdata folders',
@@ -25202,9 +25742,9 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await sleep(10);
   out.reopened = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0].value;
   dlg3.close();
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -25610,9 +26150,9 @@ const one = (f) => walk(body(), f)[0];
   const s = posts.find((p) => p.a === 'office.report_send') || {};
   out.sent = { parts: s.parts, checked: s.images_checked };
   dlg.close();
-  console.log(JSON.stringify(out));
-  process.exit(0);
-})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+  // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
     $r = json_decode($raw, true);
@@ -26168,8 +26708,9 @@ function testWatchBookView(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
     check('watch book: «All n: I know, thanks» notes a folded row\'s open entries in one request (ack_some with their ids)',
         str_contains($js, "Office.api.post(`\${ID}.ack_some`, { ids: list.map((e) => e.id) })"));
-    check('watch book: the area is kept per browser, the filter\'s words are not',
-        str_contains($js, "Office.store('watchman.area', area || null)") && !preg_match("/Office\\.store\\('watchman\\.(filter|search|words)/", $js));
+    check('watch book: the area is kept per browser (the bar\'s select under watchman.book.pick), the filter\'s words and «only open» are not',
+        (bool) preg_match("/Office\\.filterBar\\(\\{\\s*key: 'watchman\\.book',.{0,300}?select: \\{/s", $js)
+        && !preg_match("/Office\\.store\\('watchman\\.(filter|search|words|only_open)/", $js));
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('watch book view: node is missing here - skipped', true);
@@ -26187,6 +26728,242 @@ function testWatchBookView(): void
     foreach ($r['fail'] as $f) {
         check('watch book view: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }
+}
+
+/**
+ * «What I keep an eye on» with its filter bar (2026-10-12, Benj: 14 folded groups and no way to find a container in
+ * them): desk.js groupFit() / fitTally() / groupOpen() and watchSection() under node (tests/watchfilter.js — skipped
+ * where node is missing): the words hit an item's name, a chip's word, a sub line, a group's title (then the whole
+ * group); a group without hits is left out, one with hits unfolded with «n of m fit» on its summary; the bar told
+ * «n of m»; no hits: the empty line; «Show all» (no words) = every group back, folded as kept. Then the page's side: the
+ * bar is an Office.filterBar keyed watchman.watch, its words never kept, emptied at every visit; its strings in five
+ * languages.
+ */
+function testWatchFilter(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    check('watch filter: the list\'s bar is an Office.filterBar keyed watchman.watch (no select: nothing of it kept)',
+        (bool) preg_match("/Office\\.filterBar\\(\\{\\s*key: 'watchman\\.watch',(?:(?!select:).){0,300}?onChange/s", $js));
+    check('watch filter: a new visit starts with the whole list (mount() empties the bar)', str_contains($js, 'watchBarGet().reset();'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = langFile(OFFICE_WEB . "/desks/watchman/lang/$l.json");
+        check("watch filter: its label and empty line in $l", is_string($lang['watch.filter.label'] ?? null) && is_string($lang['watch.filter.none'] ?? null));
+    }
+    $node = testsNode();
+    if ($node === '') {
+        check('watch filter: node is missing here - skipped', true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/watchfilter.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/watchman/desk.js') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check('watch filter: ran under node', false, $raw);
+        return;
+    }
+    check("watch filter: the list and its bar under node ({$r['pass']} checks)", $r['pass'] >= 35 && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check('watch filter: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/** node for the tests that run a page's code (tests/watchbook.js, tests/filter.js): '' where it is missing */
+function testsNode(): string
+{
+    return trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+}
+
+/** tests/filter.js <part> under node: one JSON line {pass, fail} — checked by $label, at least $min checks */
+function testsFilterJs(string $part, string $label, int $min): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check("$label: node is missing here - skipped", true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/filter.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg($part) . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check("$label: ran under node", false, $raw);
+        return;
+    }
+    check("$label: core.js under node ({$r['pass']} checks)", $r['pass'] >= $min && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check("$label: " . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * The filter's words as every list compares them (core.js Office.fold / filterWords / fits, under node — tests/filter.js;
+ * skipped where node is missing, it runs on the Mac as it is): accents folded (é, ü; ß and ẞ → ss; Ł is no accent and
+ * stays), empty and multi-space input, a list of strings as the hay, words in any order, a word across the \u0001
+ * joiner never fits.
+ */
+function testFilterWords(): void
+{
+    testsFilterJs('words', 'filter words', 15);
+}
+
+/**
+ * The filter bar and the two tile builders (core.js Office.filterBar / Office.stat / Office.tile): the API and its
+ * strings in five languages; then, on a stand-in DOM under node (tests/filter.js bar), the bar shown from
+ * Office.FILTER_MIN rows or while anything filters, «n of m fit», the note line of a tile filter (chip, «Show all»,
+ * clear() before onChange), the select kept per browser and words / «only …» never, the switch gone with nothing to
+ * switch to, an option gone, reset/set, the focus kept through a drawing, onChange inside keepInPlace(the control);
+ * stat and tile as button or div, aria-pressed, aria-controls, data-filters, no inline handlers. How it behaves in a
+ * real browser the click test checks (tools/ui-clicks.mjs: data-filters → the note line) once the desks use it.
+ */
+function testFilterBar(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $missing = [];
+    foreach (['filterBar', 'fold', 'filterWords', 'fits', 'stat', 'tile', 'FILTER_MIN'] as $name) {
+        if (!preg_match('/^Office\.' . $name . ' = /m', $core)) {
+            $missing[] = $name;
+        }
+    }
+    same('filter bar: core.js has Office.filterBar, fold, filterWords, fits, stat, tile, FILTER_MIN', [], $missing);
+    check('filter bar: one threshold, 10 rows', str_contains($core, 'Office.FILTER_MIN = 10;'));
+    check('filter bar: only the select is kept per browser (<key>.pick), words and «only …» never',
+        str_contains($core, "o.key + '.pick'") && preg_match_all('/Office\.store\(/', substr($core, (int) strpos($core, 'Office.filterBar = '), 9000)) === 2);
+    $keys = ['common.filter_hits', 'common.filter_only', 'common.show_all', 'common.filter_clear_tile'];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("filter bar: its strings in $code", [], array_values(array_filter($keys, fn ($k) => !isset($lang[$k]))));
+        if ($code === 'de') {
+            check('filter bar: Swiss German — no ß', !str_contains(json_encode(array_intersect_key($lang, array_flip($keys)), JSON_UNESCAPED_UNICODE), 'ß'));
+        }
+    }
+    testsFilterJs('bar', 'filter bar', 45);
+}
+
+/** tests/sections.js <part> under node: one JSON line {pass, fail} — checked by $label, at least $min checks */
+function testsSectionsJs(string $part, string $label, int $min): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check("$label: node is missing here - skipped", true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/sections.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg($part) . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check("$label: ran under node", false, $raw);
+        return;
+    }
+    check("$label: core.js under node ({$r['pass']} checks)", $r['pass'] >= $min && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check("$label: " . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * The section switcher of tiles v2 (core.js Office.sections, CLAUDE.md «Tiles»: a tile is a section): the API, the glow
+ * and the mark in office.css (both themes, Unraid's white one, no animation), the marks' and «◂ All»'s words in five
+ * languages; then under node (tests/sections.js sections): pick / the second click / the default / the store / a tile's
+ * route / a tile the list has later, the «nothing active» page in the row's order (a shared section once), a filter tile
+ * never stored with data-filters on its section and its words for the bar, the attributes and the mark, the sticky head
+ * with «◂ All», the viewport rule (phone: the head to the top; desktop: block nearest only when out of view), the focus,
+ * places(). In a real browser: tools/ui-clicks.sh on a desk with [data-sections-body].
+ */
+function testSections(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    check('sections: core.js has Office.sections', (bool) preg_match('/^Office\.sections = function/m', $core));
+    $at = (int) strpos($core, 'Office.sections = function');
+    $fn = substr($core, $at, (int) strpos($core, '// ------------------------------------------------------------------ staff', $at) - $at);
+    check('sections: a filter tile is never kept (the store keeps the last section choice while one is on)', str_contains($fn, 'if (!isFilter(x)) Office.store(key, next);'));
+    check('sections: the desktop\'s move is block nearest, marked as a reveal', str_contains($fn, "head.scrollIntoView({ block: 'nearest' }); /* reveal */"));
+    check('sections: the focus stays on the clicked tile without a scroll', str_contains($fn, 'focus({ preventScroll: true })'));
+    check('sections: nothing hidden — no section is drawn with hidden', !preg_match('/\.hidden\s*=/', $fn));
+    foreach (['.tile-on, & button.card[aria-pressed=true], & button.stat[aria-pressed=true]{', '.tile-mark{', ':is(.Theme--white, .Theme--azure, [data-unraid-theme=white]) &:not([data-theme=dark]) .tile-on',
+        '&[data-theme=light] .tile-on', '.section-head.sticky{position:sticky', '& button.section-all{'] as $rule) {
+        check("sections: office.css has $rule", str_contains($css, $rule));
+    }
+    $g = (int) strpos($css, '/* the active tile (tiles v2');
+    $glow = substr($css, $g, (int) strpos($css, '/* the switcher\'s row and body', $g) - $g);
+    check('sections: the glow has no animation', !preg_match('/animation\s*:|transition\s*:|@keyframes/', $glow));
+    $want = ['en' => ['Filter on', 'Open', '◂ All'], 'de' => ['Filter aktiv', 'Geöffnet', '◂ Alle'], 'it' => ['Filtro attivo', 'Aperto', '◂ Tutti'],
+        'fr' => ['Filtre actif', 'Ouvert', '◂ Tout'], 'es' => ['Filtro activo', 'Abierto', '◂ Todo']];
+    foreach ($want as $code => $words) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("sections: the marks and «◂ All» in $code", $words, [$lang['common.tile_filter'] ?? null, $lang['common.tile_open'] ?? null, $lang['common.tile_all'] ?? null]);
+    }
+    testsSectionsJs('sections', 'sections', 50);
+}
+
+/**
+ * A desk's two pages as tabs (core.js Office.pages / Office.pageFrom / Office.deskHead({pages}), CLAUDE.md «Tiles»: two
+ * tabs = two pages): the API, the CSS (desktop, and at 375 px one row of two half-width tabs, 40 px), «Overview» in five
+ * languages; under node (tests/sections.js pages): two tabs, role tab, aria-selected, href = the route, a third (and a
+ * single one) refused, a click is Office.go() (⌘ / Ctrl the browser's), the kept page, the tabs under the bubble.
+ */
+function testDeskPages(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    check('desk pages: core.js has Office.pages and Office.pageFrom', (bool) preg_match('/^Office\.pages = function/m', $core) && (bool) preg_match('/^Office\.pageFrom = function/m', $core));
+    check('desk pages: Office.deskHead takes pages', str_contains($core, 'Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, pages })'));
+    check('desk pages: office.css has the strip across the head (tabs like a browser\'s) and the active tab open towards the page',
+        str_contains($css, '.desk-pages{display:flex; align-items:flex-end; gap:5px; flex-basis:100%;')
+        && str_contains($css, '.desk-pages a[aria-selected=true]{color:var(--ink); font-weight:650; background:var(--bg); border-color:var(--accent); border-bottom-color:var(--bg)}'));
+    check('desk pages: the strip is the head\'s last child (core.js), never in the text column', str_contains($core, "if (tabsNav) head.appendChild(tabsNav);") && !str_contains($core, 'text.appendChild(tabsNav)'));
+    $phone = substr($css, (int) strpos($css, '.tile-mark{font-size:10px'), 400);
+    check('desk pages: at 375 px two half-width tabs, 40 px high', str_contains($phone, '.desk-pages a{flex:1 1 0; min-height:40px'));
+    foreach (['en' => 'Overview', 'de' => 'Überblick', 'it' => 'Panoramica', 'fr' => 'Aperçu', 'es' => 'Resumen'] as $code => $word) {
+        same("desk pages: «Overview» in $code", $word, langFile(OFFICE_WEB . "/lang/$code.json")['common.page_overview'] ?? null);
+    }
+    testsSectionsJs('pages', 'desk pages', 12);
+}
+
+/**
+ * A job's schedule says when it runs next (officeJobSchedule() `next`, for the desks' schedule tiles): on a cron file of
+ * the test's own — an enabled line's next run is in the future, matches its expression and is the first that does; a
+ * job without a line: next null; a line cron can't read (written by hand): next null and no warning.
+ */
+function testOfficeJobScheduleNext(): void
+{
+    $tmp = hardeningTmp('cronnext');
+    $file = "$tmp/office.cron";
+    officeJobSetSchedule('backup', '30 4 * * *', $file, false);
+    officeJobSetSchedule('embycache', '*/15 * * * *', $file, false);
+    $now = time();
+    $first = function (string $cron, ?int $next) use ($now): bool {
+        $f = cronFields($cron);
+        if (!$f || $next === null || $next <= $now || !cronMatches($f, $next)) {
+            return false;
+        }
+        for ($t = intdiv($now, 60) * 60 + 60; $t < $next; $t += 60) {
+            if (cronMatches($f, $t)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    $b = officeJobSchedule('backup', $file);
+    same('job schedule next: the shape — next beside the four keys', ['script', 'frequency', 'custom', 'enabled', 'next'], array_keys($b));
+    check('job schedule next: an enabled line — in the future, its expression\'s next minute (04:30)',
+        $b['enabled'] && is_int($b['next']) && $first('30 4 * * *', $b['next']) && date('H:i', $b['next']) === '04:30' && $b['next'] - $now <= 86400);
+    $e = officeJobSchedule('embycache', $file);
+    check('job schedule next: every 15 minutes — within the next quarter of an hour', is_int($e['next']) && $first('*/15 * * * *', $e['next']) && $e['next'] - $now <= 900);
+    $g = officeJobSchedule('gather', $file);
+    same('job schedule next: no line — off, next null', [false, null], [$g['enabled'], $g['next']]);
+    file_put_contents($file, '61 3 * * * ' . officeJobCommand('backup') . "\n");
+    $warned = [];
+    set_error_handler(function (int $no, string $str) use (&$warned): bool {
+        $warned[] = $str;
+        return true;
+    });
+    $x = officeJobSchedule('backup', $file);
+    restore_error_handler();
+    same('job schedule next: a line cron can\'t read — next null, no warning', [true, null, []], [$x['enabled'], $x['next'], $warned]);
+    hardeningRm($tmp);
 }
 
 /**
@@ -26696,6 +27473,279 @@ function testHiddenStoreroom(): void
 }
 
 /**
+ * The engine's drift notes in the office's words (engine 2.41; Benj 2026-10-12: «Geändert seit der Einrichtung» showed
+ * «App 'zz-uso-nc' has a Kopia source of its own …» in English). Read in the engine: every `drift_add <level> "<text>"`
+ * of lib/common.sh and backup.sh names a code (a snake_case word; the backup place's `dumps_<problem>` is said as
+ * `message.dumps_*`), the codes from before 2.41 keep their value, every code has `drift_code.<code>` in all five
+ * languages and each placeholder of it is a param of the call (`share`/`value` for a value, `where` for `locations`).
+ * In bash: the checks of a gone app and a gone VM and drift_json_write — drift.json with `params` (a name with | and ",
+ * a text with a newline). Under node: driftText() with the German strings — every code of the engine in German, the
+ * codes from before 2.41 by their value, an item without params whose sentence needs one, an unknown code and no code
+ * by the engine's text.
+ */
+function testDriftCodes(): void
+{
+    $calls = driftCalls([OFFICE_DIR . '/backup/lib/common.sh', OFFICE_DIR . '/backup/backup.sh']);
+    check('drift codes: the engine\'s drift_add calls found (' . count($calls) . ')', count($calls) >= 43);
+    same('drift codes: every drift_add names a code', [], array_values(array_map(fn ($c) => "{$c['file']}:{$c['line']}",
+        array_filter($calls, fn ($c) => count($c['words']) < 2))));
+    $codes = [];          // code => [allowed placeholders of each call]
+    $bad = [];
+    foreach ($calls as $c) {
+        $code = $c['words'][1] ?? '';
+        if ($code === '"dumps_$DUMPS_PROBLEM"') {
+            continue;
+        }
+        if (!preg_match('/^[a-z][a-z0-9_]*$/D', $code)) {
+            $bad[] = "{$c['file']}:{$c['line']} $code";
+            continue;
+        }
+        $value = $c['words'][2] ?? '""';
+        $keys = [];
+        foreach (array_slice($c['words'], 3) as $w) {
+            if (preg_match('/^([a-z_]+)=/', $w, $m)) {
+                $keys[] = $m[1];
+            } else {
+                $bad[] = "{$c['file']}:{$c['line']} $code: not key=value: $w";
+            }
+        }
+        if ($value !== '""') {
+            array_push($keys, 'share', 'value');
+        }
+        if (in_array('locations', $keys, true)) {
+            $keys[] = 'where';
+        }
+        $codes[$code][] = $keys;
+    }
+    same('drift codes: each a snake_case word, its params key=value', [], $bad);
+    check('drift codes: the dynamic one is the backup place\'s', (bool) array_filter($calls, fn ($c) => ($c['words'][1] ?? '') === '"dumps_$DUMPS_PROBLEM"'));
+    $old = ['place_no_history', 'place_not_kopia', 'new_waiting', 'known_missing', 'new_container', 'new_database', 'new_nextcloud', 'new_vm'];
+    same('drift codes: the codes from before 2.41 keep their value', [], array_values(array_filter($old,
+        fn ($k) => !isset($codes[$k]) || array_filter($codes[$k], fn ($keys) => !in_array('value', $keys, true)))));
+    $miss = [];
+    $holes = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$lang.json"), true);
+        foreach ($codes as $code => $each) {
+            $s = $l["drift_code.$code"] ?? null;
+            if (!is_string($s)) {
+                $miss[] = "$lang drift_code.$code";
+                continue;
+            }
+            preg_match_all('/\{(\w+)\}/', $s, $m);
+            foreach ($each as $keys) {
+                foreach (array_diff($m[1], $keys) as $k) {
+                    $holes[] = "$lang drift_code.$code {{$k}}";
+                }
+            }
+        }
+        foreach (['missing', 'unknown', 'forbidden', 'off'] as $p) {
+            if (!is_string($l["message.dumps_$p"] ?? null)) {
+                $miss[] = "$lang message.dumps_$p";
+            }
+        }
+    }
+    same('drift codes: every code has its words in all five languages (' . count($codes) . ' codes)', [], $miss);
+    same('drift codes: every placeholder is a param of the call', [], array_values(array_unique($holes)));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
+    check('drift codes: Benj\'s finding has words of its own', str_contains($en['drift_code.app_source_orphan'] ?? '', '«{name}»'));
+
+    // --- in bash: the checks and drift.json
+    $tmp = hardeningTmp('drift-codes');
+    file_put_contents("$tmp/s.ini", "[general]\ndumps_share = UnraidSecretaryOffice\nmount_root = /mnt/addons/UnraidSecretaryOffice/snapshots\n"
+        . "[kopia]\nenabled = yes\n[share \"appdata\"]\nmode = kopia\n[share \"UnraidSecretaryOffice\"]\nmode = kopia\n"
+        . "[app \"zz-uso-nc\"]\nkopia = yes\nfolder = appdata/zz-uso-nc\n[vm \"Old VM\"]\nmode = snapshot\nprepare = freeze\n");
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $script = "UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; cfg_load $tmp/s.ini; cfg_validate >/dev/null; apply_settings;"
+        . ' CT_NAMES=(); CT_PROJECT=(); VM_SERVICE=yes; VM_NAMES=(); PLAN_MOUNT=(appdata UnraidSecretaryOffice); PLAN_KITEMS=("app|zz-uso-nc|zz-uso-nc");'
+        . ' drift_check_items; drift_check_vms;'
+        . ' drift_add warn "New share \'a|b\'"$\'\\n\'"line 2" share_new "" name=\'a|b "c" x=y\' locations="disk1, maple" bytes=12;'
+        . " UB_STATE=$tmp/state; mkdir -p \$UB_STATE; KP_CHECKED=no; drift_json_write; cat \$UB_STATE/drift.json";
+    $raw = (string) shell_exec('bash -c ' . escapeshellarg($script) . ' 2>&1');
+    $dj = json_decode($raw, true);
+    same('drift codes (bash): a gone app\'s and a gone VM\'s notes with code and params, value only for old codes; a name with | " = and a text with a newline',
+        [['info', 'app_source_orphan', '', ['name' => 'zz-uso-nc']], ['info', 'vm_gone', '', ['name' => 'Old VM']],
+         ['warn', 'share_new', '', ['name' => 'a|b "c" x=y', 'locations' => 'disk1, maple', 'bytes' => '12'], "New share 'a|b'\nline 2"]],
+        array_map(fn ($i) => array_merge([$i['level'] ?? null, $i['code'] ?? null, $i['value'] ?? null, $i['params'] ?? null],
+            ($i['code'] ?? '') === 'share_new' ? [$i['text'] ?? null] : []), $dj['items'] ?? [$raw]));
+    check('drift codes (bash): the English text stays as it was', str_starts_with($dj['items'][0]['text'] ?? '', "App 'zz-uso-nc' has a Kopia source of its own in settings.ini"));
+    $empty = json_decode((string) shell_exec('bash -c ' . escapeshellarg("source $lib >/dev/null 2>&1; UB_STATE=$tmp/state2; mkdir -p \$UB_STATE; KP_CHECKED=no;"
+        . ' drift_json_write; cat $UB_STATE/drift.json') . ' 2>&1'), true);
+    same('drift codes (bash): no drift = an empty list', [], $empty['items'] ?? null);
+
+    // --- under node: the desk's words
+    $node = testsNode();
+    if ($node === '') {
+        check('drift codes: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $items = [];
+    foreach ($codes as $code => $each) {
+        $p = [];
+        foreach ($each[0] as $k) {
+            if (!in_array($k, ['share', 'value', 'where'], true)) {
+                $p[$k] = $k === 'bytes' ? '2048' : "P-$k";
+            }
+        }
+        $items[] = ['level' => 'warn', 'code' => $code, 'value' => in_array('value', $each[0], true) ? 'V-value' : '', 'params' => $p, 'text' => "EN $code"];
+    }
+    $cases = [
+        ['level' => 'info', 'code' => 'app_source_orphan', 'value' => '', 'params' => ['name' => 'zz-uso-nc'],
+         'text' => "App 'zz-uso-nc' has a Kopia source of its own in settings.ini but no container of it exists any more - what is left of it still goes there"],
+        ['level' => 'info', 'code' => 'new_container', 'value' => 'web', 'text' => 'an engine 2.40\'s'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'params' => ['name' => 'Schule', 'locations' => 'daten', 'bytes' => '3221225472'], 'text' => 'demo'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'params' => ['name' => 'Schule', 'locations' => 'daten', 'bytes' => ''], 'text' => 'no size'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'text' => 'without params'],
+        ['level' => 'warn', 'code' => 'share_new', 'value' => '', 'params' => ['name', 'x'], 'text' => 'params a list'],
+        ['level' => 'warn', 'code' => 'brand_new', 'value' => 'x', 'params' => ['name' => 'x'], 'text' => 'unknown code'],
+        ['level' => 'warn', 'text' => 'an engine 2.17\'s'],
+        ['level' => 'error', 'code' => 'dumps_missing', 'value' => 'UnraidSecretaryOffice', 'params' => ['share' => 'UnraidSecretaryOffice'], 'text' => 'dumps'],
+    ];
+    file_put_contents("$tmp/items.json", json_encode(['items' => $items, 'cases' => $cases]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, coreFile, langDir, itemsFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+const strings = {};
+const interp = (s, p) => (s === undefined ? '?' : String(s).replace(/\{(\w+)\}/g, (m, k) => (p && p[k] !== undefined && p[k] !== null ? String(p[k]) : m)));
+const T = (k, p) => interp(strings['backup.' + k], p);
+globalThis.Office = { scope: () => T, t: (k, p) => interp(strings[k], p), el, strings,
+  fmt: { size: (b) => (b / 1073741824 >= 1 ? Math.round(b / 1073741824) + ' GB' : Math.round(b / 1024) + ' KB'), relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: (k) => strings[k] !== undefined, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const { items, cases } = JSON.parse(fs.readFileSync(itemsFile, 'utf8'));
+const out = {};
+for (const lang of ['de', 'en']) {
+  Object.keys(strings).forEach((k) => delete strings[k]);
+  const l = JSON.parse(fs.readFileSync(`${langDir}/${lang}.json`, 'utf8'));
+  Object.keys(l).forEach((k) => { strings['backup.' + k] = l[k]; });
+  out[lang] = { items: items.map((d) => b.driftText(d)), cases: cases.map((d) => b.driftText(d)) };
+}
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/lang') . ' ' . escapeshellarg("$tmp/items.json") . ' 2>&1');
+    $r = json_decode((string) trim($raw), true);
+    if (!is_array($r)) {
+        check('drift codes: driftText under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    $notGerman = [];
+    foreach ($items as $i => $d) {
+        $de = $r['de']['items'][$i] ?? '';
+        if ($de === $d['text'] || preg_match('/\{\w+\}/', $de) || $de === ($r['en']['items'][$i] ?? '')) {
+            $notGerman[] = "{$d['code']}: $de";
+        }
+    }
+    same('drift codes (node): every code of the engine in German, its params filled in (' . count($items) . ')', [], $notGerman);
+    $c = $r['de']['cases'];
+    check('drift codes (node): Benj\'s finding in German', str_starts_with($c[0], 'Die App «zz-uso-nc» hat in der Einrichtung eine eigene Kopia-Quelle'), $c[0]);
+    check('drift codes (node): a code from before 2.41 by its value (an older engine)', str_starts_with($c[1], 'Neuer Container web — '), $c[1]);
+    same('drift codes (node): a new share with its places and size, without a size',
+        ['Neuer Share «Schule» (daten, 3 GB) — noch nicht in der Einrichtung, darum nicht gesichert.', 'Neuer Share «Schule» (daten) — noch nicht in der Einrichtung, darum nicht gesichert.'],
+        [$c[2], $c[3]]);
+    same('drift codes (node): without params, params a list, an unknown code, no code — the engine\'s text', ['without params', 'params a list', 'unknown code', 'an engine 2.17\'s'],
+        array_slice($c, 4, 4));
+    $l = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/de.json'), true);
+    same('drift codes (node): the backup place\'s problem as its message', $l['message.dumps_missing'] ?? '', $c[8]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The engine's drift_add calls, read like bash reads them: per call file, line, level and its words as written (the
+ * text, the code, the value, key=value …) up to the end of the command.
+ */
+function driftCalls(array $files): array
+{
+    $out = [];
+    foreach ($files as $f) {
+        $src = (string) file_get_contents($f);
+        $n = strlen($src);
+        $off = 0;
+        while (preg_match('/(?<![\w-])drift_add (info|warn|error) /', $src, $m, PREG_OFFSET_CAPTURE, $off)) {
+            $pos = $m[0][1] + strlen($m[0][0]) - 1;
+            $words = [];
+            while (true) {
+                while ($pos < $n && ($src[$pos] === ' ' || $src[$pos] === "\t" || substr($src, $pos, 2) === "\\\n")) {
+                    $pos += $src[$pos] === '\\' ? 2 : 1;
+                }
+                if ($pos >= $n || str_contains(";&|\n})", $src[$pos])) {
+                    break;
+                }
+                [$word, $pos] = driftBashWord($src, $pos);
+                $words[] = $word;
+            }
+            $out[] = ['file' => basename($f), 'line' => substr_count(substr($src, 0, $m[0][1]), "\n") + 1, 'level' => $m[1][0], 'words' => $words];
+            $off = max($pos, $m[0][1] + 1);
+        }
+    }
+    return $out;
+}
+
+/** One bash word from $i: [its text as written, the index after it] — quotes, $'…', $( … ), ${ … } nested */
+function driftBashWord(string $s, int $i): array
+{
+    $start = $i;
+    $n = strlen($s);
+    while ($i < $n && !str_contains(" \t\n;&|)", $s[$i])) {
+        $i = driftBashPart($s, $i);
+    }
+    return [substr($s, $start, $i - $start), $i];
+}
+
+/** The index after the quoting or expansion that starts at $i (one character when none does) */
+function driftBashPart(string $s, int $i): int
+{
+    $n = strlen($s);
+    $c = $s[$i];
+    $next = $s[$i + 1] ?? '';
+    if ($c === '\\') {
+        return $i + 2;
+    }
+    if ($c === "'") {
+        $e = strpos($s, "'", $i + 1);
+        return $e === false ? $n : $e + 1;
+    }
+    if ($c === '$' && $next === "'") {
+        for ($i += 2; $i < $n && $s[$i] !== "'"; $i += $s[$i] === '\\' ? 2 : 1) {
+        }
+        return $i + 1;
+    }
+    if ($c === '"') {
+        for ($i++; $i < $n && $s[$i] !== '"';) {
+            $i = $s[$i] === "'" ? $i + 1 : driftBashPart($s, $i);      // a ' inside "…" is a letter
+        }
+        return $i + 1;
+    }
+    if ($c === '$' && ($next === '(' || $next === '{')) {
+        $close = $next === '(' ? ')' : '}';
+        for ($i += 2, $depth = 1; $i < $n;) {
+            $ch = $s[$i];
+            if ($ch === $close && --$depth === 0) {
+                return $i + 1;
+            }
+            if ($ch === $next) {
+                $depth++;
+            }
+            $i = ($ch === $next || $ch === $close) ? $i + 1 : driftBashPart($s, $i);
+        }
+        return $n;
+    }
+    return $i + 1;
+}
+
+/**
  * Engine 2.39: every hint and warning of the setup carries a code and params, and the office says them in its own words
  * (backupSetupNotes() groups them for the page, desk.js setupNoteItems() renders `setup.msg.<code>`). The parser (codes,
  * params, `more` lines, grouping, a fallback to the text for anything without a known shape, Docker volumes judged as
@@ -26794,7 +27844,7 @@ function testSetupMessages(): void
     same('setup messages: a group\'s heading, its items and an explanation belong to a code; a heading counts {n}', [], $odd);
     check('setup messages: the two examples asked for - the volumes say cache or data and what to do, the orphaned sources take space and are no longer thinned out (de)',
         str_contains((string) $langs['de']['setup.msg.volumes_data_why'], '⟦Container Path⟧') && str_contains((string) $langs['de']['setup.msg.source_orphan'], 'die ich nicht mehr schicke')
-        && str_contains((string) $langs['de']['setup.msg.source_orphan_why'], 'nicht mehr ausgedünnt') && str_contains((string) ($langs['de']['setup.msg.volumes_cache']['one'] ?? ''), 'harmlos'));
+        && str_contains((string) $langs['de']['setup.msg.source_orphan_why'], 'nicht mehr ausgedünnt') && str_contains((string) ($langs['de']['setup.msg.volumes_cache']['one'] ?? ''), 'das ist in Ordnung'));
     preg_match_all('/STEP_ID=([a-z]+)/', $sh, $st);
     same('setup messages: every step a message can come from has its name', [], array_values(array_filter(array_unique($st[1]), fn ($s) => !isset($en["setup.step.$s"]))));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
@@ -27088,6 +28138,13 @@ function testMoverelliIni(): void
          $bad(moverelliTestSettings(['files' => ["/mnt/x.txt\n"]])), $bad(moverelliTestSettings(['patterns' => ["a\tb"]])),
          $bad(moverelliTestSettings([], ['Nope' => []])), $bad(moverelliTestSettings([], ['../x' => []])),
          $bad(moverelliTestSettings([], $share(['min_age' => 'x']))), $bad(moverelliTestSettings([], $share(['skip' => 'yes']))), $bad(['global' => 'x', 'shares' => []])]);
+    file_put_contents("$tmp/shares/GLOBAL.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    $global = fn (array $x) => ['GLOBAL' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]];
+    same('moverelli ini: a share named GLOBAL — rules of its own refused (a second [GLOBAL] section would shadow them), as for all shares fine',
+        ['moverelli_global_share:GLOBAL', 'moverelli_global_share:GLOBAL', 'ok'],
+        [$bad(moverelliTestSettings([], $global(['min_age' => 5]))), $bad(moverelliTestSettings([], $global(['skip' => true]))), $bad(moverelliTestSettings([], $global([])))]);
+    unlink("$tmp/shares/GLOBAL.cfg");
+    moverelliSave($back, $h);
     same('moverelli ini: … the ini as it was', $ini, file_get_contents("$dir/smart_mover.ini"));
     // her own lists emptied: the files go, the ini names none
     moverelliSave(moverelliTestSettings(), $h);
@@ -27267,6 +28324,30 @@ function testMoverelliRun(): void
          readJson("$dir/status.json")['result'] ?? null]);
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
 
+    // a list's exact paths are taken literally (find -path would read [1080p] as a bracket expression and ? as any one
+    // character): the bracketed film, «what?.mkv» and the folder «Box [4K]» stay out of the candidates, «whatX.mkv» doesn't
+    $fl = "$tmp/mnt/cache/Filme";
+    @mkdir("$fl/Film (2020) [1080p]", 0700, true);
+    @mkdir("$fl/Box [4K]", 0700, true);
+    foreach (['Film (2020) [1080p]/Film (2020) [1080p].mkv', 'what?.mkv', 'whatX.mkv', 'Box [4K]/b.mkv'] as $f) {
+        file_put_contents("$fl/$f", 'x');
+    }
+    file_put_contents("$tmp/literal.txt", "$fl/Film (2020) [1080p]/Film (2020) [1080p].mkv\n$tmp/mnt/user/Filme/what?.mkv\n$fl/Box [4K]/\n");
+    moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo'], 'files' => ["$tmp/literal.txt"]]), $h);
+    $mtimes = array_map('filemtime', glob("$fl/*") ?: []);
+    $exit = moverelliJob(['dry', '--office'], $h);
+    $out = (string) file_get_contents("$dir/smart_mover.log");
+    $listed = fn (string $f) => str_contains($out, "[DRY-RUN]     $fl/$f\n");
+    same('moverelli run: exact paths of a list match literally — a bracketed name, a «?» name and a bracketed folder stay out, «whatX.mkv» is a candidate',
+        [0, false, false, false, true],
+        [$exit, $listed('Film (2020) [1080p]/Film (2020) [1080p].mkv'), $listed('what?.mkv'), $listed('Box [4K]/b.mkv'), $listed('whatX.mkv')]);
+    same('moverelli run: … a dry run, nothing moved', [true, true, true, true, $mtimes],
+        [is_file("$fl/Film (2020) [1080p]/Film (2020) [1080p].mkv"), is_file("$fl/what?.mkv"), is_file("$fl/whatX.mkv"), is_file("$fl/Box [4K]/b.mkv"),
+         array_map('filemtime', glob("$fl/*") ?: [])]);
+    exec('rm -rf ' . escapeshellarg("$fl/Film (2020) [1080p]") . ' ' . escapeshellarg("$fl/Box [4K]") . ' ' . escapeshellarg("$fl/what?.mkv") . ' ' . escapeshellarg("$fl/whatX.mkv"));
+    unlink("$tmp/literal.txt");
+    moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
+
     // her list of runs: at most 40, a scheduled refusal again for the same reason counted on one line
     for ($i = 0; $i < 45; $i++) {
         moverelliRemember(['mode' => 'dry', 'by' => 'office', 'started' => 1000 + $i, 'finished' => 1000 + $i, 'result' => 'ok'], $dir);
@@ -27444,6 +28525,11 @@ function testMoverelliForeign(): void
 /** Her page under node: the notices (Unraid's schedule, Mover Tuning's, the scripts, always the hint), the run list's words */
 function testMoverelliPage(): void
 {
+    // a desk in training is no candidate at the Team Lead's «The team» (2026-10-11 on a test server: she stood there twice —
+    // «could come» with a hire button, and her training row): staff() leaves training desks out, her own row says it
+    $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('moverelli: the Team Lead lists a desk in training in her own row only, never as a candidate (staff() skips d.training)',
+        str_contains($ct, 'if (d && !d.training) out.push('));
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('moverelli page: node is missing here - skipped', true);
@@ -27490,13 +28576,1142 @@ JS);
     hardeningRm($tmp);
 }
 
+/**
+ * Mr. Backupsy's overview tiles (the tiles rebuild, 2026-10-11 — CLAUDE.md «Tiles»): under node (tests/backuptiles.js —
+ * skipped where node is missing; it runs on the Mac as it is) which tile filters what (a fixture server: rows after each
+ * tile, words, «only what isn't protected»), «Took» and «Containers» inside «Last backup», the tour only when newer than the
+ * backup, the schedule a button without aria-pressed, a filtering tile with nothing to show a div, the backups' words. Then
+ * desk.js read as text: no hand-made role=button tile and no scrollIntoView left, tile filters / words / switches never in
+ * Office.store, the sub-routes #/backup/<tile> set the filter like a click, the places, the agent's schedule with `next`.
+ */
+function testBackupTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    same('backup tiles: no scrollIntoView left (a tile filters, the search reveals)', 0, substr_count($js, 'scrollIntoView'));
+    preg_match_all("/setAttribute\\('role', 'button'\\)/", $js, $m, PREG_OFFSET_CAPTURE);
+    $roles = array_map(fn ($x) => preg_match_all('/\nfunction (\w+)\(/', substr($js, 0, $x[1]), $f) ? end($f[1]) : '?', $m[0]);
+    same('backup tiles: no hand-made role=button tile — the only one is a setup row\'s name (CLAUDE.md «Rows»)', ['setupUnfold'], $roles);
+    check('backup tiles: no tabindex/onkeydown tiles, the old clickable() and the desk\'s own stat() gone',
+        !str_contains($js, 'bk-clickable') && !preg_match('/\nfunction stat\(/', $js) && !str_contains($js, 'const clickable ='));
+    preg_match_all("/Office\\.store\\('(backup\\.[a-z_.]+)'/", $js, $m);
+    same('backup tiles: Office.store only for what was kept before (no tile filter, word or switch)', ['backup.proposals_dismissed'], array_values(array_unique($m[1])));
+    preg_match_all('/Office\.filterBar\(\{(.*?)\}\);?\n/s', $js, $m);
+    same('backup tiles: three bars (the table, the backups, the setup), none with a select (nothing of a bar is kept)',
+        [3, 0], [count($m[1]), count(array_filter($m[1], fn ($b) => str_contains($b, 'select:')))]);
+    // tiles v2 (a tile is a section): the row on Office.sections(), the tabs, the setup's head line
+    check('backup tiles: the row is the switcher (Office.sections(), grid stats bk-stats, no start tile, the table shared as `prot`)',
+        str_contains($js, "sw = Office.sections({\n    id: ID,") && str_contains($js, "grid: 'stats bk-stats',") && str_contains($js, "default: '',")
+        && str_contains($js, "tiles: () => tileList(),") && str_contains($js, "sections: { prot: () => protection() },"));
+    check('backup tiles: the tile builder spreads the switcher\'s attributes into Office.stat (no click, aria-pressed or place of its own)',
+        str_contains($js, "return Office.stat({ label: d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.\${d.key}` });")
+        && !str_contains($js, 'protTileClick') && !str_contains($js, 'protRedraw') && !preg_match('/\nfunction summary\(/', $js));
+    check('backup tiles: a new visit drops the bars; #/backup/<tile> picks the tile like a click (the switcher, the address back to #/backup)',
+        str_contains($js, "protBar = null;\n      histBar = null;\n      switcher().mount(sub);"));
+    check('backup tiles: the table\'s filter is the active filter tile, its note line the switcher\'s (its × and «Show all» = nothing active)',
+        str_contains($js, "const f = { ...bar.read(), tile: protFilter() };")
+        && str_contains($js, "bar.done(v.n, v.total, { ...switcher().note('prot'), onlyAvail: v.off > 0 });"));
+    check('backup tiles: both bars draw through the switcher (no section replaced by hand)', substr_count($js, 'onChange: () => switcher().render()') === 2);
+    check('backup tiles: a run going on — its card in the row\'s place, the whole page under it',
+        str_contains($js, "if (s.active()) s.pick('', 'route');") && str_contains($js, 's.grid.hidden = live();'));
+    check('backup tiles: every tile a place of the search (kind tile, its anchor tile.<id>, #/backup/<tile>), the rows and sections through their tile',
+        str_contains($js, "...TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `tile.\${id}`, route: tileRoute(id),")
+        && !str_contains($js, 'ITEM_ROUTE') && substr_count($js, 'route: prot }') === 3);
+    check('backup tiles: two tabs «Overview» / «Set up» on both pages, no crumb, «← Back» or head button «Set up…»',
+        str_contains($js, "pages: { list: PAGES(), current } }).head;") && substr_count($js, 'deskHeadOf(') === 3
+        && !str_contains($js, "T('setup.back')") && !str_contains($js, "page: T('setup.page')")
+        && !str_contains($js, "actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/\${ID}/setup`)));"));
+    check('backup tiles: the setup\'s page actions in its own head line under the tabs',
+        str_contains($js, "pa.append(again, measure, preset, forget);"));
+    $places = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/places.json'), true);
+    same('backup tiles: places.json lists every tile, the new sections and the help term', [], array_values(array_diff(
+        ['stat.last', 'stat.schedule', 'tile.apps', 'tile.dumps', 'tile.flash', 'tile.kopia', 'tile.vms', 'tile.prot', 'partner.tile', 'tile.drift', 'tile.restore',
+            'schedule.title', 'partner.section', 'help.tiles'], $places['keys'] ?? [])));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        $miss = array_values(array_filter(['stat.next', 'tile.kopia', 'tile.dumps', 'tile.apps', 'tile.vms', 'tile.flash', 'tile.prot', 'tile.drift', 'tile.restore',
+            'stat.prot_ok', 'stat.prot_off', 'stat.drift_n', 'stat.tour_line', 'stat.drill_passed', 'stat.drill_failed', 'stat.restore_where',
+            'schedule.change', 'schedule.section_sub', 'partner.section', 'partner.section_sub', 'partner.units_line', 'protect.filter_label', 'protect.only_off',
+            'protect.only_off_hint', 'history_filter_label', 'filter_none', 'partner.short_now', 'partner.short_never', 'partner.short_sent', 'partner.short_failed',
+            'partner.short_skipped', 'help.tiles', 'help.tiles_text'], fn ($k) => !isset($l[$k])));
+        same("backup tiles: the texts in $code", [], $miss);
+        same("backup tiles: «← Back» and the overview's sub line gone in $code", [], array_values(array_filter(['setup.back', 'overview_sub'], fn ($k) => isset($l[$k]))));
+    }
+    $sc = backupSchedule();
+    check('backup tiles: the agent hands the page the schedule\'s next run (officeJobSchedule() through backupSchedule())',
+        array_key_exists('next', $sc) && array_key_exists('script', $sc) && ($sc['enabled'] ? is_int($sc['next']) : $sc['next'] === null));
+    $node = testsNode();
+    if ($node === '') {
+        check('backup tiles: node is missing here - skipped', true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/backuptiles.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check('backup tiles: ran under node', false, $raw);
+        return;
+    }
+    check("backup tiles: the overview and the table under node ({$r['pass']} checks)", $r['pass'] >= 40 && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check('backup tiles: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * Jack's «Last run» while EmbyCache runs (the tiles rebuild, 2026-10-11): every start removed status.json and the tile
+ * read it — «never» while a run went, a report shown as the last run. Now embyLastRun() and the page's lastRuns() read
+ * his list of runs: the newest real run (run, release) is it, else the newest of any mode; refused and skipped starts
+ * didn't run; status.json only for the result box (last_status). Under node (stand-ins for the office): the tiles of
+ * «How I work» — «Last run» with how long it took and a newer report under it, «running since» while one goes, a div
+ * when nothing ran; «Schedules» (2 active · next, off), «Ready on the pool»; the «Emby» tile gone; a click on «Last run»
+ * filters «Recent runs» to EmbyCache's (the bar's note line names it), a second shows all.
+ */
+function testEmbyLastRunDuringRun(): void
+{
+    $tmp = hardeningTmp('embylast');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $real = ['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => 1000, 'finished' => 1720, 'exit' => 0, 'result' => 'ok',
+             'status' => ['errors' => 0, 'warnings' => 1]];
+    embyRemember($real, $tmp);
+    embyRemember(['tool' => 'gather', 'mode' => 'run', 'by' => 'schedule', 'started' => 1800, 'finished' => 1900, 'exit' => 0, 'result' => 'ok'], $tmp);
+    embyRemember(['tool' => 'embycache', 'mode' => 'report', 'by' => 'office', 'started' => 2000, 'finished' => 2010, 'exit' => 0, 'result' => 'ok'], $tmp);
+    embyRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => 2100, 'finished' => 2100, 'result' => 'refused', 'why' => 'emby_mover_schedule'], $tmp);
+    check('last run: no status.json (a run just started) — his list still knows the last run', !is_file("$tmp/status.json") && embyLastRun(embyHistory($tmp)) !== null);
+    same('last run: a report and a refused start after a real run — the real run is it', [1000, 'run'],
+        [embyLastRun(embyHistory($tmp))['started'] ?? null, embyLastRun(embyHistory($tmp))['mode'] ?? null]);
+    same('last run: only a dry run — that one; only refused and skipped starts, or none — null', [1500, null, null], [
+        embyLastRun([['tool' => 'gather', 'mode' => 'run', 'started' => 1600, 'result' => 'ok'], ['tool' => 'embycache', 'mode' => 'dry', 'started' => 1500, 'result' => 'ok']])['started'] ?? null,
+        embyLastRun([['tool' => 'embycache', 'mode' => 'run', 'started' => 1, 'result' => 'refused'], ['tool' => 'embycache', 'mode' => 'run', 'started' => 2, 'result' => 'skipped']]),
+        embyLastRun([])]);
+    same('last run: a release (his let-go) counts as real', 'release', embyLastRun([['tool' => 'embycache', 'mode' => 'dry', 'started' => 9, 'result' => 'ok'],
+        ['tool' => 'embycache', 'mode' => 'release', 'started' => 5, 'result' => 'ok']])['mode'] ?? null);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $fn = substr($src, (int) strpos($src, 'function embyLastRun('), 900);
+    check('last run: his state takes it from his list; status.json only for the result box (last_status)',
+        str_contains($src, "'last'       => embyLastRun(\$history = embyHistory())") && str_contains($src, "'last_status' => readJson(EMBY_DATA . '/status.json')")
+        && str_contains($src, "'history'    => array_slice(\$history, 0, 20)") && !str_contains(substr($fn, 0, (int) strpos($fn, "\n}\n")), 'status.json'));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('last run on his page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $state = ['configured' => true, 'settings' => ['libraries' => ['Filme'], 'max_resume_movies' => 10, 'number_episodes' => 3, 'instances' => [['servername' => 'Wohnzimmer', 'url' => 'http://x']]],
+        'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]], 'pool' => ['path' => '/mnt/cache', 'free' => 700, 'free_percent' => 41.25, 'min_free' => 20],
+        'cache' => ['files' => 12, 'bytes' => 4000, 'listed_at' => 1700, 'groups' => []],
+        'shares' => [['share' => 'Filme', 'fit' => 'ok'], ['share' => 'Serien', 'fit' => 'other_pool']],
+        'gather' => ['ready' => true, 'last' => ['finished' => 1600, 'moved' => 14, 'conflicts' => 0, 'errors' => 0, 'full' => 0, 'duplicates' => 2, 'dirs_deleted' => 6, 'dirs_kept' => 0]],
+        'schedules' => ['embycache' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '30 4 * * *', 'next' => 4000],
+                        'gather' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '0 3 * * 0', 'next' => 5000]],
+        'history' => embyHistory($tmp)];
+    file_put_contents("$tmp/state.json", json_encode($state));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
+  disabled: false, value: '', isConnected: true, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} };
+  Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
+const stored = {};
+const bars = [];
+// the section switcher as a stand-in: its spec kept, the active tile set by the test, the note as core's sw.note()
+let spec = null;
+let active = '';
+const list = () => (typeof spec.tiles === 'function' ? spec.tiles() : spec.tiles);
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, time: (t) => `H${t}`, number: (n, d) => (d ? n.toFixed(d) : String(n)),
+  duration: (s) => `${s}s`, cron: (c) => `C(${c})` }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, storeJson: () => null,
+  agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => { n.dataset.place = k; return n; },
+  sectionHead: (title) => el('div', 'section-head', title), fits: (w) => !w.length, errorText: (x) => x.key,
+  stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
+  sections: (o) => { spec = o; return { el: el('div', 'sections'), active: () => active, places: () => [], mount: () => false, pick() {}, render() {},
+    note: (name) => { const x = list().find((t) => t.id === active); return { tile: x && x.filters && x.section === name ? String(x.filters) : '', clear: () => { active = ''; } }; },
+    clear() { active = ''; } }; },
+  filterBar: (o) => { const b = { o, el: el('div', 'filterbar'), read() { return { words: [], only: false, pick: '', tile: '' }; },
+    done(n, t, d) { this.doneArgs = [n, t, (d && d.tile) || '']; this.clear = d && d.clear; return this; }, options() { return this; }, reset() { return this; } }; bars.push(b); return b; } };
+globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const out = {};
+const a = (id) => ({ on: () => `clicked ${id}`, pressed: active === id, active: active === id, controls: 'emby-sections', place: `tile.${id}` });
+const tile = (id) => { const x = list().find((t) => t.id === id); const n = x.tile(a(id)); return { ...n.o, clicks: n.o.on && n.o.on() }; };
+e.setState(state);
+e.bars();
+out.spec = [spec.id, spec.default, list().map((t) => [t.id, t.key, t.place, typeof t.section === 'string' ? t.section : 'own', t.filters || '']), Object.keys(spec.sections)];
+const lr = e.lastRuns(state.history);
+out.pick = [lr.main && lr.main.started, lr.newer && lr.newer.mode];
+let t = tile('runs');
+out.last = [t.value, t.sub, t.alert, t.pressed, t.clicks, t.place];
+out.plans = (() => { const p = tile('plans'); return [p.value, p.sub, p.alert, p.clicks]; })();
+out.pool = (() => { const p = tile('pool'); return [p.label, p.value, p.sub, p.alert, p.tip]; })();
+out.shares = (() => { const p = tile('shares'); return [p.value, p.sub, p.alert]; })();
+out.gather = (() => { const p = tile('gather'); return [p.value, p.sub, p.alert]; })();
+// «Recent runs»: all of them; the tile «Last run» active: only EmbyCache's, the note line names it; cleared: all
+const rows = (sec) => sec.children.find((c) => c.className === 'box').children.filter((c) => c.className === 'row nocheck').length;
+const runsBar = bars.find((b) => b.o.key === 'emby.runs');
+let sec = e.historySection();
+out.runs = [sec.id, rows(sec), runsBar.doneArgs];
+active = 'runs';
+sec = e.historySection();
+out.filtered = [rows(sec), runsBar.doneArgs, tile('runs').pressed];
+runsBar.clear();
+sec = e.historySection();
+out.cleared = [active, rows(sec), runsBar.doneArgs[2]];
+// «Schedules» as a section: its head and the two rows
+const ps = e.plansSection();
+out.plansSection = [ps.id, ps.children[0].textContent, ps.children[1].children.filter((c) => c.className === 'row nocheck').length];
+// below the pool's minimum: the alert; a share that doesn't fit counts
+state.pool.free_percent = 12;
+e.setState(state);
+out.poolLow = tile('pool').alert;
+state.schedules.embycache.enabled = false;
+state.schedules.gather.enabled = false;
+// while a run goes: «running since», the kind; nothing ran yet: «never» (still the tile of «Recent runs»)
+state.jobs.embycache = { running: true, started: 3000, mode: 'run' };
+e.setState(state);
+t = tile('runs');
+out.running = [t.value, t.sub];
+out.off = [tile('plans').value, tile('plans').alert];
+state.jobs.embycache = { running: false };
+state.history = [{ tool: 'embycache', mode: 'run', started: 5, finished: 5, result: 'refused' }];
+e.setState(state);
+t = tile('runs');
+out.never = [t.value, t.sub, t.clicks];
+// not set up: no pool, no shares
+state.configured = false;
+e.setState(state);
+out.unset = list().map((x) => x.id);
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1');
+    $r = json_decode($raw, true);
+    same('his page: the switcher — kept as emby.tile, start «Pool»; the row Last run (a filter tile: «Recent runs» with EmbyCache\'s), Schedules, Pool, Shares, Consolidate folders; «Recent runs» shared',
+        ['emby', 'pool', [['runs', 'last_run', 'tile.runs', 'runs', 'tool.embycache'], ['plans', 'schedules', 'tile.plans', 'own', ''], ['pool', 'tile.pool', 'tile.pool', 'own', ''],
+            ['shares', 'shares', 'tile.shares', 'own', ''], ['gather', 'gather', 'tile.gather', 'own', '']], ['runs']], $r['spec'] ?? null, $raw);
+    same('last run on his page: the same pick as the agent — the real run, the newer report beside it', [1000, 'report'], $r['pick'] ?? null, $raw);
+    same('last run on his page: when it ended, «Real run · took 12 min · 0 errors · 1 warning», the newer report under it; the switcher\'s click and place spread in', [
+        'R1720', ['mode.run · last.took {"time":"progress.min_secs {\"m\":12,\"s\":0}"} · counts {"errors":"count.errors {\"n\":0}","warnings":"count.warnings {\"n\":1}"}',
+                  'last.newer {"mode":"mode.report","when":"R2010"}'], false, false, 'clicked runs', 'tile.runs'], $r['last'] ?? null, $raw);
+    same('his tiles: «Schedules» — 2 active, the next of both, the frequencies under it', ['plans.active {"n":2,"when":"H4000"}',
+        'plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}', false, 'clicked plans'], $r['plans'] ?? null, $raw);
+    same('his tiles: «Pool» — «Pool free» and «Ready on the pool» in one: files and size, how free and what EmbyCache keeps; the path and «as of» in the tip', ['tile.pool',
+        'pool_tile.value {"files":"count.files {\"n\":12}","size":"4000B"}', 'pool_tile.free {"pct":"41.3","min":20}', false,
+        "pool_sub {\"pool\":\"/mnt/cache\",\"free\":\"700B\",\"min\":20}\npool_tile.as_of {\"when\":\"R1700\"}"], $r['pool'] ?? null, $raw);
+    same('his tiles: «Shares» — how many, one needs a look (alert)', ['count.shares {"n":2}', 'shares_bad {"n":1}', true], $r['shares'] ?? null, $raw);
+    same('his tiles: «Consolidate folders» — when, what it moved and the conflicts', ['R1600', 'gather_tile.sub {"moved":"count.moved {\"n\":14}","conflicts":"count.conflicts {\"n\":0}"}', false],
+        $r['gather'] ?? null, $raw);
+    same('«Recent runs»: all of them, the bar with nothing filtering', ['jo-runs', 4, [4, 4, '']], $r['runs'] ?? null, $raw);
+    same('«Last run» active: only EmbyCache\'s runs (a refused start too), the note line names it, the tile pressed', [3, [3, 4, 'tool.embycache'], true], $r['filtered'] ?? null, $raw);
+    same('… the note line\'s chip: nothing active, all again', ['', 4, ''], $r['cleared'] ?? null, $raw);
+    same('«Schedules» is a section: its head, both schedules as rows', ['jo-plans', 'schedules', 2], $r['plansSection'] ?? null, $raw);
+    same('the pool under EmbyCache\'s minimum: «Pool» alerts', true, $r['poolLow'] ?? null, $raw);
+    same('while EmbyCache runs: «running since 14:05 · Real run» — never «never»', ['last.running {"time":"H3000"}', ['mode.run']], $r['running'] ?? null, $raw);
+    same('no schedule on: «off», as a warning', ['plans.off', true], $r['off'] ?? null, $raw);
+    same('nothing ran (a refused start only): «never» — still the tile of «Recent runs»', ['never', [], 'clicked runs'], $r['never'] ?? null, $raw);
+    same('not set up: no «Pool», no «Shares»', ['runs', 'plans', 'gather'], $r['unset'] ?? null, $raw);
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Snapshotini's pool tiles split by source (decision 3 of the tiles rebuild): tests/snappool.js runs desk.js's
+ * poolSplit()/splitLines() under node — sums, the «≥» wording and its tip, sources without a snapshot left out, btrfs
+ * without sizes.
+ */
+function testSnapPoolSplit(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('pool split: node is missing here - skipped', true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/snappool.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/snapshot/desk.js') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check('pool split: ran under node', false, $raw);
+        return;
+    }
+    check("pool split and her row: desk.js under node ({$r['pass']} checks)", $r['pass'] >= 14 && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check('pool split: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * Ms. Snapshotini's «Array» card (2026-10-12): every array disk is a row there, btrfs and ZFS alike. A ZFS-formatted
+ * array disk is a one-disk pool named disk<N>; the agent tells it by Unraid's bookkeeping (disks.ini type="Data"), never
+ * by the name — a pool someone called «disk9» keeps its card. Her btrfs disks carry the same flag (a btrfs pool or an
+ * unassigned disk is no array disk). Stand-ins for zfs, zpool and disks.ini in a temporary folder.
+ */
+function testSnapArrayDisks(): void
+{
+    same('array disks: disks.ini type="Data" only — not parity, a pool (whatever its name), the flash; the name field before the section',
+        ['disk1' => true, 'disk2' => true],
+        snapshotArrayDisks(['parity' => ['name' => 'parity', 'type' => 'Parity'], 'disk1' => ['name' => 'disk1', 'type' => 'Data', 'fsType' => 'btrfs'],
+            'x' => ['name' => 'disk2', 'type' => 'Data', 'fsType' => 'zfs'], 'disk9' => ['name' => 'disk9', 'type' => 'Cache', 'fsType' => 'zfs'],
+            'flash' => ['name' => 'flash', 'type' => 'Flash'], 'broken' => 'x']));
+    $tmp = hardeningTmp('snaparray');
+    file_put_contents("$tmp/disks.ini", "[\"parity\"]\nname=\"parity\"\ntype=\"Parity\"\n[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"btrfs\"\nspundown=\"0\"\n"
+        . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\nfsType=\"zfs\"\nspundown=\"1\"\n[\"disk9\"]\nname=\"disk9\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
+        . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = list ] && printf 'cache\\t100\\t10\\t90\\t10\\tONLINE\\t1\\ndisk2\\t200\\t20\\t180\\t10\\tONLINE\\t0\\ndisk9\\t300\\t30\\t270\\t10\\tONLINE\\t0\\n'\nexit 0\n");
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nexit 0\n");
+    chmod("$tmp/zpool", 0755);
+    chmod("$tmp/zfs", 0755);
+    $before = [$GLOBALS['disksIni'] ?? null, $GLOBALS['snapshotHost'] ?? null];
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'docker' => null];
+    $z = snapshotReadZfs(null, false);
+    same('array disks: her ZFS pools carry `array` — disk2 (an array disk, asleep: still one) yes, cache and the pool called disk9 no',
+        [['cache', false, false], ['disk2', true, true], ['disk9', false, false]], array_map(fn ($p) => [$p['name'], $p['array'], $p['asleep']], $z['pools']));
+    $GLOBALS['disksIni'] = $before[0];
+    $GLOBALS['snapshotHost'] = $before[1];
+    if ($before[0] === null) {
+        unset($GLOBALS['disksIni']);
+    }
+    if ($before[1] === null) {
+        unset($GLOBALS['snapshotHost']);
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/snapshot.php');
+    check('array disks: her btrfs disks carry the same flag', str_contains($src, "'array'   => isset(\$arrayDisks[\$name]),"));
+    $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/snapshot.json'), true) ?: [];
+    $arr = array_filter((array) ($demo['zfs']['pools'] ?? []), fn ($p) => !empty($p['array']));
+    check('array disks: the demo state shows «Array» with both kinds (a btrfs disk and a ZFS array disk)', $arr !== [] && !empty($demo['btrfs']['devices']));
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack's and Ms. Snapshotini's pages on the section switcher (tiles v2, CLAUDE.md «Tiles», 2026-10-12), read in their
+ * code: Office.sections() with their start tiles (Pool / none), their tiles and sections; real buttons (no role="button"
+ * on a tile — her list's group heads fold, they are no tiles), no scrollIntoView for a tile (Jack's one is a dialog's
+ * error line), nothing hidden; what is kept per browser only the listed choices (the switcher keeps <desk>.tile, her
+ * pool stays snapshot.pool); Jack's two pages as tabs on both, «How I work» a line, the tools a footer, the live panel
+ * over the row; her «Schedules» a section of the whole page, the «Snapshots» card, the empty list counting what the
+ * switches hide; the routes of their tiles (and the Team Lead's old links to his schedules).
+ */
+function testTilesMediaPages(): void
+{
+    $emby = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    $keys = function (string $js): array {
+        preg_match_all("/Office\\.store(?:Json)?\\(\\s*'([^']+)'/", $js, $m);
+        preg_match_all("/Office\\.filterBar\\(\\{\\s*key:\\s*'([^']+)'/", $js, $b);
+        $k = array_merge($m[1], array_map(fn ($x) => "$x.pick", $b[1]));
+        $k = array_values(array_unique($k));
+        sort($k);
+        return $k;
+    };
+    same('emby page: kept per browser only the choices — the pool\'s library (its old key taken over); the tile is the switcher\'s (emby.tile), the runs\' bar has no select',
+        ['emby.pool.pick', 'emby.pool_lib', 'emby.runs.pick'], $keys($emby));
+    check('emby page: the runs\' bar has no select (its <key>.pick never written)', !preg_match("/key:\\s*'emby\\.runs',[^}]*select:/", $emby));
+    same('snapshot page: kept per browser only the choices — grouping, folds, the three switches, the pool, the source (the tile is the switcher\'s: snapshot.tile)',
+        ['snapshot.', 'snapshot.docker', 'snapshot.folded', 'snapshot.grouping', 'snapshot.list.pick', 'snapshot.pool'], $keys($snap));
+    check('pages: the old open/closed keys are gone (emby.plans_open, emby.pool_open, snapshot.plans_open)', !preg_match('/plans_open|pool_open/', $emby . $snap));
+    check('pages: no role="button" on a tile (her group heads fold — the only one)', !str_contains($emby, "'role', 'button'") && substr_count($snap, "'role', 'button'") === 1
+        && str_contains($snap, "const head = el('div', 'group-head');\n  head.tabIndex = 0;\n  head.setAttribute('role', 'button');"));
+    check('pages: no scrollIntoView for a tile (Jack\'s one: a dialog\'s error line)', !str_contains($snap, 'scrollIntoView') && substr_count($emby, 'scrollIntoView') === 1
+        && str_contains($emby, "box.style.display = '';\n  box.scrollIntoView({ block: 'nearest' });"));
+    check('pages: nothing hidden — no section, list or tile switched off with hidden', !preg_match('/\b(s|section|plans|pool|dom\.\w+)\.hidden\s*=/', $emby . $snap));
+    // Jack Emby
+    check('emby page: the switcher — start «Pool»; Last run (a filter tile on «Recent runs»), Schedules, Pool, Shares, Consolidate folders',
+        str_contains($emby, "const sw = Office.sections({") && str_contains($emby, "default: 'pool',")
+        && str_contains($emby, "{ id: 'runs', key: 'last_run', place: 'tile.runs', section: 'runs', filters: T('tool.embycache'),")
+        && str_contains($emby, "{ id: 'plans', key: 'schedules', place: 'tile.plans', section: () => plansSection(),")
+        && str_contains($emby, "{ id: 'pool', key: 'tile.pool', place: 'tile.pool', section: () => poolSection(),")
+        && str_contains($emby, "{ id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(),")
+        && str_contains($emby, "{ id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(),")
+        && str_contains($emby, "sections: { runs: () => historySection() },"));
+    check('emby page: «Recent runs» filtered by the switcher (sw.active(), the note line from sw.note), the result box its first row',
+        str_contains($emby, "const only = sw.active() === 'runs' ? 'embycache' : '';") && str_contains($emby, "runsBar.done(fit.length, runs.length, sw.note('runs'));")
+        && str_contains($emby, "s.id = 'jo-runs';\n  const rb = resultBox();\n  if (rb) s.appendChild(rb);"));
+    check('emby page: «Amount» is the line «How I work» over the row, the tools a footer under it, the live panel over the row; Python missing a callout',
+        str_contains($emby, "if (progBox) root.appendChild(progBox);\n  if (state.configured) root.appendChild(scopeLine());\n  root.appendChild(sw.el);\n  sw.render();\n  root.appendChild(footer());")
+        && str_contains($emby, "Office.place('overview', el('div', 'jo-scope'))") && str_contains($emby, "Office.place('tools', el('div', 'jo-foot'))")
+        && !str_contains($emby, "T('tools_sub')") && !str_contains($emby, "T('tools.python_missing')") && str_contains($emby, "T('notice.no_python')"));
+    check('emby page: «Consolidate folders» — its two facts as rows, no tiles inside a section', str_contains($emby, "const facts = el('div', 'box jo-facts');")
+        && !str_contains($emby, "el('div', 'stats')"));
+    check('emby page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup words the setup page\'s head line',
+        str_contains($emby, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && substr_count($emby, 'root.appendChild(deskHead());') === 2
+        && !str_contains($emby, "T('back')") && !str_contains($emby, "actions.push(button(T('setup_open')")
+        && str_contains($emby, "el('p', 'jo-pagehead-sub', T('setup.bubble')"));
+    check('emby page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/emby/history the whole page',
+        str_contains($emby, "if (plan) sw.mount('plans');") && str_contains($emby, "} else sw.mount(sub);") && str_contains($emby, "Office.reveal(`plan:\${plan}`)")
+        && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.place(`plan:\${job}`")
+        && str_contains($emby, "...sw.places().map(") && str_contains($emby, "route: `#/\${ID}/history`"));
+    // Ms. Snapshotini
+    check('snapshot page: the switcher — no start tile; pool cards, the array disks\' rows (btrfs and ZFS), the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
+        str_contains($snap, "const sw = Office.sections({") && str_contains($snap, "default: '',")
+        && str_contains($snap, "...ownPools().map((p) => ({ id: POOL + p.name, place: `pool:\${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })")
+        && str_contains($snap, "({ id: POOL + x.name, place: `pool:\${x.name}`, section: 'list', filters: x.name, tile: (a) => diskRow(x, a) })")
+        && str_contains($snap, "function ownPools() { return (state?.zfs?.pools || []).filter((p) => p.array !== true); }")
+        && str_contains($snap, "{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs',")
+        && str_contains($snap, "{ id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(),")
+        && str_contains($snap, "{ id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list',")
+        && str_contains($snap, "sections: { list: () => listSection() },"));
+    check('snapshot page: the pool kept as snapshot.pool (the one filter kept), back once her state has its tile; the old «Storage» head and the tile wrapper gone',
+        str_contains($snap, "Office.store('snapshot.pool', String(id).startsWith(POOL) ? id.slice(POOL.length) : null);")
+        && str_contains($snap, "if (filterPools().has(name)) sw.pick(POOL + name, 'route');") && !str_contains($snap, "T('storage.sub')") && !str_contains($snap, 'sp-tilewrap'));
+    check('snapshot page: a disk\'s row is a real button with the switcher\'s click, pressed state, glow and mark, its tag (btrfs / ZFS) on it; the card holding them is no tile',
+        str_contains($snap, "const row = asTile(Office.place(`pool:\${x.name}`, el('button', 'minirow'")
+        && str_contains($snap, "el('span', 'tag', x.kind === 'zfs' ? 'ZFS' : 'btrfs')") && str_contains($snap, "card.removeAttribute('aria-pressed');")
+        && str_contains($snap, "row.classList.add('tile-on');") && str_contains($snap, "node.setAttribute('aria-pressed', a.pressed ? 'true' : 'false');"));
+    check('snapshot page: «Snapshots» card — how many and what they take, what the switches hide; the empty list counts the hidden ones (never «0 of 0»)',
+        str_contains($snap, "lines.push(T('snaps_tile.hidden', { what: what.join(', ') }));") && str_contains($snap, "view.bar.done(n, state ? listed().length : 0, sw.note('list'));")
+        && str_contains($snap, "T('empty.switched', { n: hid.backup + hid.partner })"));
+    check('snapshot page: the search field is Office.filterBar — words folded (Office.fits), the source its select, the switches beside; deleting sees only the rows shown',
+        str_contains($snap, "Office.filterBar({ key: 'snapshot.list'") && str_contains($snap, 'Office.fits(f.words, snapHay(s))')
+        && str_contains($snap, "extra: [v.foldBtn, v.backupShow.label, v.partnerShow.label, v.dockerSwitch]")
+        && str_contains($snap, "for (const id of [...selection]) if (!ids.has(id)) selection.delete(id);"));
+    check('snapshot page: #/snapshot/datasets shows her list alone, grouped by dataset, no pool, no source', str_contains($snap, "sw.mount(sub === 'datasets' ? 'snapshots' : sub);")
+        && str_contains($snap, "if (sub === 'datasets') view.bar.set({ pick: '' });"));
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.css');
+    check('snapshot page: a disk row\'s mark on a line of its own', str_contains($css, '.minirow .tile-mark{position:static; grid-column:1 / -1; justify-self:start}'));
+}
+
+
+/**
+ * Ms. Dustdevil clears away what nobody uses — what something still needs can't be chosen at all (2026-10-12, Benj's
+ * finding: a VM's disk in use could be ticked, «In die Abstellkammer…» offered the red «Trotzdem…»). A template whose
+ * container exists, an appdata folder, a VM's folder or disk image in use: no checkbox to tick, a title saying what to do,
+ * and the agent refuses them even when a stale page sends `force`. A stack in use («let go») and Mr. Restori's way back
+ * keep the warning and «anyway».
+ */
+function testCleanupInUseLocked(): void
+{
+    $refused = function (array $e, bool $force): ?string {
+        try {
+            clParkCheck($e + ['why' => null, 'name' => 'x', 'file' => 'my-x.xml', 'folder' => 'x'], $force);
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $locked = [['kind' => 'template', 'category' => 'in_use', 'force' => true], ['kind' => 'appdata', 'category' => 'used', 'force' => true],
+               ['kind' => 'domain', 'category' => 'used', 'force' => true], ['kind' => 'iso', 'category' => 'used', 'force' => true]];
+    same('in use locked: a template, appdata folder, VM folder or disk image in use is refused — with and without force',
+        array_fill(0, 8, 'cleanup_in_use'), array_merge(array_map(fn ($e) => $refused($e, true), $locked), array_map(fn ($e) => $refused($e, false), $locked)));
+    same('in use locked: a stack in use and Mr. Restori\'s way back park with force (the «anyway»), are refused without it',
+        [null, null, 'cleanup_in_use', 'cleanup_in_use'],
+        [$refused(['kind' => 'stack', 'category' => 'in_use', 'force' => true], true), $refused(['kind' => 'leftover', 'category' => 'leftover', 'force' => true], true),
+         $refused(['kind' => 'stack', 'category' => 'in_use', 'force' => true], false), $refused(['kind' => 'leftover', 'category' => 'leftover', 'force' => true], false)]);
+    same('in use locked: what nobody uses parks as before (force or not)', [null, null],
+        [$refused(['kind' => 'appdata', 'category' => 'unused', 'force' => false], false), $refused(['kind' => 'domain', 'category' => 'unused', 'force' => false], true)]);
+    same('in use locked: a reason not to (why) still comes first', 'cleanup_docker_down',
+        (function () { try { clParkCheck(['kind' => 'template', 'why' => 'docker_down', 'force' => true, 'file' => 'a.xml'], true); return null; } catch (Problem $p) { return $p->key; } })());
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('in use locked: clPark() asks clParkCheck() for every entry', str_contains($src, "        clParkCheck(\$e, \$force);\n        \$todo[] = \$e;"));
+
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('in use locked: the page names the same kinds as the agent', str_contains($js, "const IN_USE_LOCKED = ['" . implode("', '", CL_IN_USE_LOCKED) . "'];"));
+    check('in use locked: not selectable — the row\'s checkbox disabled with the why as its title and the row\'s, the group\'s says it too',
+        str_contains($js, "&& !(removable(e) && e.category === 'used') && !inUseLocked(e)") && str_contains($js, "cb.title = lockedText(e);\n    r.title = cb.title;")
+        && str_contains($js, "cb.title = !can.length && items.some(inUseLocked) ? T('in_use_locked.group') : T('select_group');"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/cleanup/lang/$l.json"), true) ?: [];
+        check("in use locked ($l): a why per kind and the group's; the dead «anyway» callouts of the three rooms gone, the stacks' and the leftovers' kept",
+            isset($t['in_use_locked.template'], $t['in_use_locked.appdata'], $t['in_use_locked.domain'], $t['in_use_locked.iso'], $t['in_use_locked.group'], $t['park.in_use_stacks'], $t['park.in_use_leftovers'])
+            && str_contains($t['in_use_locked.template'], '{unused}') && str_contains($t['in_use_locked.appdata'], '{group}')
+            && !isset($t['park.in_use_templates']) && !isset($t['park.in_use_appdata']) && !isset($t['park.in_use_vms']));
+    }
+}
+
+/**
+ * Ms. Dustdevil's tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»): two pages as tabs («Where is what» / «Tidying up»,
+ * cleanup.page), each a row of tiles on the section switcher. «Where is what»: 13 tiles (her advice, «Where things are»,
+ * the eleven corners) — the number row «What's going on» is gone, its live numbers on the corner tiles (STAT_CORNERS
+ * stays as data: an old #/cleanup/where/stat:<tile> opens its corner), «License» and «Load» on the page's head line,
+ * the start «Where things are»; «Tidying up»: the rooms, nothing chosen = every room. A tile's route opens it on its page,
+ * a link of what she noticed fills both bars and lands in its corner — also from «Tidying up» (the page changes first).
+ * Under node: core.js and her desk.js on a stand-in page with the click test's stub states.
+ */
+function testCleanupTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    preg_match('/const STAT_CORNERS = \{([^}]*)\}/', $js, $m);
+    preg_match_all("/(\\w+): '(\\w+)'/", $m[1] ?? '', $pairs, PREG_SET_ORDER);
+    $map = array_column(array_map(fn ($p) => [$p[1], $p[2]], $pairs), 1, 0);
+    preg_match("/const Where = \\(\\(\\) => \\{\\s*const SECTIONS = \\[([^\\]]*)\\]/", $js, $w);
+    preg_match_all("/'(\\w+)'/", $w[1] ?? '', $corners);
+    check('cleanup tiles: STAT_CORNERS stays as data — the number tiles of before (array, Docker, VMs, SMB, User Scripts, the engine, the hottest disk, SMART, notices)',
+        array_keys($map) === ['array', 'docker', 'vms', 'smb', 'scripts', 'backup', 'temp', 'smart', 'notices'], json_encode($map));
+    same('cleanup tiles: … each names a corner that exists (its numbers sit on that corner\'s tile)', [], array_values(array_diff($map, $corners[1] ?? [])));
+    check('cleanup tiles: two pages as tabs, the last one kept as cleanup.page (#/cleanup opens it)',
+        str_contains($js, "pages: { list: PAGES(), current: page, store: PAGE_KEY }") && str_contains($js, "const PAGE_KEY = 'cleanup.page';")
+        && str_contains($js, "Office.pageFrom(PAGES(), s, PAGE_KEY)"));
+    check('cleanup tiles: two switchers — «Where is what» (start «Where things are», cleanup.where.tile) and «Tidying up» (no start, cleanup.section)',
+        (bool) preg_match("/key: STORE \\+ 'tile',[^}]*default: 'places'/s", $js) && (bool) preg_match("/key: 'cleanup\\.section',[^}]*default: ''/s", $js)
+        && substr_count($js, 'Office.sections({') === 2);
+    check('cleanup tiles: «License» and «Load» are no tiles — the page\'s head line says them; no number row, no stat: places any more',
+        (bool) preg_match("/line\\.textContent = \\[[^;]*T\\('where\\.stat\\.license'\\)[^;]*T\\('where\\.stat\\.load'\\)/s", $js)
+        && !str_contains($js, "route: `#/cleanup/where/stat:") && !str_contains($js, 'renderStats') && !str_contains($js, 'statTile'));
+    check('cleanup tiles: nothing of her own jumps (no scrollIntoView; the switcher makes the one move)', !str_contains($js, 'scrollIntoView'));
+    check('cleanup tiles: no warning callout for a filter — the bars say it', !str_contains($js, 'filter_on') && !str_contains($js, 'filterMark'));
+    check('cleanup tiles: the two bars (her rooms, the corners) are Office.filterBar, never kept',
+        str_contains($js, "key: 'cleanup.tidy'") && str_contains($js, "key: 'cleanup.where'") && !preg_match("/Office\\.store\\('cleanup\\.(tidy|where)\\.(words|only|filter)/", $js));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('cleanup tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/uso-cleanup-tiles-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $where = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/cleanup-where.json'), true);
+    $rooms = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/cleanup.json'), true);
+    // one finding first: a share whose pool is missing (her link opens «Shares» with its name in the bars)
+    foreach ($where['shares'] as $i => $s) {
+        $where['shares'][$i]['storage']['missing'] = $s['name'] === 'media';
+    }
+    file_put_contents("$tmp/fx.json", json_encode(['where' => $where, 'rooms' => $rooms['state'] ?? $rooms]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [core, desk, fxFile] = process.argv.slice(2);
+const FX = JSON.parse(fs.readFileSync(fxFile, 'utf8'));
+const CONFIG = { desks: [{ id: 'cleanup', hired: true, order: 1, refresh_after: 600 }], languages: [{ code: 'en' }], base: '', staff_order: [], stamp: 1, version: 'test', host: 'Tower' };
+const mk = () => ({ nodeType: 1, style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], value: '',
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, get lastChild() { return this.children[this.children.length - 1] || null; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {}, after() {}, before() {},
+  insertBefore(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; },
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => mk(), querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.DocumentFragment = function DocumentFragment() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+const kept = {};
+globalThis.localStorage = { getItem: (k) => (k in kept ? kept[k] : null), setItem(k, v) { kept[k] = String(v); }, removeItem(k) { delete kept[k]; } };
+globalThis.navigator = { languages: ['en'], platform: 'Linux' };
+globalThis.history = { replaceState(a, b, url) { globalThis.location.hash = url; } };
+globalThis.location = { hash: '', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), createDocumentFragment: () => mk(),
+  addEventListener() {}, removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+globalThis.fetch = async (url) => {
+  const u = new URLSearchParams(String(url).split('?')[1] || '');
+  const look = (k, data) => ({ ok: true, [k]: data, age: 5, stale: false, refreshing: false, refresh_after: 600 });
+  const a = u.get('a') === 'part' && u.get('part') === 'where' ? look('part', FX.where) : u.get('a') === 'state' ? look('state', FX.rooms) : { ok: false };
+  return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
+};
+globalThis.OFFICE_DESK_TESTS = {};
+(0, eval)(fs.readFileSync(core, 'utf8'));
+(0, eval)(fs.readFileSync(desk, 'utf8'));
+const out = {};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  const d = Office.desks.get('cleanup');
+  const ct = OFFICE_DESK_TESTS.cleanup;
+  const ws = ct.where.sw;
+  Office.current = d;
+  const visit = async (sub) => { d.unmount(); d.mount(mk(), sub); await wait(120); };
+  const body = (sw) => [sw.body.dataset.active, sw.body.dataset.sections];
+  // the first visit: «Where is what», its start «Where things are»
+  await visit('');
+  out.first = [ct.page(), kept['office.cleanup.page'] || null, ...body(ws)];
+  out.tiles = ws.grid.children.map((n) => n.dataset.tile);
+  const faces = ct.where.faces();
+  out.faces = Object.fromEntries(Object.entries(faces).map(([k, f]) => [k, [String(f.value), [].concat(f.sub).filter(Boolean).join(' | '), !!f.alert]]));
+  // a tile's route on her page, an old number tile's address, the other page
+  await visit('where/vms');
+  out.vms = [ct.page(), ...body(ws), location.hash];
+  await visit('where/stat:temp');
+  out.temp = body(ws);
+  await visit('tidy');
+  out.tidy = [ct.page(), kept['office.cleanup.page'], ...body(ct.tidy)];
+  await visit('tidy/docker');
+  out.room = [ct.page(), ...body(ct.tidy), location.hash];
+  await visit('');
+  out.again = [ct.page()];
+  // a link of what she noticed: from «Tidying up» her page changes first, the link's words in both bars, its corner open
+  const f = ct.findings();
+  out.finding = f.length ? f[0].text : null;
+  out.before = ct.query();
+  if (f.length) f[0].go();
+  out.hash = location.hash;
+  await visit(location.hash.replace(/^#\/cleanup\//, ''));
+  out.after = [ct.page(), ct.query(), ...body(ws)];
+  d.unmount();
+  out.gone = ct.query();
+  fs.writeFileSync(fxFile + '.out', JSON.stringify(out));
+  process.exit(0);
+})().catch((e) => { fs.writeFileSync(fxFile + '.out', JSON.stringify({ error: String(e && e.stack || e) })); process.exit(1); });
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/assets/core.js', OFFICE_WEB . '/desks/cleanup/desk.js', "$tmp/fx.json"])) . ' 2>&1');
+    $r = json_decode((string) @file_get_contents("$tmp/fx.json.out"), true);
+    exec('rm -rf ' . escapeshellarg($tmp));
+    if (!is_array($r) || isset($r['error'])) {
+        check('cleanup tiles: her page under node', false, is_array($r) ? (string) $r['error'] : $raw);
+        return;
+    }
+    $sys = $where['system'];
+    same('cleanup tiles: the first visit opens «Where is what» (kept as cleanup.page), «Where things are» alone under the row',
+        ['where', 'where', 'places', 'places'], $r['first']);
+    same('cleanup tiles: one row of 13 tiles — her advice, «Where things are», the eleven corners',
+        ['advice', 'places', 'shares', 'folders', 'docker', 'vms', 'disks', 'access', 'network', 'scripts', 'backups', 'notices', 'plugins'], $r['tiles']);
+    same('cleanup tiles: the corner tiles carry the live numbers — Docker and VMs running of all, the hottest disk, SMB sessions, the engine',
+        ["{$sys['docker']['running']} / {$sys['docker']['total']}", $sys['vms']['total'] ? "{$sys['vms']['running']} / {$sys['vms']['total']}" : '–', true, true, true],
+        [$r['faces']['docker'][0] ?? null, $r['faces']['vms'][0] ?? null, (bool) preg_match('/°C$|^–$/u', (string) ($r['faces']['disks'][0] ?? '')),
+         str_contains((string) ($r['faces']['network'][0] ?? ''), 'count.sessions') || preg_match('/\d/', (string) ($r['faces']['network'][0] ?? '')) === 1,
+         ($r['faces']['backups'][0] ?? '') !== '']);
+    check('cleanup tiles: … the disks\' tile says SMART and the array under the temperature', str_contains((string) ($r['faces']['disks'][1] ?? ''), ' | '), json_encode($r['faces']['disks'] ?? null));
+    same('cleanup tiles: #/cleanup/where/vms — the VMs corner alone, «Where things are» gone, the address keeps its page',
+        ['where', 'vms', 'vms', '#/cleanup/where'], $r['vms']);
+    same('cleanup tiles: an old number tile\'s address (stat:temp) opens its corner (disks)', ['disks', 'disks'], $r['temp']);
+    same('cleanup tiles: «Tidying up» — no tile chosen, every room shown, the page kept', 'tidy', $r['tidy'][0] ?? null);
+    check('cleanup tiles: … every room in the row\'s order', ($r['tidy'][1] ?? null) === 'tidy' && ($r['tidy'][2] ?? null) === '' && str_starts_with((string) ($r['tidy'][3] ?? ''), 'templates ')
+        && str_ends_with((string) ($r['tidy'][3] ?? ''), ' trash'), json_encode($r['tidy']));
+    same('cleanup tiles: #/cleanup/tidy/docker — Docker\'s leftovers alone; #/cleanup then opens the page seen last',
+        [['tidy', 'docker', 'docker', '#/cleanup/tidy'], ['tidy']], [$r['room'], $r['again']]);
+    check('cleanup tiles: her first finding is the share whose pool is missing', str_contains((string) $r['finding'], 'where.find.missing_pool'), (string) $r['finding']);
+    same('cleanup tiles: its link from «Tidying up» goes to «Where is what» with «Shares» open and its words in both bars; the visit\'s end empties them',
+        ['', '#/cleanup/where/shares', ['where', 'media', 'shares', 'shares'], ''], [$r['before'], $r['hash'], $r['after'], $r['gone']]);
+}
+
+/**
+ * Mr. Restori's tiles (the tiles rebuild, 2026-10-11): one bar over the open list (Apps, VMs, Databases — Office.filterBar,
+ * words and «only what's gone», never kept), the databases' groups keep their heads over what fits; the drill's tile says
+ * how often he practises (off, monthly, weekly with its night, «after the next backup» when one is due — as the agent
+ * reckons it) — under node, drill.js alone.
+ */
+function testRestoreTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore tiles: a bar over each list, Office.filterBar (words, «only what\'s gone»), never kept, emptied by a new visit',
+        str_contains($js, 'key: `restore.list.${list}`') && str_contains($js, "only: { text: T('list.only_missing')") && str_contains($js, 'listBars.forEach((b) => b.reset());')
+        && !preg_match("/Office\\.store\\('restore\\.list/", $js));
+    check('restore tiles: … over Apps, VMs and Databases (gone apps, missing VMs; a database group keeps its head over what fits)',
+        preg_match_all("/[=(] ?barRows\\(s, '(apps|vms|dbs)', /", $js) === 3 && str_contains($js, '(a) => !a.present') && str_contains($js, "(v) => v.state === 'missing'")
+        && str_contains($js, 'box.appendChild(dbHead(g.app));'));
+    // tiles v2 (CLAUDE.md «Tiles»): his row on core's switcher — «Apps» to start, his old key, a partner's tile before the
+    // state names it, nothing chosen = every section; a link opens a section without closing it
+    check('restore tiles: on Office.sections() — restore.section, «Apps» to start, partner:<id> wanted before the state, no pair of his own',
+        str_contains($js, "key: 'restore.section'") && str_contains($js, "default: 'apps'") && str_contains($js, 'wants: (sub) => /^partner:[0-9a-f]{8}$/.test(sub)')
+        && !preg_match('/^function (renderTiles|renderSection)\\(/m', $js) && str_contains($js, "sw.pick(sec, 'route');"));
+    $node = testsNode();
+    if ($node === '') {
+        check('restore tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/uso-restore-tiles-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, has: () => true,
+  api: { get: async () => ({ ok: true, part: null }) }, agent: { running: true }, locale: 'en' };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const fmt = { size: (b) => b + ' B', date: (t) => 'D' + t, relative: (t) => 'R' + t, time: (t) => 'T' + t, duration: (s) => s + 's' };
+Office.restoreDrill.init({ T, fmt, date: fmt.date, tiles: () => {}, redraw: () => {}, shown: () => true });
+const d = OFFICE_DESK_TESTS.drill;
+const at = (y, m, day, h) => new Date(y, m - 1, day, h || 3).getTime() / 1000;
+const now = at(2026, 10, 14, 15);          // a Wednesday afternoon
+const out = {};
+d.setCert({ interface: 1, last: { result: 'passed', proven: 3, failed: 0, started: at(2026, 10, 4), ended: at(2026, 10, 4) } });
+out.unknown = d.freqText(now);
+out.tile = d.tileLine();
+d.setState({ settings: { schedule: 'off' } });
+out.off = d.freqText(now);
+d.setState({ settings: { schedule: 'monthly' } });
+out.monthly = d.freqText(now);                                       // a drill this month: the next one next month
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 9, 28), ended: at(2026, 9, 28) } });
+out.monthlyDue = d.freqText(now);                                    // none this month yet: after the next backup
+d.setState({ settings: { schedule: 'weekly', weekday: 1 } });        // the night before Monday
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 10, 12), ended: at(2026, 10, 12) } });
+out.weekly = d.freqText(now);                                        // Monday's drill done: next Monday
+d.setCert({ interface: 1, last: { result: 'passed', started: at(2026, 10, 5), ended: at(2026, 10, 5) } });
+out.weeklyDue = d.freqText(now);                                     // Monday 12th passed without one: caught up
+d.setCert(null);
+out.never = d.freqText(now);
+out.tileNone = d.tileLine();
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/drill.js') . ' 2>&1');
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $o = json_decode($raw, true);
+    if (!is_array($o)) {
+        check('restore tiles: drill.js under node', false, $raw);
+        return;
+    }
+    same('restore tiles: the drill tile — before his settings are known the time of the last drill stays on its right',
+        [null, 'drill.tile_passed {"n":3,"failed":0}', true], [$o['unknown'], $o['tile'][0] ?? null, str_starts_with((string) ($o['tile'][1] ?? ''), 'R')]);
+    same('restore tiles: … then how often: off, monthly (done this month), after the next backup (none this month)',
+        ['drill.freq.off', 'drill.freq.monthly', 'drill.freq.due'], [$o['off'], $o['monthly'], $o['monthlyDue']]);
+    same('restore tiles: … weekly names its night (the day it ends on), a night that passed without one is caught up, none yet: due',
+        ['drill.freq.weekly {"day":"Mon"}', 'drill.freq.due', 'drill.freq.due', ['drill.tile_none', 'drill.freq.due']],
+        [$o['weekly'], $o['weeklyDue'], $o['never'], $o['tileNone']]);
+}
+
+
+/**
+ * The tiles rule for every desk (CLAUDE.md «Tiles», docs/DEVELOPMENT.md «Tiles and lists», 2026-10-11), read in the
+ * code of every public/desks/<id>/*.js — so a new desk, or a contributor's change, is told what to move onto core's
+ * helpers (Office.stat, Office.tile, Office.filterBar, Office.fits), each fault with its file and line:
+ *   - no role="button" in markup, and none set on a .stat / .card (a tile is a real <button>; a group's head or a row's
+ *     name that folds may carry one — CLAUDE.md «Rows»);
+ *   - no scrollIntoView( — a tile click keeps the page in place (Office.keepInPlace); a jump a link asked for (to a row,
+ *     the reader, a dialog's error line) carries the marker comment reveal on its line;
+ *   - no word folding of a desk's own (normalize('NFD'), .replace(/ß/): Office.fold, Office.filterWords, Office.fits;
+ *   - every button.card a desk builds by hand sets aria-pressed (itself, or through a helper that does);
+ *   - Office.store / storeJson keys never name a filter, words, «only …» or a query (a filter is never kept);
+ *   - every tile that filters (filters: beside controls:, or data-filters) is a place of the search: a kind 'tile' entry of
+ *     the desk's Office.places() whose anchor its place mark meets, whose route is a sub-route #/<desk>/… and whose key
+ *     is in all five languages — or, a tile per thing of the state (a pool), an item anchor the desk's placesFrom gives.
+ * The desks' places come from core.js and the desks under node (a stand-in page, as testSearchPlaces); without node
+ * the place check is skipped. A made-up desk with every fault proves the reader finds them.
+ */
+function testTilesConvention(): void
+{
+    $codes = ['en', 'de', 'it', 'fr', 'es'];
+    $files = glob(OFFICE_WEB . '/desks/*/*.js') ?: [];
+    sort($files);
+    $desks = array_values(array_unique(array_map(fn ($f) => basename(dirname($f)), $files)));
+    $langs = [];
+    foreach ($desks as $d) {
+        foreach ($codes as $c) {
+            $langs[$d][$c] = is_file(OFFICE_WEB . "/desks/$d/lang/$c.json") ? langFile(OFFICE_WEB . "/desks/$d/lang/$c.json") : [];
+        }
+    }
+    $hasKey = fn (string $desk) => fn (string $key) => count(array_filter($codes, fn ($c) => isset($langs[$desk][$c][$key]))) === count($codes);
+
+    // the desks' places of kind tile, from core.js and every desk.js under node
+    $tiles = null;
+    $node = testsNode();
+    if ($node !== '') {
+        $tmp = hardeningTmp('tiles-convention');
+        file_put_contents("$tmp/config.json", json_encode(['desks' => array_map(fn ($d) => ['id' => $d, 'hired' => true, 'order' => 1],
+            array_values(array_filter($desks, fn ($d) => is_file(OFFICE_WEB . "/desks/$d/desk.json")))),
+            'languages' => array_map(fn ($c) => ['code' => $c], $codes), 'base' => '', 'staff_order' => [], 'stamp' => 1, 'version' => 'test']));
+        file_put_contents("$tmp/t.js", <<<'JS'
+// core.js and every desk.js on a stand-in page: each desk's places of kind tile
+const fs = require('fs');
+const [core, desksDir, configFile] = process.argv.slice(2);
+const CONFIG = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'], platform: 'Linux' };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), addEventListener() {},
+  removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+globalThis.OFFICE_DESK_TESTS = {};
+globalThis.fetch = async (url) => ({ redirected: false, url, ok: true, status: 200, json: async () => ({ ok: false }), text: async () => '{}' });
+(0, eval)(fs.readFileSync(core, 'utf8'));
+const O = globalThis.Office;
+const out = {};
+for (const d of CONFIG.desks) (0, eval)(fs.readFileSync(`${desksDir}/${d.id}/desk.js`, 'utf8'));
+for (const d of CONFIG.desks) out[d.id] = O.placesOf(d.id).filter((p) => p.kind === 'tile').map((p) => ({ key: p.key, anchor: p.anchor, route: p.route }));
+process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+            . escapeshellarg(OFFICE_WEB . '/desks') . ' ' . escapeshellarg("$tmp/config.json") . ' 2>&1');
+        hardeningRm($tmp);
+        $tiles = json_decode($raw, true);
+        check('tiles convention: the desks\' places under node', is_array($tiles), $raw);
+        $tiles = is_array($tiles) ? $tiles : null;
+    } else {
+        check('tiles convention: node is missing here - the places of filtering tiles not checked', true);
+    }
+
+    $faults = [];
+    $sites = 0;
+    foreach ($files as $f) {
+        $d = basename(dirname($f));
+        $r = tilesConventionFaults($d, basename($f), (string) file_get_contents($f), $tiles === null ? null : ($tiles[$d] ?? []), $hasKey($d));
+        $faults = array_merge($faults, $r['faults']);
+        $sites += $r['sites'];
+    }
+    // one line per fault, readable: what to change, where
+    foreach ($faults as $x) {
+        check("tiles convention: $x", false);
+    }
+    check('tiles convention: every desk keeps the tiles rule (CLAUDE.md «Tiles», docs/DEVELOPMENT.md «Tiles and lists»)', !$faults);
+    check("tiles convention: … the reader saw the desks' scripts and their filtering tiles (" . count($files) . " files, $sites tiles that filter)",
+        count($files) >= 10 && $sites >= 6);
+
+    // a made-up desk with every fault (and what is allowed beside them): the reader finds each one, on its line
+    $bad = <<<'JS'
+function tile() {
+  const t = el('div', 'stat');
+  t.setAttribute('role', 'button');
+  t.scrollIntoView({ block: 'start' });
+}
+const fold = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const c = el('button', 'card x-tile');
+c.onclick = go;
+Office.store('x.filter_words', '1');
+box.innerHTML = '<div class="card" role="button">';
+const ss = (s) => s.replace(/ß/g, 'ss');
+// what is allowed: a group's head that folds, a reveal, a choice kept, a card that says it is pressed
+function group() {
+  const head = el('div', 'group-head');
+  head.setAttribute('role', 'button');
+  row.scrollIntoView({ block: 'nearest' });     /* reveal */
+  Office.store('x.section', 'a');
+}
+const d = el('button', 'card');
+d.setAttribute('aria-pressed', 'false');
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'A', on: go, pressed: false, controls: 'x-list', filters: 'x-list' }));
+
+
+
+
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'B', on: go, pressed: false, controls: 'x-list', filters: 'x-list', place: 'tile.b' }));
+
+
+
+
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'C', on: go, pressed: false, controls: 'x-list', filters: 'x-list', place: `tile.${x}` }));
+
+
+
+
+
+
+
+
+
+grid.appendChild(Office.stat({ label: 'D', on: go, pressed: false, controls: 'x-list', filters: 'x-list', place: 'tile.d' }));
+JS;
+    $places = [['key' => 'tile.b', 'anchor' => 'tile.b', 'route' => '#/x/b'], ['key' => 'tile.c', 'anchor' => 'tile.c', 'route' => '#/x/c'],
+        ['key' => 'tile.d', 'anchor' => 'tile.d', 'route' => '#/x']];
+    $r = tilesConventionFaults('x', 'desk.js', $bad, $places, fn ($k) => $k !== 'tile.b');
+    $lines = array_map(fn ($x) => (int) explode(' ', explode(':', $x, 2)[1])[0], $r['faults']);
+    same('tiles convention: a made-up desk — role=button on a .stat, scrollIntoView, own folding (twice), a card without aria-pressed, a filter kept, role="button" in markup, a filtering tile without a place, one whose key lacks a language, one whose tile has no sub-route (a folding head, a reveal, a choice kept, a pressed card and a tile of the search pass)',
+        [3, 4, 6, 7, 9, 10, 11, 26, 36, 56], $lines);
+
+    // tiles v2: the desks on the section switcher (SECTIONS_DESKS — each desk group adds its desk when it moves it over)
+    $v2 = [];
+    foreach (SECTIONS_DESKS as $d => $elsewhere) {
+        $deskFiles = glob(OFFICE_WEB . "/desks/$d/*.js") ?: [];
+        check("tiles convention: SECTIONS_DESKS names a desk with scripts ($d)", (bool) $deskFiles);
+        foreach ($deskFiles as $f) {
+            $v2 = array_merge($v2, sectionsConventionFaults($d, basename($f), (string) file_get_contents($f), $elsewhere));
+        }
+    }
+    foreach ($v2 as $x) {
+        check("tiles convention: $x", false);
+    }
+    check('tiles convention: the desks in SECTIONS_DESKS keep the v2 rule (a tile is a section: Office.sections())', !$v2);
+    $goodV2 = <<<'JS'
+const sw = Office.sections({ id: ID, tiles: () => [
+  { id: 'apps', key: 'tile.apps', tile: (a) => Office.tile({ name: T('tile.apps'), ...a }), section: () => appsSection() },
+  { id: 'vms', key: 'tile.vms', tile: (a) => Office.stat({ label: T('tile.vms'), ...a }), section: 'prot', filters: T('tile.vms') },
+], sections: { prot: protection } });
+function appsSection() {
+  const s = el('section', 'section');
+  s.appendChild(section(T('apps.title'), T('apps.sub')));
+  return s;
+}
+function protection() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('prot.title'), ''));
+  return s;
+}
+function section(title, sub) { return Office.sectionHead(title, sub); }
+function setupPage() {
+  return Office.sectionHead(T('setup.title'), '');
+}
+JS;
+    same('tiles convention v2: a made-up desk on the switcher (a section helper, a head on its other page named) — no fault',
+        [], sectionsConventionFaults('x', 'desk.js', $goodV2, ['setupPage']));
+    $twoV2 = $goodV2 . <<<'JS'
+
+const setupSw = Office.sections({ id: `${ID}/setup`, tiles: () => [
+  { id: 'vms', key: 'setup.vms', tile: (a) => Office.stat({ label: T('setup.vms'), ...a }), section: () => setupVms() },
+] });
+function setupVms() {
+  return section(T('setup.vms'), '');
+}
+JS;
+    same('tiles convention v2: a second switcher (the desk\'s other page) reaches its own sections — no fault',
+        [], sectionsConventionFaults('x', 'desk.js', $twoV2, ['setupPage']));
+    $badV2 = <<<'JS'
+const sections = ['apps', 'vms'];
+function renderTiles() {
+  sections.forEach((s) => grid.appendChild(Office.tile({ name: s, on: () => pick(s), active: s === section })));
+}
+function renderSection() {
+  body.appendChild(appsSection());
+}
+function appsSection() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('apps.title'), ''));
+  return s;
+}
+function plans() {
+  const plansSection = el('section', 'section');
+  plansSection.hidden = !open;
+  plansSection.appendChild(Office.sectionHead(T('plans.title'), ''));
+  return plansSection;
+}
+JS;
+    $at = fn (array $faults) => array_map(fn ($x) => preg_replace('~^desks/x/([^ ]+) .*$~', '$1', $x), $faults);
+    same('tiles convention v2: a made-up desk with its own switcher — no Office.sections(), a renderTiles+renderSection pair, a hidden section',
+        ['desk.js:1', 'desk.js:5', 'desk.js:15'], $at(sectionsConventionFaults('x', 'desk.js', $badV2, [])));
+    $strayV2 = $goodV2 . <<<'JS'
+
+function stray() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('stray.title'), ''));
+  return s;
+}
+function notices() {
+  return [section(T('notice.title'), '')];
+}
+JS;
+    same('tiles convention v2: on the switcher, but a section head beside it (by core\'s helper and by the desk\'s own) and a head of the other page not named',
+        ['desk.js:16', 'desk.js:19', 'desk.js:24'], $at(sectionsConventionFaults('x', 'desk.js', $strayV2, [])));
+}
+
+/**
+ * The desks moved onto the section switcher of tiles v2 (Office.sections()) — each desk group adds its desk with the
+ * functions whose section heads stand on another page of the desk (its setup page …), never under the row:
+ *   'backup' => ['setupPage', …]
+ * (2026-10-11: Worker 0 built the helper, the groups move the desks.)
+ */
+const SECTIONS_DESKS = [
+    'restore' => [],
+    'logs' => [],
+    'watchman' => ['roundHead'],     // «The last round»: the row's head over the tiles (a hint, it stays at every click)
+    // Ms. Dustdevil: her two pages, two switchers — the first in her desk.js is «Tidying up»'s, these make «Where is what»'s sections
+    'cleanup' => ['whereSection', 'whereAdvice', 'wherePlaces', 'whereCorner'],
+    // Mr. Backupsy: the running card that stands in the row's place while a run goes on (a live panel above the sections,
+    // like Jack Emby's) and the setup's start cards over its row of steps (a new server: where to start — 2026-10-12, his
+    // setup's steps on a switcher of their own)
+    'backup' => ['runningCard', 'presetSection'],
+    'emby' => ['importSection'],        // Jack Emby's setup: «Take over an earlier install» over the row until he is set up (later its tile)
+    'snapshot' => [],
+];
+
+/**
+ * The faults of one desk script against the v2 rule (testTilesConvention): a desk of SECTIONS_DESKS uses Office.sections()
+ * (its desk.js), has no renderTiles+renderSection pair of its own, never sets hidden on a section (a section not chosen
+ * isn't drawn), and every function of its desk.js that makes a section head (Office.sectionHead, or a helper of its own
+ * around it) is reached from the switcher's spec — the tiles' sections and `sections` — or named in $elsewhere.
+ * ["desks/<desk>/<file>:<line> …"]
+ */
+function sectionsConventionFaults(string $desk, string $file, string $js, array $elsewhere): array
+{
+    $lines = explode("\n", $js);
+    $faults = [];
+    $fault = function (int $i, string $what) use (&$faults, $desk, $file): void {
+        $faults[] = "desks/$desk/$file:" . ($i + 1) . " $what";
+    };
+    // the top-level functions: name -> [line, body]
+    $fns = [];
+    $cur = '';
+    foreach ($lines as $i => $l) {
+        if (preg_match('/^(?:async\s+)?function\s+(\w+)\s*\(|^(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|\w+\s*=>)/', $l, $m)) {
+            $cur = $m[1] !== '' ? $m[1] : $m[2];
+            $fns[$cur] = [$i, ''];
+        }
+        if ($cur !== '') {
+            $fns[$cur][1] .= $l . "\n";
+        }
+        if (preg_match('/^\}/', $l) || ($cur !== '' && preg_match('/^(?:async\s+)?function\s+\w+\s*\(.*\}\s*$|^(?:const|let)\s+\w+\s*=.*;\s*(\/\/.*)?$/', $l))) {
+            $cur = '';
+        }
+    }
+    $at = strpos($js, 'Office.sections(');
+    if ($file === 'desk.js' && $at === false) {
+        $fault(0, 'no Office.sections() — a desk of SECTIONS_DESKS draws its tiles and sections through the switcher (CLAUDE.md «Tiles»)');
+    }
+    if (isset($fns['renderTiles'], $fns['renderSection'])) {
+        $fault($fns['renderSection'][0], 'a renderTiles()+renderSection() pair of its own — Office.sections() is the switcher');
+    }
+    foreach ($lines as $i => $l) {
+        if (preg_match('/\b\w*[sS]ection\w*\.hidden\s*=(?!=)/', $l) || (str_contains($l, "el('section'") && str_contains($l, 'hidden'))) {
+            $fault($i, 'hidden on a section — a section not chosen is not drawn (Office.sections())');
+        }
+    }
+    if ($file !== 'desk.js' || $at === false) {
+        return $faults;
+    }
+    // the switchers' specs: every Office.sections( … ) up to its closing parenthesis (a desk with two pages may have a
+    // switcher per page — Ms. Dustdevil's, Mr. Backupsy's and Jack Emby's setup steps)
+    $spec = '';
+    for ($from = $at; $from !== false; $from = strpos($js, 'Office.sections(', $from + 1)) {
+        $depth = 0;
+        $end = strlen($js);
+        for ($k = $from + strlen('Office.sections'); $k < strlen($js); $k++) {
+            $c = $js[$k];
+            if ($c === '(') {
+                $depth++;
+            } elseif ($c === ')' && --$depth === 0) {
+                $end = $k;
+                break;
+            }
+        }
+        $spec .= substr($js, $from, $end - $from) . "\n";
+    }
+    $names = fn (string $text) => array_values(array_filter(array_keys($fns), fn ($n) => preg_match('/(?<![\w.])' . preg_quote($n, '/') . '\b/', $text)));
+    $reached = array_fill_keys($names($spec), true);
+    for ($todo = array_keys($reached); $todo;) {
+        $n = array_pop($todo);
+        foreach ($names($fns[$n][1]) as $m) {
+            if (!isset($reached[$m])) {
+                $reached[$m] = true;
+                $todo[] = $m;
+            }
+        }
+    }
+    // what makes a section head: Office.sectionHead, and a helper of the desk's own around it
+    $makers = array_keys(array_filter($fns, fn ($f) => str_contains($f[1], 'Office.sectionHead(')));
+    foreach ($fns as $n => [$line, $bodyText]) {
+        $makes = str_contains($bodyText, 'Office.sectionHead(') || (bool) array_filter($makers, fn ($w) => $w !== $n && preg_match('/(?<![\w.])' . preg_quote($w, '/') . '\(/', $bodyText));
+        if ($makes && !isset($reached[$n]) && !in_array($n, $elsewhere, true)) {
+            $fault($line, "$n() makes a section head the switcher doesn't draw — a section hangs on Office.sections() (a tile's section or `sections`); one on another page goes into SECTIONS_DESKS");
+        }
+    }
+    return $faults;
+}
+
+/**
+ * The faults of one desk script against the tiles rule (testTilesConvention): {faults: ["desks/<desk>/<file>:<line> …"],
+ * sites: the tiles that filter it saw}. $tiles: the desk's places of kind tile [{key, anchor, route}] (null: not
+ * known — the place check is left out); $hasKey(key): that key in all five languages of the desk.
+ */
+function tilesConventionFaults(string $desk, string $file, string $js, ?array $tiles, callable $hasKey): array
+{
+    $lines = explode("\n", $js);
+    $faults = [];
+    $fault = function (int $i, string $what) use (&$faults, $desk, $file): void {
+        $faults[] = "desks/$desk/$file:" . ($i + 1) . " $what";
+    };
+    // the function each line is in (top level: «function x(», «const x = (…) =>», «const x = function»), and the helpers
+    // that set aria-pressed or data-filters on the node they are handed
+    $fnOf = [];
+    $body = [];
+    $cur = '';
+    foreach ($lines as $i => $l) {
+        $def = (bool) preg_match('/^(?:async\s+)?function\s+(\w+)\s*\(|^(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|\w+\s*=>)/', $l, $m);
+        if ($def) {
+            $cur = $m[1] !== '' ? $m[1] : $m[2];
+        }
+        $fnOf[$i] = $cur;
+        if ($cur !== '') {
+            $body[$cur] = ($body[$cur] ?? '') . $l . "\n";
+        }
+        if (preg_match('/^\}/', $l) || ($def && preg_match('/;\s*(\/\/.*)?$/', $l))) {
+            $cur = '';          // the end of a function, or a helper on one line
+        }
+    }
+    $pressHelpers = array_keys(array_filter($body, fn ($b) => str_contains($b, "'aria-pressed'")));
+    $filterHelpers = array_keys(array_filter($body, fn ($b) => (bool) preg_match('/\.dataset\.filters\s*=/', $b)));
+    preg_match_all('/anchor:\s*`([a-z]+:)\$\{/', $js, $m);
+    $itemPrefixes = array_values(array_unique($m[1]));
+    $calls = fn (array $names, string $l) => (bool) array_filter($names, fn ($n) => preg_match('/(?<![\w.])' . preg_quote($n, '/') . '\(/', $l)
+        && !preg_match('/function\s+' . preg_quote($n, '/') . '\(|(?:const|let)\s+' . preg_quote($n, '/') . '\s*=/', $l));
+    $window = fn (int $i, int $before, int $after) => implode("\n", array_slice($lines, max(0, $i - $before), $before + $after + 1 - max(0, $before - $i)));
+
+    $sites = [];          // [line, the lines around it where its place mark is]
+    foreach ($lines as $i => $l) {
+        // a tile is a <button>: no role="button" in markup, none on a .stat / .card
+        if (preg_match("/role=\\\\?[\"']button/", $l)) {
+            $fault($i, 'role="button" in markup — a tile is a real <button> (Office.stat / Office.tile with on)');
+        }
+        if (preg_match("/(\\w+)\\.setAttribute\\('role', 'button'\\)|(\\w+)\\.role\\s*=\\s*'button'/", $l, $m)) {
+            $var = $m[1] !== '' ? $m[1] : $m[2];
+            for ($j = $i; $j >= max(0, $i - 15); $j--) {
+                if (preg_match('/\b(?:const|let|var)\s+' . preg_quote($var, '/') . "\\s*=.*?el\\('\\w+', '([^']*)'/", $lines[$j], $e)) {
+                    if (preg_match('/(^|\s)(stat|card)(\s|$)/', $e[1])) {
+                        $fault($i, "role=button on a .{$e[1]} — a tile is a real <button> (Office.stat / Office.tile with on)");
+                    }
+                    break;
+                }
+            }
+        }
+        // nothing jumps: a tile click keeps the page in place; a jump a link asked for says so
+        if (str_contains($l, 'scrollIntoView(') && !str_contains($l, '/* reveal */')) {
+            $fault($i, 'scrollIntoView — a tile click keeps the page in place (Office.keepInPlace); a jump a link asked for carries /* reveal */');
+        }
+        // the words of a filter are folded by core
+        if (preg_match('/\.normalize\(\s*[\'"]NFK?D[\'"]|\.replace\(\/ß\//u', $l)) {
+            $fault($i, 'word folding of its own — Office.fold / Office.filterWords / Office.fits');
+        }
+        // a card built by hand that does something says whether it is pressed
+        if (preg_match("/el\\('button', '([^']*)'/", $l, $m) && preg_match('/(^|\s)card(\s|$)/', $m[1])) {
+            if (!str_contains($window($i, 0, 12), 'aria-pressed') && !$calls($pressHelpers, $l)) {
+                $fault($i, 'a button.card without aria-pressed — Office.tile({…, active, on}) sets it');
+            }
+        }
+        // a filter is never kept
+        if (preg_match('/Office\.store(?:Json)?\(\s*([^,)]*)/', $l, $m) && preg_match('/filter|words|only|query/i', $m[1])) {
+            $fault($i, "Office.store({$m[1]}) — filter words, «only …» switches and tile filters are never kept (mount() empties them: bar.reset())");
+        }
+        // the tiles that filter: Office.stat / Office.tile with filters (beside controls), data-filters set by hand or a helper
+        // (… or a filter tile of the section switcher: filters: beside section: in Office.sections()' tiles)
+        if (preg_match('/\bfilters:\s*(?!null\b)\S/', $l) && (str_contains($window($i, 3, 3), 'controls:') || preg_match('/\bsection:\s*\S/', $l))) {
+            $sites[] = [$i, $window($i, 8, 8)];
+        } elseif (preg_match('/\.dataset\.filters\s*=/', $l) && !in_array($fnOf[$i], $filterHelpers, true)) {
+            $sites[] = [$i, $window($i, 8, 8)];
+        } elseif ($calls($filterHelpers, $l)) {
+            $sites[] = [$i, $window($i, 1, 1)];
+        }
+    }
+    if ($tiles !== null) {
+        foreach ($sites as [$i, $around]) {
+            preg_match_all('/(?:place:\s*|Office\.place\(\s*)([\'`])((?:(?!\1).)+)\1/', $around, $m);
+            if (!$m[2]) {
+                $fault($i, 'a tile that filters has no place (place: … on Office.stat / Office.tile, or Office.place) — a tile is a place with a sub-route');
+                continue;
+            }
+            $met = false;
+            foreach ($m[2] as $anchor) {
+                $re = '/^' . implode('.+', array_map(fn ($p) => preg_quote($p, '/'), preg_split('/\$\{[^}]*\}/', $anchor))) . '$/';
+                foreach ($tiles as $t) {
+                    if (preg_match($re, (string) $t['anchor']) && preg_match('~^#/' . preg_quote($desk, '~') . '/.+~', (string) $t['route']) && $hasKey((string) $t['key'])) {
+                        $met = true;
+                    }
+                }
+                if (preg_match('/^([a-z]+:)/', $anchor, $p) && in_array($p[1], $itemPrefixes, true)) {
+                    $met = true;          // a tile per thing of the state (a pool): found as its item
+                }
+            }
+            if (!$met) {
+                $fault($i, 'a tile that filters, place ' . implode(' / ', $m[2]) . " — no place of kind 'tile' in Office.places() meets it with a sub-route #/$desk/… and its key in all five languages");
+            }
+        }
+    }
+    return ['faults' => $faults, 'sites' => count($sites)];
+}
+
+
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

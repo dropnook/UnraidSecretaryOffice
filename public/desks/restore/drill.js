@@ -19,6 +19,7 @@ let dstate = null;         // restore.drill_state: settings, his drills, the one
 let job = null;            // data/restore-drill-job.json (api part "drill-job") while a drill runs
 let timer = null;
 let loading = false;
+let asked = false;         // the section asked for his look once this visit (it stands on the whole page too: never again and again)
 const opened = new Map();  // drill id -> {journal, log, error, loading}
 
 const T = (k, p) => x.T(k, p);
@@ -116,10 +117,34 @@ function tileLine() {
     const at = steps.filter((s) => !['pending', 'running'].includes(s.state)).length;
     return [T('drill.tile_running'), T('drill.tile_step', { n: Math.min(at + 1, steps.length), total: steps.length })];
   }
-  if (!cert || !cert.last) return [T('drill.tile_none'), ''];
+  const freq = freqText();
+  if (!cert || !cert.last) return [T('drill.tile_none'), freq || ''];
   const l = cert.last;
-  return [T(l.result === 'passed' ? 'drill.tile_passed' : 'drill.tile_failed', { n: l.proven || 0, failed: l.failed || 0 }), x.fmt.relative(l.ended)];
+  return [T(l.result === 'passed' ? 'drill.tile_passed' : 'drill.tile_failed', { n: l.proven || 0, failed: l.failed || 0 }), freq || x.fmt.relative(l.ended)];
 }
+
+/**
+ * How often he practises on his own, for the tile's right side: «monthly», «weekly (night before Mon)», «off» — and
+ * «after the next backup» when the next drill is due (no drill this month / none the 6 days before the chosen night,
+ * as the agent's drillDue() and drillWeekDue() reckon it); null while his settings aren't known yet
+ */
+function freqText(now) {
+  const set = dstate && dstate.settings;
+  if (!set) return null;
+  if (set.schedule === 'off') return T('drill.freq.off');
+  const t = now || Date.now() / 1000;
+  const last = Number((cert && cert.last && cert.last.started) || 0);
+  const d = new Date(t * 1000);
+  const due = set.schedule === 'weekly' ? weekDue(weekday(), last, t) : last < new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000;
+  if (due) return T('drill.freq.due');
+  return set.schedule === 'weekly' ? T('drill.freq.weekly', { day: dayShort(weekday()) }) : T('drill.freq.monthly');
+}
+/** A local calendar day as a number (noon of that day), like the agent's drillDayNo() */
+const dayNo = (t) => { const d = new Date(t * 1000); return Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime() / 86400000); };
+/** Weekly: the chosen day on or before today lies ≥ 6 calendar days after the last drill's day (drillWeekDue()) */
+const weekDue = (w, last, t) => last <= 0 || dayNo(t) - ((new Date(t * 1000).getDay() - w + 7) % 7) - dayNo(last) >= 6;
+/** A weekday's short name in the page's language (0 = Sunday; 2026-01-04 was one) */
+const dayShort = (w) => new Date(2026, 0, 4 + w).toLocaleDateString(Office.locale || undefined, { weekday: 'short' });
 
 // ------------------------------------------------------------------ the section
 function section() {
@@ -132,7 +157,7 @@ function section() {
   const s = x.sectionBox(T('drill.title'), T('drill.sub'), ...actions, { place: 'drill.title' });
   if (!dstate && !cert) {
     s.appendChild(el('p', 'empty', Office.agent.running ? Office.t('common.loading') : T('drill.no_agent')));
-    if (!loading && Office.agent.running) refresh();
+    if (!loading && !asked && Office.agent.running) { asked = true; refresh(); }
     return s;
   }
   if (live()) s.appendChild(runningBox());
@@ -549,6 +574,13 @@ Office.restoreDrill = {
     loadCert().then(() => x.tiles());
   },
   tileLine: () => (x ? tileLine() : ['', '']),
+  /** his settings for the tile's frequency, once per visit (the agent's drill_state — what the section asks for too) */
+  async settings() {
+    if (!x || dstate || loading || !Office.agent.running) return;
+    loading = true;
+    try { await loadState(); } finally { loading = false; }
+    x.tiles();
+  },
   section,
   refresh,
   /** an app's row on his page: «proven …» or «not proven» */
@@ -559,10 +591,10 @@ Office.restoreDrill = {
     const bad = items.some((it) => it.result === 'failed');
     return x.chip(bad ? T('drill.chip_failed') : T('drill.chip_proven', { when: x.fmt.relative(cert.last.ended) }), bad ? 'danger' : 'ok', T('drill.chip_hint'));
   },
-  stop() { clearTimeout(timer); timer = null; },
+  stop() { clearTimeout(timer); timer = null; asked = false; },
 };
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.drill = { nice, codeText, reasonText, setCert: (c) => { cert = c; }, setJob: (j) => { job = j; }, tileLine, poll, job: () => job,
-    kopiaGb, parseGb, detailView, schedText, setState: (d) => { dstate = d; } };
+    kopiaGb, parseGb, detailView, schedText, setState: (d) => { dstate = d; }, freqText };
 }
 })();

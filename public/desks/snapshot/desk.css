@@ -6,4 +6,20 @@
 .sp-when > .field{flex:1 1 180px; min-width:0}
 .sp-plans-empty{margin:0}
 .card.asleep .card-name, .card.asleep .card-line{color:var(--muted)}   /* a ZFS pool asleep: shown as she last saw it */
+/* a pool's snapshots by where they come from (poolSplit): «All» first, a line per source under it */
+.sp-split{display:flex; flex-direction:column; gap:1px; min-width:0}
+.sp-split .card-line{overflow-wrap:anywhere}
+.sp-split .sp-split-line{font-size:12.5px; color:var(--muted)}
+.card-line.quiet{color:var(--muted)}
+/* a card of her row while it carries the switcher's mark (top right, «Filter aktiv» / «Geöffnet» — wider than core's room
+   for it): the head keeps the mark's corner free, its status («online», «1 VM») or chip goes onto a line of its own then */
+.sp-tiles > .card.tile-on > .card-head{flex-wrap:wrap; row-gap:2px; padding-right:118px}
+.sp-tiles > .card.tile-on > .card-head > .status{flex-basis:100%; margin-left:0}
+.sp-tiles > .card.tile-on > .card-head > .card-chip{margin-left:0}
+/* a disk's row as a tile (tiles v2): its mark on a line of its own under the row, not over the count */
+.minirow.tile-on{margin:2px -4px}
+.minirow .tile-mark{position:static; grid-column:1 / -1; justify-self:start}
+/* «Array» (and a btrfs pool's card): a row per disk — name, its filesystem's tag (btrfs / ZFS), the bar, the count */
+.sp-disks .minirow{grid-template-columns:48px 44px minmax(40px,1fr) auto}
+.sp-disks .minirow .tag{justify-self:start}
 }

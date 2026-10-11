@@ -418,6 +418,9 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
         ];
         // a share without anything of its own needs no section
         if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null || $files || $patterns) {
+            if ($share === 'GLOBAL') {       // its section would be a second [GLOBAL]: Smart Mover reads the first for both
+                throw new Problem('moverelli_global_share', ['share' => $share]);
+            }
             $out['shares'][$share] = $row;
         }
     }

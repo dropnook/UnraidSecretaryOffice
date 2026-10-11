@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.39 - 2026-10-10
+# unraid-backup - backup.sh                       Version 2.41 - 2026-10-12
+#   2.41 Every drift note carries a code and its parameters (drift.json items: params {key: value}, beside code and
+#        value - value only for the codes from before 2.41): the office says them in its own words and languages; the
+#        English text stays as it was (log, drift.txt, the notification). Nothing else changed
+#   2.40 (setup.sh only: an [app] section whose app is gone is removed like a gone share's entry)
 #   2.39 (setup.sh only: every hint and warning of the setup carries a code for the office)
 #   2.38 A new folder of an app/VM share inherits the level of its app or VM also when that one was set up before and
 #        is only local ([docker] known / a [vm] section, no kopia = yes): decided, it stays local silently - no
@@ -3084,18 +3088,18 @@ if [[ "$SKIPK" != "1" ]]; then drift_check_kopia; else KOPIA_OK="skip"; fi
 DUMPS_PROBLEM="$(dumps_share_problem "$DUMPS_SHARE")"
 if [[ -n "$DUMPS_PROBLEM" ]]; then
     if [[ "$UB_MODE" == "check" ]]; then
-        drift_add error "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE")" "dumps_$DUMPS_PROBLEM" "$DUMPS_SHARE"
+        drift_add error "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE")" "dumps_$DUMPS_PROBLEM" "$DUMPS_SHARE" share="$DUMPS_SHARE"
     else
         die_code "dumps_$DUMPS_PROBLEM" "$(dumps_share_text "$DUMPS_PROBLEM" "$DUMPS_SHARE") - choose the place in Mr. Backupsy's setup"
     fi
 elif is_yes "$KOPIA_ENABLED" && [[ "$(share_mode "$DUMPS_SHARE")" != "kopia" ]]; then
     drift_add warn "The backup place '$DUMPS_SHARE' does not go to Kopia (mode=$(share_mode "$DUMPS_SHARE")) - the packages stay local only" \
-        place_not_kopia "$DUMPS_SHARE"
+        place_not_kopia "$DUMPS_SHARE" share="$DUMPS_SHARE" mode="$(share_mode "$DUMPS_SHARE")"
 fi
 # the packages keep their history in the snapshots of the backup place's share
 if [[ -z "$DUMPS_PROBLEM" && "$(share_method "$DUMPS_SHARE")" == "live" ]]; then
     drift_add warn "The backup place '$DUMPS_SHARE' cannot take snapshots ($(printf '%s' "${INV_NOTE[$DUMPS_SHARE]:-}" | head -1)) - its packages keep no history, only the newest state; put the share on a ZFS or btrfs pool" \
-        place_no_history "$DUMPS_SHARE"
+        place_no_history "$DUMPS_SHARE" share="$DUMPS_SHARE"
 fi
 if [[ -z "$DUMPS_PROBLEM" && "$DRY" != "1" && "$UB_MODE" != "check" ]]; then
     # root only: the packages hold database contents, templates and .env files with passwords

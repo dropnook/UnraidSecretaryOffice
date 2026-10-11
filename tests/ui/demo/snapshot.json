@@ -20,7 +20,8 @@
     "count": 25,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": false
    },
    {
     "name": "cache",
@@ -36,7 +37,8 @@
     "count": 22,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": false
    },
    {
     "name": "disk2",
@@ -48,11 +50,12 @@
     "frag": 1,
     "used": 1130496,
     "avail": 24443273216,
-    "snapused": 0,
-    "count": 0,
+    "snapused": 49152,
+    "count": 2,
     "docker": 0,
     "asleep": false,
-    "looked": 1791551074
+    "looked": 1791551074,
+    "array": true
    }
   ],
   "asleep": [],
@@ -103,10 +106,10 @@
     }
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd",
     "fs": "zfs",
     "pool": "daten",
-    "name": "daten/UnraidSecretaryOffice-partners/26bbb6eb",
+    "name": "daten/UnraidSecretaryOffice-partners/2ec7accd",
     "type": "filesystem",
     "used": 170270720,
     "avail": 255522222080,
@@ -115,17 +118,17 @@
     "mount": null,
     "children": 2,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
     }
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place",
     "fs": "zfs",
     "pool": "daten",
-    "name": "daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
+    "name": "daten/UnraidSecretaryOffice-partners/2ec7accd/place",
     "type": "filesystem",
     "used": 12664832,
     "avail": 255522222080,
@@ -134,17 +137,17 @@
     "mount": null,
     "children": 0,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
     }
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
     "fs": "zfs",
     "pool": "daten",
-    "name": "daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
+    "name": "daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
     "type": "filesystem",
     "used": 157507584,
     "avail": 255522222080,
@@ -153,7 +156,7 @@
     "mount": null,
     "children": 0,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -287,6 +290,19 @@
     "refer": 98304,
     "snapused": 0,
     "mount": "/mnt/disk2",
+    "children": 1
+   },
+   {
+    "id": "zfs:disk2/Hoerbuecher",
+    "fs": "zfs",
+    "pool": "disk2",
+    "name": "disk2/Hoerbuecher",
+    "type": "filesystem",
+    "used": 1032192,
+    "avail": 24443273216,
+    "refer": 983040,
+    "snapused": 49152,
+    "mount": "/mnt/disk2/Hoerbuecher",
     "children": 0
    }
   ],
@@ -400,11 +416,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place@uso-backup-20261008-1026",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place@uso-backup-20261008-1026",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/place",
     "name": "uso-backup-20261008-1026",
     "t": 1791455204,
     "used": 3162112,
@@ -416,7 +432,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -424,11 +440,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place@uso-backup-20261008-1544",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place@uso-backup-20261008-1544",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/place",
     "name": "uso-backup-20261008-1544",
     "t": 1791467092,
     "used": 3153920,
@@ -440,7 +456,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -448,11 +464,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place@uso-backup-20261008-1546",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place@uso-backup-20261008-1546",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/place",
     "name": "uso-backup-20261008-1546",
     "t": 1791467162,
     "used": 3162112,
@@ -464,7 +480,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -472,11 +488,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place@uso-backup-20261008-1701",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place@uso-backup-20261008-1701",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/place",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/place",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/place",
     "name": "uso-backup-20261008-1701",
     "t": 1791471680,
     "used": 0,
@@ -488,7 +504,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -496,11 +512,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern@uso-backup-20261008-1026",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern@uso-backup-20261008-1026",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
     "name": "uso-backup-20261008-1026",
     "t": 1791455204,
     "used": 0,
@@ -512,7 +528,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -520,11 +536,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern@uso-backup-20261008-1544",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern@uso-backup-20261008-1544",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
     "name": "uso-backup-20261008-1544",
     "t": 1791467092,
     "used": 0,
@@ -536,7 +552,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -544,11 +560,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern@uso-backup-20261008-1546",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern@uso-backup-20261008-1546",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
     "name": "uso-backup-20261008-1546",
     "t": 1791467162,
     "used": 0,
@@ -560,7 +576,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -568,11 +584,11 @@
     "mounts": []
    },
    {
-    "id": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern@uso-backup-20261008-1701",
+    "id": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern@uso-backup-20261008-1701",
     "fs": "zfs",
     "pool": "daten",
-    "vol": "zfs:daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
-    "ds": "daten/UnraidSecretaryOffice-partners/26bbb6eb/share-Fotos-Grosseltern",
+    "vol": "zfs:daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
+    "ds": "daten/UnraidSecretaryOffice-partners/2ec7accd/share-Fotos-Grosseltern",
     "name": "uso-backup-20261008-1701",
     "t": 1791471680,
     "used": 0,
@@ -584,7 +600,7 @@
     "path": null,
     "docker": false,
     "partner": {
-     "id": "26bbb6eb",
+     "id": "2ec7accd",
      "name": "Grosseltern",
      "gone": false,
      "place": false
@@ -1184,6 +1200,42 @@
     "path": "/mnt/cache/Dokumente/.zfs/snapshot/uso-backup-20261009-0430",
     "docker": false,
     "mounts": []
+   },
+   {
+    "id": "zfs:disk2/Hoerbuecher@manual-20261005-1830",
+    "fs": "zfs",
+    "pool": "disk2",
+    "vol": "zfs:disk2/Hoerbuecher",
+    "ds": "disk2/Hoerbuecher",
+    "name": "manual-20261005-1830",
+    "t": 1791205474,
+    "used": 32768,
+    "refer": 983040,
+    "written": 32768,
+    "holds": [],
+    "clones": [],
+    "guid": "7412369852014785236",
+    "path": "/mnt/disk2/Hoerbuecher/.zfs/snapshot/manual-20261005-1830",
+    "docker": false,
+    "mounts": []
+   },
+   {
+    "id": "zfs:disk2/Hoerbuecher@vor-dem-aufraeumen",
+    "fs": "zfs",
+    "pool": "disk2",
+    "vol": "zfs:disk2/Hoerbuecher",
+    "ds": "disk2/Hoerbuecher",
+    "name": "vor-dem-aufraeumen",
+    "t": 1791378274,
+    "used": 16384,
+    "refer": 983040,
+    "written": 16384,
+    "holds": [],
+    "clones": [],
+    "guid": "8523697410258963147",
+    "path": "/mnt/disk2/Hoerbuecher/.zfs/snapshot/vor-dem-aufraeumen",
+    "docker": false,
+    "mounts": []
    }
   ],
   "docker_parent": null,
@@ -1199,7 +1251,8 @@
     "free": 33230077952,
     "asleep": false,
     "scanned": 1791551074,
-    "error": null
+    "error": null,
+    "array": true
    }
   ],
   "snapshots": [

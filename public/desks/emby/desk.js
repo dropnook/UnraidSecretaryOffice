@@ -23,8 +23,12 @@ let state = null;
 let view = null;
 const POOL_PAGE = 30;                                  // rows of «Ready on the pool» shown at first (and per «Show more»)
 let poolShown = POOL_PAGE;
-let poolLib = Office.store('emby.pool_lib') || '';    // the library chosen there ('' = all), kept in this browser
-let poolWords = '';                                    // its filter words (not kept: a new visit starts with everything)
+// the filter bars (core.js Office.filterBar, CLAUDE.md «Tiles»): built once per visit (mount()), held across renders —
+// «Ready on the pool» (words, the library select kept as emby.pool.pick, «only new») and «Recent runs» (words; the tile
+// «Last run» filters it — the switcher's, never kept)
+let poolBar = null;
+let runsBar = null;
+let dom = {};                 // the lists of the last drawing their bars redraw in place (runs, poolBox)
 let page = 'main';            // main | setup
 let outTimer = null;
 // the live panel while EmbyCache runs for real (agent/desks/emby-progress.php): the part «progress», asked every 10 s
@@ -122,14 +126,6 @@ function section(title, sub, ...extra) {
   s.appendChild(Office.sectionHead(title, sub, ...extra));
   return s;
 }
-function stat(box, label, value, sub, alert, onclick) {
-  const s = el(onclick ? 'button' : 'div', 'stat' + (alert ? ' alert' : ''));
-  if (onclick) { s.type = 'button'; s.onclick = onclick; }
-  s.append(el('div', 'stat-label', label), el('div', 'stat-value', value));
-  if (sub) s.appendChild(el('div', 'stat-sub', sub));
-  box.appendChild(s);
-  return s;
-}
 const running = () => !!(state && (state.jobs.embycache.running || state.jobs.gather.running));
 
 /** How a share suits EmbyCache with this pool (same rules as embyShareFit() in the agent) */
@@ -187,7 +183,7 @@ function showError(box, error) {
     box.append(watchList((error.params || {}).who), el('p', '', T('watch.no_override')), el('p', '', endSessionText('watch.end_then_start')));
   }
   box.style.display = '';
-  box.scrollIntoView({ block: 'nearest' });
+  box.scrollIntoView({ block: 'nearest' });     /* reveal */ // the error line inside its dialog
 }
 
 /** One line about how a run went, from the tool's status */
@@ -335,21 +331,54 @@ function bubbleText() {
 }
 
 // ------------------------------------------------------------------ main view
-function render() {
-  if (!view) return;
-  const root = view;
-  root.innerHTML = '';
+/*
+ * His page (tiles v2, CLAUDE.md «Tiles»): a tile is a section. The row — «Last run», «Schedules», «Pool», «Shares»,
+ * «Consolidate folders» — is the page's table of contents; under it stands the chosen tile's section alone, or, nothing
+ * chosen, every section in the row's order. The start tile is «Pool» (what one comes to him for: what lies ready).
+ * «Last run» is a filter tile: «Recent runs» with only EmbyCache's (never kept). Hints stay above the row at every
+ * click (the callouts, the run's callout, the live panel, the line «How I work» with the scope), the tools' versions and
+ * the credit under all. Two pages as tabs: «Overview» and «Set up» (#/emby/setup).
+ */
+const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
+/** Set up (or not known yet — the search's places): the pool and the shares have tiles only then */
+const configured = () => !state || !!state.configured;
+const sw = Office.sections({
+  id: ID,                          // kept as emby.tile, routes #/emby/<tile>
+  grid: 'stats jo-tiles',
+  default: 'pool',
+  tiles: () => [
+    { id: 'runs', key: 'last_run', place: 'tile.runs', section: 'runs', filters: T('tool.embycache'), tile: (a) => lastRunTile(a) },
+    { id: 'plans', key: 'schedules', place: 'tile.plans', section: () => plansSection(), tile: (a) => plansTile(a) },
+    ...(configured() ? [
+      { id: 'pool', key: 'tile.pool', place: 'tile.pool', section: () => poolSection(), tile: (a) => poolTile(a) },
+      { id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(), tile: (a) => sharesTile(a) },
+    ] : []),
+    { id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(), tile: (a) => gatherTile(a) },
+  ],
+  sections: { runs: () => historySection() },
+});
+
+/** The desk's own actions — on both tabs (the other page is the tab, no head button for it) */
+function headActions() {
   const actions = [];
   if (state && state.configured) {
     actions.push(button(T('report'), 'plain', () => startRun('embycache', 'report')));
     actions.push(button(T('start'), '', chooseRun));
-    actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/${ID}/setup`)));
-  } else if (state && state.emby.length && state.python) {
-    actions.push(button(T('setup_open'), '', () => Office.go(`#/${ID}/setup`)));
   }
   actions.forEach((b) => { b.disabled = !Office.agent.running || running(); });
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions });
-  root.appendChild(head);
+  return actions;
+}
+/** His head with the two tabs (Office.pages()): the bubble is always his own */
+function deskHead() {
+  return Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions: headActions(),
+    pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;
+}
+
+function render() {
+  if (!view) return;
+  const root = view;
+  root.innerHTML = '';
+  root.appendChild(deskHead());
   root.appendChild(Office.pageHelp(ID, [
     [T('help.what'), T('help.what_text')],
     [T('help.tools'), T('help.tools_text')],
@@ -368,6 +397,7 @@ function render() {
   ]));
   if (!state) return;
 
+  // hints, no sections: they stay at every click
   if (!state.emby.length) root.appendChild(el('p', 'callout warn', T('notice.no_emby')));
   if (!state.python) root.appendChild(el('p', 'callout warn', T('notice.no_python')));
   const foreign = state.foreign.filter((f) => f.enabled);
@@ -376,9 +406,12 @@ function render() {
   if (back) root.appendChild(back);
   const mv = state.configured ? moverNotice() : null;
   if (mv) root.appendChild(mv);
+  const wait = (state.waiting || {}).embycache;
+  if (wait) root.appendChild(moverWaitLine(wait));
+  if (state.old_clone) root.appendChild(el('p', 'callout', T('notice.old_clone')));
   if (running()) {
     const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : 'notice.running') + ' ');
-    // a real EmbyCache run: its panel in the overview has the raw output
+    // a real EmbyCache run: its panel right under this has the raw output
     if (!realRun()) p.appendChild(button(T('show_output_now'), 'small', () => showOutput(state.jobs.gather.running ? 'gather' : 'embycache', true))).disabled = !Office.agent.running;
     root.appendChild(p);
   }
@@ -388,20 +421,48 @@ function render() {
     p.appendChild(document.createTextNode(' '));
     p.appendChild(button(T('import.open'), 'small plain', importDialog)).disabled = !Office.agent.running;
     root.appendChild(p);
-    root.appendChild(gatherSection());
-    root.appendChild(historySection());
-    root.appendChild(toolSection());
-    return;
   }
-  root.appendChild(overview());
-  root.appendChild(shareSection());
-  root.appendChild(gatherSection());
-  root.appendChild(historySection());
-  root.appendChild(poolSection());
-  root.appendChild(toolSection());
+  // a real run going: the live panel over the row (a hint — it stays at every click)
+  progBox = realRun() ? progressPanel() : null;
+  if (progBox) root.appendChild(progBox);
+  if (state.configured) root.appendChild(scopeLine());
+  root.appendChild(sw.el);
+  sw.render();
+  root.appendChild(footer());
 }
 
-/** A quiet line under the tools' tiles: both tools are helmi1987's, and a share of the tips goes to him */
+/**
+ * «How I work» over the row: the scope in short (films and episodes ahead or the budget, the libraries, the people) —
+ * the tile «Amount» went (2026-10-12, tiles v2: a fact without a section is a head's line)
+ */
+function scopeLine() {
+  const set = state.settings || {};
+  // by number: films and series each their own (only what's chosen; older settings don't know the kinds)
+  const kinds = Object.values(set.library_types || {});
+  const amount = [];
+  if (!kinds.length || kinds.includes('movies')) amount.push(T('count_films', { n: set.max_resume_movies ?? set.max_resume_items ?? 0 }));
+  if (!kinds.length || kinds.includes('tvshows')) amount.push(T('count', { n: set.number_episodes || 0 }));
+  const scope = T('libraries_people', { libs: (set.libraries || []).join(', ') || T('all'), people: peopleText(set.valid_users) });
+  const line = Office.place('overview', el('div', 'jo-scope'));
+  line.append(el('span', 'jo-scope-title', T('overview')),
+    el('span', 'jo-scope-text', `${set.cache_budget ? T('budget', { size: set.cache_budget }) : amount.join(' · ')} — ${scope}`));
+  return line;
+}
+
+/**
+ * Under all (no section): the tools' versions (Python missing is a callout above) and the quiet credit — both tools
+ * are helmi1987's, and a share of the tips goes to him
+ */
+function footer() {
+  const box = Office.place('tools', el('div', 'jo-foot'));
+  const line = el('div', 'row-meta jo-tools');
+  const ver = (state.versions.embycache || '?').replace(/\s*\(.*\)$/, '');
+  line.append(el('span', '', `EmbyCache ${ver}`), el('span', '', `${T('gather')} ${state.versions.gather || '?'}`));
+  if (state.python) line.appendChild(el('span', '', `Python ${state.python}`));
+  box.append(line, credit());
+  return box;
+}
+
 function credit() {
   const box = el('div', 'jo-credit');
   box.append(el('b', '', T('credit_title')), ' ', T('credit', { gather: T('gather') }), ' ');
@@ -418,53 +479,128 @@ function credit() {
   return box;
 }
 
-/** The settings in short, the last run, the schedule */
-function overview() {
-  const s = section(T('overview'), T('overview_sub'), { place: 'overview' });
-  const stats = el('div', 'stats');
-  const set = state.settings || {};
-  const inst = set.instances || [];
-  stat(stats, 'Emby', inst.map((i) => i.servername).join(', ') || '–', inst.map((i) => i.url).join(', '));
-  // by number: films and series each their own (only what's chosen; older settings don't know the kinds)
-  const kinds = Object.values(set.library_types || {});
-  const amount = [];
-  if (!kinds.length || kinds.includes('movies')) amount.push(T('count_films', { n: set.max_resume_movies ?? set.max_resume_items ?? 0 }));
-  if (!kinds.length || kinds.includes('tvshows')) amount.push(T('count', { n: set.number_episodes || 0 }));
-  stat(stats, T('mode'), set.cache_budget ? T('budget', { size: set.cache_budget }) : amount.join(' · '),
-    T('libraries_people', { libs: (set.libraries || []).join(', ') || T('all'), people: peopleText(set.valid_users) }));
-  const pool = state.pool;
-  if (pool) {
-    stat(stats, T('pool'), `${fmt.number(pool.free_percent, 1)} %`, T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }),
-      pool.min_free != null && pool.free_percent < pool.min_free);
-  }
-  const last = state.last;
-  stat(stats, T('last_run'), last && last.finished ? fmt.relative(last.finished) : T('never'),
-    last ? `${T('mode.' + (last.mode || 'dry'))} · ${T('counts', { errors: nOf('errors', last.errors), warnings: nOf('warnings', last.warnings) })}` : '',
-    !!(last && (last.errors || (last.result && last.result !== 'ok'))));
-  const sc = state.schedules.embycache;
-  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'),
-    !sc.enabled, () => scheduleDialog('embycache'));
-  s.appendChild(stats);
+/** The result box: what the last run of any mode did (EmbyCache's status file — an older agent sent it as «last») */
+function resultBox() {
+  const st = 'last_status' in state ? state.last_status : state.last;
+  if (!st || !st.result) return null;
+  const box = el('div', 'box jo-results');
+  // why it stopped lies in his list of runs (the run's own entry: the newest EmbyCache run that started)
+  const h = (state.history || []).find((r) => r.tool === 'embycache' && !['refused', 'skipped'].includes(r.result));
+  box.appendChild(el('div', '', runSummary({ tool: 'embycache', mode: st.mode, status: st, result: st.result, why: h && h.result === st.result ? h.why : null })));
+  if (st.incomplete) box.appendChild(el('div', 'warn-text', T('incomplete')));
+  return box;
+}
 
-  const wait = (state.waiting || {}).embycache;
-  if (wait) s.appendChild(moverWaitLine(wait));
-  if (last && last.result) {
-    const box = el('div', 'box jo-results');
-    // why it stopped lies in his list of runs (the run's own entry: the newest EmbyCache run that started)
-    const h = (state.history || []).find((r) => r.tool === 'embycache' && !['refused', 'skipped'].includes(r.result));
-    box.appendChild(el('div', '', runSummary({ tool: 'embycache', mode: last.mode, status: last, result: last.result, why: h && h.result === last.result ? h.why : null })));
-    if (last.incomplete) box.appendChild(el('div', 'warn-text', T('incomplete')));
-    s.appendChild(box);
+/**
+ * «Last run» from his list of runs (2026-10-11 — never from status.json, which every start removes and a report writes
+ * over): the newest real run (run, release) is the value, else the newest of any mode; a newer report or dry run only
+ * named in the sub line. Refused and skipped starts didn't run. The agent's embyLastRun() picks the same. Pure (no DOM).
+ * Returns {main, newer}: null each when there is none.
+ */
+function lastRuns(history) {
+  const ran = (Array.isArray(history) ? history : []).filter((r) => r && r.tool === 'embycache' && !['refused', 'skipped'].includes(r.result));
+  const main = ran.find((r) => ['run', 'release'].includes(r.mode)) || ran[0] || null;
+  return { main, newer: main && ran[0] !== main ? ran[0] : null };
+}
+
+/** «04:30» within a day, else the date with it */
+const nextText = (t) => (t - Date.now() / 1000 < 86400 ? fmt.time(t) : fmt.date(t));
+
+/**
+ * «Last run»: when the newest real run ended — «Real run · took 12 min · 0 errors · 0 warnings», a newer report or dry
+ * run named under it; while a run goes «running since 14:05» (his job). Its section: «Recent runs» with only EmbyCache's.
+ */
+function lastRunTile(a) {
+  const job = state.jobs.embycache || {};
+  const { main, newer } = lastRuns(state.history);
+  const sub = [];
+  let value = T('never');
+  let alert = false;
+  if (job.running) {
+    value = T('last.running', { time: fmt.time(job.started) });
+    sub.push(T('mode.' + (job.mode || 'dry')));
+  } else if (main) {
+    const st = main.status || {};
+    value = fmt.relative(main.finished || main.started);
+    const parts = [T('mode.' + (main.mode || 'dry'))];
+    if (main.finished && main.started && main.finished >= main.started) parts.push(T('last.took', { time: tookText(main.finished - main.started) }));
+    if (main.result && !['ok', 'errors'].includes(main.result)) parts.push(T('result.' + main.result));
+    parts.push(T('counts', { errors: nOf('errors', st.errors), warnings: nOf('warnings', st.warnings) }));
+    sub.push(parts.join(' · '));
+    if (newer) sub.push(T('last.newer', { mode: T('mode.' + (newer.mode || 'dry')), when: fmt.relative(newer.finished || newer.started) }));
+    alert = !!(st.errors || (main.result && main.result !== 'ok'));
   }
-  // a real run going: the live panel where the output button was (its raw output a link inside); else the last run's
-  // output stays behind a small link beside the log
-  progBox = realRun() ? progressPanel() : null;
-  if (progBox) s.appendChild(progBox);
-  const bar = el('div', 'toolbar');
-  bar.appendChild(button(T('show_log'), 'small plain', () => showLog('embycache')));
-  if (state.jobs.embycache.mode && !progBox) bar.appendChild(link(T('show_output', { mode: T('mode.' + state.jobs.embycache.mode) }), () => showOutput('embycache', false)));
-  s.appendChild(bar);
+  return Office.stat({ label: T('last_run'), value, sub, alert, tip: sub.join('\n'), ...a });
+}
+
+/** The two schedules in one tile: «2 active · next 04:30» / «off»; its section: their list */
+function plansTile(a) {
+  const sc = state.schedules || {};
+  const jobs = ['embycache', 'gather'];
+  const on = jobs.filter((j) => sc[j] && sc[j].enabled);
+  const nexts = on.map((j) => sc[j].next).filter((n) => typeof n === 'number' && n > 0);
+  const value = !on.length ? T('plans.off') : nexts.length ? T('plans.active', { n: on.length, when: nextText(Math.min(...nexts)) }) : T('plans.on', { n: on.length });
+  const sub = jobs.map((j) => T('plans.one', { tool: T('tool.' + j), when: schedText(sc[j]) })).join(' · ');
+  return Office.stat({ label: T('schedules'), value, sub, tip: sub, alert: !on.length, ...a });
+}
+
+/** «Schedules»: EmbyCache and consolidating — how often, the next run, «Change…» (the dialogs) */
+function plansSection() {
+  const s = section(T('schedules'), T('plans.sub'), { place: 'plans' });
+  s.id = 'jo-plans';
+  s.appendChild(plansList());
   return s;
+}
+function plansList() {
+  const box = el('div', 'box jo-plans');
+  ['embycache', 'gather'].forEach((job) => {
+    const sc = (state.schedules || {})[job] || {};
+    const row = Office.place(`plan:${job}`, el('div', 'row nocheck'));
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name', T('tool.' + job)));
+    const meta = el('div', 'row-meta');
+    meta.appendChild(sc.enabled ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), job === 'embycache' ? 'warn' : 'quiet'));
+    if (sc.enabled && typeof sc.next === 'number' && sc.next > 0) meta.appendChild(el('span', '', T('plans.next', { when: fmt.relative(sc.next) })));
+    main.appendChild(meta);
+    const change = button(T('plans.change'), 'small plain', () => scheduleDialog(job));
+    change.disabled = !Office.agent.running;
+    row.append(main, change);
+    box.appendChild(row);
+  });
+  return box;
+}
+
+/**
+ * «Pool» (2026-10-12: «Pool free» and «Ready on the pool» are one tile): what lies ready — files and size —, how free
+ * the pool is and what EmbyCache keeps free (alert under it); its section: «Ready on the pool»
+ */
+function poolTile(a) {
+  const c = state.cache || {};
+  const pool = state.pool;
+  const sub = pool ? T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' }) : '';
+  const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '',
+    c.listed_at ? T('pool_tile.as_of', { when: fmt.relative(c.listed_at) }) : ''].filter(Boolean).join('\n');
+  return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nOf('files', c.files), size: fmt.size(c.bytes) }) : T('pool_tile.none'),
+    sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
+}
+
+/** The shares that don't suit EmbyCache and its pool (or lack their folder on it) */
+const badShares = () => (state.shares || []).filter((x) => !['ok', 'array_only'].includes(x.fit) || x.root === false).length;
+/** «Shares»: how many, all suitable or how many need a look (alert); its section: «Shares» */
+function sharesTile(a) {
+  const shares = state.shares || [];
+  const bad = badShares();
+  return Office.stat({ label: T('shares'), value: nOf('shares', shares.length), sub: !shares.length ? T('shares_none') : bad ? T('shares_bad', { n: bad }) : T('shares_good'),
+    tip: shares.map((x) => x.share).join(', '), alert: bad > 0, ...a });
+}
+
+/** «Consolidate folders»: when it last ran for real, what it moved and the conflicts (alert on problems); its section */
+function gatherTile(a) {
+  const g = state.gather || {};
+  const last = g.last;
+  const sub = last ? T('gather_tile.sub', { moved: nOf('moved', last.moved), conflicts: nOf('conflicts', last.conflicts) }) : g.ready ? '' : T('gather_not_ready');
+  return Office.stat({ label: T('gather'), value: last ? fmt.relative(last.finished) : T('never'), sub, tip: last ? gatherSummary(last) : T('gather_never'),
+    alert: !!(last && (last.conflicts || last.errors || last.full)), ...a });
 }
 
 /** A button that reads as a quiet link */
@@ -597,7 +733,7 @@ function sizesLine(x) {
 /** Do the shares of the chosen libraries suit EmbyCache and its pool? And what lies where */
 function shareSection() {
   const shares = state.shares || [];
-  const bad = shares.filter((x) => !['ok', 'array_only'].includes(x.fit) || x.root === false).length;
+  const bad = badShares();
   const measure = button(T('measure'), 'small plain', measureDialog);
   measure.disabled = !Office.agent.running || running() || !shares.length;
   const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'), measure, { place: 'shares' });
@@ -652,16 +788,12 @@ function gatherSection() {
       s.appendChild(c);
     }
   }
-  const stats = el('div', 'stats');
+  // its schedule lies in «Schedules»; its two facts as rows (2026-10-12 — tiles in a section were too many tiles)
   const last = g.last;
-  stat(stats, T('gather_last'), last ? fmt.relative(last.finished) : T('never'),
-    last ? gatherSummary(last) : T('gather_never'),
-    !!(last && (last.conflicts || last.errors || last.full)));
-  stat(stats, T('shares'), set.shares.join(', '), T('gather_settings', { gb: set.min_free_gb, dup: T('dup.' + set.dup_check) }) + gatherCacheWords(set));
-  const sc = state.schedules.gather;
-  stat(stats, T('schedule'), schedText(sc), sc.enabled ? T('by_office') : T('schedule_set'),
-    false, () => scheduleDialog('gather'));
-  s.appendChild(stats);
+  const facts = el('div', 'box jo-facts');
+  facts.append(factRow(T('gather_last'), last ? fmt.relative(last.finished) : T('never'), last ? gatherSummary(last) : T('gather_never')),
+    factRow(T('shares'), set.shares.join(', '), T('gather_settings', { gb: set.min_free_gb, dup: T('dup.' + set.dup_check) }) + gatherCacheWords(set)));
+  s.appendChild(facts);
   if (last && (last.conflicts || last.errors || last.full)) s.appendChild(el('p', 'callout warn', T('gather_problems', { conflicts: nOf('conflicts', last.conflicts), errors: nOf('errors', last.errors), full: nOf('not_moved', last.full) })));
   const bar = el('div', 'toolbar');
   const dis = !Office.agent.running || running();
@@ -681,14 +813,50 @@ function gatherSection() {
   return s;
 }
 
-/** The last runs of both tools */
+/** A fact as a row: its name, the value, what it means */
+function factRow(name, value, what) {
+  const row = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.append(el('div', 'row-name', `${name}: ${value}`), el('div', 'row-meta', what));
+  row.appendChild(main);
+  return row;
+}
+
+/**
+ * The last runs of both tools (20 in his state, 15 drawn): the last run's result box first, EmbyCache's log beside it,
+ * then the filter bar's words over each run's words; the tile «Last run» shows only EmbyCache's.
+ */
 const HISTORY_SHOWN = 15;
 function historySection() {
-  const runs = state.history || [];
   const s = section(T('history'), T('history_sub'), { place: 'history' });
+  s.id = 'jo-runs';
+  const rb = resultBox();
+  if (rb) s.appendChild(rb);
+  if (state.configured) {
+    // the last run's output stays behind a small link beside the log (while a real run goes, the live panel has it)
+    const bar = el('div', 'toolbar jo-runs-tools');
+    bar.appendChild(button(T('show_log') + ' · EmbyCache', 'small plain', () => showLog('embycache')));
+    if (state.jobs.embycache.mode && !realRun()) bar.appendChild(link(T('show_output', { mode: T('mode.' + state.jobs.embycache.mode) }), () => showOutput('embycache', false)));
+    s.appendChild(bar);
+  }
+  s.appendChild(runsBar.el);
   const box = el('div', 'box');
+  s.appendChild(box);
+  dom.runs = box;
+  fillRuns(box);
+  return s;
+}
+/** A run's words for the filter: the tool, the kind, the result, the date, who started it, what it did */
+const runHay = (r) => [T('tool.' + r.tool), T('mode.' + r.mode), T('result.' + (r.result || 'failed')), fmt.date(r.started), T('by.' + r.by), runSummary(r)];
+function fillRuns(box) {
+  box.innerHTML = '';
+  const runs = state.history || [];
+  const f = runsBar.read();
+  const only = sw.active() === 'runs' ? 'embycache' : '';            // the tile «Last run»: only EmbyCache's
+  const fit = runs.filter((r) => (!only || r.tool === only) && (!f.words.length || Office.fits(f.words, runHay(r))));
   if (!runs.length) box.appendChild(el('p', 'empty', T('history_none')));
-  runs.slice(0, HISTORY_SHOWN).forEach((r) => {
+  else if (!fit.length) box.appendChild(el('p', 'empty', T('history_none_fit')));
+  fit.slice(0, HISTORY_SHOWN).forEach((r) => {
     const row = Office.place(`run:${r.tool}:${r.started}`, el('div', 'row nocheck'));
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', `${T('tool.' + r.tool)} · ${T('mode.' + r.mode)}`));
@@ -702,23 +870,21 @@ function historySection() {
     row.appendChild(main);
     box.appendChild(row);
   });
-  s.appendChild(box);
-  return s;
+  runsBar.done(fit.length, runs.length, sw.note('runs'));
 }
 
-/** Words as the filter compares them: lower case, without accents */
-const plainWords = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 /** A film or series folder's name as the page shows it (dots as spaces) */
 const poolName = (g) => String(g.title || '').replace(/\./g, ' ');
 /** Its words for the filter: the name (as shown and as on disk), the library, the disks it goes back to */
-const poolHay = (g) => plainWords([poolName(g), g.title, g.share, ...(Array.isArray(g.origin) ? g.origin : [])].join(' '));
+const poolHay = (g) => [poolName(g), g.title, g.share, ...(Array.isArray(g.origin) ? g.origin : [])];
 
 /**
  * «Ready on the pool» as his page lists it — no DOM (the tests run it under node). groups: what his state holds
- * (state.cache.groups); o: {lib ('' = every library), words (plainWords, [] = none), shown}. It is the current state,
- * nothing is dropped: the library and the words only narrow what is drawn.
- * Returns {libs: [[library, n], …] by name (the words not counted), rows: what the library and the words leave — newest
- * first where a time is known (`since`), else by name —, shown: rows drawn}
+ * (state.cache.groups); o: {lib ('' = every library), words (Office.filterWords, [] = none), since (only what came onto
+ * the pool from then on — «only new»: the last real run's start; 0 = all), shown}. It is the current state, nothing is
+ * dropped: the library, the words and «only new» only narrow what is drawn.
+ * Returns {libs: [[library, n], …] by name (the words not counted), rows: what they leave — newest first where a time is
+ * known (`since`), else by name —, shown: rows drawn}
  */
 function poolView(groups, o) {
   const list = (Array.isArray(groups) ? groups : []).filter((g) => g && typeof g.title === 'string');
@@ -726,7 +892,7 @@ function poolView(groups, o) {
   list.forEach((g) => counts.set(g.share, (counts.get(g.share) || 0) + 1));
   const libs = [...counts.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const words = o.words || [];
-  const rows = list.filter((g) => (!o.lib || g.share === o.lib) && (!words.length || words.every((w) => poolHay(g).includes(w))))
+  const rows = list.filter((g) => (!o.lib || g.share === o.lib) && (!o.since || (Number(g.since) || 0) >= o.since) && Office.fits(words, poolHay(g)))
     .sort((a, b) => (Number(b.since) || 0) - (Number(a.since) || 0) || poolName(a).localeCompare(poolName(b)));
   return { libs, rows, shown: Math.min(o.shown || POOL_PAGE, rows.length) };
 }
@@ -753,75 +919,46 @@ function poolRow(g, most) {
 
 /**
  * What EmbyCache keeps on the pool right now, and where each thing goes back to — hundreds of rows on a big library,
- * so readable like the watch book: filter words (name, library, disk), a library select with counts, the first
- * POOL_PAGE rows, then «Show n more».
+ * so readable like the watch book: the filter bar (words: name, library, disk; the library select, kept; «only new»:
+ * what came with the last real run — hidden while there was none), the first POOL_PAGE rows, then «Show n more». The
+ * tile «Pool» shows it (his start tile).
  */
 function poolSection() {
   const c = state.cache;
   const s = section(T('on_pool'), c.listed_at ? T('on_pool_sub', { when: fmt.relative(c.listed_at) }) : T('on_pool_none'),
     el('span', 'hint', c.files ? T('pool_sum', { n: c.files, size: fmt.size(c.bytes) }) : ''), { place: 'on_pool' });
+  s.id = 'jo-pool';
   if (!c.files) return s;
-  const groups = Array.isArray(c.groups) ? c.groups : [];
-  const bar = el('div', 'toolbar jo-poolbar');
-  const search = el('input', 'search');
-  search.type = 'search';
-  search.placeholder = Office.t('common.filter');
-  search.setAttribute('aria-label', T('pool.filter_label'));
-  search.autocomplete = 'off';
-  search.spellcheck = false;
-  search.value = poolWords;
-  const pick = el('select', 'picker');
-  pick.setAttribute('aria-label', T('pool.lib_label'));
-  bar.append(search, pick);
-  s.appendChild(bar);
+  s.appendChild(poolBar.el);
   const box = el('div', 'box');
-  const most = Math.max(...groups.map((g) => Number(g.bytes) || 0), 1);
-  const fill = () => {
-    box.innerHTML = '';
-    const v = poolView(groups, { lib: poolLib, words: plainWords(poolWords).split(/\s+/).filter(Boolean), shown: poolShown });
-    pick.innerHTML = '';
-    pick.appendChild(new Option(T('pool.lib_all'), ''));
-    const libs = v.libs.slice();
-    if (poolLib && !libs.some(([l]) => l === poolLib)) libs.push([poolLib, 0]);     // chosen, none left now: it stays
-    libs.forEach(([l, n]) => pick.appendChild(new Option(T('pool.lib_n', { lib: l, n }), l)));
-    pick.value = poolLib;
-    v.rows.slice(0, v.shown).forEach((g) => box.appendChild(poolRow(g, most)));
-    if (!v.rows.length) box.appendChild(el('p', 'empty', T('pool.empty_filter')));
-    if (v.rows.length > v.shown) {
-      const more = button(T('pool.more', { n: Math.min(POOL_PAGE, v.rows.length - v.shown) }), 'small plain jo-more', () => {
-        poolShown += POOL_PAGE;
-        Office.keepInPlace(null, fill);
-      });
-      box.appendChild(more);
-    }
-  };
-  search.oninput = () => {
-    poolWords = search.value;
-    poolShown = POOL_PAGE;
-    fill();
-  };
-  pick.onchange = () => {
-    poolLib = pick.value;
-    Office.store('emby.pool_lib', poolLib || null);
-    poolShown = POOL_PAGE;
-    Office.keepInPlace(pick, fill);
-  };
-  fill();
   s.appendChild(box);
+  dom.poolBox = box;
+  fillPool(box);
   return s;
 }
-
-/** The tools themselves: they ship with the office */
-function toolSection() {
-  const s = section(T('tools'), T('tools_sub'), { place: 'tools' });
-  const stats = el('div', 'stats');
-  stat(stats, 'EmbyCache', (state.versions.embycache || '?').replace(/\s*\(.*\)$/, ''), T('tool_embycache_sub'));
-  stat(stats, T('gather'), state.versions.gather || '?', T('tool_gather_sub'));
-  stat(stats, 'Python', state.python || T('none'), T('python_sub'), !state.python);
-  s.appendChild(stats);
-  if (state.old_clone) s.appendChild(el('p', 'callout', T('notice.old_clone')));
-  s.appendChild(credit());
-  return s;
+/** «only new» = from the last real run's start on (what it brought); 0: no real run yet — the switch goes */
+function poolSince() {
+  const r = (state.history || []).find((x) => x.tool === 'embycache' && x.mode === 'run' && !['refused', 'skipped'].includes(x.result));
+  return r ? Number(r.started) || 0 : 0;
+}
+function fillPool(box) {
+  box.innerHTML = '';
+  const groups = Array.isArray(state.cache.groups) ? state.cache.groups : [];
+  const most = Math.max(...groups.map((g) => Number(g.bytes) || 0), 1);
+  const since = poolSince();
+  const f = poolBar.read();
+  const v = poolView(groups, { lib: f.pick, words: f.words, since: f.only ? since : 0, shown: poolShown });
+  poolBar.options(v.libs.map(([l, n]) => [l, l, n]));
+  v.rows.slice(0, v.shown).forEach((g) => box.appendChild(poolRow(g, most)));
+  if (!v.rows.length) box.appendChild(el('p', 'empty', T('pool.empty_filter')));
+  if (v.rows.length > v.shown) {
+    const more = button(T('pool.more', { n: Math.min(POOL_PAGE, v.rows.length - v.shown) }), 'small plain jo-more', () => {
+      poolShown += POOL_PAGE;
+      Office.keepInPlace(more, () => fillPool(box));
+    });
+    box.appendChild(more);
+  }
+  poolBar.done(v.rows.length, groups.length, { onlyAvail: since > 0 });
 }
 
 // ------------------------------------------------------------------ runs
@@ -1178,11 +1315,10 @@ function libraryList() {
 function renderSetup() {
   if (!view) return;
   const root = view;
+  const spot = focusSpot();         // the control a click redraws the page from keeps the focus (focusBack())
   root.innerHTML = '';
-  const back = button(T('back'), 'plain', () => Office.go(`#/${ID}`));
-  const bubble = T('setup.bubble') + (state && !state.configured ? ' ' + T('import.bubble') : '');
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble, actions: [back] });
-  root.appendChild(head);
+  // the tabs say where one is (no «← Back», no head button): under them the page's head line, his setup words its sub line
+  root.appendChild(deskHead());
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('import.title'), T('import.help')],
     [T('setup.key'), T('setup.help_key')],
@@ -1192,12 +1328,127 @@ function renderSetup() {
     [T('setup.more'), T('setup.help_more')],
     [T('setup.save'), T('setup.help_save')],
   ]));
+  const ph = el('div', 'jo-pagehead');
+  ph.append(el('div', 'jo-pagehead-title', T('page.setup')),
+    el('p', 'jo-pagehead-sub', T('setup.bubble') + (state && !state.configured ? ' ' + T('import.bubble') : '')));
+  root.appendChild(ph);
   if (!state) return;
   if (!form) initForm();
-  const connected = form.instances.some((i) => i.server);
-  if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the tools before
+  if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the tools before (a hint over the row)
+  // the row of his setup's steps and under it the step chosen (none: every step in order — the page as before the tiles)
+  const sw = setupSwitcher();
+  root.appendChild(sw.el);
+  sw.render();
+  // the save bar under all (only once a server is connected: before, there is nothing of the form to save)
+  if (connected()) {
+    const save = button(T('setup.save'), '', saveSetup);
+    save.disabled = running();
+    const foot = el('div', 'toolbar');
+    foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
+    root.appendChild(foot);
+  }
+  focusBack(spot);
+}
 
-  // 1. servers
+// ---- the setup's steps as tiles (tiles v2, CLAUDE.md «Tiles», 2026-10-12): a row with a number tile per step — servers,
+// libraries, people, pool and amount, the way back, and (once he is set up) taking over an earlier install; a click shows
+// that step alone under the row, nothing chosen = every step in order, the second click = all again; kept as
+// emby.setup.tile, a step's route #/emby/setup/<tile>. The form lives across every drawing (form): a click in a step draws
+// the page anew from it — the typed values stay, the focus comes back to the control clicked (focusSpot()/focusBack()).
+/** [tile id, lang key (the step's title: the tile's label, its place for the search)] in the steps' order */
+const SETUP_TILES = [['servers', 'setup.server'], ['libraries', 'setup.libraries'], ['users', 'setup.users'], ['scope', 'setup.scope'],
+  ['more', 'setup.more'], ['import', 'import.title']];
+const connected = () => !!form && form.instances.some((i) => i.server);
+let setupSw = null;
+/** The setup's row and its steps (core.js's section switcher) — one per page life */
+function setupSwitcher() {
+  if (setupSw) return setupSw;
+  setupSw = Office.sections({
+    id: `${ID}/setup`,           // the routes #/emby/setup/<tile>
+    key: 'emby.setup.tile',
+    bodyId: 'jo-setup-steps',
+    grid: 'stats jo-setup-tiles',
+    default: '',                 // the start: every step (the page as it always was)
+    tiles: () => setupTileList(),
+    wants: (sub) => SETUP_TILES.some(([id]) => id === sub),      // a route before his state is in
+  });
+  return setupSw;
+}
+
+/** The tiles for the switcher: setupTileData() as it stands, each with its step as its section (none before his state) */
+function setupTileList() {
+  if (!state || !form) return [];
+  return setupTileData().map((d) => ({ id: d.id, key: d.key, place: `setup.tile.${d.id}`,
+    tile: (a) => Office.stat({ label: T(d.key), value: d.value, sub: d.sub.filter(Boolean), alert: d.alert, ...a }), section: () => setupStep(d.id) }));
+}
+/** One step's section */
+function setupStep(id) {
+  if (id === 'servers') return setupServers();
+  if (id === 'libraries') return setupLibraries();
+  if (id === 'users') return setupUsers();
+  if (id === 'scope') return setupScope();
+  if (id === 'more') return setupMore();
+  return importSection();
+}
+
+/** The people of all connected servers, each once */
+const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
+/** The way back and reading from the array as they come (EmbyCache's defaults) */
+const MORE_DEFAULTS = { return_to_origin: true, array_source: 'user0', create_share_root: false };
+
+/**
+ * His setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the steps' order — the servers (how many,
+ * how many connected), the libraries (chosen of all, their folders on the cache), the people (chosen of all; none chosen =
+ * everyone), pool and amount (the pool, or the budget), the way back (as it comes or changed), taking over an earlier
+ * install (once he is set up). Before a server is connected (every visit starts so) the libraries and people as saved.
+ */
+function setupTileData() {
+  const v = form.values;
+  const on = connected();
+  const out = [];
+  out.push({ id: 'servers', key: 'setup.server', value: String(form.instances.length),
+    sub: [T('setup.tile.connected', { n: form.instances.filter((i) => i.server).length })], alert: false });
+  const libs = libraryList();
+  const chosenLibs = libs.filter((l) => form.chosenLibs.has(l.name));
+  const cached = chosenLibs.reduce((n, l) => n + l.at.filter(([i, p]) => !form.instances[i].skip.has(p)).length, 0);
+  out.push({ id: 'libraries', key: 'setup.libraries', value: on ? T('setup.tile.of', { n: chosenLibs.length, total: libs.length }) : String(form.chosenLibs.size),
+    sub: [on ? T('setup.tile.folders', { n: cached }) : T('setup.tile.saved')], alert: false });
+  const people = everyone();
+  const chosen = on ? people.filter((id) => form.chosenUsers.has(id)).length : form.chosenUsers.size;
+  out.push({ id: 'users', key: 'setup.users', value: !chosen ? T('setup.tile.everyone') : on ? T('setup.tile.of', { n: chosen, total: people.length }) : String(chosen),
+    sub: [on ? '' : T('setup.tile.saved')], alert: false });
+  const pool = String(v.cache_path || '').replace('/mnt/', '') || '–';
+  out.push({ id: 'scope', key: 'setup.scope', value: v.budget_mode ? (String(v.cache_budget || '').trim() || '–') : pool,
+    sub: [v.budget_mode ? T('setup.tile.budget_line', { pool }) : T('setup.tile.count_line', { n: Number(v.number_episodes) || 0 })], alert: false });
+  const changed = Object.keys(MORE_DEFAULTS).some((k) => v[k] !== MORE_DEFAULTS[k]);
+  out.push({ id: 'more', key: 'setup.more', value: T(changed ? 'setup.tile.changed' : 'setup.tile.default'), sub: [], alert: false });
+  if (state.configured) out.push({ id: 'import', key: 'import.title', value: T('setup.tile.optional'), sub: [], alert: false });
+  return out;
+}
+
+/** A step that needs a connected server, before one is: its head and one line saying so */
+function notYet(s) {
+  s.appendChild(el('p', 'role jo-not-yet', T('setup.after_connect', { where: T('setup.server') })));
+  return s;
+}
+
+/** The control that has the focus inside a step: its step and its place among the step's controls (the page is drawn anew) */
+function focusSpot() {
+  const a = typeof document !== 'undefined' ? document.activeElement : null;
+  const sec = a && view && view.contains(a) && a.closest ? a.closest('[data-section]') : null;
+  if (!sec) return null;
+  return { section: sec.dataset.section, i: [...sec.querySelectorAll('input, select, textarea, button')].indexOf(a) };
+}
+/** … and back to the same control once drawn anew (no scroll: the page stays where it was) */
+function focusBack(spot) {
+  if (!spot || spot.i < 0 || !view) return;
+  const sec = view.querySelector(`[data-section="${spot.section}"]`);
+  const x = sec ? sec.querySelectorAll('input, select, textarea, button')[spot.i] : null;
+  if (x && document.activeElement !== x) x.focus({ preventScroll: true });
+}
+
+/** 1. servers: address and key of each Emby instance, «Connect» */
+function setupServers() {
   const s1 = section(T('setup.server'), T('setup.server_sub'), { place: 'setup.server' });
   form.instances.forEach((inst, idx) => {
     const box = el('div', 'box jo-instance');
@@ -1236,10 +1487,13 @@ function renderSetup() {
   const bar1 = el('div', 'toolbar');
   bar1.appendChild(add);
   s1.appendChild(bar1);
-  root.appendChild(s1);
-  if (!connected) { root.appendChild(el('p', 'callout', T('setup.connect_first'))); return; }
+  if (!connected()) s1.appendChild(el('p', 'callout', T('setup.connect_first')));
+  return s1;
+}
 
-  // 2. libraries and their folders
+/** 2. libraries and their folders */
+function setupLibraries() {
+  if (!connected()) return notYet(section(T('setup.libraries'), T('setup.libraries_sub'), { place: 'setup.libraries' }));
   const v = form.values;
   const pool = v.cache_path.replace('/mnt/', '');
   const s2 = section(T('setup.libraries'), T('setup.libraries_sub'), { place: 'setup.libraries' });
@@ -1282,15 +1536,19 @@ function renderSetup() {
     box2.appendChild(row);
   });
   s2.appendChild(box2);
-  root.appendChild(s2);
+  return s2;
+}
 
-  // 3. people
-  const everyone = [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
-  const all = button(T('setup.users_all'), 'small plain', () => { everyone.forEach((id) => form.chosenUsers.add(id)); renderSetup(); });
+/** 3. people */
+function setupUsers() {
+  if (!connected()) return notYet(section(T('setup.users'), T('setup.users_sub'), { place: 'setup.users' }));
+  const v = form.values;
+  const people = everyone();
+  const all = button(T('setup.users_all'), 'small plain', () => { people.forEach((id) => form.chosenUsers.add(id)); renderSetup(); });
   const none = button(T('setup.users_none'), 'small plain', () => { form.chosenUsers.clear(); renderSetup(); });
   const pick = el('div', 'toolbar');
   pick.append(all, none);
-  const s3 = section(T('setup.users'), T('setup.users_sub'), everyone.length ? pick : null, { place: 'setup.users' });
+  const s3 = section(T('setup.users'), T('setup.users_sub'), people.length ? pick : null, { place: 'setup.users' });
   const f3 = el('div', 'jo-users');
   const seen = new Set();
   form.instances.forEach((inst) => (inst.users || []).forEach((u) => {
@@ -1307,9 +1565,13 @@ function renderSetup() {
     f3.appendChild(wrap);
   }));
   s3.appendChild(f3);
-  root.appendChild(s3);
+  return s3;
+}
 
-  // 4. pool and amount: what applies to both, then films and series apart
+/** 4. pool and amount: what applies to both, then films and series apart */
+function setupScope() {
+  if (!connected()) return notYet(section(T('setup.scope'), T('setup.scope_sub'), { place: 'setup.scope' }));
+  const v = form.values;
   const s4 = section(T('setup.scope'), T('setup.scope_sub'), { place: 'setup.scope' });
   const f4 = el('div', 'jo-form');
   const poolSel = el('select', 'picker');
@@ -1350,9 +1612,13 @@ function renderSetup() {
     field(T('setup.resume_series'), number(v, 'max_resume_series', 0, 999), T('setup.resume_series_hint')),
     field(T('setup.favorites'), number(v, 'max_favorite_series', 0, 999), T('setup.zero_off')),
     check(T('setup.next_up'), v.use_next_up, (x) => { v.use_next_up = x; }, T('setup.next_up_hint')));
-  root.appendChild(s4);
+  return s4;
+}
 
-  // 5. more: the way back and where to read from (both ways always rsync: Unraid's move binary is never Jack's choice)
+/** 5. more: the way back and where to read from (both ways always rsync: Unraid's move binary is never Jack's choice) */
+function setupMore() {
+  if (!connected()) return notYet(section(T('setup.more'), T('setup.more_sub'), { place: 'setup.more' }));
+  const v = form.values;
   const s5 = section(T('setup.more'), T('setup.more_sub'), { place: 'setup.more' });
   const f5 = el('div', 'jo-form');
   f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
@@ -1367,14 +1633,7 @@ function renderSetup() {
   f5.appendChild(rootOpt);
   f5.appendChild(el('p', 'role', T('setup.fixed_paths')));
   s5.appendChild(f5);
-  root.appendChild(s5);
-
-  const save = button(T('setup.save'), '', saveSetup);
-  save.disabled = running();
-  const foot = el('div', 'toolbar');
-  foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
-  root.appendChild(foot);
-  if (state.configured) root.appendChild(importSection());
+  return s5;
 }
 
 // ------------------------------------------------------------------ taking over an earlier install
@@ -1813,12 +2072,40 @@ function letGoNotice() {
   return p;
 }
 
+/**
+ * The two filter bars, built once per visit (CLAUDE.md «Tiles»): the words, «only new» and the tile never kept — a new
+ * visit starts with everything; the pool's library is a choice, kept as emby.pool.pick (until 2026-10-11 emby.pool_lib:
+ * taken over once).
+ */
+function bars() {
+  if (!poolBar) {
+    const old = Office.store('emby.pool_lib');
+    if (old) {
+      if (!Office.store('emby.pool.pick')) Office.store('emby.pool.pick', old);
+      Office.store('emby.pool_lib', null);
+    }
+    poolBar = Office.filterBar({ key: 'emby.pool', label: T('pool.filter_label'), only: { text: T('pool.only_new'), hint: T('pool.only_new_hint') },
+      select: { label: T('pool.lib_label'), all: T('pool.lib_all') },
+      onChange: (f, what) => {
+        if (what !== 'gone') poolShown = POOL_PAGE;
+        if (dom.poolBox && dom.poolBox.isConnected) fillPool(dom.poolBox);
+      } });
+  }
+  if (!runsBar) runsBar = Office.filterBar({ key: 'emby.runs', label: T('history.filter_label'), onChange: () => { if (dom.runs && dom.runs.isConnected) fillRuns(dom.runs); } });
+  poolBar.reset();
+  runsBar.reset();
+  poolShown = POOL_PAGE;
+}
+
 Office.desk({
   id: ID,
   async mount(root, sub) {
     view = root;
-    page = sub === 'setup' ? 'setup' : 'main';
+    page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : 'main';
     if (page === 'setup') {
+      // #/emby/setup/<tile> (the search, a step's place) picks that step exactly like a click, the address keeps its page;
+      // else the step chosen last (emby.setup.tile), none = every step
+      if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');
       if (!state) await load(false);
       await Office.freshState(ID);      // the form starts from his settings: from a fresh look, never a stale one
       if (view !== root || page !== 'setup') return;
@@ -1828,10 +2115,20 @@ Office.desk({
       renderSetup();
       return;
     }
+    bars();
+    // his tiles as places (CLAUDE.md «Tiles»): #/emby/<tile> (plans, pool, runs, shares, gather) picks it exactly like a
+    // click and the address is his page's again; the Team Lead's findings #/emby/schedule, #/emby/gather-schedule land
+    // in «Schedules» with the row revealed; #/emby/history (the search's runs) shows the whole page — every run
+    const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];
+    if (plan) sw.mount('plans');
+    else if (sub === 'history') {
+      sw.mount('');
+      sw.pick('', 'route');
+      Office.subroute('');
+    } else sw.mount(sub);
     render();
+    if (plan) Office.reveal(`plan:${plan}`);
     await load(false);
-    // the caretaker's "Open" for a schedule
-    if (sub === 'schedule' || sub === 'gather-schedule') { Office.subroute(''); scheduleDialog(sub === 'schedule' ? 'embycache' : 'gather'); }
   },
   unmount() { view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
@@ -1839,9 +2136,12 @@ Office.desk({
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
     const items = [{ text: T('menu.refresh'), act: () => load(true) }, { text: T('import.title') + '…', act: importDialog }];
-    if (state && state.configured) {
+    // the schedules also before he is set up: the gather's may be set without EmbyCache (its dialog says what is missing)
+    if (state) {
       items.push({ text: T('schedule_title.embycache'), act: () => scheduleDialog('embycache') });
       items.push({ text: T('schedule_title.gather'), act: () => scheduleDialog('gather') });
+    }
+    if (state && state.configured) {
       items.push({ text: T('show_log') + ' · EmbyCache', act: () => showLog('embycache') });
       items.push({ text: T('show_log') + ' · ' + T('gather'), act: () => showLog('gather') });
     }
@@ -1852,7 +2152,8 @@ Office.desk({
     const facts = [];
     if (state && state.configured) {
       facts.push(T('fact.pool', { n: state.cache.files, size: fmt.size(state.cache.bytes) }));
-      if (state.last && state.last.finished) facts.push(T('fact.last', { when: fmt.relative(state.last.finished) }));
+      const { main } = lastRuns(state.history);          // as «Last run» on his page says it
+      if (main && main.finished) facts.push(T('fact.last', { when: fmt.relative(main.finished) }));
       if (!state.gather.ready) facts.push(T('fact.gather_first'));
     } else {
       facts.push(T('fact.setup'));
@@ -1861,8 +2162,8 @@ Office.desk({
   },
 });
 
-// what his state holds for the search (core.js «items»): his Emby servers (the overview names them), the shares of the
-// chosen libraries, the runs his history shows
+// what his state holds for the search (core.js «items»): his Emby servers (the line «How I work» names them), the shares
+// of the chosen libraries (#/emby/shares), the runs his history shows (#/emby/history: the whole page, every run)
 Office.placesFrom(ID, (s, part) => {
   if (part) return [];                       // the part «progress» (the live panel) holds nothing to find
   const out = [];
@@ -1870,26 +2171,32 @@ Office.placesFrom(ID, (s, part) => {
     ((s.settings && s.settings.instances) || []).forEach((i) => {
       if (i && i.servername) out.push({ text: i.servername, sub: `${T('overview')} · Emby`, anchor: 'overview' });
     });
-    (s.shares || []).forEach((x) => out.push({ text: x.share, sub: T('shares'), anchor: `share:${x.share}` }));
+    (s.shares || []).forEach((x) => out.push({ text: x.share, sub: T('shares'), route: `#/${ID}/shares`, anchor: `share:${x.share}` }));
   }
   (s.history || []).slice(0, HISTORY_SHOWN).forEach((r) => out.push({ text: `${T('tool.' + r.tool)} · ${T('mode.' + r.mode)} · ${fmt.date(r.started)}`,
-    sub: `${T('history')} · ${T('result.' + (r.result || 'failed'))}`, anchor: `run:${r.tool}:${r.started}` }));
+    sub: `${T('history')} · ${T('result.' + (r.result || 'failed'))}`, route: `#/${ID}/history`, anchor: `run:${r.tool}:${r.started}` }));
   return out;
 });
 
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): the
 // main page, then the setup's (#/emby/setup)
 const SETUP = { route: '#/emby/setup', crumb: 'setup_open' };
-// (the overview, the shares and what lies on the pool only once he is set up — core.js shown; not known yet: listed)
-const configured = () => !state || !!state.configured;
+// (the line «How I work», the shares and what lies on the pool only once he is set up — core.js shown; not known yet:
+// listed); each section by the route of its tile (a section stands under the row only while its tile is chosen)
 Office.places(ID, [
   { kind: 'section', key: 'overview', shown: configured },
-  { kind: 'section', key: 'shares', shown: configured },
-  { kind: 'section', key: 'gather' },
-  { kind: 'section', key: 'history' },
-  { kind: 'section', key: 'on_pool', shown: configured },
+  { kind: 'section', key: 'shares', route: '#/emby/shares', shown: configured },
+  { kind: 'section', key: 'gather', route: '#/emby/gather' },
+  { kind: 'section', key: 'history', route: '#/emby/history' },
+  { kind: 'section', key: 'on_pool', route: '#/emby/pool', shown: configured },
+  // his tiles (CLAUDE.md «Tiles», the switcher's places): each sets its choice as a click would
+  ...sw.places().map((p) => (['tile.pool', 'tile.shares'].includes(p.anchor) ? { ...p, shown: configured } : p)),
   { kind: 'section', key: 'tools' },
-  ...['import.title', 'setup.server', 'setup.libraries', 'setup.users', 'setup.scope', 'setup.more'].map((key) => ({ kind: 'step', key, ...SETUP })),
+  // the setup's steps by the route of their tile (a step stands under the row only while its tile is chosen — or none is);
+  // the steps' tiles (place setup.tile.<id>, #/emby/setup/<tile> picks it like a click) with the steps' words: the step
+  // stays the one result of the search
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/${ID}/setup/${id}` })),
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
   ...['what', 'tools', 'progress', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
@@ -1899,7 +2206,9 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, plainWords, poolSection,
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+    historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
+    renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText };
 }

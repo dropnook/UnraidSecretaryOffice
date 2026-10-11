@@ -12,7 +12,7 @@ with the office can keep each other's backups as partner offices, and the Night 
 or MikroTik router says about the server. It is a plugin: no container, no account, no cloud of ours, nothing locked. Every picture here, bigger and one click each, is on the
 [product page](https://uso.dropnook.app).
 
-<a name="reception-team"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception.png" alt="The reception: the whole team at a glance"></a>
+<a name="reception-team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception-light.png" alt="The reception: the whole team at a glance"></picture></a>
 
 ## The staff
 
@@ -41,7 +41,7 @@ stays off (switch it on again in Mover Settings if you like). Hired
 again, his settings are as they were and the schedules stay off until you switch them on. *Change the order* at the
 reception puts the desks in the order you like.
 
-<a name="snapshot-why"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot.png" alt="Ms. Snapshotini: one snapshot in detail, why «used» and «new since» differ"></a>
+<a name="snapshot-why"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot-light.png" alt="Ms. Snapshotini: one snapshot in detail, why «used» and «new since» differ"></picture></a>
 
 ## What happens, end to end
 
@@ -69,7 +69,7 @@ What a new folder inherits ([BPMN source](docs/diagrams/new-folder.bpmn), [Germa
 
 <a name="diagram-new-folder"><img src="docs/diagrams/new-folder.svg" alt="A new folder: in a data share it inherits the share&#x27;s level; in appdata or domains the level of its app or VM; with no app or VM it stays local and waits for your decision"></a>
 
-<a name="backup-run"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup.png" alt="Mr. Backupsy: a run going on — its steps, its offsite sources, how long still"></a>
+<a name="backup-run"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-light.png" alt="Mr. Backupsy: a run going on — its steps, its offsite sources, how long still"></picture></a>
 
 ### Getting something back
 
@@ -92,7 +92,7 @@ VM gets a **certificate**: which level is proven, from which copy, when; a step 
 wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
 interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
 
-<a name="restore-drill"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill.png" alt="Mr. Restori: the drill passed — the level per app, the databases played back"></a>
+<a name="restore-drill"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-light.png" alt="Mr. Restori: the drill passed — the level per app, the databases played back"></picture></a>
 
 ### The Night Watchman's round
 
@@ -120,7 +120,7 @@ Unraid's diagnostics or its kept syslog show), or the server went off without sh
 parity at every start until a stop is clean again; he says so once, and the Team Lead lists which time-out to raise
 (Docker + VMs + a margin) until a later stop is clean. He never starts, pauses or cancels a check.
 
-<a name="watchman-book"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman.png" alt="The Night Watchman&#x27;s watch book: what was different from normal"></a>
+<a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The Night Watchman&#x27;s watch book: what was different from normal"></picture></a>
 
 ### The search
 
@@ -151,7 +151,7 @@ than the one the office was tested on.
 header. A tile on Unraid's Dashboard shows the essentials: the messenger, the Team Lead's open points, the last and
 next backup. The green dot beside *⋯* means the messenger (the office's agent) checked in within the last 70 seconds.
 
-<a name="backup-apply"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup.png" alt="Mr. Backupsy&#x27;s setup: «Apply the settings?» — 1 proposal of mine · 1 change of yours"></a>
+<a name="backup-apply"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-light.png" alt="Mr. Backupsy&#x27;s setup: «Apply the settings?» — 1 proposal of mine · 1 change of yours"></picture></a>
 
 ## Updates and removal
 
@@ -183,7 +183,7 @@ containers without a picture, and sends a report only when you send one yourself
 of your reports, asks where they stand. No account, no telemetry. The desks never wake a sleeping disk unless you ask;
 the scheduled backup does, unless you tell it to leave sleeping pools out.
 
-<a name="cleanup-where"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where.png" alt="Ms. Dustdevil&#x27;s «Where is what»: the places that matter and how they are protected"></a>
+<a name="cleanup-where"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where-light.png" alt="Ms. Dustdevil&#x27;s «Where is what»: the places that matter and how they are protected"></picture></a>
 
 ## Languages and themes
 
@@ -209,7 +209,7 @@ makes it larger — both in your browser only.
 
 What was checked and what is still open: [HARDENING.md](HARDENING.md).
 
-<a name="cleanup-storeroom"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom.png" alt="Ms. Dustdevil&#x27;s storeroom: nothing is thrown away at once"></a>
+<a name="cleanup-storeroom"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom-light.png" alt="Ms. Dustdevil&#x27;s storeroom: nothing is thrown away at once"></picture></a>
 
 ## Partner offices
 
@@ -222,7 +222,7 @@ a **restore ticket** — a door for seven days that only hands over those copies
 pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
 
-<a name="caretaker-partner"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner.png" alt="The Team Lead: a partner office at the grandparents&#x27;, copies both ways"></a>
+<a name="caretaker-partner"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-light.png" alt="The Team Lead: a partner office at the grandparents&#x27;, copies both ways"></picture></a>
 
 ## Notifications
 
@@ -268,7 +268,7 @@ stands — received, looked at, done — and, once the makers opened a public Gi
 («Issue #…»). For that the office asks the inbox when you open the dialog (each report at most once an hour), with
 nothing but the reports' numbers in the inbox and the office's report ID.
 
-<a name="office-report"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report.png" alt="«Your reports»: a wish, built and public as Issue #14"></a>
+<a name="office-report"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report-light.png" alt="«Your reports»: a wish, built and public as Issue #14"></picture></a>
 
 ## Special thanks
 
@@ -281,7 +281,7 @@ we changed is listed at the top of their READMEs. Ms. Moverelli (still in traini
 listed in its README, GPL-3.0-or-later. helmi1987 also tested the office early and sent the reports that made it
 better. Thank you, helmi1987 — a share of the tips goes to him.
 
-<a name="emby-live"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live.png" alt="Jack Emby live: EmbyCache gets ready for each person what they watch next"></a>
+<a name="emby-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live-light.png" alt="Jack Emby live: EmbyCache gets ready for each person what they watch next"></picture></a>
 
 ## License
 

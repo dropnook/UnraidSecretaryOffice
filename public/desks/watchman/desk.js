@@ -38,16 +38,22 @@ let view = null;
 let timer = null;
 let before = null;              // entry ids before a round this page asked for: say how many came
 let shown = PAGE;
-let onlyOpen = Office.store('watchman.only_open') === '1';
-let area = Office.store('watchman.area') || '';    // the book's area filter ('' = all areas), kept in this browser
-let filterText = '';            // the book's filter words (not kept: a new visit starts with the whole book)
+// the book's filter bar (core.js Office.filterBar, built once): its words are never kept (a new visit starts with the
+// whole book; «only open» is the tile «Not noted yet»), its area select is a choice, kept in this browser
+// ('watchman.book.pick')
+let bookBar = null;
 const foldsOpen = new Set();    // rows of the book that fold several entries, unfolded on this visit (their keys)
 const foldsShut = new Set();    // … folded again by hand while filter words unfold them all
 const openGroups = Office.storeJson('watchman.groups') || {};     // groups of «What I keep an eye on» that are open
 const unfolded = new Set();     // entries unfolded on this visit
 let bookRows = [];              // the book's unfoldable rows: {open(), set(open)}
 let bookLabel = null;           // brings «Unfold all» up to date
-let watchGroups = [];           // {open(), set(open)}
+let watchGroups = [];           // the groups of «What I keep an eye on» drawn now: {open(), set(open)}
+// «What I keep an eye on»'s bar (core.js Office.filterBar, built once like the book's and held across the renders): its
+// words are never kept — a new visit starts with the whole list, the groups folded as kept in this browser
+let watchBar = null;
+let watchWords = [];            // the bar's words while the list is drawn (group() reads them)
+const watchShut = new Set();    // groups folded by hand while filter words unfold them (forgotten with the words)
 let showKnownTips = false;      // posture tips you know about: shown on request
 let wanted = null;              // an entry the search asked for (#/watchman/entry/<id>): the book shows rows down to it
 
@@ -234,43 +240,120 @@ function render() {
     [T('help.safe'), T('help.safe_text')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
-  root.append(roundSection(), postureSection(), bookSection(), watchSection());
+  if (sw.active() === 'open' && !bookHasOpen()) sw.pick('book', 'route');      // all noted meanwhile: the whole book
+  root.append(roundHead(), sw.el);
+  sw.render();
 }
 
-// ------------------------------------------------------------------ the last round
-function stat(label, value, sub, cls, tip) {
-  const b = el('div', 'stat' + (cls ? ' ' + cls : ''));
-  const v = el('div', 'stat-value', value);
-  if (tip) v.title = tip;
-  b.append(el('div', 'stat-label', label), v);
-  if (sub) b.appendChild(el('div', 'stat-sub', sub));
-  return b;
+// ------------------------------------------------------------------ the row: his four tiles
+/**
+ * His page on core's switcher (CLAUDE.md «Tiles», Office.sections): the watch book — whole, or only what is not noted
+ * yet (a filter tile: never kept) —, how secure it stands, what he keeps an eye on. «Watch book» to start; nothing
+ * chosen shows all three in the row's order. Over the row stays the head of his last round.
+ */
+const sw = Office.sections({
+  id: ID,
+  grid: 'stats wm-tiles',
+  default: 'book',
+  tiles: () => [               // a function: the filter's words in the language the page has now
+    { id: 'book', key: 'tile.book', place: 'tile.book', tile: (a) => bookTile(a), section: 'book' },
+    { id: 'open', key: 'stat.open', place: 'stat.open', tile: (a) => openTile(a), section: 'book', filters: T('stat.open') },
+    { id: 'posture', key: 'tile.posture', place: 'tile.posture', tile: (a) => postureTile(a), section: () => postureSection() },
+    { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection() },
+  ],
+  sections: { book: () => bookSection() },
+});
+
+/** Anything open in the book? (what «only open» could show) */
+const bookHasOpen = () => ((state && state.book) || []).some((e) => e && e.open);
+
+/** «Watch book»: how many entries, how many open, the newest */
+function bookTile(a) {
+  const book = ((state && state.book) || []).filter((e) => e && typeof e.id === 'string');
+  const open = book.filter((e) => e.open).length;
+  const newest = Math.max(0, ...book.map((e) => Number(e.last) || 0));
+  return Office.stat({ label: T('tile.book'), value: T('tile.book_entries', { n: book.length }),
+    sub: book.length ? [T('tile.book_open', { n: open }), newest ? T('tile.book_newest', { when: fmt.relative(newest) }) : ''].filter(Boolean).join(' · ') : T('tile.book_empty'),
+    ...a });
 }
 
-function roundSection() {
-  const s = el('section', 'section');
-  const r = state.round || {};
-  s.appendChild(Office.sectionHead(T('round.title'), T('round.sub'), running() ? el('span', 'hint', T('stat.running')) : null, notifySwitch(), syslogSwitch(),
-    { place: 'round.title' }));
-  const stats = el('div', 'stats');
-  stats.appendChild(stat(T('stat.last'), r.last ? fmt.relative(r.last) : T('stat.never'),
-    r.last ? fmt.date(r.last) + (r.duration_ms ? ' · ' + T('stat.took', { ms: r.duration_ms }) : '') : ''));
-  stats.appendChild(stat(T('stat.next'), running() ? T('stat.running') : r.next ? fmt.relative(r.next) : '–',
-    !running() && r.next ? fmt.date(r.next) : ''));
+/**
+ * «Not noted yet»: the book with only what is open (a filter tile — the bar's note line says it, a second click shows the
+ * whole page again); with nothing open in the book there is nothing behind it (a div)
+ */
+function openTile(a) {
   const n = openCount();
-  stats.appendChild(stat(T('stat.open'), fmt.number(n),
-    n ? T('stat.open_kinds', { n: Object.keys(state.open || {}).length }) : T('stat.open_none'), n ? 'alert' : ''));
-  const since = stat(T('stat.since'), state.on_watch ? fmt.relative(state.on_watch) : T('stat.never'),
-    state.on_watch ? fmt.date(state.on_watch) : '');
-  // still learning what is normal for the data flow? and until when (2026-10-10)
-  const f = state.on_watch && state.flow;
-  if (f && f.since && f.learn) {
-    const end = f.since + f.learn * 86400;
-    since.appendChild(el('div', 'stat-sub', end > Date.now() / 1000
-      ? T('stat.learning_until', { when: fmt.date(end), left: fmt.relative(end) }) : T('stat.learned')));
+  const can = bookHasOpen();
+  return Office.stat({ label: T('stat.open'), value: fmt.number(n), alert: !!n,
+    sub: n ? T('stat.open_kinds', { n: Object.keys((state && state.open) || {}).length }) : T('stat.open_none'),
+    tip: can ? T('stat.open_tip') : '', ...a, ...(can ? {} : { on: null, pressed: null }) });
+}
+
+/** «How secure does it stand?»: his tips not known yet — or that you know them all — and how many you know */
+function postureTile(a) {
+  const p = state && state.posture;
+  const tips = (p && p.tips) || [];
+  const known = tips.filter((x) => x.known).length;
+  const open = tips.length - known;
+  return Office.stat({ label: T('tile.posture'), alert: !!open,
+    value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
+    sub: known ? T('tile.posture_known', { n: known }) : '', ...a });
+}
+
+/** «Keeping an eye on»: the containers, plugins and shares he watches */
+function watchTile(a) {
+  const w = state && state.watch;
+  const c = w && w.containers;
+  const sh = w && w.shares;
+  return Office.stat({ label: T('tile.watch'), value: c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
+    sub: w ? [T('count.plugins', { n: (w.plugins || []).length }), sh ? T('count.shares', { n: Number(sh.count) || 0 }) : ''].filter(Boolean).join(' · ') : '',
+    ...a });
+}
+
+// ------------------------------------------------------------------ the last round: the row's head
+/** A day as «08.10.» (its full date as the tip) */
+function shortDay(t) {
+  const x = el('span', '', new Date(t * 1000).toLocaleDateString(Office.locale || undefined, { day: '2-digit', month: '2-digit' }));
+  x.title = fmt.date(t);
+  return x;
+}
+
+/**
+ * «The last round» over the row (a hint, not a section — it stays at every click): one line — when (how long it took),
+ * the next one, on watch since, learning until — and his two switches on its right; what to know about the round under it
+ */
+function roundHead() {
+  const s = el('div', 'wm-round');
+  const r = state.round || {};
+  const head = Office.sectionHead(T('round.title'), '', running() ? el('span', 'hint', T('stat.running')) : null, notifySwitch(), syslogSwitch(),
+    { place: 'round.title' });
+  const line = el('div', 'section-sub wm-round-line');
+  line.title = T('round.sub');
+  const parts = [];
+  const last = el('span', '', r.last ? (r.duration_ms ? T('round.last_ms', { when: fmt.relative(r.last), ms: r.duration_ms }) : fmt.relative(r.last)) : T('stat.never'));
+  if (r.last) last.title = fmt.date(r.last);
+  parts.push(last);
+  if (!running() && r.next) {
+    const next = el('span', '', T('round.next', { when: fmt.relative(r.next) }));
+    next.title = fmt.date(r.next);
+    parts.push(next);
   }
-  stats.appendChild(since);
-  s.appendChild(stats);
+  if (state.on_watch) {
+    const since = el('span', '', T('round.since') + ' ');
+    since.appendChild(shortDay(state.on_watch));
+    parts.push(since);
+    // still learning what is normal for the data flow? and until when (2026-10-10)
+    const f = state.flow;
+    if (f && f.since && f.learn) {
+      const end = f.since + f.learn * 86400;
+      const learn = el('span', '', end > Date.now() / 1000 ? T('round.learning') + ' ' : T('round.learned'));
+      if (end > Date.now() / 1000) learn.appendChild(shortDay(end));
+      parts.push(learn);
+    }
+  }
+  parts.forEach((x, i) => { if (i) line.append(' · '); line.appendChild(x); });
+  head.appendChild(line);
+  s.appendChild(head);
   const notes = el('div', 'wm-notes');
   if (!state.on_watch) notes.appendChild(el('p', 'callout', T('round.first')));
   if (r.failed) notes.appendChild(el('p', 'callout warn', T('round.failed')));
@@ -432,8 +515,8 @@ async function postureAck(x, on, b) {
 const entryArea = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net' : e.group || 'watch');
 /** What folds with what (beside the area and the day): the same kind — a router's log too long is a kind of its own */
 const foldKind = (e) => (e.kind === 'watch' && e.p && e.p.too_much ? 'net_too_much' : e.kind);
-/** Words as the filter compares them: lower case, without accents */
-const plainWords = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+/** Words as the filter compares them: lower case, without accents, ß as ss — core's Office.fold, as the bar's own */
+const plainWords = (s) => Office.fold(s);
 
 /**
  * The watch book as his page shows it — no DOM, nothing of the page's state (tests/watchbook.js runs it under node).
@@ -521,8 +604,47 @@ function foldName(r) {
     : T('fold.any', { n: r.members.length, area: areaName(r.area) });
 }
 
+/**
+ * The book's bar (core.js Office.filterBar), built once and held across the renders: the words (entryHay), the area
+ * (counts per area, kept per browser — today's 'watchman.area' read once into the bar's key), «Unfold all»; all on the
+ * whole book. «n of m fit» stands in the bar; while the tile «Not noted yet» filters, the note line says it.
+ */
+function bookBarGet() {
+  if (bookBar) return bookBar;
+  const old = Office.store('watchman.area');
+  if (old && !Office.store('watchman.book.pick')) Office.store('watchman.book.pick', old);
+  if (old) Office.store('watchman.area', null);
+  const unfold = el('button', 'btn small plain');
+  unfold.type = 'button';
+  unfold.onclick = () => {
+    const open = bookRows.some((x) => !x.open());
+    Office.keepInPlace(unfold, () => {
+      bookRows.filter((x) => x.fold).forEach((x) => x.set(open));       // the folded rows first: their entries come or go
+      bookRows.filter((x) => !x.fold).forEach((x) => x.set(open));
+    });
+    bookLabel();
+  };
+  bookLabel = () => {
+    unfold.textContent = bookRows.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
+    unfold.hidden = bookRows.length < 2;
+  };
+  bookBar = Office.filterBar({
+    key: 'watchman.book',
+    label: T('book.filter_label'),
+    select: { label: T('book.area_label'), all: T('book.area_all') },
+    extra: [unfold],
+    onChange: (f, what) => {
+      if (what === 'words' || what === 'all') foldsShut.clear();
+      if (what !== 'gone') shown = PAGE;
+      if (view) sw.render();
+    },
+  });
+  return bookBar;
+}
+
 function bookSection() {
   const s = el('section', 'section');
+  s.id = 'wm-book';
   const extras = [];
   if (openCount()) {
     const all = el('button', 'btn small', T('ack_all'));
@@ -533,64 +655,32 @@ function bookSection() {
     extras.push(all);
   }
   s.appendChild(Office.sectionHead(T('book.title'), T('book.sub'), ...extras, { place: 'book.title' }));
-
-  // the bar: the filter's words, the area (counts per area), «only open», «unfold all» — the words and the area work on
-  // the whole book, not only on the rows shown
-  const bar = el('div', 'toolbar wm-bookbar');
-  const search = el('input', 'search');
-  search.type = 'search';
-  search.placeholder = Office.t('common.filter');
-  search.setAttribute('aria-label', T('book.filter_label'));
-  search.autocomplete = 'off';
-  search.spellcheck = false;
-  search.value = filterText;
-  const pick = el('select', 'picker');
-  pick.setAttribute('aria-label', T('book.area_label'));
-  const sw = el('label', 'switch');
-  const cb = el('input');
-  cb.type = 'checkbox';
-  cb.checked = onlyOpen;
-  sw.append(cb, el('span', '', T('book.only_open')));
-  const unfold = el('button', 'btn small plain');
-  unfold.type = 'button';
-  bar.append(search, pick, sw, unfold);
-  s.appendChild(bar);
+  const bar = bookBarGet();
+  s.appendChild(bar.el);
 
   const box = el('div', 'box wm-book');
-  bookLabel = () => {
-    unfold.textContent = bookRows.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
-    unfold.hidden = bookRows.length < 2;
-  };
-  unfold.onclick = () => {
-    const open = bookRows.some((x) => !x.open());
-    Office.keepInPlace(unfold, () => {
-      bookRows.filter((x) => x.fold).forEach((x) => x.set(open));       // the folded rows first: their entries come or go
-      bookRows.filter((x) => !x.fold).forEach((x) => x.set(open));
+  const onlyOpen = sw.active() === 'open';         // the tile «Not noted yet»
+  const look = (asked) => {
+    const f = bar.read();
+    return bookView(state.book, {
+      onlyOpen, area: f.pick, words: f.words, hay: entryHay, day: fmt.dayKey,
+      chains: state.chains, shown, page: PAGE, wanted: asked,
     });
-    bookLabel();
   };
-  const look = (asked) => bookView(state.book, {
-    onlyOpen, area, words: plainWords(filterText).split(/\s+/).filter(Boolean), hay: entryHay, day: fmt.dayKey,
-    chains: state.chains, shown, page: PAGE, wanted: asked,
-  });
   const fillAreas = (v) => {
-    pick.innerHTML = '';
-    pick.appendChild(new Option(T('book.area_all'), ''));
+    const pick = bar.read().pick;
     const list = v.areas.map(([a, n]) => [a, n, areaName(a)]);
-    if (area && !list.some(([a]) => a === area)) list.push([area, 0, areaName(area)]);     // chosen, none left now: it stays
-    list.sort((x, y) => x[2].localeCompare(y[2], Office.locale))
-      .forEach(([a, n, name]) => pick.appendChild(new Option(T('book.area_n', { area: name, n }), a)));
-    pick.value = area;
+    if (pick && !list.some(([a]) => a === pick)) list.push([pick, 0, areaName(pick)]);     // chosen, none left now: it stays
+    list.sort((x, y) => x[2].localeCompare(y[2], Office.locale));
+    bar.options(list.map(([a, n, name]) => [a, T('book.area_n', { area: name, n })]));
   };
   const fill = () => {
     box.innerHTML = '';
     bookRows = [];
     let v = look(wanted);
     if (v.hidden) {          // the entry asked for (the search, a link) hides behind the words or the area: the whole book
-      filterText = '';
-      search.value = '';
-      area = '';
-      if (onlyOpen && !(state.book || []).some((e) => e.id === wanted && e.open)) { onlyOpen = false; cb.checked = false; }
+      const open = (state.book || []).some((e) => e.id === wanted && e.open);
+      if (open || !onlyOpen) bar.set({ text: '', pick: '' });
       v = look(wanted);
     }
     if (v.wanted) {
@@ -600,14 +690,14 @@ function bookSection() {
       wanted = null;
     }
     fillAreas(v);
+    const f = bar.read();
     // what may belong together: always on the whole book; with the words or an area, only a chain with an entry shown
     const drawn = new Set(v.rows.flatMap((r) => r.members.map((e) => e.id)));
-    const narrowed = !!(filterText.trim() || area);
+    const narrowed = !!(f.words.length || f.pick);
     (state.chains || []).filter((c) => !narrowed || (c.ids || []).some((id) => drawn.has(id))).forEach((c) => box.appendChild(chainCallout(c)));
     v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x) : entryRow(x.members[0])) : dayHead(x.day)));
     if (!v.rows.length) {
-      const filtered = filterText.trim() || area;
-      box.appendChild(el('p', 'empty', filtered ? T('book.empty_filter') : onlyOpen ? T('book.empty_open') : T('book.empty')));
+      box.appendChild(el('p', 'empty', narrowed ? T('book.empty_filter') : onlyOpen ? T('book.empty_open') : T('book.empty')));
     }
     if (v.rows.length > v.shown) {
       const more = el('button', 'btn small plain wm-more', T('book.more', { n: Math.min(PAGE, v.rows.length - v.shown) }));
@@ -616,24 +706,8 @@ function bookSection() {
       box.appendChild(more);
     }
     bookLabel();
-  };
-  search.oninput = () => {
-    filterText = search.value;
-    foldsShut.clear();
-    shown = PAGE;
-    fill();
-  };
-  pick.onchange = () => {
-    area = pick.value;
-    Office.store('watchman.area', area || null);
-    shown = PAGE;
-    Office.keepInPlace(pick, fill);
-  };
-  cb.onchange = () => {
-    onlyOpen = cb.checked;
-    Office.store('watchman.only_open', onlyOpen ? '1' : null);
-    shown = PAGE;
-    Office.keepInPlace(sw, fill);
+    // while the tile «Not noted yet» filters, the note line names it (its × and «Show all»: the whole page again)
+    bar.done(v.rows.reduce((a, r) => a + r.members.length, 0), (state.book || []).length, sw.note('book'));
   };
   fill();
   s.appendChild(box);
@@ -657,7 +731,7 @@ function foldRow(x) {
   const n = x.members.length;
   const first = x.members[0];
   const watch = first.kind === 'watch';
-  const words = !!filterText.trim();
+  const words = !!(bookBar && bookBar.read().words.length);
   const wrap = el('div', 'wm-fold');
   const r = el('div', 'row nocheck wm-entry wm-fold-head unfolds' + (x.open ? ' wm-open' : ''));
   r.dataset.fold = x.key;
@@ -928,10 +1002,11 @@ const flowLimits = () => {
     new: fmt.size(l.new || 50 * 1024 ** 3), part: l.part || 20 };
 };
 
-/** docker run flags as small code chips */
+/** docker run flags as small code chips (their words for the list's filter: wmWords, read by item()) */
 function flags(tokens) {
   const box = el('span', 'wm-flags');
   (tokens || []).forEach((t) => box.appendChild(el('span', 'wm-flag', t)));
+  box.wmWords = (tokens || []).map(String);
   return box;
 }
 
@@ -1258,8 +1333,13 @@ function netDetails(e, p, add) {
 }
 
 // ------------------------------------------------------------------ what he keeps an eye on
+/**
+ * One thing he keeps an eye on: its name, its sub lines, its chips (flags()). Its hay for the list's filter (wmHay, built
+ * here once per drawing): the name, every sub line, the chips' words — what the row shows, nothing more.
+ */
 function item(name, parts, extra, label) {
   const r = el('div', 'row nocheck wm-item');
+  r.wmHay = [name, ...parts.filter(Boolean), ...((extra && extra.wmWords) || [])];
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name' + (label ? ' text' : ''), name));
   const meta = el('div', 'row-meta');
@@ -1270,21 +1350,55 @@ function item(name, parts, extra, label) {
   return r;
 }
 
-/** A tinted title bar that folds its rows (closed unless opened, remembered in this browser) */
-function group(key, title, sum, rows) {
-  const box = Office.place(`watch:${key}`, el('div', 'group' + (openGroups[key] ? '' : ' closed')));
+/**
+ * What the filter words leave of a group (pure: tests/watchfilter.js). Words in its head — title, summary and the
+ * group's own extra words («Docker» for the two container groups) — keep the whole group as it is; else each item (a row
+ * with a hay: item()) fits on its own words together with the head (the words may fall on both: «container immich»), a
+ * row without one (a note, a link, a switch) goes. A group with nothing left is not shown. No words: everything.
+ *   head: [title, summary, …], hays: per row its hay or null → {shown, whole, rows: [bool per row], n (items that fit), total (items)}
+ */
+function groupFit(words, head, hays) {
+  const total = hays.filter(Boolean).length;
+  if (!words || !words.length || Office.fits(words, head)) return { shown: true, whole: true, rows: hays.map(() => true), n: total, total };
+  const rows = hays.map((h) => !!h && Office.fits(words, [...head, ...h]));
+  const n = rows.filter(Boolean).length;
+  return { shown: n > 0, whole: false, rows, n, total };
+}
+/** The whole list's count from its groups' fits: {n, total, shown (groups shown)} — the bar's «n of m fit» */
+const fitTally = (fits) => fits.reduce((a, f) => ({ n: a.n + f.n, total: a.total + f.total, shown: a.shown + (f.shown ? 1 : 0) }), { n: 0, total: 0, shown: 0 });
+/**
+ * Is a group open? Without words as kept in this browser (opened: 'watchman.groups'); with words every group shown is
+ * unfolded, unless folded by hand meanwhile (shut) — the kept state stays untouched, «Show all» brings it back
+ */
+const groupOpen = (key, words, opened, shut) => ((words && words.length) ? !shut.has(key) : !!opened[key]);
+
+/**
+ * A tinted title bar that folds its rows (closed unless opened, remembered in this browser). With filter words
+ * (watchWords) only its fitting rows (groupFit(); more: words the group is found by besides its title and summary),
+ * unfolded, its summary followed by «n of m fit»; box.wmFit says what was left — the section leaves out a group with nothing.
+ */
+function group(key, title, sum, rows, more) {
+  const fit = groupFit(watchWords, [title, sum, ...(more || [])], rows.map((x) => x.wmHay || null));
+  const words = watchWords.length > 0;
+  const box = Office.place(`watch:${key}`, el('div', 'group' + (groupOpen(key, watchWords, openGroups, watchShut) ? '' : ' closed')));
+  box.wmFit = fit;
   const head = el('div', 'group-head');
   head.tabIndex = 0;
   head.setAttribute('role', 'button');
   const mid = el('div', 'group-mid');
   const tl = el('div', 'group-title');
   tl.appendChild(el('span', '', title));
-  mid.append(tl, el('div', 'group-meta', sum));
+  mid.append(tl, el('div', 'group-meta', words && !fit.whole ? `${sum} · ${Office.t('common.filter_hits', { n: fit.n, total: fit.total })}` : sum));
   head.append(el('span', 'group-arrow', '▼'), mid);
   const body = el('div', 'group-rows');
-  rows.forEach((x) => body.appendChild(x));
+  const drawn = rows.filter((x, i) => fit.rows[i]);
+  drawn.forEach((x) => body.appendChild(x));
   const set = (open) => {
     box.classList.toggle('closed', !open);
+    if (words) {             // folded or unfolded while the words are typed: for as long as they are
+      if (open) watchShut.delete(key); else watchShut.add(key);
+      return;
+    }
     if (open) openGroups[key] = true; else delete openGroups[key];
     Office.storeJson('watchman.groups', openGroups);
   };
@@ -1292,9 +1406,27 @@ function group(key, title, sum, rows) {
   head.onclick = (e) => { toggle(); if (e.detail > 0) head.blur(); };
   head.onkeydown = (e) => { if (e.target === head && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } };
   box.append(head, body);
-  if (rows.length) watchGroups.push({ open: () => !box.classList.contains('closed'), set });
-  else head.classList.add('wm-empty-group');
+  if (drawn.length && fit.shown) watchGroups.push({ open: () => !box.classList.contains('closed'), set });
+  else if (!drawn.length) head.classList.add('wm-empty-group');
   return box;
+}
+
+/**
+ * The list's bar (core.js Office.filterBar), built once and held across the renders like the book's: the words over
+ * every group's title and summary and each item in it (groupFit()); «n of m fit» over all items and «Show all» in its note
+ * line. «Unfold all» stays right of the section's head.
+ */
+function watchBarGet() {
+  if (watchBar) return watchBar;
+  watchBar = Office.filterBar({
+    key: 'watchman.watch',
+    label: T('watch.filter.label'),
+    onChange: (f, what) => {
+      if (what === 'words' || what === 'all') watchShut.clear();
+      if (view) sw.render();
+    },
+  });
+  return watchBar;
 }
 
 function watchSection() {
@@ -1304,24 +1436,29 @@ function watchSection() {
   s.appendChild(Office.sectionHead(T('watch.title'), T('watch.sub'), unfold, { place: 'watch.title' }));
   const box = el('div', 'box wm-watchlist');
   const w = state.watch;
+  watchGroups = [];
   if (!w) {
     box.appendChild(el('p', 'empty', T('watch.none')));
     unfold.hidden = true;
     s.appendChild(box);
     return s;
   }
-  box.appendChild(group('ips', T('watch.ips'), T('watch.ips_sum', { n: w.ips.length }),
+  const bar = watchBarGet();
+  s.appendChild(bar.el);
+  watchWords = bar.read().words;
+  const gs = [];
+  gs.push(group('ips', T('watch.ips'), T('watch.ips_sum', { n: w.ips.length }),
     w.ips.map((x) => item(x.ip, [(x.users || []).join(', '), (x.services || []).join(', '), T('watch.last_seen', { when: fmt.relative(x.last) })]))));
   if (w.fail_ips.length) {
-    box.appendChild(group('fail_ips', T('watch.fail_ips'), T('watch.fail_ips_sum', { n: w.fail_ips.length }),
+    gs.push(group('fail_ips', T('watch.fail_ips'), T('watch.fail_ips_sum', { n: w.fail_ips.length }),
       w.fail_ips.map((x) => item(x.ip, [T('watch.since', { when: fmt.date(x.since) }), x.quiet ? T('watch.quiet', { n: x.quiet }) : '',
         T('watch.last_seen', { when: fmt.relative(x.last) })]))));
   }
   const c = w.containers;
-  box.appendChild(group('containers', T('watch.containers'),
+  gs.push(group('containers', T('watch.containers'),
     c ? T('watch.containers_sum', { special: c.special.length, count: c.count, n: Number(c.count) || 0 }) : T('watch.containers_wait'),
-    c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : []));
-  box.appendChild(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
+    c ? c.special.map((x) => item(x.name, [], flags(x.tokens))) : [], ['Docker']));
+  gs.push(group('plugins', T('watch.plugins'), T('watch.plugins_sum', { n: w.plugins.length }),
     w.plugins.map((x) => item(x.name, [x.source || T('watch.no_source'), x.version || '']))));
   const f = w.flash || { extra: [], users: [], keys: [] };
   const flash = [
@@ -1331,18 +1468,22 @@ function watchSection() {
   ];
   if (f.keys.length) f.keys.forEach((k) => flash.push(item(T('watch.keys'), [k.user, [k.type, k.comment].filter(Boolean).join(' '), k.fp], null, true)));
   else flash.push(item(T('watch.keys'), [T('watch.keys_none')], null, true));
-  box.appendChild(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length,
+  gs.push(group('flash', T('watch.flash'), T('watch.flash_sum', { extra: f.extra.length,
     users: T('watch.flash_users', { n: f.users.length }), keys: T('watch.flash_keys', { n: f.keys.length }) }), flash));
   const sh = w.shares;
-  box.appendChild(group('shares', T('watch.shares'),
+  gs.push(group('shares', T('watch.shares'),
     !sh ? T('watch.shares_wait') : sh.open.length ? T('watch.shares_sum', { open: sh.open.length, count: sh.count }) : T('watch.shares_none'),
     sh ? sh.open.map((x) => item(x.share, [x.smb ? `SMB: ${level(x.smb)}` : '', x.nfs ? `NFS: ${level(x.nfs)}` : ''])) : []));
-  box.appendChild(schedGroup(w.sched));
-  box.appendChild(hostGroup(w.host));
-  if (w.partner && (w.partner.pairs.length || w.partner.strays.length)) box.appendChild(partnerGroup(w.partner));
-  box.appendChild(netGroup(state.net));
-  box.appendChild(snapGroup(state.snaps));
-  flowGroups(state.flow).forEach((g) => box.appendChild(g));
+  gs.push(schedGroup(w.sched));
+  gs.push(hostGroup(w.host));
+  if (w.partner && (w.partner.pairs.length || w.partner.strays.length)) gs.push(partnerGroup(w.partner));
+  gs.push(netGroup(state.net));
+  gs.push(snapGroup(state.snaps));
+  gs.push(...flowGroups(state.flow));
+  const tally = fitTally(gs.map((g) => g.wmFit));
+  gs.filter((g) => g.wmFit.shown).forEach((g) => box.appendChild(g));
+  if (!tally.shown) box.appendChild(el('p', 'empty', T('watch.filter.none')));
+  watchWords = [];
   const label = () => {
     unfold.textContent = watchGroups.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
     unfold.hidden = !watchGroups.length;
@@ -1355,6 +1496,7 @@ function watchSection() {
   box.addEventListener('click', () => setTimeout(label, 0));
   label();
   s.appendChild(box);
+  bar.done(tally.n, tally.total);
   return s;
 }
 
@@ -1561,7 +1703,8 @@ function flowGroups(f) {
   const gc = grafanaRow('flow_clients');
   if (gc) clients.push(gc);
   out.push(group('flow_clients', T('watch.flow_clients'),
-    T('watch.flow_clients_sum', { learning: overall, n: (f.clients || []).length, size: fmt.size(total(f.clients, 'day')) }), clients));
+    T('watch.flow_clients_sum', { learning: overall, n: (f.clients || []).length, size: fmt.size(total(f.clients, 'day')) })
+      + (can.office ? ' · ' + T('watch.flow_office_now') : ''), clients));
 
   // containers: the top senders
   const cts = [];
@@ -1573,7 +1716,7 @@ function flowGroups(f) {
   if (can.host && can.host.length) cts.push(item(can.host.join(', '), [T('watch.flow_host')]));
   if (f.idle) cts.push(note(T('watch.flow_idle', { n: f.idle })));
   out.push(group('flow_containers', T('watch.flow_containers'),
-    can.docker === false ? T('watch.flow_no_docker') : T('watch.flow_containers_sum', { size: fmt.size(total(f.containers, 'day')) }), cts));
+    can.docker === false ? T('watch.flow_no_docker') : T('watch.flow_containers_sum', { size: fmt.size(total(f.containers, 'day')) }), cts, ['Docker']));
 
   // written into ZFS shares
   const zfs = can.zfs;
@@ -1614,22 +1757,26 @@ function flowGroups(f) {
     [T('watch.flow_smb_hours', { n: x.hours }), learningText(x.learning, f), T('watch.last_seen', { when: fmt.relative(x.last) })])));
   out.push(group('flow_smb', T('watch.flow_smb'), smbState || T('watch.flow_smb_sum', {
     users: T('watch.flow_smb_users', { n: smb.users.length }), machines: T('watch.flow_smb_machines', { n: smb.clients.length }) }), rows));
-  if (can.office) out[0].querySelector('.group-meta').textContent += ' · ' + T('watch.flow_office_now');
   return out;
 }
 
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  /** sub: «entry/<id>» (the search's): that entry of the book among the rows shown */
+  /** sub: a tile (#/watchman/book, …/open — only what's not noted yet —, …/posture, …/watch); «entry/<id>» (the search's):
+      that entry of the whole book among the rows shown */
   async mount(root, sub) {
     view = root;
     const m = /^entry\/([\w-]{1,64})$/.exec(sub || '');
-    if (m) { wanted = m[1]; Office.subroute(''); }
+    if (m) wanted = m[1];
+    bookBarGet().reset();          // a new visit: the whole book (the area is a choice and stays)
+    watchBarGet().reset();         // … and the whole of what he keeps an eye on, folded as kept
+    watchShut.clear();
+    sw.mount(m ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
     render();
     await load(false);
   },
-  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; bookLabel = null; wanted = null; },
+  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; wanted = null; },
   poll() { if (!running()) load(false); },
   started() { if (hired() && !state) load(false); },      // his picture shows the mark on every page
   agentChanged() { if (view) render(); },
@@ -1655,9 +1802,10 @@ Office.desk({
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
 Office.places(ID, [
   { kind: 'section', key: 'round.title' },
-  { kind: 'section', key: 'posture.title' },
-  { kind: 'section', key: 'book.title' },
-  { kind: 'section', key: 'watch.title' },
+  { kind: 'section', key: 'posture.title', route: `#/${ID}/posture` },
+  { kind: 'section', key: 'book.title', route: `#/${ID}/book` },
+  { kind: 'section', key: 'watch.title', route: `#/${ID}/watch` },
+  ...sw.places(),             // his tiles: the book, «Not noted yet», how secure, what he keeps an eye on
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
@@ -1667,7 +1815,8 @@ Office.places(ID, [
 
 // what his state holds for the search (core.js «items»): the entries of his book not noted yet (in his words, never a
 // router's or a log's line), his posture tips not known yet (their rows carry the tip's id: data-id), what he keeps an
-// eye on — each group, found by its title and the names in it (plugins, containers, shares, User Scripts)
+// eye on — each group, found by its title and the names in it (plugins, containers, shares, User Scripts); each through
+// its tile's sub-route, so its section is drawn
 const ENTRIES_MAX = 120;
 Office.placesFrom(ID, (s) => {
   const out = [];
@@ -1676,7 +1825,7 @@ Office.placesFrom(ID, (s) => {
     route: `#/${ID}/entry/${e.id}`, anchor: `entry:${e.id}`,
   }));
   ((s.posture && s.posture.tips) || []).filter((x) => x && !x.known).forEach((x) => out.push({
-    text: T(`posture.${x.id}.title`, postureParams(x)), sub: `${T('posture.title')} · ${T('posture.level_' + x.level)}`, anchor: x.id,
+    text: T(`posture.${x.id}.title`, postureParams(x)), sub: `${T('posture.title')} · ${T('posture.level_' + x.level)}`, route: `#/${ID}/posture`, anchor: x.id,
   }));
   const w = s.watch;
   if (!w) return out;
@@ -1685,11 +1834,12 @@ Office.placesFrom(ID, (s) => {
     ['plugins', names(w.plugins, 'name')], ['flash', ''], ['shares', names(w.shares && w.shares.open, 'share')], ['sched', names(w.sched && w.sched.scripts, 'name')],
     ['host', ''], ...(w.partner && ((w.partner.pairs || []).length || (w.partner.strays || []).length) ? [['partner', '']] : []), ['net', ''], ['snaps', ''],
     ...(s.flow ? ['flow_clients', 'flow_containers', 'flow_shares', 'flow_gone', 'flow_smb'] : ['flow_clients']).map((k) => [k, ''])];
-  groups.forEach(([key, words]) => out.push({ text: T('watch.' + key), sub: T('watch.title'), anchor: `watch:${key}`, words }));
+  groups.forEach(([key, words]) => out.push({ text: T('watch.' + key), sub: T('watch.title'), route: `#/${ID}/watch`, anchor: `watch:${key}`, words }));
   return out;
 });
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName };
+  globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
+    groupFit, fitTally, groupOpen, watchSection };
 }
 })();

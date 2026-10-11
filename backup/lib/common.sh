@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.39"
+UB_VERSION="2.41"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1884,12 +1884,20 @@ recover_vms() {
 # 6. Drift (inventory <-> settings.ini)
 ##############################################################################
 #   DRIFT        lines "level|text"   level: info | warn | error
-#   DRIFT_CODE   the same index: "code<US>value" for messages the office translates (since 2.18;
-#                empty for the others - their text is shown as it is)
+#   DRIFT_CODE   the same index: "code<US>value" for messages the office translates (since 2.18; since 2.41
+#                every message has a code; value only for the codes from before 2.41, "" for the others)
+#   DRIFT_PARAMS the same index (since 2.41): the sentence's parameters for the office, "key=value" joined by <US>
+#                (drift.json "params": {key: value}); the text stays English - the log, drift.txt, the notification
 #   SKIP_KOPIA[share]=reason   shares Kopia must not back up this time
-declare -ga DRIFT=() DRIFT_CODE=()
+declare -ga DRIFT=() DRIFT_CODE=() DRIFT_PARAMS=()
 declare -gA SKIP_KOPIA=()
-drift_add() { DRIFT+=( "$1|$2" ); DRIFT_CODE+=( "${3:-}"$'\x1f'"${4:-}" ); }   # drift_add <level> <text> [code] [value]
+# drift_add <level> <text> <code> [value] [key=value]...
+#   every call names a code (tests/run.php testDriftCodes checks it, and that the office has words for it)
+drift_add() {
+    local p="" kv
+    for kv in "${@:5}"; do p+="${p:+$'\x1f'}$kv"; done
+    DRIFT+=( "$1|$2" ); DRIFT_CODE+=( "${3:-}"$'\x1f'"${4:-}" ); DRIFT_PARAMS+=( "$p" )
+}
 
 drift_check_shares() {
     local s mode meth id loc_now loc_cfg o
@@ -1911,11 +1919,13 @@ drift_check_shares() {
         [[ -n "${INV_ID[$s]:-}" ]] && o="${missing_by_id[${INV_ID[$s]}]:-}"
         if [[ -n "$o" ]]; then
             renamed[$o]="$s"
-            drift_add warn "Share '$o' was renamed to '$s' (same id ${INV_ID[$s]%%:*}) - '$s' is only backed up after setup.sh"
+            drift_add warn "Share '$o' was renamed to '$s' (same id ${INV_ID[$s]%%:*}) - '$s' is only backed up after setup.sh" \
+                share_renamed "" name="$s" old="$o"
             continue
         fi
         matches_any "$s" "${DRIFT_IGNORE[@]}" && continue
-        drift_add warn "New share '$s' ($(inv_locnames "$s")${INV_GB[$s]:+, ${INV_GB[$s]} GB}) - not in settings.ini, not backed up"
+        drift_add warn "New share '$s' ($(inv_locnames "$s")${INV_GB[$s]:+, ${INV_GB[$s]} GB}) - not in settings.ini, not backed up" \
+            share_new "" name="$s" locations="$(inv_locnames "$s")" bytes="${INV_BYTES[$s]:-}"
     done
 
     # Deleted or empty
@@ -1925,39 +1935,43 @@ drift_check_shares() {
         if ! inv_has_share "$s"; then
             # neither data nor Unraid config
             if [[ "$mode" == "off" ]]; then
-                drift_add info "Share '$s' no longer exists (was set to off)"
+                drift_add info "Share '$s' no longer exists (was set to off)" share_gone_off "" name="$s"
             else
-                drift_add warn "Share '$s' no longer exists (mode=$mode)"
+                drift_add warn "Share '$s' no longer exists (mode=$mode)" share_gone "" name="$s" mode="$mode"
             fi
         elif [[ "${INV_METHOD[$s]}" == "none" && "$mode" != "off" ]]; then
             # only left in Unraid's config. If it was empty at setup already (no
             # id), that is nothing new - otherwise the data is gone.
             if [[ -n "$(cfg "share|$s|id")" ]]; then
-                drift_add warn "Share '$s' has no data any more (so far on $(cfg "share|$s|locations" "?"), mode=$mode)"
+                drift_add warn "Share '$s' has no data any more (so far on $(cfg "share|$s|locations" "?"), mode=$mode)" \
+                    share_empty "" name="$s" locations="$(cfg "share|$s|locations" "?")" mode="$mode"
             fi
         elif [[ "${INV_METHOD[$s]}" != "none" && "$mode" != "off" && -z "$(cfg "share|$s|id")" ]]; then
-            drift_add info "Share '$s' has data now and is backed up - setup.sh then remembers its id (to spot renames)"
+            drift_add info "Share '$s' has data now and is backed up - setup.sh then remembers its id (to spot renames)" \
+                share_has_data "" name="$s"
         fi
     done
 
     for s in "${INV_SHARES[@]}"; do
         [[ "${INV_METHOD[$s]}" == "none" || -z "${cfg_has[$s]:-}" ]] && continue
-        share_name_ok "$s" || { drift_add warn "Share '$s': the name contains @ : \" or | - not backed up"; continue; }
+        share_name_ok "$s" || { drift_add warn "Share '$s': the name contains @ : \" or | - not backed up" share_name_bad "" name="$s"; continue; }
         mode="$(share_mode "$s")"
         [[ "$mode" == "off" ]] && continue
         meth="$(share_method "$s")"
         loc_now="$(inv_locnames "$s")"; loc_cfg="$(cfg "share|$s|locations")"
         if [[ -n "$loc_cfg" && "$loc_cfg" != "$loc_now" ]]; then
-            drift_add info "Share '$s' now lies on: $loc_now (settings.ini says: $loc_cfg) - taken along automatically"
+            drift_add info "Share '$s' now lies on: $loc_now (settings.ini says: $loc_cfg) - taken along automatically" \
+                share_moved "" name="$s" now="$loc_now" was="$loc_cfg"
         fi
         if [[ "$meth" == "live" && "$(cfg "share|$s|method" auto)" != "live" ]]; then
-            drift_add warn "Share '$s' cannot be backed up with a snapshot ($(printf '%s' "${INV_NOTE[$s]}" | head -1)) - Kopia reads it live"
+            drift_add warn "Share '$s' cannot be backed up with a snapshot ($(printf '%s' "${INV_NOTE[$s]}" | head -1)) - Kopia reads it live" \
+                share_live "" name="$s" note="$(printf '%s' "${INV_NOTE[$s]}" | head -1)"
         fi
         if [[ "$mode" == "snapshot" && "$meth" == "live" ]]; then
-            drift_add warn "Share '$s' is set to mode=snapshot but lies on a file system without snapshots"
+            drift_add warn "Share '$s' is set to mode=snapshot but lies on a file system without snapshots" share_snapshot_no_fs "" name="$s"
         fi
         if [[ "${INV_LAYOUT[$s]}" == "split" ]]; then
-            drift_add info "Share '$s' lies on several bases and has child datasets - Kopia sees one subfolder per base"
+            drift_add info "Share '$s' lies on several bases and has child datasets - Kopia sees one subfolder per base" share_split "" name="$s"
         fi
     done
 }
@@ -1973,21 +1987,23 @@ drift_check_containers() {
             t="$(ct_db_type "$n")"
             if db_dumpable "$t" && ! cfg_has "dump|$n"; then
                 drift_add warn "New database container '$n' ($t, $img${CT_PROJECT[$n]:+, stack ${CT_PROJECT[$n]}}) - keeps running, no dump set up until you decide (its raw data is in the snapshot, crash-consistent)" \
-                    new_database "$n"
+                    new_database "$n" name="$n" type="$t" image="$img" stack="${CT_PROJECT[$n]:-}"
             elif is_nextcloud_image "$img" && ! cfg_has "nextcloud|$n"; then
-                drift_add warn "New Nextcloud container '$n' - keeps running, no maintenance mode set up until you decide" new_nextcloud "$n"
+                drift_add warn "New Nextcloud container '$n' - keeps running, no maintenance mode set up until you decide" new_nextcloud "$n" name="$n"
             else
-                drift_add info "New container '$n' ($img) - keeps running during the backup until you decide" new_container "$n"
+                drift_add info "New container '$n' ($img) - keeps running during the backup until you decide" new_container "$n" \
+                    name="$n" image="$img"
             fi
         fi
         if [[ -n "${CT_VOLUMES[$n]}" && -z "${known[$n]:-}" ]]; then
-            drift_add warn "Container '$n' uses Docker volumes ($(cut -d'|' -f1 <<<"${CT_VOLUMES[$n]}" | paste -sd, -)) - they live in the Docker image and are NOT in the backup"
+            drift_add warn "Container '$n' uses Docker volumes ($(cut -d'|' -f1 <<<"${CT_VOLUMES[$n]}" | paste -sd, -)) - they live in the Docker image and are NOT in the backup" \
+                ct_volumes "" name="$n" volumes="$(cut -d'|' -f1 <<<"${CT_VOLUMES[$n]}" | paste -sd, - | sed 's/,/, /g')"
         fi
     done
     for n in $(cfg_names dump) $(cfg_names nextcloud) "${DOCKER_NO_STOP[@]}" "${DOCKER_SKIP[@]}"; do
         [[ -n "${referenced[$n]:-}" ]] && continue
         referenced[$n]=1
-        in_list "$n" "${CT_NAMES[@]}" || drift_add warn "Container '$n' is in settings.ini but does not exist"
+        in_list "$n" "${CT_NAMES[@]}" || drift_add warn "Container '$n' is in settings.ini but does not exist" ct_gone "" name="$n"
     done
 }
 
@@ -1997,21 +2013,22 @@ drift_check_vms() {
     for n in "${VM_NAMES[@]}"; do
         if ! cfg_has "vm|$n"; then
             drift_add info "New VM '$n' - not set up yet: its disks are in the snapshot of their share, but it is not prepared for it (keeps running) until you decide" \
-                new_vm "$n"
+                new_vm "$n" name="$n"
             continue
         fi
         [[ "$(vm_mode "$n")" == "off" ]] && {
-            [[ -n "${VM_OWN_DS[$n]}" ]] || drift_add info "VM '$n' is set to off, but its disks share a dataset - they are in the share's snapshot anyway"
+            [[ -n "${VM_OWN_DS[$n]}" ]] || drift_add info "VM '$n' is set to off, but its disks share a dataset - they are in the share's snapshot anyway" \
+                vm_off_shared "" name="$n"
             continue
         }
         case "${VM_SNAP[$n]}" in
-            block)   drift_add warn "VM '$n' uses a whole device as a disk - no snapshot holds it" ;;
-            live)    drift_add warn "VM '$n' has a disk on a file system without snapshots - it is not backed up" ;;
-            missing) drift_add warn "VM '$n': a disk file was not found" ;;
+            block)   drift_add warn "VM '$n' uses a whole device as a disk - no snapshot holds it" vm_whole_device "" name="$n" ;;
+            live)    drift_add warn "VM '$n' has a disk on a file system without snapshots - it is not backed up" vm_disk_live "" name="$n" ;;
+            missing) drift_add warn "VM '$n': a disk file was not found" vm_disk_missing "" name="$n" ;;
         esac
     done
     while IFS= read -r n; do
-        [[ -n "$n" ]] && ! in_list "$n" "${VM_NAMES[@]}" && drift_add info "VM '$n' is in settings.ini but no longer exists"
+        [[ -n "$n" ]] && ! in_list "$n" "${VM_NAMES[@]}" && drift_add info "VM '$n' is in settings.ini but no longer exists" vm_gone "" name="$n"
     done < <(cfg_names vm)
 }
 
@@ -2037,34 +2054,39 @@ drift_check_kopia() {
     is_yes "$KOPIA_ENABLED" || { KOPIA_OK="off"; return 0; }
     [[ ${#PLAN_KOPIA[@]} -eq 0 && "$PLAN_FLASH" != "snapshot" && ${#PLAN_KITEMS[@]} -eq 0 ]] && { KOPIA_OK="none"; return 0; }
     if [[ -z "$KOPIA_CONTAINER" ]]; then
-        drift_add error "No Kopia container in settings.ini"; return 1
+        drift_add error "No Kopia container in settings.ini" kopia_no_container; return 1
     fi
     if ! in_list "$KOPIA_CONTAINER" "${CT_NAMES[@]}"; then
-        drift_add error "Kopia container '$KOPIA_CONTAINER' does not exist"; return 1
+        drift_add error "Kopia container '$KOPIA_CONTAINER' does not exist" kopia_container_gone "" name="$KOPIA_CONTAINER"; return 1
     fi
     kopia_mounts_load
     if ! k_map "$MOUNT_ROOT"; then
-        drift_add error "The Kopia container does not map $MOUNT_ROOT (expected: $MOUNT_ROOT -> $MOUNT_ROOT, Read Only - Slave)"; return 1
+        drift_add error "The Kopia container does not map $MOUNT_ROOT (expected: $MOUNT_ROOT -> $MOUNT_ROOT, Read Only - Slave)" \
+            kopia_no_mount "" path="$MOUNT_ROOT"; return 1
     fi
     case "${KM_PROP[$KMAP_IDX]}" in
         slave|rslave|shared|rshared) ;;
-        *) drift_add error "Mapping ${KM_SRC[$KMAP_IDX]} in the Kopia container has propagation '${KM_PROP[$KMAP_IDX]:-rprivate}' - new snapshot mounts stay invisible. Set the access mode to 'Read Only - Slave'"
+        *) drift_add error "Mapping ${KM_SRC[$KMAP_IDX]} in the Kopia container has propagation '${KM_PROP[$KMAP_IDX]:-rprivate}' - new snapshot mounts stay invisible. Set the access mode to 'Read Only - Slave'" \
+               kopia_propagation "" path="${KM_SRC[$KMAP_IDX]}" propagation="${KM_PROP[$KMAP_IDX]:-rprivate}"
            return 1 ;;
     esac
     [[ "${KM_RW[$KMAP_IDX]}" == "true" ]] && \
-        drift_add warn "Mapping ${KM_SRC[$KMAP_IDX]} in the Kopia container is writable - 'Read Only - Slave' recommended"
+        drift_add warn "Mapping ${KM_SRC[$KMAP_IDX]} in the Kopia container is writable - 'Read Only - Slave' recommended" \
+            kopia_mount_writable "" path="${KM_SRC[$KMAP_IDX]}"
     if ! kopia_status_load; then
-        if [[ "$KOPIA_RUNNING" != "yes" ]]; then drift_add error "Kopia container '$KOPIA_CONTAINER' is not running"
-        else drift_add error "Kopia is not connected to a repository"; fi
+        if [[ "$KOPIA_RUNNING" != "yes" ]]; then drift_add error "Kopia container '$KOPIA_CONTAINER' is not running" kopia_not_running "" name="$KOPIA_CONTAINER"
+        else drift_add error "Kopia is not connected to a repository" kopia_not_connected "" name="$KOPIA_CONTAINER"; fi
         return 1
     fi
     local uid_ok="yes"
     if [[ "$KOPIA_SERVER_UID" != "0" ]]; then
-        drift_add error "The Kopia server runs as UID $KOPIA_SERVER_UID inside the container, snapshots need root (to read every file). A run as root would make the shared cache unreadable for the server - Kopia is NOT started. Fix: set PUID=0 and PGID=0 in the template"
+        drift_add error "The Kopia server runs as UID $KOPIA_SERVER_UID inside the container, snapshots need root (to read every file). A run as root would make the shared cache unreadable for the server - Kopia is NOT started. Fix: set PUID=0 and PGID=0 in the template" \
+            kopia_uid "" uid="$KOPIA_SERVER_UID" name="$KOPIA_CONTAINER"
         uid_ok="no"
     fi
     if [[ -n "$KOPIA_IDENTITY_CFG" && "$KOPIA_IDENTITY_CFG" != "$KOPIA_ID" ]]; then
-        drift_add warn "The Kopia identity is now $KOPIA_ID (settings.ini: $KOPIA_IDENTITY_CFG) - new sources instead of continuing the old ones"
+        drift_add warn "The Kopia identity is now $KOPIA_ID (settings.ini: $KOPIA_IDENTITY_CFG) - new sources instead of continuing the old ones" \
+            kopia_identity "" now="$KOPIA_ID" was="$KOPIA_IDENTITY_CFG"
     fi
     kopia_policies_load
     KP_CHECKED="yes"
@@ -2087,11 +2109,13 @@ drift_check_kopia() {
                 done < <(cfg_list "$kind|$share|kopia_ignore")
             fi
             if [[ -n "$miss_own" ]]; then
-                drift_add error "The Kopia policy for $cpath lacks ignore rules ($miss_own) - $what is NOT given to Kopia until 'setup.sh --kopia' has run"
+                drift_add error "The Kopia policy for $cpath lacks ignore rules ($miss_own) - $what is NOT given to Kopia until 'setup.sh --kopia' has run" \
+                    kopia_ignores_missing "" path="$cpath" kind="$kind" name="$share" rules="$(printf '%s' "${miss_own% }" | sed 's/ /, /g')"
                 SKIP_KOPIA[$key]="policy incomplete"
                 kp_status_add "$kind" "$share" "$cpath" 0 1
             else
-                drift_add warn "The Kopia policy for $cpath differs from settings.ini ('setup.sh --kopia' aligns it):"$'\n'"${KP_DIFF%$'\n'}"
+                drift_add warn "The Kopia policy for $cpath differs from settings.ini ('setup.sh --kopia' aligns it):"$'\n'"${KP_DIFF%$'\n'}" \
+                    kopia_policy_differs "" path="$cpath" kind="$kind" name="$share"
                 kp_status_add "$kind" "$share" "$cpath" 0 0
             fi
         fi
@@ -2107,20 +2131,24 @@ drift_check_items() {
         IFS='|' read -r t n f <<<"$it"
         if [[ "$t" == "vm" ]]; then
             [[ "$VM_SERVICE" == "yes" ]] && ! in_list "$n" "${VM_NAMES[@]}" \
-                && drift_add info "VM '$n' has a Kopia source of its own in settings.ini but no longer exists - what is left of it still goes there"
+                && drift_add info "VM '$n' has a Kopia source of its own in settings.ini but no longer exists - what is left of it still goes there" \
+                    vm_source_orphan "" name="$n"
             [[ "$(vm_mode "$n")" == "off" ]] \
-                && drift_add warn "VM '$n' is left out of the snapshots (mode = off) but has a Kopia source of its own - only its package goes there"
+                && drift_add warn "VM '$n' is left out of the snapshots (mode = off) but has a Kopia source of its own - only its package goes there" \
+                    vm_source_off "" name="$n"
         else
             found=0
             for c in "${CT_NAMES[@]}"; do
                 [[ "${CT_PROJECT[$c]:-}" == "$n" || ( -z "${CT_PROJECT[$c]:-}" && "$c" == "$n" ) ]] && { found=1; break; }
             done
-            (( found )) || drift_add info "App '$n' has a Kopia source of its own in settings.ini but no container of it exists any more - what is left of it still goes there"
+            (( found )) || drift_add info "App '$n' has a Kopia source of its own in settings.ini but no container of it exists any more - what is left of it still goes there" \
+                app_source_orphan "" name="$n"
         fi
         while IFS='|' read -r sh rel; do
             [[ -z "$sh" ]] && continue
             in_list "$sh" "${PLAN_MOUNT[@]}" && continue
-            drift_add warn "The Kopia source of $t '$n': '$sh/$rel' lies in share '$sh', which takes no snapshot (mode=$(share_mode "$sh")) - that part is left out"
+            drift_add warn "The Kopia source of $t '$n': '$sh/$rel' lies in share '$sh', which takes no snapshot (mode=$(share_mode "$sh")) - that part is left out" \
+                source_part_unsnapped "" kind="$t" name="$n" path="$sh/$rel" share="$sh" mode="$(share_mode "$sh")"
         done < <(kopia_item_parts "$t" "$n")
     done
     return 0
@@ -2128,7 +2156,7 @@ drift_check_items() {
 
 drift_check_settings() {
     local e
-    for e in "${CFG_ERRORS[@]}"; do drift_add error "settings.ini: $e"; done
+    for e in "${CFG_ERRORS[@]}"; do drift_add error "settings.ini: $e" settings_error "" detail="$e"; done
 }
 
 # Fingerprint (warn/error only), so that the same message does not come every night
@@ -2163,7 +2191,8 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #   history.jsonl    one line per real backup run, the last 200
 #   drift.json       drift found by the last check (level + text, since 2.18 a code + value for
 #                    the messages the office translates), and since 2.14 per Kopia target
-#                    whether its policy matches settings.ini ("policies")
+#                    whether its policy matches settings.ini ("policies"); since 2.41 every item has a code
+#                    and "params" (the sentence's parts) - the office says each in its own words
 #   since 2.18 status.json and last-run.json carry "packages" (what the run packed, see section 8);
 #   history.jsonl keeps only its counts (without "list")
 #   since 2.21 status.json carries "new_local": the new folders this run left out of Kopia (section 11;
@@ -2400,16 +2429,23 @@ status_skipped() {
     return 0
 }
 
-# drift.json: {time, items: [{level, text, code, value}], policies: null (not compared) | [KP_STATUS ...]}
-#   code/value: since 2.18, for the messages the office translates ("" for the others)
+# drift.json: {time, items: [{level, text, code, value, params}], policies: null (not compared) | [KP_STATUS ...]}
+#   code/value: since 2.18, for the messages the office translates; since 2.41 every item has a code, value only
+#   the codes from before 2.41 ("" for the others), and params - the sentence's parts as strings ({} for none)
 drift_json_write() {
     local tmp="$UB_STATE/.drift.json.$$" pol="null" i
+    local -a par=()
     [[ "$KP_CHECKED" == "yes" ]] && { pol="$(printf '%s\n' "${KP_STATUS[@]}" | jq -sc .)" || pol="null"; }
+    for i in "${!DRIFT[@]}"; do par+=( "${DRIFT_PARAMS[$i]:-}" ); done
+    # texts and params go in as arguments (a text or a value may hold a newline), the level and code as lines
     if for i in "${!DRIFT[@]}"; do printf '%s\x1f%s\n' "${DRIFT[$i]%%|*}" "${DRIFT_CODE[$i]:-$'\x1f'}"; done \
             | jq -R 'select(length > 0) | split("\u001f") | {level: .[0], code: (.[1] // ""), value: (.[2] // "")}' \
-            | jq -sc --argjson t "$(date +%s)" --argjson p "${pol:-null}" --args \
-              '[., ($ARGS.positional | map(index("|") as $i | .[$i + 1:]))] | transpose | map(.[0] + {text: .[1]})
-               | {time: $t, items: ., policies: $p}' "${DRIFT[@]}" >"$tmp" 2>/dev/null; then
+            | jq -sc --argjson t "$(date +%s)" --argjson p "${pol:-null}" --argjson n "${#DRIFT[@]}" --args \
+              '[., ($ARGS.positional[:$n] | map(index("|") as $i | .[$i + 1:])),
+                   ($ARGS.positional[$n:] | map(split("\u001f") | map(select(index("=") != null) | index("=") as $i
+                                                | {key: .[:$i], value: .[$i + 1:]}) | from_entries))]
+               | transpose | map(.[0] + {text: .[1], params: (.[2] // {})})
+               | {time: $t, items: ., policies: $p}' "${DRIFT[@]}" "${par[@]}" >"$tmp" 2>/dev/null; then
         mv -f "$tmp" "$UB_STATE/drift.json" 2>/dev/null
     else
         rm -f "$tmp"
@@ -3141,16 +3177,16 @@ new_local_state_load() {
 # new_local_drift  -> the drift notes new_waiting, as NEW_LIST says (the old ones go)
 new_local_drift() {
     local i l s n b
-    local -a d=() dc=()
+    local -a d=() dc=() dp=()
     for i in "${!DRIFT[@]}"; do
         [[ "${DRIFT_CODE[$i]:-}" == new_waiting$'\x1f'* ]] && continue
-        d+=( "${DRIFT[$i]}" ); dc+=( "${DRIFT_CODE[$i]:-$'\x1f'}" )
+        d+=( "${DRIFT[$i]}" ); dc+=( "${DRIFT_CODE[$i]:-$'\x1f'}" ); dp+=( "${DRIFT_PARAMS[$i]:-}" )
     done
-    DRIFT=( "${d[@]}" ); DRIFT_CODE=( "${dc[@]}" )
+    DRIFT=( "${d[@]}" ); DRIFT_CODE=( "${dc[@]}" ); DRIFT_PARAMS=( "${dp[@]}" )
     for l in "${NEW_LIST[@]}"; do
         IFS=$'\x1f' read -r s n b _ <<<"$l"
         drift_add info "New folder '$s/$n'${b:+ ($(human "$b"))} stays local - Kopia leaves it out until you decide in the setup" \
-            new_waiting "$s/$n"
+            new_waiting "$s/$n" share="$s" folder="$n" bytes="$b"
     done
     return 0
 }
@@ -3194,7 +3230,7 @@ drift_check_new_local() {
         [[ -n "${CFG[share|$s|kopia_known]+x}" ]] || missing+="${missing:+, }$s"
     done
     [[ -n "$missing" ]] && drift_add info "Every folder of these shares goes to Kopia, new ones too, until the setup is applied once and records their folders: $missing" \
-        known_missing "$missing"
+        known_missing "$missing" shares="$missing"
     return 0
 }
 

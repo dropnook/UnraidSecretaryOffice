@@ -1249,9 +1249,14 @@
   "items": [
    {
     "level": "warn",
-    "code": "",
+    "code": "share_new",
     "value": "",
-    "text": "New share 'Schule' (daten, 3 GB) - not in settings.ini, not backed up"
+    "text": "New share 'Schule' (daten, 3 GB) - not in settings.ini, not backed up",
+    "params": {
+     "name": "Schule",
+     "locations": "daten",
+     "bytes": "3221225472"
+    }
    }
   ],
   "policies": null

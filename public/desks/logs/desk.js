@@ -18,9 +18,8 @@ const { el, fmt } = Office;
 const FOLLOW_MS = 2000;
 const TOUR_POLL_MS = 1500;
 const LINE_CHOICES = [100, 500, 2000, 10000];
-const SRC_TILES = 12;           // small tiles per log at most (the last one then says how many more)
+const SRC_CHIPS = 12;           // a chip per log in «Errors & warnings» at most (the last one then says how many more)
 const GROUPS = ['office', 'unraid', 'userscripts', 'containers'];
-const TILES = ['varlog', 'docker', 'found'];        // her tour's fixed tiles (a sub-route opens one)
 // favourites until someone stars or unstars one: Unraid's main logs and a few of the office's (missing ones drop out)
 const DEFAULT_FAVS = ['syslog', 'dmesg', 'docker', 'agent', 'backup:latest', 'container:kopia', 'embycache'];
 
@@ -35,15 +34,17 @@ let tourSeenRunning = false;    // this page saw the tour running: say when it i
 let loading = false;
 let mark = null;                // a line from the tour to show in the reader: {sample, cut}
 let markScroll = false;         // scroll to it after the next reading
-let shownKinds = [];            // the unfoldable rows of the open list: {open(), set(open)}
+let shownKinds = [];            // the unfoldable rows of «Errors & warnings»: {open(), set(open)}
 const unfolded = new Set();     // kinds unfolded on this visit
-let tile = Office.store('logs.tile') || '';     // the open tile: varlog, docker, found, src:<id> — '' none
+let tourKnown = false;          // her last tour asked for once this visit (until then her tour's sections say «loading»)
+let src = '';                   // the chip of «Errors & warnings»: '' every log, 'src:<id>' one, 'more' the rest — a filter, never kept
+let foundBar = null;            // the bar over «Errors & warnings» (core.js Office.filterBar, built once): the words, the chips, the note line
 const opts = {
   source: Office.store('logs.source') || '',          // nothing is read until a log is chosen
   lines: Number(Office.store('logs.lines')) || 500,
   follow: Office.store('logs.follow') !== '0',
   wrap: Office.store('logs.wrap') === '1',
-  only: Office.store('logs.only') === '1',
+  only: false,                // «only problems» is a filter: never kept (CLAUDE.md «Tiles»)
   query: '',
 };
 let favs = Office.storeJson('logs.favorites') || DEFAULT_FAVS.slice();    // source ids, in the order they were starred
@@ -80,7 +81,7 @@ async function load(fresh) {
 }
 function took(j) {
   if (j.ok && j.state) state = j.state;
-  if (view) { renderHead(); fillSources(); renderTiles(); }
+  if (view) { renderHead(); fillSources(); redraw(); }
 }
 
 /** Her last tour; while one runs, look again every 1.5 s */
@@ -89,6 +90,7 @@ async function loadTour() {
     const j = await Office.api.get({ a: 'part', desk: ID, part: 'tour' });
     if (j.ok) tour = j.part && typeof j.part === 'object' ? j.part : null;
   } catch (e) { /* keep what we have */ }
+  tourKnown = true;
   watchTour();
 }
 
@@ -106,7 +108,7 @@ function watchTour() {
       if (tour && tour.job && tour.job.failed) Office.toast(T('tour_failed'), true);
       else if (tour) Office.toast(T('tour_done', { ms: tour.duration_ms || 0 }));
     }
-    if (view) Office.keepInPlace(view.tiles, renderTour);
+    if (view) renderTour();
   }, TOUR_POLL_MS);
 }
 
@@ -139,8 +141,9 @@ async function read(fresh) {
     return;
   }
   const atBottom = view.out.scrollTop + view.out.clientHeight >= view.out.scrollHeight - 40;
-  if (fresh || j.reset || j.follow === 'replace' || offset === null) lines = j.lines;
-  else lines = lines.concat(j.lines).slice(-opts.lines);
+  const got = Array.isArray(j.lines) ? j.lines : [];
+  if (fresh || j.reset || j.follow === 'replace' || offset === null) lines = got;
+  else lines = lines.concat(got).slice(-opts.lines);
   offset = j.follow === 'append' ? j.offset : null;
   view.meta = j;
   renderLines((fresh || atBottom) && !markScroll);
@@ -151,7 +154,7 @@ function schedule() {
   clearTimeout(timer);
   if (!view || !opts.follow) return;
   timer = setTimeout(async () => {
-    if (!document.hidden && !Office.dialogOpen()) await read(false);
+    if (!document.hidden && !Office.dialogOpen() && view && view.readSection.isConnected) await read(false);      // the reader on the page
     schedule();
   }, FOLLOW_MS);
 }
@@ -181,17 +184,19 @@ function build(root) {
     [T('help.safe'), T('help.safe_text')],
   ]));
 
-  // her tour: tiles, and under them the list of the open one
-  const t = el('section', 'section lg-tour');
-  v.tourHint = el('span', 'hint');
-  t.appendChild(Office.sectionHead(T('tour_section'), T('tour_section_sub'), v.tourHint, { place: 'tour_section' }));
-  v.tiles = el('div', 'cards');
-  v.srcTiles = el('div', 'lg-srcs');
-  v.tourBody = el('div', 'lg-tour-body');
-  t.append(v.tiles, v.srcTiles, v.tourBody);
-  root.appendChild(t);
+  // a click outside the open list of logs closes it
+  root.addEventListener('click', (e) => { if (v.pop && !v.pop.hidden && !v.picker.contains(e.target)) closePicker(); });
+  root.appendChild(sw.el);          // the row of tiles, under it the chosen section — or, nothing chosen, all of them
+  return v;
+}
 
-  const s = el('section', 'section');
+/**
+ * «Read out» — the reader: built once per visit and kept (its lines, the open list, the field being typed in); the
+ * switcher puts it back in its place at every drawing, readerKeep() gives it back its scroll position and its focus
+ */
+function readerSection(v = view) {
+  if (v.readSection) return readerKeep(v);
+  const s = el('section', 'section lg-reader');
   v.readSection = s;
   v.hint = el('span', 'hint');
   s.appendChild(Office.sectionHead(T('reading'), T('reading_sub'), v.hint, { place: 'reading' }));
@@ -228,25 +233,25 @@ function build(root) {
   v.lines.dataset.keep = '1';
   LINE_CHOICES.forEach((n) => v.lines.appendChild(new Option(T('lines', { n }), String(n))));
   v.lines.value = String(opts.lines);
-  v.lines.onchange = () => { opts.lines = Number(v.lines.value); Office.store('logs.lines', String(opts.lines)); restart(); };
+  v.lines.onchange = () => { opts.lines = Number(v.lines.value); Office.store('logs.lines', String(opts.lines)); restart(); redraw(); };
   v.query = el('input', 'search');
   v.query.type = 'search';
   v.query.placeholder = T('filter');
   v.query.spellcheck = false;
   v.query.dataset.keep = '1';
   v.query.oninput = () => { opts.query = v.query.value; renderLines(false); };
-  const sw = (key, text, onchange) => {
+  const toggle = (key, text, onchange) => {
     const label = el('label', 'switch');
     const input = el('input');
     input.type = 'checkbox';
     input.checked = opts[key];
-    input.onchange = () => { opts[key] = input.checked; Office.store('logs.' + key, input.checked ? '1' : '0'); onchange(); };
+    input.onchange = () => { opts[key] = input.checked; if (key !== 'only') Office.store('logs.' + key, input.checked ? '1' : '0'); onchange(); };
     label.append(input, el('span', '', text));
     return label;
   };
-  v.followSw = sw('follow', T('live'), () => { if (opts.follow) read(false).then(schedule); else clearTimeout(timer); });
-  const onlySw = sw('only', T('only_problems'), () => renderLines(false));
-  const wrapSw = sw('wrap', T('wrap'), () => view.out.classList.toggle('wrap', opts.wrap));
+  v.followSw = toggle('follow', T('live'), () => { if (opts.follow) read(false).then(schedule); else clearTimeout(timer); redraw(); });
+  const onlySw = toggle('only', T('only_problems'), () => renderLines(false));
+  const wrapSw = toggle('wrap', T('wrap'), () => view.out.classList.toggle('wrap', opts.wrap));
   const copy = el('button', 'btn small plain', Office.t('common.copy'));
   copy.type = 'button';
   copy.onclick = () => Office.copy(shown().join('\n'));
@@ -257,15 +262,48 @@ function build(root) {
   s.appendChild(bar);
   v.favs = el('div', 'lg-favs');
   s.appendChild(v.favs);
-  // a click outside the open list closes it
-  root.addEventListener('click', (e) => { if (!v.pop.hidden && !v.picker.contains(e.target)) closePicker(); });
 
   v.out = el('pre', 'code lg-out' + (opts.wrap ? ' wrap' : ''));
   v.out.setAttribute('tabindex', '0');
   v.status = el('p', 'role lg-status');
   s.append(v.out, v.status);
-  root.appendChild(s);
-  return v;
+  readerWatch(v);
+  return s;
+}
+
+/** What the reader had when a drawing took it out: where its lines stood (at the bottom: following), the field in use */
+function readerWatch(v) {
+  const k = { top: 0, bottom: true, focus: null, range: null };
+  v.keep = k;
+  v.out.addEventListener('scroll', () => {
+    if (!v.out.isConnected || !v.out.clientHeight) return;
+    k.top = v.out.scrollTop;
+    k.bottom = v.out.scrollTop + v.out.clientHeight >= v.out.scrollHeight - 40;
+  }, { passive: true });
+  const range = (t) => { try { k.range = t && typeof t.selectionStart === 'number' ? [t.selectionStart, t.selectionEnd] : null; } catch (e) { k.range = null; } };
+  const box = v.readSection;
+  box.addEventListener('focusin', (e) => { k.focus = e.target; range(e.target); });
+  ['input', 'keyup', 'mouseup', 'select'].forEach((ev) => box.addEventListener(ev, (e) => { if (e.target === k.focus) range(e.target); }));
+  box.addEventListener('focusout', () => setTimeout(() => {
+    const a = document.activeElement;
+    if (box.isConnected && !(a && box.contains(a))) k.focus = null;
+  }, 0));
+}
+
+/** The reader back in its place: once the drawing is through, its lines where they stood and the focus where it was */
+function readerKeep(v) {
+  const k = v.keep;
+  Promise.resolve().then(() => {
+    if (!v.readSection.isConnected) return;
+    v.out.scrollTop = k.bottom ? v.out.scrollHeight : k.top;
+    const f = k.focus;
+    const a = document.activeElement;
+    if (f && f.isConnected && v.readSection.contains(f) && a !== f && (!a || a === document.body)) {
+      f.focus({ preventScroll: true });
+      if (k.range) { try { f.setSelectionRange(k.range[0], k.range[1]); } catch (e) { /* not a text field */ } }
+    }
+  });
+  return v.readSection;
 }
 
 function renderHead() {
@@ -317,117 +355,97 @@ function counts(errors, warnings) {
   return box;
 }
 
-function card(id, cls) {
-  const c = el('button', 'card' + (cls ? ' ' + cls : '') + (tile === id ? ' active' : ''));
-  c.type = 'button';
-  c.setAttribute('aria-pressed', String(tile === id));
-  c.onclick = () => openTile(tile === id ? '' : id);         // the open tile closes again
-  return c;
-}
+// ------------------------------------------------------------------ the row: her tour's three tiles and «Read out»
+/**
+ * Her page on core's switcher (CLAUDE.md «Tiles», Office.sections): /var/log, the containers' logs, errors & warnings —
+ * what her tour counted — and «Read out», the reader. No start tile: nothing chosen shows all four in the row's order;
+ * «Read out» chosen gives the reader the whole page. Kept as logs.tile; #/logs/<tile> picks one like a click.
+ */
+const sw = Office.sections({
+  id: ID,
+  key: 'logs.tile',
+  grid: 'cards lg-tiles',
+  default: '',
+  tiles: () => [
+    { id: 'varlog', key: 'varlog.title', place: 'tile.varlog', tile: (a) => varlogTile(a), section: () => varlogView() },
+    { id: 'docker', key: 'docker.title', place: 'tile.docker', tile: (a) => dockerTile(a), section: () => dockerView() },
+    { id: 'found', key: 'found.title', place: 'tile.found', tile: (a) => foundTile(a), section: () => foundView() },
+    { id: 'read', key: 'tile.read', place: 'tile.read', tile: (a) => readTile(a), section: () => readerSection() },
+  ],
+});
 
-function figures(left, right) {
-  const f = el('div', 'card-figures');
-  f.append(el('span', '', left), el('span', '', right || ''));
-  return f;
+/** Row and sections anew (a new state, a new tour, another log chosen) — the choice stays, so does the reader */
+function redraw() {
+  if (view) sw.render();
 }
 
 function renderTour() {
   if (!view) return;
   renderHead();
-  renderTiles();
-  renderTourBody();
+  redraw();
 }
 
-function renderTiles() {
-  if (!view) return;
-  view.tourHint.textContent = touring() ? T('touring') : tour && tour.time ? T('tour_at', { when: fmt.relative(tour.time) }) : '';
-  view.tourHint.title = tour && tour.time ? fmt.date(tour.time) : '';
-  const tiles = view.tiles;
-  tiles.innerHTML = '';
+/** When her tour was — in the head of each of its sections */
+function tourHint() {
+  const h = el('span', 'hint', touring() ? T('touring') : tour && tour.time ? T('tour_at', { when: fmt.relative(tour.time) }) : '');
+  if (tour && tour.time) h.title = fmt.date(tour.time);
+  return h;
+}
 
-  // /var/log — how full, right now
+/** /var/log — how full, right now */
+function varlogTile(a) {
   const v = varlog();
-  if (v) {
-    const c = card('varlog');
-    const head = el('div', 'card-head');
-    head.append(el('span', 'card-name', '/var/log'), el('span', 'lg-pct ' + fillLevel(v), v.pct + ' %'));
-    const bar = el('div', 'bar');
-    const used = el('i', 'lg-used ' + fillLevel(v));
-    used.style.width = Math.min(100, v.pct) + '%';
-    bar.appendChild(used);
-    const files = tour?.varlog?.count;
-    c.append(head, bar, figures(T('tile.varlog_of', { used: fmt.size(v.used), total: fmt.size(v.total) }),
-      files !== undefined ? T('tile.varlog_files', { n: files }) : ''));
-    tiles.appendChild(c);
-  }
+  if (!v) return Office.tile({ name: '/var/log', cls: 'empty-card', lines: [!tour || !tour.time ? T('tile.no_tour') : '–'], ...a });
+  const bar = el('div', 'bar');
+  const used = el('i', 'lg-used ' + fillLevel(v));
+  used.style.width = Math.min(100, v.pct) + '%';
+  bar.appendChild(used);
+  const files = tour?.varlog?.count;
+  return Office.tile({ name: '/var/log', chip: el('span', 'lg-pct ' + fillLevel(v), v.pct + ' %'), lines: [bar,
+    [T('tile.varlog_of', { used: fmt.size(v.used), total: fmt.size(v.total) }), files !== undefined ? T('tile.varlog_files', { n: files }) : '']], ...a });
+}
 
-  // the containers' logs
+/** The containers' logs: how big, how many, Docker's rotation */
+function dockerTile(a) {
   const d = tour?.docker;
-  const dc = card('docker');
-  const dh = el('div', 'card-head');
-  dh.appendChild(el('span', 'card-name', T('tile.docker')));
   if (d && d.ok) {
     const r = d.rotation || {};
-    dc.append(dh, el('div', 'card-line', T('tile.docker_size', { size: fmt.size(d.total || 0) })),
-      figures(T('tile.docker_count', { n: (d.containers || []).length }), r.on ? T('tile.rotation_on', { size: r.size || '?', files: r.files || '?' }) : T('tile.rotation_off')));
-  } else {
-    dc.classList.add('empty-card');
-    dc.append(dh, el('div', 'card-line', !tour || !tour.time ? T('tile.no_tour') : d && d.enabled === false ? T('docker.disabled') : T('tile.docker_off')));
+    return Office.tile({ name: T('tile.docker'), lines: [T('tile.docker_size', { size: fmt.size(d.total || 0) }),
+      [T('tile.docker_count', { n: (d.containers || []).length }), r.on ? T('tile.rotation_on', { size: r.size || '?', files: r.files || '?' }) : T('tile.rotation_off')]], ...a });
   }
-  tiles.appendChild(dc);
-
-  // what sounded like an error or a warning
-  const fc = Office.place('tile.found', card('found'));
-  const fh = el('div', 'card-head');
-  fh.appendChild(el('span', 'card-name', T('tile.found')));
-  if (tour && tour.time) {
-    const line = el('div', 'card-line');
-    line.appendChild(counts(tour.errors || 0, tour.warnings || 0));
-    fc.append(fh, line, figures(T('tile.found_logs', { n: noisy().length }), tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) })));
-  } else {
-    fc.classList.add('empty-card');
-    fc.append(fh, el('div', 'card-line', T('tile.no_tour')));
-  }
-  tiles.appendChild(fc);
-
-  // a small tile per log that had something (the loudest; the rest are in «Errors & warnings»)
-  view.srcTiles.innerHTML = '';
-  const loud = noisy();
-  const shownTiles = loud.length > SRC_TILES ? loud.slice(0, SRC_TILES - 1) : loud;
-  for (const s of shownTiles) {
-    const c = card('src:' + s.id, 'lg-src-tile');
-    c.title = sourceLabel(s);
-    c.append(el('span', 'card-name', sourceLabel(s)), counts(s.errors, s.warnings));
-    view.srcTiles.appendChild(c);
-  }
-  if (loud.length > shownTiles.length) {
-    const rest = loud.slice(shownTiles.length);
-    const c = el('button', 'card lg-src-tile lg-src-more');
-    c.type = 'button';
-    c.onclick = () => openTile('found');
-    c.append(el('span', 'card-name', T('tile.more_logs', { n: rest.length })),
-      counts(rest.reduce((n, s) => n + s.errors, 0), rest.reduce((n, s) => n + s.warnings, 0)));
-    view.srcTiles.appendChild(c);
-  }
-  view.srcTiles.hidden = !view.srcTiles.children.length;
+  return Office.tile({ name: T('tile.docker'), cls: 'empty-card',
+    lines: [!tour || !tour.time ? T('tile.no_tour') : d && d.enabled === false ? T('docker.disabled') : T('tile.docker_off')], ...a });
 }
 
-function openTile(id) {
-  tile = id;
-  Office.store('logs.tile', id || null);
-  Office.keepInPlace(view.tiles, () => { renderTiles(); renderTourBody(); });
+/** What sounded like an error or a warning, in how many logs, since when */
+function foundTile(a) {
+  if (!tour || !tour.time) return Office.tile({ name: T('tile.found'), cls: 'empty-card', lines: [T('tile.no_tour')], ...a });
+  const line = el('div', 'card-line');
+  line.appendChild(counts(tour.errors || 0, tour.warnings || 0));
+  return Office.tile({ name: T('tile.found'), lines: [line,
+    [T('tile.found_logs', { n: noisy().length }), tour.first ? T('tile.found_first') : T('tile.found_since', { when: fmt.date(tour.since) })]], ...a });
+}
+
+/** «Read out»: the log being read, live or not, how many lines — or that none is chosen */
+function readTile(a) {
+  const cur = source();
+  if (!cur) return Office.tile({ name: T('tile.read'), cls: 'empty-card', lines: [T('tile.read_none')], ...a });
+  return Office.tile({ name: T('tile.read'), lines: [T('source.' + cur.label, { name: cur.param }),
+    [opts.follow ? T('live') : '', T('lines', { n: opts.lines })]], ...a });
 }
 
 const sourceLabel = (s) => T('source.' + s.label, { name: s.param });
 
-// ------------------------------------------------------------------ the tour: lists
-function renderTourBody() {
-  const body = view.tourBody;
-  body.innerHTML = '';
-  shownKinds = [];
-  if (!tour || !tour.time) {
-    const box = el('div', 'box');
-    const e = el('div', 'empty');
+// ------------------------------------------------------------------ the tour's sections
+/** A section of her tour: its head, then (no tour yet) how to start one — null when there is a tour */
+function tourSection(title, sub, place, ...extra) {
+  const box = el('section', 'section lg-view');
+  box.appendChild(Office.sectionHead(title, sub, ...extra, tourHint(), { place }));
+  if (tour && tour.time) return [box, false];
+  const inner = el('div', 'box');
+  const e = el('div', 'empty');
+  if (!tourKnown) e.append(Office.t('common.loading'));
+  else {
     e.append(el('strong', '', T('no_tour_title')), touring() ? T('bubble.touring') : T('no_tour'));
     if (!touring()) {
       const b = el('button', 'btn', T('tour'));
@@ -436,18 +454,10 @@ function renderTourBody() {
       b.onclick = startTour;
       e.append(el('br'), b);
     }
-    box.appendChild(e);
-    body.appendChild(box);
-    return;
   }
-  if (tile === 'varlog') body.appendChild(varlogView());
-  else if (tile === 'docker') body.appendChild(dockerView());
-  else if (tile === 'found') body.appendChild(foundView(null));
-  else if (tile.startsWith('src:')) {
-    const s = noisy().find((x) => 'src:' + x.id === tile);
-    if (s) body.appendChild(foundView(s));
-    else { tile = ''; Office.store('logs.tile', null); }
-  }
+  inner.appendChild(e);
+  box.appendChild(inner);
+  return [box, true];
 }
 
 /** "+1.2 MB since the last tour" — growth as a fact, how fast in its bubble */
@@ -469,10 +479,10 @@ function readButton(id) {
   return b;
 }
 
-/** A row whose one action is reading its log (the whole row, if the log is on her list) */
+/** A row whose one action is reading its log (the whole row, if the log is on her list — it opens the reader, it unfolds nothing) */
 function readableRow(id) {
   const ok = !!(id && sourceById(id));
-  const r = el('div', 'row nocheck' + (ok ? ' unfolds' : ''));
+  const r = el('div', 'row nocheck' + (ok ? ' lg-readable' : ''));
   if (ok) {
     r.onclick = (e) => {
       if (e.target.closest('button, a, input, [data-own]')) return;
@@ -484,9 +494,9 @@ function readableRow(id) {
 }
 
 function varlogView() {
-  const v = tour.varlog || {};
-  const box = el('div', 'lg-view');
-  box.appendChild(Office.sectionHead(T('varlog.title'), T('varlog.sub', { total: fmt.size(v.total || 0) }), { place: 'varlog.title' }));
+  const v = (tour && tour.varlog) || varlog() || {};
+  const [box, none] = tourSection(T('varlog.title'), T('varlog.sub', { total: fmt.size(v.total || 0) }), 'varlog.title');
+  if (none) return box;
   if (v.ok && !v.own) box.appendChild(el('p', 'callout', T('varlog.not_own')));
   const list = el('div', 'box');
   for (const f of v.files || []) {
@@ -511,9 +521,9 @@ function varlogView() {
 }
 
 function dockerView() {
-  const d = tour.docker || {};
-  const box = el('div', 'lg-view');
-  box.appendChild(Office.sectionHead(T('docker.title'), T('docker.sub', { root: d.root || '/var/lib/docker' }), { place: 'docker.title' }));
+  const d = (tour && tour.docker) || {};
+  const [box, none] = tourSection(T('docker.title'), T('docker.sub', { root: d.root || '/var/lib/docker' }), 'docker.title');
+  if (none) return box;
   const r = d.rotation || {};
   box.appendChild(el('p', 'role lg-note', r.on ? T('docker.rotation_on', { size: r.size || '?', files: r.files || '?', n: Number(r.files) }) : T('docker.rotation_off')));
   if (!d.ok) { box.appendChild(el('p', 'callout', d.enabled === false ? T('docker.disabled') : T('docker.down'))); return box; }
@@ -543,11 +553,12 @@ function dockerView() {
   return box;
 }
 
-/** The lines that sounded like an error or a warning: every log (or just one) with its kinds of lines */
-function foundView(only) {
-  const box = el('div', 'lg-view');
-  const all = noisy();
-  const list = only ? [only] : all;
+/**
+ * «Errors & warnings»: every log with its kinds of lines — a chip per log under the head (the loudest; «n more» the rest)
+ * shows only that one, the bar's note line says so («The list shows only: [Syslog ×]»); the bar's words go over the
+ * lines and the logs' names
+ */
+function foundView() {
   const unfold = el('button', 'btn small plain');
   unfold.type = 'button';
   const label = () => { unfold.textContent = shownKinds.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
@@ -556,10 +567,27 @@ function foundView(only) {
     Office.keepInPlace(unfold, () => shownKinds.forEach((x) => x.set(open)));
     label();
   };
-  const sub = tour.first ? T('found.sub_first') : T('found.sub', { when: fmt.date(tour.since) });
-  box.appendChild(Office.sectionHead(only ? T('found.title_one', { name: sourceLabel(only) }) : T('found.title'), sub, unfold));
+  shownKinds = [];
+  const sub = !tour || !tour.time ? T('found.sub_first') : tour.first ? T('found.sub_first') : T('found.sub', { when: fmt.date(tour.since) });
+  const [box, none] = tourSection(T('found.title'), sub, 'found.title', unfold);
+  unfold.hidden = true;
+  if (none) return box;
+  const all = noisy();
+  const { loud, rest } = chipSources(all);
+  if (src && !(src === 'more' ? rest.length : loud.some((s) => 'src:' + s.id === src))) src = '';      // its log went quiet
+  const list = src === 'more' ? rest : src ? loud.filter((s) => 'src:' + s.id === src) : all;
+  const bar = foundBarGet();
+  fillChips(loud, rest);
+  box.appendChild(bar.el);
+  const f = bar.read();
   const kinds = el('div', 'box');
+  let n = 0;
+  let total = 0;
+  all.forEach((s) => { total += (s.groups || []).length; });       // «n of m fit»: of every log's kinds
   for (const s of list) {
+    const groups = (s.groups || []).filter((g) => Office.fits(f.words, [g.sample, sourceLabel(s)]));
+    n += groups.length;
+    if (f.words.length && !groups.length) continue;
     const head = el('div', 'lg-subhead');
     head.append(el('span', 'lg-subhead-name', sourceLabel(s)), counts(s.errors, s.warnings));
     if (s.lines) head.appendChild(el('span', 'lg-subhead-meta', T('lines_read', { n: s.lines })));
@@ -569,13 +597,15 @@ function foundView(only) {
     if (grew) head.appendChild(grew);
     head.appendChild(readButton(s.id));
     kinds.appendChild(head);
-    for (const g of s.groups || []) kinds.appendChild(kindRow(g));
+    for (const g of groups) kinds.appendChild(kindRow(g));
     const more = (s.kinds || 0) - (s.groups || []).length;
-    if (more > 0) kinds.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
+    if (more > 0 && !f.words.length) kinds.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
   }
-  if (!list.length) kinds.appendChild(el('p', 'empty', T('found.none')));
+  if (!all.length) kinds.appendChild(el('p', 'empty', T('found.none')));
+  else if (!kinds.children.length) kinds.appendChild(el('p', 'empty', T('found.none_fit')));
   box.appendChild(kinds);
-  if (!only) {
+  bar.done(n, total, { tile: src === 'more' ? T('tile.more_logs', { n: rest.length }) : src ? sourceLabel(list[0]) : '', clear: () => { src = ''; } });
+  if (!src) {
     const quiet = (tour.sources || []).filter((s) => !s.errors && !s.warnings && !s.unreadable);
     if (quiet.length) {
       const p = el('p', 'role lg-note');
@@ -590,6 +620,51 @@ function foundView(only) {
   label();
   unfold.hidden = shownKinds.length < 2;
   return box;
+}
+
+/** The logs with a chip of their own (the loudest), and the rest («n more») */
+function chipSources(all) {
+  const loud = all.length > SRC_CHIPS ? all.slice(0, SRC_CHIPS - 1) : all;
+  return { loud, rest: all.slice(loud.length) };
+}
+
+/** The bar over «Errors & warnings»: its words, the chips (an extra of the bar, filled anew at each drawing) */
+function foundBarGet() {
+  if (foundBar) return foundBar;
+  const box = el('div', 'lg-chips');
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', T('found.chips_label'));
+  foundBar = Office.filterBar({ key: 'logs.found', label: T('found.filter_label'), extra: [box], onChange: () => redraw() });
+  foundBar.chips = box;
+  return foundBar;
+}
+
+/** A chip per loud log (its counts beside its name), «n more» for the rest — pressed while the list shows only it */
+function fillChips(loud, rest) {
+  const box = foundBarGet().chips;
+  box.replaceChildren();
+  const add = (id, name, errors, warnings, tip) => {
+    const c = el('button', 'chip lg-src-chip');
+    c.type = 'button';
+    c.dataset.src = id;
+    c.setAttribute('aria-pressed', src === id ? 'true' : 'false');
+    c.append(el('span', 'lg-src-name', name), counts(errors, warnings));
+    if (tip) c.title = tip;
+    c.addEventListener('click', () => Office.keepInPlace(foundBarGet().el, () => {
+      src = src === id ? '' : id;
+      redraw();
+      const again = foundBarGet().chips.querySelector(`[data-src="${CSS.escape(id)}"]`);
+      if (again) again.focus({ preventScroll: true });
+    }));
+    box.appendChild(c);
+  };
+  box.hidden = loud.length + rest.length < 2;
+  if (box.hidden) return;                             // one log: nothing to choose between
+  loud.forEach((s) => add('src:' + s.id, sourceLabel(s), s.errors, s.warnings, sourceLabel(s)));
+  if (rest.length) {
+    add('more', T('tile.more_logs', { n: rest.length }), rest.reduce((n, s) => n + s.errors, 0), rest.reduce((n, s) => n + s.warnings, 0),
+      rest.map(sourceLabel).join(', '));
+  }
 }
 
 /** One kind of line: how often, when, its newest line; a click unfolds the line in full and "Show in the log" */
@@ -648,8 +723,9 @@ function openLog(id, kind) {
     if (n > opts.lines) { opts.lines = n; view.lines.value = String(n); }      // for this reading — not remembered
   }
   if (opts.query) { opts.query = ''; view.query.value = ''; }
-  view.readSection.scrollIntoView({ block: 'start', behavior: 'smooth' });
   if (id !== opts.source) pick(id, true); else restart(true);
+  if (sw.active() && sw.active() !== 'read') sw.pick('read', 'route');          // another section chosen: the reader in its place
+  view.readSection.scrollIntoView({ block: 'start', behavior: 'smooth' });     /* reveal */ // the reader a tour line asked for
 }
 
 const isMark = (line) => !!mark && (line === mark.sample || (mark.cut && line.startsWith(mark.sample)));
@@ -669,6 +745,7 @@ function pick(id, keepMark) {
   Office.store('logs.source', id);
   fillSources();
   restart(keepMark);
+  redraw();                 // the tile «Read out» names it
 }
 
 /** Star or unstar a source (default: the one being read) */
@@ -855,19 +932,24 @@ function restart(keepMark) {
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  /** sub: a tile of her tour open (#/logs/varlog, …/docker, …/found — the search's places); «read/<source>» (the search's
-      items): that log in the reader, as a pick in the list would */
+  /** sub: a tile (#/logs/varlog, …/docker, …/found, …/read — the search's places); «src:<log>»: «Errors & warnings» with
+      that log's chip; «read/<source>» (the search's items): that log in the reader, as a pick in the list would */
   async mount(root, sub) {
-    if (TILES.includes(sub)) { tile = sub; Office.store('logs.tile', sub); }
-    const read = /^read\/(.+)$/.exec(sub || '');
-    if (read) {
+    const s = String(sub || '');
+    const one = /^src:(.+)$/.exec(s);
+    src = one ? s : '';
+    const rd = /^read\/(.+)$/.exec(s);
+    if (rd) {
       let id = '';
-      try { id = decodeURIComponent(read[1]); } catch (e) { id = ''; }
+      try { id = decodeURIComponent(rd[1]); } catch (e) { id = ''; }
       if (id) { opts.source = id; opts.query = ''; Office.store('logs.source', id); }
-      Office.subroute('');
     }
     view = build(root);
+    readerSection(view);
+    foundBarGet().reset();      // a new visit: no words, no chip
+    if (!sw.mount(one ? 'found' : rd ? 'read' : s) && (one || rd)) Office.subroute('');
     renderHead();
+    redraw();
     await Promise.all([load(false), loadTour()]);
     renderTour();
     restart();
@@ -878,7 +960,7 @@ Office.desk({
     if (touring()) return;
     const before = tour && tour.time;
     await loadTour();
-    if (view && (tour && tour.time) !== before) Office.keepInPlace(view.tiles, renderTour);
+    if (view && (tour && tour.time) !== before) renderTour();
   },
   agentChanged() { if (view) renderHead(); },
   menu() {
@@ -903,12 +985,8 @@ Office.desk({
 
 // her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
 Office.places(ID, [
-  { kind: 'section', key: 'tour_section' },
-  { kind: 'section', key: 'reading' },
-  // what a tile opens is drawn only after a tour (none yet: «no tour», her tour's section, is where the search lands)
-  { kind: 'tile', key: 'varlog.title', route: '#/logs/varlog', part: 'tour_section' },
-  { kind: 'tile', key: 'docker.title', route: '#/logs/docker', part: 'tour_section' },
-  { kind: 'tile', key: 'tile.found', route: '#/logs/found', part: 'tour_section' },
+  { kind: 'section', key: 'reading', route: '#/logs/read' },
+  ...sw.places(),             // her tiles: /var/log, the containers' logs, errors & warnings, «Read out»
   { kind: 'help', key: 'tour', text: 'help.tour_text' },
   { kind: 'help', key: 'live', text: 'help.live' },
   { kind: 'help', key: 'only_problems', text: 'help.only' },

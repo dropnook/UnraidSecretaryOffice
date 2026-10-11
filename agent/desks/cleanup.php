@@ -91,6 +91,10 @@ const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cl
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
                          'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray', 'userscripts' => 'userscript',
                          'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner', 'packages' => 'package', 'volumes' => 'volume'];
+// what something still needs can't be chosen at all (2026-10-12): a template whose container exists, an appdata folder,
+// a VM's folder or disk image still in use (`force` on these kinds) — no «anyway»; the page's IN_USE_LOCKED says the same.
+// Stacks in use («let go»: stopped and parked) and Mr. Restori's way back (leftovers) keep their warning and «anyway».
+const CL_IN_USE_LOCKED = ['template', 'appdata', 'domain', 'iso'];
 const CL_US_SCRIPTS   = US_DIR . '/scripts';
 const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
 const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
@@ -3706,6 +3710,38 @@ function clIndex(array $state): array
     return $all;
 }
 
+/**
+ * May this entry go into the storeroom? Throws what the page says: why it can't now (`why`), and «still in use» — for a
+ * stack in use or Mr. Restori's way back only without `force` (the page's «anyway»), for what CL_IN_USE_LOCKED names
+ * always (2026-10-12: what something still needs can't be chosen at all — a stale page sending `force` changes nothing).
+ */
+function clParkCheck(array $e, bool $force): void
+{
+    $p = ['name' => clLabel($e)];
+    if ($e['why'] !== null) {
+        throw match ($e['why']) {
+            'docker_down'   => new Problem('cleanup_docker_down', $p),
+            'asleep'        => new Problem('cleanup_asleep', $p),
+            'no_compose'    => new Problem('cleanup_no_compose', $p),
+            'dataset'       => new Problem('cleanup_dataset', $p),
+            'own_fs'        => new Problem('cleanup_own_fs', $p),
+            'checking'      => new Problem('cleanup_checking', $p),
+            'vm_off'        => new Problem('cleanup_vm_off', $p),
+            'in_unraid'     => new Problem('cleanup_in_unraid', $p),
+            'vm_left'       => new Problem('cleanup_vm_left', $p + ['left' => implode(', ', array_map(fn ($x) => $x['zfs'] ?? $x['file'] ?? '', $e['left'] ?? []))]),
+            'vm_unsure'     => new Problem('cleanup_vm_unsure', $p),
+            'running'       => new Problem('cleanup_running', $p),
+            'scheduled'     => new Problem('cleanup_scheduled', $p),
+            'measuring'     => new Problem('cleanup_measuring', $p),
+            'transfer'      => new Problem('cleanup_partner_transfer', $p),
+            default         => new Problem('cleanup_measure_first', $p),
+        };
+    }
+    if ($e['force'] && (!$force || in_array($e['kind'], CL_IN_USE_LOCKED, true))) {
+        throw new Problem('cleanup_in_use', $p);      // still needed: never parked, not even with `force` (a stale page)
+    }
+}
+
 /** Puts templates, stacks or appdata folders into the trash */
 function clPark(array $ids, bool $force): array
 {
@@ -3715,29 +3751,7 @@ function clPark(array $ids, bool $force): array
     $todo = [];
     foreach ($ids as $id) {
         $e = $all[$id] ?? throw new Problem('unknown_target', ['target' => $id]);
-        $p = ['name' => clLabel($e)];
-        if ($e['why'] !== null) {
-            throw match ($e['why']) {
-                'docker_down'   => new Problem('cleanup_docker_down', $p),
-                'asleep'        => new Problem('cleanup_asleep', $p),
-                'no_compose'    => new Problem('cleanup_no_compose', $p),
-                'dataset'       => new Problem('cleanup_dataset', $p),
-                'own_fs'        => new Problem('cleanup_own_fs', $p),
-                'checking'      => new Problem('cleanup_checking', $p),
-                'vm_off'        => new Problem('cleanup_vm_off', $p),
-                'in_unraid'     => new Problem('cleanup_in_unraid', $p),
-                'vm_left'       => new Problem('cleanup_vm_left', $p + ['left' => implode(', ', array_map(fn ($x) => $x['zfs'] ?? $x['file'] ?? '', $e['left'] ?? []))]),
-                'vm_unsure'     => new Problem('cleanup_vm_unsure', $p),
-                'running'       => new Problem('cleanup_running', $p),
-                'scheduled'     => new Problem('cleanup_scheduled', $p),
-                'measuring'     => new Problem('cleanup_measuring', $p),
-                'transfer'      => new Problem('cleanup_partner_transfer', $p),
-                default         => new Problem('cleanup_measure_first', $p),
-            };
-        }
-        if ($e['force'] && !$force) {
-            throw new Problem('cleanup_in_use', $p);
-        }
+        clParkCheck($e, $force);
         $todo[] = $e;
     }
 

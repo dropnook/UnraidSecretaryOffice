@@ -18,7 +18,9 @@
 // --moments [nr,…]: the product page's «moments» instead (tests/ui/demo/moments.json) - per desk an element that does
 // something, clipped, after a small «prepare» (open a row, a dialog, a tooltip), each in its own demo state; black theme,
 // 1280 px, scale 2, de and en: <nr>-<desk>-<moment>-<lang>.png and a contact sheet (contact-sheet.html, contact-sheet-<lang>.png)
-// with all of them small and named. A moment: {nr, desk, moment, title, route ('' = the reception), states {name: file, or {de, en}: a desk's,
+// with all of them small and named. With --themes black,white each moment is taken once per theme (Unraid's black and
+// white, the window's colour scheme dark and light with it): <nr>-<desk>-<moment>-<theme>-<lang>.png, the sheet shows
+// the themes of a moment side by side. A moment: {nr, desk, moment, title, route ('' = the reception), states {name: file, or {de, en}: a desk's,
 // part's or canned answer's (demo/post/<desk>.<action>) state from another file},
 // prepare [{click|hover|wait|scroll|select|fill: <css>, value (select, fill; or {de, en}), all (click every match), pause (ms)} | {js: …}…], clip (css, or a list: the box around all), pad, height,
 // viewport (true: the element is fixed - a dialog - and shot as the window shows it), hide [css…], seed (the
@@ -54,7 +56,7 @@ for (let i = 0; i < args.length; i++) {
   const val = () => { if (i + 1 >= args.length) usage(); return args[++i]; };
   const list = () => val().split(',').map((x) => x.trim()).filter(Boolean);
   if (a === '--routes' || a === '--only') opt.routes = list().map((r) => r.replace(/^#?\/?/, ''));
-  else if (a === '--themes') opt.themes = list();
+  else if (a === '--themes') { opt.themes = list(); opt.themesGiven = true; }
   else if (a === '--langs') opt.langs = list();
   else if (a === '--widths') opt.widths = list().map(Number);
   else if (a === '--shot') opt.shots.push(val());
@@ -67,7 +69,7 @@ for (let i = 0; i < args.length; i++) {
 function usage(code = 2) {
   console.error('usage: node tools/ui-shots.mjs [--routes emby] [--themes black,white] [--langs de,en] [--widths 1440,390]');
   console.error('                               [--shot full|until:<css>|clip:<css>]… [--out <folder>] [-v]');
-  console.error('       node tools/ui-shots.mjs --moments [1,3,…] [--langs de,en] [--out <folder>] [-v]');
+  console.error('       node tools/ui-shots.mjs --moments [1,3,…] [--themes black,white] [--langs de,en] [--out <folder>] [-v]');
   process.exit(code);
 }
 if (opt.moments && !opt.outGiven) opt.out = `${opt.out}-moments`;      // shots/<yyyy-mm-dd>-moments/
@@ -185,7 +187,10 @@ async function shootPage(browser, harness, route, theme, lang, width) {
 // ------------------------------------------------------------------ the moments (--moments)
 const MOMENTS_FILE = path.join(REPO, 'tests', 'ui', 'demo', 'moments.json');
 const MOMENT_WIDTH = 1280;
-const momentFile = (m, lang) => path.join(opt.out, `${String(m.nr).padStart(2, '0')}-${m.desk}-${m.moment}-${lang}.png`);
+// a moment's themes: those of --themes, else its own (black); the theme is in the name only when --themes was given
+const momentThemes = (m) => (opt.themesGiven ? opt.themes : [m.theme || 'black']);
+const momentFile = (m, lang, theme) => path.join(opt.out,
+  `${String(m.nr).padStart(2, '0')}-${m.desk}-${m.moment}${opt.themesGiven ? `-${theme}` : ''}-${lang}.png`);
 
 /** One step of a moment's «prepare»: click, hover, wait for, scroll to an element, or run a bit of the page's JS */
 async function prepareStep(page, st, lang) {
@@ -206,28 +211,41 @@ async function prepareStep(page, st, lang) {
   await page.waitForTimeout(st.pause ?? 250);
 }
 
-async function shootMoment(browser, m, lang) {
+async function shootMoment(browser, m, lang, theme) {
   m = { ...m, prepare: renamed(m.prepare, namesFor(lang)), clip: renamed(m.clip, namesFor(lang)) };   // its selectors name the family's shares too
   // a state per language where its words are the user's own (a report's title): {name: {de: file, en: file}}
   const alias = Object.fromEntries(Object.entries(m.states || {}).map(([k, v]) => [k, v && typeof v === 'object' ? v[lang] ?? v.en ?? k : v]));
   const harness = await startHarness({ demo: true, alias, names: namesFor(lang) });
   const width = m.width || MOMENT_WIDTH;
   const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: 2,
-    locale: LOCALES[lang] || lang, colorScheme: 'dark' });
+    locale: LOCALES[lang] || lang, colorScheme: theme === 'white' ? 'light' : 'dark' });
   await ctx.addInitScript((l) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); } catch (e) { /* none */ } }, lang);
-  // the same greetings every time (Office.greet() picks one at random): Math.random seeded per moment (mulberry32)
+  // the same greetings every time (Office.greet() picks one at random): Math.random seeded per moment (mulberry32),
+  // and for each desk's greeting seeded anew from the moment's seed and the desk's id - the desks' states arrive in any
+  // order, so one stream for all would give a desk another greeting in the other theme or language
   await ctx.addInitScript((seed) => {
-    let a = seed >>> 0;
-    Math.random = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const stream = (s) => { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+    Math.random = stream(seed);
+    const hash = (x) => [...String(x)].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
+    let office;
+    Object.defineProperty(window, 'Office', { configurable: true, get: () => office, set: (o) => {
+      office = o;
+      let greet;
+      Object.defineProperty(o, 'greet', { configurable: true, enumerable: true, get: () => greet && ((id) => {
+        const keep = Math.random;
+        Math.random = stream(seed ^ hash(id));
+        try { return greet(id); } finally { Math.random = keep; }
+      }), set: (f) => { greet = f; } });
+    } });
   }, m.seed ?? m.nr * 7919);
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (x) => { if (x.type() === 'error') errors.push(x.text().slice(0, 200)); });
   page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
-  const res = { file: momentFile(m, lang), route: `${m.nr} ${m.desk}/${m.moment}`, shot: m.moment, theme: m.theme || 'black', lang, width, fails: [] };
+  const res = { file: momentFile(m, lang, theme), route: `${m.nr} ${m.desk}/${m.moment}`, shot: m.moment, theme, lang, width, fails: [] };
   try {
-    await page.goto(`${harness.url}?theme=${m.theme || 'black'}#/${m.route || ''}`, { waitUntil: 'load' });
+    await page.goto(`${harness.url}?theme=${theme}#/${m.route || ''}`, { waitUntil: 'load' });
     await page.waitForFunction((r) => window.Office && (r ? Office.current && document.querySelector('#sso-desk .section, #sso-desk section, #sso-desk .box')
       : document.querySelector('#sso-desk .reception .desk-card .facts li')), m.route || '', { timeout: 15000 });
     await page.evaluate(async () => {
@@ -284,18 +302,20 @@ async function shootMoment(browser, m, lang) {
 async function contactSheet(browser, moments, shot) {
   const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const card = (m, lang) => {
-    const f = path.basename(momentFile(m, lang));
-    return fs.existsSync(path.join(opt.out, f)) ? `<figure><a href="${esc(f)}"><img src="${esc(f)}" alt=""></a>`
-      + `<figcaption><b>${m.nr}</b> ${esc(m.title || `${m.desk} · ${m.moment}`)}<br><code>${esc(f)}</code></figcaption></figure>` : '';
+    const pics = momentThemes(m).map((t) => path.basename(momentFile(m, lang, t))).filter((f) => fs.existsSync(path.join(opt.out, f)));
+    return pics.length ? `<figure><div class="pics n${pics.length}">${pics.map((f) => `<a href="${esc(f)}"><img src="${esc(f)}" alt=""></a>`).join('')}</div>`
+      + `<figcaption><b>${m.nr}</b> ${esc(m.title || `${m.desk} · ${m.moment}`)}<br>${pics.map((f) => `<code>${esc(f)}</code>`).join('<br>')}</figcaption></figure>` : '';
   };
+  const themes = opt.themesGiven ? opt.themes.join(' + ') : 'Black theme';
   const html = (langs) => `<!doctype html><html><head><meta charset="utf-8"><title>Moments ${esc(day)}</title><style>
 body{background:#111;color:#ddd;font:14px/1.4 -apple-system,Helvetica,sans-serif;margin:24px}
 h1{font-size:20px;margin:0 0 4px} p{margin:0 0 20px;color:#999}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:20px;align-items:start}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(${opt.themesGiven && opt.themes.length > 1 ? 720 : 360}px,1fr));gap:20px;align-items:start}
+.pics{display:grid;gap:8px;align-items:start} .pics.n2{grid-template-columns:1fr 1fr}
 figure{margin:0;background:#1b1b1b;border:1px solid #333;border-radius:8px;padding:10px}
 img{display:block;width:100%;max-height:420px;object-fit:contain;object-position:left top;background:#000;border-radius:4px}
 figcaption{margin-top:8px} code{color:#888;font-size:11px}</style></head><body>
-<h1>Unraid Secretary Office - moments (${esc(day)})</h1><p>Black theme, 1280 px, scale 2 - invented family data (tests/ui/demo). ${langs.join(' / ')}</p>
+<h1>Unraid Secretary Office - moments (${esc(day)})</h1><p>${esc(themes)}, 1280 px, scale 2 - invented family data (tests/ui/demo). ${langs.join(' / ')}</p>
 ${langs.map((l) => `<h2>${l}</h2><div class="grid">${moments.map((m) => card(m, l)).join('')}</div>`).join('\n')}
 </body></html>`;
   fs.writeFileSync(path.join(opt.out, 'contact-sheet.html'), html(opt.langs));
@@ -325,13 +345,13 @@ async function runMoments() {
   fs.mkdirSync(opt.out, { recursive: true });
   const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check', '--font-render-hinting=none'] });
   const jobs = [];
-  for (const m of chosen) for (const lang of opt.langs) jobs.push({ m, lang });
+  for (const m of chosen) for (const theme of momentThemes(m)) for (const lang of opt.langs) jobs.push({ m, lang, theme });
   const results = [];
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, async () => {
     while (next < jobs.length) {
       const j = jobs[next++];
-      const r = await shootMoment(browser, j.m, j.lang);
+      const r = await shootMoment(browser, j.m, j.lang, j.theme);
       results.push(r);
       if (opt.verbose) console.log(`  ${r.fails.length ? 'FAIL' : 'ok  '} ${path.basename(r.file)}`);
     }

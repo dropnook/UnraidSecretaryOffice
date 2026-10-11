@@ -13,11 +13,13 @@
     "help.what",
     "history",
     "import.title",
+    "last_run",
     "mode.dry",
     "mode.run",
     "on_pool",
     "overview",
     "report",
+    "schedules",
     "setup.key",
     "setup.libraries",
     "setup.mapping",
@@ -27,6 +29,7 @@
     "setup.server",
     "setup.users",
     "shares",
+    "tile.pool",
     "tools"
   ],
   "texts": [

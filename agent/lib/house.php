@@ -27,11 +27,15 @@ function finding(string $id, string $level, ?bool $ok, array $params = [], ?stri
     return ['id' => $id, 'level' => $level, 'ok' => $ok, 'params' => $params, 'link' => $link];
 }
 
-/** @return array<string, array{name:string, author:?string, version:?string}> installed plugins by .plg name */
-function housePlugins(): array
+/**
+ * @return array<string, array{name:string, author:?string, version:?string}> installed plugins by .plg name
+ * $fresh: never the cache — a look that must see a plugin registered a moment ago (the Consultant's scan, 2026-10-11:
+ * his fresh look right after a plugin job read a list another caller had cached seconds before the registration)
+ */
+function housePlugins(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if ($cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
         return $cache;
     }
     $cache = [];
@@ -50,11 +54,11 @@ function housePlugin(string $name): bool
     return isset(housePlugins()[$name]);
 }
 
-/** @return array<string, array{name:string, image:string, running:bool}> all containers */
-function houseContainers(): array
+/** @return array<string, array{name:string, image:string, running:bool}> all containers ($fresh: never the cache) */
+function houseContainers(bool $fresh = false): array
 {
     static $cache = null, $at = 0;
-    if ($cache !== null && time() - $at < HOUSE_CACHE) {
+    if (!$fresh && $cache !== null && time() - $at < HOUSE_CACHE) {
         return $cache;
     }
     $cache = [];
@@ -473,11 +477,15 @@ function officeCronLines(string $file = OFFICE_CRON): array
     return $found;
 }
 
-/** A job's schedule: its line in the plugin's cron file */
-function officeJobSchedule(string $job): array
+/**
+ * A job's schedule: its line in the plugin's cron file; `next` = when it runs next (unix, cronNext() of
+ * lib/snapshotplans.php — agent.php loads both), null while off or for a line cron can't read; $file for the tests
+ */
+function officeJobSchedule(string $job, string $file = OFFICE_CRON): array
 {
-    $cron = officeCronLines()[$job] ?? null;
-    return ['script' => true, 'frequency' => $cron !== null ? 'custom' : 'disabled', 'custom' => $cron, 'enabled' => $cron !== null];
+    $cron = officeCronLines($file)[$job] ?? null;
+    return ['script' => true, 'frequency' => $cron !== null ? 'custom' : 'disabled', 'custom' => $cron, 'enabled' => $cron !== null,
+        'next' => $cron !== null ? cronNext($cron, time()) : null];
 }
 
 /**

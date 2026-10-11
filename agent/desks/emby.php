@@ -161,8 +161,9 @@ function embyScan(): array
         'jobs'       => $jobs,
         'progress'   => ($prog = embyProgressState($jobs['embycache']))['progress'],     // a real EmbyCache run: the live panel (emby-progress.php)
         'stopping'   => $prog['stopping'],         // … asked to stop after the file it is on (why: user, mover)
-        'last'       => embyLastRun(),
-        'history'    => array_slice(embyHistory(), 0, 20),
+        'last'       => embyLastRun($history = embyHistory()),    // the newest real run from his list (never «never» while one goes)
+        'last_status' => readJson(EMBY_DATA . '/status.json'),       // what the last run of any mode did: the result box under the tiles
+        'history'    => array_slice($history, 0, 20),
         'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
         'foreign'    => embyForeignSchedules(),
         'pools'      => embyPools(),
@@ -616,10 +617,22 @@ function embyPoolUsage(?array $settings): ?array
                          'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null] : null;
 }
 
-/** The last run from EmbyCache's own status file (written at the end of every run) */
-function embyLastRun(): ?array
+/**
+ * EmbyCache's last run from his own list of runs (2026-10-11, the tiles rebuild): the newest real run (run, release), else
+ * the newest of any mode — refused and skipped starts didn't run; null: none yet. Never from status.json: every start
+ * removes it (the page said «never» while a run went) and a report or a dry run writes over it. His page picks the same
+ * from state.history (lastRuns() in desk.js), so the page and the reception agree. $runs: his list (newest first).
+ */
+function embyLastRun(?array $runs = null): ?array
 {
-    return readJson(EMBY_DATA . '/status.json');
+    $ran = array_values(array_filter($runs ?? embyHistory(), fn ($r) => is_array($r) && ($r['tool'] ?? '') === 'embycache'
+        && !in_array($r['result'] ?? '', ['refused', 'skipped'], true)));
+    foreach ($ran as $r) {
+        if (in_array($r['mode'] ?? '', ['run', 'release'], true)) {
+            return $r;
+        }
+    }
+    return $ran[0] ?? null;
 }
 
 // ===================================================================== fetching from Emby (setup)

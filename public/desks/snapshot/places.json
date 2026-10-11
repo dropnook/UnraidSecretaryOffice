@@ -15,7 +15,6 @@
     "plans",
     "pool_asleep_chip",
     "snapshots",
-    "storage",
     "used_by_backup",
     "vm_gone"
   ],

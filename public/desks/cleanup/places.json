@@ -20,7 +20,6 @@
     "section.trash",
     "section.vms",
     "where.adv.title",
-    "where.details_title",
     "where.help.asleep",
     "where.help.copy",
     "where.help.labels",
@@ -39,7 +38,8 @@
     "where.section.plugins",
     "where.section.scripts",
     "where.section.shares",
-    "where.section.vms"
+    "where.section.vms",
+    "where.tile.advice"
   ],
   "texts": [
     "help.appdata_text",

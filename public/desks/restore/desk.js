@@ -20,16 +20,18 @@ const TPL = '/boot/config/plugins/dockerMan/templates-user';
 
 let state = null;
 let view = null;
-let section = Office.store('restore.section');
-if (section === null) section = 'apps';       // nothing chosen yet: the apps
 const expanded = new Set();                   // rows unfolded on this page
 const versions = new Map();                   // "app:<id>" -> {loading, list, error}
-let shown = [];                               // the rows of the open section, for "Unfold all"
+let shown = [];                               // the rows of the section being drawn, for its "Unfold all"
 let job = null;                               // the restore going on (or the last one): data/restore-job.json
 let jobTimer = null;
 const journals = new Map();                   // id -> {loading, journal, log, error} — a journal unfolded on the page
 const journalShown = new Map();               // id -> {box, fill, fail}: the journal's box drawn last (the page re-renders while one loads)
 let agentWas = null;                          // the agent running when the page was drawn last
+// the bars over the lists — Apps, VMs, Databases, one each (core.js Office.filterBar, built once; with nothing chosen all
+// three lists stand on the page): its words (name, the chips, partners) and «only what's missing» — never kept, a new
+// visit starts with the whole list
+const listBars = new Map();
 
 // ------------------------------------------------------------------ loading
 /** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
@@ -43,16 +45,14 @@ function took(j) {
   if (state && state.running && !jobTimer) pollJob();
 }
 
-/** While a restore runs: its notice, the tiles and the open section anew — the page stays where it is */
+/** While a restore runs: its notice, the tiles and the sections anew — the page stays where it is (a fold opened to read
+    keeps the sections as they are, unless the journal is the one shown) */
 function refreshLive() {
-  if (!view || !view.tiles || !state) { if (view) render(); return; }
+  if (!view || !view.notes || !state) { if (view) render(); return; }
   view.notes.innerHTML = '';
   notices().forEach((n) => view.notes.appendChild(n));
-  const keep = view.body.querySelectorAll('details[open]').length;
-  Office.keepInPlace(view.tiles, () => {
-    renderTiles();
-    if (section === 'journal' || !keep) renderSection();
-  });
+  const keep = sw.body.querySelectorAll('details[open]').length;
+  if (sw.active() === 'journal' || !keep) sw.render();
 }
 
 /** Follows a restore while it runs: its journal straight from disk every two seconds (api part "job") */
@@ -313,16 +313,10 @@ function render() {
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   const notes = el('div', 'rs-notices');
   notices().forEach((n) => notes.appendChild(n));
-  root.appendChild(notes);
+  root.appendChild(notes);           // his restore hints: over the row, at every click
   view.notes = notes;
-  const tiles = el('div', 'cards rs-tiles');
-  root.appendChild(tiles);
-  const body = el('div', 'rs-body');
-  root.appendChild(body);
-  view.tiles = tiles;
-  view.body = body;
-  renderTiles();
-  renderSection();
+  root.appendChild(sw.el);           // the row and under it the chosen section — or, nothing chosen, all of them
+  sw.render();
 }
 
 function notices() {
@@ -339,7 +333,7 @@ function notices() {
     const c = el('p', 'callout', T('notice.restoring', { what: run.what, n: run.step, total: run.steps }) + ' ');
     const a = el('a', '', T('notice.to_journal'));
     a.href = '#/restore';
-    a.onclick = (ev) => { ev.preventDefault(); pick('journal'); };
+    a.onclick = (ev) => { ev.preventDefault(); openSection('journal'); };
     c.appendChild(a);
     out.push(c);
   } else if (otherHolder()) callout(T('notice.busy_' + otherHolder()), true);
@@ -394,51 +388,66 @@ function sections() {
   return out;
 }
 
-function renderTiles() {
-  const box = view.tiles;
-  box.innerHTML = '';
-  sections().forEach((sec) => {
-    const card = Office.place(`tile.${sec}`, el('button', 'card' + (section === sec ? ' active' : '')));
-    card.type = 'button';
-    card.setAttribute('aria-pressed', String(section === sec));
-    const head = el('div', 'card-head');
-    const src = sec.startsWith('partner:') ? partnerOf(sec.slice(8)) : null;
-    head.append(el('span', 'rs-tile-icon', ICONS[src ? 'partner' : sec]), el('span', 'card-name', src ? T('tile.partner', { name: src.name }) : T('tile.' + sec)));
-    const [line, right] = tileLine(sec);
-    const fig = el('div', 'card-figures');
-    fig.append(el('span', '', line), el('span', '', right));
-    card.append(head, fig);
-    card.onclick = () => pick(section === sec ? '' : sec);       // the open tile closes again
-    box.appendChild(card);
-  });
+/**
+ * The row and the section under it (core.js Office.sections, CLAUDE.md «Tiles»): a tile per section, «Apps» to start;
+ * nothing chosen = every section in the row's order. Kept as restore.section, the sub-routes #/restore/<section> (and
+ * partner:<id>, a tile the state brings later) pick a tile like a click.
+ */
+const sw = Office.sections({
+  id: ID,
+  key: 'restore.section',
+  grid: 'cards rs-tiles',
+  default: 'apps',
+  tiles: () => sections().map((sec) => ({
+    id: sec, key: sec.startsWith('partner:') ? '' : `tile.${sec}`, place: `tile.${sec}`,
+    tile: (a) => sectionTile(sec, a), section: () => sectionOf(sec),
+  })),
+  wants: (sub) => /^partner:[0-9a-f]{8}$/.test(sub),
+  onPick: (id, how) => { if (id === 'drill' && how === 'click' && Office.restoreDrill) Office.restoreDrill.refresh(); },
+});
+
+/** A section's tile: its icon and name, and its line (what is there, how fresh — the drill's: how often he practises) */
+function sectionTile(sec, a) {
+  const src = sec.startsWith('partner:') ? partnerOf(sec.slice(8)) : null;
+  const [line, right] = state ? tileLine(sec) : ['', ''];
+  return Office.tile({ name: src ? T('tile.partner', { name: src.name }) : T('tile.' + sec), icon: el('span', 'rs-tile-icon', ICONS[src ? 'partner' : sec]),
+    lines: [[line, right]], ...a });
 }
 
-function pick(sec) {
-  section = sec;
-  Office.store('restore.section', sec);
-  Office.keepInPlace(view.tiles, () => { renderTiles(); renderSection(); });
-  if (sec === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
-}
-
-function renderSection() {
-  const body = view.body;
-  body.innerHTML = '';
+/** A section as the switcher draws it — its rows' «Unfold all» reaches only its own rows */
+function sectionOf(sec) {
   shown = [];
-  if (section === 'apps') body.appendChild(appsSection());
-  else if (section === 'vms') body.appendChild(vmsSection());
-  else if (section === 'dbs') body.appendChild(dbsSection());
-  else if (section === 'kopia') body.appendChild(kopiaSection());
-  else if (section === 'journal') body.appendChild(journalSection());
-  else if (section === 'move') body.appendChild(moveSection());
-  else if (section.startsWith('partner:') && partnerOf(section.slice(8))) body.appendChild(partnerSection(partnerOf(section.slice(8))));
-  else if (section === 'drill') body.appendChild(Office.restoreDrill ? Office.restoreDrill.section() : el('p', 'empty', Office.t('common.loading')));
+  if (sec === 'apps') return appsSection();
+  if (sec === 'vms') return vmsSection();
+  if (sec === 'dbs') return dbsSection();
+  if (sec === 'kopia') return kopiaSection();
+  if (sec === 'journal') return journalSection();
+  if (sec === 'move') return moveSection();
+  if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.section() : drillWaiting();
+  const p = sec.startsWith('partner:') ? partnerOf(sec.slice(8)) : null;
+  return p ? partnerSection(p) : null;
+}
+
+/** «Drill» while drill.js is still on its way */
+function drillWaiting() {
+  const s = sectionBox(T('drill.title'), T('drill.sub'), { place: 'drill.title' });
+  s.appendChild(el('p', 'empty', Office.t('common.loading')));
+  return s;
+}
+
+/** A link that opens a section (never closes it, as a second click on its tile would) and brings its head into view */
+function openSection(sec) {
+  sw.pick(sec, 'route');
+  const head = sw.body.querySelector('.section-head[data-place]');
+  if (head) Office.reveal(head.dataset.place);
 }
 
 /** "Unfold all" / "Fold all" for the rows of a list */
 function unfoldAll() {
+  const rows = shown;            // this section's rows (sectionOf() began the list; they are added as they are drawn)
   const b = button(T('unfold_all'), 'small plain', () => {
-    const open = !shown.every((r) => r.open());
-    Office.keepInPlace(b, () => shown.forEach((r) => r.set(open)));
+    const open = !rows.every((r) => r.open());
+    Office.keepInPlace(b, () => rows.forEach((r) => r.set(open)));
     b.textContent = T(open ? 'fold_all' : 'unfold_all');
   });
   return b;
@@ -475,13 +484,45 @@ function unfoldingRow(key, name, meta, detail, right) {
   return r;
 }
 
+// ------------------------------------------------------------------ the bars over the lists
+/** The bar over one list (apps, vms, dbs) — built once, held across the renders */
+function bar(list) {
+  if (listBars.has(list)) return listBars.get(list);
+  const b = Office.filterBar({
+    key: `restore.list.${list}`,
+    label: T('list.filter_label'),
+    only: { text: T('list.only_missing'), hint: T('list.only_missing_hint') },
+    onChange: () => { if (view) sw.render(); },
+  });
+  listBars.set(list, b);
+  return b;
+}
+
+/**
+ * The rows of a list the bar leaves: each [x, meta] with its words — its name and what its chips say (package, data,
+ * partners) — and whether it is missing; «n of m fit» said by the bar, its switch only while something is missing
+ */
+function barRows(s, name, list, wordsOf, missing) {
+  const b = bar(name);
+  const f = b.read();
+  s.appendChild(b.el);
+  const fits = list.filter((x) => (!f.only || missing(x)) && Office.fits(f.words, wordsOf(x)));
+  b.done(fits.length, list.length, { onlyAvail: list.some(missing) });
+  return fits;
+}
+/** «Nothing fits» under the bar */
+const noFit = () => el('p', 'empty', T('list.none_fit'));
+
 // ------------------------------------------------------------------ apps
 function appsSection() {
   const list = apps();
   const s = sectionBox(T('apps'), T('apps_sub'), list.length > 1 ? unfoldAll() : null, { place: 'apps' });
   if (!list.length) { s.appendChild(el('p', 'empty', state.place.found ? T('apps_none') : T('apps_no_packages'))); return s; }
+  const metas = new Map(list.map((a) => [a, appMeta(a)]));
+  const fits = barRows(s, 'apps', list, (a) => [a.name, a.id, metas.get(a).textContent], (a) => !a.present);
   const box = el('div', 'box');
-  list.forEach((a) => box.appendChild(appRow(a)));
+  fits.forEach((a) => box.appendChild(appRow(a, metas.get(a))));
+  if (!fits.length) box.appendChild(noFit());
   s.appendChild(box);
   const files = el('p', 'role rs-foot');
   files.append(T('apps_files'), ' ');
@@ -511,18 +552,22 @@ function rowChips(meta, x, extraPackage, extraData) {
 function atPartnerChip(c) {
   const x = chip(T('chip.at_partner', { name: c.name }), 'ok', T('chip.at_partner_hint', { name: c.name, unit: unitLabel(c.unit), n: c.n, when: date(c.newest) }));
   x.dataset.own = '1';
-  x.onclick = () => pick('partner:' + c.id);
+  x.onclick = () => openSection('partner:' + c.id);
   return x;
 }
 
-function appRow(a) {
+function appMeta(a) {
   const meta = el('div', 'row-meta');
   meta.appendChild(el('span', '', T('type.' + (a.type || 'container'))));
   if (!a.present) meta.appendChild(chip(T('chip.gone'), 'danger', T('chip.gone_hint')));
   rowChips(meta, a, a.dumps.length ? [chip(T('chip.dumps', { n: a.dumps.length }), '', T('chip.dumps_hint'))] : [], []);
   const drilled = Office.restoreDrill && Office.restoreDrill.appChip('app', a.id);
   if (drilled) meta.appendChild(drilled);
-  return unfoldingRow('app:' + a.id, a.name, meta, () => appDetail(a));
+  return meta;
+}
+
+function appRow(a, meta) {
+  return unfoldingRow('app:' + a.id, a.name, meta || appMeta(a), () => appDetail(a));
 }
 
 function containerChips(list) {
@@ -931,7 +976,7 @@ function kopiaBlock(sources) {
   if (sources.length) {
     const go = el('a', '', T('kp.guide'));
     go.href = '#/restore';
-    go.onclick = (e) => { e.preventDefault(); pick('kopia'); window.scrollTo(0, 0); };
+    go.onclick = (e) => { e.preventDefault(); openSection('kopia'); };
     const p = el('p', 'role');
     p.appendChild(go);
     b.appendChild(p);
@@ -957,8 +1002,11 @@ function vmsSection() {
   const lv = state.server && state.server.libvirt;
   if (lv) s.appendChild(vmAllFold(lv));
   if (!list.length) { s.appendChild(el('p', 'empty', T('vms_none'))); return s; }
+  const metas = new Map(list.map((v) => [v, vmMeta(v)]));
+  const fits = barRows(s, 'vms', list, (v) => [v.name, v.id, metas.get(v).textContent], (v) => v.state === 'missing');
   const box = el('div', 'box');
-  list.forEach((v) => box.appendChild(vmRow(v)));
+  fits.forEach((v) => box.appendChild(vmRow(v, metas.get(v))));
+  if (!fits.length) box.appendChild(noFit());
   s.appendChild(box);
   return s;
 }
@@ -979,13 +1027,17 @@ function vmStateChip(v) {
   return chip(v.state === 'running' ? T('vm.running') : v.state === 'shut off' ? T('vm.off') : v.state, v.state === 'running' ? 'ok' : '', T('vm.state_hint'));
 }
 
-function vmRow(v) {
+function vmMeta(v) {
   const meta = el('div', 'row-meta');
   meta.appendChild(vmStateChip(v));
   rowChips(meta, v, v.tpm ? [chip(T('vm.tpm'), 'quiet', T('vm.tpm_hint'))] : [], []);
   const drilled = Office.restoreDrill && Office.restoreDrill.appChip('vm', v.id);
   if (drilled) meta.appendChild(drilled);
-  return unfoldingRow('vm:' + v.id, v.name, meta, () => vmDetail(v));
+  return meta;
+}
+
+function vmRow(v, meta) {
+  return unfoldingRow('vm:' + v.id, v.name, meta || vmMeta(v), () => vmDetail(v));
 }
 
 function vmDetail(v) {
@@ -1103,11 +1155,17 @@ function dbsSection() {
   const n = groups.reduce((s, g) => s + g.items.length, 0);
   const s = sectionBox(T('dbs'), T('dbs_sub'), n > 1 ? unfoldAll() : null, { place: 'dbs' });
   if (!groups.length) { s.appendChild(el('p', 'empty', apps().length || state.place.found ? T('dbs_none') : T('apps_no_packages'))); return s; }
+  // the bar over every entry; a group keeps its head over the entries that fit (its app's name counts for each)
+  const all = groups.flatMap((g) => g.items.map((x) => ({ g, x, meta: dbMeta(g.app, x) })));
+  const fits = new Set(barRows(s, 'dbs', all, (r) => [r.g.app.name, dbName(r.x), r.x.container, r.x.file, r.meta.textContent], (r) => !r.g.app.present));
   const box = el('div', 'box');
   groups.forEach((g) => {
+    const rows = all.filter((r) => r.g === g && fits.has(r));
+    if (!rows.length) return;
     box.appendChild(dbHead(g.app));
-    g.items.forEach((x) => box.appendChild(dbRow(g.app, x)));
+    rows.forEach((r) => box.appendChild(dbRow(g.app, r.x, r.meta)));
   });
+  if (!fits.size) box.appendChild(noFit());
   s.appendChild(box);
   return s;
 }
@@ -1125,16 +1183,17 @@ function dbHead(a) {
   return h;
 }
 
-/** «Apps» with the app's row unfolded and in view */
+/** «Apps» with the app's row unfolded and in view (the bar's filter cleared: it could hide that row) */
 function openApp(id) {
   expanded.add('app:' + id);
-  pick('apps');
-  const r = view.body.querySelector(`[data-key="${CSS.escape('app:' + id)}"]`);
-  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  bar('apps').set({ text: '', only: false });
+  sw.pick('apps', 'route');
+  const r = sw.body.querySelector(`[data-key="${CSS.escape('app:' + id)}"]`);
+  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });     /* reveal */ // the row a link asked for
 }
 
 /** One dump, or one media server's copies: container, size, the night, where the package is kept; «Restore…» */
-function dbRow(a, x) {
+function dbMeta(a, x) {
   const meta = el('div', 'row-meta');
   const ct = a.containers.find((c) => c.name === x.container);
   meta.appendChild(ct ? containerChips([ct]) : el('span', 'mono', x.container));
@@ -1143,6 +1202,11 @@ function dbRow(a, x) {
   if (x.kind === 'sqlite') meta.appendChild(x.checked ? chip(T('sq.checked'), 'ok', T('sq.checked_hint')) : chip(T('sq.unchecked'), '', T('sq.unchecked_hint')));
   const kept = Office.backupChip(a.package_protection);
   if (kept) meta.appendChild(kept);
+  return meta;
+}
+
+function dbRow(a, x, given) {
+  const meta = given || dbMeta(a, x);
   const right = el('div', 'rs-right');
   right.appendChild(restoreButton(T('db.button'), dbRequest(a, x), dbTitle(a, x)));
   const r = unfoldingRow(x.key, dbName(x), meta, () => dbDetail(a, x), right);
@@ -1345,7 +1409,7 @@ function partnerSection(p) {
   const again = button(T('pt.look'), 'small plain', () => partnerLook(p, again));
   again.disabled = !Office.agent.running || p.looking;
   const sub = p.kind === 'ticket' ? T('pt.sub_ticket', { name: p.name, of: p.of, until: date(p.expires) }) : T('pt.sub', { name: p.name });
-  const s = sectionBox(T('pt.title', { name: p.name }), sub, again);
+  const s = sectionBox(T('pt.title', { name: p.name }), sub, again, { place: `pt:${p.id}` });
   if (p.looking) s.appendChild(el('p', 'callout running', T('pt.looking', { name: p.name })));
   else if (p.looked === null) s.appendChild(el('p', 'callout', T(p.reachable === false ? 'pt.never_answered' : 'pt.never', { name: p.name, why: T('pt.why.' + (p.why || 'unreachable')) })));
   else if (p.reachable === false) s.appendChild(el('p', 'callout warn', T('pt.as_of', { name: p.name, when: date(p.looked), why: T('pt.why.' + (p.why || 'unreachable')) })));
@@ -1392,7 +1456,7 @@ function ticketBlock(box, p) {
   st.appendChild(list);
   const more = el('a', '', T('move.t_more', { name: p.name }));
   more.href = '#/restore';
-  more.onclick = (e) => { e.preventDefault(); pick('partner:' + p.id); };
+  more.onclick = (e) => { e.preventDefault(); openSection('partner:' + p.id); };
   const line = el('p', 'role');
   line.appendChild(more);
   st.appendChild(line);
@@ -1666,9 +1730,8 @@ async function restoreDialog(req, title) {
     if (j.state) state = j.state;
     if (j.journal) job = j.journal;
     Office.toast(T('rd.started', { what: plan.what }));
-    section = 'journal';
-    Office.store('restore.section', section);
     expanded.add('j:' + j.id);
+    sw.pick('journal', 'route');
     render();
     pollJob();
     return true;
@@ -1986,20 +2049,17 @@ function putBackView(pb) {
 /** «Journal» with one entry unfolded and in view */
 function openJournal(id) {
   expanded.add('j:' + id);
-  pick('journal');
-  const r = view && view.body.querySelector(`[data-key="${CSS.escape('j:' + id)}"]`);
-  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  sw.pick('journal', 'route');
+  const r = view && sw.body.querySelector(`[data-key="${CSS.escape('j:' + id)}"]`);
+  if (r) r.scrollIntoView({ block: 'start', behavior: 'smooth' });     /* reveal */ // the row a link asked for
 }
 
 // ------------------------------------------------------------------ desk
 // ------------------------------------------------------------------ the drill (drill.js, next to this file)
 /** drill.js gets the helpers it shares with this page; it says when it has something new to show */
 function drillHelpers() {
-  const redraw = (all) => {
-    if (!view || !view.tiles) return;
-    Office.keepInPlace(view.tiles, () => { renderTiles(); if (all && section === 'drill') renderSection(); });
-  };
-  return { T, fmt, date, chip, button, sectionBox, unfoldingRow, fold, listBlock, redraw: () => redraw(true), tiles: () => redraw(false), shown: () => !!view };
+  const redraw = () => { if (view && view.notes) sw.render(); };       // the drill's tile, and its section where it stands
+  return { T, fmt, date, chip, button, sectionBox, unfoldingRow, fold, listBlock, redraw, tiles: redraw, shown: () => !!view };
 }
 function loadDrill() {
   if (Office.restoreDrill || !SELF) return;
@@ -2008,7 +2068,8 @@ function loadDrill() {
   s.onload = () => {
     if (!Office.restoreDrill) return;
     Office.restoreDrill.init(drillHelpers());
-    if (view && section === 'drill') Office.restoreDrill.refresh();
+    if (view && sw.active() === 'drill') Office.restoreDrill.refresh();
+    else if (view) Office.restoreDrill.settings();
   };
   (document.currentScript && document.currentScript.parentNode || document.body || document.head).appendChild(s);
 }
@@ -2019,9 +2080,11 @@ Office.desk({
   /** sub: a section (#/restore/drill — the Team Lead's and Mr. Backupsy's links; the others the search's) — that one open */
   async mount(root, sub) {
     view = root;
-    if (SECTIONS.includes(sub) || /^partner:[0-9a-f]{8}$/.test(sub)) { section = sub; Office.store('restore.section', section); }
+    listBars.forEach((b) => b.reset());     // a new visit (or the search's way to a row): the whole lists
+    sw.mount(sub);
     render();
-    if (section === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
+    if (sw.active() === 'drill' && Office.restoreDrill) Office.restoreDrill.refresh();
+    else if (Office.restoreDrill) Office.restoreDrill.settings();       // the drill tile's frequency
     await load(false);
     pollJob();             // a restore started elsewhere shows at once
   },
@@ -2048,7 +2111,7 @@ Office.desk({
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): each tile
 // opens through its sub-route, the section under it (drill.js has the drill's)
 Office.places(ID, [
-  ...SECTIONS.map((sec) => ({ kind: 'tile', key: `tile.${sec}`, route: `#/restore/${sec}`, anchor: `tile.${sec}` })),
+  ...sw.places(),
   ...[['apps', 'apps'], ['vms', 'vms'], ['dbs', 'dbs'], ['kopia', 'kopia'], ['journal', 'journal'], ['move.title', 'move'], ['drill.title', 'drill']]
     .map(([key, sec]) => ({ kind: 'section', key, route: `#/restore/${sec}` })),
   ...['tiles', 'row', 'dbs', 'package', 'snapshots', 'kopia', 'commands', 'chips', 'restoring', 'journal', 'drill']

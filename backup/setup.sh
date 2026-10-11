@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.39 - 2026-10-10
+# unraid-backup - setup.sh                        Version 2.41 - 2026-10-12
+#   2.41 (backup.sh only: every drift note carries a code and its parameters for the office)
+#   2.40 An [app "<name>"] section whose app is gone (no container of that name or Compose project any more, Docker
+#        answering) is removed like a gone share's entry: never carried into the proposals, said once (hint app_gone);
+#        the plan lists every [app] section of settings.ini as apps[] {name, gone, keys} for the office
 #   2.39 Every hint and warning the office can show carries a code and params (hint_as, wrn_as, wrn_code): the office
 #        says them in its own words and languages; the English text stays beside them, in the terminal and the log.
 #        A second line of a message has the code `more`. The Docker volumes warning names each volume with its path
@@ -586,10 +590,34 @@ TXT
     inv_scan
     docker_load
     vm_load
+    apps_gone_drop
     if [[ -z "$(pget "kopia|container")" ]] || ! in_list "$(pget "kopia|container")" "${CT_NAMES[@]}"; then
         pset "kopia|container" "$(kopia_find_container)"
         _apply_P
     fi
+}
+
+# [app "<name>"] sections whose app is gone (2.40): no container of that name and none of that Compose project any
+# more - the section is dropped from the proposals (Apply leaves it out of settings.ini, like a gone share's entry;
+# with --apply also when the decisions still name it) and said once; the plan lists it (apps[] gone). Docker not
+# answering: nobody knows - kept as it is.
+declare -a APPS_GONE=()
+apps_gone_drop() {
+    APPS_GONE=()
+    ub_docker_answers || return 0
+    local -A have=()
+    local c n k
+    for c in "${CT_NAMES[@]}"; do have[$c]=1; have[${CT_PROJECT[$c]:-$c}]=1; done
+    while IFS= read -r n; do
+        [[ -z "$n" || -n "${have[$n]:-}" ]] && continue
+        APPS_GONE+=( "$n" )
+        for k in "${!P[@]}"; do
+            if [[ "$k" == "app|$n|"* ]]; then unset "P[$k]"; fi
+        done
+        hint_as app_gone "App '$n' is in settings.ini, it no longer exists (no container, no Compose project) - its entry is removed" name "$n"
+    done <<<"$(old_names app)"
+    (( ${#APPS_GONE[@]} )) && _apply_P
+    return 0
 }
 
 # P -> CFG -> variables (so that inventory/plan/Kopia work with the proposals)
@@ -2701,13 +2729,23 @@ plan_write() {
     srcs="$(printf '%s\n' "${KOPIA_SOURCES[@]}" | us_json state source | jq 'map(select(.source != ""))')"
     maps="$(for k in "${!KM_SRC[@]}"; do printf '%s\x1f' "${KM_SRC[$k]}" "${KM_DST[$k]}" "${KM_RW[$k]}" "${KM_PROP[$k]:-}" "$([[ $k -eq $KOPIA_MAIN ]] && echo 1)"; echo; done \
          | us_json source target rw propagation main | jq 'map(select(.source != "") | .rw = (.rw == "true") | .main = (.main == "1"))')"
+    # the [app] sections of settings.ini (2.40): each with its keys and whether its app is gone (then Apply removes it)
+    local apps ak
+    apps="$(while IFS= read -r n; do
+            [[ -n "$n" ]] || continue
+            ak="$(for k in "${!OLD[@]}"; do if [[ "$k" == "app|$n|"* ]]; then printf '%s\x1f%s\n' "$k" "${OLD[$k]//$'\n'/$'\x1e'}"; fi; done | plan_kv)"
+            [[ -n "$ak" ]] || ak='{}'
+            jq -nc --arg n "$n" --arg gone "$(in_list "$n" "${APPS_GONE[@]}" && echo 1)" --argjson k "$ak" \
+                '{name: $n, gone: ($gone == "1"), keys: ($k | with_entries(.key |= (split("|") | last)))}'
+        done <<<"$(old_names app)" | jq -sc '.')" || apps="[]"
+    [[ -n "$apps" ]] || apps="[]"
     local kc="${KOPIA_CONTAINER:-}" cands=""
     for n in "${CT_NAMES[@]}"; do is_kopia_image "${CT_IMAGE[$n]}" && cands+="$n"$'\x1e'; done
     msgs_json | jq -c \
         --argjson interface "$UB_INTERFACE" --arg version "$UB_VERSION" --argjson time "$(date +%s)" \
         --arg have "$HAVE_SETTINGS" --argjson P "$p" --argjson O "$o" --argjson pending "$pending" --argjson shares "$shares" --argjson containers "$cts" \
         --argjson databases "$dbs" --argjson missing "$miss" --argjson nextcloud "$ncs" --argjson bases "$bases" \
-        --argjson vms "${vms:-[]}" --arg vm_service "$VM_SERVICE" \
+        --argjson vms "${vms:-[]}" --arg vm_service "$VM_SERVICE" --argjson apps "$apps" \
         --arg flash_ds "${FLASH_DATASET:-}" --arg flash_fs "${FLASH_FS:-}" --arg size_timeout "$SIZE_TIMEOUT" \
         --arg k_enabled "$(pget "kopia|enabled" no)" --arg k_container "$kc" --arg k_cands "$cands" \
         --arg k_running "${CT_RUNNING[$kc]:-}" --arg k_image "${CT_IMAGE[$kc]:-}" --arg k_ready "$KOPIA_POLICY_READY" \
@@ -2722,7 +2760,7 @@ plan_write() {
           asleep_pools: $asleep_pools, asleep_nights: $asleep_nights, preset_new: $preset_new,
           sizes_measured: ($size_timeout != "0"), P: $P, O: $O, pending: $pending, shares: $shares, containers: $containers,
           databases: $databases, missing_databases: $missing, nextcloud: $nextcloud,
-          vms: $vms, vm_service: ($vm_service == "yes"), partners: $partners, place_partner: $place_partner,
+          vms: $vms, vm_service: ($vm_service == "yes"), apps: $apps, partners: $partners, place_partner: $place_partner,
           bases: $bases, flash: {dataset: $flash_ds, fs: $flash_fs}, mount_root: $mount_root,
           kopia: {enabled: ($k_enabled == "yes"), container: $k_container,
                   candidates: ($k_cands | split("\u001e") | map(select(length > 0))),
