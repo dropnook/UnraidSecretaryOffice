@@ -26924,8 +26924,7 @@ SH);
         chmod("$tmp/bin/$b", 0755);
     }
     $v += ['version' => '7.3.2', 'own' => ['set' => '', 'cron' => null], 'mover' => false, 'mover_self' => false, 'busy' => false, 'emby' => null,
-           'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => ["$tmp/jack/embycache_exclude.txt", '/mnt/user/appdata/x/embycache/embycache_exclude.txt'],
-           'jack_ran' => false];
+           'tuning' => false, 'env' => [], 'hired' => true];
     $GLOBALS['moverelliHost'] = [
         'dir' => "$tmp/data", 'shares_dir' => "$tmp/shares", 'mnt' => "$tmp/mnt", 'waitdir' => "$tmp/run", 'write_state' => false, 'look_every' => 0,
         'env' => ['CUSTOMMOVER_MOVER_BIN' => "$tmp/bin/move", 'CUSTOMMOVER_ZFS' => "$tmp/bin/zfs", 'MOVE_ROOT' => "$tmp/mnt"],
@@ -26936,8 +26935,6 @@ SH);
         'emby' => function () use (&$v) { return $v['emby']; },
         'scheduled' => fn () => true, 'lock_wait' => 1,
         'hired' => function () use (&$v) { return $v['hired']; },
-        'jack_lists' => function () use (&$v) { return $v['jack_lists']; },
-        'jack_ran' => function () use (&$v) { return $v['jack_ran']; },
         'tuning' => function () use (&$v) { return $v['tuning']; },
         'tuning_dir' => "$tmp/tuning", 'us_dir' => "$tmp/us", 'cron_glob' => "$tmp/plugins/*/*.cron", 'unraid_cron' => "$tmp/plugins/dynamix/mover.cron",
     ];
@@ -27199,7 +27196,7 @@ function testMoverelliRun(): void
     same('moverelli run: an exclude list gone — the dry run warns, the real run skips Docs with an error, its file stays', [[['dry', 0], true], ['error', 0], 'errors', true],
         [$dry, $state(), readJson("$dir/status.json")['result'] ?? null, is_file("$tmp/mnt/cache/Docs/f.txt")]);
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
-    // EmbyCache's list before its first run: not there yet — an empty list, the share moves; another list gone still errs
+    // EmbyCache's list gone on a real run: always an error — whether or not EmbyCache ever ran here; nothing of the share moves
     $jack = "$tmp/jack/embycache_exclude.txt";
     $one = fn (array $files) => ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => $files, 'patterns' => []];
     file_put_contents("$tmp/mnt/cache/Docs/h.txt", 'h');
@@ -27207,53 +27204,36 @@ function testMoverelliRun(): void
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']], ['Docs' => $one([$jack]), 'Filme' => $one(['/office-tests-none/keep.txt'])]), $h);
     moverelliJob(['run', '--office'], $h);
     $notified();
-    same('moverelli run: EmbyCache\'s list not there yet — Docs moves (an empty list), Filme with its list gone stays, an error',
-        [true, false, true, 'errors', true, false],
-        [is_file("$tmp/mnt/disk1/Docs/h.txt"), file_exists("$tmp/mnt/cache/Docs/h.txt"), is_file("$tmp/mnt/cache/Filme/A/i.mkv"), readJson("$dir/status.json")['result'] ?? null,
-         str_contains((string) file_get_contents("$dir/office-output.txt"), "exclude file not there yet (taken as empty): $jack"), file_exists($jack)]);
-    // EmbyCache ran here before and its list is gone now: no longer optional — Docs skipped with an error, nothing moves
-    $v['jack_ran'] = true;
+    $docsState = fn () => array_values(array_filter(readJson("$dir/status.json")['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0]['state'] ?? null;
+    $out = (string) file_get_contents("$dir/office-output.txt");
+    same('moverelli run: EmbyCache\'s list not there (EmbyCache never ran) — Docs skipped with an error, Filme with its list gone too, nothing moves, nothing created',
+        [true, false, true, 'errors', 'error', true, false, false],
+        [is_file("$tmp/mnt/cache/Docs/h.txt"), file_exists("$tmp/mnt/disk1/Docs/h.txt"), is_file("$tmp/mnt/cache/Filme/A/i.mkv"), readJson("$dir/status.json")['result'] ?? null,
+         $docsState(), str_contains($out, "exclude file not found: $jack"), str_contains($out, 'taken as empty'), file_exists($jack)]);
+    // … the same once EmbyCache ran here (its traces in Jack's folder) and the list is gone
+    @mkdir("$tmp/jack", 0700, true);
+    file_put_contents("$tmp/jack/embycache_origin.json", '{}');
     file_put_contents("$tmp/mnt/cache/Docs/m.txt", 'm');
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']], ['Docs' => $one([$jack])]), $h);
     moverelliJob(['run', '--office'], $h);
     $notified();
-    same('moverelli run: EmbyCache ran here before, its list gone — Docs skipped with an error, its file stays', [true, 'errors', 'error'],
-        [is_file("$tmp/mnt/cache/Docs/m.txt"), readJson("$dir/status.json")['result'] ?? null,
-         array_values(array_filter(readJson("$dir/status.json")['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0]['state'] ?? null]);
+    same('moverelli run: EmbyCache ran here before, its list gone — Docs skipped with an error, its files stay', [true, true, false, 'errors', 'error'],
+        [is_file("$tmp/mnt/cache/Docs/m.txt"), is_file("$tmp/mnt/cache/Docs/h.txt"), file_exists("$tmp/mnt/disk1/Docs/m.txt"), readJson("$dir/status.json")['result'] ?? null, $docsState()]);
+    // … the dry run only warns
+    moverelliJob(['dry', '--office'], $h);
+    $notified();
+    same('moverelli run: … the dry run only warns about the list gone', [true, 'ok'],
+        [str_contains((string) file_get_contents("$dir/office-output.txt"), "exclude file not found: $jack"), readJson("$dir/status.json")['result'] ?? null]);
     // … once EmbyCache wrote it: what it names stays on the pool, the rest moves
-    @mkdir("$tmp/jack", 0700, true);
     file_put_contents($jack, "$tmp/mnt/cache/Docs/j.txt\n");
     file_put_contents("$tmp/mnt/cache/Docs/j.txt", 'j');
     file_put_contents("$tmp/mnt/cache/Docs/k.txt", 'k');
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']], ['Docs' => $one([$jack])]), $h);
     moverelliJob(['run', '--office'], $h);
     $notified();
-    same('moverelli run: … EmbyCache\'s list there — its file stays on the pool, the others move, done', [true, true, true, 'ok'],
-        [is_file("$tmp/mnt/cache/Docs/j.txt"), is_file("$tmp/mnt/disk1/Docs/k.txt"), is_file("$tmp/mnt/disk1/Docs/m.txt"), readJson("$dir/status.json")['result'] ?? null]);
-    $v['jack_ran'] = false;
-    // which traces of Jack's mean «EmbyCache ran here (or was imported)» — read only
-    $jd = "$tmp/jackdata";
-    @mkdir($jd, 0700, true);
-    $ran = function () use ($jd): bool { return moverelliJackRan($jd); };
-    $seen = [$ran()];
-    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'dry', 'result' => 'ok'], ['tool' => 'gather', 'mode' => 'run', 'result' => 'ok'],
-        ['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused', 'why' => 'emby_mover_schedule']]]));
-    file_put_contents("$jd/office-run.json", json_encode(['tool' => 'embycache', 'mode' => 'report', 'started' => 1]));
-    $seen[] = $ran();
-    file_put_contents("$jd/office-run.json", json_encode(['tool' => 'embycache', 'mode' => 'run', 'started' => 1, 'pid' => 1]));
-    $seen[] = $ran();
-    unlink("$jd/office-run.json");
-    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'release', 'result' => 'stopped']]]));
-    $seen[] = $ran();
-    unlink("$jd/office-history.json");
-    file_put_contents("$jd/embycache_origin.json", '{}');
-    $seen[] = $ran();
-    unlink("$jd/embycache_origin.json");
-    file_put_contents("$jd/embycache_exclude.txt.before-import-20261010-120000", '');
-    $seen[] = $ran();
-    same('moverelli run: EmbyCache ran here? nothing; dry runs, the gather, a refusal, a report — no; a real run started, a release in his list, origin.json, an import\'s copy — yes',
-        [false, false, true, true, true, true], $seen);
-    same('moverelli run: … nothing created in his folder', ['embycache_exclude.txt.before-import-20261010-120000'], array_values(array_diff(scandir($jd), ['.', '..'])));
+    same('moverelli run: … EmbyCache\'s list there — its file stays on the pool, the others move, done', [true, true, true, true, 'ok'],
+        [is_file("$tmp/mnt/cache/Docs/j.txt"), is_file("$tmp/mnt/disk1/Docs/k.txt"), is_file("$tmp/mnt/disk1/Docs/m.txt"), is_file("$tmp/mnt/disk1/Docs/h.txt"),
+         readJson("$dir/status.json")['result'] ?? null]);
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
 
     // her list of runs: at most 40, a scheduled refusal again for the same reason counted on one line

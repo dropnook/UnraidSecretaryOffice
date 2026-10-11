@@ -89,10 +89,6 @@ function moverelliHost(): array
         'mover_running' => $h['mover_running'] ?? fn (?int $self = null): bool => embyMoverRunning(null, $self),
         'jack_busy'     => $h['jack_busy'] ?? fn (): bool => embyAnyRunning(),
         'emby'          => $h['emby'] ?? fn (): ?array => moverelliJackLists(),
-        // EmbyCache's list (both forms of its path), hired or not: not there before EmbyCache's first run — may be missing
-        'jack_lists'    => $h['jack_lists'] ?? fn (): array => (embyMoverHost()['lists'])(),
-        // has EmbyCache ever run for real (or been imported) here? — read from Jack's own traces (moverelliJackRan())
-        'jack_ran'      => $h['jack_ran'] ?? fn (): bool => moverelliJackRan(EMBY_DATA),
         'scheduled'     => $h['scheduled'] ?? fn (): bool => officeJobSchedule('moverelli')['enabled'],
         'gate'          => $h['gate'] ?? [],         // embyRunGate()'s options (the tests: sleep, now, array, max)
         'look_every'    => $h['look_every'] ?? EMBY_MOVER_LOOK,     // during a real run: is Unraid's mover at work? every … s
@@ -552,28 +548,6 @@ function moverelliExcludeFrom(string $dir): array
     return $out;
 }
 
-/**
- * Has EmbyCache ever run for real (or been imported) on this server? Read only, from Jack's own traces in his data
- * folder: embycache_origin.json (every real run and release writes it together with the list, also empty), a copy an
- * import put aside (`*.before-import-*`), his list of runs (an EmbyCache run or release that started), his last run's
- * marker (office-run.json: EmbyCache, run or release). None of them: EmbyCache's list can't exist yet — a missing list
- * protects nothing. Any of them: a missing list is an error (his films stay where they are).
- */
-function moverelliJackRan(string $dir): bool
-{
-    if (is_file("$dir/embycache_origin.json") || glob("$dir/embycache_{exclude.txt,origin.json}.before-import-*", GLOB_BRACE)) {
-        return true;
-    }
-    $real = fn (mixed $r): bool => is_array($r) && ($r['tool'] ?? '') === 'embycache' && in_array($r['mode'] ?? '', ['run', 'release'], true)
-        && !in_array($r['result'] ?? '', ['refused', 'skipped'], true);
-    foreach ((array) (readJson("$dir/office-history.json")['runs'] ?? []) as $r) {
-        if ($real($r)) {
-            return true;
-        }
-    }
-    return $real(readJson("$dir/office-run.json"));
-}
-
 /** While Jack Emby is hired: EmbyCache's list (both forms of its path) and his shares — for her page and her rule */
 function moverelliJackLists(): ?array
 {
@@ -887,10 +861,7 @@ function moverelliJob(array $args, ?array $h = null): int
             'CUSTOMMOVER_INI' => "$dir/smart_mover.ini", 'CUSTOMMOVER_LOG' => "$dir/smart_mover.log", 'CUSTOMMOVER_LOCK' => "$dir/smartmover.lock",
             'CUSTOMMOVER_STATUS' => "$dir/status.json", 'CUSTOMMOVER_STOP' => "$dir/office-stop.json",
             'CUSTOMMOVER_SHARES_DIR' => $h['shares_dir'], 'CUSTOMMOVER_MNT' => $h['mnt'], 'OFFICE_RUN_DIR' => RUN_DIR]
-         // a real run: a list that is gone skips its share — but EmbyCache's, while EmbyCache never ran here, is simply empty
-         + ($real ? ['CUSTOMMOVER_EXCLUDES_REQUIRED' => '1'] : [])
-         + ($real && !($h['jack_ran'])() ? ['CUSTOMMOVER_EXCLUDES_OPTIONAL' => implode(',', array_filter(($h['jack_lists'])(),
-               fn ($p) => is_string($p) && !str_contains($p, ',')))] : []) + $h['env'];
+         + ($real ? ['CUSTOMMOVER_EXCLUDES_REQUIRED' => '1'] : []) + $h['env'];     // a real run: a list that is gone skips its share
     $out = fopen("$dir/office-output.txt", 'w');
     $proc = proc_open(array_merge(['bash', "$h[app]/custommover_run.sh"], MOVERELLI_MODES[$mode]), [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, '/', $env);
     $why = null;
