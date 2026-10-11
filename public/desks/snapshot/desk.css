@@ -11,6 +11,7 @@
 .sp-split .card-line{overflow-wrap:anywhere}
 .sp-split .sp-split-line{font-size:12.5px; color:var(--muted)}
 .card-line.quiet{color:var(--muted)}
-/* the card «Schedules»: in a parent of its own (its own choice, not one of the pools), laid out in the row as a card */
-.sp-tilewrap{display:contents}
+/* a btrfs disk's row as a tile (tiles v2): its mark on a line of its own under the row, not over the count */
+.minirow.tile-on{margin:2px -4px}
+.minirow .tile-mark{position:static; grid-column:1 / -1; justify-self:start}
 }

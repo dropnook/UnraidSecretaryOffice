@@ -1318,10 +1318,6 @@ function renderSetup() {
   root.innerHTML = '';
   // the tabs say where one is (no «← Back», no head button): under them the page's head line, his setup words its sub line
   root.appendChild(deskHead());
-  const ph = el('div', 'jo-pagehead');
-  ph.append(el('div', 'jo-pagehead-title', T('page.setup')),
-    el('p', 'jo-pagehead-sub', T('setup.bubble') + (state && !state.configured ? ' ' + T('import.bubble') : '')));
-  root.appendChild(ph);
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('import.title'), T('import.help')],
     [T('setup.key'), T('setup.help_key')],
@@ -1331,6 +1327,10 @@ function renderSetup() {
     [T('setup.more'), T('setup.help_more')],
     [T('setup.save'), T('setup.help_save')],
   ]));
+  const ph = el('div', 'jo-pagehead');
+  ph.append(el('div', 'jo-pagehead-title', T('page.setup')),
+    el('p', 'jo-pagehead-sub', T('setup.bubble') + (state && !state.configured ? ' ' + T('import.bubble') : '')));
+  root.appendChild(ph);
   if (!state) return;
   if (!form) initForm();
   const connected = form.instances.some((i) => i.server);
