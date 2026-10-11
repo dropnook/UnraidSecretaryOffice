@@ -137,7 +137,6 @@
   "kopia_count": "Offsite {ok}/{total}",
   "old_step": "Current step: {step}",
   "stat.last": "Last backup",
-  "stat.duration": "Took",
   "stat.downtime": "containers stopped {duration}",
   "stat.kopia": "Offsite",
   "stat.kopia_all": "all shares sent",
@@ -317,7 +316,6 @@
   "setup.filter.label": "Filter the setup: names of apps, VMs, shares, folders",
   "setup.filter.only_new": "Only what's new",
   "setup.filter.only_new_hint": "Show only the rows marked new or waiting for your decision",
-  "setup.filter.hits": {"one": "{n} of {total} rows fits the filter", "other": "{n} of {total} rows fit the filter"},
   "setup.filter.none": "Nothing in this step fits the filter.",
   "setup.sub_new": "Nothing is set up yet — this is my proposal for this server. Check it, change it, then apply.",
   "setup.sub_have": "Your current settings, plus my proposal for anything new. Change it, then apply.",
@@ -948,7 +946,6 @@
     "other": "{n} devices passed through — on another server the VM's XML needs adjusting."
   },
   "vm.where_to_change": "Set in «Set up…» → VMs.",
-  "stat.containers": "Containers",
   "stat.ct_stopped": {
     "one": "1 stopped for the snapshot",
     "other": "{n} stopped for the snapshot"
@@ -1367,5 +1364,23 @@
   "letgo.done_journal": "I noted every step in {file} (in the folder «backup» of the office's data folder).",
   "letgo.failed": "Nothing was cleared away: {error} I have been let go all the same — my packages and snapshots are where they were.",
   "errors.backup_letgo_journal": "I can't write my notes into {path} — so I cleared nothing away.",
-  "errors.backup_letgo_delete_failed": "{name} couldn't be deleted: {detail}"
+  "errors.backup_letgo_delete_failed": "{name} couldn't be deleted: {detail}",
+  "stat.next": "next backup {when}",
+  "partner.short_now": "{name}: sending now",
+  "partner.short_never": "{name}: nothing sent yet",
+  "partner.short_sent": "{name}: sent {when}",
+  "partner.short_failed": {"one": "1 failed", "other": "{n} failed"},
+  "partner.short_skipped": {"one": "1 skipped", "other": "{n} skipped"},
+  "tile.kopia": "Offsite",
+  "tile.dumps": "Apps with a database dump",
+  "tile.apps": "Apps (packages)",
+  "tile.vms": "VMs",
+  "tile.flash": "Flash (/boot)",
+  "protect.filter_label": "Filter the table: names of shares, VMs and apps, protection, pool",
+  "protect.only_off": "Only what isn't protected",
+  "protect.only_off_hint": "Shares not backed up, VMs not set up or left out, packages with errors",
+  "history_filter_label": "Filter the backups: date, result",
+  "filter_none": "Nothing here fits the filter.",
+  "help.tiles": "Tiles",
+  "help.tiles_text": "The overview's tiles show how things stand. One with a list behind it — offsite, databases, packages, VMs, the flash — shows only its rows in «Is everything protected?» when clicked; a second click, the name in the line above the table or «Show all» shows everything again. «Schedule» opens its settings. The bars above the table and the backups find rows by their words. Nothing of a filter is kept: each time you come, everything shows."
 }

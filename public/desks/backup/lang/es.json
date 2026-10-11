@@ -140,7 +140,6 @@
   "kopia_count": "Fuera de casa {ok}/{total}",
   "old_step": "Paso actual: {step}",
   "stat.last": "Última copia",
-  "stat.duration": "Tardó",
   "stat.downtime": "contenedores detenidos {duration}",
   "stat.kopia": "Fuera de casa",
   "stat.kopia_all": "todos los recursos compartidos enviados",
@@ -323,7 +322,6 @@
   "setup.filter.label": "Filtrar la configuración: nombres de apps, VM, recursos compartidos, carpetas",
   "setup.filter.only_new": "Solo lo nuevo",
   "setup.filter.only_new_hint": "Mostrar solo las filas marcadas como nuevas o que esperan tu decisión",
-  "setup.filter.hits": {"one": "{n} de {total} filas coincide con el filtro", "other": "{n} de {total} filas coinciden con el filtro"},
   "setup.filter.none": "Nada en este paso coincide con el filtro.",
   "setup.sub_new": "Todavía no hay nada configurado — esta es mi propuesta para este servidor. Compruébala, cámbiala y luego aplica.",
   "setup.sub_have": "Tus ajustes actuales, más mi propuesta para todo lo nuevo. Cámbialo y luego aplica.",
@@ -954,7 +952,6 @@
     "other": "{n} dispositivos pasados directamente — en otro servidor hay que ajustar el XML de la VM."
   },
   "vm.where_to_change": "Se configura en «Configurar…» → VMs.",
-  "stat.containers": "Contenedores",
   "stat.ct_stopped": {
     "one": "1 detenido para la instantánea",
     "other": "{n} detenidos para la instantánea"
@@ -1388,5 +1385,23 @@
   "letgo.done_journal": "He anotado cada paso en {file} (en la carpeta «backup» de la carpeta de datos de la secretaría).",
   "letgo.failed": "No se recogió nada: {error} Me han despedido igualmente — mis paquetes e instantáneas están donde estaban.",
   "errors.backup_letgo_journal": "No puedo escribir mis notas en {path} — así que no he recogido nada.",
-  "errors.backup_letgo_delete_failed": "No se pudo borrar {name}: {detail}"
+  "errors.backup_letgo_delete_failed": "No se pudo borrar {name}: {detail}",
+  "stat.next": "próxima copia {when}",
+  "partner.short_now": "{name}: enviando ahora",
+  "partner.short_never": "{name}: nada enviado aún",
+  "partner.short_sent": "{name}: enviado {when}",
+  "partner.short_failed": {"one": "1 fallida", "other": "{n} fallidas"},
+  "partner.short_skipped": {"one": "1 omitida", "other": "{n} omitidas"},
+  "tile.kopia": "Fuera de casa",
+  "tile.dumps": "Apps con un volcado de base de datos",
+  "tile.apps": "Apps (paquetes)",
+  "tile.vms": "VMs",
+  "tile.flash": "Flash (/boot)",
+  "protect.filter_label": "Filtrar la tabla: nombres de recursos compartidos, VM y apps, protección, pool",
+  "protect.only_off": "Solo lo que no está protegido",
+  "protect.only_off_hint": "Recursos compartidos sin copia, VM sin configurar o excluidas, paquetes con errores",
+  "history_filter_label": "Filtrar las copias: fecha, resultado",
+  "filter_none": "Aquí nada coincide con el filtro.",
+  "help.tiles": "Mosaicos",
+  "help.tiles_text": "Los mosaicos del resumen muestran cómo están las cosas. Uno con una lista detrás — fuera de casa, bases de datos, paquetes, VM, el flash — con un clic muestra en «¿Está todo protegido?» solo sus filas; un segundo clic, el nombre en la línea encima de la tabla o «Mostrar todo» vuelve a mostrarlo todo. «Programación» abre su ajuste. Las barras encima de la tabla y de las copias encuentran filas por sus palabras. De un filtro no queda nada: en cada visita se ve todo."
 }

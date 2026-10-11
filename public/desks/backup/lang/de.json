@@ -137,7 +137,6 @@
   "kopia_count": "Ausser Haus {ok}/{total}",
   "old_step": "Aktueller Schritt: {step}",
   "stat.last": "Letzte Sicherung",
-  "stat.duration": "Dauer",
   "stat.downtime": "Container standen {duration} still",
   "stat.kopia": "Ausser Haus",
   "stat.kopia_all": "alle Shares gesichert",
@@ -317,7 +316,6 @@
   "setup.filter.label": "Einrichtung filtern: Namen von Apps, VMs, Shares, Ordnern",
   "setup.filter.only_new": "Nur Neues",
   "setup.filter.only_new_hint": "Nur die Zeilen zeigen, die als neu markiert sind oder auf deine Entscheidung warten",
-  "setup.filter.hits": {"one": "{n} von {total} Zeilen passt zum Filter", "other": "{n} von {total} Zeilen passen zum Filter"},
   "setup.filter.none": "Nichts in diesem Schritt passt zum Filter.",
   "setup.sub_new": "Noch ist nichts eingerichtet — das ist mein Vorschlag für diesen Server. Prüfen, ändern, dann übernehmen.",
   "setup.sub_have": "Deine jetzigen Einstellungen, dazu mein Vorschlag für alles Neue. Ändern, dann übernehmen.",
@@ -948,7 +946,6 @@
     "other": "{n} Geräte durchgereicht — auf einem anderen Server muss die XML der VM angepasst werden."
   },
   "vm.where_to_change": "Eingestellt unter «Einrichten…» → VMs.",
-  "stat.containers": "Container",
   "stat.ct_stopped": {
     "one": "1 beim Snapshot angehalten",
     "other": "{n} beim Snapshot angehalten"
@@ -1367,5 +1364,23 @@
   "letgo.done_journal": "Jeden Schritt habe ich in {file} notiert (im Ordner «backup» im Datenordner des Sekretariats).",
   "letgo.failed": "Weggeräumt wurde nichts: {error} Entlassen bin ich trotzdem — meine Pakete und Snapshots sind, wo sie waren.",
   "errors.backup_letgo_journal": "Ich kann meine Notizen nicht in {path} schreiben — darum habe ich nichts weggeräumt.",
-  "errors.backup_letgo_delete_failed": "{name} liess sich nicht löschen: {detail}"
+  "errors.backup_letgo_delete_failed": "{name} liess sich nicht löschen: {detail}",
+  "stat.next": "nächste Sicherung {when}",
+  "partner.short_now": "{name}: sendet gerade",
+  "partner.short_never": "{name}: noch nichts gesendet",
+  "partner.short_sent": "{name}: gesendet {when}",
+  "partner.short_failed": {"one": "1 fehlgeschlagen", "other": "{n} fehlgeschlagen"},
+  "partner.short_skipped": {"one": "1 übersprungen", "other": "{n} übersprungen"},
+  "tile.kopia": "Ausser Haus",
+  "tile.dumps": "Apps mit Datenbank-Dump",
+  "tile.apps": "Apps (Pakete)",
+  "tile.vms": "VMs",
+  "tile.flash": "Flash (/boot)",
+  "protect.filter_label": "Tabelle filtern: Namen von Shares, VMs und Apps, Schutz, Pool",
+  "protect.only_off": "Nur Ungeschütztes",
+  "protect.only_off_hint": "Shares ohne Sicherung, VMs nicht eingerichtet oder ausgelassen, Pakete mit Fehlern",
+  "history_filter_label": "Sicherungen filtern: Datum, Ergebnis",
+  "filter_none": "Hier passt nichts zum Filter.",
+  "help.tiles": "Kacheln",
+  "help.tiles_text": "Die Kacheln im Überblick zeigen, wie es steht. Eine mit einer Liste dahinter — ausser Haus, Datenbanken, Pakete, VMs, der Flash — zeigt nach einem Klick in «Ist alles geschützt?» nur ihre Zeilen; ein zweiter Klick, der Name in der Zeile über der Tabelle oder «Alles zeigen» zeigt wieder alles. «Zeitplan» öffnet seine Einstellung. Die Leisten über der Tabelle und den Sicherungen finden Zeilen nach ihren Wörtern. Von einem Filter bleibt nichts: Bei jedem Besuch ist alles zu sehen."
 }

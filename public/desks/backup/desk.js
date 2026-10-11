@@ -83,13 +83,6 @@ function button(text, kind, act) {
   return b;
 }
 
-function stat(label, value, sub, alert) {
-  const s = el('div', 'stat' + (alert ? ' alert' : ''));
-  s.append(el('div', 'stat-label', label), el('div', 'stat-value', value));
-  if (sub) s.appendChild(el('div', 'stat-sub', sub));
-  return s;
-}
-
 /** Why a run ended: known codes translated, the script's own words otherwise */
 function messageText(m) {
   const code = String(m).replace(/^exit \d+$/, 'exit');
@@ -326,6 +319,7 @@ function render() {
   root.appendChild(Office.pageHelp(ID, [
     [T('help.run'), T('help.run_text')],
     [T('help.results'), T('help.results_text')],
+    [T('help.tiles'), T('help.tiles_text')],
     [T('help.protection'), T('help.protection_text')],
     ...['offsite', 'local', 'none'].map((l) => [Office.backupChip(l), Office.t('protect.' + l + '_text')]),
     [T('help.rules'), T('help.rules_text')],
@@ -344,6 +338,7 @@ function render() {
   if (!state.found) { root.appendChild(missing()); return; }
 
   notices().forEach((n) => root.appendChild(n));
+  if (protTile && !protTileCounts()[protTile]) protTile = '';     // the tile counts nothing any more (a new look): off
   root.appendChild(live() ? runningCard() : summary());
   root.appendChild(protection());
   root.appendChild(historySection());
@@ -573,57 +568,134 @@ function runningCard() {
   return box;
 }
 
-/** No run going on: how the last one went, and what comes next */
+// ---- the overview's tiles (2026-10-11, the tiles rebuild — CLAUDE.md «Tiles»): a number tile that counts rows of «Is
+// everything protected?» filters it to them (the first click on, the same tile again off, one tile at a time; never
+// stored — mount() clears it, a reload shows everything); the schedule opens its dialog (no toggle — its sub line says
+// so); the rest only show. overviewTiles() is pure (no DOM: tests/backuptiles.js runs it under node), summary() draws it.
+const PROT_ID = 'bk-protection';                  // the section holding the table and its bar: aria-controls, data-filters
+const PROT_TILES = ['kopia', 'dumps', 'apps', 'vms', 'flash'];
+const SHOW = 'show';                           // #/backup/show: the search's way to a row — clears every filter first
+const ITEM_ROUTE = `#/${ID}/${SHOW}`;
+let protTile = '';                             // the tile that filters the table now ('' = none) — never stored
+let protBar = null;                            // the table's filter bar, built once per visit (mount() drops it)
+let histBar = null;                            // the history's
+let protShown = [];                            // the rows drawn now that unfold: {open(), set(open)} — «Unfold all»
+
+/** No run going on: how the last one went, and what comes next — the tiles as Office.stat */
 function summary() {
   const box = section(T('overview'), T('overview_sub'), { place: 'overview' });
-  const stats = el('div', 'stats');
-  const last = lastRun();
-  const s = status();
-  if (last) {
-    const k = last.kopia || [];
-    const okCount = k.filter((x) => x.ok).length;
-    const lastSub = arrayStopped(last) ? T('stat.last_array_stop', { when: fmt.date(last.started, true) }) : fmt.date(last.started, true);
-    // engine 2.28: the shares it left out because their pool slept (the user's choice - the result stays ok)
-    const st = stat(T('stat.last'), T('result.' + last.result), lastSub + (asleepUnits(last) ? ' · ' + T('asleep.left_out', { n: asleepUnits(last) }) : ''),
-      last.result !== 'ok' && !arrayStopped(last));
-    stats.appendChild(st);
-    stats.appendChild(stat(T('stat.duration'), last.finished ? fmt.duration(last.finished - last.started) : '–',
-      T('stat.downtime', { duration: fmt.duration(last.downtime || 0) })));
-
-  } else {
-    stats.appendChild(stat(T('stat.last'), '–', T('bubble.no_runs')));
-  }
-  const sc = state.schedule || {};
-  const when = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
-  const sst = stat(T('stat.schedule'), when, sc.enabled ? T('stat.by_office') : T('stat.schedule_hint'), !sc.enabled);
-  if (sc.script) {
-    sst.classList.add('bk-clickable');
-    sst.tabIndex = 0;
-    sst.setAttribute('role', 'button');
-    sst.onclick = scheduleDialog;
-    sst.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scheduleDialog(); } };
-  }
-  stats.appendChild(sst);
-  if (s && s.mode !== 'backup' && s.finished) {
-    stats.appendChild(stat(T('stat.last_' + s.mode), T('result.' + s.result), fmt.relative(s.finished), s.result !== 'ok'));
-  }
-  overviewTiles().forEach((t) => stats.appendChild(t));
+  const stats = el('div', 'stats bk-stats');
+  const counts = protTileCounts();
+  overviewTiles().forEach((d) => stats.appendChild(tileNode(d, stats, counts)));
   box.appendChild(stats);
   return box;
 }
 
-/** What is backed up besides the shares: the containers, the VMs, the flash */
+/** A tile that filters is a button while it has rows to show (or is on); otherwise it only shows */
+const protTileLive = (key, counts) => (counts[key] || 0) > 0 || protTile === key;
+
+/** One tile of overviewTiles() as Office.stat: a filtering one a button with aria-pressed, the schedule a dialog opener */
+function tileNode(d, grid, counts) {
+  const o = { label: d.label, value: d.value, alert: d.alert, tip: d.tip, cls: d.cls,
+    sub: d.sub.map((x) => (typeof x === 'string' ? x : Office.place(x.place, el('span', '', x.text)))) };
+  if (d.dialog) o.on = () => scheduleDialog();
+  if (d.filters) {
+    Object.assign(o, { place: `tile.${d.filters}` });
+    if (protTileLive(d.filters, counts)) {
+      Object.assign(o, { on: () => protTileClick(d.filters, grid), pressed: protTile === d.filters, controls: PROT_ID, filters: PROT_ID });
+    }
+  }
+  const node = Office.stat(o);
+  if (d.filters) node.dataset.tile = d.filters;
+  return node;
+}
+
+/** A filtering tile clicked: on (another one off), or off again — the tiles stay where they are, the table is drawn anew */
+function protTileClick(key, grid) {
+  Office.keepInPlace(grid, () => {
+    protTile = protTile === key ? '' : key;
+    protRedraw();
+  });
+}
+/** The table anew in its place (and the tiles pressed or not) — the tiles and the rest of the page as they are */
+function protRedraw() {
+  if (!view || !state || !state.found) return;
+  view.querySelectorAll('button.stat[data-tile]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.tile === protTile ? 'true' : 'false'));
+  const old = view.querySelector('#' + PROT_ID);
+  if (old) old.replaceWith(protection());
+}
+
+/** «2 hours ago» etc.: durations with seconds when quick (dur), the containers' part of the last backup in one line */
+function containersLine(last) {
+  const c = state.containers;
+  if (c && c.up === false) return Office.t('common.docker_off');      // Docker stopped: said, not left out (1.43)
+  const parts = [];
+  if (last && last.downtime) parts.push(T('stat.downtime', { duration: dur(last.downtime) }));
+  if (c && c.stopped) parts.push(T('stat.ct_stopped', { n: c.stopped }));
+  if (c && c.kept) parts.push(T('stat.ct_kept', { n: c.kept }));
+  return parts.join(' · ');
+}
+
+/** A partner's line on the tile, short (one line each): how the last sending went; the long one goes into the tip */
+function partnerShort(p) {
+  const l = p.last;
+  if (p.current) return T('partner.short_now', { name: p.name });
+  if (!l) return T('partner.short_never', { name: p.name });
+  const parts = [l.sent ? T('partner.short_sent', { name: p.name, when: fmt.relative(l.time) }) : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) })];
+  if (l.failed.length) parts.push(T('partner.short_failed', { n: l.failed.length }));
+  if (l.skipped.length) parts.push(T('partner.short_skipped', { n: l.skipped.length }));
+  return parts.join(' · ');
+}
+/** … and in full: what went, how much, how fast, what was skipped or failed and why; while a run sends to it, what now */
+function partnerLong(p) {
+  const l = p.last;
+  const parts = [];
+  if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: unitLabel(p.current.unit), size: fmt.size(p.current.bytes || 0) }));
+  else if (!l) parts.push(T('partner.tile_never', { name: p.name, n: p.units.length }));
+  else {
+    parts.push(l.sent ? T('partner.tile_sent', { name: p.name, n: l.sent, size: fmt.size(l.bytes), mbit: fmt.number(l.mbit || 0, 1), when: fmt.relative(l.time) })
+      : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) }));
+    if (l.skipped.length) parts.push(T('partner.tile_skipped', { n: l.skipped.length, why: [...new Set(l.skipped.map((x) => partnerWhyShort(x.why)))].join(', ') }));
+    if (l.failed.length) parts.push(T('partner.tile_failed', { n: l.failed.length, why: [...new Set(l.failed.map((x) => partnerWhyShort(x.why)))].join(', ') }));
+  }
+  return parts.join(' · ');
+}
+const partnerTrouble = (p) => !!(p.last && !p.current && (p.last.failed.length || p.last.skipped.some((x) => !['array_stopping', 'signal'].includes(x.why))));
+
+/** A sub line long enough to be clamped on a phone gets the whole text as its tip too */
+const tipOf = (subs) => { const t = subs.map((x) => (typeof x === 'string' ? x : x.text)).filter(Boolean).join('\n'); return t.length > 48 ? t : ''; };
+
+/**
+ * The overview's tiles, pure (no DOM): [{key, label, value, sub: [text | {text, place}], alert, tip, cls, filters (a
+ * PROT_TILES key: the rows it counts in «Is everything protected?»), dialog (opens the schedule)}]. The last backup
+ * (with how long it took and the containers' part), the schedule, the last tour or dry run (only when newer than the
+ * last backup), offsite (Kopia), databases, packages, VMs, partners, the flash.
+ */
 function overviewTiles() {
   const set = state.settings || {};
-  const tiles = [];
-  const clickable = (t, act) => {
-    t.classList.add('bk-clickable');
-    t.tabIndex = 0;
-    t.setAttribute('role', 'button');
-    t.onclick = act;
-    t.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } };
-    return t;
-  };
+  const out = [];
+  const add = (d) => out.push({ sub: [], alert: false, filters: null, dialog: false, ...d, tip: d.tip || tipOf(d.sub || []) });
+  const last = lastRun();
+  const s = status();
+  if (last) {
+    const when = [arrayStopped(last) ? T('stat.last_array_stop', { when: fmt.date(last.started, true) }) : fmt.date(last.started, true)];
+    if (last.finished) when.push(dur(last.finished - last.started));
+    // engine 2.28: the shares it left out because their pool slept (the user's choice - the result stays ok)
+    if (asleepUnits(last)) when.push(T('asleep.left_out', { n: asleepUnits(last) }));
+    add({ key: 'last', label: T('stat.last'), value: T('result.' + last.result), sub: [when.join(' · '), containersLine(last)].filter(Boolean),
+      alert: last.result !== 'ok' && !arrayStopped(last) });
+  } else {
+    add({ key: 'last', label: T('stat.last'), value: '–', sub: [T('bubble.no_runs')] });
+  }
+  const sc = state.schedule || {};
+  const value = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
+  const next = sc.enabled && sc.next ? T('stat.next', { when: fmt.relative(sc.next) }) : '';
+  add({ key: 'schedule', label: T('stat.schedule'), value, sub: [sc.enabled ? [next, T('stat.by_office')].filter(Boolean).join(' · ') : T('stat.schedule_hint')],
+    alert: !sc.enabled, dialog: !!sc.script });
+  // a tour or a dry run after the last backup (an older one is noise beside it)
+  if (s && s.mode !== 'backup' && s.finished && (!last || s.finished > (last.finished || last.started))) {
+    add({ key: 'tour', label: T('stat.last_' + s.mode), value: T('result.' + s.result), sub: [fmt.relative(s.finished)], alert: s.result !== 'ok' });
+  }
   const c = state.containers;
   // Kopia: the last run's sources, the container, the repository and whether its policies match
   if (set.kopia_enabled) {
@@ -633,8 +705,7 @@ function overviewTiles() {
     const okCount = k.filter((x) => x.ok).length;
     const skipped = ((withKopia && withKopia.kopia_skipped) || []).length;     // an array stop ended that run: they wait for the next one
     const kc = c && c.kopia;
-    const st = status();
-    const repoNo = st && st.kopia && st.kopia.state === 'no';
+    const repoNo = s && s.kopia && s.kopia.state === 'no';
     const pol = state.drift && Array.isArray(state.drift.policies) ? state.drift.policies : null;
     const bad = pol ? pol.filter((p) => !p.ok).length : 0;
     const sub = [];
@@ -642,19 +713,13 @@ function overviewTiles() {
       : !kc.exists ? T('stat.kopia_missing_ct', { name: kc.name }) : kc.running ? T('stat.kopia_running', { name: kc.name }) : T('stat.kopia_stopped', { name: kc.name }));
     if (repoNo) sub.push(T('stat.kopia_repo_problem'));
     if (pol) sub.push(bad ? T('stat.kopia_policies_bad', { n: bad }) : T('stat.kopia_policies_ok'));
-    const value = k.length ? `${okCount} / ${k.length + skipped}` : '–';
     const trouble = (kc && (!kc.exists || !kc.running)) || repoNo || bad > 0 || (k.length && okCount !== k.length);
     if (k.length && okCount !== k.length) sub.unshift(T('stat.kopia_missing', { n: k.length - okCount }));
     else if (withKopia) sub.unshift(T('stat.kopia_when', { when: fmt.relative(withKopia.started) }));
     if (skipped) sub.unshift(T('stat.kopia_skipped', { n: skipped }));
     const slept = ((withKopia && withKopia.kopia_asleep) || []).length;     // engine 2.28: their pool slept - left out by choice
     if (slept) sub.push(T('stat.kopia_asleep', { n: slept }));
-    tiles.push(stat(T('stat.kopia'), value, sub.join(' · '), !!trouble));
-  }
-  if (c && c.up === false) {
-    tiles.push(stat(T('stat.containers'), '–', Office.t('common.docker_off')));     // Docker stopped: said, not left out (1.43)
-  } else if (c && c.total) {
-    tiles.push(stat(T('stat.containers'), String(c.total), [T('stat.ct_stopped', { n: c.stopped }), T('stat.ct_kept', { n: c.kept })].join(' · ')));
+    add({ key: 'kopia', label: T('stat.kopia'), value: k.length ? `${okCount} / ${k.length + skipped}` : '–', sub: [sub.join(' · ')], alert: !!trouble, filters: 'kopia' });
   }
   // databases: dumped before every snapshot, and the newest dumps
   const dbs = set.dumps || [];
@@ -667,7 +732,7 @@ function overviewTiles() {
     else if (latest) sub.push(T('stat.db_last', { when: fmt.relative(latest.time), size: fmt.size(latest.files.reduce((a, f) => a + f.bytes, 0)) }));
     else if (dbs.length) sub.push(T('never'));
     if ((set.nextcloud || []).length) sub.push(T('stat.db_nextcloud'));
-    tiles.push(stat(T('stat.dbs'), String(dbs.length), sub.join(' · ')));
+    add({ key: 'dumps', label: T('stat.dbs'), value: String(dbs.length), sub: [sub.join(' · ')], filters: 'dumps' });
   }
   // the packages: per app and VM its small files, written by every run
   if (pk) {
@@ -679,13 +744,10 @@ function overviewTiles() {
     if (stale) sub.push(T('stat.pk_stale', { n: stale }));
     if (pk.old_runs) sub.push(T('stat.pk_old', { n: pk.old_runs }));
     if (pk.asleep) sub.push(T('stat.pk_asleep'));
-    const t = stat(T('stat.packages'), T('stat.pk_value', { apps: nOf('apps', pk.apps.length - pk.apps.filter((a) => a.stale).length), vms: nOf('vms', pk.vms.length - pk.vms.filter((v) => v.stale).length) }), sub.join(' · '), bad > 0);
-    tiles.push(clickable(t, () => {
-      const g = view && view.querySelector('.bk-protect tr.bk-group.bk-apps');
-      if (g) g.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    }));
+    add({ key: 'apps', label: T('stat.packages'), value: T('stat.pk_value', { apps: nOf('apps', pk.apps.length - pk.apps.filter((a) => a.stale).length),
+      vms: nOf('vms', pk.vms.length - pk.vms.filter((v) => v.stale).length) }), sub: [sub.join(' · ')], alert: bad > 0, filters: 'apps' });
   } else if (state.packages && state.packages.old_runs) {
-    tiles.push(stat(T('stat.packages'), '–', T('stat.pk_first')));
+    add({ key: 'apps', label: T('stat.packages'), value: '–', sub: [T('stat.pk_first')] });
   }
   const vms = state.vms || [];
   if (vms.length) {
@@ -695,52 +757,116 @@ function overviewTiles() {
       count[k] = (count[k] || 0) + 1;
     });
     const sub = ['freeze', 'pause', 'shutdown', 'none', 'off', 'unset'].filter((k) => count[k]).map((k) => T('stat.vm_' + k, { n: count[k] }));
-    const t = stat(T('stat.vms'), String(vms.length), sub.join(' · '), !!count.unset);
-    tiles.push(clickable(t, () => {
-      const g = view && view.querySelector('.bk-protect tr.bk-group');
-      if (g) g.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    }));
+    add({ key: 'vms', label: T('stat.vms'), value: String(vms.length), sub: [sub.join(' · ')], alert: !!count.unset, filters: 'vms' });
   }
-  // the partner offices (engine 2.27): per partner the last run that sent to it - what went, how much, how fast,
-  // what was skipped or failed and why; while a run sends to it, what it sends now
+  // the partner offices (engine 2.27): one short line per partner (its place for the search), the whole text in the tip
   const partners = state.partners || [];
   if (partners.length) {
-    const t = el('div', 'stat bk-ptile');
-    let alert = false;
-    t.append(el('div', 'stat-label', T('partner.tile')), el('div', 'stat-value', partners.map((p) => p.name).join(', ')));
-    partners.forEach((p) => {
-      const l = p.last;
-      const parts = [];
-      if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: unitLabel(p.current.unit), size: fmt.size(p.current.bytes || 0) }));
-      else if (!l) parts.push(T('partner.tile_never', { name: p.name, n: p.units.length }));
-      else {
-        parts.push(l.sent ? T('partner.tile_sent', { name: p.name, n: l.sent, size: fmt.size(l.bytes), mbit: fmt.number(l.mbit || 0, 1), when: fmt.relative(l.time) })
-          : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) }));
-        const whys = [...new Set(l.skipped.map((x) => x.why))];
-        if (l.skipped.length) parts.push(T('partner.tile_skipped', { n: l.skipped.length, why: whys.map((w) => partnerWhyShort(w)).join(', ') }));
-        if (l.failed.length) parts.push(T('partner.tile_failed', { n: l.failed.length, why: [...new Set(l.failed.map((x) => partnerWhyShort(x.why)))].join(', ') }));
-        if (l.failed.length || whys.some((w) => !['array_stopping', 'signal'].includes(w))) alert = true;
-      }
-      t.appendChild(Office.place(`partner:${p.id}`, el('div', 'stat-sub', parts.join(' · '))));
-    });
-    if (alert) t.classList.add('alert');
-    tiles.push(t);
+    add({ key: 'partners', label: T('partner.tile'), value: partners.map((p) => p.name).join(', '), cls: 'bk-ptile',
+      sub: partners.map((p) => ({ text: partnerShort(p), place: `partner:${p.id}` })), tip: partners.map(partnerLong).join('\n'),
+      alert: partners.some(partnerTrouble) });
   }
   const flash = set.flash || 'off';
   const fl = (state.shares || []).find((x) => x.flash);
   const tarRun = (state.dumps || []).find((d) => d.flash);
-  let value; let sub = ''; let alert = false;
+  let fv; let fsub = ''; let falert = false;
   if (flash === 'snapshot') {
-    value = set.kopia_enabled ? T('stat.flash_offsite') : T('stat.flash_local');
-    if (fl && fl.last) { sub = fl.last.ok ? T('stat.flash_last', { when: fmt.relative(fl.last.time) }) : T('failed'); alert = !fl.last.ok; }
-    else if (set.kopia_enabled) sub = T('never');
+    fv = set.kopia_enabled ? T('stat.flash_offsite') : T('stat.flash_local');
+    if (fl && fl.last) { fsub = fl.last.ok ? T('stat.flash_last', { when: fmt.relative(fl.last.time) }) : T('failed'); falert = !fl.last.ok; }
+    else if (set.kopia_enabled) fsub = T('never');
   } else if (flash === 'tar') {
-    value = T('stat.flash_tar');
+    fv = T('stat.flash_tar');
     const t = pk && pk.flash ? pk.flash.time : tarRun ? tarRun.time : null;
-    sub = t ? T('stat.flash_last', { when: fmt.relative(t) }) : T('never');
-  } else { value = T('stat.flash_off'); alert = true; }
-  tiles.push(stat(T('stat.flash'), value, sub, alert));
-  return tiles;
+    fsub = t ? T('stat.flash_last', { when: fmt.relative(t) }) : T('never');
+  } else { fv = T('stat.flash_off'); falert = true; }
+  add({ key: 'flash', label: T('stat.flash'), value: fv, sub: fsub ? [fsub] : [], alert: falert, filters: 'flash' });
+  return out;
+}
+
+// ---- «Is everything protected?»: the rows as data (pure: tests/backuptiles.js), the filter on them, then the table
+/** Every row of the table: {kind share|vm|app, id, name, hay (the words the bar meets), off (unprotected), tiles (the
+ *  PROT_TILES that count it)} in the table's order: shares (offsite, local, off; the flash among them), VMs, apps */
+function protRows() {
+  const kopiaOn = !!(state.settings && state.settings.kopia_enabled);
+  const order = { kopia: 0, snapshot: 1, off: 2 };
+  const rows = [];
+  const word = (level) => Office.t('protect.' + level);
+  [...(state.shares || [])].sort((a, b) => (order[a.mode] - order[b.mode]) || a.name.localeCompare(b.name)).forEach((s) => {
+    const level = shareLevel(s, kopiaOn);
+    const tiles = [];
+    if (s.mode === 'kopia' && kopiaOn) tiles.push('kopia');
+    if (s.flash) tiles.push('flash');
+    rows.push({ kind: 'share', id: s.flash ? '\u0000flash' : s.name, name: s.flash ? T('flash') : s.name, x: s, level, off: level === 'none', tiles,
+      hay: [s.flash ? T('flash') : s.name, word(level), s.mode === 'kopia' && !kopiaOn ? T('mode_kopia_off') : '', s.method === 'live' ? T('live') : '',
+        ...(s.locations || [])] });
+  });
+  (state.vms || []).forEach((v) => {
+    const level = vmLevel(v, kopiaOn);
+    const pools = [...new Set((v.own || []).map((d) => String(d).split('/')[0]))];
+    rows.push({ kind: 'vm', id: 'vm:' + v.name, name: v.name, x: v, level, off: !v.configured || level === 'none', tiles: ['vms', ...(level === 'offsite' ? ['kopia'] : [])],
+      hay: [v.name, word(level), v.configured && v.mode !== 'off' ? T('vm.prep.' + v.prepare) : '', !v.configured ? T('vm.not_set_up') : '', v.share, ...pools] });
+  });
+  const pk = packages();
+  if (pk) {
+    const place = placeLevel(kopiaOn);
+    pk.apps.forEach((a) => {
+      const own = kopiaOn && !!itemOf('app', a.name);
+      const level = own && place !== 'offsite' ? 'offsite' : place;
+      const tiles = ['apps'];
+      if (a.files.some((f) => f.what === 'dump')) tiles.push('dumps');
+      if (level === 'offsite') tiles.push('kopia');
+      rows.push({ kind: 'app', id: 'app:' + a.folder, name: a.name, x: a, level, off: a.result === 'errors', tiles,
+        hay: [a.name, a.folder !== a.name ? a.folder : '', word(level), T('pk.type.' + (a.type || 'container')), pkWord(a)] });
+    });
+  }
+  return rows;
+}
+const shareLevel = (s, kopiaOn) => (s.mode === 'kopia' ? (kopiaOn ? 'offsite' : 'local') : s.mode === 'snapshot' ? 'local' : 'none');
+/** A package's state in a word, as its chip says it */
+const pkWord = (p) => T(p.stale ? 'pk.stale' : p.result === 'errors' ? 'pk.errors' : p.result === 'warnings' ? 'pk.warnings' : 'pk.ok');
+/** How many rows each filtering tile counts */
+function protTileCounts() {
+  const n = {};
+  protRows().forEach((r) => r.tiles.forEach((t) => { n[t] = (n[t] || 0) + 1; }));
+  return n;
+}
+/**
+ * The table as the filter leaves it (pure): f = {words, only, tile}. A group the tile rules out as a whole isn't drawn; a
+ * group drawn with no row fitting keeps its head and one «nothing fits» line. → {groups: {share|vm|app: null | [rows]},
+ * n (rows fitting), total (rows in all), off (unprotected rows in all)}
+ */
+function protView(rows, f) {
+  const groups = {};
+  let n = 0;
+  ['share', 'vm', 'app'].forEach((kind) => {
+    const all = rows.filter((r) => r.kind === kind);
+    const byTile = f.tile ? all.filter((r) => r.tiles.includes(f.tile)) : all;
+    if (!byTile.length) { groups[kind] = null; return; }
+    const fit = byTile.filter((r) => (!f.only || r.off) && Office.fits(f.words, r.hay));
+    n += fit.length;
+    groups[kind] = fit;
+  });
+  return { groups, n, total: rows.length, off: rows.filter((r) => r.off).length };
+}
+
+/** The table's bar: words (names, the protection word, the pool), «only what is not protected», «Unfold all» */
+function protFilterBar() {
+  if (protBar) return protBar;
+  const all = button(T('unfold_all'), 'small plain', () => {
+    const open = protShown.some((x) => !x.open());
+    Office.keepInPlace(all, () => protShown.forEach((x) => x.set(open)));
+    protAllLabel();
+  });
+  all.classList.add('bk-unfold-all');
+  protBar = Office.filterBar({ key: 'backup.protect', label: T('protect.filter_label'), only: { text: T('protect.only_off'), hint: T('protect.only_off_hint') },
+    extra: [all], onChange: () => protRedraw() });
+  protBar.all = all;
+  return protBar;
+}
+function protAllLabel() {
+  if (!protBar) return;
+  protBar.all.textContent = protShown.some((x) => !x.open()) ? T('unfold_all') : T('fold_all');
+  protBar.all.hidden = !protShown.length;
 }
 
 /** Is everything protected? Every share with its mode and last offsite copy; a row unfolds to its rules */
@@ -751,20 +877,16 @@ function protection() {
   shares.forEach((s) => { counts[s.mode] = (counts[s.mode] || 0) + 1; });
   const kopiaOn = state.settings && state.settings.kopia_enabled;
   const local = counts.snapshot + (kopiaOn ? 0 : counts.kopia);
-  const order = { kopia: 0, snapshot: 1, off: 2 };
-  const rows = [...shares].sort((a, b) => (order[a.mode] - order[b.mode]) || a.name.localeCompare(b.name));
-  const key = (s) => (s.flash ? '\u0000flash' : s.name);
-  const foldable = rows.filter((s) => s.mode !== 'off');
-  const shown = [];                                        // {open(), set(open)} per unfoldable row
-  const all = button('', 'small plain', () => {
-    const open = shown.some((x) => !x.open());
-    Office.keepInPlace(all, () => shown.forEach((x) => x.set(open)));
-    label();
-  });
-  const label = () => { all.textContent = shown.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
-  const box = section(T('protection'), T('protection_sum', { kopia: kopiaOn ? counts.kopia : 0, snapshot: local, off: counts.off }),
-    ...(foldable.length ? [all] : []), { place: 'protection' });
+  const box = section(T('protection'), T('protection_sum', { kopia: kopiaOn ? counts.kopia : 0, snapshot: local, off: counts.off }), { place: 'protection' });
+  box.id = PROT_ID;
+  protShown = [];
   if (!shares.length) { box.appendChild(el('p', 'empty', T('no_shares'))); return box; }
+
+  const bar = protFilterBar();
+  box.appendChild(bar.el);
+  const rows = protRows();
+  const f = { ...bar.read(), tile: protTile };
+  const v = protView(rows, f);
 
   const wrap = el('div', 'box table-wrap');
   const table = el('table', 'grid bk-protect');
@@ -774,139 +896,131 @@ function protection() {
   thead.appendChild(hr);
   table.appendChild(thead);
   const body = el('tbody');
-  rows.forEach((s) => {
-    const tr = Office.place(s.flash ? 'row:flash' : `row:share:${s.name}`, el('tr'));
-    const name = el('th', '', s.flash ? T('flash') : s.name);
-    tr.appendChild(name);
-    const modeCell = el('td');
-    // the same labels as everywhere in the office: offsite / only local / not backed up
-    const level = s.mode === 'kopia' ? (kopiaOn ? 'offsite' : 'local') : s.mode === 'snapshot' ? 'local' : 'none';
-    modeCell.appendChild(Office.backupChip(level));
-    if (s.mode === 'kopia' && !kopiaOn) modeCell.append(' ', chip(T('mode_kopia_off'), 'warn'));
-    if (s.method === 'live') modeCell.append(' ', chip(T('live'), 'warn', T('live_hint')));
-    const pol = s.mode === 'kopia' && kopiaOn ? policyOf(s) : null;
-    if (pol && pol.skipped) modeCell.append(' ', chip(T('policy.skipped_short'), 'danger', T('policy.skipped')));
-    else if (pol && !pol.ok) modeCell.append(' ', chip(T('policy.differs_short'), 'warn', T('policy.differs')));
-    tr.appendChild(modeCell);
-    const lastCell = el('td');
-    const took = el('td');
-    if (s.mode === 'kopia' && s.last) {
-      if (s.last.ok) lastCell.append(fmt.relative(s.last.time));
-      else {
-        lastCell.appendChild(chip(T('failed'), 'danger'));
-        lastCell.append(' ', s.last.good ? T('good_before', { when: fmt.relative(s.last.good) }) : '');
-      }
-      lastCell.title = fmt.date(s.last.time);
-      took.textContent = s.last.seconds ? dur(s.last.seconds) : '';
-    } else if (s.mode === 'kopia') {
-      lastCell.appendChild(el('span', 'role', T('never')));
-    }
-    tr.append(lastCell, took);
-    const details = [];
-    if (s.ignores.length) details.push(T('ignores', { n: s.ignores.length }));
-    if (s.excluded.length) details.push(T('excluded', { n: s.excluded.length }));
-    if (s.retention) details.push(T('retention_own', { r: s.retention }));
-    if (s.locations.length) details.push(s.locations.join(', '));
-    tr.appendChild(el('td', '', details.join(' · ')));
+  const none = () => {
+    const tr = el('tr', 'bk-none');
+    const td = el('td', 'bk-filter-none', T('filter_none'));
+    td.colSpan = 5;
+    tr.appendChild(td);
     body.appendChild(tr);
-    if (s.mode === 'off') return;
-    // the whole row unfolds (chips explain themselves on a click, see initTips)
+  };
+  const head = (cls, text, chipNode, title) => {
+    const g = el('tr', 'bk-group' + (cls ? ' ' + cls : ''));
+    const gth = el('th', '', text);
+    gth.colSpan = 5;
+    if (chipNode) gth.append(' ', chipNode);
+    if (title) gth.title = title;
+    g.appendChild(gth);
+    body.appendChild(g);
+  };
+  /** a row that unfolds to its details, kept open across drawings (protOpen) */
+  const unfolding = (tr, name, id, detail) => {
     tr.classList.add('unfolds');
     name.classList.add('link');
     name.title = T('details');
     let dtr = null;
     const set = (open) => {
-      if (!open && dtr) { dtr.remove(); dtr = null; protOpen.delete(key(s)); tr.classList.remove('open'); }
+      if (!open && dtr) { dtr.remove(); dtr = null; protOpen.delete(id); tr.classList.remove('open'); }
       if (open && !dtr) {
         dtr = el('tr', 'bk-detail');
         const td = el('td');
         td.colSpan = 5;
-        td.appendChild(protectionDetail(s, kopiaOn));
+        td.appendChild(detail());
         dtr.appendChild(td);
         tr.after(dtr);
-        protOpen.add(key(s));
+        protOpen.add(id);
         tr.classList.add('open');
       }
     };
+    // the whole row unfolds (chips explain themselves on a click, see initTips)
     tr.onclick = (e) => {
       if (e.target.closest('button, a, input, select, [data-own], .chip')) return;
       if (String(window.getSelection && window.getSelection()).length) return;
       Office.keepInPlace(tr, () => set(!dtr));
-      label();
+      protAllLabel();
     };
-    shown.push({ open: () => !!dtr, set });
-    if (protOpen.has(key(s))) set(true);
-  });
+    protShown.push({ open: () => !!dtr, set });
+    if (protOpen.has(id)) set(true);
+  };
 
-  // the VMs: their disks are in their share's snapshot - here how each one is treated for it
-  const vms = state.vms || [];
-  if (vms.length) {
-    const g = el('tr', 'bk-group');
-    const gth = el('th', '', T('vm.group'));
-    gth.colSpan = 5;
-    g.appendChild(gth);
-    body.appendChild(g);
-    vms.forEach((v) => {
-      const tr = Office.place(`row:vm:${v.name}`, el('tr', 'unfolds'));
-      const name = el('th', 'link', v.name);
-      name.title = T('details');
+  if (v.groups.share) {
+    if (!v.groups.share.length) none();
+    v.groups.share.forEach((r) => {
+      const s = r.x;
+      const tr = Office.place(s.flash ? 'row:flash' : `row:share:${s.name}`, el('tr'));
+      const name = el('th', '', r.name);
       tr.appendChild(name);
       const modeCell = el('td');
-      modeCell.appendChild(Office.backupChip(vmLevel(v, kopiaOn)));
-      if (v.configured && v.mode !== 'off') modeCell.append(' ', chip(T('vm.prep.' + v.prepare), v.prepare === 'none' ? 'warn' : '', T('vm.prep_text.' + v.prepare)));
-      if (!v.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', T('vm.not_set_up_hint')));
-      const vp = vmPackage(v.name);
+      // the same labels as everywhere in the office: offsite / only local / not backed up
+      modeCell.appendChild(Office.backupChip(r.level));
+      if (s.mode === 'kopia' && !kopiaOn) modeCell.append(' ', chip(T('mode_kopia_off'), 'warn'));
+      if (s.method === 'live') modeCell.append(' ', chip(T('live'), 'warn', T('live_hint')));
+      const pol = s.mode === 'kopia' && kopiaOn ? policyOf(s) : null;
+      if (pol && pol.skipped) modeCell.append(' ', chip(T('policy.skipped_short'), 'danger', T('policy.skipped')));
+      else if (pol && !pol.ok) modeCell.append(' ', chip(T('policy.differs_short'), 'warn', T('policy.differs')));
+      tr.appendChild(modeCell);
+      const lastCell = el('td');
+      const took = el('td');
+      if (s.mode === 'kopia' && s.last) {
+        if (s.last.ok) lastCell.append(fmt.relative(s.last.time));
+        else {
+          lastCell.appendChild(chip(T('failed'), 'danger'));
+          lastCell.append(' ', s.last.good ? T('good_before', { when: fmt.relative(s.last.good) }) : '');
+        }
+        lastCell.title = fmt.date(s.last.time);
+        took.textContent = s.last.seconds ? dur(s.last.seconds) : '';
+      } else if (s.mode === 'kopia') {
+        lastCell.appendChild(el('span', 'role', T('never')));
+      }
+      tr.append(lastCell, took);
+      const details = [];
+      if (s.ignores.length) details.push(T('ignores', { n: s.ignores.length }));
+      if (s.excluded.length) details.push(T('excluded', { n: s.excluded.length }));
+      if (s.retention) details.push(T('retention_own', { r: s.retention }));
+      if (s.locations.length) details.push(s.locations.join(', '));
+      tr.appendChild(el('td', '', details.join(' · ')));
+      body.appendChild(tr);
+      if (s.mode !== 'off') unfolding(tr, name, r.id, () => protectionDetail(s, kopiaOn));
+    });
+  }
+
+  // the VMs: their disks are in their share's snapshot - here how each one is treated for it
+  if (v.groups.vm) {
+    head('', T('vm.group'));
+    if (!v.groups.vm.length) none();
+    v.groups.vm.forEach((r) => {
+      const vm = r.x;
+      const tr = Office.place(`row:vm:${vm.name}`, el('tr'));
+      const name = el('th', '', vm.name);
+      tr.appendChild(name);
+      const modeCell = el('td');
+      modeCell.appendChild(Office.backupChip(r.level));
+      if (vm.configured && vm.mode !== 'off') modeCell.append(' ', chip(T('vm.prep.' + vm.prepare), vm.prepare === 'none' ? 'warn' : '', T('vm.prep_text.' + vm.prepare)));
+      if (!vm.configured) modeCell.append(' ', chip(T('vm.not_set_up'), 'warn', T('vm.not_set_up_hint')));
+      const vp = vmPackage(vm.name);
       if (vp && (vp.stale || vp.result === 'errors')) modeCell.append(' ', pkChip(vp));
-      const vi = kopiaOn ? itemOf('vm', v.name) : null;
+      const vi = kopiaOn ? itemOf('vm', vm.name) : null;
       if (vi) modeCell.append(' ', itemChip(vi));
       tr.appendChild(modeCell);
-      const last = v.last;
+      const last = vm.last;
       const lastCell = el('td', '', last && last.snapshot && last.time ? fmt.relative(last.time) : '');
       if (last && last.time) lastCell.title = fmt.date(last.time);
       const took = el('td', '', last && ['frozen', 'paused', 'shutdown'].includes(last.done) ? dur(last.seconds) : '');
       tr.append(lastCell, took);
       tr.appendChild(el('td', '', last ? T('vm.done.' + last.done) : ''));
       body.appendChild(tr);
-      let dtr = null;
-      const id = 'vm:' + v.name;
-      const set = (open) => {
-        if (!open && dtr) { dtr.remove(); dtr = null; protOpen.delete(id); tr.classList.remove('open'); }
-        if (open && !dtr) {
-          dtr = el('tr', 'bk-detail');
-          const td = el('td');
-          td.colSpan = 5;
-          td.appendChild(vmDetail(v));
-          dtr.appendChild(td);
-          tr.after(dtr);
-          protOpen.add(id);
-          tr.classList.add('open');
-        }
-      };
-      tr.onclick = (e) => {
-        if (e.target.closest('button, a, input, select, [data-own], .chip')) return;
-        if (String(window.getSelection && window.getSelection()).length) return;
-        Office.keepInPlace(tr, () => set(!dtr));
-        label();
-      };
-      shown.push({ open: () => !!dtr, set });
-      if (protOpen.has(id)) set(true);
+      unfolding(tr, name, r.id, () => vmDetail(vm));
     });
   }
 
   // the apps: what their package in the backup place holds (the data itself is in their shares above)
   const pk = packages();
-  if (pk && pk.apps.length) {
-    const g = el('tr', 'bk-group bk-apps');
-    const gth = el('th', '', T('pk.group') + ' ');
-    gth.colSpan = 5;
-    gth.appendChild(Office.backupChip(placeLevel(kopiaOn)));
-    gth.title = T('pk.group_hint', { path: pk.base + '/apps' });
-    g.appendChild(gth);
-    body.appendChild(g);
-    pk.apps.forEach((a) => {
-      const tr = Office.place(`row:app:${a.folder}`, el('tr', 'unfolds'));
-      const name = el('th', 'link', a.name);
-      name.title = T('details');
+  if (v.groups.app && pk) {
+    head('bk-apps', T('pk.group') + ' ', Office.backupChip(placeLevel(kopiaOn)), T('pk.group_hint', { path: pk.base + '/apps' }));
+    if (!v.groups.app.length) none();
+    v.groups.app.forEach((r) => {
+      const a = r.x;
+      const tr = Office.place(`row:app:${a.folder}`, el('tr'));
+      const name = el('th', '', a.name);
       tr.appendChild(name);
       const st = el('td');
       st.appendChild(pkChip(a));
@@ -921,35 +1035,14 @@ function protection() {
       const dumps = a.files.filter((f) => f.what === 'dump').length;
       tr.appendChild(el('td', '', [T('pk.type.' + (a.type || 'container')), dumps ? T('pk.dumps', { n: dumps }) : '', fmt.size(a.bytes)].filter(Boolean).join(' · ')));
       body.appendChild(tr);
-      let dtr = null;
-      const id = 'app:' + a.folder;
-      const set = (open) => {
-        if (!open && dtr) { dtr.remove(); dtr = null; protOpen.delete(id); tr.classList.remove('open'); }
-        if (open && !dtr) {
-          dtr = el('tr', 'bk-detail');
-          const td = el('td');
-          td.colSpan = 5;
-          td.appendChild(pkDetail(a));
-          dtr.appendChild(td);
-          tr.after(dtr);
-          protOpen.add(id);
-          tr.classList.add('open');
-        }
-      };
-      tr.onclick = (e) => {
-        if (e.target.closest('button, a, input, select, [data-own], .chip')) return;
-        if (String(window.getSelection && window.getSelection()).length) return;
-        Office.keepInPlace(tr, () => set(!dtr));
-        label();
-      };
-      shown.push({ open: () => !!dtr, set });
-      if (protOpen.has(id)) set(true);
+      unfolding(tr, name, r.id, () => pkDetail(a));
     });
   }
-  label();
   table.appendChild(body);
   wrap.appendChild(table);
   box.appendChild(wrap);
+  protAllLabel();
+  bar.done(v.n, v.total, { tile: protTile ? T('tile.' + protTile) : '', clear: () => { protTile = ''; }, onlyAvail: v.off > 0 });
 
   const set = state.settings || {};
   const facts = [];
@@ -1181,16 +1274,42 @@ function skipRow(k) {
   return row;
 }
 
-function historySection() {
+const HIST_ID = 'bk-history';                 // the history's section (it holds the list and its bar)
+/** The runs his history lists (and, between them, the runs that were skipped): newest first, at most 20 — with the
+ *  words its bar meets (the date as the row shows it, the result, what the row says beside it). Pure. */
+function historyRows() {
   const runs = state.history || [];
   const skips = state.skips || [];
+  return [...runs.slice(0, 20).map((r) => ({ t: r.started, r })), ...skips.map((skip) => ({ t: skip.time, skip }))]
+    .sort((a, b) => b.t - a.t).slice(0, 20).map((x) => ({ ...x, hay: x.skip
+      ? [fmt.date(x.skip.time, true), T('result.skipped'), messageText(x.skip.reason)]
+      : [fmt.date(x.r.started, true), T('result.' + x.r.result), x.r.message && x.r.result !== 'ok' ? messageText(x.r.message) : '',
+        asleepUnits(x.r) ? T('asleep.left_out', { n: asleepUnits(x.r) }) : ''] }));
+}
+/** The history's bar: words only (no «only …», no tile) — not kept */
+function histFilterBar() {
+  if (!histBar) {
+    histBar = Office.filterBar({ key: 'backup.history', label: T('history_filter_label'), onChange: () => {
+      const old = view && view.querySelector('#' + HIST_ID);
+      if (old) old.replaceWith(historySection());
+    } });
+  }
+  return histBar;
+}
+
+function historySection() {
+  const runs = state.history || [];
   const box = section(T('history'), T('history_sub'), { place: 'history' });
-  if (!runs.length && !skips.length) { box.appendChild(el('p', 'empty', T('bubble.no_runs'))); return box; }
+  box.id = HIST_ID;
+  const all = historyRows();
+  if (!all.length) { box.appendChild(el('p', 'empty', T('bubble.no_runs'))); return box; }
+  const bar = histFilterBar();
+  box.appendChild(bar.el);
+  const words = bar.read().words;
+  const rows = all.filter((x) => Office.fits(words, x.hay));
   const list = el('div', 'box');
   const longest = Math.max(...runs.map((r) => (r.finished || r.started) - r.started), 1);
-  // the runs and, between them, the runs that were skipped - newest first
-  const rows = [...runs.slice(0, 20).map((r) => ({ t: r.started, r })), ...skips.map((skip) => ({ t: skip.time, skip }))]
-    .sort((a, b) => b.t - a.t).slice(0, 20);
+  if (!rows.length) list.appendChild(el('p', 'bk-filter-none', T('filter_none')));
   rows.forEach(({ r, skip }) => {
     if (skip) { list.appendChild(skipRow(skip)); return; }
     const row = Office.place(`run:${r.started}`, el('div', 'row nocheck unfolds'));
@@ -1213,17 +1332,18 @@ function historySection() {
     main.appendChild(meta);
     row.appendChild(main);
     const took = (r.finished || r.started) - r.started;
-    const bar = el('div', 'bar thin bk-hbar');
+    const hbar = el('div', 'bar thin bk-hbar');
     const fill = el('i', r.result === 'ok' || r.result === 'warnings' ? 'snaps' : 'data');
     fill.style.width = Math.max(2, Math.round(took / longest * 100)) + '%';
-    bar.appendChild(fill);
-    row.appendChild(bar);
+    hbar.appendChild(fill);
+    row.appendChild(hbar);
     const fig = el('div', 'figures');
     fig.append(el('b', '', took ? dur(took) : '–'), el('span', '', ''));
     row.appendChild(fig);
     list.appendChild(row);
   });
   box.appendChild(list);
+  bar.done(rows.length, all.length);
   return box;
 }
 
@@ -2510,25 +2630,29 @@ function checkbox(text, checked, onchange, small) {
 }
 const setupSection = (title, sub) => section(title, sub);
 
-// ---- the setup's filter (2026-10-10): a bar like the watch book's over the steps' rows — words (an app's, a VM's,
+// ---- the setup's filter (2026-10-10; on Office.filterBar since the tiles rebuild, 2026-10-11): words (an app's, a VM's,
 // a share's or a folder's name; accents folded; not kept: a new visit starts with every row) and «only what's new» (the
-// rows marked new or waiting). Rows that don't fit aren't drawn, a step with none says so in one line; «n of m fit the
-// filter». It only hides: no decision changes, nothing the user unfolded folds (setup.open stays as it is).
-const sf = { text: '', onlyNew: false, bar: null, input: null, sw: null, cb: null, hits: null };
-/** Words as the filter compares them: lower case, without accents (ß → ss), like the watch book's */
-const plainWords = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\u00df/g, 'ss');
-const filterWords = (text) => plainWords(text).split(/\s+/).filter(Boolean);
+// rows marked new or waiting; not kept either). Rows that don't fit aren't drawn, a step with none says so in one line;
+// «n of m fit» is the bar's. It only hides: no decision changes, nothing the user unfolded folds (setup.open stays).
+let sfBar = null;
+/** The bar: built once per visit (mount() drops it), so typing in it goes on while the page is drawn anew */
+function setupFilter() {
+  if (!sfBar) {
+    sfBar = Office.filterBar({ key: 'backup.setup', label: T('setup.filter.label'),
+      only: { text: T('setup.filter.only_new'), hint: T('setup.filter.only_new_hint') }, onChange: () => renderSetup() });
+  }
+  return sfBar;
+}
 /** Does a row fit? flt {words, onlyNew}; hay: its names (a string or a list); isNew: marked new / waiting */
 function setupFits(flt, hay, isNew) {
   if (flt.onlyNew && !isNew) return false;
-  if (!flt.words.length) return true;
-  const h = plainWords([].concat(hay).filter((x) => x !== null && x !== undefined && x !== '').join(' '));
-  return flt.words.every((w) => h.includes(w));
+  return Office.fits(flt.words, [].concat(hay));
 }
 /** The filter of this drawing and what it met: rows in all (total), fitting (n), new ones (fresh), fitting in the step (step) */
 let fitting = { flt: { words: [], onlyNew: false }, on: false, n: 0, total: 0, fresh: 0, step: 0 };
 function fitStart() {
-  const flt = { words: filterWords(sf.text), onlyNew: sf.onlyNew };
+  const f = setupFilter().read();
+  const flt = { words: f.words, onlyNew: f.only };
   fitting = { flt, on: !!(flt.words.length || flt.onlyNew), n: 0, total: 0, fresh: 0, step: 0 };
 }
 /** A row of a step: counted, true when it is drawn */
@@ -2554,43 +2678,13 @@ function fitStep(build) {
 const appIsNew = (a) => !!a.isNew || (a.newMembers || []).length > 0;
 const shareIsNew = (sh, ws) => setup.newItems.has('share:' + sh.name) || ws.length > 0;
 
-/** The bar: built once per visit, so typing in it goes on while the page is drawn anew (data-keep: core.js calm()) */
-function setupFilterBar() {
-  if (!sf.bar) {
-    const bar = el('div', 'toolbar bk-filterbar');
-    const input = el('input', 'search');
-    input.type = 'search';
-    input.placeholder = Office.t('common.filter');
-    input.setAttribute('aria-label', T('setup.filter.label'));
-    input.autocomplete = 'off';
-    input.spellcheck = false;
-    input.dataset.keep = '1';
-    const sw = el('label', 'switch');
-    const cb = el('input');
-    cb.type = 'checkbox';
-    sw.append(cb, el('span', '', T('setup.filter.only_new')));
-    sw.title = T('setup.filter.only_new_hint');
-    const hits = el('span', 'bk-filter-hits');
-    hits.setAttribute('aria-live', 'polite');
-    bar.append(input, sw, hits);
-    input.oninput = () => { sf.text = input.value; Office.keepInPlace(input, renderSetup); };
-    cb.onchange = () => { sf.onlyNew = cb.checked; Office.keepInPlace(sw, renderSetup); };
-    Object.assign(sf, { bar, input, sw, cb, hits });
-  }
-  if (sf.input.value !== sf.text) sf.input.value = sf.text;
-  sf.cb.checked = sf.onlyNew;
-  return sf.bar;
-}
-/** After the steps: «n of m fit the filter»; «only what's new» only while something is new (or it is on) */
+/** After the steps: «n of m fit» and the switch «only what's new» only while something is new (or it is on) */
 function setupFilterDone() {
-  if (!sf.bar) return;
-  sf.hits.textContent = fitting.on ? T('setup.filter.hits', { n: fitting.n, total: fitting.total }) : '';
-  sf.sw.hidden = !sf.onlyNew && !fitting.fresh;
+  if (sfBar) sfBar.done(fitting.n, fitting.total, { onlyAvail: fitting.fresh > 0 });
 }
-/** A new visit: the whole setup again (the words are not kept) */
+/** A new visit, or a deep link that must show its target: the whole setup again (words and «only what's new» off) */
 function setupFilterReset() {
-  sf.text = '';
-  sf.onlyNew = false;
+  setupFilter().reset();
 }
 
 /**
@@ -2612,7 +2706,7 @@ function setupFocus() {
   }
   const first = setupFirstNew();
   if (!first) return null;
-  sf.onlyNew = true;
+  setupFilter().set({ only: true });
   if (first.open) setup.open.add(first.open);
   return { anchor: first.anchor, part: first.part, name: first.name };
 }
@@ -2639,8 +2733,6 @@ function setupFirstNew() {
 function renderSetup() {
   const root = view;
   if (!root) return;
-  // typing in the filter while the page is drawn anew (a poll, the messenger's word): the field goes on with the focus
-  const typing = sf.input && document.activeElement === sf.input ? [sf.input.selectionStart, sf.input.selectionEnd] : null;
   root.innerHTML = '';
   const back = button(T('setup.back'), 'plain', () => Office.go(`#/${ID}`));
   const again = button(T('setup.replan'), 'plain', () => setupPlan(false));
@@ -2689,11 +2781,9 @@ function renderSetup() {
   const target = setup.focus && setup.model && setup.draft ? setupFocus() : null;
   const start = plan.have_settings ? presetStartLine() : presetSection();   // a new server: where to start, the three cards;
   if (start) root.appendChild(start);                                       // set up: which start the draft came from, once chosen
-  root.appendChild(setupFilterBar());          // the filter over the steps' rows
-  if (typing) {
-    sf.input.focus({ preventScroll: true });
-    try { sf.input.setSelectionRange(typing[0], typing[1]); } catch (e) { /* not a text field's selection */ }
-  }
+  // the filter over the steps' rows (typing in it while the page is drawn anew: the bar keeps its text, focus and
+  // selection — setupFilterDone() gives them back)
+  root.appendChild(setupFilter().el);
   fitStart();
   root.appendChild(fitStep(() => setupKopia(plan)));       // 0 basics: where backups go, Kopia, the flash
   root.appendChild(fitStep(() => setupVms(plan)));         // 1
@@ -4194,8 +4284,8 @@ Office.desk({
     clearTimeout(setupTimer);
     page = sub === 'setup' ? 'setup' : 'main';
     if (page === 'setup') {
-      setupFilterReset();                  // a new visit: every row again (the filter's words are not kept)
-      sf.bar = null;                       // its bar built anew in the language of now
+      sfBar = null;                        // its bar built anew in the language of now
+      setupFilterReset();                  // a new visit: every row again (words and «only …» are not kept)
       renderSetup();
       if (!state) await load(false);
       await setupLoad();
@@ -4205,6 +4295,13 @@ Office.desk({
       }
     } else {
       Office.selbar(null);
+      // a new visit (#/backup/show: the search's way to a row — whatever filtered it before): the table and the history unfiltered (words, «only …», a tile filter are never kept), the bars
+      // built anew in the language of now; #/backup/<tile> (the search) sets the tile's filter exactly like a click —
+      // and the address goes back to #/backup, so a reload shows everything
+      protBar = null;
+      histBar = null;
+      protTile = PROT_TILES.includes(sub) ? sub : '';
+      if (protTile || sub === SHOW) Office.subroute('');
       render();
       await load(false);
       if (sub === 'schedule') { Office.subroute(''); scheduleDialog(); }    // the caretaker's "Open"
@@ -4277,11 +4374,14 @@ const when = (key) => ({ ...(SHOWN[key] ? { shown: SHOWN[key] } : {}), ...(PART[
   ? { part: PART[key] || 'setup.general' } : {}) });
 Office.places(ID, [
   ...['now', 'overview', 'protection', 'history', 'drift', 'restore'].map((key) => ({ kind: 'section', key, ...when(key) })),
+  // the tiles that filter «Is everything protected?» — #/backup/<tile> sets the filter like a click (mount()); listed
+  // while the overview draws them as buttons (a run going on: no overview; a tile with no row to show: no button)
+  ...PROT_TILES.map((t) => ({ kind: 'tile', key: `tile.${t}`, route: `#/${ID}/${t}`, shown: mainShown(() => !live() && !!protTileCounts()[t]) })),
   ...['setup.preset.title', 'setup.kopia', 'setup.vms', 'setup.apps', 'setup.shares', 'setup.retention', 'setup.general', 'setup.sources',
     'setup.messages'].map((key) => ({ kind: 'step', key, ...SETUP, ...when(key) })),
   ...['setup.ds_label', 'setup.g_flash', 'setup.g_prefix', 'setup.g_btrfs_free', 'setup.g_btrfs_all', 'setup.g_libvirt', 'setup.g_notify',
     'setup.p_compression', 'setup.p_ignore', 'setup.g_zfs', 'setup.g_btrfs_days'].map((key) => ({ kind: 'setting', key, ...SETUP, ...when(key) })),
-  ...['run', 'results', 'protection', 'rules', 'vms', 'packages', 'items', 'waiting', 'buttons'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['run', 'results', 'tiles', 'protection', 'rules', 'vms', 'packages', 'items', 'waiting', 'buttons'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['setup_open', 'help.setup'], ['history', 'help.history'], ['drift', 'help.drift'], ['restore', 'help.restore']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
   ...[['setup.preset.title', 'help.preset_text'], ['help.draft', 'help.draft_text'], ['setup.replan', 'help.replan'], ['setup.measure', 'setup.measure_hint'],
@@ -4298,15 +4398,15 @@ Office.placesFrom(ID, (s) => {
   const kopiaOn = !!(s.settings && s.settings.kopia_enabled);
   const level = (mode) => (mode === 'kopia' ? (kopiaOn ? 'offsite' : 'local') : mode === 'snapshot' ? 'local' : 'none');
   (s.shares || []).forEach((x) => out.push({ text: x.flash ? T('flash') : x.name, sub: `${T('protection')} · ${Office.t('protect.' + level(x.mode))}`,
-    anchor: x.flash ? 'row:flash' : `row:share:${x.name}` }));
-  (s.vms || []).forEach((v) => out.push({ text: v.name, sub: `${T('protection')} · ${T('vm.group')}`, anchor: `row:vm:${v.name}` }));
+    anchor: x.flash ? 'row:flash' : `row:share:${x.name}`, route: ITEM_ROUTE }));
+  (s.vms || []).forEach((v) => out.push({ text: v.name, sub: `${T('protection')} · ${T('vm.group')}`, anchor: `row:vm:${v.name}`, route: ITEM_ROUTE }));
   const pk = s.packages;
-  if (pk && pk.found) (pk.apps || []).forEach((a) => out.push({ text: a.name, sub: `${T('protection')} · ${T('pk.group')}`, anchor: `row:app:${a.folder}` }));
+  if (pk && pk.found) (pk.apps || []).forEach((a) => out.push({ text: a.name, sub: `${T('protection')} · ${T('pk.group')}`, anchor: `row:app:${a.folder}`, route: ITEM_ROUTE }));
   // the runs as his history lists them: the newest 20, the skipped ones between them
   [...(s.history || []).slice(0, 20).map((r) => ({ t: r.started, r })), ...(s.skips || []).map((k) => ({ t: k.time }))]
     .sort((a, b) => b.t - a.t).slice(0, 20).filter((x) => x.r)
-    .forEach(({ r }) => out.push({ text: fmt.date(r.started, true), sub: `${T('history')} · ${T('result.' + r.result)}`, anchor: `run:${r.started}` }));
-  (s.partners || []).forEach((p) => out.push({ text: p.name, sub: T('partner.tile'), anchor: `partner:${p.id}` }));
+    .forEach(({ r }) => out.push({ text: fmt.date(r.started, true), sub: `${T('history')} · ${T('result.' + r.result)}`, anchor: `run:${r.started}`, route: ITEM_ROUTE }));
+  (s.partners || []).forEach((p) => out.push({ text: p.name, sub: T('partner.tile'), anchor: `partner:${p.id}`, route: ITEM_ROUTE }));
   return out;
 });
 
@@ -4314,8 +4414,11 @@ Office.placesFrom(ID, (s) => {
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.backup = {
     get setup() { return setup; },
-    get sf() { return sf; },
-    setupFits, filterWords, plainWords, setupFirstNew, setupFocus,
+    get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
+    setupFilter,
+    setupFits, setupFirstNew, setupFocus,
+    overviewTiles, tileNode, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID,
+    get protTile() { return protTile; }, setProtTile: (t) => { protTile = t; },
     setState: (s) => { state = s; },
     setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
