@@ -928,8 +928,11 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   (the desk head, the bubble, the page help, callouts, a live panel) stays at every click, so does a footer under all.
   Two shapes, one behaviour: the number tile (`.stat`) and the choice tile (`.card`), both real `<button>`s under the
   switcher (a `div` only where nothing is behind it). **The page says what is filtered in one place:** the filter bar's
-  note line right above the list («The list shows only: [VMs ×] · 1 of 12 fit — Show all», `bar.done()`), never a
-  sentence in a section head or a callout. **Stored:** a section tile's choice (`<desk>.tile`), a corner, a pool, a select
+  note line right above the list («The list shows only: [VMs ×] [Manual ×] [«müller» ×] · 1 of 12 fit — Show all»,
+  `bar.done()`: a chip per part that narrows it — a tile, the pick, the «only …» switch, the words —, each × takes that
+  part away, «Show all» all of them, the pick too; the active control carries `.on` with an accent edge; 2026-10-11,
+  Benj: a pick had narrowed a list to «1 of 325» and nothing said how to get back), never a sentence in a section head
+  or a callout. **Stored:** a section tile's choice (`<desk>.tile`), a corner, a pool, a select
   (`<key>.pick`) — read at every render («What the user opened stays open»); **never stored:** filter words, «only …»
   switches, filter tiles (the store keeps the last section choice while one is on — a new visit starts there;
   `mount()` empties the bar: `bar.reset()`). `aria-pressed` on

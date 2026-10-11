@@ -189,7 +189,7 @@ async function bar() {
   const cb = sw.children[0];
   const hits = box.find('filter-hits');
   const note = box.find('filter-note');
-  const chip = box.find('filter-chip');
+  const chipsOf = () => box.find('filter-chips').children;
   const all = box.find('filter-all');
   same('bar: the toolbar, built once (class filterbar)', [box.tagName, box.className], ['DIV', 'toolbar filterbar']);
   same('bar: the field — placeholder common.filter, its label, data-keep, a search field', [input.placeholder, input.getAttribute('aria-label'), input.dataset.keep, input.type],
@@ -198,7 +198,7 @@ async function bar() {
     ['filter-words', 'filter-pick', 'filter-only', 'plain', 'filter-hits', 'filter-note']);
   same('bar: the switch\'s hint, the select\'s label, the hits aria-live', [sw.title, sel.getAttribute('aria-label'), hits.getAttribute('aria-live')], ['what is still open', 'Area', 'polite']);
   same('bar: nothing filters at first', b.read(), { words: [], only: false, pick: '', tile: '' });
-  same('bar: no inline handlers', [input.oninput, cb.onchange, sel.onchange, chip.onclick, all.onclick].map((x) => x === undefined || x === null), [true, true, true, true, true]);
+  same('bar: no inline handlers', [input.oninput, cb.onchange, sel.onchange, all.onclick].map((x) => x === undefined || x === null), [true, true, true, true]);
 
   b.done(3, 3);
   same('done: below the threshold, nothing filtering — the filter\'s own controls gone, the extras stay (and the bar with them)',
@@ -218,7 +218,9 @@ async function bar() {
   same('words: onChange with the folded words, inside keepInPlace(the field)', [calls.length, calls[0] && calls[0][0], calls[0] && calls[0][1].words, anchors[anchors.length - 1] === input],
     [1, 'words', ['muller', 'fotos'], true]);
   b.done(2, 3);
-  same('done: a short list filtered keeps its bar, «n of m fit»', [box.hidden, hits.textContent], [false, '2 of 3 fit']);
+  same('done: a short list filtered keeps its bar; the words as a chip in the note line with «n of m fit», the field marked .on',
+    [box.hidden, note.hidden, chipsOf().map((c) => [c.dataset.what, c.find('filter-chip-name').textContent]), box.find('filter-note-hits').textContent, hits.textContent, input.classList.contains('on')],
+    [false, false, [['words', '«Müller  Fotos»']], '· 2 of 3 fit', '', true]);
   cb.checked = true;
   cb.dispatch('change', true);
   same('only: onChange inside keepInPlace(the switch)', [calls[1][0], calls[1][1].only, anchors[anchors.length - 1] === sw], ['only', true, true]);
@@ -253,30 +255,46 @@ async function bar() {
   b.done(2, 3);
   same('onlyAvail left out: the switch back', sw.hidden, false);
 
-  // a tile filters
+  // a tile filters — with the pick and the words still on: a chip per part, the tile's first
   b.tile('VMs');
   b.done(1, 12, { clear: (what) => cleared.push(what) });
-  same('tile: the note line — «The list shows only:», the chip, the count; the bar\'s own hits empty',
-    [note.hidden, note.children[0].textContent, chip.find('filter-chip-name').textContent, chip.getAttribute('aria-label'), box.find('filter-note-hits').textContent, hits.textContent, all.textContent, box.hidden],
-    [false, 'The list shows only:', 'VMs', 'Remove the filter VMs', '· 1 of 12 fit', '', 'Show all', false]);
+  const chip = chipsOf()[0];
+  same('tile: the note line — «The list shows only:», a chip per part (tile, pick, words), the count; the bar\'s own hits empty',
+    [note.hidden, note.children[0].textContent, chipsOf().map((c) => [c.dataset.what, c.find('filter-chip-name').textContent]), chip.getAttribute('aria-label'), box.find('filter-note-hits').textContent, hits.textContent, all.textContent, box.hidden, sel.classList.contains('on')],
+    [false, 'The list shows only:', [['tile', 'VMs'], ['pick', 'Logins'], ['words', '«Müller  Fotos»']], 'Remove the filter VMs', '· 1 of 12 fit', '', 'Show all', false, true]);
   same('tile: read() names it', b.read().tile, 'VMs');
   same('tile: the chip and «Show all» are buttons', [chip.tagName, chip.type, all.tagName, all.type], ['BUTTON', 'button', 'BUTTON', 'button']);
   const n1 = calls.length;
   chip.click();
   same('chip: clears the tile — clear() first, then onChange(tile)', [cleared, b.read().tile, calls.slice(n1).map((c) => c[0]), b.read().words.length > 0, b.read().pick], [['tile'], '', ['tile'], true, 'login']);
   b.done(1, 12);
-  same('chip: the note line gone, the words still filter', [note.hidden, hits.textContent], [true, '1 of 12 fit']);
+  same('chip: the tile\'s chip gone, the pick and the words still filter and say so', [note.hidden, chipsOf().map((c) => c.dataset.what), box.find('filter-note-hits').textContent, hits.textContent], [false, ['pick', 'words'], '· 1 of 12 fit', '']);
+  const n1b = calls.length;
+  chipsOf()[0].click();
+  same('the pick\'s chip: the pick goes (forgotten), onChange(pick), the words stay', [b.read().pick, stored['office.test.list.pick'], calls.slice(n1b).map((c) => c[0]), b.read().words.length], ['', undefined, ['pick'], 2]);
+  b.done(1, 12);
+  chipsOf()[0].click();
+  same('the words\' chip: the field emptied, onChange(words)', [input.value, calls.slice(-1)[0][0], b.read().words], ['', 'words', []]);
+  b.done(12, 12);
+  same('nothing narrows the list: no note line, nothing marked .on', [note.hidden, input.classList.contains('on'), sel.classList.contains('on')], [true, false, false]);
   b.done(5, 5, { tile: 'Shares' });
   same('done({tile}): sets the tile filter too', [note.hidden, b.read().tile], [false, 'Shares']);
+  sel.value = 'login';
+  sel.dispatch('change', true);
   cb.checked = true;
+  input.value = 'x';
   const n2 = calls.length;
+  b.done(1, 5);
+  same('«only …» on: its chip too, the switch marked .on', [chipsOf().map((c) => c.dataset.what), sw.classList.contains('on')], [['tile', 'pick', 'only', 'words'], true]);
   all.click();
-  same('«Show all»: words, «only …» and the tile cleared, the select stays (a choice, not a search)', [b.read(), input.value, cleared.slice(-1)[0], calls.slice(n2).map((c) => c[0])],
-    [{ words: [], only: false, pick: 'login', tile: '' }, '', 'all', ['all']]);
+  same('«Show all»: words, «only …», the tile AND the pick cleared (forgotten) — the list whole (2026-10-11)', [b.read(), input.value, cleared.slice(-1)[0], calls.slice(n2).map((c) => c[0]), stored['office.test.list.pick']],
+    [{ words: [], only: false, pick: '', tile: '' }, '', 'all', ['all'], undefined]);
   b.done(5, 5);
-  same('«Show all»: the pick still filters — the bar stays, «n of m fit»', [box.hidden, hits.textContent], [false, '5 of 5 fit']);
+  same('«Show all»: nothing narrows the list any more — no note line, no hits; the bar stays for its extra button', [box.hidden, note.hidden, hits.textContent, input.hidden], [false, true, '', true]);
 
-  // reset (a new visit), set
+  // reset (a new visit), set — the pick is a kept choice: reset() leaves it
+  sel.value = 'login';
+  sel.dispatch('change', true);
   input.value = 'abc';
   cb.checked = true;
   b.tile('VMs');

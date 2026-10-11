@@ -1121,8 +1121,11 @@ const putInto = (node, x) => {
  *         what = 'words' | 'only' | 'pick' | 'tile' (the chip) | 'all' («Show all») | 'gone' (the switch or the pick
  *         went away by itself: nothing to switch to, the option gone)
  *   bar.read()  → {words, only, pick, tile}
- *   bar.done(n, total, {tile, clear, onlyAvail}) after the desk drew the list: shows or hides the bar, «n of m fit»,
- *         the note line while a tile filters
+ *   bar.done(n, total, {tile, clear, onlyAvail}) after the desk drew the list: shows or hides the bar, and while
+ *         anything narrows the list (words, the «only …» switch, the pick, a tile) the note line under the controls:
+ *         «The list shows only: [VMs ×] [Manual ×] [«müller» ×] · 1 of 12 fit — Show all» — a chip per part, each
+ *         × takes that part away, «Show all» all of them (the pick too); the active control carries .on
+ *         (2026-10-11, Benj: a pick narrowed the list to «1 of 325» and nothing said how to get back)
  *   bar.options([[value, text, n], …]), bar.reset(), bar.tile(name | ''), bar.set({text, only, pick})
  */
 Office.filterBar = function filterBar(opts) {
@@ -1160,20 +1163,18 @@ Office.filterBar = function filterBar(opts) {
   const hits = el('span', 'filter-hits');
   hits.setAttribute('aria-live', 'polite');
   box.appendChild(hits);
-  // the note line (CLAUDE.md «Tiles»): «The list shows only: [VMs ×] · 1 of 12 fit — Show all»
+  // the note line (CLAUDE.md «Tiles»): «The list shows only: [VMs ×] [Manual ×] · 1 of 12 fit — Show all» — a chip
+  // per part that narrows the list (built anew in done())
   const note = el('div', 'filter-note');
   note.hidden = true;
-  const chip = el('button', 'chip filter-chip');
-  chip.type = 'button';
-  const chipName = el('span', 'filter-chip-name');
-  chip.append(chipName, el('span', 'filter-chip-x', '×'));
-  chip.lastChild.setAttribute('aria-hidden', 'true');
+  const chips = el('span', 'filter-chips');
   const noteHits = el('span', 'filter-note-hits');
   noteHits.setAttribute('aria-live', 'polite');
   const all = el('button', 'btn small plain filter-all', t('common.show_all'));
   all.type = 'button';
-  note.append(el('span', 'filter-note-text', t('common.filter_only')), chip, noteHits, all);
+  note.append(el('span', 'filter-note-text', t('common.filter_only')), chips, noteHits, all);
   box.appendChild(note);
+  const pickText = new Map();                       // option value → its text (for the pick's chip)
 
   const read = () => ({ words: Office.filterWords(input.value), only: !!(cb && cb.checked), pick: s.pick, tile: s.tile });
   const change = (anchor, what) => { if (o.onChange) Office.keepInPlace(anchor, () => o.onChange(read(), what)); };
@@ -1190,11 +1191,30 @@ Office.filterBar = function filterBar(opts) {
     if (what === 'all') {
       input.value = '';
       if (cb) cb.checked = false;
+      if (s.pick) setPick('');
     }
     if (s.clear) s.clear(what);
     change(box, what);
   };
-  chip.addEventListener('click', () => cleared('tile'));
+  // a chip's ×: that part goes, the rest stays
+  const chipClick = (what) => {
+    if (what === 'tile') { cleared('tile'); return; }
+    if (what === 'pick') { setPick(''); change(sel || box, 'pick'); return; }
+    if (what === 'only') { if (cb) cb.checked = false; change(sw || box, 'only'); return; }
+    input.value = '';
+    s.range = null;
+    change(input, 'words');
+  };
+  const chipOf = (what, name) => {
+    const chip = el('button', 'chip filter-chip');
+    chip.type = 'button';
+    chip.dataset.what = what;
+    chip.append(el('span', 'filter-chip-name', name), el('span', 'filter-chip-x', '×'));
+    chip.lastChild.setAttribute('aria-hidden', 'true');
+    chip.setAttribute('aria-label', t('common.filter_clear_tile', { name }));
+    chip.addEventListener('click', () => chipClick(what));
+    return chip;
+  };
   all.addEventListener('click', () => cleared('all'));
   // the focus through a drawing: the desk takes the bar out and puts it back (innerHTML = '' …) — the control that had
   // it gets it back in done(), unless the user went elsewhere meanwhile
@@ -1237,13 +1257,18 @@ Office.filterBar = function filterBar(opts) {
       if (sw) sw.hidden = quiet || !avail;
       box.hidden = quiet && !extras.length;
       const said = t('common.filter_hits', { n, total });
-      hits.textContent = filtering && !f.tile ? said : '';
-      note.hidden = !f.tile;
-      if (f.tile) {
-        chipName.textContent = f.tile;
-        chip.setAttribute('aria-label', t('common.filter_clear_tile', { name: f.tile }));
-        noteHits.textContent = '· ' + said;
-      } else noteHits.textContent = '';
+      hits.textContent = '';
+      note.hidden = !filtering;
+      const parts = [];
+      if (f.tile) parts.push(['tile', f.tile]);
+      if (f.pick) parts.push(['pick', pickText.get(f.pick) || f.pick]);
+      if (f.only && sw && !sw.hidden) parts.push(['only', o.only.text]);
+      if (f.words.length) parts.push(['words', '«' + input.value.trim() + '»']);
+      chips.replaceChildren(...parts.map(([what, name]) => chipOf(what, name)));
+      noteHits.textContent = filtering ? '· ' + said : '';
+      input.classList.toggle('on', f.words.length > 0);
+      if (sel) sel.classList.toggle('on', !!f.pick);
+      if (sw) sw.classList.toggle('on', f.only);
       // the bar may still hang in a section the desk appends after done(): then once its drawing is through
       if (s.focus && !refocus()) Promise.resolve().then(refocus);
       return bar;
@@ -1251,6 +1276,8 @@ Office.filterBar = function filterBar(opts) {
     options(list) {
       if (!sel) return bar;
       sel.replaceChildren(new Option(o.select.all || t('common.all'), ''));
+      pickText.clear();
+      (list || []).forEach(([value, text]) => pickText.set(String(value), String(text)));
       (list || []).forEach(([value, text, n]) => sel.appendChild(new Option(
         n === undefined || n === null ? String(text) : `${text} (${Office.fmt.number(n)})`, String(value))));
       if (s.pick && !(list || []).some(([value]) => String(value) === s.pick)) { setPick(''); later('gone', box); }    // its option gone

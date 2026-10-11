@@ -359,7 +359,12 @@
 }
 & button.filter-chip:hover{border-color:var(--accent)}
 .filter-chip-x{font-size:13px; line-height:1; opacity:.8}
+.filter-chips{display:inline-flex; flex-wrap:wrap; gap:4px 6px; min-width:0}
+.filter-chips:empty{display:none}
 .filter-all{margin-left:auto}
+/* the control that narrows the list says so (2026-10-11): an accent edge on the field, the pick and the switch */
+.filterbar .filter-words.on, .filterbar .filter-pick.on{border-color:var(--accent)}
+.filterbar .filter-only.on{color:var(--accent-ink)}
 
 /* ---------------------------------------------------------------- lists */
 .box{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); min-height:80px; overflow:hidden}
