@@ -17,8 +17,6 @@ let snaps = [];
 let index = new Map();
 let selection = new Set();
 let fresh = new Set();             // highlighted for a moment
-// the pool (or disk, or «VMs») her list is filtered to — a tile's choice, kept in this browser (CLAUDE.md «Tiles»)
-let poolFilter = Office.store('snapshot.pool') || null;
 let grouping = Office.store('snapshot.grouping') || 'dataset';
 let folded = Office.storeJson('snapshot.folded') || {};
 let busy = false;
@@ -53,14 +51,10 @@ function setState(s) {
     const x = index.get(id);
     if (!x || !deletable(x)) selection.delete(id);
   }
-  if (s && poolFilter && !filterPools().has(poolFilter)) setPool(null);      // the pool went: all again
+  pickPending();                     // a kept pool: its tile on once its state is there
+  const kept = Office.store('snapshot.pool');
+  if (s && kept && !filterPools().has(kept)) Office.store('snapshot.pool', null);      // the pool went: forgotten
   if (view) render();
-}
-
-/** The tile filter: a pool's, a disk's or the VMs' name — null: all; kept as the tile's choice */
-function setPool(name) {
-  poolFilter = name || null;
-  Office.store('snapshot.pool', poolFilter);
 }
 
 function filterPools() {
@@ -224,20 +218,21 @@ Office.desk({
   id: ID,
 
   /**
-   * sub: «datasets» (the search's): her list grouped by dataset, no pool and no source picked — the dataset sought among
-   * the groups; «plans» (her tile «Schedules», the search's schedules): their section open
+   * sub: a tile's (#/snapshot/plans, #/snapshot/snapshots — the switcher picks it like a click); «datasets» (the
+   * search's): her list alone, grouped by dataset, no pool and no source picked — the dataset sought among the groups.
+   * Else the kept choice: a pool (snapshot.pool, once her state has its tile) or a section (snapshot.tile).
    */
   mount(root, sub) {
-    poolFilter = Office.store('snapshot.pool') || null;
+    const kept = sub ? null : Office.store('snapshot.pool');
     if (sub === 'datasets') {
       grouping = 'dataset';
       Office.store('snapshot.grouping', grouping);
-      setPool(null);
     }
-    if (sub === 'plans') Office.store('snapshot.plans_open', '1');
-    if (sub === 'datasets' || sub === 'plans') Office.subroute('');
     view = build(root);
+    sw.mount(sub === 'datasets' ? 'snapshots' : sub);
+    pendingPool = kept || null;
     if (sub === 'datasets') view.bar.set({ pick: '' });
+    pickPending();                    // her state known already (an earlier visit): at once
     render();
     load(false);
   },
@@ -271,38 +266,6 @@ Office.desk({
     }
     return { bubble: bubbleText().join(' '), facts };
   },
-});
-
-// her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
-Office.places(ID, [
-  { kind: 'section', key: 'storage' },
-  { kind: 'section', key: 'plans', route: '#/snapshot/plans' },
-  { kind: 'tile', key: 'plans', anchor: 'tile.plans', route: '#/snapshot/plans' },
-  { kind: 'section', key: 'snapshots' },
-  ...[['held', 'help.held'], ['mounted', 'help.mounted'], ['used_by_backup', 'help.backup'], ['disk_asleep', 'help.asleep'],
-    ['pool_asleep_chip', 'help.pool_asleep'], ['partner.chip', 'help.partner'], ['vm_gone', 'help.vm_gone'], ['plans', 'help.plans'], ['docker_layers', 'help.docker']]
-    .map(([key, text]) => ({ kind: 'help', key, text })),
-  ...['tiles', 'group', 'select', 'name', 'menu', 'sources', 'scan'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
-]);
-
-// what her state holds for the search (core.js «items»): the pools and disks (their cards), the schedules, the datasets
-// that have snapshots (a group of her list, grouped by dataset — #/snapshot/datasets sets that grouping, as a click would)
-const DATASETS_MAX = 150;
-Office.placesFrom(ID, (s) => {
-  const out = [];
-  (s.zfs?.pools || []).forEach((p) => out.push({ text: p.name, sub: `${T('storage')} · ZFS`, anchor: `pool:${p.name}` }));
-  (s.btrfs?.devices || []).forEach((d) => out.push({ text: d.name, sub: `${T('storage')} · btrfs`, anchor: `pool:${d.name}` }));
-  (s.plans?.plans || []).forEach((p) => out.push({ text: p.label, sub: T('plans'), route: `#/${ID}/plans`, anchor: `plan:${p.id}` }));      // their section opens
-  const sets = new Map();
-  for (const x of [...(s.zfs?.snapshots || []), ...(s.btrfs?.snapshots || []), ...(s.vm?.snapshots || [])]) {
-    if (!x || x.docker || !x.vol || typeof x.ds !== 'string') continue;
-    const d = sets.get(x.vol) || { title: x.ds, n: 0 };
-    d.n++;
-    sets.set(x.vol, d);
-  }
-  [...sets].sort((a, b) => a[1].title.localeCompare(b[1].title)).slice(0, DATASETS_MAX).forEach(([vol, d]) => out.push({
-    text: d.title, sub: `${T('snapshots')} · ${T('count', { n: d.n })}`, route: `#/${ID}/datasets`, anchor: `ds:${vol}` }));
-  return out;
 });
 
 // ------------------------------------------------------------------ building
@@ -345,20 +308,12 @@ function build(root) {
   ]));
   Object.assign(v, { scanBtn, newBtn, wakeLabel, wake, wakeText, bubble: head.bubble });
 
-  // storage
-  const storage = el('section', 'section');
-  v.storageHint = el('span', 'hint');
-  const sh = Office.sectionHead(T('storage'), T('storage.sub'), v.storageHint, { place: 'storage' });
-  v.pools = el('div', 'cards');
-  storage.append(sh, v.pools);
-  root.appendChild(storage);
-
-  // schedules: folded until her tile «Schedules» opens them (kept as snapshot.plans_open)
+  // the row and the chosen section (the switcher, sw); her two sections are built once and drawn anew in place
+  root.appendChild(sw.el);
   v.plans = el('section', 'section');
   v.plans.id = 'sp-plans';
-  root.appendChild(v.plans);
 
-  // list
+  // the list
   const list = el('section', 'section');
   list.id = 'sp-list';
   v.seg = el('div', 'seg');
@@ -371,7 +326,6 @@ function build(root) {
     b.onclick = () => { grouping = g; Office.store('snapshot.grouping', g); renderList(); };
     v.seg.appendChild(b);
   }
-  const lh = Office.sectionHead(T('snapshots'), T('snapshots_sub'), v.seg, { place: 'snapshots' });
 
   const all = el('label', 'check-all');
   v.allBox = el('input');
@@ -412,10 +366,7 @@ function build(root) {
   // as before; the all-box at its start; the pool tiles' filter in its note line
   v.bar = Office.filterBar({ key: 'snapshot.list', label: T('list.filter_label'), select: { label: T('source.label'), all: T('source.all') },
     extra: [v.foldBtn, v.backupShow.label, v.partnerShow.label, v.dockerSwitch],
-    onChange: (f, what) => {
-      if (what === 'tile' || what === 'all') renderPools();
-      renderList();
-    } });
+    onChange: () => renderList() });
   v.bar.el.insertBefore(all, v.bar.el.firstChild);
 
   v.list = el('div');
@@ -423,21 +374,19 @@ function build(root) {
   v.vmAway = el('div');              // a deleted VM's entries taken out of Unraid's list, in the storeroom (issue #3)
   const box = el('div', 'box');
   box.append(v.list, v.empty);
-  list.append(lh, v.bar.el, v.vmAway, box);
-  root.appendChild(list);
+  list.append(v.bar.el, v.vmAway, box);              // its head comes with its first drawing by the switcher
+  v.listSection = list;
   return v;
 }
 
 function render() {
   if (!view) return;
   renderHead();
-  renderPools();
-  renderPlans();
   dockerSwitch();
   hideSwitches();
   fillSources();
   renderVmAway();
-  renderList();
+  drawTiles();                        // the row and the chosen section (the list, the schedules — drawn in place)
   buttons();
 }
 
@@ -456,48 +405,60 @@ function buttons() {
   view.newBtn.disabled = off || !state;
 }
 
-// ------------------------------------------------------------------ storage cards
-/**
- * The «Storage» row (CLAUDE.md «Tiles»): a card per ZFS pool, the btrfs disks (a row each), the VMs — a click filters her
- * list to it and keeps that choice (snapshot.pool), another click shows all; then, in a parent of its own (its own
- * choice, not one of the pools), the card «Schedules» that opens their section.
+// ------------------------------------------------------------------ the tiles (tiles v2)
+/*
+ * Her row (tiles v2, CLAUDE.md «Tiles»): a tile is a section. A card per ZFS pool, the btrfs disks (a row each in one
+ * card), the VMs — each a filter tile: «Snapshots» with only its snapshots (the note line names it); «Schedules» —
+ * their section; «Snapshots» at the end — the list unfiltered. Nothing chosen (her start): the whole page — the list
+ * (at its first tile, the first pool), then the schedules. The pool tiles' choice stays kept as snapshot.pool (the one
+ * filter the concept keeps: a pool is where one looks); a section tile's as snapshot.tile, as the switcher keeps it.
  */
-function renderPools() {
-  const box = view.pools;
-  box.innerHTML = '';
-  if (!state) return;
-  for (const p of state.zfs?.pools || []) box.appendChild(zfsCard(p));
-  if ((state.btrfs?.devices || []).length) box.appendChild(btrfsCard(state.btrfs));
-  if (state.vm?.available) box.appendChild(vmCard(state.vm));
-  const wrap = el('div', 'sp-tilewrap');
-  wrap.appendChild(plansCard());
-  box.appendChild(wrap);
-  const n = (state.zfs?.pools || []).length + (state.btrfs?.devices || []).length;
-  view.storageHint.textContent = T('storage.hint', { n });
+const POOL = 'pool:';
+let btrfsBox = null;               // the btrfs card being drawn: its disks' rows go into it
+let pendingPool = null;            // a kept pool waiting for her state (its tile comes with it)
+const sw = Office.sections({
+  id: ID,                          // kept as snapshot.tile, routes #/snapshot/<tile>
+  grid: 'cards sp-tiles',
+  default: '',
+  tiles: () => [
+    ...(state?.zfs?.pools || []).map((p) => ({ id: POOL + p.name, place: `pool:${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })),
+    ...((state?.btrfs?.devices || []).length ? [{ id: 'card:btrfs', section: 'list', tile: () => btrfsCard(state.btrfs) },
+      ...state.btrfs.devices.map((d) => ({ id: POOL + d.name, place: `pool:${d.name}`, section: 'list', filters: d.name, tile: (a) => btrfsRow(d, a) }))] : []),
+    ...(state?.vm?.available ? [{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs', tile: (a) => vmCard(state.vm, a) }] : []),
+    { id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(), tile: (a) => plansCard(a) },
+    { id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list', tile: (a) => snapsCard(a) },
+  ],
+  sections: { list: () => listSection() },
+  onPick(id, how) {
+    if (how === 'store') return;               // a new visit: the kept pool comes back with her state (mount())
+    pendingPool = null;
+    Office.store('snapshot.pool', String(id).startsWith(POOL) ? id.slice(POOL.length) : null);
+  },
+});
+/** The tile filter: a pool's, a disk's or the VMs' name — null: all */
+function poolFilter() {
+  const a = sw.active();
+  return a.startsWith(POOL) ? a.slice(POOL.length) : null;
 }
-
-/** A pool tile's click: the filter on or off (kept), the cards and the list anew — the row stays, the tile keeps the focus */
-function toggleFilter(name, e) {
-  const had = e && e.currentTarget && document.activeElement === e.currentTarget;
-  Office.keepInPlace(view.pools, () => {
-    setPool(poolFilter === name ? null : name);
-    renderPools();
-    renderList();
-  });
-  if (had) refocus(`[data-pool="${CSS.escape(name)}"]`);
+/** The kept pool once her state is there: its tile on, as a route would (no move); a pool gone: forgotten */
+function pickPending() {
+  if (!pendingPool || !state) return;
+  const name = pendingPool;
+  pendingPool = null;
+  if (filterPools().has(name)) sw.pick(POOL + name, 'route');
+  else Office.store('snapshot.pool', null);
 }
-function refocus(sel) {
-  const again = view && view.pools.querySelector(sel);
-  if (again) again.focus({ preventScroll: true });
+/** The row anew (a tile's state changed: busy, a scan) — the focus stays on a disk's row it was on */
+function drawTiles() {
+  const f = document.activeElement;
+  const had = f && view && sw.grid.contains(f) && f.dataset ? f.dataset.tile : null;
+  sw.render();
+  refocus(had);
 }
-/** What a pool tile carries: pressed, the list it filters (the click test looks for its note line there), its name */
-function poolTileAttrs(node, name) {
-  node.setAttribute('aria-pressed', poolFilter === name ? 'true' : 'false');
-  node.setAttribute('aria-controls', 'sp-list');
-  node.dataset.filters = 'sp-list';
-  node.dataset.pool = name;
-  node.addEventListener('click', (e) => toggleFilter(name, e));
-  return node;
+function refocus(tile) {
+  if (!tile || !view) return;
+  const again = sw.grid.querySelector(`[data-tile="${CSS.escape(tile)}"]`);
+  if (again && document.activeElement !== again) again.focus({ preventScroll: true });
 }
 
 /**
@@ -551,9 +512,17 @@ function splitBox(sp) {
   return box;
 }
 
-function zfsCard(p) {
-  const card = poolTileAttrs(Office.place(`pool:${p.name}`, el('button', 'card' + (poolFilter === p.name ? ' active' : '') + (p.count ? '' : ' empty-card') + (p.asleep ? ' asleep' : ''))), p.name);
-  card.type = 'button';
+
+/** A tile built by hand (a pool's card, a disk's row): a real button with the switcher's click and pressed state */
+function asTile(node, a) {
+  node.type = 'button';
+  node.setAttribute('aria-pressed', a.pressed ? 'true' : 'false');
+  node.addEventListener('click', a.on);
+  return node;
+}
+
+function zfsCard(p, a) {
+  const card = asTile(Office.place(`pool:${p.name}`, el('button', 'card' + (a.active ? ' active' : '') + (p.count ? '' : ' empty-card') + (p.asleep ? ' asleep' : ''))), a);
   const head = el('div', 'card-head');
   head.append(el('span', 'card-name', p.name), el('span', 'tag', 'ZFS'));
   if (p.asleep) {
@@ -590,39 +559,23 @@ function spaceBar(total, used, snapshots) {
   return bar;
 }
 
+
+/**
+ * The array's btrfs disks in one card (no tile itself — a holder in the row): a row per disk, each a filter tile
+ * (each drawn into it by its own tile), the split by source under them, the foot with «Wake & scan»
+ */
 function btrfsCard(part) {
-  const card = el('div', 'card' + (part.devices.length > 3 ? ' wide' : ''));
+  const card = el('div', 'card sp-btrfs' + (part.devices.length > 3 ? ' wide' : ''));
   const asleep = part.devices.filter((d) => d.asleep);
   const head = el('div', 'card-head');
   head.append(el('span', 'card-name', T('array')), el('span', 'tag', 'btrfs'));
   head.append(el('span', 'status quiet', asleep.length ? T('asleep_count', { n: asleep.length }) : T('all_awake')));
   card.appendChild(head);
-
   const rows = el('div', 'minirows');
-  for (const d of part.devices) {
-    const n = part.snapshots.filter((s) => s.ds === d.mount).length;
-    const row = poolTileAttrs(Office.place(`pool:${d.name}`, el('button', 'minirow' + (d.asleep ? ' asleep' : '') + (poolFilter === d.name ? ' active' : ''))), d.name);
-    row.type = 'button';
-    const bar = el('div', 'bar thin');
-    const i = el('i', 'data');
-    i.style.width = `${d.size ? (d.size - d.free) / d.size * 100 : 0}%`;
-    bar.appendChild(i);
-    let info = d.scanned ? T('count', { n }) : T('never_read');
-    if (d.asleep) info = '💤 ' + info;
-    if (d.error) info = '⚠ ' + T('error');
-    row.title = [
-      T('disk_used', { mount: d.mount, used: fmt.size(d.size - d.free), total: fmt.size(d.size) }),
-      d.scanned ? T('last_read', { when: fmt.date(d.scanned) }) : T('never_searched'),
-      d.asleep ? T('asleep_hint') : '',
-      d.error ? Office.errorText(d.error, ID) : '',
-    ].filter(Boolean).join('\n');
-    row.append(el('span', 'minirow-name', d.name), bar, el('span', 'minirow-info', info));
-    rows.appendChild(row);
-  }
   card.appendChild(rows);
+  btrfsBox = { card, rows, part };
   // by source, counts only (btrfs knows no size per snapshot)
   if (part.snapshots.length) card.appendChild(splitBox(poolSplit(part.snapshots, { fs: 'btrfs' })));
-
   const foot = el('div', 'card-foot');
   const last = Math.max(0, ...part.devices.map((d) => d.scanned || 0));
   foot.append(el('span', '', `${T('count', { n: part.snapshots.length })} · ${last ? Office.t('common.scanned_ago', { when: fmt.relative(last) }) : T('never_read')}`));
@@ -638,9 +591,49 @@ function btrfsCard(part) {
   return card;
 }
 
-function vmCard(part) {
-  const card = poolTileAttrs(Office.place('pool:VMs', el('button', 'card' + (poolFilter === 'VMs' ? ' active' : '') + (part.snapshots.length ? '' : ' empty-card'))), 'VMs');
-  card.type = 'button';
+/**
+ * A btrfs disk's row in the array's card — a filter tile of the switcher drawn into that card (the switcher draws
+ * nothing for it: null), so it carries what the switcher would set: the click, pressed, data-tile, data-filters, the
+ * glow and its mark; the card itself is no tile (no aria-pressed)
+ */
+function btrfsRow(d, a) {
+  if (!btrfsBox) return null;
+  const { card, rows, part } = btrfsBox;
+  card.removeAttribute('aria-pressed');
+  card.removeAttribute('aria-controls');
+  const n = part.snapshots.filter((s) => s.ds === d.mount).length;
+  const row = asTile(Office.place(`pool:${d.name}`, el('button', 'minirow' + (d.asleep ? ' asleep' : '') + (a.active ? ' active' : ''))), a);
+  row.addEventListener('click', () => refocus(POOL + d.name));        // drawn anew: the focus back on it
+  row.dataset.tile = POOL + d.name;
+  row.dataset.shows = 'list';
+  row.dataset.filters = a.filters;
+  row.setAttribute('aria-controls', a.controls);
+  const bar = el('div', 'bar thin');
+  const i = el('i', 'data');
+  i.style.width = `${d.size ? (d.size - d.free) / d.size * 100 : 0}%`;
+  bar.appendChild(i);
+  let info = d.scanned ? T('count', { n }) : T('never_read');
+  if (d.asleep) info = '💤 ' + info;
+  if (d.error) info = '⚠ ' + T('error');
+  row.title = [
+    T('disk_used', { mount: d.mount, used: fmt.size(d.size - d.free), total: fmt.size(d.size) }),
+    d.scanned ? T('last_read', { when: fmt.date(d.scanned) }) : T('never_searched'),
+    d.asleep ? T('asleep_hint') : '',
+    d.error ? Office.errorText(d.error, ID) : '',
+  ].filter(Boolean).join('\n');
+  row.append(el('span', 'minirow-name', d.name), bar, el('span', 'minirow-info', info));
+  if (a.active) {
+    row.classList.add('tile-on');
+    const m = el('span', 'tile-mark', a.mark);
+    m.setAttribute('aria-hidden', 'true');
+    row.appendChild(m);
+  }
+  rows.appendChild(row);
+  return null;
+}
+
+function vmCard(part, a) {
+  const card = asTile(Office.place('pool:VMs', el('button', 'card' + (a.active ? ' active' : '') + (part.snapshots.length ? '' : ' empty-card'))), a);
   const head = el('div', 'card-head');
   head.append(el('span', 'card-name', 'VMs'), el('span', 'tag', 'libvirt'));
   head.append(el('span', 'status quiet', T('vm_count', { n: part.domains.length })));
@@ -658,12 +651,8 @@ function vmCard(part) {
   return card;
 }
 
-/**
- * The card «Schedules» at the end of the row: how many run, the next one — or none, with her suggestion behind it; a
- * click opens or folds their section (kept: snapshot.plans_open; folded unless opened)
- */
-const plansOpen = () => Office.store('snapshot.plans_open') === '1';
-function plansCard() {
+/** «Schedules»: how many run, the next one — or none, with her suggestion in the section; its section: «Schedules» */
+function plansCard(a) {
   const plans = state?.plans?.plans || [];
   const on = plans.filter((p) => p.enabled);
   const nexts = on.map((p) => p.next).filter((n) => typeof n === 'number' && n > 0);
@@ -671,21 +660,48 @@ function plansCard() {
     : nexts.length ? T('plans_tile.active', { n: on.length, when: nextText(Math.min(...nexts)) }) : T('plans_tile.on', { n: on.length });
   const r = state?.plans?.runner || {};
   const off = on.length > 0 && !(r.script && r.enabled);
-  const card = Office.tile({ name: T('plans'), icon: '⏱', lines: [value], chip: off ? el('span', 'chip warn', T('plans_tile.runner_off')) : null,
-    active: plansOpen(), controls: 'sp-plans', place: 'tile.plans', cls: plans.length ? '' : 'empty-card',
-    on: (e) => {
-      const had = document.activeElement === e.currentTarget;
-      Office.keepInPlace(view.pools, () => {
-        Office.store('snapshot.plans_open', plansOpen() ? null : '1');
-        renderPools();
-        renderPlans();
-      });
-      if (had) refocus('[data-place="tile.plans"]');
-    } });
-  return card;
+  return Office.tile({ name: T('plans'), icon: '⏱', lines: [value], chip: off ? el('span', 'chip warn', T('plans_tile.runner_off')) : null,
+    cls: plans.length ? '' : 'empty-card', ...a });
 }
 /** «14:00» within a day, else the date with it */
 const nextText = (t) => (t - Date.now() / 1000 < 86400 ? fmt.time(t) : fmt.date(t));
+
+/** What her snapshots take: the ZFS pools' usedbysnapshots and the btrfs snapshots' own sizes (the bubble says it too) */
+function snapSpace() {
+  let space = 0;
+  for (const p of state?.zfs?.pools || []) space += p.snapused || 0;
+  for (const s of state?.btrfs?.snapshots || []) space += s.used || 0;
+  return space;
+}
+/**
+ * «Snapshots» at the end of the row: how many (without Docker's layers) and what they take, what the switches hide
+ * («hidden: 49 of Mr. Backupsy's, 8 partner copies»); its section: the list, unfiltered
+ */
+function snapsCard(a) {
+  const lines = [];
+  if (state) {
+    lines.push(`${T('count', { n: visible().length })} · ${fmt.size(snapSpace())}`);
+    const hid = hiddenCounts(visible());
+    const what = [hid.backup ? T('count.hidden_backup', { n: hid.backup }) : '', hid.partner ? T('count.hidden_partner', { n: hid.partner }) : ''].filter(Boolean);
+    if (what.length) lines.push(T('snaps_tile.hidden', { what: what.join(', ') }));
+  } else lines.push('…');
+  return Office.tile({ name: T('snapshots'), icon: '📸', lines, ...a });
+}
+
+/** «Schedules» as a section (her tile, and on the whole page) */
+function plansSection() {
+  renderPlans();
+  return view.plans;
+}
+/** «Snapshots»: her list — filtered to the pool of a pool tile, all of it under «Snapshots» and on the whole page */
+function listSection() {
+  if (!view.listHead) {
+    view.listHead = Office.sectionHead(T('snapshots'), T('snapshots_sub'), view.seg, { place: 'snapshots' });
+    view.listSection.prepend(view.listHead);
+  }
+  renderList();
+  return view.listSection;
+}
 
 // ------------------------------------------------------------------ filters
 function dockerParent() { return state?.zfs?.docker_parent || 'cache/system'; }
@@ -702,6 +718,16 @@ function isBackupSnap(s) { return !s.docker && !s.partner && source(s).key === '
 function hiddenBySwitch(s) {
   return (s.docker && !view.dockerBox.checked) || (s.partner && !view.partnerShow.box.checked)
     || (!view.backupShow.box.checked && isBackupSnap(s));
+}
+/** Of a list, what the two switches hide (Mr. Backupsy's, a partner's copies — Docker's layers are counted apart) */
+function hiddenCounts(list) {
+  const r = { backup: 0, partner: 0 };
+  for (const s of list) {
+    if (s.docker) continue;
+    if (s.partner && !view.partnerShow.box.checked) r.partner++;
+    else if (!view.backupShow.box.checked && isBackupSnap(s)) r.backup++;
+  }
+  return r;
 }
 function hideSwitches() {
   const set = (sw, n, key) => {
@@ -727,14 +753,19 @@ function fillSources() {
   view.bar.options([...seen.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label, Office.lang)).map(([key, e]) => [key, e.label, e.n]));
 }
 
-/** What the switches show (the bar's «of m») */
+/** What the switches show */
 function switched() { return snaps.filter((s) => !hiddenBySwitch(s)); }
+/** Her list as the bar counts it («n of m»): every snapshot — Docker's layers only while their switch shows them */
+function listed() { return snaps.filter((s) => !s.docker || view.dockerBox.checked); }
+/** What the pool tile, the source and the words let through, before the switches */
+function matching() {
+  const f = view.bar.read();
+  const pool = poolFilter();
+  return listed().filter((s) => (!pool || s.pool === pool) && (!f.pick || source(s).key === f.pick) && Office.fits(f.words, snapHay(s)));
+}
 /** A snapshot's words for the filter: dataset@name, its source, «mounted», a VM snapshot's description */
 const snapHay = (s) => [`${s.ds}@${s.name}`, source(s).label, fixedMounts(s).length ? T('mounted') : '', s.description || ''];
-function filtered() {
-  const f = view.bar.read();
-  return switched().filter((s) => (!poolFilter || s.pool === poolFilter) && (!f.pick || source(s).key === f.pick) && Office.fits(f.words, snapHay(s)));
-}
+function filtered() { return matching().filter((s) => !hiddenBySwitch(s)); }
 
 // ------------------------------------------------------------------ groups
 function makeGroups(list) {
@@ -801,7 +832,12 @@ function renderList() {
     empty.hidden = false;
     empty.innerHTML = '';
     const any = snaps.some((s) => !s.docker);
-    empty.append(el('strong', '', any ? T('empty.filtered') : T('empty.none')), any ? T('empty.filtered_text') : T('empty.none_text'));
+    // everything the filter would show hidden by the switches: say how many, and which switch shows them (2026-10-12:
+    // «0 of 0 fit» on a pool of 25 made it look empty)
+    const hid = hiddenCounts(matching());
+    const names = [hid.backup ? `«${T('show_backup')}»` : '', hid.partner ? `«${T('show_partner')}»` : ''].filter(Boolean);
+    if (names.length) empty.append(el('strong', '', T('empty.switched', { n: hid.backup + hid.partner })), T('empty.switched_text', { names: names.join(', ') }));
+    else empty.append(el('strong', '', any ? T('empty.filtered') : T('empty.none')), any ? T('empty.filtered_text') : T('empty.none_text'));
     selectionChanged();
     foldButton();
     return;
@@ -811,9 +847,9 @@ function renderList() {
   selectionChanged();
   foldButton();
 }
-/** The bar after drawing: «n of m fit» (m = what the switches show), the pool tile's note line */
+/** The bar after drawing: «n of m fit» (m = her whole list — what the switches hide counts, the empty list says so), the pool tile's note line */
 function barDone(n) {
-  view.bar.done(n, state ? switched().length : 0, { tile: poolFilter || '', clear: () => setPool(null) });
+  view.bar.done(n, state ? listed().length : 0, sw.note('list'));
 }
 
 function foldButton() {
@@ -1161,12 +1197,12 @@ function failed(j) { Office.toast(Office.errorText(j.error, ID), true); }
 async function scan(wake) {
   if (busy) return;
   setBusy(true, view && view.scanBtn);
-  if (view) renderPools();
+  if (view) drawTiles();
   if (wake) Office.toast(T('waking'));
   const j = await Office.api.post(`${ID}.scan`, { wake: !!wake });
   setBusy(false, view && view.scanBtn);
   if (view) view.wake.checked = false;
-  if (!j.ok) { if (view) renderPools(); failed(j); return; }
+  if (!j.ok) { if (view) drawTiles(); failed(j); return; }
   fresh = new Set(j.new || []);
   setState(j.state);
   setTimeout(() => fresh.clear(), 4000);
@@ -1433,7 +1469,6 @@ function planEvery(cron) {
 function renderPlans() {
   const box = view.plans;
   box.innerHTML = '';
-  box.hidden = !plansOpen();
   const info = state?.plans || { plans: [] };
   const add = el('button', 'btn small', T('plan.new'));
   add.type = 'button';
@@ -2001,7 +2036,40 @@ function properties(s) {
   Office.dialog({ title: s.docker ? T('kind.docker') : T('p.title'), body: box, buttons });
 }
 
+// her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
+// (each section by the route of its tile: a section stands under the row only while its tile is chosen)
+Office.places(ID, [
+  { kind: 'section', key: 'plans', route: '#/snapshot/plans' },
+  { kind: 'section', key: 'snapshots', route: '#/snapshot/snapshots' },
+  ...sw.places(),                     // «Schedules», «Snapshots» (the pools' tiles are found as her items: pool:<name>)
+  ...[['held', 'help.held'], ['mounted', 'help.mounted'], ['used_by_backup', 'help.backup'], ['disk_asleep', 'help.asleep'],
+    ['pool_asleep_chip', 'help.pool_asleep'], ['partner.chip', 'help.partner'], ['vm_gone', 'help.vm_gone'], ['plans', 'help.plans'], ['docker_layers', 'help.docker']]
+    .map(([key, text]) => ({ kind: 'help', key, text })),
+  ...['tiles', 'group', 'select', 'name', 'menu', 'sources', 'scan'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+]);
+
+// what her state holds for the search (core.js «items»): the pools and disks (their cards), the schedules, the datasets
+// that have snapshots (a group of her list, grouped by dataset — #/snapshot/datasets sets that grouping, as a click would)
+const DATASETS_MAX = 150;
+Office.placesFrom(ID, (s) => {
+  const out = [];
+  (s.zfs?.pools || []).forEach((p) => out.push({ text: p.name, sub: `${T('storage')} · ZFS`, anchor: `pool:${p.name}` }));
+  (s.btrfs?.devices || []).forEach((d) => out.push({ text: d.name, sub: `${T('storage')} · btrfs`, anchor: `pool:${d.name}` }));
+  (s.plans?.plans || []).forEach((p) => out.push({ text: p.label, sub: T('plans'), route: `#/${ID}/plans`, anchor: `plan:${p.id}` }));      // their section opens
+  const sets = new Map();
+  for (const x of [...(s.zfs?.snapshots || []), ...(s.btrfs?.snapshots || []), ...(s.vm?.snapshots || [])]) {
+    if (!x || x.docker || !x.vol || typeof x.ds !== 'string') continue;
+    const d = sets.get(x.vol) || { title: x.ds, n: 0 };
+    d.n++;
+    sets.set(x.vol, d);
+  }
+  [...sets].sort((a, b) => a[1].title.localeCompare(b[1].title)).slice(0, DATASETS_MAX).forEach(([vol, d]) => out.push({
+    text: d.title, sub: `${T('snapshots')} · ${T('count', { n: d.n })}`, route: `#/${ID}/datasets`, anchor: `ds:${vol}` }));
+  return out;
+});
+
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.snapshot = { setState, poolSplit, splitLines, source };
+  globalThis.OFFICE_DESK_TESTS.snapshot = { setState, poolSplit, splitLines, source, sw, build, render, hiddenCounts, filtered, listed, snapsCard, plansCard,
+    setView: (v) => { view = v; }, view: () => view, pickPending, poolFilter };
 }
 })();

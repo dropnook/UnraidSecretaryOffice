@@ -29,6 +29,7 @@
     "setup.server",
     "setup.users",
     "shares",
+    "tile.pool",
     "tools"
   ],
   "texts": [

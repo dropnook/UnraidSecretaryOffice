@@ -1,10 +1,20 @@
 /* Jack Emby */
 #sso{   /* nested in the office's element, like office.css */
 .jo-bar{width:120px}
-/* the schedules' list under the tiles (the tile «Schedules» opens it) and the tools' quiet line */
-.jo-plans{min-height:0; margin:10px 0 0}
-.jo-plans > .row:first-child{border-top:0}
+/* the schedules' list (the section «Schedules»), the gather's two facts, the runs' log line */
+.jo-plans, .jo-facts{min-height:0}
+.jo-plans > .row:first-child, .jo-facts > .row:first-child{border-top:0}
+.jo-runs-tools{margin:8px 0 0}
+/* «How I work» over the row: the scope in one line (no section — a hint) */
+.jo-scope{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; margin:14px 0 8px; font-size:13px; color:var(--ink2); overflow-wrap:anywhere; min-width:0}
+.jo-scope-title{font-size:11px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--muted)}
+/* under all: the tools' versions and the credit */
+.jo-foot{margin:22px 0 4px; padding-top:10px; border-top:1px solid var(--line)}
 .jo-tools{margin:0 0 4px; font-size:12.5px}
+/* the setup page's head line under the tabs (his setup words its sub line) */
+.jo-pagehead{margin:14px 0 6px}
+.jo-pagehead-title{font-size:17px; font-weight:650; color:var(--ink)}
+.jo-pagehead-sub{margin:4px 0 0; max-width:980px; font-size:13px; line-height:1.5; color:var(--ink2)}
 .jo-more{margin:8px 12px}
 /* Unraid's mover and EmbyCache's files (emby-mover.php): why only dry runs and the switch — or that the schedule is off */
 .jo-mover{margin:0 0 12px}
@@ -63,8 +73,8 @@
 .jo-imp .warn-text, .jo-imp .shortlist li.jo-imp-warn{color:var(--warn)}
 .jo-imp .callout{margin:8px 0 4px}
 .jo-part-head .jo-part-why{overflow-wrap:anywhere; font-family:var(--mono); font-size:12px}
-/* the credit to helmi1987 under the tools' tiles */
-.jo-credit{margin:12px 0 0; max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
+/* the credit to helmi1987 under the tools' line */
+.jo-credit{margin:8px 0 0; max-width:980px; font-size:12.5px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere}
 .jo-credit b{color:var(--ink2); font-weight:600}
 .jo-credit-links{display:inline-block; max-width:100%; margin-left:4px}
 @media (max-width:640px){ .jo-credit-links{margin-left:0} }

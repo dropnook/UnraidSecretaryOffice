@@ -3,6 +3,9 @@
  * splitLines(), under node) — the counts and sums per source (the engine's, a schedule's, by hand, a partner's copies,
  * other tools', Docker's last), sources without a snapshot left out, «All» from the pool's usedbysnapshots, the first
  * sized line «≥ … freed by deleting», the others «≥ …», each with the tip why «at least»; btrfs (and Docker) counts only.
+ * And her row on the section switcher (tiles v2, a stand-in for Office.sections()): the tiles from her state in order,
+ * the pool tiles filtering her list, the pool kept as snapshot.pool (a section tile or nothing forgets it), the
+ * «Snapshots» card with what the switches hide, her list counting what they hide («0 of 57», never «0 of 0»).
  *
  *   node tests/snappool.js public/desks/snapshot/desk.js     → one JSON line {pass, fail: [[name, got, want], …]}
  *
@@ -14,9 +17,16 @@ const path = require('path');
 
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const stored = {};
+let spec = null;
+let active = '';
 globalThis.Office = {
-  scope: () => T, t: T, el: () => ({}), store: () => null, storeJson: () => null, desk: () => {}, places: () => {}, placesFrom: () => {},
-  placesTook: () => {}, agent: { running: true }, lang: 'en',
+  scope: () => T, t: T, el: () => ({}), storeJson: () => null, desk: () => {}, places: () => {}, placesFrom: () => {},
+  placesTook: () => {}, agent: { running: true }, lang: 'en', fits: () => true,
+  store(k, v) { if (arguments.length > 1) stored[k] = v; return k in stored ? stored[k] : null; },
+  tile: (o) => ({ o }),
+  sections: (o) => { spec = o; return { el: {}, grid: { contains: () => false }, active: () => active, places: () => [], mount: () => false, render() {}, clear() { active = ''; },
+    pick(id) { active = id; }, note: () => ({ tile: '' }) }; },
   fmt: { size: (b) => `${b}B`, number: (n) => String(n), date: (t) => `D${t}`, relative: (t) => `R${t}`, time: (t) => `H${t}` },
 };
 const file = process.argv[2] || path.join(__dirname, '../public/desks/snapshot/desk.js');
@@ -75,4 +85,43 @@ same('split btrfs: in words — no size, no «≥», no tip', S.splitLines(bs).m
   [['split.all {"n":"3"}', ''], ['split.line {"source":"split.backup","n":"2"}', ''], ['split.line {"source":"split.manual","n":"1"}', '']]);
 same('split: no «≥» anywhere without a size', S.splitLines(bs).some((l) => l.text.includes('line_free') || l.text.includes('line_size')), false);
 
+// ------------------------------------------------------------------ her row on the section switcher (tiles v2)
+const view = { partnerShow: { box: { checked: false } }, backupShow: { box: { checked: false } }, dockerBox: { checked: false }, bar: { read: () => ({ words: [], pick: '', only: false }) } };
+const zsnap = (pool, name, extra) => ({ id: `zfs:${pool}/ds@${name}`, fs: 'zfs', pool, ds: `${pool}/ds`, vol: `${pool}/ds`, name, used: 1, t: 1, ...extra });
+const st = {
+  backup: { prefixes: ['uso-backup-'] }, plans: { plans: [] },
+  zfs: { pools: [{ name: 'daten', snapused: 600 }, { name: 'cache', snapused: 50 }], snapshots: [
+    zsnap('daten', 'uso-backup-20261009-0430'), zsnap('daten', 'uso-backup-20261008-0430'), zsnap('daten', 'manual-20261001-0900'),
+    zsnap('daten', 'uso-backup-20261007-0430', { partner: { id: 'a1', name: 'vault' } }), zsnap('cache', 'abc', { docker: true })] },
+  btrfs: { devices: [{ name: 'disk1', mount: '/mnt/disk1' }], snapshots: [{ id: 'btrfs:/mnt/disk1/.s/x', fs: 'btrfs', pool: 'disk1', ds: '/mnt/disk1', vol: 'disk1', name: 'x', used: 7, t: 1 }] },
+  vm: { available: true, domains: ['HA'], snapshots: [] },
+};
+S.setState(st);
+S.setView(view);               // after her state: a desk with a page would draw itself
+const tiles = () => spec.tiles();
+same('row: her tiles from her state — a card per ZFS pool, the btrfs card and a row per disk, the VMs, «Schedules», «Snapshots» last; no start tile',
+  [spec.default, tiles().map((x) => [x.id, typeof x.section === 'string' ? x.section : 'own', x.filters || '', x.place || ''])],
+  ['', [['pool:daten', 'list', 'daten', 'pool:daten'], ['pool:cache', 'list', 'cache', 'pool:cache'], ['card:btrfs', 'list', '', ''], ['pool:disk1', 'list', 'disk1', 'pool:disk1'],
+    ['pool:VMs', 'list', 'VMs', 'pool:VMs'], ['plans', 'own', '', 'tile.plans'], ['snapshots', 'list', '', 'tile.snapshots']]]);
+spec.onPick('pool:daten', 'click');
+const a1 = stored['snapshot.pool'];
+spec.onPick('plans', 'click');
+const a2 = stored['snapshot.pool'];
+spec.onPick('pool:disk1', 'route');
+spec.onPick('', 'store');
+const a3 = stored['snapshot.pool'];
+spec.onPick('', 'clear');
+same('row: a pool tile keeps its pool (snapshot.pool), a section tile and the note line\'s chip forget it, a new visit\'s store pick leaves it', [a1, a2, a3, stored['snapshot.pool']],
+  ['daten', null, 'disk1', null]);
+active = 'pool:daten';
+same('list: the pool tile filters her list; the switches hide Mr. Backupsy\'s and the partner\'s — counted as hidden, the bar counts them in «of m» (Docker\'s not)',
+  [S.poolFilter(), S.filtered().map((x) => x.name), S.hiddenCounts(S.filtered()), S.hiddenCounts(st.zfs.snapshots), S.listed().length],
+  ['daten', ['manual-20261001-0900'], { backup: 0, partner: 0 }, { backup: 2, partner: 1 }, 5]);
+view.backupShow.box.checked = true;
+same('list: Mr. Backupsy\'s switched on — his snapshots in the list, no longer hidden', [S.filtered().length, S.hiddenCounts(st.zfs.snapshots)], [3, { backup: 0, partner: 1 }]);
+view.backupShow.box.checked = false;
+active = '';
+const card = S.snapsCard({ on: () => {}, pressed: false });
+same('«Snapshots» card: how many (Docker\'s layers not) and what they take, what the switches hide', [card.o.name, card.o.lines],
+  ['snapshots', ['count {"n":5} · 657B', 'snaps_tile.hidden {"what":"count.hidden_backup {\\"n\\":2}, count.hidden_partner {\\"n\\":1}"}']]);
 console.log(JSON.stringify(out));
