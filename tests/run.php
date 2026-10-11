@@ -26101,6 +26101,122 @@ function testWatchBookView(): void
     }
 }
 
+/** node for the tests that run a page's code (tests/watchbook.js, tests/filter.js): '' where it is missing */
+function testsNode(): string
+{
+    return trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+}
+
+/** tests/filter.js <part> under node: one JSON line {pass, fail} — checked by $label, at least $min checks */
+function testsFilterJs(string $part, string $label, int $min): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check("$label: node is missing here - skipped", true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/filter.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg($part) . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check("$label: ran under node", false, $raw);
+        return;
+    }
+    check("$label: core.js under node ({$r['pass']} checks)", $r['pass'] >= $min && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check("$label: " . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
+/**
+ * The filter's words as every list compares them (core.js Office.fold / filterWords / fits, under node — tests/filter.js;
+ * skipped where node is missing, it runs on the Mac as it is): accents folded (é, ü; ß and ẞ → ss; Ł is no accent and
+ * stays), empty and multi-space input, a list of strings as the hay, words in any order, a word across the \u0001
+ * joiner never fits.
+ */
+function testFilterWords(): void
+{
+    testsFilterJs('words', 'filter words', 15);
+}
+
+/**
+ * The filter bar and the two tile builders (core.js Office.filterBar / Office.stat / Office.tile): the API and its
+ * strings in five languages; then, on a stand-in DOM under node (tests/filter.js bar), the bar shown from
+ * Office.FILTER_MIN rows or while anything filters, «n of m fit», the note line of a tile filter (chip, «Show all»,
+ * clear() before onChange), the select kept per browser and words / «only …» never, the switch gone with nothing to
+ * switch to, an option gone, reset/set, the focus kept through a drawing, onChange inside keepInPlace(the control);
+ * stat and tile as button or div, aria-pressed, aria-controls, data-filters, no inline handlers. How it behaves in a
+ * real browser the click test checks (tools/ui-clicks.mjs: data-filters → the note line) once the desks use it.
+ */
+function testFilterBar(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $missing = [];
+    foreach (['filterBar', 'fold', 'filterWords', 'fits', 'stat', 'tile', 'FILTER_MIN'] as $name) {
+        if (!preg_match('/^Office\.' . $name . ' = /m', $core)) {
+            $missing[] = $name;
+        }
+    }
+    same('filter bar: core.js has Office.filterBar, fold, filterWords, fits, stat, tile, FILTER_MIN', [], $missing);
+    check('filter bar: one threshold, 10 rows', str_contains($core, 'Office.FILTER_MIN = 10;'));
+    check('filter bar: only the select is kept per browser (<key>.pick), words and «only …» never',
+        str_contains($core, "o.key + '.pick'") && preg_match_all('/Office\.store\(/', substr($core, (int) strpos($core, 'Office.filterBar = '), 9000)) === 2);
+    $keys = ['common.filter_hits', 'common.filter_only', 'common.show_all', 'common.filter_clear_tile'];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("filter bar: its strings in $code", [], array_values(array_filter($keys, fn ($k) => !isset($lang[$k]))));
+        if ($code === 'de') {
+            check('filter bar: Swiss German — no ß', !str_contains(json_encode(array_intersect_key($lang, array_flip($keys)), JSON_UNESCAPED_UNICODE), 'ß'));
+        }
+    }
+    testsFilterJs('bar', 'filter bar', 45);
+}
+
+/**
+ * A job's schedule says when it runs next (officeJobSchedule() `next`, for the desks' schedule tiles): on a cron file of
+ * the test's own — an enabled line's next run is in the future, matches its expression and is the first that does; a
+ * job without a line: next null; a line cron can't read (written by hand): next null and no warning.
+ */
+function testOfficeJobScheduleNext(): void
+{
+    $tmp = hardeningTmp('cronnext');
+    $file = "$tmp/office.cron";
+    officeJobSetSchedule('backup', '30 4 * * *', $file, false);
+    officeJobSetSchedule('embycache', '*/15 * * * *', $file, false);
+    $now = time();
+    $first = function (string $cron, ?int $next) use ($now): bool {
+        $f = cronFields($cron);
+        if (!$f || $next === null || $next <= $now || !cronMatches($f, $next)) {
+            return false;
+        }
+        for ($t = intdiv($now, 60) * 60 + 60; $t < $next; $t += 60) {
+            if (cronMatches($f, $t)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    $b = officeJobSchedule('backup', $file);
+    same('job schedule next: the shape — next beside the four keys', ['script', 'frequency', 'custom', 'enabled', 'next'], array_keys($b));
+    check('job schedule next: an enabled line — in the future, its expression\'s next minute (04:30)',
+        $b['enabled'] && is_int($b['next']) && $first('30 4 * * *', $b['next']) && date('H:i', $b['next']) === '04:30' && $b['next'] - $now <= 86400);
+    $e = officeJobSchedule('embycache', $file);
+    check('job schedule next: every 15 minutes — within the next quarter of an hour', is_int($e['next']) && $first('*/15 * * * *', $e['next']) && $e['next'] - $now <= 900);
+    $g = officeJobSchedule('gather', $file);
+    same('job schedule next: no line — off, next null', [false, null], [$g['enabled'], $g['next']]);
+    file_put_contents($file, '61 3 * * * ' . officeJobCommand('backup') . "\n");
+    $warned = [];
+    set_error_handler(function (int $no, string $str) use (&$warned): bool {
+        $warned[] = $str;
+        return true;
+    });
+    $x = officeJobSchedule('backup', $file);
+    restore_error_handler();
+    same('job schedule next: a line cron can\'t read — next null, no warning', [true, null, []], [$x['enabled'], $x['next'], $warned]);
+    hardeningRm($tmp);
+}
+
 /**
  * «All n: I know, thanks» on a folded row (the action ack_some, `watchmanAck()` with a list of ids): exactly the listed
  * entries still open are noted (their state adopted like one «I know, thanks» each), the rest of the book untouched; none
@@ -26829,7 +26945,7 @@ SH);
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
