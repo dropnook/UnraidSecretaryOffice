@@ -1207,7 +1207,7 @@ globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), title: '', children: [], dataset: {}, style: {},
   disabled: false, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}` }, desk: () => {}, places: () => {}, placesFrom: () => {},
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}` }, desk: () => {}, places: () => {}, placesFrom: () => {},
   placesTook: () => {}, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => { n.dataset.place = k; return n; },
   sectionHead: (title, sub, ...x) => { const h = el('div', 'section-head', title); x.filter((y) => y && y.tag).forEach((y) => h.appendChild(y)); return h; } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
@@ -1309,7 +1309,7 @@ const el = (tag, cls, text) => { const n = { tag, className: cls || '', textCont
 const stored = { 'office-other': 1 };
 const fold = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss');
 const bars = [];
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, number: (n) => String(n) }, desk: () => {}, places: () => {},
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, number: (n) => String(n) }, desk: () => {}, places: () => {},
   placesFrom: () => {}, placesTook: () => {}, storeJson: () => null, agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => n,
   sectionHead: (title, sub, ...x) => el('div', 'section-head', title), fold, filterWords: (t) => fold(t).split(/\s+/).filter(Boolean),
   fits: (w, hay) => { const h = (Array.isArray(hay) ? hay.filter((x) => x != null && x !== '') : [hay]).map(fold).join('\u0001'); return w.every((x) => h.includes(x)); },
@@ -1908,7 +1908,7 @@ globalThis.document = { createTextNode: (t) => t };
 const posts = [];
 let answer = () => ({ ok: false });
 const dialogs = [];
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', cron: (c) => 'C(' + c + ')', date: (t) => 'D' + t, relative: () => 'now' },
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', cron: (c) => 'C(' + c + ')', date: (t) => 'D' + t, relative: () => 'now' },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n,
   errorText: (e, d) => 'err:' + (d || '') + ':' + e.key, dialog: (o) => dialogs.push(o),
   api: { post: async (a, body) => { posts.push([a, body]); return answer(a, body); } } };
@@ -2519,7 +2519,7 @@ const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
 globalThis.document = { createTextNode: (t) => t };
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
   placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key + ':' + JSON.stringify(e.params || {}) };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
@@ -2992,7 +2992,7 @@ const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
 globalThis.document = { createTextNode: (t) => t };
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t },
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
@@ -3125,7 +3125,7 @@ const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? ''
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
 globalThis.document = { createTextNode: (t) => t };
 globalThis.Option = function (text, value) { this.text = text; this.value = value; };
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
   placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
@@ -28152,8 +28152,10 @@ function testEmbyLastRunDuringRun(): void
         return;
     }
     $state = ['configured' => true, 'settings' => ['libraries' => ['Filme'], 'max_resume_movies' => 10, 'number_episodes' => 3, 'instances' => [['servername' => 'Wohnzimmer', 'url' => 'http://x']]],
-        'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]], 'pool' => null,
+        'jobs' => ['embycache' => ['running' => false], 'gather' => ['running' => false]], 'pool' => ['path' => '/mnt/cache', 'free' => 700, 'free_percent' => 41.25, 'min_free' => 20],
         'cache' => ['files' => 12, 'bytes' => 4000, 'listed_at' => 1700, 'groups' => []],
+        'shares' => [['share' => 'Filme', 'fit' => 'ok'], ['share' => 'Serien', 'fit' => 'other_pool']],
+        'gather' => ['ready' => true, 'last' => ['finished' => 1600, 'moved' => 14, 'conflicts' => 0, 'errors' => 0, 'full' => 0, 'duplicates' => 2, 'dirs_deleted' => 6, 'dirs_kept' => 0]],
         'schedules' => ['embycache' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '30 4 * * *', 'next' => 4000],
                         'gather' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '0 3 * * 0', 'next' => 5000]],
         'history' => embyHistory($tmp)];
@@ -28167,11 +28169,18 @@ const el = (tag, cls, text) => { const n = { tag, className: cls || '', textCont
   Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
 const stored = {};
 const bars = [];
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, time: (t) => `H${t}`, number: (n) => String(n),
+// the section switcher as a stand-in: its spec kept, the active tile set by the test, the note as core's sw.note()
+let spec = null;
+let active = '';
+const list = () => (typeof spec.tiles === 'function' ? spec.tiles() : spec.tiles);
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, date: (t) => `D${t}`, relative: (t) => `R${t}`, time: (t) => `H${t}`, number: (n, d) => (d ? n.toFixed(d) : String(n)),
   duration: (s) => `${s}s`, cron: (c) => `C(${c})` }, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, storeJson: () => null,
   agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => { n.dataset.place = k; return n; },
   sectionHead: (title) => el('div', 'section-head', title), fits: (w) => !w.length, errorText: (x) => x.key,
   stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
+  sections: (o) => { spec = o; return { el: el('div', 'sections'), active: () => active, places: () => [], mount: () => false, pick() {}, render() {},
+    note: (name) => { const x = list().find((t) => t.id === active); return { tile: x && x.filters && x.section === name ? String(x.filters) : '', clear: () => { active = ''; } }; },
+    clear() { active = ''; } }; },
   filterBar: (o) => { const b = { o, el: el('div', 'filterbar'), read() { return { words: [], only: false, pick: '', tile: '' }; },
     done(n, t, d) { this.doneArgs = [n, t, (d && d.tile) || '']; this.clear = d && d.clear; return this; }, options() { return this; }, reset() { return this; } }; bars.push(b); return b; } };
 globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
@@ -28179,66 +28188,82 @@ globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] 
 const e = OFFICE_DESK_TESTS.emby;
 const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const out = {};
-const tiles = () => { const box = el('div', 'stats'); e.fillStats(box); return box.children.map((c) => c.o); };
-const byLabel = (l) => tiles().find((o) => o.label === l);
+const a = (id) => ({ on: () => `clicked ${id}`, pressed: active === id, active: active === id, controls: 'emby-sections', place: `tile.${id}` });
+const tile = (id) => { const x = list().find((t) => t.id === id); const n = x.tile(a(id)); return { ...n.o, clicks: n.o.on && n.o.on() }; };
 e.setState(state);
 e.bars();
+out.spec = [spec.id, spec.default, list().map((t) => [t.id, t.key, t.place, typeof t.section === 'string' ? t.section : 'own', t.filters || '']), Object.keys(spec.sections)];
 const lr = e.lastRuns(state.history);
 out.pick = [lr.main && lr.main.started, lr.newer && lr.newer.mode];
-let t = byLabel('last_run');
-out.last = [t.value, t.sub, t.alert, t.pressed, t.filters, t.controls, typeof t.on];
-out.labels = tiles().map((o) => o.label);
-out.plans = (() => { const p = byLabel('schedules'); return [p.value, p.sub, p.alert, p.pressed, p.controls]; })();
-out.pool = (() => { const p = byLabel('on_pool'); return [p.value, p.sub, p.pressed, p.controls]; })();
-// a click on «Last run»: «Recent runs» only EmbyCache's, the note line names it; again: all
-const sec = e.historySection();
+let t = tile('runs');
+out.last = [t.value, t.sub, t.alert, t.pressed, t.clicks, t.place];
+out.plans = (() => { const p = tile('plans'); return [p.value, p.sub, p.alert, p.clicks]; })();
+out.pool = (() => { const p = tile('pool'); return [p.label, p.value, p.sub, p.alert, p.tip]; })();
+out.shares = (() => { const p = tile('shares'); return [p.value, p.sub, p.alert]; })();
+out.gather = (() => { const p = tile('gather'); return [p.value, p.sub, p.alert]; })();
+// «Recent runs»: all of them; the tile «Last run» active: only EmbyCache's, the note line names it; cleared: all
+const rows = (sec) => sec.children.find((c) => c.className === 'box').children.filter((c) => c.className === 'row nocheck').length;
 const runsBar = bars.find((b) => b.o.key === 'emby.runs');
-const rows = () => sec.children.find((c) => c.className === 'box').children.filter((c) => c.className === 'row nocheck').length;
-out.runs = [sec.id, rows(), runsBar.doneArgs];
-byLabel('last_run').on({});
-out.filtered = [rows(), runsBar.doneArgs, byLabel('last_run').pressed];
-runsBar.clear('tile');
-out.cleared = byLabel('last_run').pressed;
-byLabel('last_run').on({});
-byLabel('last_run').on({});
-out.again = [rows(), runsBar.doneArgs[2]];
-// «Schedules» and «Ready on the pool»: a click opens / closes (kept); off: «off», alert
-byLabel('schedules').on({});
-byLabel('on_pool').on({});
-out.stored = [stored['emby.plans_open'], stored['emby.pool_open'], byLabel('schedules').pressed, byLabel('on_pool').pressed];
+let sec = e.historySection();
+out.runs = [sec.id, rows(sec), runsBar.doneArgs];
+active = 'runs';
+sec = e.historySection();
+out.filtered = [rows(sec), runsBar.doneArgs, tile('runs').pressed];
+runsBar.clear();
+sec = e.historySection();
+out.cleared = [active, rows(sec), runsBar.doneArgs[2]];
+// «Schedules» as a section: its head and the two rows
+const ps = e.plansSection();
+out.plansSection = [ps.id, ps.children[0].textContent, ps.children[1].children.filter((c) => c.className === 'row nocheck').length];
+// below the pool's minimum: the alert; a share that doesn't fit counts
+state.pool.free_percent = 12;
+e.setState(state);
+out.poolLow = tile('pool').alert;
 state.schedules.embycache.enabled = false;
 state.schedules.gather.enabled = false;
-// while a run goes: «running since», the kind; nothing ran yet: «never», a div
+// while a run goes: «running since», the kind; nothing ran yet: «never» (still the tile of «Recent runs»)
 state.jobs.embycache = { running: true, started: 3000, mode: 'run' };
 e.setState(state);
-t = byLabel('last_run');
-out.running = [t.value, t.sub, typeof t.on];
-out.off = [byLabel('schedules').value, byLabel('schedules').alert];
+t = tile('runs');
+out.running = [t.value, t.sub];
+out.off = [tile('plans').value, tile('plans').alert];
 state.jobs.embycache = { running: false };
 state.history = [{ tool: 'embycache', mode: 'run', started: 5, finished: 5, result: 'refused' }];
 e.setState(state);
-t = byLabel('last_run');
-out.never = [t.value, t.sub, typeof t.on, t.pressed];
+t = tile('runs');
+out.never = [t.value, t.sub, t.clicks];
+// not set up: no pool, no shares
+state.configured = false;
+e.setState(state);
+out.unset = list().map((x) => x.id);
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1');
     $r = json_decode($raw, true);
+    same('his page: the switcher — kept as emby.tile, start «Pool»; the row Last run (a filter tile: «Recent runs» with EmbyCache\'s), Schedules, Pool, Shares, Consolidate folders; «Recent runs» shared',
+        ['emby', 'pool', [['runs', 'last_run', 'tile.runs', 'runs', 'tool.embycache'], ['plans', 'schedules', 'tile.plans', 'own', ''], ['pool', 'tile.pool', 'tile.pool', 'own', ''],
+            ['shares', 'shares', 'tile.shares', 'own', ''], ['gather', 'gather', 'tile.gather', 'own', '']], ['runs']], $r['spec'] ?? null, $raw);
     same('last run on his page: the same pick as the agent — the real run, the newer report beside it', [1000, 'report'], $r['pick'] ?? null, $raw);
-    same('last run on his page: when it ended, «Real run · took 12 min · 0 errors · 1 warning», the newer report under it; it filters «Recent runs»', [
+    same('last run on his page: when it ended, «Real run · took 12 min · 0 errors · 1 warning», the newer report under it; the switcher\'s click and place spread in', [
         'R1720', ['mode.run · last.took {"time":"progress.min_secs {\"m\":12,\"s\":0}"} · counts {"errors":"count.errors {\"n\":0}","warnings":"count.warnings {\"n\":1}"}',
-                  'last.newer {"mode":"mode.report","when":"R2010"}'], false, false, 'jo-runs', 'jo-runs', 'function'], $r['last'] ?? null, $raw);
-    same('his tiles: the «Emby» tile gone — scope, last run, schedules, what is ready (no pool size in this state)', ['mode', 'last_run', 'schedules', 'on_pool'], $r['labels'] ?? null, $raw);
-    same('his tiles: «Schedules» — 2 active, the next of both, the frequencies under it; it opens their list', ['plans.active {"n":2,"when":"H4000"}',
-        'plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}', false, false, 'jo-plans'], $r['plans'] ?? null, $raw);
-    same('his tiles: «Ready on the pool» — files and size, as of when; the section open unless closed', ['pool_tile.value {"files":"count.files {\"n\":12}","size":"4000B"}',
-        'pool_tile.as_of {"when":"R1700"}', true, 'jo-pool'], $r['pool'] ?? null, $raw);
+                  'last.newer {"mode":"mode.report","when":"R2010"}'], false, false, 'clicked runs', 'tile.runs'], $r['last'] ?? null, $raw);
+    same('his tiles: «Schedules» — 2 active, the next of both, the frequencies under it', ['plans.active {"n":2,"when":"H4000"}',
+        'plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}', false, 'clicked plans'], $r['plans'] ?? null, $raw);
+    same('his tiles: «Pool» — «Pool free» and «Ready on the pool» in one: files and size, how free and what EmbyCache keeps; the path and «as of» in the tip', ['tile.pool',
+        'pool_tile.value {"files":"count.files {\"n\":12}","size":"4000B"}', 'pool_tile.free {"pct":"41.3","min":20}', false,
+        "pool_sub {\"pool\":\"/mnt/cache\",\"free\":\"700B\",\"min\":20}\npool_tile.as_of {\"when\":\"R1700\"}"], $r['pool'] ?? null, $raw);
+    same('his tiles: «Shares» — how many, one needs a look (alert)', ['count.shares {"n":2}', 'shares_bad {"n":1}', true], $r['shares'] ?? null, $raw);
+    same('his tiles: «Consolidate folders» — when, what it moved and the conflicts', ['R1600', 'gather_tile.sub {"moved":"count.moved {\"n\":14}","conflicts":"count.conflicts {\"n\":0}"}', false],
+        $r['gather'] ?? null, $raw);
     same('«Recent runs»: all of them, the bar with nothing filtering', ['jo-runs', 4, [4, 4, '']], $r['runs'] ?? null, $raw);
-    same('«Last run» clicked: only EmbyCache\'s runs (a refused start too), the note line names it, the tile pressed', [3, [3, 4, 'tool.embycache'], true], $r['filtered'] ?? null, $raw);
-    same('… the chip clears it (the tile not pressed any more); clicked twice: all again', [false, [4, '']], [$r['cleared'] ?? null, $r['again'] ?? null], $raw);
-    same('«Schedules» and «Ready on the pool» clicked: their choice kept (the list open, the section closed)', ['1', '0', true, false], $r['stored'] ?? null, $raw);
-    same('while EmbyCache runs: «running since 14:05 · Real run» — never «never»', ['last.running {"time":"H3000"}', ['mode.run'], 'function'], $r['running'] ?? null, $raw);
+    same('«Last run» active: only EmbyCache\'s runs (a refused start too), the note line names it, the tile pressed', [3, [3, 4, 'tool.embycache'], true], $r['filtered'] ?? null, $raw);
+    same('… the note line\'s chip: nothing active, all again', ['', 4, ''], $r['cleared'] ?? null, $raw);
+    same('«Schedules» is a section: its head, both schedules as rows', ['jo-plans', 'schedules', 2], $r['plansSection'] ?? null, $raw);
+    same('the pool under EmbyCache\'s minimum: «Pool» alerts', true, $r['poolLow'] ?? null, $raw);
+    same('while EmbyCache runs: «running since 14:05 · Real run» — never «never»', ['last.running {"time":"H3000"}', ['mode.run']], $r['running'] ?? null, $raw);
     same('no schedule on: «off», as a warning', ['plans.off', true], $r['off'] ?? null, $raw);
-    same('nothing ran (a refused start only): «never», nothing to filter — a div', ['never', [], 'undefined', null], $r['never'] ?? null, $raw);
+    same('nothing ran (a refused start only): «never» — still the tile of «Recent runs»', ['never', [], 'clicked runs'], $r['never'] ?? null, $raw);
+    same('not set up: no «Pool», no «Shares»', ['runs', 'plans', 'gather'], $r['unset'] ?? null, $raw);
     hardeningRm($tmp);
 }
 
@@ -28262,18 +28287,20 @@ function testSnapPoolSplit(): void
         check('pool split: ran under node', false, $raw);
         return;
     }
-    check("pool split: desk.js under node ({$r['pass']} checks)", $r['pass'] >= 9 && !$r['fail']);
+    check("pool split and her row: desk.js under node ({$r['pass']} checks)", $r['pass'] >= 14 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('pool split: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }
 }
 
 /**
- * The tiles rule on Jack's and Ms. Snapshotini's pages (CLAUDE.md «Tiles», 2026-10-11), read in their code: real buttons
- * (no role="button" on a tile — her list's group heads fold, they are no tiles), no scrollIntoView for a tile (Jack's
- * one is a dialog's error line), every tile click inside Office.keepInPlace, aria-pressed / aria-controls / data-filters;
- * the filter bars are Office.filterBar; what is kept per browser only the listed choices; his «Emby» tile gone; the
- * routes of their tiles (and the Team Lead's old links to his schedules).
+ * Jack's and Ms. Snapshotini's pages on the section switcher (tiles v2, CLAUDE.md «Tiles», 2026-10-12), read in their
+ * code: Office.sections() with their start tiles (Pool / none), their tiles and sections; real buttons (no role="button"
+ * on a tile — her list's group heads fold, they are no tiles), no scrollIntoView for a tile (Jack's one is a dialog's
+ * error line), nothing hidden; what is kept per browser only the listed choices (the switcher keeps <desk>.tile, her
+ * pool stays snapshot.pool); Jack's two pages as tabs on both, «How I work» a line, the tools a footer, the live panel
+ * over the row; her «Schedules» a section of the whole page, the «Snapshots» card, the empty list counting what the
+ * switches hide; the routes of their tiles (and the Team Lead's old links to his schedules).
  */
 function testTilesMediaPages(): void
 {
@@ -28287,37 +28314,69 @@ function testTilesMediaPages(): void
         sort($k);
         return $k;
     };
-    same('emby page: kept per browser only the choices — the schedules\' list and the pool section open, the pool\'s library (its old key taken over), the runs\' bar has no select',
-        ['emby.plans_open', 'emby.pool.pick', 'emby.pool_lib', 'emby.pool_open', 'emby.runs.pick'], $keys($emby));
+    same('emby page: kept per browser only the choices — the pool\'s library (its old key taken over); the tile is the switcher\'s (emby.tile), the runs\' bar has no select',
+        ['emby.pool.pick', 'emby.pool_lib', 'emby.runs.pick'], $keys($emby));
     check('emby page: the runs\' bar has no select (its <key>.pick never written)', !preg_match("/key:\\s*'emby\\.runs',[^}]*select:/", $emby));
-    same('snapshot page: kept per browser only the choices — grouping, folds, the three switches, the pool, the schedules open, the source',
-        ['snapshot.', 'snapshot.docker', 'snapshot.folded', 'snapshot.grouping', 'snapshot.list.pick', 'snapshot.plans_open', 'snapshot.pool'], $keys($snap));
+    same('snapshot page: kept per browser only the choices — grouping, folds, the three switches, the pool, the source (the tile is the switcher\'s: snapshot.tile)',
+        ['snapshot.', 'snapshot.docker', 'snapshot.folded', 'snapshot.grouping', 'snapshot.list.pick', 'snapshot.pool'], $keys($snap));
+    check('pages: the old open/closed keys are gone (emby.plans_open, emby.pool_open, snapshot.plans_open)', !preg_match('/plans_open|pool_open/', $emby . $snap));
     check('pages: no role="button" on a tile (her group heads fold — the only one)', !str_contains($emby, "'role', 'button'") && substr_count($snap, "'role', 'button'") === 1
         && str_contains($snap, "const head = el('div', 'group-head');\n  head.tabIndex = 0;\n  head.setAttribute('role', 'button');"));
     check('pages: no scrollIntoView for a tile (Jack\'s one: a dialog\'s error line)', !str_contains($snap, 'scrollIntoView') && substr_count($emby, 'scrollIntoView') === 1
         && str_contains($emby, "box.style.display = '';\n  box.scrollIntoView({ block: 'nearest' });"));
-    check('emby page: the «Emby» tile gone (server and address stay in the head and the setup), the tools a line', !str_contains($emby, "'Emby', inst") && !str_contains($emby, 'stat(stats')
-        && str_contains($emby, "const line = el('div', 'row-meta jo-tools');"));
-    check('emby page: his tiles toggle in place — Office.stat with pressed, aria-controls, «Last run» filters «Recent runs» (data-filters on the section holding its bar)',
-        str_contains($emby, "pressed: runsTile === 'embycache',\n    controls: 'jo-runs', filters: 'jo-runs'") && str_contains($emby, "s.id = 'jo-runs';\n  s.appendChild(runsBar.el);")
-        && str_contains($emby, "pressed: plansOpen() });") && str_contains($emby, "pressed: poolOpen() });") && str_contains($emby, "Office.keepInPlace(dom.stats, () => {"));
-    check('emby page: the routes of his tiles and the Team Lead\'s links to his schedules (the list open, the row revealed)',
-        str_contains($emby, "route: '#/emby/plans'") && str_contains($emby, "route: '#/emby/pool'") && str_contains($emby, "route: '#/emby/runs'")
-        && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.reveal(`plan:\${plan}`)")
-        && str_contains($emby, "Office.place(`plan:\${job}`"));
-    check('snapshot page: pool tiles — aria-pressed, aria-controls and data-filters her list, a click inside keepInPlace, the choice kept; the sentence in the head gone',
-        str_contains($snap, "node.setAttribute('aria-pressed', poolFilter === name ? 'true' : 'false');") && str_contains($snap, "node.dataset.filters = 'sp-list';")
-        && str_contains($snap, "list.id = 'sp-list';") && str_contains($snap, "Office.keepInPlace(view.pools, () => {\n    setPool(")
-        && str_contains($snap, "Office.store('snapshot.pool', poolFilter);") && !str_contains($snap, 'storage.filtered'));
-    check('snapshot page: «Schedules» in a parent of its own at the end of the row, their section folded until opened, her suggestion a button, #/snapshot/plans',
-        str_contains($snap, "const wrap = el('div', 'sp-tilewrap');\n  wrap.appendChild(plansCard());") && str_contains($snap, "box.hidden = !plansOpen();")
-        && str_contains($snap, "b.onclick = () => planDialog(null, suggestion());") && str_contains($snap, "if (sub === 'plans') Office.store('snapshot.plans_open', '1');"));
+    check('pages: nothing hidden — no section, list or tile switched off with hidden', !preg_match('/\b(s|section|plans|pool|dom\.\w+)\.hidden\s*=/', $emby . $snap));
+    // Jack Emby
+    check('emby page: the switcher — start «Pool»; Last run (a filter tile on «Recent runs»), Schedules, Pool, Shares, Consolidate folders',
+        str_contains($emby, "const sw = Office.sections({") && str_contains($emby, "default: 'pool',")
+        && str_contains($emby, "{ id: 'runs', key: 'last_run', place: 'tile.runs', section: 'runs', filters: T('tool.embycache'),")
+        && str_contains($emby, "{ id: 'plans', key: 'schedules', place: 'tile.plans', section: () => plansSection(),")
+        && str_contains($emby, "{ id: 'pool', key: 'tile.pool', place: 'tile.pool', section: () => poolSection(),")
+        && str_contains($emby, "{ id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(),")
+        && str_contains($emby, "{ id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(),")
+        && str_contains($emby, "sections: { runs: () => historySection() },"));
+    check('emby page: «Recent runs» filtered by the switcher (sw.active(), the note line from sw.note), the result box its first row',
+        str_contains($emby, "const only = sw.active() === 'runs' ? 'embycache' : '';") && str_contains($emby, "runsBar.done(fit.length, runs.length, sw.note('runs'));")
+        && str_contains($emby, "s.id = 'jo-runs';\n  const rb = resultBox();\n  if (rb) s.appendChild(rb);"));
+    check('emby page: «Amount» is the line «How I work» over the row, the tools a footer under it, the live panel over the row; Python missing a callout',
+        str_contains($emby, "if (progBox) root.appendChild(progBox);\n  if (state.configured) root.appendChild(scopeLine());\n  root.appendChild(sw.el);\n  sw.render();\n  root.appendChild(footer());")
+        && str_contains($emby, "Office.place('overview', el('div', 'jo-scope'))") && str_contains($emby, "Office.place('tools', el('div', 'jo-foot'))")
+        && !str_contains($emby, "T('tools_sub')") && !str_contains($emby, "T('tools.python_missing')") && str_contains($emby, "T('notice.no_python')"));
+    check('emby page: «Consolidate folders» — its two facts as rows, no tiles inside a section', str_contains($emby, "const facts = el('div', 'box jo-facts');")
+        && !str_contains($emby, "el('div', 'stats')"));
+    check('emby page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup words the setup page\'s head line',
+        str_contains($emby, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && substr_count($emby, 'root.appendChild(deskHead());') === 2
+        && !str_contains($emby, "T('back')") && !str_contains($emby, "actions.push(button(T('setup_open')")
+        && str_contains($emby, "el('p', 'jo-pagehead-sub', T('setup.bubble')"));
+    check('emby page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/emby/history the whole page',
+        str_contains($emby, "if (plan) sw.mount('plans');") && str_contains($emby, "} else sw.mount(sub);") && str_contains($emby, "Office.reveal(`plan:\${plan}`)")
+        && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.place(`plan:\${job}`")
+        && str_contains($emby, "...sw.places().map(") && str_contains($emby, "route: `#/\${ID}/history`"));
+    // Ms. Snapshotini
+    check('snapshot page: the switcher — no start tile; pool cards, the btrfs disks\' rows, the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
+        str_contains($snap, "const sw = Office.sections({") && str_contains($snap, "default: '',")
+        && str_contains($snap, "({ id: POOL + p.name, place: `pool:\${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })")
+        && str_contains($snap, "({ id: POOL + d.name, place: `pool:\${d.name}`, section: 'list', filters: d.name, tile: (a) => btrfsRow(d, a) })")
+        && str_contains($snap, "{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs',")
+        && str_contains($snap, "{ id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(),")
+        && str_contains($snap, "{ id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list',")
+        && str_contains($snap, "sections: { list: () => listSection() },"));
+    check('snapshot page: the pool kept as snapshot.pool (the one filter kept), back once her state has its tile; the old «Storage» head and the tile wrapper gone',
+        str_contains($snap, "Office.store('snapshot.pool', String(id).startsWith(POOL) ? id.slice(POOL.length) : null);")
+        && str_contains($snap, "if (filterPools().has(name)) sw.pick(POOL + name, 'route');") && !str_contains($snap, "T('storage.sub')") && !str_contains($snap, 'sp-tilewrap'));
+    check('snapshot page: a btrfs disk\'s row is a real button with the switcher\'s click, pressed state, glow and mark; the card holding them is no tile',
+        str_contains($snap, "const row = asTile(Office.place(`pool:\${d.name}`, el('button', 'minirow'") && str_contains($snap, "card.removeAttribute('aria-pressed');")
+        && str_contains($snap, "row.classList.add('tile-on');") && str_contains($snap, "node.setAttribute('aria-pressed', a.pressed ? 'true' : 'false');"));
+    check('snapshot page: «Snapshots» card — how many and what they take, what the switches hide; the empty list counts the hidden ones (never «0 of 0»)',
+        str_contains($snap, "lines.push(T('snaps_tile.hidden', { what: what.join(', ') }));") && str_contains($snap, "view.bar.done(n, state ? listed().length : 0, sw.note('list'));")
+        && str_contains($snap, "T('empty.switched', { n: hid.backup + hid.partner })"));
     check('snapshot page: the search field is Office.filterBar — words folded (Office.fits), the source its select, the switches beside; deleting sees only the rows shown',
         str_contains($snap, "Office.filterBar({ key: 'snapshot.list'") && str_contains($snap, 'Office.fits(f.words, snapHay(s))')
         && str_contains($snap, "extra: [v.foldBtn, v.backupShow.label, v.partnerShow.label, v.dockerSwitch]")
         && str_contains($snap, "for (const id of [...selection]) if (!ids.has(id)) selection.delete(id);"));
+    check('snapshot page: #/snapshot/datasets shows her list alone, grouped by dataset, no pool, no source', str_contains($snap, "sw.mount(sub === 'datasets' ? 'snapshots' : sub);")
+        && str_contains($snap, "if (sub === 'datasets') view.bar.set({ pick: '' });"));
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.css');
-    check('snapshot page: the wrapper takes no place of its own in the grid', str_contains($css, '.sp-tilewrap{display:contents}'));
+    check('snapshot page: a disk row\'s mark on a line of its own', str_contains($css, '.minirow .tile-mark{position:static; grid-column:1 / -1; justify-self:start}'));
 }
 
 
@@ -28739,7 +28798,10 @@ JS;
  *   'backup' => ['setupPage', …]
  * Empty while no desk is moved (2026-10-11: Worker 0 built the helper, the groups move the desks).
  */
-const SECTIONS_DESKS = [];
+const SECTIONS_DESKS = [
+    'emby' => ['renderSetup', 'importSection'],        // Jack Emby's setup page (#/emby/setup, the tab «Setup»)
+    'snapshot' => [],
+];
 
 /**
  * The faults of one desk script against the v2 rule (testTilesConvention): a desk of SECTIONS_DESKS uses Office.sections()
@@ -28894,7 +28956,8 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
             $fault($i, "Office.store({$m[1]}) — filter words, «only …» switches and tile filters are never kept (mount() empties them: bar.reset())");
         }
         // the tiles that filter: Office.stat / Office.tile with filters (beside controls), data-filters set by hand or a helper
-        if (preg_match('/\bfilters:\s*(?!null\b)\S/', $l) && str_contains($window($i, 3, 3), 'controls:')) {
+        // (… or a filter tile of the section switcher: filters: beside section: in Office.sections()' tiles)
+        if (preg_match('/\bfilters:\s*(?!null\b)\S/', $l) && (str_contains($window($i, 3, 3), 'controls:') || preg_match('/\bsection:\s*\S/', $l))) {
             $sites[] = [$i, $window($i, 8, 8)];
         } elseif (preg_match('/\.dataset\.filters\s*=/', $l) && !in_array($fnOf[$i], $filterHelpers, true)) {
             $sites[] = [$i, $window($i, 8, 8)];

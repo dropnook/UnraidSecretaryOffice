@@ -308,7 +308,7 @@ function build(root) {
   ]));
   Object.assign(v, { scanBtn, newBtn, wakeLabel, wake, wakeText, bubble: head.bubble });
 
-  // the row and the chosen section (Office.sections()); her two sections are built once and drawn anew in place
+  // the row and the chosen section (the switcher, sw); her two sections are built once and drawn anew in place
   root.appendChild(sw.el);
   v.plans = el('section', 'section');
   v.plans.id = 'sp-plans';
@@ -326,7 +326,6 @@ function build(root) {
     b.onclick = () => { grouping = g; Office.store('snapshot.grouping', g); renderList(); };
     v.seg.appendChild(b);
   }
-  const lh = Office.sectionHead(T('snapshots'), T('snapshots_sub'), v.seg, { place: 'snapshots' });
 
   const all = el('label', 'check-all');
   v.allBox = el('input');
@@ -375,7 +374,7 @@ function build(root) {
   v.vmAway = el('div');              // a deleted VM's entries taken out of Unraid's list, in the storeroom (issue #3)
   const box = el('div', 'box');
   box.append(v.list, v.empty);
-  list.append(lh, v.bar.el, v.vmAway, box);
+  list.append(v.bar.el, v.vmAway, box);              // its head comes with its first drawing by the switcher
   v.listSection = list;
   return v;
 }
@@ -563,7 +562,7 @@ function spaceBar(total, used, snapshots) {
 
 /**
  * The array's btrfs disks in one card (no tile itself — a holder in the row): a row per disk, each a filter tile
- * (btrfsRow() puts it in here), the split by source under them, the foot with «Wake & scan»
+ * (each drawn into it by its own tile), the split by source under them, the foot with «Wake & scan»
  */
 function btrfsCard(part) {
   const card = el('div', 'card sp-btrfs' + (part.devices.length > 3 ? ' wide' : ''));
@@ -696,6 +695,10 @@ function plansSection() {
 }
 /** «Snapshots»: her list — filtered to the pool of a pool tile, all of it under «Snapshots» and on the whole page */
 function listSection() {
+  if (!view.listHead) {
+    view.listHead = Office.sectionHead(T('snapshots'), T('snapshots_sub'), view.seg, { place: 'snapshots' });
+    view.listSection.prepend(view.listHead);
+  }
   renderList();
   return view.listSection;
 }
