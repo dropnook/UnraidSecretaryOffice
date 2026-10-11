@@ -213,7 +213,7 @@
   "errors.ack_gone": "Ese punto ha cambiado mientras tanto — échale otro vistazo.",
   "errors.ack_required": "Es imprescindible — no se puede apartar. En cuanto esté hecho, desaparece solo.",
   "partner.title": "Secretarías asociadas",
-  "partner.sub": "Otro Unraid con la secretaría guarda copias de tus instantáneas ZFS — y tú de las suyas, si quieres. Cada lado guarda las copias del otro con su propia conservación; nada cambia nunca solo al otro.",
+  "partner.sub": "Otro servidor Unraid con la secretaría guarda copias de tus instantáneas ZFS — y tú de las suyas, si quieres. Cada lado guarda las copias del otro con su propia conservación; nada cambia nunca solo al otro.",
   "partner.help": "Dos secretarías se asocian con dos bloques para copiar y un código para comparar. En cada copia el señor Backupsi envía lo que cambió en los datasets elegidos, cifrado por SSH, a través de la puerta del socio — una clave en su authorized_keys que solo sabe hacer las pocas cosas de la secretaría. El socio guarda las copias en claro (puede leerlas), en datasets propios que nunca se comparten.",
   "partner.add": "Añadir un socio…",
   "partner.accept": "Aceptar un socio…",

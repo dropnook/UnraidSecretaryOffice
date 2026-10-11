@@ -213,7 +213,7 @@
   "errors.ack_gone": "Questo punto nel frattempo è cambiato — dagli un'altra occhiata.",
   "errors.ack_required": "È indispensabile — non si può mettere da parte. Appena è fatto, sparisce da solo.",
   "partner.title": "Segreterie partner",
-  "partner.sub": "Un altro Unraid con la segreteria conserva copie dei tuoi snapshot ZFS — e tu delle sue, se vuoi. Ogni parte tiene le copie dell'altra con una conservazione propria; niente passa mai all'altro da solo.",
+  "partner.sub": "Un altro server Unraid con la segreteria conserva copie dei tuoi snapshot ZFS — e tu delle sue, se vuoi. Ogni parte tiene le copie dell'altra con una conservazione propria; niente passa mai all'altro da solo.",
   "partner.help": "Due segreterie diventano partner con due blocchi da copiare e un codice da confrontare. A ogni backup il signor Backupsi manda ciò che è cambiato nei dataset scelti, cifrato via SSH, attraverso la porta del partner — una chiave nel suo authorized_keys che sa fare solo le poche cose della segreteria. Il partner conserva le copie in chiaro (può leggerle), in dataset propri mai condivisi.",
   "partner.add": "Aggiungi un partner…",
   "partner.accept": "Accetta un partner…",
