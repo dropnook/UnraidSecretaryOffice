@@ -28585,6 +28585,34 @@ JS);
  * while not. The import: the preview's token, refused while a run of hers goes or when anything changed, a copy of each
  * of her files first, then her own save; a scope too long blocks it. Nothing written on a preview.
  */
+/** Only the shares Unraid lists now: a cfg left on the flash by a share deleted by hand is no share (2026-10-12) */
+function testMoverelliSharesGone(): void
+{
+    $tmp = hardeningTmp('moverelli-gone');
+    @mkdir("$tmp/shares", 0700, true);
+    foreach (['Filme', 'Serien', 'Alt'] as $s) {
+        file_put_contents("$tmp/shares/$s.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    }
+    file_put_contents("$tmp/shares.ini", "[Filme]\nname=\"Filme\"\n[Serien]\nname=\"Serien\"\n");
+    same('moverelli gone: only the shares emhttp lists', ['Filme', 'Serien'], moverelliShareNames("$tmp/shares", "$tmp/shares.ini"));
+    same('moverelli gone: without a list every cfg counts (tests, old callers)', ['Alt', 'Filme', 'Serien'], moverelliShareNames("$tmp/shares"));
+    same('moverelli gone: a list that is not there filters nothing', ['Alt', 'Filme', 'Serien'], moverelliShareNames("$tmp/shares", "$tmp/none.ini"));
+    $rows = moverelliShares(moverelliDefaults(), "$tmp/shares", "$tmp/shares.ini");
+    same('moverelli gone: her overview leaves the gone share out', ['Filme', 'Serien'], array_column($rows, 'share'));
+    $h = moverelliHost();
+    same('moverelli gone: the server\'s list by default', '/var/local/emhttp/shares.ini', $h['shares_ini']);
+    $GLOBALS['moverelliHost'] = ['shares_dir' => "$tmp/shares"];
+    same('moverelli gone: a test\'s own cfg folder brings no list of the server', null, moverelliHost()['shares_ini']);
+    unset($GLOBALS['moverelliHost']);
+    try {
+        moverelliCheck(['global' => moverelliDefaults()['global'], 'shares' => ['Alt' => ['skip' => true]]],
+            moverelliShareNames("$tmp/shares", "$tmp/shares.ini"), $tmp);
+        check('moverelli gone: rules for a gone share are refused', false);
+    } catch (Problem $e) {
+        same('moverelli gone: rules for a gone share are refused', 'moverelli_bad_share', $e->key);
+    }
+}
+
 function testMoverelliImport(): void
 {
     $tmp = hardeningTmp('moverelli-import');
@@ -29926,7 +29954,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliSharesGone',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

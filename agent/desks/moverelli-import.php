@@ -50,7 +50,7 @@ function moverelliImportContext(?array $h = null): array
         'pools'     => array_key_exists('pools', $over) ? [] : embyPools(),
         'asleep'    => array_key_exists('asleep', $over) ? [] : sleepingDisks(),
         'share_cfg' => fn (string $s): array => preg_match(MOVERELLI_SHARE, $s) ? readCfg("$sharesDir/$s.cfg") : [],
-        'shares'    => moverelliShareNames($sharesDir),
+        'shares'    => moverelliShareNames($sharesDir, $h['shares_ini']),
         'emby'      => ($h['emby'])(),
         'own'       => [$h['dir'], "$h[dir]/excludes"],
     ];
