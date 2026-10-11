@@ -62,7 +62,9 @@ const picks = new Map();    // container picture: id => the address chosen here 
 let shown = [];             // rows that can unfold: { open(), set(bool) }
 let busy = false;
 let timer = null;
-let query = '';             // the page's filter (her «Where is what» searches with it, her rooms filter by it): every word must appear
+// the bar over her rooms (core.js Office.filterBar, built once): its words and «only what she may clear away» filter the
+// open room — never kept (unmount() empties them); her findings' links fill its words as they fill those of «Where is what»
+let tidyBar = null;
 
 // ------------------------------------------------------------------ loading
 /** Her rooms: as kept at once, a new look following on her page (core.js Office.loadState()); fresh waits for a new look */
@@ -126,17 +128,18 @@ const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.k
   : e.kind === 'partner' && e.unit ? T('pa.dropped_name', { unit: e.unit, name: e.pair_name || e.name })
   : e.kind === 'drill' && e.what !== 'container' ? T('dl.name_' + (e.what === 'kopia_tmp' ? 'kopia_tmp' : 'kopia_dump'), { name: e.name.split('/').pop(), container: e.container || 'Kopia' }) : e.name);
 const sum = (list) => list.reduce((a, e) => a + (e.bytes || 0), 0);
-const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-/** Does an entry match the filter? Its name and what it is connected to (image, containers, stack, paths) */
+/** The bar's words (folded) */
+const words = () => (tidyBar ? tidyBar.read().words : []);
+/** Does an entry match the filter's words? Its name and what it is connected to (image, containers, stack, paths) */
 function matches(e) {
   const w = words();
   if (!w.length) return true;
-  const hay = [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, e.path, e.restore && e.restore.what, ...(e.refs || []),
+  return Office.fits(w, [label(e), e.name, e.file, e.folder, e.image, e.project, e.uuid, e.from, e.path, e.restore && e.restore.what, ...(e.refs || []),
     ...(e.used_by || []).map((u) => u.name), ...(e.containers || []).map((c) => c.name), ...(e.parts || []).map((p) => p.path),
-    e.dataset, e.pair_name, ...(e.units || [])]
-    .filter(Boolean).join(' ').toLowerCase();
-  return w.every((x) => hay.includes(x));
+    e.dataset, e.pair_name, ...(e.units || [])].filter((x) => typeof x === 'string' || typeof x === 'number').join(' '));
 }
+/** …and «only what she may clear away» */
+const fitsRoom = (e) => matches(e) && (!(tidyBar && tidyBar.read().only) || selectable(e));
 /** VMs only with the VM service switched on, Docker's rooms (appdata too: who uses it is told by Docker) only with Docker */
 const visible = (sec, s = state) => (sec === 'vms' ? s.vms.enabled : sec === 'scripts' ? s.scripts.installed
   : sec === 'leftovers' ? !!s.leftovers && s.leftovers.restores > 0
@@ -218,7 +221,7 @@ Office.desk({
     // comes through one; Office.goToPlace() mounts anew even on the same address): the page's filter could hide the row
     // it goes to («not there»), so it starts empty — here and not in a hook of Office.reveal(), which knows no desk's
     // filter. A tile clicked on the page never comes this way: its filter stays.
-    if (tile && (where === 'tidy' || where === 'where')) query = '';
+    if (tile && (where === 'tidy' || where === 'where')) { roomBar().set({ text: '', only: false }); Where.setWords(''); }
     if (where === 'tidy' && SECTIONS.includes(tile)) { section = tile; Office.store('cleanup.section', tile); }
     if (where === 'where' && tile) Where.choose(tile);
     view = build(root);
@@ -227,8 +230,8 @@ Office.desk({
     Where.render();          // what she knew from before at once; her parts render themselves when they load (never each other)
     const part = tile ? null : { where: view.partWhere, tidy: view.partTidy }[sub];
     const v = view;
-    Promise.all([load(false), Where.load(false)]).then(() => {      // once both are there, the part asked for in view
-      if (part && view === v && window.scrollY < 40) part.scrollIntoView({ block: 'start' });
+    Promise.all([load(false), Where.load(false)]).then(() => {      // once both are there, the part asked for at the top
+      if (part && view === v && window.scrollY < 40) window.scrollTo(0, part.getBoundingClientRect().top + window.scrollY);
     });
   },
 
@@ -236,6 +239,7 @@ Office.desk({
     view = null;
     clearTimeout(timer);
     selection.clear();
+    if (tidyBar) tidyBar.reset();        // the visit ends: the filter's words and its switch go (never kept)
     Where.unmount();
   },
 
@@ -268,8 +272,8 @@ function build(root) {
   v.scanBtn.append(el('span', 'spin'), T('scan'));
   v.scanBtn.title = T('scan_title');
   v.scanBtn.onclick = () => tour();
-  // no search field of her own any more (2026-10-10): the office's search finds her rooms' items and «Where is what»;
-  // the page's filter `query` is still set by her findings' links (pick()) and shown with its «clear» above the rooms
+  // the office's search finds her rooms' items and «Where is what»; each part has a filter bar of its own (the rooms',
+  // the open corner's — her findings' links fill both)
   // wake the sleeping disks for this tour — off unless switched on, never remembered
   v.wakeLabel = el('label', 'switch clw-wake');
   v.wake = el('input');
@@ -316,12 +320,11 @@ function build(root) {
   v.notice = el('div');
   v.partTidy.appendChild(v.notice);
   const s = el('section', 'section');
+  s.id = 'cl-rooms';
   s.appendChild(Office.sectionHead(T('rooms'), T('rooms_sub'), { place: 'rooms' }));
-  v.filterNote = el('p', 'callout warn cl-filter-note');
-  v.filterNote.hidden = true;
   v.tiles = el('div', 'cards');
   v.body = el('div', 'section');
-  s.append(v.filterNote, v.tiles, v.body);
+  s.append(roomBar().el, v.tiles, v.body);
   v.partTidy.appendChild(s);
   return v;
 }
@@ -335,36 +338,36 @@ function part(title, sub) {
   return box;
 }
 
-/** The page's filter: her «Where is what» searches with it, her rooms show only what matches */
-function setQuery(text) {
-  query = text;
+/** The bar over her rooms, built once: its words and its switch filter the open room (its hits say how much) */
+function roomBar() {
+  if (tidyBar) return tidyBar;
+  tidyBar = Office.filterBar({
+    key: 'cleanup.tidy',
+    label: T('tidy.filter_label'),
+    only: { text: T('tidy.only_selectable'), hint: T('tidy.only_selectable_hint') },
+    onChange: () => filterChanged(),
+  });
+  return tidyBar;
+}
+
+/** What the filter hides is no longer chosen: nothing is put away that isn't in sight */
+function filterChanged() {
+  for (const e of entries(section)) if (selection.has(e.id) && !fitsRoom(e)) selection.delete(e.id);
   if (!view) return;
-  // what the filter hides is no longer chosen: nothing is put away that isn't in sight
-  for (const e of entries(section)) if (selection.has(e.id) && !matches(e)) selection.delete(e.id);
-  filterMark();
-  Where.filtered();
   renderSection();
   updateSelbar();
 }
 
-
-/** A set filter is hard to miss: a warning above the rooms, with its «clear» */
-function filterMark() {
-  if (!view) return;
-  const on = words().length > 0;
-  view.filterNote.hidden = !on;
-  view.filterNote.innerHTML = '';
-  if (!on) return;
-  view.filterNote.append(T('filter_on', { query: query.trim() }), ' ');
-  const b = el('button', 'btn small plain', T('filter_clear'));
-  b.type = 'button';
-  b.onclick = () => setQuery('');
-  view.filterNote.appendChild(b);
+/** A link's words (her findings) into both bars — the rooms' and the open corner's —, or '' to clear them */
+function setQuery(text) {
+  roomBar().set(text ? { text } : { text: '', only: false });
+  Where.setWords(text);
+  Where.filtered();
+  filterChanged();
 }
 
 function render() {
   if (!view) return;
-  filterMark();
   renderBubble();
   view.scanBtn.disabled = !Office.agent.running || busy;
   renderNotice();
@@ -464,6 +467,25 @@ function pick(sec) {
 // ------------------------------------------------------------------ sections
 function renderSection() {
   if (!view) return;
+  drawRoom();
+  roomDone();
+}
+
+/** The bar's «n of m fit»: the open room's entries (the storeroom's runs) — with none open, every room's */
+function roomDone() {
+  const b = roomBar();
+  if (!state) { b.done(0, 0, { onlyAvail: false }); return; }
+  const open = section && visible(section) ? section : '';
+  if (open === 'trash') {
+    const runs = state.trash.runs;
+    b.done(runs.filter((r) => !words().length || r.items.some(matches)).length, runs.length, { onlyAvail: false });
+    return;
+  }
+  const list = open ? entries(open) : ROOMS.filter((x) => visible(x)).flatMap((x) => entries(x));
+  b.done(list.filter(open ? fitsRoom : matches).length, list.length, { onlyAvail: !!open && list.some(selectable) });
+}
+
+function drawRoom() {
   const body = view.body;
   body.innerHTML = '';
   shown = [];
@@ -588,8 +610,8 @@ function dockerInfo() {
 function renderList(body, sec) {
   const all = entries(sec);
   if (!all.length) { body.appendChild(emptyNote(T('empty.' + sec))); return; }
-  const list = all.filter(matches);
-  if (!list.length) { body.appendChild(emptyNote(T('no_match', { query: query.trim() }))); return; }
+  const list = all.filter(fitsRoom);
+  if (!list.length) { body.appendChild(emptyNote(T('no_match', { query: words().join(' ') }))); return; }
   const box = el('div', 'box');
   for (const cat of GROUPS[sec]) {
     const items = list.filter((e) => e.category === cat);
@@ -1427,8 +1449,8 @@ const restoreName = (r) => (Office.has(`${ID}.lo.kind.${r.kind}`) ? T('lo.kind.'
 function renderLeftovers(body) {
   const all = entries('leftovers');
   if (!all.length) { body.appendChild(emptyNote(T('empty.leftovers'))); return; }
-  const list = all.filter(matches);
-  if (!list.length) { body.appendChild(emptyNote(T('no_match', { query: query.trim() }))); return; }
+  const list = all.filter(fitsRoom);
+  if (!list.length) { body.appendChild(emptyNote(T('no_match', { query: words().join(' ') }))); return; }
   const by = new Map();
   list.forEach((e) => { if (!by.has(e.restore.id)) by.set(e.restore.id, []); by.get(e.restore.id).push(e); });
   const box = el('div', 'box');
@@ -1713,7 +1735,7 @@ function renderTrash(body) {
   const runs = state.trash.runs;
   if (!runs.length) { body.appendChild(emptyNote(T('empty.trash'))); return; }
   const shownRuns = runs.filter((r) => !words().length || r.items.some(matches));
-  if (!shownRuns.length) { body.appendChild(emptyNote(T('no_match', { query: query.trim() }))); return; }
+  if (!shownRuns.length) { body.appendChild(emptyNote(T('no_match', { query: words().join(' ') }))); return; }
   const box = el('div', 'box');
   shownRuns.forEach((run) => box.appendChild(trashGroup(run)));
   body.appendChild(box);
@@ -1882,7 +1904,7 @@ async function purgeDialog(runs) {
 
 // ================================================================== «Where is what»
 /* Her knowledge of the server — up to 1.30 the desk of its own of Ms. Whereabouts, kept as one block with its
-   own names (state, view, row …; the page's filter `query` is shared): what is going on, her advice «If I were
+   own names (state, view, row …; a filter bar of its own over the open corner): what is going on, her advice «If I were
    you …», «where things are» with their backup protection, and every corner in detail — shares, folders,
    containers and compose, VMs, disks, users and access, SMB/NFS, user scripts and cron, backups, Unraid's
    notifications, plugins. Read only. The agent part: agent/lib/where.php — the state is the part «where»
@@ -1911,6 +1933,16 @@ let sizeTimer = null;
 let place = Office.store(STORE + 'place') || '';      // open tile in "where things are"
 let shown = [];          // rows of the current section that can unfold: { open(), set(bool) }
 let hooks = { changed: () => {}, search: () => {} };   // the page's: the bubble and the wake switch anew; set the filter
+// the bar over the open corner (core.js Office.filterBar, built once): its words (and «only what needs a look») filter the
+// open corner and the corners' counts — never kept; statTile: the number tile of «What's going on» that opened the corner
+// (pressed while that corner is open, the bar's note line names it) — never kept either
+let bar = null;
+let statTile = '';
+let drawnRows = 0;       // rows the open corner drew (the bar's «n of m»)
+let counting = null;     // {total, odd} while the corner is drawn once more without the filter, only counting its rows
+let suspend = false;     // the bar's filter left out (the counts without it)
+/** The number tiles with a corner behind them: tile → the corner it opens in «Everything in detail» */
+const STAT_CORNERS = { array: 'disks', docker: 'docker', vms: 'vms', smb: 'network', scripts: 'scripts', backup: 'backups', temp: 'disks', smart: 'disks', notices: 'notices' };
 
 // ------------------------------------------------------------------ loading
 /**
@@ -1946,13 +1978,11 @@ async function loadSizes() {
 }
 
 // ------------------------------------------------------------------ helpers
-const words = () => query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-function matches(text) {
-  const w = words();
-  if (!w.length) return true;
-  const hay = String(text).toLowerCase();
-  return w.every((x) => hay.includes(x));
-}
+/** The bar's words (folded) — none while counting without the filter */
+const words = () => (suspend || !bar ? [] : bar.read().words);
+/** «only what needs a look»: rows with a warning chip (what makes a corner say «look») */
+const onlyOdd = () => !suspend && !!bar && bar.read().only;
+const matches = (text) => Office.fits(words(), String(text));
 const join = (...parts) => parts.flat(Infinity).filter((x) => x !== null && x !== undefined && x !== '').join(' ');
 
 function chip(text, cls, title) {
@@ -2035,6 +2065,11 @@ function lines(list) {
 
 /** A list row: click the name to unfold the details */
 function row({ key, name, mono, meta, figures, detail, menu, cls }) {
+  // needs a look: one of its chips warns (warn, danger) — «only what needs a look» draws only those
+  const odd = (meta || []).some((x) => x && x.classList && (x.classList.contains('warn') || x.classList.contains('danger')));
+  if (counting) { counting.total++; if (odd) counting.odd++; return document.createDocumentFragment(); }
+  if (onlyOdd() && !odd) return document.createDocumentFragment();
+  drawnRows++;
   const r = Office.place(key, el('div', 'row nocheck' + (cls ? ' ' + cls : '')));     // its key is its place (the search's items)
   const main = el('div', 'row-main');
   const n = el('div', 'row-name link' + (mono ? '' : ' text'), name);
@@ -2083,6 +2118,9 @@ function row({ key, name, mono, meta, figures, detail, menu, cls }) {
 }
 
 function group(title, meta, rows, opts = {}) {
+  const left = rows.filter((x) => !(x instanceof DocumentFragment && !x.childNodes.length));
+  if (rows.length && !left.length) return document.createDocumentFragment();       // every row left out by the filter
+  rows = left;
   const box = el('div', 'group' + (opts.closed ? ' closed' : ''));
   const head = el('div', 'group-head');
   head.tabIndex = 0;
@@ -2414,17 +2452,34 @@ function adviceRow(x, known) {
   return r;
 }
 
+/** A link to a corner (what she noticed, a place's «more»): that corner open — the link's words in the bar — and brought into view */
 function pick(id, search) {
   section = id;
+  statTile = '';
   Office.store(STORE + 'section', id);
   if (search !== undefined) hooks.search(search);
-  if (view) { renderTabs(); renderSection(); view.sectionBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  if (view) { renderStats(); renderTabs(); renderSection(); Office.reveal('where.' + id); }
 }
 
-function closeSection() {
-  section = '';
-  Office.store(STORE + 'section', null);
-  if (view) Office.keepInPlace(view.tabs, () => { renderTabs(); renderSection(); });
+/** A corner's tile: that corner open below (the others close), the open one closes again — the page stays where it is */
+function chooseCorner(id) {
+  section = section === id ? '' : id;
+  statTile = '';
+  Office.store(STORE + 'section', section || null);
+  if (view) Office.keepInPlace(view.tabs, () => { renderStats(); renderTabs(); renderSection(); });
+}
+
+/** A number tile of «What's going on»: its corner open (pressed), a second click closes it again — the page stays where it is */
+function statClick(id) {
+  const corner = STAT_CORNERS[id];
+  const on = statTile === id && section === corner;
+  section = on ? '' : corner;
+  statTile = on ? '' : id;
+  Office.store(STORE + 'section', section || null);
+  if (!view) return;
+  Office.keepInPlace(view.stats, () => { renderStats(); renderTabs(); renderSection(); });
+  const b = document.getElementById('clw-stat-' + id);       // drawn anew: the keyboard stays on it
+  if (b) b.focus({ preventScroll: true });
 }
 
 /** Her part of the bubble: every corner she knows (summary), what she noticed (links) and her advice (more) — null before her first look */
@@ -2448,7 +2503,7 @@ function bubble() {
   if (tips) {
     const a = el('a', '', T('where.bubble.advice', { n: tips }));
     a.href = '#';
-    a.onclick = (e) => { e.preventDefault(); if (view) view.advice.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    a.onclick = (e) => { e.preventDefault(); if (view) Office.reveal('where.adv.title'); };
     box.append(f.length ? ' ' : '', a);
   }
   return { summary, more: box };
@@ -2473,7 +2528,7 @@ function reception() {
 function build(root) {
   const v = {};
   const now = el('section', 'section');
-  v.nowHint = el('span', 'hint');
+  v.nowHint = el('span', 'hint clw-now-hint');      // the server, Unraid, up since, the licence, the load — wraps, never cut
   const nh = Office.sectionHead(T('where.now'), T('where.now_sub'), v.nowHint, { place: 'where.now' });
   v.stats = el('div', 'stats');
   now.append(nh, v.stats);
@@ -2486,13 +2541,16 @@ function build(root) {
   const ph = Office.sectionHead(T('where.places'), T('where.places_hint'), { place: 'where.places' });
   v.placeTiles = el('div', 'cards clw-places');
   v.placeDetail = el('div');
+  v.placeDetail.id = 'clw-place-detail';
   v.places.append(ph, v.placeTiles, v.placeDetail);
   root.appendChild(v.places);
 
   v.sectionBox = el('section', 'section');
+  v.sectionBox.id = 'clw-details';            // what a number tile shows (its data-filters): the corner and the bar over it
   const dh = Office.sectionHead(T('where.details_title'), T('where.details_hint'), { place: 'where.details_title' });
   v.tabs = el('div', 'cards clw-sections');
   v.sectionBody = el('div', 'section');
+  v.sectionBody.id = 'clw-corner';
   v.sectionBox.append(dh, v.tabs, v.sectionBody);
   root.appendChild(v.sectionBox);
   view = v;
@@ -2528,50 +2586,60 @@ function renderStats() {
   box.innerHTML = '';
   if (!state) return;
   const sys = state.system;
-  view.nowHint.textContent = `${sys.name} · Unraid ${sys.unraid || '?'} · ${T('where.uptime', { time: fmt.duration(sys.uptime) })} · ${Office.t('common.scanned_ago', { when: fmt.relative(state.time) })}`;
-  const tile = (label, value, sub, opts = {}) => {
-    const t = el(opts.go ? 'button' : 'div', 'stat' + (opts.alert ? ' alert' : ''));
-    if (opts.go) { t.type = 'button'; t.onclick = opts.go; }
-    t.append(el('div', 'stat-label', label), el('div', 'stat-value', value));
-    if (sub) t.append(el('div', 'stat-sub', sub));
+  // the head's line: the server, Unraid, up since; the licence and the load (no tiles of their own — nothing behind them)
+  const lic = state.license;
+  view.nowHint.textContent = [sys.name, `Unraid ${sys.unraid || '?'}`, T('where.uptime', { time: fmt.duration(sys.uptime) }),
+    lic && lic.type ? `${T('where.stat.license')} ${lic.type} ${lic.expires ? T('where.stat.license_until', { when: fmt.date(lic.expires) }) : T('where.stat.license_since', { when: fmt.date(lic.since) })}` : '',
+    sys.load ? `${T('where.stat.load')} ${sys.load.map((x) => fmt.number(x, 1)).join(' · ')}` : '',
+    Office.t('common.scanned_ago', { when: fmt.relative(state.time) })].filter(Boolean).join(' · ');
+  view.nowHint.title = [view.nowHint.textContent, sys.load ? `${T('where.stat.load')}: ${T('where.stat.load_sub')}` : '', lic && lic.check ? lic.check : ''].filter(Boolean).join('\n');
+  view.nowHint.classList.toggle('clw-bad', !!(lic && lic.check));
+  // a tile with a corner behind it (STAT_CORNERS) is a button that opens that corner below and closes it again
+  const tile = (id, label, value, sub, opts = {}) => {
+    const corner = STAT_CORNERS[id];
+    const t = Office.stat({
+      label, value, sub, alert: !!opts.alert, tip: opts.tip || '',
+      id: corner ? 'clw-stat-' + id : null, on: corner ? () => statClick(id) : null,
+      pressed: corner ? statTile === id && section === corner : null,
+      controls: corner ? 'clw-corner' : null, filters: corner ? 'clw-details' : null,
+    });
+    if (corner) Office.place(`stat.${id}`, t);
     box.appendChild(t);
   };
   const array = sys.array;
-  tile(T('where.stat.array'), array.state === 'STARTED' ? T('where.stat.started') : (array.state || '?'),
+  tile('array', T('where.stat.array'), array.state === 'STARTED' ? T('where.stat.started') : (array.state || '?'),
     array.resync ? T('where.stat.resync', { action: array.resync.action, percent: array.resync.percent }) : (sys.mover ? T('where.stat.mover') : T('where.stat.no_parity')),
     { alert: array.state !== 'STARTED' || !!array.resync });
   // Docker stopped (system.docker.up, 1.43): said so, not «0 / 0 running»; no VMs: said so too
-  if (sys.docker.up === false) tile('Docker', '–', Office.t('common.docker_off'), { go: () => pick('docker') });
-  else tile('Docker', `${sys.docker.running} / ${sys.docker.total}`, T('where.stat.running'), { go: () => pick('docker') });
-  tile('VMs', sys.vms.total ? `${sys.vms.running} / ${sys.vms.total}` : '–', sys.vms.total ? T('where.stat.running') : T('where.fact.vms_none'), { go: () => pick('vms') });
+  if (sys.docker.up === false) tile('docker', T('where.stat.docker'), '–', Office.t('common.docker_off'));
+  else tile('docker', T('where.stat.docker'), `${sys.docker.running} / ${sys.docker.total}`, T('where.stat.running'));
+  tile('vms', T('where.stat.vms'), sys.vms.total ? `${sys.vms.running} / ${sys.vms.total}` : '–', sys.vms.total ? T('where.stat.running') : T('where.fact.vms_none'));
   const sessions = state.smb.sessions;
-  tile(T('where.stat.smb'), fmt.number(sessions.length), sessions.map((s) => `${s.user}@${s.machine}`).join(', ') || T('where.stat.nobody'), { go: () => pick('network') });
-  tile(T('where.stat.scripts'), fmt.number(sys.scripts.length), sys.scripts.join(', ') || T('where.stat.none_running'), { go: () => pick('scripts'), alert: sys.scripts.length > 0 });
-  tile(T('where.stat.backup'), sys.backup.running ? T('where.stat.backup_running') : T('where.stat.backup_idle'),
-    sys.backup.running ? `${T('where.stat.since', { time: fmt.time(sys.backup.since) })} · ${sys.backup.step || ''}` : '', { go: () => pick('backups'), alert: sys.backup.running });
+  const who = sessions.map((s) => `${s.user}@${s.machine}`).join(', ');
+  tile('smb', T('where.stat.smb'), fmt.number(sessions.length), who || T('where.stat.nobody'), { tip: who });
+  tile('scripts', T('where.stat.scripts'), fmt.number(sys.scripts.length), sys.scripts.join(', ') || T('where.stat.none_running'),
+    { alert: sys.scripts.length > 0, tip: sys.scripts.join(', ') });
+  tile('backup', T('where.stat.backup'), sys.backup.running ? T('where.stat.backup_running') : T('where.stat.backup_idle'),
+    sys.backup.running ? `${T('where.stat.since', { time: fmt.time(sys.backup.since) })} · ${sys.backup.step || ''}` : '', { alert: sys.backup.running });
   const h = state.health;
   if (h) {
     const awake = h.devices.filter((d) => d.temp !== null && d.temp !== undefined);
     const hottest = awake.reduce((a, d) => (!a || d.temp > a.temp ? d : a), null);
     const warm = awake.filter((d) => tempLevel(d) !== '');
-    tile(T('where.stat.temp'), hottest ? `${hottest.temp} °C` : '–', hottest ? (warm.length ? T('where.stat.temp_warm', { n: warm.length }) : T('where.stat.temp_ok', { name: hottest.name })) : T('where.stat.all_asleep'),
-      { go: () => pick('disks'), alert: warm.length > 0 });
+    tile('temp', T('where.stat.temp'), hottest ? `${hottest.temp} °C` : '–', hottest ? (warm.length ? T('where.stat.temp_warm', { n: warm.length }) : T('where.stat.temp_ok', { name: hottest.name })) : T('where.stat.all_asleep'),
+      { alert: warm.length > 0 });
     const bad = h.devices.filter((d) => smartBad(d).length).length;
     const notes = h.devices.filter((d) => smartNotices(d).length).length;
-    tile('SMART', bad ? T('where.stat.smart_bad', { n: bad }) : T('where.stat.smart_ok'), notes ? T('where.stat.smart_notes', { n: notes }) : '',
-      { go: () => pick('disks'), alert: bad > 0 });
+    tile('smart', T('where.stat.smart'), bad ? T('where.stat.smart_bad', { n: bad }) : T('where.stat.smart_ok'), notes ? T('where.stat.smart_notes', { n: notes }) : '',
+      { alert: bad > 0 });
   }
   const notices = state.notices || [];
   if (notices.length) {
     const alerts = notices.filter((n) => n.importance === 'alert').length;
     const warnings = notices.filter((n) => n.importance === 'warning').length;
-    tile(T('where.stat.notices'), fmt.number(notices.length), T('where.stat.notices_sub', { alerts: nOf('alerts', alerts), warnings: nOf('warnings', warnings) }), { go: () => pick('notices'), alert: alerts > 0 });
+    tile('notices', T('where.stat.notices'), fmt.number(notices.length), T('where.stat.notices_sub', { alerts: nOf('alerts', alerts), warnings: nOf('warnings', warnings) }), { alert: alerts > 0 });
   }
-  const lic = state.license;
-  if (lic && lic.type) tile(T('where.stat.license'), lic.type, lic.expires ? T('where.stat.license_until', { when: fmt.date(lic.expires) }) : T('where.stat.license_since', { when: fmt.date(lic.since) }),
-    { go: () => pick('disks'), alert: !!lic.check });
-  if (sys.scrubs.length) tile(T('where.stat.scrub'), sys.scrubs.map((s) => s.pool).join(', '), sys.scrubs.map((s) => s.text).join(' · '), { alert: true });
-  if (sys.load) tile(T('where.stat.load'), sys.load.map((x) => fmt.number(x, 1)).join(' · '), T('where.stat.load_sub'));
+  if (sys.scrubs.length) tile('scrub', T('where.stat.scrub'), sys.scrubs.map((s) => s.pool).join(', '), sys.scrubs.map((s) => s.text).join(' · '), { alert: true });
 }
 
 // ------------------------------------------------------------------ where things are
@@ -2669,6 +2737,8 @@ function renderPlaces() {
     const { main, worst, sub } = placeSummary(g);
     const card = el('button', 'card' + (place === g.id ? ' active' : ''));
     card.type = 'button';
+    card.setAttribute('aria-pressed', String(place === g.id));
+    card.setAttribute('aria-controls', 'clw-place-detail');
     const head = el('div', 'card-head');
     head.append(el('span', 'clw-place-icon', PLACE_ICONS[g.id] || '•'), el('span', 'card-name', T('where.place.' + g.id)));
     const c = backupChip(worst);
@@ -2825,6 +2895,7 @@ function renderTabs() {
     const card = Office.place(`where.${id}`, el('button', 'card clw-section' + (section === id ? ' active' : '')));
     card.type = 'button';
     card.setAttribute('aria-pressed', String(section === id));
+    card.setAttribute('aria-controls', 'clw-corner');
     const head = el('div', 'card-head');
     head.append(el('span', 'clw-place-icon', SECTION_ICONS[id] || '•'), el('span', 'card-name', T('where.section.' + id)));
     const { sub, alert } = sectionSummary(id);
@@ -2832,9 +2903,43 @@ function renderTabs() {
     if (counts[id] !== undefined) head.appendChild(el('span', 'clw-count', fmt.number(counts[id])));
     card.appendChild(head);
     card.appendChild(el('div', 'card-figures', sub));
-    card.onclick = () => (section === id ? closeSection() : pick(id));     // the open tile closes again
+    card.onclick = () => chooseCorner(id);     // the open tile closes again
     box.appendChild(card);
   }
+}
+
+const CORNERS = () => ({ shares, folders, docker, vms, disks, access, network, scripts, backups, notices, plugins });
+
+/** The bar over the open corner, built once (its words and switch are never kept: unmount() empties them) */
+function filterBar() {
+  if (bar) return bar;
+  bar = Office.filterBar({
+    key: 'cleanup.where',
+    label: T('where.filter_label'),
+    only: { text: T('where.only_odd'), hint: T('where.only_odd_hint') },
+    onChange: () => { if (view) { renderTabs(); renderSection(); } },
+  });
+  return bar;
+}
+
+/** A corner drawn once more without the bar's filter, only counting: its rows, and those that need a look */
+function countRows(id) {
+  const keep = shown;
+  counting = { total: 0, odd: 0 };
+  suspend = true;
+  try { CORNERS()[id](el('div')); } finally { suspend = false; }
+  const c = counting;
+  counting = null;
+  shown = keep;
+  return c;
+}
+
+/** The corners' counts added up, with the bar's words and without them (no corner open) */
+function cornerSums() {
+  const add = (c) => Object.entries(c).reduce((a, [k, v]) => a + (k !== 'appdata' && typeof v === 'number' ? v : 0), 0);
+  const n = add(sectionCounts());
+  suspend = true;
+  try { return { n, total: add(sectionCounts()) }; } finally { suspend = false; }
 }
 
 function renderSection() {
@@ -2843,9 +2948,25 @@ function renderSection() {
   body.innerHTML = '';
   shown = [];
   if (!state) { body.appendChild(emptyNote(Office.agent.running ? T('where.bubble.no_tour') : T('where.bubble.no_data'))); return; }
-  if (!section) return;                          // no tile open
-  ({ shares, folders, docker, vms, disks, access, network, scripts, backups, notices, plugins })[section](body);
-  if (shown.length > 1) body.prepend(unfoldBar(body));
+  const b = filterBar();
+  body.appendChild(b.el);
+  const done = { tile: statTile && section === STAT_CORNERS[statTile] ? statLabel(statTile) : '', clear: () => { statTile = ''; } };
+  if (!section) {                                // no tile open: the bar (only while words are set) filters the corners' counts
+    const c = cornerSums();
+    b.done(c.n, words().length ? c.total : 0, { ...done, onlyAvail: false });
+    return;
+  }
+  const all = countRows(section);
+  drawnRows = 0;
+  CORNERS()[section](body);
+  if ((words().length || onlyOdd()) && !drawnRows && !body.querySelector('.empty')) body.appendChild(emptyNote(T('where.filter_none')));
+  if (shown.length > 1) b.el.after(unfoldBar(body));
+  b.done(drawnRows, all.total, { ...done, onlyAvail: all.odd > 0 });
+}
+
+/** A number tile's label for the bar's note line («The list shows only: [SMB sessions ×]») */
+function statLabel(id) {
+  return T('where.stat.' + id);
 }
 
 /** "Unfold all" / "Fold all" for the rows (and groups) of the current section */
@@ -3146,6 +3267,8 @@ function vmDetail(v) {
 function access(body) {
   const exported = state.shares.filter((s) => s.smb.export && s.smb.export !== '-');
   const users = state.users.filter((u) => matches(join(u.name, u.description)));
+  if (counting) { counting.total += users.length; return; }
+  drawnRows += users.length;
   const level = (u, s) => {
     const sec = s.smb.security;
     if (sec === 'public') return 'rw';
@@ -3273,7 +3396,7 @@ function scripts(body) {
     detail: () => kv([[T('where.schedule'), `${fmt.cron(c.schedule)} (${c.schedule})`], [T('where.command'), c.command, true], [T('where.source'), c.source, true]]),
   }));
   if (!cronRows.length) cronRows.push(emptyNote(T('where.nothing_found')));
-  box.appendChild(group(T('where.cron_jobs'), T('where.cron_meta'), cronRows, { closed: !query }));
+  box.appendChild(group(T('where.cron_jobs'), T('where.cron_meta'), cronRows, { closed: !words().length }));
   body.appendChild(box);
 }
 
@@ -3518,15 +3641,32 @@ function items(s) {
 }
 
 return {
-  build, load, render, tour, bubble, reception, helpItems, sleeping, items,
+  build, load, render, tour, bubble, reception, helpItems, sleeping, items, findings,
   sections: SECTIONS,
-  /** a tile of «Everything in detail» open before the page is built (#/cleanup/where/<corner>) */
-  choose(id) { if (SECTIONS.includes(id)) { section = id; Office.store(STORE + 'section', id); } },
+  stats: Object.keys(STAT_CORNERS),
+  /** is that number tile drawn? (the search lists it only then; her look not known yet: yes) */
+  statShown(id) {
+    if (!state) return true;
+    if (id === 'notices') return (state.notices || []).length > 0;
+    if (id === 'temp' || id === 'smart') return !!state.health;
+    return true;
+  },
+  /** a tile of «Everything in detail» (#/cleanup/where/<corner>) or of «What's going on» (#/cleanup/where/stat:<tile>)
+      open before the page is built — as a click sets it */
+  choose(id) {
+    const m = /^stat:(\w+)$/.exec(id);
+    if (m && STAT_CORNERS[m[1]]) { statTile = m[1]; id = STAT_CORNERS[m[1]]; } else statTile = '';
+    if (SECTIONS.includes(id)) { section = id; Office.store(STORE + 'section', id); }
+  },
+  /** the bar's words: a link fills them (no onChange — the page draws anew), '' clears them and its switch */
+  setWords(text) { filterBar().set(text ? { text } : { text: '', only: false }); },
+  words: () => words().join(' '),
   /** the filter changed: her tiles' counts and the open tile anew */
   filtered() { if (view) { renderTabs(); renderSection(); } },
   has: () => !!state,
   setHooks(h) { hooks = { ...hooks, ...h }; },
-  unmount() { view = null; clearTimeout(sizeTimer); },
+  /** the visit ends: the bar's words, its switch and a number tile's choice go (never kept) */
+  unmount() { view = null; clearTimeout(sizeTimer); statTile = ''; if (bar) bar.reset(); },
 };
 })();
 
@@ -3539,6 +3679,9 @@ Office.places(ID, [
   { kind: 'section', key: 'where.places', route: '#/cleanup/where' },
   { kind: 'section', key: 'where.details_title', route: '#/cleanup/where' },
   ...Where.sections.map((id) => ({ kind: 'tile', key: `where.section.${id}`, route: `#/cleanup/where/${id}`, anchor: `where.${id}`, part: 'part.where' })),
+  // the number tiles of «What's going on» with a corner behind them: that corner open, the tile pressed (as a click)
+  ...Where.stats.map((id) => ({ kind: 'tile', key: `where.stat.${id}`, route: `#/cleanup/where/stat:${id}`, anchor: `stat.${id}`,
+    shown: () => Where.statShown(id), part: 'part.where' })),
   { kind: 'section', key: 'part.tidy', route: '#/cleanup/tidy' },
   { kind: 'section', key: 'rooms', route: '#/cleanup/tidy' },
   // a room only while she shows its tile (visible(): VMs with the VM service, Docker's rooms with Docker, what partners
@@ -3570,6 +3713,9 @@ Office.placesFrom(ID, (s, part) => {
 
 // tests/run.php runs this under node (Unraid's own) - never set in a browser
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.cleanup = { query: () => query, setQuery: (q) => { query = q; }, setState: (s) => { state = s; } };
+  // query(): the rooms' words, and the corner's too where they differ (they never should)
+  const both = () => { const a = words().join(' '), b = Where.words(); return a === b ? a : `${a}|${b}`; };
+  globalThis.OFFICE_DESK_TESTS.cleanup = { query: both, setQuery: (q) => { roomBar().set({ text: q }); Where.setWords(q); }, setState: (s) => { state = s; },
+    findings: () => Where.findings() };
 }
 })();
