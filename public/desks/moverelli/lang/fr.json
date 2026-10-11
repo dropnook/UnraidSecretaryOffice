@@ -2,7 +2,7 @@
   "name": "Madame Moverelli",
   "role": "Déménageuse — porte sur l'array ce qui est resté assez longtemps sur le pool, et laisse en place ce qui doit rester",
   "visit": "Aller voir Madame Moverelli",
-  "training": "Encore en apprentissage : elle connaît le Smart Mover par cœur, mais n'a encore rien déplacé sur un vrai serveur. Dès qu'elle aura réussi son essai, tu pourras l'embaucher.",
+  "training": "Elle complète le mover d'Unraid avec le Smart Mover de helmi1987 — encore en formation, bientôt embauchable.",
   "fire_note": "Si tu me congédies, mes exécutions s'arrêtent : une planification à moi restée dans le fichier cron du bureau ne fait rien tant que je ne suis pas embauchée (désactive-la d'abord sous « Planification » si tu veux qu'elle disparaisse). Une exécution en cours termine d'abord son partage — je n'interromps jamais un déplacement à mi-chemin. La planification du mover d'Unraid reste telle quelle : réactive-la sous ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ si tu la veux de nouveau.",
   "greet.1": "Cartons faits, étiquettes collées !",
   "greet.2": "Le vieux sur l'array, le neuf reste à portée de main.",
