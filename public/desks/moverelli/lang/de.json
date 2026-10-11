@@ -213,6 +213,7 @@
   "errors.moverelli_unraid_old": "Ich arbeite ab Unraid {needed} — dieser Server hat {version}.",
   "errors.moverelli_bad_value": "Dieser Wert geht nicht: {field} {value}",
   "errors.moverelli_bad_share": "Einen Share «{share}» gibt es nicht.",
+  "errors.moverelli_global_share": "Ein Share namens «{share}» kann keine eigenen Regeln haben: Die Einstellungen des Smart Movers brauchen diesen Namen für die Regeln für alle Shares. Lass ihn auf «wie für alle» (die gelten für ihn).",
   "errors.moverelli_emby_list": "Echte Läufe erst, wenn Jack Embys Liste bei den Dateien steht, die ich liegen lasse — für {shares}. Sonst schiebe ich seine Filme zurück aufs Array.",
   "errors.moverelli_mover_off_failed": "Unraids Mover-Zeitplan liess sich nicht ausschalten: {detail}",
   "notify.subject": "Frau Moverelli: Smart Mover {result}",

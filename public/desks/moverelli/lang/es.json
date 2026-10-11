@@ -213,6 +213,7 @@
   "errors.moverelli_unraid_old": "Trabajo con Unraid {needed} y posteriores — este servidor tiene {version}.",
   "errors.moverelli_bad_value": "Este valor no se puede usar: {field} {value}",
   "errors.moverelli_bad_share": "No hay ningún recurso compartido «{share}».",
+  "errors.moverelli_global_share": "Un recurso compartido llamado «{share}» no puede tener reglas propias: los ajustes del Smart Mover usan ese nombre para las reglas de todos los recursos compartidos. Déjalo «como para todos» (valen para él).",
   "errors.moverelli_emby_list": "Ejecuciones reales solo cuando la lista de Jack Emby esté entre los archivos que dejo en paz — para {shares}. Si no, devolvería sus películas al array.",
   "errors.moverelli_mover_off_failed": "No se ha podido apagar la programación del mover de Unraid: {detail}",
   "notify.subject": "Señora Moverelli: Smart Mover {result}",

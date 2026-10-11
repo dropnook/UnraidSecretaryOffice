@@ -213,6 +213,7 @@
   "errors.moverelli_unraid_old": "Je travaille sur Unraid {needed} et plus récent — ce serveur a {version}.",
   "errors.moverelli_bad_value": "Cette valeur n'est pas utilisable : {field} {value}",
   "errors.moverelli_bad_share": "Il n'y a pas de partage « {share} ».",
+  "errors.moverelli_global_share": "Un partage nommé « {share} » ne peut pas avoir de règles propres : les réglages du Smart Mover utilisent ce nom pour les règles de tous les partages. Laisse-le « comme pour tous » (elles valent pour lui).",
   "errors.moverelli_emby_list": "Des exécutions réelles seulement quand la liste de Jack Emby fait partie des fichiers que je laisse en place — pour {shares}. Sinon je ramènerais ses films sur l'array.",
   "errors.moverelli_mover_off_failed": "La planification du mover d'Unraid n'a pas pu être désactivée : {detail}",
   "notify.subject": "Madame Moverelli : Smart Mover {result}",

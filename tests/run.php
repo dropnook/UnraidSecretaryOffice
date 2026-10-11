@@ -27060,6 +27060,13 @@ function testMoverelliIni(): void
          $bad(moverelliTestSettings(['files' => ["/mnt/x.txt\n"]])), $bad(moverelliTestSettings(['patterns' => ["a\tb"]])),
          $bad(moverelliTestSettings([], ['Nope' => []])), $bad(moverelliTestSettings([], ['../x' => []])),
          $bad(moverelliTestSettings([], $share(['min_age' => 'x']))), $bad(moverelliTestSettings([], $share(['skip' => 'yes']))), $bad(['global' => 'x', 'shares' => []])]);
+    file_put_contents("$tmp/shares/GLOBAL.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    $global = fn (array $x) => ['GLOBAL' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]];
+    same('moverelli ini: a share named GLOBAL — rules of its own refused (a second [GLOBAL] section would shadow them), as for all shares fine',
+        ['moverelli_global_share:GLOBAL', 'moverelli_global_share:GLOBAL', 'ok'],
+        [$bad(moverelliTestSettings([], $global(['min_age' => 5]))), $bad(moverelliTestSettings([], $global(['skip' => true]))), $bad(moverelliTestSettings([], $global([])))]);
+    unlink("$tmp/shares/GLOBAL.cfg");
+    moverelliSave($back, $h);
     same('moverelli ini: … the ini as it was', $ini, file_get_contents("$dir/smart_mover.ini"));
     // her own lists emptied: the files go, the ini names none
     moverelliSave(moverelliTestSettings(), $h);

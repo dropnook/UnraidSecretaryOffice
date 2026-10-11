@@ -213,6 +213,7 @@
   "errors.moverelli_unraid_old": "I work on Unraid {needed} and newer — this server runs {version}.",
   "errors.moverelli_bad_value": "This value can't be used: {field} {value}",
   "errors.moverelli_bad_share": "There is no share «{share}».",
+  "errors.moverelli_global_share": "A share named «{share}» can't have rules of its own: the Smart Mover's settings use that name for the rules for all shares. Leave it «as for all» (those hold for it).",
   "errors.moverelli_emby_list": "Real runs only once Jack Emby's list is among the files I leave alone — for {shares}. Otherwise I'd move his films back to the array.",
   "errors.moverelli_mover_off_failed": "Unraid's mover schedule couldn't be switched off: {detail}",
   "notify.subject": "Ms. Moverelli: Smart Mover {result}",
