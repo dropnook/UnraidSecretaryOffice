@@ -6868,6 +6868,10 @@ JS;
 function testSetupFilter(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    // «Decide…» while the plan is made anew (2026-10-11 on a large server): the old plan has no new thing, so the bar
+    // would hide the switch and turn it off (onlyAvail false) and the focus would be spent — kept until the plan is there
+    check('setup filter: «Decide…» keeps its focus while the plan is being made anew (not spent on the old plan)',
+        str_contains($js, 'setup.focus && setup.model && setup.draft && !busy ? setupFocus() : null'));
     // since the tiles rebuild (2026-10-11) the bar is core.js's Office.filterBar (data-keep, the focus and the selection kept
     // through a drawing — testFilterBar): built once per visit, appended at every drawing, told what fits after the steps
     check('setup filter: the bar is Office.filterBar, built once per visit, appended at every drawing, «n of m» after the steps',

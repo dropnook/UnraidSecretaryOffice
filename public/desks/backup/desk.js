@@ -2777,8 +2777,10 @@ function renderSetup() {
   if (!setup.plan) { setupBar(); return; }
 
   const plan = setup.plan;
-  // came from «Decide…» or «Change…» on the main page: the filter and the rows set so that it shows (setupFocus())
-  const target = setup.focus && setup.model && setup.draft ? setupFocus() : null;
+  // came from «Decide…» or «Change…» on the main page: the filter and the rows set so that it shows (setupFocus()) —
+  // not while the plan is being made anew (SETUP_REPLAN, 2026-10-11 on a large server): the plan shown is the old one,
+  // the new thing isn't in it yet, and the bar would switch «only what's new» off again (nothing new → onlyAvail false)
+  const target = setup.focus && setup.model && setup.draft && !busy ? setupFocus() : null;
   const start = plan.have_settings ? presetStartLine() : presetSection();   // a new server: where to start, the three cards;
   if (start) root.appendChild(start);                                       // set up: which start the draft came from, once chosen
   // the filter over the steps' rows (typing in it while the page is drawn anew: the bar keeps its text, focus and
