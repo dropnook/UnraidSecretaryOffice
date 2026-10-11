@@ -473,11 +473,15 @@ function officeCronLines(string $file = OFFICE_CRON): array
     return $found;
 }
 
-/** A job's schedule: its line in the plugin's cron file */
-function officeJobSchedule(string $job): array
+/**
+ * A job's schedule: its line in the plugin's cron file; `next` = when it runs next (unix, cronNext() of
+ * lib/snapshotplans.php — agent.php loads both), null while off or for a line cron can't read; $file for the tests
+ */
+function officeJobSchedule(string $job, string $file = OFFICE_CRON): array
 {
-    $cron = officeCronLines()[$job] ?? null;
-    return ['script' => true, 'frequency' => $cron !== null ? 'custom' : 'disabled', 'custom' => $cron, 'enabled' => $cron !== null];
+    $cron = officeCronLines($file)[$job] ?? null;
+    return ['script' => true, 'frequency' => $cron !== null ? 'custom' : 'disabled', 'custom' => $cron, 'enabled' => $cron !== null,
+        'next' => $cron !== null ? cronNext($cron, time()) : null];
 }
 
 /**

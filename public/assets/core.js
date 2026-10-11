@@ -1078,6 +1078,262 @@ function relaxDesk() {
   if (next > 0 && desk.offsetHeight > next + 1) desk.style.minHeight = '';    // the content is taller anyway
 }
 
+// ------------------------------------------------------------------ filters and tiles
+// One filter bar for every list and two tile builders (2026-10-11, the tiles rebuild). The rule (CLAUDE.md «Tiles»): a
+// tile shows a number and decides which rows below are seen — the first click shows or filters, the second shows all
+// again; the page says what is filtered in one place (the bar's note line); a tile's choice is kept by the desk, filter
+// words, «only …» switches and tile filters never.
+
+/** The filter bar shows itself from this many rows of its list on (or while anything filters) — one constant for all */
+Office.FILTER_MIN = 10;
+
+/** Text as a filter compares it: lower case, accents folded (NFD, the combining marks dropped), ß → ss */
+const fold = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss');
+Office.fold = fold;
+/** A filter's words: 'Müller  Fotos' → ['muller', 'fotos'] (folded, split on white space, no empty ones) */
+Office.filterWords = (text) => fold(text).split(/\s+/).filter(Boolean);
+/**
+ * Does it fit? Every word is contained in the folded hay — a string, or a list of strings joined with \u0001 (a word
+ * never fits across two of them, like the watchman's entryHay). No words fit everything.
+ */
+Office.fits = (words, hay) => {
+  if (!words || !words.length) return true;
+  const h = Array.isArray(hay) ? hay.filter((x) => x !== null && x !== undefined && x !== '').map(fold).join('\u0001') : fold(hay);
+  return words.every((w) => h.includes(w));
+};
+
+/** Text or a node (or a list of them) into an element */
+const putInto = (node, x) => {
+  if (x === null || x === undefined || x === false) return node;
+  if (Array.isArray(x)) x.forEach((y) => putInto(node, y));
+  else node.append(x.nodeType ? x : String(x));
+  return node;
+};
+
+/**
+ * The filter bar every list gets (CLAUDE.md «Tiles», «A long list stays readable»). Built once per visit — the desk
+ * holds the bar across its renders and appends bar.el under the list's section head each time; the field keeps its
+ * text, the focus and the selection through a drawing (data-keep: calm() lets new looks in while typing).
+ *   opts: key (Office.store prefix, used ONLY for the select: '<key>.pick'), label (the field's aria-label),
+ *         only {text, hint} (the «only …» switch), select {label, all} (options through bar.options()),
+ *         extra [nodes on the right], min (default Office.FILTER_MIN),
+ *         onChange(f, what) — called inside Office.keepInPlace(<the control that changed>, …); f = bar.read(),
+ *         what = 'words' | 'only' | 'pick' | 'tile' (the chip) | 'all' («Show all») | 'gone' (the switch or the pick
+ *         went away by itself: nothing to switch to, the option gone)
+ *   bar.read()  → {words, only, pick, tile}
+ *   bar.done(n, total, {tile, clear, onlyAvail}) after the desk drew the list: shows or hides the bar, «n of m fit»,
+ *         the note line while a tile filters
+ *   bar.options([[value, text, n], …]), bar.reset(), bar.tile(name | ''), bar.set({text, only, pick})
+ */
+Office.filterBar = function filterBar(opts) {
+  const o = opts || {};
+  const min = typeof o.min === 'number' ? o.min : Office.FILTER_MIN;
+  const pickKey = o.key && o.select ? o.key + '.pick' : null;
+  const s = { pick: (pickKey && Office.store(pickKey)) || '', tile: '', clear: null, focus: null, range: null };
+  const box = el('div', 'toolbar filterbar');
+  const input = el('input', 'search filter-words');
+  input.type = 'search';
+  input.placeholder = t('common.filter');
+  if (o.label) input.setAttribute('aria-label', o.label);
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.dataset.keep = '1';
+  box.appendChild(input);
+  let sel = null;
+  if (o.select) {
+    sel = el('select', 'picker filter-pick');
+    if (o.select.label) sel.setAttribute('aria-label', o.select.label);
+    sel.dataset.keep = '1';
+    box.appendChild(sel);
+  }
+  let sw = null, cb = null;
+  if (o.only) {
+    sw = el('label', 'switch filter-only');
+    cb = el('input');
+    cb.type = 'checkbox';
+    sw.append(cb, el('span', '', o.only.text));
+    if (o.only.hint) sw.title = o.only.hint;
+    box.appendChild(sw);
+  }
+  const extras = (o.extra || []).filter(Boolean);
+  extras.forEach((x) => box.appendChild(x));
+  const hits = el('span', 'filter-hits');
+  hits.setAttribute('aria-live', 'polite');
+  box.appendChild(hits);
+  // the note line (CLAUDE.md «Tiles»): «The list shows only: [VMs ×] · 1 of 12 fit — Show all»
+  const note = el('div', 'filter-note');
+  note.hidden = true;
+  const chip = el('button', 'chip filter-chip');
+  chip.type = 'button';
+  const chipName = el('span', 'filter-chip-name');
+  chip.append(chipName, el('span', 'filter-chip-x', '×'));
+  chip.lastChild.setAttribute('aria-hidden', 'true');
+  const noteHits = el('span', 'filter-note-hits');
+  noteHits.setAttribute('aria-live', 'polite');
+  const all = el('button', 'btn small plain filter-all', t('common.show_all'));
+  all.type = 'button';
+  note.append(el('span', 'filter-note-text', t('common.filter_only')), chip, noteHits, all);
+  box.appendChild(note);
+
+  const read = () => ({ words: Office.filterWords(input.value), only: !!(cb && cb.checked), pick: s.pick, tile: s.tile });
+  const change = (anchor, what) => { if (o.onChange) Office.keepInPlace(anchor, () => o.onChange(read(), what)); };
+  const setPick = (v) => {
+    s.pick = v || '';
+    if (sel) sel.value = s.pick;
+    if (pickKey) Office.store(pickKey, s.pick || null);
+  };
+  input.addEventListener('input', () => change(input, 'words'));
+  if (cb) cb.addEventListener('change', () => change(sw, 'only'));
+  if (sel) sel.addEventListener('change', () => { setPick(sel.value); change(sel, 'pick'); });
+  const cleared = (what) => {
+    s.tile = '';
+    if (what === 'all') {
+      input.value = '';
+      if (cb) cb.checked = false;
+    }
+    if (s.clear) s.clear(what);
+    change(box, what);
+  };
+  chip.addEventListener('click', () => cleared('tile'));
+  all.addEventListener('click', () => cleared('all'));
+  // the focus through a drawing: the desk takes the bar out and puts it back (innerHTML = '' …) — the control that had
+  // it gets it back in done(), unless the user went elsewhere meanwhile
+  const keepRange = () => { if (s.focus === input) { try { s.range = [input.selectionStart, input.selectionEnd]; } catch (e) { s.range = null; } } };
+  box.addEventListener('focusin', (e) => { s.focus = e.target; keepRange(); });
+  box.addEventListener('focusout', () => setTimeout(() => {
+    const a = document.activeElement;
+    if (box.isConnected && !(a && box.contains(a))) s.focus = null;
+  }, 0));
+  ['input', 'keyup', 'mouseup', 'select'].forEach((ev) => input.addEventListener(ev, keepRange));
+  const later = (what, anchor) => Promise.resolve().then(() => change(anchor, what));
+  /** the control that had the focus gets it back, unless the user is elsewhere; false while the bar isn't on the page */
+  const refocus = () => {
+    const f = s.focus, a = document.activeElement;
+    if (!f || !box.contains(f)) return true;
+    if (!f.isConnected) return false;
+    if (a !== f && (!a || a === document.body) && !f.hidden) {
+      f.focus({ preventScroll: true });
+      if (f === input && s.range) { try { input.setSelectionRange(s.range[0], s.range[1]); } catch (e) { /* not a text field's selection */ } }
+    }
+    return true;
+  };
+
+  const bar = {
+    el: box,
+    read,
+    done(n, total, d) {
+      const x = d || {};
+      if ('tile' in x) s.tile = x.tile || '';
+      if (x.clear) s.clear = x.clear;
+      const avail = x.onlyAvail !== false;
+      if (sw && !avail && cb.checked) { cb.checked = false; later('gone', box); }    // nothing to switch to: off, drawn anew
+      const f = read();
+      const filtering = !!(f.words.length || f.only || f.pick || f.tile);
+      // a short list with nothing filtering: the filter's own controls go, the extras (a desk's own buttons) stay —
+      // the bar itself only without them
+      const quiet = !(total >= min || filtering);
+      input.hidden = quiet;
+      if (sel) sel.hidden = quiet;
+      if (sw) sw.hidden = quiet || !avail;
+      box.hidden = quiet && !extras.length;
+      const said = t('common.filter_hits', { n, total });
+      hits.textContent = filtering && !f.tile ? said : '';
+      note.hidden = !f.tile;
+      if (f.tile) {
+        chipName.textContent = f.tile;
+        chip.setAttribute('aria-label', t('common.filter_clear_tile', { name: f.tile }));
+        noteHits.textContent = '· ' + said;
+      } else noteHits.textContent = '';
+      // the bar may still hang in a section the desk appends after done(): then once its drawing is through
+      if (s.focus && !refocus()) Promise.resolve().then(refocus);
+      return bar;
+    },
+    options(list) {
+      if (!sel) return bar;
+      sel.replaceChildren(new Option(o.select.all || t('common.all'), ''));
+      (list || []).forEach(([value, text, n]) => sel.appendChild(new Option(
+        n === undefined || n === null ? String(text) : `${text} (${Office.fmt.number(n)})`, String(value))));
+      if (s.pick && !(list || []).some(([value]) => String(value) === s.pick)) { setPick(''); later('gone', box); }    // its option gone
+      sel.value = s.pick;
+      return bar;
+    },
+    reset() {
+      input.value = '';
+      if (cb) cb.checked = false;
+      s.tile = '';
+      s.range = null;
+      return bar;
+    },
+    tile(name) { s.tile = name || ''; return bar; },
+    set(v) {
+      const x = v || {};
+      if (x.text !== undefined) input.value = String(x.text ?? '');
+      if (x.only !== undefined && cb) cb.checked = !!x.only;
+      if (x.pick !== undefined) setPick(x.pick);
+      return bar;
+    },
+  };
+  return bar;
+};
+
+/**
+ * A number tile (.stat): div.stat, or button.stat when it does something (on). pressed true/false → aria-pressed (a
+ * tile that filters or shows; pressed looks like .card.active); pressed left out with on → no aria-pressed (a tile that
+ * opens a dialog — its sub line says so). controls → aria-controls, filters → data-filters (the id of the list it
+ * filters: the click test looks for its note line there), tip → title, id, place (Office.place), cls (more classes).
+ * label / value / sub: text or nodes; sub a list → one .stat-sub each. The click goes through addEventListener; the
+ * desk wraps its own Office.keepInPlace.
+ */
+Office.stat = function stat(o) {
+  const b = el(o.on ? 'button' : 'div', 'stat' + (o.alert ? ' alert' : '') + (o.cls ? ' ' + o.cls : ''));
+  if (o.on) {
+    b.type = 'button';
+    b.addEventListener('click', o.on);
+    if (o.pressed !== undefined && o.pressed !== null) b.setAttribute('aria-pressed', o.pressed ? 'true' : 'false');
+  }
+  tileAttrs(b, o);
+  b.append(putInto(el('div', 'stat-label'), o.label), putInto(el('div', 'stat-value'), o.value));
+  [].concat(o.sub ?? []).filter((x) => x !== '' && x !== null && x !== undefined && x !== false)
+    .forEach((x) => b.appendChild(putInto(el('div', 'stat-sub'), x)));
+  return b;
+};
+function tileAttrs(b, o) {
+  if (o.controls) b.setAttribute('aria-controls', o.controls);
+  if (o.filters) b.dataset.filters = o.filters;
+  if (o.tip) b.title = o.tip;
+  if (o.id) b.id = o.id;
+  if (o.place) Office.place(o.place, b);
+}
+
+/**
+ * A choice tile (.card) as restore's, logs' and cleanup's: button.card[aria-pressed] (on given; else a div.card).
+ * name, icon (text or node, before the name), chip (text or node or a list: in the head after the name), count (a
+ * number: the head's right), lines — each a string (.card-line), [left, right] (.card-figures) or a node —, extra
+ * (nodes at the end), active (.active + aria-pressed true), controls, filters, tip, id, place, cls as Office.stat.
+ */
+Office.tile = function tile(o) {
+  const c = el(o.on ? 'button' : 'div', 'card' + (o.active ? ' active' : '') + (o.cls ? ' ' + o.cls : ''));
+  if (o.on) {
+    c.type = 'button';
+    c.setAttribute('aria-pressed', o.active ? 'true' : 'false');
+    c.addEventListener('click', o.on);
+  }
+  tileAttrs(c, o);
+  const head = el('div', 'card-head');
+  if (o.icon !== undefined && o.icon !== null) head.appendChild(o.icon.nodeType ? o.icon : el('span', 'card-icon', o.icon));
+  head.appendChild(putInto(el('span', 'card-name'), o.name));
+  [].concat(o.chip ?? []).filter((x) => x !== '' && x !== null && x !== undefined && x !== false)
+    .forEach((x) => { const n = x.nodeType ? x : el('span', 'chip', x); n.classList.add('card-chip'); head.appendChild(n); });
+  if (typeof o.count === 'number') head.appendChild(el('span', 'card-count', Office.fmt.number(o.count)));
+  c.appendChild(head);
+  (o.lines || []).filter((x) => x !== '' && x !== null && x !== undefined && x !== false).forEach((x) => {
+    if (Array.isArray(x)) c.appendChild(putInto(el('div', 'card-figures'), [putInto(el('span'), x[0]), putInto(el('span'), x[1] ?? '')]));
+    else c.appendChild(x.nodeType ? x : putInto(el('div', 'card-line'), x));
+  });
+  (o.extra || []).filter(Boolean).forEach((x) => c.appendChild(x));
+  return c;
+};
+
 // ------------------------------------------------------------------ staff
 /** Hire one or more desks (the caretaker suggests whom); afterwards the tip jar says hello */
 Office.hire = async function hire(ids) {

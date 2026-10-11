@@ -894,15 +894,47 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   (QA 2026-10-08); Mr. Backupsy's messages carry `bk-msg-<level>` (`msgClass()`). A desk.css grid that overrides
   office.css's `.kv` or a row's columns brings its own phone rule (`@media (max-width:640px)`: labels above values,
   a chip or buttons in `.bk-right` / `.rs-right` under the text).
-* **Remembered per browser** (`Office.store`, prefix `office.`): filters,
-  chosen tiles, favourites. Tests in the browser save and restore those keys —
-  the user's own pane shares them.
+* **Remembered per browser** (`Office.store`, prefix `office.`): choices —
+  chosen tiles (a section, a corner, a pool), selects, favourites; never filter
+  words, «only …» switches or tile filters (2026-10-11, «Tiles» below). Tests in
+  the browser save and restore those keys — the user's own pane shares them.
 * **Sections:** `Office.sectionHead(title, explanation, ...extras)` — a title
   bar (Unraid's inside Unraid) with counts, status and buttons on its right, the
   explanation right under it. No explanatory text floating on the right.
-* **Tiles** (`button.card`): a click opens or filters; a click on the active
-  tile closes it again — nothing open is a valid state. Remember the choice in
-  `Office.store`.
+* **Tiles (2026-10-11, the tiles rebuild): a tile shows a number and decides which rows below are seen.** Two shapes,
+  one behaviour: the number tile (`.stat`) and the choice tile (`.card`); one with something behind it is a real
+  `<button>`, one with nothing behind it stays a `div` (and doesn't look clickable). **The first click shows or filters,
+  the second shows all again** — a choice tile opens its section below (the others close; nothing open is valid), a
+  number tile that counts a list filters that list to what it counts (looking pressed like `.card.active`). The one
+  exception is a tile that opens a dialog (a schedule): no toggle, and its sub line says so («set here» / «tap to set»).
+  **The page says what is filtered in one place:** the filter bar's note line right above the list («The list shows
+  only: [VMs ×] · 1 of 12 fit — Show all», `bar.done()`), never a sentence in a section head or a callout. **Stored:** a
+  tile's choice (section, corner, pool) by the desk in `Office.store` — read at every render («What the user opened stays
+  open»); **never stored:** filter words, «only …» switches, tile filters (`mount()` empties them: `bar.reset()`); a
+  select (area, library, source) is a choice and is kept (`<key>.pick`). Every tile click inside `Office.keepInPlace(<the
+  tile grid>, …)`, no `scrollIntoView`; `aria-pressed` on every toggling tile, `aria-controls` = the section or list it
+  shows, `data-filters` = the id of the element holding the filtered list and its bar (the click test looks for the note
+  line there). Phone: number tiles two columns, the sub line clamped to two lines (the whole text in `tip`); choice tiles
+  one column. A tile is a place with a sub-route (`#/<desk>/<tile>`) that sets the choice exactly like a click.
+  **The helpers (core.js):**
+  `Office.filterBar({key, label, only: {text, hint}, select: {label, all}, extra: [nodes], min, onChange(f, what)})` —
+  built once per visit and held by the desk across its renders (it keeps its text, focus and selection; `data-keep`);
+  `bar.el` (the `.toolbar.filterbar`, append it under the list's section head at each render), `bar.read()` → `{words,
+  only, pick, tile}` (words folded: match with `Office.fits(words, hay)`), `bar.done(n, total, {tile, clear, onlyAvail})`
+  after the list is drawn (shows the bar from `Office.FILTER_MIN` = 10 rows or while anything filters, «n of m fit», the
+  note line while a tile filters; `onlyAvail: false` hides and resets the switch; `clear(what)` = the desk's own tile state
+  back, called by the chip and «Show all» before `onChange`), `bar.options([[value, text, n], …])` (the select; a pick
+  whose option is gone falls back to all), `bar.tile(name | '')`, `bar.reset()` (words, switch, tile — the select stays),
+  `bar.set({text, only, pick})` (a link or a deep link fills or clears it, no `onChange`). `onChange` runs inside
+  `keepInPlace(<the control>)` with `what` = words | only | pick | tile | all | gone. Pure, also under node:
+  `Office.fold(text)`, `Office.filterWords(text)`, `Office.fits(words, hay)` (hay a string or a list, joined with
+  `\u0001`). `Office.stat({label, value, sub, alert, tip, on, pressed, controls, filters, id, place, cls})` → `div.stat`,
+  or `button.stat` with `on` (`pressed` true/false → `aria-pressed`; left out → a dialog opener, no `aria-pressed`; `sub`
+  may be a list). `Office.tile({name, icon, chip, count, lines, active, on, controls, filters, tip, id, place, cls,
+  extra})` → `button.card[aria-pressed]` (`div.card` without `on`): head icon · name · chips · count, `lines` each a
+  string (`.card-line`), `[left, right]` (`.card-figures`) or a node. Both attach `on` with `addEventListener`; the desk
+  wraps its own `keepInPlace`. Tests: `testFilterWords`, `testFilterBar` (tests/filter.js, core.js under node),
+  `tools/ui-clicks.sh` (a `button.stat[aria-pressed]` is a tile; `data-filters` → the note line on, gone off).
 * **Search (2026-10-08 — phase 1, static places; phase 2, items; phase 3, texts):** the magnifier in the top line (`#sso-search`, made by core.js
   before `#sso-state`; nothing in page.php) or ⌘K / Ctrl+K while the office has the focus (or nothing outside `#sso` was
   clicked last — never `/`, never in Unraid's header) opens a palette under it (`#sso-palette`, role combobox/listbox:
@@ -1054,7 +1086,8 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   what waits) and «Change…» go through `setupFocus()`: the words cleared; «Decide…» = the first new thing in the steps'
   order (`setupFirstNew()`: a new VM, a new app, a waiting folder or a new share — its share's row unfolded) with «only
   what's new» on, revealed by `Office.reveal('setup:<vm|app|share|wait>:…', {part: <its step>})` (`.place-hit`);
-  `testSetupFilter`.
+  `testSetupFilter`. **The bar is `Office.filterBar`** (2026-10-11, «Tiles» above): every list gets it, shown from
+  `Office.FILTER_MIN` rows — the watch book's and the setup's own bars move onto it with the tiles rebuild.
 * **Backup protection** is always shown with `Office.backupChip(level)`
   (offsite / only local / not backed up), the level coming from
   `backupProtection()` in agent/lib/backupscript.php.
