@@ -22441,6 +22441,10 @@ function testWatchmanPartner(): void
     $lineA = partnerDoorLine('a1b2c3d4', '192.168.77.2', $kA);
     file_put_contents($keys, "$benj\n$lineA\n");
     touch($keys, $now - 98);
+    // 1.60: whether the office sends to a pair is the setup's say (settings.ini partner lines), not the pair's
+    @mkdir(BACKUP_DATA_DIR, 0700, true);
+    $hadIni = is_file(BACKUP_DATA_DIR . '/settings.ini') ? (string) file_get_contents(BACKUP_DATA_DIR . '/settings.ini') : null;
+    file_put_contents(BACKUP_DATA_DIR . '/settings.ini', "[partner \"a1b2c3d4\"]\nname = vault\naddress = 192.168.77.2\nport = 22\nrate_mbit = 0\n\n[vm \"vault-vm\"]\nmode = snapshot\npartner = a1b2c3d4\n");
     $r = $round($now);
     $paired = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'partner_paired'));
     same('watch partner: the office\'s own door line — one line, noted by himself (by office), never open',
@@ -22457,6 +22461,7 @@ function testWatchmanPartner(): void
     same('watch partner: a friend gets plain copies — a posture tip (info), linking the Team Lead', [true, 'info', '#/caretaker'],
         [in_array('partner_friend', $tips(), true), WATCH_POSTURE['partner_friend'],
          array_column((array) watchmanLoad($data)['state']['posture']['tips'], null, 'id')['partner_friend']['link']['path'] ?? null]);
+    $hadIni === null ? @unlink(BACKUP_DATA_DIR . '/settings.ini') : file_put_contents(BACKUP_DATA_DIR . '/settings.ini', $hadIni);
 
     // ---- a line of no pair, and one written long after its pair was stored: news (the flash watch's new key)
     $kB = partnerTestKey();
