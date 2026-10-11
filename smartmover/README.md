@@ -4,7 +4,7 @@
 > helmi1987. Ms. Moverelli writes its settings (`data/moverelli/smart_mover.ini`, her own exclude lists in
 > `data/moverelli/excludes/`), runs it (`--list-shares`, the dry run, `--run`) and schedules it; its data lives in
 > `data/moverelli`. Only `custommover_run.sh` is taken over. The office's changes against that commit — each one
-> switched on by an environment variable the office sets; without them the script behaves exactly as upstream:
+> switched on by an environment variable the office sets (one bug fix below excepted); without them the script behaves exactly as upstream:
 >
 > * `CUSTOMMOVER_LOG`: the log file (over the INI's `log_file`) — the code lies in RAM in the office, the log in its data
 >   folder.
@@ -31,6 +31,11 @@
 >   runs or his last run's marker): EmbyCache writes the list only at its first real run or import, and a list that
 >   isn't there yet protects nothing (the office's shared start lock keeps an EmbyCache run from going at the same time).
 >   Once EmbyCache has run, a missing list is an error again — his films stay where they are.
+> * An exclude entry that is an absolute path (a file or a folder) is matched literally: `\ [ ] * ?` in it are escaped
+>   before it becomes `find -path`. Upstream hands it to `-path` as it is, so `Film (2020) [1080p].mkv` reads as a
+>   bracket expression and is not excluded (a real run would move the film back to the array), and `what?.mkv` also
+>   protects `whatX.mkv`. Globs without a leading `/` (`*.nfo`, `Season 0*`) keep their meaning. Not tied to a variable:
+>   it fixes what the comment at the top already promises («protects exactly that file») — this belongs upstream.
 > * The status JSON's texts are made safe: invalid UTF-8 is dropped (`iconv -c`, when there), control characters and DEL
 >   too.
 > * Not taken over: `setup_custommover.sh` (Ms. Moverelli is the setup). The office never passes `--force` or

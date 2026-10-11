@@ -27256,6 +27256,30 @@ function testMoverelliRun(): void
     same('moverelli run: … nothing created in his folder', ['embycache_exclude.txt.before-import-20261010-120000'], array_values(array_diff(scandir($jd), ['.', '..'])));
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
 
+    // a list's exact paths are taken literally (find -path would read [1080p] as a bracket expression and ? as any one
+    // character): the bracketed film, «what?.mkv» and the folder «Box [4K]» stay out of the candidates, «whatX.mkv» doesn't
+    $fl = "$tmp/mnt/cache/Filme";
+    @mkdir("$fl/Film (2020) [1080p]", 0700, true);
+    @mkdir("$fl/Box [4K]", 0700, true);
+    foreach (['Film (2020) [1080p]/Film (2020) [1080p].mkv', 'what?.mkv', 'whatX.mkv', 'Box [4K]/b.mkv'] as $f) {
+        file_put_contents("$fl/$f", 'x');
+    }
+    file_put_contents("$tmp/literal.txt", "$fl/Film (2020) [1080p]/Film (2020) [1080p].mkv\n$tmp/mnt/user/Filme/what?.mkv\n$fl/Box [4K]/\n");
+    moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo'], 'files' => ["$tmp/literal.txt"]]), $h);
+    $mtimes = array_map('filemtime', glob("$fl/*") ?: []);
+    $exit = moverelliJob(['dry', '--office'], $h);
+    $out = (string) file_get_contents("$dir/smart_mover.log");
+    $listed = fn (string $f) => str_contains($out, "[DRY-RUN]     $fl/$f\n");
+    same('moverelli run: exact paths of a list match literally — a bracketed name, a «?» name and a bracketed folder stay out, «whatX.mkv» is a candidate',
+        [0, false, false, false, true],
+        [$exit, $listed('Film (2020) [1080p]/Film (2020) [1080p].mkv'), $listed('what?.mkv'), $listed('Box [4K]/b.mkv'), $listed('whatX.mkv')]);
+    same('moverelli run: … a dry run, nothing moved', [true, true, true, true, $mtimes],
+        [is_file("$fl/Film (2020) [1080p]/Film (2020) [1080p].mkv"), is_file("$fl/what?.mkv"), is_file("$fl/whatX.mkv"), is_file("$fl/Box [4K]/b.mkv"),
+         array_map('filemtime', glob("$fl/*") ?: [])]);
+    exec('rm -rf ' . escapeshellarg("$fl/Film (2020) [1080p]") . ' ' . escapeshellarg("$fl/Box [4K]") . ' ' . escapeshellarg("$fl/what?.mkv") . ' ' . escapeshellarg("$fl/whatX.mkv"));
+    unlink("$tmp/literal.txt");
+    moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
+
     // her list of runs: at most 40, a scheduled refusal again for the same reason counted on one line
     for ($i = 0; $i < 45; $i++) {
         moverelliRemember(['mode' => 'dry', 'by' => 'office', 'started' => 1000 + $i, 'finished' => 1000 + $i, 'result' => 'ok'], $dir);
