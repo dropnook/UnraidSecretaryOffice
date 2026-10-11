@@ -1282,7 +1282,8 @@ Office.filterBar = function filterBar(opts) {
  * opens a dialog — its sub line says so). controls → aria-controls, filters → data-filters (the id of the list it
  * filters: the click test looks for its note line there), tip → title, id, place (Office.place), cls (more classes).
  * label / value / sub: text or nodes; sub a list → one .stat-sub each. The click goes through addEventListener; the
- * desk wraps its own Office.keepInPlace.
+ * desk wraps its own Office.keepInPlace. mark: the text of the active tile's mark (shown while pressed, with .tile-on —
+ * Office.sections() gives it, and the click: a desk under the switcher spreads the helper's attributes in).
  */
 Office.stat = function stat(o) {
   const b = el(o.on ? 'button' : 'div', 'stat' + (o.alert ? ' alert' : '') + (o.cls ? ' ' + o.cls : ''));
@@ -1295,6 +1296,7 @@ Office.stat = function stat(o) {
   b.append(putInto(el('div', 'stat-label'), o.label), putInto(el('div', 'stat-value'), o.value));
   [].concat(o.sub ?? []).filter((x) => x !== '' && x !== null && x !== undefined && x !== false)
     .forEach((x) => b.appendChild(putInto(el('div', 'stat-sub'), x)));
+  tileMark(b, o, o.pressed === true);
   return b;
 };
 function tileAttrs(b, o) {
@@ -1304,12 +1306,23 @@ function tileAttrs(b, o) {
   if (o.id) b.id = o.id;
   if (o.place) Office.place(o.place, b);
 }
+/**
+ * The active tile's mark (CLAUDE.md «Tiles»): mark = its text («Filter on» / «Open» — Office.sections() gives it), shown
+ * only while the tile is on, with .tile-on (the glow); visual only — aria-pressed says it to a screen reader
+ */
+function tileMark(b, o, on) {
+  if (!o.mark || !on) return;
+  b.classList.add('tile-on');
+  const m = el('span', 'tile-mark', o.mark);
+  m.setAttribute('aria-hidden', 'true');
+  b.appendChild(m);
+}
 
 /**
  * A choice tile (.card) as restore's, logs' and cleanup's: button.card[aria-pressed] (on given; else a div.card).
  * name, icon (text or node, before the name), chip (text or node or a list: in the head after the name), count (a
  * number: the head's right), lines — each a string (.card-line), [left, right] (.card-figures) or a node —, extra
- * (nodes at the end), active (.active + aria-pressed true), controls, filters, tip, id, place, cls as Office.stat.
+ * (nodes at the end), active (.active + aria-pressed true), controls, filters, tip, id, place, cls, mark as Office.stat.
  */
 Office.tile = function tile(o) {
   const c = el(o.on ? 'button' : 'div', 'card' + (o.active ? ' active' : '') + (o.cls ? ' ' + o.cls : ''));
@@ -1331,7 +1344,221 @@ Office.tile = function tile(o) {
     else c.appendChild(x.nodeType ? x : putInto(el('div', 'card-line'), x));
   });
   (o.extra || []).filter(Boolean).forEach((x) => c.appendChild(x));
+  tileMark(c, o, !!o.active);
   return c;
+};
+
+// ------------------------------------------------------------------ sections (tiles v2)
+/*
+ * The section switcher (2026-10-11, tiles v2 — CLAUDE.md «Tiles»): a tile is a section. The row of tiles is the page's
+ * table of contents; under it stands the chosen tile's section alone — or, nothing chosen, every section in the row's
+ * order. The active tile glows and says «Filter on» / «Open» (.tile-on, .tile-mark); after a click the chosen section is
+ * in view (the viewport rule: a desktop brings its head in only when it isn't, a phone puts it at the top under
+ * Unraid's header, sticky, with «◂ All»). Mr. Restori's renderTiles()/renderSection() made general.
+ *
+ *   const sw = Office.sections({
+ *     id: ID,                       // the store key `<id>.tile`, the routes #/<id>/<tile>, the places tile.<tile>
+ *     key: 'restore.section',       // optional: a key the desk kept before
+ *     grid: 'cards rs-tiles',       // the row's classes (cards | stats | the desk's own)
+ *     tiles: [ … ] or () => [ … ],  // the row's order = the «nothing active» page's order
+ *       { id, key,                  // key: the tile's name in the desk's lang file (its place for the search)
+ *         tile: (a) => Office.tile({ name: T(key), …, ...a }),   // a = {on, pressed, active, controls, filters, mark,
+ *                                   //   place}: spread it into Office.stat / Office.tile — the helper's click and marks
+ *         section: () => node       // a section tile: its own section (a node holding one .section-head; null: none)
+ *                | 'name',          // … or a section of `sections` (shared by several tiles)
+ *         filters: T('stat.vms') }  // a filter tile: that shared section filtered — its name in the bar's note line;
+ *                                   //   never kept (the store gets '' while one is on)
+ *     sections: { name: () => node },   // the shared sections: each once on the «nothing active» page, at its first tile
+ *     default: 'apps',              // the start tile ('' = nothing) — only while the store has no choice
+ *     onPick(id, how) {},           // how: click | route | store (a visit without a tile's route) | all («◂ All») |
+ *                                   //   clear (the bar's chip, «Show all») — the desk sets its filter state before
+ *                                   //   anything is drawn
+ *     wants: (sub) => bool,         // optional: a sub-route naming a tile the list may only have later (a partner's)
+ *   });
+ *   sw.el        <div class="sections">: the row (sw.grid) and the body (sw.body, [data-sections-body])
+ *   sw.render()  row and body anew (a new state, every answer of the agent) — the choice stays; in keepInPlace(sw.grid)
+ *   sw.pick(id[, how])   like a click: the active one again → nothing; stores a section tile, never a filter tile
+ *   sw.active()  the active tile's id, or '' (also while the chosen one isn't in the list)
+ *   sw.mount(sub)        from the desk's mount(root, sub): a tile's sub-route picks it (true, the address back to #/<id>);
+ *                        else the stored choice or the default, a filter tile off (false: sub is the desk's)
+ *   sw.places()  [{kind: 'tile', key, anchor, route}] of the tiles with a key — the desk adds them to Office.places()
+ *   sw.note([name])      {tile, clear} for bar.done() of the section `name`: the active filter tile's words, or ''
+ *   sw.clear()   nothing active, drawn, the page back to the row (the bar's clear())
+ * Nothing is hidden: a section not chosen isn't drawn. The body says what it holds: data-active (the tile), data-sections
+ * (the sections drawn, in order) — the click test reads them.
+ */
+const SECTIONS_PHONE = 768;               // below: the phone's viewport rule
+/** What Unraid keeps fixed above the page (its menu when sticky — the desktop's; a phone's is static: 0), in the office's px */
+function unraidAbove() {
+  const menu = document.getElementById('menu');
+  if (!menu || typeof getComputedStyle !== 'function' || !/^(sticky|fixed)$/.test(getComputedStyle(menu).position)) return 0;
+  return menu.offsetHeight || 0;
+}
+const isPhone = () => (window.matchMedia ? !window.matchMedia(`(min-width: ${SECTIONS_PHONE}px)`).matches : window.innerWidth < SECTIONS_PHONE);
+Office.sections = function sections(opts) {
+  const o = opts || {};
+  const desk = String(o.id || '');
+  const key = o.key || `${desk}.tile`;
+  const shared = o.sections || {};
+  const list = () => ((typeof o.tiles === 'function' ? o.tiles() : o.tiles) || []).filter((x) => x && x.id);
+  const box = el('div', 'sections');
+  const grid = el('div', o.grid || 'cards');
+  const body = el('div', 'sections-body');
+  body.id = o.bodyId || `${desk}-sections`;
+  body.dataset.sectionsBody = '1';
+  box.append(grid, body);
+  const ids = new Map();          // section name -> the id its element had when last drawn (data-filters points there)
+  const nodes = new Map();        // tile id -> its node as last drawn
+  let chosen = null;              // the choice; null: not read yet (the store, else the default)
+
+  const tileOf = (id) => (id ? list().find((x) => x.id === id) || null : null);
+  const nameOf = (x) => (typeof x.section === 'string' ? x.section : x.id);
+  const isFilter = (x) => !!(x && x.filters);
+  const sectionId = (name) => ids.get(name) || `${desk}-s-${name}`;
+  const fromStore = () => { const v = Office.store(key); return v === null ? String(o.default || '') : v; };
+  const current = () => {
+    if (chosen === null) chosen = fromStore();
+    return tileOf(chosen) ? chosen : '';
+  };
+
+  function sectionNode(name) {
+    const own = list().find((x) => x.id === name && typeof x.section === 'function');
+    const fn = typeof shared[name] === 'function' ? shared[name] : own ? own.section : null;
+    const node = fn ? fn() : null;
+    if (!node || !node.nodeType) return null;
+    if (!node.id) node.id = `${desk}-s-${name}`;
+    ids.set(name, node.id);
+    node.dataset.section = name;
+    return node;
+  }
+
+  function tileNode(x, cur) {
+    const on = x.id === cur;
+    const filt = isFilter(x);
+    const a = {
+      on: () => pick(x.id, 'click'), pressed: on, active: on, controls: body.id,
+      filters: filt ? sectionId(nameOf(x)) : undefined, mark: t(filt ? 'common.tile_filter' : 'common.tile_open'),
+      place: x.place || `tile.${x.id}`,
+    };
+    const n = typeof x.tile === 'function' ? x.tile(a) : null;
+    if (!n || !n.nodeType) return null;
+    // the one place for these: what the desk's builder left out, the helper sets anyway
+    n.dataset.tile = x.id;
+    n.setAttribute('aria-pressed', on ? 'true' : 'false');
+    n.setAttribute('aria-controls', body.id);
+    if (filt) n.dataset.filters = a.filters; else delete n.dataset.filters;
+    if (!n.dataset.place) Office.place(a.place, n);
+    if (on && !n.classList.contains('tile-on')) tileMark(n, a, true);
+    return n;
+  }
+
+  /** «◂ All» and the sticky head: the chosen section's head (the phone keeps it at the top while its section scrolls) */
+  function stickyHead(node) {
+    const head = node && node.querySelector ? node.querySelector('.section-head') : null;
+    if (!head) return;
+    head.classList.add('sticky');
+    const above = unraidAbove();
+    head.style.top = above + 'px';
+    head.style.scrollMarginTop = above + 'px';
+    const all = el('button', 'chip section-all', t('common.tile_all'));
+    all.type = 'button';
+    all.addEventListener('click', () => pick('', 'all'));
+    const bar = head.querySelector('.section-bar') || head;
+    bar.prepend(all);
+  }
+
+  function draw() {
+    const cur = current();
+    const f = document.activeElement;
+    const had = f && f !== grid && grid.contains(f) ? (f.dataset || {}).tile : null;
+    nodes.clear();
+    grid.replaceChildren();
+    list().forEach((x) => {
+      const n = tileNode(x, cur);
+      if (!n) return;
+      nodes.set(x.id, n);
+      grid.appendChild(n);
+    });
+    body.replaceChildren();
+    const drawn = [];
+    const add = (name) => {
+      if (drawn.includes(name)) return null;
+      const node = sectionNode(name);
+      if (!node) return null;
+      drawn.push(name);
+      body.appendChild(node);
+      return node;
+    };
+    if (cur) stickyHead(add(nameOf(tileOf(cur))));
+    else list().forEach((x) => add(nameOf(x)));
+    body.dataset.active = cur;
+    body.dataset.sections = drawn.join(' ');
+    if (had && nodes.has(had) && document.activeElement !== nodes.get(had)) nodes.get(had).focus({ preventScroll: true });
+  }
+
+  /** the one deliberate move after a pick (CLAUDE.md «Tiles», the viewport rule) — keepInPlace came first */
+  function move(how, was) {
+    if (!grid.isConnected) return;
+    const above = unraidAbove();
+    const cur = current();
+    if (cur) {
+      const head = body.querySelector('.section-head');
+      if (!head) return;
+      const r = head.getBoundingClientRect();
+      if (isPhone()) window.scrollTo({ top: Math.max(0, Math.round(r.top + window.scrollY - above)), behavior: 'auto' });
+      else if ((r.top < above || r.bottom > window.innerHeight) && head.scrollIntoView) head.scrollIntoView({ block: 'nearest' }); /* reveal */
+      return;
+    }
+    // nothing active: on a phone back to the row — the tile that went off in view (at the top), when it isn't
+    const off = nodes.get(was);
+    if (!off || !isPhone()) return;
+    const r = off.getBoundingClientRect();
+    if (r.top < above || r.bottom > window.innerHeight) window.scrollTo({ top: Math.max(0, Math.round(r.top + window.scrollY - above - 12)), behavior: 'auto' });
+  }
+
+  function pick(id, how) {
+    const h = how || 'click';
+    const was = current();
+    let next = String(id || '');
+    if (h === 'click' && next === was) next = '';
+    chosen = next;
+    const x = tileOf(next);
+    Office.store(key, isFilter(x) ? '' : next);            // a filter tile is never kept
+    if (o.onPick) o.onPick(current(), h);
+    if (grid.isConnected) Office.keepInPlace(grid, draw); else draw();
+    if (h === 'route') return;
+    move(h, was);
+    const focus = nodes.get(current() || was);
+    if (focus && h !== 'clear') focus.focus({ preventScroll: true });
+  }
+
+  const sw = {
+    el: box, grid, body,
+    render() { if (grid.isConnected) Office.keepInPlace(grid, draw); else draw(); return sw; },
+    pick(id, how) { pick(id, how); return sw; },
+    active: () => current(),
+    mount(sub) {
+      chosen = null;                                        // a new visit: the stored choice (never a filter tile)
+      const s = String(sub || '');
+      if (s && (tileOf(s) || (o.wants && o.wants(s)))) {
+        chosen = s;
+        Office.store(key, isFilter(tileOf(s)) ? '' : s);
+        if (o.onPick) o.onPick(current(), 'route');
+        Office.subroute('');
+        return true;
+      }
+      if (o.onPick) o.onPick(current(), 'store');
+      return false;
+    },
+    places: () => list().filter((x) => x.key && !String(x.id).includes(':'))
+      .map((x) => ({ kind: 'tile', key: x.key, anchor: x.place || `tile.${x.id}`, route: `#/${desk}/${x.id}` })),
+    note(name) {
+      const x = tileOf(current());
+      return { tile: isFilter(x) && (!name || nameOf(x) === name) ? String(x.filters) : '', clear: sw.clear };
+    },
+    clear() { pick('', 'clear'); },
+  };
+  return sw;
 };
 
 // ------------------------------------------------------------------ staff
@@ -2194,13 +2421,57 @@ Office.avatar = function avatar(id, big) {
   return box;
 };
 
-/** The desk head every secretary uses: avatar, name, role, speech bubble, actions */
-Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub }) {
+/*
+ * A desk's two pages (2026-10-11, tiles v2 — CLAUDE.md «Tiles»: two tabs = two pages, each with its own actions and its
+ * own state; everything else is a section of one page, a tile): a tab row under the bubble, above the page help.
+ *   Office.pages(desk, list, current[, store]) → <nav class="desk-pages" role="tablist">, or null when list isn't two
+ *     list: [{id: '', text: t('common.page_overview')}, {id: 'setup', text: T('page.setup')}] — exactly two, never more
+ *     current: the id shown; each tab an <a role="tab" aria-selected href="#/<desk>[/<id>]"> — today's routes; a click
+ *     is Office.go() (a new page: the top); store (Ms. Dustdevil's 'cleanup.page'): the page shown is kept there, for a
+ *     route that names no page (Office.pageFrom())
+ *   Office.deskHead(desk, {bubble, actions, pages: {list, current, store}}) puts it in the head.
+ */
+Office.pages = function pages(desk, list, current, store) {
+  const id = typeof desk === 'string' ? desk : desk && desk.id;
+  if (!id || !Array.isArray(list) || list.length !== 2 || list.some((p) => !p || typeof p.id !== 'string')) return null;
+  const nav = el('nav', 'desk-pages');
+  nav.setAttribute('role', 'tablist');
+  nav.setAttribute('aria-label', t(`${id}.name`));
+  const cur = list.some((p) => p.id === current) ? current : list[0].id;
+  if (store) Office.store(store, cur || null);
+  list.forEach((p) => {
+    const on = p.id === cur;
+    const a = el('a', on ? 'active' : '', p.text);
+    a.href = `#/${id}${p.id ? '/' + p.id : ''}`;
+    a.setAttribute('role', 'tab');
+    a.setAttribute('aria-selected', on ? 'true' : 'false');
+    a.dataset.page = p.id;
+    a.addEventListener('click', (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button > 0) return;     // a new tab or window: the browser's
+      e.preventDefault();
+      Office.go(a.getAttribute('href'));
+    });
+    nav.appendChild(a);
+  });
+  return nav;
+};
+/** The page a route means: its first part when it names one of the list, else the kept one (store), else the first */
+Office.pageFrom = function pageFrom(list, sub, store) {
+  const ids = (list || []).map((p) => p.id);
+  const first = String(sub || '').split('/')[0];
+  if (first && ids.includes(first)) return first;
+  const kept = store ? Office.store(store) : null;
+  return kept !== null && ids.includes(kept) ? kept : ids[0] ?? '';
+};
+
+/** The desk head every secretary uses: avatar, name, role, speech bubble, actions — and a desk's two pages as tabs */
+Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, pages }) {
   const head = el('div', 'deskhead');
   head.appendChild(Office.avatar(desk.id));
   const text = el('div', 'deskhead-text');
   const b = el('div', 'bubble');
-  if (page) {
+  const tabsNav = pages ? Office.pages(desk.id, pages.list, pages.current, pages.store) : null;
+  if (page && !tabsNav) {
     // a page of the desk (its setup …): the desk as a way back, the page's name big, no bubble
     head.classList.add('subpage');
     const crumb = el('a', 'deskhead-crumb', t(`${desk.id}.name`));
@@ -2216,12 +2487,13 @@ Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub }) {
     asofNodes.set(desk.id, asof);
     paintAsOf(desk.id, asof);
     text.appendChild(asof);
+    if (tabsNav) text.appendChild(tabsNav);
   }
   head.appendChild(text);
   const act = el('div', 'deskhead-actions');
   (actions || []).forEach((a) => act.appendChild(a));
   head.appendChild(act);
-  return { head, bubble: b, actions: act };
+  return { head, bubble: b, actions: act, pages: tabsNav };
 };
 
 // ------------------------------------------------------------------ reception
@@ -3499,9 +3771,7 @@ const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-
  */
 function placeTop(node) {
   if (node.closest('.dialog')) return null;
-  const menu = document.getElementById('menu');
-  const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
-  const top = node.getBoundingClientRect().top + window.scrollY - above - 12;
+  const top = node.getBoundingClientRect().top + window.scrollY - unraidAbove() - 12;
   const doc = document.documentElement;
   const most = doc && doc.scrollHeight ? Math.max(0, doc.scrollHeight - window.innerHeight) : Infinity;
   return Math.round(Math.max(0, Math.min(top, most)));
