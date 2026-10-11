@@ -1,7 +1,7 @@
 /* Ms. Dustdevil — knows every corner of the server, and clears away what nobody uses any more.
-   Her page has two parts. «Where is what» (the block `Where` at the end, up to 1.30 Ms. Whereabouts'
-   own desk): what is going on, her advice, where things are and every corner in detail — read only.
-   «Tidying up»: Docker templates
+   Her desk has two pages, two tabs under the bubble (tiles v2): «Where is what» (the block `Where` at the end, up to
+   1.30 Ms. Whereabouts' own desk): her advice, where things are and every corner in detail, the live numbers on the
+   corners' tiles — read only. «Tidying up»: her rooms, Docker templates
    without a container, Compose stacks without containers, appdata folders
    nothing names, what deleted VMs left behind (domains folders, NVRAM, TPM
    states, unused disk images) and Docker's own leftovers (images, volumes,

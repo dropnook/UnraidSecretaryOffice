@@ -956,28 +956,16 @@
   },
   "where.now": "Ce qui se passe",
   "where.uptime": "en marche depuis {time}",
-  "where.stat.array": "Array",
   "where.stat.started": "démarré",
   "where.stat.resync": "{action} {percent} %",
   "where.stat.mover": "le Mover tourne",
   "where.stat.no_parity": "aucun contrôle de parité en cours",
   "where.stat.running": "en cours",
-  "where.stat.smb": "Sessions SMB",
-  "where.stat.docker": "Docker",
-  "where.stat.vms": "VM",
-  "where.stat.smart": "SMART",
   "where.filter_label": "Filtrer les coins : noms, chemins, puces",
   "where.only_odd": "Seulement ce qui mérite un regard",
   "where.only_odd_hint": "Seulement les lignes avec un avertissement (puces rouges ou orange)",
   "where.filter_none": "Rien ici ne correspond au filtre.",
   "where.stat.nobody": "personne de connecté",
-  "where.stat.scripts": "User scripts",
-  "where.stat.none_running": "aucun en cours",
-  "where.stat.backup": "Moteur de sauvegarde",
-  "where.stat.backup_running": "sauvegarde en cours",
-  "where.stat.backup_idle": "au repos",
-  "where.stat.since": "depuis {time}",
-  "where.stat.scrub": "Scrub ZFS",
   "where.stat.load": "Charge",
   "where.stat.load_sub": "1 · 5 · 15 minutes",
   "where.section.shares": "Partages",
@@ -1205,7 +1193,6 @@
   },
   "where.find.license_expires": "la licence Unraid expire {when}",
   "where.find.license_check": "la vérification de licence dit : {detail}",
-  "where.stat.temp": "Disque le plus chaud",
   "where.stat.temp_warm": {
     "one": "{n} au-dessus de son seuil",
     "other": "{n} au-dessus de leur seuil"
@@ -1217,11 +1204,6 @@
     "other": "{n} disques avec des erreurs"
   },
   "where.stat.smart_ok": "aucune erreur",
-  "where.stat.smart_notes": {
-    "one": "{n} disque avec des timeouts/CRC (câble ?)",
-    "other": "{n} disques avec des timeouts/CRC (câbles ?)"
-  },
-  "where.stat.notices": "Notifications d'Unraid",
   "where.stat.notices_sub": "Non lus : {alerts} · {warnings}",
   "where.stat.license": "Licence",
   "where.stat.license_until": "jusqu'au {when}",
@@ -1473,8 +1455,6 @@
     "one": "Tournée terminée en {ms} ms — {n} disque réveillé.",
     "other": "Tournée terminée en {ms} ms — {n} disques réveillés."
   },
-  "where.details_title": "Tout en détail",
-  "where.details_hint": "choisis une tuile — indépendamment de « Où se trouvent les choses »",
   "where.place.cron": "Tâches cron",
   "where.place.cron_sub": {
     "one": "{n} tâche",
@@ -1487,7 +1467,6 @@
   "where.loc.cron_d_note": "Générée — les modifications ici sont écrasées.",
   "where.loc.crontab": "La propre crontab de root (crontab -e)",
   "where.loc.crontab_note": "Disparaît après un redémarrage.",
-  "where.look": "regarder",
   "where.sum.shares": {
     "one": "{n} partage",
     "other": "{n} partages"
@@ -1526,7 +1505,6 @@
   "where.tip.passthrough": "Des périphériques de l'hôte (p. ex. un GPU ou un contrôleur USB) passés directement dans la VM — sur un autre serveur, ils n'existent peut-être pas.",
   "where.tip.autostart_vm": "Démarre quand le service VM démarre.",
   "where.tip.vm_snapshot": "Snapshots de VM — ouvrir Madame Snapshotini",
-  "where.now_sub": "En direct depuis le serveur — toucher une tuile ouvre son coin plus bas, un second toucher le referme.",
   "where.wake_failed": "Ne s'est pas réveillé : {disks} — ce qui s'y trouve est affiché comme avant.",
   "where.pool_label": "Pool {name}",
   "where.devices_n": {

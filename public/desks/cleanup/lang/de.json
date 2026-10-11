@@ -956,28 +956,16 @@
   },
   "where.now": "Was gerade los ist",
   "where.uptime": "läuft seit {time}",
-  "where.stat.array": "Array",
   "where.stat.started": "gestartet",
   "where.stat.resync": "{action} {percent} %",
   "where.stat.mover": "Mover läuft",
   "where.stat.no_parity": "keine Paritätsprüfung",
   "where.stat.running": "laufen",
-  "where.stat.smb": "SMB-Sitzungen",
-  "where.stat.docker": "Docker",
-  "where.stat.vms": "VMs",
-  "where.stat.smart": "SMART",
   "where.filter_label": "Die Ecken filtern: Namen, Pfade, Chips",
   "where.only_odd": "Nur Auffälliges",
   "where.only_odd_hint": "Nur die Zeilen mit einer Warnung (rote oder orange Chips)",
   "where.filter_none": "Hier passt nichts zum Filter.",
   "where.stat.nobody": "niemand verbunden",
-  "where.stat.scripts": "User Scripts",
-  "where.stat.none_running": "keins läuft",
-  "where.stat.backup": "Backup-Engine",
-  "where.stat.backup_running": "Sicherung läuft",
-  "where.stat.backup_idle": "ruht",
-  "where.stat.since": "seit {time}",
-  "where.stat.scrub": "ZFS-Scrub",
   "where.stat.load": "Last",
   "where.stat.load_sub": "1 · 5 · 15 Minuten",
   "where.section.shares": "Shares",
@@ -1205,7 +1193,6 @@
   },
   "where.find.license_expires": "die Unraid-Lizenz läuft {when} ab",
   "where.find.license_check": "die Lizenzprüfung meldet: {detail}",
-  "where.stat.temp": "Wärmste Disk",
   "where.stat.temp_warm": {
     "one": "{n} über ihrem Grenzwert",
     "other": "{n} über ihrem Grenzwert"
@@ -1217,11 +1204,6 @@
     "other": "{n} Disks mit Fehlern"
   },
   "where.stat.smart_ok": "keine Fehler",
-  "where.stat.smart_notes": {
-    "one": "{n} Disk mit Timeouts/CRC (Kabel?)",
-    "other": "{n} Disks mit Timeouts/CRC (Kabel?)"
-  },
-  "where.stat.notices": "Unraid-Benachrichtigungen",
   "where.stat.notices_sub": "Ungelesen: {alerts} · {warnings}",
   "where.stat.license": "Lizenz",
   "where.stat.license_until": "bis {when}",
@@ -1473,8 +1455,6 @@
     "one": "Rundgang fertig in {ms} ms — 1 Disk geweckt.",
     "other": "Rundgang fertig in {ms} ms — {n} Disks geweckt."
   },
-  "where.details_title": "Alles im Detail",
-  "where.details_hint": "Kachel wählen — unabhängig von «Wo liegt was»",
   "where.place.cron": "Cronjobs",
   "where.place.cron_sub": {
     "one": "1 Job",
@@ -1487,7 +1467,6 @@
   "where.loc.cron_d_note": "Erzeugt — Änderungen hier werden überschrieben.",
   "where.loc.crontab": "Eigene Crontab von root (crontab -e)",
   "where.loc.crontab_note": "Nach einem Neustart weg.",
-  "where.look": "ansehen",
   "where.sum.shares": {
     "one": "1 Share",
     "other": "{n} Shares"
@@ -1526,7 +1505,6 @@
   "where.tip.passthrough": "Geräte des Hosts (z. B. eine Grafikkarte oder ein USB-Controller), direkt in die VM durchgereicht — auf einem anderen Server gibt es sie vielleicht nicht.",
   "where.tip.autostart_vm": "Startet mit dem VM-Dienst.",
   "where.tip.vm_snapshot": "VM-Snapshots — Frau Snapshotini öffnen",
-  "where.now_sub": "Live vom Server — antippen öffnet die Ecke dazu weiter unten, nochmals antippen schliesst sie wieder.",
   "where.wake_failed": "Nicht aufgewacht: {disks} — was dort liegt, zeige ich mit dem Stand von vorher.",
   "where.pool_label": "Pool {name}",
   "where.devices_n": {
