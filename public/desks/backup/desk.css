@@ -199,4 +199,12 @@
    of the table or the list with no row that fits keeps its head and says so in one line */
 .bk-filter-none{margin:0; padding:2px 2px 4px; font-size:13px; color:var(--muted)}
 td.bk-filter-none{padding:6px 10px; font-weight:400; white-space:normal}
+/* the setup page's own head line under the tabs (tiles v2, two tabs = two pages): its name and what it is on the left, the
+   page's actions (plan anew, measure, the default, forget) on the right — on a phone the actions go under the text */
+.bk-pagehead{display:flex; align-items:flex-start; gap:10px 16px; flex-wrap:wrap; margin:0 0 4px}
+.bk-pagehead-text{flex:1 1 320px; min-width:0; display:flex; flex-direction:column; gap:3px}
+.bk-pagehead-title{font-size:18px; font-weight:700; color:var(--ink); line-height:1.25}
+.bk-pagehead-sub{margin:0; font-size:13px; color:var(--ink2); max-width:80ch; line-height:1.45}
+.bk-pagehead-actions{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end}
+@media (max-width:640px){.bk-pagehead-actions{justify-content:flex-start; width:100%}}
 }
