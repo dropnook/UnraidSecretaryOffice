@@ -5,7 +5,7 @@
   "greet.1": "Piano, piano — zuerst schauen wir, was genau fehlt.",
   "greet.2": "Welcher Stand soll es sein? Ich hole ihn, wie er war.",
   "greet.3": "Weisse Handschuhe an. Was noch da ist, wird nicht ungefragt überschrieben.",
-  "fire_note": "Herrn Backupsis Backups bleiben genau, wie sie sind — ich lese sie nur.",
+  "fire_note": "Die Backups von Herrn Backupsi bleiben genau, wie sie sind — ich lese sie nur.",
   "fit.packages": {"one": "In Herrn Backupsis Paketen liegt 1 App oder VM, die ich zurückholen kann.", "other": "In Herrn Backupsis Paketen liegen {n} Apps und VMs, die ich zurückholen kann."},
   "fit.no_packages": "Herr Backupsi ist eingerichtet, aber noch gibt es keine Pakete — sie kommen mit seinem nächsten Backup. Dann kann ich Apps und VMs zurückholen.",
   "fit.with_backup": "Noch gibt es für mich nichts zurückzuholen: Ich hole Apps und VMs aus Herrn Backupsis Paketen und ihren Snapshots zurück, und bisher gibt es keine. Stell mich am besten zusammen mit ihm ein.",
