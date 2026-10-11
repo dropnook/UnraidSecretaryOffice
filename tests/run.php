@@ -28335,6 +28335,12 @@ function testMoverelliRun(): void
          array_map('filemtime', glob("$fl/*") ?: [])]);
     exec('rm -rf ' . escapeshellarg("$fl/Film (2020) [1080p]") . ' ' . escapeshellarg("$fl/Box [4K]") . ' ' . escapeshellarg("$fl/what?.mkv") . ' ' . escapeshellarg("$fl/whatX.mkv"));
     unlink("$tmp/literal.txt");
+    // the copy names the upstream commit it matches and each upstream piece taken over (helmi1987 took the fix as 3bee448)
+    $sm = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
+    check('moverelli upstream: the script\'s header names 3bee448 and both pieces, the README the same commit, find_literal in his wording',
+        str_contains($sm, "#   6382fb4  threshold on ZFS") && str_contains($sm, "#   3bee448  absolute exclude entries match literally")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/smartmover/README.md'), 'commit `3bee44803cc4425b80aa70d20e63765e1baff592`')
+        && str_contains($sm, "find_literal() {  # path -> FIND_LITERAL (no subshell: an EmbyCache list has many lines)\n    local s=\"\$1\" bs='\\'\n"));
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
 
     // her list of runs: at most 40, a scheduled refusal again for the same reason counted on one line
