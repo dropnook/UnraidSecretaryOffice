@@ -28320,6 +28320,49 @@ function testSnapPoolSplit(): void
 }
 
 /**
+ * Ms. Snapshotini's «Array» card (2026-10-12): every array disk is a row there, btrfs and ZFS alike. A ZFS-formatted
+ * array disk is a one-disk pool named disk<N>; the agent tells it by Unraid's bookkeeping (disks.ini type="Data"), never
+ * by the name — a pool someone called «disk9» keeps its card. Her btrfs disks carry the same flag (a btrfs pool or an
+ * unassigned disk is no array disk). Stand-ins for zfs, zpool and disks.ini in a temporary folder.
+ */
+function testSnapArrayDisks(): void
+{
+    same('array disks: disks.ini type="Data" only — not parity, a pool (whatever its name), the flash; the name field before the section',
+        ['disk1' => true, 'disk2' => true],
+        snapshotArrayDisks(['parity' => ['name' => 'parity', 'type' => 'Parity'], 'disk1' => ['name' => 'disk1', 'type' => 'Data', 'fsType' => 'btrfs'],
+            'x' => ['name' => 'disk2', 'type' => 'Data', 'fsType' => 'zfs'], 'disk9' => ['name' => 'disk9', 'type' => 'Cache', 'fsType' => 'zfs'],
+            'flash' => ['name' => 'flash', 'type' => 'Flash'], 'broken' => 'x']));
+    $tmp = hardeningTmp('snaparray');
+    file_put_contents("$tmp/disks.ini", "[\"parity\"]\nname=\"parity\"\ntype=\"Parity\"\n[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"btrfs\"\nspundown=\"0\"\n"
+        . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\nfsType=\"zfs\"\nspundown=\"1\"\n[\"disk9\"]\nname=\"disk9\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n"
+        . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/zpool", "#!/bin/sh\n[ \"\$1\" = list ] && printf 'cache\\t100\\t10\\t90\\t10\\tONLINE\\t1\\ndisk2\\t200\\t20\\t180\\t10\\tONLINE\\t0\\ndisk9\\t300\\t30\\t270\\t10\\tONLINE\\t0\\n'\nexit 0\n");
+    file_put_contents("$tmp/zfs", "#!/bin/sh\nexit 0\n");
+    chmod("$tmp/zpool", 0755);
+    chmod("$tmp/zfs", 0755);
+    $before = [$GLOBALS['disksIni'] ?? null, $GLOBALS['snapshotHost'] ?? null];
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotHost'] = ['zfs' => "$tmp/zfs", 'zpool' => "$tmp/zpool", 'docker' => null];
+    $z = snapshotReadZfs(null, false);
+    same('array disks: her ZFS pools carry `array` — disk2 (an array disk, asleep: still one) yes, cache and the pool called disk9 no',
+        [['cache', false, false], ['disk2', true, true], ['disk9', false, false]], array_map(fn ($p) => [$p['name'], $p['array'], $p['asleep']], $z['pools']));
+    $GLOBALS['disksIni'] = $before[0];
+    $GLOBALS['snapshotHost'] = $before[1];
+    if ($before[0] === null) {
+        unset($GLOBALS['disksIni']);
+    }
+    if ($before[1] === null) {
+        unset($GLOBALS['snapshotHost']);
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/snapshot.php');
+    check('array disks: her btrfs disks carry the same flag', str_contains($src, "'array'   => isset(\$arrayDisks[\$name]),"));
+    $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/snapshot.json'), true) ?: [];
+    $arr = array_filter((array) ($demo['zfs']['pools'] ?? []), fn ($p) => !empty($p['array']));
+    check('array disks: the demo state shows «Array» with both kinds (a btrfs disk and a ZFS array disk)', $arr !== [] && !empty($demo['btrfs']['devices']));
+    hardeningRm($tmp);
+}
+
+/**
  * Jack's and Ms. Snapshotini's pages on the section switcher (tiles v2, CLAUDE.md «Tiles», 2026-10-12), read in their
  * code: Office.sections() with their start tiles (Pool / none), their tiles and sections; real buttons (no role="button"
  * on a tile — her list's group heads fold, they are no tiles), no scrollIntoView for a tile (Jack's one is a dialog's
@@ -28378,10 +28421,11 @@ function testTilesMediaPages(): void
         && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.place(`plan:\${job}`")
         && str_contains($emby, "...sw.places().map(") && str_contains($emby, "route: `#/\${ID}/history`"));
     // Ms. Snapshotini
-    check('snapshot page: the switcher — no start tile; pool cards, the btrfs disks\' rows, the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
+    check('snapshot page: the switcher — no start tile; pool cards, the array disks\' rows (btrfs and ZFS), the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
         str_contains($snap, "const sw = Office.sections({") && str_contains($snap, "default: '',")
-        && str_contains($snap, "({ id: POOL + p.name, place: `pool:\${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })")
-        && str_contains($snap, "({ id: POOL + d.name, place: `pool:\${d.name}`, section: 'list', filters: d.name, tile: (a) => btrfsRow(d, a) })")
+        && str_contains($snap, "...ownPools().map((p) => ({ id: POOL + p.name, place: `pool:\${p.name}`, section: 'list', filters: p.name, tile: (a) => zfsCard(p, a) })")
+        && str_contains($snap, "({ id: POOL + x.name, place: `pool:\${x.name}`, section: 'list', filters: x.name, tile: (a) => diskRow(x, a) })")
+        && str_contains($snap, "function ownPools() { return (state?.zfs?.pools || []).filter((p) => p.array !== true); }")
         && str_contains($snap, "{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs',")
         && str_contains($snap, "{ id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(),")
         && str_contains($snap, "{ id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list',")
@@ -28389,8 +28433,9 @@ function testTilesMediaPages(): void
     check('snapshot page: the pool kept as snapshot.pool (the one filter kept), back once her state has its tile; the old «Storage» head and the tile wrapper gone',
         str_contains($snap, "Office.store('snapshot.pool', String(id).startsWith(POOL) ? id.slice(POOL.length) : null);")
         && str_contains($snap, "if (filterPools().has(name)) sw.pick(POOL + name, 'route');") && !str_contains($snap, "T('storage.sub')") && !str_contains($snap, 'sp-tilewrap'));
-    check('snapshot page: a btrfs disk\'s row is a real button with the switcher\'s click, pressed state, glow and mark; the card holding them is no tile',
-        str_contains($snap, "const row = asTile(Office.place(`pool:\${d.name}`, el('button', 'minirow'") && str_contains($snap, "card.removeAttribute('aria-pressed');")
+    check('snapshot page: a disk\'s row is a real button with the switcher\'s click, pressed state, glow and mark, its tag (btrfs / ZFS) on it; the card holding them is no tile',
+        str_contains($snap, "const row = asTile(Office.place(`pool:\${x.name}`, el('button', 'minirow'")
+        && str_contains($snap, "el('span', 'tag', x.kind === 'zfs' ? 'ZFS' : 'btrfs')") && str_contains($snap, "card.removeAttribute('aria-pressed');")
         && str_contains($snap, "row.classList.add('tile-on');") && str_contains($snap, "node.setAttribute('aria-pressed', a.pressed ? 'true' : 'false');"));
     check('snapshot page: «Snapshots» card — how many and what they take, what the switches hide; the empty list counts the hidden ones (never «0 of 0»)',
         str_contains($snap, "lines.push(T('snaps_tile.hidden', { what: what.join(', ') }));") && str_contains($snap, "view.bar.done(n, state ? listed().length : 0, sw.note('list'));")
@@ -29084,7 +29129,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

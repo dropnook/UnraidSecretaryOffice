@@ -273,6 +273,25 @@ function snapshotIndex(array $state): array
 // --------------------------------------------------------------------- ZFS
 
 /**
+ * The array's data disks by name (disks.ini `type="Data"`: disk1, disk2 …) => true. A ZFS-formatted array disk is a
+ * one-disk pool of that name, a btrfs one a filesystem under /mnt/<name>; her page puts both into its «Array» card,
+ * every other pool gets a card of its own. Told by Unraid's bookkeeping, never by the name alone (a pool may be called
+ * «disk9»). $ini: disks.ini by section (tests); read when null.
+ *
+ * @return array<string, true>
+ */
+function snapshotArrayDisks(?array $ini = null): array
+{
+    $out = [];
+    foreach ($ini ?? readCfg(disksIniFile(), true) as $section => $d) {
+        if (is_array($d) && ($d['type'] ?? '') === 'Data') {
+            $out[(string) ($d['name'] ?? $section)] = true;
+        }
+    }
+    return $out;
+}
+
+/**
  * ZFS: the pools (`zpool list` — the kernel's own bookkeeping, no disk asked), then the datasets and
  * snapshots of the AWAKE pools only (`zfs list … -r <pool>`; disks.ini says which sleep, a pool sleeps when
  * any of its disks does, `poolsBySleep()`). A sleeping pool is never asked: whether zfs would read its disks
@@ -304,6 +323,7 @@ function snapshotReadZfs(?array $old = null, bool $wake = false, ?array $host = 
         }
     }
     $split = poolsBySleep(array_keys($poolRows));
+    $arrayDisks = snapshotArrayDisks();
     $look = $wake ? array_keys($poolRows) : $split['awake'];
     $kept = $wake ? [] : $split['asleep'];
     $keptSet = array_flip($kept);
@@ -457,6 +477,7 @@ function snapshotReadZfs(?array $old = null, bool $wake = false, ?array $host = 
             'docker'   => $dockerCount[$name] ?? 0,
             'asleep'   => $sleeping,
             'looked'   => $looked,
+            'array'    => isset($arrayDisks[$name]),   // a ZFS-formatted array disk (disk2 …): a row in her «Array» card
         ];
     }
 
@@ -508,6 +529,7 @@ function snapshotBtrfsPart(?array $old, bool $read, bool $wake, array $only): ar
     }
     $devices = btrfsDevices();
     $asleep = sleepingDisks();
+    $arrayDisks = snapshotArrayDisks();
 
     $oldDevices = [];
     foreach ($old['devices'] ?? [] as $d) {
@@ -542,6 +564,7 @@ function snapshotBtrfsPart(?array $old, bool $read, bool $wake, array $only): ar
             'asleep'  => $asleep[$name] ?? false,
             'scanned' => $oldDevices[$mount]['scanned'] ?? null,
             'error'   => $oldDevices[$mount]['error'] ?? null,
+            'array'   => isset($arrayDisks[$name]),     // an array disk, else a pool of its own (cache …) or an unassigned disk
         ];
         $snaps = $oldSnaps[$mount] ?? [];
         if (isset($fresh[$mount])) {

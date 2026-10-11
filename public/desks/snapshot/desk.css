@@ -16,7 +16,10 @@
 .sp-tiles > .card.tile-on > .card-head{flex-wrap:wrap; row-gap:2px; padding-right:118px}
 .sp-tiles > .card.tile-on > .card-head > .status{flex-basis:100%; margin-left:0}
 .sp-tiles > .card.tile-on > .card-head > .card-chip{margin-left:0}
-/* a btrfs disk's row as a tile (tiles v2): its mark on a line of its own under the row, not over the count */
+/* a disk's row as a tile (tiles v2): its mark on a line of its own under the row, not over the count */
 .minirow.tile-on{margin:2px -4px}
 .minirow .tile-mark{position:static; grid-column:1 / -1; justify-self:start}
+/* «Array» (and a btrfs pool's card): a row per disk — name, its filesystem's tag (btrfs / ZFS), the bar, the count */
+.sp-disks .minirow{grid-template-columns:48px 44px minmax(40px,1fr) auto}
+.sp-disks .minirow .tag{justify-self:start}
 }
