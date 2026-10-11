@@ -67,6 +67,9 @@ desk('moverelli', [
         'log'       => fn (array $r) => moverelliLog(),
         // «Switch Unraid's mover schedule off…»: Unraid's own ⟦Mover schedule⟧ «Disabled», as its form sets it (emby-mover.php)
         'mover_off' => fn (array $r) => moverelliMoverOff($r) + ['state' => moverelliScan()],
+        // taking over an earlier install of the Smart Mover (moverelli-import.php): what would come over — and doing it, with the preview's token
+        'import_preview' => fn (array $r) => moverelliImportPreview($r),
+        'import_apply'   => fn (array $r) => moverelliImportDo($r),
     ],
     'jobs'    => [
         'moverelli' => fn (array $args) => moverelliJob($args),
@@ -102,6 +105,8 @@ function moverelliHost(): array
         'us_dir'        => $h['us_dir'] ?? US_DIR,
         'cron_glob'     => $h['cron_glob'] ?? '/boot/config/plugins/*/*.cron',
         'unraid_cron'   => $h['unraid_cron'] ?? EMBY_MOVER_CRON,
+        // taking over an earlier install (moverelliImportContext()): what the tests put in place of the server's pools, disks, tree
+        'import'        => $h['import'] ?? [],
     ];
 }
 
@@ -178,9 +183,21 @@ function moverelliIniRead(string $file): ?array
     if (!is_file($file) || is_link($file)) {
         return null;
     }
+    return moverelliIniParse((string) @file_get_contents($file, false, null, 0, 1 << 20));
+}
+
+/**
+ * An ini's text as Smart Mover reads it (moverelliIniRead(); also an earlier install's, moverelli-import.php): per section
+ * the first value of each key, both trimmed; comment lines (# ;) left out, CRLF tolerated; lines before the first section
+ * left out.
+ *
+ * @return array<string, array<string, string>>
+ */
+function moverelliIniParse(string $text): array
+{
     $out = [];
     $sec = null;
-    foreach (preg_split('/\r?\n/', (string) @file_get_contents($file, false, null, 0, 1 << 20)) ?: [] as $line) {
+    foreach (preg_split('/\r?\n/', $text) ?: [] as $line) {
         $t = trim($line);
         if ($t === '' || $t[0] === '#' || $t[0] === ';') {
             continue;
@@ -500,8 +517,11 @@ function moverelliWrite(array $set, string $dir): void
     }
 }
 
-/** moverelli.save: checked, refused while a run of hers goes, written; logged */
-function moverelliSave(mixed $in, ?array $h = null): array
+/**
+ * moverelli.save: checked, refused while a run of hers goes, written; logged. $before runs with her lock held, right
+ * before anything is written (the import's copies of her files: moverelli-import.php).
+ */
+function moverelliSave(mixed $in, ?array $h = null, ?callable $before = null): array
 {
     $h ??= moverelliHost();
     if (!is_array($in)) {
@@ -521,6 +541,9 @@ function moverelliSave(mixed $in, ?array $h = null): array
         throw new Problem('moverelli_running');
     }
     try {
+        if ($before !== null) {
+            $before();
+        }
         moverelliWrite($set, $h['dir']);
     } finally {
         flock($lock, LOCK_UN);

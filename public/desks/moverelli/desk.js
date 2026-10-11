@@ -635,9 +635,11 @@ function renderSetup() {
     [T('setup.files'), T('setup.help_files')],
     [T('setup.shares'), T('setup.help_shares')],
     [T('setup.save'), T('setup.help_save')],
+    [T('import.title'), T('import.help')],
   ]));
   if (!state) return;
   if (!form) initForm();
+  if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the Smart Mover before
   const g = form.global;
 
   // 1. the rules for all shares
@@ -679,6 +681,7 @@ function renderSetup() {
   });
   if (!shares.length) s2.appendChild(el('p', 'empty', T('shares_none')));
   root.appendChild(s2);
+  if (state.configured) root.appendChild(importSection());
 
   const bar = el('div', 'toolbar');
   const save = button(T('setup.save'), '', saveSetup);
@@ -703,6 +706,152 @@ async function saveSetup() {
   Office.toast(T('setup.saved'));
   form = null;
   Office.go(`#/${ID}`);
+}
+
+// ------------------------------------------------------------------ taking over an earlier install
+/*
+ * Someone who ran helmi1987's Smart Mover before (usually from a User Script) types the folder of its smart_mover.ini;
+ * the agent reads it and the lists it names on the server (agent/desks/moverelli-import.php), the preview says what
+ * would come over and what is left out, the import needs its token. It replaces her settings as a whole. Afterwards:
+ * switch the old User Script off yourself, start with a dry run, the copies of her files are named.
+ */
+let importFolder = '';
+/** The setup's label of a key of the ini */
+const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold', move_prefer_shares: 'setup.prefer',
+  mover_debug: 'setup.debug', max_list: 'setup.max_list', skip: 'setup.skip' };
+
+function importSection() {
+  const b = button(T('import.open'), 'small', importDialog);
+  b.disabled = !Office.agent.running;
+  return section(T('import.title'), T('import.sub'), b, { place: 'import.title' });
+}
+
+function importDialog() {
+  const box = el('div');
+  box.appendChild(el('p', '', T('import.intro')));
+  const f = el('div', 'mo-form');
+  const i = input(importFolder, (x) => { importFolder = x; });
+  i.placeholder = '/mnt/user/system/scripts/custommover';
+  f.appendChild(field(T('import.folder'), i, T('import.folder_hint')));
+  const err = errorLine();
+  box.append(f, el('p', 'role', T('import.read_only')), err);
+  Office.dialog({ title: T('import.title'), body: box, wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('import.look'), kind: '', act: () => importLook(err) }] });
+}
+
+async function importLook(err) {
+  const folder = importFolder.trim();
+  const j = await Office.api.post(`${ID}.import_preview`, { folder });
+  if (!j.ok) { showError(err, j.error); return false; }
+  importPreview(j.preview, folder);
+  return true;
+}
+
+/** A value as her setup page says it */
+function importValue(key, v) {
+  if (typeof v === 'boolean') return T(v ? 'import.yes' : 'import.no');
+  if (key === 'age_stat') return T('age_stat.' + v);
+  return String(v);
+}
+
+/** A short list: the label (mono) and a text beside it */
+function importList(items) {
+  const ul = el('ul', 'shortlist');
+  items.forEach(([k, text, cls]) => { const li = el('li', cls || '', k); if (text !== undefined) li.appendChild(el('span', '', text)); ul.appendChild(li); });
+  return ul;
+}
+function importHead(text) { return el('p', 'mo-imp-head', text); }
+const importScope = (scope) => (scope === 'GLOBAL' ? T('import.scope_global') : scope);
+
+/** What a list file of the old ini became: copied (how many entries), Jack Emby's own named, or not read and why */
+function importFileText(f) {
+  if (f.how === 'jack') return T('import.how.jack');
+  if (f.how === 'copied') return T('import.how.copied', { entries: nOf('entries', f.lines) });
+  return T('import.how.not_read.' + (f.why || 'not_allowed'));
+}
+
+function importPreview(p, folder) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('import.preview_bubble')));
+  const kv = el('dl', 'kv');
+  kv.append(el('dt', '', T('import.folder')), el('dd', 'mono', p.folder));
+  box.appendChild(kv);
+  (p.blocked || []).forEach((b) => box.appendChild(el('p', 'callout warn', T('import.block.' + b.why, { scope: importScope(b.scope), ...(b.n !== undefined ? { n: b.n } : {}), max: b.max }))));
+  if (p.configured) {
+    box.appendChild(el('p', 'callout', T('import.replaces') + (p.gone.length ? ' ' + T('import.gone', { shares: p.gone.join(', ') }) : '')));
+  }
+
+  // the values: for all shares, then per share
+  box.appendChild(importHead(T('setup.global')));
+  box.appendChild(importList(p.global.map((x) => [T(IMPORT_LABEL[x.key]),
+    importValue(x.key, x.value) + (x.old ? '' : ' · ' + T('import.default'))])));
+  box.appendChild(importHead(T('setup.shares')));
+  if (p.shares.length) {
+    box.appendChild(importList(p.shares.map((s) => [s.share,
+      s.values.length ? s.values.map((x) => `${T(IMPORT_LABEL[x.key])}: ${importValue(x.key, x.value)}`).join(' · ') : T('import.only_lists')])));
+  } else {
+    box.appendChild(el('p', 'role', T('import.shares_none')));
+  }
+
+  // the lists: what comes into hers, file by file
+  if (p.lists.length) {
+    box.appendChild(importHead(T('setup.files')));
+    p.lists.forEach((l) => {
+      box.appendChild(el('p', 'mo-imp-scope', `${importScope(l.scope)} — ${T('import.taken', { entries: nOf('entries', l.taken) })}`));
+      box.appendChild(importList(l.files.map((f) => [f.file, importFileText(f), f.how === 'not_read' ? 'mo-imp-warn' : ''])));
+      l.files.filter((f) => f.frozen).forEach(() => box.appendChild(el('p', 'role', T('import.how.frozen'))));
+      if (l.sample.length) box.appendChild(el('p', 'role', T('import.sample', { lines: l.sample.join(' · ') })));
+      if (l.bad) box.appendChild(el('p', 'role', T('import.bad_lines', { n: l.bad })));
+    });
+  }
+  if (p.jack_lists) box.appendChild(el('p', 'role', T('import.jack_note')));
+
+  // what is left out, and why
+  if (p.left.length) {
+    box.appendChild(importHead(T('import.left')));
+    box.appendChild(importList(p.left.map((x) => [`[${x.section}] ${x.key}`,
+      x.why === 'bad' ? T('import.why.bad.' + x.reason, { value: x.value }) : T('import.why.' + x.why, { value: x.value || '' })])));
+  }
+  if (p.skipped.length) {
+    box.appendChild(importHead(T('import.skipped')));
+    box.appendChild(importList(p.skipped.map((x) => [`[${x.section}]`, T('import.skip_why.' + x.why)])));
+  }
+
+  if (p.running) box.appendChild(el('p', 'callout warn', T('errors.moverelli_running')));
+  else if (!p.ready) box.appendChild(el('p', 'callout warn', T('errors.moverelli_import_blocked')));
+  else box.appendChild(el('p', 'role', T('import.backup_note')));
+  const err = errorLine();
+  box.appendChild(err);
+  const buttons = [{ text: Office.t('common.cancel') }];
+  if (p.ready && !p.running && Office.agent.running) buttons.push({ text: T('import.go'), kind: '', act: () => importGo(folder, p, err) });
+  Office.dialog({ title: T('import.preview_title'), body: box, wide: true, buttons });
+}
+
+async function importGo(folder, p, err) {
+  const j = await Office.api.post(`${ID}.import_apply`, { folder, token: p.token });
+  if (!j.ok) { showError(err, j.error); return false; }
+  if (j.state) state = j.state;
+  form = null;
+  importDone(j.done);
+  return true;
+}
+
+function importDone(d) {
+  const box = el('div');
+  box.appendChild(el('p', '', T('import.done_bubble')));
+  const what = [T('import.done_rules'), T('import.done_shares', { n: d.shares }), T('import.done_lines', { n: d.lines })];
+  if (d.jack) what.push(T('import.done_jack'));
+  box.appendChild(importList(what.map((w) => [w])));
+  const still = (state && state.foreign && state.foreign.scripts) || [];
+  box.appendChild(el('p', 'callout warn', T('import.done_switch_off') + (still.length ? ' ' + T('import.done_still', { where: still.join(', ') }) : '')));
+  box.appendChild(el('p', 'callout', T('import.done_dry')));
+  if (d.backups.length) {
+    box.append(importHead(T('import.done_copies')), importList(d.backups.map((f) => [f])), el('p', 'role', T('import.done_undo', { stamp: d.stamp })));
+  } else {
+    box.appendChild(el('p', 'role', T('import.done_nothing_before')));
+  }
+  Office.dialog({ title: T('import.done_title'), body: box, wide: true,
+    buttons: [{ text: Office.t('common.close'), kind: '' }], onClose: () => Office.go(`#/${ID}`) });
 }
 
 // ------------------------------------------------------------------ desk
@@ -767,13 +916,16 @@ Office.places(ID, [
   { kind: 'section', key: 'history' },
   { kind: 'section', key: 'tools' },
   ...['setup.global', 'setup.shares'].map((key) => ({ kind: 'step', key, ...SETUP })),
+  { kind: 'section', key: 'import.title', ...SETUP },
   ...[['list', 'help.list'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run']].map(([key, text]) => ({ kind: 'help', key, text })),
   ...['what', 'rules', 'unraid', 'emby', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
-  ...[['setup.global', 'setup.help_global'], ['setup.files', 'setup.help_files'], ['setup.shares', 'setup.help_shares'], ['setup.save', 'setup.help_save']]
+  ...[['setup.global', 'setup.help_global'], ['setup.files', 'setup.help_files'], ['setup.shares', 'setup.help_shares'], ['setup.save', 'setup.help_save'],
+    ['import.title', 'import.help']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf };
+  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
+    importPreview, importDone, importFileText };
 }
 })();
