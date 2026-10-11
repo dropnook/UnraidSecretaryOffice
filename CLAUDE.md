@@ -884,8 +884,11 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   **Actions on what a page shows** (a selection to delete, a plan's targets, «all», a run, a settings form) start with
   `await Office.freshState(id)` and look the thing up again by id — false (said: `office.stale_refused`) means no fresh
   look could be had: never act on a stale list. Tests: `testApiLook`, `testLookPage` (core.js under node).
-* **Head:** `Office.deskHead(...)`, then right after it
-  `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
+* **Head:** `Office.deskHead(...)` — the avatar, the name and the bubble, no role line (2026-10-11, Benj: «Kümmert sich um …»
+  is said where the Team Lead introduces the team; `<desk>.role` stays for him and the reception's cards); on a desktop
+  the name left and the bubble beside it up to the actions (half the height), on a phone only the avatar, inside the
+  bubble's corner with the words running round it (the active desk tab says the name; office.css «the desk head»);
+  then right after it `Office.pageHelp(ID, [[term, text], …])` — "How to read this page", folded
   by default, remembered per desk. Explanations of labels, buttons and tiles go
   there, not into repeated legends on every list.
 * **CSS names:** desk classes carry the desk's prefix (`jo-`, `lg-`, `bk-` …);

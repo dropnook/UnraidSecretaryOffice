@@ -2489,7 +2489,8 @@ Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, page
     text.append(crumb, el('h1', '', page));
     if (pageSub) text.appendChild(el('div', 'role', pageSub));
   } else {
-    text.append(el('h1', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
+    // the name only — the role («Kümmert sich um …») is said where the Team Lead introduces the team (2026-10-11, Benj)
+    text.append(el('h1', '', t(`${desk.id}.name`)));
     if (bubble) b.append(bubble);
     text.appendChild(b);
     // «As of …» while the page shows a state older than the desk looks after (paintAsOf())

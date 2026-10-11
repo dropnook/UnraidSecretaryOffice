@@ -256,7 +256,7 @@
   background:var(--surface); border:1px solid var(--line); border-radius:10px;
   padding:9px 13px; font-size:14px; color:var(--ink2); box-shadow:var(--shadow);
 }
-.bubble::before{
+.bubble::after{
   content:""; position:absolute; left:18px; top:-7px; width:12px; height:12px;
   background:var(--surface); border-left:1px solid var(--line); border-top:1px solid var(--line);
   transform:rotate(45deg);
@@ -797,14 +797,25 @@
 }
 }
 
-/* the desk head's text column on a desktop (2026-10-11, Benj: the space right of the bubble was wasted): name and role
-   left, the bubble right beside them up to the actions, its pointer on its left towards the name — the head is half as
-   tall; a head without a bubble (a subpage) and the phone keep the column */
+/* the desk head (2026-10-11, Benj: the space right of the bubble was wasted, the role line belongs to the Team Lead's
+   introductions): on a desktop the name left and the bubble beside it up to the actions, its pointer on its left towards
+   the name — the head is half as tall; on a phone only the avatar stays, inside the bubble's corner with the words running
+   round it (the active desk tab says the name): a floated ::before keeps the room, the avatar lies over it. A head
+   without a bubble (a subpage, the reception) keeps its column. */
 #sso{
   @media (min-width:768px){
-    .deskhead-text:has(.bubble){display:grid; grid-template-columns:minmax(200px,300px) minmax(0,1fr); grid-template-rows:auto auto 1fr; column-gap:22px; align-items:start}
-    .deskhead-text:has(.bubble) h1, .deskhead-text:has(.bubble) .role{grid-column:1}
-    .deskhead-text .bubble{grid-column:2; grid-row:1 / span 3; margin-top:0; max-width:none}
-    .deskhead-text .bubble::before{left:-7px; top:16px; transform:rotate(-45deg)}
+    .deskhead-text:has(.bubble){display:grid; grid-template-columns:minmax(160px,max-content) minmax(0,1fr); grid-template-rows:auto 1fr; column-gap:22px; align-items:start}
+    .deskhead-text:has(.bubble) h1, .deskhead-text:has(.bubble) .role{grid-column:1; max-width:300px}
+    .deskhead-text .bubble{grid-column:2; grid-row:1 / span 2; margin-top:0; max-width:none}
+    .deskhead-text .bubble::after{left:-7px; top:16px; transform:rotate(-45deg)}
+  }
+  @media (max-width:767px){
+    .deskhead:has(.bubble){position:relative}
+    .deskhead:has(.bubble) > .avatar{position:absolute; left:9px; top:9px; width:48px; height:48px; font-size:24px; z-index:1}
+    .deskhead:has(.bubble) > .deskhead-text{display:block; min-width:0; width:100%}
+    .deskhead:has(.bubble) h1{display:none}
+    .deskhead-text .bubble{margin-top:0; max-width:none; min-height:66px}
+    .deskhead-text .bubble::before{content:""; float:left; width:52px; height:50px; margin:-4px 6px 0 -8px; shape-outside:circle(27px at 26px 24px)}
+    .deskhead-text .bubble::after{display:none}
   }
 }
