@@ -28747,6 +28747,7 @@ JS;
 const SECTIONS_DESKS = [
     'restore' => [],
     'logs' => [],
+    'watchman' => ['roundHead'],     // «The last round»: the row's head over the tiles (a hint, it stays at every click)
 ];
 
 /**
