@@ -2660,6 +2660,50 @@ function testEmbyRsync(): void
 }
 
 /**
+ * helmi1987's 9d14374 taken over into our EmbyCache: a number setting that is no number is a ConfigError (not a
+ * traceback), from the file or the environment; fixed per-user budgets found by the user's id also when the server's
+ * name has a «:» (the key is «server:id»); the cleanup tool Jack hands it still rsync.
+ */
+function testEmbyUpstream(): void
+{
+    $tmp = hardeningTmp('embyupstream');
+    @mkdir("$tmp/emby", 0700, true);
+    @mkdir("$tmp/pool", 0700, true);
+    $inst = [['servername' => 'Emby: Home', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
+    $cfg = fn (array $x) => json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'instances' => $inst] + $x, JSON_UNESCAPED_SLASHES);
+    $load = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l
+try:
+    c = l.load_config(require_paths=False); print("ok", repr(c["min_free_percent"]), repr(c["mover_debug_level"]), c["cleanup_tool"])
+except l.ConfigError as e:
+    print("config", e)';
+    $run = function (array $settings, array $env = []) use ($tmp, $cfg, $load): string {
+        file_put_contents("$tmp/emby/embycache_settings.json", $cfg($settings));
+        [$exit, $out, $err] = runEnv(['python3', '-c', $load, EMBY_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + embyPyEnv() + $env, 30);
+        return $exit . ' ' . (trim($out) ?: trim($err));
+    };
+    same('emby upstream 9d14374: numbers read as numbers, rsync both ways', '0 ok 20.0 0 rsync', $run([]));
+    same('emby upstream 9d14374: … from the environment too', '0 ok 12.5 2 rsync', $run([], ['EMBYCACHE_MIN_FREE_PERCENT' => '12.5', 'EMBYCACHE_MOVER_DEBUG' => '2']));
+    $bad = [$run(['min_free_percent' => 'viel']), $run([], ['EMBYCACHE_MOVER_DEBUG' => 'x']), $run(['mover_debug_level' => null])];
+    check('emby upstream 9d14374: no number (file, environment, null) — a ConfigError naming both settings, no traceback',
+        count(array_filter($bad, fn ($o) => str_starts_with($o, '0 config min_free_percent muss eine Zahl') && !str_contains($o, 'Traceback'))) === 3, implode("\n", $bad));
+    // the budget: a server named «Emby: Home», user u1 with a fixed 5 GB of a 100 GB budget; before, «Home:u1» was looked up
+    $plan = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_run as r
+p = r.Planner({"cache_budget_bytes": 100 * 2**30, "movie_share_percent": 50, "user_budgets": {"u1": 5 * 2**30}})
+for key, uid in (("Emby: Home:u1", "u1"), ("Emby: Home:u2", "u2")):
+    u = r.UserPlan(key, uid, uid, "Emby: Home"); u.movies = ["x"]; p.users[key] = u
+def select(u, cap, share):
+    u.budget, u.bytes, u.exhausted = cap, 0, False
+p.select = select
+p.apply_budget()
+print(" ".join(str(int(p.users[k].budget // 2**30)) for k in ("Emby: Home:u1", "Emby: Home:u2")))';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $plan, EMBY_APP], ['EMBYCACHE_DIR' => "$tmp/emby"], 30);
+    same('emby upstream 9d14374: a fixed budget found by the user id on a server whose name has «:» (u1 5 GB, u2 the other 95)', [0, '5 95'], [$exit, preg_replace('/^.*\n/s', '', trim($out)) ?: trim($err)]);
+    check('emby upstream: the README names 9d14374 and why 6974247 stays out', str_contains($readme = (string) file_get_contents(EMBY_APP . '/README.md'), '`9d14374`')
+        && str_contains($readme, '`6974247`'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The live panel while EmbyCache runs for real (emby-progress.php): its progress file read only in its shape, the part
  * of the file being copied (rsync's temporary file next to the target), the job's samples every 10 s and the speed as
  * their median (the first after two samples, a stall or a failed copy never negative), the ETAs (per user: their
@@ -29692,7 +29736,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
