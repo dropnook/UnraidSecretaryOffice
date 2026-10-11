@@ -2,7 +2,8 @@
 // The click test: every desk page of the office, built from this repository's files (tests/ui/harness.mjs, a stub state
 // per desk from tests/ui/states/), in a headless Chrome with a throwaway profile - both themes (Dark, Light) at 1440 and
 // 375 px. On each page it clicks what only opens or closes something - every <summary>, every row that unfolds, every
-// folding group head, every tile, every other control with aria-expanded - and checks:
+// folding group head, every tile (button.card, and button.stat with aria-pressed: a number tile that filters or shows),
+// every other control with aria-expanded - and checks:
 //   - the clicked one changes state (opens or closes),
 //   - nothing else that folds changes with it (another <details>, row, group, tile - a tile's siblings excepted:
 //     tiles are one choice of several),
@@ -11,11 +12,15 @@
 //   - all of it stays as clicked after 1.5 s, and after the desk draws itself anew on its own (the minute's poll with a
 //     newer look, and the messenger's word once more),
 //   - what comes back into view (a tile's section shown again) shows as it was left,
+//   - a tile with data-filters="<id>" (core.js Office.stat / Office.tile): while it is on, #<id> shows the filter bar's
+//     note line (.filter-note, visible); off, the line is gone (unless another tile filtering #<id> is on) - the note
+//     line and the rows under #<id> are the tile's own change, not another's,
 //   - no console error, no page error, no horizontal scrolling (after the first paint and after each round of clicks).
 // Two rounds: every candidate clicked once (opened or closed) - first what the page shows, then what that brought
 // into view (a row's details, a group's rows), the tiles last -, then once more back, in reverse. What opens a dialog,
 // a menu or another page isn't a toggle: closed again, counted as skipped. Actions that only post (buttons without
-// aria-expanded) are never clicked. Many alike (rows of one list) are capped: 5 of a kind per section, 60 a page.
+// aria-expanded) are never clicked; a button.stat without aria-pressed opens something else (a dialog) - never clicked,
+// counted as skipped. Many alike (rows of one list) are capped: 5 of a kind per section, 60 a page.
 // Every page in a context of its own (a fresh profile: nothing remembered from another page).
 //
 //   node tools/ui-clicks.mjs [--only advisor,backup/setup] [--themes dark,light] [--widths 1440,375] [--jobs 6] [-v]
@@ -101,7 +106,7 @@ const PAGE_HELPERS = () => {
     if (e.matches('details > summary')) return 'summary';
     if (e.matches('.unfolds')) return 'row';
     if (e.matches('.group-head')) return 'group';
-    if (e.matches('button.card')) return 'tile';
+    if (e.matches('button.card, button.stat[aria-pressed]')) return 'tile';
     if (e.matches('[aria-expanded]')) return 'expand';
     return null;
   }
@@ -115,7 +120,7 @@ const PAGE_HELPERS = () => {
     const d = desk();
     const out = [];
     const ranks = new Map();
-    d.querySelectorAll('details > summary, .unfolds, .group-head, button.card, [aria-expanded]').forEach((e) => {
+    d.querySelectorAll('details > summary, .unfolds, .group-head, button.card, button.stat[aria-pressed], [aria-expanded]').forEach((e) => {
       const kind = kindOf(e);
       if (!kind) return;
       // a control inside a row that unfolds is the row's own (its name, «Details»): the row stands for it
@@ -160,6 +165,27 @@ const PAGE_HELPERS = () => {
       const y = list.find((c) => c.key === b);
       return !!(x && y && x.kind === 'tile' && y.kind === 'tile' && x.e.parentElement === y.e.parentElement);
     },
+    filtered(a, b) {         // b lies in the list tile a filters (data-filters): its rows, its note line
+      const list = all();
+      const x = list.find((c) => c.key === a);
+      const y = list.find((c) => c.key === b);
+      const box = x && x.kind === 'tile' && x.e.dataset.filters ? document.getElementById(x.e.dataset.filters) : null;
+      return !!(box && y && box.contains(y.e));
+    },
+    // the note line of the list a tile filters: null (the tile filters nothing), else whether the list is there, the
+    // line shows in it, and another tile filtering that list is on
+    filterNote(key) {
+      const c = all().find((x) => x.key === key);
+      if (!c || c.kind !== 'tile' || !c.e.dataset.filters) return null;
+      const id = c.e.dataset.filters;
+      const box = document.getElementById(id);
+      const note = !!box && [...box.querySelectorAll('.filter-note')].some((n) => !n.closest('[hidden]') && visible(n));
+      const others = [...document.querySelectorAll('[data-filters]')].some((t) => t !== c.e && t.dataset.filters === id
+        && (t.getAttribute('aria-pressed') === 'true' || t.classList.contains('active')));
+      return { id, list: !!box, note, others };
+    },
+    // number tiles that open something else (no aria-pressed): never clicked, counted as skipped
+    openers: () => [...desk().querySelectorAll('button.stat:not([aria-pressed])')].filter((e) => visible(e)).length,
     within(a, b) {           // b lies inside a's own part (an unfolded row's details, a group's rows, a details' body)
       const list = all();
       const x = list.find((c) => c.key === a);
@@ -284,19 +310,30 @@ async function runPage(browser, harness, route, theme, width) {
         if (k === c.key || !(k in before) || after[k] === before[k]) continue;
         // tiles are one choice: another one goes off when this one goes on
         if (c.kind === 'tile' && kindOf(k) === 'tile' && after[c.key] === 'on' && after[k] === 'off') continue;
-        if (await page.evaluate(([a, b]) => __uc.sibling(a, b) || __uc.within(a, b), [c.key, k])) continue;
+        if (await page.evaluate(([a, b]) => __uc.sibling(a, b) || __uc.within(a, b) || __uc.filtered(a, b), [c.key, k])) continue;
         fail(`${c.kind} «${short(c.key)}»: its click changed ${kindOf(k)} «${short(k)}» too (${before[k]} → ${after[k]})`);
       }
+      await noteCheck(c, after[c.key], 'its click');
       // the desk draws itself anew right after (as at every answer of the agent, which brings the messenger's word)
       await page.evaluate(() => Office.setAgent({ ...Office.agent }));
       await settle(80);
       const redrawn = await snap();
+      if (c.key in redrawn) await noteCheck(c, redrawn[c.key], 'the desk drew itself anew');
       for (const [k, v] of Object.entries(after)) {
         if (!(k in redrawn) || redrawn[k] === v) continue;
         fail(k === c.key ? `${c.kind} «${short(c.key)}» (${v} by the click): ${redrawn[k]} again once the desk drew itself anew`
           : `${c.kind} «${short(c.key)}»: after its click the desk drew itself anew and ${kindOf(k)} «${short(k)}» went ${v} → ${redrawn[k]}`);
       }
       expected = redrawn;
+    }
+    // a tile that filters a list (data-filters): on → the list's note line shows, off → it is gone
+    async function noteCheck(c, state, when) {
+      if (c.kind !== 'tile') return;
+      const n = await page.evaluate((k) => __uc.filterNote(k), c.key);
+      if (!n) return;
+      if (!n.list) fail(`tile «${short(c.key)}» filters #${n.id}, which isn't on the page (${when})`);
+      else if (state === 'on' && !n.note) fail(`tile «${short(c.key)}» is on: no note line (.filter-note) in #${n.id} (${when})`);
+      else if (state === 'off' && n.note && !n.others) fail(`tile «${short(c.key)}» is off: the note line in #${n.id} is still there (${when})`);
     }
     async function afterRound(round) {
       if (!expected) return;
@@ -319,6 +356,7 @@ async function runPage(browser, harness, route, theme, width) {
 
     // round 1: each opened or closed - then what that showed (a row's details, a group's rows) the same way; tiles last
     // (a tile shows another section in place of this one)
+    res.skipped += await page.evaluate(() => __uc.openers());
     const first = pick(await page.evaluate(() => __uc.list()));
     const tiles = first.filter((c) => c.kind === 'tile');
     const plain = first.filter((c) => c.kind !== 'tile');
