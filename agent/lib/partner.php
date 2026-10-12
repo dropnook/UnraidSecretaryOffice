@@ -1480,11 +1480,12 @@ function partnerPublic(): array
     $pending = partnerPending();
     $tickets = partnerTicketsPublic();          // restore tickets: given here (per pair), held here (a new server), asked for
     if (!$pairs && !$pending) {
-        return ['pairs' => [], 'pending' => [], 'silent_after' => PARTNER_SILENT_AFTER] + $tickets['lists'];
+        return ['pairs' => [], 'pending' => [], 'silent_after' => PARTNER_SILENT_AFTER, 'ready' => partnerReady()] + $tickets['lists'];
     }
     $state = partnerStateRead();
     $keys = (string) @file_get_contents(partnerAuthKeysFile(), false, null, 0, 1024 * 1024);
     $now = time();
+    $ready = partnerReady();
     $cards = [];
     foreach ($pairs as $p) {
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
@@ -1533,7 +1534,24 @@ function partnerPublic(): array
         ];
     }
     return ['pairs' => $cards, 'pending' => array_map(fn ($o) => ['id' => $o['id'], 'created' => $o['created'], 'address' => $o['address'],
-        'units' => $o['units'], 'trust' => $o['trust']], $pending), 'silent_after' => PARTNER_SILENT_AFTER] + $tickets['lists'];
+        'units' => $o['units'], 'trust' => $o['trust']], $pending), 'silent_after' => PARTNER_SILENT_AFTER, 'ready' => $ready] + $tickets['lists'];
+}
+
+/**
+ * What each side of a pairing needs here (2026-10-12, Benj: a pairing is allowed at any time, but the Team Lead says
+ * plainly what is missing): sending needs Mr. Backupsy hired and set up with a backup place (then the level «local +
+ * partner» per share and VM); starting here from a copy needs Mr. Restori. Receiving needs nobody.
+ *
+ * @return array{backup_hired:bool, place:bool, restore_hired:bool}
+ */
+function partnerReady(): array
+{
+    $hired = function_exists('staffHired') ? staffHired() : [];
+    $place = null;
+    if (function_exists('backupReadSettings') && defined('BACKUP_DATA_DIR')) {
+        $place = backupDumpsPath((string) backupSetting(backupReadSettings(BACKUP_DATA_DIR . '/settings.ini'), 'general', 'dumps_share', ''));
+    }
+    return ['backup_hired' => in_array('backup', $hired, true), 'place' => $place !== null, 'restore_hired' => in_array('restore', $hired, true)];
 }
 
 // ===================================================================== the Team Lead's actions

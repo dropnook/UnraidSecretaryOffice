@@ -1,0 +1,128 @@
+{
+ "ok": true,
+ "preview": {
+  "kind": "partner_start",
+  "what": "Schule ← Tochter",
+  "target": {
+   "pair": "7c1e9a02",
+   "unit": "vm:Schule",
+   "snap": "uso-backup-20261009-1004",
+   "partner": "Tochter",
+   "beside": false,
+   "pool": "cache",
+   "vm": "Schule",
+   "name": "Schule"
+  },
+  "method": null,
+  "source": {
+   "path": "Tochter: vm:Schule@uso-backup-20261009-1004",
+   "time": 1791540274,
+   "bytes": 4294967296
+  },
+  "steps": [
+   {
+    "do": "pull_local",
+    "source": "cache/UnraidSecretaryOffice-partners/7c1e9a02/vm-Schule@uso-backup-20261009-1004",
+    "dataset": "cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter-20261009-130334",
+    "parent": null,
+    "mount": "/mnt/addons/UnraidSecretaryOffice/restored/Tochter-vm-Schule-20261009-130334",
+    "pair": "7c1e9a02",
+    "partner": "Tochter",
+    "unit": "vm:Schule",
+    "snap": "uso-backup-20261009-1004",
+    "time": 1791540274,
+    "bytes": 4294967296,
+    "path": "/mnt/user/domains/Schule"
+   },
+   {
+    "do": "mount",
+    "dataset": "cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter-20261009-130334",
+    "path": "/mnt/addons/UnraidSecretaryOffice/restored/Tochter-vm-Schule-20261009-130334"
+   },
+   {
+    "do": "copy",
+    "from": "/mnt/addons/UnraidSecretaryOffice/restored/Tochter-vm-Schule-20261009-130334",
+    "to": "/mnt/user/domains/Schule",
+    "into_empty": true,
+    "replaces": true,
+    "putback_to": "/mnt/user/domains/Schule.putback-{T}",
+    "partner": "Tochter"
+   },
+   {
+    "do": "start_from",
+    "kind": "vm",
+    "name": "Schule",
+    "define": true,
+    "define_why": null,
+    "partner": "Tochter",
+    "mount": "/mnt/addons/UnraidSecretaryOffice/restored/Tochter-vm-Schule-20261009-130334",
+    "libvirt": "/etc/libvirt",
+    "templates": "/boot/config/plugins/dockerMan/templates-user",
+    "to": "/mnt/user/domains/Schule"
+   }
+  ],
+  "blockers": [],
+  "notes": [
+   {
+    "key": "note.partner_start_copy",
+    "params": {
+     "pool": "cache",
+     "dataset": "cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter-20261009-130334",
+     "name": "Tochter",
+     "bytes": 4294967296
+    }
+   },
+   {
+    "key": "note.partner_start_package",
+    "params": {
+     "name": "Tochter"
+    }
+   }
+  ],
+  "after": [
+   {
+    "key": "after.partner_start_vm",
+    "params": {
+     "name": "Schule",
+     "path": "/mnt/user/domains/Schule"
+    }
+   },
+   {
+    "key": "after.partner_start_keep",
+    "params": {
+     "name": "Tochter"
+    }
+   }
+  ],
+  "aside": [
+   {
+    "what": "pulled",
+    "from": "Tochter: vm:Schule@uso-backup-20261009-1004",
+    "to": "cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter-20261009-130334"
+   },
+   {
+    "what": "started",
+    "from": "Tochter: Schule",
+    "to": "/mnt/user/domains/Schule"
+   }
+  ],
+  "stops": [],
+  "downtime": 0,
+  "sizes": {
+   "need": 8589934592,
+   "free": 412316860416,
+   "measuring": false,
+   "compresses": true
+  },
+  "options": {
+   "kind": "vm",
+   "beside": false,
+   "conflict": null
+  },
+  "putback_pre": [],
+  "putback_post": [],
+  "putback_of": null,
+  "stamp": "20261009-130334",
+  "token": "demo"
+ }
+}

@@ -213,7 +213,7 @@
   "errors.ack_gone": "Questo punto nel frattempo è cambiato — dagli un'altra occhiata.",
   "errors.ack_required": "È indispensabile — non si può mettere da parte. Appena è fatto, sparisce da solo.",
   "partner.title": "Segreterie partner",
-  "partner.sub": "Un altro server Unraid con la segreteria conserva copie dei tuoi snapshot ZFS — e tu delle sue, se vuoi. Abbinare è compito del capoufficio; cosa va lì è il livello «locale + partner» per condivisione e VM nella configurazione del signor Backupsi. Ogni parte tiene le copie dell'altra con una conservazione propria; niente passa mai all'altro da solo.",
+  "partner.sub": "Un altro server Unraid con la segreteria conserva copie dei tuoi snapshot ZFS — e tu delle sue, se vuoi. Abbinare è compito del capoufficio; cosa va lì è il livello «locale + partner» per condivisione e VM nella configurazione del signor Backupsi. Ogni parte tiene le copie dell'altra con una conservazione propria; niente passa mai all'altro da solo. Dall'engine 2.43 la copia di una VM o di un'app porta dentro la sua configurazione — il signor Restori del ricevente può partire da lì («Conservato per …»); le copie più vecchie no.",
   "partner.help": "Due segreterie diventano partner con due blocchi da copiare e un codice da confrontare. Poi i livelli nella configurazione del signor Backupsi dicono cosa va: a ogni backup manda ciò che è cambiato nelle condivisioni e VM su «locale + partner» (dataset ZFS propri), cifrato via SSH, attraverso la porta del partner — una chiave nel suo authorized_keys che sa fare solo le poche cose della segreteria. Il consenso del partner è l'abbinamento: la sua porta accetta ogni tua unità, fino al limite che il suo capoufficio ha messo in «Accetta un partner…», in qualsiasi momento, in dataset propri sul suo pool con la sua conservazione. Un'unità mai vista prima porta sulla sua scheda il chip «nuova»; terminare la partnership chiude la porta.",
   "partner.add": "Aggiungi un partner…",
   "partner.accept": "Accetta un partner…",
@@ -481,5 +481,10 @@
   "check.syslog_off": "Il server syslog di Unraid è spento",
   "check.syslog_off_how": "Il guardiano notturno è assunto e hai aperto la guida del router del consulente, ma ⟦Local syslog server⟧ è spento — il router non ha dove mandare. Il consulente mostra l'impostazione.",
   "check.syslog_mikrotik_format": "Il router MikroTik {router} invia il suo log con i topic di RouterOS",
-  "check.syslog_mikrotik_format_how": "{router} ({sender}) invia le sue righe senza i topic che RouterOS può mettere davanti (il formato «default», o «syslog» senza «add-topics-string=yes»): il guardiano notturno ne capisce solo una parte. In WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — la guida MikroTik del consulente mostra tutta l'impostazione."
+  "check.syslog_mikrotik_format_how": "{router} ({sender}) invia le sue righe senza i topic che RouterOS può mettere davanti (il formato «default», o «syslog» senza «add-topics-string=yes»): il guardiano notturno ne capisce solo una parte. In WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — la guida MikroTik del consulente mostra tutta l'impostazione.",
+  "partner.need_backupsy": "Per inviare serve il signor Backupsi — assunto e configurato, con un posto di backup su un pool ZFS. Poi lì scegli «locale + partner» per condivisione e VM.",
+  "partner.hire_backupsy": "Assumi il signor Backupsi",
+  "partner.need_restori": "Per partire qui da una copia serve il signor Restori.",
+  "partner.hire_restori": "Assumi il signor Restori",
+  "partner.i_keep_start": "Il signor Restori può partire da queste copie («Conservato per {name}» nella sua pagina) — la copia di una VM o di un'app porta dentro la sua configurazione dall'engine 2.43; le copie più vecchie no."
 }

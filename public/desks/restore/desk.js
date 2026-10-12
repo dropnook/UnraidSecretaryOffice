@@ -12,7 +12,7 @@ const ID = 'restore';
 const T = Office.scope(ID);
 const { el, fmt } = Office;
 const SECTIONS = ['apps', 'vms', 'dbs', 'kopia', 'journal', 'move', 'drill'];
-const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢' };
+const ICONS = { apps: '📦', vms: '🖥️', dbs: '🗄️', kopia: '☁️', journal: '📓', move: '🚚', drill: '🧪', partner: '🏢', kept: '🗂️' };
 const SELF = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || '';     // drill.js lies next to this file
 const HOLDERS = ['backup', 'check', 'dryrun', 'setup', 'restore', 'other'];
 const JOB_POLL = 2000;
@@ -179,6 +179,8 @@ function andList(names) {
 const apps = () => (state && state.apps) || [];
 const partners = () => (state && state.partners) || [];
 const partnerOf = (id) => partners().find((p) => p.id === id) || null;
+const kept = () => (state && state.kept) || [];            // what this office keeps of partners («Kept for <partner>»)
+const keptOf = (id) => kept().find((p) => p.id === id) || null;
 const vms = () => (state && state.vms) || [];
 const engine = () => (state && state.engine) || {};
 const kopia = () => (state && state.kopia) || {};
@@ -323,7 +325,7 @@ function notices() {
   const out = [];
   const callout = (text, warn) => out.push(el('p', 'callout' + (warn ? ' warn' : ''), text));
   const e = engine();
-  if (!e.found) callout(T('notice.no_engine'), true);
+  if (!e.found) callout(T(kept().length ? 'notice.no_engine_kept' : 'notice.no_engine'), !kept().length);
   else if (!state.place.base) callout(T(partners().some((p) => p.kind === 'ticket') ? 'notice.no_place_ticket' : 'notice.no_place'), !partners().some((p) => p.kind === 'ticket'));
   else if (state.place.asleep) callout(T('notice.asleep', { path: state.place.base }), false);
   else if (!state.place.found) callout(T('notice.no_packages', { path: state.place.base }), false);
@@ -369,6 +371,13 @@ function tileLine(sec) {
     return [kopia().container ? T('tile.kopia_on', { name: kopia().container }) : T('tile.kopia_missing'), t ? fmt.relative(t) : ''];
   }
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.tileLine() : [T('drill.tile_none'), ''];
+  if (sec.startsWith('kept:')) {
+    const p = keptOf(sec.slice(5));
+    if (!p) return ['', ''];
+    const held = p.units.filter((u) => u.n);
+    const newest = Math.max(0, ...held.map((u) => u.newest || 0));
+    return [p.asleep ? T('tile.kept_asleep', { pool: p.pool }) : held.length ? T('tile.kept_line', { n: held.length }) : T('tile.kept_none'), newest ? fmt.relative(newest) : ''];
+  }
   if (sec.startsWith('partner:')) {
     const p = partnerOf(sec.slice(8));
     if (!p) return ['', ''];
@@ -381,10 +390,13 @@ function tileLine(sec) {
   return [T('tile.move_line'), ''];
 }
 
-/** The tiles: his sections, and after «Databases» one «At <partner>» per partner office that keeps copies of mine */
+/**
+ * The tiles: his sections, and after «Databases» one «At <partner>» per partner office that keeps copies of mine and
+ * one «Kept for <partner>» per partner whose copies this office keeps (the receiver's side: «Start here…»)
+ */
 function sections() {
   const out = SECTIONS.slice();
-  out.splice(out.indexOf('dbs') + 1, 0, ...partners().map((p) => 'partner:' + p.id));
+  out.splice(out.indexOf('dbs') + 1, 0, ...partners().map((p) => 'partner:' + p.id), ...kept().map((p) => 'kept:' + p.id));
   return out;
 }
 
@@ -399,18 +411,20 @@ const sw = Office.sections({
   grid: 'cards rs-tiles',
   default: 'apps',
   tiles: () => sections().map((sec) => ({
-    id: sec, key: sec.startsWith('partner:') ? '' : `tile.${sec}`, place: `tile.${sec}`,
+    id: sec, key: sec.startsWith('partner:') || sec.startsWith('kept:') ? '' : `tile.${sec}`, place: `tile.${sec}`,
     tile: (a) => sectionTile(sec, a), section: () => sectionOf(sec),
   })),
-  wants: (sub) => /^partner:[0-9a-f]{8}$/.test(sub),
+  wants: (sub) => /^(partner|kept):[0-9a-f]{8}$/.test(sub),
   onPick: (id, how) => { if (id === 'drill' && how === 'click' && Office.restoreDrill) Office.restoreDrill.refresh(); },
 });
 
 /** A section's tile: its icon and name, and its line (what is there, how fresh — the drill's: how often he practises) */
 function sectionTile(sec, a) {
   const src = sec.startsWith('partner:') ? partnerOf(sec.slice(8)) : null;
+  const kp = sec.startsWith('kept:') ? keptOf(sec.slice(5)) : null;
   const [line, right] = state ? tileLine(sec) : ['', ''];
-  return Office.tile({ name: src ? T('tile.partner', { name: src.name }) : T('tile.' + sec), icon: el('span', 'rs-tile-icon', ICONS[src ? 'partner' : sec]),
+  return Office.tile({ name: src ? T('tile.partner', { name: src.name }) : kp ? T('tile.kept', { name: kp.name }) : T('tile.' + sec),
+    icon: el('span', 'rs-tile-icon', ICONS[src ? 'partner' : kp ? 'kept' : sec]),
     lines: [[line, right]], ...a });
 }
 
@@ -424,6 +438,7 @@ function sectionOf(sec) {
   if (sec === 'journal') return journalSection();
   if (sec === 'move') return moveSection();
   if (sec === 'drill') return Office.restoreDrill ? Office.restoreDrill.section() : drillWaiting();
+  if (sec.startsWith('kept:')) { const k = keptOf(sec.slice(5)); return k ? keptSection(k) : null; }
   const p = sec.startsWith('partner:') ? partnerOf(sec.slice(8)) : null;
   return p ? partnerSection(p) : null;
 }
@@ -965,16 +980,16 @@ function oldSettingsText(o) {
 
 /** Where Kopia has an app or VM: its own source, or its share's */
 function kopiaBlock(sources) {
-  const b = block(T('from_kopia'), sources.length ? T('kp.text') : T('kp.none'));
+  const b = block(T('from_kopia'), sources.length ? T('kept.text') : T('kept.none'));
   sources.forEach((s) => {
     const line = el('div', 'rs-place');
     line.append(copyCode(`${kopiaRoot()}/${s.source}`), ' ');
-    line.appendChild(el('span', '', T('kp.covers_' + (s.covers || (s.own ? 'all' : 'data')))));
+    line.appendChild(el('span', '', T('kept.covers_' + (s.covers || (s.own ? 'all' : 'data')))));
     line.appendChild(s.last ? chip(T('chip.kopia', { when: fmt.relative(s.last) }), 'ok', fmt.date(s.last)) : chip(T('chip.kopia_never'), 'warn', T('chip.kopia_never_hint')));
     b.appendChild(line);
   });
   if (sources.length) {
-    const go = el('a', '', T('kp.guide'));
+    const go = el('a', '', T('kept.guide'));
     go.href = '#/restore';
     go.onclick = (e) => { e.preventDefault(); openSection('kopia'); };
     const p = el('p', 'role');
@@ -1428,6 +1443,58 @@ function partnerSection(p) {
   return s;
 }
 
+/** The moments of one unit kept here for a partner, newest first, each with «Start here…» (kind partner_start) */
+function keptMoments(p, u) {
+  const box = el('div', 'box');
+  if (!u.snaps.length) {
+    box.appendChild(el('p', 'empty', p.asleep ? T('kept.asleep', { pool: p.pool }) : T('kept.unit_empty')));
+    return box;
+  }
+  u.snaps.forEach((s, i) => {
+    const r = el('div', 'row nocheck');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', date(s.creation)));
+    const meta = el('div', 'row-meta');
+    if (i === 0) meta.appendChild(chip(T('pt.newest'), 'ok'));
+    meta.appendChild(el('span', 'mono', s.name));
+    if (s.referenced !== null && s.referenced !== undefined) meta.appendChild(el('span', '', T('pt.size', { size: fmt.size(s.referenced) })));
+    main.appendChild(meta);
+    r.appendChild(main);
+    const right = el('div', 'rs-right');
+    right.appendChild(restoreButton(T('kept.start'), { kind: 'partner_start', pair: p.id, unit: u.unit, snap: s.name },
+      T('rd.title.partner_start', { what: unitLabel(u.unit), name: p.name, when: date(s.creation) })));
+    r.appendChild(right);
+    box.appendChild(r);
+  });
+  return box;
+}
+
+/**
+ * «Kept for <partner>»: what this office keeps of a partner (the door's datasets on this server's pool — never mounted,
+ * never changed), per unit its moments; the way back for the partner (a new server pulls through the Team Lead's
+ * «Start from a partner's copy…»), or «Start here…»: this server starts from a copy itself (an independent copy on the
+ * same pool, the partner's stays as it is)
+ */
+function keptSection(p) {
+  const s = sectionBox(T('kept.title', { name: p.name }), T('kept.sub', { name: p.name, pool: p.pool }), { place: `kept:${p.id}` });
+  s.appendChild(el('p', 'callout', T('kept.way', { name: p.name })));
+  if (p.asleep) s.appendChild(el('p', 'callout warn', T('kept.asleep', { pool: p.pool })));
+  if (p.used_bytes) s.appendChild(el('p', 'role', p.quota_gb ? T('kept.room', { used: fmt.size(p.used_bytes), quota: fmt.size(p.quota_gb * 1024 ** 3), pool: p.pool }) : T('kept.room_free', { used: fmt.size(p.used_bytes), pool: p.pool })));
+  const box = el('div', 'box');
+  if (!p.units.length) box.appendChild(el('p', 'empty', T('kept.none', { name: p.name })));
+  p.units.forEach((u) => {
+    const meta = el('div', 'row-meta');
+    meta.appendChild(u.n ? chip(T('pt.moments', { n: u.n }), '', T('kept.moments_hint', { name: p.name })) : chip(T('kept.none_short'), 'quiet'));
+    if (u.newest) meta.appendChild(el('span', '', T('pt.newest_at', { when: date(u.newest) })));
+    if (u.bytes) meta.appendChild(el('span', '', fmt.size(u.bytes)));
+    if (u.new) meta.appendChild(chip(T('kept.new'), 'accent'));
+    if (u.stale) meta.appendChild(chip(T('kept.stale'), 'warn', T('kept.stale_hint', { when: date(u.time) })));
+    box.appendChild(unfoldingRow(`kept:${p.id}:${u.unit}`, unitLabel(u.unit), meta, () => keptMoments(p, u)));
+  });
+  s.appendChild(box);
+  return s;
+}
+
 /**
  * On a new server with a restore ticket: the gone server's copies at its partner, unit by unit — the backup place first
  * (its packages make the rest of this guide work with what is at hand), then the shares and VMs.
@@ -1548,7 +1615,8 @@ function stepText(s) {
   if (s.do === 'play' && s.immich) key = 'play_immich';
   if (s.do === 'aside' && s.optional) key = 'aside_optional';
   if (s.do === 'pull' && s.resume) key = 'pull_resume';
-  if (s.do === 'pull') return T('step.' + key, { ...nice(s), unit: unitLabel(s.unit) });
+  if (s.do === 'pull' || s.do === 'pull_local') return T('step.' + key, { ...nice(s), unit: unitLabel(s.unit) });
+  if (s.do === 'start_from') return T('step.start_from_' + (s.kind === 'vm' ? 'vm' : s.kind === 'look' ? 'look' : 'share'), nice(s));
   return T('step.' + key, nice(s));
 }
 
@@ -1654,7 +1722,7 @@ async function restoreDialog(req, title) {
     onClose: () => clearTimeout(timer),
     buttons: [
       { text: Office.t('common.cancel') },
-      { text: T(req.kind === 'putback' ? 'rd.go_putback' : 'rd.go'), kind: 'danger', act: start },
+      { text: T(req.kind === 'putback' ? 'rd.go_putback' : req.kind === 'partner_start' ? 'rd.go_start' : 'rd.go'), kind: 'danger', act: start },
     ],
   });
   const go = d.buttons[1];
@@ -1692,6 +1760,7 @@ async function restoreDialog(req, title) {
     if (plan.options) sleepers = [...new Set([...sleepers, ...(plan.options.asleep || []), ...(plan.options.woken || [])])];
     if (plan.options && req.kind === 'files') options();
     if (plan.options && req.kind === 'partner') partnerOptions(opts, plan, ask, onChange);
+    if (plan.options && req.kind === 'partner_start') startOptions(opts, plan, ask, onChange, d.close);
     pv.appendChild(previewView(plan, sizes));
     update();
     if ((sizes && sizes.measuring) || entriesPending()) watchSize();
@@ -1821,6 +1890,33 @@ function partnerOptions(box, plan, ask, change) {
   f.append(label, sel);
   if (!pools.length) f.appendChild(el('small', '', T('rd.pool_none')));
   box.appendChild(f);
+}
+
+/**
+ * «Start here…»'s preflight: a taken folder is said with the two choices — «Cancel — I'll tidy up first» (the dialog
+ * closes) or «Beside as <name>.from-<partner>» (a share holding data: «Only the copy — then «Restore…» per folder»);
+ * beside chosen, a line says so and offers the way back
+ */
+function startOptions(box, plan, ask, change, close) {
+  box.innerHTML = '';
+  const c = plan.options.conflict;
+  if (!c) return;
+  if (ask.beside) {
+    const p = el('p', 'callout rs-start-beside');
+    p.append(T(c.beside_as ? 'rd.start_beside_on' : 'rd.start_copy_only_on', { path: c.beside_as || c.path }), ' ');
+    const back = button(T('rd.start_back'), 'small plain', () => change({ beside: false }));
+    p.appendChild(back);
+    box.appendChild(p);
+    return;
+  }
+  const p = el('div', 'rs-start-conflict');
+  p.appendChild(el('p', 'callout warn', T('rd.start_taken', { path: c.path })));
+  const row = el('div', 'rs-act');
+  const cancel = button(T('rd.start_cancel'), 'small plain', () => close());
+  const beside = button(c.beside_as ? T('rd.start_beside', { name: c.beside_as.split('/').pop() }) : T('rd.start_copy_only'), 'small', () => change({ beside: true }));
+  row.append(cancel, ' ', beside);
+  p.appendChild(row);
+  box.appendChild(p);
 }
 
 /** A moment in the list: when, its name, whose, which parts of the share it covers, whether it holds anything of it */
@@ -2000,7 +2096,7 @@ function journalDetail(r) {
     if (r.can_putback) {
       const p = el('div', 'rs-act');
       p.append(restoreButton(T(r.kind === 'partner' ? 'j.drop' : 'j.putback'), { kind: 'putback', id: r.id }, T('rd.title.putback', { what: journalTitle(r) })), ' ',
-        el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : 'j.putback_hint')));
+        el('span', 'role', T(r.kind === 'partner' ? 'j.drop_hint' : r.kind === 'partner_start' ? 'j.start_putback_hint' : 'j.putback_hint')));
       box.appendChild(p);
     } else if (!live && ['ok', 'warnings'].includes(r.result) && !r.putback && r.kind !== 'putback') box.appendChild(el('p', 'role', T(r.kind === 'kopia' ? 'j.no_putback_kopia' : 'j.no_putback')));
   };

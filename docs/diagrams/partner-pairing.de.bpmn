@@ -33,6 +33,9 @@
       </bpmn:lane>
       <bpmn:lane id="L4" name="Server B — die Tür">
         <bpmn:flowNodeRef>T8</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="L5" name="Server B — Herr Restori">
+        <bpmn:flowNodeRef>T9</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>E</bpmn:flowNodeRef>
       </bpmn:lane>
     </bpmn:laneSet>
@@ -71,8 +74,12 @@
       <bpmn:incoming>F8</bpmn:incoming>
       <bpmn:outgoing>F9</bpmn:outgoing>
     </bpmn:task>
-    <bpmn:endEvent id="E" name="Die Kopien beim Partner">
+    <bpmn:task id="T9" name="«Hier starten…»: eine unabhängige Kopie eines Stands, die Dateien an ihren Platz, die VM aus der Kopie definiert — die Kopie des Partners bleibt">
       <bpmn:incoming>F9</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="E" name="Die Kopien beim Partner">
+      <bpmn:incoming>F10</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:sequenceFlow id="F1" sourceRef="S" targetRef="T1" />
     <bpmn:sequenceFlow id="F2" name="bei B einfügen" sourceRef="T1" targetRef="T2" />
@@ -82,12 +89,13 @@
     <bpmn:sequenceFlow id="F6" sourceRef="T5" targetRef="T6" />
     <bpmn:sequenceFlow id="F7" sourceRef="T6" targetRef="T7" />
     <bpmn:sequenceFlow id="F8" name="SSH" sourceRef="T7" targetRef="T8" />
-    <bpmn:sequenceFlow id="F9" sourceRef="T8" targetRef="E" />
+    <bpmn:sequenceFlow id="F9" name="bei Bedarf" sourceRef="T8" targetRef="T9" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T9" targetRef="E" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="Diagram_1">
     <bpmndi:BPMNPlane id="Plane_1" bpmnElement="Collab">
       <bpmndi:BPMNShape id="Pool_di" bpmnElement="Pool" isHorizontal="true">
-        <dc:Bounds x="160" y="40" width="1640" height="720" />
+        <dc:Bounds x="160" y="40" width="1640" height="900" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="L1_di" bpmnElement="L1" isHorizontal="true">
         <dc:Bounds x="190" y="40" width="1610" height="180" />
@@ -100,6 +108,9 @@
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="L4_di" bpmnElement="L4" isHorizontal="true">
         <dc:Bounds x="190" y="580" width="1610" height="180" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="L5_di" bpmnElement="L5" isHorizontal="true">
+        <dc:Bounds x="190" y="760" width="1610" height="180" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_di" bpmnElement="S">
         <dc:Bounds x="232" y="112" width="36" height="36" />
@@ -131,10 +142,13 @@
       <bpmndi:BPMNShape id="T8_di" bpmnElement="T8">
         <dc:Bounds x="1370" y="630" width="170" height="80" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T9_di" bpmnElement="T9">
+        <dc:Bounds x="1370" y="810" width="170" height="80" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="E_di" bpmnElement="E">
-        <dc:Bounds x="1612" y="652" width="36" height="36" />
+        <dc:Bounds x="1612" y="832" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="1570" y="695" width="120" height="27" />
+          <dc:Bounds x="1570" y="875" width="120" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="A1_di" bpmnElement="A1">
@@ -193,8 +207,15 @@
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F9_di" bpmnElement="F9">
-        <di:waypoint x="1540" y="670" />
-        <di:waypoint x="1612" y="670" />
+        <di:waypoint x="1455" y="710" />
+        <di:waypoint x="1455" y="810" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1462" y="752" width="60" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10">
+        <di:waypoint x="1540" y="850" />
+        <di:waypoint x="1612" y="850" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="A1_as_di" bpmnElement="A1_as">
         <di:waypoint x="815" y="350" />

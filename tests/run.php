@@ -19800,6 +19800,7 @@ switch ($cmd) {
                 'receive_resume_token' => $st['ds'][$target]['token'] ?? '-',
                 'available' => $st['avail'][$target] ?? 1000000000000,
                 'written' => $snap ? $st['snaps'][$target]['written'] : 0,
+                'referenced' => $snap ? $st['snaps'][$target]['used'] : $used($target),
                 'mountpoint' => $st['ds'][$target]['mountpoint'] ?? '-',
                 'guid' => $st['ds'][$target]['guid'] ?? (string) abs(crc32($target)),
                 default => '-',
@@ -21403,6 +21404,228 @@ function testRestorePartner(): void
     }
     sleep(4);           // the door's orphaned send (4 s) lets go of the pair's lock
     hardeningRm($tmp);
+}
+
+/**
+ * Mr. Restori on the receiver: «Kept for <partner>» from received.json and the datasets here; «Start here…» (kind
+ * partner_start) — the preflight (target, conflicts, refusals), the independent copy (zfs send | recv, never a clone,
+ * the partner's dataset untouched), the files into their place, the VM defined from the copy's .uso-backup, an app's
+ * template to the flash, an older copy without .uso-backup, the put back
+ */
+function testPartnerStart(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner start: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-start');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    [, $B, $id] = restorePartnerTestPair($tmp);
+    $pd = 'vault/' . PARTNER_PARENT . "/$id";
+    $user = "$tmp/B/user";
+    $lv = "$tmp/B/libvirt";
+    $tpl = "$tmp/B/templates";
+    foreach (["$tmp/B/restored", "$user/domains", "$user/appdata", "$lv/qemu/nvram", "$lv/qemu/swtpm/tpm-states", $tpl] as $d) {
+        @mkdir($d, 0755, true);
+    }
+    file_put_contents("$B[bin]/virsh", "#!/bin/bash\nprintf '%s\\n' \"\$*\" >>\"\$(dirname \"\$0\")/virsh.log\"\n[[ \"\$1\" == list ]] && printf ' Id   Name   State\\n----\\n -    Other  shut off\\n'\nexit 0\n");
+    chmod("$B[bin]/virsh", 0755);
+    $pre = 'date_default_timezone_set("UTC"); $GLOBALS["rs"]["restored_root"] = ' . var_export("$tmp/B/restored", true) . '; $GLOBALS["rs"]["mounts_file"] = ' . var_export("$B[bin]/mounts", true)
+        . '; $GLOBALS["rs"]["var_ini"] = ' . var_export("$B[root]/var.ini", true) . '; $GLOBALS["rs"]["user_root"] = ' . var_export($user, true) . '; $GLOBALS["rs"]["libvirt"] = ' . var_export($lv, true)
+        . '; $GLOBALS["rs"]["templates"] = ' . var_export($tpl, true) . '; $GLOBALS["rs"]["shares_ini"] = ["appdata" => [], "domains" => [], "UnraidSecretaryOffice" => []]; $GLOBALS["rs"]["vm_states"] = ["Other" => "shut off"];';
+    $as = fn (string $code) => partnerTestAs($B, $pre . $code);
+    $zfsB = fn () => json_decode((string) file_get_contents("$B[bin]/zfs.json"), true);
+    $at = fn (int $ago) => gmdate('Ymd-His', time() - $ago);
+    $virsh = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$B[bin]/virsh.log"))));
+    $uuid = '12345678-1234-1234-1234-123456789abc';
+    // the copy's content as the mount would show it (the stand-in mount only notes the mount: the folder is filled here)
+    $fixture = function (string $mnt, string $kind) use ($uuid): void {
+        @mkdir("$mnt/" . RSP_INSIDE . '/nvram', 0755, true);
+        if ($kind === 'vm') {
+            file_put_contents("$mnt/vdisk1.img", str_repeat('v', 4096));
+            @mkdir("$mnt/" . RSP_INSIDE . "/tpm/$uuid/tpm2", 0755, true);
+            file_put_contents("$mnt/" . RSP_INSIDE . "/tpm/$uuid/tpm2/tpm2-00.permall", 'tpm');
+            file_put_contents("$mnt/" . RSP_INSIDE . "/nvram/{$uuid}_VARS-pure-efi-tpm.fd", 'vars');
+            file_put_contents("$mnt/" . RSP_INSIDE . '/Debian_VM.xml', "<domain><name>Debian_VM</name><uuid>$uuid</uuid><devices><disk type='file'><source file='/mnt/user/domains/Debian_VM/vdisk1.img'/></disk>"
+                . "<disk type='file'><source file='/mnt/user/isos/debian.iso'/></disk><tpm model='tpm-tis'/></devices></domain>");
+            file_put_contents("$mnt/" . RSP_INSIDE . '/manifest.json', json_encode(['interface' => 1, 'engine' => '2.43', 'kind' => 'vm', 'name' => 'Debian_VM', 'folder' => 'Debian_VM', 'run' => '20261007-0200',
+                'xml' => 'Debian_VM.xml', 'uuid' => $uuid, 'autostart' => false, 'disks' => [['target' => 'vda', 'source' => '/mnt/user/domains/Debian_VM/vdisk1.img']],
+                'files' => [['path' => 'Debian_VM.xml', 'what' => 'xml'], ['path' => "nvram/{$uuid}_VARS-pure-efi-tpm.fd", 'what' => 'nvram'], ['path' => "tpm/$uuid/tpm2/tpm2-00.permall", 'what' => 'tpm']]]));
+        } elseif ($kind === 'app') {
+            @mkdir("$mnt/" . RSP_INSIDE . '/db', 0755, true);
+            @mkdir("$mnt/nextcloud", 0755, true);
+            file_put_contents("$mnt/nextcloud/config.php", 'x');
+            file_put_contents("$mnt/" . RSP_INSIDE . '/my-nextcloud.xml', '<Container><Name>nextcloud</Name></Container>');
+            file_put_contents("$mnt/" . RSP_INSIDE . '/db/mariadb_nextcloud-db_nextcloud.sql.gz', 'dump');
+            file_put_contents("$mnt/" . RSP_INSIDE . '/manifest.json', json_encode(['interface' => 1, 'engine' => '2.43', 'kind' => 'app', 'name' => 'nextcloud', 'type' => 'template', 'containers' => [], 'files' => []]));
+        } else {
+            @rmdir("$mnt/" . RSP_INSIDE . '/nvram');
+            @rmdir("$mnt/" . RSP_INSIDE);
+            file_put_contents("$mnt/vdisk1.img", 'old');
+        }
+    };
+
+    // ---- the tile: what this office keeps of the partner, from received.json and the datasets here
+    $kept = $as('return rspKept();');
+    same('partner start: «Kept for <partner>» — the pair I receive from, its pool, the units the door noted (the place first)', [[$id, 'homeserver', 'vault', false, ['place', 'share:appdata', 'vm:Debian_VM']]],
+        array_map(fn ($k) => [$k['id'], $k['name'], $k['pool'], $k['asleep'], array_column($k['units'], 'unit')], $kept));
+    same('partner start: … per unit the moments on its dataset here, newest first, with sizes', [["$pd/share-appdata", 2, 'uso-backup-20261007-0200', 1791336000, 10], ["$pd/vm-Debian_VM", 1, 'uso-backup-20261007-0200', 1791336001, 10]],
+        array_map(fn ($u) => [$u['dataset'], $u['n'], $u['snaps'][0]['name'] ?? null, $u['newest'], $u['snaps'][0]['referenced'] ?? null], array_slice($kept[0]['units'], 1)));
+    check('partner start: nothing of a key in it', !str_contains(json_encode($kept), 'ssh-ed25519') && !str_contains(json_encode($kept), 'SHA256:'));
+    same('partner start: the state carries it', ['vault'], array_column($as('return rsScan()["kept"];'), 'pool'));
+
+    // ---- the preflight of a VM: the copy on the same pool, mounted; the files into domains/<vm>; the definition from .uso-backup
+    $stamp = $at(7200);
+    $plan = fn (array $r) => $as('return rsPlan(' . var_export($r + ['kind' => 'partner_start', 'pair' => $id, 'stamp' => $stamp], true) . ');');
+    $p = $plan(['unit' => 'vm:Debian_VM', 'snap' => 'uso-backup-20261007-0200']);
+    $ds = 'vault/' . RSP_PARENT . "/vm-Debian_VM.from-homeserver-$stamp";
+    $mnt = "$tmp/B/restored/homeserver-vm-Debian_VM-$stamp";
+    same('partner start: a VM — copy, mount, the files into domains/<vm>, then start_from; nothing blocks', [['pull_local', 'mount', 'copy', 'start_from'], "$pd/vm-Debian_VM@uso-backup-20261007-0200", $ds, $mnt, "$user/domains/Debian_VM", true, []],
+        [array_column($p['steps'] ?? [], 'do'), $p['steps'][0]['source'] ?? null, $p['steps'][0]['dataset'] ?? null, $p['steps'][1]['path'] ?? null, $p['steps'][2]['to'] ?? null, $p['steps'][3]['define'] ?? null, $p['blockers'] ?? null], json_encode($p));
+    same('partner start: … the dialog knows the target, the size twice (the copy and the files), the pool\'s room, what comes after', ['vm', 'Debian_VM', 20, true, 'after.partner_start_vm', 'note.partner_start_copy'],
+        [$p['options']['kind'] ?? null, $p['target']['vm'] ?? null, $p['sizes']['need'] ?? null, ($p['sizes']['free'] ?? 0) > 0, $p['after'][0]['key'] ?? null, $p['notes'][0]['key'] ?? null]);
+    same('partner start: … no domains share here — blocked, the share is the user\'s to make', 'restore_partner_share_needed',
+        $as('$GLOBALS["rs"]["shares_ini"] = ["appdata" => []]; return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200"]);')['blockers'][0]['key'] ?? null);
+    same('partner start: … a VM of that name here — the definition refused in the preflight, the disks still come', [false, 'start_vm_exists', 'note.partner_start_vm_exists', 'after.partner_start_vm_by_hand'],
+        (function () use ($as, $id) {
+            $x = $as('$GLOBALS["rs"]["vm_states"] = ["Debian_VM" => "shut off"]; return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200"]);');
+            return [$x['steps'][3]['define'] ?? null, $x['steps'][3]['define_why'] ?? null, $x['notes'][1]['key'] ?? null, $x['after'][0]['key'] ?? null];
+        })());
+    same('partner start: … the VM service off — said, the disks come', 'note.partner_start_vm_service_off',
+        $as('$GLOBALS["rs"]["vm_states"] = null; return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200"]);')['notes'][1]['key'] ?? null);
+    same('partner start: a moment the dataset doesn\'t hold — blocked', 'restore_partner_no_snap', $plan(['unit' => 'vm:Debian_VM', 'snap' => 'uso-backup-20261009-0200'])['blockers'][0]['key'] ?? null);
+    same('partner start: a unit not kept here, a path, an unknown pair — unknown', ['unknown_target', 'unknown_target', 'unknown_target'],
+        [$plan(['unit' => 'share:media', 'snap' => 'uso-backup-20261007-0200'])['problem'] ?? null, $plan(['unit' => '../etc', 'snap' => 'uso-backup-20261007-0200'])['problem'] ?? null,
+         $as('return rsPlan(["kind" => "partner_start", "pair" => "deadbeef", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200"]);')['problem'] ?? null]);
+
+    // ---- the job: zfs send | recv on the same pool (never a clone, the partner's dataset untouched), rsync into the folder, the definition
+    $fixture($mnt, 'vm');
+    partnerTestCalls($B['bin']);
+    @unlink("$B[bin]/virsh.log");
+    $run = $as('$p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);'
+        . ' $jid = rsLaunch($p, false); $code = rsJob([$jid]); return ["id" => $jid, "code" => $code, "j" => rsJournal($jid)];');
+    $j = $run['j'] ?? [];
+    same('partner start: the job went through — the copy, the mount, the files, the definition', [0, 'ok', ['ok', 'ok', 'ok', 'ok']], [$run['code'] ?? null, $j['result'] ?? null, array_column($j['steps'] ?? [], 'state')], json_encode($j));
+    $calls = partnerTestCalls($B['bin']);
+    $zc = fn (string $verb) => array_values(array_filter($calls, fn ($c) => $c[0] === 'zfs' && ($c[1] ?? '') === $verb));
+    same('partner start: zfs send -L -c of the partner\'s moment | zfs recv -u into the restored area — legacy, noauto, not shared, no clone, never -F',
+        [[['zfs', 'send', '-L', '-c', "$pd/vm-Debian_VM@uso-backup-20261007-0200"]], [['zfs', 'recv', '-u', '-o', 'mountpoint=legacy', '-o', 'canmount=noauto', '-x', 'sharesmb', '-x', 'sharenfs', "$ds@uso-backup-20261007-0200"]], []],
+        [$zc('send'), $zc('recv'), $zc('clone')]);
+    check('partner start: the partner\'s dataset and its snapshots exactly as they were — nothing renamed, destroyed, set or received into it',
+        !array_filter($calls, fn ($c) => $c[0] === 'zfs' && in_array($c[1] ?? '', ['rename', 'destroy', 'clone', 'promote'], true))
+        && !array_filter($calls, fn ($c) => $c[0] === 'zfs' && in_array($c[1] ?? '', ['set', 'recv', 'create'], true) && array_filter($c, fn ($a) => str_starts_with((string) $a, "$pd/")))
+        && isset($zfsB()['snaps']["$pd/vm-Debian_VM@uso-backup-20261007-0200"]), json_encode($calls));
+    check('partner start: … nothing through the door, nothing to the sender', !array_filter($calls, fn ($c) => $c[0] === 'ssh'));
+    same('partner start: the copy is a dataset of this office, mounted read-only, recorded as pulled (a moment for his files restores, mounted again at the agent\'s start)',
+        [true, [['mount', '-t', 'zfs', '-o', 'ro,noatime', $ds, $mnt]], [$ds], true, "$user/domains/Debian_VM"],
+        [isset($zfsB()['ds'][$ds]), array_values(array_filter($calls, fn ($c) => $c[0] === 'mount')), array_column($j['pulled'] ?? [], 'dataset'), $j['pulled'][0]['local'] ?? null, $j['pulled'][0]['path'] ?? null]);
+    same('partner start: … rspPulled() lists it like a pull', [$ds], array_column(array_filter($as('return rspPulled();'), fn ($x) => $x['journal'] === $run['id']), 'dataset'));
+    same('partner start: the files are in domains/<vm> — the disk and the copy\'s .uso-backup', [true, true], [is_file("$user/domains/Debian_VM/vdisk1.img"), is_file("$user/domains/Debian_VM/" . RSP_INSIDE . '/manifest.json')]);
+    $xml = (string) @file_get_contents($B["data"] . "/restore/{$run['id']}/start-3.xml");
+    same('partner start: the VM defined from the copy\'s XML with its disk path pointed at the new folder (the ISO elsewhere left alone)', [true, true, true],
+        [str_contains($xml, "<source file='$user/domains/Debian_VM/vdisk1.img'/>"), str_contains($xml, "<source file='/mnt/user/isos/debian.iso'/>"), (bool) preg_grep('/^define .*start-3\.xml$/', $virsh())], $xml . json_encode($virsh()));
+    same('partner start: … UEFI variables and TPM state put in place (nothing was there), said in the step', [true, true, 'start_vm', 1, 1, 'put'],
+        [is_file("$lv/qemu/nvram/{$uuid}_VARS-pure-efi-tpm.fd"), is_file("$lv/qemu/swtpm/tpm-states/$uuid/tpm2/tpm2-00.permall"), $j['steps'][3]['note'] ?? null,
+         $j['steps'][3]['params']['rewritten'] ?? null, $j['steps'][3]['params']['nvram'] ?? null, $j['steps'][3]['params']['tpm'] ?? null]);
+    same('partner start: the undo recorded — the definition, the files put, the folder, the copy', [['undefine', 'aside', 'aside'], ['aside'], ['drop']],
+        [array_column($j['steps'][3]['undo'] ?? [], 'do'), array_column($j['steps'][2]['undo'] ?? [], 'do'), array_column($j['steps'][0]['undo'] ?? [], 'do')]);
+    check('partner start: the lock released', !is_file("$B[data]/unraid-backup/state/lock-holder.json"));
+
+    // ---- the same VM again: the folder is taken — the preflight says so and offers beside; a VM of that name is here now
+    $p2 = $plan(['unit' => 'vm:Debian_VM', 'snap' => 'uso-backup-20261007-0200', 'stamp' => $at(6000)]);
+    same('partner start: the folder holds data — blocked with the two choices (cancel, beside as <vm>.from-<partner>)', ['restore_partner_start_exists', "$user/domains/Debian_VM", "$user/domains/Debian_VM.from-homeserver"],
+        [$p2['blockers'][0]['key'] ?? null, $p2['options']['conflict']['path'] ?? null, $p2['options']['conflict']['beside_as'] ?? null]);
+    $p3 = $plan(['unit' => 'vm:Debian_VM', 'snap' => 'uso-backup-20261007-0200', 'stamp' => $at(6000), 'beside' => true]);
+    same('partner start: … beside: the files go to <vm>.from-<partner>, nothing blocks, said', [[], "$user/domains/Debian_VM.from-homeserver", 'note.partner_start_beside'],
+        [$p3['blockers'] ?? null, $p3['steps'][2]['to'] ?? null, $p3['notes'][1]['key'] ?? null]);
+
+    // ---- «Put back»: the definition removed, the files put aside (never deleted), the copy destroyed — the partner's dataset stays
+    $pb = $as('return rsPlan(["kind" => "putback", "id" => "' . $run['id'] . '"]);');
+    same('partner start: the put back — undefine, the nvram and TPM aside, the folder aside, the copy dropped; the VM must be shut off', [['undefine', 'aside', 'aside', 'aside', 'drop'], []],
+        [array_column($pb['steps'] ?? [], 'do'), $pb['blockers'] ?? null], json_encode($pb));
+    partnerTestCalls($B['bin']);
+    @unlink("$B[bin]/virsh.log");
+    $undo = $as('$p = rsPlan(["kind" => "putback", "id" => "' . $run['id'] . '"]); $jid = rsLaunch($p, false); return [rsJob([$jid]), rsJournal($jid)["result"], rsJournal("' . $run['id'] . '")["putback"]["result"] ?? null];');
+    $calls = partnerTestCalls($B['bin']);
+    same('partner start: … done: undefined (nvram and TPM kept for the aside), the folder aside, exactly the copy destroyed', [[0, 'ok', 'ok'], true, [['zfs', 'destroy', '-r', $ds]], false, true],
+        [$undo, (bool) preg_grep('/^undefine Debian_VM --keep-nvram --keep-tpm$/', $virsh()), array_values(array_filter($calls, fn ($c) => $c[0] === 'zfs' && ($c[1] ?? '') === 'destroy')),
+         is_dir("$user/domains/Debian_VM"), count(glob("$user/domains/Debian_VM.putback-*") ?: []) === 1], json_encode($calls));
+    check('partner start: … the partner\'s dataset and its moment still there, the copy gone', isset($zfsB()['ds']["$pd/vm-Debian_VM"]) && isset($zfsB()['snaps']["$pd/vm-Debian_VM@uso-backup-20261007-0200"]) && !isset($zfsB()['ds'][$ds]));
+
+    // ---- a share: the user makes it first; empty = filled; with data = only the copy, then «Restore…» per folder
+    $s1 = $plan(['unit' => 'share:appdata', 'snap' => 'uso-backup-20261007-0200', 'stamp' => $at(5000)]);
+    same('partner start: a share that is here and empty — copy, mount, the files into it, start_from (an app\'s package?)', [['pull_local', 'mount', 'copy', 'start_from'], "$user/appdata", true, 'after.partner_start_share'],
+        [array_column($s1['steps'] ?? [], 'do'), $s1['steps'][2]['to'] ?? null, $s1['steps'][2]['into_empty'] ?? null, $s1['after'][0]['key'] ?? null]);
+    same('partner start: … the share missing — blocked, make it under Shares first', 'restore_partner_share_needed',
+        $as('$GLOBALS["rs"]["shares_ini"] = ["domains" => []]; return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200"]);')['blockers'][0]['key'] ?? null);
+    file_put_contents("$user/appdata/keep.txt", 'mine');
+    $s2 = $plan(['unit' => 'share:appdata', 'snap' => 'uso-backup-20261007-0200', 'stamp' => $at(5000)]);
+    $s3 = $plan(['unit' => 'share:appdata', 'snap' => 'uso-backup-20261007-0200', 'stamp' => $at(5000), 'beside' => true]);
+    same('partner start: … the share holds data — blocked; with the choice only the copy comes (then «Restore…» per folder)', ['restore_partner_start_exists', 'share', ['pull_local', 'mount', 'start_from'], 'look', 'after.partner_start_copy_only'],
+        [$s2['blockers'][0]['key'] ?? null, $s2['options']['conflict']['kind'] ?? null, array_column($s3['steps'] ?? [], 'do'), $s3['steps'][2]['kind'] ?? null, $s3['after'][0]['key'] ?? null]);
+    unlink("$user/appdata/keep.txt");
+    // the job: an app's package in the copy — the template to the flash, the dumps named; a second time the template is left as it is
+    $st = $at(5000);
+    $mnt2 = "$tmp/B/restored/homeserver-share-appdata-$st";
+    $fixture($mnt2, 'app');
+    $r2 = $as('$p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $st . '"]);'
+        . ' $jid = rsLaunch($p, false); $code = rsJob([$jid]); return ["id" => $jid, "code" => $code, "j" => rsJournal($jid)];');
+    $j2 = $r2['j'] ?? [];
+    same('partner start: an app — the files in the share, its template into templates-user, its dump named (never a container started)', [0, 'ok', 'start_app', ['my-nextcloud.xml'], [], ["$user/appdata/" . RSP_INSIDE . '/db/mariadb_nextcloud-db_nextcloud.sql.gz'], true, true],
+        [$r2['code'] ?? null, $j2['result'] ?? null, $j2['steps'][3]['note'] ?? null, $j2['steps'][3]['params']['templates'] ?? null, $j2['steps'][3]['params']['skipped'] ?? null, $j2['steps'][3]['params']['dumps'] ?? null,
+         is_file("$tpl/my-nextcloud.xml"), is_file("$user/appdata/nextcloud/config.php")], json_encode($j2));
+    exec('rm -rf ' . escapeshellarg("$user/appdata") . ' && mkdir -p ' . escapeshellarg("$user/appdata"));
+    $st2 = $at(4000);
+    $fixture("$tmp/B/restored/homeserver-share-appdata-$st2", 'app');
+    $r3 = $as('$p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261006-0200", "stamp" => "' . $st2 . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('partner start: … a template that is there is never written over — left as it is, said', [['my-nextcloud.xml'], []], [$r3['steps'][3]['params']['skipped'] ?? null, $r3['steps'][3]['params']['templates'] ?? null]);
+
+    // ---- an older sender: the copy carries no .uso-backup — the files come, the rest is said plainly
+    exec('rm -rf ' . escapeshellarg("$user/domains/Debian_VM*"));
+    $st3 = $at(3000);
+    $fixture("$tmp/B/restored/homeserver-vm-Debian_VM-$st3", 'old');
+    $r4 = $as('$p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $st3 . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('partner start: without .uso-backup — the disk is there, the step warns «create the VM by hand», no define', ['warnings', 'warning', 'start_no_package', true, false],
+        [$r4['result'] ?? null, $r4['steps'][3]['state'] ?? null, $r4['steps'][3]['note'] ?? null, is_file("$user/domains/Debian_VM/vdisk1.img"), (bool) preg_grep('/^define /', array_slice($virsh(), -2))]);
+
+    // ---- the copy step refuses anything that isn't the partner's dataset on this pool, or a target that isn't his
+    same('partner start: the copy refuses a source outside UnraidSecretaryOffice-partners and a target not his own', ['pull_refused', 'pull_refused'],
+        [$as('$j = ["id" => "x", "steps" => [["dataset" => "vault/' . RSP_PARENT . '/x", "source" => "vault/appdata@uso-backup-20261007-0200", "partner" => "p"]]]; return rsDoPullLocal($j, 0)["note"];'),
+         $as('$j = ["id" => "x", "steps" => [["dataset" => "vault/appdata", "source" => "' . $pd . '/vm-Debian_VM@uso-backup-20261007-0200", "partner" => "p"]]]; return rsDoPullLocal($j, 0)["note"];')]);
+
+    // ---- the Team Lead says what each side needs here: nobody hired; Mr. Backupsy hired without a backup place; both hired and set up
+    $ready = fn () => $as('return partnerPublic()["ready"];');
+    @unlink("$B[data]/office/staff.json");
+    @unlink("$B[data]/unraid-backup/settings.ini");
+    same('partner ready: nobody hired — sending needs Mr. Backupsy (and a place), starting here needs Mr. Restori', ['backup_hired' => false, 'place' => false, 'restore_hired' => false], $ready());
+    @mkdir("$B[data]/office", 0700, true);
+    file_put_contents("$B[data]/office/staff.json", json_encode(['hired' => ['backup' => time()]]));
+    same('partner ready: Mr. Backupsy hired, no backup place chosen yet', ['backup_hired' => true, 'place' => false, 'restore_hired' => false], $ready());
+    file_put_contents("$B[data]/office/staff.json", json_encode(['hired' => ['backup' => time(), 'restore' => time()]]));
+    file_put_contents("$B[data]/unraid-backup/settings.ini", "[general]\ndumps_share = UnraidSecretaryOffice\n");
+    same('partner ready: both hired and set up — nothing missing', ['backup_hired' => true, 'place' => true, 'restore_hired' => true], $ready());
+    $fitB = $as('return rsFit(["apps" => [], "vms" => []], null, [], ["zfs" => false, "btrfs" => false]);');
+    @unlink("$B[data]/unraid-backup/settings.ini");
+    same('partner ready: Mr. Restori fits here without Mr. Backupsy — this office keeps partners\' copies', 'partner_kept', $as('return rsFit(["apps" => [], "vms" => []], null, [], ["zfs" => false, "btrfs" => false]);')['why'] ?? null);
+    $ct = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true);
+    foreach (['partner.need_backupsy', 'partner.hire_backupsy', 'partner.need_restori', 'partner.hire_restori', 'partner.i_keep_start'] as $k) {
+        check("partner ready: the string $k", isset($ct[$k]), $k);
+    }
+    check('partner ready: the card and both dialogs say it (needLine on the send side, the receive side, «Add a partner…», «I send too»)',
+        substr_count((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js'), "needLine('send')") === 3 && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js'), "needLine('receive')"));
+
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
+    foreach (['tile.kept', 'kept.title', 'kept.way', 'kept.start', 'rd.title.partner_start', 'rd.start_cancel', 'rd.start_beside', 'rd.start_copy_only', 'step.pull_local', 'step.start_from_vm', 'step.start_from_share', 'step.start_from_look',
+              'note.partner_start_copy', 'note.partner_start_package', 'note.partner_start_vm_exists', 'note.partner_start_vm_service_off', 'note.partner_start_empty', 'note.partner_start_beside', 'note.partner_start_copy_only',
+              'after.partner_start_vm', 'after.partner_start_vm_by_hand', 'after.partner_start_share', 'after.partner_start_copy_only', 'after.partner_start_keep',
+              'errors.restore_partner_share_needed', 'errors.restore_partner_start_exists', 'sn.start_no_package', 'sn.start_vm', 'sn.start_vm_exists', 'sn.start_vm_service_off', 'sn.start_vm_in_copy', 'sn.start_app', 'sn.start_app_none',
+              'jk.partner_start', 'j.start_putback_hint', 'aside.started'] as $k) {
+        check("partner start: the string $k", isset($en[$k]), $k);
+    }
+    check('partner start: the texts never call it the partner\'s pool — it is the pool the copy lies on, on this server',
+        !preg_grep('/partner\'s pool|pool of the partner/i', array_filter($en, 'is_string')));
 }
 
 /** Restore tickets: BLOCK-N and BLOCK-T, the code, the ticket pair, the cards — and a new server's pull through the ticket */
@@ -30331,7 +30554,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

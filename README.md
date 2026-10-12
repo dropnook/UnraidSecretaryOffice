@@ -68,9 +68,9 @@ What a new folder inherits ([BPMN source](docs/diagrams/new-folder.bpmn), [Germa
 
 <a name="diagram-new-folder"><img src="docs/diagrams/new-folder.svg" alt="A new folder: in a data share it inherits the share&#x27;s level; in appdata or domains the level of its app or VM; with no app or VM it stays local and waits for your decision"></a>
 
-A partner office, from the pairing to the copies ([BPMN source](docs/diagrams/partner-pairing.bpmn), [German](docs/diagrams/partner-pairing.de.svg)):
+A partner office, from the pairing to the copies — and the receiver starting from them ([BPMN source](docs/diagrams/partner-pairing.bpmn), [German](docs/diagrams/partner-pairing.de.svg)):
 
-<a name="diagram-partner-pairing"><img src="docs/diagrams/partner-pairing.svg" alt="Partner offices: the Team Leads pair, the receiver sets its rules, Mr. Backupsy&#x27;s level says what goes, every backup sends through the door, the partner keeps by its rules"></a>
+<a name="diagram-partner-pairing"><img src="docs/diagrams/partner-pairing.svg" alt="Partner offices: the Team Leads pair, the receiver sets its rules, Mr. Backupsy&#x27;s level says what goes, every backup sends through the door, the partner keeps by its rules, its Mr. Restori can start from the copies"></a>
 
 <a name="backup-run"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-light.png" alt="Mr. Backupsy: a run going on — its steps, its offsite sources, how long still"></picture></a>
 

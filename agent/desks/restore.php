@@ -1294,6 +1294,7 @@ function rsScan(): array
         'running'  => rsRunningJob(),          // a restore of his going on now
         'restores' => rsJournals(),            // his restores, newest first
         'partners' => rspState(),              // what partner offices keep of mine (held.json, asked by his look job)
+        'kept'     => rspKept(),               // what this office keeps of partners (received/<id>.json, the datasets here) — «Start here…»
     ];
     if ($place['asleep']) {
         // the backup place's disk sleeps: what was read before
@@ -1754,6 +1755,7 @@ function rsPlan(array $r): array
         'kopia'   => rsPlanKopia($r, $stamp),
         'putback' => rsPlanPutback($r, $stamp),
         'partner' => rsPlanPartner($r, $stamp),
+        'partner_start' => rsPlanPartnerStart($r, $stamp),
         default   => throw new Problem('unknown_target', ['target' => $kind]),
     };
     return rsPlanSeal($plan, $stamp);
@@ -3310,6 +3312,8 @@ function rsStep(array &$j, int $i): array
         'pull'      => rsDoPull($j, $i),
         'mount'     => rsDoMount($j, $s),
         'drop'      => rsDoDrop($j, $s),
+        'pull_local' => rsDoPullLocal($j, $i),
+        'start_from' => rsDoStartFrom($j, $i),
         default     => ['state' => 'failed', 'detail' => "unknown step {$s['do']}"],
     };
 }
@@ -4089,13 +4093,15 @@ function rsDoCopy(array &$j, int $i): array
     if (!$sources) {
         return rsFail('gone', ['path' => (string) ($s['from'] ?? '')]);
     }
-    if (!rsFreePlace($to, $ds !== null)) {
+    if (!rsFreePlace($to, $ds !== null || !empty($s['into_empty']))) {
         return rsFail('exists', ['path' => $to]);
     }
     if ($file) {
         if (!rsMkdirs(dirname($to))) {
             return rsFail('mkdir_failed', ['path' => dirname($to)]);
         }
+    } elseif (!empty($s['into_empty']) && is_dir($to)) {
+        // an empty folder that is there (a share the user made, a VM's empty folder): filled, not made
     } elseif ($ds !== null) {
         $like = preg_replace('/\.restored-\d{8}-\d{6}$/D', '', $ds);
         if (rsDatasetExists($ds) || !rsZfsCreate($j, $ds, rsDatasetExists($like) ? $like : null) || !is_dir($to)) {
@@ -4239,7 +4245,7 @@ function rsDoDefine(array &$j, array $s): array
 
 function rsDoVirsh(array &$j, array $args): array
 {
-    [$exit, , $err] = rsRun($j, array_merge(['virsh'], $args), 60);
+    [$exit, , $err] = rsRun($j, array_merge([partnerBin('virsh') ?? 'virsh'], $args), 60);
     return $exit === 0 ? ['state' => 'ok'] : rsFail('virsh_failed', ['name' => (string) ($args[1] ?? '')], trim($err));
 }
 
@@ -4550,6 +4556,11 @@ function rsFit(?array $state = null, ?array $lastRun = null, ?array $settings = 
     // a new server with a restore ticket: a gone server's copies wait at its partner — he pulls them
     if (partnerTicketPairs()) {
         return fit(true, 'partner_ticket', ['n' => $n]);
+    }
+    // this office keeps partners' copies: he can start from them here («Kept for …») — hired without Mr. Backupsy
+    $keptUnits = array_sum(array_map(fn ($k) => count($k['units']), rspKept()));
+    if ($keptUnits > 0) {
+        return fit(true, 'partner_kept', ['n' => $keptUnits]);
     }
     // Mr. Backupsy not set up yet: nothing to bring back — but where he can work, the two come together
     $fs ??= houseSnapshotFilesystems();

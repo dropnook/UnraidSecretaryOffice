@@ -213,7 +213,7 @@
   "errors.ack_gone": "Ese punto ha cambiado mientras tanto — échale otro vistazo.",
   "errors.ack_required": "Es imprescindible — no se puede apartar. En cuanto esté hecho, desaparece solo.",
   "partner.title": "Secretarías asociadas",
-  "partner.sub": "Otro servidor Unraid con la secretaría guarda copias de tus instantáneas ZFS — y tú de las suyas, si quieres. Emparejar es cosa del jefe de equipo; lo que va allí es el nivel «local + socio» por recurso compartido y VM en la configuración del señor Backupsi. Cada lado guarda las copias del otro con su propia conservación; nada cambia nunca solo al otro.",
+  "partner.sub": "Otro servidor Unraid con la secretaría guarda copias de tus instantáneas ZFS — y tú de las suyas, si quieres. Emparejar es cosa del jefe de equipo; lo que va allí es el nivel «local + socio» por recurso compartido y VM en la configuración del señor Backupsi. Cada lado guarda las copias del otro con su propia conservación; nada cambia nunca solo al otro. Desde el motor 2.43 la copia de una VM o de una app trae su configuración — el señor Restori del receptor puede empezar desde ella («Guardado para …»); las copias más antiguas no.",
   "partner.help": "Dos secretarías se asocian con dos bloques para copiar y un código para comparar. Después los niveles en la configuración del señor Backupsi dicen qué va: en cada copia envía lo que cambió en los recursos compartidos y VM en «local + socio» (datasets ZFS propios), cifrado por SSH, a través de la puerta del socio — una clave en su authorized_keys que solo sabe hacer las pocas cosas de la secretaría. El consentimiento del socio es el emparejamiento: su puerta acepta cualquiera de tus unidades, hasta el límite que su jefe de equipo puso en «Aceptar un socio…», en cualquier momento, en datasets propios en su pool con su propia conservación. Una unidad nunca vista lleva en su tarjeta la etiqueta «nueva»; terminar la asociación cierra la puerta.",
   "partner.add": "Añadir un socio…",
   "partner.accept": "Aceptar un socio…",
@@ -481,5 +481,10 @@
   "check.syslog_off": "El servidor syslog de Unraid está apagado",
   "check.syslog_off_how": "El sereno está contratado y abriste la guía del router del consultor, pero ⟦Local syslog server⟧ está apagado — el router no tiene adónde enviar. El consultor muestra el ajuste.",
   "check.syslog_mikrotik_format": "El router MikroTik {router} envía su registro con los topics de RouterOS",
-  "check.syslog_mikrotik_format_how": "{router} ({sender}) envía sus líneas sin los topics que RouterOS puede anteponer (el formato «default», o «syslog» sin «add-topics-string=yes»): el sereno solo entiende una parte. En WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — la guía MikroTik del consultor muestra todo el ajuste."
+  "check.syslog_mikrotik_format_how": "{router} ({sender}) envía sus líneas sin los topics que RouterOS puede anteponer (el formato «default», o «syslog» sin «add-topics-string=yes»): el sereno solo entiende una parte. En WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — la guía MikroTik del consultor muestra todo el ajuste.",
+  "partner.need_backupsy": "Para enviar hace falta el señor Backupsi — contratado y configurado, con un lugar de copias en un pool ZFS. Luego eliges allí «local + socio» por recurso compartido y VM.",
+  "partner.hire_backupsy": "Contratar al señor Backupsi",
+  "partner.need_restori": "Para empezar aquí desde una copia hace falta el señor Restori.",
+  "partner.hire_restori": "Contratar al señor Restori",
+  "partner.i_keep_start": "El señor Restori puede empezar desde estas copias («Guardado para {name}» en su página) — la copia de una VM o de una app trae su configuración desde el motor 2.43; las copias más antiguas no."
 }

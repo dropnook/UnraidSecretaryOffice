@@ -17,6 +17,7 @@ const TRUST = ['mine', 'family', 'friend'];
 const DEFAULT_RETENTION = '7 4 6';
 
 let ctx = null;         // from desk.js: { state(), took(j), reload() }
+let ready = null;       // what each side of a pairing needs here (the agent's `ready`: Mr. Backupsy hired and set up, Mr. Restori hired)
 
 const unitText = (u) => (u === 'place' ? T('partner.unit_place')
   : u.startsWith('share:') ? T('partner.unit_share', { name: u.slice(6) })
@@ -41,6 +42,7 @@ function took(j) {
 // ------------------------------------------------------------------ the section
 function section(state) {
   const p = (state && state.partners) || { pairs: [], pending: [] };
+  ready = p.ready || null;
   const held = p.ticket_pairs || [];
   const asked = p.ticket_requests || [];
   const s = el('section', 'section');
@@ -114,6 +116,35 @@ function quotaBar(used, total) {
   return wrap;
 }
 
+/**
+ * What a side of a pairing needs here (the agent's `ready`): sending needs Mr. Backupsy hired and set up with a backup
+ * place, starting here from a copy needs Mr. Restori — said on the card and in the dialogs, with the way (hire him, or
+ * his setup); a pairing itself is allowed at any time. Null: nothing missing
+ */
+function needLine(side) {
+  const r = ready;
+  if (!r) return null;
+  const line = el('div', 'row-detail ct-need');
+  const hireBtn = (id, key) => {
+    const b = el('button', 'btn small', T(key));
+    b.type = 'button';
+    b.disabled = busyOff();
+    b.onclick = async () => { b.disabled = true; if (await Office.hire([id])) { Office.toast(T('hired', { names: Office.t(`${id}.name`) })); if (ctx) ctx.reload(); } else b.disabled = false; };
+    return b;
+  };
+  if (side === 'send') {
+    if (r.backup_hired && r.place) return null;
+    line.append(T('partner.need_backupsy'), ' ');
+    if (!r.backup_hired) line.appendChild(hireBtn('backup', 'partner.hire_backupsy'));
+    else { const go = el('a', 'ct-plink', T('partner.i_send_setup')); go.href = '#/backup/setup'; line.appendChild(go); }
+    return line;
+  }
+  if (r.restore_hired) return null;
+  line.append(T('partner.need_restori'), ' ');
+  line.appendChild(hireBtn('restore', 'partner.hire_restori'));
+  return line;
+}
+
 function card(x) {
   const r = Office.place(`partner:${x.id}`, el('div', 'row nocheck ct-partner'));
   const main = el('div', 'row-main');
@@ -141,6 +172,7 @@ function card(x) {
     send.append(' ', go);
   }
   main.appendChild(send);
+  if (x.sends) { const need = needLine('send'); if (need) main.appendChild(need); }
   if (x.sends) sendLines(x).forEach((n) => main.appendChild(n));
   const tk = x.they_keep;
   if (x.sends && tk) {
@@ -164,6 +196,9 @@ function card(x) {
     main.appendChild(keep);
     main.appendChild(el('div', 'row-detail', T('partner.i_keep_rules', { pool: x.receive.pool, quota: x.receive.quota_gb ? fmt.size(x.receive.quota_gb * 1024 ** 3) : T('partner.wish_no_quota'),
       retention: retentionText(x.receive.retention) }) + (x.receive.wake ? ' ' + T('partner.wakes') : '')));
+    const needR = needLine('receive');
+    if (needR) main.appendChild(needR);
+    else if (units.length) main.appendChild(el('div', 'row-detail', T('partner.i_keep_start', { name: x.name })));
     if (x.named && x.named.units && x.named.units.length && units.length === 0) main.appendChild(el('div', 'row-detail', T('partner.named', { name: x.name, list: unitsText(x.named.units) })));
     const got = x.i_keep;
     if (got) {
@@ -447,6 +482,7 @@ async function addDialog() {
   const trust = trustPicker('mine');
   box.appendChild(trust.node);
   box.appendChild(el('p', 'role', T('partner.add_levels')));
+  { const need = needLine('send'); if (need) { need.className = 'callout'; box.appendChild(need); } }
   if (!(j.units || []).some((u) => u.ok)) box.appendChild(el('p', 'callout', T('partner.units_none')));
   box.appendChild(el('p', 'callout', T('partner.clear_copies')));
   Office.dialog({
@@ -503,12 +539,14 @@ function acceptSettings(block, j) {
   const levels = el('p', 'role', T('partner.add_levels'));
   levels.hidden = true;
   box.appendChild(levels);
+  const needSend = needLine('send');
+  if (needSend) { needSend.className = 'callout'; needSend.hidden = true; box.appendChild(needSend); }
   const addr = addressPicker(j.addresses, j.port);
   addr.node.hidden = false;
   box.appendChild(addr.node);
   box.appendChild(trust.node);
   trust.node.addEventListener('change', () => recv.look());
-  too.cb.onchange = () => { levels.hidden = !too.cb.checked; };
+  too.cb.onchange = () => { levels.hidden = !too.cb.checked; if (needSend) needSend.hidden = !too.cb.checked; };
   Office.dialog({
     title: T('partner.accept_title'),
     body: box,

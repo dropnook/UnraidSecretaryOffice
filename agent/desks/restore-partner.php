@@ -863,7 +863,7 @@ function rspPulled(): array
     $mounts = rspMounts();
     $out = [];
     foreach (rsJournals() as $row) {
-        if ($row['kind'] !== 'partner' || !in_array($row['result'], ['ok', 'warnings', 'failed'], true)
+        if (!in_array($row['kind'], ['partner', 'partner_start'], true) || !in_array($row['result'], ['ok', 'warnings', 'failed'], true)
             || (is_array($row['putback']) && in_array($row['putback']['result'], ['ok', 'warnings', 'running', 'queued'], true))) {
             continue;
         }
@@ -937,4 +937,515 @@ function rspPlaceSnaps(): array
     }
     usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
     return $out;
+}
+
+// ===================================================================== «Kept for <partner>»: the receiver starts from a copy
+
+/*
+ * The other side of the door (2026-10-12, Benj: «a partner that has a backup, from wherever, must always be able to restore
+ * it itself»): this office keeps a partner's copies under <pool>/UnraidSecretaryOffice-partners/<id>/<unit> (the door's
+ * datasets - never mounted, never changed by anything but the door's own retention). A tile «Kept for <partner>» per
+ * such partner shows what lies here (received/<id>.json, the moments on the datasets of an awake pool) and the way
+ * back: a new server connects to this office and pulls (the Team Lead's «Start from a partner's copy…») - or this
+ * server starts from a copy itself, «Start here…»: kind `partner_start`.
+ *
+ *   1. an INDEPENDENT copy of the chosen moment on the same pool - zfs send | zfs recv into the office's restored area
+ *      (<pool>/UnraidSecretaryOffice-restored/<unit>.from-<partner>-<time>, mountpoint legacy, not shared; never a clone:
+ *      a clone would pin the partner's snapshot against the door's retention and entangle the next receive), mounted
+ *      read-only under /mnt/addons/UnraidSecretaryOffice/restored/ like a pull - the partner's dataset and its snapshots
+ *      stay exactly as they were; from there it is a moment «pulled from <partner>» for his files restores too;
+ *   2. then his normal steps from that moment: a share → into the share, which the user made in Unraid first (he never
+ *      creates a share: missing = said, with the way); a VM → the files into domains/<vm> (or beside, the user's
+ *      choice when the folder is taken) and, when the copy carries its configuration (engine 2.43: .uso-backup inside),
+ *      the definition from it - XML with the disk paths pointed at the new folder, UEFI variables and TPM state put in
+ *      place where nothing is yet; a VM of that name here = the definition refused, said in the preflight; an app (a
+ *      share's copy carrying an app's package) → its template into Unraid's templates-user (never over one that is
+ *      there), its dumps named - he never starts a container for it;
+ *   3. the copy stays like a pull until the user removes it; «Put back» undoes exactly what the start made - the
+ *      definition, the files put (aside, never deleted), the copy - never the partner's dataset.
+ *
+ * The preflight (the dialog) names the target and every conflict before anything runs: a taken folder offers «Cancel -
+ * I'll tidy up first» or «Beside as <name>.from-<partner>» (a share with data: only the copy, then «Restore…» per folder);
+ * a missing share says to make it under ⟦Shares⟧ first. Everything here acts on this office's own pools only, never
+ * through the door, never at the partner.
+ */
+
+const RSP_INSIDE = '.uso-backup';      // the engine's package inside a unit's own dataset (UB_INSIDE_DIR, 2.43)
+
+function rspUserRoot(): string
+{
+    return $GLOBALS['rs']['user_root'] ?? '/mnt/user';
+}
+
+function rspLibvirt(): string
+{
+    return $GLOBALS['rs']['libvirt'] ?? RS_LIBVIRT;
+}
+
+function rspTemplates(): string
+{
+    return $GLOBALS['rs']['templates'] ?? RS_TEMPLATES;
+}
+
+/** The user shares Unraid has right now (shares.ini); null: unknown (the array stopped) */
+function rspSharesHere(): ?array
+{
+    if (array_key_exists('shares_ini', $GLOBALS['rs'] ?? [])) {
+        return $GLOBALS['rs']['shares_ini'];
+    }
+    return readCfg(RS_SHARES_INI, true) ?: null;
+}
+
+/** The engine's snapshots of a dataset here (uso-backup-* only), newest first: name, creation, used, referenced */
+function rspSnapsOf(string $ds): array
+{
+    [$exit, $out] = run([rspZfs(), 'list', '-H', '-p', '-t', 'snapshot', '-o', 'name,userrefs,used,referenced,creation', '-s', 'creation', '-d', '1', $ds], 30);
+    $snaps = [];
+    foreach ($exit === 0 ? rows($out) : [] as $f) {
+        $name = substr((string) ($f[0] ?? ''), strlen($ds) + 1);
+        if (count($f) >= 5 && str_starts_with((string) $f[0], "$ds@") && preg_match(PARTNER_SNAP_RE, $name)) {
+            $snaps[] = ['name' => $name, 'creation' => num($f[4]), 'used' => num($f[2]), 'referenced' => num($f[3])];
+        }
+    }
+    return array_reverse($snaps);
+}
+
+/**
+ * The partners whose copies this office keeps (pairs with `receive`), for his tile «Kept for <partner>»: per unit what
+ * the door noted (received/<id>.json) and, on an awake pool, the moments on its dataset here. Nothing of a key.
+ *
+ * @return list<array{id:string, name:string, pool:string, asleep:bool, used_bytes:?int, quota_gb:int, time:?int, units:list<array>}>
+ */
+function rspKept(): array
+{
+    $pools = [];
+    foreach (partnerPools() as $p) {
+        $pools[$p['name']] = $p;
+    }
+    $now = time();
+    $out = [];
+    foreach (partnerPairs() as $p) {
+        if (!is_array($p['receive'] ?? null) || !is_string($p['receive']['pool'] ?? null)) {
+            continue;
+        }
+        $pool = $p['receive']['pool'];
+        $asleep = !empty($pools[$pool]['asleep']) || !isset($pools[$pool]);
+        $got = partnerReceived($p['id']);
+        $units = [];
+        foreach (partnerReceivedUnits($got, $now) as $u) {
+            $ds = partnerUnitDataset($pool, $p['id'], $u['unit']);
+            $snaps = $asleep ? [] : rspSnapsOf($ds);
+            $units[] = ['unit' => $u['unit'], 'dataset' => $ds, 'snap' => $u['snap'], 'time' => $u['time'], 'new' => $u['new'], 'stale' => $u['stale'],
+                        'snaps' => $snaps, 'n' => $snaps ? count($snaps) : $u['snaps'], 'newest' => $snaps[0]['creation'] ?? ($u['time'] ?: null),
+                        'bytes' => $snaps[0]['referenced'] ?? null];
+        }
+        usort($units, fn ($a, $b) => [$a['unit'] !== 'place', $a['unit']] <=> [$b['unit'] !== 'place', $b['unit']]);
+        $out[] = ['id' => $p['id'], 'name' => $p['name'], 'pool' => $pool, 'asleep' => $asleep, 'used_bytes' => is_int($got['used_bytes'] ?? null) ? $got['used_bytes'] : null,
+                  'quota_gb' => (int) ($p['receive']['quota_gb'] ?? 0), 'time' => is_int($got['time'] ?? null) ? $got['time'] : null, 'units' => $units];
+    }
+    return $out;
+}
+
+function rspKeptOne(string $id): ?array
+{
+    foreach (rspKept() as $k) {
+        if ($k['id'] === $id) {
+            return $k;
+        }
+    }
+    return null;
+}
+
+/** A folder here: absent | empty | data (a link or a file counts as data: never written into) */
+function rspFolderState(string $path): string
+{
+    clearstatcache(true, $path);
+    if (is_link($path) || (file_exists($path) && !is_dir($path))) {
+        return 'data';
+    }
+    if (!is_dir($path)) {
+        return 'absent';
+    }
+    return rsDirHasEntries($path) ? 'data' : 'empty';
+}
+
+/**
+ * Kind `partner_start`: {pair, unit, snap, beside?} - the preflight. Steps: pull_local (the independent copy), mount,
+ * then for a VM or a share whose folder is free: copy (the files into their place) and start_from (what the copy's
+ * .uso-backup allows: the VM's definition, an app's template); a share holding data with `beside`: only the copy
+ * (then «Restore…» per folder from that moment). Every conflict is a blocker the dialog turns into the two choices.
+ */
+function rsPlanPartnerStart(array $r, string $stamp): array
+{
+    $id = textField($r, 'pair');
+    $unit = textField($r, 'unit');
+    $snap = textField($r, 'snap');
+    $beside = !empty($r['beside']) && $r['beside'] !== 'false' && $r['beside'] !== '0';
+    if (!preg_match(PARTNER_ID_RE, $id) || !preg_match(PARTNER_UNIT_RE, $unit) || !preg_match(PARTNER_SNAP_RE, $snap)) {
+        throw new Problem('unknown_target', ['target' => "$id $unit $snap"]);
+    }
+    $kept = rspKeptOne($id);
+    $u = null;
+    foreach ((array) ($kept['units'] ?? []) as $x) {
+        $u = $x['unit'] === $unit ? $x : $u;
+    }
+    if ($kept === null || $u === null) {
+        throw new Problem('unknown_target', ['target' => "$id $unit"]);
+    }
+    $name = $kept['name'];
+    $label = rspUnitName($unit);
+    $plan = rsPlanBase('partner_start', "$label ← $name", ['pair' => $id, 'unit' => $unit, 'snap' => $snap, 'partner' => $name, 'beside' => $beside, 'pool' => $kept['pool']]);
+    $kind = $unit === 'place' ? 'place' : (str_starts_with($unit, 'vm:') ? 'vm' : 'share');
+    $plan['options'] = ['kind' => $kind, 'beside' => $beside, 'conflict' => null];
+    if ($kept['asleep']) {
+        $plan['blockers'][] = ['key' => 'restore_partner_pool', 'params' => ['pool' => $kept['pool']]];
+        return $plan;
+    }
+    $moment = null;
+    foreach ($u['snaps'] as $s) {
+        $moment = $s['name'] === $snap ? $s : $moment;
+    }
+    if ($moment === null) {
+        $plan['blockers'][] = ['key' => 'restore_partner_no_snap', 'params' => ['snap' => $snap, 'name' => $name, 'when' => $kept['time']]];
+        return $plan;
+    }
+    $bytes = (int) ($moment['referenced'] ?? 0);
+    $plan['source'] = ['path' => "$name: $unit@$snap", 'time' => $moment['creation'], 'bytes' => $bytes];
+    // 1. the independent copy on the same pool, mounted read-only like a pull
+    $pool = $kept['pool'];
+    $parent = "$pool/" . RSP_PARENT;
+    $ds = "$parent/" . preg_replace('/[^A-Za-z0-9_.:-]/', '_', str_replace(':', '-', $unit)) . '.from-' . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name) . "-$stamp";
+    $mnt = rspMountPath($name, $unit, $stamp);
+    if (rspDsExists($ds)) {
+        $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $ds]];
+    }
+    $steps = [
+        ['do' => 'pull_local', 'source' => "{$u['dataset']}@$snap", 'dataset' => $ds, 'parent' => rspDsExists($parent) ? null : $parent, 'mount' => $mnt,
+         'pair' => $id, 'partner' => $name, 'unit' => $unit, 'snap' => $snap, 'time' => $moment['creation'], 'bytes' => $bytes, 'path' => null],
+        ['do' => 'mount', 'dataset' => $ds, 'path' => $mnt],
+    ];
+    $plan['aside'][] = ['what' => 'pulled', 'from' => "$name: $unit@$snap", 'to' => $ds];
+    $plan['notes'][] = ['key' => 'note.partner_start_copy', 'params' => ['pool' => $pool, 'dataset' => $ds, 'name' => $name, 'bytes' => $bytes]];
+    $need = $bytes;
+    // 2. where it goes
+    $user = rspUserRoot();
+    $shares = rspSharesHere();
+    $to = null;
+    if ($kind === 'place') {
+        // the backup place of the partner: only the copy - his packages can read it as a pulled place (rsPlacePulled)
+        $plan['after'][] = ['key' => 'after.partner_place', 'params' => ['path' => $mnt, 'name' => $name]];
+    } elseif ($kind === 'share') {
+        $share = $label;
+        $steps[0]['path'] = "$user/$share";
+        if ($shares !== null && !isset($shares[$share])) {
+            $plan['blockers'][] = ['key' => 'restore_partner_share_needed', 'params' => ['share' => $share]];
+            return $plan;
+        }
+        $state = rspFolderState("$user/$share");
+        if ($state === 'data') {
+            $plan['options']['conflict'] = ['path' => "$user/$share", 'kind' => 'share', 'beside_as' => null];
+            if (!$beside) {
+                $plan['blockers'][] = ['key' => 'restore_partner_start_exists', 'params' => ['path' => "$user/$share"]];
+            } else {
+                $plan['notes'][] = ['key' => 'note.partner_start_copy_only', 'params' => ['path' => "$user/$share", 'name' => $name]];
+                $steps[] = ['do' => 'start_from', 'kind' => 'look', 'to' => null, 'mount' => $mnt, 'partner' => $name, 'templates' => rspTemplates(), 'libvirt' => rspLibvirt()];
+                $plan['after'][] = ['key' => 'after.partner_start_copy_only', 'params' => ['path' => "$user/$share", 'name' => $name]];
+            }
+        } else {
+            $to = "$user/$share";
+            if ($state === 'empty') {
+                $plan['notes'][] = ['key' => 'note.partner_start_empty', 'params' => ['path' => $to]];
+            }
+            $plan['after'][] = ['key' => 'after.partner_start_share', 'params' => ['share' => $share, 'path' => $to]];
+        }
+    } else {
+        $vm = $label;
+        $steps[0]['path'] = "$user/domains/$vm";
+        if ($shares !== null && !isset($shares['domains'])) {
+            $plan['blockers'][] = ['key' => 'restore_partner_share_needed', 'params' => ['share' => 'domains']];
+            return $plan;
+        }
+        $to = "$user/domains/$vm";
+        $besideAs = "$to.from-" . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name);
+        $state = rspFolderState($to);
+        if ($state === 'data') {
+            $plan['options']['conflict'] = ['path' => $to, 'kind' => 'vm', 'beside_as' => $besideAs];
+            if (!$beside) {
+                $plan['blockers'][] = ['key' => 'restore_partner_start_exists', 'params' => ['path' => $to]];
+                $to = null;
+            } else {
+                $to = $besideAs;
+                if (rspFolderState($to) !== 'absent') {
+                    $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
+                }
+                $plan['notes'][] = ['key' => 'note.partner_start_beside', 'params' => ['path' => "$user/domains/$vm", 'beside' => $to]];
+            }
+        } elseif ($state === 'empty') {
+            $plan['notes'][] = ['key' => 'note.partner_start_empty', 'params' => ['path' => $to]];
+        }
+        $states = array_key_exists('vm_states', $GLOBALS['rs'] ?? []) ? $GLOBALS['rs']['vm_states'] : rsVmStates();
+        $define = true;
+        $why = null;
+        if ($states === null) {
+            $define = false;
+            $why = 'start_vm_service_off';
+            $plan['notes'][] = ['key' => 'note.partner_start_vm_service_off', 'params' => ['name' => $vm], 'warn' => true];
+        } elseif (isset($states[$vm])) {
+            $define = false;
+            $why = 'start_vm_exists';
+            $plan['notes'][] = ['key' => 'note.partner_start_vm_exists', 'params' => ['name' => $vm, 'state' => $states[$vm]], 'warn' => true];
+        }
+        $plan['target']['vm'] = $vm;
+        $plan['target']['name'] = $vm;
+        if ($to !== null) {
+            $plan['after'][] = ['key' => $define ? 'after.partner_start_vm' : 'after.partner_start_vm_by_hand', 'params' => ['name' => $vm, 'path' => $to]];
+        }
+        $vmStep = ['do' => 'start_from', 'kind' => 'vm', 'name' => $vm, 'define' => $define, 'define_why' => $why, 'partner' => $name, 'mount' => $mnt, 'libvirt' => rspLibvirt(), 'templates' => rspTemplates()];
+    }
+    if ($to !== null) {
+        $steps[] = ['do' => 'copy', 'from' => $mnt, 'to' => $to, 'into_empty' => true, 'replaces' => true, 'putback_to' => "$to.putback-{T}", 'partner' => $name];
+        $plan['aside'][] = ['what' => 'started', 'from' => "$name: $label", 'to' => $to];
+        $steps[] = isset($vmStep) ? $vmStep + ['to' => $to] : ['do' => 'start_from', 'kind' => 'share', 'to' => $to, 'mount' => $mnt, 'partner' => $name, 'templates' => rspTemplates(), 'libvirt' => rspLibvirt()];
+        $need += $bytes;
+    }
+    $plan['steps'] = $steps;
+    $plan['notes'][] = ['key' => 'note.partner_start_package', 'params' => ['name' => $name]];
+    $plan['after'][] = ['key' => 'after.partner_start_keep', 'params' => ['name' => $name]];
+    $free = rspPoolFree($pool);
+    $plan['sizes'] = ['need' => $need, 'free' => $free, 'measuring' => false, 'compresses' => true];
+    if ($free !== null && $need > $free * 0.95) {
+        $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $need, 'free' => $free]];
+    }
+    $plan['downtime'] = 0;
+    return $plan;
+}
+
+/**
+ * The independent copy: zfs send -L -c <partner's dataset>@<snap> | pv -n | zfs recv -u (legacy, noauto, not shared)
+ * into the restored area of the same pool - the source only ever a dataset under UnraidSecretaryOffice-partners, the
+ * target only a name of his own. Its undo is `drop` of exactly that dataset (name and guid). Recorded as `pulled` so
+ * his files restores see it as a moment «pulled from <partner>» and the agent mounts it again at its start.
+ */
+function rsDoPullLocal(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
+    $ds = (string) $s['dataset'];
+    $src = (string) $s['source'];
+    [$srcDs, $snap] = explode('@', $src, 2) + [1 => ''];
+    if (!rspOwnTarget($ds) || !preg_match(RSP_DS_RE, $srcDs) || !preg_match(PARTNER_SNAP_RE, $snap)
+        || !preg_match('#^[A-Za-z][A-Za-z0-9_.:-]{0,63}/' . PARTNER_PARENT . '/[0-9a-f]{8}/[A-Za-z0-9_.:-]{1,70}$#D', $srcDs) || explode('/', $srcDs)[0] !== explode('/', $ds)[0]) {
+        return rsFail('pull_refused', ['dataset' => $ds]);
+    }
+    $zfs = rspZfs();
+    $undo = [['do' => 'drop', 'dataset' => $ds, 'path' => (string) ($s['mount'] ?? '')]];
+    if (($s['parent'] ?? null) !== null && !rspDsExists((string) $s['parent'])) {
+        if (rsRun($j, [$zfs, 'create', '-o', 'mountpoint=none', '-o', 'canmount=off', (string) $s['parent']], 60)[0] !== 0) {
+            return rsFail('mkdir_failed', ['path' => (string) $s['parent']]);
+        }
+    }
+    if (rspDsExists($ds)) {
+        return rsFail('exists', ['path' => $ds]);
+    }
+    if (rspDsGet($src, 'type') !== 'snapshot') {
+        return rsFail('gone', ['path' => $src]);
+    }
+    $send = [$zfs, 'send', '-L', '-c', $src];
+    $recv = [$zfs, 'recv', '-u', '-o', 'mountpoint=legacy', '-o', 'canmount=noauto', '-x', 'sharesmb', '-x', 'sharenfs', "$ds@$snap"];
+    rsLog($j['id'], '  copy: ' . implode(' ', $send) . ' | ' . implode(' ', $recv));
+    $dir = rsDir($j['id']);
+    $pvFile = "$dir/copy-$i.pv";
+    @unlink($pvFile);
+    $log = "$dir/log.txt";
+    $env = rsEnv();
+    $procs = [];
+    $close = function () use (&$procs): void {
+        foreach ($procs as $p) {
+            @proc_terminate($p);
+            @proc_close($p);
+        }
+    };
+    $p = proc_open($send, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $log, 'a']], $pp, '/', $env);
+    if (!is_resource($p)) {
+        return rsFail('pull_failed', ['dataset' => $ds, 'name' => (string) $s['partner'], 'why' => 'other', 'resumable' => 'no'], 'zfs send did not start') + ['undo' => $undo];
+    }
+    $procs[] = $p;
+    $prev = $pp[1];
+    if (partnerBin('pv') !== null) {
+        $p = proc_open([partnerBin('pv'), '-n', '-b', '-i', '2'], [0 => $prev, 1 => ['pipe', 'w'], 2 => ['file', $pvFile, 'w']], $pp, '/', $env);
+        fclose($prev);
+        if (!is_resource($p)) {
+            $close();
+            return rsFail('pull_failed', ['dataset' => $ds, 'name' => (string) $s['partner'], 'why' => 'other', 'resumable' => 'no'], 'pv did not start') + ['undo' => $undo];
+        }
+        $procs[] = $p;
+        $prev = $pp[1];
+    }
+    $r = proc_open($recv, [0 => $prev, 1 => ['file', '/dev/null', 'w'], 2 => ['file', $log, 'a']], $rp, '/', $env);
+    fclose($prev);
+    if (!is_resource($r)) {
+        $close();
+        return rsFail('pull_failed', ['dataset' => $ds, 'name' => (string) $s['partner'], 'why' => 'other', 'resumable' => 'no'], 'zfs recv did not start') + ['undo' => $undo];
+    }
+    $procs[] = $r;
+    $total = (int) ($s['bytes'] ?? 0) ?: null;
+    $progress = function () use ($pvFile, $total): array {
+        $lines = preg_split('/\s+/', trim((string) @file_get_contents($pvFile, false, null, max(0, (int) @filesize($pvFile) - 256)))) ?: [];
+        $done = (int) preg_replace('/\D/', '', (string) end($lines));
+        return ['done' => $done, 'total' => $total, 'percent' => $total ? min(100, (int) floor(100 * $done / $total)) : null];
+    };
+    $codes = rsWait($j, $procs, $i, $progress);
+    $prog = $progress();
+    $j['steps'][$i]['progress'] = $prog;
+    @unlink($pvFile);
+    $stopped = !empty($GLOBALS['rsStop']);
+    if (!$stopped && !array_filter($codes, fn ($c) => (int) $c !== 0)) {
+        foreach (['canmount=noauto', 'mountpoint=legacy'] as $prop) {
+            rsRun($j, [$zfs, 'set', $prop, $ds], 60);
+        }
+        $guid = rspDsGet($ds, 'guid');
+        $undo[0]['guid'] = $guid;
+        $j['pulled'] = array_values(array_merge((array) ($j['pulled'] ?? []), [['dataset' => $ds, 'guid' => $guid, 'pair' => (string) $s['pair'], 'partner' => (string) $s['partner'],
+            'unit' => (string) $s['unit'], 'snap' => $snap, 'time' => $s['time'] ?? null, 'path' => $s['path'] ?? null, 'mount' => $s['mount'] ?? null, 'bytes' => $prog['done'], 'local' => true]]));
+        return ['state' => 'ok', 'undo' => $undo, 'bytes' => $prog['done']];
+    }
+    return rsFail($stopped ? 'pull_stopped' : 'pull_failed', ['dataset' => $ds, 'name' => (string) $s['partner'], 'why' => 'other', 'resumable' => 'no'],
+        'exit codes ' . implode(' ', $codes)) + ['undo' => $undo];
+}
+
+/** A VM's XML from the copy with its disk paths pointed at the folder the files went to (a disk that is there by name) */
+function rspRewriteXml(string $xml, string $to): array
+{
+    $n = 0;
+    $out = preg_replace_callback('/(<source\s+(?:file|dev)=)([\'"])([^\'"]+)\2/', function (array $m) use ($to, &$n): string {
+        $base = basename($m[3]);
+        if (rtrim(dirname($m[3]), '/') !== rtrim($to, '/') && is_file("$to/$base")) {
+            $n++;
+            return $m[1] . $m[2] . htmlspecialchars("$to/$base", ENT_QUOTES | ENT_XML1) . $m[2];
+        }
+        return $m[0];
+    }, $xml);
+    return [(string) $out, $n];
+}
+
+/** A small file of the copy into its place - only where nothing is: through a new file beside and a rename */
+function rspPutFile(string $from, string $to): bool
+{
+    clearstatcache();
+    if (!is_file($from) || is_link($from) || file_exists($to) || is_link($to) || !rsMkdirs(dirname($to))) {
+        return false;
+    }
+    $tmp = dirname($to) . '/.' . basename($to) . '.uso-' . bin2hex(random_bytes(4));
+    $old = umask(0077);
+    $ok = @copy($from, $tmp);
+    umask($old);
+    if (!$ok) {
+        @unlink($tmp);
+        return false;
+    }
+    @chmod($tmp, 0644);
+    if (!@rename($tmp, $to)) {
+        @unlink($tmp);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * What the copy's .uso-backup allows, once the files are in place: a VM's definition (XML pointed at the new folder,
+ * UEFI variables and TPM state put where nothing is - never over), an app's template into Unraid's templates (never
+ * over one that is there) with its dumps named. Without .uso-backup (an older sender): said, nothing more - the files
+ * are there, the VM or app is the user's to create. Each thing put records its undo.
+ */
+function rsDoStartFrom(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
+    $base = is_string($s['to'] ?? null) && $s['to'] !== '' ? rtrim((string) $s['to'], '/') : rtrim((string) ($s['mount'] ?? ''), '/');
+    $dir = "$base/" . RSP_INSIDE;
+    clearstatcache();
+    $m = is_file("$dir/manifest.json") ? readJson("$dir/manifest.json") : null;
+    if (!is_array($m) || !in_array($m['kind'] ?? '', ['vm', 'app'], true)) {
+        return ['state' => 'warning', 'note' => 'start_no_package', 'params' => ['path' => $base]];
+    }
+    $undo = [];
+    if ($m['kind'] === 'vm') {
+        $name = (string) ($s['name'] ?? rsStr($m['name'] ?? ''));
+        if (($s['kind'] ?? '') !== 'vm' || ($s['to'] ?? null) === null) {
+            return ['state' => 'warning', 'note' => 'start_vm_in_copy', 'params' => ['name' => rsStr($m['name'] ?? ''), 'path' => $dir]];
+        }
+        if (empty($s['define'])) {
+            return ['state' => 'warning', 'note' => (string) ($s['define_why'] ?? 'start_vm_exists'), 'params' => ['name' => $name, 'path' => $dir]];
+        }
+        $pkg = rsVmPackage($m, $name, $dir);
+        if ($pkg['xml'] === '') {
+            return rsFail('restore_file_gone', ['path' => "$dir/<vm>.xml"]);
+        }
+        $lv = (string) ($s['libvirt'] ?? rspLibvirt());
+        $back = "$lv/" . RS_LIBVIRT_ASIDE . "/{T}/$name";
+        $put = $skipped = [];
+        foreach ($pkg['nvram'] as $n) {
+            if (preg_match('/S\d{14}_VARS/', $n) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $n)) {
+                continue;
+            }
+            $to = "$lv/qemu/nvram/$n";
+            if (file_exists($to) || is_link($to)) {
+                $skipped[] = $n;
+                continue;
+            }
+            if (!rspPutFile("$dir/nvram/$n", $to)) {
+                return rsFail('copy_failed', ['path' => $to]) + ['undo' => $undo];
+            }
+            $undo[] = ['do' => 'aside', 'path' => $to, 'to' => "$back/nvram/$n", 'optional' => true];
+            $put[] = $n;
+        }
+        $tpm = 'none';
+        if ($pkg['tpm']) {
+            $to = "$lv/qemu/swtpm/tpm-states/{$pkg['uuid']}";
+            if (file_exists($to) || is_link($to)) {
+                $tpm = 'kept';
+            } elseif (!rsMkdirs(dirname($to)) || rsRun($j, ['cp', '-a', "$dir/tpm/{$pkg['uuid']}", $to], 120)[0] !== 0) {
+                return rsFail('copy_failed', ['path' => $to]) + ['undo' => $undo];
+            } else {
+                $undo[] = ['do' => 'aside', 'path' => $to, 'to' => "$back/tpm/{$pkg['uuid']}", 'optional' => true];
+                $tpm = 'put';
+            }
+        }
+        [$xml, $rewritten] = rspRewriteXml((string) @file_get_contents("$dir/{$pkg['xml']}", false, null, 0, 1 << 22), (string) $s['to']);
+        $file = rsDir($j['id']) . "/start-$i.xml";
+        if (!@file_put_contents($file, $xml)) {
+            return rsFail('copy_failed', ['path' => $file]) + ['undo' => $undo];
+        }
+        [$exit, , $err] = rsRun($j, [partnerBin('virsh') ?? 'virsh', 'define', $file], 60);
+        if ($exit !== 0) {
+            return rsFail('virsh_failed', ['name' => $name], trim($err)) + ['undo' => $undo];
+        }
+        array_unshift($undo, ['do' => 'undefine', 'name' => $name]);        // the definition first, then its files aside
+        return ['state' => 'ok', 'undo' => $undo, 'note' => 'start_vm', 'params' => ['name' => $name, 'rewritten' => $rewritten, 'nvram' => count($put), 'nvram_kept' => count($skipped), 'tpm' => $tpm]];
+    }
+    // an app's package: its template(s) into Unraid's templates-user, never over one that is there; its dumps named
+    $name = rsStr($m['name'] ?? '') ?: basename($base);
+    $templates = (string) ($s['templates'] ?? rspTemplates());
+    $put = $skipped = [];
+    foreach (glob("$dir/my-*.xml") ?: [] as $t) {
+        $f = basename($t);
+        if (!preg_match('/^my-[A-Za-z0-9_.-]+\.xml$/D', $f)) {
+            continue;
+        }
+        $to = "$templates/$f";
+        if (file_exists($to) || is_link($to)) {
+            $skipped[] = $f;
+            continue;
+        }
+        if (($s['to'] ?? null) === null) {
+            $skipped[] = $f;          // only the copy was made (the share holds data): the template waits in the copy
+            continue;
+        }
+        if (!rspPutFile($t, $to)) {
+            return rsFail('copy_failed', ['path' => $to]) + ['undo' => $undo];
+        }
+        $undo[] = ['do' => 'aside', 'path' => $to, 'to' => rsAsideFor($to, '{T}', 'putback'), 'optional' => true];
+        $put[] = $f;
+    }
+    $dumps = array_values(array_map(fn ($d) => "$base/" . RSP_INSIDE . '/db/' . basename($d), array_filter(glob("$dir/db/*") ?: [], 'is_file')));
+    return ['state' => 'ok', 'undo' => $undo, 'note' => $put || $skipped ? 'start_app' : 'start_app_none',
+            'params' => ['name' => $name, 'templates' => $put, 'skipped' => $skipped, 'dumps' => $dumps, 'path' => $dir]];
 }

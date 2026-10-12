@@ -4110,7 +4110,7 @@ function levelPick(key, onPick, partner) {
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(f.id === nowId));
-    b.title = T('setup.level_hint.' + f.key, { partners: setupPartners().map((p) => p.name).join(', ') });
+    b.title = T('setup.level_hint.' + (f.key === 'partner' && key.startsWith('vm:') ? 'partner_vm' : f.key), { partners: setupPartners().map((p) => p.name).join(', ') });
     if (f.partner && !partner.ok) { b.disabled = true; b.title = T('partner.why.' + (partner.why || 'no_dataset')); }
     b.onclick = () => {
       if (f.id === nowId) return;
