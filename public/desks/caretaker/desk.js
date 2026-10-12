@@ -634,7 +634,7 @@ Office.placesFrom(ID, (s) => {
   }
   const p = s.partners || {};
   // a pair's card says which way the copies go: two pairs with the same partner (one each way) told apart by its words
-  const way = (x) => [x.sends ? T('partner.i_send', { host: Office.config.host }) : '', x.receive ? T('partner.i_keep', { host: Office.config.host }) : '']
+  const way = (x) => [x.sends ? T('partner.i_send', { host: Office.config.host, name: x.name }) : '', x.receive ? T('partner.i_keep', { host: Office.config.host, name: x.name }) : '']
     .filter(Boolean).map((w) => w.replace(/[\s:：]+$/, '')).join(' · ');
   (p.pairs || []).forEach((x) => out.push({ text: x.name, sub: [T('partner.title'), way(x)].filter(Boolean).join(' · '), anchor: `partner:${x.id}` }));
   (p.ticket_pairs || []).forEach((t) => out.push({ text: T('partner.t_card', { name: t.name, of: t.of }), sub: T('partner.title'), anchor: `ticket:${t.id}` }));

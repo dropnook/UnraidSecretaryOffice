@@ -288,11 +288,64 @@ function backupPartners(array $settings, array $history, ?array $status = null):
             }
         }
         $p['last'] = $last;
-        $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? ['unit' => (string) ($cur['unit'] ?? ''), 'since' => (int) ($cur['since'] ?? 0),
-                                                                    'bytes' => (int) ($cur['bytes'] ?? 0)] : null;
+        $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? backupPartnerRate(['unit' => (string) ($cur['unit'] ?? ''), 'since' => (int) ($cur['since'] ?? 0),
+            'bytes' => (int) ($cur['bytes'] ?? 0), 'estimate' => is_int($cur['estimate'] ?? null) && $cur['estimate'] > 0 ? $cur['estimate'] : null], $p['id']) : null;
         $out[] = $p;
     }
     return $out;
+}
+
+const BACKUP_PARTNER_RATE_FILE   = 'backup-partner-rate.json';   // in RUN_DIR: the samples of the transfer going on (RAM, gone with the agent)
+const BACKUP_PARTNER_RATE_WINDOW = 600;                           // the median rate of the last 10 minutes (like Jack Emby's live panel)
+const BACKUP_PARTNER_RATE_EVERY  = 10;                            // the engine writes current.bytes every 10 s (2.42)
+
+/**
+ * The rate of the transfer going on (engine 2.42: status.json partner.current.bytes every 10 s, current.estimate from
+ * zfs send -nP before the send): every look keeps a sample [time, bytes] of the current unit in RAM, the speed is the
+ * median of the rates between the samples of the last 10 minutes (Jack Emby's way, agent/desks/emby-progress.php
+ * embyProgressSpeed()), the time left what is left of the estimate at that speed. Gives the current back with `rate`
+ * (bytes/s, null before the second sample), `eta` (seconds, null without an estimate or a rate).
+ */
+function backupPartnerRate(array $cur, string $id): array
+{
+    $file = RUN_DIR . '/' . BACKUP_PARTNER_RATE_FILE;
+    $key = "$id|{$cur['unit']}|{$cur['since']}";
+    $now = time();
+    $kept = readJson($file);
+    $samples = is_array($kept) && ($kept['key'] ?? null) === $key && is_array($kept['samples'] ?? null) ? $kept['samples'] : [];
+    $last = $samples ? $samples[count($samples) - 1] : null;
+    // a new count only (the engine writes every 10 s; the page asks every few seconds — the same bytes twice tell nothing)
+    if ($last === null || ($cur['bytes'] !== $last[1] && $now - $last[0] >= BACKUP_PARTNER_RATE_EVERY - 1)) {
+        $samples[] = [$now, $cur['bytes']];
+        $samples = array_values(array_filter($samples, fn ($x) => is_array($x) && $x[0] >= $now - BACKUP_PARTNER_RATE_WINDOW - BACKUP_PARTNER_RATE_EVERY));
+        try {
+            writeAtomic($file, jsonEncode(['key' => $key, 'samples' => array_slice($samples, -80)]), 0600, 0, 0);
+        } catch (Throwable $e) {
+            // RAM full or gone: no rate this round
+        }
+    }
+    $rate = backupMedianRate($samples, $now);
+    $cur['rate'] = $rate;
+    $cur['eta'] = $rate !== null && $rate > 0 && $cur['estimate'] !== null ? (int) ceil(max(0, $cur['estimate'] - $cur['bytes']) / $rate) : null;
+    return $cur;
+}
+
+/** The median of the rates between consecutive samples [time, bytes] within the window (null before two samples) */
+function backupMedianRate(array $samples, int $now): ?float
+{
+    $rates = [];
+    for ($i = 1; $i < count($samples); $i++) {
+        [$a, $b] = [$samples[$i - 1], $samples[$i]];
+        if ($b[0] > $a[0] && $a[0] >= $now - BACKUP_PARTNER_RATE_WINDOW - BACKUP_PARTNER_RATE_EVERY) {
+            $rates[] = max(0, $b[1] - $a[1]) / ($b[0] - $a[0]);
+        }
+    }
+    if (!$rates) {
+        return null;
+    }
+    sort($rates);
+    $n = count($rates);
+    return $n % 2 ? $rates[intdiv($n, 2)] : ($rates[$n / 2 - 1] + $rates[$n / 2]) / 2;
 }
 
 /**
@@ -651,6 +704,8 @@ function backupRunFromStatus(array $j): array
         'message'    => (string) ($j['message'] ?? ''),
         'errors'     => (int) ($j['errors'] ?? 0),
         'warnings'   => (int) ($j['warnings'] ?? 0),
+        // engine 2.42: the warnings the office says in its own words (the VMs held otherwise than set up)
+        'warning_items' => backupWarningItems($j['warning_items'] ?? null),
         'downtime'   => (int) ($j['downtime_s'] ?? 0),
         'dump_bytes' => (int) ($j['dump_bytes'] ?? 0),
         'packages'   => is_array($j['packages'] ?? null) ? ['apps' => (int) ($j['packages']['apps'] ?? 0), 'vms' => (int) ($j['packages']['vms'] ?? 0),
@@ -671,6 +726,30 @@ function backupRunFromStatus(array $j): array
         'version'    => (string) ($j['version'] ?? ''),
         'source'     => 'status',
     ];
+}
+
+/**
+ * A run's coded warnings (engine 2.42, status.json warning_items: [{code, params: {key: value}}]) - the page says them
+ * as warn_code.<code>. Only codes and params in the shape the engine writes, at most 20; everything else dropped.
+ *
+ * @return list<array{code: string, params: array<string, string>}>
+ */
+function backupWarningItems(mixed $items): array
+{
+    $out = [];
+    foreach (is_array($items) ? array_slice($items, 0, 20) : [] as $w) {
+        if (!is_array($w) || !is_string($w['code'] ?? null) || !preg_match('/^[a-z][a-z0-9_]{0,39}$/D', $w['code'])) {
+            continue;
+        }
+        $params = [];
+        foreach (is_array($w['params'] ?? null) ? $w['params'] : [] as $k => $v) {
+            if (is_string($k) && preg_match('/^[a-z][a-z0-9_]{0,19}$/D', $k) && is_string($v) && preg_match('/^[^\x00-\x1f]{0,200}$/uD', $v)) {
+                $params[$k] = $v;
+            }
+        }
+        $out[] = ['code' => $w['code'], 'params' => $params];
+    }
+    return $out;
 }
 
 /**
@@ -728,7 +807,7 @@ function backupAsleepRun(mixed $a): ?array
 function backupRunFromLog(string $path, string $run, int $started): array
 {
     $r = ['run' => $run, 'started' => $started, 'finished' => 0, 'result' => 'failed', 'message' => 'interrupted',
-          'errors' => 0, 'warnings' => 0, 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_asleep' => [], 'asleep' => null,
+          'errors' => 0, 'warnings' => 0, 'warning_items' => [], 'downtime' => 0, 'dump_bytes' => 0, 'packages' => null, 'kopia' => [], 'kopia_skipped' => [], 'kopia_asleep' => [], 'asleep' => null,
           'kopia_interrupted' => null, 'kopia_first' => null,
           'log' => basename($path), 'version' => '', 'source' => 'log'];
     $h = @fopen($path, 'r');
@@ -2117,6 +2196,8 @@ function backupSetupGet(): array
     $run = readJson("$data/state/setup-status.json");
     if (is_array($plan)) {
         $plan['notes'] = backupSetupNotes($plan['messages'] ?? null);   // the messages grouped, for the page
+        // the units the pairs sent up to 1.59 (the step partner-simple): proposed at «local + partner» until applied
+        $plan['migrated'] = function_exists('partnerMigratedPending') ? (object) partnerMigratedPending() : (object) [];
     }
     if (is_array($run)) {
         $run['notes'] = backupSetupNotes($run['messages'] ?? null);
@@ -2496,8 +2577,8 @@ function backupSetupApply(mixed $decisions, mixed $planTime = null): array
         if ($key === 'general|asleep_pools' && !in_array($value, ['wake', 'skip'], true)) {
             $ok = false;
         }
-        // engine 2.31: the default for new things - my proposals, local only, local + Kopia
-        if ($key === 'general|preset_new' && !in_array($value, ['auto', 'local', 'kopia'], true)) {
+        // engine 2.31: the default for new things - my proposals, local only, local + Kopia; 2.42 local + partner, both
+        if ($key === 'general|preset_new' && !in_array($value, ['auto', 'local', 'kopia', 'partner', 'kopia_partner'], true)) {
             $ok = false;
         }
         $plain = fn ($v) => is_string($v) && strlen($v) <= 500 && !preg_match('/[\x00-\x1f]/', $v);

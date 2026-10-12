@@ -4,7 +4,7 @@
   <bpmn:collaboration id="Collab">
     <bpmn:participant id="Pool" name="A backup run" processRef="sicherung" />
     <bpmn:textAnnotation id="A2">
-      <bpmn:text>Without a partner this step is skipped.</bpmn:text>
+      <bpmn:text>Skipped when no share or VM has the level «local + partner». A full quota at the partner: a warning, the run goes on.</bpmn:text>
     </bpmn:textAnnotation>
     <bpmn:textAnnotation id="A1">
       <bpmn:text>From here apps and VMs run again - the copies need no downtime.</bpmn:text>
@@ -305,7 +305,7 @@
         <di:waypoint x="1380" y="652" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="A2_di" bpmnElement="A2">
-        <dc:Bounds x="1260" y="470" width="200" height="50" />
+        <dc:Bounds x="1260" y="470" width="300" height="70" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="A1_di" bpmnElement="A1">
         <dc:Bounds x="1120" y="310" width="250" height="50" />

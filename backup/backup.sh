@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.41 - 2026-10-12
+# unraid-backup - backup.sh                       Version 2.42 - 2026-10-12
+#   2.42 Partner offices, simple: the run no longer skips a unit as not_agreed (the partner's door takes any unit
+#        up to its quota; a door up to 1.59 that still answers unit_not_agreed makes it skipped, not failed);
+#        status.json carries skip_kopia (a --no-kopia run) and, while a unit goes to a partner, current.bytes every
+#        10 s with current.estimate (zfs send -nP before the send; null when a transfer is resumed).
+#        A VM held otherwise than set up warns with a code (status.json warning_items); one off after its deadline doesn't
 #   2.41 Every drift note carries a code and its parameters (drift.json items: params {key: value}, beside code and
 #        value - value only for the codes from before 2.41): the office says them in its own words and languages; the
 #        English text stays as it was (log, drift.txt, the notification). Nothing else changed
@@ -468,7 +473,7 @@ vm_hold_begin() { # the shutdown requests, all together
         if timeout 30 virsh shutdown "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': shutting down"
         else
             unset "VM_SHUT_ASKED[$n]"
-            warn "VM '$n' did not take the shutdown request - it keeps running and is paused for the snapshot instead"
+            warn_code vm_shutdown_refused "VM '$n' did not take the shutdown request - it keeps running and is paused for the snapshot instead" name="$n"
         fi
     done
 }
@@ -479,7 +484,8 @@ vm_hold_begin() { # the shutdown requests, all together
 # not one after the other. A VM that didn't take the request isn't waited for. While waiting, a VM
 # still running gets the request again every VM_SHUTDOWN_RETRY seconds: Windows swallows the first
 # ACPI power button event while idle with the display off (harmless while a guest shuts down).
-# One not off by its deadline keeps running until vm_hold pauses it (never forced off).
+# One not off by its deadline keeps running until vm_hold pauses it (never forced off) - the warning comes there (2.42):
+# one that goes off meanwhile (while the apps stop) was shut down as set up.
 # abort: a run stopped early waits only for the VMs still going down after its request, until their
 # deadline, so that vm_release can start them again - no new requests.
 vm_shutdown_wait() {
@@ -504,7 +510,7 @@ vm_shutdown_wait() {
             now="$(date +%s)"
             if (( now >= ${deadline[$n]} )); then
                 [[ "$mode" == "abort" ]] \
-                    || warn "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - it keeps running and is paused for the snapshot instead"
+                    || log "  VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - it keeps running and is paused for the snapshot unless it goes off by then"
                 continue
             fi
             left+=( "$n" )
@@ -533,20 +539,22 @@ vm_hold() { # right before the snapshots: freeze, pause - also a VM that wasn't 
                 VM_SHUT_DOWN[$n]=1; log "  VM '$n': shut down (after its deadline)"; continue
             fi
             # never forced off: paused instead, the guest decides about its own shutdown. It ran
-            # until now - held from the pause on
+            # until now - held from the pause on. A VM that didn't take the request was warned about then
+            [[ -n "${VM_SHUT_ASKED[$n]:-}" ]] && warn_code vm_not_shut_down \
+                "VM '$n' did not shut down within ${VM_SHUTDOWN_TIMEOUT} s of the request - paused for the snapshot instead" name="$n" seconds="$VM_SHUTDOWN_TIMEOUT"
             unset "VM_HELD_AT[$n]"; p="pause"
         fi
         if [[ "$p" == "freeze" ]]; then
             VM_HELD[$n]="frozen"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
             if timeout 60 virsh domfsfreeze "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': file systems frozen"; continue; fi
-            warn "VM '$n': the guest agent did not freeze its file systems - paused instead"
+            warn_code vm_not_frozen "VM '$n': the guest agent did not freeze its file systems - paused instead" name="$n"
             unset "VM_HELD[$n]"; p="pause"
         fi
         if [[ "$p" == "pause" ]]; then
             VM_HELD[$n]="paused"; VM_HELD_AT[$n]="${VM_HELD_AT[$n]:-$(date +%s)}"; save_restore_state
             if timeout 30 virsh suspend "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': paused"
             else
-                warn "VM '$n' could not be paused - it keeps running (crash-consistent)"
+                warn_code vm_not_paused "VM '$n' could not be paused - it keeps running (crash-consistent)" name="$n"
                 unset "VM_HELD[$n]" "VM_HELD_AT[$n]"; save_restore_state
                 vm_note "$n" "$(vm_prepare "$n")" "failed" 0
             fi
@@ -2368,7 +2376,7 @@ partner_stop() {
     fi
     wait "$PARTNER_PID" 2>/dev/null
     PARTNER_PID=""
-    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0
+    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0; ST_PARTNER_CUR_EST=0
 }
 # The planned transfers not done when the run ends early: skipped (the array stop, a stop by hand), never failed
 partner_rest_skipped() { # partner_rest_skipped <why>
@@ -2638,7 +2646,6 @@ partner_plan() {
     local -a units=() rows=()
     local -A seen=()
     PARTNER_ORDER=(); PARTNER_CANT=(); ST_PARTNER_IDS=(); ST_PARTNER_PLAN=()
-    partner_agreed_load || true         # 2.29: what each partner agreed to keep (pairs.json send.units)
     while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         mapfile -t units < <(partner_units "$id")
@@ -2647,8 +2654,6 @@ partner_plan() {
         rows=(); seen=()
         for u in "${units[@]}"; do
             if ! partner_unit_dataset "$u"; then PARTNER_CANT+=( "$id|$u|$PU_WHY" ); continue; fi
-            # not (yet) among what the partner agreed to keep: skipped before its door is asked
-            if ! partner_agreed "$id" "$u"; then PARTNER_CANT+=( "$id|$u|not_agreed" ); continue; fi
             ds="$PU_DS"
             # the backup place's share ticked as a share too: one transfer (place)
             [[ -n "${seen[$ds]:-}" ]] && { log "  Partner $(partner_name "$id"): $u is the same dataset as ${seen[$ds]} - sent once"; continue; }
@@ -2728,6 +2733,12 @@ partner_send() {
     elif [[ "$base" == *"#"* ]]; then log "  $u -> $name: $snap, incremental from $from (by the bookmark ${base#*#} - $from is gone here)"
     elif [[ -n "$from" ]]; then log "  $u -> $name: $snap, incremental from $from"
     else log "  $u -> $name: $snap, whole (the partner has no snapshot in common with it)"; fi
+    # 2.42: what the stream will be (zfs send -nP's size line), for the office's «1.2 of ~4.3 GB» - not for a resumed one
+    ST_PARTNER_CUR_EST=0
+    if [[ -z "$token" ]]; then
+        b="$(zfs send -nP -L -c ${base:+-i "$base"} "$ds@$snap" 2>/dev/null | awk '$1 == "size" { print $2; exit }')"
+        if is_uint "$b" && (( b > 0 )); then ST_PARTNER_CUR_EST="$b"; log "    about $(human "$b") to send"; fi
+    fi
     t0="$(date +%s)"
     ST_PARTNER_CUR="$id|$u"; ST_PARTNER_CUR_T="$t0"; ST_PARTNER_CUR_BYTES=0; status_write
     # four stages, always: zfs send | mbuffer (or cat) | pv (or cat) | ssh - their exit codes into $psf; the subshell in
@@ -2752,9 +2763,9 @@ partner_send() {
             wait "$w" 2>/dev/null
             kill -0 "$PARTNER_PID" 2>/dev/null || { wait "$PARTNER_PID"; break; }
         fi
-        # what left so far (pv counts every 10 s) - status.json at most every 30 s
+        # what left so far (pv counts every 10 s) - status.json every 10 s (2.42; up to 2.41 every 30 s), for the office's rate
         b="$(tail -n 1 "$pvf" 2>/dev/null | tr -dc '0-9')"
-        if is_uint "$b" && (( $(date +%s) - last_write >= 30 )); then ST_PARTNER_CUR_BYTES="$b"; last_write="$(date +%s)"; status_write; fi
+        if is_uint "$b" && (( $(date +%s) - last_write >= 10 )); then ST_PARTNER_CUR_BYTES="$b"; last_write="$(date +%s)"; status_write; fi
     done
     kill "$w" 2>/dev/null; wait "$w" 2>/dev/null
     PARTNER_PID=""
@@ -2768,7 +2779,7 @@ partner_send() {
     b="$(tail -n 1 "$pvf" 2>/dev/null | tr -dc '0-9')"
     if is_uint "$b"; then PS_BYTES="$b"
     else b="$(jq -r '.bytes // empty' <<<"$d2" 2>/dev/null)"; is_uint "$b" && PS_BYTES="$b"; fi
-    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0
+    ST_PARTNER_CUR=""; ST_PARTNER_CUR_BYTES=0; ST_PARTNER_CUR_EST=0
     # it ended badly just as the array stop began: interrupted by the stop, not failed
     if [[ "$ok2" != "true" ]] && array_stopping; then ST_PARTNER_INTERRUPTED="$id|$u"; array_stop_check "the transfer of $u ended"; fi
     if [[ -z "$d1" ]]; then
@@ -2783,6 +2794,9 @@ partner_send() {
         case "$why" in
             need_full) log "    $name has no base for it (need_full) - sending it whole"; return 2 ;;
             refused_window|refused_quota|refused_asleep) log "    $name: not now ($why)"; return 3 ;;
+            # a door up to 1.59 keeps only what its Team Lead agreed to (2.42: skipped, not failed - the mutual watch
+            # asks it to keep this unit too; an update there takes any unit)
+            unit_not_agreed) PS_WHY="not_agreed"; log "    $name runs an older office and hasn't agreed to keep $u - its Team Lead decides (update it: then every unit goes)"; return 3 ;;
         esac
         partner_fail "$id" "$u" "$why" "$name refused it ($why)"; return 1
     fi
@@ -2873,7 +2887,7 @@ partner_unit() {
 # A refusal the partner's user can change (its window, its quota): a warning once a day per partner
 partner_refused() { # partner_refused <id> <why>
     local key today
-    case "$2" in refused_quota) key="quota_warned" ;; refused_window) key="window_warned" ;; *) return 0 ;; esac
+    case "$2" in refused_quota) key="quota_warned" ;; refused_window) key="window_warned" ;; not_agreed) key="agreed_warned" ;; *) return 0 ;; esac
     today="$(date +%F)"
     [[ " ${PARTNER_TOLD[$1]:-} " == *" $2 "* ]] && return 0
     PARTNER_TOLD[$1]+=" $2"
@@ -2881,6 +2895,7 @@ partner_refused() { # partner_refused <id> <why>
         case "$2" in
             refused_quota)  warn "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has; ask its owner for more room" ;;
             refused_window) warn "Partner $(partner_name "$1") refused: outside its receiving window - the run sends again next night (the window is its owner's setting)" ;;
+            not_agreed)     warn "Partner $(partner_name "$1") runs an older office and keeps only what its Team Lead agreed to - update it, or let its Team Lead keep the rest (asked through its door)" ;;
         esac
         partner_state_set partner-skips.json ".[\$v.id].$key = \$v.day" "$(jq -nc --arg id "$1" --arg day "$today" '{id: $id, day: $day}')"
     fi
@@ -2934,7 +2949,6 @@ partner_phase() {
             [[ "$u" == "$id|"* ]] || continue
             IFS='|' read -r _ u why <<<"$u"
             if [[ "$why" == "asleep" ]]; then log "  $u: its pool sleeps - left out this run (asleep_pools = skip)"
-            elif [[ "$why" == "not_agreed" ]]; then log "  $u: not agreed with $name yet - ask at the Team Lead («Change what $(ub_host_name) sends…»)"
             else log "  $u: not covered ($why)"; fi
             partner_skip "$id" "$u" "$why"
         done
@@ -3593,7 +3607,11 @@ run_report() {
         case "$d" in
             off|kept_running|not_running|planned) continue ;;
             shutdown) d="shut down for $(dur_n "$secs")" ;;
-            paused)   d="paused for $(dur_n "$secs")" ;;
+            paused)   case "$p" in
+                          shutdown) d="did not shut down - paused for $(dur_n "$secs")" ;;
+                          freeze)   d="not frozen - paused for $(dur_n "$secs")" ;;
+                          *)        d="paused for $(dur_n "$secs")" ;;
+                      esac ;;
             frozen)   d="frozen for $(dur_n "$secs")" ;;
             failed)   d="could not be paused - kept running" ;;
             *)        d="$d for $(dur_n "$secs")" ;;

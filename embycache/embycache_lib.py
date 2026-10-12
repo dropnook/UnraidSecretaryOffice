@@ -166,10 +166,17 @@ def load_config(require_paths=True):
     # Umgebungsvariablen überschreiben einzelne Werte
     env_min = os.environ.get("EMBYCACHE_MIN_FREE_PERCENT")
     if env_min:
-        cfg["min_free_percent"] = float(env_min)
+        cfg["min_free_percent"] = env_min
     env_dbg = os.environ.get("EMBYCACHE_MOVER_DEBUG")
     if env_dbg:
-        cfg["mover_debug_level"] = int(env_dbg)
+        cfg["mover_debug_level"] = env_dbg
+    # upstream 9d14374: a bad number is a ConfigError, not a traceback
+    try:
+        cfg["min_free_percent"] = float(cfg["min_free_percent"])
+        cfg["mover_debug_level"] = int(cfg["mover_debug_level"])
+    except (TypeError, ValueError):
+        raise ConfigError("min_free_percent muss eine Zahl, mover_debug_level eine ganze Zahl sein "
+                          "(auch EMBYCACHE_MIN_FREE_PERCENT / EMBYCACHE_MOVER_DEBUG prüfen)")
     env_rsync = os.environ.get("EMBYCACHE_RSYNC_ARGS")
     if env_rsync is not None:
         cfg["rsync_args"] = env_rsync.split()

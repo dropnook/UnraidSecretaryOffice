@@ -88,9 +88,8 @@ function moverelliHost(): array
         'dir'           => $h['dir'] ?? MOVERELLI_DATA,
         'app'           => $h['app'] ?? MOVERELLI_APP,
         'shares_dir'    => $h['shares_dir'] ?? '/boot/config/shares',
-        // the shares Unraid has now (emhttp's list): a cfg on the flash outlives a share deleted by hand; tests that
-        // bring their own cfg folder bring their own list too, or none (every cfg then counts)
-        'shares_ini'    => array_key_exists('shares_ini', $h) ? $h['shares_ini'] : (isset($h['shares_dir']) ? null : '/var/local/emhttp/shares.ini'),
+        'shares_ini'    => $h['shares_ini'] ?? OFFICE_SHARES_INI,     // which shares exist (a cfg alone is no share)
+        'var_ini'       => $h['var_ini'] ?? OFFICE_VAR_INI,
         'mnt'           => $h['mnt'] ?? '/mnt',
         'env'           => $h['env'] ?? [],          // more for the script (the tests: CUSTOMMOVER_MOVER_BIN, CUSTOMMOVER_ZFS)
         'version'       => $h['version'] ?? fn (): string => reportUnraidVersion(),
@@ -344,18 +343,17 @@ function moverelliPathOk(string $path, string $dir): bool
     return true;
 }
 
-/** Every user share (by its cfg on the flash) she can write a section for */
-function moverelliShareNames(string $sharesDir, ?string $sharesIni = null): array
+/**
+ * Every user share (by its cfg on the flash) she can write a section for — a cfg whose share is gone (removed by hand,
+ * the cfg left behind: officeShareExists()) is none. $h: moverelliHost() (its shares_ini, mnt, var_ini).
+ */
+function moverelliShareNames(string $sharesDir, ?array $h = null): array
 {
-    // only shares Unraid lists now: /boot/config/shares keeps the cfg of a share whose folders were removed by hand
-    $now = null;
-    if ($sharesIni !== null && is_file($sharesIni)) {
-        $now = array_map('strval', array_keys(readCfg($sharesIni, true)));
-    }
+    $h ??= moverelliHost();
     $out = [];
     foreach (glob("$sharesDir/*.cfg") ?: [] as $f) {
         $name = basename($f, '.cfg');
-        if (preg_match(MOVERELLI_SHARE, $name) && ($now === null || in_array($name, $now, true))) {
+        if (preg_match(MOVERELLI_SHARE, $name) && officeShareExists($name, $h['shares_ini'], $h['mnt'], $h['var_ini'])) {
             $out[] = $name;
         }
     }
@@ -549,7 +547,7 @@ function moverelliSave(mixed $in, ?array $h = null, ?callable $before = null): a
     if (moverelliBusy($h['dir'])) {
         throw new Problem('moverelli_running');
     }
-    $set = moverelliCheck($in, moverelliShareNames($h['shares_dir'], $h['shares_ini']), $h['dir']);
+    $set = moverelliCheck($in, moverelliShareNames($h['shares_dir'], $h), $h['dir']);
     // her run's lock held while writing: a run can't start meanwhile, and one that holds it refuses the save
     moverelliDataDir($h['dir']);
     $lock = @fopen("$h[dir]/office-run.lock", 'c');
@@ -625,11 +623,11 @@ function moverelliEngineVersion(string $app): ?string
  * what moves where (`yes`: primary → secondary or the array; `prefer`: back to the primary; else nothing) and the rules
  * that hold for it (its own, else the global ones; a `prefer` share's age is 0 unless its own).
  */
-function moverelliShares(array $set, string $sharesDir, ?string $sharesIni = null): array
+function moverelliShares(array $set, string $sharesDir, ?array $h = null): array
 {
     $g = $set['global'];
     $out = [];
-    foreach (moverelliShareNames($sharesDir, $sharesIni) as $share) {
+    foreach (moverelliShareNames($sharesDir, $h) as $share) {
         $cfg = readCfg("$sharesDir/$share.cfg");
         $use = (string) ($cfg['shareUseCache'] ?? '');
         $primary = (string) ($cfg['shareCachePool'] ?? '');
@@ -695,7 +693,7 @@ function moverelliScan(?array $h = null): array
         'configured' => $settings !== null,
         // shares as an object for the page: a share named «0» or «2024» must not turn the map into a list
         'settings'   => ['global' => ($settings ?? moverelliDefaults())['global'], 'shares' => (object) ($settings ?? moverelliDefaults())['shares']],
-        'shares'     => moverelliShares($settings ?? moverelliDefaults(), $h['shares_dir'], $h['shares_ini']),
+        'shares'     => moverelliShares($settings ?? moverelliDefaults(), $h['shares_dir'], $h),
         // Unraid's own mover: its schedule (real runs only while «Disabled»), at work right now
         'mover'      => ['off' => embyMoverScheduleOff($own), 'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null),
                          'running' => ($h['mover_running'])($job['running'] ? (int) $job['pid'] : null)],     // her own run's move binary isn't Unraid's mover

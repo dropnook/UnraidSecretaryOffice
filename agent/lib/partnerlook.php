@@ -62,7 +62,7 @@ function partnerLookPairs(?string $file = null): array
     foreach (partnerPairs($file) as $p) {
         $out[$p['id']] = ['id' => $p['id'], 'name' => $p['name'], 'address' => $p['address'],
                           'ips' => filter_var($p['address'], FILTER_VALIDATE_IP) ? [partnerLookIp($p['address'])] : [],
-                          'fp' => $p['their_key'], 'sends' => $p['send']['units'] !== [], 'receives' => $p['receive'] !== null,
+                          'fp' => $p['their_key'], 'sends' => partnerSendUnits($p['id']) !== [], 'receives' => $p['receive'] !== null,
                           'trust' => $p['trust'], 'paired' => $p['paired'], 'public' => !partnerAddressPrivate($p['address']),
                           'pool' => $p['receive']['pool'] ?? null];
     }

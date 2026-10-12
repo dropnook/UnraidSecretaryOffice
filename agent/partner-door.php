@@ -11,8 +11,9 @@ declare(strict_types=1);
  *
  *   ping                              {"ok":true,"v","pair","array","night","time"} — from RAM and the flash only (the
  *                                     array may be stopped: nothing under /mnt is touched)
- *   status                            the public summary (needs the data folder); `agreed` = receive.units, `wish` = the
- *                                     units of its offer not decided on yet
+ *   status                            the public summary (needs the data folder); `takes_all` true (a door since 1.60 takes
+ *                                     any unit of the pair up to its quota), `agreed` = every unit received so far and
+ *                                     every unit the partner named with `offer` (for a sender up to 1.59), `wish` = []
  *   quota                             {"ok":true,"bytes","used_bytes"} of the pair's dataset here
  *   list <unit>                       the snapshots kept here of that unit
  *   resume <unit>                     {"ok":true,"token":<receive_resume_token>|null}
@@ -20,11 +21,11 @@ declare(strict_types=1);
  *                                     a full stream onto an existing unit puts the old dataset aside (<ds>.old-<time>),
  *                                     a stale partial receive is aborted (zfs recv -A) unless the call is a -t resume;
  *                                     JSON on stderr before reading and after; the receiver's retention afterwards
- *   offer <unit> [<unit>…]            what the partner would like to send (≤ 64 units, each a unit word, no twice): the units
- *                                     not agreed here (receive.units) are kept as its wish (data/partner/wishes/<id>.json,
- *                                     {pair, units, time}, overwritten — none left: removed) for the Team Lead to decide;
- *                                     answers {"ok":true,"agreed":[…receive.units…],"pending":[…the wish…]}. Never changes
- *                                     the agreement, never makes a dataset (needs the data folder like status)
+ *   offer <unit> [<unit>…]            what an older partner (up to 1.59) would like to send (≤ 64 units, each a unit word,
+ *                                     no twice): kept as what it named (data/partner/wishes/<id>.json, {pair, units, time},
+ *                                     overwritten) and answered {"ok":true,"agreed":[…all of them…],"pending":[]} — the
+ *                                     consent is the pairing, nothing to decide. Never makes a dataset (needs the data
+ *                                     folder like status)
  *   send-back <unit> <snap> [<from>]  the pair's own copy of a unit back to its sender: zfs send -L -c [-i <from>] of
  *   send-back <unit> -t <token>       <pool>/UnraidSecretaryOffice-partners/<id>/<unit>@<snap> to stdout (through mbuffer) —
  *                                     or, resumed, zfs send -t <token> (the token is the puller's: its zfs recv -s kept
@@ -38,8 +39,10 @@ declare(strict_types=1);
  * {"ok":false,"why":"ticket_expired","time":<now>}; sshd's expiry-time ends the key too).
  *
  * Never a path from the client, never -F, never a destroy but this office's own retention on the pair's datasets,
- * never a shell. Every unit is checked against the pair's agreement (pairs.json receive.units), every snapshot name
- * against exactly uso-backup-YYYYMMDD-HHMM. Refusals: one line in data/partner/door.log (RAM when the data folder is
+ * never a shell. Every unit name is checked against exactly its shape (a ticket's against the units it was given for),
+ * every snapshot name against exactly uso-backup-YYYYMMDD-HHMM; a pair gets at most PARTNER_UNITS_MAX unit datasets
+ * here (refused_units) and what its quota allows (refused_quota) — since 1.60 any unit of a paired partner is taken, at
+ * any time (no receiving window: the sender's schedule is the schedule). Refusals: one line in data/partner/door.log (RAM when the data folder is
  * away), their times in RUN_DIR/partner/refused-<id>.json (for the night watchman). Exit 0 ok, 1 refused or failed,
  * 2 a request that isn't one.
  *
@@ -52,7 +55,7 @@ if (PHP_SAPI !== 'cli') {
 }
 chdir('/');
 umask(0077);
-// the server's time zone (the receiving window is local time): its environment is empty, like agent.php's start
+// the server's time zone (its log lines are local time): its environment is empty, like agent.php's start
 $zone = preg_replace('#^.*/zoneinfo/#', '', (string) @readlink('/etc/localtime'));
 date_default_timezone_set(in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC');
 
@@ -160,7 +163,11 @@ function doorHeard(string $id): void
     if (partnerDirReady(partnerRunDir())) {
         $f = partnerRunDir() . "/heard-$id";
         if (!is_link($f)) {
+            $first = !file_exists($f);
             @touch($f);
+            if ($first) {
+                partnerRescanAsk();         // the pairing landed from the other side: the Team Lead's cards anew at once
+            }
         }
     }
 }
@@ -313,7 +320,7 @@ function doorMain(array $argv): int
         if ($pair === null) {
             return doorRefuse($id, 'no_pair', $err);
         }
-        $units = $pair['receive'] !== null ? array_values(array_intersect($ticket['units'], $pair['receive']['units'])) : [];
+        $units = $pair['receive'] !== null ? $ticket['units'] : [];
     } else {
         $pair = partnerPair($id);
         if ($pair === null) {
@@ -331,8 +338,8 @@ function doorMain(array $argv): int
     if ($r === null) {
         return doorRefuse($id, 'not_receiving', $err);
     }
-    $units ??= $r['units'];
-    if ($n >= 2 && !in_array($w[1], $units, true)) {
+    // a ticket reads only the units it was given for; a pair's own knock may name any unit (the consent is the pairing)
+    if ($units !== null && $n >= 2 && !in_array($w[1], $units, true)) {
         return doorRefuse($id, 'unit_not_agreed', $err);
     }
     if (!doorPoolThere($r['pool'])) {
@@ -394,7 +401,7 @@ function doorStatus(array $pair): int
             'last_run' => is_array($last) && is_string($last['run'] ?? null) ? ['run' => $last['run'], 'result' => (string) ($last['result'] ?? ''),
                 'time' => (int) ($last['finished'] ?? $last['updated'] ?? 0)] : null,
             'pool' => null, 'quota' => null, 'units' => (object) [],
-            'agreed' => $pair['receive']['units'] ?? [], 'wish' => partnerWish($pair)['units'] ?? []];
+            'agreed' => doorAgreed($pair), 'wish' => [], 'takes_all' => true];
     $r = $pair['receive'];
     if ($r !== null) {
         $asleep = in_array($r['pool'], poolsBySleep([$r['pool']])['asleep'], true);
@@ -405,7 +412,10 @@ function doorStatus(array $pair): int
             $q = doorZfsGet($pairDs, 'quota,used');
             $out['quota'] = ['bytes' => $q !== null && num($q['quota'] ?? '') > 0 ? num($q['quota']) : null, 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0];
             $units = [];
-            foreach ($r['units'] as $u) {
+            foreach (array_keys((array) (partnerReceived($pair['id'])['units'] ?? [])) as $u) {
+                if (!is_string($u) || !preg_match(PARTNER_UNIT_RE, $u)) {
+                    continue;
+                }
                 $ds = partnerUnitDataset($r['pool'], $pair['id'], $u);
                 $snaps = array_values(array_filter(array_column(doorSnaps($ds), 'name'), fn ($s) => preg_match(PARTNER_SNAP_RE, $s)));
                 if ($snaps) {
@@ -420,9 +430,9 @@ function doorStatus(array $pair): int
 }
 
 /**
- * `offer <unit>…`: the partner would like to send these. What is agreed stays as it is; the rest is its wish, kept for
- * the Team Lead (wishes/<id>.json, one file per pair, overwritten — nothing left to wish: removed). Never a change of
- * receive.units, never a dataset, never a refusal for a unit not agreed.
+ * `offer <unit>…`: an older partner (up to 1.59) would like to send these. Kept as what it named (wishes/<id>.json, one
+ * file per pair, overwritten) and answered as agreed whole — the consent is the pairing, its door takes any unit up to
+ * the quota. Never a dataset, never a refusal for a unit.
  */
 function doorOffer(array $pair, array $units): int
 {
@@ -431,34 +441,56 @@ function doorOffer(array $pair, array $units): int
     if ($r === null) {
         return doorRefuse($id, 'not_receiving');
     }
-    $pending = array_values(array_diff($units, $r['units']));
     $before = partnerWish($pair);
     try {
-        partnerWishWrite($id, $pending, doorNow());
+        partnerWishWrite($id, $units, doorNow());
     } catch (Throwable $e) {
         return doorRefuse($id, 'busy');
     }
-    if ($pending && ($before['units'] ?? null) !== $pending) {
-        doorLog($id, 'offer: would also like to send ' . implode(' ', $pending) . ' - the Team Lead decides');
-    } elseif (!$pending && $before !== null) {
-        doorLog($id, 'offer: nothing more wished - the wish ' . implode(' ', $before['units']) . ' withdrawn');
+    if (($before['units'] ?? null) !== $units) {
+        doorLog($id, 'offer: would like to send ' . implode(' ', $units) . ' - taken (any unit up to the quota)');
     }
-    doorSay(['ok' => true, 'agreed' => $r['units'], 'pending' => $pending]);
+    doorSay(['ok' => true, 'agreed' => $units, 'pending' => []]);
     return 0;
 }
 
+/** `status`'s `agreed` for a sender up to 1.59: every unit received so far and every unit it named with `offer` */
+function doorAgreed(array $pair): array
+{
+    $units = [];
+    foreach (array_keys((array) (partnerReceived($pair['id'])['units'] ?? [])) as $u) {
+        if (is_string($u) && preg_match(PARTNER_UNIT_RE, $u)) {
+            $units[$u] = true;
+        }
+    }
+    foreach (partnerWish($pair)['units'] ?? [] as $u) {
+        $units[$u] = true;
+    }
+    return array_slice(array_keys($units), 0, PARTNER_UNITS_MAX);
+}
+
+/** How many unit datasets the pair has here (zfs list -r of its dataset, one level below it) */
+function doorUnitCount(string $pairDs): int
+{
+    [$exit, $out] = run([partnerBin('zfs') ?? 'zfs', 'list', '-H', '-o', 'name', '-t', 'filesystem', '-r', $pairDs], 60);
+    $n = 0;
+    foreach ($exit === 0 ? explode("\n", trim($out)) : [] as $name) {
+        if (str_starts_with($name, "$pairDs/") && !str_contains(substr($name, strlen($pairDs) + 1), '/')) {
+            $n++;
+        }
+    }
+    return $n;
+}
+
 /**
- * The receiving end of a transfer. Checks (window, quota, the chain) before a byte is read; one transfer per pair
- * (its lock in RAM); the process registered for the array stop (agent.sh partner_release); JSON on stderr before
- * and after.
+ * The receiving end of a transfer. Checks (the quota, the count of units, the chain) before a byte is read; one
+ * transfer per pair (its lock in RAM); the process registered for the array stop (agent.sh partner_release); JSON on
+ * stderr before and after.
  */
 function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
 {
     $id = $pair['id'];
     $r = $pair['receive'];
-    if (!partnerWindowOpen($r['window'], doorNow())) {
-        return doorRefuse($id, 'refused_window', true, ['window' => $r['window']]);
-    }
     if (!partnerDirReady(partnerRunDir())) {
         return doorRefuse($id, 'busy', true);
     }
@@ -479,6 +511,9 @@ function doorRecv(array $pair, string $unit, string $snap, ?string $from): int
     }
     $zfs = partnerBin('zfs') ?? 'zfs';
     $info = doorZfsGet($ds, 'type,receive_resume_token');
+    if ($info === null && doorUnitCount($pairDs) >= PARTNER_UNITS_MAX) {
+        return doorRefuse($id, 'refused_units', true, ['max' => PARTNER_UNITS_MAX]);        // a new unit beyond what a pair may keep here
+    }
     $resume = $from === '-t';
     $token = $info !== null ? ($info['receive_resume_token'] ?? '-') : '-';
     $hasToken = $token !== '-' && $token !== '';
@@ -763,7 +798,7 @@ function doorRetention(array $pair, string $ds): int
     return count($snaps) - count($go);
 }
 
-/** data/partner/received/<id>.json: per unit the newest snapshot, its bytes, when, how many are kept */
+/** data/partner/received/<id>.json: per unit the newest snapshot, its bytes, when, how many are kept, when it first came (the card's «new») */
 function doorReceived(array $pair, string $unit, string $snap, int $bytes, int $seconds, int $kept): void
 {
     $file = partnerDir() . "/received/{$pair['id']}.json";
@@ -774,7 +809,8 @@ function doorReceived(array $pair, string $unit, string $snap, int $bytes, int $
             $units[$u] = $v;
         }
     }
-    $units[$unit] = ['snap' => $snap, 'bytes' => $bytes, 'seconds' => $seconds, 'time' => time(), 'snaps' => $kept];
+    $first = is_int($units[$unit]['first'] ?? null) ? $units[$unit]['first'] : (is_int($units[$unit]['time'] ?? null) ? $units[$unit]['time'] : time());
+    $units[$unit] = ['snap' => $snap, 'bytes' => $bytes, 'seconds' => $seconds, 'time' => time(), 'snaps' => $kept, 'first' => $first];
     $pairDs = "{$pair['receive']['pool']}/" . PARTNER_PARENT . "/{$pair['id']}";
     try {
         partnerWritePrivate($file, ['pair' => $pair['id'], 'units' => $units, 'used_bytes' => num(doorZfsGet($pairDs, 'used')['used'] ?? ''), 'time' => time()]);

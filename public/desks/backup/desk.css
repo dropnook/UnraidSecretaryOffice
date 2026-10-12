@@ -208,3 +208,11 @@ td.bk-filter-none{padding:6px 10px; font-weight:400; white-space:normal}
 .bk-pagehead-actions{display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end}
 @media (max-width:640px){.bk-pagehead-actions{justify-content:flex-start; width:100%}}
 }
+/* 2.42: the level switch with five fields (a pair) wraps instead of squeezing; the backup place's switch in «Basics»; the offsite card's tick
+   (every rule under #sso like the block above - the desk's rules carry its specificity) */
+#sso .bk-seg-five{flex:0 1 auto; min-width:0; max-width:100%; flex-wrap:wrap}   /* a flex item that may shrink: its fields wrap instead of overflowing */
+#sso .bk-seg-five button{flex:1 1 auto; text-align:center}
+@media (max-width:640px){#sso .bk-right .bk-seg-five{display:flex; flex:1 1 100%; width:100%} #sso .bk-seg-five button{border-top:1px solid var(--line); margin-top:-1px}}
+#sso .bk-place-level{display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; margin:8px 0 0}
+#sso .bk-place-level .role{font-size:12.5px}
+#sso .bk-preset-tick{margin-top:8px; font-size:12.5px}

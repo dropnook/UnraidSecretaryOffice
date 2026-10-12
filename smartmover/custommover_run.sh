@@ -41,6 +41,13 @@
 #   CUSTOMMOVER_STOP          a file: once it exists, no further share is started (exit 3)
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
+#   CUSTOMMOVER_EXCLUDES_OPTIONAL  comma separated exclude files that may be missing: one that is gone
+#                             counts as an empty list (INFO), even with CUSTOMMOVER_EXCLUDES_REQUIRED=1
+# Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
+#   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
+#   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
+# USO: a <share>.cfg whose share is gone (no $MNT/user/<share>: a share removed by hand leaves its .cfg)
+#      is skipped with an INFO line, never moved (not upstream as of 68ee9ce)
 #
 # INI (smart_mover.ini):
 #   [GLOBAL]  mover_bin, log_file, min_age (days), age_stat (ctime|mtime), global_excludes (comma list),
@@ -51,7 +58,7 @@
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
 #   /abs/path/file.mkv     protects exactly that file (an EmbyCache exclude list works as-is)
-#                          office: absolute entries are taken literally — [ ] * ? are part of the name
+#                          absolute entries are taken literally: [ ] * ? are part of the name
 #   *.nfo  or  Season 0*   glob against the file name (no slash) or the full path (with slash)
 #   anything else          substring match on the full path (legacy behaviour)
 #   /mnt/user/<share>/...  and /mnt/user0/<share>/... are translated to the scanned source root
@@ -78,6 +85,7 @@ case "${CUSTOMMOVER_FORCE:-}" in age) FORCE_AGE=true ;; all) FORCE_AGE=true; FOR
 STATUS_FILE="${CUSTOMMOVER_STATUS:-}"
 STOP_FILE="${CUSTOMMOVER_STOP:-}"
 EXCL_REQUIRED="${CUSTOMMOVER_EXCLUDES_REQUIRED:-0}"
+EXCL_OPTIONAL="${CUSTOMMOVER_EXCLUDES_OPTIONAL:-}"
 
 usage() {  # prints the header comment block above
     awk 'NR > 2 && /^# =====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"
@@ -249,8 +257,8 @@ pool_used_pct() {  # pool
 }
 
 # ------------------------------------------------------------------ Excludes
-# office: an absolute entry names exactly one file or folder, so find must match it literally —
-# escape what find's -path reads as a pattern (\ [ ] * ?): «Film (2020) [1080p].mkv» is no bracket expression.
+# An absolute entry names exactly one file or folder, so find must match it literally:
+# escape what find's -path reads as a pattern (\ [ ] * ?), e.g. «Film (2020) [1080p].mkv».
 find_literal() {  # path -> FIND_LITERAL (no subshell: an EmbyCache list has many lines)
     local s="$1" bs='\'
     s="${s//"$bs"/"$bs$bs"}"; s="${s//"["/"$bs["}"; s="${s//"]"/"$bs]"}"; s="${s//"*"/"$bs*"}"; s="${s//"?"/"$bs?"}"
@@ -269,6 +277,8 @@ build_excludes() {  # share_name source_root exclude_files(comma list)...
         f="${f#"${f%%[![:space:]]*}"}"; f="${f%"${f##*[![:space:]]}"}"
         [[ -z "$f" ]] && continue
         if [[ ! -f "$f" ]]; then
+            # office: a list that may not exist yet (EmbyCache's before its first run) protects nothing — an empty list
+            if [[ -n "$EXCL_OPTIONAL" && ",$EXCL_OPTIONAL," == *",$f,"* ]]; then log INFO "  exclude file not there yet (taken as empty): $f"; continue; fi
             # office: on a real run a list that is gone must not let its files move
             if [[ "$EXCL_REQUIRED" == "1" && "$DRY_RUN" == false ]]; then log ERROR "  exclude file not found: $f"; EXCL_MISSING="$f"
             else log WARN "  exclude file not found: $f"; fi
@@ -282,7 +292,7 @@ build_excludes() {  # share_name source_root exclude_files(comma list)...
             line="${line/#$MNT\/user\/$share/$src}"
             line="${line/#$MNT\/user0\/$share/$src}"
             case "$line" in
-                /*)  # absolute path: file or subtree (office: matched literally)
+                /*)  # absolute path: file or subtree, matched literally
                     find_literal "$line"
                     EXCL_ARGS+=(-o -path "$FIND_LITERAL" -o -path "$FIND_LITERAL/*") ;;
                 *[\*\?\[]*)  # glob
@@ -490,6 +500,8 @@ for cfg in "$SHARES_DIR"/*.cfg; do
     MODE=$(sed -n 's/^shareUseCache="\([^"]*\)".*/\1/p' "$cfg" | tr -d '\r' | head -1)
     [[ "$MODE" == "yes" || "$MODE" == "prefer" ]] || continue
     if [[ -n "$TARGET_SHARES" && ",$TARGET_SHARES," != *",$SHARE_NAME,"* ]]; then continue; fi
+    # USO: a stale .cfg is no share — Unraid lists shares from the folders, /mnt/user shows them (FUSE, no disk asked)
+    [[ -d "$MNT/user/$SHARE_NAME" ]] || { log INFO "skip $SHARE_NAME: no such share (stale .cfg)"; continue; }
     POOL=$(sed -n 's/^shareCachePool="\([^"]*\)".*/\1/p' "$cfg" | tr -d '\r' | head -1)
     POOL2=$(sed -n 's/^shareCachePool2="\([^"]*\)".*/\1/p' "$cfg" | tr -d '\r' | head -1)
     [[ -z "$POOL" ]] && POOL="cache"

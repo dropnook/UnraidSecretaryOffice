@@ -33,6 +33,14 @@
 >   done, how long each part took; he stats rsync's temporary file next to the target for the bytes inside the file).
 > * Jack always moves with rsync, both ways: he sets `EMBYCACHE_FILL_TOOL`/`EMBYCACHE_CLEANUP_TOOL` to `rsync` and
 >   writes `rsync` into the settings — the `mover` tools stay in the code for standalone use only.
+> * Taken over from upstream since (helmi1987's commits, 2026-10-09): `9d14374` — a `min_free_percent` /
+>   `mover_debug_level` that is no number (also through `EMBYCACHE_MIN_FREE_PERCENT` / `EMBYCACHE_MOVER_DEBUG`) is a
+>   ConfigError instead of a traceback; fixed per-user budgets are found by the user's id (a server name with «:» broke
+>   the lookup); the unused `exclude_written` went. Kept ours: the progress — `6974247`'s `track_mover` (and `9d14374`'s
+>   part of it) watches Unraid's move binary and writes into upstream's live status (`--status`/`--watch`, from his
+>   7.3.0); here `EMBYCACHE_PROGRESS` covers the rsync Jack always uses, so neither the tracker nor `--watch` (nor its
+>   checks) is taken over. Left out: the cleaner's `cleanup_tool` and `share_mode_ok` moved into the lib (`9d14374`) —
+>   only the cleaner needs it there, and the cleaner isn't shipped (below).
 > * Not taken over: `embycache_setup.py` (Jack is the setup) and `embycache_cleaner.py`
 >   (on a share whose primary is the pool it would take every new film for an orphan).
 >

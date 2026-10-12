@@ -19,14 +19,15 @@ const T = Office.scope(ID);
 /** «{n} <noun>» from the lang key count.<what> — its one/other forms (several counts in one text are composed of these) */
 const nOf = (what, n) => T('count.' + what, { n: Number(n) || 0 });
 const { el, fmt } = Office;
-const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners', 'trash'];
-const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', docker: '🐳', icons: '🖼️', leftovers: '📦', partners: '🤝', trash: '🗑️' };
+const SECTIONS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'flash', 'docker', 'icons', 'leftovers', 'partners', 'trash'];
+const ICONS = { templates: '📄', stacks: '🧩', appdata: '🗃️', vms: '🖥️', scripts: '📜', flash: '💾', docker: '🐳', icons: '🖼️', leftovers: '📦', partners: '🤝', trash: '🗑️' };
 const GROUPS = {
   templates: ['leftover', 'unused', 'duplicate', 'noname', 'stray_only_here', 'stray_newer', 'stray_name_exists', 'stray_older', 'stray_copy', 'unknown', 'in_use'],
   stacks: ['leftover', 'broken', 'unused', 'unknown', 'in_use'],
   appdata: ['unused', 'check', 'unknown', 'used'],
   vms: ['broken', 'orphan', 'unused', 'check', 'media', 'unknown', 'used'],
   scripts: ['broken', 'dead', 'idle', 'used'],
+  flash: ['stale', 'unknown', 'used'],     // share settings: whose share is gone, can't tell (array stopped), Unraid knows the share
   docker: ['drill', 'dangling', 'volume', 'unused', 'cache', 'used'],
   icons: ['template', 'compose', 'stack', 'none', 'ok'],
   leftovers: ['leftover', 'way_back', 'unknown'],     // shown per restore (renderLeftovers), these for the CSV
@@ -38,6 +39,7 @@ const CANDIDATES = {
   appdata: ['unused', 'check'],
   vms: ['broken', 'orphan', 'unused', 'check', 'media'],
   scripts: ['broken', 'dead', 'idle'],
+  flash: ['stale'],
   docker: ['drill', 'dangling', 'volume', 'unused', 'cache'],
   icons: ['template', 'compose', 'stack', 'none'],
   leftovers: ['leftover', 'way_back'],
@@ -45,8 +47,8 @@ const CANDIDATES = {
 };
 const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
-const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾', drill: '🧪', volume: '🗄️' };
-const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
+const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾', drill: '🧪', volume: '🗄️', sharecfg: '⚙️' };
+const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'flash', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
 const ROOM_ITEMS = 120;     // the search's items from her rooms (WHERE_ITEMS come from «Where is what», a part of its own)
 const WHERE_ITEMS = 200;    // «Where is what» is a part of its own: its own 200 in the search (2026-10-10: her field went)
@@ -112,7 +114,7 @@ function entries(sec, s = state) {
   return ({
     templates: s.templates.list, stacks: s.stacks.list, appdata: s.appdata.list,
     vms: s.vms.list, scripts: s.scripts.list, docker: s.docker.list, icons: (s.icons || {}).list,
-    leftovers: (s.leftovers || {}).list, partners: (s.partners || {}).list,
+    leftovers: (s.leftovers || {}).list, partners: (s.partners || {}).list, flash: (s.flash || {}).list,
   })[sec] || [];
 }
 const candidates = (sec) => entries(sec).filter((e) => CANDIDATES[sec].includes(e.category));
@@ -133,7 +135,7 @@ const lockedText = (e) => T('in_use_locked.' + e.kind, e.kind === 'template' ? {
 const selectable = (e) => !!state && e.why === null && !state.backup_running && !(removable(e) && e.category === 'used') && !inUseLocked(e)
   && !(e.kind === 'icon' && (e.category === 'ok' || e.category === 'none' || !iconChoice(e)));
 const isStackIcon = (e) => e.kind === 'icon' && e.target === 'stack';
-const label = (e) => (e.kind === 'template' || e.kind === 'stray' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name')
+const label = (e) => (e.kind === 'template' || e.kind === 'stray' || e.kind === 'sharecfg' ? e.file : e.kind === 'userscript' ? e.name : e.kind === 'stack' ? e.folder : e.kind === 'cache' ? T('cache.name')
   : isStackIcon(e) ? T('pic.stack_name', { name: e.name })
   : e.kind === 'partner' && e.unit ? T('pa.dropped_name', { unit: e.unit, name: e.pair_name || e.name })
   : e.kind === 'drill' && e.what !== 'container' ? T('dl.name_' + (e.what === 'kopia_tmp' ? 'kopia_tmp' : 'kopia_dump'), { name: e.name.split('/').pop(), container: e.container || 'Kopia' }) : e.name);
@@ -154,6 +156,7 @@ const fitsRoom = (e) => matches(e) && (!(tidyBar && tidyBar.read().only) || sele
 const visible = (sec, s = state) => (sec === 'vms' ? s.vms.enabled : sec === 'scripts' ? s.scripts.installed
   : sec === 'leftovers' ? !!s.leftovers && s.leftovers.restores > 0
   : sec === 'partners' ? !!s.partners && s.partners.list.length > 0
+  : sec === 'flash' ? !!s.flash && s.flash.list.length > 0      // an older agent's state has no room «flash»
   : sec === 'icons' ? s.docker.enabled && !!s.icons : ['templates', 'stacks', 'appdata', 'docker'].includes(sec) ? s.docker.enabled : true);
 
 function chip(text, cls, tip) {
@@ -315,6 +318,7 @@ function build(root, page) {
     [T('help.check'), T('help.check_text')],
     [T('section.vms'), T('help.vms_text')],
     [T('section.scripts'), T('help.scripts_text')],
+    [T('section.flash'), T('help.flash_text')],
     [T('section.docker'), T('help.docker_text')],
     [T('section.icons'), T('help.icons_text')],
     [T('section.leftovers'), T('help.leftovers_text')],
@@ -522,7 +526,7 @@ function roomSection(sec) {
     }
   }
   s.appendChild(Office.sectionHead(T('section.' + sec), T('section.' + sec + '_sub'), ...right));
-  const info = { templates: templatesInfo, appdata: appdataInfo, vms: vmsInfo, scripts: scriptsInfo, docker: dockerInfo, icons: iconsInfo,
+  const info = { templates: templatesInfo, appdata: appdataInfo, vms: vmsInfo, scripts: scriptsInfo, flash: flashInfo, docker: dockerInfo, icons: iconsInfo,
     leftovers: leftoversInfo, partners: partnersInfo }[sec];
   if (info) s.appendChild(info());
   const list = el('div', 'cl-room-list');
@@ -610,6 +614,13 @@ function scriptsInfo() {
   const box = el('div', 'cl-info');
   box.appendChild(el('p', 'role', T('us.where', { dir: state.scripts.dir })));
   if (state.scripts.boot) box.appendChild(el('p', 'role', T('us.boot', { when: fmt.date(state.scripts.boot) })));
+  return box;
+}
+
+function flashInfo() {
+  const box = el('div', 'cl-info');
+  box.appendChild(el('p', 'role', T('flash.where', { dir: state.flash.dir })));
+  if (!state.flash.known) box.appendChild(el('p', 'callout', T('flash.unknown')));
   return box;
 }
 
@@ -706,6 +717,7 @@ const VIEWS = {
   iso: () => [folderMeta, folderDetail],
   vmdef: () => [vmdefMeta, vmdefDetail],
   userscript: () => [scriptMeta, scriptDetail],
+  sharecfg: () => [shareCfgMeta, shareCfgDetail],
   nvram: () => [libvirtMeta, libvirtDetail],
   tpm: () => [libvirtMeta, libvirtDetail],
   snapshotdb: () => [libvirtMeta, libvirtDetail],
@@ -799,6 +811,7 @@ function menuItems(e) {
   if (e.kind === 'stray' && ['only_here', 'newer'].includes(e.loc)) items.push({ text: T('install.button'), act: () => installDialog(e), disabled: !Office.agent.running || state.backup_running });
   if (e.kind === 'stack' && e.file) items.push({ text: T('show_compose'), act: () => showFile(e) });
   if (e.kind === 'userscript' && e.exists) items.push({ text: T('show_script'), act: () => showFile(e) });
+  if (e.kind === 'sharecfg') items.push({ text: T('flash.show'), act: () => showFile(e) });
   if (e.kind === 'icon' && e.template_id) items.push({ text: T('show_xml'), act: () => showFile({ id: e.template_id, kind: 'template', file: e.template.split('/').pop() }) });
   if (e.kind === 'icon' && (e.category === 'compose' || isStackIcon(e)) && e.project) items.push({ text: T('show_compose'), act: () => showFile({ id: 'stack:' + e.project, kind: 'stack', folder: e.project }) });
   if (e.parts && !e.parts.every((p) => p.file) || (e.kind === 'volume' && e.path)) {
@@ -1056,6 +1069,30 @@ function scriptDetail(e) {
     [T('d.script_paths'), paths.length ? lines(paths) : null],
   ]));
   if (e.why === 'scheduled') box.appendChild(el('p', 'role', T('why.scheduled_text')));
+  return box;
+}
+
+// ------------------------------------------------------------------ share settings without their share (room «flash»)
+/** Its storage lines as the file has them (shareUseCache, the pools) — what the share was set to */
+const shareCfgLines = (e) => [['shareUseCache', e.use_cache], ['shareCachePool', e.pool], ['shareCachePool2', e.pool2]]
+  .filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => `${k}="${v}"`);
+
+function shareCfgMeta(e, meta) {
+  const use = shareCfgLines(e);
+  if (use.length) meta.appendChild(el('span', 'mono', use.join(' · ')));
+  if (e.mtime) meta.appendChild(el('span', '', T('changed', { when: fmt.relative(e.mtime) })));
+}
+
+function shareCfgDetail(e) {
+  const box = el('div');
+  box.appendChild(kv([
+    [T('d.file'), e.path, true],
+    [T('flash.d.share'), e.name, true],
+    [T('d.description'), e.comment],
+    [T('flash.d.storage'), shareCfgLines(e).length ? lines(shareCfgLines(e)) : null],
+    [T('d.changed'), when(e.mtime)],
+  ]));
+  box.appendChild(el('p', 'role', T('flash.' + e.category + '_text', { name: e.name })));
   return box;
 }
 
@@ -3731,7 +3768,7 @@ Office.places(ID, [
   { kind: 'help', key: 'part.tidy', text: 'part.tidy_sub' },
   ...['labels', 'tiles', 'copy', 'rows', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
   ...['order', 'trash', 'check', 'loop', 'sizes', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
-  ...['templates', 'stacks', 'appdata', 'vms', 'scripts', 'docker', 'icons', 'leftovers', 'partners']
+  ...['templates', 'stacks', 'appdata', 'vms', 'scripts', 'flash', 'docker', 'icons', 'leftovers', 'partners']
     .map((x) => ({ kind: 'help', key: `section.${x}`, text: `help.${x}_text` })),
 ]);
 

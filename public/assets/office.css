@@ -9,7 +9,7 @@
    themes/*.css: black, white, azure, gray). #sso always carries .in-unraid:
    the rules with it lay Unraid's look over the office's basic ones. */
 
-@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes wave{to{-webkit-mask-position:12px 0; mask-position:12px 0}}
 @keyframes new{0%,30%{background:color-mix(in srgb, var(--accent) 22%, var(--surface))}100%{background:transparent}}
 @keyframes up{from{opacity:0; translate:0 8px}to{opacity:1; translate:0 0}}
 
@@ -52,6 +52,7 @@
   --mono:bitstream,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --font:clear-sans,sans-serif;
   --under:40px;       /* what Unraid keeps fixed at the bottom (its footer) */
+  --wave:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 9'%3E%3Cpath d='M-6 4.5Q-3 0 0 4.5T6 4.5T12 4.5T18 4.5' fill='none' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E");   /* the working mark (.spin) */
 
 /* ---------------------------------------------------------------- base */
   font:14px/1.55 var(--font);
@@ -166,10 +167,14 @@
 .Theme--sidebar &.in-unraid .btn:not(.danger):hover:not(:disabled){border-color:var(--hover-button-border)}
 .Theme--sidebar &.in-unraid .btn:not(.plain):not(.danger){font-weight:700; border-color:var(--hover-button-text-color)}
 
+/* «it is working, you needn't wait»: the office's own small wave (2026-10-12, Benj: one mark everywhere — Jack's live
+   panel, Mr. Backupsy's run, tours, dialogs; not Unraid's own loading wave), a sine stroke in the accent that sways
+   slowly to and fro; still under prefers-reduced-motion (the rule for every animation below). One period of it is the
+   mask's tile (12 px: --wave above), the span shows one and a half. */
 .spin{
-  display:none; width:12px; height:12px; flex:none;
-  border:2px solid currentColor; border-right-color:transparent; border-radius:50%;
-  animation:spin .8s linear infinite;
+  display:none; width:18px; height:9px; flex:none; vertical-align:middle; color:var(--accent); background:currentColor;
+  -webkit-mask:var(--wave) 0 0 / 12px 9px repeat-x; mask:var(--wave) 0 0 / 12px 9px repeat-x;
+  animation:wave 2.5s ease-in-out infinite alternate;
 }
 .running .spin{display:inline-block}
 
@@ -696,8 +701,9 @@
 /* explanations on chips (core.js: initTips) */
 .chip[data-tip], .chip[title]{cursor:help}
 .busy{display:none; position:fixed; inset:0; z-index:10060; cursor:wait;
-  & span{position:absolute; top:50%; left:50%; width:40px; height:40px; margin:-20px 0 0 -20px; border-radius:50%;
-    border:4px solid var(--line); border-top-color:var(--accent); animation:spin .9s linear infinite}}
+  & span{position:absolute; top:50%; left:50%; width:18px; height:9px; margin:-4.5px 0 0 -9px; scale:3;   /* the wave, large */
+    background:var(--accent); -webkit-mask:var(--wave) 0 0 / 12px 9px repeat-x; mask:var(--wave) 0 0 / 12px 9px repeat-x;
+    animation:wave 2.5s ease-in-out infinite alternate}}
 .tip{position:fixed; z-index:10050; max-width:min(340px, calc(100vw - 16px)); padding:7px 10px; border-radius:var(--radius); background:var(--ink); color:var(--surface); font-size:12.5px; line-height:1.45; box-shadow:var(--shadow); pointer-events:none; white-space:pre-line}
 
 /* groups of choices in a dialog (core.js menuNameDialog) */
