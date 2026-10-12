@@ -279,6 +279,7 @@
   "partner.i_keep_nothing": "rien de lui",
   "partner.i_keep_none_yet": "rien reçu encore — ce que le secrétariat de {name} envoie arrive ici, jusqu'au quota.",
   "partner.i_keep_rules": "Sur le pool {pool}, au plus {quota}, {retention}.",
+  "partner.i_keep_rules_nolimit": "Sur le pool {pool}, sans limite, {retention}.",
   "partner.named": "{name} a une version plus ancienne et a nommé : {list} — accepté dès qu'il envoie.",
   "partner.unit_new": "nouveau",
   "partner.unit_new_tip": "Reçu la première fois {when} : depuis, le secrétariat de {name} envoie cette unité. Ton consentement, c'est l'appairage — le quota la borne, « Terminer le partenariat » y met fin.",

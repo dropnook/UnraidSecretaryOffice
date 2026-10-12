@@ -279,6 +279,7 @@
   "partner.i_keep_nothing": "niente di suo",
   "partner.i_keep_none_yet": "ancora niente ricevuto — ciò che manda la segreteria di {name} arriva qui, fino al limite.",
   "partner.i_keep_rules": "Sul pool {pool}, al massimo {quota}, {retention}.",
+  "partner.i_keep_rules_nolimit": "Sul pool {pool}, senza limite, {retention}.",
   "partner.named": "{name} ha una versione più vecchia e ha nominato: {list} — accettato appena manda.",
   "partner.unit_new": "nuova",
   "partner.unit_new_tip": "Ricevuta la prima volta {when}: da allora la segreteria di {name} manda questa unità. Il tuo consenso è l'abbinamento — il limite la contiene, «Termina la partnership» la chiude.",

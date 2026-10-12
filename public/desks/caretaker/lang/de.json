@@ -279,6 +279,7 @@
   "partner.i_keep_nothing": "nichts von ihm",
   "partner.i_keep_none_yet": "noch nichts empfangen — was das Sekretariat von {name} schickt, landet hier, bis zur Obergrenze.",
   "partner.i_keep_rules": "Auf dem Pool {pool}, höchstens {quota}, {retention}.",
+  "partner.i_keep_rules_nolimit": "Auf dem Pool {pool}, ohne Obergrenze, {retention}.",
   "partner.named": "{name} läuft mit einer älteren Version und hat genannt: {list} — wird angenommen, sobald es schickt.",
   "partner.unit_new": "neu",
   "partner.unit_new_tip": "Zum ersten Mal {when} empfangen: das Sekretariat von {name} schickt diese Einheit seitdem. Deine Zustimmung ist die Partnerschaft — die Obergrenze begrenzt sie, «Partnerschaft beenden» beendet sie.",

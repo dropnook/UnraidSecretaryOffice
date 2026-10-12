@@ -279,6 +279,7 @@
   "partner.i_keep_nothing": "nada suyo",
   "partner.i_keep_none_yet": "todavía nada recibido — lo que envía la secretaría de {name} llega aquí, hasta el límite.",
   "partner.i_keep_rules": "En el pool {pool}, como máximo {quota}, {retention}.",
+  "partner.i_keep_rules_nolimit": "En el pool {pool}, sin límite, {retention}.",
   "partner.named": "{name} tiene una versión más antigua y nombró: {list} — se acepta en cuanto envíe.",
   "partner.unit_new": "nueva",
   "partner.unit_new_tip": "Recibida por primera vez {when}: desde entonces la secretaría de {name} envía esta unidad. Tu consentimiento es el emparejamiento — el límite la acota, «Terminar la asociación» la acaba.",

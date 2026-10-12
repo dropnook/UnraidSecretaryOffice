@@ -194,7 +194,7 @@ function card(x) {
     const units = x.i_keep_units || [];
     keep.append(units.length ? unitsText(units.map((u) => u.unit)) : T('partner.i_keep_none_yet', { name: x.name }));
     main.appendChild(keep);
-    main.appendChild(el('div', 'row-detail', T('partner.i_keep_rules', { pool: x.receive.pool, quota: x.receive.quota_gb ? fmt.size(x.receive.quota_gb * 1024 ** 3) : T('partner.wish_no_quota'),
+    main.appendChild(el('div', 'row-detail', T(x.receive.quota_gb ? 'partner.i_keep_rules' : 'partner.i_keep_rules_nolimit', { pool: x.receive.pool, quota: x.receive.quota_gb ? fmt.size(x.receive.quota_gb * 1024 ** 3) : '',
       retention: retentionText(x.receive.retention) }) + (x.receive.wake ? ' ' + T('partner.wakes') : '')));
     const needR = needLine('receive');
     if (needR) main.appendChild(needR);

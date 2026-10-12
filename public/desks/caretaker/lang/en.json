@@ -279,6 +279,7 @@
   "partner.i_keep_nothing": "nothing of theirs",
   "partner.i_keep_none_yet": "nothing received yet — whatever the office of {name} sends lands here, up to the quota.",
   "partner.i_keep_rules": "On pool {pool}, at most {quota}, {retention}.",
+  "partner.i_keep_rules_nolimit": "On pool {pool}, no limit, {retention}.",
   "partner.named": "{name} runs an older version and named: {list} — taken as soon as it sends.",
   "partner.unit_new": "new",
   "partner.unit_new_tip": "First received {when}: the office of {name} sends this unit since then. Your consent is the pairing — the quota bounds it, «End the partnership» ends it.",
