@@ -3126,6 +3126,8 @@ function renderSetup() {
   if (first) setup.placeStart = false;
   if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();
   setupBar();
+  // first place: the guide's callout and «Add Share» the first thing in view — unless the user has scrolled meanwhile
+  if (!tile && first && setupNoPlace() && window.scrollY < 40) setupShowPlace(false);
   if (target) Office.reveal(target.anchor, { part: target.part, name: target.name });
 }
 
@@ -3155,16 +3157,29 @@ function setupPlaceStart(sw) {
   if (sw.active() !== 'basics') sw.pick('basics', 'route');
   Office.store('backup.setup.tile', kept === null ? null : kept);
 }
-/** The bar's «Zu den Grundlagen»: the step chosen, the guide in the middle of the window, open, its «Add Share» focused */
+/** The bar's «Zu den Grundlagen»: the step chosen, the guide in view, its «Add Share» focused */
 function setupToPlace() {
   setupPlaceStart(setupSwitcher());
+  setupShowPlace(true);
+}
+/**
+ * The guide in view: «Grundlagen»'s head at the top under Unraid's menu (on a phone the head stays there, sticky — the
+ * guide stands first in the step while no place is chosen, so its callout and «Add Share» are right under it), marked
+ * a moment like a place of the search
+ */
+function setupShowPlace(focus) {
   const g = view && view.querySelector('.bk-place');
-  if (!g) return;
+  const sec = g && g.closest('[data-section]');
+  const head = sec && sec.querySelector('.section-head');
+  if (!g || !head) return;
   const det = g.querySelector('details');
   if (det && !det.open) det.open = true;
-  const calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  g.scrollIntoView({ block: 'center', behavior: calm ? 'auto' : 'smooth' });
-  const a = g.querySelector('.bk-place-add a');
+  const menu = document.getElementById('menu');
+  const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
+  window.scrollTo({ top: Math.max(0, Math.round(head.getBoundingClientRect().top + window.scrollY - above - 12)), behavior: 'auto' });
+  g.classList.add('place-hit');
+  setTimeout(() => g.classList.remove('place-hit'), 1800);
+  const a = focus ? g.querySelector('.bk-place-add a') : null;
   if (a) a.focus({ preventScroll: true });
 }
 /** His word on the setup page while no backup place is chosen: none to choose (create one in Unraid) or choose one; '' else */
@@ -3402,6 +3417,10 @@ function setupKopia(plan) {
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' }))));
   const asleep = asleepChoice(plan);
   if (asleep) basics.appendChild(asleep);
+  // first place (2026-10-12): while no backup place is chosen the guide stands first — its callout and «Add Share» right
+  // under the step's head; once chosen, after the settings as before
+  const guideFirst = !dget('general|dumps_share', '');
+  if (guideFirst) s.appendChild(placeGuide(plan));
   s.appendChild(basics);
   const pl = presetLine(plan);              // engine 2.31: the default for new things
   if (pl) s.appendChild(pl);
@@ -3412,7 +3431,7 @@ function setupKopia(plan) {
     const pl = placeLevelPick(plan);
     if (pl) s.appendChild(Office.place('partner.place', pl));
   }
-  s.appendChild(placeGuide(plan));
+  if (!guideFirst) s.appendChild(placeGuide(plan));
   const on = dget('kopia|enabled') === 'yes';
   s.appendChild(checkbox(T('setup.kopia_on'), on, (v) => {
     dset('kopia|enabled', v ? 'yes' : 'no');

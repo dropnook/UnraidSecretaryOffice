@@ -7499,6 +7499,11 @@ function testSetupFirstPlace(): void
     check('first place: a visit without a step\'s route marks its start; the first page with the plan opens «Grundlagen» while no place',
         str_contains($bk, "Office.subroute('setup');\n      else setup.placeStart = true;")
         && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();"));
+    check('first place: … and brings the guide up (unless the user scrolled); the bar\'s «Zu den Grundlagen» likewise',
+        str_contains($bk, "if (!tile && first && setupNoPlace() && window.scrollY < 40) setupShowPlace(false);")
+        && str_contains($bk, "setupPlaceStart(setupSwitcher());\n  setupShowPlace(true);"));
+    check('first place: … the guide first in «Grundlagen» while no place, after the settings once chosen',
+        str_contains($bk, "if (guideFirst) s.appendChild(placeGuide(plan));\n  s.appendChild(basics);") && str_contains($bk, "if (!guideFirst) s.appendChild(placeGuide(plan));"));
     check('first place: setupApply()\'s toast stays the last guard', str_contains($bk, "if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }"));
     check('first place: the bar\'s spec drawn by setupBar() (a button\'s title set on the bar)', str_contains($bk, "const bar = Office.selbar(spec);")
         && str_contains($bk, "if (b.title && btns[i]) btns[i].title = b.title;"));
