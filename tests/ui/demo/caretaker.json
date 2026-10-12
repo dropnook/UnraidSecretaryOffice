@@ -283,6 +283,15 @@
     },
     "link": "#/advisor",
     "sig": "caretaker:syslog_port_taken:902464dd5b26c18a"
+   },
+   {
+    "id": "fix_common_problems",
+    "level": "recommended",
+    "ok": false,
+    "params": [],
+    "link": "apps",
+    "sig": "caretaker:fix_common_problems:8d2f4a61c07e93b5",
+    "acked": true
    }
   ],
   "cleanup": [
@@ -361,6 +370,16 @@
     },
     "link": "#/watchman",
     "sig": "watchman:net_new_device:b4e0e9ab3f29d2ba"
+   },
+   {
+    "id": "posture",
+    "level": "hint",
+    "ok": false,
+    "params": {
+     "n": 2
+    },
+    "link": "#/watchman/posture",
+    "sig": "watchman:posture:5c1e0a7d93b24f60"
    }
   ]
  },

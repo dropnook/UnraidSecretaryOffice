@@ -9,6 +9,13 @@
 .row.ct-finding{grid-template-columns:minmax(0,1fr) auto}
 .ct-acts{display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end}
 .ct-noted .row-name, .ct-noted .row-detail{color:var(--muted)}
+/* one kind of point inside «Still to do» / «In place» (list()): a tinted head over its rows — no fold, no click */
+.box.ct-group{min-height:0}
+.ct-subhead{display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; padding:9px 12px; background:var(--surface2); border-bottom:1px solid var(--line2)}
+.ct-subhead-words{display:flex; flex-direction:column; gap:2px; flex:1 1 260px; min-width:0}
+.ct-subhead-words strong{font-weight:650; color:var(--ink)}
+.ct-subhead-words span{font-size:12.5px; color:var(--muted)}
+.box.ct-group > .ct-subhead:last-child{border-bottom:0}
 @media (max-width:640px){ .row.ct-finding{grid-template-columns:minmax(0,1fr)} .ct-acts{justify-content:flex-start} }
 /* his one ask for a tip (askCallout): text, then its buttons; the supporter plate at «The team» */
 .ct-ask{display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; margin:0}

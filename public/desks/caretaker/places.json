@@ -16,7 +16,14 @@
     "partner.title",
     "supporter_term",
     "team",
+    "tile.done",
+    "tile.notify",
+    "tile.office",
+    "tile.partner",
+    "tile.team",
+    "tile.todo",
     "todo",
+    "todo_count",
     "unknown"
   ],
   "texts": [

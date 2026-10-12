@@ -11,7 +11,9 @@
    nothing: with a valid one he shows a thank-you at «The team» (its
    pictures the kept keys' levels, each once: Office.supporterPictures); without,
    he asks once, friendly, a week after the office first ran here (a callout
-   under «The team», «Not now» at most twice more, «Don't ask again»). */
+   under «The team», «Not now» at most twice more, «Don't ask again»).
+   His page is a row of tiles (tiles v2, core.js Office.sections): Team, Office, Still to do, Reports, Partners,
+   In place — each its section under the row, nothing chosen = all of them. */
 (() => {
 'use strict';
 
@@ -155,36 +157,139 @@ function render() {
     [T('partner.title'), T('partner.help')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
+  root.appendChild(sw.el);          // the row and under it the chosen section — or, nothing chosen, all of them
+  sw.render();
+  root.appendChild(el('p', 'role', T('checked_at', { when: fmt.relative(state.time) })));
+  // «n of m fit» over the points still open and those noted (what is in place is filtered too, but doesn't make the bar come)
+  const { g, fit } = lists();
+  const counted = ['todo', 'advice', 'hints', 'noted'];
+  bar().done(counted.reduce((a, k) => a + fit[k].length, 0), counted.reduce((a, k) => a + g[k].length, 0));
+}
 
+/**
+ * His row and the section under it (core.js Office.sections, CLAUDE.md «Tiles»): a tile per section — the team, the
+ * office, what is still open, the reports to Unraid, the partner offices, what is in place. No start tile: nothing chosen
+ * shows every section in the row's order; a choice is kept as caretaker.tile, #/caretaker/<tile> picks one like a click.
+ */
+const sw = Office.sections({
+  id: ID,
+  grid: 'stats ct-tiles',
+  default: '',
+  tiles: [
+    { id: 'team', key: 'tile.team', place: 'tile.team', tile: (a) => teamTile(a), section: () => teamSection() },
+    { id: 'office', key: 'tile.office', place: 'tile.office', tile: (a) => officeTile(a), section: () => officeSection() },
+    { id: 'todo', key: 'tile.todo', place: 'tile.todo', tile: (a) => todoTile(a), section: () => pointsSection() },
+    { id: 'notify', key: 'tile.notify', place: 'tile.notify', tile: (a) => notifyTile(a), section: () => notifySection() },
+    { id: 'partner', key: 'tile.partner', place: 'tile.partner', tile: (a) => partnerTile(a),
+      section: () => (Office.ctPartner ? Office.ctPartner.section(state) : partnerWaiting()) },      // partner.js
+    { id: 'done', key: 'tile.done', place: 'tile.done', tile: (a) => doneTile(a), section: () => doneSection() },
+  ],
+});
+
+/** The findings in his groups and, beside them, what the bar's words leave of each */
+function lists() {
   const g = groups();
-  root.appendChild(teamSection());                  // who works here comes first
-  if (Office.supporter().ask) root.appendChild(askCallout());
-  root.appendChild(officeSection());
-  const b = bar();
-  const filtering = b.read().words.length > 0;
-  const fit = { todo: g.todo.filter(fits), advice: g.advice.filter(fits), hints: g.hints.filter(fits), noted: g.noted.filter(fits), done: g.done.filter(fits) };
-  const lists = el('div', 'ct-lists');
-  lists.id = 'ct-lists';
-  lists.appendChild(b.el);
-  root.appendChild(lists);
-  if (g.todo.length) root.appendChild(list('todo', T('todo_count', { n: g.todo.length }), T('todo_text'), fit.todo));
-  if (g.advice.length) root.appendChild(list('advice', T('advice_count', { n: g.advice.length }), T('advice_text'), fit.advice));
+  const filtering = !!(listBar && listBar.read().words.length);
+  const fit = {};
+  for (const k of Object.keys(g)) fit[k] = filtering ? g[k].filter(fits) : g[k];
+  return { g, fit, filtering };
+}
+
+// ------------------------------------------------------------------ the tiles
+/** «Team»: who is hired, who could come — red when a hired desk is missing at the messenger */
+function teamTile(a) {
+  const all = staff();
+  const miss = missingDesks().length;
+  const hired = all.filter((x) => x.hired).length + miss;
+  const could = all.filter((x) => !x.hired && x.ok).length;
+  return Office.stat({ label: T('tile.team'), value: fmt.number(hired), alert: miss > 0,
+    sub: [T('tile.team_line', { hired: T('count.hired', { n: hired }), could: T('count.could', { n: could }) }), miss ? T('count.missing', { n: miss }) : ''],
+    ...a });
+}
+
+/** «Office»: the version running, up to date or the update waiting */
+function officeTile(a) {
+  const o = state.office || {};
+  const sub = o.newer ? T('tile.office_update', { version: o.latest }) : o.latest ? T('office_current') : o.error ? T('office_error.' + o.error) : '';
+  return Office.stat({ label: T('tile.office'), value: o.version || '?', sub, alert: !!o.newer, ...a });
+}
+
+/** «Still to do»: the points still open — red while a must or a recommendation waits */
+function todoTile(a) {
+  const g = groups();
+  const n = g.todo.length + g.advice.length + g.hints.length;
+  const parts = [[g.todo, 'count.must'], [g.advice, 'count.advice'], [g.hints, 'count.hint']]
+    .filter(([l]) => l.length).map(([l, k]) => T(k, { n: l.length }));
+  return Office.stat({ label: T('tile.todo'), value: fmt.number(n), alert: g.todo.length + g.advice.length > 0,
+    sub: parts.length ? parts.join(' · ') : T('tile.todo_none'), ...a });
+}
+
+/** «Reports»: what went to Unraid's notifications last — red when it didn't arrive */
+function notifyTile(a) {
+  const n = state.notify || {};
+  const last = n.last || null;
+  const items = last ? (last.items || []) : [];
+  const failed = !!(last && last.sent === false);
+  const sub = [n.on === false ? T('tile.notify_off') : !last ? T('tile.notify_none')
+    : T(failed ? 'tile.notify_failed' : 'tile.notify_last', { when: fmt.relative(last.time) })];
+  if (n.on !== false && n.waiting) sub.push(T('notify_waiting', { n: n.waiting }));
+  return Office.stat({ label: T('tile.notify'), value: fmt.number(items.length), sub, alert: failed || n.available === false, ...a });
+}
+
+/** «Partners»: how many, whether they answer — red when one is silent or an offer or a ticket waits */
+function partnerTile(a) {
+  const p = state.partners || {};
+  const pairs = p.pairs || [];
+  const held = p.ticket_pairs || [];
+  const silent = pairs.filter((x) => x.silent).length;
+  const answer = pairs.filter((x) => !x.silent && x.reachable !== false && x.last_heard).length;
+  const waiting = (p.pending || []).length + (p.ticket_requests || []).length
+    + pairs.filter((x) => x.offer && Array.isArray(x.offer.pending) && x.offer.pending.length).length;
+  const sub = [];
+  if (silent) sub.push(T('count.silent', { n: silent }));
+  else if (answer && answer === pairs.length) sub.push(T('tile.partner_all', { n: answer }));
+  else if (answer) sub.push(T('count.answers', { n: answer }));
+  if (waiting) sub.push(T('count.waiting', { n: waiting }));
+  if (!pairs.length && !held.length && !waiting) sub.push(T('tile.partner_none'));
+  return Office.stat({ label: T('tile.partner'), value: fmt.number(pairs.length + held.length), sub: sub.join(' · '),
+    alert: silent > 0 || waiting > 0, ...a });
+}
+
+/** «In place»: what is fine, and how many points you noted */
+function doneTile(a) {
+  const g = groups();
+  return Office.stat({ label: T('tile.done'), value: fmt.number(g.done.length),
+    sub: g.noted.length ? T('count.noted', { n: g.noted.length }) : T('tile.done_sub'), ...a });
+}
+
+// ------------------------------------------------------------------ what is open
+/** «Still to do»: the musts, the recommendations and what is good to know — one section, a tinted head per kind */
+function pointsSection() {
+  const { g, fit } = lists();
+  const s = el('section', 'section');
+  s.dataset.ct = 'open';
+  s.appendChild(Office.sectionHead(T('todo_count', { n: g.todo.length + g.advice.length + g.hints.length }), T('open_sub'), { place: 'todo_count' }));
+  s.appendChild(bar().el);          // the bar over his lists: here, or under «In place» when that is chosen
+  if (g.todo.length) s.appendChild(list('todo', T('must_count', { n: g.todo.length }), T('todo_text'), fit.todo));
+  if (g.advice.length) s.appendChild(list('advice', T('advice_count', { n: g.advice.length }), T('advice_text'), fit.advice));
   if (!g.todo.length && !g.advice.length) {
     const ok = el('div', 'box');
     const p = el('div', 'empty');
     p.append(el('strong', '', T('all_good_title')), T('all_good_text'));
     ok.appendChild(p);
-    root.appendChild(ok);
+    s.appendChild(ok);
   }
-  root.appendChild(notifySection());
-  if (Office.ctPartner) root.appendChild(Office.ctPartner.section(state));    // partner.js
-  if (g.hints.length) root.appendChild(list('hints', T('hints_count', { n: g.hints.length }), T('hints_text'), fit.hints));
-  root.appendChild(doneSection(g.done, filtering ? fit.done : null));
-  if (g.noted.length) root.appendChild(notedSection(g.noted, filtering ? fit.noted : null));       // put aside: folded, at the end
-  root.appendChild(el('p', 'role', T('checked_at', { when: fmt.relative(state.time) })));
-  // «n of m fit» over the points still open and those noted (what is in place is filtered too, but doesn't make the bar come)
-  const counted = ['todo', 'advice', 'hints', 'noted'];
-  b.done(counted.reduce((a, k) => a + fit[k].length, 0), counted.reduce((a, k) => a + g[k].length, 0));
+  if (g.hints.length) s.appendChild(list('hints', T('hints_count', { n: g.hints.length }), T('hints_text'), fit.hints));
+  return s;
+}
+
+/** «Partner offices» while partner.js is still on its way */
+function partnerWaiting() {
+  const s = el('section', 'section');
+  s.dataset.ct = 'partners';
+  s.appendChild(Office.sectionHead(T('partner.title'), T('partner.sub'), { place: 'partner.title' }));
+  s.appendChild(el('p', 'empty', Office.t('common.loading')));
+  return s;
 }
 
 /** The bar over his lists, built once */
@@ -197,15 +302,19 @@ const fits = (f) => Office.fits(listBar ? listBar.read().words : [], [text(f), t
 /** «Nothing fits» in a list the bar empties (its head stays) */
 const noFit = () => el('p', 'empty', T('list.none_fit'));
 
-function list(key, title, sub, items) {
-  const s = el('section', 'section');
-  s.dataset.ct = key;
-  s.appendChild(Office.sectionHead(title, sub));
-  const box = el('div', 'box');
-  items.forEach((f) => box.appendChild(row(f)));
-  if (!items.length) box.appendChild(noFit());
-  s.appendChild(box);
-  return s;
+/** One kind of point inside a section: a tinted head (its name and what it means), the rows under it */
+function list(key, title, sub, items, extra) {
+  const box = el('div', 'box ct-group');
+  box.dataset.ct = key;
+  const head = el('div', 'ct-subhead');
+  const words = el('div', 'ct-subhead-words');
+  words.append(el('strong', '', title), el('span', '', sub));
+  head.appendChild(words);
+  if (extra) head.appendChild(extra);
+  box.appendChild(head);
+  (items || []).forEach((f) => box.appendChild(row(f)));
+  if (items && !items.length) box.appendChild(noFit());
+  return box;
 }
 
 function deskChip(desk) {
@@ -390,7 +499,7 @@ function teamSection() {
   const all = staff();
   const open = all.filter((s) => !s.hired && s.ok);
   const extra = [];
-  const sup = Office.supporter();
+  const sup = Office.supporter();     // also his one ask (under the list)
   if (sup.state === 'valid') {
     // the supporter keys' plate: a thank-you, not a button (a green outline), as tall as the buttons beside it; the
     // name (the newest key's) as text only; the pictures each kept level's in level order with ×n when several
@@ -429,11 +538,20 @@ function teamSection() {
   const s = el('section', 'section');
   s.appendChild(Office.sectionHead(T('team'), T(alone() ? 'team_sub_alone' : 'team_sub'), ...extra, { place: 'team' }));
   const box = el('div', 'box');
-  all.forEach((x) => box.appendChild(teamRow(x)));
+  // who works here, a hired desk the messenger doesn't know right after them, then who could come
+  const missing = missingDesks().map((d) => ({ id: d.id, desk: d, hired: true, ok: true, why: 'yes', missing: true }));
+  [...all.filter((x) => x.hired), ...missing, ...all.filter((x) => !x.hired)].forEach((x) => box.appendChild(teamRow(x)));
   // under contract but still learning (desk.json "training"): shown, not hired yet
   [...Office.desks.values()].filter((d) => d.training).forEach((d) => box.appendChild(trainingRow(d)));
   s.appendChild(box);
+  if (sup.ask) s.appendChild(askCallout());          // his one ask: under «The team»
   return s;
+}
+
+/** Desks hired here that the messenger doesn't know (no agent part: an update half done) — they can't do anything */
+function missingDesks() {
+  const known = (state && state.staff) || {};
+  return [...Office.desks.values()].filter((d) => d.hired && !d.always && !d.training && !known[d.id]);
 }
 
 /**
@@ -483,10 +601,12 @@ function teamRow(x) {
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', Office.t(`${x.id}.name`)));
   const meta = el('div', 'row-meta');
-  meta.appendChild(el('span', 'chip ' + (x.hired ? 'ok' : x.ok ? 'accent' : 'quiet'), T(x.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')));
+  if (x.missing) meta.appendChild(el('span', 'chip danger', T('agent_missing')));
+  else meta.appendChild(el('span', 'chip ' + (x.hired ? 'ok' : x.ok ? 'accent' : 'quiet'), T(x.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')));
   meta.appendChild(el('span', '', Office.t(`${x.id}.role`)));
   main.appendChild(meta);
-  if (!x.hired || x.why !== 'yes') main.appendChild(el('div', 'row-detail', fitText(x)));     // once hired, "would like to come" is old news
+  if (x.missing) main.appendChild(el('div', 'row-detail', T('agent_missing_text')));
+  else if (!x.hired || x.why !== 'yes') main.appendChild(el('div', 'row-detail', fitText(x)));     // once hired, "would like to come" is old news
   r.appendChild(main);
   let b = null;
   if (x.hired) {
@@ -529,18 +649,24 @@ function fire(id) {
   Office.fireDialog(id, () => load(true));
 }
 
-/** What is in place — folded; fits: what the bar's words leave (null: not filtering) */
-function doneSection(items, fits) {
+/**
+ * «In place»: what is fine — folded — and under it what the user put aside with «I know, thanks» (folded too, each with
+ * «Bring back»); the bar over his lists stands here when this section is chosen
+ */
+function doneSection() {
+  const { g, fit, filtering } = lists();
   const s = el('section', 'section');
   s.dataset.ct = 'done';
   const toggle = el('button', 'btn small plain', showDone ? T('hide') : T('show'));
   toggle.type = 'button';
   toggle.onclick = () => { showDone = !showDone; Office.keepInPlace(null, render); };
-  s.appendChild(Office.sectionHead(T('done', { n: items.length }), T('done_sub'), toggle, { place: 'done' }));
+  s.appendChild(Office.sectionHead(T('done', { n: g.done.length }), T('done_sub'), toggle, { place: 'done' }));
+  if (sw.active() === 'done') s.appendChild(bar().el);
   if (showDone) {
     const box = el('div', 'box');
-    if (fits && !fits.length) box.appendChild(noFit());
-    (fits || items).forEach((f) => {
+    if (!g.done.length) box.appendChild(el('p', 'empty', T('done_none')));
+    else if (filtering && !fit.done.length) box.appendChild(noFit());
+    fit.done.forEach((f) => {
       const r = el('div', 'row nocheck');
       const main = el('div', 'row-main');
       main.appendChild(el('div', 'row-name text', '✓ ' + text(f)));
@@ -552,21 +678,12 @@ function doneSection(items, fits) {
     });
     s.appendChild(box);
   }
-  return s;
-}
-
-/** What the user put aside with «I know, thanks» — folded, each with «Bring back» */
-function notedSection(items, fits) {
-  const s = el('section', 'section');
-  s.dataset.ct = 'noted';
-  const toggle = el('button', 'btn small plain', showNoted ? T('hide') : T('show'));
-  toggle.type = 'button';
-  toggle.onclick = () => { showNoted = !showNoted; Office.keepInPlace(null, render); };
-  s.appendChild(Office.sectionHead(T('noted', { n: items.length }), T('noted_sub'), toggle, { place: 'noted' }));
-  if (showNoted) {
-    const box = el('div', 'box');
-    if (fits && !fits.length) box.appendChild(noFit());
-    (fits || items).forEach((f) => box.appendChild(row(f)));
+  if (g.noted.length) {
+    const more = el('button', 'btn small plain', showNoted ? T('hide') : T('show'));
+    more.type = 'button';
+    more.onclick = () => { showNoted = !showNoted; Office.keepInPlace(null, render); };
+    const box = list('noted', T('noted', { n: g.noted.length }), T('noted_sub'), showNoted ? fit.noted : null, more);
+    Office.place('noted', box.firstChild);
     s.appendChild(box);
   }
   return s;
@@ -575,9 +692,11 @@ function notedSection(items, fits) {
 // ------------------------------------------------------------------ desk
 Office.desk({
   id: ID,
-  async mount(root) {
+  /** sub: a tile (#/caretaker/partner — a partner's finding, the night watchman's door tips; the others the search's) */
+  async mount(root, sub) {
     view = root;
     bar().reset();        // a new visit: every point (the bar's words are never kept)
+    sw.mount(sub);
     render();
     await load(false);
   },
@@ -601,14 +720,13 @@ Office.desk({
   },
 });
 
-// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
+// his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): each
+// section opens through its tile's sub-route
 Office.places(ID, [
-  { kind: 'section', key: 'team' },
-  { kind: 'section', key: 'office' },
-  { kind: 'section', key: 'notify_title' },
-  { kind: 'section', key: 'partner.title' },
-  { kind: 'section', key: 'done' },
-  { kind: 'section', key: 'noted', shown: () => !state || groups().noted.length > 0 },     // drawn only with something put aside
+  ...sw.places(),
+  ...[['team', 'team'], ['office', 'office'], ['todo_count', 'todo'], ['notify_title', 'notify'], ['partner.title', 'partner'], ['done', 'done']]
+    .map(([key, tile]) => ({ kind: 'section', key, route: `#/caretaker/${tile}` })),
+  { kind: 'section', key: 'noted', route: '#/caretaker/done', shown: () => !state || groups().noted.length > 0 },     // drawn only with something put aside
   ...[['todo', 'help.todo'], ['advice', 'help.advice'], ['hints', 'help.hints'], ['ack', 'help.ack'], ['noted_term', 'help.noted'],
     ['missing', 'help.missing'], ['not_yet', 'help.not_yet'], ['unknown', 'help.unknown'], ['team', 'help.team'],
     ['supporter_term', 'help.supporter'], ['help.open', 'help.open_text'], ['check_again', 'help.again'], ['notify_title', 'help.notify'],
@@ -616,7 +734,7 @@ Office.places(ID, [
 ]);
 
 // what his state holds for the search (core.js «items»): the points still open (as his lists word them), who could work
-// here, the partner offices and the tickets (partner.js marks their cards)
+// here, the partner offices and the tickets (partner.js marks their cards) — each through its tile's sub-route
 const LISTS = { required: 'todo', recommended: 'advice', hint: 'hints' };
 Office.placesFrom(ID, (s) => {
   const out = [];
@@ -624,21 +742,22 @@ Office.placesFrom(ID, (s) => {
     if (!Office.desks.has(desk) || !Office.desks.get(desk).hired || !Array.isArray(list)) continue;
     list.forEach((f) => {
       if (!f || !LISTS[f.level] || f.ok === true || !f.sig || (f.acked && ackable(f))) return;
-      out.push({ text: text({ ...f, desk }), sub: `${T(LISTS[f.level])} · ${Office.t(desk + '.name')}`, anchor: `finding:${f.sig}` });
+      out.push({ text: text({ ...f, desk }), sub: `${T(LISTS[f.level])} · ${Office.t(desk + '.name')}`, route: '#/caretaker/todo', anchor: `finding:${f.sig}` });
     });
   }
   for (const [id, x] of Object.entries(s.staff || {})) {
     const d = Office.desks.get(id);
     if (!d || !x) continue;
-    out.push({ text: Office.t(`${id}.name`), sub: `${T('team')} · ${T(d.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')}`, anchor: `staff:${id}` });
+    out.push({ text: Office.t(`${id}.name`), sub: `${T('team')} · ${T(d.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')}`, route: '#/caretaker/team', anchor: `staff:${id}` });
   }
   const p = s.partners || {};
   // a pair's card says which way the copies go: two pairs with the same partner (one each way) told apart by its words
   const way = (x) => [x.sends ? T('partner.i_send', { host: Office.config.host, name: x.name }) : '', x.receive ? T('partner.i_keep', { host: Office.config.host, name: x.name }) : '']
     .filter(Boolean).map((w) => w.replace(/[\s:：]+$/, '')).join(' · ');
-  (p.pairs || []).forEach((x) => out.push({ text: x.name, sub: [T('partner.title'), way(x)].filter(Boolean).join(' · '), anchor: `partner:${x.id}` }));
-  (p.ticket_pairs || []).forEach((t) => out.push({ text: T('partner.t_card', { name: t.name, of: t.of }), sub: T('partner.title'), anchor: `ticket:${t.id}` }));
-  (p.ticket_requests || []).forEach((q) => out.push({ text: T('partner.t_request', { id: q.id }), sub: T('partner.title'), anchor: `ticket:${q.id}` }));
+  const route = '#/caretaker/partner';
+  (p.pairs || []).forEach((x) => out.push({ text: x.name, sub: [T('partner.title'), way(x)].filter(Boolean).join(' · '), route, anchor: `partner:${x.id}` }));
+  (p.ticket_pairs || []).forEach((t) => out.push({ text: T('partner.t_card', { name: t.name, of: t.of }), sub: T('partner.title'), route, anchor: `ticket:${t.id}` }));
+  (p.ticket_requests || []).forEach((q) => out.push({ text: T('partner.t_request', { id: q.id }), sub: T('partner.title'), route, anchor: `ticket:${q.id}` }));
   return out;
 });
 
