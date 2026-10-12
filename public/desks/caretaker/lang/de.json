@@ -381,8 +381,6 @@
   "count.days": {"one": "{n} Tag", "other": "{n} Tage"},
   "count.weeks": {"one": "{n} Woche", "other": "{n} Wochen"},
   "count.months": {"one": "{n} Monat", "other": "{n} Monate"},
-  "partner.wake": "Den Pool wecken, wenn er schläft",
-  "partner.wake_help": "Sonst wird eine Übertragung abgelehnt, solange die Disks des Pools schlafen.",
   "partner.send_too": "Ich schicke auch",
   "partner.send_too_help": "Dann bewahrt {name} auch Kopien dieses Servers auf.",
   "partner.next": "Weiter",

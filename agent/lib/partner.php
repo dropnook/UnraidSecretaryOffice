@@ -31,7 +31,7 @@ declare(strict_types=1);
  * office's pair survives a downgrade, unused, and is there again when the newer one comes back.
  *
  * pairs.json: {"v":1, "pairs":[{id, name, address, port, host_keys:[fingerprint…], my_key, their_key,
- *   send:{rate_mbit}, receive:{pool, quota_gb, retention, wake}|null, trust, paired, last_heard,
+ *   send:{rate_mbit}, receive:{pool, quota_gb, retention, wake}|null (`wake` written true since 1.60.2, read and ignored), trust, paired, last_heard,
  *   last_answer:{array, night, v}|null}]} — since 1.60 (the concept «Partner einfach»): the Team Lead only pairs. What
  *   this office sends is the level per share and VM in Mr. Backupsy's setup (settings.ini `partner = <id>`,
  *   partnerSendUnits()); the receiver's consent is the pairing — its door takes any unit of the pair up to the quota, at
@@ -68,7 +68,7 @@ const PARTNER_PING_EVERY    = 900;           // the mutual watch: every 15 minut
 const PARTNER_NOTIFY_AGAIN  = 86400;         // a silence is told once, then again every 24 h
 const PARTNER_PENDING_KEEP  = 7 * 86400;     // an offer nobody answered goes after a week (and its key with it)
 const PARTNER_SSH_TIMEOUT   = 30;            // seconds a ping or status may take at most (ssh's ConnectTimeout is 15)
-const PARTNER_DEFAULTS      = ['quota_gb' => 0, 'retention' => '7 4 6', 'wake' => true];
+const PARTNER_DEFAULTS      = ['quota_gb' => 0, 'retention' => '7 4 6'];     // no `wake` since 1.60.2: the door always wakes its pool
 const PARTNER_NEW_DAYS      = 7;             // a unit first received within so many days is «new» on the receiver's card
 const PARTNER_STALE_DAYS    = 30;            // nothing received of a unit for so long: stale (the door's retention never touches it)
 const PARTNER_MIGRATED_FILE = 'migrated.json';   // the units the pairs sent up to 1.59, for Mr. Backupsy's setup (the step partner-simple)
@@ -219,8 +219,10 @@ function partnerExact(mixed $v, array $keys): bool
 
 /**
  * The receiver's settings (what I keep of theirs) — in pairs.json and in BLOCK-B alike. Two shapes: {pool, quota_gb,
- * retention, wake} since 1.60 (the consent is the pairing: any unit, at any time), and the one up to 1.59 with the
- * receiving window and the units agreed (an older office's block or file; partnerPairUpgrade() strips both).
+ * retention, wake} since 1.60 (the consent is the pairing: any unit, at any time; since 1.60.2 the door always wakes its
+ * pool — `wake` stays in the shape, true for a new pair, an old value kept, so an office up to 1.60.1 reads the file;
+ * read here and ignored), and the one up to 1.59 with the receiving window and the units agreed (an older office's
+ * block or file; partnerPairUpgrade() strips both).
  */
 function partnerReceiveValid(mixed $r): bool
 {
@@ -294,7 +296,7 @@ function partnerSendValid(mixed $s, bool $myKey): bool
         && ($s['offered'] === null || is_int($s['offered']) && $s['offered'] > 0);
 }
 
-/** A pair of an older shape in the one of 1.60: send only its rate, receive without the window and the units agreed */
+/** A pair of an older shape in the one of 1.60: send only its rate, receive without the window and the units agreed (a `wake` kept as it is: ignored since 1.60.2) */
 function partnerPairUpgrade(array $p): array
 {
     if (is_array($p['send'] ?? null)) {
@@ -1564,9 +1566,9 @@ function partnerReady(): array
 // ===================================================================== the Team Lead's actions
 
 /**
- * A request's receive settings checked: pool among $pools, quota, retention, wake. The consent is the pairing: any
- * unit of the partner's up to the quota, at any time (no units, no window since 1.60 — a request that still carries
- * them is taken, they are ignored).
+ * A request's receive settings checked: pool among $pools, quota, retention. The consent is the pairing: any unit of
+ * the partner's up to the quota, at any time (no units, no window since 1.60, no `wake` since 1.60.2 — the door always
+ * wakes its pool; a request that still carries them is taken, they are ignored).
  */
 function partnerReceiveFrom(mixed $r, array $pools): array
 {
@@ -1577,7 +1579,7 @@ function partnerReceiveFrom(mixed $r, array $pools): array
         'pool'      => is_string($r['pool'] ?? null) ? $r['pool'] : '',            // another type: refused below, naming the field
         'quota_gb'  => is_numeric($r['quota_gb'] ?? null) ? (int) $r['quota_gb'] : -1,
         'retention' => is_string($r['retention'] ?? null) ? trim((string) preg_replace('/\s+/', ' ', $r['retention'])) : '',
-        'wake'      => ($r['wake'] ?? null) === true,
+        'wake'      => true,        // 1.60.2: always (the door wakes its pool); kept in the shape an office up to 1.60.1 reads
     ];
     foreach (['pool' => in_array($receive['pool'], array_column($pools, 'name'), true), 'quota_gb' => $receive['quota_gb'] >= 0 && $receive['quota_gb'] <= PARTNER_QUOTA_MAX_GB,
               'retention' => (bool) preg_match(PARTNER_RETENTION_RE, $receive['retention'])] as $field => $ok) {
@@ -1591,11 +1593,13 @@ function partnerReceiveFrom(mixed $r, array $pools): array
 /**
  * My receive settings in the shape an older office (up to 1.59) reads in BLOCK-B: with the window «always» and the
  * units the partner's BLOCK-A named — an office of today ignores both (partnerBlockDecode() takes either shape).
+ * `wake` stays true in it: an office up to 1.60.1 checks the key (partnerReceiveValid() there), and true is what the door
+ * does since 1.60.2 — it always wakes its pool.
  */
 function partnerReceiveForBlock(array $receive, array $theirUnits): array
 {
     return ['pool' => $receive['pool'], 'quota_gb' => $receive['quota_gb'], 'retention' => $receive['retention'], 'window' => '00:00-00:00',
-            'wake' => $receive['wake'], 'units' => $theirUnits ?: ['place']];
+            'wake' => true, 'units' => $theirUnits ?: ['place']];
 }
 
 /** A new pair's send: only the rate; what goes is the level in Mr. Backupsy's setup */
