@@ -8588,6 +8588,7 @@ const loose = b.waitingFolders().find((w) => w.dir === 'loose');
 if (loose) b.waitSet(loose, b.waitChoice(loose) === 'kopia' ? 'local' : 'kopia');
 out.hand = b.setupNewRows().filter((r) => r.hand).map((r) => r.name).sort();
 out.handLines = b.setupNewLines().length === b.setupNewRows().length;
+out.owns = b.setupNewRows().filter((r) => r.own).map((r) => r.own).sort();
 load('local');
 out.local = look();
 out.localOld = old() === plain;
@@ -8664,6 +8665,12 @@ JS;
     check('default: … the dialog: the sentence only without a hand row, the chip on such a row',
         str_contains($js, "kind !== 'auto' && !hand ? T('setup.apply_new_default'") && str_contains($js, "if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));")
         && ($n['handLines'] ?? false) === true);
+    // 2026-10-12 (Benj): a new thing once - under «New on the server» with its proposal and «Don't take it», its keys out of the changes
+    same('default: the new rows name the keys they own (share|fresh|, vm|vmnew|)', true,
+        in_array('share|fresh|', $n['owns'] ?? [], true) && in_array('vm|vmnew|', $n['owns'] ?? [], true));
+    check('default: … the dialog leaves them out of the changes and offers the proposal on the new row',
+        str_contains($js, "const changes = items.filter((x) => x.kind === 'key' && !ownOf(x.id)).map((x) => x.id);")
+        && str_contains($js, "no.onclick = () => { mineKeys.forEach((k) => setupDecline(k)); renderSetup(); setupApply(); };"));
     same('default: kopia stored while Kopia is off - never switched on: the new things local', [[1, 1], 'no', ['snapshot', 'off', 'snapshot', 'snapshot', 'snapshot']],
         [$n['kopiaOff']['levels'], $n['kopiaOff']['kopia'], $n['kopiaOff']['modes']]);
     same('default: «only to what is new» chosen on the page - the new things get it, the key set, the hand change and every row before stay',
@@ -23898,12 +23905,20 @@ JS);
     }
     foreach (['result' => ['passed', 'failed', 'aborted', 'refused', 'interrupted', 'queued', 'running'], 'state' => [...DRILL_RESULTS, 'skipped', 'pending', 'running'],
               'kind' => DRILL_STEP_KINDS, 'copy' => ['package', 'local', 'kopia'], 'scope' => ['monthly', 'weekly', 'now'], 'sched' => DRILL_SCHEDULES,
-              'set' => [...DRILL_SCHEDULES, 'live_catalog', 'live_sqlite'], 'pv' => DRILL_STEP_KINDS, 'level_hint' => ['0', '1', '2'],
+              'set' => [...DRILL_SCHEDULES, 'live_catalog', 'live_sqlite'], 'pv' => DRILL_STEP_KINDS, 'level_hint' => ['0', '1', '2'], 'level_word' => ['0', '1', '2'],
               'copy_hint' => ['package', 'local', 'kopia'], 'done' => ['passed', 'failed', 'other'], 'night' => ['0', '1', '2', '3', '4', '5', '6']] as $group => $names) {
         foreach ($names as $n) {
             check("drill: a text for drill.$group.$n", isset($en["drill.$group.$n"]));
         }
     }
+    // 2026-10-12 (Benj): no L0/L1/L2 jargon on the page - the level is a word (vorhanden · gelesen · zurückgespielt)
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lc) {
+        $ll = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$lc.json"), true);
+        same("drill: no L-number shown in $lc", [], array_keys(array_filter($ll, fn ($v) => (bool) preg_match('/\bL[012]\b/', is_array($v) ? implode(' ', $v) : (string) $v))));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/de.json'), true);
+    same('drill: the German chip words', ['vorhanden', 'gelesen', 'zurückgespielt', '{word} · {copy}'],
+        [$de['drill.level_word.0'] ?? null, $de['drill.level_word.1'] ?? null, $de['drill.level_word.2'] ?? null, $de['drill.level'] ?? null]);
     foreach (['drill_array', 'drill_parity', 'drill_running', 'drill_deadline', 'drill_nothing', 'restore_array_stopping'] as $e) {
         check("drill: a text for errors.$e", isset($en["errors.$e"]));
     }
