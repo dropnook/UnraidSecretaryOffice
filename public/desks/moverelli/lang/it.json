@@ -2,7 +2,6 @@
   "name": "Signora Moverelli",
   "role": "Traslocatrice — porta sull'array ciò che è rimasto abbastanza a lungo sul pool, e lascia stare ciò che deve restare",
   "visit": "Dalla Signora Moverelli",
-  "training": "Completa il mover di Unraid con lo Smart Mover di helmi1987 e lavora fianco a fianco con Jack Emby, se è stato assunto — ancora in formazione, presto potrai assumerla.",
   "fire_note": "Se mi licenzi, le mie esecuzioni si fermano: una mia pianificazione rimasta nel file cron dell'ufficio non fa niente finché non sono assunta (spegnila prima in «Pianificazione» se vuoi che sparisca). Un'esecuzione in corso finisce prima la sua condivisione — non interrompo mai uno spostamento a metà. La pianificazione del mover di Unraid resta com'è: riaccendila in ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ se la vuoi di nuovo.",
   "greet.1": "Scatoloni pronti, etichette attaccate!",
   "greet.2": "Le cose vecchie sull'array, quelle nuove restano a portata di mano.",
