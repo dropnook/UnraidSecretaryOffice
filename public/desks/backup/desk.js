@@ -4490,6 +4490,7 @@ function appDepGaps(a, plan) {
  */
 function whyFold(key, text, target) {
   const det = keepFold(el('details', 'bk-why'), 'why:' + key, false);
+  det.addEventListener('click', (e) => e.stopPropagation());     // inside a share's row, which unfolds on a click itself
   det.appendChild(el('summary', '', T('dsw.why')));
   det.appendChild(el('p', 'role', text));
   if (target) {
