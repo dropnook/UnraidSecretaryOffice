@@ -549,6 +549,8 @@ function plansSection() {
   const s = section(T('schedules'), T('plans.sub'), { place: 'plans' });
   s.id = 'jo-plans';
   s.appendChild(plansList());
+  // Ms. Moverelli follows his scheduled real EmbyCache runs (her schedule «right after Jack Emby») — one quiet line
+  if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));
   return s;
 }
 function plansList() {

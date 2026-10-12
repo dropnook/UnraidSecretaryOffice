@@ -681,5 +681,6 @@
   "errors.emby_mover_moverelli_list": "Esecuzioni vere solo quando la Signora Moverelli tiene il mio elenco fuori dalle sue esecuzioni per {shares}: nella sua pagina di configurazione aggiungi l'elenco di EmbyCache ({file}) ai file da lasciare stare — per tutte le condivisioni o per queste.",
   "mover.ok.moverelli": "La Signora Moverelli tiene il mio elenco fuori dalle sue esecuzioni — ciò che EmbyCache mette sul pool ci resta.",
   "check.mover_moverelli": "La Signora Moverelli lascia i file di EmbyCache sul pool",
-  "check.mover_moverelli_how": "Signora Moverelli → «Configura…»: aggiungi l'elenco di EmbyCache ai file da lasciare stare (tutte le condivisioni, o {shares})."
+  "check.mover_moverelli_how": "Signora Moverelli → «Configura…»: aggiungi l'elenco di EmbyCache ai file da lasciare stare (tutte le condivisioni, o {shares}).",
+  "plans.moverelli_after": "La signora Moverelli segue: subito dopo ogni esecuzione vera pianificata di EmbyCache sposta ciò che ha fatto il suo tempo sul pool — i dischi dell'array si avviano una volta sola. Le esecuzioni avviate qui a mano non la avviano."
 }

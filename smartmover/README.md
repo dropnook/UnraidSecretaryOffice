@@ -3,8 +3,8 @@
 > (V7, commit `3bee44803cc4425b80aa70d20e63765e1baff592`, 2026-10-11) by helmi1987. Ms. Moverelli writes its settings
 > (`data/moverelli/smart_mover.ini`, her own exclude lists in `data/moverelli/excludes/`), runs it (`--list-shares`, the
 > dry run, `--run`) and schedules it; its data lives in `data/moverelli`. Only `custommover_run.sh` is taken over. The
-> office's changes against that commit — each one switched on by an environment variable the office sets; without them
-> the script behaves exactly as upstream:
+> office's changes against that commit — each one switched on by an environment variable the office sets (the stale
+> .cfg skip below excepted); without them the script behaves exactly as upstream:
 >
 > * `CUSTOMMOVER_LOG`: the log file (over the INI's `log_file`) — the code lies in RAM in the office, the log in its data
 >   folder.
@@ -24,13 +24,6 @@
 > * `CUSTOMMOVER_EXCLUDES_REQUIRED=1`: on a real run (`--run`) an exclude file that is missing skips its share with an
 >   ERROR (counted in `errors`, state `error`) instead of a WARN — a list that is gone never lets its files move. Dry runs
 >   still only warn. Ms. Moverelli sets it for real runs.
-> * `CUSTOMMOVER_EXCLUDES_OPTIONAL` (comma separated paths): an exclude file named there that doesn't exist counts as an
->   empty list (an INFO line), also with `CUSTOMMOVER_EXCLUDES_REQUIRED=1`. Ms. Moverelli names Jack Emby's
->   `embycache_exclude.txt` there only while EmbyCache has never run for real nor been imported on the server (Jack's
->   traces: `embycache_origin.json`, an import's `*.before-import-*` copy, an EmbyCache run or release in his list of
->   runs or his last run's marker): EmbyCache writes the list only at its first real run or import, and a list that
->   isn't there yet protects nothing (the office's shared start lock keeps an EmbyCache run from going at the same time).
->   Once EmbyCache has run, a missing list is an error again — his films stay where they are.
 > * Always (no variable, 2026-10-12, helmi1987's finding): a `<share>.cfg` whose share is gone — no `/mnt/user/<share>`
 >   (under `CUSTOMMOVER_MNT`); a share removed by hand leaves its .cfg on the flash — is skipped with an INFO line
 >   («skip <share>: no such share (stale .cfg)»), never listed or moved. Not upstream as of `68ee9ce`.
