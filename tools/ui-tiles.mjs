@@ -29,8 +29,8 @@ const REPO = path.resolve(HERE, '..');
 const require = createRequire(import.meta.url);
 
 // ------------------------------------------------------------------ the call
-// the desk pages with tiles (the team lead and the Consultant have none)
-const ROUTES = ['backup', 'emby', 'snapshot', 'restore', 'logs', 'cleanup/where', 'cleanup/tidy', 'watchman', 'moverelli'];
+// the desk pages with tiles (the Consultant has none)
+const ROUTES = ['caretaker', 'backup', 'emby', 'snapshot', 'restore', 'logs', 'cleanup/where', 'cleanup/tidy', 'watchman', 'moverelli'];
 const LOCALES = { de: 'de-CH', en: 'en-US', fr: 'fr-CH', it: 'it-CH', es: 'es-ES' };
 const today = new Date();
 const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

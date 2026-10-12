@@ -16884,6 +16884,7 @@ const mk = (tag, cls, text) => { const n = { tag, className: cls || '', textCont
 const hired = [], toasts = [];
 const desks = new Map();
 globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'backup.name_with', fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
+  sections: () => ({ places: () => [], mount: () => false, render() {}, active: () => '' }),      // his row: a stand-in switcher
   place: (a, n) => { n.dataset.place = a; return n; }, avatar: () => mk('span'), agent: { running: true }, deskRank: () => 0, desks, config: {},
   hire: async (ids) => { hired.push(ids); return true; }, toast: (m) => toasts.push(m), loadState: async () => {}, fireDialog: () => {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
@@ -18888,7 +18889,7 @@ JS);
     check('search page: a desk not hired comes after the others, marked', $u !== [] && in_array(['emby', false], $u, true)
         && array_search(['emby', false], $u, true) >= count(array_filter($u, fn ($x) => $x[1])), json_encode($u));
     $f = $r['full'][0] ?? [];
-    same('search page: a result says where (the desk, its page help), its kind, and goes there', ['caretaker', 'section', '#/caretaker', 'partner.title', 'Partner-Sekretariate', true],
+    same('search page: a result says where (the desk, its page help), its kind, and goes there', ['caretaker', 'section', '#/caretaker/partner', 'partner.title', 'Partner-Sekretariate', true],
         [$f['desk'] ?? null, $f['kind'] ?? null, $f['route'] ?? null, $f['anchor'] ?? null, $f['label'] ?? null, $f['hired'] ?? null]);
     hardeningRm($tmp);
 }
@@ -22986,7 +22987,7 @@ function testWatchmanPartner(): void
     $r = $round($now + 60);
     same('watch partner: the next round — nothing new, no second note', [[], 1],
         [$r['added'], count(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'partner_paired'))]);
-    same('watch partner: a friend gets plain copies — a posture tip (info), linking the Team Lead', [true, 'info', '#/caretaker'],
+    same('watch partner: a friend gets plain copies — a posture tip (info), linking the Team Lead', [true, 'info', '#/caretaker/partner'],
         [in_array('partner_friend', $tips(), true), WATCH_POSTURE['partner_friend'],
          array_column((array) watchmanLoad($data)['state']['posture']['tips'], null, 'id')['partner_friend']['link']['path'] ?? null]);
     $hadIni === null ? @unlink(BACKUP_DATA_DIR . '/settings.ini') : file_put_contents(BACKUP_DATA_DIR . '/settings.ini', $hadIni);
@@ -30374,6 +30375,7 @@ const SECTIONS_DESKS = [
     'backup' => ['runningCard', 'presetSection'],
     'emby' => ['importSection'],        // Jack Emby's setup: «Take over an earlier install» over the row until he is set up (later its tile)
     'snapshot' => [],
+    'caretaker' => [],
 ];
 
 /**
