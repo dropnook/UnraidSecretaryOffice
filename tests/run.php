@@ -8932,6 +8932,7 @@ const strings = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 globalThis.Office = { scope: () => T, t: T, el, store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {},
   sections: () => ({ places: () => [] }), has: (k) => k.replace(/^restore\./, '') in strings,
   fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's' } };
+(0, eval)(fs.readFileSync(process.argv[4], 'utf8'));
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
 const job = (pr, more = {}) => ({ id: 'j1', kind: 'start_from', what: 'Windows11 ← Sender', result: 'running', started: 1000, sizes: null, ...more,
@@ -8959,7 +8960,8 @@ out.cls = card.className;
 console.log(JSON.stringify(out));
 JS);
     file_put_contents("$tmp/strings.json", file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'));
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' ' . escapeshellarg("$tmp/strings.json") . ' 2>&1');
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' ' . escapeshellarg("$tmp/strings.json")
+        . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
     $r = json_decode($raw, true) ?: [];
     same('restore run card: the steps by their short names, done / running / waiting', [['ss.pull', 'ok'], ['ss.mount', 'ok'], ['ss.copy', 'running'], ['ss.start_from_vm', 'pending']],
         $r['steps'] ?? $raw);
@@ -28662,6 +28664,20 @@ function testWatchFilter(): void
     }
 }
 
+/**
+ * core.js's run card helpers (Office.runRate, Office.runSteps, Office.runBar) as a file a node test evals after its
+ * Office stub: the block between its markers, given the stub's el. Returns the file's path.
+ */
+function testsRunHelpersJs(string $tmp): string
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $a = strpos($core, '// ---- run card helpers (shared');
+    $b = strpos($core, '// ---- end run card helpers');
+    $file = "$tmp/run-helpers.js";
+    file_put_contents($file, '(function (el) {' . "\n" . substr($core, (int) $a, (int) $b - (int) $a) . "\n})(Office.el);\n");
+    return $file;
+}
+
 /** node for the tests that run a page's code (tests/watchbook.js, tests/filter.js): '' where it is missing */
 function testsNode(): string
 {
@@ -29889,6 +29905,21 @@ function moverelliFixture(string $tmp, array &$v): void
 # the tests' move binary: one path per line on stdin
 [[ -n "${MOVE_SLEEP:-}" ]] && sleep "$MOVE_SLEEP"
 [[ -n "${MOVE_FAIL:-}" ]] && { cat >/dev/null; echo "move: refused"; exit 1; }
+# MOVE_SNAP: the live status as Smart Mover left it before this call (its first call only)
+[[ -n "${MOVE_SNAP:-}" && ! -e "$MOVE_SNAP" && -n "${CUSTOMMOVER_STATUS:-}" ]] && cp "$CUSTOMMOVER_STATUS" "$MOVE_SNAP"
+# MOVE_NOW=<file name>: «an immediate stop during this file» — a partial copy at its destination (disk1), the stop file
+# with now (as the agent writes it before its TERM), the source kept, exit 143 (TERM); MOVE_NOW_GONE: the copy whole and
+# the source gone before the stop (nothing may be removed then)
+if [[ -n "${MOVE_NOW:-}" ]]; then
+    IFS= read -r f
+    if [[ "$(basename "$f")" == "$MOVE_NOW" ]]; then
+        rel=${f#"$MOVE_ROOT"/cache/}; to="$MOVE_ROOT/disk1/$rel"; mkdir -p "$(dirname "$to")"
+        if [[ -n "${MOVE_NOW_GONE:-}" ]]; then mv "$f" "$to"; else head -c 3 "$f" > "$to"; fi
+        printf '{"why":"now","now":true}' > "$MOVE_STOPFILE"
+        exit 143
+    fi
+    printf '%s\n' "$f" | MOVE_NOW= "$0"; exit $?
+fi
 while IFS= read -r f; do
     case "$f" in
         "$MOVE_ROOT"/cache/*) rel=${f#"$MOVE_ROOT"/cache/}; to="$MOVE_ROOT/disk1/$rel" ;;
@@ -30225,6 +30256,189 @@ JS);
     hardeningRm($tmp);
 }
 
+/**
+ * Ms. Moverelli's stops and her run card (2026-10-12): with CUSTOMMOVER_STOP Smart Mover hands Unraid's move binary one
+ * file at a time — «Stop after this file»: the next file never starts; «Stop at once» (the stop file with now, the move
+ * binary TERMed like Unraid's own «mover stop»): the file in flight stays at its source, the partial copy it left at its
+ * destination is removed, never one that was there before, nothing when the source is gone; Unraid's mover starting
+ * while she runs: always at once (the owner's decision), by hand or by its schedule; the live status's fields; the
+ * kill tree; her card under node (steps, bar, file, time left from two readings, the buttons).
+ */
+function testMoverelliStop(): void
+{
+    $tmp = hardeningTmp('moverelli-stop');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), $h);
+    foreach (['c2.txt', 'c3.txt'] as $f) {
+        file_put_contents("$tmp/mnt/cache/Docs/$f", "docs-$f");
+    }
+    $hist = fn () => moverelliHistory($dir)[0] ?? [];
+    // stop after this file: the stand-in asks to stop after its first file — the next file never starts
+    $GLOBALS['moverelliHost']['env']['MOVE_STOP'] = "$dir/office-stop.json";
+    $GLOBALS['moverelliHost']['env']['MOVE_SNAP'] = "$tmp/snap.json";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    unset($GLOBALS['moverelliHost']['env']['MOVE_STOP'], $GLOBALS['moverelliHost']['env']['MOVE_SNAP']);
+    $st = readJson("$dir/status.json") ?? [];
+    same('stop after this file: exit 3, stopped after Back\'s one file (Docs and Filme never started), why user, the file named',
+        [3, 'stopped', 'Docs', true, 3, true, 'user', "$tmp/mnt/user0/Back/d.txt"],
+        [$exit, $st['result'] ?? null, $st['stop_share'] ?? null, is_file("$tmp/mnt/cache/Back/d.txt"), count(glob("$tmp/mnt/cache/Docs/*")), is_file("$tmp/mnt/cache/Filme/A/a.mkv"),
+         $hist()['why'] ?? null, $hist()['stop_file'] ?? null]);
+    $snap = readJson("$tmp/snap.json") ?? [];
+    same('live status: while the run goes — running, the plan, the phase, the share and file in flight, its counts, the run\'s counts', [
+        'running', ['Back', 'Docs', 'Filme'], 'share', 'Back', "$tmp/mnt/user0/Back/d.txt", 1, 4, 0, 0, 0, 0],
+        [$snap['result'] ?? null, $snap['plan'] ?? null, $snap['phase'] ?? null, $snap['share'] ?? null, $snap['file'] ?? null, $snap['share_files'] ?? null,
+         $snap['share_bytes'] ?? null, $snap['share_done_files'] ?? null, $snap['share_done_bytes'] ?? null, $snap['done_files'] ?? null, $snap['done_bytes'] ?? null]);
+
+    // the same share, a stop after the second of three files: two moved, the third never handed over (nothing «left»)
+    file_put_contents("$tmp/mnt/cache/Docs/c1.txt", 'docs-c1');
+    $calls = "$tmp/calls";
+    file_put_contents("$tmp/bin/move2", "#!/bin/bash\nn=\$(( \$(cat " . escapeshellarg($calls) . " 2>/dev/null || echo 0) + 1 )); echo \$n > " . escapeshellarg($calls)
+        . "\n" . escapeshellarg("$tmp/bin/move") . "; rc=\$?\n[[ \$n -eq 2 ]] && printf '{\"why\":\"user\"}' > " . escapeshellarg("$dir/office-stop.json") . "\nexit \$rc\n");
+    chmod("$tmp/bin/move2", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move2";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    $st = readJson("$dir/status.json") ?? [];
+    $docs = array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
+    same('stop after this file: Docs\' second of four files the last — 2 handed over and moved, the other two never started, nothing «left»',
+        [3, 'Docs', 2, 2, 0, 2], [$exit, $st['stop_share'] ?? null, (int) trim((string) @file_get_contents($calls)), count(glob("$tmp/mnt/cache/Docs/*")), $docs['left'] ?? null, $docs['moved'] ?? null]);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move";
+
+    // stop at once during a file: the partial at its destination removed, the source kept; one from before stays
+    // (disk1 awake in the tests' own disks.ini — a sleeping disk is never looked at)
+    file_put_contents("$tmp/disks.ini", "[\"disk1\"]\nname=\"disk1\"\nspundown=\"0\"\n[\"disk2\"]\nname=\"disk2\"\nspundown=\"1\"\n");
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $left = glob("$tmp/mnt/cache/Docs/*.txt");
+    $last = basename($left[0]);
+    @mkdir("$tmp/mnt/disk1/Docs", 0700, true);
+    file_put_contents("$tmp/mnt/disk1/Docs/old.txt", 'o');
+    file_put_contents("$tmp/mnt/cache/Docs/old.txt", 'old-and-longer');
+    touch("$tmp/mnt/disk1/Docs/old.txt", time() - 3600);
+    $GLOBALS['moverelliHost']['env']['MOVE_NOW'] = $last;
+    $GLOBALS['moverelliHost']['env']['MOVE_STOPFILE'] = "$dir/office-stop.json";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    $log = (string) file_get_contents("$dir/smart_mover.log");
+    same('stop at once: exit 3, stopped, why now, the file in flight at its source, its partial gone, the older file at the destination kept',
+        [3, 'stopped', 'now', true, false, true, "$tmp/mnt/cache/Docs/$last"],
+        [$exit, readJson("$dir/status.json")['result'] ?? null, $hist()['why'] ?? null, is_file("$tmp/mnt/cache/Docs/$last"), file_exists("$tmp/mnt/disk1/Docs/$last"),
+         is_file("$tmp/mnt/disk1/Docs/old.txt"), $hist()['stop_file'] ?? null]);
+    check('stop at once: said in her log', str_contains($log, "removed the partial copy $tmp/mnt/disk1/Docs/$last") && str_contains($log, "stopped at once during $tmp/mnt/cache/Docs/$last"), $log);
+    // the source gone when the stop came (the move binary had finished): nothing removed
+    $GLOBALS['moverelliHost']['env']['MOVE_NOW_GONE'] = '1';
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    same('stop at once, the source already gone: its copy at the destination kept, said', [3, true, false],
+        [$exit, is_file("$tmp/mnt/disk1/Docs/$last"), file_exists("$tmp/mnt/cache/Docs/$last")]);
+    check('stop at once, source gone: her log says nothing was removed', str_contains((string) file_get_contents("$dir/smart_mover.log"), 'is no longer at its source – nothing removed'));
+    unset($GLOBALS['moverelliHost']['env']['MOVE_NOW'], $GLOBALS['moverelliHost']['env']['MOVE_NOW_GONE'], $GLOBALS['moverelliHost']['env']['MOVE_STOPFILE'], $GLOBALS['disksIni']);
+
+    // the kill tree: the move binary below her job and its children, children first; another «move» elsewhere never
+    $proc = "$tmp/proc";
+    foreach ([[100, 'php', 1], [200, 'bash', 100], [300, 'move', 200], [400, 'cp', 300], [500, 'move', 1]] as [$pid, $comm, $pp]) {
+        @mkdir("$proc/$pid", 0700, true);
+        file_put_contents("$proc/$pid/comm", "$comm\n");
+        file_put_contents("$proc/$pid/stat", "$pid ($comm) S $pp 1 1");
+    }
+    $killed = [];
+    $n = moverelliKillMove(100, $proc, function (int $pid) use (&$killed) { $killed[] = $pid; return true; });
+    same('kill tree: TERM to the move binary under her job and its child (child first) — never one of another process', [2, [400, 300]], [$n, $killed]);
+    $err = function (callable $f) { try { $f(); return 'ok'; } catch (Problem $p) { return $p->key; } };
+    same('stop at once from the page: without confirm — refused; no real run going — refused', ['bad_request', 'moverelli_stop_none'],
+        [$err(fn () => moverelliStopNow([], $h)), $err(fn () => moverelliStopNow(['confirm' => true], $h, fn () => true))]);
+    same('her poll: no run — not real, nothing', [false, null, null], [moverelliProgressState($h)['real'], moverelliProgressState($h)['stopping'], moverelliProgressState($h)['progress']]);
+
+    // Unraid's mover starts while she runs: always at once — the stop file with now and by what, the kill asked
+    $stop = "$tmp/watch-stop.json";
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    foreach ([[true, 'hand'], [false, 'schedule']] as [$off, $by]) {
+        @unlink($stop);
+        $p = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', $stop], $null, $pipes);
+        $kills = 0;
+        $r = moverelliRunWatch($p, $stop, fn () => true, 0, function () use (&$kills) { $kills++; return 1; }, fn () => $off);
+        same("mover started ($by): stopped at once — why mover, by $by, the move binary TERMed once, the stop file says now", [3, 'mover', $by, 1, true, $by],
+            [$r['exit'], $r['why'], $r['by'], $kills, (readJson($stop) ?? [])['now'] ?? null, (readJson($stop) ?? [])['by'] ?? null]);
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('mover started: her job passes the kill (her own job\'s tree) and «by hand» = Unraid\'s own schedule off',
+        str_contains($src, "fn (): int => moverelliKillMove(\$self, \$h['proc'] ?? '/proc'), fn (): bool => embyMoverScheduleOff((\$h['unraid'])()));"));
+    $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
+    check('smart mover: one file at a time only with CUSTOMMOVER_STOP (the office); without it the share\'s list at once, as upstream',
+        str_contains($sh, "if [[ -n \"\$STOP_FILE\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
+
+    // her card under node: the steps, the bar by bytes, the file, the time left from two readings, the end on the last share
+    $node = testsNode();
+    if ($node === '') {
+        check('run card: node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+const dialogs = [];
+const posts = [];
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: (o) => { dialogs.push(o); return { buttons: [] }; }, toast: () => {}, selbar: () => null,
+  api: { post: async (a, b) => { posts.push([a, b]); return { ok: true }; } } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+const p = (done) => ({ result: 'running', started: 1000, plan: ['Back', 'Docs'], phase: 'share', share: 'Docs', file: '/mnt/cache/Docs/c2.txt',
+  share_files: 4, share_bytes: 1000, share_done_files: 1, share_done_bytes: done, shares: [{ share: 'Back' }] });
+const out = {};
+const d0 = m.runCardData(p(200), 2000);
+out.steps = d0.steps.map((s) => [s.name, s.state]);
+out.first = [d0.at, d0.percent, d0.left, d0.end];
+m.runCardData(p(300), 2010);
+const d2 = m.runCardData(p(400), 2020);
+out.rate = [d2.percent, d2.left, d2.end];
+const look = m.runCardData({ result: 'running', started: 5, plan: ['Back'], phase: 'look', shares: [] }, 2020);
+out.look = [look.at, look.percent, look.steps.map((s) => s.state)];
+m.setProgress(p(400), null);
+const card = m.runCard(p(400), 2030);
+out.card = texts(card);
+out.cls = card.cls;
+const foot = card.children[card.children.length - 1];
+out.buttons = foot.children.map((b) => [b.text, b.disabled]);
+m.setProgress(p(400), 'user');
+const c2 = m.runCard(p(400), 2030);
+out.stopping = [texts(c2.children[0]), c2.children[c2.children.length - 1].children.map((b) => b.disabled)];
+(async () => {
+  foot.children[2].onclick();
+  const d = dialogs.pop();
+  await d.buttons[1].act();
+  out.now = [d.title, texts(d.body), posts.map((x) => x[0]), posts[0] && posts[0][1]];
+  console.log(JSON.stringify(out));
+})();
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+        $o = json_decode($raw, true);
+        check('run card: ran under node', is_array($o), $raw);
+        $o = is_array($o) ? $o : [];
+        same('run card: the steps — Looking around, a step per share of the run, Tidying up; Back done, Docs running', [['rc.look', 'done'], ['Back', 'done'], ['Docs', 'running'], ['Docs' === '' ? '' : 'rc.tidy', 'pending']],
+            $o['steps'] ?? null);
+        same('run card: the first reading — the share\'s 20 % by bytes, no time yet (one reading), no end', [2, 20, null, null], $o['first'] ?? null);
+        same('run card: three readings (10 B/s) — 40 %, 60 s left, the end (Docs is the run\'s last share)', [40, 60, 2080], $o['rate'] ?? null);
+        same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
+        check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
+            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
+            && in_array('rc.file {"file":"/mnt/cache/Docs/c2.txt"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
+        same('run card: the buttons — the output, «Stop after this file», «Stop at once…»', [['show_output_now', false], ['stop', false], ['stop_now', false]], $o['buttons'] ?? null);
+        same('run card: stopping after the file — said, «Stop after this file» off, «Stop at once…» still there', [['rc.title', 'stopping'], [false, true, false]],
+            [array_slice($o['stopping'][0] ?? [], 0, 2), $o['stopping'][1] ?? null]);
+        same('run card: «Stop at once…» — a confirm saying what happens, then moverelli.stop_now {confirm}', ['stop_now_title', ['stop_now_text', 'stop_now_after'], ['moverelli.stop_now'], ['confirm' => true]],
+            $o['now'] ?? null);
+    }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
 /** Her settings as the page sends them: Smart Mover's defaults, files and own lines per scope */
 function moverelliTestSettings(array $global = [], array $shares = []): array
 {
@@ -30456,8 +30670,8 @@ function testMoverelliRun(): void
     $GLOBALS['moverelliHost']['look_every'] = 0;
     $v['mover_self'] = false;
     $n = $notified();
-    same('moverelli run: the mover started during Back — Back finished, stopped before Docs, why mover, by schedule, told (normal)',
-        [3, 'stopped', 'Docs', 'mover', 'schedule', true, true, 1],
+    same('moverelli run: the mover started during Back — stopped at once (the owner\'s decision): Back\'s file stays at its source, Docs never started, why mover, by schedule, told (normal)',
+        [3, 'stopped', 'Back', 'mover', 'schedule', false, true, 1],
         [$exit, readJson("$dir/status.json")['result'] ?? null, readJson("$dir/status.json")['stop_share'] ?? null, moverelliHistory($dir)[0]['why'] ?? null,
          moverelliHistory($dir)[0]['by'] ?? null, is_file("$tmp/mnt/cache/Back/e.txt"), is_file("$tmp/mnt/cache/Docs/f.txt"), count($n)]);
     check('moverelli run: … the notification', str_contains($n[0] ?? '', '-i normal') && str_contains($n[0] ?? '', 'Unraid\'s mover started'), $n[0] ?? '');
@@ -30467,7 +30681,7 @@ function testMoverelliRun(): void
     $exit = moverelliJob(['run', '--office'], moverelliHost());
     unset($GLOBALS['moverelliHost']['env']['MOVE_FAIL']);
     $n = $notified();
-    same('moverelli run: the move binary failing — result errors, the files stay, told as a warning', [0, 'errors', 1, true, 1],
+    same('moverelli run: the move binary failing — result errors (Back\'s file left by the stop above and Docs\'), the files stay, told as a warning', [0, 'errors', 2, true, 1],
         [$exit, readJson("$dir/status.json")['result'] ?? null, readJson("$dir/status.json")['errors'] ?? null, is_file("$tmp/mnt/cache/Docs/f.txt"), count($n)]);
     check('moverelli run: … the notification', str_contains($n[0] ?? '', '-i warning') && str_contains($n[0] ?? '', 'with problems'), $n[0] ?? '');
     same('moverelli outcome: what is told', ['failed', 'config', 'busy', 'errors', null, 'stopped_mover', null, 'errors', null, null],
@@ -30781,7 +30995,7 @@ JS);
         ['callout warn', ['notice.tuning {"schedule":"C0 5 * * 0","file":"mover.cron"}']], ['callout warn', ['notice.scripts {"where":"User Scripts: NightMover"}']]], $o['foreign'] ?? null);
     same('moverelli page: nothing else moves — Unraid\'s off said, the scripts\' hint always there', [['mover.ok'], [['role mo-hint', ['notice.scripts_hint']]]], $o['quiet'] ?? null);
     same('moverelli page: her list of runs in words', ['refused {"why":"err:moverelli_tuning_schedule:{\"schedule\":\"\",\"shares\":\"\",\"version\":\"\",\"needed\":\"7.3.2\"}"} · refused_times {"n":2}',
-        'stopped_mover {"share":"Docs"} · run_summary {"moved":1,"files":1,"size":"3 B","left":"count.left {\"n\":0}"}', 'dry_summary {"files":"count.files {\"n\":3}","size":"9 B"}'], $o['runs'] ?? null);
+        'stopped_mover · run_summary {"moved":1,"files":1,"size":"3 B","left":"count.left {\"n\":0}"}', 'dry_summary {"files":"count.files {\"n\":3}","size":"9 B"}'], $o['runs'] ?? null);
     same('moverelli page: the setup\'s text areas', [['/a', '/b'], ['x', '# y']], $o['lines'] ?? null);
     hardeningRm($tmp);
 }
@@ -31398,6 +31612,11 @@ m.setState({ ...base, configured: false });
 out.unset = m.tileList().map((x) => x.id);
 m.setState({ ...base, mover: { off: false, schedule: '40 3 * * *' }, schedule: { enabled: false }, jack: { list: '/j.txt', uncovered: ['Filme'] }, last: null, job: { running: true, mode: 'dry' } });
 out.alerts = tiles().map(([id, , , o]) => [id, o.value, !!o.alert]);
+// only looks at the shares' list so far (her setup asks for it): «Last run» says none yet, the reception no fact of a run
+m.setState({ ...base, last: { mode: 'list', result: 'ok', finished: 990, shares: [] }, history: [{ mode: 'list', result: 'ok', by: 'office', started: 990, finished: 990, status: { result: 'ok' } }] });
+out.listOnly = [tiles().find(([id]) => id === 'runs')[3].value, tiles().find(([id]) => id === 'runs')[3].sub, m.resultBoxOf ? 'x' : null];
+m.setState({ ...base, history: [{ mode: 'list', result: 'ok', by: 'office', started: 990, finished: 990, status: { result: 'ok' } }, ...base.history] });
+out.listOver = tiles().find(([id]) => id === 'runs')[3].value;
 m.setState(base);
 // the page: hints, the row, the footer — in that order; the sections
 const view = mk('div', 'view');
@@ -31435,6 +31654,10 @@ JS);
         ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_threshold {"pct":80}'], false, 'function'],
         ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
     same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
+    same('moverelli tiles: «Last run» — a look at the shares\' list is no run: none yet; one after a real run doesn\'t hide it', [['last_run_none', [], null], 'R900'],
+        [$o['listOnly'] ?? null, $o['listOver'] ?? null]);
+    check('moverelli ran lately (the Team Lead\'s «ran»): only a real or a dry run counts, never a look at the list',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "in_array(\$r['mode'] ?? '', ['run', 'dry'], true) && !in_array(\$r['result'] ?? '', ['refused', 'skipped'], true)"));
     same('moverelli tiles: Unraid\'s schedule on, Jack Emby\'s list missing, a run going — the tiles say so (alert, «running»)',
         [['schedule', 'not_scheduled', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
     same('moverelli tiles: her page — the head with tabs, the help, the hints, the row, the footer under all', ['deskhead', 'help', 'mo-mover', 'role mo-hint', 'sections', 'mo-foot'],
@@ -32963,7 +33186,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

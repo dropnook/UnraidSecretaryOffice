@@ -31,6 +31,112 @@ async function load(fresh) {
 function took(j) {
   if (j.ok && j.state) state = j.state;
   if (view && page === 'main') render();
+  scheduleProgress();
+}
+
+// ------------------------------------------------------------------ her run card (2026-10-12, like Mr. Restori's)
+let progress = null;          // Smart Mover's live status while a real run goes (the part «progress»)
+let stopping = null;          // the stop file's why while she stops (user | now | mover)
+let progressAt = 0;
+let progTimer = null;
+const PROGRESS_POLL = 5000;
+/** While a real run goes: the part «progress» every 5 s; nothing otherwise */
+function scheduleProgress() {
+  clearTimeout(progTimer);
+  progTimer = null;
+  if (!view || page !== 'main' || !realRun()) return;
+  progTimer = setTimeout(askProgress, PROGRESS_POLL);
+}
+async function askProgress() {
+  if (!view || page !== 'main' || !realRun()) return;
+  if (typeof document !== 'undefined' && document.hidden) { scheduleProgress(); return; }
+  try { await Office.loadState(ID, { part: 'progress', fresh: true }, tookProgress); } catch (e) { scheduleProgress(); }
+}
+function tookProgress(j) {
+  const p = j && j.ok ? j.part : null;
+  if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
+  progressAt = p.time;
+  if (!p.real) { progress = null; stopping = null; load(true); return; }     // the run ended: her state anew — the card goes
+  progress = p.progress || null;
+  stopping = p.stopping || null;
+  redrawCard();
+  scheduleProgress();
+}
+function redrawCard() {
+  const old = view && view.querySelector ? view.querySelector('.mo-run') : null;
+  if (old && old.replaceWith) old.replaceWith(runCard(progress, Date.now() / 1000));
+}
+
+/**
+ * What her card shows of Smart Mover's live status, pure (tests/run.php under node): the steps — Umschauen, one per share
+ * of the run, Aufräumen — with the current one, the share in flight by files and bytes, its percent (by bytes, else
+ * files), the file in flight, the time left from the measured rate (core.js Office.runRate: two readings needed) and
+ * the end once the share in flight is the run's last
+ */
+function runCardData(p, now) {
+  const plan = Array.isArray(p.plan) ? p.plan : [];
+  const done = new Set((p.shares || []).map((x) => x.share));
+  const phase = p.phase || 'look';
+  const steps = [{ name: T('rc.look'), state: phase === 'look' ? 'running' : 'done' }];
+  plan.forEach((sh) => steps.push({ name: sh, state: phase === 'share' && p.share === sh ? 'running' : done.has(sh) || phase === 'tidy' ? 'done' : 'pending' }));
+  steps.push({ name: T('rc.tidy'), state: phase === 'tidy' ? 'running' : 'pending' });
+  const at = steps.findIndex((st) => st.state === 'running');
+  const files = Number(p.share_files) || 0;
+  const bytes = Number(p.share_bytes) || 0;
+  const dFiles = Number(p.share_done_files) || 0;
+  const dBytes = Number(p.share_done_bytes) || 0;
+  const percent = phase !== 'share' ? null : bytes > 0 ? Math.min(100, Math.floor(100 * dBytes / bytes)) : files > 0 ? Math.min(100, Math.floor(100 * dFiles / files)) : null;
+  let left = null;
+  let end = null;
+  if (phase === 'share' && bytes > 0) {
+    const rate = Office.runRate(`moverelli|${p.started}|${p.share}`, dBytes, now);
+    if (rate) {
+      left = Math.max(0, (bytes - dBytes) / rate);
+      if (plan[plan.length - 1] === p.share) end = now + left;
+    }
+  }
+  return { steps, at, percent, left, end, share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null };
+}
+
+/** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file», «Stop at once…» */
+function runCard(p, now) {
+  const card = el('div', 'card mo-run running');
+  const top = el('div', 'card-head');
+  top.append(el('span', 'spin'), el('span', 'card-name', T('rc.title')));
+  if (stopping) top.appendChild(chip(T(stopping === 'user' ? 'stopping' : 'stopping_now'), 'warn'));
+  card.appendChild(top);
+  if (!p) {
+    card.appendChild(el('p', 'role', T('rc.waiting')));
+  } else {
+    const d = runCardData(p, now);
+    if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
+    card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
+    if (d.percent !== null) {
+      card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
+      card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
+    }
+    if (d.file) card.appendChild(el('div', 'card-line mo-run-file', T('rc.file', { file: d.file })));
+    if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
+  }
+  const foot = el('div', 'card-foot');
+  const after = button(T('stop'), 'small', async () => { after.disabled = true; await act('stop'); });
+  after.disabled = !!stopping || !Office.agent.running;
+  const now2 = button(T('stop_now'), 'small plain', stopNowDialog);
+  now2.disabled = stopping === 'now' || stopping === 'mover' || !Office.agent.running;
+  foot.append(button(T('show_output_now'), 'small plain', () => showOutput(true)), after, now2);
+  card.appendChild(foot);
+  return card;
+}
+
+/** «Stop at once…»: what it does (the file in flight stays at its source, a partial copy is removed), then moverelli.stop_now */
+function stopNowDialog() {
+  const body = el('div');
+  body.append(el('p', '', T('stop_now_text')), el('p', 'role', T('stop_now_after')));
+  Office.dialog({
+    title: T('stop_now_title'),
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('stop_now_go'), kind: 'danger', act: async () => { await act('stop_now', { confirm: true }); return true; } }],
+  });
 }
 async function act(action, data, okText) {
   const j = await Office.api.post(`${ID}.${action}`, data || {});
@@ -80,6 +186,8 @@ function showError(box, error) {
 }
 
 const running = () => !!(state && state.job && state.job.running);
+/** Her last run that moved or would have (a real or a dry run that started) — a look at the shares' list is none */
+const lastRun = () => ((state && state.history) || []).find((r) => ['run', 'dry'].includes(r.mode) && !['refused', 'skipped'].includes(r.result)) || null;
 const realRun = () => running() && state.job.mode === 'run';
 const unraidOk = () => !!(state && state.unraid && state.unraid.ok);
 const mover = () => (state && state.mover) || { off: true, schedule: null, running: false };
@@ -127,7 +235,11 @@ function runSummary(r) {
   if (s.result === 'config') return s.message || T('result.config');
   if (mode === 'list') return nOf('shares', (s.shares || []).length);
   const notes = [];
-  if (s.result === 'stopped') notes.push(T(r.why === 'mover' ? 'stopped_mover' : 'stopped_user', { share: s.stop_share || '?' }));
+  if (s.result === 'stopped') {
+    const file = String(r.stop_file || s.stop_file || '').split('/').pop() || '?';
+    notes.push(r.why === 'mover' ? T(r.mover_by === 'schedule' ? 'stopped_mover_schedule' : 'stopped_mover')
+      : r.why === 'now' ? T('stopped_now', { file }) : T('stopped_user', { file, share: s.stop_share || '?' }));
+  }
   if (mode === 'dry') notes.push(T('dry_summary', { files: nOf('files', s.files), size: fmt.size(s.bytes || 0) }));
   else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: nOf('left', s.left) }));
   if (s.errors) notes.push(nOf('errors', s.errors));
@@ -316,7 +428,14 @@ function hints() {
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
     out.push(p);
   }
-  if (running()) {
+  // the last run: Unraid's mover started while she ran — she stopped at once and cleaned up
+  const last = (state.history || [])[0];
+  if (!running() && last && last.result === 'stopped' && last.why === 'mover') {
+    out.push(el('p', 'callout warn', T(last.mover_by === 'schedule' ? 'stopped_mover_schedule' : 'stopped_mover')));
+  }
+  if (realRun()) {
+    out.push(runCard(progress, Date.now() / 1000));
+  } else if (running()) {
     const p = el('p', 'callout', T('notice.running', { mode: T('mode.' + state.job.mode) }) + ' ');
     p.appendChild(button(T('show_output_now'), 'small', () => showOutput(true))).disabled = !Office.agent.running;
     if (realRun()) {
@@ -357,17 +476,17 @@ function sharesTile(a) {
 }
 /** «Last run»: when, which mode and how it went — «running» while one goes */
 function lastRunTile(a) {
-  const last = state.last;
-  let value = T('never');
+  const last = lastRun();
+  let value = T('last_run_none');
   const sub = [];
   let alert = false;
-  if (running()) {
+  if (realRun() || (running() && state.job.mode === 'dry')) {
     value = T('output_running');
     sub.push(T('mode.' + state.job.mode));
   } else if (last && last.finished) {
     value = fmt.relative(last.finished);
-    sub.push(`${T('mode.' + (last.mode || 'dry'))} · ${T('result.' + (last.result || 'failed'))}`);
-    alert = !!(last.errors || !['ok', 'stopped'].includes(last.result));
+    sub.push(`${T('mode.' + last.mode)} · ${T('result.' + (last.result || 'failed'))}`);
+    alert = !!((last.status && last.status.errors) || !['ok', 'stopped'].includes(last.result));
   }
   return Office.stat({ label: T('last_run'), value, sub, tip: sub.join('\n'), alert, ...a });
 }
@@ -482,7 +601,7 @@ function historySection() {
 /** The last run: how it went, a line per share that had something */
 function resultBox() {
   const last = state.last;
-  if (!last || !last.result) return null;
+  if (!last || !last.result || !['run', 'dry'].includes(last.mode)) return null;     // a look at the shares' list is no run
   const box = el('div', 'box mo-results');
   const h = (state.history || []).find((r) => !['refused', 'skipped'].includes(r.result));
   box.appendChild(el('div', '', runSummary({ mode: last.mode, status: last, result: last.result, why: h && h.result === last.result ? h.why : null })));
@@ -1374,7 +1493,7 @@ Office.desk({
     await load(false);
     if (sub === 'schedule') scheduleDialog();
   },
-  unmount() { view = null; clearTimeout(outTimer); Office.selbar(null); },
+  unmount() { view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; Office.selbar(null); },
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
@@ -1390,7 +1509,8 @@ Office.desk({
     const facts = [];
     if (state && state.configured) {
       facts.push(T('fact.shares', { n: (state.shares || []).filter((x) => x.state === 'moves').length }));
-      if (state.last && state.last.finished) facts.push(T('fact.last', { when: fmt.relative(state.last.finished) }));
+      const lr = lastRun();
+      if (lr && lr.finished) facts.push(T('fact.last', { when: fmt.relative(lr.finished) }));
       if (!othersOff()) facts.push(T('fact.dry'));
     } else {
       facts.push(T('fact.setup'));
@@ -1429,7 +1549,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

@@ -29,6 +29,17 @@
 >   `/mnt/user0`, a share moving to the array before the move binary starts. Nothing else changes.
 > * Always: the share's own path in an exclude entry (`/mnt/user/<share>/…`, `/mnt/user0/<share>/…`) is replaced quoted —
 >   a share name with `[ ] * ?` is no pattern.
+> * One file at a time (2026-10-12, with `CUSTOMMOVER_STOP` set; marked «office: one file at a time» in the script):
+>   a real run hands Unraid's move binary one file per call instead of the share's whole list — the move binary reads
+>   its stdin line by line and moves as it reads, but only one call per file lets the office know when a file is done.
+>   The stop file is looked at before each file: the file in flight always finishes, no further one starts («Stop after
+>   this file»). `{"now":true}` in the stop file (an immediate stop: the office TERMs the move binary like Unraid's own
+>   `mover stop`) leaves the file in flight at its source and removes the partial copy it may have left at its
+>   destination — only that file, only while its source is still there, the path strictly below the share on the target
+>   pool or an awake array disk, written since this file's move started and not bigger than the source; never a folder.
+>   While the run goes, `CUSTOMMOVER_STATUS` says how far it is (result `running`: the shares it will look at, the phase,
+>   the share and file in flight, files and bytes done); the final status names the last file (`stop_file`). Without
+>   `CUSTOMMOVER_STOP` the script behaves as upstream (the whole list at once).
 > * Always (no variable, 2026-10-12, helmi1987's finding): a `<share>.cfg` whose share is gone — no `/mnt/user/<share>`
 >   (under `CUSTOMMOVER_MNT`); a share removed by hand leaves its .cfg on the flash — is skipped with an INFO line
 >   («skip <share>: no such share (stale .cfg)»), never listed or moved. Not upstream as of `68ee9ce`.

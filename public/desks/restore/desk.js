@@ -2175,23 +2175,8 @@ function shortStep(st) {
   return Office.has(`${ID}.ss.${key}`) ? T('ss.' + key) : stepText(st);
 }
 
-const RATE_WINDOW = 600;                     // the median rate of the last 10 minutes, like Jack Emby's live panel
-const rateSamples = new Map();               // "<job>|<step>" -> [[time, bytes done]]
-/** The live rate of a running copy step (bytes/s, the median between the samples of the last 10 minutes), null before two */
-function stepRate(key, done, now) {
-  const list = (rateSamples.get(key) || []).filter(([t]) => t >= now - RATE_WINDOW);
-  if (!list.length || list[list.length - 1][1] !== done) list.push([now, done]);
-  rateSamples.set(key, list);
-  const rates = [];
-  for (let i = 1; i < list.length; i++) {
-    const dt = list[i][0] - list[i - 1][0];
-    if (dt > 0 && list[i][1] >= list[i - 1][1]) rates.push((list[i][1] - list[i - 1][1]) / dt);
-  }
-  if (!rates.length) return null;
-  rates.sort((a, b) => a - b);
-  const m = rates[Math.floor(rates.length / 2)];
-  return m > 0 ? m : null;
-}
+/** The live rate of a running copy step (core.js Office.runRate: the median of the last 10 minutes), null before two readings */
+const stepRate = (key, done, now) => Office.runRate(key, done, now);
 // the steps that move data: their size is what takes time; every other step counts as short
 const COPY_STEPS = ['pull', 'pull_local', 'copy', 'kopia'];
 const stepBytes = (st, j) => (Number(st.bytes) > 0 ? Number(st.bytes) : st.do === 'copy' && j.sizes && Number(j.sizes.need) > 0 ? Number(j.sizes.need) : null);
@@ -2224,34 +2209,6 @@ function runCardData(j, now) {
     left, end, errors: j.steps.filter((st) => st.state === 'failed').length, warnings: j.steps.filter((st) => st.state === 'warning').length };
 }
 
-/**
- * The current step's highlight slides (1.60.1, a user: it jumped): one element behind the step list, moved over the current
- * step with an ease-in-out of 0.7 s, its width the step's. No move on the first drawing or while the step stays - a
- * redraw at every poll starts from where it stood (rsHlLast); under prefers-reduced-motion it jumps (office.css)
- */
-let rsHlLast = { key: null, at: -1, box: null };
-function rs_slideMark(wrap, ol, key, at) {
-  if (at < 0 || typeof requestAnimationFrame !== 'function') return;
-  const hl = el('div', 'rs-steps-hl');
-  hl.setAttribute('aria-hidden', 'true');
-  wrap.insertBefore(hl, ol);
-  const place = (b) => { hl.style.left = b.left + 'px'; hl.style.top = b.top + 'px'; hl.style.width = b.width + 'px'; hl.style.height = b.height + 'px'; };
-  requestAnimationFrame(() => {
-    const li = ol.children[at];
-    if (!li || !li.offsetWidth) return;
-    const box = { left: ol.offsetLeft + li.offsetLeft, top: ol.offsetTop + li.offsetTop, width: li.offsetWidth, height: li.offsetHeight };   // li sits in the positioned ol
-    const from = rsHlLast.key === key && rsHlLast.at !== at && rsHlLast.box ? rsHlLast.box : null;
-    hl.style.transition = 'none';
-    place(from || box);
-    if (from) {
-      void hl.offsetWidth;                // the start position laid out before the move
-      hl.style.transition = '';
-      place(box);
-    }
-    rsHlLast = { key, at, box };
-  });
-}
-
 /** The card: like Mr. Backupsy's run — the steps as a segmented bar, the current one with the wave, the bar, the end, the counts */
 function runCard(j, now) {
   const d = runCardData(j, now);
@@ -2260,23 +2217,9 @@ function runCard(j, now) {
   top.append(el('span', 'spin'), el('span', 'card-name', d.title), chip(T('jr.running'), 'accent'));
   if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
   card.appendChild(top);
-  const ol = el('ol', 'rs-steps');
-  d.steps.forEach((st, i) => {
-    const li = el('li', st.state === 'running' ? 'current' : st.state === 'pending' ? '' : st.state === 'failed' ? 'done failed' : 'done', st.name);
-    li.title = st.full;              // the highlight says it runs: the wave only in the title
-    ol.appendChild(li);
-  });
-  const sw = el('div', 'rs-steps-wrap');
-  sw.appendChild(ol);
-  card.appendChild(sw);
-  rs_slideMark(sw, ol, j.id, d.at);
-  if (d.percent !== null) {
-    const bar = el('div', 'bar rs-bigbar');
-    const fill = el('i', 'snaps');     // the accent, as Mr. Backupsy's run bar (a user: grey here, orange there)
-    fill.style.width = d.percent + '%';
-    bar.append(fill, el('span', 'rs-bar-label', `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
-    card.appendChild(bar);
-  }
+  // the steps and the bar: core.js's run card helpers (shared with Ms. Moverelli's run card)
+  card.appendChild(Office.runSteps(d.steps, d.at, j.id));
+  if (d.percent !== null) card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
   if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
   j.steps.forEach((st) => { const a = adaptedList(st); if (a) card.appendChild(a); });      // a VM fitted to this host: said here too
   const foot = el('div', 'card-foot');

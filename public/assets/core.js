@@ -833,6 +833,66 @@ Office.selbar = function setSelbar(spec) {
   return { sub };
 };
 
+// ---- run card helpers (shared: Mr. Restori's and Ms. Moverelli's run cards; tests/run.php loads this block under node)
+const RUN_RATE_WINDOW = 600;                   // the median rate of the last 10 minutes, like Jack Emby's live panel
+const runRateSamples = new Map();              // key -> [[time, done]]
+/** A live rate (units/s): the median between the samples of the last 10 minutes; null before two readings */
+Office.runRate = function runRate(key, done, now) {
+  const list = (runRateSamples.get(key) || []).filter(([t]) => t >= now - RUN_RATE_WINDOW);
+  if (!list.length || list[list.length - 1][1] !== done) list.push([now, done]);
+  runRateSamples.set(key, list);
+  const rates = [];
+  for (let i = 1; i < list.length; i++) {
+    const dt = list[i][0] - list[i - 1][0];
+    if (dt > 0 && list[i][1] >= list[i - 1][1]) rates.push((list[i][1] - list[i - 1][1]) / dt);
+  }
+  if (!rates.length) return null;
+  rates.sort((a, b) => a - b);
+  const m = rates[Math.floor(rates.length / 2)];
+  return m > 0 ? m : null;
+};
+let runHlLast = { key: null, at: -1, box: null };
+/**
+ * A run's steps as a segmented bar ([{name, full, state: done|ok|running|failed|pending}]), the current one highlighted —
+ * the highlight slides from step to step (an ease-in-out of 0.7 s; under prefers-reduced-motion it jumps). $key: the run
+ */
+Office.runSteps = function runSteps(steps, at, key) {
+  const wrap = el('div', 'run-steps-wrap');
+  const ol = el('ol', 'run-steps');
+  steps.forEach((st) => {
+    const li = el('li', st.state === 'running' ? 'current' : st.state === 'pending' ? '' : st.state === 'failed' ? 'done failed' : 'done', st.name);
+    if (st.full) li.title = st.full;
+    ol.appendChild(li);
+  });
+  wrap.appendChild(ol);
+  if (at >= 0 && typeof requestAnimationFrame === 'function') {
+    const hl = el('div', 'run-steps-hl');
+    hl.setAttribute('aria-hidden', 'true');
+    wrap.insertBefore(hl, ol);
+    const place = (b) => { hl.style.left = b.left + 'px'; hl.style.top = b.top + 'px'; hl.style.width = b.width + 'px'; hl.style.height = b.height + 'px'; };
+    requestAnimationFrame(() => {
+      const li = ol.children[at];
+      if (!li || !li.offsetWidth) return;
+      const box = { left: ol.offsetLeft + li.offsetLeft, top: ol.offsetTop + li.offsetTop, width: li.offsetWidth, height: li.offsetHeight };
+      const from = runHlLast.key === key && runHlLast.at !== at && runHlLast.box ? runHlLast.box : null;
+      hl.style.transition = 'none';
+      place(from || box);
+      if (from) { void hl.offsetWidth; hl.style.transition = ''; place(box); }
+      runHlLast = { key, at, box };
+    });
+  }
+  return wrap;
+};
+/** A run's big bar: the accent fill to $percent, the label over it */
+Office.runBar = function runBar(percent, label) {
+  const bar = el('div', 'bar run-bar');
+  const fill = el('i', 'snaps');
+  fill.style.width = Math.max(0, Math.min(100, percent)) + '%';
+  bar.append(fill, el('span', 'run-bar-label', label));
+  return bar;
+};
+// ---- end run card helpers
+
 /**
  * A change's mark in an apply dialog's list (Mr. Backupsy's look, «+» comes / «−» goes): <b class="diff-mark add|gone">
  * with its words for a screen reader and a tooltip ($title)

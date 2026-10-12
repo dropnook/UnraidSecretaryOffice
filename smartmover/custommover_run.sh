@@ -38,7 +38,10 @@
 #   CUSTOMMOVER_MOVER_BIN     move binary                (overrides INI mover_bin)
 #   CUSTOMMOVER_STATUS        JSON file written when the script ends: mode, result, exit code,
 #                             totals and per share what was found, moved and left
-#   CUSTOMMOVER_STOP          a file: once it exists, no further share is started (exit 3)
+#   CUSTOMMOVER_STOP          a file: once it exists, no further file is started (exit 3) — with it set, a real run
+#                             hands the move binary one file at a time (the office block «one file at a time»); its
+#                             content {"now":true} (an immediate stop: the agent TERMs the move binary) removes the
+#                             partial copy the file in flight left at its destination
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
 #   CUSTOMMOVER_DISKS_INI     emhttpd's disks.ini: on a real run a share that reaches the array names its
@@ -113,6 +116,8 @@ ERRORS=0
 SHARE_JSON=()
 SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
+# office: the live progress of a real run (CUSTOMMOVER_STATUS while it runs: result «running»)
+PLAN=(); PHASE=look; CUR_SHARE=""; CUR_FILE=""; LAST_FILE=""; SH_DONE_FILES=0; SH_DONE_BYTES=0; RUN_DONE_FILES=0; RUN_DONE_BYTES=0
 
 json_str() {  # text -> a JSON string (invalid UTF-8 dropped; quotes, backslashes escaped; other control characters and DEL dropped)
     local s="$1"
@@ -142,14 +147,30 @@ write_status() {  # exit code
     esac
     if [[ "$LIST_ONLY" == true ]]; then mode=list; elif [[ "$DRY_RUN" == true ]]; then mode=dry; else mode=run; fi
     joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
-    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"message":%s,"shares":[%s]}\n' \
+    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"stop_file":%s,"message":%s,"shares":[%s]}\n' \
         "$mode" "$result" "$(json_num "$code")" "$STARTED" "$(date +%s)" "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" \
-        "$(json_num "${TOTAL_MOVED:-0}")" "$(json_num "${TOTAL_LEFT:-0}")" "$(json_num "$ERRORS")" "$(json_str "$STOP_SHARE")" "$(json_str "$STATUS_MSG")" "$joined" \
+        "$(json_num "${TOTAL_MOVED:-0}")" "$(json_num "${TOTAL_LEFT:-0}")" "$(json_num "$ERRORS")" "$(json_str "$STOP_SHARE")" "$(json_str "$LAST_FILE")" "$(json_str "$STATUS_MSG")" "$joined" \
         > "$STATUS_FILE.$$.tmp" 2>/dev/null && mv -f "$STATUS_FILE.$$.tmp" "$STATUS_FILE" 2>/dev/null
     rm -f "$STATUS_FILE.$$.tmp" 2>/dev/null
     return 0
 }
 [[ -n "$STATUS_FILE" ]] && trap 'write_status $?' EXIT
+
+# office: while a real run goes, the same file says how far it is (result «running»): the shares it will look at
+# (plan), the phase (look, share, tidy), the share and file in flight, what of the share and of the run is done
+office_progress() {
+    [[ -n "$STATUS_FILE" && "$DRY_RUN" == false && "$LIST_ONLY" == false ]] || return 0
+    local plan joined p
+    plan=""; for p in "${PLAN[@]}"; do plan+="${plan:+,}$(json_str "$p")"; done
+    joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
+    printf '{"mode":"run","result":"running","started":%s,"time":%s,"plan":[%s],"phase":"%s","share":%s,"file":%s,"share_files":%s,"share_bytes":%s,"share_done_files":%s,"share_done_bytes":%s,"done_files":%s,"done_bytes":%s,"files":%s,"bytes":%s,"shares":[%s]}\n' \
+        "$STARTED" "$(date +%s)" "$plan" "$PHASE" "$(json_str "$CUR_SHARE")" "$(json_str "$CUR_FILE")" "$(json_num "$SH_FILES")" "$(json_num "$SH_BYTES")" \
+        "$(json_num "$SH_DONE_FILES")" "$(json_num "$SH_DONE_BYTES")" "$(json_num "$RUN_DONE_FILES")" "$(json_num "$RUN_DONE_BYTES")" \
+        "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" "$joined" \
+        > "$STATUS_FILE.$$.tmp" 2>/dev/null && mv -f "$STATUS_FILE.$$.tmp" "$STATUS_FILE" 2>/dev/null
+    rm -f "$STATUS_FILE.$$.tmp" 2>/dev/null
+    return 0
+}
 
 # ------------------------------------------------------------------ INI
 [[ -f "$INI_FILE" ]] || { STATUS_MSG="$INI_FILE missing"; echo "Error: $INI_FILE missing – run setup_custommover.sh first."; exit 1; }
@@ -325,6 +346,79 @@ remove_empty_parents() {  # root file...
 # ------------------------------------------------------------------ Share processing
 TOTAL_FILES=0; TOTAL_BYTES=0; TOTAL_MOVED=0; TOTAL_LEFT=0
 
+# ------------------------------------------------------------------ office: one file at a time
+# With CUSTOMMOVER_STOP set (the office), a real run hands the move binary one file at a time: before each file the
+# stop request is looked at — set, no further file starts and the file in flight has finished («stop after this file»).
+# An immediate stop ({"now":true} in the stop file; the agent TERMs the move binary like Unraid's own «mover stop»):
+# the file in flight stays at its source, and the partial copy it may have left at its destination is removed
+# (office_partial_cleanup). Without CUSTOMMOVER_STOP the share's list goes to the move binary at once, as upstream.
+office_stop_now() { [[ -n "$STOP_FILE" && -e "$STOP_FILE" ]] && grep -q '"now":true' "$STOP_FILE" 2>/dev/null; }
+
+office_disk_awake() {  # disk — not spun down in emhttpd's disks.ini (no ini: counted as awake)
+    [[ -n "$DISKS_INI" && -r "$DISKS_INI" ]] || return 0
+    awk -v d="$1" '/^\[/ { s = $0; gsub(/[\["\]]/, "", s); next } s == d && $0 == "spundown=\"1\"" { found = 1 } END { exit found ? 1 : 0 }' "$DISKS_INI"
+}
+
+# The partial copy an immediate stop left: only for the file in flight, only while its source is still there; the
+# destination path strictly from the source's path below the share (the target pool, or an awake array disk), a plain
+# file, written since this file's move started (mtime) and not bigger than the source — never a directory, never
+# anything older (a file that was there before is the move binary's «skip», not ours)
+office_partial_cleanup() {  # share src file started dest(array|<pool>)
+    local share="$1" src="$2" f="$3" t0="$4" dest="$5" rel ssize cand d dsize dmt
+    if [[ ! -e "$f" ]]; then log INFO "  stopped at once: $f is no longer at its source – nothing removed"; return 0; fi
+    rel="${f#"$src"/}"
+    [[ "$rel" != "$f" && -n "$rel" && "$rel" != *"/../"* && "$rel" != "../"* ]] || return 0
+    ssize=$(stat -c %s -- "$f" 2>/dev/null) || return 0
+    local -a roots=()
+    if [[ "$dest" == array ]]; then
+        for d in "$MNT"/disk[0-9]*; do [[ -d "$d" ]] && office_disk_awake "$(basename "$d")" && roots+=("$d"); done
+    else
+        roots+=("$MNT/$dest")
+    fi
+    for d in "${roots[@]}"; do
+        cand="$d/$share/$rel"
+        [[ -f "$cand" && ! -L "$cand" ]] || continue
+        [[ "$cand" -ef "$f" ]] && continue
+        dsize=$(stat -c %s -- "$cand" 2>/dev/null) || continue
+        dmt=$(stat -c %Y -- "$cand" 2>/dev/null) || continue
+        if (( dsize <= ssize && dmt >= t0 - 1 )); then
+            rm -f -- "$cand" && log WARN "  stopped at once: removed the partial copy $cand ($dsize of $ssize bytes) – the file stays at $f"
+        fi
+    done
+}
+
+# The share's files to the move binary one by one; OFFICE_RC the last non-zero exit (an immediate stop's TERM excepted)
+office_move_files() {  # share src dest out
+    local share="$1" src="$2" dest="$3" out="$4" f t0 r size
+    OFFICE_RC=0; OFFICE_TRIED=0
+    for f in "${FILES[@]}"; do
+        if [[ -e "$STOP_FILE" ]]; then
+            STOPPED=true; STOP_SHARE="$share"
+            log WARN "stop requested ($STOP_FILE) – stopped after ${LAST_FILE:-the files before}; the rest of $share and the shares after it are left for the next run"
+            break
+        fi
+        CUR_FILE="$f"; office_progress
+        (( OFFICE_TRIED++ )) || true
+        size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
+        t0=$(date +%s)
+        printf '%s\n' "$f" | "${MOVER_CMD[@]}" >>"$out" 2>&1
+        r=$?
+        if office_stop_now; then
+            office_partial_cleanup "$share" "$src" "$f" "$t0" "$dest"
+            STOPPED=true; STOP_SHARE="$share"; LAST_FILE="$f"
+            log WARN "stopped at once during $f – it stays at its source"
+            break
+        fi
+        (( r != 0 )) && OFFICE_RC=$r
+        LAST_FILE="$f"
+        if [[ ! -e "$f" && ! -L "$f" ]]; then
+            (( SH_DONE_FILES++, RUN_DONE_FILES++ )) || true
+            (( SH_DONE_BYTES += size, RUN_DONE_BYTES += size )) || true
+        fi
+    done
+    CUR_FILE=""
+}
+
 # office: the array disks a share may use (its cfg's shareInclude, else all, less shareExclude) that sleep now —
 # read from emhttpd's disks.ini (RAM, no disk asked); prints them comma separated, nothing when none or no ini
 asleep_disks() {  # share
@@ -384,6 +478,7 @@ process_share() {  # name mode pool pool2
     fi
 
     log INFO "[$name] $direction  (source: $src)"
+    CUR_SHARE="$name"; PHASE=share; SH_DONE_FILES=0; SH_DONE_BYTES=0; office_progress
     local asleep=""
     [[ "$DRY_RUN" == false && -z "$pool2" ]] && asleep=$(asleep_disks "$name")
     # office: a prefer share's scan reads the array (/mnt/user0) — its sleeping disks wake now
@@ -469,8 +564,20 @@ process_share() {  # name mode pool pool2
     mover_out=$(mktemp)
     local -a MOVER_CMD=("$MOVER_BIN")
     (( MOVER_DEBUG > 0 )) && MOVER_CMD+=(-d "$MOVER_DEBUG")
-    printf '%s\n' "${FILES[@]}" | "${MOVER_CMD[@]}" >"$mover_out" 2>&1
-    rc=$?
+    if [[ -n "$STOP_FILE" ]]; then
+        # office: one file at a time (see «one file at a time» above)
+        local dest
+        if [[ "$mode" == "yes" ]]; then dest="${pool2:-array}"; else dest="$pool"; fi
+        SH_DONE_FILES=0; SH_DONE_BYTES=0
+        : > "$mover_out"
+        office_move_files "$name" "$src" "$dest" "$mover_out"
+        rc=$OFFICE_RC
+        # stopped: only the files handed over are verified — the rest was never started, nothing «left»
+        [[ "$STOPPED" == true ]] && FILES=("${FILES[@]:0:OFFICE_TRIED}")
+    else
+        printf '%s\n' "${FILES[@]}" | "${MOVER_CMD[@]}" >"$mover_out" 2>&1
+        rc=$?
+    fi
     while IFS= read -r line; do log DEBUG "  mover: $line"; done < "$mover_out"
     if (( rc != 0 )); then
         (( ERRORS++ )) || true
@@ -516,6 +623,16 @@ else
 fi
 
 shopt -s nullglob
+# office: the shares this run will look at, in its order (the progress' steps)
+for cfg in "$SHARES_DIR"/*.cfg; do
+    p_name=$(basename "$cfg" .cfg)
+    p_mode=$(sed -n 's/^shareUseCache="\([^"]*\)".*/\1/p' "$cfg" | tr -d '\r' | head -1)
+    [[ "$p_mode" == "yes" || "$p_mode" == "prefer" ]] || continue
+    [[ -z "$TARGET_SHARES" || ",$TARGET_SHARES," == *",$p_name,"* ]] || continue
+    [[ -d "$MNT/user/$p_name" ]] || continue
+    PLAN+=("$p_name")
+done
+office_progress
 FOUND=0
 for cfg in "$SHARES_DIR"/*.cfg; do
     SHARE_NAME=$(basename "$cfg" .cfg)
@@ -529,6 +646,7 @@ for cfg in "$SHARES_DIR"/*.cfg; do
     [[ -z "$POOL" ]] && POOL="cache"
     (( FOUND++ )) || true
     # office: a stop request (CUSTOMMOVER_STOP) ends the run before the next share — never inside a move
+    [[ "$STOPPED" == true ]] && break          # office: stopped inside the share before (after a file, or at once)
     if [[ "$LIST_ONLY" == false && -n "$STOP_FILE" && -e "$STOP_FILE" ]]; then
         STOPPED=true; STOP_SHARE="$SHARE_NAME"
         log WARN "stop requested ($STOP_FILE) – $SHARE_NAME and the shares after it are left for the next run"
@@ -539,6 +657,7 @@ for cfg in "$SHARES_DIR"/*.cfg; do
     share_status_add "$SHARE_NAME" "$MODE"
 done
 shopt -u nullglob
+PHASE=tidy; CUR_SHARE=""; office_progress
 
 if [[ "$LIST_ONLY" == true ]]; then
     (( FOUND == 0 )) && echo "  (none)"
