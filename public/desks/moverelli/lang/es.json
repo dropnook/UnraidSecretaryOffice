@@ -144,7 +144,7 @@
   "age_stat.mtime": "mtime — última modificación",
   "setup.threshold": "Como mucho así de lleno (%)",
   "setup.threshold_hint": "Si el pool está más lleno que esto, muevo además los más antiguos primero — tengan la edad que tengan — hasta que quede por debajo del límite de abajo. 0 = apagado. En un pool ZFS cuenta el pool entero.",
-  "setup.until": "… entonces mover sin falta hasta que esté por debajo de (%)",
+  "setup.until": "… hasta (%)",
   "setup.until_hint": "Obligatorio en cuanto arriba haya un límite, y menor que él. Lo que se queda se queda siempre.",
   "setup.until_proposed": "Nuevo: cuando el pool está demasiado lleno muevo los más antiguos primero hasta que baje de un segundo límite. Propongo: {list}. Revísalo y tómalo con «Aplicar».",
   "setup.until_proposed_one": "{scope}: desde {pct} % hasta {until} %",

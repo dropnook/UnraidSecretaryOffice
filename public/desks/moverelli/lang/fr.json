@@ -144,7 +144,7 @@
   "age_stat.mtime": "mtime — dernière modification",
   "setup.threshold": "Rempli au plus à (%)",
   "setup.threshold_hint": "Si le pool est plus rempli que cela, je déplace en plus les plus anciens d'abord — quel que soit leur âge — jusqu'à passer sous la limite d'en dessous. 0 = désactivé. Sur un pool ZFS, c'est le pool entier qui compte.",
-  "setup.until": "… puis déplacer à coup sûr jusqu'à passer sous (%)",
+  "setup.until": "… jusqu'à (%)",
   "setup.until_hint": "Obligatoire dès qu'une limite est fixée au-dessus, et plus petit qu'elle. Ce qui reste reste toujours.",
   "setup.until_proposed": "Nouveau : quand le pool est trop rempli, je déplace les plus anciens d'abord jusqu'à passer sous une seconde limite. Je propose : {list}. Vérifie et reprends-le avec «Appliquer».",
   "setup.until_proposed_one": "{scope} : dès {pct} % jusqu'à {until} %",

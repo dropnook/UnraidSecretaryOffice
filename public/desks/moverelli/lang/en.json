@@ -144,7 +144,7 @@
   "age_stat.mtime": "mtime — last changed",
   "setup.threshold": "At most this full (%)",
   "setup.threshold_hint": "Once the pool is fuller than this, I also move the oldest first — whatever their age — until it is below the limit underneath. 0 = off. On a ZFS pool the whole pool counts.",
-  "setup.until": "… then move without fail until it is below (%)",
+  "setup.until": "… down to (%)",
   "setup.until_hint": "Required as soon as there is a limit above, and smaller than it. What stays always stays.",
   "setup.until_proposed": "New: when the pool gets too full I move the oldest first until it is below a second limit. I propose: {list}. Check it and take it with «Apply».",
   "setup.until_proposed_one": "{scope}: from {pct} % down to {until} %",
