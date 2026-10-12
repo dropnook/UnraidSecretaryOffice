@@ -347,7 +347,7 @@ function build(root) {
   v.dockerBox.checked = Office.store('snapshot.docker') === '1';
   v.dockerText = el('span', '', T('docker_layers'));
   v.dockerSwitch.append(v.dockerBox, v.dockerText);
-  v.dockerBox.onchange = () => { Office.store('snapshot.docker', v.dockerBox.checked ? '1' : null); fillSources(); renderList(); };
+  v.dockerBox.onchange = () => { Office.store('snapshot.docker', v.dockerBox.checked ? '1' : null); fillSources(); renderList(); sw.row(); };
   // Mr. Backupsy's snapshots and a partner office's copies: hidden unless switched on — here one mostly looks for one's own
   const hideSwitch = (name) => {
     const label = el('label', 'switch');
@@ -356,7 +356,7 @@ function build(root) {
     box.checked = Office.store('snapshot.' + name) === '1';
     const text = el('span');
     label.append(box, text);
-    box.onchange = () => { Office.store('snapshot.' + name, box.checked ? '1' : null); fillSources(); renderList(); };
+    box.onchange = () => { Office.store('snapshot.' + name, box.checked ? '1' : null); fillSources(); renderList(); sw.row(); };
     return { label, box, text };
   };
   v.backupShow = hideSwitch('backup');

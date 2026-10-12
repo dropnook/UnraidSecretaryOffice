@@ -1022,6 +1022,9 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   section, every function that makes a section head reached from the switcher's spec — or named there as being on its
   other page). For contributors:
   docs/DEVELOPMENT.md «Tiles and lists» (a minimal desk and the checklist), CONTRIBUTING.md.
+  **A switch inside a section that changes what its tile says** (a hide switch, a sort) redraws the row at once —
+  `sw.row()` right after the section's own redraw (core: Office.sections().row(), 2026-10-12, Ms. Snapshotini's
+  «Backupsis Snapshots» switch); the next state poll would otherwise leave the tile stale for seconds.
 * **Search (2026-10-08 — phase 1, static places; phase 2, items; phase 3, texts):** the magnifier in the top line (`#sso-search`, made by core.js
   before `#sso-state`; nothing in page.php) or ⌘K / Ctrl+K while the office has the focus (or nothing outside `#sso` was
   clicked last — never `/`, never in Unraid's header) opens a palette under it (`#sso-palette`, role combobox/listbox:
