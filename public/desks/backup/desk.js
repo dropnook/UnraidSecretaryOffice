@@ -3068,7 +3068,8 @@ function renderSetup() {
   if (setup.applied) root.appendChild(appliedCard(setup.applied));
   if (!busy && setup.plan && Date.now() / 1000 - setup.plan.time > SETUP_STALE) root.appendChild(el('p', 'callout warn', T('setup.bubble_old', { when: fmt.relative(setup.plan.time) })));
   if (!busy && !setup.plan && state && state.running) root.appendChild(el('p', 'callout', T('setup.bubble_backup_runs')));
-  if (!busy && !setup.plan && !(state && state.running)) root.appendChild(el('p', 'callout running', T('setup.bubble_loading')));
+  if (!busy && !setup.plan && !(state && state.running) && setup.status && setup.status.result === 'failed') root.appendChild(setupFailedCallout(setup.status));
+  else if (!busy && !setup.plan && !(state && state.running)) root.appendChild(el('p', 'callout running', T('setup.bubble_loading')));
   if (busy) {
     const p = el('p', 'callout running');
     const mode = setup.status.mode;
@@ -4573,6 +4574,18 @@ function setupNoteItems(g, withStep) {
     lis[lis.length - 1].lastChild.appendChild(el('div', 'bk-msg-why', T(key + '_why', setupMsgParams(items[0].params))));
   }
   return lis;
+}
+
+/** The plan failed before it could write one (engine messages, English): what went wrong and that «Neu planen» tries again */
+function setupFailedCallout(st) {
+  const p = el('p', 'callout warn', T('setup.bubble_failed', { n: Number(st.errors || 0) }));
+  const errs = (st.messages || []).filter((m) => m && m.level === 'error' && m.text);
+  if (errs.length) {
+    const ul = el('ul', 'bk-msgs');
+    errs.forEach((m) => ul.appendChild(el('li', '', m.text)));
+    p.appendChild(ul);
+  }
+  return p;
 }
 
 function setupMessages(notes) {

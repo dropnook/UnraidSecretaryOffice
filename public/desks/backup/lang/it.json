@@ -261,6 +261,7 @@
   "setup.replan": "Ripianifica",
   "setup.measure": "Misura le dimensioni",
   "setup.measure_hint": "Misura con du le condivisioni senza dataset ZFS (fino a 2 min ciascuna) — sveglia i dischi dell'array in standby.",
+  "setup.bubble_failed": "Il piano è fallito ({n} errori) — quindi non c'è ancora nulla da impostare. Risolvi e clicca «Pianifica di nuovo».",
   "setup.bubble_loading": "Un momento…",
   "setup.bubble_planning": "Sto guardando il server: condivisioni, contenitori, database, Kopia. Ci vuole qualche secondo.",
   "setup.bubble_applying": "Sto scrivendo le impostazioni e allineando Kopia.",

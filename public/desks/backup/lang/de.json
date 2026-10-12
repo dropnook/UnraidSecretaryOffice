@@ -258,6 +258,7 @@
   "setup.replan": "Neu planen",
   "setup.measure": "Grössen messen",
   "setup.measure_hint": "Misst Shares ohne ZFS-Dataset mit du (bis 2 Min. je Share) — weckt schlafende Array-Disks.",
+  "setup.bubble_failed": "Der Plan ist fehlgeschlagen ({n} Fehler) — darum gibt es noch nichts einzurichten. Behebe es und klick «Neu planen».",
   "setup.bubble_loading": "Einen Moment…",
   "setup.bubble_planning": "Ich schaue mir den Server an: Shares, Container, Datenbanken, Kopia. Das dauert ein paar Sekunden.",
   "setup.bubble_applying": "Ich schreibe die Einstellungen und gleiche Kopia an.",

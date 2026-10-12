@@ -258,6 +258,7 @@
   "setup.replan": "Plan anew",
   "setup.measure": "Measure sizes",
   "setup.measure_hint": "Measures shares without a ZFS dataset with du (up to 2 min each) — wakes sleeping array disks.",
+  "setup.bubble_failed": "The plan failed ({n} errors) — so there is nothing to set up yet. Fix it and click «Plan again».",
   "setup.bubble_loading": "One moment…",
   "setup.bubble_planning": "I'm looking at the server: shares, containers, databases, Kopia. That takes a few seconds.",
   "setup.bubble_applying": "I'm writing the settings and adjusting Kopia.",

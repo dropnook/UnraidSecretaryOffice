@@ -2143,6 +2143,14 @@ function backupSetupStatus(): array
         'errors'  => $s['errors'] ?? 0,
         'warnings' => $s['warnings'] ?? 0,
         'plan_time' => @filemtime("$data/state/setup-plan.json") ?: null,
+        // a plan that failed writes no setup-plan.json: its messages are all the page gets (text as the engine says it)
+        'messages' => array_values(array_slice(array_filter(array_map(
+            fn ($m) => is_array($m) && is_string($m['text'] ?? null)
+                ? ['level' => in_array($m['level'] ?? '', ['ok', 'hint', 'warn', 'error'], true) ? $m['level'] : 'hint',
+                   'step' => preg_replace('/[^a-z_]/', '', (string) ($m['step'] ?? '')), 'text' => mb_substr(strip_tags($m['text']), 0, 300)]
+                : null,
+            is_array($s['messages'] ?? null) ? $s['messages'] : []
+        )), 0, 20)),
     ];
 }
 

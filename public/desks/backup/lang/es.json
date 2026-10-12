@@ -261,6 +261,7 @@
   "setup.replan": "Replanificar",
   "setup.measure": "Medir tamaños",
   "setup.measure_hint": "Mide con du los recursos compartidos sin dataset ZFS (hasta 2 min cada uno) — despierta los discos del array en reposo.",
+  "setup.bubble_failed": "El plan falló ({n} errores) — así que todavía no hay nada que configurar. Arréglalo y pulsa «Planificar de nuevo».",
   "setup.bubble_loading": "Un momento…",
   "setup.bubble_planning": "Estoy examinando el servidor: recursos compartidos, contenedores, bases de datos, Kopia. Tarda unos segundos.",
   "setup.bubble_applying": "Estoy escribiendo los ajustes y ajustando Kopia.",
