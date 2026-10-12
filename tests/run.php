@@ -29369,6 +29369,74 @@ JS);
  * desk.js read as text: no hand-made role=button tile and no scrollIntoView left, tile filters / words / switches never in
  * Office.store, the sub-routes #/backup/<tile> set the filter like a click, the places, the agent's schedule with `next`.
  */
+/**
+ * The progress before the partner step (2026-10-12, Benj: 99 % / «0 min left» in the step Snapshots — the partner step
+ * counted only once it was on): the agent's estimates know each unit's last transfer (history's partner block) and the
+ * part before the partner step; progress() adds the planned units not sent yet — a unit never sent makes it unknown.
+ */
+function testBackupPartnerEta(): void
+{
+    $run = fn (int $started, int $first, array $partner, string $result = 'ok') => ['run' => "r$started", 'started' => $started, 'finished' => $first + 100,
+        'result' => $result, 'kopia_first' => $first, 'kopia' => [['name' => 'appdata', 'ok' => true, 'seconds' => 100, 'finished' => $first + 100]], 'partner' => $partner];
+    $p = fn (string $id, array $units, array $skipped = []) => ['id' => $id, 'seconds' => array_sum(array_column($units, 'seconds')),
+        'units' => $units, 'skipped' => array_map(fn ($u) => ['unit' => $u, 'why' => 'asleep'], $skipped)];
+    $u = fn (string $unit, int $sec) => ['unit' => $unit, 'bytes' => $sec * 1000, 'seconds' => $sec, 'resumed' => false];
+    $e = backupEstimates([
+        $run(5000, 5900, [$p('a1b2c3d4', [$u('place', 30), $u('vm:win', 500)], ['share:media'])]),
+        $run(1000, 1300, [$p('a1b2c3d4', [$u('place', 200), $u('share:docs', 60)])], 'aborted'),
+    ]);
+    same('partner eta: each unit\'s newest transfer (an aborted run\'s too), a unit skipped last = 0',
+        ['a1b2c3d4|place' => 30, 'a1b2c3d4|vm:win' => 500, 'a1b2c3d4|share:media' => 0, 'a1b2c3d4|share:docs' => 60], $e['partner']);
+    same('partner eta: the part before the partner step = before Kopia less the run\'s partner seconds', [900, 370], [$e['before'], $e['prepare']]);
+    same('partner eta: nothing known', [null, []], [backupEstimates([])['prepare'], backupEstimates([])['partner']]);
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('partner eta: page - node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-eta');
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', time: (t) => `time(${t})` }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, agent: { running: true } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const now = Math.floor(Date.now() / 1000);
+Date.now = () => now * 1000;                 // one clock for the whole check
+const est = { sources: { appdata: 100 }, before: 900, prepare: 370, total: 1000, partner: { 'p1|place': 30, 'p1|vm:win': 500 } };
+const st = (phase, partner, more) => ({ found: true, compatible: true, running: true, estimates: est, partners: [], holder: { holder: 'backup' },
+  status: { mode: 'backup', started: now - 100, phase, result: 'running', kopia: { planned: ['appdata'], done: [], current: '' }, partner }, ...more });
+const left = (p) => (p.eta === null ? null : Math.round(p.eta - now));
+const out = {};
+const plan = (more) => ({ planned: [{ id: 'p1', unit: 'place' }, { id: 'p1', unit: 'vm:win' }], done: [], skipped: [], failed: [], current: null, ...more });
+b.setState(st('snapshots', plan()));
+let p = b.progress();
+out.snapshots = [left(p), p.percent];
+b.setState(st('snapshots', null));
+out.noPartner = left(b.progress());
+b.setState(st('snapshots', plan({ planned: [{ id: 'p1', unit: 'place' }, { id: 'p1', unit: 'share:new' }] })));
+p = b.progress();
+out.never = [p.eta, p.percent];
+b.setState(st('partner', plan({ done: [{ id: 'p1', unit: 'place' }], current: { id: 'p1', unit: 'vm:win', since: now - 200, bytes: 1 } })));
+out.partnerNoRate = left(b.progress());
+b.setState(st('partner', plan({ current: { id: 'p1', unit: 'place', since: now - 10, bytes: 1 } }),
+  { partners: [{ id: 'p1', current: { unit: 'place', rate: 1000, eta: 40 } }] }));
+out.partnerRate = left(b.progress());
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/eta.js", $js);
+    $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/eta.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true);
+    same('partner eta (page): in the step Snapshots the partner units count — 270 before + 30 + 500 + Kopia 100, 10 %', [900, 10], $r['snapshots'] ?? null);
+    same('partner eta (page): a run without partners — before + Kopia as ever', 370, $r['noPartner'] ?? null);
+    same('partner eta (page): a unit never sent — unknown, no percent (never 99 %)', [null, null], $r['never'] ?? null);
+    same('partner eta (page): on the way without a rate yet — its last time less 200 s, then Kopia', 400, $r['partnerNoRate'] ?? null);
+    same('partner eta (page): with the rate — 40 s of this one, 500 for the next unit, Kopia 100', 640, $r['partnerRate'] ?? null);
+    hardeningRm($tmp);
+}
+
 function testBackupTiles(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
@@ -30635,7 +30703,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

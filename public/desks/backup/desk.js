@@ -298,15 +298,38 @@ function progress() {
     return e;
   };
 
-  const pr = s.phase === 'partner' ? partnerRateOf(s) : null;
-  if (pr && pr.eta !== null && pr.rate) {
-    // a unit on its way to a partner (engine 2.42): what is left of this transfer at the measured rate, then Kopia's sources
-    remaining += pr.eta;
+  // the partner step (engine 2.27; status.json partner.planned from the run's start): every planned transfer not made yet
+  // at the seconds of its last one (agent: estimates.partner) — a unit never sent makes it unknown, never 99 % (2026-10-12)
+  const sp = s.partner && Array.isArray(s.partner.planned) ? s.partner : null;
+  const pest = est.partner || {};
+  const unitKey = (x) => `${x.id}|${x.unit}`;
+  const partnerLeft = () => {
+    if (!sp) return 0;
+    const over = new Set([...(sp.done || []), ...(sp.skipped || []), ...(sp.failed || []), ...(sp.current ? [sp.current] : [])].map(unitKey));
+    return sp.planned.reduce((sum, x) => {
+      if (over.has(unitKey(x))) return sum;
+      const e = pest[unitKey(x)];
+      if (typeof e !== 'number') { known = false; return sum; }
+      return sum + e;
+    }, 0);
+  };
+
+  if (s.phase === 'partner') {
+    // a unit on its way to a partner (engine 2.42): what is left of this transfer at the measured rate — before the rate,
+    // its last transfer's seconds less the time it is on its way —, then the partner units after it, then Kopia's sources
+    const pr = partnerRateOf(s);
+    if (pr && pr.eta !== null && pr.rate) remaining += pr.eta;
+    else if (sp && sp.current && typeof pest[unitKey(sp.current)] === 'number') remaining += Math.max(0, pest[unitKey(sp.current)] - (now - (sp.current.since || now)));
+    else if (sp && sp.current) known = false;
+    remaining += partnerLeft();
     planned.forEach((n) => { remaining += sourceLeft(n); });
   } else if (step < KOPIA_STEP) {
-    if (est.before) remaining += Math.max(0, est.before - (now - s.started));
-    else if (!planned.length && est.total) remaining += Math.max(0, est.total - (now - s.started));
+    // the part before the partner step (an agent before 2026-10-12: before Kopia, the partners' last time in it)
+    const pre = typeof est.prepare === 'number' ? est.prepare : est.before;
+    if (typeof pre === 'number') remaining += Math.max(0, pre - (now - s.started));
+    else if (!planned.length && !(sp && sp.planned.length) && est.total) remaining += Math.max(0, est.total - (now - s.started));
     else known = false;
+    if (typeof est.prepare === 'number') remaining += partnerLeft();
     planned.forEach((n) => { remaining += sourceLeft(n); });
   } else if (step === KOPIA_STEP) {
     planned.filter((n) => !done.has(n)).forEach((n) => { remaining += sourceLeft(n); });
