@@ -142,7 +142,7 @@
   "setup.age_stat_hint": "ctime: seit die Datei auf dem Pool liegt (auch durch einen Wechsel von Besitzer oder Rechten neu gesetzt). mtime: seit sie zuletzt geändert wurde.",
   "age_stat.ctime": "ctime — auf dem Pool seit",
   "age_stat.mtime": "mtime — zuletzt geändert",
-  "setup.threshold": "Höchstens so voll (%)",
+  "setup.threshold": "Höchstens so voll (%) …",
   "setup.threshold_hint": "Wird der Pool voller als das, verschiebe ich zusätzlich die ältesten zuerst — egal wie alt —, bis er unter die Grenze darunter kommt. 0 = aus. Auf einem ZFS-Pool zählt der ganze Pool.",
   "setup.until": "… bis (%)",
   "setup.until_hint": "Pflicht, sobald oben eine Grenze steht, und kleiner als sie. Die Ausnahmen bleiben immer liegen.",
