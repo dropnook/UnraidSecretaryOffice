@@ -32577,7 +32577,14 @@ function testBackupTiles(): void
         && str_contains($js, "const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));") && !str_contains($js, "card.classList.add('running');"));
     check('backup tiles: the last backup\'s tile carries the wave while a run goes', substr_count($js, "label: T('stat.last'), running: live(),") === 2
         && str_contains($js, "label: d.running ? waveLabel(d.label) : d.label,"));
-    foreach (['backup' => 'bk', 'restore' => 'rs'] as $desk => $pre) {
+    // Mr. Restori's (and Ms. Moverelli's) card draws its steps with core.js's Office.runSteps (1.61) — same slide, office.css
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $ocss0 = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    check("run card (restore, moverelli) 1.61: the shared steps' highlight slides - one element behind the list, an ease-in-out of 0.7 s, no move on the first drawing or while the step stays",
+        str_contains($core, 'Office.runSteps = function runSteps(steps, at, key)') && str_contains($core, 'const from = runHlLast.key === key && runHlLast.at !== at && runHlLast.box ? runHlLast.box : null;')
+        && str_contains($ocss0, '.run-steps-hl{position:absolute; z-index:0; background:var(--accent-soft)') && str_contains($ocss0, 'transition:left .7s ease-in-out')
+        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js'), 'card.appendChild(Office.runSteps(d.steps, d.at, j.id));'));
+    foreach (['backup' => 'bk'] as $desk => $pre) {
         $djs = (string) file_get_contents(OFFICE_WEB . "/desks/$desk/desk.js");
         $dcss = (string) file_get_contents(OFFICE_WEB . "/desks/$desk/desk.css");
         check("run card ($desk) 1.60.1: the current step's highlight slides - one element behind the list, an ease-in-out of 0.7 s, no move on the first drawing or while the step stays",
@@ -32590,7 +32597,7 @@ function testBackupTiles(): void
         str_contains($rjs, "const waving = (x) => { const w = el('span', 'running'); w.append(el('span', 'spin'), ' ', ...[].concat(x)); return w; };")
         && str_contains($rjs, "meta.appendChild(r.result === 'running' ? waving(head) : head);") && str_contains($rjs, "li.append(s.state === 'running' ? waving(sc) : sc, ' ', stepText(s));")
         && str_contains($rjs, "top.append(el('span', 'spin'), el('span', 'card-name', d.title), chip(T('jr.running'), 'accent'));") && str_contains($rjs, "lines: [[line, going && right ? waving(right) : right]]")
-        && str_contains($rjs, "st.state === 'failed' ? 'done failed' : 'done', st.name);"));
+        && str_contains($core, "st.state === 'failed' ? 'done failed' : 'done', st.name);"));
     $ocss = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
     preg_match('/--wave:url\("data:image\/svg\+xml,([^"]+)"\);/', $ocss, $w);
     $svg = rawurldecode($w[1] ?? '');
