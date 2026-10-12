@@ -283,7 +283,8 @@ function progress() {
   };
 }
 
-function bubbleText() {
+/** His words in the head; pg 'setup': the setup page (no backup place yet: that first — bubblePlace()) */
+function bubbleText(pg) {
   if (!state) return [T('bubble.loading')];
   if (!state.found) return [T('bubble.missing')];
   if (state.asleep) return [T('bubble.asleep')];
@@ -307,7 +308,9 @@ function bubbleText() {
     return out;
   }
   const last = lastRun();
-  if (!last) out.push(T('bubble.no_runs'));
+  const place = pg === 'setup' ? bubblePlace() : '';
+  if (place) out.push(place);
+  if (!last) { if (!place) out.push(T('bubble.no_runs')); }        // no place, no backup: the place says it, once
   else {
     const k = last.kopia || [];
     const ok = k.filter((x) => x.ok).length;
@@ -350,7 +353,7 @@ function deskActions() {
 
 /** The desk head of either page: the bubble, the desk's actions, the two tabs */
 function deskHeadOf(current) {
-  return Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText().join(' ')), actions: deskActions(),
+  return Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText(current).join(' ')), actions: deskActions(),
     pages: { list: PAGES(), current } }).head;
 }
 
@@ -2836,7 +2839,17 @@ function presetDialog() {
 
 /** The bar at the bottom: how many changes, apply */
 function setupBar() {
-  if (page !== 'setup' || !setup.plan || !setup.draft) { Office.selbar(null); return; }
+  const spec = page === 'setup' ? setupBarSpec() : null;
+  const bar = Office.selbar(spec);
+  // a button's title (core.js's bar has none): «Prüfen…» grey says why
+  const box = bar && bar.sub && bar.sub.parentNode ? bar.sub.parentNode.parentNode : null;
+  const btns = box && box.querySelectorAll ? box.querySelectorAll('.selbar-buttons button') : [];
+  (spec ? spec.buttons : []).forEach((b, i) => { if (b.title && btns[i]) btns[i].title = b.title; });
+}
+
+/** The bar's spec for the setup page as it stands (null: no bar) — pure, tests/run.php testSetupFirstPlace */
+function setupBarSpec() {
+  if (!setup.plan || !setup.draft) return null;
   const fresh = !setup.plan.have_settings;     // nothing set up yet: Apply is how it starts
   // what Apply really changes in settings.ini, split (2026-10-10: «1 Vorschlag von mir und 1 Änderung von dir»):
   // the user's (a key they touched here) and mine (what changes although they clicked nothing — a proposal)
@@ -2844,26 +2857,38 @@ function setupBar() {
   const proposals = split.mine.length;
   const edits = fresh ? setupEdits().length : split.yours.length;
   const busy = setup.status && setup.status.running;
-  if (!edits && !fresh && proposals <= 0) { Office.selbar(null); return; }      // nothing to apply: no bar that keeps offering it
+  const discard = { text: T('setup.discard'), kind: 'plain', disabled: (!edits && (fresh || !proposals)) || busy, act: () => {
+    if (!edits) Office.store('backup.proposals_dismissed', String(setup.plan.time || ''));   // proposals only: not now
+    setupDraftFromPlan();
+    renderSetup();
+  } };
+  // first place (2026-10-12): no backup place yet — the bar says that first and leads there; «Prüfen…» grey with the
+  // reason (setupApply()'s toast stays the last guard, for a page drawn before)
+  if (setupNoPlace()) {
+    const none = placeIntro(setup.plan, '') === 'setup.place_none';
+    return {
+      title: T('setup.bar_place'),
+      sub: T(none ? 'setup.bar_place_sub' : 'setup.bar_place_choose', { tile: T('setup.kopia') }),
+      buttons: [discard, { text: T('setup.bar_place_go'), act: setupToPlace },
+        { text: T('setup.review'), kind: 'plain', disabled: true, title: T('setup.ds_missing'), act: setupApply }],
+    };
+  }
+  if (!edits && !fresh && proposals <= 0) return null;      // nothing to apply: no bar that keeps offering it
   // proposals only, set aside with «Discard» for this plan (2026-10-09: the button was grey — no way to say no);
   // a new plan (another «Look at the server again», an update) offers again; the list of changes still shows them
   const dismissed = Office.store('backup.proposals_dismissed') === String(setup.plan.time || '');
-  if (!edits && !fresh && dismissed) { Office.selbar(null); return; }
+  if (!edits && !fresh && dismissed) return null;
   const chosen = presetChosen();               // a start of the user's: what it changes is the user's, not proposals of mine
-  Office.selbar({
+  return {
     title: fresh ? (edits ? T('setup.bar_changes', { n: edits }) : T('setup.bar_new'))
       : chosen ? T('setup.bar_changes', { n: edits + proposals })
       : [proposals ? T('setup.bar_proposals', { n: proposals }) : '', edits ? T('setup.bar_changes_yours', { n: edits }) : ''].filter(Boolean).join(' · '),
     sub: [chosen ? presetStartText() : '', T('setup.bar_sub', { when: fmt.relative(setup.plan.time) })].filter(Boolean).join(' · '),
     buttons: [
-      { text: T('setup.discard'), kind: 'plain', disabled: (!edits && (fresh || !proposals)) || busy, act: () => {
-        if (!edits) Office.store('backup.proposals_dismissed', String(setup.plan.time || ''));   // proposals only: not now
-        setupDraftFromPlan();
-        renderSetup();
-      } },
+      discard,
       { text: T('setup.review'), disabled: busy || !Office.agent.running, act: setupApply },   // opens the list of changes; its dialog applies
     ],
-  });
+  };
 }
 
 // ---- small form helpers
@@ -3097,8 +3122,12 @@ function renderSetup() {
   root.appendChild(sw.el);
   // «Decide…» / «Change…»: the target's step shows alone (its tile picked like a link), then its row is revealed
   const tile = target ? STEP_TILE[target.part] : '';
-  if (tile) sw.pick(tile, 'route'); else sw.render();
+  const first = setup.placeStart && !!setup.draft && !!setup.model;    // the visit's first page with the plan: its start
+  if (first) setup.placeStart = false;
+  if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();
   setupBar();
+  // first place: the guide's callout and «Add Share» the first thing in view — unless the user has scrolled meanwhile
+  if (!tile && first && setupNoPlace() && window.scrollY < 40) setupShowPlace(false);
   if (target) Office.reveal(target.anchor, { part: target.part, name: target.name });
 }
 
@@ -3114,6 +3143,50 @@ const STEP_TILE = { 'setup.kopia': 'basics', 'setup.vms': 'vms', 'setup.apps': '
   'setup.general': 'more', 'setup.sources': 'sources', 'setup.messages': 'messages' };
 const setupRoute = (id) => `#/${ID}/setup/${id}`;
 let setupSw = null;
+/** First place (2026-10-12): the plan is in and no backup place is chosen on it — the page leads to «Grundlagen» first */
+const setupNoPlace = () => !!(setup.plan && setup.draft && setup.model) && !dget('general|dumps_share', '');
+/**
+ * First place (2026-10-12, a fresh server: «Prüfen…» was answered with a red toast — nothing before had said that a share
+ * is needed, the guide with «Add Share» stood out of view inside «Grundlagen»): while no backup place is chosen, a visit
+ * opens on «Grundlagen» (the guide's callout and «Add Share» first, the tile in alert), and the bar's «Zu den Grundlagen»
+ * picks it too. Never kept: backup.setup.tile stays what the user chose (none = every step), so once the place stands
+ * the usual start comes back.
+ */
+function setupPlaceStart(sw) {
+  const kept = Office.store('backup.setup.tile');
+  if (sw.active() !== 'basics') sw.pick('basics', 'route');
+  Office.store('backup.setup.tile', kept === null ? null : kept);
+}
+/** The bar's «Zu den Grundlagen»: the step chosen, the guide in view, its «Add Share» focused */
+function setupToPlace() {
+  setupPlaceStart(setupSwitcher());
+  setupShowPlace(true);
+}
+/**
+ * The guide in view: «Grundlagen»'s head at the top under Unraid's menu (on a phone the head stays there, sticky — the
+ * guide stands first in the step while no place is chosen, so its callout and «Add Share» are right under it), marked
+ * a moment like a place of the search
+ */
+function setupShowPlace(focus) {
+  const g = view && view.querySelector('.bk-place');
+  const sec = g && g.closest('[data-section]');
+  const head = sec && sec.querySelector('.section-head');
+  if (!g || !head) return;
+  const det = g.querySelector('details');
+  if (det && !det.open) det.open = true;
+  const menu = document.getElementById('menu');
+  const above = menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0;
+  window.scrollTo({ top: Math.max(0, Math.round(head.getBoundingClientRect().top + window.scrollY - above - 12)), behavior: 'auto' });
+  g.classList.add('place-hit');
+  setTimeout(() => g.classList.remove('place-hit'), 1800);
+  const a = focus ? g.querySelector('.bk-place-add a') : null;
+  if (a) a.focus({ preventScroll: true });
+}
+/** His word on the setup page while no backup place is chosen: none to choose (create one in Unraid) or choose one; '' else */
+function bubblePlace() {
+  if (!setupNoPlace()) return '';
+  return placeIntro(setup.plan, '') === 'setup.place_none' ? T('setup.bubble_place') : T('setup.bubble_place_choose', { tile: T('setup.kopia') });
+}
 /** The setup's row and its steps (core.js's section switcher) — one per page life, drawn anew with every plan and click */
 function setupSwitcher() {
   if (setupSw) return setupSw;
@@ -3344,6 +3417,10 @@ function setupKopia(plan) {
     plan.flash.dataset ? T('setup.g_flash_zfs', { ds: plan.flash.dataset }) : T('setup.g_flash_other', { fs: plan.flash.fs || '?' }))));
   const asleep = asleepChoice(plan);
   if (asleep) basics.appendChild(asleep);
+  // first place (2026-10-12): while no backup place is chosen the guide stands first — its callout and «Add Share» right
+  // under the step's head; once chosen, after the settings as before
+  const guideFirst = !dget('general|dumps_share', '');
+  if (guideFirst) s.appendChild(placeGuide(plan));
   s.appendChild(basics);
   const pl = presetLine(plan);              // engine 2.31: the default for new things
   if (pl) s.appendChild(pl);
@@ -3354,7 +3431,7 @@ function setupKopia(plan) {
     const pl = placeLevelPick(plan);
     if (pl) s.appendChild(Office.place('partner.place', pl));
   }
-  s.appendChild(placeGuide(plan));
+  if (!guideFirst) s.appendChild(placeGuide(plan));
   const on = dget('kopia|enabled') === 'yes';
   s.appendChild(checkbox(T('setup.kopia_on'), on, (v) => {
     dset('kopia|enabled', v ? 'yes' : 'no');
@@ -4858,7 +4935,10 @@ Office.desk({
       setupFilterReset();                  // a new visit: every row again (words and «only …» are not kept)
       // #/backup/setup/<tile> (the search, a step's place) picks that step exactly like a click, the address keeps its page;
       // else the step chosen last (backup.setup.tile), none = every step
+      // (first place: a visit without a step's route opens on «Grundlagen» while no backup place is chosen — setupPlaceStart())
+      setup.placeStart = false;
       if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');
+      else setup.placeStart = true;
       renderSetup();
       if (!state) await load(false);
       await setupLoad();
@@ -5011,7 +5091,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
-    warnLines, bubbleText,
+    warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace,
   };
 }
 })();
