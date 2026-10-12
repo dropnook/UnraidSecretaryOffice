@@ -2,8 +2,9 @@
 
 What the office does for its users is in the [README](../README.md). This file is the overview for contributors: how
 it works inside, where everything lies, how a desk or a language is added, how to test and release.
-[CLAUDE.md](../CLAUDE.md) is the deep reference — the conventions, every desk's internals, the server facts that bite
-and the checklist for a change; where the two differ, CLAUDE.md is right. The backup engine has its own document:
+[CLAUDE.md](../CLAUDE.md) is the reference — the conventions, each desk in a few sentences, the server facts that bite
+and the checklist for a change; where the two differ, CLAUDE.md is right. The detailed build notes up to 1.60.0 (every
+helper and test by name) are in that file's earlier shape: `git show v1.60.0:CLAUDE.md`. The backup engine has its own document:
 [backup/README.md](../backup/README.md).
 
 ## How it works
