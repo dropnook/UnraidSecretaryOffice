@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.42"
+UB_VERSION="2.43"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -47,6 +47,10 @@ UB_DESK_DIR="backup"
 UB_STOREROOM=".$UB_OFFICE_SHARE-trash"
 UB_STOREROOM_OLD="_$UB_OFFICE_SHARE-trash"
 ub_storeroom() { [[ "$1" == "$UB_STOREROOM"* || "$1" == "$UB_STOREROOM_OLD"* ]]; }
+# A unit's copy is whole (2.43): a VM's or an app's package is also written inside its own dataset, in this hidden folder
+# at the dataset's top - so every snapshot of it, and a partner office's copy of it, carries the configuration (the
+# receiver's Mr. Restori starts from it). Small files, overwritten by every run; never a new folder to the drift check
+UB_INSIDE_DIR=".uso-backup"
 
 ##############################################################################
 # 1. Basics
@@ -3027,7 +3031,7 @@ top_dirs() {
     for p in "$d"/* "$d"/.[!.]* "$d"/..?*; do
         [[ -d "$p" && ! -L "$p" ]] || continue
         n="${p##*/}"
-        [[ "$n" == ".zfs" || "$n" == "lost+found" || "$n" == *[$'\x01'-$'\x1f']* ]] && continue
+        [[ "$n" == ".zfs" || "$n" == "lost+found" || "$n" == "$UB_INSIDE_DIR" || "$n" == *[$'\x01'-$'\x1f']* ]] && continue
         printf '%s\n' "$n"
     done
     return 0

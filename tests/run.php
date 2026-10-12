@@ -5484,6 +5484,175 @@ SH);
  * history / last-run; then setup.sh --plan (partners[], partner_ok/why), --apply (the keys written), --forget (the
  * sections kept) and --about.
  */
+/**
+ * Engine 2.43 — every unit's copy is whole: a VM's package also inside its own dataset (<folder>/.uso-backup/, the VM
+ * held, before the snapshots), an app's into its own dataset with this run's dumps; a shared dataset gets none; a run
+ * without dumps writes no dump; the folder is no new folder to the drift check
+ */
+function testBackupInside(): void
+{
+    if (posix_getuid() !== 0) {
+        check('inside: backup.sh runs as root only — not run here', true);
+        return;
+    }
+    $tmp = sys_get_temp_dir() . '/office-tests-inside-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    $pool = "$mnt/maple";
+    $fake = "$tmp/fake";
+    $data = "$tmp/data/unraid-backup";
+    $lv = "$tmp/libvirt";
+    foreach (["$tmp/bin", "$fake/ct", "$data/state", "$tmp/boot/config/shares", "$tmp/boot/config/plugins/dockerMan/templates-user", "$mnt/user/UnraidSecretaryOffice/backup", "$pool/appdata/c1", "$pool/appdata/c2",
+              "$pool/appdata/c3", "$pool/UnraidSecretaryOffice/backup", "$pool/domains/vm1", "$pool/domains/vm2", "$tmp/stage", "$lv/qemu/nvram", "$lv/qemu/swtpm/tpm-states/uuid-vm1/tpm2",
+              "$lv/qemu/snapshotdb/vm1"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    foreach (['vm1', 'vm2'] as $v) {
+        touch("$pool/domains/$v/vdisk1.img");
+        file_put_contents("$lv/qemu/$v.xml", "<domain><name>$v</name><uuid>uuid-$v</uuid><os><nvram>$lv/qemu/nvram/uuid-${v}_VARS.fd</nvram></os><devices><tpm model='tpm-tis'/></devices></domain>");
+        file_put_contents("$lv/qemu/nvram/uuid-${v}_VARS.fd", 'vars');
+    }
+    file_put_contents("$lv/qemu/swtpm/tpm-states/uuid-vm1/tpm2/tpm2-00.permall", 'tpm');
+    file_put_contents("$lv/qemu/snapshotdb/vm1/snapshots.db", 'db');
+    file_put_contents("$tmp/boot/config/plugins/dockerMan/templates-user/my-c1.xml", "<Container><Name>c1</Name></Container>");
+    foreach (['appdata', 'domains', 'UnraidSecretaryOffice'] as $n) {
+        touch("$tmp/boot/config/shares/$n.cfg");
+    }
+    file_put_contents("$fake/mounts", "maple $pool zfs rw 0 0\nmaple/appdata $pool/appdata zfs rw 0 0\nmaple/appdata/c1 $pool/appdata/c1 zfs rw 0 0\nmaple/domains $pool/domains zfs rw 0 0\n"
+        . "maple/domains/vm1 $pool/domains/vm1 zfs rw 0 0\nmaple/domains/vm2 $pool/domains/vm2 zfs rw 0 0\nmaple/UnraidSecretaryOffice $pool/UnraidSecretaryOffice zfs rw 0 0\nshfs $mnt/user fuse.shfs rw 0 0\n");
+    $z = fn ($n, $mp) => "$n\t$mp\ton\t" . crc32($n) . "\t1000\t-\n";
+    file_put_contents("$fake/zfs.txt", $z('maple', $pool) . $z('maple/appdata', "$pool/appdata") . $z('maple/appdata/c1', "$pool/appdata/c1") . $z('maple/domains', "$pool/domains")
+        . $z('maple/domains/vm1', "$pool/domains/vm1") . $z('maple/domains/vm2', "$pool/domains/vm2") . $z('maple/UnraidSecretaryOffice', "$pool/UnraidSecretaryOffice"));
+    $ct = fn (string $n, string $img, string $id) => ['Name' => "/$n", 'Id' => $id, 'Config' => ['Image' => $img, 'Env' => [], 'Labels' => new stdClass()],
+        'State' => ['Running' => true], 'HostConfig' => ['NetworkMode' => 'bridge'], 'Mounts' => [['Type' => 'bind', 'Source' => "$mnt/user/appdata/$n", 'Destination' => '/config', 'RW' => true]]];
+    file_put_contents("$fake/inspect.json", json_encode([$ct('c1', 'mariadb', 'id1'), $ct('c2', 'nginx', 'id2'), $ct('c3', 'nginx', 'id3')]));
+    // docker: three containers; c1 is a MariaDB whose dump answers like the real client (one table, the closing line)
+    file_put_contents("$tmp/bin/docker", <<<'SH'
+#!/bin/bash
+case "$1" in
+  info|version) exit 0 ;;
+  ps) [[ "$*" == *q* ]] && printf 'id1\nid2\nid3\n' || printf 'c1\tmariadb\tUp\nc2\tnginx\tUp\nc3\tnginx\tUp\n'; exit 0 ;;
+  compose) exit 1 ;;
+  inspect)
+    shift
+    if [[ "$1" == -f ]]; then
+      case "$2" in *Health*) echo "true " ;; *State.Running*) echo true ;; *Mounts*) printf '%s\x1e/config\x1etrue\x1e\n' "$MNT/user/appdata/$3" ;; esac
+      exit 0
+    fi
+    [[ "$1" == --format ]] && { printf '/c1  mariadb  sha256:1\n/c2  nginx  sha256:2\n/c3  nginx  sha256:3\n'; exit 0; }
+    cat "$FAKE/inspect.json"; exit 0 ;;
+  exec)
+    shift; shift; a="$*"
+    case "$a" in
+      *MARIADB_ROOT_PASSWORD:-*|*"command -v"*) exit 0 ;;
+      *mariadb-dump*) printf 'CREATE TABLE t (id int);\n-- Dump completed on 2026-10-12\n' ;;
+      *schema_name*) echo mydb ;;
+      *COUNT*) echo 1 ;;
+    esac
+    exit 0 ;;
+  stop|start) exit 0 ;;
+esac
+exit 1
+SH);
+    // virsh: vm1 and vm2 run; vm1 is set to pause (held), vm2 to none (runs unheld); the guest agent freezes nothing
+    file_put_contents("$tmp/bin/virsh", <<<'SH'
+#!/bin/bash
+n="${2:-}"; [[ "$2" == --* ]] && n="${@: -1}"
+case "$1" in
+  list) printf 'vm1\nvm2\n' ;;
+  domstate) cat "$FAKE/state.$n" 2>/dev/null || echo running ;;
+  dominfo) echo "Autostart:      disable" ;;
+  dumpxml) cat "$LV/qemu/$n.xml" ;;
+  domblklist) printf 'Type Device Target Source\n----\nfile disk vdisk1 %s\n' "$MNT/user/domains/$n/vdisk1.img" ;;
+  suspend) echo paused >"$FAKE/state.$n"; echo "$(date +%s) virsh suspend $n" >>"$FAKE/events" ;;
+  resume) echo running >"$FAKE/state.$n"; echo "$(date +%s) virsh resume $n" >>"$FAKE/events" ;;
+  qemu-agent-command|domfsfreeze) exit 1 ;;
+esac
+exit 0
+SH);
+    // zfs: datasets from zfs.txt; the snapshot notes whether the VM's folder already holds .uso-backup (the order)
+    file_put_contents("$tmp/bin/zfs", <<<'SH'
+#!/bin/bash
+case "$1" in
+  list)
+    if [[ "$*" == *'-t filesystem'* ]]; then cat "$FAKE/zfs.txt"
+    elif [[ "$*" == *'-t snapshot'* ]]; then cat "$FAKE/snaps.txt" 2>/dev/null; fi ;;
+  snapshot) shift; printf '%s\n' "$@" >>"$FAKE/snaps.txt"
+    [[ -f "$POOL/domains/vm1/.uso-backup/README.txt" ]] && echo "$(date +%s) snapshot sees vm1 inside" >>"$FAKE/events"
+    [[ -f "$POOL/appdata/c1/.uso-backup/README.txt" ]] && echo "$(date +%s) snapshot sees c1 inside" >>"$FAKE/events"
+    echo "$(date +%s) zfs snapshot" >>"$FAKE/events" ;;
+esac
+exit 0
+SH);
+    foreach (['zpool', 'btrfs', 'umount'] as $b) {
+        file_put_contents("$tmp/bin/$b", "#!/bin/bash\nexit 0\n");
+    }
+    file_put_contents("$tmp/bin/mount", "#!/bin/bash\nexit 1\n");
+    file_put_contents("$tmp/bin/mountpoint", "#!/bin/bash\n[[ \"\${@: -1}\" == */user || \"\${@: -1}\" == \"$lv\" ]]\n");
+    file_put_contents("$tmp/bin/notify", "#!/bin/bash\nexit 0\n");
+    foreach (glob("$tmp/bin/*") as $f) {
+        chmod($f, 0755);
+    }
+    $clock = "$fake/clock";
+    testsClock("$tmp/bin", $clock);
+    $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage UB_LIBVIRT=$lv"
+         . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_VAR_INI=$fake/var.ini FAKE=$fake MNT=$mnt POOL=$pool LV=$lv UB_ARRAY_LOOK=1";
+    $settings = function (bool $dump = true) use ($mnt, $data): void {
+        file_put_contents("$data/settings.ini", "[general]\nserver = Test\nmount_root = $mnt/addons/UnraidSecretaryOffice/snapshots\nview_root = $mnt/addons/UnraidSecretaryOffice/btrfs-snap\n"
+            . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\n[docker]\nstop = all\nknown = c1 c2 c3\n[flash]\nmode = off\n[libvirt]\nmode = off\n[kopia]\nenabled = no\n"
+            . ($dump ? "[dump \"c1\"]\ntype = mariadb\n" : '')
+            . "[share \"appdata\"]\nmode = snapshot\n[share \"domains\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n"
+            . "[vm \"vm1\"]\nmode = snapshot\nprepare = pause\n[vm \"vm2\"]\nmode = snapshot\nprepare = none\n");
+    };
+    $run = function () use ($env, $clock, $fake, $data): array {
+        foreach (glob("$fake/{events,state.*}", GLOB_BRACE) ?: [] as $f) {
+            @unlink($f);
+        }
+        file_put_contents("$fake/snaps.txt", '');
+        file_put_contents("$fake/var.ini", "mdState=\"STARTED\"\nfsState=\"Started\"\n");
+        testsClockRun($clock);
+        $out = testsClockRan('inside', (string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . " </dev/null; echo \"exit=\$?\"") . ' 2>&1'));
+        preg_match('/exit=(\d+)\s*$/', $out, $m);
+        return [(int) ($m[1] ?? -1), $out . (string) @file_get_contents("$data/logs/latest.log")];
+    };
+    $events = fn () => array_map(fn ($l) => explode(' ', $l, 2)[1] ?? '', @file("$fake/events", FILE_IGNORE_NEW_LINES) ?: []);
+
+    $settings();
+    [$rc, $out] = $run();
+    $vm = "$pool/domains/vm1/.uso-backup";
+    $app = "$pool/appdata/c1/.uso-backup";
+    same('inside: the run went through', 0, $rc, $out);
+    same('inside: a VM\'s package inside its own dataset — XML, NVRAM, TPM state, snapshotdb, manifest.json, README.txt', [true, true, true, true, true, true],
+        [is_file("$vm/vm1.xml"), is_file("$vm/nvram/uuid-vm1_VARS.fd"), is_file("$vm/tpm/uuid-vm1/tpm2/tpm2-00.permall"), is_file("$vm/snapshotdb/snapshots.db"), is_file("$vm/manifest.json"), is_file("$vm/README.txt")], $out);
+    same('inside: … the manifest is the package\'s (kind vm, its disks)', ['vm', 'vm1', "$mnt/user/domains/vm1/vdisk1.img"],
+        [json_decode((string) @file_get_contents("$vm/manifest.json"), true)['kind'] ?? null, json_decode((string) @file_get_contents("$vm/manifest.json"), true)['name'] ?? null,
+         json_decode((string) @file_get_contents("$vm/manifest.json"), true)['disks'][0]['source'] ?? null]);
+    same('inside: … written while the VM was paused and before the snapshot (the order of the run)', true,
+        in_array('virsh suspend vm1', $events(), true) && in_array('snapshot sees vm1 inside', $events(), true)
+        && array_search('virsh suspend vm1', $events(), true) < array_search('snapshot sees vm1 inside', $events(), true), json_encode($events()) . $out);
+    same('inside: a VM that runs unheld (prepare none) gets nothing — said in the log', [false, true],
+        [file_exists("$pool/domains/vm2/.uso-backup"), str_contains($out, "VM 'vm2' runs unheld (prepare none) - .uso-backup inside its folder not written")], $out);
+    same('inside: an app whose folder is a dataset of its own — template, manifest, this run\'s dump, README; before the snapshot', [true, true, true, true, true],
+        [is_file("$app/my-c1.xml"), is_file("$app/manifest.json"), is_file("$app/db/mariadb_c1_mydb.sql.gz"), is_file("$app/README.txt"), in_array('snapshot sees c1 inside', $events(), true)], $out);
+    same('inside: an app in a shared dataset (appdata, two apps bind into it) gets nothing', [false, false], [file_exists("$pool/appdata/c2/.uso-backup"), file_exists("$pool/appdata/.uso-backup")]);
+    $readme = (string) @file_get_contents("$vm/README.txt");
+    same('inside: README.txt — two lines, says what it is and that every run overwrites it', [2, true, true],
+        [count(array_filter(explode("\n", $readme))), str_contains($readme, 'Overwritten by every backup run'), str_contains($readme, 'Mr. Restori')]);
+    check('inside: the packages in the backup place as before', is_file("$mnt/user/UnraidSecretaryOffice/backup/vms/vm1/vm1.xml") && is_file("$mnt/user/UnraidSecretaryOffice/backup/apps/c1/db/mariadb_c1_mydb.sql.gz"),
+        implode(' ', glob("$mnt/user/UnraidSecretaryOffice/backup/*/*") ?: []));
+    check('inside: the folder is no new local folder and no drift (top_dirs leaves .uso-backup out)', !str_contains((string) @file_get_contents("$data/state/drift.txt"), '.uso-backup')
+        && !str_contains((string) @file_get_contents("$data/state/new-local.json"), '.uso-backup'));
+    check('inside: no second copy of the data (the vdisk isn\'t in the folder)', !file_exists("$vm/vdisk1.img") && !is_dir("$vm/vms"));
+
+    // a run without dumps: the folder is written anew without db/ (no history inside — the snapshots are the history)
+    $settings(false);
+    file_put_contents("$app/stale.txt", 'from an earlier run');
+    [$rc, $out] = $run();
+    same('inside: a run without dumps writes no dump, and the folder is overwritten whole', [0, true, false, false],
+        [$rc, is_file("$app/my-c1.xml"), file_exists("$app/db"), file_exists("$app/stale.txt")], $out);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupPartnerPhase(): void
 {
     if (posix_getuid() !== 0) {
@@ -30162,7 +30331,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
