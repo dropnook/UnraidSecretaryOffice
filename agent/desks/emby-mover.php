@@ -74,13 +74,16 @@ function embyMoverHost(): array
         'note'       => $h['note'] ?? fn (string $was, string $logging) => moverelliUnraidNoteKeep($was, $logging),
         // Ms. Moverelli while hired and set up: what her smart_mover.ini keeps out (moverelliExcludeLook()), else null
         'moverelli'  => $h['moverelli'] ?? fn (): ?array => function_exists('moverelliExcludeLook') ? moverelliExcludeLook() : null,
-        // another mover on a schedule of its own ({file, cron}): Mover Tuning's, else any other (Ms. Moverelli's
-        // moverelliTuning(), moverelliMovers()) — it would carry his films back; null when none
+        // another mover on a schedule of its own ({file, cron, name}): Mover Tuning's, else any other (Ms. Moverelli's
+        // moverelliTuning(), moverelliMovers()) — it would carry his films back; null when none. name: what his refusal
+        // calls it (Mover Tuning, the plugin's folder, the cron file, «User Scripts: <script>»)
         'tuning'     => $h['tuning'] ?? function (): ?array {
             $mh = moverelliHost();
             $m = moverelliTuning($mh)['lines'][0] ?? null;
-            if ($m === null && ($o = moverelliMovers($mh)[0] ?? null)) {
-                $m = ['file' => $o['name'], 'cron' => $o['when']];
+            if ($m !== null) {
+                $m['name'] = 'Mover Tuning';
+            } elseif ($o = moverelliMovers($mh)[0] ?? null) {
+                $m = ['file' => $o['name'], 'cron' => $o['when'], 'name' => $o['name']];
             }
             return $m;
         },
@@ -192,6 +195,12 @@ function embyMoverRule(?array $h = null): array
             'moverelli' => $m === null ? null : ['uncovered' => $uncovered, 'file' => $lists[0] ?? '']];
 }
 
+/** The other mover's name as his refusal says it (an older finding without one: Mover Tuning) */
+function embyMoverName(?array $tuning): string
+{
+    return ($tuning['name'] ?? '') !== '' ? (string) $tuning['name'] : 'Mover Tuning';
+}
+
 /** The rule as a refusal of a real run, or null */
 function embyMoverProblem(array $rule): ?Problem
 {
@@ -206,6 +215,7 @@ function embyMoverProblem(array $rule): ?Problem
     };
     return new Problem($key, array_filter([
         'schedule' => $rule['why'] === 'tuning_schedule' ? ($rule['tuning']['cron'] ?? null) : ($rule['schedule'] ?? null),
+        'name'     => $rule['why'] === 'tuning_schedule' ? embyMoverName($rule['tuning']) : null,
         'file'     => $rule['why'] === 'moverelli_list' ? ($rule['moverelli']['file'] ?? null) : null,
         'shares'   => $rule['why'] === 'moverelli_list' ? implode(', ', $rule['moverelli']['uncovered'] ?? []) : null,
     ], fn ($v) => $v !== null));

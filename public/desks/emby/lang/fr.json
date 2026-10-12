@@ -669,12 +669,12 @@
   "greet.5": "Madame Moverelli dit que je peux toucher aux films maintenant. Sous surveillance, bien sûr.",
   "fit.no_moverelli": "Jack Emby viendrait volontiers pour « {name} » — mais un stagiaire a besoin d'encadrement, et seule Madame Moverelli peut le lui donner. Elle ne peut pas travailler sur ce serveur, lui non plus donc.",
   "errors.emby_mover_moverelli": "Des exécutions réelles seulement sous l'encadrement de Madame Moverelli — et elle n'est pas encore configurée. Dès que sa configuration est enregistrée (elle tient ma liste hors de ses déplacements), je peux déplacer pour de vrai.",
-  "errors.emby_mover_tuning_schedule": "Des exécutions réelles seulement quand Mover Tuning n'a plus de planification à lui ({schedule}) — il ramènerait les fichiers d'EmbyCache sur l'array. Éteins sa planification dans Mover Tuning ; c'est Madame Moverelli qui déplace.",
+  "errors.emby_mover_tuning_schedule": "Des exécutions réelles seulement quand {name} n'a plus de planification à lui ({schedule}) — il ramènerait les fichiers d'EmbyCache sur l'array. Éteins cette planification dans {name} ; c'est Madame Moverelli qui déplace.",
   "mover.to_moverelli": "Vers la configuration de Madame Moverelli",
   "check.mover_moverelli_setup": "Madame Moverelli est configurée et encadre Jack Emby",
   "check.mover_moverelli_setup_how": "Madame Moverelli → « Configurer » : enregistrer ses réglages — elle tient la liste d'EmbyCache hors de ses déplacements et éteint la planification du mover d'Unraid.",
-  "check.mover_tuning_schedule": "Mover Tuning ne déplace rien selon une planification à lui",
-  "check.mover_tuning_schedule_how": "Éteins dans Mover Tuning sa planification à lui ({schedule}) — c'est Madame Moverelli qui déplace.",
+  "check.mover_tuning_schedule": "{name} ne déplace rien selon une planification à lui",
+  "check.mover_tuning_schedule_how": "Éteins là-bas la planification de {name} ({schedule}) — c'est Madame Moverelli qui déplace.",
   "sizes_ready": "dont préparé par EmbyCache : {files} · {size}",
   "sizes_ready_tip": "Ce qu'EmbyCache tient prêt sur le pool pour {share} (sa liste)"
 }

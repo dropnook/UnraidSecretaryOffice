@@ -42,8 +42,8 @@ const MOVERELLI_IMPORT_FILES_MAX = 50;              // exclude files one scope o
 const MOVERELLI_IMPORT_NO_FALLBACK = ['min_age', 'move_when_used_above'];     // a bad one blocks: its default (0) moves at once / always
 const MOVERELLI_IMPORT_SAMPLE    = 3;               // entries of a list the preview shows
 const MOVERELLI_IMPORT_EMBY      = 'embycache_exclude.txt';
-const MOVERELLI_IMPORT_GLOBAL    = ['min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list', 'global_excludes'];
-const MOVERELLI_IMPORT_SHARE     = ['skip', 'min_age', 'age_stat', 'move_when_used_above', 'excludes'];
+const MOVERELLI_IMPORT_GLOBAL    = ['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'move_prefer_shares', 'mover_debug', 'max_list', 'global_excludes'];
+const MOVERELLI_IMPORT_SHARE     = ['skip', 'min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'excludes'];
 const MOVERELLI_IMPORT_HERS      = ['mover_bin', 'log_file'];     // where the old install ran and logged: hers now
 
 /** What the import looks at: her folder, the shares (their cfg on the flash), pools, sleeping disks, Jack Emby (the tests put their own in moverelliHost()['import']) */
@@ -190,6 +190,11 @@ function moverelliImportPlan(string $folder, array $ctx): array
             $taken[$k] = true;
         }
     }
+    // the fill (2026-10-12): an old install's threshold was a gate; here it starts the fill, whose target it needs —
+    // 10 points below it, unless the old ini names one (the preview shows it as not from the old install)
+    if ($global['move_when_used_above'] > 0 && !isset($taken['move_until_used_below'])) {
+        $global['move_until_used_below'] = max(1, $global['move_when_used_above'] - 10);
+    }
     [$global['files'], $global['patterns'], $lists[]] = moverelliImportLists('GLOBAL', (string) ($g['global_excludes'] ?? ''), $ctx, $blocked, $budget);
     $values = [];
     foreach (array_keys(MOVERELLI_DEFAULTS) as $k) {
@@ -211,7 +216,7 @@ function moverelliImportPlan(string $folder, array $ctx): array
             $skipped[] = ['section' => $sec, 'why' => 'no_share'];
             continue;
         }
-        $row = ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []];
+        $row = ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'move_until_used_below' => null, 'files' => [], 'patterns' => []];
         $given = [];
         foreach ($vals as $k => $v) {
             $k = (string) $k;
@@ -227,10 +232,16 @@ function moverelliImportPlan(string $folder, array $ctx): array
                 $given[] = ['key' => $k, 'value' => $value];
             }
         }
+        if ($row['move_when_used_above'] && $row['move_until_used_below'] === null
+            && ($global['move_until_used_below'] <= 0 || $global['move_until_used_below'] >= $row['move_when_used_above'])) {
+            $row['move_until_used_below'] = max(1, $row['move_when_used_above'] - 10);      // the fill's target below its own trigger
+            $given[] = ['key' => 'move_until_used_below', 'value' => $row['move_until_used_below']];
+        }
         if (($vals['excludes'] ?? '') !== '') {
             [$row['files'], $row['patterns'], $lists[]] = moverelliImportLists($sec, (string) $vals['excludes'], $ctx, $blocked, $budget);
         }
-        if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null || $row['files'] || $row['patterns']) {
+        if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null || $row['move_until_used_below'] !== null
+            || $row['files'] || $row['patterns']) {
             $shares[$sec] = $row;
             $rows[] = ['share' => $sec, 'values' => $given];
         }

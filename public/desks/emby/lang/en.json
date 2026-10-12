@@ -669,12 +669,12 @@
   "greet.5": "Ms. Moverelli says I may touch the films now. Supervised, of course.",
   "fit.no_moverelli": "Jack Emby would love to come for «{name}» — but an intern needs supervision, and only Ms. Moverelli can give it. She can't work on this server, so he can't either.",
   "errors.emby_mover_moverelli": "Real runs only under Ms. Moverelli's supervision — and she isn't set up yet. Once her setup is saved (it keeps my list out of her moves), I may move for real.",
-  "errors.emby_mover_tuning_schedule": "Real runs only once Mover Tuning has no schedule of its own ({schedule}) — it would carry EmbyCache's files back to the array. Switch its schedule off in Mover Tuning; Ms. Moverelli does the moving.",
+  "errors.emby_mover_tuning_schedule": "Real runs only once {name} has no schedule of its own any more ({schedule}) — it would carry EmbyCache's files back to the array. Switch that schedule off in {name}; Ms. Moverelli does the moving.",
   "mover.to_moverelli": "To Ms. Moverelli's setup",
   "check.mover_moverelli_setup": "Ms. Moverelli is set up and supervises Jack Emby",
   "check.mover_moverelli_setup_how": "Ms. Moverelli → «Set up»: save her settings — she keeps EmbyCache's list out of her moves and switches Unraid's mover schedule off.",
-  "check.mover_tuning_schedule": "Mover Tuning moves nothing on a schedule of its own",
-  "check.mover_tuning_schedule_how": "Switch Mover Tuning's own schedule off ({schedule}) in Mover Tuning — Ms. Moverelli does the moving.",
+  "check.mover_tuning_schedule": "{name} moves nothing on a schedule of its own",
+  "check.mover_tuning_schedule_how": "Switch off the schedule of {name} ({schedule}) there — Ms. Moverelli does the moving.",
   "sizes_ready": "of that ready from EmbyCache: {files} · {size}",
   "sizes_ready_tip": "What EmbyCache keeps ready on the pool for {share} (its list)"
 }

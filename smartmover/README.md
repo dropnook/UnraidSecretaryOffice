@@ -4,7 +4,7 @@
 > (`data/moverelli/smart_mover.ini`, her own exclude lists in `data/moverelli/excludes/`), runs it (`--list-shares`, the
 > dry run, `--run`) and schedules it; its data lives in `data/moverelli`. Only `custommover_run.sh` is taken over. The
 > office's changes against that commit — each one switched on by an environment variable the office sets (the stale
-> .cfg skip below excepted); without them the script behaves exactly as upstream:
+> .cfg skip and the fill below excepted); without them the script behaves exactly as upstream:
 >
 > * `CUSTOMMOVER_LOG`: the log file (over the INI's `log_file`) — the code lies in RAM in the office, the log in its data
 >   folder.
@@ -16,8 +16,9 @@
 >   stock mover running): `mode` (list, dry, run), `result` (ok, errors, config, busy, stopped, failed), `exit`,
 >   `started`/`finished`, the totals (`files`, `bytes`, `moved`, `left`, `errors`), `message`, `stop_share` and per share
 >   (`shares`) its mode, direction, effective rules (`min_age`, `age_stat`, `threshold`, `excludes`), what it did
->   (`state`: list, skip, prefer_off, error, no_source, below_threshold, none, dry, moved) and the counts (`files`,
->   `bytes`, `moved`, `left`). Counted as errors: a share skipped for a bad INI value, the move binary ending ≠ 0.
+>   (`state`: list, skip, prefer_off, error, no_source, none, dry, moved) and the counts (`files`,
+>   `bytes`, `moved`, `left`); with the fill (below) also `pool`, `until` (the target), `pool_used` (the pool when the
+>   fill looked), `pool_now` (the last reading), `fill` and `reached` — the live status carries the same for its share. Counted as errors: a share skipped for a bad INI value, the move binary ending ≠ 0.
 > * `CUSTOMMOVER_STOP` (a file): once it exists, no further share is started — never in the middle of a share's move
 >   (one move call per share, as upstream); result `stopped`, exit 3, `stop_share` names the first share left out.
 >   Ms. Moverelli writes it when Unraid's own mover starts during her run, or when the user asks on her page.
@@ -40,6 +41,17 @@
 >   While the run goes, `CUSTOMMOVER_STATUS` says how far it is (result `running`: the shares it will look at, the phase,
 >   the share and file in flight, files and bytes done); the final status names the last file (`stop_file`). Without
 >   `CUSTOMMOVER_STOP` the script behaves as upstream (the whole list at once).
+> * **The fill — a change of meaning for helmi1987 to look at** (always, no variable, 2026-10-12, the owner's
+>   decision; marked «USO «fill»» in the script): upstream, `move_when_used_above` is a *gate* — below it nothing moves.
+>   Here the age rule **always** moves (what is older than `min_age`, however full the pool is), and
+>   `move_when_used_above=X` is the *trigger* of a second step: is a `yes` share's pool still at/above X % after the age
+>   step, the rest of the share — never an excluded file — goes **oldest first** (by `age_stat`, whatever its age), one
+>   file per call, the pool re-read after each file (`pool_used_pct()`: ZFS whole pool, else `df`; the one place a later
+>   rule can budget excluded bytes), until it is below the new key `move_until_used_below=Y` (Y < X; empty/0: below X;
+>   Y ≥ X skips the share with an ERROR). Shares on the same pool share the target: once below, later shares fill
+>   nothing (said in the log). A dry run estimates the step from the files' sizes. Not with `--force`/`--force-all`.
+>   `CUSTOMMOVER_DF` points `df` at a stand-in for the tests (like `CUSTOMMOVER_ZFS`). The office's setup requires Y
+>   once X is set; an old ini with X and no Y gets Y = X − 10 proposed (her setup) or set (her import).
 > * Always (no variable, 2026-10-12, helmi1987's finding): a `<share>.cfg` whose share is gone — no `/mnt/user/<share>`
 >   (under `CUSTOMMOVER_MNT`); a share removed by hand leaves its .cfg on the flash — is skipped with an INFO line
 >   («skip <share>: no such share (stale .cfg)»), never listed or moved. Not upstream as of `68ee9ce`.
@@ -72,7 +84,7 @@
   `shareUseCache="yes"` → pool → array (or secondary pool), `"prefer"` → array (or secondary pool) → pool, `"only"`/`"no"` → skipped.
 * **Age filter** in days, based on `ctime` (default: the time the file landed on the pool, survives `rsync -a`) or `mtime` – global or per share. Not applied to `prefer` shares unless set per share.
 * **Exclude lists** – one or more files per share plus global ones. Entries: a directory (protects the subtree), an exact file path (an [EmbyCache](https://github.com/helmi1987/embycache-for-unraid) exclude list works unchanged), a glob (`*.nfo`, `Season 0*`) or a plain substring. Comments (`#`, `;`), blank lines and CRLF are tolerated; `/mnt/user/<share>/…` and `/mnt/user0/<share>/…` paths are translated to the scanned source path.
-* **Threshold** – `move_when_used_above=<percent>`: only move when the pool is fuller than X % (global or per share). Applies to `yes` shares (pool → array) only. On ZFS pools the whole pool counts (`zfs list` used/available), since `/mnt/<pool>` is only the pool's root dataset and `df` shows next to nothing there; other pools use `df`.
+* **Threshold** – `move_when_used_above=<percent>`: only move when the pool is fuller than X % (global or per share; *in the office: the fill's trigger, see above*). Applies to `yes` shares (pool → array) only. On ZFS pools the whole pool counts (`zfs list` used/available), since `/mnt/<pool>` is only the pool's root dataset and `df` shows next to nothing there; other pools use `df`.
 * **Verification** – after the move the script checks what is still on the source side (in use, or already present at the destination) and reports it.
 * **Cleanup** – empty directories left behind by moved files are removed up to (never including) the share root.
 * **Safe by default** – dry-run unless `--run`; `flock` against parallel runs (`.custommover.lock` next to the scripts); refuses to start while the stock mover is running.

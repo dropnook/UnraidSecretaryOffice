@@ -231,7 +231,9 @@ function moverWhy(m) {
   // Ms. Moverelli's ini without his list: her shares named (emby-mover.php embyMoverelliUncovered())
   const mo = m.why === 'moverelli_list' ? (m.moverelli || {}) : null;
   const schedule = m.why === 'tuning_schedule' ? (m.tuning || {}).cron : m.schedule;
-  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '' } }, ID);
+  const t = m.tuning || {};
+  const name = t.name || 'Mover Tuning';      // the other mover found (an older agent: Mover Tuning)
+  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '', name } }, ID);
 }
 
 /**

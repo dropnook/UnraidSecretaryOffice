@@ -95,7 +95,20 @@ function runCardData(p, now) {
       if (plan[plan.length - 1] === p.share) end = now + left;
     }
   }
-  return { steps, at, percent, left, end, share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null };
+  return { steps, at, percent, left, end, share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
+    fill: phase === 'share' ? fillLine(p) : null };
+}
+
+/**
+ * The fill of a share in words, pure: «Pool master 82 % → target below 70 %» (now: «… · now 75 %»), reached: «Target
+ * reached at 69 % — the rest stays»; null while the share has no fill or it didn't start (the pool below its trigger)
+ */
+function fillLine(x) {
+  if (!x || !x.fill || x.pool_used === '' || x.pool_used == null || !x.until) return null;
+  if (x.reached) return T('rc.fill_reached', { pct: x.pool_now });
+  let t = T('rc.fill', { pool: x.pool, used: x.pool_used, until: x.until });
+  if (x.pool_now !== '' && x.pool_now != null && String(x.pool_now) !== String(x.pool_used)) t += ' · ' + T('rc.fill_now', { pct: x.pool_now });
+  return t;
 }
 
 /** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file», «Stop at once…» */
@@ -115,6 +128,7 @@ function runCard(p, now) {
       card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
       card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
     }
+    if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
     if (d.file) card.appendChild(el('div', 'card-line mo-run-file', T('rc.file', { file: d.file })));
     if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
   }
@@ -160,6 +174,13 @@ function chip(text, cls, title) {
   const c = el('span', 'chip' + (cls ? ' ' + cls : ''), text);
   if (title) c.title = title;
   return c;
+}
+/**
+ * The fill as words (2026-10-12): «from 80 % down to 70 % oldest first» — at/above the trigger the oldest go, whatever
+ * their age, until the pool is below the target; off (no trigger): «whatever the fill» (the age rule alone)
+ */
+function fillText(threshold, until) {
+  return Number(threshold) ? T('rule_fill', { pct: threshold, until: Number(until) || threshold }) : T('rule_always');
 }
 function section(title, sub, ...extra) {
   const s = el('section', 'section');
@@ -477,7 +498,7 @@ function sharesTile(a) {
   const shares = state.shares || [];
   const g = (state.settings || {}).global || {};
   const rule = [T('rule_age', { n: g.min_age ?? 0, stat: g.age_stat || 'ctime' }),
-    g.move_when_used_above ? T('rule_threshold', { pct: g.move_when_used_above }) : T('rule_always')].join(' · ');
+    fillText(g.move_when_used_above, g.move_until_used_below)].join(' · ');
   const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), rule];
   return Office.stat({ label: T('shares'), value: `${shares.filter((x) => x.state === 'moves').length} / ${shares.length}`, sub, tip: sub.join('\n'),
     alert: !!(jack().uncovered || []).length, ...a });
@@ -579,7 +600,7 @@ function fillShares(box) {
     if (x.state === 'moves') {
       const rules = el('div', 'row-meta');
       rules.appendChild(el('span', '', T('rule_age', { n: x.min_age, stat: x.age_stat })));
-      if (x.threshold) rules.appendChild(el('span', '', T('rule_threshold', { pct: x.threshold })));
+      if (x.threshold) rules.appendChild(el('span', '', fillText(x.threshold, x.until)));
       if (x.excludes) rules.appendChild(el('span', '', nOf('lists', x.excludes)));
       main.appendChild(rules);
     }
@@ -616,6 +637,11 @@ function resultBox() {
   (last.shares || []).filter((x) => x.files || x.moved || x.left).forEach((x) => {
     box.appendChild(el('div', 'mo-share-line', T(last.mode === 'run' ? 'share_moved' : 'share_would', { share: x.share,
       moved: x.moved || 0, files: nOf('files', x.files), size: fmt.size(x.bytes || 0), left: nOf('left', x.left) })));
+  });
+  // the fill: where the pool stood and whether the target was reached
+  (last.shares || []).filter((x) => x.fill && x.pool_used !== '' && Number(x.pool_used) >= Number(x.threshold)).forEach((x) => {
+    const reached = x.reached ? ' — ' + T('rc.fill_reached', { pct: x.pool_now }) : '';
+    box.appendChild(el('div', 'mo-share-line', `${x.share}: ${T('rc.fill', { pool: x.pool, used: x.pool_used, until: x.until })}${reached}`));
   });
   return box;
 }
@@ -848,10 +874,11 @@ function initForm() {
   (state.shares || []).forEach((x) => {
     const s = set.shares[x.share] || {};
     shares[x.share] = { skip: !!s.skip, min_age: s.min_age ?? null, age_stat: s.age_stat ?? null, move_when_used_above: s.move_when_used_above ?? null,
-      files: s.files || [], patterns: s.patterns || [] };
+      move_until_used_below: s.move_until_used_below ?? null, files: s.files || [], patterns: s.patterns || [] };
   });
-  form = { global: set.global, shares };
+  form = { global: { move_until_used_below: 0, ...set.global }, shares };
   saved = formSettings(form);
+  untilProposals(form, state.shares || []);
   // Jack Emby hired and his list not kept out for every share of his: proposed in the files for all shares — in the form
   // only, nothing is written before «Save»; what was there stays, «Remove it again» takes exactly this line out
   const list = jack().list;
@@ -1015,13 +1042,47 @@ function foundNotice() {
   return p;
 }
 
+// ---- the fill's target (2026-10-12): a trigger needs its target below it
+/**
+ * An install from before the fill (a threshold, no target — then a gate): the target proposed 10 points below its
+ * trigger, for all shares and for a share with a trigger of its own, in the form only (pure on the form; the change
+ * bar and the apply dialog list it like any change). form.untilProposed: [scope ('' for all shares), until, trigger]
+ */
+function untilProposals(f, shares) {
+  const out = [];
+  const g = f.global;
+  const below = (pct) => Math.max(1, Number(pct) - 10);
+  if (Number(g.move_when_used_above) && !Number(g.move_until_used_below)) {
+    g.move_until_used_below = below(g.move_when_used_above);
+    out.push(['', g.move_until_used_below, g.move_when_used_above]);
+  }
+  shares.filter((x) => x.mode === 'yes' && f.shares[x.share]).forEach((x) => {
+    const s = f.shares[x.share];
+    const th = Number(s.move_when_used_above ?? g.move_when_used_above);
+    const un = Number(s.move_until_used_below ?? g.move_until_used_below);
+    if (th && (!un || un >= th) && s.move_when_used_above !== null) {
+      s.move_until_used_below = below(th);
+      out.push([x.share, s.move_until_used_below, th]);
+    }
+  });
+  f.untilProposed = out;
+  return out;
+}
+/** The proposal in words over the rules for all shares, or null */
+function untilProposedText(f) {
+  const p = (f && f.untilProposed) || [];
+  if (!p.length) return null;
+  return T('setup.until_proposed', { list: p.map(([sc, un, th]) => T('setup.until_proposed_one', { scope: sc || T('setup.global'), pct: th, until: un })).join(' · ') });
+}
+
 // ---- the change bar and the apply dialog (like Mr. Backupsy's setup, 2026-10-12)
 /** The settings as the page sends them (pure): only the shares with something of their own, empty own lines none */
 function formSettings(f) {
   const shares = {};
   Object.entries(f.shares).forEach(([name, sh]) => {
     const patterns = sh.patterns.join('\n').trim() === '' ? [] : sh.patterns;
-    if (sh.skip || sh.min_age !== null || sh.age_stat !== null || sh.move_when_used_above !== null || sh.files.length || patterns.length) {
+    if (sh.skip || sh.min_age !== null || sh.age_stat !== null || sh.move_when_used_above !== null || (sh.move_until_used_below ?? null) !== null
+      || sh.files.length || patterns.length) {
       shares[name] = { ...sh, files: [...sh.files], patterns: [...patterns] };
     }
   });
@@ -1029,15 +1090,16 @@ function formSettings(f) {
   return { global: { ...g, files: [...g.files], patterns: g.patterns.join('\n').trim() === '' ? [] : [...g.patterns] }, shares };
 }
 
-const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list'];
-const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above'];
+const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'move_prefer_shares', 'mover_debug', 'max_list'];
+const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below'];
 /** A value as the apply dialog says it (null in a share: as for all shares) */
 function setValue(key, v) {
   if (v === null || v === undefined || v === '') return T('setup.as_global');
   if (typeof v === 'boolean') return Office.t(v ? 'common.yes' : 'common.no');
   if (key === 'min_age') return T('setup.tile.days', { n: Number(v) || 0 });
   if (key === 'age_stat') return T('age_stat.' + v);
-  if (key === 'move_when_used_above') return Number(v) ? `${v} %` : T('rule_always');
+  if (key === 'move_when_used_above') return Number(v) ? `${v} %` : T('setup.fill_off');
+  if (key === 'move_until_used_below') return Number(v) ? `${v} %` : '–';
   return String(v);
 }
 
@@ -1182,11 +1244,11 @@ function setupStep(id) {
 function setupTileData() {
   const g = form.global;
   const own = Object.values(form.shares).filter((s) => s.skip || s.min_age !== null || s.age_stat !== null || s.move_when_used_above !== null
-    || s.files.length || s.patterns.join('\n').trim() !== '');
+    || (s.move_until_used_below ?? null) !== null || s.files.length || s.patterns.join('\n').trim() !== '');
   const lines = g.patterns.filter((x) => x.trim() !== '' && !x.trim().startsWith('#')).length;
   const out = [];
   out.push({ id: 'global', key: 'setup.global', value: T('setup.tile.days', { n: Number(g.min_age) || 0 }),
-    sub: [g.move_when_used_above ? T('rule_threshold', { pct: g.move_when_used_above }) : T('rule_always'),
+    sub: [fillText(g.move_when_used_above, g.move_until_used_below),
       T('setup.tile.stays', { lists: nOf('lists', g.files.length), lines: nOf('lines', lines) })], alert: jackUncoveredIn(form).length > 0 });
   out.push({ id: 'shares', key: 'setup.shares', value: String(own.length),
     sub: [T('setup.tile.own', { n: own.length }), T('setup.tile.skipped', { n: Object.values(form.shares).filter((s) => s.skip).length })], alert: false });
@@ -1203,10 +1265,13 @@ function setupGlobal() {
     field(T('setup.min_age'), number(g, 'min_age', 0, 3650), T('setup.min_age_hint')),
     field(T('setup.age_stat'), select(g, 'age_stat', [['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]]), T('setup.age_stat_hint')),
     field(T('setup.threshold'), number(g, 'move_when_used_above', 0, 100), T('setup.threshold_hint')),
+    field(T('setup.until'), number(g, 'move_until_used_below', 0, 99), T('setup.until_hint')),
     field(T('setup.debug'), select(g, 'mover_debug', [0, 1, 2, 3].map((n) => [String(n), String(n)])), T('setup.debug_hint')),
     field(T('setup.max_list'), number(g, 'max_list', 1, 100000), T('setup.max_list_hint')),
     check(T('setup.prefer'), g.move_prefer_shares, (on) => { g.move_prefer_shares = on; }, T('setup.prefer_hint')),
   );
+  const prop = untilProposedText(form);
+  if (prop) s1.appendChild(el('p', 'callout', prop));
   s1.append(f1, excludeFields(g, 'global'));
   return s1;
 }
@@ -1231,6 +1296,10 @@ function fillSetupShares(box) {
     const sum = el('summary', '', x.share);
     sum.appendChild(chip(x.mode === 'none' ? T('state.none') : T('direction', { from: where(x.from), to: where(x.to) }), 'quiet'));
     if (x.own) sum.appendChild(chip(T('own_rules'), 'quiet'));
+    if (x.mode === 'yes') {
+      const th = sv.move_when_used_above ?? form.global.move_when_used_above;
+      if (Number(th)) sum.appendChild(chip(fillText(th, sv.move_until_used_below ?? form.global.move_until_used_below), 'quiet'));
+    }
     det.appendChild(sum);
     if (x.mode === 'none') {
       det.appendChild(el('p', 'role', T('state_tip.none')));
@@ -1239,7 +1308,10 @@ function fillSetupShares(box) {
       f.append(check(T('setup.skip'), sv.skip, (on) => { sv.skip = on; }, T('setup.skip_hint')),
         field(T('setup.min_age'), number(sv, 'min_age', 0, 3650, true), x.mode === 'prefer' ? T('setup.min_age_prefer') : ''),
         field(T('setup.age_stat'), select(sv, 'age_stat', [['', T('setup.as_global')], ['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]])));
-      if (x.mode === 'yes') f.appendChild(field(T('setup.threshold'), number(sv, 'move_when_used_above', 0, 100, true)));
+      if (x.mode === 'yes') {
+        f.append(field(T('setup.threshold'), number(sv, 'move_when_used_above', 0, 100, true)),
+          field(T('setup.until'), number(sv, 'move_until_used_below', 0, 99, true)));
+      }
       det.append(f, excludeFields(sv, x.share));
     }
     box.appendChild(det);
@@ -1257,7 +1329,8 @@ function fillSetupShares(box) {
  */
 let importFolder = '';
 /** The setup's label of a key of the ini */
-const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold', move_prefer_shares: 'setup.prefer',
+const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold', move_until_used_below: 'setup.until',
+  move_prefer_shares: 'setup.prefer',
   mover_debug: 'setup.debug', max_list: 'setup.max_list', skip: 'setup.skip' };
 
 function importSection() {
@@ -1557,7 +1630,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, fillText, fillLine, untilProposals, untilProposedText, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

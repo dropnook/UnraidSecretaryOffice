@@ -669,12 +669,12 @@
   "greet.5": "Frau Moverelli sagt, ich darf jetzt an die Filme. Unter Aufsicht, versteht sich.",
   "fit.no_moverelli": "Jack Emby käme gern wegen «{name}» — aber ein Praktikant braucht Aufsicht, und die kann nur Frau Moverelli geben. Sie kann auf diesem Server nicht arbeiten, also er auch nicht.",
   "errors.emby_mover_moverelli": "Echte Läufe nur unter Frau Moverellis Aufsicht — und sie ist noch nicht eingerichtet. Sobald ihre Einrichtung gespeichert ist (sie hält meine Liste aus ihren Läufen heraus), darf ich echt verschieben.",
-  "errors.emby_mover_tuning_schedule": "Echte Läufe erst, wenn Mover Tuning keinen eigenen Zeitplan mehr hat ({schedule}) — es trüge EmbyCaches Dateien zurück aufs Array. Schalt seinen Zeitplan in Mover Tuning aus; das Verschieben macht Frau Moverelli.",
+  "errors.emby_mover_tuning_schedule": "Echte Läufe erst, wenn {name} keinen eigenen Zeitplan mehr hat ({schedule}) — es trüge EmbyCaches Dateien zurück aufs Array. Schalt diesen Zeitplan in {name} aus; das Verschieben macht Frau Moverelli.",
   "mover.to_moverelli": "Zu Frau Moverellis Einrichtung",
   "check.mover_moverelli_setup": "Frau Moverelli ist eingerichtet und beaufsichtigt Jack Emby",
   "check.mover_moverelli_setup_how": "Frau Moverelli → «Einrichten»: ihre Einstellungen speichern — sie hält EmbyCaches Liste aus ihren Läufen heraus und schaltet Unraids Mover-Zeitplan aus.",
-  "check.mover_tuning_schedule": "Mover Tuning verschiebt nichts nach eigenem Zeitplan",
-  "check.mover_tuning_schedule_how": "Den eigenen Zeitplan von Mover Tuning ({schedule}) in Mover Tuning ausschalten — das Verschieben macht Frau Moverelli.",
+  "check.mover_tuning_schedule": "{name} verschiebt nichts nach eigenem Zeitplan",
+  "check.mover_tuning_schedule_how": "Den eigenen Zeitplan von {name} ({schedule}) dort ausschalten — das Verschieben macht Frau Moverelli.",
   "sizes_ready": "davon von EmbyCache bereitgelegt: {files} · {size}",
   "sizes_ready_tip": "Was EmbyCache für {share} auf dem Pool bereithält (seine Liste)"
 }

@@ -669,12 +669,12 @@
   "greet.5": "La Señora Moverelli dice que ya puedo tocar las películas. Bajo supervisión, claro.",
   "fit.no_moverelli": "Jack Emby vendría encantado por «{name}» — pero un becario necesita supervisión, y solo la Señora Moverelli puede dársela. Ella no puede trabajar en este servidor, así que él tampoco.",
   "errors.emby_mover_moverelli": "Ejecuciones reales solo bajo la supervisión de la Señora Moverelli — y todavía no está configurada. En cuanto se guarde su configuración (mantiene mi lista fuera de sus movimientos), puedo mover de verdad.",
-  "errors.emby_mover_tuning_schedule": "Ejecuciones reales solo cuando Mover Tuning ya no tenga programación propia ({schedule}) — devolvería los archivos de EmbyCache al array. Apaga su programación en Mover Tuning; de mover se encarga la Señora Moverelli.",
+  "errors.emby_mover_tuning_schedule": "Ejecuciones reales solo cuando {name} ya no tenga programación propia ({schedule}) — devolvería los archivos de EmbyCache al array. Apaga esa programación en {name}; de mover se encarga la Señora Moverelli.",
   "mover.to_moverelli": "A la configuración de la Señora Moverelli",
   "check.mover_moverelli_setup": "La Señora Moverelli está configurada y supervisa a Jack Emby",
   "check.mover_moverelli_setup_how": "Señora Moverelli → «Configurar»: guarda sus ajustes — mantiene la lista de EmbyCache fuera de sus movimientos y apaga la programación del mover de Unraid.",
-  "check.mover_tuning_schedule": "Mover Tuning no mueve nada con programación propia",
-  "check.mover_tuning_schedule_how": "Apaga en Mover Tuning su programación propia ({schedule}) — de mover se encarga la Señora Moverelli.",
+  "check.mover_tuning_schedule": "{name} no mueve nada con programación propia",
+  "check.mover_tuning_schedule_how": "Apaga allí la programación propia de {name} ({schedule}) — de mover se encarga la Señora Moverelli.",
   "sizes_ready": "de ello preparado por EmbyCache: {files} · {size}",
   "sizes_ready_tip": "Lo que EmbyCache tiene listo en el pool para {share} (su lista)"
 }

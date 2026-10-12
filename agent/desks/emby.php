@@ -2820,6 +2820,7 @@ function embyMoverFinding(array $rule): array
     return finding($id, 'required', $rule['ok'], array_filter([
         'shares'   => $id === 'mover_moverelli' ? implode(', ', $rule['moverelli']['uncovered'] ?? []) : null,
         'schedule' => $id === 'mover_tuning_schedule' ? (string) ($rule['tuning']['cron'] ?? '') : null,
+        'name'     => $id === 'mover_tuning_schedule' ? embyMoverName($rule['tuning'] ?? null) : null,
     ], fn ($v) => $v !== null), in_array($id, ['mover_moverelli_setup', 'mover_moverelli'], true) ? '#/moverelli/setup' : '#/emby');
 }
 
