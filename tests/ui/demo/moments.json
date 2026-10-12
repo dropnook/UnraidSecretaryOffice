@@ -477,5 +477,19 @@
    ".deskhead",
    ".mo-run"
   ]
+ },
+ {
+  "nr": 13,
+  "desk": "moverelli",
+  "moment": "share",
+  "title": "Frau Moverelli - Einrichten: den verfügbaren Platz mit Jack Emby teilen, der Schieber und der Balken pro Pool",
+  "route": "moverelli/setup",
+  "prepare": [
+   {
+    "wait": ".mo-cakes .mo-cake-bar",
+    "pause": 500
+   }
+  ],
+  "clip": ".mo-cakes"
  }
 ]
