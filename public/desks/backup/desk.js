@@ -2194,16 +2194,20 @@ function setupApply() {
       box.appendChild(ul);
     }
     // what is new on the server and how this Apply takes it in (engine 2.21: until now only local, kept running)
-    const news = setupNewLines();
+    const news = setupNewRows();
     if (news.length) {
-      // engine 2.31: decided in advance by the default for new things - said, so nothing goes along unseen
+      // engine 2.31: decided in advance by the default for new things - said, so nothing goes along unseen; only while
+      // no new row was changed by hand (such a row shows the hand's value and says so)
       const kind = presetNow();
+      const hand = news.some((r) => r.hand);
       box.appendChild(el('p', '', [T('setup.apply_group_new', { n: news.length }),
-        kind !== 'auto' ? T('setup.apply_new_default', { name: T('setup.preset.' + kind) }) : ''].filter(Boolean).join(' ')));
+        kind !== 'auto' && !hand ? T('setup.apply_new_default', { name: T('setup.preset.' + kind) }) : ''].filter(Boolean).join(' ')));
       const ul = el('ul', 'shortlist bk-newlist');
-      news.forEach(([name, how]) => {
+      news.forEach(({ name, how, hand: mine }) => {
         const li = el('li', '', name);
-        li.appendChild(el('span', '', how));
+        const what = el('span', '', how);
+        if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));
+        li.appendChild(what);
         ul.appendChild(li);
       });
       box.appendChild(ul);
@@ -2262,22 +2266,40 @@ function knownText(before, after) {
 
 /** The apply dialog's group «New»: each new VM, app, container of a known app, share and folder, and how Apply takes it in */
 function setupNewLines() {
+  return setupNewRows().map(({ name, how }) => [name, how]);
+}
+/**
+ * The same rows as {name, how, hand}: hand = the user changed that row against the proposal (the default for new things
+ * decided it, then a click) — the dialog says «Your default for new things decided this» only while no row is (2026-10-11
+ * on nostromo: the sentence stood over a row changed by hand)
+ */
+function setupNewRows() {
   const m = setup.model;
   if (!m) return [];
   const out = [];
+  const edited = new Set(setup.base ? setupEdits() : []);
+  const baseLevels = setup.baseLevels || setup.levels;
+  const baseHeld = setup.baseHeld || setup.held;
+  const levelHand = (key) => (setup.levels[key] ?? 0) !== (baseLevels[key] ?? 0);
+  const appHand = (a) => levelHand('app:' + a.id) || (setup.held[a.id] || 'stop') !== (baseHeld[a.id] || 'stop');
   const appHow = (a) => {
     const l = levelOf('app:' + a.id);
     return l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.app_hold.' + (setup.held[a.id] || 'stop'))}`;
   };
   m.vms.filter((x) => x.isNew).forEach((x) => {
     const l = levelOf('vm:' + x.name);
-    out.push([T('setup.new_vm', { name: x.name }), l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`]);
+    out.push({ name: T('setup.new_vm', { name: x.name }),
+      how: l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`,
+      hand: levelHand('vm:' + x.name) || edited.has(`vm|${x.name}|prepare`) || edited.has(`vm|${x.name}|mode`) });
   });
-  m.apps.filter((a) => a.isNew).forEach((a) => out.push([T('setup.new_app', { name: a.name }), appHow(a)]));
-  m.apps.filter((a) => a.newMembers.length).forEach((a) => out.push([T('setup.new_member', { name: a.newMembers.join(', '), app: a.name }), appHow(a)]));
+  m.apps.filter((a) => a.isNew).forEach((a) => out.push({ name: T('setup.new_app', { name: a.name }), how: appHow(a), hand: appHand(a) }));
+  m.apps.filter((a) => a.newMembers.length).forEach((a) => out.push({ name: T('setup.new_member', { name: a.newMembers.join(', '), app: a.name }),
+    how: appHow(a), hand: appHand(a) }));
   setup.plan.shares.filter((sh) => sh.exists && setup.newItems.has('share:' + sh.name))
-    .forEach((sh) => out.push([T('setup.new_share', { name: sh.name }), T('setup.mode.' + dget(`share|${sh.name}|mode`, 'off'))]));
-  waitingFolders().forEach((w) => out.push([`${w.share}/${w.dir}`, waitHow(w)]));
+    .forEach((sh) => out.push({ name: T('setup.new_share', { name: sh.name }), how: T('setup.mode.' + dget(`share|${sh.name}|mode`, 'off')),
+      hand: edited.has(`share|${sh.name}|mode`) }));
+  waitingFolders().forEach((w) => out.push({ name: `${w.share}/${w.dir}`, how: waitHow(w),
+    hand: w.owner ? levelHand(w.owner.key) : !!setup.base && waitChoice(w) !== waitChoice(w, setup.base) }));
   return out;
 }
 
@@ -3854,9 +3876,10 @@ function waitingFolders() {
 /** A folder as a part of a Kopia rule: what Kopia reads as a pattern becomes ? (like the engine's new_rule_name) */
 const ruleName = (dir) => dir.replace(/[*?[\]\\]/g, '?');
 /** local | kopia | null (not decided in the draft) */
-function waitChoice(w) {
-  const known = dget(`share|${w.share}|kopia_known`, []) || [];
-  const ign = dget(`share|${w.share}|kopia_ignore`, []) || [];
+function waitChoice(w, from = null) {          // from: other settings than the draft (the proposal: setup.base)
+  const get = (k) => (from ? from[k] : dget(k, [])) || [];
+  const known = get(`share|${w.share}|kopia_known`);
+  const ign = get(`share|${w.share}|kopia_ignore`);
   if (known.includes(`/${w.dir}/`)) return 'kopia';
   if (ign.includes(`/${w.dir}/`) || ign.includes(`/${ruleName(w.dir)}/`)) return 'local';
   return null;
@@ -5159,7 +5182,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     driftText, driftParams,
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
-    setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
+    setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,

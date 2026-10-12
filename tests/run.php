@@ -8334,6 +8334,15 @@ out.kopia = look();
 out.kopiaOld = old() === plain;
 out.kopiaLines = b.setupNewLines();
 out.kopiaUpload = b.firstUpload(b.draftMode, b.draftVm);
+// the dialog's «Your default for new things decided this» only while no new row was changed by hand (2026-10-11)
+out.handNone = b.setupNewRows().filter((r) => r.hand).length;
+S.levels['vm:vmnew'] = 1;
+b.setupDerive();
+S.draft['share|fresh|mode'] = 'snapshot';
+const loose = b.waitingFolders().find((w) => w.dir === 'loose');
+if (loose) b.waitSet(loose, b.waitChoice(loose) === 'kopia' ? 'local' : 'kopia');
+out.hand = b.setupNewRows().filter((r) => r.hand).map((r) => r.name).sort();
+out.handLines = b.setupNewLines().length === b.setupNewRows().length;
 load('local');
 out.local = look();
 out.localOld = old() === plain;
@@ -8404,6 +8413,12 @@ JS;
          'loose' => 'local', 'kopia' => 'yes', 'key' => 'local', 'now' => 'local', 'changed' => false, 'chosen' => true,
          'start' => 'setup.preset.new_sub {"name":"setup.preset.local"}'], $n['local']);
     check('default: local stored - everything that was there before exactly as without a default', $n['localOld']);
+    same('default: the dialog\'s new rows — none changed by hand right after the default decided (its sentence stands)', 0, $n['handNone'] ?? null);
+    same('default: … the new VM\'s level, a new share\'s mode and a waiting folder changed by hand — those rows say «changed by you», the sentence goes',
+        ['appdata/loose', 'setup.new_share {"name":"fresh"}', 'setup.new_vm {"name":"vmnew"}'], $n['hand'] ?? null);
+    check('default: … the dialog: the sentence only without a hand row, the chip on such a row',
+        str_contains($js, "kind !== 'auto' && !hand ? T('setup.apply_new_default'") && str_contains($js, "if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));")
+        && ($n['handLines'] ?? false) === true);
     same('default: kopia stored while Kopia is off - never switched on: the new things local', [[1, 1], 'no', ['snapshot', 'off', 'snapshot', 'snapshot', 'snapshot']],
         [$n['kopiaOff']['levels'], $n['kopiaOff']['kopia'], $n['kopiaOff']['modes']]);
     same('default: «only to what is new» chosen on the page - the new things get it, the key set, the hand change and every row before stay',
