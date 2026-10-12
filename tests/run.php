@@ -32819,7 +32819,7 @@ JS);
         'plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}', false, 'clicked plans'], $r['plans'] ?? null, $raw);
     same('his tiles: «Pool» — «Pool free» and «Ready on the pool» in one: files and size, how free and what EmbyCache keeps; the path and «as of» in the tip', ['tile.pool',
         'pool_tile.value {"files":"count.files {\"n\":12}","size":"4000B"}', 'pool_tile.free {"pct":"41.3","min":20}', false,
-        "pool_sub {\"pool\":\"/mnt/cache\",\"free\":\"700B\",\"min\":20}\npool_tile.as_of {\"when\":\"R1700\"}"], $r['pool'] ?? null, $raw);
+        "pool_sub {\"pool\":\"/mnt/cache\",\"free\":\"700B\",\"min\":20}\nslice.none\npool_tile.as_of {\"when\":\"R1700\"}"], $r['pool'] ?? null, $raw);   // 1.61: no slice from Ms. Moverelli yet — said in the tip
     same('his tiles: «Shares» — how many, one needs a look (alert)', ['count.shares {"n":2}', 'shares_bad {"n":1}', true], $r['shares'] ?? null, $raw);
     same('his tiles: «Consolidate folders» — when, what it moved and the conflicts', ['R1600', 'gather_tile.sub {"moved":"count.moved {\"n\":14}","conflicts":"count.conflicts {\"n\":0}"}', false],
         $r['gather'] ?? null, $raw);
