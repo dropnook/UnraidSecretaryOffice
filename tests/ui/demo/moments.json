@@ -154,7 +154,7 @@
    "#sso-dialog"
   ],
   "viewport": true,
-  "height": 1000
+  "height": 1150
  },
  {
   "nr": 6,
@@ -433,6 +433,10 @@
    {
     "js": "[...document.querySelectorAll('#sso-dialog button')].find((b) => b.textContent === Office.t('caretaker.partner.look')).click()",
     "pause": 900
+   },
+   {
+    "js": "document.activeElement && document.activeElement.blur()",
+    "pause": 200
    }
   ],
   "clip": "#sso-dialog",
