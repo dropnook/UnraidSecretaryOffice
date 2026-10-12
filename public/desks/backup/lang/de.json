@@ -1579,5 +1579,6 @@
   "warn_code.partner_snap_prefix": "Partner {partner}: ein Partner nimmt nur Snapshots namens {prefix}… — nichts gesendet. Stell das Snapshot-Präfix in meiner Einrichtung zurück.",
   "warn_code.partner_no_ssh": "Partner {partner}: auf diesem Server fehlt ssh — nichts gesendet.",
   "warn_code.partner_quota": "Partner {partner} hat abgelehnt: sein Kontingent für diesen Server ist voll — er behält die Kopien, die er hat. Erhöhe das Kontingent beim Partner oder schaffe dort Platz.",
+  "warn_code.partner_missed": "Die Kopie für {partner} ist nicht angekommen — {why}.",
   "setup.level_hint.partner_vm": "Wie lokal, und ihr ZFS-Snapshot geht nach jedem Backup zum Partner-Sekretariat ({partners}) — nur die seit dem letzten geänderten Blöcke, unterwegs verschlüsselt; die Kopie trägt die Konfiguration der VM in sich (XML, UEFI-Variablen, TPM-Stand), der Partner kann sie dort starten."
 }

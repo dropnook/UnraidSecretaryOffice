@@ -345,9 +345,9 @@ function doorMain(array $argv): int
     if (!doorPoolThere($r['pool'])) {
         return doorRefuse($id, 'no_pool', $err);
     }
-    if (in_array($r['pool'], poolsBySleep([$r['pool']])['asleep'], true) && !$r['wake']) {
-        return doorRefuse($id, 'refused_asleep', $err);
-    }
+    // 1.60.2: a sleeping pool is never a refusal - the receive wakes it (the pairing asks for a ZFS pool; whoever puts it
+    // on rotating disks chose so). A pair's old `wake` value is read and ignored; an older door may still refuse
+    // (refused_asleep), the sender warns that in the same run.
     $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/{$pair['id']}";       // a ticket reads the copies of the pair it was given for
     switch ($verb) {
         case 'quota':

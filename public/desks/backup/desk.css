@@ -228,7 +228,7 @@ td.bk-filter-none{padding:6px 10px; font-weight:400; white-space:normal}
 #sso .bk-place-level .role{font-size:12.5px}
 #sso .bk-preset-tick{margin-top:8px; font-size:12.5px}
 /* the apply dialog's marks (1.60.1, diffMark()): + comes, − goes - one look for every row, the theme's ok / warn tokens */
-.shortlist li.bk-marked{justify-content:flex-start; column-gap:6px}
+#sso .shortlist li.bk-marked{   /* #sso: office.css's «.shortlist li» is nested in it and won before */ justify-content:flex-start; column-gap:6px}
 .bk-diff{display:inline-block; min-width:1em; font-weight:700; text-align:center}
 .bk-diff.add{color:var(--good)}
 .bk-diff.gone{color:var(--warn)}

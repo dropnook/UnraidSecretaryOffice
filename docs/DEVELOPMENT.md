@@ -373,8 +373,8 @@ and the plugin's look at the agent write English.
   maintenance mode (alert); maintenance mode already on, space running out, Kopia incomplete, an aborted run repaired,
   a run skipped because the engine was busy (warning); a new folder that stays local until you decide (normal, once
   per folder); a run the array stop ended (normal) and what it left stopped brought back after the array start
-  (normal); a partner office silent for the third night, refused for its quota or window (once a day), or a transfer
-  that failed — part of the run's warning; a share left out 7 nights in a row because its pool slept (warning, once).
+  (normal); a partner office that got nothing or not all of a run — unreachable, its array stopped, a refusal, a
+  failed transfer — said in that same run, no nights of grace (part of the run's warning, and in his bubble); a share left out 7 nights in a row because its pool slept (warning, once).
 * **Ms. Snapshotini:** a schedule had problems (warning); a schedule's target is gone — once per target (warning).
 * **Jack Emby:** a real EmbyCache or gather run failed or had problems (warning) — reports and dry runs stay quiet.
 * **Ms. Moverelli:** a real Smart Mover run failed or had problems (warning); one stopped because Unraid's mover started

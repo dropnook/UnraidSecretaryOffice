@@ -5,7 +5,7 @@
    key, never a block. The agent part: partner_add / accept / finish / end / ping in agent/desks/caretaker.php.
    Since 1.60 (the concept «Partner einfach») the Team Lead only pairs: what this server sends is the level per share
    and VM in Mr. Backupsy's setup (the card says it: «{host} sends to {name}: …»), the receiver's consent is the
-   pairing — its rules (pool, quota, retention, wake) at «Accept a partner…», its door takes any unit up to the quota,
+   pairing — its rules (pool, quota, retention; since 1.60.2 its door always wakes the pool) at «Accept a partner…», its door takes any unit up to the quota,
    at any time («{host} keeps of {name}: …», a unit it never saw before chipped «new»). */
 (() => {
 'use strict';
@@ -198,7 +198,7 @@ function card(x) {
     keep.append(units.length ? unitsText(units.map((u) => u.unit)) : T('partner.i_keep_none_yet', { name: x.name }));
     main.appendChild(keep);
     main.appendChild(el('div', 'row-detail', T(x.receive.quota_gb ? 'partner.i_keep_rules' : 'partner.i_keep_rules_nolimit', { pool: x.receive.pool, quota: x.receive.quota_gb ? fmt.size(x.receive.quota_gb * 1024 ** 3) : '',
-      retention: retentionText(x.receive.retention) }) + (x.receive.wake ? ' ' + T('partner.wakes') : '')));
+      retention: retentionText(x.receive.retention) }) + ' ' + T('partner.wakes')));      // 1.60.2: always (the door wakes its pool)
     const needR = needLine('receive');
     if (needR) main.appendChild(needR);
     else if (units.length) main.appendChild(el('div', 'row-detail', T('partner.i_keep_start', { name: x.name })));
@@ -366,7 +366,7 @@ function trustPicker(chosen) {
 
 /**
  * What I keep of theirs — the consent is the pairing: any unit the partner sends, up to the quota, at any time. The rules:
- * the pool, the quota, the retention, wake. `name`: the partner (the text «I keep what {name} sends»); `trust`: a
+ * the pool, the quota, the retention (the door always wakes its pool, 1.60.2). `name`: the partner (the text «I keep what {name} sends»); `trust`: a
  * function giving the trust chosen (a quota of 0 with family or friend is said).
  */
 function receivePicker(name, pools, defaults, trust) {
@@ -398,8 +398,6 @@ function receivePicker(name, pools, defaults, trust) {
     ret.appendChild(l);
   });
   box.appendChild(field(T('partner.retention'), ret, T('partner.retention_help')));
-  const wake = tick(T('partner.wake'), defaults.wake !== false, T('partner.wake_help'));
-  box.appendChild(wake.node);
   setTimeout(openLook, 0);
   return {
     node: box,
@@ -408,7 +406,6 @@ function receivePicker(name, pools, defaults, trust) {
       pool: pool.value,
       quota_gb: Math.max(0, Math.round(Number(quota.value) || 0)),
       retention: [rd, rw, rm].map((i) => Math.max(0, Math.min(999, Math.round(Number(i.value) || 0)))).join(' '),
-      wake: wake.cb.checked,
     }),
   };
 }

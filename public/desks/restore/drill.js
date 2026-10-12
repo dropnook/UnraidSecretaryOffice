@@ -106,7 +106,7 @@ const resultCls = (r) => ({ ok: 'ok', warning: 'warn', failed: 'danger', not_che
 
 function levelChip(it) {
   const copy = COPIES[it.copy] || 'package';
-  return x.chip(T('drill.level', { level: it.level, copy: T('drill.copy.' + copy) }), it.result === 'failed' ? 'danger' : it.level >= 2 ? 'ok' : it.level >= 1 ? 'accent' : 'quiet',
+  return x.chip(T('drill.level', { word: T('drill.level_word.' + Math.max(0, Math.min(2, it.level))), copy: T('drill.copy.' + copy) }), it.result === 'failed' ? 'danger' : it.level >= 2 ? 'ok' : it.level >= 1 ? 'accent' : 'quiet',
     T('drill.level_hint.' + Math.max(0, Math.min(2, it.level))) + ' ' + T('drill.copy_hint.' + copy));
 }
 
