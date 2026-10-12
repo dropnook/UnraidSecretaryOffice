@@ -19770,13 +19770,17 @@ if ($me === 'ssh') {
     fwrite(STDERR, "root@$host: Permission denied (publickey).\n");
     exit(255);
 }
-$h = fopen("$dir/zfs.json", 'c+');
-flock($h, LOCK_EX);
+// send only reads and never takes the lock: a local send | recv (Mr. Restori's «Start here…») has both ends on this
+// one file, and recv waits for stdin under its lock — a send that queued for the lock behind it would never write
+// (2026-10-12: a deadlock in the stand-in, not in zfs)
+if (($a[0] ?? '') === 'send') {
+    $h = fopen("$dir/zfs.json", 'r');
+} else {
+    $h = fopen("$dir/zfs.json", 'c+');
+    flock($h, LOCK_EX);
+}
 $st = json_decode((string) stream_get_contents($h), true) ?: [];
 $st += ['pools' => [], 'ds' => [], 'snaps' => []];
-// send only reads: the lock goes before it writes its stream — a local send | recv (Mr. Restori's «Start here…») has
-// both ends on this one file, and recv waits for stdin under its lock (2026-10-12: a deadlock in the stand-in, not in zfs)
-if (($a[0] ?? '') === 'send') { flock($h, LOCK_UN); }
 $save = function () use (&$st, $h) { ftruncate($h, 0); rewind($h); fwrite($h, json_encode($st)); fflush($h); };
 $no = function (string $what) { fwrite(STDERR, "cannot open '$what': dataset does not exist\n"); exit(1); };
 if ($me === 'zpool') {
