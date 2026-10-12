@@ -1579,5 +1579,6 @@
   "warn_code.partner_snap_prefix": "Partner {partner}: a partner takes only snapshots called {prefix}… — nothing sent. Set the snapshot prefix back in my setup.",
   "warn_code.partner_no_ssh": "Partner {partner}: ssh is missing on this server — nothing sent.",
   "warn_code.partner_quota": "Partner {partner} refused: its quota for this server is full — it keeps the copies it has. Raise the quota at the partner or free space there.",
+  "warn_code.partner_missed": "The copy to {partner} did not arrive — {why}.",
   "setup.level_hint.partner_vm": "Like local, and its ZFS snapshot to the partner office ({partners}) after every backup — only the blocks changed since the last one, encrypted on the way; its copy carries the VM's configuration (XML, UEFI variables, TPM state), so the partner can start it there."
 }

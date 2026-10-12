@@ -1600,5 +1600,6 @@
   "warn_code.partner_snap_prefix": "Socio {partner}: un socio solo acepta instantáneas llamadas {prefix}… — nada enviado. Vuelve a poner el prefijo de instantáneas en mi configuración.",
   "warn_code.partner_no_ssh": "Socio {partner}: falta ssh en este servidor — nada enviado.",
   "warn_code.partner_quota": "El socio {partner} lo rechazó: su cuota para este servidor está llena — conserva las copias que tiene. Sube la cuota en el socio o libera espacio allí.",
+  "warn_code.partner_missed": "La copia para {partner} no ha llegado — {why}.",
   "setup.level_hint.partner_vm": "Como local, y su instantánea ZFS va a la secretaría socia ({partners}) tras cada copia — solo los bloques cambiados desde la última, cifrados por el camino; la copia trae la configuración de la VM (XML, variables UEFI, estado TPM), el socio puede arrancarla allí."
 }

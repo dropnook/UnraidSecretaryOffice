@@ -1608,7 +1608,8 @@ function driftText(d) {
 
 /**
  * A run's coded warnings in the office's words (engine 2.42, warning_items: a VM paused instead of shut down or frozen,
- * one that couldn't be paused) - warn_code.<code>; a code unknown here or a sentence missing a parameter is left out
+ * one that couldn't be paused; 2.46 partner_missed: the copy to a partner that did not arrive, its why in
+ * partner.why_short) - warn_code.<code>; a code unknown here or a sentence missing a parameter is left out
  * (the count stays in the run's line, the log has the engine's English)
  */
 function warnLines(r) {
@@ -1617,6 +1618,7 @@ function warnLines(r) {
     if (!w || typeof w.code !== 'string' || !Office.has(key)) return '';
     const p = {};
     Object.entries(w.params && typeof w.params === 'object' ? w.params : {}).forEach(([k, v]) => { if (typeof v === 'string') p[k] = v; });
+    if (p.why !== undefined) p.why = partnerWhyShort(p.why);      // engine 2.46 partner_missed: the reason in the office's words
     const raw = Office.strings[key];
     const need = typeof raw === 'string' ? [...raw.matchAll(/\{(\w+)\}/g)].map((m) => m[1]) : [];
     return need.every((k) => p[k] !== undefined) ? T('warn_code.' + w.code, p) : '';

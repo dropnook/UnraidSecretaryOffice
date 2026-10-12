@@ -4160,7 +4160,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.45'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.46'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -4782,6 +4782,109 @@ JS);
         array_slice($r['bubble'] ?? [], 0, 2));
     same('vm warn: the run\'s line', [$want], $r['lines'] ?? null);
     same('vm warn: an unknown code, a missing parameter, an older run — nothing said', [[], []], [$r['unknown'] ?? null, $r['none'] ?? null]);
+}
+
+/**
+ * Partner at once (Benj 2026-10-12, office 1.60.2 / engine 2.46): backups run on schedule, and whatever of a run did not
+ * reach a partner is said IN THAT RUN - in the mail and in Mr. Backupsy's bubble - never after «three nights». The
+ * receiver's door never refuses a sleeping pool (the receive wakes it; the pairing asks for a ZFS pool, an HDD one is the
+ * owner's choice): the `wake` option is gone from the dialog, a request's `wake: false` is ignored, BLOCK-B keeps
+ * `wake: true` for an office up to 1.60.1, an old pair's value is read and ignored. The engine's runs themselves are
+ * in testBackupPartnerPhase (refused, unreachable, array stopped: one warning at once, every run); the door's in
+ * testPartnerDoor. Here: the pieces, and the bubble under node (German, the why in the office's words).
+ */
+function testPartnerAtOnce(): void
+{
+    // the door: no refusal for a sleeping pool any more
+    $door = (string) file_get_contents(OFFICE_DIR . '/agent/partner-door.php');
+    check('at once: the door never refuses refused_asleep', !str_contains($door, "doorRefuse(\$id, 'refused_asleep'") && !str_contains($door, "\$r['wake']"));
+    // the option: not offered, not taken, but written true for an office up to 1.60.1
+    check('at once: no wake in the defaults', !array_key_exists('wake', PARTNER_DEFAULTS));
+    $r = partnerReceiveFrom(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false], [['name' => 'tank']]);
+    same('at once: a request\'s wake false is ignored - written true', true, $r['wake'] ?? null);
+    same('at once: a request without wake is taken - written true', true, partnerReceiveFrom(['pool' => 'tank', 'quota_gb' => 1, 'retention' => '7 4 6'], [['name' => 'tank']])['wake'] ?? null);
+    same('at once: BLOCK-B for an older office carries wake true', true, partnerReceiveForBlock(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false], [])['wake'] ?? null);
+    same('at once: the stored shape unchanged - an old wake false still read (and ignored by the door), without wake or not bool: no pair', [true, false, false],
+        [partnerReceiveValid(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false]),
+         partnerReceiveValid(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6']),
+         partnerReceiveValid(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => 'yes'])]);
+    $pj = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js');
+    check('at once: the accept dialog no longer offers «Wake the pool»', !str_contains($pj, "T('partner.wake')") && !str_contains($pj, 'wake: wake'));
+    // the engine: no nights counter, partner_missed after every partner
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    $common = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('at once: the engine counts no nights (partner_nights, UB_PARTNER_NIGHTS, partner-skips.json gone)',
+        !str_contains($engine, 'partner_nights') && !str_contains($engine . $common, 'UB_PARTNER_NIGHTS=') && !preg_match('/partner_state_(get|set) partner-skips/', $engine));
+    check('at once: every partner ends with partner_missed (warn_code partner_missed, partner + why)', str_contains($engine, "        partner_missed \"\$id\"\n")
+        && str_contains($engine, 'warn_code partner_missed ') && str_contains($engine, 'why="$why"'));
+    // the texts: five languages with {partner} and {why}; nothing promises nights any more
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        $ct = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$code.json"), true);
+        $t = (string) ($bk['warn_code.partner_missed'] ?? '');
+        check("at once: warn_code.partner_missed in $code names {partner} and {why}", str_contains($t, '{partner}') && str_contains($t, '{why}'), $t);
+        check("at once: the wake tick's texts gone in $code", !isset($ct['partner.wake'], $ct['partner.wake_help']) && isset($ct['partner.wakes']));
+    }
+    $node = testsNode();
+    if ($node === '') {
+        check('at once: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('at-once');
+    $run = backupRunFromStatus(['run' => '20261012-0300', 'started' => 1000, 'finished' => 2000, 'result' => 'warnings', 'warnings' => 1,
+        'warning_items' => [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => 'unreachable']]]]);
+    same('at once: the agent passes partner_missed through', [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => 'unreachable']]], $run['warning_items']);
+    file_put_contents("$tmp/run.json", json_encode($run));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, coreFile, langFile, runFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const strings = {};
+Object.entries(JSON.parse(fs.readFileSync(langFile, 'utf8'))).forEach(([k, v]) => { strings['backup.' + k] = v; });
+const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (m, k) => (p && p[k] !== undefined ? String(p[k]) : m));
+const scope = (id) => (k, p) => {
+  let s = strings[id + '.' + k];
+  if (s && typeof s === 'object') s = (p && Number(p.n) === 1) ? s.one : s.other;
+  return s === undefined ? k : fill(s, p);
+};
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+globalThis.Office = { scope, t: scope('office'), el, strings, has: (k) => k in strings,
+  fmt: { size: (b) => b + ' B', relative: () => 'gestern', duration: (s) => s + ' s', date: (t) => 'D' + t, time: () => 'T' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
+    mount: () => false, pick() {}, render() {}, clear() {} }),
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+run.finished = Math.floor(Date.now() / 1000) - 3600;
+const out = {};
+b.setState({ found: true, running: false, history: [run], drift: { items: [] } });
+out.bubble = b.bubbleText();
+out.lines = b.warnLines(run);
+out.failed = b.warnLines({ warning_items: [{ code: 'partner_missed', params: { partner: 'vault', why: 'recv_failed' } }] });
+out.unknown = b.warnLines({ warning_items: [{ code: 'partner_missed', params: { partner: 'vault', why: 'something_new' } }, { code: 'partner_missed', params: { partner: 'vault' } }] });
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/lang/de.json') . ' ' . escapeshellarg("$tmp/run.json") . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r)) {
+        check('at once: ran under node', false, $raw);
+        return;
+    }
+    $want = 'Die Kopie für vault ist nicht angekommen — nicht erreichbar.';
+    same('at once: Mr. Backupsy\'s bubble right after the run - the warning, then the partner and why in German',
+        ['Das letzte Backup gestern endete mit einer Warnung.', $want], array_slice($r['bubble'] ?? [], 0, 2));
+    same('at once: the run\'s line', [$want], $r['lines'] ?? null);
+    same('at once: a failed transfer in words', ['Die Kopie für vault ist nicht angekommen — Empfang fehlgeschlagen.'], $r['failed'] ?? null);
+    same('at once: an unknown why stays its code; a missing why - nothing said', ['Die Kopie für vault ist nicht angekommen — something_new.'], $r['unknown'] ?? null);
 }
 
 /**
@@ -5479,7 +5582,7 @@ SH);
  * ssh - the partner's door: it notes every call's options and command, answers ping/resume/list on stdout and recv's two
  * JSON lines on stderr, reads the stream, refuses, fails, stays silent or hangs when told by a control file, and keeps a
  * resume token when it is ended mid-transfer. A full send, incremental from the snapshot both have, the bookmark when it is
- * gone here, need_full, a resume token, the refusals, unreachable (the third night warns, once a day), a timeout,
+ * gone here, need_full, a resume token, the refusals, unreachable (2.46: warned in that run, every run), a timeout,
  * recv_failed, the array stop mid-send (interrupted, then resumed), the rate (pv -L), the ssh options, status.json /
  * history / last-run; then setup.sh --plan (partners[], partner_ok/why), --apply (the keys written), --forget (the
  * sections kept) and --about.
@@ -5944,9 +6047,10 @@ SH);
     $run('--no-kopia');
     same('partner phase 2.42: a --no-kopia run - skip_kopia true, the partners still get their copies', [true, 4], [$status()['skip_kopia'] ?? null, $status()['partner_ok'] ?? null]);
 
-    // --- refusals: the partner's window (a warning once a day), its quota (every run, 2.45), asleep (nights, 2.45)
+    // --- refusals (2.46: each one said in that run, every run): the window and an older door's asleep as partner_missed,
+    // the quota with its own code (partner_quota, never a second line)
+    $missed = fn (array $s) => array_values(array_filter($s['warning_items'] ?? [], fn ($w) => ($w['code'] ?? '') === 'partner_missed'));
     foreach (['refused_window', 'refused_quota', 'refused_asleep'] as $why) {
-        @unlink("$data/state/partner-skips.json");
         $night();
         file_put_contents("$fake/refuse", $why);
         $run();
@@ -5955,12 +6059,19 @@ SH);
         same("partner phase: $why - every unit skipped with it, none failed",
             [[$why], 0, 0], [array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
              $s['partner_failed'] ?? null, $s['partner_ok'] ?? null]);
-        same("partner phase: $why - warnings", $why === 'refused_asleep' ? 0 : 1, substr_count($l, 'WARNING: Partner vault refused'), $l);
-        if ($why === 'refused_window') {
+        same("partner phase 2.46: $why - one warning at once, the run ends with warnings", [1, 'warnings'],
+            [substr_count($l, 'WARNING: Partner vault'), $s['result'] ?? null], $l);
+        if ($why !== 'refused_quota') {
+            same("partner phase 2.46: $why - coded partner_missed with the partner and the why", [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => $why]]],
+                $missed($s), $l);
             $night();
             file_put_contents("$fake/refuse", $why);
             $run();
-            same('partner phase: refused_window again the same day - no second warning', 0, substr_count($log(), 'WARNING: Partner vault refused'));
+            same("partner phase 2.46: $why again the same day - warned again (every run)", [1, 'warnings'],
+                [substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive"), $status()['result'] ?? null], $log());
+        }
+        if ($why === 'refused_asleep') {
+            check('partner phase 2.46: refused_asleep (an older door) - the reason in words and what to do', str_contains($l, "this run's copy did not arrive - its pool asleep - its office is older"), $l);
         }
         if ($why === 'refused_quota') {
             same('partner phase 2.45: refused_quota - a coded warning with what to do, the run ends with warnings', [[['code' => 'partner_quota', 'params' => ['partner' => 'vault']]], 'warnings', true],
@@ -5971,48 +6082,25 @@ SH);
             same('partner phase 2.45: refused_quota again the same day - warned again (every run, once per partner)', [1, 'warnings'],
                 [substr_count($log(), 'WARNING: Partner vault refused'), $status()['result'] ?? null], $log());
         }
-        if ($why === 'refused_asleep') {
-            same('partner phase 2.45: refused_asleep - a night counted, no warning yet', 1, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
-            testsClockNight($clock);
-            $run();
-            testsClockNight($clock);
-            $run();
-            same('partner phase 2.45: refused_asleep the third night in a row - one warning (its pool sleeps every night), the run ends with warnings', [1, 'warnings'],
-                [substr_count($log(), 'WARNING: Partner vault: its pool sleeps every night - nothing arrives (3 nights in a row'), $status()['result'] ?? null], $log());
-            @unlink("$data/state/partner-skips.json");
-        }
     }
 
-    // --- unreachable: skipped, no warning the first nights; the third night in a row warns, once a day
+    // --- unreachable (2.46): skipped and warned in that very run - no nights of grace, no partner-skips.json
     @unlink("$data/state/partner-skips.json");
     $night();
     touch("$fake/door.down");
-    [$rc, $out] = $run();
-    $first = testsClockNow($clock);
+    $run();
     $s = $status();
     $l = $log();
-    same('partner phase: unreachable - only the ping, every unit skipped (unreachable), no warning, the run ok',
-        [['ssh ping'], ['unreachable'], 0, 0, false],
+    same('partner phase 2.46: unreachable - only the ping, every unit skipped (unreachable), one warning at once, the run ends with warnings',
+        [['ssh ping'], ['unreachable'], 0, 1, 'warnings', [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => 'unreachable']]]],
         [$ssh(), array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
-         $s['partner_failed'] ?? null, $rc, str_contains($l, 'WARNING: Partner')], $out . $l);
-    $sk = json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [];
-    same('partner phase: partner-skips.json counts the night', [1, date('Y-m-d', $first)], [$sk[$id]['nights'] ?? null, $sk[$id]['last_day'] ?? null]);
+         $s['partner_failed'] ?? null, substr_count($l, "WARNING: Partner vault: this run's copy did not arrive - not reachable - is its server on"), $s['result'] ?? null, $missed($s)], $l);
+    check('partner phase 2.46: no nights counted (partner-skips.json not written)', !file_exists("$data/state/partner-skips.json"));
     $run();
-    same('partner phase: unreachable twice the same day - still one night', 1, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
-    testsClockNight($clock);
-    $run();
-    same('partner phase: unreachable the next night - two nights in a row, still no warning', [2, 0],
-        [(json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null, substr_count($log(), 'WARNING: Partner')], $log());
-    testsClockNight($clock);
-    $run();
-    same('partner phase: the third night in a row - one warning (partner_unreachable), since the first night', 1,
-        substr_count($log(), 'WARNING: Partner vault has not answered for 3 nights in a row (since ' . date('Y-m-d', $first) . ')'), $log());
-    $run();
-    $got = [substr_count($log(), 'WARNING: Partner vault has not answered'), (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null];
-    check('partner phase: … said once a day', $got === [0, 3], json_encode($got) . (string) @file_get_contents("$data/state/partner-skips.json") . $log());
+    same('partner phase 2.46: unreachable again the same day - warned again', 1, substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive"), $log());
     $night();
     $run();
-    same('partner phase: it answers again - the nights start anew', 0, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
+    same('partner phase: it answers again - no partner warning', [0, []], [substr_count($log(), 'WARNING: Partner'), $missed($status())], $log());
 
     // --- no answer in time (a door that hangs): unreachable too
     $night();
@@ -6031,18 +6119,10 @@ SH);
     $run();
     same('partner phase: the partner\'s array is stopped - skipped (array_stopped)', ['array_stopped'],
         array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))));
-    // 2.45: counted like unreachable - a night may pass quietly, the UB_PARTNER_NIGHTS-th warns (once a day)
-    @unlink("$data/state/partner-skips.json");
-    $run();
-    same('partner phase 2.45: array stopped - a night counted, no warning yet', [1, 0],
-        [(json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null, substr_count($log(), 'WARNING: Partner')], $log());
-    testsClockNight($clock);
-    $run();
-    testsClockNight($clock);
-    $run();
-    same('partner phase 2.45: … the third night in a row - one warning, its array named; the run ends with warnings', [1, 'warnings'],
-        [substr_count($log(), 'WARNING: Partner vault has taken nothing for 3 nights in a row'), $status()['result'] ?? null], $log());
-    @unlink("$data/state/partner-skips.json");
+    // 2.46: warned at once, its array named
+    same('partner phase 2.46: array stopped - one warning at once, the run ends with warnings', [1, 'warnings', 'array_stopped'],
+        [substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive - its array stopped - its array is stopped; start it there"), $status()['result'] ?? null,
+         $missed($status())[0]['params']['why'] ?? null], $log());
 
     // --- recv_failed: failed, a warning each
     $night();
@@ -6099,20 +6179,19 @@ SH);
     $run();
     check('partner phase 2.42: a unit the pair of up to 1.59 doesn\'t name goes like every other - the door decides', !isset(array_column($status()['partner']['skipped'] ?? [], 'why', 'unit')['share:docs'])
         && in_array("ssh recv share:docs " . ($status()['snapshot'] ?? '?'), $ssh(), true), json_encode($ssh()));
-    // a door up to 1.59 keeps only what its Team Lead agreed to (unit_not_agreed): skipped as not_agreed, not failed - a warning once a day
-    @unlink("$data/state/partner-skips.json");
+    // a door up to 1.59 keeps only what its Team Lead agreed to (unit_not_agreed): skipped as not_agreed, not failed - a warning every run (2.46)
     file_put_contents("$fake/notagreed", "share:docs\n");
     $night();
     file_put_contents("$fake/notagreed", "share:docs\n");
     $run();
     $sk = array_column($status()['partner']['skipped'] ?? [], 'why', 'unit');
     same('partner phase 2.42: an older door\'s unit_not_agreed - skipped (not_agreed), nothing failed, the others went', ['not_agreed', 0, 3, 1],
-        [$sk['share:docs'] ?? null, $status()['partner_failed'] ?? null, $status()['partner_ok'] ?? null, substr_count($log(), 'WARNING: Partner vault runs an older office')], $log());
+        [$sk['share:docs'] ?? null, $status()['partner_failed'] ?? null, $status()['partner_ok'] ?? null, substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive - not agreed by an older partner")], $log());
     check('partner phase 2.42: … said in the log', str_contains($log(), 'vault runs an older office and hasn\'t agreed to keep share:docs'), $log());
     $night();
     file_put_contents("$fake/notagreed", "share:docs\n");
     $run();
-    same('partner phase 2.42: … the same day again - no second warning', 0, substr_count($log(), 'WARNING: Partner vault runs an older office'));
+    same('partner phase 2.46: … the same day again - warned again (every run)', 1, substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive - not agreed"));
     unlink("$tmp/data/partner/pairs.json");
     // 2.45: an app whose folder is a dataset of its own is a unit of its own (app:<name>); its dataset no «children» of
     // its share (appdata still goes); an older door that knows no app units: skipped (old_partner), a warning every run
@@ -6189,7 +6268,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.45', [1, '2.45'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.46', [1, '2.46'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -6611,10 +6690,16 @@ SH);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NOTIFY_STAMP=$tmp/notify.stamp UB_VAR_INI=$fake/var.ini"
          . " FAKE=$fake FAKE_ROOT=$root MNT=$mnt UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1"
-         . " UB_PARTNER_DIR=$tmp/partners UB_PARTNER_NIGHTS=99 UB_PARTNER_ASK=3";
+         . " UB_PARTNER_DIR=$tmp/partners UB_PARTNER_ASK=3";
     $pid = '0a0b0c0d';
-    // the partner: paired (its key here), but it doesn't answer (ssh exit 255) - skipped quietly, never warned about
+    // the partner: paired (its key here), but it doesn't answer (ssh exit 255) - since 2.46 warned in every run
+    // (partner_missed); these tests are about the sleeping pools, so $own() counts the run without that one warning
     // (engine 2.45: a key missing would warn every run - not what these tests are about)
+    $own = function (array $s): array {
+        $n = ($s['warnings'] ?? 0) - count(array_filter($s['warning_items'] ?? [], fn ($w) => ($w['code'] ?? '') === 'partner_missed'));
+        $r = $s['result'] ?? null;
+        return [$r === 'warnings' && $n === 0 && !($s['errors'] ?? 0) ? 'ok' : $r, $n];
+    };
     @mkdir("$tmp/partners", 0700, true);
     touch("$tmp/partners/$pid.key");
     touch("$tmp/partners/$pid.known");
@@ -6675,7 +6760,7 @@ SH);
     $s = $status();
     $n = $names();
     $l = $log();
-    same('asleep skip: the run went through - ok, exit 0, no warning, no error', ['ok', 0, 0, 0], [$s['result'] ?? null, $code, $s['warnings'] ?? null, $s['errors'] ?? null], $out . $l);
+    same('asleep skip: the run went through - ok, exit 0, no warning, no error', ['ok', 0, 0, 0], [$own($s)[0], $code, $own($s)[1], $s['errors'] ?? null], $out . $l);
     $snap = $snapCall($n);
     check('asleep skip: one snapshot call for maple, none of hazel\'s datasets in it', str_contains($snap, 'maple/appdata@uso-backup-') && str_contains($snap, 'maple/films@')
         && str_contains($snap, 'maple/UnraidSecretaryOffice@') && !str_contains($snap, 'hazel') && count(preg_grep('/^zfs snapshot /', $n)) === 1, json_encode($n));
@@ -6711,8 +6796,8 @@ SH);
         $s['partner']['skipped'] ?? null);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
-    $nt = array_values(preg_grep('/Backup successful/', $notes()));
-    check('asleep skip: the notification - successful, «4 shares asleep (left out)» in its summary', count($nt) === 1
+    $nt = array_values(preg_grep('/Backup (successful|with warnings)/', $notes()));      // 2.46: the unreachable partner warns at once
+    check('asleep skip: the notification - «4 shares asleep (left out)» in its summary', count($nt) === 1
         && str_contains($nt[0], ', 4 shares asleep (left out)') && str_contains($nt[0], 'LEFT OUT, ASLEEP (asleep_pools = skip)\n  Disks:   hazel\n'), json_encode($nt));
     same('asleep skip: state/asleep.json - one night each', ['films' => 1, 'media' => 1, 'tm' => 1, 'vmh' => 1], array_map(fn ($x) => $x['nights'] ?? null, $nights()['shares'] ?? []));
 
@@ -6726,19 +6811,19 @@ SH);
     $s = $status();
     $l = $log();
     same('asleep 7 nights: one warning - the run ends with warnings, media 7 nights, warned today', ['warnings', 1, 7, date('Y-m-d', testsClockNow($clock)), 7],
-        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $nights()['shares']['media']['warned'] ?? null, $nights()['shares']['media']['nights'] ?? null], $l);
+        [...$own($s), $s['asleep']['nights']['media'] ?? null, $nights()['shares']['media']['warned'] ?? null, $nights()['shares']['media']['nights'] ?? null], $l);
     check('asleep 7 nights: the warning names the share and the nights', str_contains($l, "WARNING: Share 'media' was left out 7 nights in a row") && str_contains($l, '(asleep_long)'), $l);
     $night();
     $run();
     $s = $status();
     same('asleep 7 nights: the same day again - no second warning, the night not counted twice', ['ok', 0, 7, 1],
-        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
+        [...$own($s), $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
     testsClockNight($clock);
     $night();
     $run();
     $s = $status();
     same('asleep 7 nights: the next night - counted (8, tm 2), still no second warning (once per stretch)', ['ok', 0, 8, 2],
-        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
+        [...$own($s), $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
 
     // --- a dry run counts no night
     $before = (string) @file_get_contents("$data/state/asleep.json");
@@ -6784,7 +6869,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.45', [1, '2.45'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.46', [1, '2.46'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -20820,12 +20905,12 @@ function testPartnerPairing(): void
     check('pairing: B answers with BLOCK-B and a code', preg_match('/^\d{6}$/D', $codeB) === 1 && ($accepted['block'] ?? '') !== '', json_encode($accepted));
     same('pairing: B\'s authorized_keys — A\'s line added, the user\'s own lines byte for byte', $benj . $line . "\n", file_get_contents($B['keys']));
     $pairB = partnerTestAs($B, 'return partnerPairs();')[0] ?? [];
-    same('pairing: B keeps of A whatever comes — its rules (1.60: no units, no window)', ['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'wake' => false], $pairB['receive'] ?? null);
+    same('pairing: B keeps of A whatever comes — its rules (1.60: no units, no window; 1.60.2: wake always true, a false asked for ignored)', ['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'wake' => true], $pairB['receive'] ?? null);
     same('pairing: B\'s pair', [$id, '192.168.77.1', partnerFingerprint($pubA), ['rate_mbit' => 0], 'family'],
         [$pairB['id'] ?? null, $pairB['address'] ?? null, $pairB['their_key'] ?? null, $pairB['send'] ?? null, $pairB['trust'] ?? null]);
     $blockB = partnerBlockDecode((string) $accepted['block'], 'B');
     same('pairing: BLOCK-B carries B\'s rules in the shape an older office reads too (window always, A\'s units) and the units B could send',
-        [['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'window' => '00:00-00:00', 'wake' => false, 'units' => ['place', 'share:appdata', 'vm:Debian_VM']], ['share:media']],
+        [['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'window' => '00:00-00:00', 'wake' => true, 'units' => ['place', 'share:appdata', 'vm:Debian_VM']], ['share:media']],
         [$blockB['receive'], $blockB['units']]);
     same('pairing: B pinned A\'s host key for sending', '192.168.77.1 ' . implode(' ', array_slice(explode(' ', trim(file_get_contents($A['host']))), 0, 2)) . "\n",
         @file_get_contents("$B[flash]/$id.known"));
@@ -21145,11 +21230,10 @@ function testPartnerDoor(): void
     file_put_contents("$B[bin]/zfs.json", json_encode($st));
     $pairs([]);
     file_put_contents("$tmp/asleep.ini", "[\"tank\"]\nname=\"tank\"\nspundown=\"1\"\n");
-    same('door: the pool asleep, no wake — refused_asleep', 'refused_asleep',
-        partnerTestDoor($B, 'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200', 'x', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['err'][0]['why'] ?? null);
-    same('door: … list too', 'refused_asleep', partnerTestDoor($B, 'list share:appdata', '', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['out'][0]['why'] ?? null);
-    $pairs(['wake' => true]);
-    same('door: the pool asleep, wake agreed — it goes', 0,
+    // 1.60.2: a sleeping pool is never refused — the receive wakes it; a pair's old `wake: false` is ignored
+    same('door 1.60.2: the pool asleep, the pair\'s old wake false — list answers, no refused_asleep', [0, null],
+        [($l = partnerTestDoor($B, 'list share:appdata', '', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"]))['exit'], $l['out'][0]['why'] ?? null]);
+    same('door 1.60.2: … and the receive goes (the pool woken by it)', 0,
         partnerTestDoor($B, 'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200', 'five', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['exit']);
     @mkdir("$B[run]/partner", 0700, true);
     $hold = fopen("$B[run]/partner/$id.lock", 'c');
@@ -21448,13 +21532,13 @@ function testPartnerEnded(): void
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
         same("partner ended: $l — the run's coded warnings in words, with their parameters", [], array_values(array_filter(['partner_ended' => ['partner'], 'partner_no_key' => ['partner'], 'partner_quota' => ['partner'],
-            'partner_snap_prefix' => ['partner', 'prefix'], 'partner_no_ssh' => ['partner'], 'partner_old' => ['partner']], fn ($ps, $c) => !isset($bk["warn_code.$c"])
+            'partner_snap_prefix' => ['partner', 'prefix'], 'partner_no_ssh' => ['partner'], 'partner_old' => ['partner'], 'partner_missed' => ['partner', 'why']], fn ($ps, $c) => !isset($bk["warn_code.$c"])
             || array_filter($ps, fn ($x) => !str_contains($bk["warn_code.$c"], '{' . $x . '}')), ARRAY_FILTER_USE_BOTH)));
     }
     preg_match_all('/warn_code (partner_[a-z_]+) /', $engine, $wm);
     $codes = array_values(array_unique($wm[1]));
     sort($codes);
-    same('partner ended: the engine\'s partner warnings are the six the office words', ['partner_ended', 'partner_no_key', 'partner_no_ssh', 'partner_old', 'partner_quota', 'partner_snap_prefix'], $codes);
+    same('partner ended: the engine\'s partner warnings are the seven the office words (2.46: partner_missed)', ['partner_ended', 'partner_missed', 'partner_no_key', 'partner_no_ssh', 'partner_old', 'partner_quota', 'partner_snap_prefix'], $codes);
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
     check('partner ended: the card says «ended», not «key missing»', $en['partner.why_short.ended'] === 'partnership ended');
     $ct = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true);
@@ -21731,7 +21815,7 @@ function testPartnerUnits(): void
     $fin = $as($A, 'return partner_finish(["step" => "do", "confirm" => true, "code" => ' . var_export((string) ($acc['code'] ?? ''), true) . ', "block" => '
         . var_export((string) ($acc['block'] ?? ''), true) . ', "receive" => null]);');
     same('units: paired — A reaches B', true, $fin['ask']['reachable'] ?? $fin);
-    same('units: the pair on A — send only its rate; on B — the rules, no units', [['rate_mbit' => 0], ['pool' => 'vault', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false]],
+    same('units: the pair on A — send only its rate; on B — the rules, no units', [['rate_mbit' => 0], ['pool' => 'vault', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => true]],
         [$as($A, 'return partnerPairs()[0]["send"] ?? null;'), $as($B, 'return partnerPairs()[0]["receive"] ?? null;')]);
     $calls = fn () => array_values(array_map(fn ($c) => end($c), array_filter(partnerTestCalls($A['bin']), fn ($c) => $c[0] === 'ssh')));
     $calls();
@@ -31697,7 +31781,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

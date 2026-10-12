@@ -1600,5 +1600,6 @@
   "warn_code.partner_snap_prefix": "Partenaire {partner} : un partenaire ne prend que des snapshots nommés {prefix}… — rien envoyé. Remets le préfixe des snapshots dans ma configuration.",
   "warn_code.partner_no_ssh": "Partenaire {partner} : ssh manque sur ce serveur — rien envoyé.",
   "warn_code.partner_quota": "Le partenaire {partner} a refusé : son quota pour ce serveur est plein — il garde les copies qu'il a. Augmente le quota chez le partenaire ou libère de la place là-bas.",
+  "warn_code.partner_missed": "La copie pour {partner} n'est pas arrivée — {why}.",
   "setup.level_hint.partner_vm": "Comme local, et son snapshot ZFS va au secrétariat partenaire ({partners}) après chaque sauvegarde — seuls les blocs changés depuis la dernière, chiffrés en chemin ; la copie porte la configuration de la VM (XML, variables UEFI, état TPM), le partenaire peut la démarrer là-bas."
 }
