@@ -56,14 +56,6 @@ function section(title, sub, ...extra) {
   s.appendChild(Office.sectionHead(title, sub, ...extra));
   return s;
 }
-function stat(box, label, value, sub, alert, onclick) {
-  const s = el(onclick ? 'button' : 'div', 'stat' + (alert ? ' alert' : ''));
-  if (onclick) { s.type = 'button'; s.onclick = onclick; }
-  s.append(el('div', 'stat-label', label), el('div', 'stat-value', value));
-  if (sub) s.appendChild(el('div', 'stat-sub', sub));
-  box.appendChild(s);
-  return s;
-}
 /** A button that reads as a quiet link */
 function link(text, onclick) {
   const b = el('button', 'mo-link', text);
@@ -199,21 +191,61 @@ async function moverOffDialog() {
 }
 
 // ------------------------------------------------------------------ main view
-function render() {
-  if (!view) return;
-  const root = view;
-  root.innerHTML = '';
+/*
+ * Her page (tiles v2, CLAUDE.md «Tiles», 2026-10-12): a tile is a section. The row — «Schedule» (hers and Unraid's
+ * mover's), «Shares» (what moves where, the rules for all), «Last run» (her runs, the last one's result on top) — is the
+ * page's table of contents; under it stands the chosen tile's section alone, or, nothing chosen (the start), every section
+ * in the row's order — her page as it was. Hints stay above the row at every click (Unraid's mover, other movers, Jack
+ * Emby, a run going, not set up), the tool's version and the credit to helmi1987 under all. Two pages as tabs: «Overview»
+ * and «Set up» (#/moverelli/setup).
+ */
+const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
+/** Set up (or not known yet — the search's places): her schedule has a tile only then */
+const configured = () => !state || !!state.configured;
+/** [tile id, lang key] of her row, in its order (the switcher's tiles, her places) */
+const TILES = [['schedule', 'schedule'], ['shares', 'shares'], ['runs', 'last_run']];
+let sw = null;
+/** Her row and its sections (core.js's section switcher) — made at the first drawing, one per page life */
+function switcher() {
+  if (sw) return sw;
+  sw = Office.sections({
+    id: ID,                          // kept as moverelli.tile, routes #/moverelli/<tile>
+    grid: 'stats mo-tiles',
+    default: '',                     // the start: every section (her page as it always was)
+    tiles: () => tileList(),
+  });
+  return sw;
+}
+/** The tiles for the switcher, each with its section (the schedule only once she is set up) */
+function tileList() {
+  const make = { schedule: scheduleTile, shares: sharesTile, runs: lastRunTile };
+  const section = { schedule: scheduleSection, shares: shareSection, runs: historySection };
+  return TILES.filter(([id]) => id !== 'schedule' || configured())
+    .map(([id, key]) => ({ id, key, place: `tile.${id}`, tile: (a) => (state ? make[id](a) : Office.stat({ label: T(key), value: '–', ...a })),
+      section: () => (state ? section[id]() : null) }));
+}
+
+/** The desk's own actions — on both tabs (the other page is the tab, no head button for it) */
+function headActions() {
   const actions = [];
   if (state && state.configured) {
     actions.push(button(T('list'), 'plain', () => startRun('list')));
     actions.push(button(T('start'), '', chooseRun));
-    actions.push(button(T('setup_open'), 'plain', () => Office.go(`#/${ID}/setup`)));
-  } else if (state) {
-    actions.push(button(T('setup_open'), '', () => Office.go(`#/${ID}/setup`)));
   }
   actions.forEach((b) => { b.disabled = !Office.agent.running || running() || !unraidOk(); });
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions });
-  root.appendChild(head);
+  return actions;
+}
+/** Her head with the two tabs (Office.pages()) */
+function deskHead() {
+  return Office.deskHead(Office.desks.get(ID), { bubble: Office.withGreeting(ID, bubbleText()), actions: headActions(),
+    pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;
+}
+
+function render() {
+  if (!view) return;
+  const root = view;
+  root.innerHTML = '';
+  root.appendChild(deskHead());
   root.appendChild(Office.pageHelp(ID, [
     [T('help.what'), T('help.what_text')],
     [T('list'), T('help.list')],
@@ -226,19 +258,30 @@ function render() {
   ]));
   if (!state) return;
 
-  if (!unraidOk()) root.appendChild(el('p', 'callout warn', T('notice.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })));
+  // hints, no sections: they stay at every click
+  hints().forEach((n) => root.appendChild(n));
+  const s = switcher();
+  root.appendChild(s.el);
+  s.render();
+  root.appendChild(footer());
+}
+
+/** What stands over the row: Unraid's mover, other movers, «after Jack Emby» idle, Jack Emby, a run going, not set up */
+function hints() {
+  const out = [];
+  if (!unraidOk()) out.push(el('p', 'callout warn', T('notice.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })));
   if (state.configured) {
-    root.appendChild(moverNotice());
-    foreignNotices().forEach((n) => root.appendChild(n));
+    out.push(moverNotice());
+    out.push(...foreignNotices());
   }
   const idle = afterNotice();
-  if (idle) root.appendChild(idle);
+  if (idle) out.push(idle);
   const j = jack();
-  if (j.busy && !running()) root.appendChild(el('p', 'callout', T('notice.jack_busy')));
+  if (j.busy && !running()) out.push(el('p', 'callout', T('notice.jack_busy')));
   if ((j.uncovered || []).length) {
     const p = el('p', 'callout warn', T('notice.emby_list', { shares: j.uncovered.join(', '), file: j.list || '' }) + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
-    root.appendChild(p);
+    out.push(p);
   }
   if (running()) {
     const p = el('p', 'callout', T('notice.running', { mode: T('mode.' + state.job.mode) }) + ' ');
@@ -249,66 +292,121 @@ function render() {
       stop.disabled = !!state.stopping || !Office.agent.running;
       p.appendChild(stop);
     }
-    root.appendChild(p);
+    out.push(p);
   }
   if (!state.configured) {
     const p = el('p', 'callout', T('notice.setup') + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
-    root.appendChild(p);
-    root.appendChild(shareSection());
-    root.appendChild(historySection());
-    root.appendChild(toolSection());
-    return;
+    out.push(p);
   }
-  root.appendChild(overview());
-  root.appendChild(shareSection());
-  root.appendChild(historySection());
-  root.appendChild(toolSection());
+  return out;
 }
 
-/** Unraid's schedule and hers, the rules in short, the last run */
-function overview() {
-  const s = section(T('overview'), T('overview_sub'), { place: 'overview' });
-  const stats = el('div', 'stats');
-  const m = mover();
-  stat(stats, T('unraid_schedule'), m.off ? T('unraid_off') : T('unraid_on'), m.off ? T('unraid_off_sub') : (m.schedule ? fmt.cron(m.schedule) : ''), !m.off);
-  const sc = state.schedule;
+// ---- the tiles: each the summary of its section
+/** «Schedule»: hers (a time, «after Jack Emby», none), Unraid's mover's as its line — alert while nothing starts her or Unraid's is on */
+function scheduleTile(a) {
+  const sc = state.schedule || {};
   const af = after();
-  stat(stats, T('schedule'), schedText(sc), af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : (sc.enabled ? T('by_office') : T('schedule_set')),
-    af.on ? af.idle : !sc.enabled, () => scheduleDialog());
-  const g = state.settings.global;
-  stat(stats, T('rules'), T('rule_age', { n: g.min_age, stat: g.age_stat }),
-    g.move_when_used_above ? T('rule_threshold', { pct: g.move_when_used_above }) : T('rule_always'));
+  const m = mover();
+  const sub = [af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : (sc.enabled ? T('by_office') : T('tile.no_schedule')),
+    `${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`];
+  return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || (af.on ? af.idle : !sc.enabled), ...a });
+}
+/** «Shares»: how many move, the rules for all as its line — alert while Jack Emby's list isn't kept out for a share of his */
+function sharesTile(a) {
+  const shares = state.shares || [];
+  const g = (state.settings || {}).global || {};
+  const rule = [T('rule_age', { n: g.min_age ?? 0, stat: g.age_stat || 'ctime' }),
+    g.move_when_used_above ? T('rule_threshold', { pct: g.move_when_used_above }) : T('rule_always')].join(' · ');
+  const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), rule];
+  return Office.stat({ label: T('shares'), value: `${shares.filter((x) => x.state === 'moves').length} / ${shares.length}`, sub, tip: sub.join('\n'),
+    alert: !!(jack().uncovered || []).length, ...a });
+}
+/** «Last run»: when, which mode and how it went — «running» while one goes */
+function lastRunTile(a) {
   const last = state.last;
-  stat(stats, T('last_run'), last && last.finished ? fmt.relative(last.finished) : T('never'),
-    last ? `${T('mode.' + (last.mode || 'dry'))} · ${T('result.' + (last.result || 'failed'))}` : '',
-    !!(last && (last.errors || !['ok', 'stopped'].includes(last.result))));
-  s.appendChild(stats);
-  if (last && last.result) {
-    const box = el('div', 'box mo-results');
-    const h = (state.history || []).find((r) => !['refused', 'skipped'].includes(r.result));
-    box.appendChild(el('div', '', runSummary({ mode: last.mode, status: last, result: last.result, why: h && h.result === last.result ? h.why : null })));
-    (last.shares || []).filter((x) => x.files || x.moved || x.left).forEach((x) => {
-      box.appendChild(el('div', 'mo-share-line', T(last.mode === 'run' ? 'share_moved' : 'share_would', { share: x.share,
-        moved: x.moved || 0, files: nOf('files', x.files), size: fmt.size(x.bytes || 0), left: nOf('left', x.left) })));
-    });
-    s.appendChild(box);
+  let value = T('never');
+  const sub = [];
+  let alert = false;
+  if (running()) {
+    value = T('output_running');
+    sub.push(T('mode.' + state.job.mode));
+  } else if (last && last.finished) {
+    value = fmt.relative(last.finished);
+    sub.push(`${T('mode.' + (last.mode || 'dry'))} · ${T('result.' + (last.result || 'failed'))}`);
+    alert = !!(last.errors || !['ok', 'stopped'].includes(last.result));
   }
-  const bar = el('div', 'toolbar');
-  bar.appendChild(button(T('show_log'), 'small plain', showLog));
-  if (state.job.mode) bar.appendChild(link(T('show_output', { mode: T('mode.' + state.job.mode) }), () => showOutput(false)));
-  s.appendChild(bar);
+  return Office.stat({ label: T('last_run'), value, sub, tip: sub.join('\n'), alert, ...a });
+}
+
+// ---- the sections
+/** «Schedule»: when her real runs go on their own («Change…»), and Unraid's own mover schedule (off: as it should be) */
+function scheduleSection() {
+  const s = section(T('schedule'), T('schedule_sub'), { place: 'schedule' });
+  const box = el('div', 'box');
+  const sc = state.schedule || {};
+  const af = after();
+  const mine = Office.place('sched:mine', el('div', 'row nocheck'));
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name', T('sched.mine')));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(sc.enabled || af.on ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), 'warn'));
+  meta.appendChild(el('span', '', af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : sc.enabled ? T('by_office') : T('schedule.off_hint')));
+  main.appendChild(meta);
+  const change = button(T('sched.change'), 'small plain', () => scheduleDialog());
+  change.disabled = !Office.agent.running;
+  mine.append(main, change);
+  box.appendChild(mine);
+  const m = mover();
+  const own = Office.place('sched:unraid', el('div', 'row nocheck'));
+  const main2 = el('div', 'row-main');
+  main2.appendChild(el('div', 'row-name', T('unraid_schedule')));
+  const meta2 = el('div', 'row-meta');
+  meta2.appendChild(chip(m.off ? T('unraid_off') : T('unraid_on'), m.off ? 'ok' : 'warn'));
+  meta2.appendChild(el('span', '', m.off ? T('unraid_off_sub') : (m.schedule ? fmt.cron(m.schedule) : '')));
+  main2.appendChild(meta2);
+  own.appendChild(main2);
+  box.appendChild(own);
+  s.appendChild(box);
   return s;
 }
 
 const STATE_CLASS = { moves: 'ok', skip: 'quiet', prefer_off: 'quiet', none: 'quiet' };
+// the lists' filter bars (Office.filterBar — built once per visit, never kept): her shares, her runs, the setup's shares
+let sharesBar = null;
+let runsBar = null;
+let setupBar = null;
+const dom = {};
+/** Do the bar's words fit this hay (no bar, no words: yes) */
+const fitsBar = (bar, hay) => { const f = bar ? bar.read() : null; return !f || !f.words.length || Office.fits(f.words, hay); };
+function bars() {
+  if (!sharesBar) sharesBar = Office.filterBar({ key: 'moverelli.shares', label: T('filter.shares'), onChange: () => { if (dom.shares && dom.shares.isConnected) fillShares(dom.shares); } });
+  if (!runsBar) runsBar = Office.filterBar({ key: 'moverelli.runs', label: T('filter.runs'), onChange: () => { if (dom.runs && dom.runs.isConnected) fillRuns(dom.runs); } });
+  if (!setupBar) setupBar = Office.filterBar({ key: 'moverelli.setup', label: T('filter.shares'), onChange: () => { if (dom.setup && dom.setup.isConnected) fillSetupShares(dom.setup); } });
+  sharesBar.reset();
+  runsBar.reset();
+  setupBar.reset();
+}
+
 /** Every share as Smart Mover sees it: what moves where, under which rules */
 function shareSection() {
   const shares = state.shares || [];
   const moving = shares.filter((x) => x.state === 'moves').length;
   const s = section(T('shares'), T('shares_sub'), chip(T('shares_moving', { n: moving }), moving ? 'ok' : 'quiet'), { place: 'shares' });
+  if (sharesBar) s.appendChild(sharesBar.el);
   const box = el('div', 'box');
-  shares.forEach((x) => {
+  dom.shares = box;
+  fillShares(box);
+  s.appendChild(box);
+  return s;
+}
+/** A share's words for the bar: its name, what it does, where its files go */
+const shareHay = (x) => [x.share, T('state.' + x.state), where(x.from), where(x.to), x.primary || ''];
+function fillShares(box) {
+  box.innerHTML = '';
+  const shares = state.shares || [];
+  const fit = shares.filter((x) => fitsBar(sharesBar, shareHay(x)));
+  fit.forEach((x) => {
     const row = Office.place(`share:${x.share}`, el('div', 'row nocheck'));
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', x.share));
@@ -329,16 +427,46 @@ function shareSection() {
     box.appendChild(row);
   });
   if (!shares.length) box.appendChild(el('p', 'empty', T('shares_none')));
+  if (sharesBar) sharesBar.done(fit.length, shares.length);
+}
+
+/** «My runs»: the last run's result on top (its shares, the log, its output), then every run with how it went */
+function historySection() {
+  const s = section(T('history'), T('history_sub'), { place: 'history' });
+  const rb = resultBox();
+  if (rb) s.appendChild(rb);
+  const bar = el('div', 'toolbar');
+  if (state.configured) bar.appendChild(button(T('show_log'), 'small plain', showLog));
+  if (state.job && state.job.mode) bar.appendChild(link(T('show_output', { mode: T('mode.' + state.job.mode) }), () => showOutput(false)));
+  if (bar.children.length) s.appendChild(bar);
+  if (runsBar) s.appendChild(runsBar.el);
+  const box = el('div', 'box');
+  dom.runs = box;
+  fillRuns(box);
   s.appendChild(box);
   return s;
 }
-
-function historySection() {
+/** The last run: how it went, a line per share that had something */
+function resultBox() {
+  const last = state.last;
+  if (!last || !last.result) return null;
+  const box = el('div', 'box mo-results');
+  const h = (state.history || []).find((r) => !['refused', 'skipped'].includes(r.result));
+  box.appendChild(el('div', '', runSummary({ mode: last.mode, status: last, result: last.result, why: h && h.result === last.result ? h.why : null })));
+  (last.shares || []).filter((x) => x.files || x.moved || x.left).forEach((x) => {
+    box.appendChild(el('div', 'mo-share-line', T(last.mode === 'run' ? 'share_moved' : 'share_would', { share: x.share,
+      moved: x.moved || 0, files: nOf('files', x.files), size: fmt.size(x.bytes || 0), left: nOf('left', x.left) })));
+  });
+  return box;
+}
+/** A run's words for the bar: its mode, result, who started it, the summary */
+const runHay = (r) => [T('mode.' + r.mode), T('result.' + (r.result || 'failed')), T('by.' + r.by), runSummary(r)];
+function fillRuns(box) {
+  box.innerHTML = '';
   const runs = state.history || [];
-  const s = section(T('history'), T('history_sub'), { place: 'history' });
-  const box = el('div', 'box');
+  const fit = runs.filter((r) => fitsBar(runsBar, runHay(r)));
   if (!runs.length) box.appendChild(el('p', 'empty', T('history_none')));
-  runs.slice(0, HISTORY_SHOWN).forEach((r) => {
+  fit.forEach((r) => {
     const row = Office.place(`run:${r.started}`, el('div', 'row nocheck'));
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name', T('mode.' + r.mode)));
@@ -352,11 +480,10 @@ function historySection() {
     row.appendChild(main);
     box.appendChild(row);
   });
-  s.appendChild(box);
-  return s;
+  if (runsBar) runsBar.done(fit.length, runs.length);
 }
 
-/** A quiet line under the tool's tile: the Smart Mover is helmi1987's */
+/** A quiet line under the tool's versions: the Smart Mover is helmi1987's */
 function credit() {
   const box = el('div', 'mo-credit');
   box.append(el('b', '', T('credit_title')), ' ', T('credit'), ' ');
@@ -367,14 +494,14 @@ function credit() {
   box.appendChild(a);
   return box;
 }
-function toolSection() {
-  const s = section(T('tools'), T('tools_sub'), { place: 'tools' });
-  const stats = el('div', 'stats');
-  stat(stats, 'Smart Mover', state.engine || '?', T('tool_sub'));
-  stat(stats, 'Unraid', (state.unraid && state.unraid.version) || '?', T('unraid_sub', { needed: (state.unraid && state.unraid.needed) || '' }), !unraidOk());
-  s.appendChild(stats);
-  s.appendChild(credit());
-  return s;
+/** Under all (no section): Smart Mover's and Unraid's versions, then the credit to helmi1987 */
+function footer() {
+  const box = Office.place('tools', el('div', 'mo-foot'));
+  const line = el('div', 'row-meta mo-tools');
+  line.append(el('span', '', `Smart Mover ${state.engine || '?'} · ${T('tool_sub')}`),
+    el('span', unraidOk() ? '' : 'mo-old', `Unraid ${(state.unraid && state.unraid.version) || '?'} · ${T('unraid_sub', { needed: (state.unraid && state.unraid.needed) || '' })}`));
+  box.append(line, credit());
+  return box;
 }
 
 // ------------------------------------------------------------------ runs
@@ -646,9 +773,8 @@ function renderSetup() {
   if (!view) return;
   const root = view;
   root.innerHTML = '';
-  const back = button(T('back'), 'plain', () => Office.go(`#/${ID}`));
-  const { head } = Office.deskHead(Office.desks.get(ID), { bubble: T('setup.bubble'), actions: [back] });
-  root.appendChild(head);
+  // the tabs say where one is (no «← Back», no head button): under them the page's head line, her setup words its sub line
+  root.appendChild(deskHead());
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('setup.global'), T('setup.help_global')],
     [T('setup.files'), T('setup.help_files')],
@@ -656,12 +782,79 @@ function renderSetup() {
     [T('setup.save'), T('setup.help_save')],
     [T('import.title'), T('import.help')],
   ]));
+  const ph = el('div', 'mo-pagehead');
+  ph.append(el('div', 'mo-pagehead-title', T('page.setup')), el('p', 'mo-pagehead-sub', T('setup.bubble')));
+  root.appendChild(ph);
   if (!state) return;
   if (!form) initForm();
   if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the Smart Mover before
-  const g = form.global;
+  // the row of her setup's steps and under it the step chosen (none: every step in order — the page as before the tiles)
+  const s = setupSwitcher();
+  root.appendChild(s.el);
+  s.render();
+  // the save bar under all
+  const bar = el('div', 'toolbar');
+  const save = button(T('setup.save'), '', saveSetup);
+  save.disabled = !Office.agent.running || running();
+  bar.appendChild(save);
+  root.appendChild(bar);
+}
 
-  // 1. the rules for all shares
+// ---- the setup's steps as tiles (tiles v2, 2026-10-12, like Jack Emby's): a number tile per step — the rules for all
+// shares, the shares' own, and (once she is set up) taking over an earlier install; a click shows that step alone, nothing
+// chosen = every step in order; kept as moverelli.setup.tile, a step's route #/moverelli/setup/<tile>. The form lives
+// across every drawing (form): a step drawn anew shows what was typed.
+/** [tile id, lang key (the step's title: the tile's label, its place for the search)] in the steps' order */
+const SETUP_TILES = [['global', 'setup.global'], ['shares', 'setup.shares'], ['import', 'import.title']];
+let setupSw = null;
+function setupSwitcher() {
+  if (setupSw) return setupSw;
+  setupSw = Office.sections({
+    id: `${ID}/setup`,           // the routes #/moverelli/setup/<tile>
+    key: 'moverelli.setup.tile',
+    bodyId: 'mo-setup-steps',
+    grid: 'stats mo-setup-tiles',
+    default: '',                 // the start: every step
+    tiles: () => setupTileList(),
+    wants: (sub) => SETUP_TILES.some(([id]) => id === sub),      // a route before her state is in
+  });
+  return setupSw;
+}
+/** The tiles for the switcher: setupTileData() as it stands, each with its step as its section (none before her state) */
+function setupTileList() {
+  if (!state || !form) return [];
+  return setupTileData().map((d) => ({ id: d.id, key: d.key, place: `setup.tile.${d.id}`,
+    tile: (a) => Office.stat({ label: T(d.key), value: d.value, sub: d.sub.filter(Boolean), alert: d.alert, ...a }), section: () => setupStep(d.id) }));
+}
+function setupStep(id) {
+  if (id === 'global') return setupGlobal();
+  if (id === 'shares') return setupShares();
+  return importSection();
+}
+
+/**
+ * Her setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the steps' order — for all shares (the age,
+ * the fill, how many lists and lines of what stays), per share (how many
+ * have rules of their own, how many are left out), taking over an earlier install (once she is set up).
+ */
+function setupTileData() {
+  const g = form.global;
+  const own = Object.values(form.shares).filter((s) => s.skip || s.min_age !== null || s.age_stat !== null || s.move_when_used_above !== null
+    || s.files.length || s.patterns.join('\n').trim() !== '');
+  const lines = g.patterns.filter((x) => x.trim() !== '' && !x.trim().startsWith('#')).length;
+  const out = [];
+  out.push({ id: 'global', key: 'setup.global', value: T('setup.tile.days', { n: Number(g.min_age) || 0 }),
+    sub: [g.move_when_used_above ? T('rule_threshold', { pct: g.move_when_used_above }) : T('rule_always'),
+      T('setup.tile.stays', { lists: nOf('lists', g.files.length), lines: nOf('lines', lines) })], alert: false });
+  out.push({ id: 'shares', key: 'setup.shares', value: String(own.length),
+    sub: [T('setup.tile.own', { n: own.length }), T('setup.tile.skipped', { n: Object.values(form.shares).filter((s) => s.skip).length })], alert: false });
+  if (state.configured) out.push({ id: 'import', key: 'import.title', value: T('setup.tile.optional'), sub: [], alert: false });
+  return out;
+}
+
+/** 1. the rules for all shares */
+function setupGlobal() {
+  const g = form.global;
   const s1 = section(T('setup.global'), T('setup.global_sub'), { place: 'setup.global' });
   const f1 = el('div', 'mo-form');
   f1.append(
@@ -673,14 +866,25 @@ function renderSetup() {
     check(T('setup.prefer'), g.move_prefer_shares, (on) => { g.move_prefer_shares = on; }, T('setup.prefer_hint')),
   );
   s1.append(f1, excludeFields(g, 'global'));
-  root.appendChild(s1);
+  return s1;
+}
 
-  // 2. per share
+/** 2. per share: a fold each (the bar's words: name, where its files go) */
+function setupShares() {
   const s2 = section(T('setup.shares'), T('setup.shares_sub'), { place: 'setup.shares' });
-  const shares = state.shares || [];
-  shares.forEach((x) => {
+  if (setupBar) s2.appendChild(setupBar.el);
+  const box = el('div');
+  dom.setup = box;
+  fillSetupShares(box);
+  s2.appendChild(box);
+  return s2;
+}
+function fillSetupShares(box) {
+  box.innerHTML = '';
+  const shares = (state.shares || []).filter((x) => form.shares[x.share]);
+  const fit = shares.filter((x) => fitsBar(setupBar, shareHay(x)));
+  fit.forEach((x) => {
     const sv = form.shares[x.share];
-    if (!sv) return;
     const det = keepFold(el('details', 'box mo-share'), x.share, false);
     const sum = el('summary', '', x.share);
     sum.appendChild(chip(x.mode === 'none' ? T('state.none') : T('direction', { from: where(x.from), to: where(x.to) }), 'quiet'));
@@ -696,18 +900,10 @@ function renderSetup() {
       if (x.mode === 'yes') f.appendChild(field(T('setup.threshold'), number(sv, 'move_when_used_above', 0, 100, true)));
       det.append(f, excludeFields(sv, x.share));
     }
-    s2.appendChild(det);
+    box.appendChild(det);
   });
-  if (!shares.length) s2.appendChild(el('p', 'empty', T('shares_none')));
-  root.appendChild(s2);
-  if (state.configured) root.appendChild(importSection());
-
-  const bar = el('div', 'toolbar');
-  const save = button(T('setup.save'), '', saveSetup);
-  save.disabled = !Office.agent.running || running();
-  bar.appendChild(save);
-  bar.appendChild(button(T('back'), 'plain', () => Office.go(`#/${ID}`)));
-  root.appendChild(bar);
+  if (!shares.length) box.appendChild(el('p', 'empty', T('shares_none')));
+  if (setupBar) setupBar.done(fit.length, shares.length);
 }
 
 async function saveSetup() {
@@ -891,8 +1087,12 @@ Office.desk({
   id: ID,
   async mount(root, sub) {
     view = root;
-    page = sub === 'setup' ? 'setup' : 'main';
+    page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : 'main';
+    bars();
     if (page === 'setup') {
+      // #/moverelli/setup/<tile> (the search, a step's place) picks that step exactly like a click, the address keeps its
+      // page; else the step chosen last (moverelli.setup.tile), none = every step
+      if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');
       if (!state) await load(false);
       await Office.freshState(ID);      // the form starts from her settings: a fresh look, never a stale one
       if (view !== root || page !== 'setup') return;
@@ -900,9 +1100,12 @@ Office.desk({
       renderSetup();
       return;
     }
+    // her tiles as places: #/moverelli/<tile> picks it exactly like a click (the address is her page's again); the Team
+    // Lead's «Open» for her schedule (#/moverelli/schedule) picks «Schedule» and opens its dialog as before
+    switcher().mount(sub);
     render();
     await load(false);
-    if (sub === 'schedule') { Office.subroute(''); scheduleDialog(); }     // the Team Lead's «Open» for her schedule
+    if (sub === 'schedule') scheduleDialog();
   },
   unmount() { view = null; clearTimeout(outTimer); },
   poll() { if (page === 'main') load(false); },
@@ -929,26 +1132,27 @@ Office.desk({
   },
 });
 
-// what her state holds for the search: the shares, the runs her list shows
+// what her state holds for the search: the shares (#/moverelli/shares), the runs her list shows (#/moverelli/runs)
 Office.placesFrom(ID, (s, part) => {
   if (part) return [];
   const out = [];
-  (s.shares || []).forEach((x) => out.push({ text: x.share, sub: T('shares'), anchor: `share:${x.share}` }));
+  (s.shares || []).forEach((x) => out.push({ text: x.share, sub: T('shares'), route: `#/${ID}/shares`, anchor: `share:${x.share}` }));
   (s.history || []).slice(0, HISTORY_SHOWN).forEach((r) => out.push({ text: `${T('mode.' + r.mode)} · ${fmt.date(r.started)}`,
-    sub: `${T('history')} · ${T('result.' + (r.result || 'failed'))}`, anchor: `run:${r.started}` }));
+    sub: `${T('history')} · ${T('result.' + (r.result || 'failed'))}`, route: `#/${ID}/runs`, anchor: `run:${r.started}` }));
   return out;
 });
 
-// her places for the search (places.json lists the same keys)
+// her places for the search (places.json lists the same keys): each section by the route of its tile (a section stands
+// under the row only while its tile is chosen — or none is), her tiles (place tile.<id>), then the setup's steps and tiles
 const SETUP = { route: '#/moverelli/setup', crumb: 'setup_open' };
-const configured = () => !state || !!state.configured;
 Office.places(ID, [
-  { kind: 'section', key: 'overview', shown: configured },
-  { kind: 'section', key: 'shares' },
-  { kind: 'section', key: 'history' },
+  { kind: 'section', key: 'schedule', route: `#/${ID}/schedule`, shown: configured },
+  { kind: 'section', key: 'shares', route: `#/${ID}/shares` },
+  { kind: 'section', key: 'history', route: `#/${ID}/runs` },
+  ...TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `tile.${id}`, route: `#/${ID}/${id}`, ...(id === 'schedule' ? { shown: configured } : {}) })),
   { kind: 'section', key: 'tools' },
-  ...['setup.global', 'setup.shares'].map((key) => ({ kind: 'step', key, ...SETUP })),
-  { kind: 'section', key: 'import.title', ...SETUP },
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/${ID}/setup/${id}` })),
+  ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...[['list', 'help.list'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run']].map(([key, text]) => ({ kind: 'help', key, text })),
   ...['what', 'rules', 'unraid', 'emby', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['setup.global', 'setup.help_global'], ['setup.files', 'setup.help_files'], ['setup.shares', 'setup.help_shares'], ['setup.save', 'setup.help_save'],
@@ -958,6 +1162,8 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, overview, bubbleText, afterNotice, schedText };
+    importPreview, importDone, importFileText, scheduleDialog, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
+    setForm: (f) => { form = f; }, initForm, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
 })();

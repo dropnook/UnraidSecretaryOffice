@@ -29073,7 +29073,7 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   out.notice = texts(m.afterNotice());
   out.sched = m.schedText(base.schedule);
   out.bubble = m.bubbleText();
-  out.overview = texts(m.overview());
+  out.overview = texts(m.scheduleSection());
   await m.scheduleDialog();
   const box = dialogs[0].body;
   out.options = texts(box);
@@ -29096,7 +29096,7 @@ JS);
     same('moverelli after page: chosen, his EmbyCache without a schedule — the notice and its button; the schedule says «after Jack Emby»; not «no schedule»',
         [['notice.after_idle_off ', 'schedule_title'], 'schedule.after_short', 'bubble.ready'],
         [$o['notice'] ?? null, $o['sched'] ?? null, $o['bubble'] ?? null]);
-    check('moverelli after page: the overview — «after Jack Emby» with «nothing starts me by myself»',
+    check('moverelli after page: the section «Schedule» — «after Jack Emby» with «nothing starts me by myself»',
         in_array('schedule.after_short', $o['overview'] ?? [], true) && in_array('schedule.after_idle_sub', $o['overview'] ?? [], true));
     same('moverelli after page: the dialog — the third choice with its words, chosen, sent as {cron: null, after: emby}',
         [true, true, [[false, false], [false, false], [true, false], [false, false]], ['moverelli.schedule', ['cron' => null, 'after' => 'emby']]],
@@ -29109,6 +29109,133 @@ JS);
     check('moverelli after: Jack\'s page — the line under his schedules, only while she follows (his state\'s moverelli_after)',
         str_contains($js, "if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));")
         && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'), "'moverelli_after' => function_exists('moverelliFollowsJack') && moverelliFollowsJack(),"));
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Moverelli's tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»): under node with a stand-in switcher — her row
+ * «Schedule», «Shares», «Last run» (the schedule only once she is set up), no start tile (the whole page), each tile's
+ * summary and its section; the hints above the row, the versions and the credit under all; the setup's steps as tiles
+ * (rules for all, per share, taking over an earlier install once set up); her places (tiles and sections by their routes).
+ */
+function testMoverelliTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js');
+    check('moverelli tiles: two tabs «Overview» / «Set up», no «← Back», no head button «Set up…»',
+        str_contains($js, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && !str_contains($js, "T('back')")
+        && !str_contains($js, "actions.push(button(T('setup_open')"));
+    check('moverelli tiles: the switchers — her row (moverelli.tile, no start tile) and the setup\'s (moverelli.setup.tile)',
+        str_contains($js, "id: ID,                          // kept as moverelli.tile") && str_contains($js, "default: '',                     // the start: every section")
+        && str_contains($js, "key: 'moverelli.setup.tile',"));
+    check('moverelli tiles: her filter bars never kept (no Office.store of words)', !preg_match("/Office\\.store\\(\\s*'moverelli\\./", $js));
+    $node = testsNode();
+    if ($node === '') {
+        check('moverelli tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('moverelli-tiles');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const n = { tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false,
+  dataset: {}, style: {}, isConnected: true, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, remove() {} };
+  Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
+const specs = [];
+const places = [];
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B', date: (t) => 'D' + t, duration: (s) => s + 's' },
+  desk: () => {}, places: (id, p) => places.push(...p), placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => { n.dataset.place = k; return n; },
+  go: () => {}, sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, fits: (w, hay) => w.every((x) => [].concat(hay).join(' ').toLowerCase().includes(x)),
+  pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b, desks: { get: () => ({ id: 'moverelli' }) },
+  deskHead: (d, o) => ({ head: mk('div', 'deskhead', o.pages ? 'tabs:' + o.pages.list.map((p) => p.id).join(',') + ':' + o.pages.current : 'notabs') }),
+  pageFrom: (list, sub) => (String(sub || '').split('/')[0] === 'setup' ? 'setup' : ''),
+  stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
+  sections: (o) => { specs.push(o); return { el: mk('div', 'sections'), render() {}, mount: () => false, pick() {}, active: () => '' }; },
+  filterBar: (o) => ({ o, el: mk('div', 'filterbar'), words: [], read() { return { words: this.words }; }, done(n, t) { this.doneArgs = [n, t]; }, reset() { this.words = []; } }) };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const tiles = () => m.tileList().map((x) => [x.id, x.key, x.place, x.tile({ on: () => 1, pressed: false }).o]);
+const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, engine: 'V7', job: {}, schedule: { enabled: true, frequency: 'custom', custom: '15 5 * * *' },
+  mover: { off: true, schedule: null, running: false }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, after: { on: false },
+  jack: { busy: false, list: null, uncovered: [] }, settings: { global: { min_age: 30, age_stat: 'ctime', move_when_used_above: 80, files: ['/a.txt'], patterns: ['*.nfo', '# x', ''] }, shares: {} },
+  shares: [{ share: 'Filme', state: 'moves', mode: 'yes', from: 'cache', to: 'array', min_age: 30, age_stat: 'ctime', threshold: 80, excludes: 2, own: false },
+    { share: 'appdata', state: 'none', mode: 'none', use: 'only', primary: 'cache', own: false },
+    { share: 'Docs', state: 'skip', mode: 'yes', from: 'cache', to: 'array', own: true }],
+  last: { mode: 'run', result: 'ok', finished: 900, moved: 2, files: 2, bytes: 5, left: 0, shares: [{ share: 'Filme', moved: 2, files: 2, bytes: 5, left: 0 }] },
+  history: [{ mode: 'run', result: 'ok', by: 'schedule', started: 800, finished: 900, status: { result: 'ok', moved: 2, files: 2, bytes: 5, left: 0 } },
+    { mode: 'dry', result: 'ok', by: 'office', started: 700, finished: 710, status: { result: 'ok', files: 3, bytes: 9 } }] };
+const out = {};
+m.setState(base);
+m.switcher();
+out.spec = [specs[0].id, specs[0].key || '', specs[0].default, specs[0].grid];
+out.tiles = tiles().map(([id, key, place, o]) => [id, key, place, o.label, o.value, o.sub, !!o.alert, typeof o.on]);
+m.setState({ ...base, configured: false });
+out.unset = m.tileList().map((x) => x.id);
+m.setState({ ...base, mover: { off: false, schedule: '40 3 * * *' }, schedule: { enabled: false }, jack: { list: '/j.txt', uncovered: ['Filme'] }, last: null, job: { running: true, mode: 'dry' } });
+out.alerts = tiles().map(([id, , , o]) => [id, o.value, !!o.alert]);
+m.setState(base);
+// the page: hints, the row, the footer — in that order; the sections
+const view = mk('div', 'view');
+m.setView(view, 'main');
+m.bars();
+m.render();
+out.page = view.children.map((c) => c.cls || c.tag);
+out.sections = [texts(m.scheduleSection()), m.shareSection().children.length, texts(m.historySection()).slice(0, 4)];
+const hist = m.historySection();
+out.foot = texts(m.footer());
+// the setup: its head line, the row, the save bar; the step tiles
+const sv = mk('div', 'view');
+m.setView(sv, 'setup');
+m.setForm(null);
+m.renderSetup();
+out.setupPage = sv.children.map((c) => c.cls || c.tag);
+out.setupSpec = [specs[1].id, specs[1].key, specs[1].default, specs[1].wants('shares'), specs[1].wants('nope')];
+out.setupTiles = m.setupTileData().map((d) => [d.id, d.key, d.value, d.sub, d.alert]);
+m.setState({ ...base, configured: false });
+m.setForm(null);
+m.initForm();
+out.setupUnset = m.setupTileData().map((d) => d.id);
+out.places = places.filter((p) => ['tile', 'section', 'step'].includes(p.kind)).map((p) => [p.kind, p.key, p.anchor || '', p.route || '']);
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
+    check('moverelli tiles: it runs', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    same('moverelli tiles: her switcher — kept as moverelli.tile, no start tile (the whole page)', ['moverelli', '', '', 'stats mo-tiles'], $o['spec'] ?? null);
+    same('moverelli tiles: «Schedule» (hers, Unraid\'s mover as its line), «Shares» (moving of all, the rules for all), «Last run» — each a button with its summary', [
+        ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['by_office', 'unraid_schedule: unraid_off'], false, 'function'],
+        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_threshold {"pct":80}'], false, 'function'],
+        ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
+    same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
+    same('moverelli tiles: Unraid\'s schedule on, Jack Emby\'s list missing, a run going — the tiles say so (alert, «running»)',
+        [['schedule', 'not_scheduled', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
+    same('moverelli tiles: her page — the head with tabs, the help, the hints, the row, the footer under all', ['deskhead', 'help', 'mo-mover', 'role mo-hint', 'sections', 'mo-foot'],
+        $o['page'] ?? null);
+    same('moverelli tiles: the sections — «Schedule» (hers with «Change…», Unraid\'s), «Shares» (head, bar, box), «My runs» (the last run\'s result on top)', [
+        ['schedule', 'sched.mine', 'C15 5 * * *', 'by_office', 'sched.change', 'unraid_schedule', 'unraid_off', 'unraid_off_sub'], 3,
+        ['history', 'run_summary {"moved":2,"files":2,"size":"5 B","left":"count.left {\"n\":0}"}', 'share_moved {"share":"Filme","moved":2,"files":"count.files {\"n\":2}","size":"5 B","left":"count.left {\"n\":0}"}', 'show_log']],
+        $o['sections'] ?? null);
+    check('moverelli tiles: the footer — Smart Mover\'s and Unraid\'s versions, the credit to helmi1987',
+        in_array('credit_title', $o['foot'] ?? [], true) && (bool) preg_grep('/^Smart Mover V7/', $o['foot'] ?? []) && (bool) preg_grep('/^Unraid 7\.3\.2/', $o['foot'] ?? []));
+    same('moverelli tiles: the setup page — the head with tabs, the help, its head line, the row of steps, the save bar', ['deskhead', 'help', 'mo-pagehead', 'sections', 'toolbar'],
+        $o['setupPage'] ?? null);
+    same('moverelli tiles: the setup\'s switcher — its routes, kept as moverelli.setup.tile, every step to start, a step\'s route before her state', ['moverelli/setup', 'moverelli.setup.tile', '', true, false],
+        $o['setupSpec'] ?? null);
+    same('moverelli tiles: the setup\'s steps — for all (age, fill, what stays), per share (own rules, left out), taking over (once set up)', [
+        ['global', 'setup.global', 'setup.tile.days {"n":30}', ['rule_threshold {"pct":80}', 'setup.tile.stays {"lists":"count.lists {\"n\":1}","lines":"count.lines {\"n\":1}"}'], false],
+        ['shares', 'setup.shares', '0', ['setup.tile.own {"n":0}', 'setup.tile.skipped {"n":0}'], false],
+        ['import', 'import.title', 'setup.tile.optional', [], false]], $o['setupTiles'] ?? null);
+    same('moverelli tiles: not set up — taking over stands over the row, no tile', ['global', 'shares'], $o['setupUnset'] ?? null);
+    $pl = $o['places'] ?? [];
+    same('moverelli tiles: her places — the sections by their tiles\' routes, the tiles, the setup\'s steps and their tiles', [
+        ['section', 'schedule', '', '#/moverelli/schedule'], ['section', 'shares', '', '#/moverelli/shares'], ['section', 'history', '', '#/moverelli/runs'],
+        ['tile', 'schedule', 'tile.schedule', '#/moverelli/schedule'], ['tile', 'shares', 'tile.shares', '#/moverelli/shares'], ['tile', 'last_run', 'tile.runs', '#/moverelli/runs'],
+        ['section', 'tools', '', ''],
+        ['step', 'setup.global', '', '#/moverelli/setup/global'], ['step', 'setup.shares', '', '#/moverelli/setup/shares'], ['step', 'import.title', '', '#/moverelli/setup/import'],
+        ['tile', 'setup.global', 'setup.tile.global', '#/moverelli/setup/global'], ['tile', 'setup.shares', 'setup.tile.shares', '#/moverelli/setup/shares'],
+        ['tile', 'import.title', 'setup.tile.import', '#/moverelli/setup/import']], $pl);
     hardeningRm($tmp);
 }
 
@@ -30045,6 +30172,7 @@ const SECTIONS_DESKS = [
     'backup' => ['runningCard', 'presetSection'],
     'emby' => ['importSection'],        // Jack Emby's setup: «Take over an earlier install» over the row until he is set up (later its tile)
     'snapshot' => [],
+    'moverelli' => [],
 ];
 
 /**
@@ -30244,7 +30372,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
