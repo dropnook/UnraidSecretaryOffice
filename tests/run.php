@@ -2122,8 +2122,19 @@ function testEmbyMover(): void
     // Mover Tuning is no way for him any more (2026-10-12): only a schedule of its own counts — it would carry his films back
     $tuning = ['file' => 'mover.tuning.cron', 'cron' => '0 5 * * 0'];
     $r = embyMoverRule();
-    same('mover: Mover Tuning with a schedule of its own — no, why, its time (refusal)', [false, null, 'tuning_schedule', 'emby_mover_tuning_schedule', ['schedule' => '0 5 * * 0']],
+    same('mover: Mover Tuning with a schedule of its own — no, why, its time (refusal)', [false, null, 'tuning_schedule', 'emby_mover_tuning_schedule', ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning']],
         [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)?->key, embyMoverProblem($r)?->params]);
+    // another mover found (2026-10-12): his refusal and the Team Lead's point name it, not Mover Tuning
+    $tuning = ['file' => 'User Scripts: nightly', 'cron' => '0 4 * * *', 'name' => 'User Scripts: nightly'];
+    $r = embyMoverRule();
+    same('mover: another scheduled mover — the refusal and the point name it', [['schedule' => '0 4 * * *', 'name' => 'User Scripts: nightly'], ['schedule' => '0 4 * * *', 'name' => 'User Scripts: nightly']],
+        [embyMoverProblem($r)?->params, embyMoverFinding($r)['params']]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/emby/lang/$l.json"), true);
+        check("mover: … its words ($l) say {name}, never Mover Tuning by name", str_contains($lang['errors.emby_mover_tuning_schedule'], '{name}')
+            && !str_contains($lang['errors.emby_mover_tuning_schedule'] . $lang['check.mover_tuning_schedule'] . $lang['check.mover_tuning_schedule_how'], 'Mover Tuning')
+            && str_contains($lang['check.mover_tuning_schedule'], '{name}') && str_contains($lang['check.mover_tuning_schedule_how'], '{name}'));
+    }
     $tuning = null;
     check('mover: no Mover Tuning way left in his code (no list entered, no override, no forced-move look)',
         !preg_match('/embyTuning(Look|Write|Set|Overrides)|filelistv|tuning_list|tuning_force|tuning_override/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby-mover.php')
@@ -2142,7 +2153,7 @@ function testEmbyMover(): void
     $look = ['global' => [$list], 'shares' => []];
     $ids[] = embyMoverFinding(embyMoverRule());
     same('mover: the Team Lead\'s point — what is missing (Unraid\'s schedule, Mover Tuning\'s, Ms. Moverelli not set up), required, whose page',
-        [['mover', false, [], '#/emby'], ['mover_tuning_schedule', false, ['schedule' => '0 5 * * 0'], '#/emby'], ['mover_moverelli_setup', false, [], '#/moverelli/setup'],
+        [['mover', false, [], '#/emby'], ['mover_tuning_schedule', false, ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning'], '#/emby'], ['mover_moverelli_setup', false, [], '#/moverelli/setup'],
          ['mover', true, [], '#/emby']],
         array_map(fn ($f) => [$f['id'], $f['ok'], $f['params'], $f['link']], $ids));
     check('mover: … required', !array_filter($ids, fn ($f) => $f['level'] !== 'required'));
@@ -2524,7 +2535,7 @@ JS);
     same('mover page: her ini without his list — why with his shares and the list, the link to her setup',
         ['err:emby_mover_moverelli_list:{"file":"/x/l.txt","shares":"Filme","schedule":""}', 'mover.to_moverelli'], $o['list']);
     same('mover page: real runs go her way — quiet lines', ['jo-mover', ['mover.ok.disabled', 'mover.ok.moverelli'], true], $o['ok']);
-    same('mover page: Mover Tuning with a schedule of its own — why with its time, no button', [['err:emby_mover_tuning_schedule:{"file":"","shares":"","schedule":"0 5 * * 0"}'], 1], $o['tuning']);
+    same('mover page: Mover Tuning with a schedule of its own — why with its time, no button', [['err:emby_mover_tuning_schedule:{"file":"","shares":"","schedule":"0 5 * * 0","name":"Mover Tuning"}'], 1], $o['tuning']);
     same('mover page: «Switch the mover schedule off…» — the dialog says what it does, «Switch off» sends confirm, a toast, closes',
         ['mover.off_title', ['mover.off_text', 'mover.off_move_now', 'mover.off_back'], ['common.cancel', 'mover.off_go'], true,
          [['emby.mover_off', ['confirm' => true]]], [['mover.off_done', false]]], $o['dialog'] ?? null);
@@ -30259,6 +30270,178 @@ JS);
 }
 
 /**
+ * Ms. Moverelli's fill (2026-10-12, the owner's rule; Smart Mover's «USO «fill»»): the age rule always moves; a pool still
+ * at/above its trigger (move_when_used_above) afterwards gives the rest of the share — never an excluded file — oldest
+ * first by age_stat, whatever its age, the pool re-read after each file (ZFS whole pool, else df: stand-ins that count the
+ * files on the pool), until it is below its target (move_until_used_below); shares on one pool share the target; a dry
+ * run estimates the same; the target must lie below the trigger (Smart Mover and her setup); her page's words under node.
+ */
+function testMoverelliFill(): void
+{
+    $base = hardeningTmp('moverelli-fill');
+    $n = 0;
+    // a tree of its own per case: files [share/name => [days old (mtime), excluded?]], 100 bytes each, the pool $size bytes
+    $tree = function (array $files, string $ini, int $size, bool $zfs = true, array $shares = ['Docs']) use ($base, &$n): array {
+        $t = "$base/" . ++$n;
+        foreach (['mnt/cache', 'mnt/disk1', 'bin', 'shares'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+        foreach ($shares as $s) {
+            @mkdir("$t/mnt/user/$s", 0700, true);
+            @mkdir("$t/mnt/cache/$s", 0700, true);
+            file_put_contents("$t/shares/$s.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+        }
+        $excl = '';
+        foreach ($files as $rel => [$days, $ex]) {
+            file_put_contents("$t/mnt/cache/$rel", str_repeat('x', 100));
+            touch("$t/mnt/cache/$rel", time() - $days * 86400);
+            if ($ex) {
+                $excl .= "$t/mnt/cache/$rel\n";
+            }
+        }
+        file_put_contents("$t/excl.txt", $excl);
+        $count = '$(find "$ZROOT" -type f -printf \'%s\n\' | awk \'{s+=$1} END {print s+0}\')';
+        file_put_contents("$t/bin/zfs", $zfs ? "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\nu=$count; echo \"\$u \$(( ZSIZE - u ))\"\n"
+            : "#!/bin/bash\nexit 1\n");
+        file_put_contents("$t/bin/df", "#!/bin/bash\nu=$count; a=\$(( ZSIZE - u )); echo 'Used Avail Use%'; echo \"\$u \$a \$(( (u * 100 + ZSIZE - 1) / ZSIZE ))%\"\n");
+        file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+        foreach (['zfs', 'df', 'move'] as $b) {
+            chmod("$t/bin/$b", 0755);
+        }
+        file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/excl.txt\n$ini\n");
+        $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+                'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_DF' => "$t/bin/df",
+                'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size];
+        return [$t, $env];
+    };
+    $run = function (array $env, bool $real) {
+        runEnv(array_merge(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $real ? ['--run'] : []), $env, 60);
+        return readJson($env['CUSTOMMOVER_STATUS']) ?? [];
+    };
+    $dryList = fn (string $t) => array_map(fn ($l) => basename(trim(substr($l, strpos($l, ']') + 1))),
+        array_values(array_filter(explode("\n", (string) file_get_contents("$t/log")), fn ($l) => str_starts_with($l, '[DRY-RUN]     '))));
+    $on = fn (string $t, string $where) => array_map('basename', glob("$t/mnt/$where/*/*") ?: []);
+    $sh = fn (array $st, int $i = 0) => array_intersect_key($st['shares'][$i] ?? [], array_flip(['state', 'files', 'moved', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
+    $files = ['Docs/z' => [40, false], 'Docs/y' => [20, false], 'Docs/x' => [10, false], 'Docs/w' => [1, false], 'Docs/e' => [50, true]];
+    $ini = "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=60";
+
+    // 1. the age first (z), then oldest first whatever their age (y, x) until below 60 %; w stays, the excluded e never
+    [$t, $env] = $tree($files, $ini, 500);
+    $st = $run($env, false);
+    same('fill dry: the age step (z), then the oldest of the rest (y, x — not by name) until the estimate is below the target',
+        [['z', 'y', 'x'], ['state' => 'dry', 'files' => 3, 'moved' => 0, 'pool' => 'cache', 'until' => '60', 'pool_used' => '80', 'pool_now' => '40', 'fill' => true, 'reached' => true]],
+        [$dryList($t), $sh($st)]);
+    $st = $run($env, true);
+    $log = (string) file_get_contents("$t/log");
+    same('fill run: the same three move, the pool re-read after each file; w (1 day) and the excluded e stay',
+        [['x', 'y', 'z'], ['e', 'w'], ['state' => 'moved', 'files' => 3, 'moved' => 3, 'pool' => 'cache', 'until' => '60', 'pool_used' => '80', 'pool_now' => '40', 'fill' => true, 'reached' => true]],
+        [$on($t, 'disk1'), $on($t, 'cache'), $sh($st)]);
+    check('fill run: … said in the log (trigger, target, reached, the rest stays)', str_contains($log, 'pool cache 80% (zfs) >= 80% -> target below 60%')
+        && str_contains($log, 'target reached: pool cache at 40% (< 60%) – the rest stays (not handed over: 1)'), $log);
+
+    // 2. age_stat ctime counts (not mtime), and a file younger than min_age moves when needed
+    [$t, $env] = $tree([], "min_age=30\nage_stat=ctime\nmove_when_used_above=70\nmove_until_used_below=60", 400);
+    foreach (['q' => 1, 'p' => 9, 'r' => 30] as $f => $mdays) {        // created q, p, r (ctime) — their mtimes say r, p, q
+        file_put_contents("$t/mnt/cache/Docs/$f", str_repeat('x', 100));
+        touch("$t/mnt/cache/Docs/$f", time() - $mdays * 86400 + 60);
+        usleep(1100000);
+    }
+    $st = $run($env, true);
+    same('fill ctime: none older than 30 days, the pool at 75 % ≥ 70 %: the oldest by ctime (q, a day old by mtime) goes — then 50 % < 60 %',
+        [['q'], ['p', 'r'], 1, true], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['moved'] ?? null, $st['shares'][0]['reached'] ?? null]);
+
+    // 3. the target out of reach: everything not excluded goes, the excluded file never
+    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=10", 500);
+    $st = $run($env, true);
+    check('fill: target out of reach — all but the excluded e moved, not reached, said', $on($t, 'cache') === ['e'] && ($st['shares'][0]['reached'] ?? null) === false
+        && str_contains((string) file_get_contents("$t/log"), 'target not reached: pool cache at 20% after all 3 further files'), json_encode([$on($t, 'cache'), $st]));
+
+    // 4. below the trigger: the age alone
+    [$t, $env] = $tree($files, $ini, 1000);
+    $st = $run($env, true);
+    same('fill: the pool below its trigger (50 %) — the age alone moves (z), nothing younger; no fill, said', [['z'], 40, false],
+        [$on($t, 'disk1'), (int) ($st['shares'][0]['pool_used'] ?? 0), $st['shares'][0]['reached'] ?? null]);
+    check('fill: … «no fill» in the log', str_contains((string) file_get_contents("$t/log"), 'pool cache at 40% (zfs) < 80% – no fill'));
+
+    // 5. two shares on one pool share the target: Docs reaches it, Filme's age step still moves, its fill nothing
+    [$t, $env] = $tree(['Docs/y' => [20, false], 'Filme/f1' => [50, false], 'Filme/f2' => [2, false], 'Docs/k' => [3, true]],
+        "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=70", 500, true, ['Docs', 'Filme']);
+    $dry = $run($env, false);
+    $dryFiles = $dryList($t);
+    $st = $run($env, true);
+    same('fill: shared target — Docs\' fill brings the pool to 60 %; Filme: its age step (f1) moves, its fill nothing (f2 stays); the dry run says the same',
+        [['y', 'f1'], ['k', 'f2'], ['y', 'f1'], [true, false]], [$on($t, 'disk1'), $on($t, 'cache'), $dryFiles, [$st['shares'][0]['reached'] ?? null, $st['shares'][1]['reached'] ?? null]]);
+    check('fill: … Filme says the target was reached with Docs', str_contains((string) file_get_contents("$t/log"), 'target below 70% already reached with Docs, nothing more'));
+
+    // 6. df (not ZFS): the same reading
+    [$t, $env] = $tree($files, $ini, 500, false);
+    $st = $run($env, true);
+    check('fill df: no ZFS — df counts the pool, the same three move', $on($t, 'disk1') === ['x', 'y', 'z'] && ($st['shares'][0]['pool_now'] ?? '') === '40'
+        && str_contains((string) file_get_contents("$t/log"), 'pool cache 80% (df) >= 80%'), (string) @file_get_contents("$t/log"));
+
+    // 7. the target must lie below its trigger (Smart Mover)
+    [$t, $env] = $tree($files, "$ini\n[Docs]\nmove_until_used_below=80", 500);
+    $st = $run($env, true);
+    check('fill: a target not below its trigger skips the share with an error, nothing moved', ($st['shares'][0]['state'] ?? '') === 'error' && $on($t, 'disk1') === []
+        && str_contains((string) file_get_contents("$t/log"), 'move_until_used_below 80% must be below move_when_used_above 80%'));
+
+    // her setup's check and her ini
+    $dir = "$base/her";
+    @mkdir($dir, 0700, true);
+    $err = function (array $in) use ($dir): string { try { moverelliCheck($in, ['Filme'], $dir); return 'ok'; } catch (Problem $p) { return $p->key . ':' . json_encode($p->params); } };
+    $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'move_until_used_below' => null, 'files' => [], 'patterns' => []]];
+    same('fill setup: a trigger needs its target below it — none, not below, a share\'s own trigger under the target for all; fine', [
+        'moverelli_until:{"until":0,"threshold":80,"max":79}', 'moverelli_until:{"until":80,"threshold":80,"max":79}',
+        'moverelli_until_share:{"until":70,"threshold":60,"max":59,"share":"Filme"}', 'ok', 'ok'],
+        [$err(moverelliTestSettings(['move_when_used_above' => 80])), $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 80])),
+         $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70], $share(['move_when_used_above' => 60]))),
+         $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70], $share(['move_when_used_above' => 60, 'move_until_used_below' => 50]))),
+         $err(moverelliTestSettings())]);
+    $text = moverelliIniText(moverelliCheck(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70],
+        $share(['move_when_used_above' => 60, 'move_until_used_below' => 50])), ['Filme'], $dir), $dir);
+    check('fill setup: her ini — the target for all and the share\'s own', str_contains($text, "move_when_used_above=80\nmove_until_used_below=70\n")
+        && str_contains($text, "[Filme]\nmove_when_used_above=60\nmove_until_used_below=50\n"), $text);
+
+    // her page under node: the words, the run card's line, the proposal for an install from before the fill
+    $node = testsNode();
+    if ($node === '') {
+        check('fill page: node is missing here - skipped', true);
+        return;
+    }
+    file_put_contents("$base/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, duration: (s) => s + 's' }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, runRate: () => null, runSteps: () => mk('div', 'steps'), runBar: () => mk('div', 'bar') };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const f = { global: { move_when_used_above: 80, move_until_used_below: 0, min_age: 5, age_stat: 'ctime', move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [] },
+  shares: { Filme: { skip: false, min_age: null, age_stat: null, move_when_used_above: 60, move_until_used_below: null, files: [], patterns: [] },
+    Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, move_until_used_below: null, files: [], patterns: [] } } };
+const was = m.formSettings(f);
+const prop = m.untilProposals(f, [{ share: 'Filme', mode: 'yes' }, { share: 'Docs', mode: 'yes' }]);
+const rows = m.setupChangeRows(was, m.formSettings(f)).map((r) => [r.label, r.what]);
+const p = { plan: ['Docs'], phase: 'share', share: 'Docs', started: 1, shares: [], fill: true, pool: 'master', pool_used: '82', until: '60', pool_now: '75', reached: false };
+console.log(JSON.stringify([m.fillText(80, 70), m.fillText(0, 0), m.fillLine(p), m.fillLine({ ...p, reached: true, pool_now: '59' }), m.fillLine({ ...p, fill: false }),
+  m.runCardData(p, 10).fill, prop, m.untilProposedText(f), rows]));
+JS);
+    [, $out] = run([$node, "$base/t.js", OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true);
+    same('fill page: the words — «from 80 % down to 70 % oldest first», off: «whatever the fill»', ['rule_fill {"pct":80,"until":70}', 'rule_always'], [$j[0] ?? null, $j[1] ?? null]);
+    same('fill page: the run card — «Pool master 82 % → target below 60 % · now 75 %», reached: «Target reached at 59 % — the rest stays», none without the fill',
+        ['rc.fill {"pool":"master","used":"82","until":"60"} · rc.fill_now {"pct":"75"}', 'rc.fill_reached {"pct":"59"}', null, 'rc.fill {"pool":"master","used":"82","until":"60"} · rc.fill_now {"pct":"75"}'],
+        array_slice((array) $j, 2, 4));
+    same('fill page: an install from before the fill — the target proposed 10 below its trigger (for all; Filme\'s own 60 % under 70 %), in the form, listed in the apply dialog',
+        [[['', 70, 80], ['Filme', 50, 60]], [['setup.row_global {"what":"setup.until"}', '– → 70 %'], ['setup.row_share {"share":"Filme"} — setup.until', 'setup.as_global → 50 %']]],
+        [$j[6] ?? null, $j[8] ?? null]);
+    check('fill page: … said over the rules for all', str_starts_with((string) ($j[7] ?? ''), 'setup.until_proposed '), (string) $out);
+}
+
+/**
  * Ms. Moverelli's stops and her run card (2026-10-12): with CUSTOMMOVER_STOP Smart Mover hands Unraid's move binary one
  * file at a time — «Stop after this file»: the next file never starts; «Stop at once» (the stop file with now, the move
  * binary TERMed like Unraid's own «mover stop»): the file in flight stays at its source, the partial copy it left at its
@@ -30366,7 +30549,7 @@ function testMoverelliStop(): void
         str_contains($src, "fn (): int => moverelliKillMove(\$self, \$h['proc'] ?? '/proc'), fn (): bool => embyMoverScheduleOff((\$h['unraid'])()));"));
     $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('smart mover: one file at a time only with CUSTOMMOVER_STOP (the office); without it the share\'s list at once, as upstream',
-        str_contains($sh, "if [[ -n \"\$STOP_FILE\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
+        str_contains($sh, "if [[ -n \"\$STOP_FILE\" || -n \"\$FILL_POOL\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
 
     // her card under node: the steps, the bar by bytes, the file, the time left from two readings, the end on the last share
     $node = testsNode();
@@ -30495,7 +30678,7 @@ function testMoverelliIni(): void
     $dir = "$tmp/data";
     same('moverelli ini: none yet — not configured, the page starts from Smart Mover\'s defaults', [null, MOVERELLI_DEFAULTS['min_age'], 'ctime'],
         [moverelliSettings($dir), moverelliScan($h)['settings']['global']['min_age'], moverelliScan($h)['settings']['global']['age_stat']]);
-    $in = moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'files' => ['/mnt/user/appdata/emby/embycache_exclude.txt'], 'patterns' => ['# metadata', '*.nfo', '']],
+    $in = moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'move_until_used_below' => 70, 'files' => ['/mnt/user/appdata/emby/embycache_exclude.txt'], 'patterns' => ['# metadata', '*.nfo', '']],
         ['Filme' => ['skip' => false, 'min_age' => 14, 'age_stat' => 'mtime', 'move_when_used_above' => null, 'files' => [], 'patterns' => ['/mnt/user/Filme/Kids']],
          'Back' => ['skip' => true, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []],
          'Docs' => ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]]);
@@ -30540,9 +30723,9 @@ function testMoverelliIni(): void
         $s = readJson("$dir/x.json")['shares'][0] ?? [];
         return [$s['state'] ?? null, $s['files'] ?? null];
     };
-    same('moverelli zfs: the threshold measures the whole ZFS pool — 10 % below 80 %: nothing; 90 %: past it (then its age, 30 d, keeps the new file)',
-        [['below_threshold', 0], ['none', 0]], [$docs(100), $docs(900)]);
-    check('moverelli zfs: … said so in the log', str_contains((string) file_get_contents("$dir/x.log"), 'pool cache at 90% (zfs) >= threshold 80%'));
+    same('moverelli zfs: the fill\'s trigger measures the whole ZFS pool — 10 % below 80 %: the age alone (30 d keeps the new file); 90 %: the fill takes it',
+        [['none', 0], ['dry', 1]], [$docs(100), $docs(900)]);
+    check('moverelli zfs: … said so in the log', str_contains((string) file_get_contents("$dir/x.log"), 'pool cache 90% (zfs) >= 80% -> target below 70%'));
     // refused values: nothing written
     $bad = function (array $in) use ($h): string { try { moverelliSave($in, $h); return 'ok'; } catch (Problem $p) { return $p->key . ':' . ($p->params['field'] ?? $p->params['share'] ?? ''); } };
     $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]];
@@ -31124,7 +31307,7 @@ function testMoverelliImport(): void
     // Jack Emby not hired: EmbyCache's list copied (a frozen copy)
     $p = moverelliImportPreview(['folder' => "$old/"], $h)['preview'];
     same('moverelli import: GLOBAL — what is taken, Smart Mover\'s default where the old value was bad or empty', [
-        ['min_age', 30, true], ['age_stat', 'ctime', false], ['move_when_used_above', 0, false], ['move_prefer_shares', false, true],
+        ['min_age', 30, true], ['age_stat', 'ctime', false], ['move_when_used_above', 0, false], ['move_until_used_below', 0, false], ['move_prefer_shares', false, true],
         ['mover_debug', 0, false], ['max_list', 100, true]], array_map(fn ($x) => [$x['key'], $x['value'], $x['old']], $p['global']));
     same('moverelli import: left out — hers, bad values (with why), unknown keys', [
         ['GLOBAL', 'mover_bin', 'hers', null], ['GLOBAL', 'log_file', 'hers', null], ['GLOBAL', 'age_stat', 'bad', 'word'], ['GLOBAL', 'mover_debug', 'bad', 'range'],
@@ -31133,7 +31316,7 @@ function testMoverelliImport(): void
     same('moverelli import: sections skipped — no such share here, a name she can\'t write', [['Gone', 'no_share'], ['bad/name', 'name']],
         array_map(fn ($x) => [$x['section'], $x['why']], $p['skipped']));
     same('moverelli import: the shares with rules of their own (the first min_age counts, as Smart Mover reads it)', [
-        ['Filme', [['min_age', 14]]], ['Docs', [['move_when_used_above', 80]]], ['Back', [['skip', true]]]],
+        ['Filme', [['min_age', 14]]], ['Docs', [['move_when_used_above', 80], ['move_until_used_below', 70]]], ['Back', [['skip', true]]]],     // the fill's target: 10 below
         array_map(fn ($x) => [$x['share'], array_map(fn ($y) => [$y['key'], $y['value']], $x['values'])], $p['shares']));
     $lists = array_column($p['lists'], null, 'scope');
     same('moverelli import: the lists — taken, files copied or not read with why, EmbyCache\'s a frozen copy', [
@@ -31224,7 +31407,7 @@ function testMoverelliImport(): void
     $ini = (string) file_get_contents("$dir/smart_mover.ini");
     same('moverelli import: her ini as her save writes it — her log, no mover_bin, the old values, her own lists', [
         "log_file=$dir/smart_mover.log", 'min_age=30', 'age_stat=ctime', 'move_when_used_above=0', 'move_prefer_shares=no', 'mover_debug=0', 'max_list=100',
-        "global_excludes=$dir/excludes/global.txt", '[Back]', 'skip=yes', '[Docs]', 'move_when_used_above=80', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
+        "global_excludes=$dir/excludes/global.txt", '[Back]', 'skip=yes', '[Docs]', 'move_when_used_above=80', 'move_until_used_below=70', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
         array_values(array_filter(explode("\n", $ini), fn ($l) => $l !== '' && $l[0] !== '#' && $l !== '[GLOBAL]')));
     same('moverelli import: … her lists hold the old content (merged, de-duplicated, comments gone), Arr\'s gone with its rules', [
         "*.nfo\n/mnt/user/Filme/Kids/\n", "/mnt/cache/Filme/A/a.mkv\n*.nfo\n/mnt/user/Filme/Extras\n", false, false],
@@ -31611,7 +31794,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.childre
 const tiles = () => m.tileList().map((x) => [x.id, x.key, x.place, x.tile({ on: () => 1, pressed: false }).o]);
 const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, engine: 'V7', job: {}, schedule: { enabled: true, frequency: 'custom', custom: '15 5 * * *' },
   mover: { off: true, schedule: null, running: false }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, after: { on: false },
-  jack: { busy: false, list: null, uncovered: [] }, settings: { global: { min_age: 30, age_stat: 'ctime', move_when_used_above: 80, files: ['/a.txt'], patterns: ['*.nfo', '# x', ''] }, shares: {} },
+  jack: { busy: false, list: null, uncovered: [] }, settings: { global: { min_age: 30, age_stat: 'ctime', move_when_used_above: 80, move_until_used_below: 70, files: ['/a.txt'], patterns: ['*.nfo', '# x', ''] }, shares: {} },
   shares: [{ share: 'Filme', state: 'moves', mode: 'yes', from: 'cache', to: 'array', min_age: 30, age_stat: 'ctime', threshold: 80, excludes: 2, own: false },
     { share: 'appdata', state: 'none', mode: 'none', use: 'only', primary: 'cache', own: false },
     { share: 'Docs', state: 'skip', mode: 'yes', from: 'cache', to: 'array', own: true }],
@@ -31666,7 +31849,7 @@ JS);
     same('moverelli tiles: her switcher — kept as moverelli.tile, no start tile (the whole page)', ['moverelli', '', '', 'stats mo-tiles'], $o['spec'] ?? null);
     same('moverelli tiles: «Schedule» (hers, Unraid\'s mover as its line), «Shares» (moving of all, the rules for all), «Last run» — each a button with its summary', [
         ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['by_office', 'unraid_schedule: unraid_off'], false, 'function'],
-        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_threshold {"pct":80}'], false, 'function'],
+        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_fill {"pct":80,"until":70}'], false, 'function'],
         ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
     same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
     same('moverelli tiles: «Last run» — a look at the shares\' list is no run: none yet; one after a real run doesn\'t hide it', [['last_run_none', [], null], 'R900'],
@@ -31689,7 +31872,7 @@ JS);
     same('moverelli tiles: the setup\'s switcher — its routes, kept as moverelli.setup.tile, every step to start, a step\'s route before her state', ['moverelli/setup', 'moverelli.setup.tile', '', true, false],
         $o['setupSpec'] ?? null);
     same('moverelli tiles: the setup\'s steps — for all (age, fill, what stays), per share (own rules, left out); no earlier install found: no tile', [
-        ['global', 'setup.global', 'setup.tile.days {"n":30}', ['rule_threshold {"pct":80}', 'setup.tile.stays {"lists":"count.lists {\"n\":1}","lines":"count.lines {\"n\":1}"}'], false],
+        ['global', 'setup.global', 'setup.tile.days {"n":30}', ['rule_fill {"pct":80,"until":70}', 'setup.tile.stays {"lists":"count.lists {\"n\":1}","lines":"count.lines {\"n\":1}"}'], false],
         ['shares', 'setup.shares', '0', ['setup.tile.own {"n":0}', 'setup.tile.skipped {"n":0}'], false]], $o['setupTiles'] ?? null);
     same('moverelli tiles: … one found on the flash — its tile, the folder', ['import', 'setup.tile.found', ['/boot/config/plugins/user.scripts/scripts/mover']], $o['setupFound'][2] ?? null);
     same('moverelli tiles: not set up, nothing found — no import tile', ['global', 'shares'], $o['setupUnset'] ?? null);
@@ -33201,7 +33384,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

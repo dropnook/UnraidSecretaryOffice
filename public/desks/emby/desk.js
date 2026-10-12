@@ -233,7 +233,7 @@ function moverWhy(m) {
   const schedule = m.why === 'tuning_schedule' ? (m.tuning || {}).cron : m.schedule;
   const t = m.tuning || {};
   const name = t.name || 'Mover Tuning';      // the other mover found (an older agent: Mover Tuning)
-  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '', name } }, ID);
+  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '', ...(m.why === 'tuning_schedule' ? { name } : {}) } }, ID);
 }
 
 /**

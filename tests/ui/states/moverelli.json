@@ -12,6 +12,7 @@
    "min_age": 30,
    "age_stat": "ctime",
    "move_when_used_above": 70,
+   "move_until_used_below": 60,
    "move_prefer_shares": true,
    "mover_debug": 0,
    "max_list": 50,
@@ -28,6 +29,7 @@
     "min_age": 14,
     "age_stat": null,
     "move_when_used_above": null,
+    "move_until_used_below": null,
     "files": [],
     "patterns": [
      "Trailers"
@@ -79,6 +81,7 @@
    "min_age": 30,
    "age_stat": "ctime",
    "threshold": 70,
+   "until": 60,
    "excludes": 2
   },
   {
@@ -109,6 +112,7 @@
    "min_age": 14,
    "age_stat": "ctime",
    "threshold": 70,
+   "until": 60,
    "excludes": 3
   }
  ],

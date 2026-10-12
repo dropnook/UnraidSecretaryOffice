@@ -598,7 +598,7 @@ fill_run() {  # share src dest pool threshold target
     (( TOTAL_FILES += ${#FILES[@]}, TOTAL_BYTES += kept )) || true
     if [[ "$FILL_REACHED" == true ]]; then
         SH_REACHED=true; POOL_REACHED[$pool]="$name"
-        log INFO "  target reached: pool $pool at ${SH_POOL_NOW}% (< ${target}%) – the rest ($(( all - ${#FILES[@]} )) files) stays"
+        log INFO "  target reached: pool $pool at ${SH_POOL_NOW}% (< ${target}%) – the rest stays (not handed over: $(( all - ${#FILES[@]} )))"
     elif [[ "$STOPPED" == false ]]; then
         log WARN "  target not reached: pool $pool at ${SH_POOL_NOW:-?}% after all ${#FILES[@]} further files"
     fi

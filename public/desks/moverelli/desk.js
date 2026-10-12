@@ -1118,8 +1118,9 @@ function setupChangeRows(was, now) {
     own(b.patterns).filter((x) => !own(a.patterns).includes(x)).forEach((x) => rows.push({ mark: 'add', label: pre + T('setup.patterns'), what: x }));
     own(a.patterns).filter((x) => !own(b.patterns).includes(x)).forEach((x) => rows.push({ mark: 'gone', label: pre + T('setup.patterns'), what: x }));
   };
+  const gv = (o, k) => (k === 'move_until_used_below' ? Number(o[k]) || 0 : o[k]);     // an older state without it: 0
   SET_KEYS.forEach((k) => {
-    if (String(was.global[k]) !== String(now.global[k])) {
+    if (String(gv(was.global, k)) !== String(gv(now.global, k))) {
       rows.push({ mark: null, label: T('setup.row_global', { what: T(IMPORT_LABEL[k]) }), what: `${setValue(k, was.global[k])} → ${setValue(k, now.global[k])}` });
     }
   });
