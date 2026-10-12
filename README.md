@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-A small office inside your Unraid server's web UI. Each member of staff looks after one part of the server — the
+An office inside your Unraid server's web UI. Each member of staff looks after one part of the server — the
 nightly backup, getting things back, snapshots, security, tidying up, the logs — tells you what they noticed and,
 where it makes sense, lets you act on it. Before anything changes they show you what will happen and ask. Two servers
 with the office can keep each other's backups as partner offices, and the Night Watchman also reads what a UniFi

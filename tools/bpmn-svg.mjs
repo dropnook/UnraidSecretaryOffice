@@ -45,6 +45,9 @@ try {
         return svg;
       }, xml);
       const out = f.replace(/\.bpmn$/, '') + '.svg';
+      // a white ground inside the file: GitHub's dark theme would otherwise show the grey labels on near-black (2026-10-12)
+      svg = svg.replace(/(<svg[^>]*viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"[^>]*>)/, (m0, tag, x, y, w, h) =>
+        `${tag}<rect data-uso-bg="1" x="${x}" y="${y}" width="${w}" height="${h}" fill="#ffffff"/>`);
       fs.writeFileSync(out, svg);
       console.log(`ok    ${out} (${svg.length} bytes)`);
     } catch (e) {
