@@ -98,7 +98,9 @@ function runCardData(p, now) {
       if (plan[plan.length - 1] === p.share) end = now + left;
     }
   }
-  return { steps, at, percent, left, end, rate, fileBytes, fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
+  // the file's own rate too (its .partial growing): said beside it even before the share's bar has two readings
+  const fileRate = fileBytes > 0 && p.file ? Office.runRate(`moverelli|${p.started}|${p.file}`, fileBytes, now) : null;
+  return { steps, at, percent, left, end, rate, fileRate, waking: !!p.waking && !fileBytes, fileBytes, fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
     fill: phase === 'share' ? fillLine(p) : null };
 }
 
@@ -114,12 +116,12 @@ function fillLine(x) {
   return t;
 }
 
-/** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file», «Stop at once…» */
+/** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file» */
 function runCard(p, now) {
   const card = el('div', 'card mo-run running');
   const top = el('div', 'card-head');
   top.append(el('span', 'spin'), el('span', 'card-name', T('rc.title')));
-  if (stopping) top.appendChild(chip(T(stopping === 'user' ? 'stopping' : 'stopping_now'), 'warn'));
+  if (stopping) top.appendChild(chip(T('stopping'), 'warn'));
   card.appendChild(top);
   if (!p) {
     card.appendChild(el('p', 'role', T('rc.waiting')));
@@ -135,38 +137,26 @@ function runCard(p, now) {
     if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
     if (d.file) {
       card.appendChild(el('div', 'card-line mo-run-file', T('rc.file', { file: d.file })
-        + (d.fileSize ? ' · ' + T('rc.file_bytes', { done: fmt.size(d.fileBytes), size: fmt.size(d.fileSize) }) : '')));
+        + (d.fileSize ? ' · ' + T('rc.file_bytes', { done: fmt.size(d.fileBytes), size: fmt.size(d.fileSize) }) : '')
+        + (d.fileRate || d.rate ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate || d.rate) }) : '')));
+      if (d.waking) card.appendChild(el('div', 'card-line', T('rc.waking')));
     }
     if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
   }
-  // the foot as Mr. Backupsy's run card: the counts on the left, «Log» on the right (the run's output, followed); her stops
-  // are in the head where his «Abort» is (stopButtons())
-  const foot = el('div', 'card-foot');
+  // the foot: «N errors, N warnings» on the left (as Mr. Backupsy's card); on the right, in Jack Emby's order and style
+  // (his live panel): «Log» as a quiet link, «Stop after this file» (Unraid's move finishes the file in flight anyway —
+  // there is no harder stop, 2026-10-13)
+  const foot = el('div', 'card-foot mo-run-foot');
   foot.appendChild(el('span', '', T('rc.counts', { errors: nOf('errors', p ? p.errors : 0), warnings: nOf('warnings', p ? p.warnings : 0) })));
-  foot.appendChild(button(T('rc.show_log'), 'small plain', () => showOutput(true)));
+  const right = el('span', 'mo-run-right');
+  const stop = button(T('stop'), 'small plain', async () => { stop.disabled = true; await act('stop'); });
+  stop.disabled = !!stopping || !Office.agent.running;
+  right.append(link(T('rc.show_log'), () => showOutput(true)), stop);
+  foot.appendChild(right);
   card.appendChild(foot);
   return card;
 }
 
-/** While a real run goes: «Stop after this file» and «Stop at once…» in the head — where Mr. Backupsy has his «Abort», his style */
-function stopButtons() {
-  const after = button(T('stop'), 'danger plain', async () => { after.disabled = true; await act('stop'); });
-  after.disabled = !!stopping || !Office.agent.running;
-  const now = button(T('stop_now'), 'danger plain', stopNowDialog);
-  now.disabled = stopping === 'now' || stopping === 'mover' || !Office.agent.running;
-  return [after, now];
-}
-
-/** «Stop at once…»: what it does (the file in flight stays at its source, a partial copy is removed), then moverelli.stop_now */
-function stopNowDialog() {
-  const body = el('div');
-  body.append(el('p', '', T('stop_now_text')), el('p', 'role', T('stop_now_after')));
-  Office.dialog({
-    title: T('stop_now_title'),
-    body,
-    buttons: [{ text: Office.t('common.cancel') }, { text: T('stop_now_go'), kind: 'danger', act: async () => { await act('stop_now', { confirm: true }); return true; } }],
-  });
-}
 async function act(action, data, okText) {
   const j = await Office.api.post(`${ID}.${action}`, data || {});
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return null; }
@@ -414,7 +404,6 @@ function tileList() {
 
 /** The desk's own actions — on both tabs (the other page is the tab, no head button for it) */
 function headActions() {
-  if (realRun()) return stopButtons();
   const actions = [];
   if (state && state.configured) {
     actions.push(button(T('list'), 'plain', () => startRun('list')));
@@ -1019,6 +1008,7 @@ function renderSetup() {
   root.appendChild(ph);
   if (!state) return;
   if (!form) initForm();
+  limitFields.clear();
   // hints over the row (they stay at every click): Jack Emby's list — added for you, or still missing for a share of his
   const jn = jackNotice();
   if (jn) root.appendChild(jn);
@@ -1160,22 +1150,78 @@ function setupChangeRows(was, now) {
   return rows;
 }
 
+/**
+ * What keeps the form from being saved, at once (pure; the same rules as moverelliCheck() and moverelliCakeCheck()):
+ * [{scope: '' | share, text}] — «… bis» missing under a limit or not below it (for all shares and per share, as it holds
+ * for the share), the cake out of reach on a pool (for all shares)
+ */
+function setupProblems(f) {
+  const out = [];
+  const g = f.global;
+  const limits = (scope, th, un) => {
+    th = Number(th) || 0;
+    un = Number(un) || 0;
+    if (th > 0 && !un) out.push({ scope, text: T('setup.err_until_missing', { x: th }) });
+    else if (th > 0 && un >= th) out.push({ scope, text: T('setup.err_until_high', { x: th, y: un }) });
+  };
+  limits('', g.move_when_used_above, g.move_until_used_below);
+  Object.entries(f.shares).forEach(([name, sv]) => {
+    if ((sv.move_when_used_above ?? null) === null && (sv.move_until_used_below ?? null) === null) return;
+    limits(name, sv.move_when_used_above ?? g.move_when_used_above, sv.move_until_used_below ?? g.move_until_used_below);
+  });
+  if (!out.some((p) => p.scope === '') && Number(g.move_when_used_above) > 0) {
+    cakeList().forEach(([pool, c]) => {
+      if (!c) return;
+      const m = cakeMath(c, g.move_when_used_above, g.move_until_used_below, c.mine ? (g.jack_slice_percent ?? null) : null);
+      const nm = Math.floor(m.nmPct);
+      if (m.bad === 'none') out.push({ scope: '', text: T('setup.cake_none', { nm, x: m.x }) });
+      else if (m.bad === 'target') out.push({ scope: '', text: T('setup.cake_target_low', { nm, y: m.y, min: m.min }) });
+      else if (m.bad === 'slice') out.push({ scope: '', text: T('setup.cake_slice_big', { nm, y: m.y, j: fmt.size(m.slice), max: m.maxN }) });
+    });
+  }
+  return out;
+}
+/** The two limit fields per scope ('' = for all shares) as drawn now: [threshold field, until field, error line] */
+const limitFields = new Map();
+function limitPair(scope, thField, unField) {
+  const err = el('p', 'mo-field-err');
+  err.setAttribute('role', 'alert');
+  unField.appendChild(err);
+  limitFields.set(scope, [thField, unField, err]);
+  markLimits();
+}
+/** The fields of every scope with a problem: the error style on both, the reason under «… bis» */
+function markLimits() {
+  if (!form) return;
+  const probs = setupProblems(form);
+  limitFields.forEach(([th, un, err], scope) => {
+    const p = probs.filter((x) => x.scope === scope);
+    [th, un].forEach((f) => { if (f.classList) f.classList.toggle('mo-bad', p.length > 0); });
+    err.textContent = p.map((x) => x.text).join(' ');
+  });
+}
+
 /** The bar's spec (pure): null while nothing differs from what is saved and she is set up; else the count = the dialog's rows */
 function setupBarSpec() {
   if (page !== 'setup' || !state || !form || !saved) return null;
   const n = setupChangeRows(saved, formSettings(form)).length;
   if (!n && state.configured) return null;
+  // a problem in the form: «Apply…» stays off, the bar says why (the fields say it too)
+  const p = setupProblems(form)[0];
+  const why = p ? (p.scope ? `${T('setup.row_share', { share: p.scope })} — ${p.text}` : p.text) : null;
   return {
     title: n ? T('setup.bar_changes', { n }) : T('setup.bar_new'),
-    sub: T(state.configured ? 'setup.bar_sub' : 'setup.bar_sub_new'),
+    sub: why ? T('setup.bar_blocked', { why }) : T(state.configured ? 'setup.bar_sub' : 'setup.bar_sub_new'),
+    blocked: !!why,
     buttons: [
       { text: T('setup.discard'), kind: 'plain', disabled: !n, act: () => { noJack = true; form = null; renderSetup(); } },
-      { text: T('setup.save'), disabled: !Office.agent.running || running(), act: setupApply },
+      { text: T('setup.save'), disabled: !Office.agent.running || running() || !!why, act: setupApply },
     ],
   };
 }
 /** The form changed (or was drawn): the bar anew */
 function setupChanged() {
+  markLimits();
   Office.selbar(setupBarSpec());
 }
 
@@ -1200,6 +1246,10 @@ function setupApply() {
     });
     box.appendChild(ul);
   }
+  // n 0 while Jack is hired: said again (allowed — he gives back what he holds)
+  const mine = cakeList().find(([, c]) => c && c.mine);
+  const zero = jack().hired && mine ? sliceNote(now.global, mine[1]) : null;
+  if (zero && Number(now.global.jack_slice_percent) === 0) box.appendChild(el('p', 'callout warn', zero));
   const off = !mover().off;
   if (off) box.appendChild(consentSection());
   box.appendChild(el('p', 'role', T('setup.help_save')));
@@ -1281,10 +1331,9 @@ function setupGlobal() {
   const s1 = section(T('setup.global'), T('setup.global_sub'), { place: 'setup.global' });
   const f1 = el('div', 'mo-form');
   f1.append(
-    field(T('setup.min_age'), number(g, 'min_age', 0, 3650), T('setup.min_age_hint')),
+    field(T('setup.min_age'), number(g, 'min_age', 0, 3650), T(jack().hired ? 'setup.min_age_hint_jack' : 'setup.min_age_hint')),
     field(T('setup.age_stat'), select(g, 'age_stat', [['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]]), T('setup.age_stat_hint')),
-    field(T('setup.threshold'), number(g, 'move_when_used_above', 0, 100), T('setup.threshold_hint')),
-    field(T('setup.until'), number(g, 'move_until_used_below', 0, 99), T('setup.until_hint')),
+    ...limitsOf('', g, T('setup.threshold_hint'), T('setup.until_hint'), false),
     field(T('setup.debug'), select(g, 'mover_debug', [0, 1, 2, 3].map((n) => [String(n), String(n)])), T('setup.debug_hint')),
     field(T('setup.max_list'), number(g, 'max_list', 1, 100000), T('setup.max_list_hint')),
     check(T('setup.prefer'), g.move_prefer_shares, (on) => { g.move_prefer_shares = on; }, T('setup.prefer_hint')),
@@ -1324,8 +1373,10 @@ function cakeMath(c, x, y, n) {
     else if (y > 0 && y <= pct(nm) + 5) bad = 'target';
     else if (y > 0 && (nm + slice) * 100 >= y * size) bad = 'slice';
   }
-  return { size, used, nm, cake, slice, jack, rest: Math.max(0, cake - slice), fresh: Math.max(0, m - jack), eff,
-    nmPct: pct(nm), effPct: pct(eff), x, y, n: n ?? null, bad, min: Math.floor(pct(nm) + 5) + 1 };
+  // the most she allows Jack: his slice still leaves the target reachable (nm + slice < Y)
+  const maxN = cake > 0 && y > 0 ? Math.max(0, Math.min(100, Math.ceil((y * size / 100 - nm) * 100 / cake) - 1)) : 100;
+  return { size, used, nm, cake, slice, jack, rest: Math.max(0, cake - slice), fresh: Math.max(0, m - jack), over: n === null || n === undefined ? 0 : Math.max(0, jack - slice), eff,
+    nmPct: pct(nm), effPct: pct(eff), x, y, n: n ?? null, bad, min: Math.floor(pct(nm) + 5) + 1, maxN };
 }
 /**
  * «Der Pool als Kuchen»: a bar per pool, the slider for Jack Emby's slice on his pool while he is hired. redraw() draws the
@@ -1340,10 +1391,16 @@ function cakeSection(g) {
   const mine = list.find(([, c]) => c && c.mine);
   box.appendChild(el('div', 'mo-cake-title', T('setup.cake')));
   const sub = hired ? box.appendChild(el('p', 'mo-cake-sub')) : null;
-  if (hired && mine) box.appendChild(sliceField(g, mine[1]));
+  const note = hired && mine ? el('p', 'callout warn mo-slice-note') : null;
+  if (hired && mine) box.append(sliceField(g, mine[1]), note);
   const bars = box.appendChild(el('div', 'mo-cake-bars'));
   box.redraw = () => {
     const x = Number(g.move_when_used_above) || 0;
+    if (note) {
+      const t = sliceNote(g, mine[1]);
+      note.textContent = t || '';
+      note.hidden = !t;
+    }
     if (sub) sub.textContent = T('setup.cake_sub', { x, y: Number(g.move_until_used_below) || 0, n: g.jack_slice_percent ?? 0 });
     bars.innerHTML = '';
     if (!(x > 0)) { bars.appendChild(el('p', 'role', T('setup.cake_off'))); return; }
@@ -1351,6 +1408,18 @@ function cakeSection(g) {
   };
   box.redraw();
   return box;
+}
+/**
+ * Under the slider, at once (pure): n 0 while he holds something — he gets no room and gives back what he has (allowed,
+ * asked); too far right — the target out of reach, at most n % (refused: «Apply…» off). '' / null: nothing to say.
+ */
+function sliceNote(g, c) {
+  const n = g.jack_slice_percent;
+  if (n === null || n === undefined || !(Number(g.move_when_used_above) > 0)) return null;
+  const m = cakeMath(c, g.move_when_used_above, g.move_until_used_below, n);
+  if (m.bad === 'slice') return T('setup.cake_slice_big', { nm: Math.floor(m.nmPct), y: m.y, j: fmt.size(m.slice), max: m.maxN });
+  if (Number(n) === 0) return T('setup.slice_zero', { used: fmt.size(m.jack) });
+  return null;
 }
 /** «Jack darf n % vom Kuchen»: the slider (its label says the value), the proposal from what he holds today while none is set */
 function sliceField(g, c) {
@@ -1396,6 +1465,7 @@ function cakeBar(pool, c, g) {
   bar.appendChild(seg('mo-cake-nm', m.nm));
   if (m.bad !== 'none') {
     if (m.n !== null) bar.appendChild(seg('mo-cake-slice', m.slice, m.jack, m.slice));
+    if (m.over > 0) bar.appendChild(seg('mo-cake-over', m.over));        // what he holds over his slice: he gives it back
     bar.appendChild(seg('mo-cake-new', m.rest, m.fresh, m.rest));
   }
   const tick = (cls, pct) => { const t = el('i', 'mo-cake-tick ' + cls); t.style.left = `${Math.max(0, Math.min(100, pct))}%`; bar.appendChild(t); };
@@ -1407,6 +1477,7 @@ function cakeBar(pool, c, g) {
   const key = (cls, text) => { const k = el('span', 'mo-key'); k.append(el('i', 'mo-swatch ' + cls), document.createTextNode(text)); legend.appendChild(k); };
   key('mo-cake-nm', T('setup.cake_nm'));
   if (m.n !== null && m.bad !== 'none') key('mo-cake-slice', T('setup.cake_slice'));
+  if (m.over > 0 && m.bad !== 'none') key('mo-cake-over', T('setup.cake_over'));
   if (m.bad !== 'none') key('mo-cake-new', T('setup.cake_new'));
   key('mo-cake-free', T('setup.cake_free'));
   box.appendChild(legend);
@@ -1426,7 +1497,7 @@ function cakeBar(pool, c, g) {
   const nmPct = Math.floor(m.nmPct);
   if (m.bad === 'none') box.appendChild(el('p', 'callout warn', T('setup.cake_none', { nm: nmPct, x: m.x })));
   else if (m.bad === 'target') box.appendChild(el('p', 'callout warn', T('setup.cake_target_low', { nm: nmPct, y: m.y, min: m.min })));
-  else if (m.bad === 'slice') box.appendChild(el('p', 'callout warn', T('setup.cake_slice_big', { nm: nmPct, y: m.y, j: fmt.size(m.slice) })));
+  else if (m.bad === 'slice' && !(c.mine && jack().hired)) box.appendChild(el('p', 'callout warn', T('setup.cake_slice_big', { nm: nmPct, y: m.y, j: fmt.size(m.slice), max: m.maxN })));
   return box;
 }
 /** Her bubble while a bound holds on a pool (the cake as she last looked): the overflow first, then nothing to gain, then the target out of reach */
@@ -1436,6 +1507,14 @@ function cakeBubble() {
   if (!hit) return null;
   const [pool, c] = hit;
   return T('notify.cake_' + c.case, { pool, nm: Math.floor(c.nm_pct), x: c.x, y: c.y, used: Math.floor(c.used_pct) });
+}
+
+/** «Höchstens so voll» and «… bis» for a scope, registered for the immediate check (markLimits()) */
+function limitsOf(scope, obj, thHint, unHint, optional) {
+  const th = field(T('setup.threshold'), number(obj, 'move_when_used_above', 0, 100, optional), thHint);
+  const un = field(T('setup.until'), number(obj, 'move_until_used_below', 0, 99, optional), unHint);
+  limitPair(scope, th, un);
+  return [th, un];
 }
 
 /** 2. per share: a fold each (the bar's words: name, where its files go) */
@@ -1471,8 +1550,7 @@ function fillSetupShares(box) {
         field(T('setup.min_age'), number(sv, 'min_age', 0, 3650, true), x.mode === 'prefer' ? T('setup.min_age_prefer') : ''),
         field(T('setup.age_stat'), select(sv, 'age_stat', [['', T('setup.as_global')], ['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]])));
       if (x.mode === 'yes') {
-        f.append(field(T('setup.threshold'), number(sv, 'move_when_used_above', 0, 100, true)),
-          field(T('setup.until'), number(sv, 'move_until_used_below', 0, 99, true)));
+        f.append(...limitsOf(x.share, sv, '', '', true));
       }
       det.append(f, excludeFields(sv, x.share));
     }
@@ -1792,8 +1870,8 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, stopButtons, headActions, fillText, fillLine, untilProposals, untilProposedText, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, untilProposals, untilProposedText, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
-    setForm: (f) => { form = f; }, initForm, cakeMath, cakeSection, cakeBar, cakeBubble, sliceField, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
+    setForm: (f) => { form = f; }, initForm, cakeMath, cakeSection, cakeBar, cakeBubble, sliceField, sliceNote, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
 })();

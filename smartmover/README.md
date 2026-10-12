@@ -34,10 +34,8 @@
 >   a real run hands Unraid's move binary one file per call instead of the share's whole list — the move binary reads
 >   its stdin line by line and moves as it reads, but only one call per file lets the office know when a file is done.
 >   The stop file is looked at before each file: the file in flight always finishes, no further one starts («Stop after
->   this file»). `{"now":true}` in the stop file (an immediate stop: the office TERMs the move binary like Unraid's own
->   `mover stop`) leaves the file in flight at its source and removes the partial copy it may have left at its
->   destination — only that file, only while its source is still there, the path strictly below the share on the target
->   pool or an awake array disk, written since this file's move started and not bigger than the source; never a folder.
+>   this file»). There is no harder stop: Unraid's move catches TERM and finishes the file in flight anyway (seen
+>   2026-10-13), so the office never signals it.
 >   While the run goes, `CUSTOMMOVER_STATUS` says how far it is (result `running`: the shares it will look at, the phase,
 >   the share and file in flight, files and bytes done); the final status names the last file (`stop_file`). Without
 >   `CUSTOMMOVER_STOP` the script behaves as upstream (the whole list at once).
@@ -52,10 +50,11 @@
 >   nothing (said in the log). A dry run estimates the step from the files' sizes. Not with `--force`/`--force-all`.
 >   `CUSTOMMOVER_DF` points `df` at a stand-in for the tests (like `CUSTOMMOVER_ZFS`). The office's setup requires Y
 >   once X is set; an old ini with X and no Y gets Y = X − 10 proposed (her setup) or set (her import).
-> * Stops and counts (2026-10-12, seen live): Unraid's move writes `<dest>/<rel>.partial` and renames it at the end —
->   an immediate stop removes only that `.partial` of the file in flight (never a file under the final name), on awake
->   disks/pools only; after a stop the files of the share not started count as `left`; the live status carries
->   `errors` and `warnings` (WARN lines) for the run card.
+> * Leftovers and counts (2026-10-12/13, seen live): Unraid's move writes `<dest>/<share>/<rel>.partial` and renames it
+>   at the end. Before a real run moves a share's files, a leftover `.partial` (a power cut, a crash) on the share's awake
+>   destinations is removed — only while its source `<src>/<rel>` still exists, only that exact name, never a file under
+>   its final name (`office_partial_leftovers`). After a stop the files of the share not started count as `left`; the
+>   live status carries `errors` and `warnings` (WARN lines) for the run card.
 > * **The cake** (2026-10-12, Ms. Moverelli's pool budget for Jack Emby's EmbyCache; marked «USO «cake»»; each variable a
 >   comma list, unset: as before). `CUSTOMMOVER_POOL_OFFSET_BYTES=<pool>:<bytes>` is added to the pool's used bytes in
 >   every reading of `pool_used_pct()` (may be negative: Jack's slice minus what his list holds — his slice counts as

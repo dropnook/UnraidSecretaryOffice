@@ -40,9 +40,8 @@
 #   CUSTOMMOVER_STATUS        JSON file written when the script ends: mode, result, exit code,
 #                             totals and per share what was found, moved and left
 #   CUSTOMMOVER_STOP          a file: once it exists, no further file is started (exit 3) — with it set, a real run
-#                             hands the move binary one file at a time (the office block «one file at a time»); its
-#                             content {"now":true} (an immediate stop: the agent TERMs the move binary) removes the
-#                             partial copy the file in flight left at its destination
+#                             hands the move binary one file at a time (the office block «one file at a time») and,
+#                             before a share's files, removes leftover <rel>.partial copies whose source still exists
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
 #   CUSTOMMOVER_DISKS_INI     emhttpd's disks.ini: on a real run a share that reaches the array names its
@@ -411,48 +410,40 @@ TOTAL_FILES=0; TOTAL_BYTES=0; TOTAL_MOVED=0; TOTAL_LEFT=0
 # ------------------------------------------------------------------ office: one file at a time
 # With CUSTOMMOVER_STOP set (the office), a real run hands the move binary one file at a time: before each file the
 # stop request is looked at — set, no further file starts and the file in flight has finished («stop after this file»).
-# An immediate stop ({"now":true} in the stop file; the agent TERMs the move binary like Unraid's own «mover stop»):
-# the file in flight stays at its source, and the partial copy it may have left at its destination is removed
-# (office_partial_cleanup). Without CUSTOMMOVER_STOP the share's list goes to the move binary at once, as upstream.
-office_stop_now() { [[ -n "$STOP_FILE" && -e "$STOP_FILE" ]] && grep -q '"now":true' "$STOP_FILE" 2>/dev/null; }
+# There is no harder stop: Unraid's move catches TERM and finishes the file in flight anyway (seen 2026-10-13).
+# Without CUSTOMMOVER_STOP the share's list goes to the move binary at once, as upstream.
 
 office_disk_awake() {  # disk — not spun down in emhttpd's disks.ini (no ini: counted as awake)
     [[ -n "$DISKS_INI" && -r "$DISKS_INI" ]] || return 0
     awk -v d="$1" '/^\[/ { s = $0; gsub(/[\["\]]/, "", s); next } s == d && $0 == "spundown=\"1\"" { found = 1 } END { exit found ? 1 : 0 }' "$DISKS_INI"
 }
 
-# The partial copy an immediate stop left: only for the file in flight, only while its source is still there; the
-# destination path strictly from the source's path below the share (the target pool, or an awake array disk), a plain
-# file, written since this file's move started (mtime) and not bigger than the source — never a directory, never
-# anything older (a file that was there before is the move binary's «skip», not ours)
-office_partial_cleanup() {  # share src file started dest(array|<pool>)
-    local share="$1" src="$2" f="$3" t0="$4" dest="$5" rel ssize cand d dsize dmt
-    if [[ ! -e "$f" ]]; then log INFO "  stopped at once: $f is no longer at its source – nothing removed"; return 0; fi
-    rel="${f#"$src"/}"
-    [[ "$rel" != "$f" && -n "$rel" && "$rel" != *"/../"* && "$rel" != "../"* ]] || return 0
-    ssize=$(stat -c %s -- "$f" 2>/dev/null) || return 0
+# office: before a real run moves a share's files — Unraid's move writes <dest>/<share>/<rel>.partial and renames it at
+# the end (seen 2026-10-12); one left behind (a power cut, a crash) is removed, but only while its source <src>/<rel>
+# still exists, only on the share's awake destinations (an awake array disk, or the target pool), only a plain file
+# named exactly so — never a file under its final name
+office_partial_leftovers() {  # share src dest(array|<pool>)
+    local share="$1" src="$2" dest="$3" d p rel
     local -a roots=()
     if [[ "$dest" == array ]]; then
-        for d in "$MNT"/disk[0-9]*; do [[ -d "$d" ]] && office_disk_awake "$(basename "$d")" && roots+=("$d"); done
+        for d in "$MNT"/disk[0-9]*; do [[ -d "$d/$share" ]] && office_disk_awake "$(basename "$d")" && roots+=("$d"); done
     else
-        office_disk_awake "$dest" && roots+=("$MNT/$dest")
+        [[ -d "$MNT/$dest/$share" ]] && office_disk_awake "$dest" && roots+=("$MNT/$dest")
     fi
     for d in "${roots[@]}"; do
-        # Unraid's move writes to <dest>/<rel>.partial and renames it at the end (seen 2026-10-12): only that name is
-        # ours — a file under the final name was there before (the move binary's «skip») or is a finished copy
-        cand="$d/$share/$rel.partial"
-        [[ -f "$cand" && ! -L "$cand" ]] || continue
-        dsize=$(stat -c %s -- "$cand" 2>/dev/null) || continue
-        dmt=$(stat -c %Y -- "$cand" 2>/dev/null) || continue
-        if (( dsize <= ssize && dmt >= t0 - 1 )); then
-            rm -f -- "$cand" && log WARN "  stopped at once: removed the partial copy $cand – the file stays at $f"
-        fi
+        while IFS= read -r -d '' p; do
+            rel="${p#"$d/$share"/}"; rel="${rel%.partial}"
+            [[ -n "$rel" && "$rel" != *"/../"* && "$rel" != "../"* ]] || continue
+            [[ -e "$src/$rel" && ! -L "$p" ]] || continue
+            rm -f -- "$p" && log WARN "  removed a leftover partial copy $p – its file is still at $src/$rel"
+        done < <(find "$d/$share" -xdev -type f -name '*.partial' -print0 2>/dev/null)
     done
+    return 0
 }
 
-# The share's files to the move binary one by one; OFFICE_RC the last non-zero exit (an immediate stop's TERM excepted)
+# The share's files to the move binary one by one; OFFICE_RC the last non-zero exit
 office_move_files() {  # share src dest out
-    local share="$1" src="$2" dest="$3" out="$4" f t0 r size
+    local share="$1" src="$2" dest="$3" out="$4" f r size
     OFFICE_RC=0; OFFICE_TRIED=0
     for f in "${FILES[@]}"; do
         if [[ -e "$STOP_FILE" ]]; then
@@ -463,15 +454,8 @@ office_move_files() {  # share src dest out
         CUR_FILE="$f"; office_progress
         (( OFFICE_TRIED++ )) || true
         size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
-        t0=$(date +%s)
         printf '%s\n' "$f" | "${MOVER_CMD[@]}" >>"$out" 2>&1
         r=$?
-        if office_stop_now; then
-            office_partial_cleanup "$share" "$src" "$f" "$t0" "$dest"
-            STOPPED=true; STOP_SHARE="$share"; LAST_FILE="$f"
-            log WARN "stopped at once during $f – it stays at its source"
-            break
-        fi
         (( r != 0 )) && OFFICE_RC=$r
         LAST_FILE="$f"
         if [[ ! -e "$f" && ! -L "$f" ]]; then
@@ -796,6 +780,7 @@ process_share() {  # name mode pool pool2
     (( count > 0 )) && bytes=$(printf '%s\0' "${FILES[@]}" | xargs -0 stat -c %s 2>/dev/null | awk '{s+=$1} END {print s+0}')
     (( TOTAL_FILES += count, TOTAL_BYTES += bytes )) || true
     SH_FILES=$count; SH_BYTES=$bytes
+    office_progress      # office: the share's counts on the card at once, before the first file (its disk may still wake)
     if (( count == 0 )) && [[ "$fill" == false ]]; then SH_STATE=none; log INFO "  no files match"; return 0; fi
     (( count == 0 )) && log INFO "  no files older than the age"
     local -A AGED=()
@@ -818,6 +803,7 @@ process_share() {  # name mode pool pool2
     local dest
     if [[ "$mode" == "yes" ]]; then dest="${pool2:-array}"; else dest="$pool"; fi
     SH_STATE=moved; SH_DONE_FILES=0; SH_DONE_BYTES=0
+    [[ -n "$STOP_FILE" ]] && office_partial_leftovers "$name" "$src" "$dest"
     if (( count > 0 )); then
         log INFO "  moving $count files ($(human "$bytes")) via $MOVER_BIN"
         move_batch "$name" "$src" "$dest"

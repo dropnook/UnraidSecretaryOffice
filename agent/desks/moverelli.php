@@ -70,8 +70,6 @@ desk('moverelli', [
         'save'      => fn (array $r) => moverelliSave($r['settings'] ?? null, null, null, moverelliConsent($r)),
         'start_run' => fn (array $r) => moverelliStart(textField($r, 'mode')),
         'stop'      => fn (array $r) => ['ok' => true, 'asked' => moverelliStopAsk(), 'state' => moverelliScan()],
-        // «Stop at once…» (after a confirm on her page): the stop file with now, the move binary TERMed like Unraid's own «mover stop»
-        'stop_now'  => fn (array $r) => moverelliStopNow($r) + ['state' => moverelliScan()],
         // her run card's poll (desk.json part «progress», every few seconds while a real run goes)
         'progress'  => fn (array $r) => ['ok' => true, 'state' => moverelliProgressState()],
         // her schedule: a time (a cron line), «right after Jack Emby» ({cron: null, after: "emby"}) or off — one of them
@@ -108,7 +106,6 @@ function moverelliHost(): array
         'version'       => $h['version'] ?? fn (): string => reportUnraidVersion(),
         'unraid'        => $h['unraid'] ?? fn (): array => embyMoverOwn(embyMoverHost()),
         'mover_running' => $h['mover_running'] ?? fn (?int $self = null): bool => embyMoverRunning(null, $self),
-        'proc'          => $h['proc'] ?? '/proc',      // where her immediate stop finds the move binary (moverelliKillMove())
         'jack_busy'     => $h['jack_busy'] ?? fn (): bool => embyAnyRunning(),
         'emby'          => $h['emby'] ?? fn (): ?array => moverelliJackLists(),
         'scheduled'     => $h['scheduled'] ?? fn (): bool => officeJobSchedule('moverelli', $h['cron_file'] ?? OFFICE_CRON)['enabled'],
@@ -1121,70 +1118,6 @@ function moverelliStopAsk(?array $h = null): bool
     return true;
 }
 
-/**
- * The move binary below her run's job (comm `move`, under $root) and everything below it, TERMed children first — like
- * Unraid's own `mover stop` (killtree in /usr/local/sbin/mover). Smart Mover itself lives on: it sees the stop file,
- * removes the partial copy and ends «stopped». Returns how many processes were sent TERM. $kill: the tests' stand-in.
- */
-function moverelliKillMove(int $root, string $proc = '/proc', ?callable $kill = null): int
-{
-    $kill ??= fn (int $pid): bool => function_exists('posix_kill') ? posix_kill($pid, 15) : run(['kill', '-TERM', (string) $pid], 5)[0] === 0;
-    $parent = [];
-    foreach (glob("$proc/[0-9]*", GLOB_ONLYDIR | GLOB_NOSORT) ?: [] as $d) {
-        $stat = (string) @file_get_contents("$d/stat", false, null, 0, 1024);
-        if (preg_match('/\)\s+\S\s+(\d+)/', $stat, $m)) {
-            $parent[(int) basename($d)] = (int) $m[1];
-        }
-    }
-    $under = function (int $pid, int $top) use ($parent): bool {
-        for ($i = 0; $i < 64 && $pid > 1; $i++) {
-            if ($pid === $top) {
-                return true;
-            }
-            $pid = $parent[$pid] ?? 0;
-        }
-        return false;
-    };
-    $sent = 0;
-    $tree = function (int $pid) use (&$tree, $parent, $kill, &$sent): void {
-        foreach ($parent as $child => $pp) {
-            if ($pp === $pid) {
-                $tree($child);
-            }
-        }
-        if ($kill($pid)) {
-            $sent++;
-        }
-    };
-    foreach (array_keys($parent) as $pid) {
-        if ($pid !== $root && $under($pid, $root) && trim((string) @file_get_contents("$proc/$pid/comm", false, null, 0, 64)) === 'move') {
-            $tree($pid);
-        }
-    }
-    return $sent;
-}
-
-/**
- * moverelli.stop_now {confirm: true} — «Stop at once»: only while a real run goes. The stop file with `now` (why `now`,
- * over a «stop after this file» asked before), then the move binary TERMed (moverelliKillMove()): the file in flight stays
- * at its source, Smart Mover removes the partial copy it may have left (office_partial_cleanup) and ends «stopped».
- */
-function moverelliStopNow(array $r, ?array $h = null, ?callable $kill = null): array
-{
-    if (($r['confirm'] ?? null) !== true) {
-        throw new Problem('bad_request');
-    }
-    $h ??= moverelliHost();
-    $job = moverelliJobInfo($h['dir']);
-    if (!$job['running'] || ($job['mode'] ?? '') !== 'run') {
-        throw new Problem('moverelli_stop_none');
-    }
-    writeAtomic("$h[dir]/office-stop.json", jsonEncode(['time' => time(), 'why' => 'now', 'now' => true]), 0600, 0, 0);
-    $sent = moverelliKillMove((int) $job['pid'], '/proc', $kill);
-    logLine("Ms. Moverelli: stopped at once from her page — the move binary sent TERM ($sent processes); the file in flight stays at its source");
-    return ['ok' => true, 'sent' => $sent];
-}
-
 /** Her run card's poll: {time, running, real, stopping: why of the stop file or null, progress: Smart Mover's live status or null} */
 function moverelliProgressState(?array $h = null): array
 {
@@ -1206,7 +1139,8 @@ function moverelliProgressState(?array $h = null): array
  * writes to <dest>/<share>/<rel>.partial, renamed at the end — what of it is written is that file's ALLOCATED size
  * (st_blocks · 512: its apparent size may be preallocated to the whole). Looked for only where the share's files go
  * (its secondary pool, else the array disks) and only on awake ones (the target is awake while written); the path
- * strictly from the source's below the share. {file_bytes, file_size} (0 / null when none is found).
+ * strictly from the source's below the share. {file_bytes, file_size (the file's own), waking (no .partial yet, a
+ * destination still asleep: the move waits for its disk)} (0 / null when none is found).
  */
 function moverelliInFlight(array $p, array $h): array
 {
@@ -1224,7 +1158,8 @@ function moverelliInFlight(array $p, array $h): array
     $pool = (string) ($cfg['shareCachePool'] ?? '') ?: 'cache';
     $second = (string) ($cfg['shareCachePool2'] ?? '');
     $dests = $use === 'prefer' ? [$pool] : ($second !== '' ? [$second] : array_map('basename', glob("$mnt/disk[0-9]*", GLOB_ONLYDIR) ?: []));
-    $awake = poolsBySleep($dests, $h['asleep'])['awake'];
+    $sleep = poolsBySleep($dests, $h['asleep']);
+    $awake = $sleep['awake'];
     clearstatcache();
     $src = @stat($file);
     foreach ($awake as $d) {
@@ -1236,20 +1171,21 @@ function moverelliInFlight(array $p, array $h): array
             return ['file_bytes' => $size !== null ? min($done, $size) : $done, 'file_size' => $size];
         }
     }
-    return ['file_bytes' => 0, 'file_size' => $src !== false ? (int) $src['size'] : null];
+    // no .partial yet and a destination still asleep: Unraid's move waits for the disk to spin up
+    return ['file_bytes' => 0, 'file_size' => $src !== false ? (int) $src['size'] : null, 'waking' => (bool) $sleep['asleep']];
 }
 
 /**
  * While a real run goes: is Unraid's mover at work (not counting the move binary below this job)? every $every s —
- * then she ALWAYS stops at once (the owner's decision, 2026-10-12: two movers never on the same file): the stop file
- * {why: mover, now: true, by: hand|schedule — Unraid's own schedule off: started by hand}, then $killNow (the move
- * binary TERMed); Smart Mover removes the partial copy and ends «stopped». A stop file it didn't write (her page) is
- * read each look: its why (user, now). Returns the exit code, why it stopped and, for the mover, by what.
+ * then she stops after the file in flight (2026-10-13: Unraid's move catches TERM and finishes its file anyway, so there
+ * is no harder stop): the stop file {why: mover, by: hand|schedule — Unraid's own schedule off: started by hand}; Smart
+ * Mover starts no further file and ends «stopped». A stop file it didn't write (her page) is read each look: its why
+ * (user). Returns the exit code, why it stopped and, for the mover, by what.
  *
  * @param resource $proc
  * @return array{exit: int, why: ?string, by: ?string}
  */
-function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every = EMBY_MOVER_LOOK, ?callable $killNow = null, ?callable $byHand = null): array
+function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every = EMBY_MOVER_LOOK, ?callable $byHand = null): array
 {
     $why = null;
     $by = null;
@@ -1281,9 +1217,9 @@ function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every 
             if ($on) {
                 $why = 'mover';
                 $by = $byHand === null || ($byHand)() ? 'hand' : 'schedule';
-                writeAtomic($stopFile, jsonEncode(['time' => time(), 'why' => 'mover', 'now' => true, 'by' => $by]), 0600, 0, 0);
-                $sent = $killNow !== null ? (int) ($killNow)() : 0;
-                logLine("Ms. Moverelli: Unraid's mover started ($by) — stopped at once, the move binary sent TERM ($sent processes); she cleans up and ends");
+                // after the file in flight (2026-10-13): Unraid's move catches TERM and finishes the file anyway — no harder stop
+                writeAtomic($stopFile, jsonEncode(['time' => time(), 'why' => 'mover', 'by' => $by]), 0600, 0, 0);
+                logLine("Ms. Moverelli: Unraid's mover started ($by) — she stops after the file in flight");
             }
         }
         usleep(200000);
@@ -1416,7 +1352,7 @@ function moverelliJob(array $args, ?array $h = null): int
     } elseif ($real) {
         $self = getmypid();
         ['exit' => $exit, 'why' => $why, 'by' => $moverBy] = moverelliRunWatch($proc, "$dir/office-stop.json", fn (): bool => ($h['mover_running'])($self), (int) $h['look_every'],
-            fn (): int => moverelliKillMove($self, $h['proc'] ?? '/proc'), fn (): bool => embyMoverScheduleOff(($h['unraid'])()));
+            fn (): bool => embyMoverScheduleOff(($h['unraid'])()));
     } else {
         $exit = proc_close($proc);
     }

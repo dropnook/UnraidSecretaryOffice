@@ -66,6 +66,7 @@
   "time.days_hours": "{d} T {h} Std.",
   "time.hours_minutes": "{h} Std. {m} Min.",
   "time.minutes": "{m} Min.",
+  "time.seconds": "{s} s",
   "cron.every_minutes": {
     "one": "jede Minute",
     "other": "alle {n} Minuten"

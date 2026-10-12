@@ -216,6 +216,7 @@ Office.fmt = {
     const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
     if (d) return t('time.days_hours', { d, h });
     if (h) return t('time.hours_minutes', { h, m });
+    if (!m && s > 0) return t('time.seconds', { s });     // under a minute: «40 s», never «0 min» (2026-10-13)
     return t('time.minutes', { m });
   },
   /** Common cron patterns in words, everything else as it is */
