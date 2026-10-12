@@ -652,6 +652,20 @@ function backupLogs(): array
     return $logs;
 }
 
+/** The newest run in history.jsonl that checked the repository: its word («yes» / «no»), null when none did */
+function backupKopiaLastWord(string $file): ?string
+{
+    $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    foreach (array_reverse(array_slice($lines, -60)) as $line) {
+        $j = json_decode($line, true);
+        $state = is_array($j) ? ($j['kopia']['state'] ?? null) : null;
+        if (in_array($state, ['yes', 'no'], true)) {
+            return $state;
+        }
+    }
+    return null;
+}
+
 /**
  * Finished backup runs, newest first: from history.jsonl, and for runs of
  * older versions (or before 2.5) read from their logs. Runs skipped because
@@ -2037,6 +2051,11 @@ function backupChecks(): array
             // an array stop at its start; older engines said "no"), a --no-kopia run ("skip") says nothing
             $status = readJson("$data/state/status.json");
             $state = $status['kopia']['state'] ?? null;
+            if (!in_array($state, ['yes', 'no'], true)) {
+                // the last run said nothing about it (a check, a --no-kopia run): the newest run that did counts — a
+                // night that uploaded 32 sources is not «couldn't check» because a check or a --no-kopia run came since
+                $state = backupKopiaLastWord("$data/state/history.jsonl");
+            }
             $out[] = finding('kopia_repo', 'required', in_array($state, ['yes', 'no'], true) ? $state === 'yes' : null, ['name' => $name]);
         }
     }
