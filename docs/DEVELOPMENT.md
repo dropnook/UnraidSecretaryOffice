@@ -279,6 +279,9 @@ A new tile or list, checked off:
   `bash tools/ui-tiles.sh --only <desk>` makes the before/after pictures (1440 and 390) to look at;
   `php tests/run.php testTilesConvention` reads every desk for the rules above (a desk on the switcher goes into
   `SECTIONS_DESKS` in tests/run.php).
+- A switch inside a section that changes a tile's line (hide, sort): call `sw.row()` after the section's redraw — the
+  row alone, at once; `sw.render()` would draw the section a second time.
+
 
 ## Adding a language
 

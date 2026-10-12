@@ -57,6 +57,7 @@
 .bk-seg button:hover{color:var(--ink); background:var(--surface2)}
 .bk-seg button.on{background:var(--accent-soft); color:var(--accent-ink); font-weight:650}
 .bk-seg button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+.bk-seg button:disabled{opacity:.4; cursor:not-allowed; background:none; color:var(--muted)}   /* a partner field without a ZFS dataset of its own: grey, its reason in the tip */
 .bk-subhead{padding:7px 12px; background:var(--surface2); color:var(--ink); font-weight:650; font-size:13px; border-top:1px solid var(--line)}
 .row.bk-dep{padding-left:34px; background:color-mix(in srgb, var(--surface2) 45%, transparent)}
 .bk-ret-field{display:inline-flex; align-items:center; gap:6px; font-size:12.5px}

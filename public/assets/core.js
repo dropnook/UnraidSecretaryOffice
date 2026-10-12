@@ -1518,6 +1518,16 @@ Office.sections = function sections(opts) {
     else list().forEach((x) => add(nameOf(x)));
     body.dataset.active = cur;
     body.dataset.sections = drawn.join(' ');
+    drawRow(cur, had);
+  }
+
+  /** the row alone: the tiles anew, the body untouched (a switch in a section that changes what a tile says) */
+  function drawRow(cur = current(), had = null) {
+    if (had === null) {
+      const f = document.activeElement;
+      had = f && f !== grid && grid.contains(f) ? (f.dataset || {}).tile : null;
+    }
+    nodes.clear();
     grid.replaceChildren();
     list().forEach((x) => {
       const n = tileNode(x, cur);
@@ -1574,6 +1584,8 @@ Office.sections = function sections(opts) {
   const sw = {
     el: box, grid, body,
     render() { if (grid.isConnected) Office.keepInPlace(grid, draw); else draw(); return sw; },
+    /** only the tiles anew, at once — for a switch inside a section whose tile line changes with it (CLAUDE.md «Tiles») */
+    row() { if (grid.isConnected) Office.keepInPlace(grid, () => drawRow()); else drawRow(); return sw; },
     pick(id, how) { pick(id, how); return sw; },
     active: () => current(),
     mount(sub) {
