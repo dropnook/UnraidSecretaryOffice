@@ -52,7 +52,7 @@
   --mono:bitstream,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --font:clear-sans,sans-serif;
   --under:40px;       /* what Unraid keeps fixed at the bottom (its footer) */
-  --wave:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 9'%3E%3Cpath d='M-6 4.5Q-3 0 0 4.5T6 4.5T12 4.5T18 4.5' fill='none' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E");   /* the working mark (.spin) */
+  --wave:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 9'%3E%3Cpath d='M-.4 2.25h.8v4.5h-.8zM1.1 5.64h.8v2.53h-.8zM2.6 7.04h.8v1.72h-.8zM4.1 5.64h.8v2.53h-.8zM5.6 2.25h.8v4.5h-.8zM7.1 .83h.8v2.53h-.8zM8.6 .24h.8v1.72h-.8zM10.1 .83h.8v2.53h-.8zM11.6 2.25h.8v4.5h-.8z'/%3E%3C/svg%3E");   /* the working mark (.spin) */
 
 /* ---------------------------------------------------------------- base */
   font:14px/1.55 var(--font);
@@ -168,9 +168,11 @@
 .Theme--sidebar &.in-unraid .btn:not(.plain):not(.danger){font-weight:700; border-color:var(--hover-button-text-color)}
 
 /* «it is working, you needn't wait»: the office's own small wave (2026-10-12, Benj: one mark everywhere — Jack's live
-   panel, Mr. Backupsy's run, tours, dialogs; not Unraid's own loading wave), a sine stroke in the accent that sways
-   slowly to and fro; still under prefers-reduced-motion (the rule for every animation below). One period of it is the
-   mask's tile (12 px: --wave above), the span shows one and a half. */
+   panel, Mr. Backupsy's run, tours, dialogs), drawn the way Unraid draws its loading wave (Benj, 12:00: closer to it in
+   shape): a sine of short upright bars — long ones where the wave crosses the middle, short ones at crest and trough,
+   eight to a period —, in the accent, swaying slowly to and fro; still under prefers-reduced-motion (the rule for every
+   animation below). One period is the mask's tile (12 px: --wave above; the bar on its edge drawn half at each end, so
+   the tiles join), the span shows one and a half. Size and speed as before (Benj: «Grösse und Geschwindigkeit passen»). */
 .spin{
   display:none; width:18px; height:9px; flex:none; vertical-align:middle; color:var(--accent); background:currentColor;
   -webkit-mask:var(--wave) 0 0 / 12px 9px repeat-x; mask:var(--wave) 0 0 / 12px 9px repeat-x;
