@@ -1476,7 +1476,8 @@ function keptMoments(p, u) {
  * same pool, the partner's stays as it is)
  */
 function keptSection(p) {
-  const s = sectionBox(T('kept.title', { name: p.name }), T('kept.sub', { name: p.name, pool: p.pool }), { place: `kept:${p.id}` });
+  const title = T('kept.title', { name: p.name });     // a dynamic place (kept:<id>), like the partner sections
+  const s = sectionBox(title, T('kept.sub', { name: p.name, pool: p.pool }), { place: `kept:${p.id}` });
   s.appendChild(el('p', 'callout', T('kept.way', { name: p.name })));
   if (p.asleep) s.appendChild(el('p', 'callout warn', T('kept.asleep', { pool: p.pool })));
   if (p.used_bytes) s.appendChild(el('p', 'role', p.quota_gb ? T('kept.room', { used: fmt.size(p.used_bytes), quota: fmt.size(p.quota_gb * 1024 ** 3), pool: p.pool }) : T('kept.room_free', { used: fmt.size(p.used_bytes), pool: p.pool })));

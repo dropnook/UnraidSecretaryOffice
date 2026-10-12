@@ -18922,9 +18922,9 @@ function testSearchItems(): void
     check('search items: Office.reveal() takes a data-id when no data-place is there, and a folded group\'s head for what it hides',
         str_contains($core, '`[data-id="${quoted}"]`') && str_contains($core, "node.closest('.group.closed')"));
     // the sub-routes that open what hides an item
-    check('search items: the sub-routes are taken (#/watchman/entry/<id>, #/snapshot/datasets, #/logs/read/<log>, #/restore/partner:<id>)',
+    check('search items: the sub-routes are taken (#/watchman/entry/<id>, #/snapshot/datasets, #/logs/read/<log>, #/restore/partner:<id> and kept:<id>)',
         str_contains($js['watchman'], '/^entry\/([\w-]{1,64})$/') && str_contains($js['snapshot'], "sub === 'datasets'")
-        && str_contains($js['logs'], '/^read\/(.+)$/') && str_contains($js['restore'], '/^partner:[0-9a-f]{8}$/.test(sub)')
+        && str_contains($js['logs'], '/^read\/(.+)$/') && str_contains($js['restore'], '/^(partner|kept):[0-9a-f]{8}$/.test(sub)')
         && str_contains($js['restore'], "Office.placesTook(ID, cert, 'drill')"));
 
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
