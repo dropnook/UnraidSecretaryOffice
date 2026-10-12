@@ -30429,7 +30429,7 @@ JS);
 }
 
 /**
- * The pool as a cake (agent/lib/poolcake.php, 2026-10-12, the owner's rule): the numbers on the concept's nostromo example
+ * The pool as a cake (agent/lib/poolcake.php, 2026-10-12, the owner's rule): the numbers on a real-sized example pool
  * (7352 GiB, 3189 used, 801 in the movable shares, Jack Emby's list 671; X 80, Y 60, n 20) — NM, the cake, his slice, her
  * reading, the offset, his budget, the proposal; the run's bounds (what never moves and his slice reach Y → the fill only
  * below X; what never moves above X → no fill, his slice 0; ≥ 95 % → everything movable, his budget 0); his slice not set
@@ -30443,12 +30443,12 @@ function testPoolCake(): void
     $G = 1 << 30;
     $m = poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 20, 671 * $G);
     $gib = fn (int $b) => round($b / $G, 1);
-    same('cake nostromo: NM 2388 GiB (32.5 %), the cake 3493.6, his slice 698.7, her reading 3216.7 (43.8 %), ok — the room for new 2794.9',
+    same('cake example: NM 2388 GiB (32.5 %), the cake 3493.6, his slice 698.7, her reading 3216.7 (43.8 %), ok — the room for new 2794.9',
         [2388.0, 32.5, 3493.6, 698.7, 3216.7, 43.8, 'ok', 2794.9, 'normal'],
         [$gib($m['nm']), $m['nm_pct'], $gib($m['cake']), $gib($m['slice']), $gib($m['eff']), $m['eff_pct'], $m['case'], $gib($m['rest']), $m['fill']]);
-    same('cake nostromo: the offset for Smart Mover j − J = 27.7 GiB, his budget = his slice, nothing over it', [27.7, true, 0],
+    same('cake example: the offset for Smart Mover j − J = 27.7 GiB, his budget = his slice, nothing over it', [27.7, true, 0],
         [$gib($m['offset']), $m['budget'] === $m['slice'], $m['excess']]);
-    same('cake nostromo: n 30 — his slice 1048.1 GiB, 377.1 of it free', [1048.1, 377.1],
+    same('cake example: n 30 — his slice 1048.1 GiB, 377.1 of it free', [1048.1, 377.1],
         [$gib(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 30, 671 * $G)['slice']), $gib(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 30, 671 * $G)['offset'])]);
     same('cake: the proposal from what he holds today — 671 of 3493.6 → 20 %; little → at least 10; all → 100; no cake → none',
         [20, 10, 100, null], [poolCakeProposal(671 * $G, $m['cake']), poolCakeProposal($G, $m['cake']), poolCakeProposal(5000 * $G, $m['cake']), poolCakeProposal(1, 0)]);
