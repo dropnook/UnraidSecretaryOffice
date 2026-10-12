@@ -119,6 +119,8 @@ function moverelliHost(): array
         'launch'        => $h['launch'] ?? fn (array $args) => hostLaunch('moverelli', $args),
         'emby_scheduled' => $h['emby_scheduled'] ?? fn (): bool => officeJobSchedule('embycache')['enabled'],
         'emby_runs'     => $h['emby_runs'] ?? fn (): array => embyHistory(),
+        // her job handed to atd after Jack Emby bypasses job.sh's array check: it looks itself (ARRAY_RUNNING)
+        'array_running' => $h['array_running'] ?? fn (): bool => arrayRunning(),
     ];
 }
 
@@ -851,6 +853,17 @@ function moverelliJob(array $args, ?array $h = null): int
         fwrite(STDERR, "moverelli: not started ($why)\n");
         return 1;
     };
+    if ($by === 'emby') {
+        // handed to atd after one of Jack Emby's runs (not through job.sh): her choice changed meanwhile → nothing to do;
+        // the array not started (job.sh's rule, ARRAY_RUNNING) → refused like her other refusals
+        if (moverelliAfterChoice($dir) !== 'emby') {
+            logLine("Ms. Moverelli: the run after Jack Emby isn't wanted any more — her schedule changed meanwhile");
+            return 0;
+        }
+        if (!($h['array_running'])()) {
+            return $refused('moverelli_array');
+        }
+    }
     try {
         moverelliRunCheck($mode, $h);
     } catch (Problem $p) {
@@ -1149,8 +1162,8 @@ function moverelliAfterEmby(string $tool, string $mode, string $by, ?array $h = 
 }
 
 /**
- * «Right after Jack Emby»: did a run of hers go after his last scheduled real EmbyCache run? true; false when his run ended more
- * than MOVERELLI_AFTER_GRACE ago and nothing of hers ran since (refused and skipped don't count); null when he had none
+ * «Right after Jack Emby»: did a real run of hers go after his last scheduled real EmbyCache run? true; false when his run ended
+ * more than MOVERELLI_AFTER_GRACE ago and no real run of hers ran since (dry runs, lists, refused and skipped don't count); null when he had none
  * since she was set so, or it is too early to tell.
  */
 function moverelliRanAfterJack(string $dir, array $jackRuns, ?int $now = null): ?bool
@@ -1168,8 +1181,9 @@ function moverelliRanAfterJack(string $dir, array $jackRuns, ?int $now = null): 
     if ($jack === null || (int) ($jack['started'] ?? 0) < $set) {
         return null;
     }
-    foreach (moverelliHistory($dir) as $r) {
-        if (is_array($r) && !in_array($r['result'] ?? '', ['refused', 'skipped'], true) && (int) ($r['started'] ?? 0) >= (int) $jack['started']) {
+    foreach (moverelliHistory($dir) as $r) {      // only her real runs that ran: a dry run or a list doesn't hide a missed follow-up
+        if (is_array($r) && ($r['mode'] ?? '') === 'run' && !in_array($r['result'] ?? '', ['refused', 'skipped'], true)
+            && (int) ($r['started'] ?? 0) >= (int) $jack['started']) {
             return true;
         }
     }
@@ -1215,15 +1229,14 @@ function moverelliChecks(?array $h = null): array
         $out[] = finding('tuning_schedule', 'required', !$f['tuning']['active'], ['schedule' => (string) ($f['tuning']['lines'][0]['cron'] ?? '')], '#/moverelli');
     }
     $out[] = finding('foreign_scripts', 'recommended', !$f['scripts'], ['where' => implode(', ', $f['scripts'])], 'userscripts');
+    $emby = ($h['emby'])();
     if ($after) {
         // «right after Jack Emby»: nothing starts her while he is let go or his EmbyCache has no schedule; did she follow his last scheduled run?
-        $emby = ($h['emby'])();
         $out[] = finding('after_idle', 'recommended', $emby !== null && (bool) ($h['emby_scheduled'])(), [], '#/moverelli/schedule');
         $out[] = finding('ran_after', 'recommended', moverelliRanAfterJack($h['dir'], ($h['emby_runs'])()), [], '#/moverelli');
     } elseif ($scheduled) {
         $out[] = finding('ran', 'recommended', moverelliRanLately($h['dir']), ['days' => intdiv(MOVERELLI_STALE, 86400)], '#/moverelli');
     }
-    $emby = ($h['emby'])();
     if ($emby !== null) {
         $out[] = finding('emby_list', 'required', !moverelliJackUncovered($emby, $h['dir']),
             ['shares' => implode(', ', moverelliJackUncovered($emby, $h['dir'])), 'file' => (string) ($emby['lists'][0] ?? '')], '#/moverelli/setup');

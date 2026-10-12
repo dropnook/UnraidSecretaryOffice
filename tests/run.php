@@ -28899,7 +28899,9 @@ function testMoverelliAfterEmby(): void
     $launched = [];
     $v['emby_sched'] = true;
     $v['emby_runs'] = [];
+    $v['array'] = true;
     $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false,
+        'array_running' => function () use (&$v) { return $v['array']; },
         'launch' => function (array $args) use (&$launched) { $launched[] = $args; },
         'emby_scheduled' => function () use (&$v) { return $v['emby_sched']; },
         'emby_runs' => function () use (&$v) { return $v['emby_runs']; }];
@@ -28954,17 +28956,21 @@ function testMoverelliAfterEmby(): void
         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "'launch'        => \$h['launch'] ?? fn (array \$args) => hostLaunch('moverelli', \$args),")
         && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php'), '$script = "#!/bin/sh\\n" . HOST_LAUNCH_MARK'));
     $launched = [];
-    same('moverelli after: Jack\'s side (embyRunAfter) hands it on the same way', [true, false, [$want]],
-        [embyRunAfter('embycache', 'run', 'schedule'), embyRunAfter('embycache', 'run', 'office'), $launched]);
+    same('moverelli after: Jack\'s side (embyRunAfter) hands it on the same way — not after a page-started run, nor when EmbyCache never ran (127)',
+        [true, false, false, [$want]],
+        [embyRunAfter('embycache', 'run', 'schedule', 0), embyRunAfter('embycache', 'run', 'office', 0), embyRunAfter('embycache', 'run', 'schedule', 127), $launched]);
+    $launched = [];
+    same('moverelli after: … errors (exit 1) and a stop (exit 3) count — the run ran', [true, true, 2],
+        [embyRunAfter('embycache', 'run', 'schedule', 1), embyRunAfter('embycache', 'run', 'schedule', 3), count($launched)]);
     // in his job: once, at its very end — after his list of runs and his finished marker, after every outcome of a run
     // that ran (errors, stopped); refused and skipped starts return before
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     $job = substr($src, (int) strpos($src, 'function embyJob('), (int) strpos($src, 'function embyGateRefused(') - (int) strpos($src, 'function embyJob('));
-    $at = (int) strpos($job, 'embyRunAfter($tool, $mode, $by);');
+    $at = (int) strpos($job, 'embyRunAfter($tool, $mode, $by, $exit);');
     check('moverelli after: Jack\'s job calls it once, after his bookkeeping (list of runs, finished marker, notification), right before its end',
-        substr_count($job, 'embyRunAfter($tool, $mode, $by);') === 1 && $at > (int) strrpos($job, "embyRemember(['tool' => \$tool, 'mode' => \$mode, 'by' => \$by, 'started' => \$started")
+        substr_count($job, 'embyRunAfter($tool, $mode, $by, $exit);') === 1 && $at > (int) strrpos($job, "embyRemember(['tool' => \$tool, 'mode' => \$mode, 'by' => \$by, 'started' => \$started")
         && $at > (int) strrpos($job, "writeAtomic(\"\$dir/office-run.json\"") && $at > (int) strrpos($job, 'embyNotify(')
-        && str_starts_with(trim(substr($job, $at + strlen('embyRunAfter($tool, $mode, $by);'))), 'return $exit;'));
+        && str_starts_with(trim(substr($job, $at + strlen('embyRunAfter($tool, $mode, $by, $exit);'))), 'return $exit;'));
     check('moverelli after: … his marker gives the start lock back long before (her run is never refused for his)', (int) strpos($job, 'embyMoversUnlock($movers);', (int) strpos($job, '$started = time();')) < $at);
 
     // (3) not hired, not set up, not chosen — nothing
@@ -28983,13 +28989,24 @@ function testMoverelliAfterEmby(): void
     // (4) her job so started: all her gates, recorded `by: emby`
     $envBefore = getenv('OFFICE_NOTIFY_BIN');
     putenv("OFFICE_NOTIFY_BIN=$tmp/bin/notify");
+    $v['array'] = false;
+    $exit = moverelliJob(['run', '--after-emby'], $h);
+    $top = moverelliHistory($dir)[0] ?? [];
+    same('moverelli after: the array not started (atd skips job.sh\'s look) — refused, recorded «by emby»', [1, 'refused', 'moverelli_array', 'emby'],
+        [$exit, $top['result'] ?? null, $top['why'] ?? null, $top['by'] ?? null]);
+    $v['array'] = true;
+    moverelliSetSchedule('15 5 * * *', $h);
+    $n = count(moverelliHistory($dir));
+    same('moverelli after: her choice changed between the hand-over and the start — ends without a run, nothing recorded', [0, $n],
+        [moverelliJob(['run', '--after-emby'], $h), count(moverelliHistory($dir))]);
+    moverelliSetSchedule(null, $h, 'emby');
     $v['own'] = ['set' => '40 3 * * *', 'cron' => '40 3 * * *'];
     $exit = moverelliJob(['run', '--after-emby'], $h);
     $top = moverelliHistory($dir)[0] ?? [];
     same('moverelli after: started after Jack, Unraid\'s schedule on — refused like a scheduled one, recorded «by emby»', [1, 'refused', 'moverelli_schedule', 'emby'],
         [$exit, $top['result'] ?? null, $top['why'] ?? null, $top['by'] ?? null]);
     moverelliJob(['run', '--after-emby'], $h);
-    same('moverelli after: … refused again for the same reason counts up', [2, 1], [(int) (moverelliHistory($dir)[0]['times'] ?? 0), count(moverelliHistory($dir))]);
+    same('moverelli after: … refused again for the same reason counts up (beside the array refusal)', [2, 2], [(int) (moverelliHistory($dir)[0]['times'] ?? 0), count(moverelliHistory($dir))]);
     $v['own'] = ['set' => '', 'cron' => null];
     $exit = moverelliJob(['run', '--after-emby'], $h);
     $top = moverelliHistory($dir)[0] ?? [];
@@ -29016,8 +29033,11 @@ function testMoverelliAfterEmby(): void
     same('moverelli after: «did she follow?» — his scheduled run hours ago, nothing of hers: no; too early: unknown; his page-started run: not counted; none since she was set so: unknown',
         [false, null, null, null], [moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 3600),
          moverelliRanAfterJack($dir, [$jr('office', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set - 10)], $set + 7 * 3600)]);
+    moverelliRemember(['mode' => 'dry', 'by' => 'office', 'started' => $set + 50, 'finished' => $set + 60, 'result' => 'ok'], $dir);
+    moverelliRemember(['mode' => 'list', 'by' => 'office', 'started' => $set + 70, 'finished' => $set + 80, 'result' => 'ok'], $dir);
+    same('moverelli after: … a dry run and a list of hers after it don\'t count: still no', false, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
     moverelliRemember(['mode' => 'run', 'by' => 'emby', 'started' => $set + 100, 'finished' => $set + 200, 'result' => 'ok'], $dir);
-    same('moverelli after: … hers ran after it: yes', true, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
+    same('moverelli after: … a real run of hers after it: yes', true, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
     same('moverelli after: Jack\'s page — she follows (hired, set up, chosen)', [true, false], [moverelliFollowsJack($h), (function () use ($h) { moverelliSetSchedule(null, $h); return moverelliFollowsJack($h); })()]);
     unset($GLOBALS['moverelliHost']);
 

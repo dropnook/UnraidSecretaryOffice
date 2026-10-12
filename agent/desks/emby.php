@@ -2405,7 +2405,7 @@ function embyJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
-    embyRunAfter($tool, $mode, $by);
+    embyRunAfter($tool, $mode, $by, $exit);
     return $exit;
 }
 
@@ -2413,11 +2413,12 @@ function embyJob(string $tool, array $args): int
  * The very end of a run that ran (embyJob(): his bookkeeping done, his marker finished, his locks let go): a SCHEDULED
  * real EmbyCache run (`run` from the office's cron file — whatever its outcome; one started on his page doesn't count, the
  * owner's correction 2026-10-11) hands Ms. Moverelli's real run to atd while she follows him (moverelliAfterEmby(),
- * moverelli.php) — the array's disks spin up once. Refused and skipped starts never get here.
+ * moverelli.php) — the array's disks spin up once. Refused and skipped starts never get here; neither counts a run that
+ * never ran ($exit 127: proc_open failed, or python couldn't be started).
  */
-function embyRunAfter(string $tool, string $mode, string $by): bool
+function embyRunAfter(string $tool, string $mode, string $by, int $exit = 0): bool
 {
-    if (!function_exists('moverelliAfterEmby')) {
+    if (!function_exists('moverelliAfterEmby') || $exit === 127) {
         return false;
     }
     try {

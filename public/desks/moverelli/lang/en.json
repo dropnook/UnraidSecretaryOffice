@@ -206,6 +206,7 @@
   "check.emby_list_how": "Ms. Moverelli → «Set up…»: add EmbyCache's list ({file}) — for all shares, or for {shares}.",
   "errors.moverelli_running": "A run of mine is going — wait until it is done.",
   "errors.moverelli_emby_running": "One of Jack Emby's runs is going — we never move at the same time. Try again once he's done.",
+  "errors.moverelli_array": "The array isn't started — I don't move anything now.",
   "errors.moverelli_not_configured": "Set me up first.",
   "errors.moverelli_missing_tool": "The Smart Mover is missing in {path}.",
   "errors.moverelli_schedule": "Real runs only once Unraid's own mover schedule ({schedule}) is off: the button on my page, or ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ ⟦Disabled⟧.",

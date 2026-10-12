@@ -206,6 +206,7 @@
   "check.emby_list_how": "Signora Moverelli → «Configura…»: aggiungi l'elenco di EmbyCache ({file}) — per tutte le condivisioni, o per {shares}.",
   "errors.moverelli_running": "È in corso una mia esecuzione — aspetta che finisca.",
   "errors.moverelli_emby_running": "È in corso un'esecuzione di Jack Emby — non spostiamo mai insieme. Riprova quando ha finito.",
+  "errors.moverelli_array": "L'array non è avviato — ora non sposto niente.",
   "errors.moverelli_not_configured": "Prima configurami.",
   "errors.moverelli_missing_tool": "Lo Smart Mover manca in {path}.",
   "errors.moverelli_schedule": "Esecuzioni vere solo quando la pianificazione del mover di Unraid ({schedule}) è spenta: il pulsante sulla mia pagina, oppure ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ ⟦Disabled⟧.",
