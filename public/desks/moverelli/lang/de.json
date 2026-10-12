@@ -328,5 +328,7 @@
   "count.lines": {"one": "{n} eigene Zeile", "other": "{n} eigene Zeilen"},
   "setup.tile.own": {"one": "{n} Share mit eigenen Regeln", "other": "{n} Shares mit eigenen Regeln"},
   "setup.tile.skipped": {"one": "{n} ausgelassen", "other": "{n} ausgelassen"},
-  "setup.tile.optional": "nach Wunsch"
+  "setup.tile.optional": "nach Wunsch",
+  "setup.jack_added": "Ich habe Jack Embys Liste ({file}) bei den Listen eingetragen, was für alle Shares bleibt — so bleiben die Filme, die er vorbereitet hat, auf dem Pool. Zum Behalten speichern.",
+  "setup.jack_remove": "Wieder entfernen"
 }

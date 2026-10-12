@@ -82,6 +82,22 @@ const realRun = () => running() && state.job.mode === 'run';
 const unraidOk = () => !!(state && state.unraid && state.unraid.ok);
 const mover = () => (state && state.mover) || { off: true, schedule: null, running: false };
 const jack = () => (state && state.jack) || { busy: false, list: null, uncovered: [] };
+/**
+ * Jack Emby's shares a setup form doesn't keep EmbyCache's list away from — the agent's rule (embyMoverelliUncovered())
+ * on the form not yet saved: a share of his is covered when it is left out, or when one form of his list's path stands
+ * in the files for all shares or in its own. None while he isn't hired (no list).
+ */
+function jackUncoveredIn(f) {
+  const j = jack();
+  const lists = (j.lists && j.lists.length ? j.lists : [j.list]).filter(Boolean);
+  if (!lists.length || !f) return [];
+  const global = (f.global && f.global.files) || [];
+  return (j.shares || []).filter((share) => {
+    const own = (f.shares || {})[share];
+    if (own && own.skip) return false;
+    return !lists.some((l) => global.includes(l) || (own && (own.files || []).includes(l)));
+  });
+}
 /** Other movers on a schedule of their own: Mover Tuning's (refuses real runs), scripts that call a mover (named) */
 const foreign = () => (state && state.foreign) || { tuning: { installed: false, active: false, lines: [] }, scripts: [] };
 /** May real runs go: Unraid's schedule off, Mover Tuning without a schedule of its own */
@@ -691,6 +707,33 @@ function initForm() {
       files: s.files || [], patterns: s.patterns || [] };
   });
   form = { global: set.global, shares };
+  // Jack Emby hired and his list not kept out for every share of his: proposed in the files for all shares — in the form
+  // only, nothing is written before «Save»; what was there stays, «Remove it again» takes exactly this line out
+  const list = jack().list;
+  if (list && jackUncoveredIn(form).length) {
+    form.global.files = [...form.global.files, list];
+    form.jackAdded = list;
+  }
+}
+
+/**
+ * Over the setup's row (a hint, it stays at every click): Jack Emby's list added for you — why, save to keep it, «Remove
+ * it again»; or, taken out (or never added), the shares of his still not covered
+ */
+function jackNotice() {
+  const j = jack();
+  if (!j.list || !form) return null;
+  if (form.jackAdded && form.global.files.includes(form.jackAdded)) {
+    const p = el('p', 'callout mo-suggest', T('setup.jack_added', { file: form.jackAdded }) + ' ');
+    p.appendChild(button(T('setup.jack_remove'), 'small plain', () => {
+      form.global.files = form.global.files.filter((x) => x !== form.jackAdded);
+      form.jackAdded = null;
+      renderSetup();
+    }));
+    return p;
+  }
+  const open = jackUncoveredIn(form);
+  return open.length ? el('p', 'callout warn', T('errors.moverelli_emby_list', { shares: open.join(', ') })) : null;
 }
 
 function input(value, onchange, cls) {
@@ -787,6 +830,9 @@ function renderSetup() {
   root.appendChild(ph);
   if (!state) return;
   if (!form) initForm();
+  // hints over the row (they stay at every click): Jack Emby's list — added for you, or still missing for a share of his
+  const jn = jackNotice();
+  if (jn) root.appendChild(jn);
   if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the Smart Mover before
   // the row of her setup's steps and under it the step chosen (none: every step in order — the page as before the tiles)
   const s = setupSwitcher();
@@ -834,7 +880,7 @@ function setupStep(id) {
 
 /**
  * Her setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the steps' order — for all shares (the age,
- * the fill, how many lists and lines of what stays), per share (how many
+ * the fill, how many lists and lines of what stays; alert while a share of Jack Emby's isn't covered), per share (how many
  * have rules of their own, how many are left out), taking over an earlier install (once she is set up).
  */
 function setupTileData() {
@@ -845,7 +891,7 @@ function setupTileData() {
   const out = [];
   out.push({ id: 'global', key: 'setup.global', value: T('setup.tile.days', { n: Number(g.min_age) || 0 }),
     sub: [g.move_when_used_above ? T('rule_threshold', { pct: g.move_when_used_above }) : T('rule_always'),
-      T('setup.tile.stays', { lists: nOf('lists', g.files.length), lines: nOf('lines', lines) })], alert: false });
+      T('setup.tile.stays', { lists: nOf('lists', g.files.length), lines: nOf('lines', lines) })], alert: jackUncoveredIn(form).length > 0 });
   out.push({ id: 'shares', key: 'setup.shares', value: String(own.length),
     sub: [T('setup.tile.own', { n: own.length }), T('setup.tile.skipped', { n: Object.values(form.shares).filter((s) => s.skip).length })], alert: false });
   if (state.configured) out.push({ id: 'import', key: 'import.title', value: T('setup.tile.optional'), sub: [], alert: false });
@@ -1164,6 +1210,6 @@ if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
     importPreview, importDone, importFileText, scheduleDialog, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
-    setForm: (f) => { form = f; }, initForm, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
+    setForm: (f) => { form = f; }, initForm, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
 })();

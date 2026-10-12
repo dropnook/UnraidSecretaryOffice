@@ -29240,6 +29240,120 @@ JS);
 }
 
 /**
+ * Jack Emby's list proposed in her setup (the owner's decision 2026-10-12: «soll vorschlagen»): while he is hired her
+ * state names every form of his list's path and his shares; a setup form that doesn't keep the list away from every share
+ * of his (the agent's rule — left out, or a form of the path in the files for all or the share's own) gets the list added
+ * to the files for all shares, in the form only (nothing written before «Save»), with a note why and «Remove it again»
+ * (exactly that line out — what was there stays); covered already, or he isn't hired: nothing added.
+ */
+function testMoverelliSuggestJack(): void
+{
+    $tmp = hardeningTmp('moverelli-suggest');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $GLOBALS['moverelliHost']['cron_file'] = "$tmp/office.cron";
+    $GLOBALS['moverelliHost']['cron_apply'] = false;
+    $h = moverelliHost();
+    $user = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
+    $v['emby'] = ['lists' => [$user, "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    $j = moverelliScan($h)['jack'];
+    same('moverelli suggest: her state while Jack is hired — hired, every form of his list\'s path, his shares (not set up: none uncovered yet)',
+        [true, $user, [$user, "$tmp/data/embycache_exclude.txt"], ['Docs', 'Filme'], []], [$j['hired'], $j['list'], $j['lists'], $j['shares'], $j['uncovered']]);
+    check('moverelli suggest: … nothing written by the look', !is_file("$tmp/data/smart_mover.ini"));
+    $v['emby'] = null;
+    $j = moverelliScan($h)['jack'];
+    same('moverelli suggest: Jack not hired — no list, no shares', [false, null, [], []], [$j['hired'], $j['list'], $j['lists'], $j['shares']]);
+    unset($GLOBALS['moverelliHost']);
+
+    $node = testsNode();
+    if ($node === '') {
+        check('moverelli suggest page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const n = { tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, value: '',
+  dataset: {}, style: {}, isConnected: true, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, remove() {},
+  addEventListener() {} };
+  Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {},
+  sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b,
+  desks: { get: () => ({ id: 'moverelli' }) }, deskHead: () => ({ head: mk('div', 'deskhead') }), stat: (o) => ({ tag: 'button', o, children: [] }),
+  sections: () => ({ el: mk('div', 'sections'), render() {}, mount: () => false }) };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const find = (n, f) => (typeof n === 'string' ? null : f(n) ? n : n.children.map((c) => find(c, f)).find(Boolean) || null);
+const U = '/mnt/user/appdata/x/embycache_exclude.txt';
+const P = '/mnt/cache/appdata/x/embycache_exclude.txt';
+const shares = [{ share: 'Filme', state: 'moves', mode: 'yes' }, { share: 'Serien', state: 'moves', mode: 'yes' }, { share: 'Docs', state: 'moves', mode: 'yes' }];
+const g = (files) => ({ min_age: 30, age_stat: 'ctime', move_when_used_above: 0, files, patterns: [] });
+const st = (jack, global, own) => ({ configured: false, unraid: { ok: true }, job: {}, schedule: {}, shares, after: { on: false },
+  settings: { global, shares: own || {} }, jack });
+const hired = { busy: false, hired: true, list: U, lists: [U, P], shares: ['Filme', 'Serien'], uncovered: [] };
+const out = {};
+const view = mk('div', 'view');
+m.setView(view, 'setup');
+// not covered: added at the end of the files for all, what was there stays; the note with «Remove it again»; the tile calm
+m.setState(st(hired, g(['/mnt/user/system/keep.txt'])));
+m.setForm(null);
+m.renderSetup();
+let f = m.form();
+const note = view.children.find((c) => String(c.cls).includes('mo-suggest'));
+out.added = [f.global.files, f.jackAdded, note ? texts(note) : null, m.jackUncoveredIn(f), m.setupTileData()[0].alert];
+// «Remove it again»: exactly that line out — the warning with his shares, the tile an alert; drawn anew it isn't added again
+find(note, (n) => n.tag === 'button').onclick();
+f = m.form();
+out.removed = [f.global.files, f.jackAdded, view.children.filter((c) => String(c.cls).startsWith('callout')).map(texts), m.setupTileData()[0].alert];
+m.renderSetup();
+out.again = m.form().global.files;
+// covered already: Filme by the other form of the path in its own files, Serien left out — nothing added, no note
+m.setState(st(hired, g([]), { Filme: { files: [P], patterns: [] }, Serien: { skip: true, files: [], patterns: [] } }));
+m.setForm(null);
+m.initForm();
+out.covered = [m.form().global.files, m.form().jackAdded || null, m.jackNotice()];
+// the list for all already (the user path): nothing added
+m.setState(st(hired, g([U])));
+m.setForm(null);
+m.initForm();
+out.global = [m.form().global.files, m.form().jackAdded || null];
+// Jack not hired (an older agent's state too): nothing
+for (const j of [{ busy: false, hired: false, list: null, lists: [], shares: [], uncovered: [] }, { busy: false, list: null, uncovered: [] }]) {
+  m.setState(st(j, g([])));
+  m.setForm(null);
+  m.initForm();
+  (out.nojack = out.nojack || []).push([m.form().global.files, m.jackNotice()]);
+}
+// an older agent's state (only list, no lists/shares): no shares known — nothing proposed
+m.setState(st({ busy: false, list: U, uncovered: [] }, g([])));
+m.setForm(null);
+m.initForm();
+out.old = m.form().global.files;
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
+    check('moverelli suggest page: it runs', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    $u = '/mnt/user/appdata/x/embycache_exclude.txt';
+    same('moverelli suggest page: not covered — his list added at the end of the files for all (in the form), the note with «Remove it again», covered now, the tile calm',
+        [['/mnt/user/system/keep.txt', $u], $u, ['setup.jack_added {"file":"' . $u . '"} ', 'setup.jack_remove'], [], false], $o['added'] ?? null);
+    same('moverelli suggest page: «Remove it again» — exactly that line out, the warning naming his shares, the tile an alert',
+        [['/mnt/user/system/keep.txt'], null, [['errors.moverelli_emby_list {"shares":"Filme, Serien"}']], true], $o['removed'] ?? null);
+    same('moverelli suggest page: … drawn anew it isn\'t added again', ['/mnt/user/system/keep.txt'], $o['again'] ?? null);
+    same('moverelli suggest page: covered already (the other form of the path in a share\'s own files, the other share left out) — nothing added, no note',
+        [[], null, null], $o['covered'] ?? null);
+    same('moverelli suggest page: his list already for all — nothing added', [[$u], null], $o['global'] ?? null);
+    same('moverelli suggest page: Jack not hired (also an older agent\'s state) — nothing', [[[], null], [[], null]], $o['nojack'] ?? null);
+    same('moverelli suggest page: an older agent\'s state without his shares — nothing proposed', [], $o['old'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
  * Mr. Backupsy's overview tiles (the tiles rebuild, 2026-10-11 — CLAUDE.md «Tiles»): under node (tests/backuptiles.js —
  * skipped where node is missing; it runs on the Mac as it is) which tile filters what (a fixture server: rows after each
  * tile, words, «only what isn't protected»), «Took» and «Containers» inside «Last backup», the tour only when newer than the
@@ -30372,7 +30486,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyProgress',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

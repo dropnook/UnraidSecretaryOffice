@@ -328,5 +328,7 @@
   "count.lines": {"one": "{n} línea mía", "other": "{n} líneas mías"},
   "setup.tile.own": {"one": "{n} recurso con reglas propias", "other": "{n} recursos con reglas propias"},
   "setup.tile.skipped": {"one": "{n} excluido", "other": "{n} excluidos"},
-  "setup.tile.optional": "opcional"
+  "setup.tile.optional": "opcional",
+  "setup.jack_added": "He añadido la lista de Jack Emby ({file}) a las listas de lo que se queda para todos los recursos compartidos — así las películas que preparó siguen en el pool. Guarda para conservarla.",
+  "setup.jack_remove": "Quitarla de nuevo"
 }

@@ -328,5 +328,7 @@
   "count.lines": {"one": "{n} ligne à moi", "other": "{n} lignes à moi"},
   "setup.tile.own": {"one": "{n} partage avec ses propres règles", "other": "{n} partages avec leurs propres règles"},
   "setup.tile.skipped": {"one": "{n} laissé de côté", "other": "{n} laissés de côté"},
-  "setup.tile.optional": "facultatif"
+  "setup.tile.optional": "facultatif",
+  "setup.jack_added": "J'ai ajouté la liste de Jack Emby ({file}) aux listes de ce qui reste pour tous les partages — ainsi les films qu'il a préparés restent sur le pool. Enregistre pour la garder.",
+  "setup.jack_remove": "La retirer"
 }

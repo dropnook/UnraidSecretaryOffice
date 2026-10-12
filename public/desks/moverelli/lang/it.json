@@ -328,5 +328,7 @@
   "count.lines": {"one": "{n} riga mia", "other": "{n} righe mie"},
   "setup.tile.own": {"one": "{n} condivisione con regole proprie", "other": "{n} condivisioni con regole proprie"},
   "setup.tile.skipped": {"one": "{n} esclusa", "other": "{n} escluse"},
-  "setup.tile.optional": "facoltativo"
+  "setup.tile.optional": "facoltativo",
+  "setup.jack_added": "Ho aggiunto la lista di Jack Emby ({file}) alle liste di ciò che resta per tutte le condivisioni — così i film che ha preparato restano sul pool. Salva per tenerla.",
+  "setup.jack_remove": "Toglila di nuovo"
 }

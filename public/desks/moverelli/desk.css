@@ -29,6 +29,8 @@
 .mo-tools{overflow-wrap:anywhere}
 .mo-tools .mo-old{color:var(--danger)}
 .mo-foot .mo-credit{margin-top:6px}
+/* the setup: Jack Emby's list proposed — why, «Remove it again» */
+.mo-suggest{overflow-wrap:anywhere}
 /* the setup page's head line under the tabs */
 .mo-pagehead{margin:14px 0 6px}
 .mo-pagehead-title{font-size:17px; font-weight:650; color:var(--ink)}

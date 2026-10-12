@@ -328,5 +328,7 @@
   "count.lines": {"one": "{n} line of my own", "other": "{n} lines of my own"},
   "setup.tile.own": {"one": "{n} share with rules of its own", "other": "{n} shares with rules of their own"},
   "setup.tile.skipped": {"one": "{n} left out", "other": "{n} left out"},
-  "setup.tile.optional": "optional"
+  "setup.tile.optional": "optional",
+  "setup.jack_added": "I've added Jack Emby's list ({file}) to the lists of what stays for all shares — it keeps the films he prepared on the pool. Save to keep it.",
+  "setup.jack_remove": "Remove it again"
 }

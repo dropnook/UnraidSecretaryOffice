@@ -708,8 +708,12 @@ function moverelliScan(?array $h = null): array
         'schedule'   => officeJobSchedule('moverelli', $h['cron_file']),
         // «right after Jack Emby»: chosen, Jack hired, his EmbyCache on a schedule — idle: chosen, but nothing starts her by herself
         'after'      => moverelliAfterState($h, $emby),
-        // Jack Emby: a run of his going (hers wait), EmbyCache's list and his shares her ini doesn't keep it away from
-        'jack'       => ['busy' => ($h['jack_busy'])(), 'list' => $emby['lists'][0] ?? null, 'uncovered' => moverelliJackUncovered($emby, $dir)],
+        // Jack Emby: a run of his going (hers wait), EmbyCache's list and his shares her ini doesn't keep it away from;
+        // while he is hired also every form of his list's path and his shares — her setup page proposes his list from them
+        // (the same rule as embyMoverelliUncovered(), on the form not yet saved)
+        'jack'       => ['busy' => ($h['jack_busy'])(), 'hired' => $emby !== null, 'list' => $emby['lists'][0] ?? null,
+                         'lists' => array_values($emby['lists'] ?? []), 'shares' => array_values($emby['shares'] ?? []),
+                         'uncovered' => moverelliJackUncovered($emby, $dir)],
     ];
     if ($h['write_state']) {
         writeAtomic(deskFile('moverelli'), jsonEncode($state));
