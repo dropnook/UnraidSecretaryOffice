@@ -294,6 +294,20 @@ function rspTick(): void
         $age = $now - (int) ($h['tried'] ?? 0);
         $due = $due || $h === null || $age >= (($h['reachable'] ?? false) ? RSP_LOOK_EVERY : RSP_RETRY_EVERY);
     }
+    // a backup run that just sent to a partner: look at once (the partner's list is what «At <partner>» shows — until
+    // now it waited up to RSP_LOOK_EVERY after a transfer, 2026-10-12)
+    if (defined('BACKUP_DATA_DIR')) {
+        $lr = BACKUP_DATA_DIR . '/state/last-run.json';
+        clearstatcache(true, $lr);
+        $lrAt = (int) @filemtime($lr);
+        if ($lrAt && $lrAt !== ($GLOBALS['rspLastRun'] ?? null)) {
+            $sentNow = isset($GLOBALS['rspLastRun']) && (int) ((readJson($lr) ?? [])['partner_ok'] ?? 0) > 0;
+            $GLOBALS['rspLastRun'] = $lrAt;
+            if ($sentNow) {
+                @touch(rspWantFile());
+            }
+        }
+    }
     $want = is_file(rspWantFile());
     if ($sources && ($due || $want) && !rspLooking() && $now - (int) ($GLOBALS['rspLaunched'] ?? 0) >= ($want ? RSP_WANT_EVERY : 600)) {
         $GLOBALS['rspLaunched'] = $now;
