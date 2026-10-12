@@ -2319,7 +2319,12 @@ function setupApply() {
     // a gone app's section (engine 2.40): one line «gone — entry will be removed», never key by key, never declined
     const gone = goneApps(setup.plan).filter((a) => keys.some((k) => k.startsWith(`app|${a.name}|`)));
     // the [partner] sections mirror the Team Lead's pairs: one row per partner (partnerSectionRows()), never key by key
-    const changes = items.filter((x) => x.kind === 'key').map((x) => x.id);
+    // what is new on the server stands once, in its own group below with its proposal (Benj 2026-10-12: «Share Schule»
+    // was in the changes AND under «New on the server») - its keys (own: `share|<name>|` …) leave the changes list;
+    // still counted in `total`, the bar's count (setupChangeItems())
+    const news = setupNewRows();
+    const ownOf = (k) => news.find((r) => r.own && k.startsWith(r.own));
+    const changes = items.filter((x) => x.kind === 'key' && !ownOf(x.id)).map((x) => x.id);
     const prows = partnerSectionRows(keys, saved, view);
     const total = items.length;
     box.appendChild(el('p', '', total ? T('setup.apply_text', { n: total }) : T('setup.apply_none')));
@@ -2357,8 +2362,8 @@ function setupApply() {
       if (ul.children.length) box.appendChild(ul);      // units only: they stand in «To partners» below
     }
     // what is new on the server and how this Apply takes it in (engine 2.21: until now only local, kept running)
-    const news = setupNewRows();
     if (news.length) {
+      const touched = new Set(setupEdits());
       // engine 2.31: decided in advance by the default for new things - said, so nothing goes along unseen; only while
       // no new row was changed by hand (such a row shows the hand's value and says so)
       const kind = presetNow();
@@ -2366,11 +2371,20 @@ function setupApply() {
       box.appendChild(el('p', '', [T('setup.apply_group_new', { n: news.length }),
         kind !== 'auto' && !hand ? T('setup.apply_new_default', { name: T('setup.preset.' + kind) }) : ''].filter(Boolean).join(' ')));
       const ul = el('ul', 'shortlist bk-newlist');
-      news.forEach(({ name, how, hand: mine }) => {
+      news.forEach(({ name, how, hand: mine, own }) => {
         const li = el('li', 'bk-marked');
         li.append(diffMark('add'), name);
         const what = el('span', '', how);
         if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));
+        // a proposal of mine for it (its keys changed, none touched by the user): said here, and it can stay out
+        const mineKeys = own ? items.filter((x) => x.kind === 'key' && x.id.startsWith(own) && !/\|kopia_known$/.test(x.id)).map((x) => x.id) : [];
+        if (!mine && mineKeys.length && !mineKeys.some((k) => touched.has(k))) {
+          what.append(' ', chip(T('setup.proposal'), 'quiet', T('setup.proposal_tip')));
+          const no = el('button', 'btn small plain', T('setup.decline'));
+          no.type = 'button';
+          no.onclick = () => { mineKeys.forEach((k) => setupDecline(k)); renderSetup(); setupApply(); };
+          what.appendChild(no);
+        }
         li.appendChild(what);
         ul.appendChild(li);
       });
@@ -2457,15 +2471,15 @@ function setupNewRows() {
   };
   m.vms.filter((x) => x.isNew).forEach((x) => {
     const l = levelOf('vm:' + x.name);
-    out.push({ name: T('setup.new_vm', { name: x.name }),
+    out.push({ name: T('setup.new_vm', { name: x.name }), own: `vm|${x.name}|`,
       how: l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`,
       hand: levelHand('vm:' + x.name) || edited.has(`vm|${x.name}|prepare`) || edited.has(`vm|${x.name}|mode`) });
   });
-  m.apps.filter((a) => a.isNew).forEach((a) => out.push({ name: T('setup.new_app', { name: a.name }), how: appHow(a), hand: appHand(a) }));
+  m.apps.filter((a) => a.isNew).forEach((a) => out.push({ name: T('setup.new_app', { name: a.name }), own: `app|${a.name}|`, how: appHow(a), hand: appHand(a) }));
   m.apps.filter((a) => a.newMembers.length).forEach((a) => out.push({ name: T('setup.new_member', { name: a.newMembers.join(', '), app: a.name }),
     how: appHow(a), hand: appHand(a) }));
   setup.plan.shares.filter((sh) => sh.exists && setup.newItems.has('share:' + sh.name))
-    .forEach((sh) => out.push({ name: T('setup.new_share', { name: sh.name }), how: T('setup.mode.' + dget(`share|${sh.name}|mode`, 'off')),
+    .forEach((sh) => out.push({ name: T('setup.new_share', { name: sh.name }), own: `share|${sh.name}|`, how: T('setup.mode.' + dget(`share|${sh.name}|mode`, 'off')),
       hand: edited.has(`share|${sh.name}|mode`) }));
   waitingFolders().forEach((w) => out.push({ name: `${w.share}/${w.dir}`, how: waitHow(w),
     hand: w.owner ? levelHand(w.owner.key) : !!setup.base && waitChoice(w) !== waitChoice(w, setup.base) }));
