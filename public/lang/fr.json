@@ -66,6 +66,7 @@
   "time.days_hours": "{d} j {h} h",
   "time.hours_minutes": "{h} h {m} min",
   "time.minutes": "{m} min",
+  "time.seconds": "{s} s",
   "cron.every_minutes": {
     "one": "chaque minute",
     "other": "toutes les {n} minutes"
@@ -346,5 +347,7 @@
   "search.kind.setting": "Réglage",
   "search.kind.help": "Expliqué",
   "search.kind.guide": "Guide",
-  "search.kind.item": "Élément"
+  "search.kind.item": "Élément",
+  "errors.needs_colleague": "{desk} ne travaille que sous l'encadrement de {with} — embauche-les ensemble, ou {with} d'abord.",
+  "errors.needed_by": "{by} ne peut pas rester sans {desk} — congédie d'abord {by}."
 }

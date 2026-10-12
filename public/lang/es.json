@@ -66,6 +66,7 @@
   "time.days_hours": "{d} d {h} h",
   "time.hours_minutes": "{h} h {m} min",
   "time.minutes": "{m} min",
+  "time.seconds": "{s} s",
   "cron.every_minutes": {
     "one": "cada minuto",
     "other": "cada {n} minutos"
@@ -346,5 +347,7 @@
   "search.kind.setting": "Ajuste",
   "search.kind.help": "Explicado",
   "search.kind.guide": "Guía",
-  "search.kind.item": "Elemento"
+  "search.kind.item": "Elemento",
+  "errors.needs_colleague": "{desk} solo trabaja bajo la supervisión de {with} — contrátalos juntos, o primero a {with}.",
+  "errors.needed_by": "{by} no puede quedarse sin {desk} — despide primero a {by}."
 }

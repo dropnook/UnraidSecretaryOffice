@@ -66,6 +66,7 @@
   "time.days_hours": "{d} g {h} h",
   "time.hours_minutes": "{h} h {m} min",
   "time.minutes": "{m} min",
+  "time.seconds": "{s} s",
   "cron.every_minutes": {
     "one": "ogni minuto",
     "other": "ogni {n} minuti"
@@ -346,5 +347,7 @@
   "search.kind.setting": "Impostazione",
   "search.kind.help": "Spiegato",
   "search.kind.guide": "Guida",
-  "search.kind.item": "Voce"
+  "search.kind.item": "Voce",
+  "errors.needs_colleague": "{desk} lavora solo sotto la supervisione di {with} — assumili insieme, oppure prima {with}.",
+  "errors.needed_by": "{by} non può restare senza {desk} — licenzia prima {by}."
 }

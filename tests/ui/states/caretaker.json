@@ -595,6 +595,14 @@
     "name": "EmbyServer"
    }
   },
+  "moverelli": {
+   "hired": false,
+   "ok": true,
+   "why": "yes",
+   "params": {
+    "version": "7.3.3"
+   }
+  },
   "logs": {
    "hired": true,
    "ok": true,

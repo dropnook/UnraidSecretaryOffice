@@ -1,0 +1,38 @@
+{
+ "time": 1791672002,
+ "running": true,
+ "real": true,
+ "stopping": null,
+ "progress": {
+  "mode": "run",
+  "result": "running",
+  "started": 1791671522,
+  "time": 1791672002,
+  "plan": [
+   "Familienfilme",
+   "Familienserien",
+   "isos"
+  ],
+  "phase": "share",
+  "share": "Familienserien",
+  "file": "/mnt/cache/Familienserien/Sommerferien 2024/Teil 2.mkv",
+  "share_files": 12,
+  "share_bytes": 41875931136,
+  "share_done_files": 5,
+  "share_done_bytes": 17716740096,
+  "done_files": 9,
+  "done_bytes": 26843545600,
+  "files": 21,
+  "bytes": 51002736640,
+  "shares": [
+   {
+    "share": "Familienfilme",
+    "state": "moved",
+    "files": 4,
+    "bytes": 9126805504,
+    "moved": 4,
+    "left": 0
+   }
+  ]
+ }
+}

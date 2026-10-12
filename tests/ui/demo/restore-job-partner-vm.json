@@ -1,0 +1,82 @@
+{
+ "time": 1791551074,
+ "id": "20261012-071905-5c1e",
+ "kind": "partner_start",
+ "what": "Schule ← Tochter",
+ "result": "running",
+ "created": 1791550054,
+ "started": 1791550054,
+ "finished": null,
+ "sizes": {
+  "need": 83751862272,
+  "free": 812345678848
+ },
+ "steps": [
+  {
+   "do": "pull_local",
+   "source": "cache/UnraidSecretaryOffice-partners/tochter/vm-Schule@uso-backup-20261011-2215",
+   "dataset": "cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter-20261012-071905-5c1e",
+   "mount": "/mnt/cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter",
+   "partner": "Tochter",
+   "unit": "vm:Schule",
+   "snap": "uso-backup-20261011-2215",
+   "bytes": 41875931136,
+   "path": null,
+   "state": "ok"
+  },
+  {
+   "do": "mount",
+   "dataset": "cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter-20261012-071905-5c1e",
+   "path": "/mnt/cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter",
+   "state": "ok"
+  },
+  {
+   "do": "copy",
+   "from": "/mnt/cache/UnraidSecretaryOffice-restored/vm-Schule.from-Tochter",
+   "to": "/mnt/user/domains/Schule",
+   "into_empty": true,
+   "replaces": true,
+   "partner": "Tochter",
+   "state": "running",
+   "progress": {
+    "done": 25125558681,
+    "total": 41875931136
+   }
+  },
+  {
+   "do": "start_from",
+   "kind": "vm",
+   "name": "Schule",
+   "define": true,
+   "partner": "Tochter",
+   "to": "/mnt/user/domains/Schule",
+   "state": "pending",
+   "params": {
+    "name": "Schule",
+    "adapted": [
+     {
+      "code": "vcpus",
+      "params": {
+       "from": "8",
+       "to": "4"
+      }
+     },
+     {
+      "code": "memory",
+      "params": {
+       "from": "16",
+       "to": "12"
+      }
+     },
+     {
+      "code": "pins",
+      "params": {
+       "n": "4",
+       "cpus": "4"
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

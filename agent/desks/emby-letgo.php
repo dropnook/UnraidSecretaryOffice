@@ -19,25 +19,20 @@ declare(strict_types=1);
  *     job, EmbyCache's own by EmbyCache), refused while someone watches Emby (asked here and again in the job), its
  *     result in his list of runs, the log and Unraid's notifications (he is gone by then, so a good end is told too).
  *     Without the tick the files stay on the pool.
- *   - Mover Tuning: while hired he keeps his list entered there (emby-mover.php). When its cfg names his list, the dialog
- *     offers a second tick, on by default: «Also take my list out of Mover Tuning again» (`unlist`) — the two keys back
- *     to what they were before his first change (his note office-mover.json), else «No»; every other line stays
- *     (embyLetGoUnlist()). Then Mover Tuning moves what is still on the pool back at its next run. A let-go noted in the
- *     last EMBY_LETGO_QUIET seconds keeps his enforcing away meanwhile (the page's look between the let-go and «fire»).
- *   - Unraid's mover schedule: whoever switched it off (his page's button, or by hand) — it stays «Disabled»; the dialog
- *     says so and where it is switched on again (⟦Mover Settings⟧). He never switches it back on.
+ *   - Unraid's mover schedule: it stays «Disabled» — Ms. Moverelli is still here (he never works without her) and moves;
+ *     she brings it back when she is let go. He never switches it back on.
+ *   - Mover Tuning: nothing (up to 1.60 he kept his list entered there; since he works only under Ms. Moverelli he
+ *     never touches it).
  *   - His settings stay. What he switched off is noted in data/embycache/office-letgo.json: hired again, his page says
  *     once that the schedules stay off until switched on (embyLetGoNote(); seen → `shown`, also when a schedule is set).
  */
 
 const EMBY_LETGO_NOTE  = 'office-letgo.json';
-const EMBY_TUNING_CFG  = '/boot/config/plugins/ca.mover.tuning/ca.mover.tuning.cfg';
 const EMBY_LETGO_JOBS  = ['embycache', 'gather'];
-const EMBY_LETGO_QUIET = 600;       // seconds after a let-go in which he never enters his list into Mover Tuning again
 
 /**
  * Where the let-go reads and writes, and what it asks — the tests put stand-ins into $GLOBALS['embyLetGoHost']: cron (the
- * office's cron file), apply (update_cron), dir (his data folder), tuning (Mover Tuning's cfg), settings, running, look
+ * office's cron file), apply (update_cron), dir (his data folder), settings, running, look
  * (who watches Emby), python, launch (hostLaunch()).
  */
 function embyLetGoHost(): array
@@ -47,8 +42,6 @@ function embyLetGoHost(): array
         'cron'     => $h['cron'] ?? OFFICE_CRON,
         'apply'    => $h['apply'] ?? true,
         'dir'      => $h['dir'] ?? EMBY_DATA,
-        'tuning'   => $h['tuning'] ?? EMBY_TUNING_CFG,
-        'lists'    => $h['lists'] ?? fn (): array => (embyMoverHost()['lists'])(),
         'settings' => $h['settings'] ?? fn (): ?array => embyReadSettings(),
         'running'  => $h['running'] ?? fn (): ?string => embyLetGoRunning(),
         'waiting'  => $h['waiting'] ?? fn (): bool => embyGatherWaiting() !== null,
@@ -106,59 +99,6 @@ function embyLetGoOnPool(?array $settings, string $dir): array
 }
 
 /**
- * Mover Tuning's cfg, read only: is it there, and does it ignore EmbyCache's list (filelistf «Yes», filelistv one of his
- * list's paths — $lists)? {there, listed, key, file} (`file` as the cfg names it — the dialog names it).
- */
-function embyLetGoTuning(string $cfg, array $lists): array
-{
-    $text = @file_get_contents($cfg, false, null, 0, 1 << 20);
-    if ($text === false) {
-        return ['there' => false, 'listed' => false];
-    }
-    $v = embyTuningValues($text);
-    $file = embyTuningFirst($v, 'filelistv');
-    if (embyTuningFirst($v, 'filelistf') === 'yes' && in_array($file, $lists, true)) {
-        return ['there' => true, 'listed' => true, 'key' => 'filelistv', 'file' => mb_substr($file, 0, 300)];
-    }
-    return ['there' => true, 'listed' => false];
-}
-
-/**
- * Takes his list out of Mover Tuning's cfg again (the let-go's second tick): filelistf and filelistv back to what they
- * were before his first change (his note), else filelistf «No» and no file — only while the cfg still names his list;
- * every other line stays; a new file + rename; logged; his note goes. {done, to?} or {done: false, error}.
- */
-function embyLetGoUnlist(string $cfg, array $lists, string $dir): array
-{
-    try {
-        $text = @file_get_contents($cfg, false, null, 0, 1 << 20);
-        if ($text === false || is_link($cfg) || !embyLetGoTuning($cfg, $lists)['listed']) {
-            return ['done' => false, 'error' => ['key' => 'emby_letgo_unlisted', 'params' => []]];
-        }
-        $before = (array) (embyMoverNote($dir)['before'] ?? []);
-        $f = is_string($before['filelistf'] ?? null) && in_array($before['filelistf'], ['yes', 'no'], true) ? $before['filelistf'] : 'no';
-        $v = is_string($before['filelistv'] ?? null) && ($before['filelistv'] === '' || embyTuningValueOk($before['filelistv'])) ? $before['filelistv'] : '';
-        if ($f === 'yes' && ($v === '' || in_array($v, $lists, true))) {
-            [$f, $v] = ['no', ''];
-        }
-        writeAtomic($cfg, embyTuningSet($text, ['filelistf' => $f, 'filelistv' => $v]), 0600, 0, 0);
-        @unlink("$dir/" . EMBY_MOVER_NOTE);
-        logLine("Jack Emby: let go — took his list out of Mover Tuning again (filelistf=$f, filelistv=" . ($v ?: '–') . ')');
-        return ['done' => true, 'to' => ['filelistf' => $f, 'filelistv' => $v]];
-    } catch (Throwable $e) {
-        logLine('Jack Emby: could not take his list out of Mover Tuning: ' . $e->getMessage());
-        return ['done' => false, 'error' => ['key' => 'internal', 'params' => ['detail' => mb_substr($e->getMessage(), 0, 300)]]];
-    }
-}
-
-/** Was he let go a moment ago (his let-go note, EMBY_LETGO_QUIET)? Then he doesn't enter his list into Mover Tuning again */
-function embyLetGoRecent(string $dir): bool
-{
-    $n = readJson("$dir/" . EMBY_LETGO_NOTE);
-    return $n !== null && time() - (int) ($n['at'] ?? $n['time'] ?? 0) < EMBY_LETGO_QUIET;
-}
-
-/**
  * May the films be brought back now? null, or the error key why not (settings, Python, nothing on the pool, a run
  * going) — the watchers are asked apart (embyLetGoWatch()), only when nothing else stops it.
  */
@@ -183,7 +123,7 @@ function embyLetGoWatchProblem(array $look): ?Problem
 }
 
 /**
- * emby.letgo_look — what letting him go does here: his schedules, a run going, the films on the pool, Mover Tuning, and
+ * emby.letgo_look — what letting him go does here: his schedules, a run going, the films on the pool, and
  * whether Unraid's mover schedule is off (`mover_off` — it stays off; the dialog says where to switch it on again)
  */
 function embyLetGoLook(): array
@@ -199,16 +139,15 @@ function embyLetGoLook(): array
         $watch = $p->params;
     }
     return ['ok' => true, 'schedules' => embyLetGoSchedules($h['cron']), 'running' => $running, 'waiting' => ($h['waiting'])(),
-            'pool' => $onPool, 'release' => ['ok' => $why === null, 'why' => $why, 'params' => $watch ?? []], 'mover_tuning' => embyLetGoTuning($h['tuning'], ($h['lists'])()),
+            'pool' => $onPool, 'release' => ['ok' => $why === null, 'why' => $why, 'params' => $watch ?? []],
             'mover_off' => ($h['mover_off'])()];
 }
 
 /**
- * emby.letgo {confirm: true, release: bool, unlist?: bool} — while he is still hired: both schedules off (always), with
- * `release` the last cleanup handed to atd (refused, and said, while a run is going, nothing lies on the pool or someone
- * watches Emby), with `unlist` his list out of Mover Tuning again (absent: false — a page from before 1.54 never asks).
- * The answer says what was switched off (`was`, `off`, `failed`), what is going on (`running`), what came of the release
- * and of `unlist`; the note for his page when he is hired again is written.
+ * emby.letgo {confirm: true, release: bool} — while he is still hired: both schedules off (always), with `release` the
+ * last cleanup handed to atd (refused, and said, while a run is going, nothing lies on the pool or someone watches Emby).
+ * The answer says what was switched off (`was`, `off`, `failed`), what is going on (`running`) and what came of the
+ * release; the note for his page when he is hired again is written.
  */
 function embyLetGo(array $r): array
 {
@@ -216,7 +155,6 @@ function embyLetGo(array $r): array
         throw new Problem('bad_request');
     }
     $release = boolField($r, 'release');
-    $unlist = array_key_exists('unlist', $r) ? boolField($r, 'unlist') : false;
     $h = embyLetGoHost();
     $was = embyLetGoSchedules($h['cron']);
     $off = [];
@@ -246,12 +184,8 @@ function embyLetGo(array $r): array
     if ($off || embyLetGoNote($h['dir']) === null) {
         embyLetGoNoteWrite($h['dir'], ['time' => time(), 'at' => time(), 'was' => $was, 'off' => $off, 'left' => $left,
                                         'release' => $rel === null ? null : ['started' => $rel['started'], 'why' => $rel['error']['key'] ?? null], 'shown' => false]);
-    } else {
-        // the moment counts (embyLetGoRecent()); the note itself stays as it was
-        embyLetGoNoteWrite($h['dir'], ['at' => time()] + (readJson($h['dir'] . '/' . EMBY_LETGO_NOTE) ?? []));
     }
-    $un = $unlist ? embyLetGoUnlist($h['tuning'], ($h['lists'])(), $h['dir']) : null;
-    return ['ok' => true, 'was' => $was, 'off' => $off, 'left' => $left, 'failed' => $failed, 'running' => $running, 'release' => $rel, 'unlist' => $un];
+    return ['ok' => true, 'was' => $was, 'off' => $off, 'left' => $left, 'failed' => $failed, 'running' => $running, 'release' => $rel];
 }
 
 /** The last cleanup: checked like the look, then `php agent.php job embycache release --letgo` handed to atd */

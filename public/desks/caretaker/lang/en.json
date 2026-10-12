@@ -381,8 +381,6 @@
   "count.days": {"one": "{n} day", "other": "{n} days"},
   "count.weeks": {"one": "{n} week", "other": "{n} weeks"},
   "count.months": {"one": "{n} month", "other": "{n} months"},
-  "partner.wake": "Wake the pool when it sleeps",
-  "partner.wake_help": "Otherwise a transfer is refused while the pool's disks sleep.",
   "partner.send_too": "I send too",
   "partner.send_too_help": "Then {name} keeps copies of this server as well.",
   "partner.next": "Next",
@@ -519,5 +517,6 @@
   "partner.hire_backupsy": "Hire Mr. Backupsy",
   "partner.need_restori": "To start here from a copy, it takes Mr. Restori.",
   "partner.hire_restori": "Hire Mr. Restori",
-  "partner.i_keep_start": "Mr. Restori can start from these copies («Kept for {name}» on his page) — a VM's or app's copy carries its configuration since engine 2.43; older copies don't."
+  "partner.i_keep_start": "Mr. Restori can start from these copies («Kept for {name}» on his page) — a VM's or app's copy carries its configuration since engine 2.43; older copies don't.",
+  "needs_away": "{name} would come — but only under {with}'s supervision, and she can't come here."
 }

@@ -66,6 +66,7 @@
   "time.days_hours": "{d} d {h} h",
   "time.hours_minutes": "{h} h {m} min",
   "time.minutes": "{m} min",
+  "time.seconds": "{s} s",
   "cron.every_minutes": {
     "one": "every minute",
     "other": "every {n} minutes"
@@ -340,5 +341,7 @@
   "search.kind.setting": "Setting",
   "search.kind.help": "Explained",
   "search.kind.guide": "Guide",
-  "search.kind.item": "Item"
+  "search.kind.item": "Item",
+  "errors.needs_colleague": "{desk} works only under {with}'s supervision — hire them together, or {with} first.",
+  "errors.needed_by": "{by} can't stay without {desk} — let {by} go first."
 }

@@ -497,7 +497,7 @@ function officeSection() {
 // ------------------------------------------------------------------ the team
 function teamSection() {
   const all = staff();
-  const open = all.filter((s) => !s.hired && s.ok);
+  const open = all.filter((s) => !s.hired && s.ok && !needsAway(s));
   const extra = [];
   const sup = Office.supporter();     // also his one ask (under the list)
   if (sup.state === 'valid') {
@@ -607,14 +607,16 @@ function teamRow(x) {
   main.appendChild(meta);
   if (x.missing) main.appendChild(el('div', 'row-detail', T('agent_missing_text')));
   else if (!x.hired || x.why !== 'yes') main.appendChild(el('div', 'row-detail', fitText(x)));     // once hired, "would like to come" is old news
+  if (!x.hired && x.ok && needsAway(x)) main.appendChild(el('div', 'row-detail', T('needs_away', { name: Office.t(`${x.id}.name`), with: nameWith(x.desk.needs) })));
   r.appendChild(main);
   let b = null;
   if (x.hired) {
     b = el('button', 'btn small plain', T('fire'));
     b.onclick = () => fire(x.id);
-  } else if (x.ok) {
-    // a desk that needs a colleague (desk.json "with"): both at once while the colleague isn't here and would come —
-    // the colleague first, so he stands first in the team; hiring him alone stays possible (nothing blocks)
+  } else if (x.ok && !needsAway(x)) {
+    // a desk that asks for a colleague (desk.json "with"): both at once while the colleague isn't here and would come —
+    // the colleague first, so he stands first in the team; hiring him alone stays possible. One that needs her
+    // ("needs": Jack Emby only under Ms. Moverelli) comes only with her or after her (src/staff.php refuses otherwise)
     const w = colleague(x);
     b = el('button', 'btn small', w ? T('hire_with', { name: nameWith(w.id) }) : T('hire'));
     b.onclick = () => hire(w ? [w.id, x.id] : [x.id]);
@@ -635,6 +637,13 @@ function colleague(x) {
   if (!id || id === x.id) return null;
   const w = staff().find((s) => s.id === id);
   return w && !w.hired && w.ok && !w.desk.training ? w : null;
+}
+/** A candidate who needs a colleague (desk.json "needs") that is neither hired nor able to come: no «Hire» */
+function needsAway(x) {
+  const id = x.desk && x.desk.needs;
+  if (!id) return false;
+  const w = staff().find((s) => s.id === id);
+  return !w || (!w.hired && !(w.ok && !w.desk.training));
 }
 /** His name as «with …» needs it (de «Herrn Backupsi», es «el señor Backupsi»): <desk>.name_with, else the name */
 const nameWith = (id) => Office.t(Office.has(`${id}.name_with`) ? `${id}.name_with` : `${id}.name`);

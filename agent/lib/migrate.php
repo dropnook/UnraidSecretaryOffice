@@ -61,6 +61,13 @@ function officeMigrateSteps(): array
             require_once __DIR__ . '/partner.php';
             return partnerMigrateSimple($dir);
         }],
+        // Ms. Moverelli's cake (agent/lib/poolcake.php): her ini from before it has no jack_slice_percent — nothing is written;
+        // her setup proposes his slice from what he holds today, until «Apply» she reads the pool as before and Jack keeps
+        // 100 − X % free instead of his own minimum (said here once)
+        ['id' => 'moverelli-cake', 'version' => '1.61.0', 'run' => function (string $dir, string $to): string {
+            require_once __DIR__ . '/poolcake.php';
+            return officeMigrateCake($dir);
+        }],
     ];
 }
 
@@ -389,3 +396,20 @@ function officeCronBack(string $file = OFFICE_CRON, ?callable $apply = null, ?ca
     return $back;
 }
 
+/**
+ * Step `moverelli-cake`: reads her smart_mover.ini, writes nothing (idempotent). With a limit X and no Jack's slice yet:
+ * says what holds until she sets one — her reading as before (no offset), Jack Emby without a budget but with
+ * EMBYCACHE_MIN_FREE_PERCENT = 100 − X instead of his own setting.
+ */
+function officeMigrateCake(string $dir): string
+{
+    $rules = poolCakeRules("$dir/moverelli/smart_mover.ini");
+    if ($rules === null || $rules['x'] <= 0) {
+        return 'nothing to change — Ms. Moverelli has no limit for the pool';
+    }
+    if ($rules['n'] !== null) {
+        return "nothing to change — Jack Emby's slice is set ({$rules['n']} %)";
+    }
+    return "nothing written — Jack Emby's slice isn't set yet: her setup proposes one; until then she reads the pool as before and "
+        . 'Jack Emby keeps ' . (100 - $rules['x']) . ' % of it free (her limit ' . $rules['x'] . ' %) instead of his own minimum';
+}

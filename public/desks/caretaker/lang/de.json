@@ -381,8 +381,6 @@
   "count.days": {"one": "{n} Tag", "other": "{n} Tage"},
   "count.weeks": {"one": "{n} Woche", "other": "{n} Wochen"},
   "count.months": {"one": "{n} Monat", "other": "{n} Monate"},
-  "partner.wake": "Den Pool wecken, wenn er schläft",
-  "partner.wake_help": "Sonst wird eine Übertragung abgelehnt, solange die Disks des Pools schlafen.",
   "partner.send_too": "Ich schicke auch",
   "partner.send_too_help": "Dann bewahrt {name} auch Kopien dieses Servers auf.",
   "partner.next": "Weiter",
@@ -519,5 +517,6 @@
   "partner.hire_backupsy": "Herrn Backupsi einstellen",
   "partner.need_restori": "Um hier von einer Kopie zu starten, braucht es Herrn Restori.",
   "partner.hire_restori": "Herrn Restori einstellen",
-  "partner.i_keep_start": "Herr Restori kann von diesen Kopien starten («Für {name} aufbewahrt» auf seiner Seite) — die Kopie einer VM oder App trägt seit Engine 2.43 ihre Konfiguration in sich; ältere Kopien nicht."
+  "partner.i_keep_start": "Herr Restori kann von diesen Kopien starten («Für {name} aufbewahrt» auf seiner Seite) — die Kopie einer VM oder App trägt seit Engine 2.43 ihre Konfiguration in sich; ältere Kopien nicht.",
+  "needs_away": "{name} käme gern — aber nur unter der Aufsicht von {with}, und sie kann hier nicht kommen."
 }

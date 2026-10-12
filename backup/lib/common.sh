@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.45"
+UB_VERSION="2.46"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3446,7 +3446,6 @@ new_local_run() {
 UB_PARTNER_DIR="${UB_PARTNER_DIR:-$UB_BOOT/config/plugins/unraid-secretary-office/partners}"
 UB_PARTNER_PAIRS="${UB_PARTNER_PAIRS:-$(dirname "$UB_DATA")/partner/pairs.json}"   # the Team Lead's pairs (setup.sh and, since 2.29, the run read it)
 UB_PARTNER_ASK="${UB_PARTNER_ASK:-60}"           # seconds for a short question to the door (ping, list, resume)
-UB_PARTNER_NIGHTS="${UB_PARTNER_NIGHTS:-3}"      # unreachable so many nights in a row: a warning (once a day)
 UB_PARTNER_SNAP_RE='^uso-backup-[0-9]{8}-[0-9]{4}$'   # the only snapshot names the door accepts
 UB_PARTNER_BOOKMARK="uso-partner-"               # <dataset>#uso-partner-<id>: the last snapshot sent to that partner
 
@@ -3696,8 +3695,8 @@ partner_status_json() {
 # partner-sent.json  {"<id>": {"<unit>": {"snap", "dataset", "time"}}} - the last snapshot each partner got of each unit:
 #                    with the bookmark <dataset>#uso-partner-<id> it is the base of the next incremental send even when
 #                    the engine's retention destroyed that snapshot here
-# partner-skips.json {"<id>": {"nights", "first", "last_day", "warned", "quota_warned", "window_warned"}} - nights in a row
-#                    unreachable, and the day each warning was last said (once a day)
+# partner-skips.json (up to 2.45: nights in a row unreachable, the day each warning was said) - no longer read or
+#                    written since 2.46 (a partner that got nothing is said in the same run); a stale one is harmless
 partner_state_get() { # partner_state_get <file> <jq path, e.g. .["id"]["unit"].snap>
     jq -r "($2) // empty" "$UB_STATE/$1" 2>/dev/null
 }

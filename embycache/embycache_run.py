@@ -55,6 +55,10 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
                               neu geschrieben: Phase (plan | back | fill | done), «Zurück aufs Array» geplant/erledigt,
                               pro Benutzer geplant/erledigt (Dateien, Bytes) mit Beginn/Ende, die Datei in Arbeit mit
                               Ziel und Grund, die Warteschlange des Befüllens (queue, pos: wer wann dran ist)
+  EMBYCACHE_BUDGET_BYTES      USO: Jacks Stück vom Pool in Bytes (Frau Moverelli teilt es zu): befüllt wird nur, solange
+                              alles auf dem Cache plus die Datei hineinpasst ([SKIP: Platz], Status «slice.waiting»);
+                              liegt mehr als 5 % darüber, gibt der Lauf das Überzählige zurück aufs Array
+  EMBYCACHE_ZFS, EMBYCACHE_MOUNTS  USO: zfs und /proc/mounts für die Tests (Freiplatz auf ZFS: der ganze Pool)
   EMBYCACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
                               Kopie); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
                               «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete, oder auf Wunsch)
@@ -75,7 +79,7 @@ def stop_requested():
     return bool(STOP_FILE) and os.path.exists(STOP_FILE)
 
 from embycache_lib import (
-    ConfigError, EmbyApi, Locations, acquire_lock, array_location, collect_sessions, detect_mover_bin,
+    ConfigError, EmbyApi, Locations, acquire_lock, array_location, budget_bytes, collect_sessions, detect_mover_bin,
     free_percent_after, human, is_playing, load_config, origin_target, read_exclude, read_origin,
     remove_empty_parents, run_mover, setup_logging, share_mover_mode, summarize_mover_output,
     unraid_mover_running, write_exclude, write_origin, write_progress, write_status, EXCLUDE_FILE, MOVER_MODE_HINT,
@@ -611,6 +615,11 @@ class Runner:
         self.origin = read_origin()       # Cache-Pfad -> diskN
         self.stopped = False              # EMBYCACHE_STOP: nach der aktuellen Datei aufgehört
         self.progress = Progress(mode, self.run_mode and bool(PROGRESS_FILE))   # EMBYCACHE_PROGRESS
+        # USO: Jacks Stück (EMBYCACHE_BUDGET_BYTES, None: keins) – was davon belegt ist, was zurückgeht, was wartet
+        self.budget = budget_bytes()
+        self.slice_used = 0
+        self.given_back = self.given_back_bytes = 0
+        self.waiting = self.waiting_bytes = 0
 
     def halt(self):
         """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
@@ -889,6 +898,28 @@ class Runner:
                     log.error("Ziel voll: der Mover findet auf dem Array keinen Platz (Share-Einstellung «Minimum free space», "
                               "Allocation/Split-Level oder eingeschlossene Disks prüfen).")
 
+    def give_back(self, loc, files, current, sessions):
+        """USO: Jacks Stück (EMBYCACHE_BUDGET_BYTES). Was On-Deck schon auf dem Cache liegt, belegt es (J). Liegt J mehr als
+        5 % über dem Stück, nimmt der Lauf Dateien aus `current` (der Cleanup bringt sie zurück aufs Array), bis J ≤ Stück
+        – die zuletzt befüllten zuerst (umgekehrte Reihenfolge des Befüllens; nach Rang erst in Phase 2); was läuft, bleibt."""
+        kept = [f for f in files if f.on_cache and loc.on_cache(f.rel).exists()]
+        self.slice_used = sum(f.size for f in kept)
+        if self.slice_used * 100 <= self.budget * 105:
+            return
+        log.warning(f"Über meinem Stück: {human(self.slice_used)} auf dem Cache, Frau Moverelli gibt mir {human(self.budget)} "
+                    f"– das Überzählige geht zurück aufs Array")
+        for f in sorted(kept, key=lambda x: str(x.rel), reverse=True):
+            if self.slice_used <= self.budget:
+                break
+            if is_playing(f.rel, sessions):
+                log.info(f"[BLEIBT: läuft gerade] {f.rel}")
+                continue
+            current.discard(str(loc.on_cache(f.rel)))
+            self.slice_used -= f.size
+            self.given_back += 1
+            self.given_back_bytes += f.size
+            log.info(f"[ZURÜCK: Stück] {f.rel} ({human(f.size)})")
+
     def fill(self, loc, files, sessions):
         """On-Deck-Dateien vom Array auf den Cache – per rsync (Quelle erst nach Prüfung löschen) oder per move-Binary."""
         rsync_args = list(self.cfg["rsync_args"])
@@ -920,6 +951,13 @@ class Runner:
                     continue
                 if self.run_mode:
                     share_root.mkdir(parents=True, exist_ok=True)
+            # USO: Jacks Stück – nur was hineinpasst; der Rest wartet auf dem Array, bis etwas frei wird
+            if self.budget is not None and self.slice_used + f.size > self.budget:
+                log.warning(f"[SKIP: Platz] {f.rel} ({human(f.size)}) – mein Stück ist voll ({human(self.slice_used)} von {human(self.budget)})")
+                self.waiting += 1
+                self.waiting_bytes += f.size
+                self.progress.drop(f)
+                continue
             # Dataset (Quota) und Pool-Wurzel prüfen – appdata liegt oft auf demselben Pool
             free_after = free_percent_after(loc.cache, f.size, self.sim_delta)
             if share_root.is_dir():
@@ -939,6 +977,7 @@ class Runner:
                 continue
             self.to_cache += f.size
             self.fill_planned += 1
+            self.slice_used += f.size     # USO: das Stück zählt die geplante Kopie (auch im Dry-Run)
             key = group_key(f.rel)
             if key != last_group:
                 log.info(f"[{label if self.run_mode else 'PLAN:'} -> CACHE] {key}   ({f.reason})")
@@ -1124,6 +1163,8 @@ class Runner:
         loc = Locations(cfg, cfg["instances"][0]["_mappings"])
         current = {str(loc.on_cache(f.rel)) for f in files}
         protected = set()
+        if self.budget is not None:
+            self.give_back(loc, files, current, sessions)
         try:
             if planner.errors or not sessions_ok:
                 log.warning("Planung unvollständig (Emby nicht vollständig erreichbar) – Cleanup wird übersprungen, "
@@ -1157,6 +1198,9 @@ class Runner:
                                "bytes_planned": self.to_cache, "bytes_done": self.copied_bytes}
         self.status["protected"] = len(protected)
         self.status["incomplete"] = bool(planner.errors or not sessions_ok)
+        if self.budget is not None:       # USO: Jacks Stück
+            self.status["slice"] = {"budget": self.budget, "used": self.slice_used, "given_back": self.given_back,
+                                    "given_back_bytes": self.given_back_bytes, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
         if self.stopped:
             log.info("Angehalten nach der aktuellen Datei (EMBYCACHE_STOP) – der nächste Lauf macht weiter")
         return 3 if self.stopped else 0
@@ -1218,6 +1262,7 @@ def main():
     started = int(time.time())
     try:
         cfg = load_config()
+        budget_bytes()        # USO: a budget that is no number stops here, like a bad setting
     except ConfigError as e:
         log.error(str(e))
         write_status({"mode": mode, "result": "config", "message": str(e), "started": started, "finished": int(time.time())})

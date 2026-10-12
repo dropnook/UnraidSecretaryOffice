@@ -96,6 +96,7 @@ function officeStaffAction(string $action, array $data): array
     officeStaffChange(officeStaffFile(), function (array $staff) use ($ids, $action, $desks): array {
         $staff = officeStaffMerged($staff, $desks) ?? $staff;
         $hired = (array) ($staff['hired'] ?? []);
+        officeStaffNeeds($ids, $action, $hired, $desks);
         foreach ($ids as $id) {
             if ($action === 'office.hire') {
                 $hired[$id] ??= time();
@@ -107,6 +108,29 @@ function officeStaffAction(string $action, array $data): array
         return $staff;
     });
     return ['ok' => true, 'hired' => array_keys(officeHired())];
+}
+
+/**
+ * A desk that needs a colleague (desk.json "needs": Jack Emby, the intern, works only under Ms. Moverelli): hired only
+ * while she is hired or comes in the same request; she is let go only once nobody hired needs her. Inside the staff
+ * file's lock — two requests can't slip past each other. Refusals: needs_colleague {desk, with}, needed_by {desk, by}.
+ */
+function officeStaffNeeds(array $ids, string $action, array $hired, array $desks): void
+{
+    foreach ($ids as $id) {
+        if ($action === 'office.hire') {
+            $need = $desks[$id]['needs'] ?? null;
+            if ($need !== null && !isset($hired[$need]) && !in_array($need, $ids, true)) {
+                throw new OfficeProblem('needs_colleague', 409, ['desk' => $id, 'with' => $need]);
+            }
+            continue;
+        }
+        foreach (array_keys($hired) as $other) {
+            if ($other !== $id && !in_array($other, $ids, true) && ($desks[$other]['needs'] ?? null) === $id) {
+                throw new OfficeProblem('needed_by', 409, ['desk' => $id, 'by' => (string) $other]);
+            }
+        }
+    }
 }
 
 const OFFICE_ORDER_MAX = 64;      // ids in an office.staff_order request — far more than there are desks

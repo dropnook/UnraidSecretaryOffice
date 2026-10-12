@@ -2,5 +2,7 @@
   "order": 55,
   "icon": "🚚",
   "refresh_after": 300,
-  "training": true
+  "parts": {
+    "progress": { "refresh_after": 5, "action": "progress" }
+  }
 }

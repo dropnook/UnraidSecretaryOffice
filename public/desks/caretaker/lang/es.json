@@ -381,8 +381,6 @@
   "count.days": {"one": "{n} día", "other": "{n} días"},
   "count.weeks": {"one": "{n} semana", "other": "{n} semanas"},
   "count.months": {"one": "{n} mes", "other": "{n} meses"},
-  "partner.wake": "Despertar el pool cuando duerme",
-  "partner.wake_help": "Si no, una transferencia se rechaza mientras los discos del pool duermen.",
   "partner.send_too": "Yo también envío",
   "partner.send_too_help": "Entonces {name} también guarda copias de este servidor.",
   "partner.next": "Siguiente",
@@ -519,5 +517,6 @@
   "partner.hire_backupsy": "Contratar al señor Backupsi",
   "partner.need_restori": "Para empezar aquí desde una copia hace falta el señor Restori.",
   "partner.hire_restori": "Contratar al señor Restori",
-  "partner.i_keep_start": "El señor Restori puede empezar desde estas copias («Guardado para {name}» en su página) — la copia de una VM o de una app trae su configuración desde el motor 2.43; las copias más antiguas no."
+  "partner.i_keep_start": "El señor Restori puede empezar desde estas copias («Guardado para {name}» en su página) — la copia de una VM o de una app trae su configuración desde el motor 2.43; las copias más antiguas no.",
+  "needs_away": "{name} vendría — pero solo bajo la supervisión de {with}, y ella no puede venir aquí."
 }

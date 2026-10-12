@@ -11,7 +11,7 @@ declare(strict_types=1);
  * Every desk, in desk.json's order ("order", then the id) — the order of a fresh office; the user may set another one
  * at the reception (staff.php officeStaffOrder()).
  *
- * @return array<string, array{id:string, order:int, icon:string, refresh_after:int, parts:array<string, array{refresh_after:int, action:string}>, css:bool, always:bool, training:bool, with:?string}>
+ * @return array<string, array{id:string, order:int, icon:string, refresh_after:int, parts:array<string, array{refresh_after:int, action:string}>, css:bool, always:bool, training:bool, with:?string, needs:?string}>
  */
 function officeDesks(): array
 {
@@ -38,11 +38,18 @@ function officeDesks(): array
             // the colleague he needs (desk.json "with": Mr. Restori works from Mr. Backupsy's packages): the Team Lead
             // offers to hire both at once; only another desk's id, else null
             'with'          => is_string($meta['with'] ?? null) && $meta['with'] !== $id ? $meta['with'] : null,
+            // the colleague he can't work without (desk.json "needs": Jack Emby, an intern, only under Ms. Moverelli):
+            // hired only with or after her, she is let go only after him (src/staff.php); also his `with`
+            'needs'         => is_string($meta['needs'] ?? null) && $meta['needs'] !== $id ? $meta['needs'] : null,
         ];
+        $desks[$id]['with'] ??= $desks[$id]['needs'];
     }
     foreach ($desks as $id => $desk) {
         if ($desk['with'] !== null && !isset($desks[$desk['with']])) {
             $desks[$id]['with'] = null;
+        }
+        if ($desk['needs'] !== null && !isset($desks[$desk['needs']])) {
+            $desks[$id]['needs'] = null;
         }
     }
     uasort($desks, fn ($a, $b) => [$a['order'], $a['id']] <=> [$b['order'], $b['id']]);

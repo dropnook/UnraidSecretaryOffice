@@ -53,6 +53,8 @@ const EMBY_WATCH_MAX     = 7200;    // … for up to 2 h, then that night is ski
 const EMBY_WATCH_DURING  = 60;      // during a real gather Emby is asked once a minute; someone watching = stop after the current folder
 const EMBY_WATCH_SHOWN   = 10;      // at most this many watchers kept
 
+require_once dirname(__DIR__) . '/lib/poolcake.php';     // Ms. Moverelli's cake: his slice of the pool (shared with her)
+
 define('EMBY_APP', OFFICE_DIR . '/embycache');
 define('GATHER_APP', OFFICE_DIR . '/gather');
 define('EMBY_DATA', DATA_DIR . '/embycache');
@@ -64,9 +66,13 @@ desk('emby', [
         if (!$emby) {
             return fit(false, 'no_emby');
         }
-        // real runs only while Unraid's mover schedule is «Disabled» (emby-mover.php) — his list he enters into Mover Tuning (if any) once hired
-        $rule = embyMoverRule(false);
-        return fit(true, !$rule['ok'] && $rule['why'] !== 'tuning_list' ? 'yes_dry' : 'yes', ['name' => $emby[0]['name']]);
+        // an intern: only under Ms. Moverelli (desk.json `needs`) — she can't come, he can't either
+        if (function_exists('moverelliUnraidOk') && !moverelliUnraidOk((string) (moverelliHost()['version'])())) {
+            return fit(false, 'no_moverelli', ['name' => $emby[0]['name']]);
+        }
+        // real runs once she is set up and keeps his list out, Unraid's mover schedule «Disabled» (emby-mover.php)
+        $rule = embyMoverRule();
+        return fit(true, $rule['ok'] || $rule['why'] === 'moverelli' ? 'yes' : 'yes_dry', ['name' => $emby[0]['name']]);
     },
     'start'   => fn () => embyScan(),
     'actions' => [
@@ -165,12 +171,14 @@ function embyScan(): array
         'last_status' => readJson(EMBY_DATA . '/status.json'),       // what the last run of any mode did: the result box under the tiles
         'history'    => array_slice($history, 0, 20),
         'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
+        // Ms. Moverelli follows his real EmbyCache runs (her schedule «right after Jack Emby») — a quiet line under his schedules
+        'moverelli_after' => function_exists('moverelliFollowsJack') && moverelliFollowsJack(),
         'foreign'    => embyForeignSchedules(),
         'pools'      => embyPools(),
         'share_info' => embyShareInfo(),
         'pool_dirs'  => embyPoolDirs(),
         'old_clone'  => is_dir(EMBY_DATA . '/app/.git'),
-        // Unraid's mover: may real runs go (its schedule «Disabled»; Mover Tuning, if installed, with his list — entered here when it isn't), is it at work
+        // Unraid's mover: may real runs go (its schedule «Disabled», Ms. Moverelli supervising with his list kept out), is it at work
         'mover'      => embyMoverState(),
         'waiting'    => ['embycache' => embyRunWaiting('embycache'), 'gather' => embyRunWaiting('gather')],
         'letgo'      => embyLetGoNote(),       // hired again: what he switched off when he was let go (said once)
@@ -554,7 +562,8 @@ function embyWriteMeasureIni(array $shares, array $emby, string $gatherDir = GAT
 /**
  * What EmbyCache keeps on the pool right now (its exclude list: absolute pool paths), by film or series folder:
  * files, bytes, the disks they go back to and `since` — when the newest of them came onto the pool (its ctime: the
- * copy made it; read with the size, one stat). Newest first; the page filters and pages them.
+ * copy made it; read with the size, one stat). Newest first; the page filters and pages them. `shares`: per share over
+ * the whole list {files, bytes} — the first folder below the pool, as the groups (his share rows say it).
  */
 function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
 {
@@ -562,6 +571,7 @@ function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
     $origin = readJson("$dir/embycache_origin.json") ?? [];
     $bytes = 0;
     $groups = [];
+    $shares = [];             // per share, over the whole list (the groups are cut at EMBY_POOL_GROUPS): his page's share rows
     $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
     foreach ($list as $path) {
         $size = (int) @filesize($path);
@@ -574,6 +584,9 @@ function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
         $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0, 'origin' => [], 'since' => null];
         $groups[$key]['files']++;
         $groups[$key]['bytes'] += $size;
+        $shares[$parts[0]] ??= ['files' => 0, 'bytes' => 0];
+        $shares[$parts[0]]['files']++;
+        $shares[$parts[0]]['bytes'] += $size;
         if ($since > 0 && $since > (int) $groups[$key]['since']) {
             $groups[$key]['since'] = $since;
         }
@@ -586,7 +599,8 @@ function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
     }
     unset($g);
     usort($groups, fn ($a, $b) => [(int) $b['since'], $a['title']] <=> [(int) $a['since'], $b['title']]);
-    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, EMBY_POOL_GROUPS),
+    ksort($shares);
+    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, EMBY_POOL_GROUPS), 'shares' => (object) $shares,
             'listed_at' => @filemtime("$dir/embycache_exclude.txt") ?: null];
 }
 
@@ -613,8 +627,49 @@ function embyPoolUsage(?array $settings): ?array
             }
         }
     }
-    return $total > 0 ? ['path' => $cache, 'total' => $total, 'free' => $free,
-                         'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null] : null;
+    if ($total <= 0) {
+        return null;
+    }
+    $out = ['path' => $cache, 'total' => $total, 'free' => $free, 'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null];
+    // Ms. Moverelli's cake (2026-10-12): her limit X keeps 100 − X free for him; his slice once she set it — what of it
+    // he holds, how many files waited in his last run because it was full, what he gives back
+    $look = embyCakeLook($settings);
+    if ($look !== null) {
+        $out['moverelli'] = ['x' => $look['rules']['x'], 'n' => $look['rules']['n']];
+        if ($look['rules']['x'] > 0) {
+            $out['min_free'] = 100 - $look['rules']['x'];
+        }
+        $c = $look['cake'];
+        if ($c !== null && $c['n'] !== null) {
+            $slice = (array) (readJson(EMBY_DATA . '/status.json')['slice'] ?? []);
+            $out += ['slice' => $c['slice'], 'slice_used' => $c['jack'], 'excess' => $c['excess'], 'cake' => $c['cake'], 'case' => $c['case'],
+                     'waiting' => (int) ($slice['waiting'] ?? 0)];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Ms. Moverelli's cake from his side (agent/lib/poolcake.php poolCakeJack()): her rules, his pool's cake, what EmbyCache
+ * is told — null while she isn't set up. $wake: a run is about to wake the pool anyway. The tests: $GLOBALS['embyCake'].
+ */
+function embyCakeLook(?array $settings, bool $wake = false): ?array
+{
+    $o = ($GLOBALS['embyCake'] ?? []) + ['ini' => DATA_DIR . '/moverelli/smart_mover.ini', 'shares_dir' => '/boot/config/shares', 'zfs' => 'zfs',
+        'mnt' => '/mnt', 'jack_list' => EMBY_DATA . '/embycache_exclude.txt', 'asleep' => null];
+    $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
+    return poolCakeJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
+}
+
+/** What EmbyCache is told for a run (dry, real): her limit as his minimum free space, his slice as his budget */
+function embyCakeEnv(?array $settings): array
+{
+    try {
+        return embyCakeLook($settings, true)['env'] ?? [];
+    } catch (Throwable $e) {
+        logLine("Jack Emby: Ms. Moverelli's cake not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
+        return [];
+    }
 }
 
 /**
@@ -1082,123 +1137,16 @@ function embyImportDo(array $r): array
     return ['ok' => true, 'done' => embyImportScrub($done, $plan['secrets']), 'state' => embyScan()];
 }
 
-/**
- * The folder typed for an earlier install, checked before anything in it is read: absolute, no
- * "." or "..", under /mnt/user/<share>, a pool, an array disk or User Scripts' folder on the
- * flash; the disks behind it awake (Jack never wakes one); every part a real folder — no link,
- * but Unraid's own of an exclusive share (/mnt/user/<share> → ../<pool>/<share>). Returns the
- * real folder to read from.
- */
+/** The folder typed for an earlier install, checked before anything in it is read (agent/lib/import.php, shared with Ms. Moverelli) — never one of his own */
 function embyImportFolder(string $path, array $ctx): string
 {
-    $path = rtrim($path, '/');
-    if (strlen($path) > 1024 || !preg_match('#^(/[^/\x00-\x1f\x7f]+)+$#D', $path)
-        || array_intersect(explode('/', substr($path, 1)), ['.', '..'])) {
-        throw new Problem('emby_import_folder', ['path' => $path]);
-    }
-    $pools = (array) $ctx['pools'];
-    if (preg_match('#^/mnt/user/([^/]+)(?:/|$)#', $path, $m)) {
-        if (!preg_match('/^[\w.\- ]+$/uD', $m[1])) {
-            throw new Problem('emby_import_where', ['path' => $path]);
-        }
-        $bases = embyImportShareBases($m[1], $ctx);
-    } elseif (preg_match('#^/mnt/(disk\d+)(?:/|$)#', $path, $m) || (preg_match('#^/mnt/([^/]+)(?:/|$)#', $path, $m) && in_array("/mnt/{$m[1]}", $pools, true))) {
-        $bases = [$m[1]];
-    } elseif (preg_match('#^/boot/config/plugins/user\.scripts/scripts/[^/]+(?:/|$)#', $path)) {
-        $bases = [];                                    // the flash never sleeps
-    } else {
-        throw new Problem('emby_import_where', ['path' => $path]);
-    }
-    $sleeping = array_values(array_filter($bases, fn ($b) => baseAsleep((string) $b, (array) $ctx['asleep'])));
-    if ($sleeping) {
-        throw new Problem('emby_import_asleep', ['path' => $path, 'disks' => implode(', ', $sleeping)]);
-    }
-    $fs = (string) ($ctx['fs'] ?? '');
-    $real = '';
-    foreach (explode('/', substr($path, 1)) as $i => $part) {
-        $next = "$real/$part";
-        clearstatcache(true, $fs . $next);
-        $st = @lstat($fs . $next);
-        if ($st && ($st['mode'] & 0170000) === 0120000 && $i === 2 && str_starts_with($path, '/mnt/user/')) {
-            // an exclusive share: exactly ../<pool>/<share> or /mnt/<pool>/<share>, an awake pool of this server
-            $to = (string) @readlink($fs . $next);
-            if (preg_match('#^(?:\.\./|/mnt/)([^/]+)/([^/]+)/?$#D', $to, $t) && $t[2] === $part && in_array("/mnt/{$t[1]}", $pools, true)) {
-                if (baseAsleep($t[1], (array) $ctx['asleep'])) {
-                    throw new Problem('emby_import_asleep', ['path' => $path, 'disks' => $t[1]]);
-                }
-                $next = "/mnt/{$t[1]}/$part";
-                clearstatcache(true, $fs . $next);
-                $st = @lstat($fs . $next);
-            }
-        }
-        if (!$st) {
-            throw new Problem('emby_import_missing', ['path' => $path]);
-        }
-        if (($st['mode'] & 0170000) === 0120000) {
-            throw new Problem('emby_import_link', ['path' => $next]);
-        }
-        if (($st['mode'] & 0170000) !== 0040000) {
-            throw new Problem('emby_import_missing', ['path' => $path]);
-        }
-        $real = $next;
-    }
-    foreach ([$ctx['emby_dir'], $ctx['gather_dir']] as $own) {
-        if (realpath($fs . $real) === realpath((string) $own)) {
-            throw new Problem('emby_import_own', ['path' => $path]);
-        }
-    }
-    return $fs . $real;
+    return importFolder($path, $ctx + ['own' => [$ctx['emby_dir'], $ctx['gather_dir']]], 'emby_import');
 }
 
-/** The disks and pools a share may lie on (its config on the flash; never a look at the disks) */
-function embyImportShareBases(string $share, array $ctx): array
-{
-    $cfg = ($ctx['share_cfg'])($share);
-    $use = (string) ($cfg['shareUseCache'] ?? 'no');
-    $bases = [];
-    if ($use !== 'no') {
-        foreach (['shareCachePool', 'shareCachePool2'] as $k) {
-            if (($cfg[$k] ?? '') !== '') {
-                $bases[] = (string) $cfg[$k];
-            }
-        }
-    }
-    if ($use === 'no' || ($use !== 'only' && ($cfg['shareCachePool2'] ?? '') === '')) {     // the array is its primary or secondary
-        $include = array_filter(array_map('trim', explode(',', (string) ($cfg['shareInclude'] ?? ''))));
-        $bases = array_merge($bases, $include ?: array_filter(array_keys((array) $ctx['asleep']), fn ($d) => preg_match('/^disk\d+$/D', (string) $d)));
-    }
-    return array_values(array_unique(array_map('strval', $bases)));
-}
-
-/** One of the known files in the old folder: a plain file of its own (no link, no second hard link), at most $cap bytes; null when it isn't there */
+/** One of the known files in the old folder (importRead(): plain, one hard link, at most $cap bytes); null when it isn't there */
 function embyImportRead(string $dir, string $name, int $cap): ?string
 {
-    $file = "$dir/$name";
-    clearstatcache(true, $file);
-    $st = @lstat($file);
-    if (!$st) {
-        return null;
-    }
-    if (($st['mode'] & 0170000) !== 0100000 || $st['nlink'] !== 1) {
-        throw new Problem('emby_import_file', ['file' => $name]);
-    }
-    if ($st['size'] > $cap) {
-        throw new Problem('emby_import_big', ['file' => $name]);
-    }
-    $h = @fopen($file, 'rb');
-    $fst = $h ? fstat($h) : false;
-    if (!$h || !$fst || $fst['ino'] !== $st['ino'] || $fst['dev'] !== $st['dev'] || ($fst['mode'] & 0170000) !== 0100000) {
-        if ($h) {
-            fclose($h);
-        }
-        throw new Problem('emby_import_file', ['file' => $name]);
-    }
-    $data = (string) stream_get_contents($h, $cap + 1);
-    fclose($h);
-    if (strlen($data) > $cap) {
-        throw new Problem('emby_import_big', ['file' => $name]);
-    }
-    return $data;
+    return importRead($dir, $name, $cap, 'emby_import');
 }
 
 /** EmbyCache's own DEFAULTS (the version that ships with the office), asked from embycache_lib.py */
@@ -1573,7 +1521,7 @@ function embyImportThere(string $host, array $ctx): ?bool
     if (($m[2] ?? '') === '') {
         return true;                                   // the share itself: its config is on the flash
     }
-    foreach (embyImportShareBases($m[1], $ctx) as $b) {
+    foreach (importShareBases($m[1], $ctx) as $b) {
         if (baseAsleep($b, (array) $ctx['asleep'])) {
             return null;
         }
@@ -1829,22 +1777,10 @@ function embyImportApply(array $do, array $ctx): array
             'origin' => isset($do['embycache']['origin']) ? count($do['embycache']['origin']) : null];
 }
 
-/** A copy of each of these files of Jack's that exists (plain files only), named <file>.before-import-<time> */
+/** A copy of each of these files of Jack's that exists (importBackup(): plain files only), named <file>.before-import-<time> */
 function embyImportBackup(string $dir, array $names, string $stamp): array
 {
-    $made = [];
-    foreach (array_keys($names) as $name) {
-        $file = "$dir/$name";
-        clearstatcache(true, $file);
-        $st = @lstat($file);
-        if (!$st || ($st['mode'] & 0170000) !== 0100000) {
-            continue;
-        }
-        $copy = "$file.before-import-$stamp";
-        writeAtomic($copy, (string) file_get_contents($file), 0600, 0, 0);
-        $made[] = $copy;
-    }
-    return $made;
+    return importBackup($dir, $names, $stamp);
 }
 
 // ===================================================================== who watches Emby (before and during a real gather)
@@ -2295,7 +2231,7 @@ function embyRunCheck(string $tool, string $mode): void
     if (function_exists('moverelliBusy') && moverelliBusy()) {
         throw new Problem('emby_moverelli_running');
     }
-    // real runs only while Unraid's mover schedule is «Disabled» (emby-mover.php) — and Mover Tuning, if installed, keeps his list
+    // real runs only while Unraid's mover schedule is «Disabled» and Ms. Moverelli keeps his list out (emby-mover.php)
     if ($mode === 'run' && ($p = embyMoverProblem(embyMoverRule()))) {
         throw $p;
     }
@@ -2457,7 +2393,9 @@ function embyJob(string $tool, array $args): int
         $cwd = '/';
     } else {
         $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
-        $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : []);
+        $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : [])
+             // Ms. Moverelli's cake: her limit and his slice (a dry run sees what the real one would)
+             + (in_array($mode, ['dry', 'run'], true) ? embyCakeEnv(embyReadSettings()) : []);
         $cwd = EMBY_APP;
         if ($real) {                     // the live panel on his page (emby-progress.php): EmbyCache's progress in RAM
             $progress = embyProgressPaths();
@@ -2522,7 +2460,31 @@ function embyJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
+    embyRunAfter($tool, $mode, $by, $exit);
     return $exit;
+}
+
+/**
+ * The very end of a run that ran (embyJob(): his bookkeeping done, his marker finished, his locks let go): a SCHEDULED
+ * real EmbyCache run (`run` from the office's cron file — whatever its outcome; one started on his page doesn't count, the
+ * owner's correction 2026-10-11) hands Ms. Moverelli's real run to atd while she follows him (moverelliAfterEmby(),
+ * moverelli.php) — the array's disks spin up once. Refused and skipped starts never get here; neither counts a run that
+ * never ran ($exit 127: proc_open failed, or python couldn't be started).
+ */
+function embyRunAfter(string $tool, string $mode, string $by, int $exit = 0): bool
+{
+    if (!function_exists('moverelliAfterEmby') || $exit === 127) {
+        return false;
+    }
+    try {
+        if (moverelliAfterEmby($tool, $mode, $by)) {
+            logLine('Jack Emby: Ms. Moverelli follows his scheduled EmbyCache run — her run handed to at');
+            return true;
+        }
+    } catch (Throwable $e) {
+        fwrite(STDERR, "$tool: Ms. Moverelli not started: {$e->getMessage()}\n");
+    }
+    return false;
 }
 
 /**
@@ -2887,31 +2849,24 @@ function embyActiveText(string $text): string
 // ===================================================================== checks (for the caretaker)
 
 /**
- * The Team Lead's point about the mover: `mover` (Unraid's own schedule must be «Disabled» — his page has the switch;
- * ok once it is and nothing of Mover Tuning's takes his files), else, with Unraid's schedule off, what keeps Mover
- * Tuning's own schedule from leaving his files alone: `mover_tuning` (his list couldn't be entered), `mover_force` (its
- * forced move on a schedule), `mover_override` (a share's override). Required: without it no real run goes. Links his
- * page.
+ * The Team Lead's point about the mover: `mover` (Unraid's own schedule must be «Disabled» — Ms. Moverelli switches it
+ * off with her setup), `mover_moverelli_setup` (she isn't set up yet), `mover_moverelli` (her ini doesn't keep his list
+ * out for these shares), `mover_tuning_schedule` (Mover Tuning moves on a schedule of its own). Required: without it no
+ * real run goes. Links his page — hers for what she must do.
  */
 function embyMoverFinding(array $rule): array
 {
     $id = match ($rule['why']) {
-        'tuning_list'     => 'mover_tuning',
-        'tuning_force'    => 'mover_force',
-        'tuning_override' => 'mover_override',
+        'moverelli'       => 'mover_moverelli_setup',
         'moverelli_list'  => 'mover_moverelli',
+        'tuning_schedule' => 'mover_tuning_schedule',
         default           => 'mover',
     };
-    $t = $rule['tuning'];
     return finding($id, 'required', $rule['ok'], array_filter([
-        'file'     => $id === 'mover_tuning' ? (string) ($t['file'] ?? '') : null,
-        'detail'   => $id === 'mover_tuning' ? (string) ($t['error'] ?? '') : null,
-        'shares'   => match ($id) {
-            'mover_override'  => implode(', ', $t['overrides'] ?? []),
-            'mover_moverelli' => implode(', ', $rule['moverelli']['uncovered'] ?? []),
-            default           => null,
-        },
-    ], fn ($v) => $v !== null), '#/emby');
+        'shares'   => $id === 'mover_moverelli' ? implode(', ', $rule['moverelli']['uncovered'] ?? []) : null,
+        'schedule' => $id === 'mover_tuning_schedule' ? (string) ($rule['tuning']['cron'] ?? '') : null,
+        'name'     => $id === 'mover_tuning_schedule' ? embyMoverName($rule['tuning'] ?? null) : null,
+    ], fn ($v) => $v !== null), in_array($id, ['mover_moverelli_setup', 'mover_moverelli'], true) ? '#/moverelli/setup' : '#/emby');
 }
 
 function embyChecks(): array

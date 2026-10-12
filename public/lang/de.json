@@ -66,6 +66,7 @@
   "time.days_hours": "{d} T {h} Std.",
   "time.hours_minutes": "{h} Std. {m} Min.",
   "time.minutes": "{m} Min.",
+  "time.seconds": "{s} s",
   "cron.every_minutes": {
     "one": "jede Minute",
     "other": "alle {n} Minuten"
@@ -340,5 +341,7 @@
   "search.kind.setting": "Einstellung",
   "search.kind.help": "Erklärt",
   "search.kind.guide": "Anleitung",
-  "search.kind.item": "Eintrag"
+  "search.kind.item": "Eintrag",
+  "errors.needs_colleague": "{desk} arbeitet nur unter der Aufsicht von {with} — stell beide zusammen ein, oder zuerst {with}.",
+  "errors.needed_by": "{by} kann ohne {desk} nicht bleiben — entlass zuerst {by}."
 }

@@ -1668,8 +1668,8 @@ function testEmbyImport(): void
 
 /**
  * Letting Jack Emby go (2026-10-09; agent/desks/emby-letgo.php): both schedules off — always, no tick — his lines
- * only (Mr. Backupsy's stays); the look (what is on the pool, a run going, someone watching, Mover Tuning named — read
- * only); emby.letgo needs `confirm` and `release` said, is refused for an unhired Jack (the hired gate) and changes
+ * only (Mr. Backupsy's stays); the look (what is on the pool, a run going, someone watching — read only; Mover Tuning is
+ * never his business any more, 2026-10-12); emby.letgo needs `confirm` and `release` said, is refused for an unhired Jack (the hired gate) and changes
  * nothing then; the tick's release handed to atd as `job embycache release --letgo` — refused while a run is going or
  * someone watches (his list of runs says so); the note for his page when hired again, said once; EmbyCache's own
  * `--release` on a fixture tree (everything on the list back the cleanup's way, a duplicate stays and stays listed,
@@ -1690,28 +1690,23 @@ function testEmbyLetGo(): void
     officeJobSetSchedule('backup', '0 2 * * *', $cron, false);
     officeJobSetSchedule('embycache', '15 * * * *', $cron, false);
     officeJobSetSchedule('gather', '0 3 * * 0', $cron, false);
-    // Mover Tuning's cfg as its page writes it (2026.10.03: filelistf «Yes», filelistv the file)
-    $tuningText = "moverDisabled=\"no\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\"\n";
-    file_put_contents("$tmp/tuning.cfg", $tuningText);
-    $lists = ['/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt', "$dir/embycache_exclude.txt"];
     $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
     $W = ['state' => 'watching', 'who' => [['user' => 'anna', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
     $running = null;
     $look = ['state' => 'free', 'who' => []];
     $launched = [];
-    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir, 'tuning' => "$tmp/tuning.cfg", 'lists' => fn () => $lists,
+    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir,
         'settings' => function () use (&$settings) { return $settings; }, 'running' => function () use (&$running) { return $running; },
         'waiting' => fn () => false, 'look' => function () use (&$look) { return $look; }, 'python' => fn () => true,
         'launch' => function (string $job, array $args) use (&$launched) { $launched[] = [$job, $args]; },
         'mover_off' => function () use (&$moverOff) { return $moverOff; }];
     $moverOff = true;
 
-    // the look: his two schedules, what lies on the pool (only what is there, under the pool), Mover Tuning naming his list
+    // the look: his two schedules, what lies on the pool (only what is there, under the pool); nothing of Mover Tuning
     $l = embyLetGoLook();
-    same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, Mover Tuning names his list',
-        [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []],
-         ['there' => true, 'listed' => true, 'key' => 'filelistv', 'file' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt']],
-        [$l['schedules'], $l['running'], $l['pool'], $l['release'], $l['mover_tuning']]);
+    same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, no Mover Tuning',
+        [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []], false],
+        [$l['schedules'], $l['running'], $l['pool'], $l['release'], array_key_exists('mover_tuning', $l)]);
     $moverOff = false;
     same('let Jack go: the look says whether Unraid\'s mover schedule is off (it stays so — the dialog says where to switch it on)', [true, false],
         [$l['mover_off'], embyLetGoLook()['mover_off']]);
@@ -1730,12 +1725,6 @@ function testEmbyLetGo(): void
     $settings = null;
     same('let Jack go: never set up — nothing to bring back', ['emby_not_configured', 0], [embyLetGoLook()['release']['why'], embyLetGoLook()['pool']['files']]);
     $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
-    file_put_contents("$tmp/tuning-off.cfg", "filelistf=\"no\"\nfilelistv=\"{$lists[0]}\"\n");
-    file_put_contents("$tmp/tuning-other.cfg", "filelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/mover_ignore.txt\"\n");
-    same('let Jack go: Mover Tuning without his list (none, switched off, another file) / not installed',
-        [['there' => true, 'listed' => false], ['there' => true, 'listed' => false], ['there' => true, 'listed' => false], ['there' => false, 'listed' => false]],
-        [embyLetGoTuning("$tmp/office.cron", $lists), embyLetGoTuning("$tmp/tuning-off.cfg", $lists), embyLetGoTuning("$tmp/tuning-other.cfg", $lists), embyLetGoTuning("$tmp/none.cfg", $lists)]);
-    check('let Jack go: Mover Tuning\'s cfg only read by the look', md5_file("$tmp/tuning.cfg") === md5($tuningText));
 
     // through the agent's dispatch: the hired gate, then the request's shape — and nothing changed by a refusal
     $staffBefore = $GLOBALS['agentStaffFile'] ?? null;
@@ -1768,28 +1757,7 @@ function testEmbyLetGo(): void
     same('let Jack go again with nothing on: nothing to switch off, the earlier note not yet shown stays', [[], ['embycache', 'gather']],
         [$r['off'] ?? null, embyLetGoNote($dir)['off'] ?? null]);
     same('let Jack go: hired again, his page said it — said once', [['ok' => true], null], [embyLetGoSeen($dir), embyLetGoNote($dir)]);
-    check('let Jack go: without `unlist` (a page from before) Mover Tuning stays as it is', md5_file("$tmp/tuning.cfg") === md5($tuningText)
-        && array_key_exists('unlist', $r) && $r['unlist'] === null);
-    check('let Jack go: a let-go a moment ago keeps his enforcing away (the look between the let-go and «fire»)', embyLetGoRecent($dir));
-
-    // the second tick: his list out of Mover Tuning again — back to what was there before his first change, every other line kept
-    file_put_contents("$dir/office-mover.json", json_encode(['v' => 1, 'entered' => 1, 'last' => 1, 'times' => 1, 'file' => $lists[0],
-        'before' => ['filelistf' => 'yes', 'filelistv' => '/mnt/user/Files/mover_ignore.txt']]));
-    file_put_contents("$tmp/tuning.cfg", "# a comment of the user's\n" . $tuningText);
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
-    same('let Jack go with «take my list out»: done, the user\'s own list back, the comment and every other line kept, his note gone',
-        [['done' => true, 'to' => ['filelistf' => 'yes', 'filelistv' => '/mnt/user/Files/mover_ignore.txt']],
-         "# a comment of the user's\nmoverDisabled=\"no\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/mover_ignore.txt\"\n", false],
-        [$r['unlist'] ?? null, file_get_contents("$tmp/tuning.cfg"), file_exists("$dir/office-mover.json")]);
-    file_put_contents("$tmp/tuning.cfg", $tuningText);
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
-    same('let Jack go with «take my list out», nothing known of before: «No», no file', [['filelistf' => 'no', 'filelistv' => ''], "moverDisabled=\"no\"\nfilelistf=\"no\"\nfilelistv=\"\"\n"],
-        [$r['unlist']['to'] ?? null, file_get_contents("$tmp/tuning.cfg")]);
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
-    same('let Jack go with «take my list out» when it isn\'t there: said, nothing written', [false, 'emby_letgo_unlisted', "moverDisabled=\"no\"\nfilelistf=\"no\"\nfilelistv=\"\"\n"],
-        [$r['unlist']['done'] ?? null, $r['unlist']['error']['key'] ?? null, file_get_contents("$tmp/tuning.cfg")]);
-    same('let Jack go: `unlist` must be a bool when said', 'bad_request', $ask(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => 'yes']));
-    file_put_contents("$tmp/tuning.cfg", $tuningText);
+    same('let Jack go: the answer says nothing of Mover Tuning', false, array_key_exists('unlist', $r));
     check('let Jack go: a schedule switched on again also ends the note', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'),
         "if (\$cron !== null) {\n        embyLetGoSeen();"));
 
@@ -1918,11 +1886,11 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
 (async () => {
   const out = {};
   const look = { ok: true, schedules: { embycache: '15 * * * *', gather: null }, running: null, waiting: false, pool: { files: 2, bytes: 8000, pool: '/mnt/maple' },
-    release: { ok: true, why: null, params: {} }, mover_tuning: { there: true, listed: true, key: 'filelistf', file: '/x/embycache_exclude.txt' } };
+    release: { ok: true, why: null, params: {} } };
   out.view = e.letGoView(look);
-  out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} }, mover_tuning: { there: false } });
+  out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
   out.watching = e.letGoView({ ...look, release: { ok: false, why: 'emby_release_watching', params: { who: [{ user: 'anna', title: 'Alien', device: 'iPad' }] } } });
-  out.nothing = e.letGoView({ ...look, schedules: { embycache: null, gather: null }, pool: { files: 0, bytes: 0 }, release: { ok: false, why: 'emby_letgo_nothing', params: {} }, mover_tuning: { there: false } });
+  out.nothing = e.letGoView({ ...look, schedules: { embycache: null, gather: null }, pool: { files: 0, bytes: 0 }, release: { ok: false, why: 'emby_letgo_nothing', params: {} } });
   out.mover_off = e.letGoView({ ...look, mover_off: true }).more;
   // the part: looks at once; the tick off by default; ticked — «Let go and bring back»; before() once, with confirm and release
   answer = (a) => (a === 'emby.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
@@ -1948,23 +1916,8 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   await p2.looked;
   await p2.before();
   out.untickedSent = posts[1];
-  // the second tick: shown and on when Mover Tuning names his list; unticked — unlist false; not listed — hidden, never asked
-  posts.length = 0;
-  const box5 = mk('div');
-  const p5 = e.letGoPart(box5);
-  await p5.looked;
-  const l2 = box5.children[0].children[3];
-  const shown = [l2.hidden, l2.children[0].checked, l2.children[1].text, l2.children[1].children[0].textContent];
-  l2.children[0].checked = false;
-  await p5.before();
-  const sentUnticked = posts[1];
-  answer = (a) => (a === 'emby.letgo_look' ? { ...look, mover_tuning: { there: true, listed: false } } : { ok: true });
-  const box6 = mk('div');
-  const p6 = e.letGoPart(box6);
-  await p6.looked;
-  out.unlistTick = [...shown, sentUnticked, box6.children[0].children[3].hidden];
-  answer = (a) => (a === 'emby.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
-    release: { started: true, files: 2, bytes: 8000 } });
+  // no second tick any more (Mover Tuning is never his): the part has the lines, the tick and what is below it
+  out.parts = box.children[0].children.length;
   // busy: the tick there but can't be ticked; «Let go» stays «Let go»
   answer = () => ({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
   const box3 = mk('div');
@@ -1987,9 +1940,6 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
     release: { started: false, error: { key: 'emby_release_watching', params: { who: [{ user: 'anna' }] } } } });
   out.doneLeft = e.letGoDoneLines({ ok: true, was: { embycache: '15 * * * *', gather: null }, off: [], left: ['embycache'], failed: { key: 'command_failed' }, running: null, release: null });
   out.doneNone = e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null });
-  out.doneUnlist = [e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null, unlist: { done: true } }),
-    e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null,
-      unlist: { done: false, error: { key: 'emby_letgo_unlisted' } } })];
   out.doneErr = e.letGoDoneLines({ ok: false, error: { key: 'agent_away' } });
   // hired again: the note, said once (letgo_seen posted once), kept this visit, gone when the schedules are on again
   posts.length = 0;
@@ -2018,28 +1968,26 @@ JS);
         hardeningRm($tmp);
         return;
     }
-    same('let Jack go: the look\'s lines — the schedules switched off; the tick there and free; its hint; without it they stay, Mover Tuning named, settings stay', [
+    same('let Jack go: the look\'s lines — the schedules switched off; the tick there and free; its hint; without it they stay, settings stay', [
         'lines' => [['', 'letgo.sched_off {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}']], 'tick' => true, 'tickable' => true,
         'hint' => 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}',
-        'more' => [['role', 'letgo.tick_off'], ['role', 'letgo.stays']], 'unlist' => true, 'file' => '/x/embycache_exclude.txt'], $o['view']);
-    same('let Jack go: a run going — it finishes (said), the tick waits, Mover Tuning in general words',
-        [['callout', 'letgo.running.gather'], false, true, [['callout warn', 'letgo.release_busy'], ['role', 'letgo.tick_off'], ['role', 'letgo.stays']], false],
-        [$o['busy']['lines'][1] ?? null, $o['busy']['tickable'], $o['busy']['tick'], $o['busy']['more'], $o['busy']['unlist']]);
+        'more' => [['role', 'letgo.tick_off'], ['role', 'letgo.stays']]], $o['view']);
+    same('let Jack go: a run going — it finishes (said), the tick waits',
+        [['callout', 'letgo.running.gather'], false, true, [['callout warn', 'letgo.release_busy'], ['role', 'letgo.tick_off'], ['role', 'letgo.stays']]],
+        [$o['busy']['lines'][1] ?? null, $o['busy']['tickable'], $o['busy']['tick'], $o['busy']['more']]);
     same('let Jack go: someone watches — who, and the gentler way', [['callout warn', 'letgo.watching'], ['who', [['user' => 'anna', 'title' => 'Alien', 'device' => 'iPad']]]],
         array_slice($o['watching']['more'], 0, 2));
     same('let Jack go: nothing on, nothing on the pool — no tick, said so', [[['', 'letgo.sched_none'], ['role', 'letgo.nothing']], false, '', [['role', 'letgo.stays']]],
         [$o['nothing']['lines'], $o['nothing']['tick'], $o['nothing']['hint'], $o['nothing']['more']]);
-    same('let Jack go: Unraid\'s mover schedule off — one line: it stays off, where it is switched on again', [['role', 'letgo.tick_off'], ['role', 'letgo.stays'], ['role', 'letgo.mover_stays']],
+    same('let Jack go: Unraid\'s mover schedule off — one line: it stays off, Ms. Moverelli moves and brings it back', [['role', 'letgo.tick_off'], ['role', 'letgo.stays'], ['role', 'letgo.mover_stays']],
         $o['mover_off'] ?? null);
     same('let Jack go: the part looks at once; the tick shown, off by default, «Let go» as always', [false, false, false, 'office.fire', ['emby.letgo_look'], true,
         ['letgo.tick', 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}']], $o['start']);
     same('let Jack go: ticked — «Let go and bring back»', 'letgo.button', $o['ticked']);
-    same('let Jack go: before() once — schedules off, the release and his list out of Mover Tuning (on by default), with confirm',
-        [[['emby.letgo', ['confirm' => true, 'release' => true, 'unlist' => true]]], true, true], $o['sent']);
-    same('let Jack go: unticked — schedules off and his list out of Mover Tuning', ['emby.letgo', ['confirm' => true, 'release' => false, 'unlist' => true]], $o['untickedSent']);
-    same('let Jack go: the second tick shown (Mover Tuning names his list), on, its hint names the file; taken off — not asked',
-        [false, true, 'letgo.unlist', 'letgo.unlist_hint {"file":"/x/embycache_exclude.txt"}', ['emby.letgo', ['confirm' => true, 'release' => false, 'unlist' => false]], true],
-        $o['unlistTick']);
+    same('let Jack go: before() once — schedules off and the release, with confirm',
+        [[['emby.letgo', ['confirm' => true, 'release' => true]]], true, true], $o['sent']);
+    same('let Jack go: unticked — schedules off only', ['emby.letgo', ['confirm' => true, 'release' => false]], $o['untickedSent']);
+    same('let Jack go: no second tick — the lines, the tick, what is below it', 3, $o['parts']);
     same('let Jack go: a run going — the tick can\'t be ticked, «Let go» stays', [false, true, 'office.fire'], $o['busyPart']);
     same('let Jack go: the agent away — no look, said that the schedules can\'t be switched off', [0, ['letgo.agent_away']], $o['away']);
     same('let Jack go: done — what went off, the run that finishes, the release started', [
@@ -2050,8 +1998,6 @@ JS);
         ['callout warn', 'letgo.done_still {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}'], ['role', 'letgo.done_hire']], $o['doneLeft']);
     same('let Jack go: done — nothing on, nothing asked: no dialog; the request failed: said, still running', [[], [['callout warn', 'letgo.done_error {"error":"err:emby:agent_away"}'], ['role', 'letgo.done_hire']]],
         [$o['doneNone'], $o['doneErr']]);
-    same('let Jack go: done — his list out of Mover Tuning, or why not', [[['', 'letgo.done_unlisted']],
-        [['callout warn', 'letgo.done_unlist_not {"error":"err:emby:emby_letgo_unlisted"}']]], $o['doneUnlist']);
     same('let Jack go: hired again — the note once (seen posted once), kept this visit, a button per schedule still off; gone when they are on',
         ['letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
          ['schedule_title.embycache', 'schedule_title.gather'], 'letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
@@ -2062,20 +2008,79 @@ JS);
 }
 
 /**
- * Jack Emby and Unraid's mover (agent/desks/emby-mover.php, 2026-10-09): real runs only while Unraid's mover schedule
- * is «Disabled» (share.cfg empty, no mover.cron line) or Mover Tuning ignores his list — entered by him (the real
- * 2026.10.03 cfg as fixtures: a fresh install's and its default.cfg, which has no last newline), every other line and
- * comment kept, a backup next to it once, again after it was taken out; what still lets the mover take his files (Unraid's
- * own schedule beside it from 7.2.1 on, its forced move, a share's override); the refusals' words; the mover at work (pid
- * file, processes — not his own run's move); the scheduled wait and the refusal from the page; the stop mid-run (EmbyCache
- * stops after the file it is on, fixture tree, an rsync stand-in that starts «the mover» after the first file); the
- * notification; a scheduled refusal counted, not repeated; his page under node.
+ * Jack Emby's «Ready to watch» (2026-10-12): EmbyCache's files on the pool split per share over the whole list (the
+ * groups stop at EMBY_POOL_GROUPS), each share row says its part next to «<pool> now …»; the tile's value never breaks
+ * between a number and its unit.
+ */
+function testEmbyReadyShares(): void
+{
+    $tmp = hardeningTmp('emby-ready');
+    $pool = "$tmp/pool";
+    foreach (["$tmp/data", "$pool/Filme/A", "$pool/Filme/B", "$pool/Serien/S/Season 1"] as $d) {
+        mkdir($d, 0700, true);
+    }
+    $files = ["$pool/Filme/A/a.mkv" => 100, "$pool/Filme/B/b.mkv" => 50, "$pool/Serien/S/Season 1/e1.mkv" => 30, "$pool/Serien/S/Season 1/e2.mkv" => 20];
+    foreach ($files as $f => $n) {
+        file_put_contents($f, str_repeat('x', $n));
+    }
+    file_put_contents("$tmp/data/embycache_exclude.txt", implode("\n", array_keys($files)) . "\n");
+    $c = embyCacheStats(['cache_path' => $pool], "$tmp/data");
+    same('ready: per share over the whole list — files and bytes', ['Filme' => ['files' => 2, 'bytes' => 150], 'Serien' => ['files' => 2, 'bytes' => 50]],
+        json_decode(json_encode($c['shares']), true));
+    same('ready: … the sum is the tile\'s', [4, 200], [$c['files'], $c['bytes']]);
+    same('ready: nothing on the list — an empty object (never a list for the page)', '{}', json_encode(embyCacheStats(['cache_path' => $pool], "$tmp/none")['shares']));
+    $node = testsNode();
+    if ($node === '') {
+        check('ready: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, title: '',
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { size: (b) => b + ' GB', date: (t) => 'D' + t, relative: (t) => 'R' + t, number: (n) => String(n) }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, stat: (o) => o };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+e.setState({ cache: { files: 4, bytes: 671, groups: [], shares: { Filme: { files: 2, bytes: 150 } } } });
+out.row = texts(e.sizesLine({ share: 'Filme', live: [{ pool: 'master', used: 900 }] }));
+out.none = texts(e.sizesLine({ share: 'Musik', live: [] }));
+out.tile = [e.poolTile({}).label, e.poolTile({}).value];
+e.setState({ cache: { files: 3, bytes: 5, groups: [{ share: 'Filme', files: 2, bytes: 4 }, { share: 'Filme', files: 1, bytes: 1 }] } });
+out.old = e.readyOf('Filme');
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1'), true);
+    check('ready: page ran under node', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    same('ready: a share row — «master now …» and, of that, EmbyCache\'s part', ['sizes_never', 'sizes_live {"pool":"master","size":"900 GB"}', 'sizes_ready {"files":"count.files {\"n\":2}","size":"150 GB"}'],
+        array_values(array_filter($o['row'] ?? [], fn ($t) => !str_starts_with($t, 'sizes_live_tip') && !str_starts_with($t, 'sizes_ready_tip'))));
+    same('ready: a share without any — nothing said of it', ['sizes_never'], $o['none'] ?? null);
+    same('ready: the tile «Ready to watch», its value with no break between a number and its unit', ['tile.pool', "pool_tile.value {\"files\":\"count.files {\\\"n\\\":4}\",\"size\":\"671\u{a0}GB\"}"], $o['tile'] ?? null);
+    same('ready: an older agent\'s state (no per-share count) — from its groups', ['files' => 3, 'bytes' => 5], $o['old'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack Emby and Unraid's mover (agent/desks/emby-mover.php; 2026-10-12: an intern, only under Ms. Moverelli): real runs
+ * only while Unraid's mover schedule is «Disabled» (share.cfg empty, no mover.cron line), Ms. Moverelli is set up and
+ * her ini keeps his list out, and Mover Tuning has no schedule of its own — never a Mover Tuning way any more; the
+ * refusals' words; the switch-off notes the schedule it had (for her let-go); the mover at work (pid file, processes —
+ * not his own run's move); the scheduled wait and the refusal from the page; the stop mid-run (EmbyCache stops after the
+ * file it is on, fixture tree, an rsync stand-in that starts «the mover» after the first file); the notification; a
+ * scheduled refusal counted, not repeated; his page under node.
  */
 function testEmbyMover(): void
 {
     $tmp = hardeningTmp('embymover');
-    $fx = OFFICE_DIR . '/tests/fixtures/movertuning';
-    foreach (["$tmp/data", "$tmp/tuning/shareOverrideConfig", "$tmp/dynamix", "$tmp/proc"] as $d) {
+    foreach (["$tmp/data", "$tmp/tuning", "$tmp/dynamix", "$tmp/proc"] as $d) {
         mkdir($d, 0700, true);
     }
     $list = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
@@ -2083,13 +2088,18 @@ function testEmbyMover(): void
     $hired = true;
     $shares = ['Filme', 'Serien'];
     $waited = [];
+    // Ms. Moverelli set up, her ini keeping his list out for all shares; Mover Tuning without a schedule of its own
+    $look = ['global' => [$list], 'shares' => []];
+    $tuning = null;
+    $notes = [];
     $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'tuning_dir' => "$tmp/tuning",
         'installed' => function () use (&$installed) { return $installed; },
         'lists' => fn () => [$list, "$tmp/data/embycache_exclude.txt"], 'dir' => "$tmp/data", 'shares' => function () use (&$shares) { return $shares; },
         'hired' => function () use (&$hired) { return $hired; }, 'pid' => "$tmp/mover.pid", 'proc' => "$tmp/proc",
+        'moverelli' => function () use (&$look) { return $look; }, 'tuning' => function () use (&$tuning) { return $tuning; },
+        'note' => function (string $was, string $logging) use (&$notes) { $notes[] = [$was, $logging]; },
         // never Unraid's own emcmd: a stand-in (below), var.ini of the test's own, no real waiting
         'var_ini' => "$tmp/var.ini", 'emcmd' => "$tmp/emcmd", 'wait' => function (int $ms) use (&$waited) { $waited[] = $ms; }];
-    $cfg = "$tmp/tuning/ca.mover.tuning.cfg";
     $daily = "# Generated mover schedule:\n40 3 * * * /usr/local/sbin/mover start > /dev/null 2> >(logger -t move)\n\n";
 
     // way 1: Unraid's own schedule — as Unraid 7.3.3 writes it (a test server: «Daily» writes mover.cron, «Disabled» empties the key, deletes the file)
@@ -2102,127 +2112,61 @@ function testEmbyMover(): void
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
     @unlink("$tmp/dynamix/mover.cron");
     $r = embyMoverRule();
-    same('mover: «Disabled» — real runs go', [true, 'disabled', null, null], [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)]);
+    same('mover: «Disabled», Ms. Moverelli keeping his list out — real runs go her way', [true, 'moverelli', null, null], [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)]);
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     same('mover: the key empty but the cron line still there — it runs: no', [false, 'schedule'], [embyMoverRule()['ok'], embyMoverRule()['why']]);
     file_put_contents("$tmp/dynamix/mover.cron", "# Generated mover schedule:\n# 40 3 * * * /usr/local/sbin/mover start\n");
     same('mover: a commented line doesn\'t run', true, embyMoverRule()['ok']);
     @unlink("$tmp/dynamix/mover.cron");
 
-    // Mover Tuning (optional, Unraid's schedule off) — not hired: read only, nothing written
-    $installed = true;
-    $fresh = (string) file_get_contents("$fx/ca.mover.tuning.fresh.cfg");
-    file_put_contents($cfg, $fresh);
-    $hired = false;
+    // Mover Tuning is no way for him any more (2026-10-12): only a schedule of its own counts — it would carry his films back
+    $tuning = ['file' => 'mover.tuning.cron', 'cron' => '0 5 * * 0'];
     $r = embyMoverRule();
-    same('mover: Mover Tuning installed, his list not there, not hired — not entered, why', [false, 'tuning_list', $fresh, false],
-        [$r['ok'], $r['why'], file_get_contents($cfg), file_exists($cfg . EMBY_TUNING_BACKUP)]);
-    $hired = true;
+    same('mover: Mover Tuning with a schedule of its own — no, why, its time (refusal)', [false, null, 'tuning_schedule', 'emby_mover_tuning_schedule', ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning']],
+        [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)?->key, embyMoverProblem($r)?->params]);
+    // another mover found (2026-10-12): his refusal and the Team Lead's point name it, not Mover Tuning
+    $tuning = ['file' => 'User Scripts: nightly', 'cron' => '0 4 * * *', 'name' => 'User Scripts: nightly'];
     $r = embyMoverRule();
-    same('mover: hired — his list entered (the fresh install\'s cfg), real runs go (Unraid\'s schedule off), said changed', [true, 'disabled', true, true, $list],
-        [$r['ok'], $r['way'], $r['tuning']['listed'], $r['tuning']['changed'], $r['tuning']['file']]);
-    same('mover: … written like its page: every line kept, the two keys added at the end', $fresh . "filelistf=\"yes\"\nfilelistv=\"$list\"\n", file_get_contents($cfg));
-    same('mover: … the cfg as it was next to it', $fresh, file_get_contents($cfg . EMBY_TUNING_BACKUP));
-    $note = readJson("$tmp/data/" . EMBY_MOVER_NOTE);
-    same('mover: … his note: what was there before (nothing), the file, once', [1, ['filelistf' => null, 'filelistv' => null], $list, 1],
-        [$note['v'] ?? null, $note['before'] ?? null, $note['file'] ?? null, $note['times'] ?? null]);
-    $r = embyMoverRule();
-    same('mover: looked again — nothing to change', [true, false], [$r['ok'], $r['tuning']['changed']]);
-    check('mover: Mover Tuning reads it as age_mover does (first value) and as Unraid\'s page does (parse_ini: last)',
-        (parse_ini_file($cfg)['filelistv'] ?? null) === $list && (parse_ini_file($cfg)['filelistf'] ?? null) === 'yes');
-
-    // taken out or changed by the user → entered again; the backup stays the first one; the note keeps what was there first
-    $text = (string) file_get_contents($cfg);
-    file_put_contents($cfg, str_replace("filelistv=\"$list\"", 'filelistv="/mnt/user/Files/mover_ignore.txt"', $text));
-    $r = embyMoverRule();
-    same('mover: changed to another file — entered again', [true, true, $text], [$r['ok'], $r['tuning']['changed'], file_get_contents($cfg)]);
-    same('mover: … the backup is still the first one, the note counts, keeps what was there before his first change', [$fresh, 2, null],
-        [file_get_contents($cfg . EMBY_TUNING_BACKUP), readJson("$tmp/data/" . EMBY_MOVER_NOTE)['times'] ?? null, readJson("$tmp/data/" . EMBY_MOVER_NOTE)['before']['filelistv']]);
-    file_put_contents($cfg, str_replace('filelistf="yes"', 'filelistf="no"', $text));
-    same('mover: switched off («No») — entered again', [true, $text], [embyMoverRule()['ok'], file_get_contents($cfg)]);
-
-    // the plugin's default.cfg (every key, no last newline), comments, CRLF, a key twice: only those lines change
-    @unlink("$tmp/data/" . EMBY_MOVER_NOTE);
-    @unlink($cfg . EMBY_TUNING_BACKUP);
-    $def = "# kept as it is\r\n" . (string) file_get_contents("$fx/ca.mover.tuning.default.cfg");
-    $def = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $def)) . "\r\nfilelistv=\"/old/twice.txt\"";
-    file_put_contents($cfg, $def);
-    embyMoverRule();
-    $got = (string) file_get_contents($cfg);
-    $want = str_replace(['filelistf="no"', 'filelistv=""', 'filelistv="/old/twice.txt"'], ['filelistf="yes"', "filelistv=\"$list\"", "filelistv=\"$list\""], $def);
-    same('mover: default.cfg with a comment, CRLF and filelistv twice — those lines only, in place, CRLF kept', $want, $got);
-    same('mover: … his note keeps the first values there were', ['filelistf' => 'no', 'filelistv' => ''], readJson("$tmp/data/" . EMBY_MOVER_NOTE)['before'] ?? null);
-
-    // Mover Tuning is no way around Unraid's own schedule (2026-10-09): its list in place, Unraid's schedule on — no
-    file_put_contents("$tmp/dynamix/mover.cron", $daily);
-    $r = embyMoverRule();
-    same('mover: Mover Tuning with his list plus Unraid\'s own schedule — no, the one refusal: switch it off', [false, 'schedule', 'emby_mover_schedule', true],
-        [$r['ok'], $r['why'], embyMoverProblem($r)?->key, $r['tuning']['listed']]);
-    @unlink("$tmp/dynamix/mover.cron");
-    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"40 3 * * *\"\n");
-    same('mover: … the key set while Mover Tuning renamed mover.cron away (its install) — still no (emhttpd writes it again)', 'schedule', embyMoverRule()['why']);
-    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
-    // with Unraid's schedule off, what keeps Mover Tuning's own schedule from leaving his files alone
-    $base = (string) file_get_contents($cfg);
-    file_put_contents($cfg, str_replace('force="no"', 'force="yes"', $base));
-    same('mover: «Force move all files on a schedule» said yes, but no schedule file — fine', true, embyMoverRule()['ok']);
-    file_put_contents("$tmp/tuning/mover.cron", "# Generated schedule for forced move:\n0 5 * * 0 /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start |& logger -t move\n");
-    $r = embyMoverRule();
-    same('mover: … with its schedule — Unraid\'s mover by force: no', [false, 'tuning_force'], [$r['ok'], $r['why']]);
-    file_put_contents($cfg, $base);
-    @unlink("$tmp/tuning/mover.cron");
-    $ov = "$tmp/tuning/shareOverrideConfig/Filme.cfg";
-    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"no\"\nfilelistv=\"\"\n");
-    $r = embyMoverRule();
-    same('mover: an override of one of his shares says «No» — no, the share named', [false, 'tuning_override', ['Filme'], ['shares' => 'Filme']],
-        [$r['ok'], $r['why'], $r['tuning']['overrides'], embyMoverProblem($r)?->params]);
-    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/other.txt\"\n");
-    same('mover: … «Yes» with another file — no', 'tuning_override', embyMoverRule()['why']);
-    foreach (["moverOverride=\"yes\"\nfilelistf=\"\"\n" => '«Use global»', "moverOverride=\"no\"\nfilelistf=\"no\"\n" => 'the override switched off',
-              "moverOverride=\"yes\"\nfilelistf=\"yes\"\nfilelistv=\"$list\"\n" => 'his own list'] as $text => $what) {
-        file_put_contents($ov, $text);
-        same("mover: an override with $what — fine", true, embyMoverRule()['ok']);
+    same('mover: another scheduled mover — the refusal and the point name it', [['schedule' => '0 4 * * *', 'name' => 'User Scripts: nightly'], ['schedule' => '0 4 * * *', 'name' => 'User Scripts: nightly']],
+        [embyMoverProblem($r)?->params, embyMoverFinding($r)['params']]);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/emby/lang/$l.json"), true);
+        check("mover: … its words ($l) say {name}, never Mover Tuning by name", str_contains($lang['errors.emby_mover_tuning_schedule'], '{name}')
+            && !str_contains($lang['errors.emby_mover_tuning_schedule'] . $lang['check.mover_tuning_schedule'] . $lang['check.mover_tuning_schedule_how'], 'Mover Tuning')
+            && str_contains($lang['check.mover_tuning_schedule'], '{name}') && str_contains($lang['check.mover_tuning_schedule_how'], '{name}'));
     }
-    file_put_contents("$tmp/tuning/shareOverrideConfig/Musik.cfg", "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
-    same('mover: an override of a share that isn\'t his — fine', true, embyMoverRule()['ok']);
-    file_put_contents($cfg, str_replace(['omovercfg="no"', 'omoverthresh=""'], ['omovercfg="yes"', 'omoverthresh="90"'], $base));
-    $r = embyMoverRule();
-    same('mover: Mover Tuning\'s «Move All» from 90 % — said, not refused', [true, '90'], [$r['ok'], $r['tuning']['move_all']]);
-    file_put_contents($cfg, $base);
-
-    // a cfg he can't write: a link — refused, said; a let-go a moment ago — not entered
-    @unlink($cfg);
-    symlink("$tmp/elsewhere.cfg", $cfg);
-    file_put_contents("$tmp/elsewhere.cfg", $fresh);
-    $r = embyMoverRule();
-    same('mover: the cfg a link — not written through it, refused with why', [false, 'tuning_list', $fresh, 'emby_mover_tuning_list', $list],
-        [$r['ok'], $r['why'], file_get_contents("$tmp/elsewhere.cfg"), embyMoverProblem($r)?->key, embyMoverProblem($r)?->params['file'] ?? null]);
-    unlink($cfg);
-    file_put_contents($cfg, $fresh);
-    file_put_contents("$tmp/data/" . EMBY_LETGO_NOTE, json_encode(['time' => time(), 'at' => time(), 'off' => [], 'shown' => false]));
-    same('mover: let go a moment ago — not entered again meanwhile', [false, $fresh], [embyMoverRule()['ok'], file_get_contents($cfg)]);
-    file_put_contents("$tmp/data/" . EMBY_LETGO_NOTE, json_encode(['time' => time() - 4000, 'at' => time() - 4000, 'off' => [], 'shown' => true]));
-    same('mover: … an hour later (hired again) — entered', true, embyMoverRule()['ok']);
-    @unlink("$tmp/tuning/shareOverrideConfig/Musik.cfg");
+    $tuning = null;
+    check('mover: no Mover Tuning way left in his code (no list entered, no override, no forced-move look)',
+        !preg_match('/embyTuning(Look|Write|Set|Overrides)|filelistv|tuning_list|tuning_force|tuning_override/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby-mover.php')
+            . file_get_contents(OFFICE_DIR . '/agent/desks/emby-letgo.php') . file_get_contents(OFFICE_DIR . '/agent/desks/emby.php')));
 
     // the Team Lead's point, the page's state
     $ids = [];
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     $ids[] = embyMoverFinding(embyMoverRule());
     @unlink("$tmp/dynamix/mover.cron");
-    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
+    $tuning = ['file' => 'mover.tuning.cron', 'cron' => '0 5 * * 0'];
     $ids[] = embyMoverFinding(embyMoverRule());
-    @unlink($ov);
+    $tuning = null;
+    $look = null;
     $ids[] = embyMoverFinding(embyMoverRule());
-    $installed = false;
+    $look = ['global' => [$list], 'shares' => []];
+    $ids[] = embyMoverFinding(embyMoverRule());
+    same('mover: the Team Lead\'s point — what is missing (Unraid\'s schedule, Mover Tuning\'s, Ms. Moverelli not set up), required, whose page',
+        [['mover', false, [], '#/emby'], ['mover_tuning_schedule', false, ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning'], '#/emby'], ['mover_moverelli_setup', false, [], '#/moverelli/setup'],
+         ['mover', true, [], '#/emby']],
+        array_map(fn ($f) => [$f['id'], $f['ok'], $f['params'], $f['link']], $ids));
+    check('mover: … required', !array_filter($ids, fn ($f) => $f['level'] !== 'required'));
+    $look = null;
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
-    $ids[] = embyMoverFinding(embyMoverRule());
-    same('mover: the Team Lead\'s point — what is missing, required, his page',
-        [['mover', false, []], ['mover_override', false, ['shares' => 'Filme']], ['mover', true, []], ['mover', false, []]],
-        array_map(fn ($f) => [$f['id'], $f['ok'], $f['params']], $ids));
-    check('mover: … required, linking his page', !array_filter($ids, fn ($f) => $f['level'] !== 'required' || $f['link'] !== '#/emby'));
     $st = embyMoverState(embyMoverRule());
-    same('mover: his page\'s state without Mover Tuning', ['ok' => false, 'way' => null, 'why' => 'schedule', 'schedule' => '0 */4 * * *', 'running' => false, 'tuning' => ['installed' => false]], $st);
+    same('mover: his page\'s state — Unraid\'s schedule on, Ms. Moverelli not set up, no Mover Tuning', ['ok' => false, 'way' => null, 'why' => 'schedule', 'schedule' => '0 */4 * * *', 'running' => false], $st);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
+    $r = embyMoverRule();
+    same('mover: Ms. Moverelli not hired or not set up — no real run, the refusal says she supervises him', [false, null, 'moverelli', 'emby_mover_moverelli', false],
+        [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)?->key, array_key_exists('moverelli', embyMoverState($r))]);
+    $look = ['global' => [$list], 'shares' => []];
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
 
     // «Switch the mover schedule off…» (emby.mover_off): exactly Unraid's form — a stand-in for emcmd notes its argument and
     // does what emhttpd does with it («Disabled»: the key emptied, mover.cron deleted); Unraid's own is never run here
@@ -2249,8 +2193,10 @@ function testEmbyMover(): void
     same('mover off: without confirm, confirm not true — refused, emcmd not run, the schedule as it was',
         [['bad_request', []], ['bad_request', []], [], '40 3 * * *'], [$offErr([]), $offErr(['confirm' => 1]), $calls(), embyMoverOwn(embyMoverHost())['cron']]);
     $waited = [];
+    $notes = [];
     $r = embyMoverOff(['confirm' => true]);
     same('mover off: emcmd once with exactly the form\'s fields — «Disabled», ⟦Mover logging⟧ kept (yes), ⟦Apply⟧', ['1:shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], $calls());
+    same('mover off: … the schedule it had noted first (Ms. Moverelli\'s let-go brings it back)', [['40 3 * * *', 'yes']], $notes);
     same('mover off: … looked at afterwards: share.cfg says "", mover.cron gone, the rest of share.cfg kept; what it was; no waiting needed',
         [['ok' => true, 'already' => false, 'was' => '40 3 * * *'], ['set' => '', 'cron' => null], "# Generated settings:\nshareMoverSchedule=\"\"\nshareMoverLogging=\"yes\"\nshareMoverProgress=\"no\"\n", []],
         [$r, embyMoverOwn(embyMoverHost()), file_get_contents("$tmp/share.cfg"), $waited]);
@@ -2415,48 +2361,48 @@ function testEmbyMover(): void
         && str_contains($src, "(\$real ? ['EMBYCACHE_STOP' => \"\$dir/office-stop.json\"] : [])")
         && str_contains($src, "\$real = (\$tool === 'gather' && \$mode === 'run') || (\$tool === 'embycache' && in_array(\$mode, ['run', 'release'], true));"));
 
-    // Ms. Moverelli (agent/desks/moverelli.php) while hired: her smart_mover.ini must keep his list out for his shares — the
+    // Ms. Moverelli (agent/desks/moverelli.php): her smart_mover.ini must keep his list out for his shares — the
     // global_excludes or the share's excludes= name it, or the share is skip=yes — else real runs are refused; kept: way «moverelli»
     $look = null;
-    $GLOBALS['embyMoverHost']['moverelli'] = function () use (&$look) { return $look; };
     $r = embyMoverRule();
-    same('mover moverelli: not hired — as before, nothing said of her', [true, 'disabled', null, false],
-        [$r['ok'], $r['way'], $r['moverelli'], array_key_exists('moverelli', embyMoverState($r))]);
+    same('mover moverelli: not hired (or not set up) — no real run, nothing said of her ini', [false, null, 'moverelli', null, false],
+        [$r['ok'], $r['way'], $r['why'], $r['moverelli'], array_key_exists('moverelli', embyMoverState($r))]);
     $look = ['global' => [], 'shares' => []];
     $r = embyMoverRule();
-    same('mover moverelli: hired, her ini without his list — no, his shares and EmbyCache\'s list named (no Mover Tuning here) (refusal, the Team Lead\'s point, his page\'s state)',
-        [false, null, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['file' => $list, 'shares' => 'Filme, Serien'], ['mover_moverelli', false, ['shares' => 'Filme, Serien']],
+    same('mover moverelli: her ini without his list — no, his shares and EmbyCache\'s list named (refusal, the Team Lead\'s point linking her setup, his page\'s state)',
+        [false, null, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['file' => $list, 'shares' => 'Filme, Serien'], ['mover_moverelli', false, ['shares' => 'Filme, Serien'], '#/moverelli/setup'],
          ['uncovered' => ['Filme', 'Serien'], 'file' => $list]],
         [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'], embyMoverProblem($r)?->key, array_intersect_key(embyMoverProblem($r)?->params ?? [], ['shares' => 1, 'file' => 1]),
-         [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok'], embyMoverFinding($r)['params']], embyMoverState($r)['moverelli'] ?? null]);
+         [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok'], embyMoverFinding($r)['params'], embyMoverFinding($r)['link']], embyMoverState($r)['moverelli'] ?? null]);
     $look = ['global' => ['/mnt/user/system/keep.txt', $list], 'shares' => []];
     $r = embyMoverRule();
-    same('mover moverelli: his list in her global_excludes — real runs go, the third way', [true, 'moverelli', null, []], [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered']]);
+    same('mover moverelli: his list in her global_excludes — real runs go her way', [true, 'moverelli', null, []], [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered']]);
     $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ["$tmp/data/embycache_exclude.txt"]], 'Serien' => ['skip' => true, 'excludes' => []]]];
     same('mover moverelli: … per share (the list by its other path), a share left out — fine', [true, 'moverelli'], [embyMoverRule()['ok'], embyMoverRule()['way']]);
-    // her way is an alternative to Mover Tuning's: installed but without his list (not hired: not entered), a share's
-    // override saying «No» — her list holds; only Mover Tuning's forced move on a schedule still refuses
-    $cfgWas = (string) file_get_contents($cfg);
-    [$installed, $hired] = [true, false];
-    file_put_contents($cfg, $fresh);
-    file_put_contents("$tmp/tuning/shareOverrideConfig/Filme.cfg", "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
-    $r = embyMoverRule();
-    same('mover moverelli: Mover Tuning without his list and a share\'s override «No» — her way holds', [true, 'moverelli', null, false, $fresh],
-        [$r['ok'], $r['way'], $r['why'], $r['tuning']['listed'], file_get_contents($cfg)]);
-    file_put_contents($cfg, str_replace('force="no"', 'force="yes"', $fresh) . "force=\"yes\"\n");
-    file_put_contents("$tmp/tuning/mover.cron", "0 5 * * 0 /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start |& logger -t move\n");
-    same('mover moverelli: … Mover Tuning\'s forced move on a schedule — still no', [false, 'tuning_force'], [embyMoverRule()['ok'], embyMoverRule()['why']]);
-    @unlink("$tmp/tuning/mover.cron");
-    @unlink("$tmp/tuning/shareOverrideConfig/Filme.cfg");
-    file_put_contents($cfg, $cfgWas);
-    [$installed, $hired] = [false, true];
     $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ['/mnt/user/system/keep.txt']], 'Musik' => ['skip' => false, 'excludes' => [$list]]]];
     same('mover moverelli: another list for Filme, his list only for a share that isn\'t his — no', ['moverelli_list', ['Filme', 'Serien']],
         [embyMoverRule()['why'], embyMoverRule()['moverelli']['uncovered']]);
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     same('mover moverelli: Unraid\'s own schedule on as well — that is said first', 'schedule', embyMoverRule()['why']);
     @unlink("$tmp/dynamix/mover.cron");
-    unset($GLOBALS['embyMoverHost']['moverelli']);
+    // through her own moverelliExcludeLook(): hired but no smart_mover.ini — she isn't set up: refused; then an ini
+    // without his list, then one with it; not hired — her ini doesn't count
+    $mo = "$tmp/moverelli";
+    mkdir($mo, 0700, true);
+    $GLOBALS['embyMoverHost']['moverelli'] = fn () => moverelliExcludeLook($mo, true);
+    $r = embyMoverRule();
+    same('mover moverelli: hired, no smart_mover.ini — refused (moverelli), the Team Lead\'s point links her setup', [false, 'moverelli', 'emby_mover_moverelli', 'mover_moverelli_setup', '#/moverelli/setup'],
+        [$r['ok'], $r['why'], embyMoverProblem($r)?->key, embyMoverFinding($r)['id'], embyMoverFinding($r)['link']]);
+    file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt\n\n[Filme]\nexcludes = \n");
+    $r = embyMoverRule();
+    same('mover moverelli: … her ini there, his list not in it — refused (moverelli_list), his shares named, his finding', [false, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['mover_moverelli', false]],
+        [$r['ok'], $r['why'], $r['moverelli']['uncovered'] ?? null, embyMoverProblem($r)?->key, [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok']]]);
+    file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt,$list\n");
+    $r = embyMoverRule();
+    same('mover moverelli: … her ini keeps his list out — real runs go her way', [true, 'moverelli', null, []],
+        [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'] ?? null]);
+    same('mover moverelli: … not hired — her ini doesn\'t count', null, moverelliExcludeLook($mo, false));
+    $GLOBALS['embyMoverHost']['moverelli'] = function () use (&$look) { return $look; };
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('mover moverelli: his runs never beside one of hers (embyRunCheck asks moverelliBusy())',
         str_contains($src, "if (function_exists('moverelliBusy') && moverelliBusy()) {\n        throw new Problem('emby_moverelli_running');"));
@@ -2526,20 +2472,20 @@ const e = OFFICE_DESK_TESTS.emby;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
 const base = { configured: true, schedules: {}, jobs: { embycache: {}, gather: {} } };
-e.setState({ ...base, mover: { ok: false, way: null, why: 'schedule', schedule: '40 3 * * *', running: false, tuning: { installed: false } } });
+e.setState({ ...base, mover: { ok: false, way: null, why: 'schedule', schedule: '40 3 * * *', running: false } });
 let n = e.moverNotice();
 out.schedule = [n.cls, texts(n), n.children[1].children.map((c) => [c.tag, c.href || null]), e.moverOk()];
-e.setState({ ...base, mover: { ok: false, way: null, why: 'tuning_override', running: true, tuning: { installed: true, listed: true, file: '/x/l.txt', overrides: ['Filme'], move_all: false } } });
+e.setState({ ...base, mover: { ok: false, way: null, why: 'moverelli', schedule: null, running: true } });
 n = e.moverNotice();
-out.override = [texts(n), n.children.length];
-e.setState({ ...base, mover: { ok: true, way: 'disabled', why: null, running: false, tuning: { installed: true, listed: true, changed: true, file: '/x/l.txt', move_all: '90' } } });
+out.supervise = [texts(n), n.children[1].children.map((c) => [c.tag, c.href || null]), n.children.length];
+e.setState({ ...base, mover: { ok: false, way: null, why: 'moverelli_list', schedule: null, running: false, moverelli: { uncovered: ['Filme'], file: '/x/l.txt' } } });
+out.list = texts(e.moverNotice());
+e.setState({ ...base, mover: { ok: true, way: 'moverelli', why: null, running: false, moverelli: { uncovered: [], file: '/x/l.txt' } } });
 n = e.moverNotice();
-out.tuning = [n.cls, texts(n), e.moverOk()];
-e.setState({ ...base, mover: { ok: true, way: 'disabled', why: null, running: false, tuning: { installed: false } } });
-out.off = texts(e.moverNotice());
-e.setState({ ...base, mover: { ok: false, way: null, why: 'tuning_list', running: false, tuning: { installed: true, listed: false, file: '/x/l.txt', error: 'not a plain file' } } });
+out.ok = [n.cls, texts(n), e.moverOk()];
+e.setState({ ...base, mover: { ok: false, way: null, why: 'tuning_schedule', schedule: null, running: false, tuning: { file: 'mover.tuning.cron', cron: '0 5 * * 0' } } });
 n = e.moverNotice();
-out.list = [texts(n), n.children.length];
+out.tuning = [texts(n), n.children.length];
 e.setState({ ...base });
 out.old = [e.moverNotice(), e.moverOk()];
 out.runs = [
@@ -2582,15 +2528,14 @@ JS);
         return;
     }
     same('mover page: Unraid\'s schedule on — a warning with why, «Switch the mover schedule off…» and «Set it yourself» (Unraid\'s Mover Settings); no real run',
-        ['callout warn jo-mover', ['err:emby_mover_schedule:{"file":"","detail":"","shares":""}', 'mover.off', 'mover.self'],
+        ['callout warn jo-mover', ['err:emby_mover_schedule:{"file":"","shares":"","schedule":"40 3 * * *"}', 'mover.off', 'mover.self'],
          [['button', null], ['a', '/Settings/MoverSettings']], false], $o['schedule']);
-    same('mover page: an override — why with the share, no buttons; the mover at work said', [['err:emby_mover_tuning_override:{"file":"/x/l.txt","detail":"","shares":"Filme"}', 'mover.running'], 2],
-        $o['override']);
-    same('mover page: Unraid\'s schedule off, Mover Tuning keeps his list — quiet lines, the list entered again, «Move All» said', ['jo-mover', ['mover.ok.disabled',
-        'mover.ok.tuning {"file":"/x/l.txt"}', 'mover.changed {"file":"/x/l.txt"}', 'mover.move_all {"pct":"90"}'], true], $o['tuning']);
-    same('mover page: Unraid\'s schedule off, no Mover Tuning — one quiet line', ['mover.ok.disabled'], $o['off']);
-    same('mover page: Mover Tuning couldn\'t take his list — why, no switch (it isn\'t Unraid\'s schedule)',
-        [['err:emby_mover_tuning_list:{"file":"/x/l.txt","detail":"not a plain file","shares":""}'], 1], $o['list']);
+    same('mover page: Ms. Moverelli not set up — why, a link to her setup; the mover at work said',
+        [['err:emby_mover_moverelli:{"file":"","shares":"","schedule":""}', 'mover.to_moverelli', 'mover.running'], [['a', '#/moverelli/setup']], 3], $o['supervise']);
+    same('mover page: her ini without his list — why with his shares and the list, the link to her setup',
+        ['err:emby_mover_moverelli_list:{"file":"/x/l.txt","shares":"Filme","schedule":""}', 'mover.to_moverelli'], $o['list']);
+    same('mover page: real runs go her way — quiet lines', ['jo-mover', ['mover.ok.disabled', 'mover.ok.moverelli'], true], $o['ok']);
+    same('mover page: Mover Tuning with a schedule of its own — why with its time, no button', [['err:emby_mover_tuning_schedule:{"file":"","shares":"","schedule":"0 5 * * 0","name":"Mover Tuning"}'], 1], $o['tuning']);
     same('mover page: «Switch the mover schedule off…» — the dialog says what it does, «Switch off» sends confirm, a toast, closes',
         ['mover.off_title', ['mover.off_text', 'mover.off_move_now', 'mover.off_back'], ['common.cancel', 'mover.off_go'], true,
          [['emby.mover_off', ['confirm' => true]]], [['mover.off_done', false]]], $o['dialog'] ?? null);
@@ -4160,7 +4105,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.45'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.46'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -4782,6 +4727,109 @@ JS);
         array_slice($r['bubble'] ?? [], 0, 2));
     same('vm warn: the run\'s line', [$want], $r['lines'] ?? null);
     same('vm warn: an unknown code, a missing parameter, an older run — nothing said', [[], []], [$r['unknown'] ?? null, $r['none'] ?? null]);
+}
+
+/**
+ * Partner at once (Benj 2026-10-12, office 1.60.2 / engine 2.46): backups run on schedule, and whatever of a run did not
+ * reach a partner is said IN THAT RUN - in the mail and in Mr. Backupsy's bubble - never after «three nights». The
+ * receiver's door never refuses a sleeping pool (the receive wakes it; the pairing asks for a ZFS pool, an HDD one is the
+ * owner's choice): the `wake` option is gone from the dialog, a request's `wake: false` is ignored, BLOCK-B keeps
+ * `wake: true` for an office up to 1.60.1, an old pair's value is read and ignored. The engine's runs themselves are
+ * in testBackupPartnerPhase (refused, unreachable, array stopped: one warning at once, every run); the door's in
+ * testPartnerDoor. Here: the pieces, and the bubble under node (German, the why in the office's words).
+ */
+function testPartnerAtOnce(): void
+{
+    // the door: no refusal for a sleeping pool any more
+    $door = (string) file_get_contents(OFFICE_DIR . '/agent/partner-door.php');
+    check('at once: the door never refuses refused_asleep', !str_contains($door, "doorRefuse(\$id, 'refused_asleep'") && !str_contains($door, "\$r['wake']"));
+    // the option: not offered, not taken, but written true for an office up to 1.60.1
+    check('at once: no wake in the defaults', !array_key_exists('wake', PARTNER_DEFAULTS));
+    $r = partnerReceiveFrom(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false], [['name' => 'tank']]);
+    same('at once: a request\'s wake false is ignored - written true', true, $r['wake'] ?? null);
+    same('at once: a request without wake is taken - written true', true, partnerReceiveFrom(['pool' => 'tank', 'quota_gb' => 1, 'retention' => '7 4 6'], [['name' => 'tank']])['wake'] ?? null);
+    same('at once: BLOCK-B for an older office carries wake true', true, partnerReceiveForBlock(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false], [])['wake'] ?? null);
+    same('at once: the stored shape unchanged - an old wake false still read (and ignored by the door), without wake or not bool: no pair', [true, false, false],
+        [partnerReceiveValid(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false]),
+         partnerReceiveValid(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6']),
+         partnerReceiveValid(['pool' => 'tank', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => 'yes'])]);
+    $pj = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js');
+    check('at once: the accept dialog no longer offers «Wake the pool»', !str_contains($pj, "T('partner.wake')") && !str_contains($pj, 'wake: wake'));
+    // the engine: no nights counter, partner_missed after every partner
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    $common = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('at once: the engine counts no nights (partner_nights, UB_PARTNER_NIGHTS, partner-skips.json gone)',
+        !str_contains($engine, 'partner_nights') && !str_contains($engine . $common, 'UB_PARTNER_NIGHTS=') && !preg_match('/partner_state_(get|set) partner-skips/', $engine));
+    check('at once: every partner ends with partner_missed (warn_code partner_missed, partner + why)', str_contains($engine, "        partner_missed \"\$id\"\n")
+        && str_contains($engine, 'warn_code partner_missed ') && str_contains($engine, 'why="$why"'));
+    // the texts: five languages with {partner} and {why}; nothing promises nights any more
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
+        $ct = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$code.json"), true);
+        $t = (string) ($bk['warn_code.partner_missed'] ?? '');
+        check("at once: warn_code.partner_missed in $code names {partner} and {why}", str_contains($t, '{partner}') && str_contains($t, '{why}'), $t);
+        check("at once: the wake tick's texts gone in $code", !isset($ct['partner.wake'], $ct['partner.wake_help']) && isset($ct['partner.wakes']));
+    }
+    $node = testsNode();
+    if ($node === '') {
+        check('at once: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('at-once');
+    $run = backupRunFromStatus(['run' => '20261012-0300', 'started' => 1000, 'finished' => 2000, 'result' => 'warnings', 'warnings' => 1,
+        'warning_items' => [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => 'unreachable']]]]);
+    same('at once: the agent passes partner_missed through', [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => 'unreachable']]], $run['warning_items']);
+    file_put_contents("$tmp/run.json", json_encode($run));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, coreFile, langFile, runFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const strings = {};
+Object.entries(JSON.parse(fs.readFileSync(langFile, 'utf8'))).forEach(([k, v]) => { strings['backup.' + k] = v; });
+const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (m, k) => (p && p[k] !== undefined ? String(p[k]) : m));
+const scope = (id) => (k, p) => {
+  let s = strings[id + '.' + k];
+  if (s && typeof s === 'object') s = (p && Number(p.n) === 1) ? s.one : s.other;
+  return s === undefined ? k : fill(s, p);
+};
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+globalThis.Office = { scope, t: scope('office'), el, strings, has: (k) => k in strings,
+  fmt: { size: (b) => b + ' B', relative: () => 'gestern', duration: (s) => s + ' s', date: (t) => 'D' + t, time: () => 'T' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, store: () => null, storeJson: () => null,
+  agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [],
+    mount: () => false, pick() {}, render() {}, clear() {} }),
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; },
+    done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+run.finished = Math.floor(Date.now() / 1000) - 3600;
+const out = {};
+b.setState({ found: true, running: false, history: [run], drift: { items: [] } });
+out.bubble = b.bubbleText();
+out.lines = b.warnLines(run);
+out.failed = b.warnLines({ warning_items: [{ code: 'partner_missed', params: { partner: 'vault', why: 'recv_failed' } }] });
+out.unknown = b.warnLines({ warning_items: [{ code: 'partner_missed', params: { partner: 'vault', why: 'something_new' } }, { code: 'partner_missed', params: { partner: 'vault' } }] });
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/lang/de.json') . ' ' . escapeshellarg("$tmp/run.json") . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r)) {
+        check('at once: ran under node', false, $raw);
+        return;
+    }
+    $want = 'Die Kopie für vault ist nicht angekommen — nicht erreichbar.';
+    same('at once: Mr. Backupsy\'s bubble right after the run - the warning, then the partner and why in German',
+        ['Das letzte Backup gestern endete mit einer Warnung.', $want], array_slice($r['bubble'] ?? [], 0, 2));
+    same('at once: the run\'s line', [$want], $r['lines'] ?? null);
+    same('at once: a failed transfer in words', ['Die Kopie für vault ist nicht angekommen — Empfang fehlgeschlagen.'], $r['failed'] ?? null);
+    same('at once: an unknown why stays its code; a missing why - nothing said', ['Die Kopie für vault ist nicht angekommen — something_new.'], $r['unknown'] ?? null);
 }
 
 /**
@@ -5479,7 +5527,7 @@ SH);
  * ssh - the partner's door: it notes every call's options and command, answers ping/resume/list on stdout and recv's two
  * JSON lines on stderr, reads the stream, refuses, fails, stays silent or hangs when told by a control file, and keeps a
  * resume token when it is ended mid-transfer. A full send, incremental from the snapshot both have, the bookmark when it is
- * gone here, need_full, a resume token, the refusals, unreachable (the third night warns, once a day), a timeout,
+ * gone here, need_full, a resume token, the refusals, unreachable (2.46: warned in that run, every run), a timeout,
  * recv_failed, the array stop mid-send (interrupted, then resumed), the rate (pv -L), the ssh options, status.json /
  * history / last-run; then setup.sh --plan (partners[], partner_ok/why), --apply (the keys written), --forget (the
  * sections kept) and --about.
@@ -5944,9 +5992,10 @@ SH);
     $run('--no-kopia');
     same('partner phase 2.42: a --no-kopia run - skip_kopia true, the partners still get their copies', [true, 4], [$status()['skip_kopia'] ?? null, $status()['partner_ok'] ?? null]);
 
-    // --- refusals: the partner's window (a warning once a day), its quota (every run, 2.45), asleep (nights, 2.45)
+    // --- refusals (2.46: each one said in that run, every run): the window and an older door's asleep as partner_missed,
+    // the quota with its own code (partner_quota, never a second line)
+    $missed = fn (array $s) => array_values(array_filter($s['warning_items'] ?? [], fn ($w) => ($w['code'] ?? '') === 'partner_missed'));
     foreach (['refused_window', 'refused_quota', 'refused_asleep'] as $why) {
-        @unlink("$data/state/partner-skips.json");
         $night();
         file_put_contents("$fake/refuse", $why);
         $run();
@@ -5955,12 +6004,19 @@ SH);
         same("partner phase: $why - every unit skipped with it, none failed",
             [[$why], 0, 0], [array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
              $s['partner_failed'] ?? null, $s['partner_ok'] ?? null]);
-        same("partner phase: $why - warnings", $why === 'refused_asleep' ? 0 : 1, substr_count($l, 'WARNING: Partner vault refused'), $l);
-        if ($why === 'refused_window') {
+        same("partner phase 2.46: $why - one warning at once, the run ends with warnings", [1, 'warnings'],
+            [substr_count($l, 'WARNING: Partner vault'), $s['result'] ?? null], $l);
+        if ($why !== 'refused_quota') {
+            same("partner phase 2.46: $why - coded partner_missed with the partner and the why", [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => $why]]],
+                $missed($s), $l);
             $night();
             file_put_contents("$fake/refuse", $why);
             $run();
-            same('partner phase: refused_window again the same day - no second warning', 0, substr_count($log(), 'WARNING: Partner vault refused'));
+            same("partner phase 2.46: $why again the same day - warned again (every run)", [1, 'warnings'],
+                [substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive"), $status()['result'] ?? null], $log());
+        }
+        if ($why === 'refused_asleep') {
+            check('partner phase 2.46: refused_asleep (an older door) - the reason in words and what to do', str_contains($l, "this run's copy did not arrive - its pool asleep - its office is older"), $l);
         }
         if ($why === 'refused_quota') {
             same('partner phase 2.45: refused_quota - a coded warning with what to do, the run ends with warnings', [[['code' => 'partner_quota', 'params' => ['partner' => 'vault']]], 'warnings', true],
@@ -5971,48 +6027,25 @@ SH);
             same('partner phase 2.45: refused_quota again the same day - warned again (every run, once per partner)', [1, 'warnings'],
                 [substr_count($log(), 'WARNING: Partner vault refused'), $status()['result'] ?? null], $log());
         }
-        if ($why === 'refused_asleep') {
-            same('partner phase 2.45: refused_asleep - a night counted, no warning yet', 1, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
-            testsClockNight($clock);
-            $run();
-            testsClockNight($clock);
-            $run();
-            same('partner phase 2.45: refused_asleep the third night in a row - one warning (its pool sleeps every night), the run ends with warnings', [1, 'warnings'],
-                [substr_count($log(), 'WARNING: Partner vault: its pool sleeps every night - nothing arrives (3 nights in a row'), $status()['result'] ?? null], $log());
-            @unlink("$data/state/partner-skips.json");
-        }
     }
 
-    // --- unreachable: skipped, no warning the first nights; the third night in a row warns, once a day
+    // --- unreachable (2.46): skipped and warned in that very run - no nights of grace, no partner-skips.json
     @unlink("$data/state/partner-skips.json");
     $night();
     touch("$fake/door.down");
-    [$rc, $out] = $run();
-    $first = testsClockNow($clock);
+    $run();
     $s = $status();
     $l = $log();
-    same('partner phase: unreachable - only the ping, every unit skipped (unreachable), no warning, the run ok',
-        [['ssh ping'], ['unreachable'], 0, 0, false],
+    same('partner phase 2.46: unreachable - only the ping, every unit skipped (unreachable), one warning at once, the run ends with warnings',
+        [['ssh ping'], ['unreachable'], 0, 1, 'warnings', [['code' => 'partner_missed', 'params' => ['partner' => 'vault', 'why' => 'unreachable']]]],
         [$ssh(), array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
-         $s['partner_failed'] ?? null, $rc, str_contains($l, 'WARNING: Partner')], $out . $l);
-    $sk = json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [];
-    same('partner phase: partner-skips.json counts the night', [1, date('Y-m-d', $first)], [$sk[$id]['nights'] ?? null, $sk[$id]['last_day'] ?? null]);
+         $s['partner_failed'] ?? null, substr_count($l, "WARNING: Partner vault: this run's copy did not arrive - not reachable - is its server on"), $s['result'] ?? null, $missed($s)], $l);
+    check('partner phase 2.46: no nights counted (partner-skips.json not written)', !file_exists("$data/state/partner-skips.json"));
     $run();
-    same('partner phase: unreachable twice the same day - still one night', 1, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
-    testsClockNight($clock);
-    $run();
-    same('partner phase: unreachable the next night - two nights in a row, still no warning', [2, 0],
-        [(json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null, substr_count($log(), 'WARNING: Partner')], $log());
-    testsClockNight($clock);
-    $run();
-    same('partner phase: the third night in a row - one warning (partner_unreachable), since the first night', 1,
-        substr_count($log(), 'WARNING: Partner vault has not answered for 3 nights in a row (since ' . date('Y-m-d', $first) . ')'), $log());
-    $run();
-    $got = [substr_count($log(), 'WARNING: Partner vault has not answered'), (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null];
-    check('partner phase: … said once a day', $got === [0, 3], json_encode($got) . (string) @file_get_contents("$data/state/partner-skips.json") . $log());
+    same('partner phase 2.46: unreachable again the same day - warned again', 1, substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive"), $log());
     $night();
     $run();
-    same('partner phase: it answers again - the nights start anew', 0, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
+    same('partner phase: it answers again - no partner warning', [0, []], [substr_count($log(), 'WARNING: Partner'), $missed($status())], $log());
 
     // --- no answer in time (a door that hangs): unreachable too
     $night();
@@ -6031,18 +6064,10 @@ SH);
     $run();
     same('partner phase: the partner\'s array is stopped - skipped (array_stopped)', ['array_stopped'],
         array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))));
-    // 2.45: counted like unreachable - a night may pass quietly, the UB_PARTNER_NIGHTS-th warns (once a day)
-    @unlink("$data/state/partner-skips.json");
-    $run();
-    same('partner phase 2.45: array stopped - a night counted, no warning yet', [1, 0],
-        [(json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null, substr_count($log(), 'WARNING: Partner')], $log());
-    testsClockNight($clock);
-    $run();
-    testsClockNight($clock);
-    $run();
-    same('partner phase 2.45: … the third night in a row - one warning, its array named; the run ends with warnings', [1, 'warnings'],
-        [substr_count($log(), 'WARNING: Partner vault has taken nothing for 3 nights in a row'), $status()['result'] ?? null], $log());
-    @unlink("$data/state/partner-skips.json");
+    // 2.46: warned at once, its array named
+    same('partner phase 2.46: array stopped - one warning at once, the run ends with warnings', [1, 'warnings', 'array_stopped'],
+        [substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive - its array stopped - its array is stopped; start it there"), $status()['result'] ?? null,
+         $missed($status())[0]['params']['why'] ?? null], $log());
 
     // --- recv_failed: failed, a warning each
     $night();
@@ -6099,20 +6124,19 @@ SH);
     $run();
     check('partner phase 2.42: a unit the pair of up to 1.59 doesn\'t name goes like every other - the door decides', !isset(array_column($status()['partner']['skipped'] ?? [], 'why', 'unit')['share:docs'])
         && in_array("ssh recv share:docs " . ($status()['snapshot'] ?? '?'), $ssh(), true), json_encode($ssh()));
-    // a door up to 1.59 keeps only what its Team Lead agreed to (unit_not_agreed): skipped as not_agreed, not failed - a warning once a day
-    @unlink("$data/state/partner-skips.json");
+    // a door up to 1.59 keeps only what its Team Lead agreed to (unit_not_agreed): skipped as not_agreed, not failed - a warning every run (2.46)
     file_put_contents("$fake/notagreed", "share:docs\n");
     $night();
     file_put_contents("$fake/notagreed", "share:docs\n");
     $run();
     $sk = array_column($status()['partner']['skipped'] ?? [], 'why', 'unit');
     same('partner phase 2.42: an older door\'s unit_not_agreed - skipped (not_agreed), nothing failed, the others went', ['not_agreed', 0, 3, 1],
-        [$sk['share:docs'] ?? null, $status()['partner_failed'] ?? null, $status()['partner_ok'] ?? null, substr_count($log(), 'WARNING: Partner vault runs an older office')], $log());
+        [$sk['share:docs'] ?? null, $status()['partner_failed'] ?? null, $status()['partner_ok'] ?? null, substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive - not agreed by an older partner")], $log());
     check('partner phase 2.42: … said in the log', str_contains($log(), 'vault runs an older office and hasn\'t agreed to keep share:docs'), $log());
     $night();
     file_put_contents("$fake/notagreed", "share:docs\n");
     $run();
-    same('partner phase 2.42: … the same day again - no second warning', 0, substr_count($log(), 'WARNING: Partner vault runs an older office'));
+    same('partner phase 2.46: … the same day again - warned again (every run)', 1, substr_count($log(), "WARNING: Partner vault: this run's copy did not arrive - not agreed"));
     unlink("$tmp/data/partner/pairs.json");
     // 2.45: an app whose folder is a dataset of its own is a unit of its own (app:<name>); its dataset no «children» of
     // its share (appdata still goes); an older door that knows no app units: skipped (old_partner), a warning every run
@@ -6189,7 +6213,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.45', [1, '2.45'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.46', [1, '2.46'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -6611,10 +6635,16 @@ SH);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NOTIFY_STAMP=$tmp/notify.stamp UB_VAR_INI=$fake/var.ini"
          . " FAKE=$fake FAKE_ROOT=$root MNT=$mnt UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1"
-         . " UB_PARTNER_DIR=$tmp/partners UB_PARTNER_NIGHTS=99 UB_PARTNER_ASK=3";
+         . " UB_PARTNER_DIR=$tmp/partners UB_PARTNER_ASK=3";
     $pid = '0a0b0c0d';
-    // the partner: paired (its key here), but it doesn't answer (ssh exit 255) - skipped quietly, never warned about
+    // the partner: paired (its key here), but it doesn't answer (ssh exit 255) - since 2.46 warned in every run
+    // (partner_missed); these tests are about the sleeping pools, so $own() counts the run without that one warning
     // (engine 2.45: a key missing would warn every run - not what these tests are about)
+    $own = function (array $s): array {
+        $n = ($s['warnings'] ?? 0) - count(array_filter($s['warning_items'] ?? [], fn ($w) => ($w['code'] ?? '') === 'partner_missed'));
+        $r = $s['result'] ?? null;
+        return [$r === 'warnings' && $n === 0 && !($s['errors'] ?? 0) ? 'ok' : $r, $n];
+    };
     @mkdir("$tmp/partners", 0700, true);
     touch("$tmp/partners/$pid.key");
     touch("$tmp/partners/$pid.known");
@@ -6675,7 +6705,7 @@ SH);
     $s = $status();
     $n = $names();
     $l = $log();
-    same('asleep skip: the run went through - ok, exit 0, no warning, no error', ['ok', 0, 0, 0], [$s['result'] ?? null, $code, $s['warnings'] ?? null, $s['errors'] ?? null], $out . $l);
+    same('asleep skip: the run went through - ok, exit 0, no warning, no error', ['ok', 0, 0, 0], [$own($s)[0], $code, $own($s)[1], $s['errors'] ?? null], $out . $l);
     $snap = $snapCall($n);
     check('asleep skip: one snapshot call for maple, none of hazel\'s datasets in it', str_contains($snap, 'maple/appdata@uso-backup-') && str_contains($snap, 'maple/films@')
         && str_contains($snap, 'maple/UnraidSecretaryOffice@') && !str_contains($snap, 'hazel') && count(preg_grep('/^zfs snapshot /', $n)) === 1, json_encode($n));
@@ -6711,8 +6741,8 @@ SH);
         $s['partner']['skipped'] ?? null);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
-    $nt = array_values(preg_grep('/Backup successful/', $notes()));
-    check('asleep skip: the notification - successful, «4 shares asleep (left out)» in its summary', count($nt) === 1
+    $nt = array_values(preg_grep('/Backup (successful|with warnings)/', $notes()));      // 2.46: the unreachable partner warns at once
+    check('asleep skip: the notification - «4 shares asleep (left out)» in its summary', count($nt) === 1
         && str_contains($nt[0], ', 4 shares asleep (left out)') && str_contains($nt[0], 'LEFT OUT, ASLEEP (asleep_pools = skip)\n  Disks:   hazel\n'), json_encode($nt));
     same('asleep skip: state/asleep.json - one night each', ['films' => 1, 'media' => 1, 'tm' => 1, 'vmh' => 1], array_map(fn ($x) => $x['nights'] ?? null, $nights()['shares'] ?? []));
 
@@ -6726,19 +6756,19 @@ SH);
     $s = $status();
     $l = $log();
     same('asleep 7 nights: one warning - the run ends with warnings, media 7 nights, warned today', ['warnings', 1, 7, date('Y-m-d', testsClockNow($clock)), 7],
-        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $nights()['shares']['media']['warned'] ?? null, $nights()['shares']['media']['nights'] ?? null], $l);
+        [...$own($s), $s['asleep']['nights']['media'] ?? null, $nights()['shares']['media']['warned'] ?? null, $nights()['shares']['media']['nights'] ?? null], $l);
     check('asleep 7 nights: the warning names the share and the nights', str_contains($l, "WARNING: Share 'media' was left out 7 nights in a row") && str_contains($l, '(asleep_long)'), $l);
     $night();
     $run();
     $s = $status();
     same('asleep 7 nights: the same day again - no second warning, the night not counted twice', ['ok', 0, 7, 1],
-        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
+        [...$own($s), $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
     testsClockNight($clock);
     $night();
     $run();
     $s = $status();
     same('asleep 7 nights: the next night - counted (8, tm 2), still no second warning (once per stretch)', ['ok', 0, 8, 2],
-        [$s['result'] ?? null, $s['warnings'] ?? null, $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
+        [...$own($s), $s['asleep']['nights']['media'] ?? null, $s['asleep']['nights']['tm'] ?? null]);
 
     // --- a dry run counts no night
     $before = (string) @file_get_contents("$data/state/asleep.json");
@@ -6784,7 +6814,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.45', [1, '2.45'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.46', [1, '2.46'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -8503,6 +8533,7 @@ const loose = b.waitingFolders().find((w) => w.dir === 'loose');
 if (loose) b.waitSet(loose, b.waitChoice(loose) === 'kopia' ? 'local' : 'kopia');
 out.hand = b.setupNewRows().filter((r) => r.hand).map((r) => r.name).sort();
 out.handLines = b.setupNewLines().length === b.setupNewRows().length;
+out.owns = b.setupNewRows().filter((r) => r.own).map((r) => r.own).sort();
 load('local');
 out.local = look();
 out.localOld = old() === plain;
@@ -8579,6 +8610,12 @@ JS;
     check('default: … the dialog: the sentence only without a hand row, the chip on such a row',
         str_contains($js, "kind !== 'auto' && !hand ? T('setup.apply_new_default'") && str_contains($js, "if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));")
         && ($n['handLines'] ?? false) === true);
+    // 2026-10-12 (Benj): a new thing once - under «New on the server» with its proposal and «Don't take it», its keys out of the changes
+    same('default: the new rows name the keys they own (share|fresh|, vm|vmnew|)', true,
+        in_array('share|fresh|', $n['owns'] ?? [], true) && in_array('vm|vmnew|', $n['owns'] ?? [], true));
+    check('default: … the dialog leaves them out of the changes and offers the proposal on the new row',
+        str_contains($js, "const changes = items.filter((x) => x.kind === 'key' && !ownOf(x.id)).map((x) => x.id);")
+        && str_contains($js, "no.onclick = () => { mineKeys.forEach((k) => setupDecline(k)); renderSetup(); setupApply(); };"));
     same('default: kopia stored while Kopia is off - never switched on: the new things local', [[1, 1], 'no', ['snapshot', 'off', 'snapshot', 'snapshot', 'snapshot']],
         [$n['kopiaOff']['levels'], $n['kopiaOff']['kopia'], $n['kopiaOff']['modes']]);
     same('default: «only to what is new» chosen on the page - the new things get it, the key set, the hand change and every row before stay',
@@ -8906,6 +8943,7 @@ const strings = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 globalThis.Office = { scope: () => T, t: T, el, store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {},
   sections: () => ({ places: () => [] }), has: (k) => k.replace(/^restore\./, '') in strings,
   fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's' } };
+(0, eval)(fs.readFileSync(process.argv[4], 'utf8'));
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const r = OFFICE_DESK_TESTS.restore;
 const job = (pr, more = {}) => ({ id: 'j1', kind: 'start_from', what: 'Windows11 ← Sender', result: 'running', started: 1000, sizes: null, ...more,
@@ -8933,7 +8971,8 @@ out.cls = card.className;
 console.log(JSON.stringify(out));
 JS);
     file_put_contents("$tmp/strings.json", file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'));
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' ' . escapeshellarg("$tmp/strings.json") . ' 2>&1');
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' ' . escapeshellarg("$tmp/strings.json")
+        . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
     $r = json_decode($raw, true) ?: [];
     same('restore run card: the steps by their short names, done / running / waiting', [['ss.pull', 'ok'], ['ss.mount', 'ok'], ['ss.copy', 'running'], ['ss.start_from_vm', 'pending']],
         $r['steps'] ?? $raw);
@@ -17413,8 +17452,8 @@ function testHireWith(): void
     [$out, $raw] = $web(OFFICE_DIR . '/public/desks', 'echo json_encode([array_map(fn ($d) => $d["with"], officeDesks()),'
         . ' officeStaffAction("office.hire", ["desks" => ["backup", "restore"]]),'
         . ' array_keys(json_decode((string) file_get_contents(OFFICE_DATA . "/office/staff.json"), true)["hired"] ?? [])]);');
-    same('hire with: Mr. Restori names Mr. Backupsy (desk.json "with"), nobody else names anyone',
-        ['restore' => 'backup'], is_array($out) ? array_filter($out[0]) : $raw);
+    same('hire with: Mr. Restori names Mr. Backupsy (desk.json "with"), Jack Emby Ms. Moverelli (his "needs" is his with), nobody else names anyone',
+        ['restore' => 'backup', 'emby' => 'moverelli'], is_array($out) ? array_filter($out[0]) : $raw);
     same('hire with: both hired in one go, the colleague first', ['backup', 'restore'], $out[2] ?? $raw);
     // only another desk that exists
     $fake = "$tmp/desks";
@@ -17500,6 +17539,153 @@ JS);
     same('hire with: Mr. Backupsy hired already, declining or still in training — plain «Hire», Mr. Restori alone',
         array_fill(0, 3, ['text' => 'hire', 'hires' => ['restore']]),
         array_map(fn ($k) => array_intersect_key($r[$k]['restore'] ?? [], ['text' => 1, 'hires' => 1]), ['colleague_here', 'colleague_declines', 'colleague_training']));
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack Emby is an intern: he works only under Ms. Moverelli (2026-10-12, the owner's decision; desk.json "needs"): the
+ * web side's staff rules (src/staff.php officeStaffNeeds()) — hired only with her or after her, she is let go only after
+ * him, nothing written by a refusal; an unknown "needs" is none; the Team Lead's row (under node): «Hire together with
+ * Ms. Moverelli», after her plain «Hire», she can't come — no button, said why; «Hire all» leaves him out then; the
+ * strings ×5; his fit when she can't work here; her let-go refused while he is hired, the error names both by name.
+ */
+function testHireNeeds(): void
+{
+    $tmp = hardeningTmp('hire-needs');
+    $web = function (string $code) use ($tmp): array {
+        @mkdir("$tmp/plugin/src", 0700, true);
+        foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+            copy($f, "$tmp/plugin/src/" . basename($f));
+        }
+        @unlink("$tmp/plugin/desks");
+        symlink(OFFICE_DIR . '/public/desks', "$tmp/plugin/desks");
+        @unlink("$tmp/plugin/lang");
+        symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
+        @mkdir("$tmp/data/office", 0700, true);
+        file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; '
+            . '$try = function (callable $f) { try { $f(); return "ok"; } catch (OfficeProblem $p) { return [$p->key, $p->status, $p->params]; } }; '
+            . '$hired = fn () => array_keys(json_decode((string) @file_get_contents(OFFICE_DATA . "/office/staff.json"), true)["hired"] ?? []); ' . $code);
+        $p = proc_open([PHP_BINARY, "$tmp/web.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($raw, true), $raw];
+    };
+    [$o, $raw] = $web('$out = [officeDesks()["emby"]["needs"], officeDesks()["emby"]["with"], officeDesks()["moverelli"]["needs"]];'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby", "moverelli"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "moverelli"])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "emby"]));'
+        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "moverelli"]));'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["moverelli"]]));'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' echo json_encode($out);');
+    if (!is_array($o)) {
+        check('hire needs: the web side ran', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('hire needs: Jack Emby needs Ms. Moverelli (his with too), she needs nobody', ['moverelli', 'moverelli', null], array_slice($o, 0, 3));
+    same('hire needs: Jack alone — refused (409, both named), nothing written', [['needs_colleague', 409, ['desk' => 'emby', 'with' => 'moverelli']], []], array_slice($o, 3, 2));
+    same('hire needs: both in one request (in any order) — hired', ['ok', ['emby', 'moverelli']], array_slice($o, 5, 2));
+    same('hire needs: letting her go while he is here — refused, he is named, both stay', [['needed_by', 409, ['desk' => 'moverelli', 'by' => 'emby']], ['emby', 'moverelli']], array_slice($o, 7, 2));
+    same('hire needs: him first, then her — both go; him alone again — refused; her, then him — hired',
+        ['ok', 'ok', ['needs_colleague', 409, ['desk' => 'emby', 'with' => 'moverelli']], [], 'ok', 'ok', ['moverelli', 'emby']], array_slice($o, 9, 7));
+    // an unknown or own "needs" is none
+    $fake = "$tmp/desks";
+    foreach (['a' => 'b', 'b' => 'b', 'c' => 'ghost'] as $id => $need) {
+        @mkdir("$fake/$id", 0700, true);
+        file_put_contents("$fake/$id/desk.json", json_encode(['order' => 50, 'needs' => $need]));
+        file_put_contents("$fake/$id/desk.js", '');
+    }
+    @unlink("$tmp/plugin/desks");
+    $code = '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; echo json_encode(array_map(fn ($d) => [$d["needs"], $d["with"]], officeDesks()));';
+    file_put_contents("$tmp/web2.php", $code);
+    symlink($fake, "$tmp/plugin/desks");
+    $p = proc_open([PHP_BINARY, "$tmp/web2.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+    $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    same('hire needs: only another desk that exists — itself, an unknown one: none', ['a' => ['b', 'b'], 'b' => [null, null], 'c' => [null, null]], json_decode($raw, true) ?? $raw);
+
+    // the strings ×5: the Team Lead's line, the two refusals, her name as «with …» needs it
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $ct = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$l.json"), true) ?: [];
+        $of = json_decode((string) file_get_contents(OFFICE_WEB . "/lang/$l.json"), true) ?: [];
+        $mo = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/moverelli/lang/$l.json"), true) ?: [];
+        check("hire needs: $l — the row's line, the refusals with both names, her name for «with …»",
+            str_contains((string) ($ct['needs_away'] ?? ''), '{with}') && str_contains((string) ($of['errors.needs_colleague'] ?? ''), '{with}')
+            && str_contains((string) ($of['errors.needed_by'] ?? ''), '{by}') && ($mo['name_with'] ?? '') !== '');
+    }
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('hire needs: the refusals name the desks by their names (core.js errorText)', str_contains($core, "['in_training', 'needs_colleague', 'needed_by'].includes(error.key)"));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('hire needs: Jack\'s fit — Ms. Moverelli can\'t work here (Unraid too old), so he can\'t either',
+        str_contains($src, "return fit(false, 'no_moverelli', ['name' => \$emby[0]['name']]);"));
+    $mu = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-unraid.php');
+    check('hire needs: her own let-go refuses while Jack is hired (before anything is switched back)',
+        strpos($mu, "throw new Problem('moverelli_jack_hired');") < strpos($mu, 'moverelliSetSchedule(null, $h);'));
+
+    // the Team Lead's row, under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('hire needs: the candidate row - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+globalThis.document = { currentScript: null };
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text || '', children: [], dataset: {}, disabled: false, type: '', onclick: null,
+  appendChild(c) { this.children.push(c); return c; } }; n.classList = { add(c) { n.className += ' ' + c; } }; return n; };
+const hired = [];
+const desks = new Map();
+globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'moverelli.name_with', fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
+  sections: () => ({ places: () => [], mount: () => false, render() {}, active: () => '' }),
+  place: (a, n) => { n.dataset.place = a; return n; }, avatar: () => mk('span'), agent: { running: true }, deskRank: () => 0, desks, config: {},
+  hire: async (ids) => { hired.push(ids); return true; }, toast: () => {}, loadState: async () => {}, fireDialog: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const c = OFFICE_DESK_TESTS.caretaker;
+const walk = (n, out = []) => { if (n && typeof n === 'object') { out.push(n); (n.children || []).forEach((x) => walk(x, out)); } return out; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  const out = {};
+  const run = async (name, mo) => {
+    desks.clear();
+    desks.set('emby', { id: 'emby', order: 50, hired: false, with: 'moverelli', needs: 'moverelli' });
+    desks.set('moverelli', { id: 'moverelli', order: 55, hired: mo.hired });
+    c.setState({ staff: { emby: { hired: false, ok: true, why: 'yes' }, moverelli: mo } });
+    const x = c.staff().find((s) => s.id === 'emby');
+    const row = c.teamRow(x);
+    const b = walk(row).find((n) => n.tag === 'button');
+    const lines = walk(row).filter((n) => n.className === 'row-detail').map((n) => n.textContent);
+    hired.length = 0;
+    if (b) { await b.onclick(); await sleep(5); }
+    out[name] = { text: b ? b.textContent : null, hires: hired[0] || null, lines };
+  };
+  await run('both', { hired: false, ok: true, why: 'yes' });
+  await run('she_is_here', { hired: true, ok: true, why: 'yes' });
+  await run('she_cant', { hired: false, ok: false, why: 'unraid_old' });
+  console.log(JSON.stringify(out));
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/caretaker/desk.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('hire needs: the candidate row ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('hire needs: she isn\'t here and would come — his button hires both, her first', ['hire_with {"name":"moverelli.name_with"}', ['moverelli', 'emby']],
+        [$r['both']['text'] ?? null, $r['both']['hires'] ?? null]);
+    same('hire needs: she is here — plain «Hire», him alone', ['hire', ['emby']], [$r['she_is_here']['text'] ?? null, $r['she_is_here']['hires'] ?? null]);
+    same('hire needs: she can\'t come — no button, the row says why', [null, null, true],
+        [array_key_exists('text', $r['she_cant'] ?? []) ? $r['she_cant']['text'] : 'x', array_key_exists('hires', $r['she_cant'] ?? []) ? $r['she_cant']['hires'] : 'x', in_array('needs_away {"name":"emby.name","with":"moverelli.name_with"}', $r['she_cant']['lines'] ?? [], true)]);
+    $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('hire needs: «Hire all» leaves out who can\'t come without his colleague', str_contains($ct, 'const open = all.filter((s) => !s.hired && s.ok && !needsAway(s));'));
     hardeningRm($tmp);
 }
 
@@ -20820,12 +21006,12 @@ function testPartnerPairing(): void
     check('pairing: B answers with BLOCK-B and a code', preg_match('/^\d{6}$/D', $codeB) === 1 && ($accepted['block'] ?? '') !== '', json_encode($accepted));
     same('pairing: B\'s authorized_keys — A\'s line added, the user\'s own lines byte for byte', $benj . $line . "\n", file_get_contents($B['keys']));
     $pairB = partnerTestAs($B, 'return partnerPairs();')[0] ?? [];
-    same('pairing: B keeps of A whatever comes — its rules (1.60: no units, no window)', ['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'wake' => false], $pairB['receive'] ?? null);
+    same('pairing: B keeps of A whatever comes — its rules (1.60: no units, no window; 1.60.2: wake always true, a false asked for ignored)', ['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'wake' => true], $pairB['receive'] ?? null);
     same('pairing: B\'s pair', [$id, '192.168.77.1', partnerFingerprint($pubA), ['rate_mbit' => 0], 'family'],
         [$pairB['id'] ?? null, $pairB['address'] ?? null, $pairB['their_key'] ?? null, $pairB['send'] ?? null, $pairB['trust'] ?? null]);
     $blockB = partnerBlockDecode((string) $accepted['block'], 'B');
     same('pairing: BLOCK-B carries B\'s rules in the shape an older office reads too (window always, A\'s units) and the units B could send',
-        [['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'window' => '00:00-00:00', 'wake' => false, 'units' => ['place', 'share:appdata', 'vm:Debian_VM']], ['share:media']],
+        [['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6', 'window' => '00:00-00:00', 'wake' => true, 'units' => ['place', 'share:appdata', 'vm:Debian_VM']], ['share:media']],
         [$blockB['receive'], $blockB['units']]);
     same('pairing: B pinned A\'s host key for sending', '192.168.77.1 ' . implode(' ', array_slice(explode(' ', trim(file_get_contents($A['host']))), 0, 2)) . "\n",
         @file_get_contents("$B[flash]/$id.known"));
@@ -21145,11 +21331,10 @@ function testPartnerDoor(): void
     file_put_contents("$B[bin]/zfs.json", json_encode($st));
     $pairs([]);
     file_put_contents("$tmp/asleep.ini", "[\"tank\"]\nname=\"tank\"\nspundown=\"1\"\n");
-    same('door: the pool asleep, no wake — refused_asleep', 'refused_asleep',
-        partnerTestDoor($B, 'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200', 'x', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['err'][0]['why'] ?? null);
-    same('door: … list too', 'refused_asleep', partnerTestDoor($B, 'list share:appdata', '', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['out'][0]['why'] ?? null);
-    $pairs(['wake' => true]);
-    same('door: the pool asleep, wake agreed — it goes', 0,
+    // 1.60.2: a sleeping pool is never refused — the receive wakes it; a pair's old `wake: false` is ignored
+    same('door 1.60.2: the pool asleep, the pair\'s old wake false — list answers, no refused_asleep', [0, null],
+        [($l = partnerTestDoor($B, 'list share:appdata', '', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"]))['exit'], $l['out'][0]['why'] ?? null]);
+    same('door 1.60.2: … and the receive goes (the pool woken by it)', 0,
         partnerTestDoor($B, 'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200', 'five', $id, ['OFFICE_DISKS_INI' => "$tmp/asleep.ini"])['exit']);
     @mkdir("$B[run]/partner", 0700, true);
     $hold = fopen("$B[run]/partner/$id.lock", 'c');
@@ -21448,13 +21633,13 @@ function testPartnerEnded(): void
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
         same("partner ended: $l — the run's coded warnings in words, with their parameters", [], array_values(array_filter(['partner_ended' => ['partner'], 'partner_no_key' => ['partner'], 'partner_quota' => ['partner'],
-            'partner_snap_prefix' => ['partner', 'prefix'], 'partner_no_ssh' => ['partner'], 'partner_old' => ['partner']], fn ($ps, $c) => !isset($bk["warn_code.$c"])
+            'partner_snap_prefix' => ['partner', 'prefix'], 'partner_no_ssh' => ['partner'], 'partner_old' => ['partner'], 'partner_missed' => ['partner', 'why']], fn ($ps, $c) => !isset($bk["warn_code.$c"])
             || array_filter($ps, fn ($x) => !str_contains($bk["warn_code.$c"], '{' . $x . '}')), ARRAY_FILTER_USE_BOTH)));
     }
     preg_match_all('/warn_code (partner_[a-z_]+) /', $engine, $wm);
     $codes = array_values(array_unique($wm[1]));
     sort($codes);
-    same('partner ended: the engine\'s partner warnings are the six the office words', ['partner_ended', 'partner_no_key', 'partner_no_ssh', 'partner_old', 'partner_quota', 'partner_snap_prefix'], $codes);
+    same('partner ended: the engine\'s partner warnings are the seven the office words (2.46: partner_missed)', ['partner_ended', 'partner_missed', 'partner_no_key', 'partner_no_ssh', 'partner_old', 'partner_quota', 'partner_snap_prefix'], $codes);
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
     check('partner ended: the card says «ended», not «key missing»', $en['partner.why_short.ended'] === 'partnership ended');
     $ct = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true);
@@ -21731,7 +21916,7 @@ function testPartnerUnits(): void
     $fin = $as($A, 'return partner_finish(["step" => "do", "confirm" => true, "code" => ' . var_export((string) ($acc['code'] ?? ''), true) . ', "block" => '
         . var_export((string) ($acc['block'] ?? ''), true) . ', "receive" => null]);');
     same('units: paired — A reaches B', true, $fin['ask']['reachable'] ?? $fin);
-    same('units: the pair on A — send only its rate; on B — the rules, no units', [['rate_mbit' => 0], ['pool' => 'vault', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => false]],
+    same('units: the pair on A — send only its rate; on B — the rules, no units', [['rate_mbit' => 0], ['pool' => 'vault', 'quota_gb' => 0, 'retention' => '7 4 6', 'wake' => true]],
         [$as($A, 'return partnerPairs()[0]["send"] ?? null;'), $as($B, 'return partnerPairs()[0]["receive"] ?? null;')]);
     $calls = fn () => array_values(array_map(fn ($c) => end($c), array_filter(partnerTestCalls($A['bin']), fn ($c) => $c[0] === 'ssh')));
     $calls();
@@ -23814,12 +23999,20 @@ JS);
     }
     foreach (['result' => ['passed', 'failed', 'aborted', 'refused', 'interrupted', 'queued', 'running'], 'state' => [...DRILL_RESULTS, 'skipped', 'pending', 'running'],
               'kind' => DRILL_STEP_KINDS, 'copy' => ['package', 'local', 'kopia'], 'scope' => ['monthly', 'weekly', 'now'], 'sched' => DRILL_SCHEDULES,
-              'set' => [...DRILL_SCHEDULES, 'live_catalog', 'live_sqlite'], 'pv' => DRILL_STEP_KINDS, 'level_hint' => ['0', '1', '2'],
+              'set' => [...DRILL_SCHEDULES, 'live_catalog', 'live_sqlite'], 'pv' => DRILL_STEP_KINDS, 'level_hint' => ['0', '1', '2'], 'level_word' => ['0', '1', '2'],
               'copy_hint' => ['package', 'local', 'kopia'], 'done' => ['passed', 'failed', 'other'], 'night' => ['0', '1', '2', '3', '4', '5', '6']] as $group => $names) {
         foreach ($names as $n) {
             check("drill: a text for drill.$group.$n", isset($en["drill.$group.$n"]));
         }
     }
+    // 2026-10-12 (Benj): no L0/L1/L2 jargon on the page - the level is a word (vorhanden · gelesen · zurückgespielt)
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lc) {
+        $ll = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$lc.json"), true);
+        same("drill: no L-number shown in $lc", [], array_keys(array_filter($ll, fn ($v) => (bool) preg_match('/\bL[012]\b/', is_array($v) ? implode(' ', $v) : (string) $v))));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/de.json'), true);
+    same('drill: the German chip words', ['vorhanden', 'gelesen', 'zurückgespielt', '{word} · {copy}'],
+        [$de['drill.level_word.0'] ?? null, $de['drill.level_word.1'] ?? null, $de['drill.level_word.2'] ?? null, $de['drill.level'] ?? null]);
     foreach (['drill_array', 'drill_parity', 'drill_running', 'drill_deadline', 'drill_nothing', 'restore_array_stopping'] as $e) {
         check("drill: a text for errors.$e", isset($en["errors.$e"]));
     }
@@ -28482,6 +28675,20 @@ function testWatchFilter(): void
     }
 }
 
+/**
+ * core.js's run card helpers (Office.runRate, Office.runSteps, Office.runBar) as a file a node test evals after its
+ * Office stub: the block between its markers, given the stub's el. Returns the file's path.
+ */
+function testsRunHelpersJs(string $tmp): string
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $a = strpos($core, '// ---- run card helpers (shared');
+    $b = strpos($core, '// ---- end run card helpers');
+    $file = "$tmp/run-helpers.js";
+    file_put_contents($file, '(function (el) {' . "\n" . substr($core, (int) $a, (int) $b - (int) $a) . "\n})(Office.el);\n");
+    return $file;
+}
+
 /** node for the tests that run a page's code (tests/watchbook.js, tests/filter.js): '' where it is missing */
 function testsNode(): string
 {
@@ -29709,6 +29916,8 @@ function moverelliFixture(string $tmp, array &$v): void
 # the tests' move binary: one path per line on stdin
 [[ -n "${MOVE_SLEEP:-}" ]] && sleep "$MOVE_SLEEP"
 [[ -n "${MOVE_FAIL:-}" ]] && { cat >/dev/null; echo "move: refused"; exit 1; }
+# MOVE_SNAP: the live status as Smart Mover left it before this call (its first call only)
+[[ -n "${MOVE_SNAP:-}" && ! -e "$MOVE_SNAP" && -n "${CUSTOMMOVER_STATUS:-}" ]] && cp "$CUSTOMMOVER_STATUS" "$MOVE_SNAP"
 while IFS= read -r f; do
     case "$f" in
         "$MOVE_ROOT"/cache/*) rel=${f#"$MOVE_ROOT"/cache/}; to="$MOVE_ROOT/disk1/$rel" ;;
@@ -29726,8 +29935,7 @@ SH);
         chmod("$tmp/bin/$b", 0755);
     }
     $v += ['version' => '7.3.2', 'own' => ['set' => '', 'cron' => null], 'mover' => false, 'mover_self' => false, 'busy' => false, 'emby' => null,
-           'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => ["$tmp/jack/embycache_exclude.txt", '/mnt/user/appdata/x/embycache/embycache_exclude.txt'],
-           'jack_ran' => false];
+           'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => [], 'jack_ran' => true];
     $GLOBALS['moverelliHost'] = [
         'dir' => "$tmp/data", 'shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'var_ini' => "$tmp/var.ini",
         'mnt' => "$tmp/mnt", 'waitdir' => "$tmp/run", 'write_state' => false, 'look_every' => 0,
@@ -29739,11 +29947,1166 @@ SH);
         'emby' => function () use (&$v) { return $v['emby']; },
         'scheduled' => fn () => true, 'lock_wait' => 1,
         'hired' => function () use (&$v) { return $v['hired']; },
-        'jack_lists' => function () use (&$v) { return $v['jack_lists']; },
-        'jack_ran' => function () use (&$v) { return $v['jack_ran']; },
         'tuning' => function () use (&$v) { return $v['tuning']; },
         'tuning_dir' => "$tmp/tuning", 'us_dir' => "$tmp/us", 'cron_glob' => "$tmp/plugins/*/*.cron", 'unraid_cron' => "$tmp/plugins/dynamix/mover.cron",
+        'jack_lists' => function () use (&$v) { return $v['jack_lists']; }, 'jack_ran' => function () use (&$v) { return $v['jack_ran']; },
+        'import_look' => ["$tmp/flash/*/smart_mover.ini"],      // never the server's flash
+        'cron_d' => "$tmp/cron.d/*", 'root_crontab' => "$tmp/crontab.root",
+        'plugin_installed' => function (string $name) use (&$v) { return in_array($name, $v['plugins'] ?? [], true); },
     ];
+}
+
+/**
+ * Ms. Moverelli and Unraid's own mover (agent/desks/moverelli-unraid.php, 2026-10-12): her save (and the import's apply)
+ * refused while Unraid's schedule is on unless the page's consent comes along, nothing written then; with it Unraid's
+ * form «Disabled» (an emcmd stand-in — never Unraid's own), the schedule it had noted once; her let-go refused while
+ * Jack Emby is hired, else her schedule off and Unraid's schedule back exactly as noted (URL-encoded as the form sends
+ * it, looked at afterwards), one set by hand meanwhile kept, a noted value of another shape never sent, a failure said;
+ * EmbyCache's list before its first run (D1: no real run, said, a Team Lead hint; his traces); the share's path quoted
+ * in an exclude entry and the sleeping array disks named in her log (Smart Mover); her page's consent and let-go under node.
+ */
+function testMoverelliUnraid(): void
+{
+    $tmp = hardeningTmp('moverelli-unraid');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $GLOBALS['moverelliHost']['cron_file'] = "$tmp/office.cron";
+    $GLOBALS['moverelliHost']['cron_apply'] = false;
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    @mkdir("$tmp/dynamix", 0700, true);
+    $waited = [];
+    $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'var_ini' => "$tmp/ui-var.ini", 'emcmd' => "$tmp/emcmd",
+        'wait' => function (int $ms) use (&$waited) { $waited[] = $ms; }, 'tuning' => fn () => null, 'moverelli' => fn () => null,
+        'note' => fn (string $was, string $logging) => moverelliUnraidNoteKeep($was, $logging, $dir)];
+    $calls = function () use ($tmp): array { $c = file_exists("$tmp/emcmd.calls") ? file("$tmp/emcmd.calls", FILE_IGNORE_NEW_LINES) : []; @unlink("$tmp/emcmd.calls"); return $c; };
+    // the stand-in does what emhttpd does with Unraid's form: «Disabled» empties the key and deletes mover.cron, a schedule writes both
+    $cfgQ = escapeshellarg("$tmp/share.cfg");
+    $cronQ = escapeshellarg("$tmp/dynamix/mover.cron");
+    $emcmd = function (string $body) use ($tmp) {
+        file_put_contents("$tmp/emcmd", "#!/bin/bash\nprintf '%s\\n' \"\$1\" >> " . escapeshellarg("$tmp/emcmd.calls") . "\n$body\n");
+        chmod("$tmp/emcmd", 0755);
+    };
+    $asUnraid = 'case "$1" in shareMoverSchedule=\&*) sed -i \'s/^shareMoverSchedule=.*/shareMoverSchedule=""/\' ' . $cfgQ . '; rm -f ' . $cronQ . ' ;; '
+        . 'shareMoverSchedule=40%203%20%2A%20%2A%20%2A\&*) sed -i \'s/^shareMoverSchedule=.*/shareMoverSchedule="40 3 * * *"/\' ' . $cfgQ
+        . '; printf \'# Generated mover schedule:\n40 3 * * * /usr/local/sbin/mover start > /dev/null\n\' > ' . $cronQ . ' ;; esac; exit 0';
+    $emcmd($asUnraid);
+    $daily = function () use ($tmp, &$v) {
+        file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"40 3 * * *\"\nshareMoverLogging=\"yes\"\n");
+        file_put_contents("$tmp/dynamix/mover.cron", "40 3 * * * /usr/local/sbin/mover start > /dev/null\n");
+        $v['own'] = ['set' => '40 3 * * *', 'cron' => '40 3 * * *'];
+    };
+    $err = function (callable $f) { try { $f(); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
+
+    // the note: the first schedule only, «Disabled» never
+    moverelliUnraidNoteKeep('', 'no', $dir);
+    $n0 = moverelliUnraidNote($dir);
+    moverelliUnraidNoteKeep('0 */4 * * *', 'no', $dir);
+    moverelliUnraidNoteKeep('40 3 * * *', 'yes', $dir);
+    same('unraid mover: noted once — «Disabled» never, the first schedule stays', [null, '0 */4 * * *', 'no'], [$n0, moverelliUnraidNote($dir)['was'] ?? null, moverelliUnraidNote($dir)['logging'] ?? null]);
+    @unlink("$dir/" . MOVERELLI_UNRAID_NOTE);
+
+    // her save: Unraid's schedule on — refused without the consent, nothing written, nothing sent
+    $daily();
+    $set = moverelliTestSettings(['patterns' => ['*.nfo']]);
+    same('unraid mover: her save while Unraid\'s schedule is on, no consent — refused with its schedule, nothing written, emcmd not run',
+        [['moverelli_mover_consent', ['schedule' => '40 3 * * *']], false, []], [$err(fn () => moverelliSave($set, $h)), file_exists("$dir/smart_mover.ini"), $calls()]);
+    $r = moverelliSave($set, $h, null, true);
+    same('unraid mover: with the consent — Unraid\'s form «Disabled» once (logging kept), then her settings written; said so',
+        [['shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], true, true, ['set' => '', 'cron' => null]],
+        [$calls(), file_exists("$dir/smart_mover.ini"), $r['mover_off'] ?? null, embyMoverOwn(embyMoverHost())]);
+    same('unraid mover: … what it was noted for her let-go', ['40 3 * * *', 'yes'], [moverelliUnraidNote($dir)['was'] ?? null, moverelliUnraidNote($dir)['logging'] ?? null]);
+    $v['own'] = ['set' => '', 'cron' => null];
+    same('unraid mover: off already — saved without asking, nothing sent', [false, []], [moverelliSave($set, $h)['mover_off'] ?? null, $calls()]);
+    $daily();
+    $emcmd('exit 0');
+    $was = (string) file_get_contents("$dir/smart_mover.ini");
+    file_put_contents("$dir/smart_mover.ini", $was . "\n");
+    same('unraid mover: emhttpd changed nothing — refused (her words), her settings not written', [['moverelli_mover_off_failed'], "$was\n"],
+        [array_slice((array) $err(fn () => moverelliSave(moverelliTestSettings(), $h, null, true)), 0, 1), file_get_contents("$dir/smart_mover.ini")]);
+    $calls();
+    $emcmd($asUnraid);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php') . file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-import.php');
+    check('unraid mover: the save action and the import\'s apply carry the consent (mover_off exactly true)',
+        str_contains($src, "moverelliSave(\$r['settings'] ?? null, null, null, moverelliConsent(\$r))") && str_contains($src, "}, moverelliConsent(\$r));")
+        && moverelliConsent(['mover_off' => true]) && !moverelliConsent([]) && $err(fn () => moverelliConsent(['mover_off' => 'yes']))[0] === 'bad_request');
+    check('unraid mover: never a hand-written cron line — only Unraid\'s form', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-unraid.php'), 'mover.cron"'));
+
+    // her let-go: refused while Jack is hired — nothing changed
+    officeJobSetSchedule('moverelli', '0 4 * * *', "$tmp/office.cron", false);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\nshareMoverLogging=\"yes\"\n");
+    @unlink("$tmp/dynamix/mover.cron");
+    $v['own'] = ['set' => '', 'cron' => null];
+    $v['emby'] = ['lists' => ['/x/l.txt'], 'shares' => ['Filme']];
+    $l = moverelliLetGoLook($h);
+    same('unraid mover: her let-go look with Jack hired — he is named, her schedule, Unraid\'s comes back', [true, '0 4 * * *', ['off' => true, 'back' => '40 3 * * *']],
+        [$l['jack'], $l['schedule'], $l['unraid']]);
+    same('unraid mover: her let-go with Jack hired — refused, her schedule stays, Unraid\'s stays off, nothing sent', [['moverelli_jack_hired', []], '0 4 * * *', '', []],
+        [$err(fn () => moverelliLetGo(['confirm' => true], $h)), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'], embyMoverOwn(embyMoverHost())['set'], $calls()]);
+    $v['emby'] = null;
+    same('unraid mover: without confirm — refused', ['bad_request', []], $err(fn () => moverelliLetGo([], $h)));
+    $r = moverelliLetGo(['confirm' => true], $h);
+    same('unraid mover: her let-go — her schedule off, Unraid\'s back through its form (the value URL-encoded), looked at, the note gone',
+        [true, ['back' => true, 'was' => '40 3 * * *'], ['shareMoverSchedule=40%203%20%2A%20%2A%20%2A&shareMoverLogging=yes&changeMover=Apply'], null, ['set' => '40 3 * * *', 'cron' => '40 3 * * *'], null],
+        [$r['schedule_off'], $r['unraid'], $calls(), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'] ?? null, embyMoverOwn(embyMoverHost()), moverelliUnraidNote($dir)]);
+    same('unraid mover: let go again — nothing noted, nothing sent', [false, ['none' => true], []], [moverelliLetGo(['confirm' => true], $h)['schedule_off'], moverelliLetGo(['confirm' => true], $h)['unraid'], $calls()]);
+    moverelliUnraidNoteKeep('40 3 * * *', 'yes', $dir);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */6 * * *\"\n");
+    file_put_contents("$tmp/dynamix/mover.cron", "0 */6 * * * /usr/local/sbin/mover start > /dev/null\n");
+    same('unraid mover: a schedule set by hand meanwhile — kept, the note gone, nothing sent', [['kept' => true, 'schedule' => '0 */6 * * *'], null, []],
+        [moverelliUnraidBack(embyMoverHost(), $dir), moverelliUnraidNote($dir), $calls()]);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
+    @unlink("$tmp/dynamix/mover.cron");
+    file_put_contents("$dir/" . MOVERELLI_UNRAID_NOTE, json_encode(['v' => 1, 'was' => '40 3 * * *&cmdStartMover=1', 'logging' => 'no', 'at' => 1]));
+    $e = $err(fn () => moverelliUnraidBack(embyMoverHost(), $dir));
+    same('unraid mover: a noted value of a shape Unraid\'s form never makes — refused, nothing sent', ['moverelli_unraid_back_failed', []], [$e[0] ?? null, $calls()]);
+    foreach (['40 3 * * *', '0 */4 * * *', '5 2 * * 0', '0 1 15 * *'] as $ok) {
+        check("unraid mover: the form's shape «{$ok}» is sent", (bool) preg_match(MOVERELLI_UNRAID_CRON, $ok));
+    }
+    file_put_contents("$dir/" . MOVERELLI_UNRAID_NOTE, json_encode(['v' => 1, 'was' => '40 3 * * *', 'logging' => 'yes', 'at' => 1]));
+    $emcmd('exit 0');
+    $waited = [];
+    $r = moverelliLetGo(['confirm' => true], $h);
+    same('unraid mover: emhttpd changed nothing — looked again up to 3 s, said, the note kept for another try', ['moverelli_unraid_back_failed', 10, '40 3 * * *'],
+        [$r['unraid']['error']['key'] ?? null, count($waited), moverelliUnraidNote($dir)['was'] ?? null]);
+    $calls();
+    @unlink("$dir/" . MOVERELLI_UNRAID_NOTE);
+    unset($GLOBALS['embyMoverHost']);
+
+    // D1: EmbyCache's list in her ini before EmbyCache's first run — no real run (said once, never notified), a Team Lead hint
+    $list = "$tmp/emby/embycache_exclude.txt";
+    @mkdir("$tmp/emby", 0700, true);
+    $v['jack_lists'] = [$list, '/mnt/user/appdata/x/embycache_exclude.txt'];
+    $v['jack_ran'] = false;
+    $v['own'] = ['set' => '', 'cron' => null];
+    moverelliSave(moverelliTestSettings(['files' => [$list]]), $h);
+    $why = function (string $mode) use ($h) { try { moverelliRunCheck($mode, $h); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
+    same('jack list: named, not there, EmbyCache never ran — a real run refused with the file; a dry run not (it only warns)',
+        [['moverelli_jack_list_pending', ['file' => $list]], 'ok', $list], [$why('run'), $why('dry'), moverelliJackListPending($h)]);
+    $f = array_column(moverelliChecks($h), null, 'id')['jack_list_pending'] ?? null;
+    same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/emby'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
+    $v['jack_ran'] = true;
+    same('jack list: EmbyCache ran (the list existed) and it is gone — no refusal here: Smart Mover\'s ERROR skips the share', ['ok', null], [$why('run'), moverelliJackListPending($h)]);
+    $v['jack_ran'] = false;
+    file_put_contents($list, '');
+    same('jack list: there (also empty) — fine', ['ok', null], [$why('run'), moverelliJackListPending($h)]);
+    unlink($list);
+    moverelliSave(moverelliTestSettings(), $h);
+    same('jack list: not named in her rules — none of her business', null, moverelliJackListPending($h));
+    $hist = moverelliHistory($dir);
+    $mr = function (array $entry) use ($dir) { moverelliRemember($entry, $dir); };
+    foreach ([100, 3700] as $t) {
+        $mr(['mode' => 'run', 'by' => 'schedule', 'started' => $t, 'finished' => $t, 'result' => 'refused', 'why' => 'moverelli_jack_list_pending']);
+    }
+    same('jack list: refused on schedule again and again — one line, counted (said once)', [2], [moverelliHistory($dir)[0]['times'] ?? null]);
+    same('jack list: a refusal is never a notification', null, moverelliNotifyOutcome('run', 'refused', []));
+    $jd = "$tmp/jack";
+    @mkdir($jd, 0700, true);
+    $ran = [moverelliJackRan($jd)];
+    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused'], ['tool' => 'gather', 'mode' => 'run', 'result' => 'ok']]]));
+    $ran[] = moverelliJackRan($jd);
+    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'release', 'result' => 'ok']]]));
+    $ran[] = moverelliJackRan($jd);
+    unlink("$jd/office-history.json");
+    file_put_contents("$jd/embycache_origin.json", '{}');
+    $ran[] = moverelliJackRan($jd);
+    unlink("$jd/embycache_origin.json");
+    file_put_contents("$jd/embycache_exclude.txt.before-import-20261012-101010", '');
+    $ran[] = moverelliJackRan($jd);
+    same('jack list: EmbyCache\'s traces — none, a refused run or a gather, a release, origin.json, an import\'s copy', [false, false, true, true, true], $ran);
+
+    // Smart Mover: the share's path in an exclude entry is replaced quoted — a share with [ ] is no pattern
+    [$ex, $out] = run(['bash', '-c', 'MNT=/mnt; share="Film[1]"; src="/mnt/cache/Film[1]"; line="/mnt/user/Film[1]/a.mkv"; '
+        . 'a="${line/#"$MNT/user/$share"/"$src"}"; b="${line/#$MNT\/user\/$share/$src}"; printf "%s|%s" "$a" "$b"'], 10);
+    same('smart mover: quoted, «Film[1]» is replaced; unquoted it is a pattern and isn\'t', '/mnt/cache/Film[1]/a.mkv|/mnt/user/Film[1]/a.mkv', $out);
+    check('smart mover: … the script quotes both', str_contains((string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh'), 'line="${line/#"$MNT/user/$share"/"$src"}"')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh'), 'line="${line/#"$MNT/user0/$share"/"$src"}"'));
+
+    // Smart Mover: a real run names the share's sleeping array disks in her log (disks.ini; Docs may use disk1 and disk2)
+    file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\nshareCachePool2=\"\"\nshareInclude=\"disk1,disk2\"\n");
+    file_put_contents("$tmp/disks.ini", "[\"parity\"]\nname=\"parity\"\nspundown=\"1\"\n[\"disk1\"]\nname=\"disk1\"\nspundown=\"1\"\n[\"disk2\"]\nname=\"disk2\"\nspundown=\"0\"\n[\"disk3\"]\nname=\"disk3\"\nspundown=\"1\"\n[\"cache\"]\nname=\"cache\"\nspundown=\"1\"\n");
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $v['jack_lists'] = [];
+    moverelliSave(moverelliTestSettings(), $h);
+    @unlink("$dir/smart_mover.log");
+    $exit = moverelliJob(['run', '--office'], $h);
+    $log = (string) @file_get_contents("$dir/smart_mover.log");
+    check('smart mover: the real run went', $exit === 0, (string) @file_get_contents("$dir/office-output.txt"));
+    check('smart mover: Docs (disk1, disk2) — only disk1 asleep, named before its move; disk3 not its disk; parity and the pool never',
+        (bool) preg_match('/\[Docs\][^\n]*\n(?:[^\n]*\n)*?[^\n]*array disks asleep: disk1 – this run wakes the one it writes to\n[^\n]*moving 1 files/', $log)
+        && !str_contains($log, 'parity') && !str_contains($log, 'cache –') && !str_contains($log, ', cache'), $log);
+    check('smart mover: Back (prefer from the array, every data disk) — named before its scan', str_contains($log, 'array disks asleep: disk1, disk3 – this run wakes them'), $log);
+    @unlink("$dir/smart_mover.log");
+    moverelliJob(['dry', '--office'], $h);
+    check('smart mover: a dry run says nothing of it', !str_contains((string) @file_get_contents("$dir/smart_mover.log"), 'asleep'));
+    unset($GLOBALS['disksIni']);
+
+    // an earlier install she finds by herself (the flash only — the tests' own folder): its folder, a link never, the one taken over not again
+    same('import found: nothing there — none', [], moverelliImportFound($h));
+    @mkdir("$tmp/flash/old", 0700, true);
+    @mkdir("$tmp/flash/other", 0700, true);
+    file_put_contents("$tmp/flash/old/smart_mover.ini", "[GLOBAL]\n");
+    symlink("$tmp/flash/old/smart_mover.ini", "$tmp/flash/other/smart_mover.ini");
+    same('import found: a smart_mover.ini there — its folder (a link is none)', ["$tmp/flash/old"], moverelliImportFound($h));
+    file_put_contents("$dir/office-import.json", json_encode(['v' => 1, 'folder' => "$tmp/flash/old", 'at' => 1]));
+    same('import found: … taken over already — not offered again', [], moverelliImportFound($h));
+    check('import found: her state carries it, the import notes the folder', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "'import_found' => moverelliImportFound(\$h),")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-import.php'), 'writeAtomic("$h[dir]/office-import.json"'));
+
+    // her page under node: the setup's bar and apply dialog, the let-go part
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('unraid mover: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+const dialogs = [];
+const posts = [];
+let answer = () => ({ ok: true });
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C(' + c + ')', size: (b) => b + ' B', date: (t) => 'D' + t }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key, dialog: (o) => { dialogs.push(o); return { buttons: [] }; },
+  diffMark: (k) => mk('b', 'diff-mark ' + k, k === 'add' ? '+' : '−'), selbar: () => null, toast: () => {},
+  api: { post: async (a, b) => { posts.push([a, b]); return answer(a, b); } } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+(async () => {
+  const out = {};
+  // the setup's bar and its apply dialog: the bar counts the dialog's rows; the consent a section of that dialog
+  const base = { configured: true, settings: { global: { min_age: 0, age_stat: 'ctime', move_when_used_above: 0, move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [] },
+    shares: { Filme: { skip: false, min_age: 30, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } },
+    shares: [{ share: 'Filme', mode: 'yes' }, { share: 'Docs', mode: 'yes' }], mover: { off: true, schedule: null }, jack: { hired: true, list: null } };
+  m.setState(base);
+  m.setPage('setup');
+  m.setForm(null);
+  m.initForm();
+  out.noBar = m.setupBarSpec();
+  const f = m.form();
+  f.global.min_age = 14;
+  f.global.files.push('/mnt/user/appdata/x/embycache_exclude.txt');
+  f.global.patterns = ['*.nfo'];
+  f.shares.Filme.min_age = null;
+  f.shares.Filme.age_stat = 'mtime';
+  f.shares.Docs.skip = true;
+  const rows = m.setupChangeRows(m.formSettings({ global: base.settings.global, shares: { Filme: base.settings.shares.Filme, Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } }), m.formSettings(f));
+  const spec = m.setupBarSpec();
+  out.bar = [spec.title, spec.buttons.map((b) => [b.text, b.disabled])];
+  out.rows = rows.map((r) => [r.mark, r.label, r.what]);
+  m.setupApply();
+  let d = dialogs.pop();
+  const items = (n) => (typeof n === 'string' ? [] : n.tag === 'li' ? [n] : n.children.flatMap(items));
+  out.dialog = [d.title, items(d.body).length, d.buttons.map((b) => b.text), texts(d.body).includes('consent.title')];
+  m.setState({ ...base, mover: { off: false, schedule: '40 3 * * *' } });
+  m.setupApply();
+  d = dialogs.pop();
+  out.consent = [items(d.body).length, texts(d.body).filter((t) => t.startsWith('consent.'))];
+  answer = (a, b) => ({ ok: true, mover_off: !!b.mover_off });
+  posts.length = 0;
+  await d.buttons[1].act();
+  out.sent = [posts[0][0], Object.keys(posts[0][1]).sort(), posts[0][1].mover_off === true, posts[0][1].settings.global.min_age];
+  m.setState({ ...base, jack: { hired: false } , mover: { off: false, schedule: '40 3 * * *' } });
+  out.solo = texts(m.consentSection()).filter((t) => t.startsWith('consent.move'));
+  m.setState({ ...base, import_found: ['/boot/config/plugins/user.scripts/scripts/mover'] });
+  out.found = texts(m.foundNotice());
+  m.setState(base);
+  out.notFound = m.foundNotice();
+  out.view = [m.letGoView({ ok: true, jack: true }), m.letGoView({ ok: true, jack: false, schedule: '0 4 * * *', after: false, unraid: { off: true, back: '40 3 * * *' } }),
+    m.letGoView({ ok: true, jack: false, schedule: null, after: false, unraid: { off: false, back: null } }), m.letGoView({ ok: true, jack: false, schedule: null, after: true, unraid: { off: true, back: null } })];
+  out.done = [m.letGoDoneLines({ ok: true, unraid: { back: true, was: '40 3 * * *' } }), m.letGoDoneLines({ ok: true, unraid: { kept: true, schedule: '0 */6 * * *' } }),
+    m.letGoDoneLines({ ok: true, unraid: { error: { key: 'moverelli_unraid_back_failed' } } }), m.letGoDoneLines({ ok: true, unraid: { none: true } })];
+  console.log(JSON.stringify(out));
+})().catch((e) => console.log(JSON.stringify({ error: String(e && e.stack || e) })));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1');
+        $o = json_decode($raw, true);
+        if (!is_array($o) || isset($o['error'])) {
+            check('unraid mover: page ran under node', false, $raw);
+        } else {
+            same('unraid mover page: her setup unchanged and set up — no bar', null, array_key_exists('noBar', $o) ? $o['noBar'] : 'x');
+            same('unraid mover page: the bar — «N changes», Discard, Apply…', ['setup.bar_changes {"n":6}', [['setup.discard', false], ['setup.save', false]]], $o['bar']);
+            same('unraid mover page: the changes, Mr. Backupsy\'s marks — a value «a → b», + a list, + an own line, a share\'s own rules new, a share\'s rules changed', [
+                [null, 'setup.row_global {"what":"setup.min_age"}', 'setup.tile.days {"n":0} → setup.tile.days {"n":14}'],
+                ['add', 'setup.files', '/mnt/user/appdata/x/embycache_exclude.txt'], ['add', 'setup.patterns', '*.nfo'],
+                ['add', 'setup.row_share {"share":"Docs"}', 'setup.row_own'],
+                [null, 'setup.row_share {"share":"Filme"} — setup.min_age', 'setup.tile.days {"n":30} → setup.as_global'],
+                [null, 'setup.row_share {"share":"Filme"} — setup.age_stat', 'setup.as_global → age_stat.mtime']], $o['rows']);
+            same('unraid mover page: the apply dialog — its title, as many rows as the bar counts, «Apply»; Unraid\'s mover off — no consent', ['setup.apply_title', 6, ['common.cancel', 'setup.apply_go'], false], $o['dialog']);
+            same('unraid mover page: Unraid\'s schedule on — the consent a section of the same dialog (its schedule, the Move-now warning with Jack, the let-go), the rows as before',
+                [6, ['consent.title', 'consent.text {"schedule":"C(40 3 * * *)"}', 'consent.move_now', 'consent.back']], $o['consent']);
+            same('unraid mover page: «Apply» saves once, with the consent', ['moverelli.save', ['mover_off', 'settings'], true, 14], $o['sent']);
+            same('unraid mover page: Jack not hired — the warning without his films', ['consent.move_now_solo'], $o['solo']);
+            same('unraid mover page: an earlier install found on the flash — offered at the top; none — nothing', [['import.found {"folder":"/boot/config/plugins/user.scripts/scripts/mover"} ', 'import.open'], null],
+                [$o['found'], $o['notFound']]);
+            same('unraid mover page: her let-go\'s lines — Jack hired / her schedule and Unraid\'s back / Unraid\'s on already / «after Jack» and Unraid\'s stays off', [
+                [['callout warn', 'letgo.jack']],
+                [['', 'letgo.sched_off'], ['', 'letgo.unraid_back {"schedule":"C(40 3 * * *)"}']],
+                [['', 'letgo.sched_none'], ['role', 'letgo.unraid_on']],
+                [['', 'letgo.sched_off'], ['role', 'letgo.unraid_stays']]], $o['view']);
+            same('unraid mover page: done — back, kept, failed, nothing to say', [[['', 'letgo.done_back {"schedule":"C(40 3 * * *)"}']], [['role', 'letgo.done_kept {"schedule":"C(0 */6 * * *)"}']],
+                [['callout warn', 'letgo.done_back_not {"error":"err:moverelli_unraid_back_failed"}']], []], $o['done']);
+        }
+    }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Moverelli's fill (2026-10-12, the owner's rule; Smart Mover's «USO «fill»»): the age rule always moves; a pool still
+ * at/above its trigger (move_when_used_above) afterwards gives the rest of the share — never an excluded file — oldest
+ * first by age_stat, whatever its age, the pool re-read after each file (ZFS whole pool, else df: stand-ins that count the
+ * files on the pool), until it is below its target (move_until_used_below); shares on one pool share the target; a dry
+ * run estimates the same; the target must lie below the trigger (Smart Mover and her setup); her page's words under node.
+ */
+function testMoverelliFill(): void
+{
+    $base = hardeningTmp('moverelli-fill');
+    $n = 0;
+    // a tree of its own per case: files [share/name => [days old (mtime), excluded?]], 100 bytes each, the pool $size bytes
+    $tree = function (array $files, string $ini, int $size, bool $zfs = true, array $shares = ['Docs']) use ($base, &$n): array {
+        $t = "$base/" . ++$n;
+        foreach (['mnt/cache', 'mnt/disk1', 'bin', 'shares'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+        foreach ($shares as $s) {
+            @mkdir("$t/mnt/user/$s", 0700, true);
+            @mkdir("$t/mnt/cache/$s", 0700, true);
+            file_put_contents("$t/shares/$s.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+        }
+        $excl = '';
+        foreach ($files as $rel => [$days, $ex]) {
+            file_put_contents("$t/mnt/cache/$rel", str_repeat('x', 100));
+            touch("$t/mnt/cache/$rel", time() - $days * 86400);
+            if ($ex) {
+                $excl .= "$t/mnt/cache/$rel\n";
+            }
+        }
+        file_put_contents("$t/excl.txt", $excl);
+        $count = '$(find "$ZROOT" -type f -printf \'%s\n\' | awk \'{s+=$1} END {print s+0}\')';
+        file_put_contents("$t/bin/zfs", $zfs ? "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\nu=$count; echo \"\$u \$(( ZSIZE - u ))\"\n"
+            : "#!/bin/bash\nexit 1\n");
+        file_put_contents("$t/bin/df", "#!/bin/bash\nu=$count; a=\$(( ZSIZE - u )); echo 'Used Avail Use%'; echo \"\$u \$a \$(( (u * 100 + ZSIZE - 1) / ZSIZE ))%\"\n");
+        file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+        foreach (['zfs', 'df', 'move'] as $b) {
+            chmod("$t/bin/$b", 0755);
+        }
+        file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/excl.txt\n$ini\n");
+        $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+                'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_DF' => "$t/bin/df",
+                'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size];
+        return [$t, $env];
+    };
+    $run = function (array $env, bool $real) {
+        runEnv(array_merge(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $real ? ['--run'] : []), $env, 60);
+        return readJson($env['CUSTOMMOVER_STATUS']) ?? [];
+    };
+    $dryList = fn (string $t) => array_map(fn ($l) => basename(trim(substr($l, strpos($l, ']') + 1))),
+        array_values(array_filter(explode("\n", (string) file_get_contents("$t/log")), fn ($l) => str_starts_with($l, '[DRY-RUN]     '))));
+    $on = fn (string $t, string $where) => array_map('basename', glob("$t/mnt/$where/*/*") ?: []);
+    $sh = fn (array $st, int $i = 0) => array_intersect_key($st['shares'][$i] ?? [], array_flip(['state', 'files', 'moved', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
+    $files = ['Docs/z' => [40, false], 'Docs/y' => [20, false], 'Docs/x' => [10, false], 'Docs/w' => [1, false], 'Docs/e' => [50, true]];
+    $ini = "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=60";
+
+    // 1. the age first (z), then oldest first whatever their age (y, x) until below 60 %; w stays, the excluded e never
+    [$t, $env] = $tree($files, $ini, 500);
+    $st = $run($env, false);
+    same('fill dry: the age step (z), then the oldest of the rest (y, x — not by name) until the estimate is below the target',
+        [['z', 'y', 'x'], ['state' => 'dry', 'files' => 3, 'moved' => 0, 'pool' => 'cache', 'until' => '60', 'pool_used' => '80', 'pool_now' => '40', 'fill' => true, 'reached' => true]],
+        [$dryList($t), $sh($st)]);
+    $st = $run($env, true);
+    $log = (string) file_get_contents("$t/log");
+    same('fill run: the same three move, the pool re-read after each file; w (1 day) and the excluded e stay',
+        [['x', 'y', 'z'], ['e', 'w'], ['state' => 'moved', 'files' => 3, 'moved' => 3, 'pool' => 'cache', 'until' => '60', 'pool_used' => '80', 'pool_now' => '40', 'fill' => true, 'reached' => true]],
+        [$on($t, 'disk1'), $on($t, 'cache'), $sh($st)]);
+    check('fill run: … said in the log (trigger, target, reached, the rest stays)', str_contains($log, 'pool cache 80% (zfs) >= 80% -> target below 60%')
+        && str_contains($log, 'target reached: pool cache at 40% (< 60%) – the rest stays (not handed over: 1)'), $log);
+
+    // 2. age_stat ctime counts (not mtime), and a file younger than min_age moves when needed
+    [$t, $env] = $tree([], "min_age=30\nage_stat=ctime\nmove_when_used_above=70\nmove_until_used_below=60", 400);
+    foreach (['q' => 1, 'p' => 9, 'r' => 30] as $f => $mdays) {        // created q, p, r (ctime) — their mtimes say r, p, q
+        file_put_contents("$t/mnt/cache/Docs/$f", str_repeat('x', 100));
+        touch("$t/mnt/cache/Docs/$f", time() - $mdays * 86400 + 60);
+        usleep(1100000);
+    }
+    $st = $run($env, true);
+    same('fill ctime: none older than 30 days, the pool at 75 % ≥ 70 %: the oldest by ctime (q, a day old by mtime) goes — then 50 % < 60 %',
+        [['q'], ['p', 'r'], 1, true], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['moved'] ?? null, $st['shares'][0]['reached'] ?? null]);
+
+    // 3. the target out of reach: everything not excluded goes, the excluded file never
+    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=10", 500);
+    $st = $run($env, true);
+    check('fill: target out of reach — all but the excluded e moved, not reached, said', $on($t, 'cache') === ['e'] && ($st['shares'][0]['reached'] ?? null) === false
+        && str_contains((string) file_get_contents("$t/log"), 'target not reached: pool cache at 20% after all 3 further files'), json_encode([$on($t, 'cache'), $st]));
+
+    // 4. below the trigger: the age alone
+    [$t, $env] = $tree($files, $ini, 1000);
+    $st = $run($env, true);
+    same('fill: the pool below its trigger (50 %) — the age alone moves (z), nothing younger; no fill, said', [['z'], 40, false],
+        [$on($t, 'disk1'), (int) ($st['shares'][0]['pool_used'] ?? 0), $st['shares'][0]['reached'] ?? null]);
+    check('fill: … «no fill» in the log', str_contains((string) file_get_contents("$t/log"), 'pool cache at 40% (zfs) < 80% – no fill'));
+
+    // 5. two shares on one pool share the target: Docs reaches it, Filme's age step still moves, its fill nothing
+    [$t, $env] = $tree(['Docs/y' => [20, false], 'Filme/f1' => [50, false], 'Filme/f2' => [2, false], 'Docs/k' => [3, true]],
+        "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=70", 500, true, ['Docs', 'Filme']);
+    $dry = $run($env, false);
+    $dryFiles = $dryList($t);
+    $st = $run($env, true);
+    same('fill: shared target — Docs\' fill brings the pool to 60 %; Filme: its age step (f1) moves, its fill nothing (f2 stays); the dry run says the same',
+        [['y', 'f1'], ['k', 'f2'], ['y', 'f1'], [true, false]], [$on($t, 'disk1'), $on($t, 'cache'), $dryFiles, [$st['shares'][0]['reached'] ?? null, $st['shares'][1]['reached'] ?? null]]);
+    check('fill: … Filme says the target was reached with Docs', str_contains((string) file_get_contents("$t/log"), 'target below 70% already reached with Docs, nothing more'));
+
+    // 6. df (not ZFS): the same reading
+    [$t, $env] = $tree($files, $ini, 500, false);
+    $st = $run($env, true);
+    check('fill df: no ZFS — df counts the pool, the same three move', $on($t, 'disk1') === ['x', 'y', 'z'] && ($st['shares'][0]['pool_now'] ?? '') === '40'
+        && str_contains((string) file_get_contents("$t/log"), 'pool cache 80% (df) >= 80%'), (string) @file_get_contents("$t/log"));
+
+    // 7. the target must lie below its trigger (Smart Mover)
+    [$t, $env] = $tree($files, "$ini\n[Docs]\nmove_until_used_below=80", 500);
+    $st = $run($env, true);
+    check('fill: a target not below its trigger skips the share with an error, nothing moved', ($st['shares'][0]['state'] ?? '') === 'error' && $on($t, 'disk1') === []
+        && str_contains((string) file_get_contents("$t/log"), 'move_until_used_below 80% must be below move_when_used_above 80%'));
+
+    // her setup's check and her ini
+    $dir = "$base/her";
+    @mkdir($dir, 0700, true);
+    $err = function (array $in) use ($dir): string { try { moverelliCheck($in, ['Filme'], $dir); return 'ok'; } catch (Problem $p) { return $p->key . ':' . json_encode($p->params); } };
+    $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'move_until_used_below' => null, 'files' => [], 'patterns' => []]];
+    same('fill setup: a trigger needs its target below it — none, not below, a share\'s own trigger under the target for all; fine', [
+        'moverelli_until:{"until":0,"threshold":80,"max":79}', 'moverelli_until:{"until":80,"threshold":80,"max":79}',
+        'moverelli_until_share:{"until":70,"threshold":60,"max":59,"share":"Filme"}', 'ok', 'ok'],
+        [$err(moverelliTestSettings(['move_when_used_above' => 80])), $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 80])),
+         $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70], $share(['move_when_used_above' => 60]))),
+         $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70], $share(['move_when_used_above' => 60, 'move_until_used_below' => 50]))),
+         $err(moverelliTestSettings())]);
+    $text = moverelliIniText(moverelliCheck(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70],
+        $share(['move_when_used_above' => 60, 'move_until_used_below' => 50])), ['Filme'], $dir), $dir);
+    check('fill setup: her ini — the target for all and the share\'s own', str_contains($text, "move_when_used_above=80\nmove_until_used_below=70\n")
+        && str_contains($text, "[Filme]\nmove_when_used_above=60\nmove_until_used_below=50\n"), $text);
+
+    // her page under node: the words, the run card's line, the proposal for an install from before the fill
+    $node = testsNode();
+    if ($node === '') {
+        check('fill page: node is missing here - skipped', true);
+        return;
+    }
+    file_put_contents("$base/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, duration: (s) => s + 's' }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, runRate: () => null, runSteps: () => mk('div', 'steps'), runBar: () => mk('div', 'bar') };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const f = { global: { move_when_used_above: 80, move_until_used_below: 0, min_age: 5, age_stat: 'ctime', move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [] },
+  shares: { Filme: { skip: false, min_age: null, age_stat: null, move_when_used_above: 60, move_until_used_below: null, files: [], patterns: [] },
+    Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, move_until_used_below: null, files: [], patterns: [] } } };
+const was = m.formSettings(f);
+const prop = m.untilProposals(f, [{ share: 'Filme', mode: 'yes' }, { share: 'Docs', mode: 'yes' }]);
+const rows = m.setupChangeRows(was, m.formSettings(f)).map((r) => [r.label, r.what]);
+const p = { plan: ['Docs'], phase: 'share', share: 'Docs', started: 1, shares: [], fill: true, pool: 'master', pool_used: '82', until: '60', pool_now: '75', reached: false };
+console.log(JSON.stringify([m.fillText(80, 70), m.fillText(0, 0), m.fillLine(p), m.fillLine({ ...p, reached: true, pool_now: '59' }), m.fillLine({ ...p, fill: false }),
+  m.runCardData(p, 10).fill, prop, m.untilProposedText(f), rows]));
+JS);
+    [, $out] = run([$node, "$base/t.js", OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true);
+    same('fill page: the words — «from 80 % down to 70 % oldest first», off: «whatever the fill»', ['rule_fill {"pct":80,"until":70}', 'rule_always'], [$j[0] ?? null, $j[1] ?? null]);
+    same('fill page: the run card — «Pool master 82 % → target below 60 % · now 75 %», reached: «Target reached at 59 % — the rest stays», none without the fill',
+        ['rc.fill {"pool":"master","used":"82","until":"60"} · rc.fill_now {"pct":"75"}', 'rc.fill_reached {"pct":"59"}', null, 'rc.fill {"pool":"master","used":"82","until":"60"} · rc.fill_now {"pct":"75"}'],
+        array_slice((array) $j, 2, 4));
+    same('fill page: an install from before the fill — the target proposed 10 below its trigger (for all; Filme\'s own 60 % under 70 %), in the form, listed in the apply dialog',
+        [[['', 70, 80], ['Filme', 50, 60]], [['setup.row_global {"what":"setup.until"}', '– → 70 %'], ['setup.row_share {"share":"Filme"} — setup.until', 'setup.as_global → 50 %']]],
+        [$j[6] ?? null, $j[8] ?? null]);
+    check('fill page: … said over the rules for all', str_starts_with((string) ($j[7] ?? ''), 'setup.until_proposed '), (string) $out);
+}
+
+/**
+ * The pool as a cake (agent/lib/poolcake.php, 2026-10-12, the owner's rule): the numbers on a real-sized example pool
+ * (7352 GiB, 3189 used, 801 in the movable shares, Jack Emby's list 671; X 80, Y 60, n 20) — NM, the cake, his slice, her
+ * reading, the offset, his budget, the proposal; the run's bounds (what never moves and his slice reach Y → the fill only
+ * below X; what never moves above X → no fill, his slice 0; ≥ 95 % → everything movable, his budget 0); his slice not set
+ * (as before); the setup's refusals (Y ≤ NM + 5 %, NM ≥ X, NM + j ≥ Y); the look from ZFS (refer and snapshots of the
+ * movable shares, his list's files on the pool, a sleeping pool not looked at unless a run wakes it, no ZFS: none); her
+ * ini's rules and Jack's environment; Smart Mover's variables; her save refused with what she says, the Team Lead's
+ * findings, the notifications of a run's bound; the migration step; her setup's bar and Jack's words under node.
+ */
+function testPoolCake(): void
+{
+    $G = 1 << 30;
+    $m = poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 20, 671 * $G);
+    $gib = fn (int $b) => round($b / $G, 1);
+    same('cake example: NM 2388 GiB (32.5 %), the cake 3493.6, his slice 698.7, her reading 3216.7 (43.8 %), ok — the room for new 2794.9',
+        [2388.0, 32.5, 3493.6, 698.7, 3216.7, 43.8, 'ok', 2794.9, 'normal'],
+        [$gib($m['nm']), $m['nm_pct'], $gib($m['cake']), $gib($m['slice']), $gib($m['eff']), $m['eff_pct'], $m['case'], $gib($m['rest']), $m['fill']]);
+    same('cake example: the offset for Smart Mover j − J = 27.7 GiB, his budget = his slice, nothing over it', [27.7, true, 0],
+        [$gib($m['offset']), $m['budget'] === $m['slice'], $m['excess']]);
+    same('cake example: n 30 — his slice 1048.1 GiB, 377.1 of it free', [1048.1, 377.1],
+        [$gib(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 30, 671 * $G)['slice']), $gib(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 30, 671 * $G)['offset'])]);
+    same('cake: the proposal from what he holds today — 671 of 3493.6 → 20 %; little → at least 10; all → 100; no cake → none',
+        [20, 10, 100, null], [poolCakeProposal(671 * $G, $m['cake']), poolCakeProposal($G, $m['cake']), poolCakeProposal(5000 * $G, $m['cake']), poolCakeProposal(1, 0)]);
+    $none = poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, null, 671 * $G);
+    same('cake: his slice not set — she reads the pool as it is (no offset), no budget, the bound as for the pool', [0, null, 3189.0, 'ok'],
+        [$none['offset'], $none['budget'], $gib($none['eff']), $none['case']]);
+
+    // the run's bounds (section 8): appdata grows
+    $t = poolCakeMath(7352 * $G, 4850 * $G, 801 * $G, 80, 60, 20, 671 * $G);
+    same('cake bound «target»: NM 4049 GiB (55 %) + his slice 366.5 ≥ 60 % — the fill only down to below X, his budget the smaller slice, 304.5 over it',
+        ['target', 'target', 366.5, 366.5, 304.5], [$t['case'], $t['fill'], $gib($t['slice']), $gib((int) $t['budget']), $gib($t['excess'])]);
+    $n = poolCakeMath(7352 * $G, 6000 * $G, 100 * $G, 80, 60, 20, 100 * $G);
+    same('cake bound «none»: NM 5900 GiB ≥ 80 % — no fill, no cake, his slice 0: he gives back all', ['none', 'off', 0, 0, 100.0],
+        [$n['case'], $n['fill'], $n['cake'], $n['budget'], $gib($n['excess'])]);
+    $f = poolCakeMath(7352 * $G, 7000 * $G, 801 * $G, 80, 60, 20, 671 * $G);
+    same('cake bound «full»: 95.2 % used — everything movable goes, his budget 0', ['full', 'all', 0], [$f['case'], $f['fill'], $f['budget']]);
+    same('cake: no limit (X 0) — no cake, no bound', [0, 'ok', 'normal'], array_values(array_intersect_key(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 0, 0, 20, 671 * $G), array_flip(['cake', 'case', 'fill']))));
+    same('cake: the hysteresis — 4 % over his slice stays, 6 % over goes back', [0, true],
+        [poolCakeMath(1000, 500, 500, 100, 50, 10, 104)['excess'], poolCakeMath(1000, 500, 500, 100, 50, 10, 106)['excess'] > 0]);
+
+    // her setup's refusals: Y above NM + 5 %, X above NM, Jack's slice on top below Y
+    $p = fn (int $x, int $y, ?int $n) => poolCakeSetupProblem(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, $x, $y, $n, 671 * $G), 'master');
+    same('cake setup: Y 37 ≤ 32.5 + 5 → «… down to» at least 38; X 30 ≤ NM → none; Y 40 with his 20 % (42 %) → the slice; Y 60 fine; no limit fine', [
+        ['moverelli_cake_target', ['pool' => 'master', 'nm' => 32, 'y' => 37, 'min' => 38]],
+        ['moverelli_cake_none', ['pool' => 'master', 'nm' => 32, 'x' => 30]],
+        ['moverelli_cake_slice', ['pool' => 'master', 'nm' => 32, 'y' => 40, 'j' => '699 GB']],
+        null, null, null], [$p(80, 37, null), $p(30, 20, null), $p(80, 40, 20), $p(80, 60, 20), $p(80, 40, null), $p(0, 0, 20)]);
+
+    // the look from ZFS and the stat of his list
+    $tmp = hardeningTmp('poolcake');
+    foreach (["$tmp/shares", "$tmp/bin", "$tmp/mnt/master/Filme/A", "$tmp/mnt/fast/X"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"master\"\n");
+    file_put_contents("$tmp/shares/Serien.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"master\"\n");
+    file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\nshareCachePool=\"master\"\n");
+    file_put_contents("$tmp/shares/Other.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"fast\"\n");
+    file_put_contents("$tmp/mnt/master/Filme/A/a.mkv", str_repeat('a', 4000));
+    file_put_contents("$tmp/mnt/master/Filme/A/b.mkv", str_repeat('b', 1000));
+    file_put_contents("$tmp/mnt/fast/X/x.mkv", str_repeat('x', 500));
+    file_put_contents("$tmp/list.txt", "$tmp/mnt/master/Filme/A/a.mkv\n$tmp/mnt/master/Filme/A/b.mkv\n$tmp/mnt/master/Filme/A/gone.mkv\n$tmp/mnt/fast/X/x.mkv\n");
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *' master' ]] || exit 1\nprintf 'master\\t60000\\t40000\\t100\\t0\\nmaster/Filme\\t9000\\t40000\\t7000\\t2000\\nmaster/Serien\\t3000\\t40000\\t3000\\t0\\nmaster/appdata\\t30000\\t40000\\t30000\\t0\\n'\n");
+    chmod("$tmp/bin/zfs", 0755);
+    $o = ['x' => 80, 'y' => 60, 'n' => 20, 'shares_dir' => "$tmp/shares", 'names' => ['Filme', 'Serien', 'appdata', 'Other'], 'zfs' => "$tmp/bin/zfs",
+          'mnt' => "$tmp/mnt", 'jack_list' => "$tmp/list.txt", 'asleep' => []];
+    $c = poolCake('master', $o);
+    same('cake look: movable Filme (yes) and Serien (prefer), never appdata — M 10000 (refer), snapshots 2000, the pool 100000/60000; his list on master 5000 (a gone file 0, another pool\'s not)',
+        [['Filme', 'Serien'], 10000, 2000, 100000, 60000, 50000, 5000], [$c['shares'] ?? null, $c['movable'] ?? null, $c['snapshots'] ?? null, $c['size'] ?? null, $c['used'] ?? null, $c['nm'] ?? null, $c['jack'] ?? null]);
+    same('cake look: the cake 30000, his slice 6000, the proposal 20 %', [30000, 6000, 20], [$c['cake'] ?? null, $c['slice'] ?? null, $c['proposal'] ?? null]);
+    same('cake look: the pool asleep — not looked at; a run about to wake it looks; no ZFS — none', [null, true, null],
+        [poolCake('master', ['asleep' => ['master' => true]] + $o), poolCake('master', ['asleep' => ['master' => true], 'wake' => true] + $o) !== null, poolCake('fast', $o)]);
+
+    // her ini's rules, Jack's environment
+    file_put_contents("$tmp/ini", "[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=60\n[Filme]\njack_slice_percent=99\n");
+    $jo = ['ini' => "$tmp/ini", 'cache_path' => "$tmp/mnt/master"] + $o;
+    same('cake rules: X, Y from [GLOBAL], no slice yet (a share\'s section doesn\'t count)', ['x' => 80, 'y' => 60, 'n' => null], poolCakeRules("$tmp/ini"));
+    same('cake jack: her limit, no slice yet — EmbyCache keeps 20 % free, no budget', ['EMBYCACHE_MIN_FREE_PERCENT' => '20'], poolCakeJack($jo)['env'] ?? null);
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=60\njack_slice_percent=20\n");
+    same('cake jack: … with his slice — the budget 6000', ['EMBYCACHE_MIN_FREE_PERCENT' => '20', 'EMBYCACHE_BUDGET_BYTES' => '6000'], poolCakeJack($jo)['env'] ?? null);
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=0\njack_slice_percent=20\n");
+    same('cake jack: she has no limit — nothing told (his own minimum); she isn\'t set up — null', [[], null],
+        [poolCakeJack($jo)['env'] ?? null, poolCakeJack(['ini' => "$tmp/none"] + $jo)]);
+    $GLOBALS['embyCake'] = ['ini' => "$tmp/ini", 'shares_dir' => "$tmp/shares", 'names' => $o['names'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
+        'jack_list' => "$tmp/list.txt", 'asleep' => []];
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=60\njack_slice_percent=20\n");
+    same('cake jack: his launch hands it to EmbyCache (embyCakeEnv) — the same', ['EMBYCACHE_MIN_FREE_PERCENT' => '20', 'EMBYCACHE_BUDGET_BYTES' => '6000'],
+        embyCakeEnv(['cache_path' => "$tmp/mnt/master"]));
+    unset($GLOBALS['embyCake']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('cake jack: EmbyCache\'s dry and real runs get it, the release not', str_contains($src, "+ (in_array(\$mode, ['dry', 'run'], true) ? embyCakeEnv(embyReadSettings()) : [])"));
+
+    // Smart Mover's variables from her cakes
+    same('cake env: the offset where it isn\'t 0, the bounds per pool', ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'master:-200,fast:7', 'CUSTOMMOVER_FILL_ALL' => 'x',
+        'CUSTOMMOVER_FILL_OFF' => 'y', 'CUSTOMMOVER_FILL_TARGET' => 'master:80'],
+        moverelliCakeEnv(['master' => ['offset' => -200, 'fill' => 'target', 'x' => 80], 'fast' => ['offset' => 7, 'fill' => 'normal', 'x' => 80],
+            'x' => ['offset' => 0, 'fill' => 'all', 'x' => 90], 'y' => ['offset' => 0, 'fill' => 'off', 'x' => 70], 'z' => null]));
+    same('cake env: nothing to say — nothing set', [], moverelliCakeEnv(['master' => ['offset' => 0, 'fill' => 'normal', 'x' => 80]]));
+
+    // her save: refused with what she says; her ini with the slice; the Team Lead's findings
+    $v = [];
+    moverelliFixture($tmp . '/her', $v);
+    $T = "$tmp/her";
+    file_put_contents("$T/bin/zfs-cake", "#!/bin/bash\n[[ \"\$*\" == *' cache' ]] || exit 1\nprintf 'cache\\t60000\\t40000\\t100\\t0\\ncache/Filme\\t9000\\t40000\\t7000\\t3000\\ncache/Docs\\t3000\\t40000\\t3000\\t0\\n'\n");
+    chmod("$T/bin/zfs-cake", 0755);
+    @mkdir("$T/mnt/cache/Filme/J", 0700, true);
+    file_put_contents("$T/mnt/cache/Filme/J/j.mkv", str_repeat('j', 5000));
+    file_put_contents("$T/jack.txt", "$T/mnt/cache/Filme/J/j.mkv\n");
+    $GLOBALS['moverelliHost'] += ['zfs' => "$T/bin/zfs-cake", 'asleep' => [], 'jack_cache' => fn () => "$T/mnt/cache", 'jack_list_file' => "$T/jack.txt"];
+    $save = function (array $g) use ($T): string {
+        try {
+            moverelliSave(moverelliTestSettings($g));
+            return 'ok';
+        } catch (Problem $p) {
+            return $p->key . ':' . json_encode($p->params);
+        }
+    };
+    same('cake save: NM 50 % — «… down to» 54 refused (at least 56), X 50 refused (none), his 40 % (62 %) over Y 60 refused, 20 % fine', [
+        'moverelli_cake_target:{"pool":"cache","nm":50,"y":54,"min":56}', 'moverelli_cake_none:{"pool":"cache","nm":50,"x":50}',
+        'moverelli_cake_slice:{"pool":"cache","nm":50,"y":60,"j":"12 KB"}', 'ok'],
+        [$save(['move_when_used_above' => 80, 'move_until_used_below' => 54]), $save(['move_when_used_above' => 50, 'move_until_used_below' => 40]),
+         $save(['move_when_used_above' => 80, 'move_until_used_below' => 60, 'jack_slice_percent' => 40]),
+         $save(['move_when_used_above' => 80, 'move_until_used_below' => 60, 'jack_slice_percent' => 20])]);
+    $ini = (string) file_get_contents("$T/data/smart_mover.ini");
+    check('cake save: her ini carries the slice', str_contains($ini, "jack_slice_percent=20\n"), $ini);
+    same('cake save: a page that doesn\'t know the slice keeps it', ['ok', 20],
+        [$save(['move_when_used_above' => 80, 'move_until_used_below' => 60]), moverelliSettings("$T/data")['global']['jack_slice_percent'] ?? null]);
+    $state = moverelliScan();
+    same('cake state: her pool with Jack\'s slice for the page — his 5000 of 6000, the proposal 20 %, mine',
+        [true, 5000, 6000, 20, 'ok'], [$state['cakes']->cache['mine'] ?? null, $state['cakes']->cache['jack'] ?? null, $state['cakes']->cache['slice'] ?? null,
+         $state['cakes']->cache['proposal'] ?? null, $state['cakes']->cache['case'] ?? null]);
+    $finds = fn () => array_column(array_map(fn ($f) => [$f['id'], [$f['level'], $f['ok'], $f['params']]], array_filter(moverelliChecks(),
+        fn ($f) => str_starts_with($f['id'], 'pool_'))), 1, 0);
+    same('cake checks: the target reachable, a cake, snapshots 3 % (> 2 %) — the hint', [
+        'pool_cake_target' => ['required', true, ['pool' => 'cache', 'nm' => 50, 'j' => '5.9 KB', 'y' => 60]],
+        'pool_cake_none' => ['required', true, ['pool' => 'cache', 'nm' => 50, 'x' => 80]],
+        'pool_snapshots' => ['hint', false, ['pool' => 'cache', 'size' => '2.9 KB']]], $finds());
+    file_put_contents("$T/bin/zfs-cake", "#!/bin/bash\n[[ \"\$*\" == *' cache' ]] || exit 1\nprintf 'cache\\t66000\\t34000\\t100\\t0\\ncache/Filme\\t9000\\t34000\\t7000\\t0\\ncache/Docs\\t3000\\t34000\\t3000\\t0\\n'\n");
+    same('cake checks: appdata grew (NM 56 %, his slice 4800 → 60.8 % ≥ 60) — the target out of reach: required, red; still a cake',
+        [false, true], [$finds()['pool_cake_target'][1] ?? null, $finds()['pool_cake_none'][1] ?? null]);
+    $GLOBALS['moverelliHost']['asleep'] = ['cache' => true];
+    same('cake checks: the pool asleep — not looked at (null)', [['required', null, ['pool' => '']], ['hint', null, ['pool' => '']]],
+        [$finds()['pool_cake_target'] ?? 'x', $finds()['pool_snapshots'] ?? 'x']);
+    $GLOBALS['moverelliHost']['asleep'] = [];
+
+    // a real run's bound: told at once (warning; the overflow an alert), said in her bubble
+    $bin = "$tmp/notify";
+    file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod($bin, 0755);
+    $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$bin");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    $sent = moverelliCakeNotify(['master' => $t + ['mine' => true], 'fast' => $f, 'ok' => $m, 'none' => null]);
+    $said = (string) @file_get_contents("$tmp/notified");
+    putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
+    putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
+    check('cake notify: the target out of reach a warning, the overflow an alert, nothing for a pool that is fine', $sent === 2
+        && str_contains($said, "-i\nwarning") && str_contains($said, 'master is at 55 % from appdata & co. alone — I can\'t get below 60 % any more, I keep it below 80 %.')
+        && str_contains($said, "-i\nalert") && str_contains($said, 'fast is overflowing (95 %)'), $said);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('cake run: her job hands Smart Mover the variables, keeps the bound with the run, tells it after a real run',
+        str_contains($src, "+ moverelliCakeEnv(\$cakes) + \$h['env']") && str_contains($src, "\$note['cake'] = \$bounds;") && str_contains($src, "moverelliCakeNotify(\$cakes);"));
+
+    // the migration: nothing written, what holds said
+    @mkdir("$tmp/mig/moverelli", 0700, true);
+    same('cake migration: no ini — nothing', 'nothing to change — Ms. Moverelli has no limit for the pool', officeMigrateCake("$tmp/mig"));
+    file_put_contents("$tmp/mig/moverelli/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=70\n");
+    $was = file_get_contents("$tmp/mig/moverelli/smart_mover.ini");
+    check('cake migration: a limit without his slice — said (Jack keeps 20 %), nothing written; the step registered',
+        str_contains(officeMigrateCake("$tmp/mig"), 'Jack Emby keeps 20 % of it free') && file_get_contents("$tmp/mig/moverelli/smart_mover.ini") === $was
+        && in_array('moverelli-cake', array_column(officeMigrateSteps(), 'id'), true));
+    file_put_contents("$tmp/mig/moverelli/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=70\njack_slice_percent=25\n");
+    same('cake migration: his slice set — nothing', "nothing to change — Jack Emby's slice is set (25 %)", officeMigrateCake("$tmp/mig"));
+
+    // her setup's bar and Jack's words under node
+    $node = testsNode();
+    if ($node === '') {
+        check('cake page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const set = new Set(); return { tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, set innerHTML(v) { this.children = []; },
+  classList: { toggle: (c, on) => (on ? set.add(c) : set.delete(c)), contains: (c) => set.has(c) },
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {} }; };
+globalThis.document = { createTextNode: (t) => t };
+const size = (b) => Math.round(b / 1073741824) + ' GiB';
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { size, number: (n) => String(n), time: (t) => 'T' + t, duration: (s) => s + 's', date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
+const texts = (n) => (n == null ? [] : typeof n === 'string' ? [n] : [n.textContent || '', ...(n.children || []).flatMap(texts)].filter(Boolean));
+const classes = (n) => (n == null || typeof n === 'string' ? [] : [n.cls || '', ...(n.children || []).flatMap(classes)]);
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const G = 1073741824;
+const raw = { size: 7352 * G, used: 3189 * G, movable: 801 * G, jack: 671 * G, mine: true, proposal: 20, shares: ['Filme', 'Serien'], case: 'ok', nm_pct: 32.5, used_pct: 43.4, x: 80, y: 60 };
+const out = {};
+const c = m.cakeMath(raw, 80, 60, 20);
+out.math = [Math.round(c.cake / G * 10) / 10, Math.round(c.slice / G * 10) / 10, Math.round(c.effPct * 10) / 10, c.bad];
+out.bad = [m.cakeMath(raw, 80, 37, null).bad, m.cakeMath(raw, 80, 37, null).min, m.cakeMath(raw, 30, 20, null).bad, m.cakeMath(raw, 80, 40, 20).bad];
+const g = { move_when_used_above: 80, move_until_used_below: 60, jack_slice_percent: 20 };
+out.bar = texts(m.cakeBar('master', raw, g));
+out.barBad = texts(m.cakeBar('master', raw, { ...g, move_until_used_below: 40 }));
+out.badCls = classes(m.cakeBar('master', raw, { ...g, move_until_used_below: 40 })).filter((x) => /bad/.test(x));
+// the slider's edges: 0 % while he holds 671 GiB — asked, allowed; too far right — at most 15 %; the bar draws what he holds over his slice
+out.edges = [m.sliceNote({ ...g, jack_slice_percent: 0 }, raw), m.sliceNote({ ...g, move_until_used_below: 40 }, raw), m.sliceNote(g, raw),
+  m.cakeMath(raw, 80, 40, 15).bad, m.cakeMath(raw, 80, 40, 16).bad];
+const zeroBar = m.cakeBar('master', raw, { ...g, jack_slice_percent: 0 });
+out.overBar = [classes(zeroBar).includes('mo-cake-seg mo-cake-over'), texts(zeroBar).includes('setup.cake_over')];
+m.setState({ cakes: { master: raw }, jack: { hired: true } });
+out.slice = texts(m.sliceField({ ...g, jack_slice_percent: null }, raw));
+const sec = m.cakeSection(g);
+out.section = texts(sec);
+m.setState({ cakes: { master: { ...raw, case: 'target', nm_pct: 55.1 } }, jack: { hired: true }, configured: true, unraid: { ok: true }, job: {} });
+out.bubble = m.cakeBubble();
+// the limits checked at once (Benj, live: X 70, Y 80 showed nothing): the fields, the reason, «Apply…» off
+const base = { min_age: 0, age_stat: 'ctime', move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [], jack_slice_percent: 25 };
+const share = { skip: false, min_age: null, age_stat: null, move_when_used_above: 60, move_until_used_below: null, files: [], patterns: [] };
+const form = (x, y) => ({ global: { ...base, move_when_used_above: x, move_until_used_below: y }, shares: { Filme: { ...share }, Docs: { ...share, move_when_used_above: null } } });
+m.setState({ cakes: { master: raw }, jack: { hired: true }, configured: true, unraid: { ok: true }, job: {} });
+out.probs = [[70, 80], [70, 0], [70, 50], [70, 37]].map(([x, y]) => m.setupProblems(form(x, y)).map((p) => [p.scope, p.text]));
+const f1 = form(70, 80);
+m.setForm(f1);
+m.setSaved(m.formSettings(form(70, 60)));
+m.setPage('setup');
+const [th, un] = m.limitsOf('', f1.global, '', '', false);
+const [sth, sun] = m.limitsOf('Filme', f1.shares.Filme, '', '', true);
+const spec = m.setupBarSpec();
+out.marks = [th.classList.contains('mo-bad'), un.classList.contains('mo-bad'), un.children[un.children.length - 1].textContent, sth.classList.contains('mo-bad'), spec.sub, spec.buttons[1].disabled];
+f1.global.move_until_used_below = 60;
+f1.shares.Filme.move_until_used_below = 50;
+m.markLimits();
+const spec2 = m.setupBarSpec();
+out.fixed = [th.classList.contains('mo-bad'), un.children[un.children.length - 1].textContent, sth.classList.contains('mo-bad'), spec2.buttons[1].disabled];
+const e = OFFICE_DESK_TESTS.emby;
+e.setState({ pool: { slice: 750 * G, slice_used: 671 * G, waiting: 3, excess: 0, moverelli: { x: 80, n: 20 }, min_free: 20 } });
+out.jack = e.sliceWords();
+e.setState({ pool: { slice: 600 * G, slice_used: 671 * G, waiting: 0, excess: 71 * G, moverelli: { x: 80, n: 20 }, min_free: 20 } });
+out.over = e.sliceWords();
+e.setState({ pool: { moverelli: { x: 80, n: null }, min_free: 20 } });
+out.pending = e.sliceWords();
+e.setState({ pool: { min_free: 10 } });
+out.nobody = e.sliceWords();
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    same('cake page: the same numbers as the agent — the cake 3493.6 GiB, his slice 698.7, her reading 43.8 %', [3493.6, 698.7, 43.8, null], $j['math'] ?? $err);
+    same('cake page: out of reach as the setup refuses — target (at least 38), none, slice', ['target', 38, 'none', 'slice'], $j['bad'] ?? null);
+    check('cake page: the bar says the pool, the parts, the marks and the numbers', ($j['bar'] ?? null) && in_array('setup.cake_pool {"pool":"master","used":"3189 GiB","size":"7352 GiB"}', $j['bar'], true)
+        && in_array('setup.cake_x {"x":80}', $j['bar'], true) && in_array('setup.cake_eff {"pct":44}', $j['bar'], true)
+        && in_array('setup.cake_numbers {"cake":"3494 GiB","slice":"699 GiB","used":"671 GiB","rest":"2795 GiB"}', $j['bar'], true), json_encode($j['bar'] ?? null));
+    check('cake page: Y out of reach — red, «out of reach», said in her words', in_array('setup.cake_y {"y":40} — setup.cake_unreachable', $j['barBad'] ?? [], true)
+        && in_array('setup.cake_slice_big {"nm":32,"y":40,"j":"699 GiB","max":15}', $j['barBad'] ?? [], true) && in_array('mo-cake-tick mo-tick-y mo-tick-bad', $j['badCls'] ?? [], true), json_encode($j));
+    check('cake page: no slice yet — the proposal and «Use it», the slider says it isn\'t set', in_array('setup.slice_proposed {"n":20} ', $j['slice'] ?? [], true)
+        && in_array('setup.slice_take', $j['slice'] ?? [], true) && in_array('setup.jack_slice_row: setup.slice_none', $j['slice'] ?? [], true), json_encode($j['slice'] ?? null));
+    check('cake page: the section — her sentence, the slider at 20 %', in_array('setup.cake_sub {"x":80,"y":60,"n":20}', $j['section'] ?? [], true)
+        && in_array('setup.jack_slice {"n":20}', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
+    same('cake page: the slider\'s edges — 0 %: no room, he gives back his 671 GiB (asked); too far right: at most 15 % (15 % fine, 16 % out of reach); fine: nothing', [
+        'setup.slice_zero {"used":"671 GiB"}', 'setup.cake_slice_big {"nm":32,"y":40,"j":"699 GiB","max":15}', null, null, 'slice'], $j['edges'] ?? null);
+    same('cake page: at 0 % the bar draws what he holds over his slice, «over his slice» in the legend', [true, true], $j['overBar'] ?? null);
+    same('cake page: her bubble while a bound holds', 'notify.cake_target {"pool":"master","nm":55,"x":80,"y":60,"used":43}', $j['bubble'] ?? null);
+    same('limits at once: Y ≥ X (for all shares and for Filme with its own 60 %), Y missing, fine, the cake out of reach — what she says', [
+        [['', 'setup.err_until_high {"x":70,"y":80}'], ['Filme', 'setup.err_until_high {"x":60,"y":80}']],
+        [['', 'setup.err_until_missing {"x":70}'], ['Filme', 'setup.err_until_missing {"x":60}']],
+        [],
+        [['', 'setup.cake_target_low {"nm":32,"y":37,"min":38}']]], $j['probs'] ?? null);
+    same('limits at once: both fields red, the reason under «… bis», the share\'s too, «Apply…» off with the reason in the bar', [true, true, 'setup.err_until_high {"x":70,"y":80}', true,
+        'setup.bar_blocked {"why":"setup.err_until_high {\\"x\\":70,\\"y\\":80}"}', true], $j['marks'] ?? null);
+    same('limits at once: corrected — the marks gone, «Apply…» on again', [false, '', false, false], $j['fixed'] ?? null);
+    // the office's duration: under a minute in seconds («40 s»), never «0 min»
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $dur = preg_match('/\n  duration\(seconds\) \{\n.*?\n  \},\n/s', $core, $mm) ? $mm[0] : '';
+    file_put_contents("$tmp/d.js", "const t = (k, p) => k + ' ' + JSON.stringify(p);\nconst o = {" . $dur . "};\nconsole.log(JSON.stringify([o.duration(40), o.duration(0.4), o.duration(60), o.duration(3720)]));\n");
+    [, $dout] = run([$node, "$tmp/d.js"], 30);
+    same('duration: 40 s in seconds, nothing as 0 min, a minute and more as before', ['time.seconds {"s":40}', 'time.minutes {"m":0}', 'time.minutes {"m":1}', 'time.hours_minutes {"h":1,"m":2}'],
+        json_decode(trim((string) $dout), true), $dur === '' ? 'duration() not found in core.js' : '');
+    same('cake page: Jack\'s words — his slice, the films that wait; over it; not set yet; she isn\'t set up', [
+        ['slice.text {"n":20,"j":"750 GiB","used":"671 GiB"}', 'slice.full {"n":3}'],
+        ['slice.text {"n":20,"j":"600 GiB","used":"671 GiB"}', 'slice.over {"used":"671 GiB","j":"600 GiB","excess":"71 GiB"}'],
+        ['slice.pending {"min":20}'], ['slice.none']], [$j['jack'] ?? null, $j['over'] ?? null, $j['pending'] ?? null, $j['nobody'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Smart Mover's «cake» hooks (2026-10-12, smartmover/README.md): CUSTOMMOVER_POOL_OFFSET_BYTES on every reading (Jack
+ * Emby's slice counted whole — the trigger, the target, the re-reading after each file; negative too; said in the log;
+ * a dry run estimates the same), CUSTOMMOVER_FILL_TARGET (the fill only down to below X), CUSTOMMOVER_FILL_OFF (no fill,
+ * the age alone), CUSTOMMOVER_FILL_ALL (the overflow: every non-excluded file, without a trigger of its own).
+ */
+function testMoverelliCakeHooks(): void
+{
+    $base = hardeningTmp('moverelli-cake');
+    $n = 0;
+    // files Docs/<name> => [days old, excluded?], 100 bytes each; the pool $size bytes (zfs and df stand-ins count the files)
+    $tree = function (string $ini, int $size, array $env = []) use ($base, &$n): array {
+        $t = "$base/" . ++$n;
+        foreach (['mnt/cache/Docs', 'mnt/disk1', 'mnt/user/Docs', 'bin', 'shares'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+        file_put_contents("$t/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+        foreach (['z' => [40, false], 'y' => [20, false], 'x' => [10, false], 'w' => [1, false], 'e' => [50, true]] as $f => [$days, $ex]) {
+            file_put_contents("$t/mnt/cache/Docs/$f", str_repeat('x', 100));
+            touch("$t/mnt/cache/Docs/$f", time() - $days * 86400);
+        }
+        file_put_contents("$t/excl.txt", "$t/mnt/cache/Docs/e\n");
+        $count = '$(find "$ZROOT" -type f -printf \'%s\n\' | awk \'{s+=$1} END {print s+0}\')';
+        file_put_contents("$t/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\nu=$count; echo \"\$u \$(( ZSIZE - u ))\"\n");
+        file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+        chmod("$t/bin/zfs", 0755);
+        chmod("$t/bin/move", 0755);
+        file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/excl.txt\nmin_age=30\nage_stat=mtime\n$ini\n");
+        return [$t, $env + ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size]];
+    };
+    $run = function (array $env, bool $real): array {
+        runEnv(array_merge(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $real ? ['--run'] : []), $env, 60);
+        return readJson($env['CUSTOMMOVER_STATUS']) ?? [];
+    };
+    $on = fn (string $t, string $where) => array_map('basename', glob("$t/mnt/$where/*/*") ?: []);
+    $log = fn (string $t) => (string) @file_get_contents("$t/log");
+    $dry = fn (string $t) => array_map(fn ($l) => basename(trim(substr($l, strpos($l, ']') + 1))),
+        array_values(array_filter(explode("\n", (string) @file_get_contents("$t/log")), fn ($l) => str_starts_with($l, '[DRY-RUN]     '))));
+
+    // 1. the offset: 50 % used, Jack's slice 400 bytes more than his list holds — after the age (z) she sees 80 %: oldest first to below 70 %
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 1000, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'other:5,cache:400']);
+    $run($env, false);
+    same('cake hooks offset, dry: the age (z), then y and x — estimated with the offset', ['z', 'y', 'x'], $dry($t));
+    $st = $run($env, true);
+    same('cake hooks offset: z by age, y and x by the fill (80 % → 60 % seen), w stays, the excluded e never',
+        [['x', 'y', 'z'], ['e', 'w'], '80', '60', true], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['pool_used'] ?? null, $st['shares'][0]['pool_now'] ?? null, $st['shares'][0]['reached'] ?? null]);
+    check('cake hooks offset: said in the log', str_contains($log($t), "pool cache: I see it at 80% – Jack Emby's slice counted whole (+"), $log($t));
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 1000);
+    $run($env, true);
+    same('cake hooks: … without it 40 % after the age — no fill', [['z'], ['e', 'w', 'x', 'y']], [$on($t, 'disk1'), $on($t, 'cache')]);
+
+    // 2. negative: the pool full (500 of 500), his list 300 bytes over his slice — she sees 20 % after the age: no fill
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 500, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'cache:-300']);
+    $run($env, true);
+    same('cake hooks negative offset: what Jack holds over his slice is invisible to her — the age alone', ['z'], $on($t, 'disk1'));
+
+    // 3. the target out of reach: the fill only down to below X
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=60", 1000, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'cache:400', 'CUSTOMMOVER_FILL_TARGET' => 'cache:80']);
+    $st = $run($env, true);
+    same('cake hooks target: below 80 % instead of 60 % — y only, x and w stay; the status says the target', [['y', 'z'], '80', true],
+        [$on($t, 'disk1'), $st['shares'][0]['until'] ?? null, $st['shares'][0]['reached'] ?? null]);
+    check('cake hooks target: said', str_contains($log($t), "pool cache: below 60% can't be reached (office) – the fill goes only down to below 80%"), $log($t));
+
+    // 4. no fill: what never moves is above X
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 1000, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'cache:400', 'CUSTOMMOVER_FILL_OFF' => 'cache']);
+    $run($env, true);
+    same('cake hooks off: the age alone, said', [['z'], true], [$on($t, 'disk1'), str_contains($log($t), 'what never moves lies above 80% (office) – no fill, the age alone')]);
+
+    // 5. the overflow: everything not excluded, even without a trigger of her own
+    [$t, $env] = $tree("move_when_used_above=0", 1000, ['CUSTOMMOVER_FILL_ALL' => 'cache']);
+    $run($env, true);
+    same('cake hooks all: every file but the excluded e goes, whatever its age; said', [['w', 'x', 'y', 'z'], ['e'], true],
+        [$on($t, 'disk1'), $on($t, 'cache'), str_contains($log($t), 'pool cache overflowing (office): everything not excluded goes, whatever its age')]);
+    [$t, $env] = $tree("move_when_used_above=0", 1000, ['CUSTOMMOVER_FILL_ALL' => 'other']);
+    $run($env, true);
+    same('cake hooks all: another pool named — nothing more than the age', ['z'], $on($t, 'disk1'));
+    hardeningRm($base);
+}
+
+/**
+ * EmbyCache under Ms. Moverelli's cake (2026-10-12, office changes listed in embycache/README.md): free space on ZFS is the
+ * whole pool (the path's dataset from /proc/mounts, the pool's used + avail, the dataset's avail — a quota counts), not
+ * ZFS as before; EMBYCACHE_BUDGET_BYTES — a stand-in Emby, Benj resumes «Alien» (3010 bytes), Kids «Brazil» (2000): a
+ * dry and a real run fill what fits (Brazil waits, said, counted in the status), within 5 % over nothing goes back, a
+ * smaller slice gives the excess back (the files filled last first) and fills what fits then; a budget that is no number
+ * is refused; without the variable as before.
+ */
+function testEmbyBudget(): void
+{
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        check('emby budget: python3 is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('emby-budget');
+    // ZFS: the pool master 7000 + 3000, the share's dataset sees refer 500 + the pool's avail; a quota'd dataset 100 avail
+    @mkdir("$tmp/z/pool/Filme", 0700, true);
+    @mkdir("$tmp/z/plain", 0700, true);
+    file_put_contents("$tmp/z/mounts", "master $tmp/z/pool zfs rw 0 0\nmaster/Filme $tmp/z/pool/Filme zfs rw 0 0\nmaster/Quota $tmp/z/pool/Quota zfs rw 0 0\n/dev/x $tmp/z/plain ext4 rw 0 0\n");
+    @mkdir("$tmp/z/pool/Quota", 0700, true);
+    file_put_contents("$tmp/z/zfs", "#!/bin/bash\ncase \"\${@: -1}\" in master) echo '7000 3000';; master/Filme) echo '500 3000';; master/Quota) echo '50 100';; *) exit 1;; esac\n");
+    chmod("$tmp/z/zfs", 0755);
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
+        . 'print(round(l.free_percent_after(sys.argv[2] + "/pool/Filme", 0), 1), round(l.free_percent_after(sys.argv[2] + "/pool", 1000), 1), '
+        . 'round(l.free_percent_after(sys.argv[2] + "/pool/Quota", 0), 1), l.pool_usage(sys.argv[2] + "/plain")[0] > 0)';
+    [, $out, $err] = runEnv(['python3', '-c', $py, OFFICE_DIR . '/embycache', "$tmp/z"], ['EMBYCACHE_ZFS' => "$tmp/z/zfs", 'EMBYCACHE_MOUNTS' => "$tmp/z/mounts",
+        'EMBYCACHE_DIR' => "$tmp/z", 'PYTHONDONTWRITEBYTECODE' => '1', 'PATH' => getenv('PATH')], 30);
+    same('emby zfs: a share\'s dataset — the whole pool 30 % free (not refer+avail: 86 %); 1000 bytes more → 20 %; a quota\'d dataset 1 %; not ZFS — statvfs',
+        '30.0 20.0 1.0 True', trim((string) $out), $err);
+
+    // a stand-in Emby, the pool with an old file going back, rsync both ways
+    $p = "$tmp/py";
+    foreach (["$p/data", "$p/pool/Filme/Old", "$p/user0/Filme/Alien", "$p/user0/Filme/Brazil", "$p/user/Filme", "$p/shares"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$p/pool/Filme/Old/old.mkv", str_repeat('o', 1500));
+    file_put_contents("$p/user0/Filme/Alien/Alien.mkv", str_repeat('a', 3000));
+    file_put_contents("$p/user0/Filme/Alien/Alien.srt", str_repeat('s', 10));
+    file_put_contents("$p/user0/Filme/Brazil/Brazil.mkv", str_repeat('b', 2000));
+    file_put_contents("$p/data/embycache_exclude.txt", "$p/pool/Filme/Old/old.mkv\n");
+    file_put_contents("$p/emby.py", <<<'PY'
+import http.server, json, sys, urllib.parse
+RESUME = {"u1": [{"Type": "Movie", "Id": "m1", "Name": "Alien", "Path": "/media/movies/Alien/Alien.mkv"}],
+          "u2": [{"Type": "Movie", "Id": "m2", "Name": "Brazil", "Path": "/media/movies/Brazil/Brazil.mkv"}]}
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        u = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        if u.path == "/Users":
+            body = [{"Id": "u1", "Name": "Benj"}, {"Id": "u2", "Name": "Kids"}]
+        elif u.path == "/Sessions":
+            body = []
+        elif u.path.endswith("/Items/Resume"):
+            body = {"Items": RESUME.get(u.path.split("/")[2], []) if q.get("IncludeItemTypes") == ["Movie"] else []}
+        else:
+            body = {"Items": []}
+        b = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+    def log_message(self, *a):
+        pass
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1] + ".tmp", "w").write(str(s.server_address[1]))
+import os; os.replace(sys.argv[1] + ".tmp", sys.argv[1])
+s.serve_forever()
+PY);
+    $emby = proc_open(['python3', "$p/emby.py", "$p/port"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$p/emby.err", 'w']], $pipes);
+    for ($i = 0; $i < 50 && !is_file("$p/port"); $i++) {
+        usleep(100000);
+    }
+    $port = (int) @file_get_contents("$p/port");
+    file_put_contents("$p/data/embycache_settings.json", json_encode(['cache_path' => "$p/pool", 'array_path' => "$p/user0", 'user_path' => "$p/user",
+        'array_disks_glob' => "$p/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$p/shares",
+        'api_timeout' => 3, 'min_free_percent' => 0, 'max_resume_movies' => 10, 'max_resume_series' => 0, 'max_favorite_series' => 0, 'use_next_up' => false,
+        'instances' => [['servername' => 'Test', 'url' => "http://127.0.0.1:$port", 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$p/user/Filme"]]]],
+        JSON_UNESCAPED_SLASHES));
+    $go = function (?int $budget, bool $real) use ($p): array {
+        $cmd = ['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", "EMBYCACHE_STATUS=$p/data/status.json", 'EMBYCACHE_FILL_TOOL=rsync', 'EMBYCACHE_CLEANUP_TOOL=rsync',
+                'EMBYCACHE_MOUNTS=/dev/null', 'PYTHONDONTWRITEBYTECODE=1'];
+        if ($budget !== null) {
+            $cmd[] = "EMBYCACHE_BUDGET_BYTES=$budget";
+        }
+        [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/embycache/embycache_run.py'], $real ? ['--run'] : []), 120);
+        return [$exit, readJson("$p/data/status.json") ?? [], $out . $err];
+    };
+    $on = fn () => array_map('basename', glob("$p/pool/Filme/*/*") ?: []);
+    [$exit, $st, $out] = $go(3500, false);
+    same('emby budget, dry: Alien (3010) fits a slice of 3500, Brazil (2000) waits — counted, said', [0, 3500, 3010, 1, 2000, 2],
+        [$exit, $st['slice']['budget'] ?? null, $st['slice']['used'] ?? null, $st['slice']['waiting'] ?? null, $st['slice']['waiting_bytes'] ?? null, $st['fill']['planned'] ?? null], $out);
+    check('emby budget: … «[SKIP: Platz]» in the log', str_contains($out, '[SKIP: Platz] Filme/Brazil/Brazil.mkv'), $out);
+    [$exit, $st, $out] = $go(3500, true);
+    same('emby budget, real: old.mkv back, Alien on the pool, Brazil waits on the array', [0, ['Alien.mkv', 'Alien.srt'], 1, true],
+        [$exit, $on(), $st['slice']['waiting'] ?? null, is_file("$p/user0/Filme/Brazil/Brazil.mkv")], $out);
+    [$exit, $st, $out] = $go(2900, true);
+    same('emby budget: 3010 on the pool, a slice of 2900 — within 5 %: nothing goes back, Brazil still waits', [['Alien.mkv', 'Alien.srt'], 0, 1],
+        [$on(), $st['slice']['given_back'] ?? null, $st['slice']['waiting'] ?? null], $out);
+    [$exit, $st, $out] = $go(2000, true);
+    same('emby budget: a slice of 2000 — Alien goes back (the files filled last first: the .srt, then the .mkv), Brazil fits then', [0, ['Brazil.mkv'], 2, 3010, 2000],
+        [$exit, $on(), $st['slice']['given_back'] ?? null, $st['slice']['given_back_bytes'] ?? null, $st['slice']['used'] ?? null], $out);
+    check('emby budget: … said, Alien back on the array', str_contains($out, '[ZURÜCK: Stück] Filme/Alien/Alien.srt') && is_file("$p/user0/Filme/Alien/Alien.mkv"), $out);
+    [$exit, $st, $out] = $go(null, false);
+    same('emby budget: without the variable — no slice in the status (as before)', [0, false], [$exit, isset($st['slice'])], $out);
+    $cmd = ['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", 'EMBYCACHE_BUDGET_BYTES=12T', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/embycache/embycache_run.py'];
+    [$exit, $out, $err] = run($cmd, 60);
+    check('emby budget: a budget that is no number — refused, nothing done', $exit !== 0 && str_contains($out . $err, 'EMBYCACHE_BUDGET_BYTES'), $out . $err);
+    proc_terminate($emby);
+    proc_close($emby);
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Moverelli's stops and her run card (2026-10-12): with CUSTOMMOVER_STOP Smart Mover hands Unraid's move binary one
+ * file at a time — «Stop after this file»: the next file never starts; «Stop at once» (the stop file with now, the move
+ * binary TERMed like Unraid's own «mover stop»): the file in flight stays at its source, the partial copy it left at its
+ * destination is removed, never one that was there before, nothing when the source is gone; Unraid's mover starting
+ * while she runs: always at once (the owner's decision), by hand or by its schedule; the live status's fields; the
+ * kill tree; her card under node (steps, bar, file, time left from two readings, the buttons).
+ */
+function testMoverelliStop(): void
+{
+    $tmp = hardeningTmp('moverelli-stop');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    moverelliSave(moverelliTestSettings(), $h);
+    foreach (['c2.txt', 'c3.txt'] as $f) {
+        file_put_contents("$tmp/mnt/cache/Docs/$f", "docs-$f");
+    }
+    $hist = fn () => moverelliHistory($dir)[0] ?? [];
+    // stop after this file: the stand-in asks to stop after its first file — the next file never starts
+    $GLOBALS['moverelliHost']['env']['MOVE_STOP'] = "$dir/office-stop.json";
+    $GLOBALS['moverelliHost']['env']['MOVE_SNAP'] = "$tmp/snap.json";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    unset($GLOBALS['moverelliHost']['env']['MOVE_STOP'], $GLOBALS['moverelliHost']['env']['MOVE_SNAP']);
+    $st = readJson("$dir/status.json") ?? [];
+    same('stop after this file: exit 3, stopped after Back\'s one file (Docs and Filme never started), why user, the file named',
+        [3, 'stopped', 'Docs', true, 3, true, 'user', "$tmp/mnt/user0/Back/d.txt"],
+        [$exit, $st['result'] ?? null, $st['stop_share'] ?? null, is_file("$tmp/mnt/cache/Back/d.txt"), count(glob("$tmp/mnt/cache/Docs/*")), is_file("$tmp/mnt/cache/Filme/A/a.mkv"),
+         $hist()['why'] ?? null, $hist()['stop_file'] ?? null]);
+    $snap = readJson("$tmp/snap.json") ?? [];
+    same('live status: while the run goes — running, the plan, the phase, the share and file in flight, its counts, the run\'s counts', [
+        'running', ['Back', 'Docs', 'Filme'], 'share', 'Back', "$tmp/mnt/user0/Back/d.txt", 1, 4, 0, 0, 0, 0],
+        [$snap['result'] ?? null, $snap['plan'] ?? null, $snap['phase'] ?? null, $snap['share'] ?? null, $snap['file'] ?? null, $snap['share_files'] ?? null,
+         $snap['share_bytes'] ?? null, $snap['share_done_files'] ?? null, $snap['share_done_bytes'] ?? null, $snap['done_files'] ?? null, $snap['done_bytes'] ?? null]);
+
+    // the same share, a stop after the second of three files: two moved, the third never handed over (nothing «left»)
+    file_put_contents("$tmp/mnt/cache/Docs/c1.txt", 'docs-c1');
+    $calls = "$tmp/calls";
+    file_put_contents("$tmp/bin/move2", "#!/bin/bash\nn=\$(( \$(cat " . escapeshellarg($calls) . " 2>/dev/null || echo 0) + 1 )); echo \$n > " . escapeshellarg($calls)
+        . "\n" . escapeshellarg("$tmp/bin/move") . "; rc=\$?\n[[ \$n -eq 2 ]] && printf '{\"why\":\"user\"}' > " . escapeshellarg("$dir/office-stop.json") . "\nexit \$rc\n");
+    chmod("$tmp/bin/move2", 0755);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move2";
+    $exit = moverelliJob(['run', '--office'], moverelliHost());
+    $st = readJson("$dir/status.json") ?? [];
+    $docs = array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
+    same('stop after this file: Docs\' second of four files the last — 2 handed over and moved, the other two never started: «left» (stopped)',
+        [3, 'Docs', 2, 2, 2, 2], [$exit, $st['stop_share'] ?? null, (int) trim((string) @file_get_contents($calls)), count(glob("$tmp/mnt/cache/Docs/*")), $docs['left'] ?? null, $docs['moved'] ?? null]);
+    $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move";
+
+    // a leftover .partial (a power cut during Unraid's move) is removed at the start of a real run — only while its source
+    // still exists, only on an awake disk of the share, never a file under its final name (disk1 awake, disk2 asleep in
+    // the tests' own disks.ini)
+    file_put_contents("$tmp/disks.ini", "[\"disk1\"]\nname=\"disk1\"\nspundown=\"0\"\n[\"disk2\"]\nname=\"disk2\"\nspundown=\"1\"\n");
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $last = basename(glob("$tmp/mnt/cache/Docs/*.txt")[0]);
+    @mkdir("$tmp/mnt/disk1/Docs", 0700, true);
+    @mkdir("$tmp/mnt/disk2/Docs", 0700, true);
+    file_put_contents("$tmp/mnt/disk1/Docs/$last.partial", 'par');
+    file_put_contents("$tmp/mnt/disk1/Docs/gone.txt.partial", 'par');          // its source is gone: not ours to judge
+    file_put_contents("$tmp/mnt/disk2/Docs/$last.partial", 'par');            // a sleeping disk: never looked at
+    file_put_contents("$tmp/mnt/disk1/Docs/keep.txt", 'final');               // a final name: never touched
+    $GLOBALS['moverelliHost']['env']['MOVE_FAIL'] = '1';                       // nothing moves: the cleanup alone is seen
+    moverelliJob(['run', '--office'], moverelliHost());
+    unset($GLOBALS['moverelliHost']['env']['MOVE_FAIL']);
+    $log = (string) file_get_contents("$dir/smart_mover.log");
+    same('leftover .partial: removed on the awake disk while its source is there; the one without a source, the sleeping disk\'s and a final name kept',
+        [false, true, true, true], [file_exists("$tmp/mnt/disk1/Docs/$last.partial"), is_file("$tmp/mnt/disk1/Docs/gone.txt.partial"),
+         is_file("$tmp/mnt/disk2/Docs/$last.partial"), is_file("$tmp/mnt/disk1/Docs/keep.txt")]);
+    check('leftover .partial: said in her log, no word of a stop at once', str_contains($log, "removed a leftover partial copy $tmp/mnt/disk1/Docs/$last.partial – its file is still at $tmp/mnt/cache/Docs/$last")
+        && !str_contains($log, 'stopped at once') && !str_contains($log, 'nothing removed'), $log);
+    foreach (["disk1/Docs/gone.txt.partial", "disk2/Docs/$last.partial", 'disk1/Docs/keep.txt'] as $f) {
+        @unlink("$tmp/mnt/$f");
+    }
+    unset($GLOBALS['disksIni']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('no harder stop (Unraid\'s move catches TERM and finishes its file): no stop_now action, no kill', !str_contains($src, "'stop_now'") && !str_contains($src, 'moverelliKillMove')
+        && !str_contains($src, 'moverelliStopNow'));
+    same('her poll: no run — not real, nothing', [false, null, null], [moverelliProgressState($h)['real'], moverelliProgressState($h)['stopping'], moverelliProgressState($h)['progress']]);
+    // the file in flight measured by its growing .partial (Unraid's move goes through shfs: nothing in /proc io) — its
+    // ALLOCATED size, only on the share's awake destinations, the path strictly from the source's
+    file_put_contents("$tmp/mnt/cache/Docs/big.bin", str_repeat('b', 300000));
+    @mkdir("$tmp/mnt/disk2/Docs", 0700, true);
+    file_put_contents("$tmp/mnt/disk2/Docs/big.bin.partial", str_repeat('p', 50000));
+    $hf = ['asleep' => ['disk2' => true]] + moverelliHost();
+    $p0 = ['phase' => 'share', 'share' => 'Docs', 'file' => "$tmp/mnt/cache/Docs/big.bin"];
+    same('in flight: the partial only on a sleeping disk — not looked at; the source\'s own size known; the move waits for the disk', ['file_bytes' => 0, 'file_size' => 300000, 'waking' => true], moverelliInFlight($p0, $hf));
+    $hf['asleep'] = [];
+    $alloc = (int) (stat("$tmp/mnt/disk2/Docs/big.bin.partial")['blocks'] * 512);
+    same('in flight: … awake — its allocated bytes (never above the source), the source\'s size', ['file_bytes' => min($alloc, 300000), 'file_size' => 300000], moverelliInFlight($p0, $hf));
+    same('in flight: a path outside the share, «..» in it, not moving — nothing', array_fill(0, 3, ['file_bytes' => 0, 'file_size' => null]),
+        [moverelliInFlight(['file' => "/etc/passwd"] + $p0, $hf), moverelliInFlight(['file' => "$tmp/mnt/cache/Docs/../Docs/big.bin"] + $p0, $hf), moverelliInFlight(['phase' => 'look'] + $p0, $hf)]);
+    @unlink("$tmp/mnt/disk2/Docs/big.bin.partial");
+    @unlink("$tmp/mnt/cache/Docs/big.bin");
+
+    // Unraid's mover starts while she runs: after the file in flight — the stop file with why and by what, no kill
+    $stop = "$tmp/watch-stop.json";
+    $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+    foreach ([[true, 'hand'], [false, 'schedule']] as [$off, $by]) {
+        @unlink($stop);
+        $p = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', $stop], $null, $pipes);
+        $r = moverelliRunWatch($p, $stop, fn () => true, 0, fn () => $off);
+        same("mover started ($by): stopped after the file — why mover, by $by, the stop file without now", [3, 'mover', $by, false, $by],
+            [$r['exit'], $r['why'], $r['by'], isset((readJson($stop) ?? [])['now']), (readJson($stop) ?? [])['by'] ?? null]);
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => embyMoverScheduleOff((\$h['unraid'])()));"));
+    $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
+    check('smart mover: one file at a time only with CUSTOMMOVER_STOP (the office); without it the share\'s list at once, as upstream',
+        str_contains($sh, "if [[ -n \"\$STOP_FILE\" || -n \"\$FILL_POOL\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
+
+    // her card under node: the steps, the bar by bytes, the file, the time left from two readings, the end on the last share
+    $node = testsNode();
+    if ($node === '') {
+        check('run card: node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+const dialogs = [];
+const posts = [];
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: (o) => { dialogs.push(o); return { buttons: [] }; }, toast: () => {}, selbar: () => null,
+  api: { post: async (a, b) => { posts.push([a, b]); return { ok: true }; } } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+const p = (done) => ({ result: 'running', started: 1000, plan: ['Back', 'Docs'], phase: 'share', share: 'Docs', file: '/mnt/cache/Docs/c2.txt',
+  share_files: 4, share_bytes: 1000, share_done_files: 1, share_done_bytes: done, shares: [{ share: 'Back' }] });
+const out = {};
+const d0 = m.runCardData(p(200), 2000);
+out.steps = d0.steps.map((s) => [s.name, s.state]);
+out.first = [d0.at, d0.percent, d0.left, d0.end];
+const fl = m.runCardData({ ...p(200), file_bytes: 300, file_size: 500, started: 7 }, 2000);
+m.runCardData({ ...p(200), file_bytes: 400, file_size: 500, started: 7 }, 2010);
+const fl2 = m.runCardData({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2020);
+out.flight = [fl.dBytes, fl.percent, fl2.dBytes, fl2.rate, fl2.fileBytes, fl2.fileSize, fl2.fileRate];
+out.waking = texts(m.runCard({ ...p(200), file_bytes: 0, file_size: 500, waking: true, started: 8 }, 2040)).filter((x) => /^rc\.(waking|file)/.test(x));
+out.flightCard = texts(m.runCard({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2030));
+m.runCardData(p(300), 2010);
+const d2 = m.runCardData(p(400), 2020);
+out.rate = [d2.percent, d2.left, d2.end];
+const look = m.runCardData({ result: 'running', started: 5, plan: ['Back'], phase: 'look', shares: [] }, 2020);
+out.look = [look.at, look.percent, look.steps.map((s) => s.state)];
+m.setProgress(p(400), null);
+const card = m.runCard(p(400), 2030);
+out.card = texts(card);
+out.cls = card.cls;
+const foot = card.children[card.children.length - 1];
+const right = foot.children[1];
+out.foot = [foot.cls, foot.children[0].text, right.cls, right.children.map((b) => [b.tag, b.cls, b.text, b.disabled])];
+out.head = m.headActions().map((b) => b.text);
+m.setProgress(p(400), 'user');
+const c2 = m.runCard(p(400), 2030);
+const f2 = c2.children[c2.children.length - 1];
+out.stopping = [texts(c2.children[0]), f2.children[1].children[1].disabled];
+(async () => {
+  right.children[1].onclick();
+  await new Promise((r) => setTimeout(r, 0));
+  out.posts = posts.map((x) => x[0]);
+  console.log(JSON.stringify(out));
+})();
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+        $o = json_decode($raw, true);
+        check('run card: ran under node', is_array($o), $raw);
+        $o = is_array($o) ? $o : [];
+        same('run card: the steps — Looking around, a step per share of the run, Tidying up; Back done, Docs running', [['rc.look', 'done'], ['Back', 'done'], ['Docs', 'running'], ['Docs' === '' ? '' : 'rc.tidy', 'pending']],
+            $o['steps'] ?? null);
+        same('run card: the first reading — the share\'s 20 % by bytes, no time yet (one reading), no end', [2, 20, null, null], $o['first'] ?? null);
+        same('run card: the file in flight counts with its .partial — 200 + 300 = 50 %; 10 B/s from the readings', [500, 50, 700, 10, 500, 500, 10], $o['flight'] ?? null);
+        same('run card: no .partial yet, the target disk asleep — «The target disk is waking up …» under the file', ['rc.file {"file":"/mnt/cache/Docs/c2.txt"} · rc.file_bytes {"done":"0 B","size":"500 B"}', 'rc.waking'],
+            $o['waking'] ?? null);
+        check('run card: … the rate in the bar\'s words like Mr. Backupsy\'s partner line, the file\'s bytes beside it',
+            (bool) preg_grep('/^70 % · rc\.rate \{"rate":"10 B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.file .* · rc\.file_bytes \{"done":"500 B","size":"500 B"\} · rc\.rate \{"rate":"10 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
+        same('run card: three readings (10 B/s) — 40 %, 60 s left, the end (Docs is the run\'s last share)', [40, 60, 2080], $o['rate'] ?? null);
+        same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
+        check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
+            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.rate \{"rate":"10 B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
+            && in_array('rc.file {"file":"/mnt/cache/Docs/c2.txt"} · rc.rate {"rate":"10 B"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
+        same('run card: the foot — «N errors, N warnings» left (as Mr. Backupsy\'s); right, in Jack Emby\'s order and style: «Log» as a quiet link, «Stop after this file»; no harder stop',
+            ['card-foot mo-run-foot', 'rc.counts {"errors":"count.errors {\\"n\\":0}","warnings":"count.warnings {\\"n\\":0}"}', 'mo-run-right',
+             [['button', 'mo-link', 'rc.show_log', false], ['button', 'btn small plain', 'stop', false]]], $o['foot'] ?? null);
+        same('run card: … the head keeps no stop of its own', true, !in_array('stop', $o['head'] ?? ['stop'], true) && !in_array('stop_now', $o['head'] ?? [], true));
+        same('run card: stopping after the file — said, «Stop after this file» off', [['rc.title', 'stopping'], true],
+            [array_slice($o['stopping'][0] ?? [], 0, 2), $o['stopping'][1] ?? null]);
+        same('run card: «Stop after this file» asks moverelli.stop', ['moverelli.stop'], $o['posts'] ?? null);
+    }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
 }
 
 /** Her settings as the page sends them: Smart Mover's defaults, files and own lines per scope */
@@ -29799,7 +31162,7 @@ function testMoverelliIni(): void
     $dir = "$tmp/data";
     same('moverelli ini: none yet — not configured, the page starts from Smart Mover\'s defaults', [null, MOVERELLI_DEFAULTS['min_age'], 'ctime'],
         [moverelliSettings($dir), moverelliScan($h)['settings']['global']['min_age'], moverelliScan($h)['settings']['global']['age_stat']]);
-    $in = moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'files' => ['/mnt/user/appdata/emby/embycache_exclude.txt'], 'patterns' => ['# metadata', '*.nfo', '']],
+    $in = moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'move_until_used_below' => 70, 'files' => ['/mnt/user/appdata/emby/embycache_exclude.txt'], 'patterns' => ['# metadata', '*.nfo', '']],
         ['Filme' => ['skip' => false, 'min_age' => 14, 'age_stat' => 'mtime', 'move_when_used_above' => null, 'files' => [], 'patterns' => ['/mnt/user/Filme/Kids']],
          'Back' => ['skip' => true, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []],
          'Docs' => ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]]);
@@ -29844,9 +31207,9 @@ function testMoverelliIni(): void
         $s = readJson("$dir/x.json")['shares'][0] ?? [];
         return [$s['state'] ?? null, $s['files'] ?? null];
     };
-    same('moverelli zfs: the threshold measures the whole ZFS pool — 10 % below 80 %: nothing; 90 %: past it (then its age, 30 d, keeps the new file)',
-        [['below_threshold', 0], ['none', 0]], [$docs(100), $docs(900)]);
-    check('moverelli zfs: … said so in the log', str_contains((string) file_get_contents("$dir/x.log"), 'pool cache at 90% (zfs) >= threshold 80%'));
+    same('moverelli zfs: the fill\'s trigger measures the whole ZFS pool — 10 % below 80 %: the age alone (30 d keeps the new file); 90 %: the fill takes it',
+        [['none', 0], ['dry', 1]], [$docs(100), $docs(900)]);
+    check('moverelli zfs: … said so in the log', str_contains((string) file_get_contents("$dir/x.log"), 'pool cache 90% (zfs) >= 80% -> target below 70%'));
     // refused values: nothing written
     $bad = function (array $in) use ($h): string { try { moverelliSave($in, $h); return 'ok'; } catch (Problem $p) { return $p->key . ':' . ($p->params['field'] ?? $p->params['share'] ?? ''); } };
     $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]];
@@ -29977,7 +31340,7 @@ function testMoverelliRun(): void
     $GLOBALS['moverelliHost']['look_every'] = 0;
     $v['mover_self'] = false;
     $n = $notified();
-    same('moverelli run: the mover started during Back — Back finished, stopped before Docs, why mover, by schedule, told (normal)',
+    same('moverelli run: the mover started during Back — stopped after Back\'s file (Unraid\'s move finishes it anyway): it moved, Docs never started, why mover, by schedule, told (normal)',
         [3, 'stopped', 'Docs', 'mover', 'schedule', true, true, 1],
         [$exit, readJson("$dir/status.json")['result'] ?? null, readJson("$dir/status.json")['stop_share'] ?? null, moverelliHistory($dir)[0]['why'] ?? null,
          moverelliHistory($dir)[0]['by'] ?? null, is_file("$tmp/mnt/cache/Back/e.txt"), is_file("$tmp/mnt/cache/Docs/f.txt"), count($n)]);
@@ -29988,7 +31351,7 @@ function testMoverelliRun(): void
     $exit = moverelliJob(['run', '--office'], moverelliHost());
     unset($GLOBALS['moverelliHost']['env']['MOVE_FAIL']);
     $n = $notified();
-    same('moverelli run: the move binary failing — result errors, the files stay, told as a warning', [0, 'errors', 1, true, 1],
+    same('moverelli run: the move binary failing — result errors (Docs\' file; Back\'s finished before the stop above), the files stay, told as a warning', [0, 'errors', 1, true, 1],
         [$exit, readJson("$dir/status.json")['result'] ?? null, readJson("$dir/status.json")['errors'] ?? null, is_file("$tmp/mnt/cache/Docs/f.txt"), count($n)]);
     check('moverelli run: … the notification', str_contains($n[0] ?? '', '-i warning') && str_contains($n[0] ?? '', 'with problems'), $n[0] ?? '');
     same('moverelli outcome: what is told', ['failed', 'config', 'busy', 'errors', null, 'stopped_mover', null, 'errors', null, null],
@@ -30009,7 +31372,7 @@ function testMoverelliRun(): void
     same('moverelli run: an exclude list gone — the dry run warns, the real run skips Docs with an error, its file stays', [[['dry', 0], true], ['error', 0], 'errors', true],
         [$dry, $state(), readJson("$dir/status.json")['result'] ?? null, is_file("$tmp/mnt/cache/Docs/f.txt")]);
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
-    // EmbyCache's list before its first run: not there yet — an empty list, the share moves; another list gone still errs
+    // EmbyCache's list gone on a real run: always an error — whether or not EmbyCache ever ran here; nothing of the share moves
     $jack = "$tmp/jack/embycache_exclude.txt";
     $one = fn (array $files) => ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => $files, 'patterns' => []];
     file_put_contents("$tmp/mnt/cache/Docs/h.txt", 'h');
@@ -30017,53 +31380,36 @@ function testMoverelliRun(): void
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']], ['Docs' => $one([$jack]), 'Filme' => $one(['/office-tests-none/keep.txt'])]), $h);
     moverelliJob(['run', '--office'], $h);
     $notified();
-    same('moverelli run: EmbyCache\'s list not there yet — Docs moves (an empty list), Filme with its list gone stays, an error',
-        [true, false, true, 'errors', true, false],
-        [is_file("$tmp/mnt/disk1/Docs/h.txt"), file_exists("$tmp/mnt/cache/Docs/h.txt"), is_file("$tmp/mnt/cache/Filme/A/i.mkv"), readJson("$dir/status.json")['result'] ?? null,
-         str_contains((string) file_get_contents("$dir/office-output.txt"), "exclude file not there yet (taken as empty): $jack"), file_exists($jack)]);
-    // EmbyCache ran here before and its list is gone now: no longer optional — Docs skipped with an error, nothing moves
-    $v['jack_ran'] = true;
+    $docsState = fn () => array_values(array_filter(readJson("$dir/status.json")['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0]['state'] ?? null;
+    $out = (string) file_get_contents("$dir/office-output.txt");
+    same('moverelli run: EmbyCache\'s list not there (EmbyCache never ran) — Docs skipped with an error, Filme with its list gone too, nothing moves, nothing created',
+        [true, false, true, 'errors', 'error', true, false, false],
+        [is_file("$tmp/mnt/cache/Docs/h.txt"), file_exists("$tmp/mnt/disk1/Docs/h.txt"), is_file("$tmp/mnt/cache/Filme/A/i.mkv"), readJson("$dir/status.json")['result'] ?? null,
+         $docsState(), str_contains($out, "exclude file not found: $jack"), str_contains($out, 'taken as empty'), file_exists($jack)]);
+    // … the same once EmbyCache ran here (its traces in Jack's folder) and the list is gone
+    @mkdir("$tmp/jack", 0700, true);
+    file_put_contents("$tmp/jack/embycache_origin.json", '{}');
     file_put_contents("$tmp/mnt/cache/Docs/m.txt", 'm');
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']], ['Docs' => $one([$jack])]), $h);
     moverelliJob(['run', '--office'], $h);
     $notified();
-    same('moverelli run: EmbyCache ran here before, its list gone — Docs skipped with an error, its file stays', [true, 'errors', 'error'],
-        [is_file("$tmp/mnt/cache/Docs/m.txt"), readJson("$dir/status.json")['result'] ?? null,
-         array_values(array_filter(readJson("$dir/status.json")['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0]['state'] ?? null]);
+    same('moverelli run: EmbyCache ran here before, its list gone — Docs skipped with an error, its files stay', [true, true, false, 'errors', 'error'],
+        [is_file("$tmp/mnt/cache/Docs/m.txt"), is_file("$tmp/mnt/cache/Docs/h.txt"), file_exists("$tmp/mnt/disk1/Docs/m.txt"), readJson("$dir/status.json")['result'] ?? null, $docsState()]);
+    // … the dry run only warns
+    moverelliJob(['dry', '--office'], $h);
+    $notified();
+    same('moverelli run: … the dry run only warns about the list gone', [true, 'ok'],
+        [str_contains((string) file_get_contents("$dir/office-output.txt"), "exclude file not found: $jack"), readJson("$dir/status.json")['result'] ?? null]);
     // … once EmbyCache wrote it: what it names stays on the pool, the rest moves
-    @mkdir("$tmp/jack", 0700, true);
     file_put_contents($jack, "$tmp/mnt/cache/Docs/j.txt\n");
     file_put_contents("$tmp/mnt/cache/Docs/j.txt", 'j');
     file_put_contents("$tmp/mnt/cache/Docs/k.txt", 'k');
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']], ['Docs' => $one([$jack])]), $h);
     moverelliJob(['run', '--office'], $h);
     $notified();
-    same('moverelli run: … EmbyCache\'s list there — its file stays on the pool, the others move, done', [true, true, true, 'ok'],
-        [is_file("$tmp/mnt/cache/Docs/j.txt"), is_file("$tmp/mnt/disk1/Docs/k.txt"), is_file("$tmp/mnt/disk1/Docs/m.txt"), readJson("$dir/status.json")['result'] ?? null]);
-    $v['jack_ran'] = false;
-    // which traces of Jack's mean «EmbyCache ran here (or was imported)» — read only
-    $jd = "$tmp/jackdata";
-    @mkdir($jd, 0700, true);
-    $ran = function () use ($jd): bool { return moverelliJackRan($jd); };
-    $seen = [$ran()];
-    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'dry', 'result' => 'ok'], ['tool' => 'gather', 'mode' => 'run', 'result' => 'ok'],
-        ['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused', 'why' => 'emby_mover_schedule']]]));
-    file_put_contents("$jd/office-run.json", json_encode(['tool' => 'embycache', 'mode' => 'report', 'started' => 1]));
-    $seen[] = $ran();
-    file_put_contents("$jd/office-run.json", json_encode(['tool' => 'embycache', 'mode' => 'run', 'started' => 1, 'pid' => 1]));
-    $seen[] = $ran();
-    unlink("$jd/office-run.json");
-    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'release', 'result' => 'stopped']]]));
-    $seen[] = $ran();
-    unlink("$jd/office-history.json");
-    file_put_contents("$jd/embycache_origin.json", '{}');
-    $seen[] = $ran();
-    unlink("$jd/embycache_origin.json");
-    file_put_contents("$jd/embycache_exclude.txt.before-import-20261010-120000", '');
-    $seen[] = $ran();
-    same('moverelli run: EmbyCache ran here? nothing; dry runs, the gather, a refusal, a report — no; a real run started, a release in his list, origin.json, an import\'s copy — yes',
-        [false, false, true, true, true, true], $seen);
-    same('moverelli run: … nothing created in his folder', ['embycache_exclude.txt.before-import-20261010-120000'], array_values(array_diff(scandir($jd), ['.', '..'])));
+    same('moverelli run: … EmbyCache\'s list there — its file stays on the pool, the others move, done', [true, true, true, true, 'ok'],
+        [is_file("$tmp/mnt/cache/Docs/j.txt"), is_file("$tmp/mnt/disk1/Docs/k.txt"), is_file("$tmp/mnt/disk1/Docs/m.txt"), is_file("$tmp/mnt/disk1/Docs/h.txt"),
+         readJson("$dir/status.json")['result'] ?? null]);
     moverelliSave(moverelliTestSettings(['patterns' => ['*.nfo']]), $h);
 
     // a list's exact paths are taken literally (find -path would read [1080p] as a bracket expression and ? as any one
@@ -30175,6 +31521,16 @@ function testMoverelliGates(): void
     flock($lock, LOCK_UN);
     fclose($lock);
     $v['emby'] = ['lists' => ['/mnt/user/appdata/x/embycache_exclude.txt', "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    // not set up yet (no smart_mover.ini): refused as not configured, she doesn't count for Jack — no «his list», no point
+    rename("$dir/smart_mover.ini", "$dir/smart_mover.ini.aside");
+    $okNow = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return $p->key; } };
+    same('moverelli gate: Jack Emby hired, she has no ini — refused as not configured, his list not asked for (page, Team Lead), not for his rule',
+        ['moverelli_not_configured', [], [], null, ['configured']],
+        [$okNow(), moverelliScan($h)['jack']['uncovered'], moverelliJackUncovered($v['emby'], $dir), moverelliExcludeLook($dir, true),
+         array_values(array_map(fn ($f) => $f['id'], moverelliChecks($h)))]);
+    rename("$dir/smart_mover.ini.aside", "$dir/smart_mover.ini");
+    same('moverelli gate: … her ini back — his rule reads it while she is hired, not otherwise', [true, null],
+        [is_array(moverelliExcludeLook($dir, true)), moverelliExcludeLook($dir, false)]);
     same('moverelli gate: Jack Emby hired, his list not kept out — a real run refused, his shares named', [1, 'moverelli_emby_list', 'Docs, Filme'],
         [moverelliJob(['run', '--office'], $h), $last(), moverelliHistory($dir)[0]['shares'] ?? null]);
     same('moverelli gate: … the page and the Team Lead say so', [['Docs', 'Filme'], false],
@@ -30217,9 +31573,10 @@ function testMoverelliGates(): void
 }
 
 /**
- * The other movers on a schedule of their own: User Scripts and plugins' cron lines that call a mover (Jack's detection,
- * officeForeignCalls()) — named on her page and to the Team Lead; Unraid's mover.cron and Mover Tuning's own are said
- * apart; scripts that are off, comment lines and unrelated words don't count.
+ * Every other mover on a schedule of its own (2026-10-12, generic — moverelliMovers()): an installed plugin's cron line,
+ * a line in crond's own files that the plugins' don't already hold, root's crontab, a User Script with a schedule —
+ * calling a mover; Unraid's own line, Mover Tuning's (said apart), the office's own, a plugin not installed, a script that
+ * is off, comment lines and words don't count. Named on her page and to the Team Lead (required), real runs refused.
  */
 function testMoverelliForeign(): void
 {
@@ -30229,8 +31586,8 @@ function testMoverelliForeign(): void
     $h = moverelliHost();
     moverelliSave(moverelliTestSettings(), $h);
     $f = moverelliForeign($h);
-    $finding = fn () => array_values(array_filter(moverelliChecks($h), fn ($x) => $x['id'] === 'foreign_scripts'))[0] ?? null;
-    same('moverelli foreign: nothing — no script named, the Team Lead content', [[], true, null, false], [$f['scripts'], $finding()['ok'] ?? null, $f['unraid'], $f['tuning']['active']]);
+    $finding = fn () => array_values(array_filter(moverelliChecks($h), fn ($x) => $x['id'] === 'foreign_mover'))[0] ?? null;
+    same('moverelli foreign: nothing — none named, the Team Lead content', [[], true, null, false], [$f['movers'], $finding()['ok'] ?? null, $f['unraid'], $f['tuning']['active']]);
     $us = "$tmp/us";
     $scripts = ['NightMover' => "#!/bin/bash\n/usr/local/sbin/mover start\n", 'Piped' => "#!/bin/bash\nfind /mnt/cache/x -type f | /usr/libexec/unraid/move -d 1\n",
                 'OwnSmart' => "#!/bin/bash\nbash /mnt/user/system/custommover_run.sh --run\n", 'Off' => "#!/bin/bash\nmover start\n",
@@ -30239,22 +31596,33 @@ function testMoverelliForeign(): void
     foreach ($scripts as $name => $text) {
         @mkdir("$us/scripts/$name", 0700, true);
         file_put_contents("$us/scripts/$name/script", $text);
-        $sched["/boot/config/plugins/user.scripts/scripts/$name/script"] = ['frequency' => $name === 'Off' ? 'disabled' : 'daily', 'custom' => ''];
+        $sched["/boot/config/plugins/user.scripts/scripts/$name/script"] = ['frequency' => $name === 'Off' ? 'disabled' : ($name === 'Piped' ? 'custom' : 'daily'), 'custom' => $name === 'Piped' ? '15 1 * * *' : ''];
     }
     file_put_contents("$us/schedule.json", json_encode($sched));
-    @mkdir("$tmp/plugins/other", 0700, true);
-    file_put_contents("$tmp/plugins/other/other.cron", "30 2 * * * /usr/local/sbin/mover start > /dev/null\n#0 4 * * * mover start\n");
+    foreach (['nightmove', 'notinstalled', 'unraid-secretary-office'] as $d) {
+        @mkdir("$tmp/plugins/$d", 0700, true);
+    }
+    file_put_contents("$tmp/plugins/nightmove/nightmove.cron", "30 2 * * * /usr/local/sbin/mover start > /dev/null\n#0 4 * * * mover start\n");
+    file_put_contents("$tmp/plugins/notinstalled/x.cron", "0 6 * * * mover start\n");
+    file_put_contents("$tmp/plugins/unraid-secretary-office/unraid-secretary-office.cron", "0 4 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh moverelli\n");
     file_put_contents("$tmp/plugins/dynamix/mover.cron", "40 3 * * * /usr/local/sbin/mover start\n");
     file_put_contents("$tmp/tuning/mover.cron", "0 5 * * 0 php /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start\n");
+    @mkdir("$tmp/cron.d", 0700, true);
+    file_put_contents("$tmp/cron.d/root", "40 3 * * * /usr/local/sbin/mover start\n30 2 * * * /usr/local/sbin/mover start > /dev/null\n0 4 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh moverelli\n0 5 * * 0 php /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start\n10 5 * * * /usr/local/bin/othertool --age_mover-ish\n");
+    file_put_contents("$tmp/crontab.root", "MAILTO=\"\"\n0 1 * * 6 /usr/local/emhttp/plugins/ca.mover.tuning/age_mover start\n20 4 * * * /usr/local/sbin/age_mover start\n");
+    $v['plugins'] = ['nightmove', 'unraid-secretary-office', 'ca.mover.tuning'];
     $f = moverelliForeign($h);
-    $names = $f['scripts'];
-    sort($names);
-    same('moverelli foreign: the scripts and cron lines that start a mover on a schedule (Unraid\'s mover.cron and Mover Tuning\'s apart)',
-        ["$tmp/plugins/other/other.cron", 'User Scripts: NightMover', 'User Scripts: OwnSmart', 'User Scripts: Piped'], $names);
+    $got = array_map(fn ($x) => [$x['name'], $x['when']], $f['movers']);
+    usort($got, fn ($a, $b) => strcmp($a[0], $b[0]));
+    same('moverelli foreign: an installed plugin (Unraid\'s own command in it), root\'s crontab, User Scripts with a schedule — named with their schedules; Unraid\'s own line, Mover Tuning\'s, the office\'s own, a plugin not installed, crond\'s copies, a script that is off, comments and words never',
+        [['User Scripts: NightMover', 'daily'], ['User Scripts: OwnSmart', 'daily'], ['User Scripts: Piped', '15 1 * * *'], ['crontab (root)', '20 4 * * *'], ['nightmove', '30 2 * * *']], $got);
     $x = $finding();
-    same('moverelli foreign: … the Team Lead names them', [false, 'recommended', 'userscripts'], [$x['ok'] ?? null, $x['level'] ?? null, $x['link'] ?? null]);
-    check('moverelli foreign: … every one in his words', count(explode(', ', (string) ($x['params']['where'] ?? ''))) === 4);
-    same('moverelli foreign: … on her page', 4, count(moverelliScan($h)['foreign']['scripts']));
+    same('moverelli foreign: … the Team Lead names them (required, her page)', [false, 'required', '#/moverelli'], [$x['ok'] ?? null, $x['level'] ?? null, $x['link'] ?? null]);
+    check('moverelli foreign: … every one in his words', count(explode(', ', (string) ($x['params']['name'] ?? ''))) === 5);
+    same('moverelli foreign: … on her page', 5, count(moverelliScan($h)['foreign']['movers']));
+    $v['tuning'] = false;      // Mover Tuning out of the way: the others still refuse a real run
+    $err = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return [$p->key, array_keys($p->params)]; } };
+    same('moverelli foreign: a real run refused while one is active — its name and schedule', ['moverelli_foreign_mover', ['name', 'when']], $err());
     same('moverelli foreign: Jack\'s own detection unchanged by the shared reader', [], embyForeignSchedules($us, "$tmp/plugins/*/*.cron", OFFICE_CRON));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
@@ -30290,7 +31658,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.childre
 const out = {};
 const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, job: {}, schedule: {}, history: [], shares: [] };
 m.setState({ ...base, mover: { off: false, schedule: '40 3 * * *', running: false },
-  foreign: { tuning: { installed: true, active: true, lines: [{ file: 'mover.cron', cron: '0 5 * * 0' }] }, scripts: ['User Scripts: NightMover'] } });
+  foreign: { tuning: { installed: true, active: true, lines: [{ file: 'mover.cron', cron: '0 5 * * 0' }] }, movers: [{ name: 'User Scripts: NightMover', when: '0 2 * * *' }], scripts: ['User Scripts: NightMover'] } });
 out.unraid = texts(m.moverNotice());
 out.foreign = m.foreignNotices().map((n) => [n.cls, texts(n)]);
 m.setState({ ...base, mover: { off: true, schedule: null, running: false }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] } });
@@ -30305,12 +31673,815 @@ JS);
     check('moverelli page: it runs', is_array($o));
     $o = is_array($o) ? $o : [];
     same('moverelli page: Unraid\'s schedule on — why, the switch, set it yourself', ['mover.on {"schedule":"C40 3 * * *"}', 'mover.off', 'mover.self'], array_slice($o['unraid'] ?? [], 0, 3));
-    same('moverelli page: Mover Tuning\'s schedule and the scripts — each a warning with its words', [
-        ['callout warn', ['notice.tuning {"schedule":"C0 5 * * 0","file":"mover.cron"}']], ['callout warn', ['notice.scripts {"where":"User Scripts: NightMover"}']]], $o['foreign'] ?? null);
+    same('moverelli page: Mover Tuning\'s schedule and every other mover — each a warning with its name and schedule', [
+        ['callout warn', ['notice.tuning {"schedule":"C0 5 * * 0","file":"mover.cron"}']], ['callout warn', ['notice.foreign_mover {"name":"User Scripts: NightMover","when":"C0 2 * * *"}']]], $o['foreign'] ?? null);
     same('moverelli page: nothing else moves — Unraid\'s off said, the scripts\' hint always there', [['mover.ok'], [['role mo-hint', ['notice.scripts_hint']]]], $o['quiet'] ?? null);
     same('moverelli page: her list of runs in words', ['refused {"why":"err:moverelli_tuning_schedule:{\"schedule\":\"\",\"shares\":\"\",\"version\":\"\",\"needed\":\"7.3.2\"}"} · refused_times {"n":2}',
-        'stopped_mover {"share":"Docs"} · run_summary {"moved":1,"files":1,"size":"3 B","left":"count.left {\"n\":0}"}', 'dry_summary {"files":"count.files {\"n\":3}","size":"9 B"}'], $o['runs'] ?? null);
+        'stopped_mover · run_summary {"moved":1,"files":1,"size":"3 B","left":"count.left {\"n\":0}"}', 'dry_summary {"files":"count.files {\"n\":3}","size":"9 B"}'], $o['runs'] ?? null);
     same('moverelli page: the setup\'s text areas', [['/a', '/b'], ['x', '# y']], $o['lines'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
+ * Only shares that exist (officeShareExists(): emhttp's shares.ini, else /mnt/user/<name>; the array stopped = every cfg):
+ * a cfg left on the flash by a share deleted by hand is none — her list, her overview, her setup's check (2026-10-12)
+ */
+function testMoverelliSharesGone(): void
+{
+    $tmp = hardeningTmp('moverelli-gone');
+    @mkdir("$tmp/shares", 0700, true);
+    @mkdir("$tmp/mnt/user", 0700, true);
+    foreach (['Filme', 'Serien', 'Alt'] as $s) {
+        file_put_contents("$tmp/shares/$s.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    }
+    file_put_contents("$tmp/shares.ini", "[Filme]\nname=\"Filme\"\n[Serien]\nname=\"Serien\"\n");
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    file_put_contents("$tmp/stopped.ini", "fsState=\"Stopped\"\n");
+    $h = ['shares_ini' => "$tmp/shares.ini", 'mnt' => "$tmp/mnt", 'var_ini' => "$tmp/var.ini"];
+    same('moverelli gone: only the shares emhttp lists', ['Filme', 'Serien'], moverelliShareNames("$tmp/shares", $h));
+    same('moverelli gone: the array stopped — Unraid can\'t tell, every cfg counts', ['Alt', 'Filme', 'Serien'],
+        moverelliShareNames("$tmp/shares", ['var_ini' => "$tmp/stopped.ini"] + $h));
+    @mkdir("$tmp/mnt/user/Alt", 0700, true);
+    same('moverelli gone: no list — a folder under /mnt/user is a share, a cfg without one none', ['Alt'],
+        moverelliShareNames("$tmp/shares", ['shares_ini' => "$tmp/none.ini"] + $h));
+    rmdir("$tmp/mnt/user/Alt");
+    $rows = moverelliShares(moverelliDefaults(), "$tmp/shares", $h);
+    same('moverelli gone: her overview leaves the gone share out', ['Filme', 'Serien'], array_column($rows, 'share'));
+    $GLOBALS['moverelliHost'] = [];
+    same('moverelli gone: the server\'s list and var.ini by default', [OFFICE_SHARES_INI, OFFICE_VAR_INI],
+        [moverelliHost()['shares_ini'], moverelliHost()['var_ini']]);
+    unset($GLOBALS['moverelliHost']);
+    try {
+        moverelliCheck(['global' => moverelliDefaults()['global'], 'shares' => ['Alt' => ['skip' => true]]],
+            moverelliShareNames("$tmp/shares", $h), $tmp);
+        check('moverelli gone: rules for a gone share are refused', false);
+    } catch (Problem $e) {
+        same('moverelli gone: rules for a gone share are refused', 'moverelli_bad_share', $e->key);
+    }
+}
+
+/**
+ * Taking over an earlier install of the Smart Mover (moverelli-import.php): the folder checked like Jack Emby's (the
+ * shared agent/lib/import.php), only smart_mover.ini read there and parsed as Smart Mover reads it (CRLF too); the keys
+ * she knows checked like her setup's values (bad ones named and left out), mover_bin/log_file hers, unknown keys and
+ * shares this server lacks named; the lists' content copied into hers (merged, de-duplicated, comments gone), files she
+ * can't read named (asleep, missing, not allowed); EmbyCache's list: Jack's own named while he is hired, a frozen copy
+ * while not. The import: the preview's token, refused while a run of hers goes or when anything changed, a copy of each
+ * of her files first, then her own save; a scope too long blocks it. Nothing written on a preview.
+ */
+function testMoverelliImport(): void
+{
+    $tmp = hardeningTmp('moverelli-import');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $fs = "$tmp/fs";
+    $root = "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data";       // the office's data folder, where the fake tree can reach it
+    $dir = "$root/moverelli";                                           // hers
+    $old = '/mnt/user/system/scripts/smartmover';
+    $messy = '/mnt/user/system/scripts/messy';
+    $jackOld = '/mnt/user/system/scripts/jackold';
+    foreach (["$fs$old", "$fs$messy", "$fs$jackOld", "$fs/mnt/user/system/excludes", "$fs/mnt/user/Sleepy/old", "$fs/mnt/cache/appdata/embycache", $dir, "$root/embycache",
+              "$fs/boot/config/plugins/user.scripts/scripts/oldmover", "$fs/etc"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    symlink('../cache/appdata', "$fs/mnt/user/appdata");              // an exclusive share, Unraid's own link
+    foreach (['system' => "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n", 'appdata' => "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n",
+              'Sleepy' => "shareUseCache=\"no\"\nshareInclude=\"disk2\"\n"] as $s => $cfg) {
+        file_put_contents("$tmp/shares/$s.cfg", $cfg);
+    }
+    $GLOBALS['moverelliHost']['dir'] = $dir;
+    $GLOBALS['moverelliHost']['import'] = ['fs' => $fs, 'pools' => ['/mnt/cache'], 'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false],
+                                           'own_below' => [$root], 'emby_dirs' => ["$root/embycache"]];
+    $jackList = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
+    $h = moverelliHost();
+    $err = function (callable $f): string {
+        try {
+            $f();
+            return 'none';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    // the old install: an ini written by hand over the years (CRLF), its lists
+    file_put_contents("$fs$old/smart_mover.ini", implode("\r\n", ['# Smart Mover', '[GLOBAL]', 'mover_bin=/usr/libexec/unraid/move',
+        "log_file=$old/smart_mover.log", 'min_age=30', 'age_stat=atime', 'move_when_used_above=', 'move_prefer_shares=no', 'mover_debug=7', 'max_list=100',
+        'colour=blue', 'global_excludes=/mnt/user/system/excludes/global.txt', '',
+        '[Filme]', 'min_age=14', 'min_age=99', 'excludes=/mnt/user/appdata/embycache/embycache_exclude.txt,/mnt/user/system/excludes/filme.txt', '',
+        '[Docs]', 'skip=maybe', 'move_when_used_above=80', '', '[Back]', 'skip=yes', 'mover_bin=/x', '', '[Gone]', 'min_age=3', '',
+        '[bad/name]', 'skip=yes']) . "\r\n");
+    file_put_contents("$fs/mnt/user/system/excludes/global.txt", "# what stays\n*.nfo\n\n  /mnt/user/Filme/Kids/  \n*.nfo\n; old\n");
+    file_put_contents("$fs/mnt/user/system/excludes/filme.txt", "*.nfo\r\n/mnt/user/Filme/Extras\r\n");
+    file_put_contents("$fs/mnt/cache/appdata/embycache/embycache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
+    file_put_contents("$fs/etc/passwd", "root:x:0:0\n");
+
+    // the folder: Jack's checks (shared), her own folder refused, nothing typed refused
+    same('moverelli import: the folder — asleep, outside, missing, a link-free real folder, her own, nothing typed, not a text',
+        ['moverelli_import_asleep', 'moverelli_import_where', 'moverelli_import_missing', 'moverelli_import_folder', 'moverelli_import_own',
+         'moverelli_import_nothing', 'bad_request', 'moverelli_import_none'],
+        [$err(fn () => moverelliImportPreview(['folder' => '/mnt/user/Sleepy/old'], $h)), $err(fn () => moverelliImportPreview(['folder' => '/etc'], $h)),
+         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/system/nothing'], $h)), $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/system/../x'], $h)),
+         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data/moverelli'], $h)), $err(fn () => moverelliImportPreview(['folder' => '  '], $h)),
+         $err(fn () => moverelliImportPreview(['folder' => ['/x']], $h)), $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/system/excludes'], $h))]);
+    same('moverelli import: the office\'s data folder and anything in it — refused (Jack\'s folder too)', ['moverelli_import_own', 'moverelli_import_own'],
+        [$err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data'], $h)),
+         $err(fn () => moverelliImportPreview(['folder' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache'], $h))]);
+    same('moverelli import: User Scripts\' folder on the flash is a place she reads (no ini there)', 'moverelli_import_none',
+        $err(fn () => moverelliImportPreview(['folder' => '/boot/config/plugins/user.scripts/scripts/oldmover'], $h)));
+
+    // Jack Emby not hired: EmbyCache's list copied (a frozen copy)
+    $p = moverelliImportPreview(['folder' => "$old/"], $h)['preview'];
+    same('moverelli import: GLOBAL — what is taken, Smart Mover\'s default where the old value was bad or empty', [
+        ['min_age', 30, true], ['age_stat', 'ctime', false], ['move_when_used_above', 0, false], ['move_until_used_below', 0, false], ['move_prefer_shares', false, true],
+        ['mover_debug', 0, false], ['max_list', 100, true]], array_map(fn ($x) => [$x['key'], $x['value'], $x['old']], $p['global']));
+    same('moverelli import: left out — hers, bad values (with why), unknown keys', [
+        ['GLOBAL', 'mover_bin', 'hers', null], ['GLOBAL', 'log_file', 'hers', null], ['GLOBAL', 'age_stat', 'bad', 'word'], ['GLOBAL', 'mover_debug', 'bad', 'range'],
+        ['GLOBAL', 'colour', 'unknown', null], ['Docs', 'skip', 'bad', 'word'], ['Back', 'mover_bin', 'unknown', null]],
+        array_map(fn ($x) => [$x['section'], $x['key'], $x['why'], $x['reason'] ?? null], $p['left']));
+    same('moverelli import: sections skipped — no such share here, a name she can\'t write', [['Gone', 'no_share'], ['bad/name', 'name']],
+        array_map(fn ($x) => [$x['section'], $x['why']], $p['skipped']));
+    same('moverelli import: the shares with rules of their own (the first min_age counts, as Smart Mover reads it)', [
+        ['Filme', [['min_age', 14]]], ['Docs', [['move_when_used_above', 80], ['move_until_used_below', 70]]], ['Back', [['skip', true]]]],     // the fill's target: 10 below
+        array_map(fn ($x) => [$x['share'], array_map(fn ($y) => [$y['key'], $y['value']], $x['values'])], $p['shares']));
+    $lists = array_column($p['lists'], null, 'scope');
+    same('moverelli import: the lists — taken, files copied or not read with why, EmbyCache\'s a frozen copy', [
+        'GLOBAL' => [2, 0, [['copied', null, 3, 2, false]]],
+        'Filme'  => [3, 0, [['copied', null, 1, 1, true], ['copied', null, 2, 2, false]]]],
+        array_map(fn ($l) => [$l['taken'], $l['bad'], array_map(fn ($f) => [$f['how'], $f['why'] ?? null, $f['lines'] ?? null, $f['new'] ?? null, $f['frozen'] ?? null], $l['files'])], $lists));
+    same('moverelli import: … a few entries shown, never more', ['*.nfo', '/mnt/user/Filme/Kids/'], $lists['GLOBAL']['sample']);
+    same('moverelli import: … nothing of hers yet, ready, nothing blocks, Jack not hired, no run going', [false, [], true, [], false, false, 0, []],
+        [$p['configured'], $p['gone'], $p['ready'], $p['blocked'], $p['jack'], $p['running'], $p['jack_lists'], $p['jack_uncovered']]);
+    check('moverelli import: a preview writes nothing', !is_file("$dir/smart_mover.ini") && !is_dir("$dir/excludes"));
+    $first = $p;
+
+    // a protecting list that can't be had never silently disappears (the owner's rule): each blocks, said with what to do;
+    // so does a bad age or fill (its fallback 0 would move at once / always)
+    file_put_contents("$fs$messy/smart_mover.ini", implode("\n", ['[GLOBAL]', 'min_age=abc', 'mover_debug=9', 'global_excludes=/mnt/user/system/excludes/missing.txt,'
+        . '/mnt/user/Sleepy/old/ex.txt,/etc/passwd,/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_settings.json,'
+        . '/mnt/user/system/excludes/binary.lst,/mnt/user/system/excludes/bad.txt', '[Docs]', 'move_when_used_above=101']) . "\n");
+    file_put_contents("$root/embycache/embycache_settings.json", "{\"instances\": []}\n");
+    file_put_contents("$fs/mnt/user/system/excludes/binary.lst", "abc\0def\n");
+    file_put_contents("$fs/mnt/user/system/excludes/bad.txt", "ok.txt\nbad\x01line\n" . str_repeat('x', 1001) . "\n");
+    $m = moverelliImportPreview(['folder' => $messy], $h)['preview'];
+    same('moverelli import: what blocks — a bad age, lists missing, asleep, not allowed (outside, the office\'s own data), binary, lines her lists can\'t take, a bad fill', [
+        ['GLOBAL', 'value', 'min_age'], ['GLOBAL', 'not_read', 'missing'], ['GLOBAL', 'not_read', 'asleep'], ['GLOBAL', 'not_read', 'not_allowed'],
+        ['GLOBAL', 'not_read', 'not_allowed'], ['GLOBAL', 'not_read', 'binary'], ['GLOBAL', 'bad_lines', 2], ['Docs', 'value', 'move_when_used_above']],
+        array_map(fn ($b) => [$b['scope'], $b['why'], $b['key'] ?? $b['reason'] ?? $b['n'] ?? null], $m['blocked']));
+    same('moverelli import: … not ready, the import refused; a bad debug level only named (its default does no harm)', [false, 'moverelli_import_blocked', [['GLOBAL', 'mover_debug', 'bad']]],
+        [$m['ready'], $err(fn () => moverelliImportDo(['folder' => $messy, 'token' => $m['token']], $h)),
+         array_map(fn ($x) => [$x['section'], $x['key'], $x['why']], array_values(array_filter($m['left'], fn ($x) => $x['why'] === 'bad')))]);
+    check('moverelli import: … nothing of the office\'s data read into the preview', !str_contains(json_encode($m), 'instances'));
+    $m1 = $m;
+
+    // Jack Emby's own list in the office's data folder: not hired — copied (a frozen copy); hired — named (below)
+    file_put_contents("$fs$jackOld/smart_mover.ini", "[Filme]\nexcludes=/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\n");
+    file_put_contents("$root/embycache/embycache_exclude.txt", "/mnt/cache/Filme/B/b.mkv\n");
+    $j = moverelliImportPreview(['folder' => $jackOld], $h)['preview'];
+    same('moverelli import: Jack\'s own list in the office\'s data, he isn\'t hired — read all the same, a frozen copy', [true, [], 1, [['copied', true]]],
+        [$j['ready'], $j['blocked'], $j['lists'][0]['taken'] ?? null, array_map(fn ($f) => [$f['how'], $f['frozen'] ?? null], $j['lists'][0]['files'] ?? [])]);
+
+    // at most so much read over all lists of one import: a file beyond — «too big», which blocks
+    $GLOBALS['moverelliHost']['import']['read_cap'] = 20;
+    $b = moverelliImportPreview(['folder' => $old], moverelliHost())['preview'];
+    same('moverelli import: the read cap — a list bigger than it is not read, blocks', [false, ['GLOBAL', 'not_read', 'big']],
+        [$b['ready'], [$b['blocked'][0]['scope'] ?? null, $b['blocked'][0]['why'] ?? null, $b['blocked'][0]['reason'] ?? null]]);
+    $GLOBALS['moverelliHost']['import']['read_cap'] = 60;
+    $b = moverelliImportPreview(['folder' => $old], moverelliHost())['preview'];
+    same('moverelli import: … counted over all lists: the first fits, the next ones are past the cap', [['Filme', 'not_read', 'big'], ['Filme', 'not_read', 'big']],
+        array_map(fn ($x) => [$x['scope'], $x['why'], $x['reason']], $b['blocked']));
+    unset($GLOBALS['moverelliHost']['import']['read_cap']);
+
+    // her settings before: something of her own, a share the old install doesn't have
+    moverelliSave(moverelliTestSettings(['min_age' => 2, 'patterns' => ['*.part']], ['Arr' => ['skip' => true, 'min_age' => null, 'age_stat' => null,
+        'move_when_used_above' => null, 'files' => [], 'patterns' => ['/mnt/user/Arr/keep']]]), $h);
+    $before = ['ini' => file_get_contents("$dir/smart_mover.ini"), 'global' => file_get_contents("$dir/excludes/global.txt"),
+               'arr' => file_get_contents("$dir/excludes/share-Arr.txt")];
+    $p = moverelliImportPreview(['folder' => $old], $h)['preview'];
+    same('moverelli import: her settings now — replaced as a whole, her share Arr goes', [true, ['Arr']], [$p['configured'], $p['gone']]);
+
+    // the token: anything changed since the preview — refused; a run of hers going — refused, also said in the preview
+    $token = $p['token'];
+    file_put_contents("$fs/mnt/user/system/excludes/filme.txt", "*.nfo\n/mnt/user/Filme/Extras\n/mnt/user/Filme/More\n");
+    same('moverelli import: an old list changed since the preview — refused', 'moverelli_import_changed',
+        $err(fn () => moverelliImportDo(['folder' => $old, 'token' => $token], $h)));
+    file_put_contents("$fs/mnt/user/system/excludes/filme.txt", "*.nfo\r\n/mnt/user/Filme/Extras\r\n");
+    same('moverelli import: … back as it was — the same token', $token, moverelliImportPreview(['folder' => $old], $h)['preview']['token']);
+    file_put_contents("$dir/excludes/global.txt", "*.part\n*.tmp\n");
+    same('moverelli import: her own list changed since the preview — refused', 'moverelli_import_changed',
+        $err(fn () => moverelliImportDo(['folder' => $old, 'token' => $token], $h)));
+    file_put_contents("$dir/excludes/global.txt", $before['global']);
+    same('moverelli import: no token — refused', 'missing_field', $err(fn () => moverelliImportDo(['folder' => $old], $h)));
+    $lock = fopen("$dir/office-run.lock", 'c');
+    flock($lock, LOCK_EX);
+    same('moverelli import: a run of hers going — the preview says so, the import is refused, nothing written', [true, 'moverelli_running', $before['ini']],
+        [moverelliImportPreview(['folder' => $old], $h)['preview']['running'], $err(fn () => moverelliImportDo(['folder' => $old, 'token' => $token], $h)),
+         file_get_contents("$dir/smart_mover.ini")]);
+    flock($lock, LOCK_UN);
+    fclose($lock);
+
+    // the import: copies of hers first, then her own save
+    $r = moverelliImportDo(['folder' => $old, 'token' => $token], $h);
+    $done = $r['done'];
+    $stamp = $r['done']['stamp'];
+    same('moverelli import: done — copies of all her files, the shares and lines taken', [
+        ["$dir/smart_mover.ini.before-import-$stamp", "$dir/excludes/global.txt.before-import-$stamp", "$dir/excludes/share-Arr.txt.before-import-$stamp"], 3, 5],
+        [$r['done']['backups'], $r['done']['shares'], $r['done']['lines']]);
+    same('moverelli import: … the copies hold what she had', array_values($before),
+        [file_get_contents("$dir/smart_mover.ini.before-import-$stamp"), file_get_contents("$dir/excludes/global.txt.before-import-$stamp"),
+         file_get_contents("$dir/excludes/share-Arr.txt.before-import-$stamp")]);
+    $ini = (string) file_get_contents("$dir/smart_mover.ini");
+    same('moverelli import: her ini as her save writes it — her log, no mover_bin, the old values, her own lists', [
+        "log_file=$dir/smart_mover.log", 'min_age=30', 'age_stat=ctime', 'move_when_used_above=0', 'move_prefer_shares=no', 'mover_debug=0', 'max_list=100',
+        "global_excludes=$dir/excludes/global.txt", '[Back]', 'skip=yes', '[Docs]', 'move_when_used_above=80', 'move_until_used_below=70', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
+        array_values(array_filter(explode("\n", $ini), fn ($l) => $l !== '' && $l[0] !== '#' && $l !== '[GLOBAL]')));
+    same('moverelli import: … her lists hold the old content (merged, de-duplicated, comments gone), Arr\'s gone with its rules', [
+        "*.nfo\n/mnt/user/Filme/Kids/\n", "/mnt/cache/Filme/A/a.mkv\n*.nfo\n/mnt/user/Filme/Extras\n", false, false],
+        [file_get_contents("$dir/excludes/global.txt"), file_get_contents("$dir/excludes/share-Filme.txt"), is_file("$dir/excludes/share-Arr.txt"),
+         str_contains($ini, 'mover_bin')]);
+    same('moverelli import: … read back by her setup', [30, false, 100, ['Back', 'Docs', 'Filme'], ['/mnt/cache/Filme/A/a.mkv', '*.nfo', '/mnt/user/Filme/Extras']],
+        (fn ($s) => [$s['global']['min_age'], $s['global']['move_prefer_shares'], $s['global']['max_list'], array_keys($s['shares']), $s['shares']['Filme']['patterns']])(moverelliSettings($dir)));
+    same('moverelli import: … the same token is no use twice (her files changed)', 'moverelli_import_changed',
+        $err(fn () => moverelliImportDo(['folder' => $old, 'token' => $token], $h)));
+
+    // Jack Emby hired: EmbyCache's list not copied — his own list named for that scope
+    $v['emby'] = ['lists' => [$jackList, "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"], 'shares' => ['Filme']];
+    $p = moverelliImportPreview(['folder' => $old], $h)['preview'];
+    $filme = array_column($p['lists'], null, 'scope')['Filme'];
+    same('moverelli import: Jack hired — his list named, not copied; the other list copied', [true, 1, 2, [['jack', $jackList], ['copied', null]]],
+        [$p['jack'], $p['jack_lists'], $filme['taken'], array_map(fn ($f) => [$f['how'], $f['to'] ?? null], $filme['files'])]);
+    $jd = moverelliImportPreview(['folder' => $jackOld], $h)['preview'];
+    same('moverelli import: … his own list in the office\'s data folder named too, never read', [true, [['jack', $jackList]]],
+        [$jd['ready'], array_map(fn ($f) => [$f['how'], $f['to'] ?? null], $jd['lists'][0]['files'] ?? [])]);
+    $v['emby']['shares'] = ['Filme', 'Docs'];
+    same('moverelli import: … a share of his the import leaves uncovered — a warning, no block', [['Docs'], true],
+        [moverelliImportPreview(['folder' => $old], $h)['preview']['jack_uncovered'], moverelliImportPreview(['folder' => $old], $h)['preview']['ready']]);
+    $v['emby']['shares'] = ['Filme'];
+    same('moverelli import: … all of his covered — no warning', [], $p['jack_uncovered']);
+    moverelliImportDo(['folder' => $old, 'token' => $p['token']], $h);
+    $ini = (string) file_get_contents("$dir/smart_mover.ini");
+    same('moverelli import: … Filme keeps his list in her ini, her own list only the rest — his shares covered', [true, "*.nfo\n/mnt/user/Filme/Extras\n", []],
+        [str_contains($ini, "[Filme]\nmin_age=14\nexcludes=$jackList,$dir/excludes/share-Filme.txt"), file_get_contents("$dir/excludes/share-Filme.txt"),
+         moverelliJackUncovered($v['emby'], $dir)]);
+    $v['emby'] = null;
+
+    // a list longer than her own lists take: the import is blocked, the preview shows a few entries only
+    file_put_contents("$fs/mnt/user/system/excludes/global.txt", implode("\n", array_map(fn ($i) => "/mnt/user/Filme/keep-$i", range(1, MOVERELLI_LINES_MAX + 5))) . "\n");
+    $p = moverelliImportPreview(['folder' => $old], $h)['preview'];
+    same('moverelli import: a list too long — blocked with why, not ready, the import refused', [false, [['GLOBAL', 'lines', MOVERELLI_LINES_MAX]], 'moverelli_import_blocked'],
+        [$p['ready'], array_map(fn ($b) => [$b['scope'], $b['why'], $b['max']], $p['blocked']), $err(fn () => moverelliImportDo(['folder' => $old, 'token' => $p['token']], $h))]);
+    check('moverelli import: … the preview holds three entries of it, not the list', count(array_column($p['lists'], null, 'scope')['GLOBAL']['sample']) === 3
+        && !str_contains(json_encode($p), 'keep-4"'));
+
+    // the old ini: a link or a second hard link is refused, as Jack's files are
+    unlink("$fs$old/smart_mover.ini");
+    symlink("$fs/etc/passwd", "$fs$old/smart_mover.ini");
+    same('moverelli import: an ini that is a link — refused', 'moverelli_import_file', $err(fn () => moverelliImportPreview(['folder' => $old], $h)));
+    unset($GLOBALS['moverelliHost']);
+
+    // her page (under node, where it is): the preview and the end as dialogs — what comes over, what is left out, the buttons
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('moverelli import page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/data.json", json_encode(['p' => $first, 'done' => $done, 'messy' => $m1]));
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+const dialogs = [];
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true },
+  place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'), dialog: (o) => dialogs.push(o), errorText: (e) => 'err:' + e.key };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const d = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+m.setState({ foreign: { scripts: ['User Scripts: smartmover'] } });
+m.importPreview(d.p, '/x');
+m.importPreview({ ...d.p, running: true }, '/x');
+m.importPreview({ ...d.p, ready: false, blocked: [{ scope: 'GLOBAL', why: 'lines', max: 2000 }] }, '/x');
+m.importDone(d.done);
+m.importPreview(d.messy, '/x');
+m.importPreview({ ...d.p, jack_uncovered: ['Docs'] }, '/x');
+console.log(JSON.stringify(dialogs.map((x) => ({ title: x.title, body: texts(x.body), buttons: (x.buttons || []).map((b) => b.text) }))));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js')
+        . ' ' . escapeshellarg("$tmp/data.json") . ' 2>&1'), true);
+    check('moverelli import page: it runs', is_array($o) && count($o) === 6, json_encode($o));
+    $o = is_array($o) ? $o : [];
+    $body = $o[0]['body'] ?? [];
+    $has = fn (array $b, string $x): bool => in_array($x, $b, true);
+    same('moverelli import page: the preview — the old values (a default marked), the shares, the lists file by file, what is left out and skipped', [true, true, true, true, true, true, true, true, true, true],
+        [$has($body, 'import.preview_bubble'), $has($body, 'age_stat.ctime · import.default'), $has($body, 'setup.min_age'), $has($body, 'setup.min_age: 14'),
+         $has($body, 'import.scope_global — import.taken {"entries":"count.entries {\"n\":2}"}'), $has($body, 'import.how.copied {"entries":"count.entries {\\"n\\":3}"}'),
+         $has($body, 'import.how.frozen'), $has($body, 'import.why.hers {"value":"/usr/libexec/unraid/move"}'), $has($body, 'import.skip_why.no_share'),
+         $has($body, 'import.backup_note')]);
+    same('moverelli import page: «Take over» only when ready and no run of hers goes', [['common.cancel', 'import.go'], ['common.cancel'], ['common.cancel']],
+        array_map(fn ($x) => $x['buttons'], array_slice($o, 0, 3)));
+    same('moverelli import page: … a run going or a list too long — said why', [true, true, true],
+        [$has($o[1]['body'] ?? [], 'errors.moverelli_running'), $has($o[2]['body'] ?? [], 'errors.moverelli_import_blocked'),
+         $has($o[2]['body'] ?? [], 'import.block.lines {"scope":"import.scope_global","max":2000}')]);
+    $mb = $o[4]['body'] ?? [];
+    same('moverelli import page: what blocks — each said with what to do, no «Take over»', [true, true, true, true, true, true, ['common.cancel']],
+        [$has($mb, 'import.block.value {"scope":"import.scope_global","key":"setup.min_age","reason":"import.why.bad.number {\\"value\\":\\"abc\\"}"}'),
+         $has($mb, 'import.block.not_read.missing {"scope":"import.scope_global","file":"/mnt/user/system/excludes/missing.txt"}'),
+         $has($mb, 'import.block.not_read.asleep {"scope":"import.scope_global","file":"/mnt/user/Sleepy/old/ex.txt"}'),
+         $has($mb, 'import.block.not_read.binary {"scope":"import.scope_global","file":"/mnt/user/system/excludes/binary.lst"}'),
+         $has($mb, 'import.block.bad_lines {"scope":"import.scope_global","n":2}'), $has($mb, 'import.how.not_read.binary'), $o[4]['buttons'] ?? null]);
+    same('moverelli import page: Jack\'s shares left uncovered — her own warning, «Take over» still offered', [true, ['common.cancel', 'import.go']],
+        [$has($o[5]['body'] ?? [], 'errors.moverelli_emby_list {"shares":"Docs"}'), $o[5]['buttons'] ?? null]);
+    $end = $o[3]['body'] ?? [];
+    same('moverelli import page: the end — switch the old script off (named while on), a dry run first, her copies', [true, true, true, true],
+        [$has($end, 'import.done_switch_off import.done_still {"where":"User Scripts: smartmover"}'), $has($end, 'import.done_dry'),
+         $has($end, "$dir/smart_mover.ini.before-import-{$done['stamp']}"), $has($end, 'import.done_undo {"stamp":"' . $done['stamp'] . '"}')]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Her third way (2026-10-11, the owner's decision): «right after Jack Emby's scheduled EmbyCache runs» — one of off / a
+ * time / after Jack (a time switches it off, it removes her cron line); only a SCHEDULED real EmbyCache run that ran
+ * hands her real run to atd (whatever its outcome) — one started on his page, dry runs, reports, the release and the
+ * gather don't; not hired / not set up / not chosen → nothing; her job so started goes through all her gates and is
+ * recorded `by: emby`; the Team Lead's points when nothing starts her; her page and Jack's line.
+ */
+function testMoverelliAfterEmby(): void
+{
+    $tmp = hardeningTmp('moverelli-after');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $launched = [];
+    $v['emby_sched'] = true;
+    $v['emby_runs'] = [];
+    $v['array'] = true;
+    $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false,
+        'array_running' => function () use (&$v) { return $v['array']; },
+        'launch' => function (array $args) use (&$launched) { $launched[] = $args; },
+        'emby_scheduled' => function () use (&$v) { return $v['emby_sched']; },
+        'emby_runs' => function () use (&$v) { return $v['emby_runs']; }];
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    $err = function (callable $f): string {
+        try {
+            $f();
+            return 'none';
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+    $line = fn (): ?string => officeCronLines("$tmp/office.cron")['moverelli'] ?? null;
+    $jack = ['lists' => ['/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt'], 'shares' => []];
+
+    // (1) the choice: none by default; not set up / Jack not hired / with a time / an unknown word — refused
+    same('moverelli after: no choice by default; refused while she isn\'t set up', [null, 'moverelli_not_configured'],
+        [moverelliAfterChoice($dir), $err(fn () => moverelliSetSchedule(null, $h, 'emby'))]);
+    moverelliSave(moverelliTestSettings(), $h);
+    same('moverelli after: refused without Jack Emby, with a time beside it, with another word', ['moverelli_after_no_jack', 'bad_request', 'bad_request'],
+        [$err(fn () => moverelliSetSchedule(null, $h, 'emby')), $err(fn () => moverelliSetSchedule('15 5 * * *', $h, 'emby')),
+         $err(fn () => moverelliSetSchedule(null, $h, 'jack'))]);
+    $v['emby'] = $jack;
+    moverelliSetSchedule('15 5 * * *', $h);
+    same('moverelli after: a time — her cron line, no «after Jack»', ['15 5 * * *', null], [$line(), moverelliAfterChoice($dir)]);
+    $r = moverelliSetSchedule(null, $h, 'emby');
+    same('moverelli after: «after Jack» — her cron line goes, the choice kept in her folder, her state says so', [null, 'emby', 'emby',
+        ['on' => true, 'jack' => true, 'jack_scheduled' => true, 'idle' => false]],
+        [$line(), moverelliAfterChoice($dir), readJson("$dir/office-schedule.json")['after'] ?? null, $r['state']['after']]);
+    moverelliSetSchedule('0 4 * * *', $h);
+    same('moverelli after: a time again switches «after Jack» off', ['0 4 * * *', null], [$line(), moverelliAfterChoice($dir)]);
+    moverelliSetSchedule(null, $h);
+    same('moverelli after: off — neither', [null, null], [$line(), moverelliAfterChoice($dir)]);
+    file_put_contents("$dir/office-schedule.json", '{"after": ["emby"], "set": "x"}');
+    same('moverelli after: a file of another shape reads as no choice', null, moverelliAfterChoice($dir));
+
+    // (2) what starts her: only a scheduled real EmbyCache run that ran; once, with her job's command line
+    moverelliSetSchedule(null, $h, 'emby');
+    $want = [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--after-emby'];
+    $launched = [];
+    $got = [];
+    foreach ([['embycache', 'run', 'schedule'], ['embycache', 'run', 'office'], ['embycache', 'dry', 'schedule'], ['embycache', 'report', 'schedule'],
+              ['embycache', 'release', 'letgo'], ['embycache', 'release', 'schedule'], ['gather', 'run', 'schedule'], ['gather', 'measure', 'office']] as [$tool, $mode, $by]) {
+        $got["$tool $mode $by"] = moverelliAfterEmby($tool, $mode, $by, $h);
+    }
+    same('moverelli after: a scheduled real EmbyCache run starts her — one started on his page, dry runs, reports, the release and the gather don\'t',
+        ['embycache run schedule' => true, 'embycache run office' => false, 'embycache dry schedule' => false, 'embycache report schedule' => false,
+         'embycache release letgo' => false, 'embycache release schedule' => false, 'gather run schedule' => false, 'gather measure office' => false], $got);
+    same('moverelli after: … handed to atd once, as her own job with its mark', [$want], $launched);
+    check('moverelli after: … through hostLaunch(), whose job file carries the office\'s mark (the night watchman knows it as the office\'s own)',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "'launch'        => \$h['launch'] ?? fn (array \$args) => hostLaunch('moverelli', \$args),")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php'), '$script = "#!/bin/sh\\n" . HOST_LAUNCH_MARK'));
+    $launched = [];
+    same('moverelli after: Jack\'s side (embyRunAfter) hands it on the same way — not after a page-started run, nor when EmbyCache never ran (127)',
+        [true, false, false, [$want]],
+        [embyRunAfter('embycache', 'run', 'schedule', 0), embyRunAfter('embycache', 'run', 'office', 0), embyRunAfter('embycache', 'run', 'schedule', 127), $launched]);
+    $launched = [];
+    same('moverelli after: … errors (exit 1) and a stop (exit 3) count — the run ran', [true, true, 2],
+        [embyRunAfter('embycache', 'run', 'schedule', 1), embyRunAfter('embycache', 'run', 'schedule', 3), count($launched)]);
+    // in his job: once, at its very end — after his list of runs and his finished marker, after every outcome of a run
+    // that ran (errors, stopped); refused and skipped starts return before
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $job = substr($src, (int) strpos($src, 'function embyJob('), (int) strpos($src, 'function embyGateRefused(') - (int) strpos($src, 'function embyJob('));
+    $at = (int) strpos($job, 'embyRunAfter($tool, $mode, $by, $exit);');
+    check('moverelli after: Jack\'s job calls it once, after his bookkeeping (list of runs, finished marker, notification), right before its end',
+        substr_count($job, 'embyRunAfter($tool, $mode, $by, $exit);') === 1 && $at > (int) strrpos($job, "embyRemember(['tool' => \$tool, 'mode' => \$mode, 'by' => \$by, 'started' => \$started")
+        && $at > (int) strrpos($job, "writeAtomic(\"\$dir/office-run.json\"") && $at > (int) strrpos($job, 'embyNotify(')
+        && str_starts_with(trim(substr($job, $at + strlen('embyRunAfter($tool, $mode, $by, $exit);'))), 'return $exit;'));
+    check('moverelli after: … his marker gives the start lock back long before (her run is never refused for his)', (int) strpos($job, 'embyMoversUnlock($movers);', (int) strpos($job, '$started = time();')) < $at);
+
+    // (3) not hired, not set up, not chosen — nothing
+    $launched = [];
+    $v['hired'] = false;
+    $a = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
+    $v['hired'] = true;
+    rename("$dir/smart_mover.ini", "$dir/smart_mover.ini.x");
+    $b = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
+    rename("$dir/smart_mover.ini.x", "$dir/smart_mover.ini");
+    moverelliSetSchedule('15 5 * * *', $h);
+    $c = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
+    same('moverelli after: not hired, not set up, a time of her own — nothing handed on', [false, false, false, []], [$a, $b, $c, $launched]);
+    moverelliSetSchedule(null, $h, 'emby');
+
+    // (4) her job so started: all her gates, recorded `by: emby`
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/bin/notify");
+    $v['array'] = false;
+    $exit = moverelliJob(['run', '--after-emby'], $h);
+    $top = moverelliHistory($dir)[0] ?? [];
+    same('moverelli after: the array not started (atd skips job.sh\'s look) — refused, recorded «by emby»', [1, 'refused', 'moverelli_array', 'emby'],
+        [$exit, $top['result'] ?? null, $top['why'] ?? null, $top['by'] ?? null]);
+    $v['array'] = true;
+    moverelliSetSchedule('15 5 * * *', $h);
+    $n = count(moverelliHistory($dir));
+    same('moverelli after: her choice changed between the hand-over and the start — ends without a run, nothing recorded', [0, $n],
+        [moverelliJob(['run', '--after-emby'], $h), count(moverelliHistory($dir))]);
+    moverelliSetSchedule(null, $h, 'emby');
+    $v['own'] = ['set' => '40 3 * * *', 'cron' => '40 3 * * *'];
+    $exit = moverelliJob(['run', '--after-emby'], $h);
+    $top = moverelliHistory($dir)[0] ?? [];
+    same('moverelli after: started after Jack, Unraid\'s schedule on — refused like a scheduled one, recorded «by emby»', [1, 'refused', 'moverelli_schedule', 'emby'],
+        [$exit, $top['result'] ?? null, $top['why'] ?? null, $top['by'] ?? null]);
+    moverelliJob(['run', '--after-emby'], $h);
+    same('moverelli after: … refused again for the same reason counts up (beside the array refusal)', [2, 2], [(int) (moverelliHistory($dir)[0]['times'] ?? 0), count(moverelliHistory($dir))]);
+    $v['own'] = ['set' => '', 'cron' => null];
+    $exit = moverelliJob(['run', '--after-emby'], $h);
+    $top = moverelliHistory($dir)[0] ?? [];
+    same('moverelli after: … with nothing in the way it runs, «by emby»', [0, 'run', 'emby', 'ok'], [$exit, $top['mode'] ?? null, $top['by'] ?? null, $top['result'] ?? null]);
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+
+    // (5) the Team Lead: nothing starts her while Jack is let go or his EmbyCache has no schedule; did she follow his last scheduled run?
+    $ids = fn (): array => array_column(array_map(fn ($f) => ['id' => $f['id'], 'ok' => $f['ok']], moverelliChecks($h)), 'ok', 'id');
+    $c = $ids();
+    same('moverelli after: checks — her schedule counts as set, something starts her, no «ran» of her cron', [true, true, false],
+        [$c['schedule'] ?? null, $c['after_idle'] ?? null, array_key_exists('ran', $c)]);
+    $v['emby_sched'] = false;
+    $off = $ids()['after_idle'] ?? null;
+    $v['emby_sched'] = true;
+    $v['emby'] = null;
+    $gone = $ids()['after_idle'] ?? null;
+    $state = moverelliScan($h)['after'];
+    $v['emby'] = $jack;
+    same('moverelli after: … his EmbyCache without a schedule, Jack let go — the point is open; her state idle', [false, false, ['on' => true, 'jack' => false, 'jack_scheduled' => false, 'idle' => true]],
+        [$off, $gone, $state]);
+    $set = (int) readJson("$dir/office-schedule.json")['set'];
+    $jr = fn (string $by, int $at) => ['tool' => 'embycache', 'mode' => 'run', 'by' => $by, 'result' => 'ok', 'started' => $at, 'finished' => $at + 60];
+    file_put_contents("$dir/office-history.json", json_encode(['runs' => []]));
+    same('moverelli after: «did she follow?» — his scheduled run hours ago, nothing of hers: no; too early: unknown; his page-started run: not counted; none since she was set so: unknown',
+        [false, null, null, null], [moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 3600),
+         moverelliRanAfterJack($dir, [$jr('office', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set - 10)], $set + 7 * 3600)]);
+    moverelliRemember(['mode' => 'dry', 'by' => 'office', 'started' => $set + 50, 'finished' => $set + 60, 'result' => 'ok'], $dir);
+    moverelliRemember(['mode' => 'list', 'by' => 'office', 'started' => $set + 70, 'finished' => $set + 80, 'result' => 'ok'], $dir);
+    same('moverelli after: … a dry run and a list of hers after it don\'t count: still no', false, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
+    moverelliRemember(['mode' => 'run', 'by' => 'emby', 'started' => $set + 100, 'finished' => $set + 200, 'result' => 'ok'], $dir);
+    same('moverelli after: … a real run of hers after it: yes', true, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
+    same('moverelli after: Jack\'s page — she follows (hired, set up, chosen)', [true, false], [moverelliFollowsJack($h), (function () use ($h) { moverelliSetSchedule(null, $h); return moverelliFollowsJack($h); })()]);
+    unset($GLOBALS['moverelliHost']);
+
+    // (6) her page (under node, where it is): the third choice, its notice, the overview
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('moverelli after page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+const dialogs = [];
+const posts = [];
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B' }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+  dialog: (o) => dialogs.push(o), freshState: async () => true, toast: () => {}, errorText: (e) => 'err:' + e.key,
+  api: { post: async (a, d) => { posts.push([a, d]); return { ok: true, live: true }; } } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const radios = (n) => (typeof n === 'string' ? [] : [...(n.tag === 'input' ? [n] : []), ...n.children.flatMap(radios)]);
+const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, job: {}, schedule: { enabled: false }, history: [], shares: [],
+  mover: { off: true }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, settings: { global: { min_age: 0, age_stat: 'ctime', move_when_used_above: 0 } }, last: null };
+(async () => {
+  const out = {};
+  m.setState({ ...base, after: { on: true, jack: true, jack_scheduled: false, idle: true } });
+  out.notice = texts(m.afterNotice());
+  out.sched = m.schedText(base.schedule);
+  out.bubble = m.bubbleText();
+  out.overview = texts(m.scheduleSection());
+  await m.scheduleDialog();
+  const box = dialogs[0].body;
+  out.options = texts(box);
+  out.checked = radios(box).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
+  await dialogs[0].buttons[1].act();
+  out.post = posts[0];
+  m.setState({ ...base, after: { on: false, jack: false, jack_scheduled: false, idle: false } });
+  out.notice2 = m.afterNotice();
+  await m.scheduleDialog();
+  out.checked2 = radios(dialogs[1].body).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
+  out.options2 = texts(dialogs[1].body);
+  m.setState({ ...base, after: { on: true, jack: false, jack_scheduled: false, idle: true } });
+  out.notice3 = texts(m.afterNotice());
+  console.log(JSON.stringify(out));
+})();
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
+    check('moverelli after page: it runs', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    same('moverelli after page: chosen, his EmbyCache without a schedule — the notice and its button; the schedule says «after Jack Emby»; not «no schedule»',
+        [['notice.after_idle_off ', 'schedule_title'], 'schedule.after_short', 'bubble.ready'],
+        [$o['notice'] ?? null, $o['sched'] ?? null, $o['bubble'] ?? null]);
+    check('moverelli after page: the section «Schedule» — «after Jack Emby» with «nothing starts me by myself»',
+        in_array('schedule.after_short', $o['overview'] ?? [], true) && in_array('schedule.after_idle_sub', $o['overview'] ?? [], true));
+    same('moverelli after page: the dialog — the third choice with its words, chosen, sent as {cron: null, after: emby}',
+        [true, true, [[false, false], [false, false], [true, false], [false, false]], ['moverelli.schedule', ['cron' => null, 'after' => 'emby']]],
+        [in_array('schedule.after', $o['options'] ?? [], true), in_array('schedule.after_hint', $o['options'] ?? [], true), $o['checked'] ?? null, $o['post'] ?? null]);
+    same('moverelli after page: Jack not hired — the choice offered disabled with why, no notice; chosen and Jack let go — the other notice',
+        [[[true, false], [false, false], [false, true], [false, false]], true, null, ['notice.after_idle_letgo ', 'schedule_title']],
+        [$o['checked2'] ?? null, in_array('schedule.after_no_jack', $o['options2'] ?? [], true), array_key_exists('notice2', $o) ? $o['notice2'] : 'x', $o['notice3'] ?? null]);
+    // Jack Emby's page: one quiet line under his schedules while she follows him
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('moverelli after: Jack\'s page — the line under his schedules, only while she follows (his state\'s moverelli_after)',
+        str_contains($js, "if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'), "'moverelli_after' => function_exists('moverelliFollowsJack') && moverelliFollowsJack(),"));
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Moverelli's tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»): under node with a stand-in switcher — her row
+ * «Schedule», «Shares», «Last run» (the schedule only once she is set up), no start tile (the whole page), each tile's
+ * summary and its section; the hints above the row, the versions and the credit under all; the setup's steps as tiles
+ * (rules for all, per share, taking over an earlier install once set up); her places (tiles and sections by their routes).
+ */
+function testMoverelliTiles(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js');
+    check('moverelli tiles: two tabs «Overview» / «Set up», no «← Back», no head button «Set up…»',
+        str_contains($js, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && !str_contains($js, "T('back')")
+        && !str_contains($js, "actions.push(button(T('setup_open')"));
+    check('moverelli tiles: the switchers — her row (moverelli.tile, no start tile) and the setup\'s (moverelli.setup.tile)',
+        str_contains($js, "id: ID,                          // kept as moverelli.tile") && str_contains($js, "default: '',                     // the start: every section")
+        && str_contains($js, "key: 'moverelli.setup.tile',"));
+    check('moverelli tiles: her filter bars never kept (no Office.store of words)', !preg_match("/Office\\.store\\(\\s*'moverelli\\./", $js));
+    $node = testsNode();
+    if ($node === '') {
+        check('moverelli tiles: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('moverelli-tiles');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const n = { tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false,
+  dataset: {}, style: {}, isConnected: true, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, remove() {},
+  addEventListener() {} };
+  Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
+const specs = [];
+const bars = [];
+const places = [];
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B', date: (t) => 'D' + t, duration: (s) => s + 's' },
+  desk: () => {}, places: (id, p) => places.push(...p), placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => { n.dataset.place = k; return n; },
+  go: () => {}, sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, fits: (w, hay) => w.every((x) => [].concat(hay).join(' ').toLowerCase().includes(x)),
+  pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b, desks: { get: () => ({ id: 'moverelli' }) },
+  deskHead: (d, o) => ({ head: mk('div', 'deskhead', o.pages ? 'tabs:' + o.pages.list.map((p) => p.id).join(',') + ':' + o.pages.current : 'notabs') }),
+  pageFrom: (list, sub) => (String(sub || '').split('/')[0] === 'setup' ? 'setup' : ''),
+  stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
+  sections: (o) => { specs.push(o); return { el: mk('div', 'sections'), render() {}, mount: () => false, pick() {}, active: () => '' }; },
+  filterBar: (o) => ({ o, el: mk('div', 'filterbar'), words: [], read() { return { words: this.words }; }, done(n, t) { this.doneArgs = [n, t]; }, reset() { this.words = []; } }),
+  selbar: (spec) => { bars.push(spec); return spec; } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const tiles = () => m.tileList().map((x) => [x.id, x.key, x.place, x.tile({ on: () => 1, pressed: false }).o]);
+const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, engine: 'V7', job: {}, schedule: { enabled: true, frequency: 'custom', custom: '15 5 * * *' },
+  mover: { off: true, schedule: null, running: false }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, after: { on: false },
+  jack: { busy: false, list: null, uncovered: [] }, settings: { global: { min_age: 30, age_stat: 'ctime', move_when_used_above: 80, move_until_used_below: 70, files: ['/a.txt'], patterns: ['*.nfo', '# x', ''] }, shares: {} },
+  shares: [{ share: 'Filme', state: 'moves', mode: 'yes', from: 'cache', to: 'array', min_age: 30, age_stat: 'ctime', threshold: 80, excludes: 2, own: false },
+    { share: 'appdata', state: 'none', mode: 'none', use: 'only', primary: 'cache', own: false },
+    { share: 'Docs', state: 'skip', mode: 'yes', from: 'cache', to: 'array', own: true }],
+  last: { mode: 'run', result: 'ok', finished: 900, moved: 2, files: 2, bytes: 5, left: 0, shares: [{ share: 'Filme', moved: 2, files: 2, bytes: 5, left: 0 }] },
+  history: [{ mode: 'run', result: 'ok', by: 'schedule', started: 800, finished: 900, status: { result: 'ok', moved: 2, files: 2, bytes: 5, left: 0 } },
+    { mode: 'dry', result: 'ok', by: 'office', started: 700, finished: 710, status: { result: 'ok', files: 3, bytes: 9 } }] };
+const out = {};
+m.setState(base);
+m.switcher();
+out.spec = [specs[0].id, specs[0].key || '', specs[0].default, specs[0].grid];
+out.tiles = tiles().map(([id, key, place, o]) => [id, key, place, o.label, o.value, o.sub, !!o.alert, typeof o.on]);
+m.setState({ ...base, configured: false });
+out.unset = m.tileList().map((x) => x.id);
+m.setState({ ...base, mover: { off: false, schedule: '40 3 * * *' }, schedule: { enabled: false }, jack: { list: '/j.txt', uncovered: ['Filme'] }, last: null, job: { running: true, mode: 'dry' } });
+out.alerts = tiles().map(([id, , , o]) => [id, o.value, !!o.alert]);
+// only looks at the shares' list so far (her setup asks for it): «Last run» says none yet, the reception no fact of a run
+m.setState({ ...base, last: { mode: 'list', result: 'ok', finished: 990, shares: [] }, history: [{ mode: 'list', result: 'ok', by: 'office', started: 990, finished: 990, status: { result: 'ok' } }] });
+out.listOnly = [tiles().find(([id]) => id === 'runs')[3].value, tiles().find(([id]) => id === 'runs')[3].sub, m.resultBoxOf ? 'x' : null];
+m.setState({ ...base, history: [{ mode: 'list', result: 'ok', by: 'office', started: 990, finished: 990, status: { result: 'ok' } }, ...base.history] });
+out.listOver = tiles().find(([id]) => id === 'runs')[3].value;
+m.setState(base);
+// the page: hints, the row, the footer — in that order; the sections
+const view = mk('div', 'view');
+m.setView(view, 'main');
+m.bars();
+m.render();
+out.page = view.children.map((c) => c.cls || c.tag);
+out.sections = [texts(m.scheduleSection()), m.shareSection().children.length, texts(m.historySection()).slice(0, 4)];
+const hist = m.historySection();
+out.foot = texts(m.footer());
+// the setup: its head line, the row, the save bar; the step tiles
+const sv = mk('div', 'view');
+m.setView(sv, 'setup');
+m.setForm(null);
+m.renderSetup();
+out.setupPage = sv.children.map((c) => c.cls || c.tag);
+out.setupSpec = [specs[1].id, specs[1].key, specs[1].default, specs[1].wants('shares'), specs[1].wants('nope')];
+out.setupTiles = m.setupTileData().map((d) => [d.id, d.key, d.value, d.sub, d.alert]);
+out.setupBar = bars[bars.length - 1];
+m.setState({ ...base, import_found: ['/boot/config/plugins/user.scripts/scripts/mover'] });
+out.setupFound = m.setupTileData().map((d) => [d.id, d.value, d.sub]);
+m.setState({ ...base, configured: false });
+m.setForm(null);
+m.initForm();
+out.setupUnset = m.setupTileData().map((d) => d.id);
+out.places = places.filter((p) => ['tile', 'section', 'step'].includes(p.kind)).map((p) => [p.kind, p.key, p.anchor || '', p.route || '']);
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
+    check('moverelli tiles: it runs', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    same('moverelli tiles: her switcher — kept as moverelli.tile, no start tile (the whole page)', ['moverelli', '', '', 'stats mo-tiles'], $o['spec'] ?? null);
+    same('moverelli tiles: «Schedule» (hers, Unraid\'s mover as its line), «Shares» (moving of all, the rules for all), «Last run» — each a button with its summary', [
+        ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['by_office', 'unraid_schedule: unraid_off'], false, 'function'],
+        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_fill {"pct":80,"until":70}'], false, 'function'],
+        ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
+    same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
+    same('moverelli tiles: «Last run» — a look at the shares\' list is no run: none yet; one after a real run doesn\'t hide it', [['last_run_none', [], null], 'R900'],
+        [$o['listOnly'] ?? null, $o['listOver'] ?? null]);
+    check('moverelli ran lately (the Team Lead\'s «ran»): only a real or a dry run counts, never a look at the list',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "in_array(\$r['mode'] ?? '', ['run', 'dry'], true) && !in_array(\$r['result'] ?? '', ['refused', 'skipped'], true)"));
+    same('moverelli tiles: Unraid\'s schedule on, Jack Emby\'s list missing, a run going — the tiles say so (alert, «running»)',
+        [['schedule', 'not_scheduled', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
+    same('moverelli tiles: her page — the head with tabs, the help, the hints, the row, the footer under all', ['deskhead', 'help', 'mo-mover', 'role mo-hint', 'sections', 'mo-foot'],
+        $o['page'] ?? null);
+    same('moverelli tiles: the sections — «Schedule» (hers with «Change…», Unraid\'s), «Shares» (head, bar, box), «My runs» (the last run\'s result on top)', [
+        ['schedule', 'sched.mine', 'C15 5 * * *', 'by_office', 'sched.change', 'unraid_schedule', 'unraid_off', 'unraid_off_sub'], 3,
+        ['history', 'run_summary {"moved":2,"files":2,"size":"5 B","left":"count.left {\"n\":0}"}', 'share_moved {"share":"Filme","moved":2,"files":"count.files {\"n\":2}","size":"5 B","left":"count.left {\"n\":0}"}', 'show_log']],
+        $o['sections'] ?? null);
+    check('moverelli tiles: the footer — Smart Mover\'s and Unraid\'s versions, the credit to helmi1987',
+        in_array('credit_title', $o['foot'] ?? [], true) && (bool) preg_grep('/^Smart Mover V7/', $o['foot'] ?? []) && (bool) preg_grep('/^Unraid 7\.3\.2/', $o['foot'] ?? []));
+    same('moverelli tiles: the setup page — the head with tabs, the help, its head line, the row of steps, the quiet link to an earlier install; no save button (the bar)',
+        ['deskhead', 'help', 'mo-pagehead', 'sections', 'role mo-import-link'], $o['setupPage'] ?? null);
+    same('moverelli tiles: … set up, nothing changed — no bar', null, array_key_exists('setupBar', $o) ? $o['setupBar'] : 'x');
+    same('moverelli tiles: the setup\'s switcher — its routes, kept as moverelli.setup.tile, every step to start, a step\'s route before her state', ['moverelli/setup', 'moverelli.setup.tile', '', true, false],
+        $o['setupSpec'] ?? null);
+    same('moverelli tiles: the setup\'s steps — for all (age, fill, what stays), per share (own rules, left out); no earlier install found: no tile', [
+        ['global', 'setup.global', 'setup.tile.days {"n":30}', ['rule_fill {"pct":80,"until":70}', 'setup.tile.stays {"lists":"count.lists {\"n\":1}","lines":"count.lines {\"n\":1}"}'], false],
+        ['shares', 'setup.shares', '0', ['setup.tile.own {"n":0}', 'setup.tile.skipped {"n":0}'], false]], $o['setupTiles'] ?? null);
+    same('moverelli tiles: … one found on the flash — its tile, the folder', ['import', 'setup.tile.found', ['/boot/config/plugins/user.scripts/scripts/mover']], $o['setupFound'][2] ?? null);
+    same('moverelli tiles: not set up, nothing found — no import tile', ['global', 'shares'], $o['setupUnset'] ?? null);
+    $pl = $o['places'] ?? [];
+    same('moverelli tiles: her places — the sections by their tiles\' routes, the tiles, the setup\'s steps and their tiles', [
+        ['section', 'schedule', '', '#/moverelli/schedule'], ['section', 'shares', '', '#/moverelli/shares'], ['section', 'history', '', '#/moverelli/runs'],
+        ['tile', 'schedule', 'tile.schedule', '#/moverelli/schedule'], ['tile', 'shares', 'tile.shares', '#/moverelli/shares'], ['tile', 'last_run', 'tile.runs', '#/moverelli/runs'],
+        ['section', 'tools', '', ''],
+        ['step', 'setup.global', '', '#/moverelli/setup/global'], ['step', 'setup.shares', '', '#/moverelli/setup/shares'], ['step', 'import.title', '', '#/moverelli/setup/import'],
+        ['tile', 'setup.global', 'setup.tile.global', '#/moverelli/setup/global'], ['tile', 'setup.shares', 'setup.tile.shares', '#/moverelli/setup/shares'],
+        ['tile', 'import.title', 'setup.tile.import', '#/moverelli/setup/import']], $pl);
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack Emby's list proposed in her setup (the owner's decision 2026-10-12: «soll vorschlagen»): while he is hired her
+ * state names every form of his list's path and his shares; a setup form that doesn't keep the list away from every share
+ * of his (the agent's rule — left out, or a form of the path in the files for all or the share's own) gets the list added
+ * to the files for all shares, in the form only (nothing written before «Save»), with a note why and «Remove it again»
+ * (exactly that line out — what was there stays); covered already, or he isn't hired: nothing added.
+ */
+function testMoverelliSuggestJack(): void
+{
+    $tmp = hardeningTmp('moverelli-suggest');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $GLOBALS['moverelliHost']['cron_file'] = "$tmp/office.cron";
+    $GLOBALS['moverelliHost']['cron_apply'] = false;
+    $h = moverelliHost();
+    $user = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
+    $v['emby'] = ['lists' => [$user, "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    $j = moverelliScan($h)['jack'];
+    same('moverelli suggest: her state while Jack is hired — hired, every form of his list\'s path, his shares (not set up: none uncovered yet)',
+        [true, $user, [$user, "$tmp/data/embycache_exclude.txt"], ['Docs', 'Filme'], []], [$j['hired'], $j['list'], $j['lists'], $j['shares'], $j['uncovered']]);
+    check('moverelli suggest: … nothing written by the look', !is_file("$tmp/data/smart_mover.ini"));
+    $v['emby'] = null;
+    $j = moverelliScan($h)['jack'];
+    same('moverelli suggest: Jack not hired — no list, no shares', [false, null, [], []], [$j['hired'], $j['list'], $j['lists'], $j['shares']]);
+    unset($GLOBALS['moverelliHost']);
+
+    $node = testsNode();
+    if ($node === '') {
+        check('moverelli suggest page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const n = { tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, value: '',
+  dataset: {}, style: {}, isConnected: true, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, remove() {},
+  addEventListener() {} };
+  Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {},
+  sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b,
+  desks: { get: () => ({ id: 'moverelli' }) }, deskHead: () => ({ head: mk('div', 'deskhead') }), stat: (o) => ({ tag: 'button', o, children: [] }),
+  sections: () => ({ el: mk('div', 'sections'), render() {}, mount: () => false }), selbar: () => null };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const find = (n, f) => (typeof n === 'string' ? null : f(n) ? n : n.children.map((c) => find(c, f)).find(Boolean) || null);
+const U = '/mnt/user/appdata/x/embycache_exclude.txt';
+const P = '/mnt/cache/appdata/x/embycache_exclude.txt';
+const shares = [{ share: 'Filme', state: 'moves', mode: 'yes' }, { share: 'Serien', state: 'moves', mode: 'yes' }, { share: 'Docs', state: 'moves', mode: 'yes' }];
+const g = (files) => ({ min_age: 30, age_stat: 'ctime', move_when_used_above: 0, files, patterns: [] });
+const st = (jack, global, own) => ({ configured: false, unraid: { ok: true }, job: {}, schedule: {}, shares, after: { on: false },
+  settings: { global, shares: own || {} }, jack });
+const hired = { busy: false, hired: true, list: U, lists: [U, P], shares: ['Filme', 'Serien'], uncovered: [] };
+const out = {};
+const view = mk('div', 'view');
+m.setView(view, 'setup');
+// not covered: added at the end of the files for all, what was there stays; the note with «Remove it again»; the tile calm
+m.setState(st(hired, g(['/mnt/user/system/keep.txt'])));
+m.setForm(null);
+m.renderSetup();
+let f = m.form();
+const note = view.children.find((c) => String(c.cls).includes('mo-suggest'));
+out.added = [f.global.files, f.jackAdded, note ? texts(note) : null, m.jackUncoveredIn(f), m.setupTileData()[0].alert];
+// «Remove it again»: exactly that line out — the warning with his shares, the tile an alert; drawn anew it isn't added again
+find(note, (n) => n.tag === 'button').onclick();
+f = m.form();
+out.removed = [f.global.files, f.jackAdded, view.children.filter((c) => String(c.cls).startsWith('callout')).map(texts), m.setupTileData()[0].alert];
+m.renderSetup();
+out.again = m.form().global.files;
+// covered already: Filme by the other form of the path in its own files, Serien left out — nothing added, no note
+m.setState(st(hired, g([]), { Filme: { files: [P], patterns: [] }, Serien: { skip: true, files: [], patterns: [] } }));
+m.setForm(null);
+m.initForm();
+out.covered = [m.form().global.files, m.form().jackAdded || null, m.jackNotice()];
+// the list for all already (the user path): nothing added
+m.setState(st(hired, g([U])));
+m.setForm(null);
+m.initForm();
+out.global = [m.form().global.files, m.form().jackAdded || null];
+// Jack not hired (an older agent's state too): nothing
+for (const j of [{ busy: false, hired: false, list: null, lists: [], shares: [], uncovered: [] }, { busy: false, list: null, uncovered: [] }]) {
+  m.setState(st(j, g([])));
+  m.setForm(null);
+  m.initForm();
+  (out.nojack = out.nojack || []).push([m.form().global.files, m.jackNotice()]);
+}
+// an older agent's state (only list, no lists/shares): no shares known — nothing proposed
+m.setState(st({ busy: false, list: U, uncovered: [] }, g([])));
+m.setForm(null);
+m.initForm();
+out.old = m.form().global.files;
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
+    check('moverelli suggest page: it runs', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    $u = '/mnt/user/appdata/x/embycache_exclude.txt';
+    same('moverelli suggest page: not covered — his list added at the end of the files for all (in the form), the note with «Remove it again», covered now, the tile calm',
+        [['/mnt/user/system/keep.txt', $u], $u, ['setup.jack_added {"file":"' . $u . '"} ', 'setup.jack_remove'], [], false], $o['added'] ?? null);
+    same('moverelli suggest page: «Remove it again» — exactly that line out, the warning naming his shares, the tile an alert',
+        [['/mnt/user/system/keep.txt'], null, [['errors.moverelli_emby_list {"shares":"Filme, Serien"}']], true], $o['removed'] ?? null);
+    same('moverelli suggest page: … drawn anew it isn\'t added again', ['/mnt/user/system/keep.txt'], $o['again'] ?? null);
+    same('moverelli suggest page: covered already (the other form of the path in a share\'s own files, the other share left out) — nothing added, no note',
+        [[], null, null], $o['covered'] ?? null);
+    same('moverelli suggest page: his list already for all — nothing added', [[$u], null], $o['global'] ?? null);
+    same('moverelli suggest page: Jack not hired (also an older agent\'s state) — nothing', [[[], null], [[], null]], $o['nojack'] ?? null);
+    same('moverelli suggest page: an older agent\'s state without his shares — nothing proposed', [], $o['old'] ?? null);
     hardeningRm($tmp);
 }
 
@@ -30406,7 +32577,14 @@ function testBackupTiles(): void
         && str_contains($js, "const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));") && !str_contains($js, "card.classList.add('running');"));
     check('backup tiles: the last backup\'s tile carries the wave while a run goes', substr_count($js, "label: T('stat.last'), running: live(),") === 2
         && str_contains($js, "label: d.running ? waveLabel(d.label) : d.label,"));
-    foreach (['backup' => 'bk', 'restore' => 'rs'] as $desk => $pre) {
+    // Mr. Restori's (and Ms. Moverelli's) card draws its steps with core.js's Office.runSteps (1.61) — same slide, office.css
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $ocss0 = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    check("run card (restore, moverelli) 1.61: the shared steps' highlight slides - one element behind the list, an ease-in-out of 0.7 s, no move on the first drawing or while the step stays",
+        str_contains($core, 'Office.runSteps = function runSteps(steps, at, key)') && str_contains($core, 'const from = runHlLast.key === key && runHlLast.at !== at && runHlLast.box ? runHlLast.box : null;')
+        && str_contains($ocss0, '.run-steps-hl{position:absolute; z-index:0; background:var(--accent-soft)') && str_contains($ocss0, 'transition:left .7s ease-in-out')
+        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js'), 'card.appendChild(Office.runSteps(d.steps, d.at, j.id));'));
+    foreach (['backup' => 'bk'] as $desk => $pre) {
         $djs = (string) file_get_contents(OFFICE_WEB . "/desks/$desk/desk.js");
         $dcss = (string) file_get_contents(OFFICE_WEB . "/desks/$desk/desk.css");
         check("run card ($desk) 1.60.1: the current step's highlight slides - one element behind the list, an ease-in-out of 0.7 s, no move on the first drawing or while the step stays",
@@ -30419,7 +32597,7 @@ function testBackupTiles(): void
         str_contains($rjs, "const waving = (x) => { const w = el('span', 'running'); w.append(el('span', 'spin'), ' ', ...[].concat(x)); return w; };")
         && str_contains($rjs, "meta.appendChild(r.result === 'running' ? waving(head) : head);") && str_contains($rjs, "li.append(s.state === 'running' ? waving(sc) : sc, ' ', stepText(s));")
         && str_contains($rjs, "top.append(el('span', 'spin'), el('span', 'card-name', d.title), chip(T('jr.running'), 'accent'));") && str_contains($rjs, "lines: [[line, going && right ? waving(right) : right]]")
-        && str_contains($rjs, "st.state === 'failed' ? 'done failed' : 'done', st.name);"));
+        && str_contains($core, "st.state === 'failed' ? 'done failed' : 'done', st.name);"));
     $ocss = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
     preg_match('/--wave:url\("data:image\/svg\+xml,([^"]+)"\);/', $ocss, $w);
     $svg = rawurldecode($w[1] ?? '');
@@ -31497,6 +33675,7 @@ const SECTIONS_DESKS = [
     'emby' => ['importSection'],        // Jack Emby's setup: «Take over an earlier install» over the row until he is set up (later its tile)
     'snapshot' => [],
     'caretaker' => [],
+    'moverelli' => [],
 ];
 
 /**
@@ -31695,10 +33874,10 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolCake', 'testMoverelliCakeHooks', 'testEmbyBudget',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];

@@ -228,25 +228,24 @@ const mover = () => (state && state.mover) || null;
 const moverOk = () => { const m = mover(); return !m || !!m.ok; };
 /** Why real runs don't go now, in words (the agent's refusal) */
 function moverWhy(m) {
-  const t = m.tuning || {};
   // Ms. Moverelli's ini without his list: her shares named (emby-mover.php embyMoverelliUncovered())
   const mo = m.why === 'moverelli_list' ? (m.moverelli || {}) : null;
-  const shares = mo ? (mo.uncovered || []) : (t.overrides || []);
-  // EmbyCache's list: Mover Tuning's entry, or for Ms. Moverelli the list itself (also without Mover Tuning)
-  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo ? mo.file : t.file) || '', detail: t.error || '', shares: shares.join(', ') } }, ID);
+  const schedule = m.why === 'tuning_schedule' ? (m.tuning || {}).cron : m.schedule;
+  const t = m.tuning || {};
+  const name = t.name || 'Mover Tuning';      // the other mover found (an older agent: Mover Tuning)
+  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '', ...(m.why === 'tuning_schedule' ? { name } : {}) } }, ID);
 }
 
 /**
- * Unraid's mover and EmbyCache's files on the pool: real runs only while Unraid's own mover schedule is «Disabled»
- * (2026-10-09). Not met: why; for the schedule «Switch the mover schedule off…» (moverOffDialog) and «set it
- * yourself» (Unraid's ⟦Mover Settings⟧). Met: what still moves them (⟦Move now⟧ by hand — his run stops after the
- * current file then); Mover Tuning, if installed, keeps his list (he enters it there himself). Mover Tuning's «Move
- * All» threshold, the mover at work right now.
+ * Unraid's mover and EmbyCache's files on the pool: real runs only under Ms. Moverelli — she is set up and keeps his
+ * list out, Unraid's own mover schedule «Disabled» (2026-10-12; her setup switches it off). Not met: why; for the
+ * schedule «Switch the mover schedule off…» (moverOffDialog) and «set it yourself» (Unraid's ⟦Mover Settings⟧), for her
+ * a link to her setup. Met: what still moves them (⟦Move now⟧ by hand — his run stops after the current file then), the
+ * mover at work right now.
  */
 function moverNotice() {
   const m = mover();
   if (!m) return null;
-  const t = m.tuning || {};
   const box = el('div', m.ok ? 'jo-mover' : 'callout warn jo-mover');
   if (!m.ok) {
     box.appendChild(el('p', '', moverWhy(m)));
@@ -258,14 +257,17 @@ function moverNotice() {
       a.href = '/Settings/MoverSettings';
       bar.append(b, a);
       box.appendChild(bar);
+    } else if (m.why === 'moverelli' || m.why === 'moverelli_list') {
+      const bar = el('div', 'toolbar');
+      const a = el('a', 'btn small', T('mover.to_moverelli'));
+      a.href = '#/moverelli/setup';
+      bar.appendChild(a);
+      box.appendChild(bar);
     }
   } else {
     box.appendChild(el('p', 'role', T('mover.ok.disabled')));
-    if (m.way === 'moverelli') box.appendChild(el('p', 'role', T('mover.ok.moverelli')));
-    if (t.installed && t.listed) box.appendChild(el('p', 'role', T('mover.ok.tuning', { file: t.file || '' })));
+    box.appendChild(el('p', 'role', T('mover.ok.moverelli')));
   }
-  if (t.changed) box.appendChild(el('p', 'role', T('mover.changed', { file: t.file || '' })));
-  if (t.installed && t.move_all) box.appendChild(el('p', 'role', T('mover.move_all', { pct: String(t.move_all) })));
   if (m.running) box.appendChild(el('p', 'role', T('mover.running')));
   return box;
 }
@@ -549,6 +551,8 @@ function plansSection() {
   const s = section(T('schedules'), T('plans.sub'), { place: 'plans' });
   s.id = 'jo-plans';
   s.appendChild(plansList());
+  // Ms. Moverelli follows his scheduled real EmbyCache runs (her schedule «right after Jack Emby») — one quiet line
+  if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));
   return s;
 }
 function plansList() {
@@ -577,11 +581,33 @@ function plansList() {
 function poolTile(a) {
   const c = state.cache || {};
   const pool = state.pool;
-  const sub = pool ? T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' }) : '';
-  const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '',
+  const slice = pool && pool.slice != null;
+  const sub = !pool ? '' : slice ? T('pool_tile.slice', { used: fmt.size(pool.slice_used), j: fmt.size(pool.slice), pct: fmt.number(pool.free_percent, 1) })
+    : T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' });
+  const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '', ...sliceWords(),
     c.listed_at ? T('pool_tile.as_of', { when: fmt.relative(c.listed_at) }) : ''].filter(Boolean).join('\n');
-  return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nOf('files', c.files), size: fmt.size(c.bytes) }) : T('pool_tile.none'),
-    sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
+  // never a break between a number and its unit («671 GB» stays on one line)
+  const nb = (t) => String(t).replace(/(\d) /g, '$1\u00a0');
+  return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nb(nOf('files', c.files)), size: nb(fmt.size(c.bytes)) }) : T('pool_tile.none'),
+    sub, tip, alert: !!(pool && ((pool.min_free != null && pool.free_percent < pool.min_free) || pool.excess > 0)), ...a });
+}
+
+/**
+ * What Ms. Moverelli gives him (2026-10-12, her cake — agent/lib/poolcake.php): his slice and what of it he holds, the
+ * files that waited because it was full, what he gives back; without her slice: what he keeps free meanwhile, or that
+ * she isn't set up. [line, …] in his words (pure on state.pool).
+ */
+function sliceWords() {
+  const pool = state && state.pool;
+  if (!pool) return [];
+  const mo = pool.moverelli;
+  if (!mo) return [T('slice.none')];
+  if (!(mo.x > 0)) return [T('slice.own', { min: pool.min_free ?? '?' })];
+  if (pool.slice == null) return [T('slice.pending', { min: 100 - mo.x })];
+  const out = [T('slice.text', { n: mo.n, j: fmt.size(pool.slice), used: fmt.size(pool.slice_used) })];
+  if (pool.excess > 0) out.push(T('slice.over', { used: fmt.size(pool.slice_used), j: fmt.size(pool.slice), excess: fmt.size(pool.excess) }));
+  else if (pool.waiting > 0) out.push(T('slice.full', { n: pool.waiting }));
+  return out;
 }
 
 /** The shares that don't suit EmbyCache and its pool (or lack their folder on it) */
@@ -727,7 +753,20 @@ function sizesLine(x) {
   }
   (Array.isArray(x.live) ? x.live : []).forEach((l) => line.appendChild(chip(T('sizes_live', { pool: l.pool, size: fmt.size(l.used) }), 'quiet',
     T('sizes_live_tip', { share: x.share, pool: l.pool }))));
+  // of that, what EmbyCache keeps ready on the pool for this share (the same list the «Ready to watch» tile counts)
+  const r = readyOf(x.share);
+  if (r) line.appendChild(chip(T('sizes_ready', { files: nOf('files', r.files), size: fmt.size(r.bytes) }), 'quiet', T('sizes_ready_tip', { share: x.share })));
   return line;
+}
+
+/** EmbyCache's files on the pool for a share {files, bytes} — the agent's per-share count (an older agent: from the groups), or null */
+function readyOf(share) {
+  const c = (state && state.cache) || {};
+  const by = c.shares && typeof c.shares === 'object' ? c.shares[share] : null;
+  if (by) return by.files ? by : null;
+  if (c.shares) return null;
+  const g = (c.groups || []).filter((x) => x.share === share);
+  return g.length ? { files: g.reduce((n, x) => n + (x.files || 0), 0), bytes: g.reduce((n, x) => n + (x.bytes || 0), 0) } : null;
 }
 
 /** Do the shares of the chosen libraries suit EmbyCache and its pool? And what lies where */
@@ -928,6 +967,8 @@ function poolSection() {
   const s = section(T('on_pool'), c.listed_at ? T('on_pool_sub', { when: fmt.relative(c.listed_at) }) : T('on_pool_none'),
     el('span', 'hint', c.files ? T('pool_sum', { n: c.files, size: fmt.size(c.bytes) }) : ''), { place: 'on_pool' });
   s.id = 'jo-pool';
+  // what Ms. Moverelli gives him on the pool (her cake), in his words — over the list
+  sliceWords().forEach((line, i) => s.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
   if (!c.files) return s;
   s.appendChild(poolBar.el);
   const box = el('div', 'box');
@@ -1579,7 +1620,8 @@ function setupScope() {
   poolSel.value = v.cache_path;
   poolSel.onchange = () => { v.cache_path = poolSel.value; renderSetup(); };
   f4.appendChild(field(T('setup.pool'), poolSel, T('setup.pool_hint')));
-  f4.appendChild(field(T('setup.min_free'), number(v, 'min_free_percent', 0, 95), T('setup.min_free_hint')));
+  // how much room he has on the pool is Ms. Moverelli's to say (her cake): his own «leave N % free» field is gone
+  sliceWords().forEach((line, i) => f4.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
   const mode = el('select', 'picker');
   mode.append(new Option(T('setup.mode_count'), 'count'), new Option(T('setup.mode_budget'), 'budget'));
   mode.value = v.budget_mode ? 'budget' : 'count';
@@ -1915,10 +1957,9 @@ async function saveSetup() {
  * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo; agent/desks/emby-letgo.php). He looks
  * first what letting him go does here (emby.letgo_look): both schedules go off — always, no tick; a run that is going
  * finishes; one tick «Also bring the prepared films back to the array», off by default and only when that can be done
- * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool; when Mover
- * Tuning ignores his list, a second tick, on by default: «Also take my list out of Mover Tuning again» (then Mover
- * Tuning moves what is left back on its own). «Let go» — while he is still hired — sends emby.letgo {confirm, release,
- * unlist} once; he is let go whatever came of it, then a dialog says what he did.
+ * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool. «Let go» —
+ * while he is still hired — sends emby.letgo {confirm, release} once; he is let go whatever came of it, then a dialog
+ * says what he did.
  */
 function letGoPart(box) {
   const wrap = el('div', 'jo-letgo');
@@ -1933,17 +1974,7 @@ function letGoPart(box) {
   label.append(cb, text);
   label.hidden = true;
   const more = el('div', 'jo-letgo-more');
-  // his list out of Mover Tuning again — on by default, only when its cfg names it
-  const label2 = el('label', 'check');
-  const cb2 = el('input');
-  cb2.type = 'checkbox';
-  cb2.checked = true;
-  const text2 = el('span', '', T('letgo.unlist'));
-  const hint2 = el('small', '', '');
-  text2.appendChild(hint2);
-  label2.append(cb2, text2);
-  label2.hidden = true;
-  wrap.append(lines, label, more, label2);
+  wrap.append(lines, label, more);
   box.appendChild(wrap);
   let button = null;
   let sent = null;
@@ -1957,8 +1988,6 @@ function letGoPart(box) {
     if (cb.disabled) cb.checked = false;
     hint.textContent = v.hint;
     more.replaceChildren(...v.more.map(letGoLine));
-    label2.hidden = !v.unlist;
-    if (v.unlist) hint2.textContent = T('letgo.unlist_hint', { file: v.file });
     sync();
   };
   let asked = null;
@@ -1973,9 +2002,8 @@ function letGoPart(box) {
     before() {                   // once, even if «Let go» is pressed again
       if (!sent) {
         const release = cb.checked && !cb.disabled;
-        const unlist = !label2.hidden && cb2.checked;
-        cb.disabled = cb2.disabled = true;
-        sent = Office.api.post(`${ID}.letgo`, { confirm: true, release, unlist });
+        cb.disabled = true;
+        sent = Office.api.post(`${ID}.letgo`, { confirm: true, release });
       }
       return sent;
     },
@@ -1994,11 +2022,10 @@ function letGoList(jobs, cron) {
 }
 
 /**
- * What the look says: lines above the tick, whether there is one and may be ticked, its hint, lines below it, whether
- * Mover Tuning names his list (the second tick) and its file (pure)
+ * What the look says: lines above the tick, whether there is one and may be ticked, its hint, lines below it (pure)
  */
 function letGoView(j) {
-  if (!j.ok) return { lines: [['callout warn', Office.errorText(j.error, ID)], ['role', T('letgo.agent_away')]], tick: false, tickable: false, hint: '', more: [], unlist: false, file: '' };
+  if (!j.ok) return { lines: [['callout warn', Office.errorText(j.error, ID)], ['role', T('letgo.agent_away')]], tick: false, tickable: false, hint: '', more: [] };
   const lines = [];
   const sch = j.schedules || {};
   const on = Object.keys(sch).filter((k) => sch[k]);
@@ -2016,11 +2043,9 @@ function letGoView(j) {
     else if (rel.why) more.push(['callout warn', Office.errorText({ key: rel.why, params: rel.params || {} }, ID)]);
     more.push(['role', T('letgo.tick_off')]);
   }
-  const mt = j.mover_tuning || {};
   more.push(['role', T('letgo.stays')]);
-  if (j.mover_off) more.push(['role', T('letgo.mover_stays')]);       // Unraid's mover schedule stays off — where to switch it on
-  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more,
-    unlist: !!mt.listed, file: mt.listed ? mt.file || '' : '' };
+  if (j.mover_off) more.push(['role', T('letgo.mover_stays')]);       // Unraid's mover schedule stays off — Ms. Moverelli moves
+  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more };
 }
 
 /** After he was let go: what he did — the schedules switched off (or not), the release started (or why not) */
@@ -2037,9 +2062,6 @@ function letGoDoneLines(r) {
     out.push(['callout warn', T('letgo.done_release_not', { error: Office.errorText(rel.error || { key: 'internal' }, ID) })]);
     if (rel.error && rel.error.key === 'emby_release_watching') out.push(['who', rel.error.params.who || []]);
   }
-  const un = r.unlist;
-  if (un && un.done) out.push(['', T('letgo.done_unlisted')]);
-  else if (un) out.push(['callout warn', T('letgo.done_unlist_not', { error: Office.errorText(un.error || { key: 'internal' }, ID) })]);
   return out;
 }
 function letGoDone(r) {
@@ -2206,7 +2228,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sliceWords, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
