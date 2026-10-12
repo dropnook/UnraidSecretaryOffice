@@ -139,8 +139,9 @@ function whereScan(bool $awake = false): array
 
     $cron = waCron();
     $shares = waShares($roots, $asleep, $datasets, $consumers);
+    $real = array_values(array_filter($shares, fn ($s) => empty($s['stale_cfg'])));     // a stale cfg is no share (her tidy room has it)
     $appdata = waAppdataShare();
-    $folders = waFolders($shares, $roots, $asleep, $datasets, $consumers, $appdata);
+    $folders = waFolders($real, $roots, $asleep, $datasets, $consumers, $appdata);
 
     $state = [
         'time'        => time(),
@@ -150,7 +151,7 @@ function whereScan(bool $awake = false): array
         'system'      => waSystem($containers, $vms, $scripts, $backupScript),
         'storage'     => array_map(fn ($r, $name) => ['name' => $name, 'fs' => $r['fs'], 'kind' => $r['kind'], 'asleep' => $asleep[$name] ?? false],
                                    $roots, array_keys($roots)),
-        'shares'      => $shares,
+        'shares'      => $real,
         'appdata'     => $appdata,
         'folders'     => $folders,
         'containers'  => $containers,
@@ -289,19 +290,28 @@ function waShareOfPath(string $path, array $roots): ?array
     return null;
 }
 
-function waShares(array $roots, array $asleep, array $datasets, array $consumers): array
+/**
+ * Every user share: shares.ini's names and every *.cfg in /boot/config/shares. A cfg whose share doesn't exist (a share
+ * removed by hand leaves its .cfg — officeShareExists()) is no share: it stays in the list with `stale_cfg` and
+ * `storage.missing`, so every tip that reads `missing` skips it; waCollect() keeps it out of the page's list.
+ * $ini/$dir/$mnt/$var: the tests' stand-ins.
+ */
+function waShares(array $roots, array $asleep, array $datasets, array $consumers, string $ini = WA_SHARES_INI, string $dir = WA_SHARES_DIR,
+                  string $mnt = '/mnt', string $var = WA_VAR_INI): array
 {
-    $ini = readCfg(WA_SHARES_INI, true);
+    $iniFile = $ini;
+    $ini = readCfg($iniFile, true);
     $names = array_keys($ini);
-    foreach (glob(WA_SHARES_DIR . '/*.cfg') ?: [] as $file) {
+    foreach (glob($dir . '/*.cfg') ?: [] as $file) {
         $names[] = basename($file, '.cfg');
     }
-    $names = array_values(array_unique($names));
+    $names = array_values(array_unique(array_map('strval', $names)));
     natcasesort($names);
 
     $shares = [];
     foreach ($names as $name) {
-        $cfg = readCfg(WA_SHARES_DIR . "/$name.cfg");
+        $cfg = readCfg($dir . "/$name.cfg");
+        $stale = !isset($ini[$name]) && !officeShareExists($name, $iniFile, $mnt, $var);
         $i = $ini[$name] ?? [];
         $useCache = $cfg['shareUseCache'] ?? $i['useCache'] ?? 'no';
         $pool = $cfg['shareCachePool'] ?? $i['cachePool'] ?? '';
@@ -365,7 +375,8 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
                 'exclude'   => array_values(array_filter(explode(',', $cfg['shareExclude'] ?? ''))),
                 'allocator' => $cfg['shareAllocator'] ?? null,
                 'dataset'   => $dataset,
-                'missing'   => $primary !== 'array' && !isset($roots[$primary]),   // points to a pool that doesn't exist
+                // points to a pool that doesn't exist — or the share itself doesn't (a stale cfg)
+                'missing'   => $stale || ($primary !== 'array' && !isset($roots[$primary])),
             ],
             'size'     => $dataset ? ['bytes' => $datasets[$dataset]['used'], 'source' => 'zfs'] : null,
             'measure'  => $real ?? $userPath,
@@ -381,10 +392,10 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
                 'security' => $cfg['shareSecurityNFS'] ?? 'public',
                 'hosts'    => $cfg['shareHostListNFS'] ?? '',
             ],
-            'has_cfg'  => is_file(WA_SHARES_DIR . "/$name.cfg"),
+            'has_cfg'  => is_file($dir . "/$name.cfg"),
             'used_by'  => $usedBy,
-            'backup'   => backupProtection("/mnt/user/$name"),
-        ];
+            'backup'   => $stale ? null : backupProtection("/mnt/user/$name"),
+        ] + ($stale ? ['stale_cfg' => true] : []);
     }
     return $shares;
 }
@@ -1425,7 +1436,7 @@ function waBackups(array $containers, array $scripts, array $backupScript): arra
 
     foreach (array_merge(glob(WA_SHARES_DIR . '/*.cfg') ?: []) as $file) {
         $name = basename($file, '.cfg');
-        if (preg_match('/backup|sicherung|time.?machine/i', $name)) {
+        if (preg_match('/backup|sicherung|time.?machine/i', $name) && officeShareExists($name)) {
             $found[] = ['kind' => 'share', 'title' => $name, 'paths' => ["/mnt/user/$name"], 'detail' => []];
         }
     }

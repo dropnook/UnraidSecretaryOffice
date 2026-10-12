@@ -263,6 +263,32 @@ function under(string $path, string $root): bool
     return $path === $root || str_starts_with($path, "$root/");
 }
 
+const OFFICE_SHARES_INI = '/var/local/emhttp/shares.ini';      // emhttpd's user shares (RAM): the ones that exist
+const OFFICE_VAR_INI    = '/var/local/emhttp/var.ini';
+
+/** Can Unraid tell which user shares exist? Only while the array runs (stopped: no shares.ini to trust, no /mnt/user) */
+function officeSharesKnown(string $var = OFFICE_VAR_INI): bool
+{
+    return (readCfg($var)['fsState'] ?? '') === 'Started';
+}
+
+/**
+ * Does this user share exist? (2026-10-12, helmi1987's finding: a share removed by hand leaves its
+ * /boot/config/shares/<name>.cfg behind — a stale .cfg is no share.) shares.ini first (emhttpd's list, RAM), else
+ * /mnt/user/<name> is a folder (or Unraid's link of an exclusive share) — only through the FUSE path, never /mnt/disk*.
+ * While Unraid can't tell (the array isn't started) true: a share is never called gone on a stopped array.
+ */
+function officeShareExists(string $name, string $ini = OFFICE_SHARES_INI, string $mnt = '/mnt', string $var = OFFICE_VAR_INI): bool
+{
+    if ($name === '' || $name === '.' || $name === '..' || str_contains($name, '/') || str_contains($name, "\0")) {
+        return false;
+    }
+    if (!officeSharesKnown($var) || array_key_exists($name, readCfg($ini, true))) {
+        return true;
+    }
+    return is_dir("$mnt/user/$name");
+}
+
 /*
  * The office's hidden places (issue #7): Ms. Dustdevil's storeroom and Mr. Restori's set-aside folder start with «.»
  * (hidden in shares, on SMB and NFS). Before, they started with «_»: the old names are read everywhere for good
