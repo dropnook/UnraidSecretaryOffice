@@ -131,6 +131,24 @@
   ]
  },
  {
+  "nr": 4,
+  "desk": "restore",
+  "moment": "partner-vm",
+  "title": "Herr Restori - eine VM vom Partner zurückholen: die Schritte, der Balken, fertig etwa um, und wie er sie diesem Server anpasst",
+  "route": "restore",
+  "states": {
+   "restore": "restore-partner-vm",
+   "restore-job": "restore-job-partner-vm"
+  },
+  "prepare": [
+   {
+    "js": "const g = Office.api.get; let k = 0; Office.api.get = async (q) => { const r = await g(q); if (q && q.part === 'job' && r && r.part) { k = Math.min(k + 1, 2); r.part.steps.forEach((s) => { if (s.state === 'running' && s.progress) s.progress.done += k * 60000000; }); } return r; }",
+    "pause": 5500
+   }
+  ],
+  "clip": ".rs-run"
+ },
+ {
   "nr": 5,
   "desk": "snapshot",
   "moment": "why",

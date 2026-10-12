@@ -25,6 +25,10 @@
 // prepare [{click|hover|wait|scroll|select|fill: <css>, value (select, fill; or {de, en}), all (click every match), pause (ms)} | {js: …}…], clip (css, or a list: the box around all), pad, height,
 // viewport (true: the element is fixed - a dialog - and shot as the window shows it), hide [css…], seed (the
 // greetings' dice; default from nr)}.
+// Beside the moments: waves.json - per picture (its file name without .png) the boxes of the wave in it (every visible
+// element drawn with the office's --wave: .spin, .busy), {x, y, w, h} in the picture's own pixels (scale 2, the clip's
+// corner as 0,0), so the product page can lay the live, moving wave over the still one. A picture without a wave: no entry.
+// The file is merged: a run of some moments keeps the others' entries.
 //
 // Needs node and playwright-core (USO_PLAYWRIGHT=<its folder>, else found in node's own paths or npx's cache) and a
 // Chrome (USO_CHROME=<binary>, else Google Chrome in /Applications, else playwright's own Chromium) - like the click
@@ -217,7 +221,7 @@ async function shootMoment(browser, m, lang, theme) {
   const alias = Object.fromEntries(Object.entries(m.states || {}).map(([k, v]) => [k, v && typeof v === 'object' ? v[lang] ?? v.en ?? k : v]));
   const harness = await startHarness({ demo: true, alias, names: namesFor(lang) });
   const width = m.width || MOMENT_WIDTH;
-  const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: 2,
+  const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: SCALE,
     locale: LOCALES[lang] || lang, colorScheme: theme === 'white' ? 'light' : 'dark' });
   await ctx.addInitScript((l) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); } catch (e) { /* none */ } }, lang);
   // the same greetings every time (Office.greet() picks one at random): Math.random seeded per moment (mulberry32),
@@ -288,6 +292,7 @@ async function shootMoment(browser, m, lang, theme) {
       clip.height = box.y2 + pad - clip.y;
       if (m.max_height && clip.height > m.max_height) clip.height = m.max_height;
       await page.screenshot({ path: res.file, animations: 'disabled', caret: 'hide', fullPage: !m.viewport, clip });
+      res.waves = await waveBoxes(page, clip, !!m.viewport);
     }
   } catch (e) {
     res.fails.push(String(e.message || e).split('\n')[0].slice(0, 200));
@@ -296,6 +301,52 @@ async function shootMoment(browser, m, lang, theme) {
   await ctx.close().catch(() => {});
   await harness.close();
   return res;
+}
+
+const SCALE = 2;              // the moments' device scale factor (shootMoment's context)
+/**
+ * The wave's boxes inside a moment's clip, in the picture's pixels: every element whose background is the office's
+ * --wave (its SVG's viewBox 133.52 is in it) and that shows - the mark as drawn (center / contain), not the element's box
+ */
+async function waveBoxes(page, clip, fixed) {
+  const boxes = await page.evaluate(({ clip, fixed }) => {
+    const out = [];
+    const dx = fixed ? 0 : window.scrollX;
+    const dy = fixed ? 0 : window.scrollY;
+    for (const n of document.querySelectorAll('body *')) {
+      const cs = getComputedStyle(n);
+      if (!cs.backgroundImage.includes('133.52') || cs.display === 'none' || cs.visibility !== 'visible' || Number(cs.opacity) === 0) continue;
+      const b = n.getBoundingClientRect();
+      if (!b.width || !b.height) continue;
+      const ratio = 133.52 / 76.97;                       // contain: the mark's own proportions, centred in the box
+      const w = Math.min(b.width, b.height * ratio);
+      const h = w / ratio;
+      const x = b.left + dx + (b.width - w) / 2 - clip.x;
+      const y = b.top + dy + (b.height - h) / 2 - clip.y;
+      if (x + w <= 0 || y + h <= 0 || x >= clip.width || y >= clip.height) continue;
+      out.push({ x, y, w, h });
+    }
+    return out;
+  }, { clip, fixed });
+  const px = (v) => Math.round(v * SCALE * 10) / 10;
+  return boxes.map((b) => ({ x: px(b.x), y: px(b.y), w: px(b.w), h: px(b.h) }));
+}
+
+/** waves.json beside the pictures: merged with what is there, the pictures of this run anew */
+function writeWaves(results) {
+  const file = path.join(opt.out, 'waves.json');
+  let all = {};
+  try { all = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch (e) { all = {}; }
+  for (const r of results) {
+    if (r.fails.length) continue;
+    const name = path.basename(r.file, '.png');
+    if (r.waves && r.waves.length) all[name] = r.waves; else delete all[name];
+  }
+  const sorted = Object.fromEntries(Object.keys(all).sort().map((k) => [k, all[k]]));
+  // one picture a line, its boxes on it - short to read and to diff
+  const lines = Object.entries(sorted).map(([k, v]) => ` ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
+  fs.writeFileSync(file, lines.length ? `{\n${lines.join(',\n')}\n}\n` : '{}\n');
+  return file;
 }
 
 /** All moments small with their names, the de set beside the en one: contact-sheet.html, and a PNG of it per language */
@@ -360,7 +411,9 @@ async function runMoments() {
   await browser.close();
   results.sort((a, b) => a.file.localeCompare(b.file));
   const failed = results.filter((r) => r.fails.length);
-  for (const r of results) console.log(`${r.fails.length ? 'FAIL' : 'ok  '}  ${r.file}`);
+  const waves = writeWaves(results);
+  for (const r of results) console.log(`${r.fails.length ? 'FAIL' : 'ok  '}  ${r.file}${r.waves && r.waves.length ? `  (${r.waves.length} wave${r.waves.length > 1 ? 's' : ''})` : ''}`);
+  console.log(`waves ${waves}`);
   for (const f of sheet) console.log(`sheet ${f}`);
   for (const r of failed) {
     console.log(`\n${path.basename(r.file)}:`);
