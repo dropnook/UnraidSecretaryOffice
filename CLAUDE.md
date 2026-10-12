@@ -268,7 +268,7 @@ by `src/reportimage.php` without metadata, ≤ 2560 px, the required tick «noth
 NSImage). `Office.deskIcon(id)` / `Office.avatar(id)` show it; desk.json's `icon` emoji is only the fallback; a desk may
 change it with its state (`Office.setDeskMood(id, mood)` → `avatar-<mood>.svg`). Never an emoji where a drawing exists.
 
-**Characters:** Frau Snapshotini (Italian), Herr Backupsi (scatterbrained, anxious, checks everything three times), Jack
+**Characters:** Frau Snapshotini (Italian), Herr Backupsi (nervous, anxious — never «scatterbrained»: a backup forgets nothing; checks everything three times), Jack
 Emby (the intern), Frau Protokolli (reads everything out, understands nothing), Frau Putzteufel (sees dust everywhere, but
 never throws anything away at once — «man weiss ja nie» — and knows every corner of the server), der Teamchef (plain and
 friendly, knows his people), Herr Restori (calm restorer in white gloves, «Piano, piano», apprentice with Herr Backupsi),
