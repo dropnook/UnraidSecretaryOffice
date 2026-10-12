@@ -90,12 +90,14 @@ const CL_LEGACY       = '_zumloeschen';            // trash of the old unraid-cl
 // folder in a trash run => kind of what is in it
 const CL_KINDS        = ['templates' => 'template', 'compose' => 'stack', 'appdata' => 'appdata', 'vms' => 'domain', 'isos' => 'iso',
                          'nvram' => 'nvram', 'tpm' => 'tpm', 'snapshotdb' => 'snapshotdb', 'strays' => 'stray', 'userscripts' => 'userscript',
-                         'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner', 'packages' => 'package', 'volumes' => 'volume'];
+                         'icons' => 'icon', 'restore' => 'leftover', 'partners' => 'partner', 'packages' => 'package', 'volumes' => 'volume',
+                         'shares' => 'sharecfg'];
 // what something still needs can't be chosen at all (2026-10-12): a template whose container exists, an appdata folder,
 // a VM's folder or disk image still in use (`force` on these kinds) — no «anyway»; the page's IN_USE_LOCKED says the same.
 // Stacks in use («let go»: stopped and parked) and Mr. Restori's way back (leftovers) keep their warning and «anyway».
 const CL_IN_USE_LOCKED = ['template', 'appdata', 'domain', 'iso'];
 const CL_US_SCRIPTS   = US_DIR . '/scripts';
+const CL_SHARE_CFGS   = '/boot/config/shares';      // every share's settings — one whose share is gone stays behind (room «flash»)
 const CL_US_TMP       = '/tmp/user.scripts';         // running markers and last outputs (RAM: since the reboot)
 const CL_STRAY_TTL    = 6 * 3600;                  // look for stray templates again after this (or when asked)
 const CL_MEDIA        = '/\.(iso|img|qcow2|raw|vhdx?|vmdk|vdi|pat|dmg)$/i';   // what counts as a VM's disk image in the isos share
@@ -359,6 +361,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         'isos'      => $places['isos'] + ['files' => $vms['enabled'] ? clWithoutLeftovers(['list' => clMediaFiles($places['isos'])], $leftovers['list'], $places['isos']['share'])['list'] : []],
         'compose'   => clForeignCompose($docker),
         'scripts'   => clUserScripts(),
+        'flash'     => clShareCfgs(),                     // share settings whose share is gone (helmi1987, 2026-10-12)
         'vms'       => $vms,
         'libvirt'   => clLibvirtOrphans($vms),
         'leftovers' => $leftovers,
@@ -506,8 +509,8 @@ function clExists(string $path): ?bool
     // a share that doesn't exist at all: gone, without asking any disk
     if (preg_match('#^/mnt/user0?/([^/]+)#', $path, $m)) {
         $GLOBALS['clFresh']['shares'] ??= array_keys(readCfg('/var/local/emhttp/shares.ini', true));
-        if (!in_array($m[1], $GLOBALS['clFresh']['shares'], true) && !is_file("/boot/config/shares/{$m[1]}.cfg")) {
-            return false;
+        if (!in_array($m[1], $GLOBALS['clFresh']['shares'], true) && !officeShareExists($m[1])) {
+            return false;                              // a cfg alone is no share (a share removed by hand leaves it)
         }
     }
     return clSafe($path) ? file_exists($path) : null;
@@ -1134,6 +1137,47 @@ function clUserScripts(): array
     }
     usort($out['list'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
     return $out;
+}
+
+// --------------------------------------------------------------------- share settings without their share
+
+/** Where Unraid keeps every share's settings (the tests point it elsewhere) */
+function clShareCfgDir(): string
+{
+    return (string) ($GLOBALS['clShareCfgDir'] ?? CL_SHARE_CFGS);
+}
+
+/**
+ * Her room «On the flash» (2026-10-12, helmi1987's finding): every /boot/config/shares/<name>.cfg — `stale` when Unraid
+ * doesn't know that share any more (a share removed by hand leaves its .cfg; officeShareExists(): shares.ini, then
+ * /mnt/user/<name>, never a disk), `used` while it does (why `share_known`: never put away), `unknown` while the array
+ * isn't started (why `shares_unknown`: Unraid can't tell). Each with its mtime and its storage lines. Plain files only.
+ * $known/$exists: the tests' stand-ins.
+ */
+function clShareCfgs(?string $dir = null, ?bool $known = null, ?callable $exists = null): array
+{
+    $dir ??= clShareCfgDir();
+    $known ??= officeSharesKnown();
+    $exists ??= fn (string $name): bool => officeShareExists($name);
+    $list = [];
+    foreach (glob("$dir/*.cfg") ?: [] as $file) {
+        $name = basename($file, '.cfg');
+        if (is_link($file) || !is_file($file) || !preg_match('/^[^\/\x00-\x1f\x7f]{1,255}$/D', $name)) {
+            continue;
+        }
+        $cfg = readCfg($file);
+        $category = !$known ? 'unknown' : ($exists($name) ? 'used' : 'stale');
+        $list[] = [
+            'id' => "sharecfg:$name", 'kind' => 'sharecfg', 'name' => $name, 'file' => "$name.cfg", 'path' => $file,
+            'mtime' => (int) @filemtime($file) ?: null, 'bytes' => (int) @filesize($file),
+            'use_cache' => $cfg['shareUseCache'] ?? null, 'pool' => $cfg['shareCachePool'] ?? null, 'pool2' => $cfg['shareCachePool2'] ?? null,
+            'comment' => (string) ($cfg['shareComment'] ?? ''), 'category' => $category,
+            'why' => match ($category) { 'stale' => null, 'used' => 'share_known', default => 'shares_unknown' },
+            'force' => false, 'used_by' => [], 'notes' => [],
+        ];
+    }
+    usort($list, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    return ['dir' => $dir, 'known' => $known, 'list' => $list];
 }
 
 // --------------------------------------------------------------------- pictures
@@ -2706,6 +2750,7 @@ function clBuild(): array
                         'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? []],
         'stacks'    => ['root' => $raw['stacks']['root'], 'exists' => $raw['stacks']['exists'], 'list' => $stacks],
         'scripts'   => $raw['scripts'] + ['dir' => CL_US_SCRIPTS],
+        'flash'     => $raw['flash'] ?? ['dir' => clShareCfgDir(), 'known' => false, 'list' => []],
         'appdata'   => [
             'share'    => $ad['share'],
             'places'   => array_values($ad['places']),
@@ -3706,7 +3751,7 @@ function clGuard(array $state): void
 function clIndex(array $state): array
 {
     $all = [];
-    foreach (array_merge($state['templates']['list'], $state['stacks']['list'], $state['scripts']['list']) as $e) {
+    foreach (array_merge($state['templates']['list'], $state['stacks']['list'], $state['scripts']['list'], $state['flash']['list'] ?? []) as $e) {
         $all[$e['id']] = $e;
     }
     foreach (array_merge($state['appdata']['list'], $state['vms']['list'], $state['leftovers']['list'] ?? [], $state['partners']['list'] ?? []) as $f) {
@@ -3739,6 +3784,8 @@ function clParkCheck(array $e, bool $force): void
             'scheduled'     => new Problem('cleanup_scheduled', $p),
             'measuring'     => new Problem('cleanup_measuring', $p),
             'transfer'      => new Problem('cleanup_partner_transfer', $p),
+            'share_known'   => new Problem('cleanup_share_known', $p),
+            'shares_unknown' => new Problem('cleanup_shares_unknown', $p),
             default         => new Problem('cleanup_measure_first', $p),
         };
     }
@@ -3793,6 +3840,14 @@ function clPark(array $ids, bool $force): array
                 $as = 'userscripts/' . $e['folder'];
                 clMove($e['dir'], $runs[$r]['path'] . "/$as");
                 $runs[$r]['items'][] = ['kind' => 'userscript', 'name' => $e['folder'], 'label' => $e['name'], 'from' => $e['dir'], 'as' => $as];
+            } elseif ($e['kind'] === 'sharecfg') {
+                // a share's settings file whose share is gone: into the flash's storeroom as shares/<name>.cfg (the look just
+                // made decided — Unraid knowing the share or the array stopped is a `why` above, never put away)
+                $r = $run(dirname($e['path'], 2) . '/' . CL_TRASH);
+                $as = 'shares/' . basename($e['path']);
+                clMove($e['path'], $runs[$r]['path'] . "/$as");
+                $runs[$r]['items'][] = ['kind' => 'sharecfg', 'name' => basename($e['path']), 'label' => $e['name'], 'from' => $e['path'], 'as' => $as,
+                                        'bytes' => $e['bytes']];
             } elseif ($e['kind'] === 'stray') {
                 $r = $run(clStrayTrash($e['path']));
                 $as = clStrayAs($e['path']);
@@ -4029,6 +4084,7 @@ function clRestore(array $ids): array
             'tpm'        => CL_LIBVIRT . '/qemu/swtpm/tpm-states',
             'snapshotdb' => CL_LIBVIRT . '/qemu/snapshotdb',
             'userscript' => CL_US_SCRIPTS,
+            'sharecfg'   => clShareCfgDir(),
             'leftover'   => clLeftoverHome($it['from'], $run['root']),
             'package'    => clPackageHome($it['from'], $run['root']),
             'partner'    => clPartnerHome($it),
@@ -4610,6 +4666,7 @@ function clDetail(string $id): array
     $files = match ($e['kind']) {
         'template', 'stray' => [$e['path']],
         'userscript' => $e['exists'] ? [$e['path']] : [],
+        'sharecfg' => [$e['path']],
         'stack'    => array_values(array_filter([$e['file'], $e['override']])),
         default    => [],
     };
