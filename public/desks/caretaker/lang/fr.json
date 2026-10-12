@@ -266,7 +266,7 @@
     "other": "{unit} : {n} snapshots, le dernier {when}"
   },
   "partner.their_last_run": "Sa dernière sauvegarde {when} : {result}",
-  "partner.mbit": "Dernier transfert à {mbit} Mbit/s",
+  "partner.mbit": "Dernier transfert à {rate}",
   "partner.quota_used": "{used} sur {total} ({pct} %)",
   "partner.quota_none": "{used}, sans limite",
   "partner.nothing": "rien",
@@ -403,7 +403,7 @@
   "errors.partner_nothing": "Aucun des deux côtés n'enverrait rien — il n'y a rien à appairer.",
   "partner.tailnet_offline": "Hors ligne aussi dans le tailnet — le serveur lui-même semble absent.",
   "partner.tailnet_online": "Présent dans le tailnet, mais son secrétariat ne répond pas — array arrêté, plugin enlevé, SSH désactivé ?",
-  "partner.last_transfer": "Dernier transfert {size} à {mbit} Mbit/s",
+  "partner.last_transfer": "Dernier transfert {size} à {rate}",
   "notify.partner_tailnet_offline": "Tailscale dit : {name} est hors ligne aussi dans le tailnet.",
   "notify.partner_tailnet_online": "Tailscale dit : {name} est en ligne dans le tailnet — seul son secrétariat ne répond pas.",
   "partner.self_title": "Appairer ce secrétariat avec lui-même",

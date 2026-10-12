@@ -1357,7 +1357,7 @@
   "partner.ch_section": "Partner {name}: {key}",
   "partner.tile": "Partner",
   "partner.tile_never": {"one": "{name}: 1 unità, ancora niente inviato", "other": "{name}: {n} unità, ancora niente inviato"},
-  "partner.tile_sent": {"one": "{name}: 1 unità inviata, {size} a {mbit} Mbit/s, {when}", "other": "{name}: {n} unità inviate, {size} a {mbit} Mbit/s, {when}"},
+  "partner.tile_sent": {"one": "{name}: 1 unità inviata, {size} a {rate}, {when}", "other": "{name}: {n} unità inviate, {size} a {rate}, {when}"},
   "partner.tile_none": "{name}: niente inviato, {when}",
   "partner.tile_skipped": {"one": "1 saltata ({why})", "other": "{n} saltate ({why})"},
   "partner.tile_failed": {"one": "1 non riuscita ({why})", "other": "{n} non riuscite ({why})"},

@@ -1372,7 +1372,7 @@
   "partner.ch_section": "Partenaire {name} : {key}",
   "partner.tile": "Partenaires",
   "partner.tile_never": {"one": "{name} : {n} unité, rien envoyé encore", "other": "{name} : {n} unités, rien envoyé encore"},
-  "partner.tile_sent": {"one": "{name} : {n} unité envoyée, {size} à {mbit} Mbit/s, {when}", "other": "{name} : {n} unités envoyées, {size} à {mbit} Mbit/s, {when}"},
+  "partner.tile_sent": {"one": "{name} : {n} unité envoyée, {size} à {rate}, {when}", "other": "{name} : {n} unités envoyées, {size} à {rate}, {when}"},
   "partner.tile_none": "{name} : rien envoyé, {when}",
   "partner.tile_skipped": {"one": "{n} sautée ({why})", "other": "{n} sautées ({why})"},
   "partner.tile_failed": {"one": "{n} échouée ({why})", "other": "{n} échouées ({why})"},

@@ -976,7 +976,7 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
   only later (a partner's). `sw.el` (`.sections`: the row `sw.grid` with `grid`'s classes, the body `sw.body`
   `[data-sections-body]` with `data-active` and `data-sections` — the click test reads them), `sw.render()` (a new
   state, every answer of the agent: the choice stays, in `keepInPlace(sw.grid)`), `sw.pick(id[, how])` (like a click; the
-  active one again → nothing; `'route'`: no toggle, no move — a link that opens a section), `sw.active()`, `sw.mount(sub)`
+  active one again → nothing; `'route'`: no toggle, no move — a link that opens a section; `'start'`: like `'route'` but never kept — a desk's own opening, e.g. Mr. Backupsy's «Grundlagen» while no backup place is chosen), `sw.active()`, `sw.mount(sub)`
   (from `mount(root, sub)`: a tile's sub-route picks it and the address goes back to `#/<desk>` — true; else the stored
   choice or the default, a filter tile off — false, sub is the desk's), `sw.places()` (`kind: 'tile'` entries of the tiles
   with a key, for `Office.places()`), `sw.note(name)` → `{tile, clear}` for `bar.done()` of section `name`, `sw.clear()`.

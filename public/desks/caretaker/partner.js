@@ -153,7 +153,7 @@ function card(x) {
   }
   if (x.silent && x.tailnet !== null && x.tailnet !== undefined) main.appendChild(el('div', 'row-detail', T(x.tailnet ? 'partner.tailnet_online' : 'partner.tailnet_offline')));
   const lt = x.last_transfer;
-  if (lt && lt.mbit) main.appendChild(el('div', 'row-detail', lt.bytes ? T('partner.last_transfer', { size: fmt.size(lt.bytes), mbit: fmt.number(lt.mbit, 0) }) : T('partner.mbit', { mbit: fmt.number(lt.mbit, 0) })));
+  if (lt && lt.mbit) main.appendChild(el('div', 'row-detail', lt.bytes ? T('partner.last_transfer', { size: fmt.size(lt.bytes), rate: fmt.bitrate(lt.mbit) }) : T('partner.mbit', { rate: fmt.bitrate(lt.mbit) })));
 
   // what I keep of theirs: every unit received (a unit never seen before is «new» — the consent is the pairing), the rules
   const keep = el('div', 'row-detail');

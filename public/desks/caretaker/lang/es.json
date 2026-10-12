@@ -266,7 +266,7 @@
     "other": "{unit}: {n} instantáneas, la última {when}"
   },
   "partner.their_last_run": "Su última copia {when}: {result}",
-  "partner.mbit": "Última transferencia a {mbit} Mbit/s",
+  "partner.mbit": "Última transferencia a {rate}",
   "partner.quota_used": "{used} de {total} ({pct} %)",
   "partner.quota_none": "{used}, sin límite",
   "partner.nothing": "nada",
@@ -403,7 +403,7 @@
   "errors.partner_nothing": "Ninguno de los dos lados enviaría nada — no hay nada que emparejar.",
   "partner.tailnet_offline": "También desconectado en la tailnet — parece que el propio servidor no está.",
   "partner.tailnet_online": "Está en la tailnet, pero su secretaría no responde — ¿array detenido, plugin quitado, SSH apagado?",
-  "partner.last_transfer": "Última transferencia {size} a {mbit} Mbit/s",
+  "partner.last_transfer": "Última transferencia {size} a {rate}",
   "notify.partner_tailnet_offline": "Tailscale dice: {name} también está desconectado en la tailnet.",
   "notify.partner_tailnet_online": "Tailscale dice: {name} está conectado en la tailnet — solo su secretaría no responde.",
   "partner.self_title": "Emparejar esta secretaría consigo misma",

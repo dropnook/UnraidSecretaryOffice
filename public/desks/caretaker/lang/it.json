@@ -266,7 +266,7 @@
     "other": "{unit}: {n} snapshot, l'ultimo {when}"
   },
   "partner.their_last_run": "Il suo ultimo backup {when}: {result}",
-  "partner.mbit": "Ultimo trasferimento a {mbit} Mbit/s",
+  "partner.mbit": "Ultimo trasferimento a {rate}",
   "partner.quota_used": "{used} di {total} ({pct} %)",
   "partner.quota_none": "{used}, senza limite",
   "partner.nothing": "niente",
@@ -403,7 +403,7 @@
   "errors.partner_nothing": "Nessuna delle due parti manderebbe qualcosa — non c'è niente da abbinare.",
   "partner.tailnet_offline": "Offline anche nella tailnet — sembra che il server stesso non ci sia.",
   "partner.tailnet_online": "Nella tailnet c'è, ma la sua segreteria non risponde — array fermo, plugin tolto, SSH spento?",
-  "partner.last_transfer": "Ultimo trasferimento {size} a {mbit} Mbit/s",
+  "partner.last_transfer": "Ultimo trasferimento {size} a {rate}",
   "notify.partner_tailnet_offline": "Tailscale dice: {name} è offline anche nella tailnet.",
   "notify.partner_tailnet_online": "Tailscale dice: {name} è online nella tailnet — solo la sua segreteria non risponde.",
   "partner.self_title": "Abbina questa segreteria con se stessa",

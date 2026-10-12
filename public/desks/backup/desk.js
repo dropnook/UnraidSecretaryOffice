@@ -702,7 +702,7 @@ function partnerParts(p) {
   if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: unitLabel(p.current.unit), size: fmt.size(p.current.bytes || 0) }));
   else if (!l) parts.push(T('partner.tile_never', { name: p.name, n: p.units.length }));
   else {
-    parts.push(l.sent ? T('partner.tile_sent', { name: p.name, n: l.sent, size: fmt.size(l.bytes), mbit: fmt.number(l.mbit || 0, 1), when: fmt.relative(l.time) })
+    parts.push(l.sent ? T('partner.tile_sent', { name: p.name, n: l.sent, size: fmt.size(l.bytes), rate: fmt.bitrate(l.mbit || 0), when: fmt.relative(l.time) })
       : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) }));
     if (l.skipped.length) parts.push(T('partner.tile_skipped', { n: l.skipped.length, why: [...new Set(l.skipped.map((x) => partnerWhyShort(x.why)))].join(', ') }));
     if (l.failed.length) parts.push(T('partner.tile_failed', { n: l.failed.length, why: [...new Set(l.failed.map((x) => partnerWhyShort(x.why)))].join(', ') }));
@@ -3153,9 +3153,7 @@ const setupNoPlace = () => !!(setup.plan && setup.draft && setup.model) && !dget
  * the usual start comes back.
  */
 function setupPlaceStart(sw) {
-  const kept = Office.store('backup.setup.tile');
-  if (sw.active() !== 'basics') sw.pick('basics', 'route');
-  Office.store('backup.setup.tile', kept === null ? null : kept);
+  if (sw.active() !== 'basics') sw.pick('basics', 'start');     // 'start': shown, never kept (core's pick)
 }
 /** The bar's «Zu den Grundlagen»: the step chosen, the guide in view, its «Add Share» focused */
 function setupToPlace() {

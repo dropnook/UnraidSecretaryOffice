@@ -7538,7 +7538,7 @@ const demo = JSON.parse(fs.readFileSync(planFile, 'utf8')).plan;
 b.setState(JSON.parse(fs.readFileSync(stateFile, 'utf8')));
 const bar = () => { const x = b.setupBarSpec(); return x && { title: x.title, sub: x.sub, buttons: x.buttons.map((y) => [y.text, !!y.disabled, y.title || '']) }; };
 // a switcher as core.js's: pick() keeps a section tile's choice
-const fakeSw = (active) => { let cur = active; return { active: () => cur, pick(id) { cur = id; store.set('backup.setup.tile', id); } }; };
+const fakeSw = (active) => { let cur = active; return { active: () => cur, pick(id, how) { cur = id; if (how !== 'start') store.set('backup.setup.tile', id); } }; };
 const startWith = (kept, active) => {
   store.clear();
   if (kept !== null) store.set('backup.setup.tile', kept);
@@ -27168,7 +27168,8 @@ function testSections(): void
     check('sections: core.js has Office.sections', (bool) preg_match('/^Office\.sections = function/m', $core));
     $at = (int) strpos($core, 'Office.sections = function');
     $fn = substr($core, $at, (int) strpos($core, '// ------------------------------------------------------------------ staff', $at) - $at);
-    check('sections: a filter tile is never kept (the store keeps the last section choice while one is on)', str_contains($fn, 'if (!isFilter(x)) Office.store(key, next);'));
+    check('sections: a filter tile is never kept (the store keeps the last section choice while one is on)', str_contains($fn, "if (!isFilter(x) && h !== 'start') Office.store(key, next);"));
+    check('sections: a start pick (a desk\'s own opening) is shown but never kept', str_contains($fn, "if (h === 'route' || h === 'start') return;"));
     check('sections: the desktop\'s move is block nearest, marked as a reveal', str_contains($fn, "head.scrollIntoView({ block: 'nearest' }); /* reveal */"));
     check('sections: the focus stays on the clicked tile without a scroll', str_contains($fn, 'focus({ preventScroll: true })'));
     check('sections: nothing hidden — no section is drawn with hidden', !preg_match('/\.hidden\s*=/', $fn));

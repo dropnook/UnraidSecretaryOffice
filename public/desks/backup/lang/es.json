@@ -1372,7 +1372,7 @@
   "partner.ch_section": "Socio {name}: {key}",
   "partner.tile": "Socios",
   "partner.tile_never": {"one": "{name}: 1 unidad, nada enviado aún", "other": "{name}: {n} unidades, nada enviado aún"},
-  "partner.tile_sent": {"one": "{name}: 1 unidad enviada, {size} a {mbit} Mbit/s, {when}", "other": "{name}: {n} unidades enviadas, {size} a {mbit} Mbit/s, {when}"},
+  "partner.tile_sent": {"one": "{name}: 1 unidad enviada, {size} a {rate}, {when}", "other": "{name}: {n} unidades enviadas, {size} a {rate}, {when}"},
   "partner.tile_none": "{name}: nada enviado, {when}",
   "partner.tile_skipped": {"one": "1 omitida ({why})", "other": "{n} omitidas ({why})"},
   "partner.tile_failed": {"one": "1 fallida ({why})", "other": "{n} fallidas ({why})"},

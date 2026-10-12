@@ -160,6 +160,11 @@ Office.fmt = {
   number(n, digits) {
     return intl((l) => new Intl.NumberFormat(l, { maximumFractionDigits: digits ?? 0 })).format(n);
   },
+  /** a transfer's rate as the engine measures it, in Mbit/s: «468 Mbit/s», from 1000 on «3.5 Gbit/s» */
+  bitrate(mbit) {
+    const m = Number(mbit) || 0;
+    return m >= 1000 ? `${Office.fmt.number(m / 1000, m < 10000 ? 1 : 0)} Gbit/s` : `${Office.fmt.number(m, m < 10 ? 1 : 0)} Mbit/s`;
+  },
   size(bytes) {
     if (bytes === 0) return '0 B';
     if (bytes === null || bytes === undefined || isNaN(bytes)) return '–';
@@ -1572,10 +1577,10 @@ Office.sections = function sections(opts) {
     if (h === 'click' && next === was) next = '';
     chosen = next;
     const x = tileOf(next);
-    if (!isFilter(x)) Office.store(key, next);             // a filter tile is never kept: the last section choice stays
+    if (!isFilter(x) && h !== 'start') Office.store(key, next);   // a filter tile is never kept: the last section choice stays; 'start' = a desk's own opening, never kept
     if (o.onPick) o.onPick(current(), h);
     if (grid.isConnected) Office.keepInPlace(grid, draw); else draw();
-    if (h === 'route') return;
+    if (h === 'route' || h === 'start') return;
     move(h, was);
     const focus = nodes.get(current() || was);
     if (focus && h !== 'clear') focus.focus({ preventScroll: true });

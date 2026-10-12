@@ -266,7 +266,7 @@
     "other": "{unit}: {n} snapshots, the last {when}"
   },
   "partner.their_last_run": "Their last run {when}: {result}",
-  "partner.mbit": "Last transfer at {mbit} Mbit/s",
+  "partner.mbit": "Last transfer at {rate}",
   "partner.quota_used": "{used} of {total} ({pct} %)",
   "partner.quota_none": "{used}, no quota",
   "partner.nothing": "nothing",
@@ -403,7 +403,7 @@
   "errors.partner_nothing": "Neither side would send anything — nothing to pair for.",
   "partner.tailnet_offline": "Also offline in the tailnet — the server itself seems to be away.",
   "partner.tailnet_online": "In the tailnet, but its office doesn't answer — is its array stopped, the plugin gone, SSH switched off?",
-  "partner.last_transfer": "Last transfer {size} at {mbit} Mbit/s",
+  "partner.last_transfer": "Last transfer {size} at {rate}",
   "notify.partner_tailnet_offline": "Tailscale says: {name} is offline in the tailnet as well.",
   "notify.partner_tailnet_online": "Tailscale says: {name} is online in the tailnet — only its office doesn't answer.",
   "partner.self_title": "Pair this office with itself",

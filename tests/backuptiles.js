@@ -26,7 +26,7 @@ globalThis.Office = {
   el: (tag, cls, text) => ({ tag, cls, text, dataset: {}, appendChild() {}, append() {} }),
   place: (anchor, node) => { node.place = anchor; return node; },
   stat: (o) => ({ o, dataset: {} }),
-  fmt: { date: (t) => `date(${t})`, relative: (t) => `rel(${t})`, size: (b) => `${b} B`, number: (n) => String(n), cron: (c) => `cron(${c})`,
+  fmt: { date: (t) => `date(${t})`, relative: (t) => `rel(${t})`, size: (b) => `${b} B`, number: (n) => String(n), bitrate: (m) => `${m} Mbit/s`, cron: (c) => `cron(${c})`,
     duration: (s) => `${Math.round(s / 60)} min`, time: (t) => `time(${t})` },
 };
 // core.js's matcher as it is (the block between «const fold» and the next helper)
