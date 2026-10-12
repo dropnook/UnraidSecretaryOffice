@@ -2272,7 +2272,7 @@ function runCard(j, now) {
   rs_slideMark(sw, ol, j.id, d.at);
   if (d.percent !== null) {
     const bar = el('div', 'bar rs-bigbar');
-    const fill = el('i', 'data');
+    const fill = el('i', 'snaps');     // the accent, as Mr. Backupsy's run bar (a user: grey here, orange there)
     fill.style.width = d.percent + '%';
     bar.append(fill, el('span', 'rs-bar-label', `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
     card.appendChild(bar);
