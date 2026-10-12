@@ -163,13 +163,16 @@ function card(x) {
   // what I send (the levels in Mr. Backupsy's setup), and what they keep of it
   const send = el('div', 'row-detail');
   send.appendChild(el('strong', '', T('partner.i_send', { host: Office.config.host, name: x.name }) + ' '));
+  // 1.60.1: an ended partnership's units wait for this pair in Mr. Backupsy's setup (apply_from) - said plainly, with the way
+  const from = x.sends ? (x.apply_from || []) : [];
+  const toSetup = () => { const go = el('a', 'ct-plink', T('partner.i_send_setup')); go.href = '#/backup/setup'; send.append(' ', go); };
   if (!x.sends) send.append(T('partner.i_send_nothing'));
   else if ((x.send_units || []).length) send.append(unitsText(x.send_units));
-  else {
-    send.append(T('partner.i_send_none_yet'));
-    const go = el('a', 'ct-plink', T('partner.i_send_setup'));
-    go.href = '#/backup/setup';
-    send.append(' ', go);
+  else if (!from.length) { send.append(T('partner.i_send_none_yet')); toSetup(); }
+  if (from.length) {
+    if ((x.send_units || []).length) send.append(' · ');
+    send.append(T('partner.i_send_apply', { from: from.map((f) => f.name).join(', '), n: from.reduce((a, f) => a + f.n, 0) }));
+    toSetup();
   }
   main.appendChild(send);
   if (x.sends) { const need = needLine('send'); if (need) main.appendChild(need); }

@@ -51,6 +51,7 @@ function refreshLive() {
   if (!view || !view.notes || !state) { if (view) render(); return; }
   view.notes.innerHTML = '';
   notices().forEach((n) => view.notes.appendChild(n));
+  placeRunCard();
   const keep = sw.body.querySelectorAll('details[open]').length;
   if (sw.active() === 'journal' || !keep) sw.render();
 }
@@ -71,7 +72,7 @@ async function pollJob() {
     if (sig(job) !== before && (live || was !== (job && job.result))) {
       journals.delete(job && job.id);
       refreshLive();
-    }
+    } else if (live) placeRunCard();         // its time left and «since» move on
     if (live) jobTimer = setTimeout(pollJob, Office.pollDelay(JOB_POLL, jobFails));
     else if (was && ['queued', 'running'].includes(was)) {
       Office.toast(T('job.done.' + (job.result === 'ok' ? 'ok' : job.result === 'warnings' ? 'warnings' : 'failed'), { what: job.what }), job.result !== 'ok');
@@ -276,9 +277,11 @@ function bubbleText() {
   const e = engine();
   if (!e.found) return T('bubble.no_engine');
   if (state.place.asleep && !apps().length) return T('bubble.asleep');
-  if (!apps().length && !vms().length) return T('bubble.no_packages');
   const run = runningJob();
   if (run) return T('bubble.restoring', { what: run.what, n: run.step, total: run.steps });
+  // a receiver keeps partners' copies without packages of its own (1.60.1): said as it is, not «they come with the first backup»
+  const held = kept().reduce((n, p) => n + (p.units || []).filter((u) => (u.n || 0) > 0).length, 0);
+  if (!apps().length && !vms().length) return held ? T('bubble.kept_only', { n: held }) : T('bubble.no_packages');
   const out = [T('bubble.ready', { apps: T('count.apps', { n: apps().length }), vms: T('count.vms', { n: vms().length }), when: date(state.run_time) })];
   if (otherHolder()) out.push(T('bubble.busy_' + otherHolder()));
   const gone = apps().filter((a) => !a.present).length + vms().filter((v) => v.state === 'missing').length;
@@ -317,8 +320,36 @@ function render() {
   notices().forEach((n) => notes.appendChild(n));
   root.appendChild(notes);           // his restore hints: over the row, at every click
   view.notes = notes;
+  // a restore going on (1.60.1, a user: like Mr. Backupsy's run): its card in the row's place, the journal under it
+  const card = el('div', 'rs-runcard');
+  view.card = card;
+  root.appendChild(card);
   root.appendChild(sw.el);           // the row and under it the chosen section — or, nothing chosen, all of them
+  placeRunCard();
   sw.render();
+}
+
+/**
+ * The run card in its place above the tiles (a user: «during a restore I always want to see the big graphic»): while a
+ * restore runs it stands under the bubble whatever tile is open, the tiles stay; from the job file (the poll), or - until
+ * the poll has it - from what the agent saw (its step of how many)
+ */
+function placeRunCard() {
+  if (!view || !view.card) return;
+  const j = liveJob();
+  const run = j ? null : runningJob();
+  view.card.innerHTML = '';
+  if (j) view.card.appendChild(runCard(j, Date.now() / 1000));
+  else if (run) view.card.appendChild(runCardShort(run));
+}
+
+/** The card before the job file is read: its title, «running» with the wave, step n of m */
+function runCardShort(run) {
+  const card = el('div', 'card rs-run running');
+  const top = el('div', 'card-head');
+  top.append(el('span', 'spin'), el('span', 'card-name', journalTitle({ kind: run.kind, what: run.what })), chip(T('jr.running'), 'accent'));
+  card.append(top, el('div', 'card-line', T('tile.journal_step', { n: run.step, total: run.steps })));
+  return card;
 }
 
 function notices() {
@@ -330,15 +361,8 @@ function notices() {
   else if (state.place.asleep) callout(T('notice.asleep', { path: state.place.base }), false);
   else if (!state.place.found) callout(T('notice.no_packages', { path: state.place.base }), false);
   if (state.place.partner) callout(T('notice.place_partner', { name: state.place.partner.name, when: date(state.place.partner.time), path: state.place.base }), false);
-  const run = runningJob();
-  if (run) {
-    const c = el('p', 'callout', T('notice.restoring', { what: run.what, n: run.step, total: run.steps }) + ' ');
-    const a = el('a', '', T('notice.to_journal'));
-    a.href = '#/restore';
-    a.onclick = (ev) => { ev.preventDefault(); openSection('journal'); };
-    c.appendChild(a);
-    out.push(c);
-  } else if (otherHolder()) callout(T('notice.busy_' + otherHolder()), true);
+  // a restore going on: no banner — its run card stands in the row's place (placeRunCard())
+  if (!runningJob() && otherHolder()) callout(T('notice.busy_' + otherHolder()), true);
   return out;
 }
 
@@ -363,7 +387,10 @@ function tileLine(sec) {
     const run = runningJob();
     if (run) return [T('tile.journal_running', { what: run.what }), T('tile.journal_step', { n: run.step, total: run.steps })];
     const list = state.restores || [];
-    return [T('tile.journal_line', { n: list.length }), list.length ? fmt.relative(list[0].created) : ''];
+    // after a restore the tile says how the last one went (like Mr. Backupsy's «Last backup» after a run)
+    const last = list[0];
+    return [[T('tile.journal_line', { n: list.length }), last && Office.has(`${ID}.jr.${last.result}`) ? T('jr.' + last.result) : ''].filter(Boolean).join(' · '),
+      last ? fmt.relative(last.finished || last.created) : ''];
   }
   if (sec === 'kopia') {
     if (!kopia().enabled) return [T('tile.kopia_off'), ''];
@@ -423,9 +450,10 @@ function sectionTile(sec, a) {
   const src = sec.startsWith('partner:') ? partnerOf(sec.slice(8)) : null;
   const kp = sec.startsWith('kept:') ? keptOf(sec.slice(5)) : null;
   const [line, right] = state ? tileLine(sec) : ['', ''];
+  const going = sec === 'journal' && !!state && !!runningJob();       // «Step 1 of 4» with the wave while it runs
   return Office.tile({ name: src ? T('tile.partner', { name: src.name }) : kp ? T('tile.kept', { name: kp.name }) : T('tile.' + sec),
     icon: el('span', 'rs-tile-icon', ICONS[src ? 'partner' : kp ? 'kept' : sec]),
-    lines: [[line, right]], ...a });
+    lines: [[line, going && right ? waving(right) : right]], ...a });
 }
 
 /** A section as the switcher draws it — its rows' «Unfold all» reaches only its own rows */
@@ -1380,6 +1408,7 @@ function unitLabel(u) {
   if (u === 'place') return T('pt.unit_place');
   if (String(u).startsWith('share:')) return T('pt.unit_share', { name: u.slice(6) });
   if (String(u).startsWith('vm:')) return T('pt.unit_vm', { name: u.slice(3) });
+  if (String(u).startsWith('app:')) return T('pt.unit_app', { name: u.slice(4) });
   return String(u || '');
 }
 
@@ -1900,6 +1929,10 @@ function partnerOptions(box, plan, ask, change) {
  */
 function startOptions(box, plan, ask, change, close) {
   box.innerHTML = '';
+  const found = plan.options.found || [];
+  if (found.length) box.appendChild(foundField(found, change));
+  const needs = plan.options.needs || [];
+  if (needs.length) box.appendChild(needsField(needs, plan, ask, change));
   const c = plan.options.conflict;
   if (!c) return;
   if (ask.beside) {
@@ -1917,6 +1950,62 @@ function startOptions(box, plan, ask, change, close) {
   row.append(cancel, ' ', beside);
   p.appendChild(row);
   box.appendChild(p);
+}
+
+/**
+ * The shares the app(s) bind (1.60.1, a user: dropnook needs the share drop): one that isn't here blocks the start (the
+ * office never creates a share - Unraid's ⟦Shares⟧ does; «Look again» re-plans) unless «only the app's own folder» is
+ * ticked; one that is here and kept from the partner too can come along (a tick)
+ */
+function needsField(needs, plan, ask, change) {
+  const f = el('div', 'field rs-needs');
+  const partner = (plan.target && plan.target.partner) || '';
+  needs.forEach((n) => {
+    if (!n.exists) {
+      const p = el('p', 'callout warn', T('rd.needs_missing', { name: n.apps.join(', '), share: n.share }) + (n.kept ? ' ' + T('rd.needs_kept', { share: n.share }) : '') + ' ');
+      p.appendChild(button(T('rd.needs_again'), 'small plain', () => change({})));
+      f.appendChild(p);
+    } else if (n.kept) {
+      const l = el('label', 'check');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = !!n.with;
+      cb.onchange = () => change({ with: needs.filter((x) => (x.share === n.share ? cb.checked : x.with)).map((x) => x.share) });
+      l.append(cb, ' ', T('rd.needs_with', { share: n.share }));
+      f.appendChild(l);
+    }
+  });
+  if (needs.some((n) => !n.exists) || ask.only_folder) {
+    const l = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = !!ask.only_folder;
+    cb.onchange = () => change({ only_folder: cb.checked });
+    l.append(cb, ' ', T('rd.only_folder'));
+    f.appendChild(l);
+  }
+  return f;
+}
+
+/**
+ * A share's copy from a partner (1.60.1): the apps and VMs its packages name, each with a tick (all by default) — only
+ * the ticked ones are brought back (`only`, their folder names); the files of the share come whole as before
+ */
+function foundField(found, change) {
+  const f = el('div', 'field rs-found');
+  f.appendChild(el('div', 'field-title', T('rd.found')));
+  const tick = () => change({ only: [...f.querySelectorAll('input[type=checkbox]')].filter((x) => x.checked).map((x) => x.value) });
+  found.forEach((x) => {
+    const l = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.value = x.folder;
+    cb.checked = x.on !== false;
+    cb.onchange = tick;
+    l.append(cb, ' ', T(x.kind === 'vm' ? 'pt.unit_vm' : 'pt.unit_app', { name: x.name }), x.name !== x.folder ? ` (${x.folder})` : '');
+    f.appendChild(l);
+  });
+  return f;
 }
 
 /** A moment in the list: when, its name, whose, which parts of the share it covers, whether it holds anything of it */
@@ -2033,6 +2122,170 @@ async function kopiaDialog(source, path) {
 }
 
 // ------------------------------------------------------------------ the journal
+/** A VM defined from another server's copy, fitted to this host (1.60.1): what was changed, one line each (sa.<code>) */
+function adaptedList(st, jid = null) {
+  const list = st && st.params && Array.isArray(st.params.adapted) ? st.params.adapted.filter((x) => x && Office.has(`${ID}.sa.${x.code}`)) : [];
+  const stacks = st && st.params && Array.isArray(st.params.stacks) ? st.params.stacks.filter((k) => k && Office.has(`${ID}.sk.${k.state}`)) : [];
+  if (!list.length && !stacks.length) return null;
+  const box = el('div', 'role');
+  // a Compose stack from another server (1.60.1): made here (not started), left, or waiting for the Compose Manager
+  stacks.forEach((k) => {
+    const line = el('div', '', T('sk.' + k.state, { name: k.name || '', path: k.path || '' }));
+    if (k.state === 'no_manager' || k.state === 'no_manager_cli') {
+      const a = el('a', '', T('sk.to_apps'));
+      a.href = '/Apps';
+      line.append(' ', a);
+      // 1.60.1: the Compose Manager here now (as the page last looked) - the stack part alone, from the copy recorded
+      if (jid && state && state.compose_here) {
+        const b = button(T('sk.create_now'), 'small', async () => {
+          b.disabled = true;
+          const r = await Office.api.post(`${ID}.stack_create`, { id: jid, name: k.name || '' });
+          if (!r.ok) { Office.toast(Office.errorText(r.error, ID), true); b.disabled = false; return; }
+          Office.toast(T('sk.' + ((r.stack && r.stack.state) || 'created'), { name: k.name || '', path: (r.stack && r.stack.path) || '' }));
+          journals.delete(jid);
+          await load(true);
+        });
+        line.append(' ', b);
+      }
+    }
+    box.appendChild(line);
+    const ul = el('ul', 'rs-adapted');
+    (k.mapped || []).forEach(([from, to]) => ul.appendChild(el('li', '', T('sk.mapped', { from, to }))));
+    (k.missing || []).forEach((path) => ul.appendChild(el('li', '', T('sk.missing', { path }))));
+    // 1.60.1: a share the stack uses didn't come with the copy and isn't here - said plainly
+    (k.shares_missing || []).forEach((share) => box.appendChild(el('p', 'callout warn', T('sk.share_missing', { name: k.name || '', share }))));
+    if (ul.children.length) box.appendChild(ul);
+  });
+  if (!list.length) return box;
+  box.appendChild(el('div', '', T('sa.head', { name: st.params.name || '' })));
+  const ul = el('ul', 'rs-adapted');
+  const num = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, typeof v === 'string' && /^\d{1,9}$/.test(v) ? Number(v) : v]));
+  list.forEach((x) => ul.appendChild(el('li', '', T('sa.' + x.code, num(x.params)))));
+  box.appendChild(ul);
+  return box;
+}
+
+// ------------------------------------------------------------------ the run card (1.60.1)
+/** The job file while a restore runs (the poll's), else null */
+const liveJob = () => (job && ['queued', 'running'].includes(job.result) && Array.isArray(job.steps) ? job : null);
+
+/** A step's short name for the card (ss.<kind>); the full sentence with its paths stays in the journal (its title here) */
+function shortStep(st) {
+  const key = st.do === 'start_from' ? 'start_from_' + (st.kind === 'vm' ? 'vm' : st.kind === 'look' ? 'look' : 'share') : st.do;
+  return Office.has(`${ID}.ss.${key}`) ? T('ss.' + key) : stepText(st);
+}
+
+const RATE_WINDOW = 600;                     // the median rate of the last 10 minutes, like Jack Emby's live panel
+const rateSamples = new Map();               // "<job>|<step>" -> [[time, bytes done]]
+/** The live rate of a running copy step (bytes/s, the median between the samples of the last 10 minutes), null before two */
+function stepRate(key, done, now) {
+  const list = (rateSamples.get(key) || []).filter(([t]) => t >= now - RATE_WINDOW);
+  if (!list.length || list[list.length - 1][1] !== done) list.push([now, done]);
+  rateSamples.set(key, list);
+  const rates = [];
+  for (let i = 1; i < list.length; i++) {
+    const dt = list[i][0] - list[i - 1][0];
+    if (dt > 0 && list[i][1] >= list[i - 1][1]) rates.push((list[i][1] - list[i - 1][1]) / dt);
+  }
+  if (!rates.length) return null;
+  rates.sort((a, b) => a - b);
+  const m = rates[Math.floor(rates.length / 2)];
+  return m > 0 ? m : null;
+}
+// the steps that move data: their size is what takes time; every other step counts as short
+const COPY_STEPS = ['pull', 'pull_local', 'copy', 'kopia'];
+const stepBytes = (st, j) => (Number(st.bytes) > 0 ? Number(st.bytes) : st.do === 'copy' && j.sizes && Number(j.sizes.need) > 0 ? Number(j.sizes.need) : null);
+
+/**
+ * What the card shows of a job, pure (tests/run.php runs it under node): the steps (short name, state), the current
+ * one's percent, its time left from the live rate (only with its size known) and the whole's end (only when every copy
+ * step still to come has a size), the counts. No history: a restore runs once
+ */
+function runCardData(j, now) {
+  const steps = j.steps.map((st) => ({ name: shortStep(st), full: stepText(st), state: st.state || 'pending' }));
+  const at = j.steps.findIndex((st) => st.state === 'running');
+  const cur = at >= 0 ? j.steps[at] : null;
+  const pr = cur && cur.progress ? cur.progress : null;
+  const total = pr && Number(pr.total) > 0 ? Number(pr.total) : null;
+  const done = pr && Number(pr.done) >= 0 ? Number(pr.done) : null;
+  const percent = pr && pr.percent !== null && pr.percent !== undefined ? Number(pr.percent) : total && done !== null ? Math.floor(100 * done / total) : null;
+  let left = null;
+  let end = null;
+  if (cur && total && done !== null) {
+    const rate = stepRate(`${j.id}|${at}`, done, now);
+    if (rate) {
+      left = Math.max(0, (total - done) / rate);
+      const rest = j.steps.slice(at + 1).filter((st) => COPY_STEPS.includes(st.do));
+      const sizes = rest.map((st) => stepBytes(st, j));
+      if (sizes.every((b) => b !== null)) end = now + left + sizes.reduce((a, b) => a + b, 0) / rate;
+    }
+  }
+  return { title: journalTitle(j), started: j.started || null, steps, at, percent: percent === null || Number.isNaN(percent) ? null : Math.min(100, percent),
+    left, end, errors: j.steps.filter((st) => st.state === 'failed').length, warnings: j.steps.filter((st) => st.state === 'warning').length };
+}
+
+/**
+ * The current step's highlight slides (1.60.1, a user: it jumped): one element behind the step list, moved over the current
+ * step with an ease-in-out of 0.7 s, its width the step's. No move on the first drawing or while the step stays - a
+ * redraw at every poll starts from where it stood (rsHlLast); under prefers-reduced-motion it jumps (office.css)
+ */
+let rsHlLast = { key: null, at: -1, box: null };
+function rs_slideMark(wrap, ol, key, at) {
+  if (at < 0 || typeof requestAnimationFrame !== 'function') return;
+  const hl = el('div', 'rs-steps-hl');
+  hl.setAttribute('aria-hidden', 'true');
+  wrap.insertBefore(hl, ol);
+  const place = (b) => { hl.style.left = b.left + 'px'; hl.style.top = b.top + 'px'; hl.style.width = b.width + 'px'; hl.style.height = b.height + 'px'; };
+  requestAnimationFrame(() => {
+    const li = ol.children[at];
+    if (!li || !li.offsetWidth) return;
+    const box = { left: ol.offsetLeft + li.offsetLeft, top: ol.offsetTop + li.offsetTop, width: li.offsetWidth, height: li.offsetHeight };   // li sits in the positioned ol
+    const from = rsHlLast.key === key && rsHlLast.at !== at && rsHlLast.box ? rsHlLast.box : null;
+    hl.style.transition = 'none';
+    place(from || box);
+    if (from) {
+      void hl.offsetWidth;                // the start position laid out before the move
+      hl.style.transition = '';
+      place(box);
+    }
+    rsHlLast = { key, at, box };
+  });
+}
+
+/** The card: like Mr. Backupsy's run — the steps as a segmented bar, the current one with the wave, the bar, the end, the counts */
+function runCard(j, now) {
+  const d = runCardData(j, now);
+  const card = el('div', 'card rs-run running');
+  const top = el('div', 'card-head');
+  top.append(el('span', 'spin'), el('span', 'card-name', d.title), chip(T('jr.running'), 'accent'));
+  if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
+  card.appendChild(top);
+  const ol = el('ol', 'rs-steps');
+  d.steps.forEach((st, i) => {
+    const li = el('li', st.state === 'running' ? 'current' : st.state === 'pending' ? '' : st.state === 'failed' ? 'done failed' : 'done', st.name);
+    li.title = st.full;              // the highlight says it runs: the wave only in the title
+    ol.appendChild(li);
+  });
+  const sw = el('div', 'rs-steps-wrap');
+  sw.appendChild(ol);
+  card.appendChild(sw);
+  rs_slideMark(sw, ol, j.id, d.at);
+  if (d.percent !== null) {
+    const bar = el('div', 'bar rs-bigbar');
+    const fill = el('i', 'data');
+    fill.style.width = d.percent + '%';
+    bar.append(fill, el('span', 'rs-bar-label', `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
+    card.appendChild(bar);
+  }
+  if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
+  j.steps.forEach((st) => { const a = adaptedList(st); if (a) card.appendChild(a); });      // a VM fitted to this host: said here too
+  const foot = el('div', 'card-foot');
+  foot.appendChild(el('span', '', `${T('rc.errors', { n: d.errors })}, ${T('rc.warnings', { n: d.warnings })}`));
+  foot.appendChild(button(T('rc.log'), 'small plain', () => { expanded.add('j:' + j.id); openSection('journal'); }));
+  card.appendChild(foot);
+  return card;
+}
+
 function journalSection() {
   const list = state.restores || [];
   const s = sectionBox(T('journal'), T('journal_sub'), list.length > 1 ? unfoldAll() : null, { place: 'journal' });
@@ -2046,6 +2299,9 @@ function journalSection() {
   return s;
 }
 
+/** «Working, no need to wait» (CLAUDE.md: the wave): x with the office's wave after it, inside .running — the
+ * journal's «running» chips, the tile's step while a restore runs */
+const waving = (x) => { const w = el('span', 'running'); w.append(el('span', 'spin'), ' ', ...[].concat(x)); return w; };
 const resultClass = (r) => ({ ok: 'ok', warnings: 'warn', failed: 'danger', refused: 'warn', interrupted: 'danger', running: 'accent', queued: 'quiet' }[r] || '');
 
 function journalTitle(r) {
@@ -2054,7 +2310,8 @@ function journalTitle(r) {
 
 function journalRow(r) {
   const meta = el('div', 'row-meta');
-  meta.appendChild(chip(T('jr.' + r.result), resultClass(r.result), r.reason ? problemText({ key: r.reason, params: r.reason_params }) : null));
+  const head = chip(T('jr.' + r.result), resultClass(r.result), r.reason ? problemText({ key: r.reason, params: r.reason_params }) : null);
+  meta.appendChild(r.result === 'running' ? waving(head) : head);
   meta.appendChild(el('span', '', date(r.started || r.created)));
   if (r.finished && r.started) meta.appendChild(el('span', '', fmt.duration(Math.max(60, r.finished - r.started))));
   if (r.putback) meta.appendChild(chip(T('j.put_back', { result: T('jr.' + r.putback.result) }), 'quiet', T('j.put_back_hint')));
@@ -2074,7 +2331,8 @@ function journalDetail(r) {
     const ol = el('ol', 'rs-pv-steps rs-j-steps');
     (j.steps || []).forEach((s) => {
       const li = el('li', 'rs-j-' + (s.state || 'pending'));
-      li.append(chip(T('state.' + (s.state || 'pending')), resultClass({ ok: 'ok', warning: 'warnings', failed: 'failed', running: 'running' }[s.state] || 'queued')), ' ', stepText(s));
+      const sc = chip(T('state.' + (s.state || 'pending')), resultClass({ ok: 'ok', warning: 'warnings', failed: 'failed', running: 'running' }[s.state] || 'queued'));
+      li.append(s.state === 'running' ? waving(sc) : sc, ' ', stepText(s));
       const pr = s.progress;
       if (pr && s.state === 'running') {
         const pct = pr.percent !== null && pr.percent !== undefined ? pr.percent : pr.total ? Math.floor(100 * pr.done / pr.total) : null;
@@ -2083,6 +2341,7 @@ function journalDetail(r) {
         if (pct !== null) { const bar = el('div', 'bar thin rs-bar'); const i = el('i', 'data'); i.style.width = Math.min(100, pct) + '%'; bar.appendChild(i); li.appendChild(bar); }
       }
       if (s.note && s.state !== 'running') li.appendChild(el('div', 'role', T('sn.' + s.note, nice(s.params))));
+      if (s.state !== 'running') { const a = adaptedList(s, j.id || r.id); if (a) li.appendChild(a); }
       if (s.detail) li.appendChild(el('pre', 'code rs-j-detail', String(s.detail)));
       ol.appendChild(li);
     });
@@ -2244,6 +2503,7 @@ Office.placesFrom(ID, (s, part) => {
 
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone };
+  globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
+    setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText };
 }
 })();

@@ -10,7 +10,14 @@
 @media (max-width:640px){.bk-steps{display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr))} .bk-steps li{min-width:0}}
 .bk-steps li::before{content:counter(bk) " · "; color:var(--line2)}
 .bk-steps li.done{border-top-color:var(--accent); color:var(--ink2)}
-.bk-steps li.current{border-top-color:var(--accent); color:var(--accent-ink); font-weight:650; background:var(--accent-soft)}
+.bk-steps li.current{border-top-color:var(--accent); color:var(--accent-ink); font-weight:650}
+/* 1.60.1: the current step's highlight slides from step to step (bk_slideMark: an ease-in-out of 0.7 s), its text colour with it;
+   prefers-reduced-motion: it jumps (office.css stops every transition) */
+.bk-steps-wrap{position:relative}
+.bk-steps-wrap .bk-steps{position:relative; z-index:1}
+.bk-steps li{transition:color .7s ease-in-out}
+.bk-steps-hl{position:absolute; z-index:0; background:var(--accent-soft); pointer-events:none;
+  transition:left .7s ease-in-out, top .7s ease-in-out, width .7s ease-in-out, height .7s ease-in-out}
 .bk-steps li.skipped{text-decoration:line-through}
 .bk-hold{display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:4px; margin-top:2px}
 .bk-hold-span{border:2px solid var(--line); border-top:0; border-radius:0 0 8px 8px; padding:1px 8px 3px; font-size:12px; color:var(--muted); text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
@@ -220,3 +227,8 @@ td.bk-filter-none{padding:6px 10px; font-weight:400; white-space:normal}
 #sso .bk-place-level{display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; margin:8px 0 0}
 #sso .bk-place-level .role{font-size:12.5px}
 #sso .bk-preset-tick{margin-top:8px; font-size:12.5px}
+/* the apply dialog's marks (1.60.1, diffMark()): + comes, − goes - one look for every row, the theme's ok / warn tokens */
+.shortlist li.bk-marked{justify-content:flex-start; column-gap:6px}
+.bk-diff{display:inline-block; min-width:1em; font-weight:700; text-align:center}
+.bk-diff.add{color:var(--good)}
+.bk-diff.gone{color:var(--warn)}

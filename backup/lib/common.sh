@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.44"
+UB_VERSION="2.45"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -348,7 +348,7 @@ declare -gA UB_SCHEMA=(
     [share]="mode method retention kopia_retention kopia_ignore kopia_known exclude_dataset id locations note partner"
     # kopia, folder, kopia_retention, kopia_ignore (since 2.19): a Kopia source of its own (section 9)
     [vm]="mode prepare retention kopia folder kopia_retention kopia_ignore partner"
-    [app]="kopia folder kopia_retention kopia_ignore"
+    [app]="kopia folder kopia_retention kopia_ignore partner"   # partner since 2.45: an app whose folder is a dataset of its own
     # since 2.27 (section 12): a partner office the run sends to, and per share/VM/the backup place the partners it goes to
     [partner]="name address port rate_mbit"
 )
@@ -452,7 +452,7 @@ cfg_validate() {
     done < <(cfg_names partner)
     local pk
     for k in "${!CFG[@]}"; do
-        [[ "$k" =~ ^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$ ]] || continue
+        [[ "$k" =~ ^(share\|.+\|partner|vm\|.+\|partner|app\|.+\|partner|general\|partner_place)$ ]] || continue
         while IFS= read -r pk; do
             [[ -z "$pk" ]] || partner_id_ok "$pk" || CFG_ERRORS+=( "${k##*|} = '$pk' in $(sec_display "${k%|*}") is invalid (a partner's id: 8 hex digits)" )
         done < <(cfg_list "$k")
@@ -3471,7 +3471,38 @@ partner_units() {
         [[ -n "$n" ]] || continue
         if grep -Fxq -- "$id" <<<"$(cfg_list "vm|$n|partner")"; then echo "vm:$n"; fi
     done < <(cfg_names vm)
+    while IFS= read -r n; do
+        [[ -n "$n" ]] || continue
+        if grep -Fxq -- "$id" <<<"$(cfg_list "app|$n|partner")"; then echo "app:$n"; fi
+    done < <(cfg_names app)
     return 0
+}
+
+# app_own_ds <app>  -> 0 and AO_DS / AO_SHARE when the app's folder ([app] folder, its first: <share>/<dir>) is a ZFS
+# dataset of its own (2.45 - a child of its share's dataset: INV_CHILDREN), else 1 and AO_WHY (no_dataset | not_dataset)
+app_own_ds() {
+    local f s d b ds mp
+    AO_DS=""; AO_SHARE=""; AO_WHY="no_dataset"
+    if declare -F pu_app_folder >/dev/null; then f="$(pu_app_folder "$1" | head -n 1)"      # setup.sh: the decisions'
+    else f="$(cfg_list "app|$1|folder" | head -n 1)"; fi
+    s="${f%%/*}"; d="${f#*/}"; d="${d%%/*}"
+    [[ -n "$f" && "$f" == */* && -n "$d" ]] || return 1
+    inv_has_share "$s" && [[ "${INV_METHOD[$s]}" != "none" ]] || return 1
+    AO_SHARE="$s"
+    while IFS='|' read -r b ds mp; do
+        [[ -n "$ds" && "$mp" == */"$s/$d" ]] && { AO_DS="$ds"; return 0; }
+    done <<<"${INV_CHILDREN[$s]:-}"
+    [[ "${INV_LOCS[$s]}" == *"|zfs|"* ]] && AO_WHY="not_dataset"
+    return 1
+}
+
+# partner_app_ds <dataset>  -> 0 when it is an app's own folder dataset (2.45: a unit of its own, like a VM's)
+partner_app_ds() {
+    local n
+    while IFS= read -r n; do
+        [[ -n "$n" ]] && app_own_ds "$n" && [[ "$AO_DS" == "$1" ]] && return 0
+    done < <(cfg_names app)
+    return 1
 }
 
 # partner_vm_ds <dataset>  -> 0 when it is (or lies below) a VM's own dataset
@@ -3505,6 +3536,11 @@ partner_unit_dataset() {
             (( n == 0 )) && { PU_WHY="no_dataset"; return 1; }
             (( n > 1 ))  && { PU_WHY="split"; return 1; }
             PU_DS="$own"; return 0 ;;
+        app:*)
+            s="${u#app:}"
+            partner_unit_name_ok "$s" || { PU_WHY="name"; return 1; }
+            app_own_ds "$s" || { PU_WHY="$AO_WHY"; return 1; }
+            PU_DS="$AO_DS"; return 0 ;;
         *)       PU_WHY="name"; return 1 ;;
     esac
     inv_has_share "$s" && [[ "${INV_METHOD[$s]}" != "none" ]] || { PU_WHY="no_dataset"; return 1; }
@@ -3518,6 +3554,7 @@ partner_unit_dataset() {
         [[ -z "$ds" ]] && continue
         ub_storeroom "${ds##*/}" && continue                                     # Ms. Dustdevil's storeroom: never backed up
         partner_vm_ds "$ds" && continue                                          # a VM's own dataset is a unit of its own
+        partner_app_ds "$ds" && continue                                         # an app's own folder dataset too (2.45)
         in_list "$ds" "${excl[@]}" || _parent_excluded "$ds" "${excl[@]}" && continue
         PU_WHY="children"; return 1
     done <<<"${INV_CHILDREN[$s]:-}"
@@ -3588,10 +3625,38 @@ partner_pairs_load() {
                  and (.port | type) == "number" and .port >= 1 and .port <= 65535 and .port == (.port | floor)
                  and (.my_key | type) == "string"
                  and ((.send.units // []) | type) == "array" and ((.send.units // []) | length) <= 64
-                 and all((.send.units // [])[]; type == "string" and test("^((share|vm):[A-Za-z0-9][A-Za-z0-9._-]{0,63}|place)$")))
+                 and all((.send.units // [])[]; type == "string" and test("^((share|vm|app):[A-Za-z0-9][A-Za-z0-9._-]{0,63}|place)$")))
         | [.id, .name, .address, (.port | tostring),
            ((.send.rate_mbit // 0) | if type == "number" and . >= 0 then floor else 0 end | tostring),
            ((.send.units // []) | join(" "))] | join("|")' "$f" 2>/dev/null)
+    return 0
+}
+
+# partner_ended <id>  -> 0 when the Team Lead's pairs can be read and <id> is not among the pairs this office sends to:
+# the partnership was ended there (2.45) - settings.ini still names it until Set up... > Apply drops it or gives its
+# units to the pair made anew. 1 when it is paired, or without a pairs.json (nothing to tell then)
+partner_ended() {
+    local l
+    partner_pairs_load || return 1
+    for l in "${PAIRS[@]}"; do [[ "${l%%|*}" == "$1" ]] && return 1; done
+    return 0
+}
+
+# partner_anew_match <gone id> <its address>  (2.45, setup.sh)  -> the id of a current pair (pairs.json, one this office sends to) with the
+# same address, else one with a host key the ended pair had (partner/ended.json beside pairs.json: {v: 1, pairs: {id:
+# {name, address, port, host_keys, time}}} - the Team Lead writes it when a partnership is ended); nothing without a match
+partner_anew_match() {
+    local f="$UB_PARTNER_PAIRS" e
+    e="$(dirname "$UB_PARTNER_PAIRS")/ended.json"
+    [[ -f "$f" && ! -L "$f" ]] || return 0
+    [[ -f "$e" && ! -L "$e" ]] || e=/dev/null
+    jq -rn --arg old "$1" --arg addr "${2,,}" --slurpfile p "$f" --slurpfile e "$e" '
+        ($p[0].pairs // []) | map(select(type == "object" and (.id | type) == "string" and (.id | test("^[0-9a-f]{8}$"))
+                                          and .id != $old and (.my_key | type) == "string")) as $pairs
+        | (($e[0].pairs // {})[$old].host_keys // []) as $hk
+        | ([$pairs[] | select($addr != "" and ((.address // "") | ascii_downcase) == $addr) | .id]
+           + [$pairs[] | select(($hk | length) > 0 and any((.host_keys // [])[]; . as $k | ($hk | any(.[]; . == $k)))) | .id])
+        | first // empty' 2>/dev/null
     return 0
 }
 

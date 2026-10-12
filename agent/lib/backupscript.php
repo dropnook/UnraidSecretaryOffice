@@ -497,7 +497,7 @@ function backupPartnersFromSettings(array $s): array
         $id = $m[1];
         $units = in_array($id, $s['general']['partner_place'] ?? [], true) ? ['place'] : [];
         foreach ($s as $k => $keys) {
-            if (preg_match('/^(share|vm)\|(.+)$/D', (string) $k, $mm) && in_array($id, $keys['partner'] ?? [], true)) {
+            if (preg_match('/^(share|vm|app)\|(.+)$/D', (string) $k, $mm) && in_array($id, $keys['partner'] ?? [], true)) {
                 $units[] = "$mm[1]:$mm[2]";
             }
         }

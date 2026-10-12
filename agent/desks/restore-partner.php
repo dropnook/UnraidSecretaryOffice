@@ -1086,6 +1086,54 @@ function rspFolderState(string $path): string
 }
 
 /**
+ * What a kept moment carries (1.60.1): its snapshot mounted read-only for a moment (RUN_DIR, never the pool), the
+ * packages read — its own .uso-backup and those of its folders one level down — and unmounted again. Per folder
+ * (''= the copy's top): {kind app|vm, name, dirs}. $GLOBALS['rs']['peek'] for the tests. Nothing found: [].
+ */
+function rspPeek(string $snapshot): array
+{
+    if (isset($GLOBALS['rs']['peek'])) {
+        return ($GLOBALS['rs']['peek'])($snapshot);
+    }
+    $dir = rtrim(sys_get_temp_dir(), '/') . '/uso-peek-' . bin2hex(random_bytes(4));
+    if (!@mkdir($dir, 0700)) {
+        return [];
+    }
+    $out = [];
+    if (run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', 'ro,noatime', $snapshot, $dir], 60)[0] === 0) {
+        foreach (array_merge([$dir], glob("$dir/*", GLOB_ONLYDIR) ?: []) as $f) {
+            $m = is_file("$f/" . RSP_INSIDE . '/manifest.json') && !is_link($f) ? readJson("$f/" . RSP_INSIDE . '/manifest.json') : null;
+            if (is_array($m) && in_array($m['kind'] ?? '', ['app', 'vm'], true)) {
+                $out[$f === $dir ? '' : basename($f)] = ['kind' => $m['kind'], 'name' => rsStr($m['name'] ?? '') ?: basename($f),
+                    'dirs' => array_values(array_filter((array) ($m['dirs'] ?? []), fn ($d) => is_string($d) && preg_match('#^[^/]+/[^/]+$#D', $d))),
+                    'needs' => rspNeeds("$f/" . RSP_INSIDE)];
+            }
+        }
+        run(['umount', $dir], 60);
+    }
+    @rmdir($dir);
+    return $out;
+}
+
+/**
+ * The shares an app's package binds (1.60.1, a user: dropnook needs the share drop): its compose files (anchors, the long
+ * and the short syntax - rspFitCompose) and its templates' paths, /mnt/user/<share> (a pool path's share too)
+ */
+function rspNeeds(string $inside): array
+{
+    $needs = [];
+    foreach (array_merge(glob("$inside/compose/*.y*ml") ?: [], glob("$inside/compose/.env") ?: []) as $f) {
+        [, , $miss] = rspFitCompose((string) @file_get_contents($f, false, null, 0, 1 << 20), fn () => true, fn () => false, fn () => true);
+        array_push($needs, ...rspSharesMissing($miss));
+    }
+    foreach (glob("$inside/my-*.xml") ?: [] as $f) {
+        preg_match_all('#>/mnt/(?:user|[A-Za-z0-9_.-]+)/([A-Za-z0-9_.@ -]+?)(?:/|<)#', (string) @file_get_contents($f, false, null, 0, 1 << 20), $m);
+        array_push($needs, ...$m[1]);
+    }
+    return array_values(array_unique(array_filter($needs, fn ($x) => preg_match(RS_NAME_PATTERN, $x))));
+}
+
+/**
  * Kind `partner_start`: {pair, unit, snap, beside?} - the preflight. Steps: pull_local (the independent copy), mount,
  * then for a VM or a share whose folder is free: copy (the files into their place) and start_from (what the copy's
  * .uso-backup allows: the VM's definition, an app's template); a share holding data with `beside`: only the copy
@@ -1111,8 +1159,10 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     $name = $kept['name'];
     $label = rspUnitName($unit);
     $plan = rsPlanBase('partner_start', "$label ← $name", ['pair' => $id, 'unit' => $unit, 'snap' => $snap, 'partner' => $name, 'beside' => $beside, 'pool' => $kept['pool']]);
-    $kind = $unit === 'place' ? 'place' : (str_starts_with($unit, 'vm:') ? 'vm' : 'share');
-    $plan['options'] = ['kind' => $kind, 'beside' => $beside, 'conflict' => null];
+    $kind = $unit === 'place' ? 'place' : (str_starts_with($unit, 'vm:') ? 'vm' : (str_starts_with($unit, 'app:') ? 'app' : 'share'));
+    $plan['options'] = ['kind' => $kind, 'beside' => $beside, 'conflict' => null, 'found' => []];
+    // 1.60.1: a share's copy - the apps and VMs it carries, to pick from (default: all); `only` the folders ticked
+    $only = is_array($r['only'] ?? null) ? array_values(array_filter($r['only'], fn ($x) => is_string($x) && preg_match(RS_NAME_PATTERN, $x))) : null;
     if ($kept['asleep']) {
         $plan['blockers'][] = ['key' => 'restore_partner_pool', 'params' => ['pool' => $kept['pool']]];
         return $plan;
@@ -1127,6 +1177,42 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     }
     $bytes = (int) ($moment['referenced'] ?? 0);
     $plan['source'] = ['path' => "$name: $unit@$snap", 'time' => $moment['creation'], 'bytes' => $bytes];
+    $peek = in_array($kind, ['share', 'app'], true) ? rspPeek("{$u['dataset']}@$snap") : [];
+    // 1.60.1 (a user): an app whose shares aren't here would not run - refused before anything is copied (the office never
+    // creates a share: the user does, then «Look again»), or only its own folder on an explicit tick (`only_folder`); a
+    // needed share whose copy this office keeps too comes along on a tick (`with`), once the share exists
+    $onlyFolder = !empty($r['only_folder']) && $r['only_folder'] !== 'false';
+    $with = is_array($r['with'] ?? null) ? array_values(array_filter($r['with'], fn ($x) => is_string($x) && preg_match(RS_NAME_PATTERN, $x))) : [];
+    $here = rspSharesHere();
+    $keptUnits = array_column($kept['units'] ?? [], null, 'unit');
+    $needs = [];
+    foreach ($peek as $folder => $p) {
+        if (($p['kind'] ?? '') !== 'app' || ($kind === 'share' && $folder === '') || ($only !== null && $folder !== '' && !in_array((string) $folder, $only, true))) {
+            continue;
+        }
+        foreach ((array) ($p['needs'] ?? []) as $sh) {
+            if ($kind === 'share' && $sh === $label) {
+                continue;                          // the share this copy fills
+            }
+            $needs[$sh] ??= ['share' => $sh, 'apps' => [], 'exists' => $here === null || isset($here[$sh]), 'kept' => isset($keptUnits["share:$sh"]),
+                             'with' => in_array($sh, $with, true)];
+            $needs[$sh]['apps'][] = (string) $p['name'];
+        }
+    }
+    $plan['options']['needs'] = array_values($needs);
+    $plan['options']['only_folder'] = $onlyFolder;
+    foreach ($needs as $n) {
+        if (!$n['exists'] && !$onlyFolder) {
+            $plan['blockers'][] = ['key' => 'restore_partner_app_shares', 'params' => ['name' => implode(', ', $n['apps']), 'share' => $n['share'], 'partner' => $name]];
+        }
+    }
+    if ($kind === 'share') {
+        foreach ($peek as $folder => $p) {
+            if ($folder !== '') {
+                $plan['options']['found'][] = ['folder' => (string) $folder, 'kind' => $p['kind'], 'name' => $p['name'], 'on' => $only === null || in_array((string) $folder, $only, true)];
+            }
+        }
+    }
     // 1. the independent copy on the same pool, mounted read-only like a pull
     $pool = $kept['pool'];
     $parent = "$pool/" . RSP_PARENT;
@@ -1175,6 +1261,39 @@ function rsPlanPartnerStart(array $r, string $stamp): array
             $plan['after'][] = ['key' => 'after.partner_start_share', 'params' => ['share' => $share, 'path' => $to]];
             $plan['notes'][] = ['key' => 'note.partner_start_share_scan', 'params' => []];
         }
+    } elseif ($kind === 'app') {
+        // an app's own folder dataset (engine 2.45): back into <share>/<folder> as its package names it (dirs), else
+        // appdata/<app> - never over a folder holding data (beside as …from-<partner>), then its template or stack
+        [$share, $dir] = explode('/', ($peek['']['dirs'][0] ?? '') ?: "appdata/$label", 2);
+        $steps[0]['path'] = "$user/$share/$dir";
+        if ($shares !== null && !isset($shares[$share])) {
+            $plan['blockers'][] = ['key' => 'restore_partner_share_needed', 'params' => ['share' => $share]];
+            return $plan;
+        }
+        $to = "$user/$share/$dir";
+        $besideAs = "$to.from-" . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name);
+        $state = rspFolderState($to);
+        if ($state === 'data') {
+            $plan['options']['conflict'] = ['path' => $to, 'kind' => 'app', 'beside_as' => $besideAs];
+            if (!$beside) {
+                $plan['blockers'][] = ['key' => 'restore_partner_start_exists', 'params' => ['path' => $to]];
+                $to = null;
+            } else {
+                $to = $besideAs;
+                if (rspFolderState($to) !== 'absent') {
+                    $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
+                }
+                $plan['notes'][] = ['key' => 'note.partner_start_beside', 'params' => ['path' => "$user/$share/$dir", 'beside' => $to]];
+            }
+        } elseif ($state === 'empty') {
+            $plan['notes'][] = ['key' => 'note.partner_start_empty', 'params' => ['path' => $to]];
+        }
+        $plan['target']['app'] = $label;
+        $plan['target']['name'] = $label;
+        if ($to !== null) {
+            $plan['after'][] = ['key' => 'after.partner_start_app', 'params' => ['name' => $label, 'path' => $to]];
+        }
+        $appStep = ['do' => 'start_from', 'kind' => 'app', 'name' => $label, 'partner' => $name, 'mount' => $mnt, 'libvirt' => rspLibvirt(), 'templates' => rspTemplates()];
     } else {
         $vm = $label;
         $steps[0]['path'] = "$user/domains/$vm";
@@ -1220,10 +1339,44 @@ function rsPlanPartnerStart(array $r, string $stamp): array
         $vmStep = ['do' => 'start_from', 'kind' => 'vm', 'name' => $vm, 'define' => $define, 'define_why' => $why, 'partner' => $name, 'mount' => $mnt, 'libvirt' => rspLibvirt(), 'templates' => rspTemplates()];
     }
     if ($to !== null) {
-        $steps[] = ['do' => 'copy', 'from' => $mnt, 'to' => $to, 'into_empty' => true, 'replaces' => true, 'putback_to' => "$to.putback-{T}", 'partner' => $name];
+        $skip = $only !== null ? array_values(array_diff(array_column($plan['options']['found'], 'folder'), $only)) : [];
+        $steps[] = ['do' => 'copy', 'from' => $mnt, 'to' => $to, 'into_empty' => true, 'replaces' => true, 'putback_to' => "$to.putback-{T}", 'partner' => $name]
+            + ($skip ? ['skip' => $skip] : []);
         $plan['aside'][] = ['what' => 'started', 'from' => "$name: $label", 'to' => $to];
-        $steps[] = isset($vmStep) ? $vmStep + ['to' => $to] : ['do' => 'start_from', 'kind' => 'share', 'to' => $to, 'mount' => $mnt, 'partner' => $name, 'templates' => rspTemplates(), 'libvirt' => rspLibvirt()];
+        $steps[] = isset($vmStep) ? $vmStep + ['to' => $to] : (isset($appStep) ? $appStep + ['to' => $to]
+            : ['do' => 'start_from', 'kind' => 'share', 'to' => $to, 'mount' => $mnt, 'partner' => $name, 'templates' => rspTemplates(), 'libvirt' => rspLibvirt()]
+              + ($only !== null ? ['only' => $only] : []));
         $need += $bytes;
+    }
+    // the needed shares ticked to come along (their copy kept here too, the share made by the user, its folder free)
+    foreach ($needs as $n) {
+        if (!$n['with'] || !$n['exists'] || !$n['kept'] || $onlyFolder) {
+            continue;
+        }
+        $su = $keptUnits["share:{$n['share']}"];
+        $ssnap = null;
+        foreach ($su['snaps'] as $x) {                           // newest first: the app's moment, else the newest before it
+            if ($x['name'] <= $snap) {
+                $ssnap = $x;
+                break;
+            }
+        }
+        $ssnap ??= $su['snaps'][0] ?? null;
+        $sto = "$user/{$n['share']}";
+        if ($ssnap === null || rspFolderState($sto) === 'data') {
+            $plan['notes'][] = ['key' => 'note.partner_share_has_data', 'params' => ['share' => $n['share'], 'partner' => $name], 'warn' => true];
+            continue;
+        }
+        $sds = "$parent/share-" . preg_replace('/[^A-Za-z0-9_.-]/', '_', $n['share']) . '.from-' . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name) . "-$stamp";
+        $smnt = rspMountPath($name, "share:{$n['share']}", $stamp);
+        $sb = (int) ($ssnap['referenced'] ?? 0);
+        array_push($steps,
+            ['do' => 'pull_local', 'source' => "{$su['dataset']}@{$ssnap['name']}", 'dataset' => $sds, 'parent' => null, 'mount' => $smnt, 'pair' => $id, 'partner' => $name,
+             'unit' => "share:{$n['share']}", 'snap' => $ssnap['name'], 'time' => $ssnap['creation'], 'bytes' => $sb, 'path' => $sto],
+            ['do' => 'mount', 'dataset' => $sds, 'path' => $smnt],
+            ['do' => 'copy', 'from' => $smnt, 'to' => $sto, 'into_empty' => true, 'replaces' => true, 'putback_to' => "$sto.putback-{T}", 'partner' => $name]);
+        $plan['aside'][] = ['what' => 'started', 'from' => "$name: share {$n['share']}", 'to' => $sto];
+        $need += 2 * $sb;
     }
     $plan['steps'] = $steps;
     $plan['notes'][] = ['key' => 'note.partner_start_package', 'params' => ['name' => $name]];
@@ -1344,6 +1497,169 @@ function rspRewriteXml(string $xml, string $to): array
     return [(string) $out, $n];
 }
 
+/**
+ * What a VM's definition needs of this host (1.60.1): its CPUs, its memory (KiB), its bridges and libvirt networks.
+ * $GLOBALS['rs']['host'] overrides it (the tests).
+ *
+ * @return array{cpus:int, mem_kib:int, bridges:list<string>, networks:list<string>, host:string}
+ */
+function rspHostFacts(): array
+{
+    if (is_array($GLOBALS['rs']['host'] ?? null)) {
+        return $GLOBALS['rs']['host'];
+    }
+    $cpus = 0;
+    foreach (preg_split('/\n/', (string) @file_get_contents('/proc/cpuinfo')) ?: [] as $l) {
+        $cpus += str_starts_with($l, 'processor') ? 1 : 0;
+    }
+    $mem = preg_match('/^MemTotal:\s+(\d+)\s+kB/m', (string) @file_get_contents('/proc/meminfo'), $m) ? (int) $m[1] : 0;
+    $bridges = [];
+    foreach (glob('/sys/class/net/*/bridge', GLOB_ONLYDIR) ?: [] as $b) {
+        $bridges[] = basename(dirname($b));
+    }
+    [$exit, $out] = run([partnerBin('virsh') ?? 'virsh', 'net-list', '--all', '--name'], 20);
+    $nets = $exit === 0 ? array_values(array_filter(array_map('trim', explode("\n", $out)))) : [];
+    return ['cpus' => $cpus, 'mem_kib' => $mem, 'bridges' => $bridges, 'networks' => $nets, 'host' => strtolower(explode('.', (string) gethostname())[0])];
+}
+
+/** A cpuset of libvirt («1-3,^2,6») as the CPU numbers it names */
+function rspCpuset(string $set): array
+{
+    $on = $off = [];
+    foreach (explode(',', $set) as $part) {
+        $part = trim($part);
+        $neg = str_starts_with($part, '^');
+        $part = ltrim($part, '^');
+        if (preg_match('/^(\d+)(?:-(\d+))?$/D', $part, $m)) {
+            $range = range((int) $m[1], (int) ($m[2] ?? $m[1]));
+            $neg ? array_push($off, ...$range) : array_push($on, ...$range);
+        }
+    }
+    return array_values(array_diff($on, $off));
+}
+
+/** A libvirt memory value in KiB (its unit attribute: b, bytes, KB, k, KiB, MB, M, MiB, GB, G, GiB) */
+function rspKib(string $value, string $unit): int
+{
+    $f = ['b' => 1 / 1024, 'bytes' => 1 / 1024, 'KB' => 1000 / 1024, 'k' => 1, 'KiB' => 1, 'MB' => 1e6 / 1024, 'M' => 1024, 'MiB' => 1024,
+          'GB' => 1e9 / 1024, 'G' => 1048576, 'GiB' => 1048576][$unit === '' ? 'KiB' : $unit] ?? 1;
+    return (int) floor((float) $value * $f);
+}
+
+/**
+ * A VM's XML from another server fitted to this one (1.60.1, a user: a VM of 8 GiB, 3 pinned CPUs and two ISOs that
+ * aren't here would not start on a host of 2 CPUs and 3.9 GiB): CPU pins to CPUs that don't exist removed, more vCPUs
+ * than the host has capped (the topology with them), memory over 75 % of the host's capped to Unraid's form steps
+ * (128 MB, 256 MB, then 512 MB each - so the form shows it), passthrough devices removed, a bridge or network that isn't
+ * here the host's default bridge, an ISO that isn't here emptied (its drive kept). Never a disk image: a disk whose file
+ * isn't here refuses the definition. $exists: does a path exist here (the tests). Returns [xml, changes, refuse|null] —
+ * changes: [{code, params}] for the journal (sa.<code>)
+ */
+function rspAdaptXml(string $xml, array $host, ?callable $exists = null): array
+{
+    $exists ??= fn (string $p): bool => file_exists($p);
+    $doc = new DOMDocument();
+    $doc->preserveWhiteSpace = true;
+    if (trim($xml) === '' || !@$doc->loadXML($xml, LIBXML_NONET)) {
+        return [$xml, [], null];
+    }
+    $x = new DOMXPath($doc);
+    $changes = [];
+    $cpus = max(1, (int) ($host['cpus'] ?? 1));
+    // CPU pinning to CPUs that don't exist here
+    $pins = 0;
+    foreach (iterator_to_array($x->query('/domain/cputune/vcpupin | /domain/cputune/emulatorpin | /domain/cputune/iothreadpin')) as $n) {
+        if (array_filter(rspCpuset($n->getAttribute('cpuset')), fn ($c) => $c >= $cpus)) {
+            $n->parentNode->removeChild($n);
+            $pins++;
+        }
+    }
+    foreach (iterator_to_array($x->query('/domain/cputune[not(*)]')) as $n) {
+        $n->parentNode->removeChild($n);
+    }
+    if ($pins) {
+        $changes[] = ['code' => 'pins', 'params' => ['n' => (string) $pins, 'cpus' => (string) $cpus]];
+    }
+    // more vCPUs than the host has
+    $v = $x->query('/domain/vcpu')->item(0);
+    if ($v && (int) trim($v->textContent) > $cpus) {
+        $changes[] = ['code' => 'vcpus', 'params' => ['from' => trim($v->textContent), 'to' => (string) $cpus]];
+        $v->textContent = (string) $cpus;
+        if ($v->hasAttribute('current') && (int) $v->getAttribute('current') > $cpus) {
+            $v->setAttribute('current', (string) $cpus);
+        }
+        $t = $x->query('/domain/cpu/topology')->item(0);
+        if ($t) {
+            $t->setAttribute('sockets', '1');
+            if ($t->hasAttribute('dies')) {
+                $t->setAttribute('dies', '1');
+            }
+            $t->setAttribute('cores', (string) $cpus);
+            $t->setAttribute('threads', '1');
+        }
+    }
+    // memory over 75 % of the host's: capped to Unraid's form steps
+    $hostKib = (int) ($host['mem_kib'] ?? 0);
+    if ($hostKib > 0) {
+        $cap = (int) floor($hostKib * 0.75 / 524288) * 524288;
+        $cap = $cap ?: ($hostKib * 0.75 >= 262144 ? 262144 : 131072);
+        $mem = $x->query('/domain/memory')->item(0);
+        $from = $mem ? rspKib(trim($mem->textContent), $mem->getAttribute('unit')) : 0;
+        foreach (['/domain/memory', '/domain/currentMemory'] as $q) {
+            $n = $x->query($q)->item(0);
+            if ($n && rspKib(trim($n->textContent), $n->getAttribute('unit')) > $cap) {
+                $n->textContent = (string) $cap;
+                $n->setAttribute('unit', 'KiB');
+            }
+        }
+        if ($from > $cap) {
+            $changes[] = ['code' => 'memory', 'params' => ['from' => (string) round($from / 1048576, 1), 'to' => (string) round($cap / 1048576, 1)]];
+        }
+    }
+    // passthrough devices: not this host's
+    $hd = 0;
+    foreach (iterator_to_array($x->query('/domain/devices/hostdev')) as $n) {
+        $n->parentNode->removeChild($n);
+        $hd++;
+    }
+    if ($hd) {
+        $changes[] = ['code' => 'hostdev', 'params' => ['n' => (string) $hd]];
+    }
+    // a bridge or a network that isn't here: the host's default bridge
+    $bridges = array_values((array) ($host['bridges'] ?? []));
+    $default = in_array('br0', $bridges, true) ? 'br0' : (in_array('virbr0', $bridges, true) ? 'virbr0' : ($bridges[0] ?? 'virbr0'));
+    foreach (iterator_to_array($x->query('/domain/devices/interface')) as $n) {
+        $src = $x->query('source', $n)->item(0);
+        if (!$src) {
+            continue;
+        }
+        if ($n->getAttribute('type') === 'bridge' && !in_array($src->getAttribute('bridge'), $bridges, true)) {
+            $changes[] = ['code' => 'bridge', 'params' => ['from' => $src->getAttribute('bridge'), 'to' => $default]];
+            $src->setAttribute('bridge', $default);
+        } elseif ($n->getAttribute('type') === 'network' && !in_array($src->getAttribute('network'), (array) ($host['networks'] ?? []), true)) {
+            $changes[] = ['code' => 'bridge', 'params' => ['from' => $src->getAttribute('network'), 'to' => $default]];
+            $n->setAttribute('type', 'bridge');
+            $src->removeAttribute('network');
+            $src->setAttribute('bridge', $default);
+        }
+    }
+    // an ISO that isn't here: its source emptied, the drive kept; a disk image that isn't here: no definition
+    foreach (iterator_to_array($x->query('/domain/devices/disk')) as $n) {
+        $src = $x->query('source', $n)->item(0);
+        $path = $src ? ($src->getAttribute('file') ?: $src->getAttribute('dev')) : '';
+        if ($path === '' || $exists($path)) {
+            continue;
+        }
+        if (in_array($n->getAttribute('device'), ['cdrom', 'floppy'], true)) {
+            $src->parentNode->removeChild($src);
+            $changes[] = ['code' => 'cdrom', 'params' => ['path' => $path]];
+        } else {
+            return [$xml, $changes, ['path' => $path]];
+        }
+    }
+    return [$changes ? (string) $doc->saveXML($doc->documentElement) : $xml, $changes, null];
+}
+
 /** A small file of the copy into its place - only where nothing is: through a new file beside and a rename */
 function rspPutFile(string $from, string $to): bool
 {
@@ -1418,7 +1734,21 @@ function rspStartVm(array &$j, int $i, array $m, string $folder, string $lv, ?ar
             $tpm = 'put';
         }
     }
-    [$xml, $rewritten] = rspRewriteXml((string) @file_get_contents("$dir/{$pkg['xml']}", false, null, 0, 1 << 22), $folder);
+    $original = (string) @file_get_contents("$dir/{$pkg['xml']}", false, null, 0, 1 << 22);
+    [$xml, $rewritten] = rspRewriteXml($original, $folder);
+    // 1.60.1: from another server - fitted to this host (what changed said in the step), the original kept beside it
+    $host = rspHostFacts();
+    $adapted = [];
+    if (strtolower(rsStr($m['host'] ?? '')) !== ($host['host'] ?? '')) {
+        [$xml, $adapted, $refuse] = rspAdaptXml($xml, $host);
+        if ($refuse !== null) {
+            return ['state' => 'failed', 'note' => 'start_vm_disk_missing', 'params' => ['name' => $name, 'path' => $refuse['path']], 'name' => $name];
+        }
+        $keep = "$dir/$name.xml.original";
+        if ($adapted && !file_exists($keep) && !is_link($keep)) {
+            @file_put_contents($keep, $original);
+        }
+    }
     $file = rsDir($j['id']) . "/start-$i-" . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name) . '.xml';
     if (!@file_put_contents($file, $xml)) {
         return ['state' => 'failed', 'note' => 'copy_failed', 'params' => ['path' => $file], 'name' => $name];
@@ -1428,7 +1758,7 @@ function rspStartVm(array &$j, int $i, array $m, string $folder, string $lv, ?ar
         return ['state' => 'failed', 'note' => 'virsh_failed', 'params' => ['name' => $name], 'detail' => trim($err), 'name' => $name];
     }
     array_unshift($undo, ['do' => 'undefine', 'name' => $name]);        // the definition first, then its files aside
-    return ['state' => 'ok', 'name' => $name, 'rewritten' => $rewritten, 'nvram' => count($put), 'nvram_kept' => count($skipped), 'tpm' => $tpm];
+    return ['state' => 'ok', 'name' => $name, 'rewritten' => $rewritten, 'nvram' => count($put), 'nvram_kept' => count($skipped), 'tpm' => $tpm, 'adapted' => $adapted];
 }
 
 /** An app's package inside the copy: its template(s) into Unraid's templates-user (never over one that is there), its dumps named */
@@ -1454,7 +1784,213 @@ function rspStartApp(array $m, string $folder, string $templates, bool $place, a
         $put[] = $f;
     }
     $dumps = array_values(array_map(fn ($d) => "$dir/db/" . basename($d), array_filter(glob("$dir/db/*") ?: [], 'is_file')));
-    return ['state' => 'ok', 'name' => $name, 'templates' => $put, 'skipped' => $skipped, 'dumps' => $dumps];
+    $stack = ($m['type'] ?? '') === 'compose' && $place ? rspStartStack($m, $dir, $undo) : null;
+    if (($stack['state'] ?? '') === 'failed') {
+        return ['state' => 'failed', 'note' => 'copy_failed', 'params' => ['path' => $stack['path']], 'name' => $name];
+    }
+    return ['state' => 'ok', 'name' => $name, 'templates' => $put, 'skipped' => $skipped, 'dumps' => $dumps, 'stack' => $stack];
+}
+
+/** The shares a stack binds that aren't here (its missing /mnt/user/<share> paths): its data didn't come with the copy */
+function rspSharesMissing(array $missing): array
+{
+    $out = [];
+    foreach ($missing as $p) {
+        if (preg_match('#^/mnt/user/([^/]+)$#D', (string) $p, $m)) {
+            $out[] = $m[1];
+        }
+    }
+    return array_values(array_unique($out));
+}
+
+/** A folder of our own making gone again (only its plain files: what rspStartStack wrote) */
+function rspDropTmp(string $tmp): void
+{
+    foreach (glob("$tmp/{,.}*", GLOB_BRACE) ?: [] as $f) {
+        if (is_file($f) && !is_link($f)) {
+            @unlink($f);
+        }
+    }
+    @rmdir($tmp);
+}
+
+/** Is the Compose Manager here (its plugin installed)? $GLOBALS['rs']['compose_here'] for the tests */
+function rspComposeHere(): bool
+{
+    return (bool) ($GLOBALS['rs']['compose_here'] ?? is_dir('/usr/local/emhttp/plugins/compose.manager'));
+}
+
+/**
+ * A stack's compose files fitted to this host (1.60.1): a bind path on a pool or disk that isn't here
+ * (/mnt/<pool>/<share>/…) points at /mnt/user/<share>/… when that share is here, else it is named as missing.
+ * Returns [text, mapped [[from, to]], missing [path]]
+ */
+function rspFitCompose(string $text, callable $poolHere, callable $shareHere, ?callable $pathHere = null): array
+{
+    $pathHere ??= fn (string $p): bool => file_exists($p);
+    $mapped = $missing = [];
+    $out = preg_replace_callback('#/mnt/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.@ -]*[A-Za-z0-9_.@-])#', function (array $m) use ($poolHere, $shareHere, &$mapped, &$missing): string {
+        [$all, $pool, $share] = $m;
+        if (in_array($pool, ['user', 'user0', 'disks', 'remotes', 'addons', 'rootshare'], true) || $poolHere($pool)) {
+            return $all;
+        }
+        if ($shareHere($share)) {
+            $mapped["/mnt/$pool/$share"] = "/mnt/user/$share";
+            return "/mnt/user/$share";
+        }
+        $missing[$all] = true;
+        return $all;
+    }, $text);
+    // 1.60.1 (a user, dropnook on Backup2: /mnt/user/drop/... and no share drop there): every bind source - a share that
+    // isn't here, any other absolute host path that isn't there - named as missing (never made by me)
+    // host paths only (the dropnook: x-settings anchors «data: &data /mnt/user/drop», volumes «- type: bind / source:
+    // *data»): an anchor's path, a long syntax's source, a short syntax's part before its first colon - never a target
+    $srcs = [];
+    foreach (['~&[A-Za-z0-9_-]+\h+["\']?(/[^\s"\'#,]+)~', '~^\h*source:\h*["\']?(/[^\s"\'#,]+)~m', '~^\h*-\h*["\']?(/[^\s"\':#,]+):~m'] as $re) {
+        preg_match_all($re, (string) $out, $mm);
+        array_push($srcs, ...$mm[1]);
+    }
+    foreach (array_unique($srcs) as $src) {
+        $src = rtrim($src, '/');
+        if (preg_match('#^/mnt/(?:user0?|disks|remotes|addons)/([^/]+)#', $src, $u)) {
+            if (str_starts_with($src, '/mnt/user') && !$shareHere($u[1])) {
+                $missing["/mnt/user/{$u[1]}"] = true;
+            } elseif (str_starts_with($src, '/mnt/user/') && !$pathHere($src)) {
+                $missing[$src] = true;                 // the share is here, that folder isn't (another app's, not restored)
+            }
+        } elseif (!preg_match('#^/mnt/[^/]+/#', $src) && !$pathHere($src)) {
+            $missing[$src] = true;
+        }
+    }
+    return [(string) $out, array_map(fn ($f, $t) => [$f, $t], array_keys($mapped), $mapped), array_keys($missing)];
+}
+
+/**
+ * A Compose stack from another server's copy (1.60.1: a user's stack «dropnook»): its Compose Manager project made
+ * here from the package's compose/ under the same folder name - never over a project of that name (left, said), never
+ * without the Compose Manager (nothing made, said: install it first). Its compose files fitted (rspFitCompose), the
+ * originals beside them as *.original; its autostart as it was, never started by the restore. The undo puts it aside.
+ */
+function rspStartStack(array $m, string $dir, array &$undo): array
+{
+    $c = is_array($m['compose'] ?? null) ? $m['compose'] : [];
+    $name = rsStr($c['project'] ?? $m['name'] ?? '');
+    $folder = rsStr($c['manager_dir'] ?? '') ?: $name;
+    if (!is_dir("$dir/compose") || !preg_match('/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/D', $folder)) {
+        return ['state' => 'no_files', 'name' => $name];
+    }
+    $poolHere = $GLOBALS['rs']['pool_here'] ?? fn (string $p): bool => is_dir("/mnt/$p");
+    $shares = rspSharesHere();
+    $shareHere = fn (string $sh): bool => is_array($shares) ? isset($shares[$sh]) : is_dir("/mnt/user/$sh");
+    // without the Compose Manager (a user: Dockge, Portainer or docker compose by hand are ways too) - a hint, never a block:
+    // the copy's own compose files fitted where they are (the originals beside as *.original), nothing created
+    if (!rspComposeHere()) {
+        [$mapped, $missing] = rspFitComposeDir("$dir/compose", "$dir/compose", $poolHere, $shareHere);
+        return ['state' => rspComposeCli() ? 'no_manager_cli' : 'no_manager', 'name' => $name, 'path' => "$dir/compose", 'mapped' => $mapped, 'missing' => $missing,
+                'shares_missing' => rspSharesMissing($missing)];
+    }
+    $root = (string) ($GLOBALS['rs']['compose_root'] ?? rsComposeRoot());
+    $to = "$root/$folder";
+    if (file_exists($to) || is_link($to)) {
+        return ['state' => 'exists', 'name' => $name, 'path' => "$dir/compose"];
+    }
+    $tmp = "$root/.$folder.uso-" . bin2hex(random_bytes(4));
+    if (!rsMkdirs($root) || !@mkdir($tmp, 0755)) {
+        return ['state' => 'failed', 'path' => $to];
+    }
+    $fit = rspFitComposeDir("$dir/compose", $tmp, $poolHere, $shareHere);
+    if ($fit === null || !@rename($tmp, $to)) {
+        rspDropTmp($tmp);
+        return ['state' => 'failed', 'path' => $to];
+    }
+    [$mapped, $missing] = $fit;
+    $undo[] = ['do' => 'aside', 'path' => $to, 'to' => rsAsideFor($to, '{T}', 'putback'), 'optional' => true];
+    return ['state' => 'created', 'name' => $name, 'path' => $to, 'autostart' => trim((string) @file_get_contents("$to/autostart")) === 'true',
+            'mapped' => $mapped, 'missing' => $missing, 'shares_missing' => rspSharesMissing($missing)];
+}
+
+/**
+ * «Create the stack now» (1.60.1): a finished restore whose stack waited for the Compose Manager (no_manager…) - once it
+ * is here, only the stack part from the copy the journal recorded (its .uso-backup/compose), by the same rules (never
+ * over a project of that name, fitted, never started); the stack's line and the step's undo in the journal anew.
+ */
+function rspStackLater(string $id, string $name): array
+{
+    if (!preg_match(RS_ID_PATTERN, $id)) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    $j = rsJournal($id);
+    if (!is_array($j) || in_array($j['result'] ?? '', ['queued', 'running'], true)) {
+        throw new Problem('unknown_target', ['target' => $id]);
+    }
+    if (!rspComposeHere()) {
+        throw new Problem('restore_compose_missing');
+    }
+    foreach ((array) $j['steps'] as $i => $st) {
+        foreach ((array) ($st['params']['stacks'] ?? []) as $k => $stack) {
+            if (($stack['name'] ?? '') !== $name || !in_array($stack['state'] ?? '', ['no_manager', 'no_manager_cli'], true)) {
+                continue;
+            }
+            $dir = dirname((string) ($stack['path'] ?? ''));
+            $m = is_file("$dir/manifest.json") ? readJson("$dir/manifest.json") : null;
+            if (basename($dir) !== RSP_INSIDE || !is_array($m)) {
+                throw new Problem('restore_file_gone', ['path' => "$dir/manifest.json"]);
+            }
+            $undo = [];
+            $r = rspStartStack($m, $dir, $undo);
+            if (($r['state'] ?? '') === 'failed') {
+                throw new Problem('restore_file_gone', ['path' => (string) ($r['path'] ?? '')]);
+            }
+            $j['steps'][$i]['params']['stacks'][$k] = $r + ['later' => time()];
+            $j['steps'][$i]['undo'] = array_merge((array) ($j['steps'][$i]['undo'] ?? []), $undo);
+            rsJournalWrite($j);
+            logLine("Mr. Restori: $id - stack $name " . ($r['state'] ?? '?') . ' afterwards');
+            return ['ok' => true, 'stack' => $r, 'state' => rsScan()];
+        }
+    }
+    throw new Problem('unknown_target', ['target' => "$id $name"]);
+}
+
+/** Is `docker compose` here (without the Compose Manager: a stack then won't show in Unraid's Docker tab)? */
+function rspComposeCli(): bool
+{
+    return (bool) ($GLOBALS['rs']['compose_cli'] ?? (run(['docker', 'compose', 'version'], 20)[0] === 0));
+}
+
+/**
+ * A stack's files from $from into $to (the same folder: fitted in place), its compose files and .env fitted
+ * (rspFitCompose), each changed one's original beside it as <name>.original (never over one there). [mapped, missing],
+ * null when a file couldn't be written
+ */
+function rspFitComposeDir(string $from, string $to, callable $poolHere, callable $shareHere): ?array
+{
+    $mapped = $missing = [];
+    foreach (glob("$from/{,.}*", GLOB_BRACE) ?: [] as $f) {
+        $b = basename($f);
+        if (!is_file($f) || is_link($f) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $b)) {
+            continue;
+        }
+        if (str_ends_with($b, '.original')) {          // kept as it is - carried into a new project beside its fitted file
+            if ($to !== $from && !file_exists("$to/$b") && @copy($f, "$to/$b") === false) {
+                return null;
+            }
+            continue;
+        }
+        $text = (string) @file_get_contents($f, false, null, 0, 1 << 20);
+        $out = $text;
+        if (preg_match('/(\.ya?ml|^\.env)$/', $b)) {
+            [$out, $mp, $ms] = rspFitCompose($text, $poolHere, $shareHere, $GLOBALS['rs']['path_here'] ?? null);
+            $mapped = array_merge($mapped, $mp);
+            $missing = array_merge($missing, $ms);
+            if ($out !== $text && !file_exists("$to/$b.original")) {
+                @file_put_contents("$to/$b.original", $text);
+            }
+        }
+        if (($to !== $from || $out !== $text) && @file_put_contents("$to/$b", $out) === false) {
+            return null;
+        }
+    }
+    return [array_values(array_unique($mapped, SORT_REGULAR)), array_values(array_unique($missing))];
 }
 
 /**
@@ -1498,14 +2034,16 @@ function rsDoStartFrom(array &$j, int $i): array
         }
         return ['state' => 'ok', 'undo' => $undo, 'note' => 'start_vm', 'params' => array_diff_key($r, ['state' => 1])];
     }
-    // a share's copy: the app at its root (a share of its own), the VMs' and apps' folders one level below
+    // a share's copy: the app at its root (a share of its own), the VMs' and apps' folders one level below - only
+    // those ticked (`only`, 1.60.1); an app's own dataset (kind app, engine 2.45): its folder alone
     $folders = [$base];
-    foreach (glob("$base/*", GLOB_ONLYDIR) ?: [] as $d) {
-        if (!is_link($d) && basename($d) !== RSP_INSIDE) {
+    $only = is_array($s['only'] ?? null) ? $s['only'] : null;
+    foreach (($s['kind'] ?? '') === 'app' ? [] : (glob("$base/*", GLOB_ONLYDIR) ?: []) as $d) {
+        if (!is_link($d) && basename($d) !== RSP_INSIDE && ($only === null || in_array(basename($d), $only, true))) {
             $folders[] = $d;
         }
     }
-    $vms = $refused = $apps = $notes = [];
+    $vms = $refused = $apps = $notes = $stacks = [];
     foreach ($folders as $folder) {
         $m = $manifest($folder);
         if (!is_array($m)) {
@@ -1523,14 +2061,17 @@ function rsDoStartFrom(array &$j, int $i): array
             if ($r['state'] === 'skipped') {
                 $refused[] = $r['name'] . ' (' . ($r['why'] === 'start_vm_exists' ? 'a VM of that name is here' : ($r['why'] === 'start_vm_service_off' ? 'VM service off' : 'odd name')) . ')';
             } else {
-                $vms[] = $r['name'];
+                $vms[] = $r['name'] . ($r['adapted'] ? ' (fitted to this server: ' . implode(', ', array_column($r['adapted'], 'code')) . ')' : '');
             }
         } elseif (($m['kind'] ?? '') === 'app') {
             $r = rspStartApp($m, $folder, $templates, $place, $undo);
             if ($r['state'] === 'failed') {
                 return rsFail($r['note'], $r['params']) + ['undo' => $undo];
             }
-            $apps[] = $r['name'] . ($r['templates'] ? ' (template put)' : ($r['skipped'] ? ' (template left as it is)' : ' (no template)'))
+            if ($r['stack'] !== null) {
+                $stacks[] = $r['stack'];
+            }
+            $apps[] = $r['name'] . ($r['templates'] ? ' (template put)' : ($r['skipped'] ? ' (template left as it is)' : ($r['stack'] ? ' (a Compose stack)' : ' (no template)')))
                 . ($r['dumps'] ? ' · dumps: ' . implode(', ', array_map('basename', $r['dumps'])) : '');
             $notes = array_merge($notes, $r['dumps']);
         }
@@ -1538,6 +2079,7 @@ function rsDoStartFrom(array &$j, int $i): array
     if (!$vms && !$refused && !$apps) {
         return ['state' => 'warning', 'note' => 'start_no_package', 'params' => ['path' => $base], 'undo' => $undo];
     }
-    return ['state' => $refused ? 'warning' : 'ok', 'undo' => $undo, 'note' => 'start_share_found',
-            'params' => ['n_vms' => count($vms), 'vms' => $vms ?: ['–'], 'refused' => $refused ?: ['–'], 'n_apps' => count($apps), 'apps' => $apps ?: ['–'], 'dumps' => $notes, 'path' => $base]];
+    $stackTrouble = array_filter($stacks, fn ($k) => in_array($k['state'], ['no_manager', 'no_manager_cli', 'exists'], true) || !empty($k['missing']));
+    return ['state' => $refused || $stackTrouble ? 'warning' : 'ok', 'undo' => $undo, 'note' => 'start_share_found',
+            'params' => ['stacks' => $stacks, 'n_vms' => count($vms), 'vms' => $vms ?: ['–'], 'refused' => $refused ?: ['–'], 'n_apps' => count($apps), 'apps' => $apps ?: ['–'], 'dumps' => $notes, 'path' => $base]];
 }

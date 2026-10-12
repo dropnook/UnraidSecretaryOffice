@@ -16,6 +16,9 @@ declare(strict_types=1);
  *   data/partner/door.log         the door's lines (refusals among them); RAM when the data folder is away
  *   data/partner/wishes/<id>.json the units an older partner (up to 1.59) named at the door with its `offer`: {pair, units,
  *                                 time} — one file per pair, overwritten; the door takes them whole (status says so)
+ *   data/partner/ended.json       the partnerships ended here ({v, pairs: {id: {name, address, port, host_keys, time}}}, the
+ *                                 newest PARTNER_ENDED_KEEP) — a pair made anew with the same address or a host key of
+ *                                 these gets the ended one's units at Mr. Backupsy's next Apply (engine 2.45, partnerAnew())
  *   data/partner/migrated.json    the units the pairs sent up to 1.59 ({v, pairs: {id: [unit…]}, time}, the migration step
  *                                 partner-simple) — Mr. Backupsy's setup proposes them at «local + partner» until applied
  *   /boot/config/plugins/unraid-secretary-office/partners/<id>.key (.pub)   my key for a pair (ssh-keygen ed25519)
@@ -47,7 +50,7 @@ const PARTNER_IDENT         = '/boot/config/ident.cfg';
 const PARTNER_PARENT        = 'UnraidSecretaryOffice-partners';     // <pool>/UnraidSecretaryOffice-partners/<id>/<unit>
 const PARTNER_ID_RE         = '/^[0-9a-f]{8}$/D';
 const PARTNER_NAME_RE       = '/^[A-Za-z0-9._-]{1,40}$/D';
-const PARTNER_UNIT_RE       = '/^(?:(?:share|vm):[A-Za-z0-9][A-Za-z0-9._-]{0,63}|place)$/D';
+const PARTNER_UNIT_RE       = '/^(?:(?:share|vm|app):[A-Za-z0-9][A-Za-z0-9._-]{0,63}|place)$/D';     // app: since 1.60.1 (engine 2.45)
 const PARTNER_SNAP_PREFIX   = 'uso-backup-';
 const PARTNER_SNAP_RE       = '/^uso-backup-\d{8}-\d{4}$/D';
 const PARTNER_FP_RE         = '/^SHA256:[A-Za-z0-9+\/]{43}$/D';
@@ -69,6 +72,8 @@ const PARTNER_DEFAULTS      = ['quota_gb' => 0, 'retention' => '7 4 6', 'wake' =
 const PARTNER_NEW_DAYS      = 7;             // a unit first received within so many days is «new» on the receiver's card
 const PARTNER_STALE_DAYS    = 30;            // nothing received of a unit for so long: stale (the door's retention never touches it)
 const PARTNER_MIGRATED_FILE = 'migrated.json';   // the units the pairs sent up to 1.59, for Mr. Backupsy's setup (the step partner-simple)
+const PARTNER_ENDED_FILE    = 'ended.json';      // the partnerships ended here: their address and host keys, for a pair made anew (1.60.1)
+const PARTNER_ENDED_KEEP    = 16;                // ended.json keeps the newest so many
 const PARTNER_RESCAN_FILE   = 'caretaker.rescan';  // in RUN_DIR: the door or the mutual watch asks the Team Lead for his cards anew
 const PARTNER_RECORD_MAX    = 1024 * 1024;   // deletes.jsonl and door.log: rotated to .1 beyond this
 // restore tickets (stage 3, plan §3.8 / concept §3.5): a temporary door line for a new server that pulls a gone server's copies
@@ -1486,6 +1491,7 @@ function partnerPublic(): array
     $keys = (string) @file_get_contents(partnerAuthKeysFile(), false, null, 0, 1024 * 1024);
     $now = time();
     $ready = partnerReady();
+    $apply = partnerApplyPending(null, $pairs);          // 1.60.1: an ended partner's units waiting for Mr. Backupsy's Apply
     $cards = [];
     foreach ($pairs as $p) {
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
@@ -1520,6 +1526,7 @@ function partnerPublic(): array
             'tailnet'    => $e['tailnet'] ?? null,
             'sends'      => $p['my_key'] !== null,
             'send_units' => $p['my_key'] !== null ? partnerSendUnits($p['id']) : [],       // the levels in Mr. Backupsy's setup (settings.ini)
+            'apply_from' => $p['my_key'] !== null ? ($apply['from'][$p['id']] ?? []) : [],  // [{name, n}]: an ended partner's units come here at the next Apply
             'offer'      => $e['offer'] ?? null,                 // the last offer to an older partner: time, ok, why, pending
             'status_time' => $e['status_time'] ?? null,          // when they_keep (and its agreed) was said
             'older'      => is_array($status) && is_array($status['agreed'] ?? null) && empty($status['takes_all']),    // up to 1.59: keeps `agreed` only
@@ -1934,6 +1941,7 @@ function partner_end(array $r): array
     partnerAuthKeysEdit($id, null);
     partnerKeyDrop($id);
     if ($pair !== null) {
+        partnerEndedRecord($pair);
         partnerPairsWrite(array_values(array_filter($pairs, fn ($p) => $p['id'] !== $id)));
         $state = partnerStateRead();
         if (isset($state['pairs'][$id])) {
@@ -2060,6 +2068,110 @@ function partnerMigratedPending(?string $dir = null): array
         $left = array_values(array_diff($units, partnerSendUnits($p['id'])));
         if ($left) {
             $out[$p['id']] = $left;
+        }
+    }
+    return $out;
+}
+
+// ===================================================================== a partnership ended, paired anew (1.60.1)
+
+/** The partnerships ended here (ended.json): id => {name, address, port, host_keys, time}; only entries in exactly that shape */
+function partnerEnded(?string $dir = null): array
+{
+    $j = partnerReadPrivate(($dir ?? partnerDir()) . '/' . PARTNER_ENDED_FILE);
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !is_array($j['pairs'] ?? null)) {
+        return [];
+    }
+    $out = [];
+    foreach ($j['pairs'] as $id => $e) {
+        $id = (string) $id;                     // an id of digits only is an integer key to PHP
+        if (preg_match(PARTNER_ID_RE, $id) && partnerExact($e, ['name', 'address', 'port', 'host_keys', 'time'])
+            && is_string($e['name']) && preg_match(PARTNER_NAME_RE, $e['name']) && is_string($e['address']) && partnerAddressValid($e['address'])
+            && is_int($e['port']) && is_int($e['time']) && is_array($e['host_keys']) && array_is_list($e['host_keys']) && count($e['host_keys']) <= 4
+            && !array_filter($e['host_keys'], fn ($k) => !is_string($k) || !preg_match(PARTNER_FP_RE, $k))) {
+            $out[$id] = $e;
+        }
+    }
+    return $out;
+}
+
+/** partner_end(): the pair's address and host keys kept (ended.json, the newest PARTNER_ENDED_KEEP) — never fatal */
+function partnerEndedRecord(array $pair, ?string $dir = null): void
+{
+    $all = partnerEnded($dir);
+    unset($all[$pair['id']]);
+    $all[$pair['id']] = ['name' => $pair['name'], 'address' => $pair['address'], 'port' => $pair['port'],
+        'host_keys' => array_values($pair['host_keys']), 'time' => time()];
+    uasort($all, fn ($a, $b) => $b['time'] <=> $a['time']);
+    try {
+        partnerWritePrivate(($dir ?? partnerDir()) . '/' . PARTNER_ENDED_FILE, ['v' => 1, 'pairs' => array_slice($all, 0, PARTNER_ENDED_KEEP, true)]);
+    } catch (Throwable $e) {
+        partnerLog('ended.json could not be written: ' . $e->getMessage());
+    }
+}
+
+/**
+ * The pair a partnership ended here was made anew as (engine 2.45 setup.sh partner_anew_match(), the same rule): a pair
+ * this office sends to (my_key) with the same address (case aside), else one with a host key the ended pair had. Null:
+ * none — its units then go at the next Apply.
+ */
+function partnerAnew(string $oldId, string $address, array $hostKeys, array $pairs): ?array
+{
+    $mine = array_values(array_filter($pairs, fn ($p) => $p['my_key'] !== null && $p['id'] !== $oldId));
+    foreach ($mine as $p) {
+        if ($address !== '' && strtolower($p['address']) === strtolower($address)) {
+            return $p;
+        }
+    }
+    foreach ($mine as $p) {
+        if ($hostKeys && array_intersect($p['host_keys'], $hostKeys)) {
+            return $p;
+        }
+    }
+    return null;
+}
+
+/**
+ * What waits for Mr. Backupsy's «Apply» (1.60.1, a user: a partnership ended and paired anew died silently): `ended` —
+ * the partners settings.ini still names that the Team Lead no longer pairs (the run skips them as `ended`), each with
+ * its units and `anew` (the pair made anew that gets them at the next Apply, or null: they go); `empty` — the pairs
+ * this office sends to that settings.ini gives no unit yet (with `from`: the ended partners whose units come to it).
+ * Without pairs.json (the Team Lead never paired) nothing waits.
+ *
+ * @return array{ended: list<array{id:string, name:string, units:list<string>, anew:?array{id:string, name:string}}>,
+ *               empty: list<array{id:string, name:string, from:list<array{name:string, n:int}>}>,
+ *               from: array<string, list<array{name:string, n:int}>>}
+ */
+function partnerApplyPending(?array $settings = null, ?array $pairs = null, ?array $ended = null): array
+{
+    $out = ['ended' => [], 'empty' => [], 'from' => []];
+    if (!defined('BACKUP_DATA_DIR') || !function_exists('backupReadSettings')) {
+        return $out;
+    }
+    $pairsFile = partnerDir() . '/pairs.json';
+    if ($pairs === null && @lstat($pairsFile) === false) {
+        return $out;
+    }
+    $pairs ??= partnerPairs();
+    $ended ??= partnerEnded();
+    $settings ??= backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
+    $named = backupPartnersFromSettings($settings);
+    $sending = array_column(array_filter($pairs, fn ($p) => $p['my_key'] !== null), null, 'id');
+    foreach ($named as $n) {
+        if (isset($sending[$n['id']])) {
+            continue;
+        }
+        $e = $ended[$n['id']] ?? null;
+        $new = partnerAnew($n['id'], $n['address'] !== '' ? $n['address'] : (string) ($e['address'] ?? ''), $e['host_keys'] ?? [], $pairs);
+        $out['ended'][] = ['id' => $n['id'], 'name' => $n['name'], 'units' => $n['units'], 'anew' => $new ? ['id' => $new['id'], 'name' => $new['name']] : null];
+        if ($new && $n['units']) {
+            $out['from'][$new['id']][] = ['name' => $n['name'], 'n' => count($n['units'])];
+        }
+    }
+    $units = array_column($named, 'units', 'id');
+    foreach ($sending as $id => $p) {
+        if (empty($units[$id])) {
+            $out['empty'][] = ['id' => $id, 'name' => $p['name'], 'from' => $out['from'][$id] ?? []];
         }
     }
     return $out;

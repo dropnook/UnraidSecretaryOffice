@@ -1,6 +1,11 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.42 - 2026-10-12
+# unraid-backup - setup.sh                        Version 2.45 - 2026-10-12
+#   2.45 Apps whose folder is a dataset of its own take a partner level ([app] partner = <id>, kept only for such an
+#        app - partner_cannot_app / partner_off_app otherwise; the [app] section written for it, folder listed).
+#        A partner no longer paired at the Team Lead whose address - or one of whose host keys (partner/ended.json) -
+#        a current pair has was paired anew: its units go to that pair (hint partner_anew); without a match they go
+#        as before (partner_gone)
 #   2.42 Partner offices, simple: the pairs' unit lists are gone (the Team Lead only pairs; the partner's door takes
 #        any unit up to its quota) - a unit that is a dataset of its own is partner_ok whatever the pairs say, no
 #        not_agreed, no place_not_agreed; the partner line comes from the level in Mr. Backupsy's setup («local +
@@ -228,10 +233,10 @@ fi
 [[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
 ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
 TS="$(date +%Y%m%d-%H%M)"
-LOG_FILE="$UB_LOGS/setup-$TS.log"
+LOG_FILE="$UB_LOGS/setup-$(date +%Y%m%d-%H%M%S).log"     # 2.45: a plan and an apply in the same minute: two logs
 # its own logs are kept like the runs' (2026-10-09: they were never cleared - 86 in a week on a real server): the newest
 # UB_KEEP_SETUP_LOGS (30), oldest first out; never the one this run is about to write
-ls -1 "$UB_LOGS"/setup-*.log 2>/dev/null | sort | head -n -"${UB_KEEP_SETUP_LOGS:-30}" | while IFS= read -r old; do
+ls -1 "$UB_LOGS"/setup-*.log 2>/dev/null | LC_ALL=C sort | head -n -"${UB_KEEP_SETUP_LOGS:-30}" | while IFS= read -r old; do
     [[ "$old" == "$LOG_FILE" ]] || rm -f -- "$old"
 done
 
@@ -1704,9 +1709,13 @@ TXT
 # unit up to its quota (2.29-2.41 a unit no partner had agreed to was not_agreed here and skipped by the run).
 declare -A PARTNER_OKU=() PARTNER_WHYU=()     # unit -> yes/no, why not (the plan's partner_ok / partner_why)
 PARTNER_SOURCE="none"                         # pairs | settings | none
+pu_app_folder() { if [[ -n "${OLD[app|$1|folder]+x}" ]]; then printf '%s\n' "${OLD[app|$1|folder]}"; else plist "app|$1|folder"; fi; }
+declare -A ANEW=() ANEW_N=()                  # 2.45: gone partner id -> the pair made anew, how many of its units went there
+
 step_partners() {
     local id k u n s line nm addr port rate keep units
     local -A pair=()
+    ANEW=(); ANEW_N=()
     PARTNER_OKU=(); PARTNER_WHYU=()
     for k in "${!P[@]}"; do [[ "$k" == partner\|* ]] && unset "P[$k]"; done
     if partner_pairs_load; then
@@ -1718,8 +1727,13 @@ step_partners() {
             pset "partner|$id|name" "$nm"; pset "partner|$id|address" "$addr"
             pset "partner|$id|port" "$port"; pset "partner|$id|rate_mbit" "$rate"
         done
+        # 2.45: a gone partner paired anew (the same address, or one of the host keys the ended pair had - partner/ended.json,
+        # written when a partnership is ended at the Team Lead): its units go to the new pair (ANEW), said once below
         while IFS= read -r id; do
-            [[ -n "$id" && -z "${pair[$id]:-}" ]] && hint_as partner_gone "Partner '$(old "partner|$id|name" "$id")' ($id) is no longer paired at the Team Lead - its section and its units go" partner "$(old "partner|$id|name" "$id")"
+            [[ -n "$id" && -z "${pair[$id]:-}" ]] || continue
+            n="$(partner_anew_match "$id" "$(old "partner|$id|address")")"
+            if [[ -n "$n" ]]; then ANEW[$id]="$n"; ANEW_N[$id]=0
+            else hint_as partner_gone "Partner '$(old "partner|$id|name" "$id")' ($id) is no longer paired at the Team Lead - its section and its units go" partner "$(old "partner|$id|name" "$id")"; fi
         done < <(old_names partner)
     else
         while IFS= read -r id; do
@@ -1740,13 +1754,16 @@ step_partners() {
     keep_ids() {
         local key="$1" unit="$2" off="$3" v out=""
         [[ -n "${OLD[$key]+x}" || -n "${P[$key]+x}" ]] || return 0
+        local was
         while IFS= read -r v; do
             [[ -n "$v" ]] || continue
+            was="$v"; [[ -n "${ANEW[$v]:-}" ]] && v="${ANEW[$v]}"
             if [[ -z "${pair[$v]:-}" ]]; then continue
             elif [[ "${PARTNER_OKU[$unit]}" != "yes" ]]; then hint_as "partner_cannot_${unit%%:*}" "${unit}: not one dataset of its own (${PARTNER_WHYU[$unit]}) - it can't go to partner $(pget "partner|$v|name" "$v")" \
                 name "${unit#*:}" partner "$(pget "partner|$v|name" "$v")" pwhy "${PARTNER_WHYU[$unit]}"; continue
             elif [[ "$off" == 1 ]]; then hint_as "partner_off_${unit%%:*}" "${unit}: not backed up (off) - nothing of it goes to partner $(pget "partner|$v|name" "$v")" \
                 name "${unit#*:}" partner "$(pget "partner|$v|name" "$v")"; continue; fi
+            [[ "$was" != "$v" ]] && ANEW_N[$was]=$(( ${ANEW_N[$was]:-0} + 1 ))
             grep -Fxq -- "$v" <<<"$out" || out+="$v"$'\n'
         done < <(if [[ -n "${OLD[$key]+x}" ]]; then printf '%s\n' "${OLD[$key]}"; else printf '%s\n' "${P[$key]}"; fi)
         if [[ -n "$out" ]]; then P[$key]="${out%$'\n'}"; else unset "P[$key]"; fi
@@ -1760,10 +1777,25 @@ step_partners() {
         s="$(vm_share_mode "$n")"
         keep_ids "vm|$n|partner" "vm:$n" "$([[ "$(pget "vm|$n|mode" snapshot)" == off || "${s:-off}" == off ]] && echo 1 || echo 0)"
     done
+    # 2.45: an app whose folder is a dataset of its own ([app] folder from the decisions - pu_app_folder)
+    while IFS= read -r n; do
+        [[ -n "$n" ]] || continue
+        unit_ok "app:$n"
+        keep_ids "app|$n|partner" "app:$n" 0
+    done < <(for k in "${!OLD[@]}" "${!P[@]}"; do [[ "$k" =~ ^app\|(.+)\|partner$ ]] && printf '%s\n' "${BASH_REMATCH[1]}"; done | LC_ALL=C sort -u)
     unit_ok place
     keep_ids "general|partner_place" place 0
     unset -f keep_ids unit_ok
     _apply_P
+    for id in "${!ANEW[@]}"; do
+        n="${ANEW[$id]}"
+        if (( ${ANEW_N[$id]:-0} > 0 )); then
+            hint_as partner_anew "Partner '$(old "partner|$id|name" "$id")' ($id) was paired anew as '$(pget "partner|$n|name" "$n")' ($n) - its ${ANEW_N[$id]} unit(s) go to the new partnership" \
+                partner "$(old "partner|$id|name" "$id")" new "$(pget "partner|$n|name" "$n")" n "${ANEW_N[$id]}"
+        else
+            hint_as partner_gone "Partner '$(old "partner|$id|name" "$id")' ($id) is no longer paired at the Team Lead - its section and its units go" partner "$(old "partner|$id|name" "$id")"
+        fi
+    done
     (( ${#pair[@]} )) || return 0
     sub "Partners"
     for id in "${!pair[@]}"; do
@@ -2146,7 +2178,8 @@ settings_render() {
         done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^vm|\(.*\)|mode$/\1/p' | sort)
         local first_app="yes"
         while IFS= read -r n; do
-            [[ -z "$n" || "$(pget "app|$n|kopia")" != "yes" ]] && continue
+            [[ -z "$n" ]] && continue
+            [[ "$(pget "app|$n|kopia")" == "yes" || -n "$(plist "app|$n|partner")" ]] || continue     # 2.45: or a partner unit
             if [[ "$first_app" == "yes" ]]; then
                 first_app="no"
                 echo
@@ -2159,11 +2192,12 @@ settings_render() {
             fi
             echo
             echo "[app \"$n\"]"
-            w_kv kopia yes
+            [[ "$(pget "app|$n|kopia")" == "yes" ]] && w_kv kopia yes
             w_list folder "app|$n|folder"
+            w_list partner "app|$n|partner"
             [[ -n "$(pget "app|$n|kopia_retention")" ]] && w_kv kopia_retention "$(pget "app|$n|kopia_retention")"
             w_list kopia_ignore "app|$n|kopia_ignore"
-        done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^app|\(.*\)|kopia$/\1/p' | LC_ALL=C sort)
+        done < <(printf '%s\n' "${!P[@]}" | sed -n 's/^app|\(.*\)|\(kopia\|partner\)$/\1/p' | LC_ALL=C sort -u)
         echo
         echo "# --- Shares -------------------------------------------------------------------"
         w_c "mode             kopia = snapshot + Kopia, snapshot = local snapshot only, off = nothing"

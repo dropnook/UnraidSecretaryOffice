@@ -1,0 +1,122 @@
+# Dropnook — instant sharing for your home network
+# Setup, HTTPS and updates: https://github.com/dropnook/dropnook.app
+#
+# Before the first start: create the Unraid share "drop" and fill in SETTINGS.
+# Without Unraid: see "Without Unraid" in docs/DEVELOPMENT.md.
+
+name: drop
+
+# --- SETTINGS: everything you normally change --------------------------------
+x-settings:
+  drop-ip:         &drop_ip         192.168.1.90        # free LAN address for drop
+  share-ip:        &share_ip        192.168.1.91       # free LAN address for drop-share
+  data:            &data            /mnt/user/drop   # the Unraid share — create it first
+  shares:          &shares          /mnt/user/drop/shares            # always <data>/shares
+  counters:        &counters        /mnt/user/drop/shares/counters   # always <data>/shares/counters
+  appdata:         &appdata         /mnt/user/appdata/drop           # own translations, optional
+  # Folder with your certificates, read-only. Never the appdata folder above.
+  certs:           &certs           /mnt/user/appdata/Nginx-Proxy-Manager-Official/letsencrypt
+  tls-cert:        &tls_cert        auto             # auto | yourdomain.com | "" | path of fullchain.pem
+  tls-key:         &tls_key         ""               # only with a path in tls-cert
+  share-subdomain: &share_subdomain drop-share       # links: https://drop-share.yourdomain.com/…
+  image:           &image           ghcr.io/dropnook/dropnook:2   # 2.x + weekly security rebuilds
+
+services:
+
+  # Drop itself — reachable in your network only.
+  drop:
+    image: *image
+    container_name: drop
+    restart: unless-stopped
+    # Root only for what it needs: owning the data folders, hard links for
+    # shares, ports 80/443. No other capability, no way to gain more.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 2g
+    pids_limit: 200
+    environment:
+      MODE: lan
+      TLS_CERT: *tls_cert
+      TLS_KEY: *tls_key
+      CERTS_DIR: *certs
+      SHARE_SUBDOMAIN: *share_subdomain
+      # PIN: "2468"                  # optional: asked once on every new device
+      # Or users, up to five, one per colour — "name:PIN", each with an area of
+      # their own next to the shared one (README, "Users"):
+      # USER_TEAL:   "Anna:2468"
+      # USER_GOLD:   "Tom:1357"
+      # USER_BLUE:   "Lena:8642"
+      # USER_VIOLET: "Max:9753"
+      # USER_CORAL:  "Mia"          # without ":PIN": the name alone (or PIN, if set)
+      # TZ: Europe/Berlin            # log timestamps only
+      # More settings: docs/DEVELOPMENT.md
+    volumes:
+      # One mount for files/, texts/ and shares/ — hard links need that. Not
+      # created when missing, so a typo never turns into a new Unraid share.
+      - type: bind
+        source: *data
+        target: /data
+        bind: { create_host_path: false }
+      - type: bind
+        source: *appdata
+        target: /config
+        read_only: true
+      - type: bind
+        source: *certs
+        target: *certs
+        read_only: true
+      - /boot/config/ident.cfg:/unraid/ident.cfg:ro   # Unraid server name
+    networks:
+      br0:
+        ipv4_address: *drop_ip
+    labels:
+      # "WebUI" in the Docker tab: the name you open Drop under.
+      # Without a domain and without sharing: http://[IP]/
+      net.unraid.docker.webui: https://drop.example.com
+      net.unraid.docker.icon: https://raw.githubusercontent.com/dropnook/dropnook.app/main/.github/icons/drop.png
+
+  # Share links only — the one container your reverse proxy points to.
+  drop-share:
+    image: *image
+    container_name: drop-share
+    restart: unless-stopped
+    depends_on:
+      drop:
+        condition: service_healthy
+    # Locked down: no root, read-only, no capabilities, limited resources.
+    user: "99:100"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=16m]
+    mem_limit: 256m
+    pids_limit: 64
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 80   # port 80 without root
+    environment:
+      MODE: public
+      PORT: 80
+      APP_NAME: Drop
+    volumes:
+      # Only what is shared, read-only — except the view counters.
+      - type: bind
+        source: *shares
+        target: /data/shares
+        read_only: true
+      - type: bind
+        source: *counters
+        target: /data/shares/counters
+      - type: bind
+        source: *appdata
+        target: /config
+        read_only: true
+    networks:
+      br0:
+        ipv4_address: *share_ip
+    labels:
+      net.unraid.docker.icon: https://raw.githubusercontent.com/dropnook/dropnook.app/main/.github/icons/drop-share.png
+
+networks:
+  br0:            # Unraid's network for containers with their own LAN address
+    external: true

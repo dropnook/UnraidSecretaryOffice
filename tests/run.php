@@ -3597,10 +3597,10 @@ SH);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('gone app (page): read from the plan\'s apps[] gone; never sent, never counted key by key',
         str_contains($js, 'const goneApps = (plan) =>') && str_contains($js, "Object.keys(out).forEach((k) => { if (goneAppKey(k, setup.plan)) delete out[k]; });")
-        && str_contains($js, "goneAppKey(k, setup.plan) ? `app|\${k.split('|')[1]}|` : k"));
+        && str_contains($js, "goneAppKey(k, setup.plan) ? [`app|\${p[1]}|`, 'app_gone']"));
     check('gone app (page): step 2 shows it with «gone» and no level, the dialog says «entry will be removed»',
         str_contains($js, "list.appendChild(el('div', 'bk-subhead', T('setup.apps_gone')))") && str_contains($js, "right.appendChild(chip(T('setup.gone'), 'warn'));")
-        && str_contains($js, "const li = el('li', '', T('setup.ch_app_gone', { name: a.name }));"));
+        && str_contains($js, "li.append(diffMark('gone'), T('setup.ch_app_gone', { name: a.name }));"));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
     check('gone app (page): its words', isset($en['setup.msg.app_gone'], $en['setup.apps_gone'], $en['setup.app_gone_had'], $en['setup.ch_app_gone']));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -4160,7 +4160,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.44'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.45'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -4702,10 +4702,10 @@ SH);
 function testBackupVmWarn(): void
 {
     $run = backupRunFromStatus(['run' => '20261011-0300', 'started' => 1000, 'finished' => 2000, 'result' => 'warnings', 'warnings' => 2,
-        'warning_items' => [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows_11_Tom_1', 'seconds' => '300', 'Bad' => 'x', 'n' => ['x']]],
+        'warning_items' => [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows11', 'seconds' => '300', 'Bad' => 'x', 'n' => ['x']]],
             ['code' => 'Not a code'], 'junk', ['code' => 'vm_not_frozen', 'params' => ['name' => "a\nb"]]]]);
     same('vm warn: the agent passes the coded warnings through, only in the engine\'s shape',
-        [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows_11_Tom_1', 'seconds' => '300']], ['code' => 'vm_not_frozen', 'params' => []]],
+        [['code' => 'vm_not_shut_down', 'params' => ['name' => 'Windows11', 'seconds' => '300']], ['code' => 'vm_not_frozen', 'params' => []]],
         $run['warning_items']);
     same('vm warn: an older engine\'s run — none', [], backupRunFromStatus(['run' => 'x'])['warning_items']);
     $codes = ['vm_not_shut_down', 'vm_shutdown_refused', 'vm_not_frozen', 'vm_not_paused'];
@@ -4777,7 +4777,7 @@ JS);
         check('vm warn: ran under node', false, $raw);
         return;
     }
-    $want = 'Windows_11_Tom_1 liess sich nicht herunterfahren — angehalten; der Lauf entsprach nicht genau der Einrichtung.';
+    $want = 'Windows11 liess sich nicht herunterfahren — angehalten; der Lauf entsprach nicht genau der Einrichtung.';
     same('vm warn: Mr. Backupsy\'s bubble — the warning, then the VM in German', ['Das letzte Backup gestern endete mit einer Warnung.', $want],
         array_slice($r['bubble'] ?? [], 0, 2));
     same('vm warn: the run\'s line', [$want], $r['lines'] ?? null);
@@ -5728,6 +5728,8 @@ SH);
 ev() { echo "$(date +%s) $*" >>"$FAKE/events"; }
 case "$1" in
   list)
+    # told so ($FAKE/early): the run's status.json as it stood at its first look at the datasets (the inventory)
+    [[ -e "$FAKE/early" && ! -e "$FAKE/status-early.json" ]] && cp "$UB_DATA/state/status.json" "$FAKE/status-early.json" 2>/dev/null
     if [[ "$*" == *'-t filesystem'* ]]; then cat "$FAKE/zfs.txt"
     elif [[ "$*" == *'-t bookmark'* ]]; then grep -qxF -- "${@: -1}" "$FAKE/bookmarks.txt" 2>/dev/null && echo "${@: -1}" || exit 1
     elif [[ "$*" == *'-t snapshot'* ]]; then
@@ -5773,6 +5775,7 @@ case "$verb" in
   recv)
     if [[ -s "$FAKE/refuse" ]]; then echo "{\"ok\":false,\"why\":\"$(cat "$FAKE/refuse")\"}" >&2; exit 1; fi
     if [[ -s "$FAKE/notagreed" ]] && grep -qxF -- "$unit" "$FAKE/notagreed"; then echo '{"ok":false,"why":"unit_not_agreed"}' >&2; exit 1; fi
+    if [[ -s "$FAKE/badunit" ]] && grep -qxF -- "$unit" "$FAKE/badunit"; then echo '{"ok":false,"why":"bad_unit"}' >&2; exit 1; fi
     if [[ -n "$from" && "$from" != -t ]] && { [[ -e "$FAKE/needfull" ]] || ! grep -qxF -- "$from" "$FAKE/recv/$u" 2>/dev/null; }; then
       echo '{"ok":false,"why":"need_full"}' >&2; exit 1
     fi
@@ -5941,7 +5944,7 @@ SH);
     $run('--no-kopia');
     same('partner phase 2.42: a --no-kopia run - skip_kopia true, the partners still get their copies', [true, 4], [$status()['skip_kopia'] ?? null, $status()['partner_ok'] ?? null]);
 
-    // --- refusals: the partner's window, its quota (a warning once a day), asleep (no warning)
+    // --- refusals: the partner's window (a warning once a day), its quota (every run, 2.45), asleep (nights, 2.45)
     foreach (['refused_window', 'refused_quota', 'refused_asleep'] as $why) {
         @unlink("$data/state/partner-skips.json");
         $night();
@@ -5953,11 +5956,30 @@ SH);
             [[$why], 0, 0], [array_values(array_unique(array_column(array_filter($s['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
              $s['partner_failed'] ?? null, $s['partner_ok'] ?? null]);
         same("partner phase: $why - warnings", $why === 'refused_asleep' ? 0 : 1, substr_count($l, 'WARNING: Partner vault refused'), $l);
-        if ($why === 'refused_quota') {
+        if ($why === 'refused_window') {
             $night();
             file_put_contents("$fake/refuse", $why);
             $run();
-            same('partner phase: refused_quota again the same day - no second warning', 0, substr_count($log(), 'WARNING: Partner vault refused'));
+            same('partner phase: refused_window again the same day - no second warning', 0, substr_count($log(), 'WARNING: Partner vault refused'));
+        }
+        if ($why === 'refused_quota') {
+            same('partner phase 2.45: refused_quota - a coded warning with what to do, the run ends with warnings', [[['code' => 'partner_quota', 'params' => ['partner' => 'vault']]], 'warnings', true],
+                [$s['warning_items'] ?? null, $s['result'] ?? null, str_contains($l, 'raise the quota at the partner or free space there')], $l);
+            $night();
+            file_put_contents("$fake/refuse", $why);
+            $run();
+            same('partner phase 2.45: refused_quota again the same day - warned again (every run, once per partner)', [1, 'warnings'],
+                [substr_count($log(), 'WARNING: Partner vault refused'), $status()['result'] ?? null], $log());
+        }
+        if ($why === 'refused_asleep') {
+            same('partner phase 2.45: refused_asleep - a night counted, no warning yet', 1, (json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null);
+            testsClockNight($clock);
+            $run();
+            testsClockNight($clock);
+            $run();
+            same('partner phase 2.45: refused_asleep the third night in a row - one warning (its pool sleeps every night), the run ends with warnings', [1, 'warnings'],
+                [substr_count($log(), 'WARNING: Partner vault: its pool sleeps every night - nothing arrives (3 nights in a row'), $status()['result'] ?? null], $log());
+            @unlink("$data/state/partner-skips.json");
         }
     }
 
@@ -6009,6 +6031,18 @@ SH);
     $run();
     same('partner phase: the partner\'s array is stopped - skipped (array_stopped)', ['array_stopped'],
         array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))));
+    // 2.45: counted like unreachable - a night may pass quietly, the UB_PARTNER_NIGHTS-th warns (once a day)
+    @unlink("$data/state/partner-skips.json");
+    $run();
+    same('partner phase 2.45: array stopped - a night counted, no warning yet', [1, 0],
+        [(json_decode((string) @file_get_contents("$data/state/partner-skips.json"), true) ?: [])[$id]['nights'] ?? null, substr_count($log(), 'WARNING: Partner')], $log());
+    testsClockNight($clock);
+    $run();
+    testsClockNight($clock);
+    $run();
+    same('partner phase 2.45: … the third night in a row - one warning, its array named; the run ends with warnings', [1, 'warnings'],
+        [substr_count($log(), 'WARNING: Partner vault has taken nothing for 3 nights in a row'), $status()['result'] ?? null], $log());
+    @unlink("$data/state/partner-skips.json");
 
     // --- recv_failed: failed, a warning each
     $night();
@@ -6080,6 +6114,30 @@ SH);
     $run();
     same('partner phase 2.42: … the same day again - no second warning', 0, substr_count($log(), 'WARNING: Partner vault runs an older office'));
     unlink("$tmp/data/partner/pairs.json");
+    // 2.45: an app whose folder is a dataset of its own is a unit of its own (app:<name>); its dataset no «children» of
+    // its share (appdata still goes); an older door that knows no app units: skipped (old_partner), a warning every run
+    $mounts0 = (string) file_get_contents("$fake/mounts");
+    $zfs0 = (string) file_get_contents("$fake/zfs.txt");
+    $ini0 = (string) file_get_contents("$data/settings.ini");
+    file_put_contents("$fake/mounts", $mounts0 . "maple/appdata/c1 $pool/appdata/c1 zfs rw 0 0\n");
+    file_put_contents("$fake/zfs.txt", $zfs0 . $z('maple/appdata/c1', "$pool/appdata/c1", 40));
+    file_put_contents("$data/settings.ini", $ini0 . "[app \"c1\"]\nfolder = appdata/c1\npartner = $id\n");
+    $night();
+    $run();
+    $sent = array_column($status()['partner']['done'] ?? [], 'unit');
+    check('partner phase 2.45: the app c1 (its folder a dataset of its own) went as app:c1 - and appdata still went, its child no «children»',
+        in_array('app:c1', $sent, true) && in_array('share:appdata', $sent, true) && in_array('ssh recv app:c1 ' . ($status()['snapshot'] ?? '?'), $ssh(), true),
+        json_encode([$sent, $status()['partner']['skipped'] ?? null, $ssh()]) . $log());
+    $night();
+    file_put_contents("$fake/badunit", "app:c1\n");
+    $run();
+    $sk = array_column($status()['partner']['skipped'] ?? [], 'why', 'unit');
+    same('partner phase 2.45: an older door refusing the app unit - skipped (old_partner), a coded warning, the rest went', ['old_partner', true, true],
+        [$sk['app:c1'] ?? null, in_array('partner_old', array_column($status()['warning_items'] ?? [], 'code'), true), in_array('share:appdata', array_column($status()['partner']['done'] ?? [], 'unit'), true)], $log());
+    @unlink("$fake/badunit");
+    file_put_contents("$fake/mounts", $mounts0);
+    file_put_contents("$fake/zfs.txt", $zfs0);
+    file_put_contents("$data/settings.ini", $ini0);
     // the key gone (the pair ended at the Team Lead): skipped, said so
     $night();
     rename("$pdir/$id.key", "$pdir/$id.key.away");
@@ -6087,6 +6145,42 @@ SH);
     same('partner phase: no key - nothing asked, skipped (no_key)', [[], ['no_key']], [$ssh(),
         array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why')))]);
     rename("$pdir/$id.key.away", "$pdir/$id.key");
+    // 2.45: the partnership ended at the Team Lead (pairs.json without it, perhaps paired anew): ended, not no_key -
+    // even with its key gone too; a pair still there whose key is gone stays no_key
+    $pairsWith = fn (array $ids) => file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => array_map(fn ($i) =>
+        ['id' => $i, 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'host_keys' => ['SHA256:x'], 'my_key' => 'SHA256:y', 'their_key' => null,
+         'send' => ['rate_mbit' => 0], 'receive' => null, 'trust' => 'mine'], $ids)]));
+    $pairsWith(['5e6f7a8b']);
+    $night();
+    touch("$fake/early");
+    rename("$pdir/$id.key", "$pdir/$id.key.away");
+    $run();
+    @unlink("$fake/early");
+    same('partner phase 2.45: the partnership ended at the Team Lead - nothing asked, skipped (ended), said so in the log', [[], ['ended'], true], [$ssh(),
+        array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
+        str_contains($log(), "the partnership vault ($id) was ended at the Team Lead")], $log());
+    // 2.45: the run's partners are in status.json from the start (the run card's step), even with every unit skipped
+    $early = json_decode((string) @file_get_contents("$fake/status-early.json"), true) ?: [];
+    same('partner phase 2.45: status.json names the partner from the inventory on - the run card shows its step at once', ['inventory', [['id' => $id, 'name' => 'vault']]],
+        [$early['phase'] ?? null, $early['partner']['partners'] ?? null], json_encode($early));
+    check('partner phase 2.45: … every unit skipped up front - the phase still listed with its skips', count($status()['partner']['skipped'] ?? []) >= 3);
+    check('partner phase 2.45: … never «key missing» for it', !str_contains($log(), 'its key or known_hosts is missing'), $log());
+    $s = $status();
+    $mail = (string) @file_get_contents("$fake/notify.log");
+    same('partner phase 2.45: … a warning with what to do (warning_items partner_ended), the run ends with warnings, never «successful»',
+        ['warnings', [['code' => 'partner_ended', 'params' => ['partner' => 'vault']]], 1],
+        [$s['result'] ?? null, $s['warning_items'] ?? null, substr_count($log(), "WARNING: Partner vault: the partnership was ended at the Team Lead - nothing sent; apply Mr. Backupsy's setup")], $log());
+    check('partner phase 2.45: … the mail says «with warnings» and the reason in words, not the code', str_contains($mail, 'Backup with warnings')
+        && str_contains($mail, "not sent (partnership ended - apply Mr. Backupsy's setup)") && !str_contains($mail, 'not sent (ended)') && !str_contains($mail, 'Backup successful'), $mail);
+    $pairsWith([$id]);
+    $night();
+    $run();
+    same('partner phase 2.45: the pair still there, its key gone - no_key as before, a warning to pair anew, the mail in words', [['no_key'], 'warnings', ['partner_no_key'], true],
+        [array_values(array_unique(array_column(array_filter($status()['partner']['skipped'] ?? [], fn ($x) => $x['unit'] !== 'share:rootfolder'), 'why'))),
+         $status()['result'] ?? null, array_column($status()['warning_items'] ?? [], 'code'),
+         str_contains((string) @file_get_contents("$fake/notify.log"), 'not sent (key missing - pair anew at the Team Lead)')], $log());
+    rename("$pdir/$id.key.away", "$pdir/$id.key");
+    unlink("$tmp/data/partner/pairs.json");
     // no partner at all: partner null, nothing asked
     file_put_contents("$data/settings.ini", preg_replace('/^partner(_place)? = .*\n/m', '', (string) file_get_contents("$data/settings.ini")));
     $night();
@@ -6095,7 +6189,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.44', [1, '2.44'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.45', [1, '2.45'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -6154,6 +6248,23 @@ SH);
         && !str_contains($ini, 'ffff0000') && !str_contains($ini, 'receiver-only'), $ini . $out);
     $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
     same('setup apply: the settings written load without errors', '0', trim((string) shell_exec('bash -c ' . escapeshellarg("$env; source $lib >/dev/null 2>&1; cfg_load $data/settings.ini; cfg_validate >/dev/null; echo \${#CFG_ERRORS[@]}"))));
+    // 2.45: an app whose folder is a dataset of its own keeps its partner level (its [app] section, folder listed); its
+    // folder no dataset - dropped, said (partner_cannot_app)
+    $mounts1 = (string) file_get_contents("$fake/mounts");
+    $zfs1 = (string) file_get_contents("$fake/zfs.txt");
+    file_put_contents("$fake/mounts", $mounts1 . "maple/appdata/c1 $pool/appdata/c1 zfs rw 0 0\n");
+    file_put_contents("$fake/zfs.txt", $zfs1 . $z('maple/appdata/c1', "$pool/appdata/c1", 40));
+    file_put_contents("$tmp/dec-app.json", json_encode(['app|c1|partner' => [$id], 'app|c1|folder' => ['appdata/c1']] + $dec + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec-app.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('setup apply 2.45: an app\'s own folder dataset - its [app] section with folder and partner', (bool) preg_match('/\[app "c1"\]\nfolder = appdata\/c1\npartner = ' . $id . '\n/', $ini), $ini . $out);
+    file_put_contents("$fake/mounts", $mounts1);
+    file_put_contents("$fake/zfs.txt", $zfs1);
+    $out = $setup('--plan');
+    $plan2 = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+    same('setup plan 2.45: … its folder no dataset of its own any more - the partner dropped from P, said (partner_cannot_app)', [null, true],
+        [$plan2['P']['app|c1|partner'] ?? null, in_array('partner_cannot_app', array_column($plan2['messages'] ?? [], 'code'), true)], $out);
+    $setup("--apply=$tmp/dec.json");
     // 2.42: a pair of 1.60 (send only its rate) and a pair of up to 1.59 without the place in its list: the place goes either way
     file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [
         ['id' => $id, 'name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'host_keys' => ['SHA256:x'], 'my_key' => 'SHA256:y', 'their_key' => null,
@@ -6178,6 +6289,44 @@ SH);
     $setup('--plan');
     $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
     same('setup plan: a pair ended - no partners, no units', [[], null, null], [$plan['partners'] ?? null, $plan['P']["partner|$id|name"] ?? null, $plan['P']['share|appdata|partner'] ?? null]);
+    // 2.45: the pair ended and made anew (a user 2026-10-12: a new id, the same address) - its units go to the new pair
+    $new = '5e6f7a8b';
+    $olds = array_keys(array_filter($plan['O'] ?? [], fn ($v, $k) => preg_match('/^((share|vm)\|.+\|partner|general\|partner_place)$/', $k) && in_array($id, (array) $v, true), ARRAY_FILTER_USE_BOTH));
+    $anewPair = fn (string $addr, array $hk) => file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [
+        ['id' => $new, 'name' => 'Tower', 'address' => $addr, 'port' => 22, 'host_keys' => $hk, 'my_key' => 'SHA256:y', 'their_key' => null,
+         'send' => ['rate_mbit' => 0], 'receive' => null, 'trust' => 'mine', 'paired' => 1, 'last_heard' => null, 'last_answer' => null]]]));
+    $carried = function () use ($setup, $data, $new, $olds): array {
+        $out = $setup('--plan');
+        $plan = json_decode((string) @file_get_contents("$data/state/setup-plan.json"), true) ?: [];
+        $m = array_values(array_filter($plan['messages'] ?? [], fn ($x) => in_array($x['code'] ?? '', ['partner_anew', 'partner_gone'], true)));
+        return [array_values(array_filter($olds, fn ($k) => ($plan['P'][$k] ?? null) === [$new])), array_map(fn ($x) => [$x['code'], $x['params']], $m), $plan, $out];
+    };
+    $anewPair('10.0.0.9', ['SHA256:other']);
+    [$got, $msgs, $p2, $out] = $carried();
+    same('setup plan 2.45: paired anew at the same address - every unit of the ended pair proposed for the new one, said once (partner_anew)',
+        [$olds, [['partner_anew', ['partner' => 'vault', 'new' => 'Tower', 'n' => (string) count($olds)]]], 'Tower'],
+        [$got, $msgs, $p2['P']["partner|$new|name"] ?? null], $out);
+    check('setup plan 2.45: … at least the place, a share and the VM', count($olds) >= 3 && in_array('general|partner_place', $olds, true) && in_array('vm|vm1|partner', $olds, true), json_encode($olds));
+    $anewPair('10.0.0.77', ['SHA256:hk1']);
+    file_put_contents("$tmp/data/partner/ended.json", json_encode(['v' => 1, 'pairs' => [$id => ['name' => 'vault', 'address' => '10.0.0.9', 'port' => 2222, 'host_keys' => ['SHA256:hk0', 'SHA256:hk1'], 'time' => 1]]]));
+    [$got, $msgs] = $carried();
+    same('setup plan 2.45: another address, one of the ended pair\'s host keys (ended.json) - carried over too', [$olds, ['partner_anew']], [$got, array_column($msgs, 0)]);
+    unlink("$tmp/data/partner/ended.json");
+    [$got, $msgs] = $carried();
+    same('setup plan 2.45: no address, no host key in common - nothing carried, partner_gone as before', [[], [['partner_gone', ['partner' => 'vault']]]], [$got, $msgs]);
+    $anewPair('10.0.0.9', ['SHA256:other']);
+    [, , $p2] = $carried();
+    // a draft from before the plan still naming the ended id on a unit (the page's decisions): the setup carries it over too
+    file_put_contents("$tmp/dec3.json", json_encode(['vm|vm1|partner' => [$id]] + $p2['P'] + ['_retire_sources' => 'no']));
+    $out = $setup("--apply=$tmp/dec3.json");
+    $ini = (string) @file_get_contents("$data/settings.ini");
+    check('setup apply 2.45: settings.ini has the new pair\'s section and its units, the ended one gone', str_contains($ini, "[partner \"$new\"]\nname = Tower\n")
+        && !str_contains($ini, $id) && str_contains($ini, "partner_place = $new\n") && (bool) preg_match('/\[vm "vm1"\][^\[]*\npartner = ' . $new . '\n/', $ini), $ini . $out);
+    $night();
+    $run();
+    check('setup apply 2.45: … and the next run asks the new pair\'s door (no key there: no_key, not ended)', in_array('no_key', array_column($status()['partner']['skipped'] ?? [], 'why'), true)
+        && !in_array('ended', array_column($status()['partner']['skipped'] ?? [], 'why'), true), json_encode($status()['partner'] ?? null));
+    $settings(0);
     // without pairs.json: the sections as settings.ini has them; --forget keeps them for the next setup
     unlink("$tmp/data/partner/pairs.json");
     $setup('--plan');
@@ -6277,7 +6426,7 @@ function testBackupPartnerOffice(): void
     same('partner office: the Dashboard - no line in another phase', null, $dash($running));
     // every text the desk names for a partner's reason exists in English (the engine's codes)
     $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/backup/lang/en.json'), true);
-    $codes = ['unreachable', 'refused_quota', 'refused_window', 'refused_asleep', 'array_stopped', 'no_key', 'no_ssh', 'snap_prefix', 'not_dataset', 'split', 'no_dataset',
+    $codes = ['unreachable', 'refused_quota', 'refused_window', 'refused_asleep', 'array_stopped', 'ended', 'no_key', 'no_ssh', 'snap_prefix', 'not_dataset', 'split', 'no_dataset',
               'children', 'name', 'not_snapshotted', 'array_stopping', 'signal', 'recv_failed', 'send_failed', 'link_lost', 'no_answer', 'need_full', 'refused'];
     same('partner office: a short text for every reason the engine gives', [], array_values(array_filter($codes, fn ($c) => !isset($en["partner.why_short.$c"]))));
     same('partner office: a long text for every reason a unit can\'t travel', [], array_values(array_filter(['not_dataset', 'split', 'no_dataset', 'children', 'name'], fn ($c) => !isset($en["partner.why.$c"]))));
@@ -6461,8 +6610,16 @@ SH);
     testsClock("$tmp/bin", $clock);
     $env = "export PATH=$tmp/bin:\$PATH UB_DATA=$data UB_MNT=$mnt UB_BOOT=$tmp/boot UB_SHARES_CFG=$tmp/boot/config/shares UB_STAGE=$tmp/stage"
          . " UB_DISKS_INI=$fake/disks.ini UB_MOUNTS_FILE=$fake/mounts UB_NOTIFY_BIN=$tmp/bin/notify UB_NOTIFY_STAMP=$tmp/notify.stamp UB_VAR_INI=$fake/var.ini"
-         . " FAKE=$fake FAKE_ROOT=$root MNT=$mnt UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1";
+         . " FAKE=$fake FAKE_ROOT=$root MNT=$mnt UB_VM_SHUTDOWN_TIMEOUT=4 UB_VM_SHUTDOWN_RETRY=2 UB_ARRAY_LOOK=1"
+         . " UB_PARTNER_DIR=$tmp/partners UB_PARTNER_NIGHTS=99 UB_PARTNER_ASK=3";
     $pid = '0a0b0c0d';
+    // the partner: paired (its key here), but it doesn't answer (ssh exit 255) - skipped quietly, never warned about
+    // (engine 2.45: a key missing would warn every run - not what these tests are about)
+    @mkdir("$tmp/partners", 0700, true);
+    touch("$tmp/partners/$pid.key");
+    touch("$tmp/partners/$pid.known");
+    file_put_contents("$tmp/bin/ssh", "#!/bin/bash\nexit 255\n");
+    chmod("$tmp/bin/ssh", 0755);
     // app c2 (its folder on hazel) is a Kopia source of its own only in the skip nights: the fixture's mounts are empty
     // folders, a source of its own could never be put together - skipped asleep it never needs to be
     $settings = function (string $asleep) use ($data, $root, $mnt, $pid): void {
@@ -6550,7 +6707,7 @@ SH);
     $vms = array_column($s['vms'] ?? [], null, 'name');
     same('asleep skip: vms - vmh asleep (no snapshot), vmm paused', [['shutdown', 'asleep', false], ['pause', 'paused']],
         [[$vms['vmh']['prepare'] ?? null, $vms['vmh']['done'] ?? null, $vms['vmh']['snapshot'] ?? null], [$vms['vmm']['prepare'] ?? null, $vms['vmm']['done'] ?? null]]);
-    same('asleep skip: the partner - media skipped (asleep), appdata skipped (no key)', [['id' => $pid, 'unit' => 'share:media', 'why' => 'asleep'], ['id' => $pid, 'unit' => 'share:appdata', 'why' => 'no_key']],
+    same('asleep skip: the partner - media skipped (asleep), appdata skipped (unreachable)', [['id' => $pid, 'unit' => 'share:media', 'why' => 'asleep'], ['id' => $pid, 'unit' => 'share:appdata', 'why' => 'unreachable']],
         $s['partner']['skipped'] ?? null);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
@@ -6627,7 +6784,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.44', [1, '2.44'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.45', [1, '2.45'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -8723,6 +8880,401 @@ function testRestore(): void
  * built from the journal; the engine's lock with his note; a whole job as its own process (done, and refused while
  * the lock is held); interrupted journals; the Dashboard's row. Everything in a temporary folder.
  */
+/**
+ * 1.60.1 (a user, a partner restore on Backup2): Mr. Restori's running restore as a card in the row's place, like Mr.
+ * Backupsy's run - the steps short (the full sentence in the journal), the current one's % and time left from the live
+ * rate only with its size known, the whole's end only when every copy step still to come has a size; no history.
+ */
+function testRestoreRunCard(): void
+{
+    $rjs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore run card: above the tiles while a restore runs, no banner over it', str_contains($rjs, 'view.card = card;') && !str_contains($rjs, "T('notice.restoring'"));
+    $node = testsNode();
+    if ($node === '') {
+        check('restore run card: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('restore-runcard');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, t) => ({ tag, className: cls || '', textContent: t == null ? '' : String(t), children: [], style: {}, dataset: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+const text = (n) => (typeof n === 'string' ? n : n.textContent + (n.children || []).map(text).join(''));
+const strings = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+globalThis.Office = { scope: () => T, t: T, el, store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {},
+  sections: () => ({ places: () => [] }), has: (k) => k.replace(/^restore\./, '') in strings,
+  fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's' } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const r = OFFICE_DESK_TESTS.restore;
+const job = (pr, more = {}) => ({ id: 'j1', kind: 'start_from', what: 'Windows11 ← Sender', result: 'running', started: 1000, sizes: null, ...more,
+  steps: [{ do: 'pull', unit: 'vm:Windows11', partner: 'Sender', bytes: 1000, state: 'ok' }, { do: 'mount', dataset: 'x', path: '/p', state: 'ok' },
+    { do: 'copy', from: '/a', to: '/mnt/user/domains/Windows11', state: 'running', progress: pr }, { do: 'start_from', kind: 'vm', to: '/t', name: 'W', state: 'pending' }] });
+const out = {};
+const d0 = r.runCardData(job({ done: 640, total: 1000, percent: 64 }), 2000);
+out.steps = d0.steps.map((s) => [s.name, s.state]);
+out.first = [d0.at, d0.percent, d0.left, d0.end, d0.errors, d0.warnings];
+// two more samples: 10 bytes/s - 280 s left; the copy is the last copy step - the end is known
+r.runCardData(job({ done: 700, total: 1000, percent: 70 }), 2006);
+const d2 = r.runCardData(job({ done: 720, total: 1000, percent: 72 }), 2008);
+out.rate = [d2.percent, d2.left, d2.end];
+// a copy step still to come without a size: the step's time left, no end
+const j3 = job({ done: 720, total: 1000, percent: 72 });
+j3.steps.push({ do: 'copy', from: '/b', to: '/c', state: 'pending' });
+const d3 = r.runCardData(j3, 2010);
+out.noEnd = [d3.left !== null, d3.end];
+// no size known: the % only
+const d4 = r.runCardData(job({ done: 720, total: null, percent: 72 }, { id: 'j2' }), 2010);
+out.pctOnly = [d4.percent, d4.left, d4.end];
+const card = r.runCard(job({ done: 720, total: 1000, percent: 72 }), 2012);
+out.card = text(card);
+out.cls = card.className;
+console.log(JSON.stringify(out));
+JS);
+    file_put_contents("$tmp/strings.json", file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'));
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' ' . escapeshellarg("$tmp/strings.json") . ' 2>&1');
+    $r = json_decode($raw, true) ?: [];
+    same('restore run card: the steps by their short names, done / running / waiting', [['ss.pull', 'ok'], ['ss.mount', 'ok'], ['ss.copy', 'running'], ['ss.start_from_vm', 'pending']],
+        $r['steps'] ?? $raw);
+    same('restore run card: the first look - the step, its 64 %, no time yet (one sample), no errors', [2, 64, null, null, 0, 0], $r['first'] ?? $raw);
+    same('restore run card: the live rate (the median: 10 B/s) - 28 s left, the end known (no copy step after it)', [72, 28, 2036], $r['rate'] ?? $raw);
+    same('restore run card: a copy step to come without a size - the step\'s time, no end', [true, null], $r['noEnd'] ?? $raw);
+    same('restore run card: no size - the % only, nothing made up', [72, null, null], $r['pctOnly'] ?? $raw);
+    check('restore run card: the card - its title, «running» with the wave, the steps, «n % · left», the end, the counts, «Journal»',
+        str_contains($r['card'] ?? '', 'jk.start_from') && str_contains($r['card'] ?? '', 'jr.running') && str_contains($r['card'] ?? '', '72 % · rc.left')
+        && str_contains($r['card'] ?? '', 'rc.end') && str_contains($r['card'] ?? '', 'rc.errors') && str_contains($r['card'] ?? '', 'rc.log')
+        && ($r['cls'] ?? '') === 'card rs-run running', $raw);
+    $rjs2 = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore run card 1.60.1: above the tiles whatever tile is open (the tiles stay), from the agent\'s word until the poll has the job, placed again at every poll',
+        !str_contains($rjs2, 'sw.grid.hidden') && !str_contains($rjs2, "if (j && sw.active() !== 'journal')") && str_contains($rjs2, 'else if (run) view.card.appendChild(runCardShort(run));')
+        && str_contains($rjs2, '} else if (live) placeRunCard();'));
+    $bjs2 = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('backup run card 1.60.1: above the tiles too, the tiles stay', str_contains($bjs2, 'if (live()) root.appendChild(runningCard());') && !str_contains($bjs2, 's.grid.hidden = live();'));
+    check('restore 1.60.1: a receiver with partners\' copies but no packages of its own says so (bubble.kept_only)', str_contains($rjs2, "held ? T('bubble.kept_only', { n: held }) : T('bubble.no_packages')"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("restore run card: $l - the card's words and a short name for every step kind", [], array_values(array_filter(['rc.since', 'rc.left', 'rc.end', 'rc.errors',
+            'rc.warnings', 'rc.log', 'ss.pull', 'ss.copy', 'ss.mount', 'ss.start_from_vm', 'ss.define', 'ss.aside', 'ss.kopia', 'ss.play', 'ss.start', 'ss.stop'], fn ($k) => !isset($lj[$k]))));
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * 1.60.1 (a user, Windows11 from a test server onto Backup2: 8 GiB on 3.9, 3 vCPUs pinned to 10-12 on 2 CPUs, two
+ * ISOs not there - it would not start): a VM's XML from another server fitted to this host (rspAdaptXml).
+ */
+function testRestoreVmFit(): void
+{
+    $xml = "<domain type='kvm'><name>W</name><memory unit='KiB'>8388608</memory><currentMemory unit='KiB'>8388608</currentMemory>"
+        . "<vcpu placement='static'>3</vcpu><cputune><vcpupin vcpu='0' cpuset='10'/><vcpupin vcpu='1' cpuset='11'/><vcpupin vcpu='2' cpuset='1'/><emulatorpin cpuset='12'/></cputune>"
+        . "<cpu mode='host-passthrough'><topology sockets='1' dies='1' cores='3' threads='1'/></cpu><devices>"
+        . "<disk type='file' device='disk'><source file='/mnt/user/domains/W/vdisk1.img'/><target dev='hdc'/></disk>"
+        . "<disk type='file' device='cdrom'><source file='/mnt/fast/isos/Win11.iso'/><target dev='hda'/></disk>"
+        . "<disk type='file' device='cdrom'><source file='/mnt/user/isos/virtio-win-0.1.285-1.iso'/><target dev='hdb'/></disk>"
+        . "<interface type='bridge'><source bridge='br1'/></interface><interface type='network'><source network='lan'/></interface>"
+        . "<hostdev mode='subsystem' type='pci'><source><address bus='0x01'/></source></hostdev></devices></domain>";
+    $host = ['cpus' => 2, 'mem_kib' => 4089000, 'bridges' => ['br0', 'virbr0'], 'networks' => ['default'], 'host' => 'backup2'];
+    $here = fn (string $p) => $p === '/mnt/user/domains/W/vdisk1.img';
+    [$out, $ch, $refuse] = rspAdaptXml($xml, $host, $here);
+    $d = new DOMDocument();
+    $d->loadXML($out);
+    $x = new DOMXPath($d);
+    $q = fn (string $e) => array_map(fn ($n) => $n->nodeValue, iterator_to_array($x->query($e)));
+    same('vm fit: the changes said, each once', ['pins', 'vcpus', 'memory', 'hostdev', 'bridge', 'bridge', 'cdrom', 'cdrom'], array_column($ch, 'code'));
+    same('vm fit: pins to CPUs not here gone (the one to CPU 1 kept), vCPUs capped with the topology', [['1'], ['2'], '2', '1'],
+        [$q('/domain/cputune/vcpupin/@cpuset'), $q('/domain/vcpu'), $q('/domain/cpu/topology/@cores')[0] ?? null, $q('/domain/cpu/topology/@sockets')[0] ?? null]);
+    same('vm fit: memory capped to three quarters, on Unraid\'s 512 MB steps (2.5 GiB), both values', [['2621440'], ['2621440'], ['KiB']],
+        [$q('/domain/memory'), $q('/domain/currentMemory'), $q('/domain/memory/@unit')]);
+    same('vm fit: no passthrough left, the missing bridge and network -> br0, the ISOs emptied with their drives kept, the vdisk untouched',
+        [0, ['br0', 'br0'], 2, 0, ['/mnt/user/domains/W/vdisk1.img'], null],
+        [$x->query('//hostdev')->length, $q('/domain/devices/interface/source/@bridge'), $x->query("//disk[@device='cdrom']")->length,
+         $x->query("//disk[@device='cdrom']/source")->length, $q("//disk[@device='disk']/source/@file"), $refuse]);
+    same('vm fit: the journal\'s numbers', [['n' => '3', 'cpus' => '2'], ['from' => '3', 'to' => '2'], ['from' => '8', 'to' => '2.5'], ['from' => 'br1', 'to' => 'br0']],
+        [$ch[0]['params'], $ch[1]['params'], $ch[2]['params'], $ch[4]['params']]);
+    [, , $refuse] = rspAdaptXml($xml, $host, fn () => false);
+    same('vm fit: a disk image not here - no definition, said with its path', ['path' => '/mnt/user/domains/W/vdisk1.img'], $refuse);
+    [$same, $none] = rspAdaptXml($xml, ['cpus' => 16, 'mem_kib' => 67108864, 'bridges' => ['br1', 'br0'], 'networks' => ['lan'], 'host' => 'x'], fn () => true);
+    same('vm fit: a host it fits (CPUs, memory, its bridge, every file there) - the XML as it was but for the passthrough', [['hostdev'], false],
+        [array_column($none, 'code'), str_contains($same, '<hostdev')]);
+    same('vm fit: a small host - the form\'s first steps (256 MB, 128 MB)', [['262144'], ['131072']],
+        [(function () use ($xml) { $d = new DOMDocument(); $d->loadXML(rspAdaptXml($xml, ['cpus' => 4, 'mem_kib' => 600000, 'bridges' => ['br0']], fn () => true)[0]);
+            return array_map(fn ($n) => $n->nodeValue, iterator_to_array((new DOMXPath($d))->query('/domain/memory'))); })(),
+         (function () use ($xml) { $d = new DOMDocument(); $d->loadXML(rspAdaptXml($xml, ['cpus' => 4, 'mem_kib' => 300000, 'bridges' => ['br0']], fn () => true)[0]);
+            return array_map(fn ($n) => $n->nodeValue, iterator_to_array((new DOMXPath($d))->query('/domain/memory'))); })()]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
+    check('vm fit: only for a copy from another server (the manifest\'s host), the original XML kept as <name>.xml.original',
+        str_contains($src, "if (strtolower(rsStr(\$m['host'] ?? '')) !== (\$host['host'] ?? '')) {") && str_contains($src, '$keep = "$dir/$name.xml.original";'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("vm fit: $l - its words", [], array_values(array_filter(['sa.head', 'sa.pins', 'sa.vcpus', 'sa.memory', 'sa.hostdev', 'sa.bridge', 'sa.cdrom', 'sn.start_vm_disk_missing'],
+            fn ($k) => !isset($lj[$k]))));
+    }
+}
+
+/**
+ * 1.60.1 (a user's stack «dropnook» onto another server): a Compose stack from another server's copy made in the
+ * Compose Manager here - same folder name, never over one, never without the Compose Manager, its paths fitted, not started.
+ */
+function testRestoreStack(): void
+{
+    $tmp = hardeningTmp('restore-stack');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $dir = "$tmp/appdata/drop/" . RSP_INSIDE;
+    @mkdir("$dir/compose", 0755, true);
+    $yaml = "services:\n  drop:\n    image: x/drop\n    volumes:\n      - /mnt/fast/appdata/drop:/config\n      - /mnt/user/drop:/data\n"
+        . "  drop-share:\n    image: x/share\n    volumes:\n      - /mnt/fastpool/gone/x:/x\n      - /mnt/cache/drop/tmp:/tmp\n";
+    file_put_contents("$dir/compose/compose.yaml", $yaml);
+    file_put_contents("$dir/compose/compose.override.yaml", "services:\n  drop:\n    labels: {a: b}\n");
+    file_put_contents("$dir/compose/name", "dropnook\n");
+    file_put_contents("$dir/compose/autostart", "true\n");
+    $m = ['kind' => 'app', 'type' => 'compose', 'name' => 'dropnook', 'host' => 'Sender', 'compose' => ['project' => 'dropnook', 'manager_dir' => 'dropnook']];
+    $old = $GLOBALS['rs'] ?? null;
+    $GLOBALS['rs'] = ['compose_here' => true, 'compose_root' => "$tmp/projects", 'pool_here' => fn (string $p) => $p === 'cache', 'path_here' => fn () => true,
+        'shares_ini' => ['appdata' => [], 'drop' => []]];
+    try {
+        // the fitting alone
+        [$fit, $mapped, $missing] = rspFitCompose($yaml, fn ($p) => $p === 'cache', fn ($sh) => in_array($sh, ['appdata', 'drop'], true), fn () => true);
+        same('stack: a pool not here -> /mnt/user/<share> when the share is here; a share not here named missing; a pool here and /mnt/user left',
+            [[['/mnt/fast/appdata', '/mnt/user/appdata']], ['/mnt/fastpool/gone'], true, true, true],
+            [$mapped, $missing, str_contains($fit, '/mnt/user/appdata/drop:/config'), str_contains($fit, '/mnt/cache/drop/tmp:/tmp'), str_contains($fit, '/mnt/user/drop:/data')]);
+        // 1.60.1 (a user, dropnook on Backup2): a share that isn't here (/mnt/user/drop/...) and a host path that isn't there
+        // are named missing too - the share as «its data didn't come along»
+        $y2 = "services:\n  drop:\n    volumes:\n      - /mnt/user/drop:/data\n      - /mnt/user/drop/shares/counters:/c\n      - \"/opt/gone/x:/y\"\n      - /var/run/docker.sock:/var/run/docker.sock\n";
+        [, , $miss2] = rspFitCompose($y2, fn () => false, fn ($sh) => $sh === 'appdata', fn ($p) => $p === '/var/run/docker.sock');
+        same('stack 1.60.1: /mnt/user/<share> of a share not here and a host path not there - missing; the shares named', [['/mnt/user/drop', '/opt/gone/x'], ['drop']],
+            [$miss2, rspSharesMissing($miss2)]);
+        // 1.60.1 (a user, the real dropnook compose.yaml - tests/fixtures/dropnook-compose.yaml): the paths are YAML anchors in an
+        // x-settings block, the services bind them with the long syntax (source: *data); host paths only, never a target
+        $real = (string) file_get_contents(OFFICE_DIR . '/tests/fixtures/dropnook-compose.yaml');
+        [$fitR, $mapR, $missR] = rspFitCompose($real, fn () => false, fn ($sh) => $sh === 'appdata', fn ($p) => in_array($p, ['/boot/config/ident.cfg', '/mnt/user/appdata/drop'], true));
+        same('stack 1.60.1: the real dropnook file - the share drop (anchors, long syntax) missing, NPM\'s certificates folder too; ident.cfg there; never /data or /config',
+            [['/mnt/user/drop', '/mnt/user/appdata/Nginx-Proxy-Manager-Official/letsencrypt'], ['drop']], [$missR, rspSharesMissing($missR)]);
+        [$fitP] = rspFitCompose(str_replace('&data            /mnt/user/drop', '&data            /mnt/fast/drop', $real), fn ($p) => $p === 'cache', fn ($sh) => true, fn () => true);
+        check('stack 1.60.1: … a pool path in an anchor is fitted where it is defined (the alias stays)', str_contains($fitP, '&data            /mnt/user/drop') && str_contains($fitP, 'source: *data'));
+        // made: the project with its files, fitted, the original beside, autostart as it was, an undo
+        $undo = [];
+        $r = rspStartStack($m, $dir, $undo);
+        $pd = "$tmp/projects/dropnook";
+        same('stack: created in the Compose Manager\'s projects under its folder name - files, fitted compose.yaml, the original kept, autostart kept, not started',
+            ['created', true, true, true, "true\n", false, ['/mnt/fastpool/gone']],
+            [$r['state'] ?? null, str_contains((string) @file_get_contents("$pd/compose.yaml"), '/mnt/user/appdata/drop'), (string) @file_get_contents("$pd/compose.yaml.original") === $yaml,
+             is_file("$pd/compose.override.yaml") && !is_file("$pd/compose.override.yaml.original"), (string) @file_get_contents("$pd/autostart"), (bool) glob("$tmp/projects/.dropnook.uso-*"), $r['missing'] ?? null]);
+        same('stack: … its undo puts the project aside', [['aside', $pd]], array_map(fn ($u) => [$u['do'], $u['path']], $undo));
+        // never over a project of that name
+        file_put_contents("$pd/compose.yaml", 'mine');
+        $undo = [];
+        same('stack: a project of that name here - left as it is, said, nothing made', ['exists', 'mine', []], [rspStartStack($m, $dir, $undo)['state'] ?? null, file_get_contents("$pd/compose.yaml"), $undo]);
+        // no Compose Manager (a user: Dockge, Portainer, docker compose by hand are ways too): a hint, never a block -
+        // nothing created, the copy's own files fitted in place with the originals beside, the paths said
+        exec('rm -rf ' . escapeshellarg("$tmp/projects"));
+        $GLOBALS['rs']['compose_here'] = false;
+        $GLOBALS['rs']['compose_cli'] = false;
+        $undo = [];
+        $r = rspStartStack($m, $dir, $undo);
+        same('stack: no Compose Manager - nothing made, the copy\'s files fitted where they are (original beside), where they lie said',
+            ['no_manager', false, [], "$dir/compose", true, true, [['/mnt/fast/appdata', '/mnt/user/appdata']]],
+            [$r['state'] ?? null, is_dir("$tmp/projects"), $undo, $r['path'] ?? null, str_contains((string) file_get_contents("$dir/compose/compose.yaml"), '/mnt/user/appdata/drop'),
+             (string) @file_get_contents("$dir/compose/compose.yaml.original") === $yaml, $r['mapped'] ?? null]);
+        $GLOBALS['rs']['compose_cli'] = true;
+        same('stack: … docker compose here but no Compose Manager - said so, still nothing made; a second time keeps the first original',
+            ['no_manager_cli', true], [rspStartStack($m, $dir, $undo)['state'] ?? null, (string) @file_get_contents("$dir/compose/compose.yaml.original") === $yaml]);
+        // «Create the stack now» (1.60.1): once the Compose Manager is here, the stack part alone from the copy the journal recorded
+        $GLOBALS['rs']['data'] = "$tmp/rsdata";
+        $GLOBALS['rs']['compose_cli'] = false;
+        file_put_contents("$dir/manifest.json", json_encode($m));
+        $jid = '20261012-160000-beef';
+        @mkdir("$tmp/rsdata/$jid", 0700, true);
+        $j = ['id' => $jid, 'kind' => 'partner_start', 'what' => 'appdata', 'result' => 'warnings', 'steps' => [['do' => 'start_from', 'state' => 'warning', 'undo' => [],
+              'params' => ['stacks' => [['state' => 'no_manager', 'name' => 'dropnook', 'path' => "$dir/compose", 'mapped' => [], 'missing' => []]]]]]];
+        rsJournalWrite($j);
+        $GLOBALS['rs']['compose_here'] = false;
+        $err = null;
+        try { rspStackLater($jid, 'dropnook'); } catch (Problem $e) { $err = $e->key; }
+        same('stack later: without the Compose Manager - refused, said', 'restore_compose_missing', $err);
+        $GLOBALS['rs']['compose_here'] = true;
+        $r = rspStackLater($jid, 'dropnook')['stack'] ?? [];
+        $jr = rsJournal($jid);
+        same('stack later: made from the recorded copy - fitted, the original carried along, its line and undo in the journal',
+            ['created', true, true, 'created', [['aside', "$tmp/projects/dropnook"]]],
+            [$r['state'] ?? null, str_contains((string) @file_get_contents("$tmp/projects/dropnook/compose.yaml"), '/mnt/user/appdata/drop'), is_file("$tmp/projects/dropnook/compose.yaml.original"),
+             $jr['steps'][0]['params']['stacks'][0]['state'] ?? null, array_map(fn ($u) => [$u['do'], $u['path']], $jr['steps'][0]['undo'] ?? [])]);
+        $err = null;
+        try { rspStackLater($jid, 'dropnook'); } catch (Problem $e) { $err = $e->key; }
+        same('stack later: … once only (the stack\'s line says created now)', 'unknown_target', $err);
+    } finally {
+        $GLOBALS['rs'] = $old;
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
+    check('stack: the share scan makes it after the app\'s templates and says it (params.stacks); trouble makes the step a warning',
+        str_contains($src, "\$stack = (\$m['type'] ?? '') === 'compose' && \$place ? rspStartStack(\$m, \$dir, \$undo) : null;") && str_contains($src, "'params' => ['stacks' => \$stacks,"));
+    $rjs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('stack: the journal and the run card say it - created (not started), left, the way to the Apps', str_contains($rjs, "T('sk.' + k.state, { name: k.name || '', path: k.path || '' })")
+        && str_contains($rjs, "a.href = '/Apps';"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("stack: $l - its words", [], array_values(array_filter(['sk.created', 'sk.exists', 'sk.no_manager', 'sk.no_manager_cli', 'sk.create_now', 'errors.restore_compose_missing', 'sk.no_files', 'sk.to_apps', 'sk.mapped', 'sk.missing'], fn ($k) => !isset($lj[$k]))));
+    }
+    // 1.60.1: declined proposals - kept root-only with the value proposed, never a [partner] key; «Propose again» forgets
+    $GLOBALS['backupDeclineDir'] = "$tmp/decl";
+    backupDecline('general|keep_logs', '30');
+    backupDecline('share|media|mode', 'kopia');
+    $bad = null;
+    try { backupDecline('partner|5e6f7a8b|name', 'x'); } catch (Problem $e) { $bad = $e->key; }
+    same('declines: remembered with the value, a [partner] key refused, the file root-only', [['general|keep_logs' => '30', 'share|media|mode' => 'kopia'], 'bad_request', '600'],
+        [array_map(fn ($d) => $d['value'], backupDeclined()), $bad, decoct(fileperms("$tmp/decl/declined.json") & 0777)]);
+    backupDeclineUndo('general|keep_logs');
+    same('declines: «Propose again» forgets one', ['share|media|mode'], array_keys(backupDeclined()));
+    unset($GLOBALS['backupDeclineDir']);
+    $bjs = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('the tour on the setup page: the page follows a run there too and draws the setup anew when it ends (a user: «it hung»)',
+        str_contains($bjs, "if (view && (page === 'main' || page === 'setup') && state && (state.running") && str_contains($bjs, "else if (view && page === 'setup' && was !== !!(state && state.running)) renderSetup();"));
+    check('declines: applied before the proposals become the base, listed under the general settings with «Propose again»',
+        str_contains($bjs, "  setupDeclinedApply();                    // 1.60.1") && str_contains($bjs, 'const dl = declinedList();') && str_contains($bjs, '`${ID}.setup_decline`'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * 1.60.1 (approved): «Make it a dataset of its own…» from Mr. Backupsy's setup - the look and its refusals, the
+ * dialog's states (no fresh backup), the job's steps in their order with a stand-in zfs, the comparison, the old folder
+ * into the storeroom, and the rollback after a failure.
+ */
+function testSetupMakeDataset(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('make dataset: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('make-dataset');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $mnt = "$tmp/mnt";
+    foreach (["$mnt/tank/appdata/drop/sub", "$mnt/tank/appdata/web", "$mnt/tank/appdata/has/kids", "$mnt/tank/appdata/bad name", "$mnt/arr/media/x", "$tmp/bin", "$tmp/rs"] as $d) {
+        @mkdir($d, 0755, true);
+    }
+    file_put_contents("$mnt/tank/appdata/drop/a.txt", str_repeat('a', 5000));
+    file_put_contents("$mnt/tank/appdata/drop/sub/b.txt", 'b');
+    chmod("$mnt/tank/appdata/drop", 0750);
+    // a zfs stand-in: create/destroy make and remove <mnt>/<dataset>, everything else succeeds
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\necho \"zfs \$*\" >>\"$tmp/zfs.log\"\ncase \"\$1\" in\n  create) [[ -e \"$tmp/zfs.fail\" ]] && exit 1; mkdir -p \"$mnt/\$2\" ;;\n  destroy) rm -rf \"$mnt/\$2\" ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/zfs", 0755);
+    $zfsMap = ['tank' => "$mnt/tank", 'tank/appdata' => "$mnt/tank/appdata", 'tank/appdata/web' => "$mnt/tank/appdata/web", 'tank/appdata/has/kids' => "$mnt/tank/appdata/has/kids"];
+    $oldRs = $GLOBALS['rs'] ?? null;
+    $oldMd = $GLOBALS['md'] ?? null;
+    $oldPath = getenv('PATH');
+    $GLOBALS['md'] = ['mnt' => $mnt, 'zfs' => $zfsMap, 'bytes' => 5001, 'last' => ['finished' => time() - 3600, 'result' => 'ok']];
+    $GLOBALS['rs'] = ['data' => "$tmp/rs", 'users' => fn () => [['drop', 'drop-share'], []], 'vm_states' => []];
+    putenv("PATH=$tmp/bin:$oldPath");
+    try {
+        $look = fn (string $dir, string $share = 'appdata') => mdLook(['kind' => 'app', 'name' => 'x', 'share' => $share, 'dir' => $dir]);
+        same('make dataset: the refusals - already a dataset, datasets inside, a name ZFS doesn\'t take, not on ZFS, not there',
+            ['md_already', 'md_children', 'md_name', 'md_not_zfs', 'md_missing'],
+            [$look('web')['blockers'][0]['key'] ?? null, $look('has')['blockers'][0]['key'] ?? null, $look('bad name')['blockers'][0]['key'] ?? null,
+             $look('x', 'media')['blockers'][0]['key'] ?? null, $look('gone')['blockers'][0]['key'] ?? null]);
+        $l = $look('drop');
+        same('make dataset: the look - the folder on its pool, the dataset to make, what stops, about how long, the last backup fresh',
+            [[], "$mnt/tank/appdata/drop", 'tank/appdata/drop', ['drop', 'drop-share'], 5001, 31, true],
+            [$l['blockers'], $l['target']['path'] ?? null, $l['target']['dataset'] ?? null, $l['stops']['containers'] ?? null, $l['bytes'], $l['downtime'], $l['last']['fresh'] ?? null]);
+        $p = mdPlan(['kind' => 'app', 'name' => 'drop', 'share' => 'appdata', 'dir' => 'drop']);
+        same('make dataset: the job\'s steps - stop, aside, create, copy, compare, start what was stopped, the old folder into the storeroom',
+            ['stop', 'md_aside', 'md_create', 'md_copy', 'md_compare', 'start', 'md_store'], array_column($p['steps'], 'do'));
+        $GLOBALS['md']['last'] = ['finished' => time() - 3 * 86400, 'result' => 'ok'];
+        same('make dataset: no fresh backup (3 days old) - refused unless the user said he knows', ['md_no_fresh_backup', []],
+            [mdPlan(['kind' => 'app', 'name' => 'drop', 'share' => 'appdata', 'dir' => 'drop'])['blockers'][0]['key'] ?? null,
+             mdPlan(['kind' => 'app', 'name' => 'drop', 'share' => 'appdata', 'dir' => 'drop'], true)['blockers']]);
+        $GLOBALS['md']['last'] = ['finished' => time() - 600, 'result' => 'failed'];
+        same('make dataset: … the last one failed - not fresh either', false, mdLastBackup()['fresh']);
+
+        // the steps, one by one, with the stand-in zfs (the containers: no docker here - their steps are Mr. Restori's own)
+        $j = rsJournalNew('20261012-150000-abcd', $p);
+        $j['id'] = '20261012-150000-abcd';
+        @mkdir(rsDir($j['id']), 0700, true);
+        $at = fn (string $do) => array_search($do, array_column($j['steps'], 'do'), true);
+        $run = function (string $do) use (&$j, $at): array {
+            $i = $at($do);
+            $r = rsStep($j, $i);
+            $j['steps'][$i] = array_merge($j['steps'][$i], $r);
+            return $r;
+        };
+        $aside = $j['steps'][$at('md_aside')]['to'];
+        same('make dataset: aside, create (inherits: zfs create <parent>/<name>), copy, compare - each ok',
+            ['ok', 'ok', 'ok', 'ok'], [$run('md_aside')['state'], $run('md_create')['state'], $run('md_copy')['state'], $run('md_compare')['state']]);
+        same('make dataset: … the files in the new dataset, the top folder\'s mode as before, the stand-in asked to create tank/appdata/drop',
+            [str_repeat('a', 5000), 'b', '750', true],
+            [(string) @file_get_contents("$mnt/tank/appdata/drop/a.txt"), (string) @file_get_contents("$mnt/tank/appdata/drop/sub/b.txt"),
+             decoct(fileperms("$mnt/tank/appdata/drop") & 0777), str_contains((string) @file_get_contents("$tmp/zfs.log"), 'zfs create tank/appdata/drop')]);
+        $r = $run('md_store');
+        same('make dataset: the old folder into Ms. Dustdevil\'s storeroom, a «leftover» of this job in her manifest', ['ok', false, 'leftover', $aside],
+            [$r['state'], is_dir($aside), (glob("$mnt/tank/appdata/" . CL_TRASH . '/*/manifest.json') ? json_decode((string) file_get_contents(glob("$mnt/tank/appdata/" . CL_TRASH . '/*/manifest.json')[0]), true)['items'][0]['kind'] ?? null : null),
+             (glob("$mnt/tank/appdata/" . CL_TRASH . '/*/manifest.json') ? json_decode((string) file_get_contents(glob("$mnt/tank/appdata/" . CL_TRASH . '/*/manifest.json')[0]), true)['items'][0]['from'] ?? null : null)]);
+
+        // a Compose stack: never stopped or started by me - running, «Make it» waits (a blocker the dialog turns into its
+        // advice); stopped, the job looks again first and leaves the starting to the user
+        $sl = mdLook(['kind' => 'app', 'name' => 'dropnook', 'share' => 'appdata', 'dir' => 'drop', 'stack' => 'dropnook']);
+        same('make dataset: a stack still running - no stop of mine, said which runs', [['md_stack_running'], 'dropnook', [], 'drop, drop-share'],
+            [array_column($sl['blockers'], 'key'), $sl['stops']['stack'] ?? null, $sl['stops']['containers'] ?? null, $sl['blockers'][0]['params']['names'] ?? null]);
+        $GLOBALS['rs']['users'] = fn () => [[], []];
+        $GLOBALS['md']['last'] = ['finished' => time() - 600, 'result' => 'ok'];
+        $sp = mdPlan(['kind' => 'app', 'name' => 'dropnook', 'share' => 'appdata', 'dir' => 'drop', 'stack' => 'dropnook']);
+        same('make dataset: a stopped stack - looked at again first, no stop or start steps, «start it again» afterwards',
+            [[], ['md_stopped', 'md_aside', 'md_create', 'md_copy', 'md_compare', 'md_store'], 'after.md_stack_start'],
+            [$sp['blockers'], array_column($sp['steps'], 'do'), $sp['after'][0]['key'] ?? null]);
+        $GLOBALS['rs']['users'] = fn () => [['drop'], []];
+        $jj = ['id' => 'x', 'stopped' => []];
+        same('make dataset: … one of it started meanwhile - the job refuses before it changes anything', ['failed', 'md_stack_running'],
+            [($x = mdDoStopped($jj, ['stack' => 'dropnook', 'paths' => ['/x']]))['state'], $x['note'] ?? null]);
+        $GLOBALS['rs']['users'] = fn () => [['drop', 'drop-share'], []];
+        $GLOBALS['md']['last'] = ['finished' => time() - 3 * 86400, 'result' => 'ok'];
+        // a failure after the copy: rolled back - the dataset destroyed, the folder back, nothing lost
+        $GLOBALS['md']['zfs'] = $zfsMap;
+        foreach (["$mnt/tank/appdata/web2"] as $d) { @mkdir($d, 0755, true); }
+        file_put_contents("$mnt/tank/appdata/web2/i.html", 'hi');
+        $p2 = mdPlan(['kind' => 'app', 'name' => 'web2', 'share' => 'appdata', 'dir' => 'web2'], true);
+        $j = rsJournalNew('20261012-150100-abcd', $p2);
+        $j['id'] = '20261012-150100-abcd';
+        @mkdir(rsDir($j['id']), 0700, true);
+        $run('md_aside');
+        $run('md_create');
+        file_put_contents("$mnt/tank/appdata/web2/half", 'x');      // a copy that went wrong half-way
+        $j['steps'][$at('md_copy')]['state'] = 'failed';
+        mdRollback($j);
+        same('make dataset: rollback - the job\'s dataset destroyed, the folder back in its place with its files, said', [true, 'hi', false, 'md_rolled_back', ['destroy', 'back']],
+            [str_contains((string) file_get_contents("$tmp/zfs.log"), 'zfs destroy tank/appdata/web2'), (string) @file_get_contents("$mnt/tank/appdata/web2/i.html"),
+             file_exists("$mnt/tank/appdata/web2/half"), $j['reason'] ?? null, array_column($j['rollback'] ?? [], 'what')]);
+        // zfs create refused: nothing made, the folder back
+        touch("$tmp/zfs.fail");
+        $p3 = mdPlan(['kind' => 'app', 'name' => 'web2', 'share' => 'appdata', 'dir' => 'web2'], true);
+        $j = rsJournalNew('20261012-150200-abcd', $p3);
+        $j['id'] = '20261012-150200-abcd';
+        @mkdir(rsDir($j['id']), 0700, true);
+        $run('md_aside');
+        same('make dataset: zfs create refused - failed, rolled back, the folder where it was', ['failed', 'hi'],
+            [$run('md_create')['state'], (function () use (&$j) { $j['steps'][2]['state'] = 'failed'; mdRollback($j); return (string) @file_get_contents($GLOBALS['md']['mnt'] . '/tank/appdata/web2/i.html'); })()]);
+    } finally {
+        putenv("PATH=$oldPath");
+        $GLOBALS['rs'] = $oldRs;
+        $GLOBALS['md'] = $oldMd;
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('make dataset: one of Mr. Restori\'s jobs - its steps, the rollback after a failure or a stop', str_contains($src, "'md_create'  => mdDoCreate(\$j, \$s),")
+        && str_contains($src, "if ((\$failed || \$GLOBALS['rsStop']) && (\$j['kind'] ?? '') === 'make_dataset') {"));
+    $bjs = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('make dataset: the setup - «Why?» at a VM, an app\'s folder and a share that can\'t go alone; the dialog greys «Make it» without a fresh backup',
+        str_contains($bjs, "main.appendChild(whyFold('vm:' + v.name,") && str_contains($bjs, "whyFold(`app:\${a.id}:\${f.share}/\${f.dir}`") && str_contains($bjs, "whyFold('share:' + sh.name,")
+        && str_contains($bjs, "if (go) go.disabled = !ok;") && str_contains($bjs, "no_fresh_ok: !fresh && cb.checked"));
+    check('make dataset 1.60.1: the job followed (the wave left of its step, n %), its result and the next step said, the setup planned anew; a stack\'s every container named',
+        str_contains($bjs, "line.append(el('span', 'spin'), ' ', st ? T('dsw.step.' + st.do) : T('dsw.queued')") && str_contains($bjs, "await setupPlan(false);           // the unit a dataset of its own now")
+        && str_contains($bjs, "Office.api.get({ a: 'part', desk: 'restore', part: 'job' })") && str_contains($bjs, "T('dsw.stack_members', { list: all.map("));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        $rs = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("make dataset: $l - its words", [], array_values(array_merge(
+            array_filter(['dsw.why', 'dsw.make', 'dsw.vm', 'dsw.app', 'dsw.share_split', 'dsw.delicate', 'dsw.last_old', 'dsw.no_fresh_ok', 'dsw.backup_first', 'dsw.go',
+                'dsw.no.md_already', 'dsw.no.md_no_fresh_backup', 'errors.md_busy'], fn ($k) => !isset($bk[$k])),
+            array_filter(['jk.make_dataset', 'step.md_create', 'ss.md_copy', 'sn.md_compare_failed', 'errors.md_rolled_back'], fn ($k) => !isset($rs[$k])))));
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testRestoreJobs(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-rsjob-' . getmypid();
@@ -20794,6 +21346,287 @@ function testPartnerWatch(): void
  * («{host} sends to», «{host} keeps of» with new/stale), the Team Lead's cards anew right after a pairing. Two offices,
  * ssh played by the stand-in. (The engine's side is in testBackupPartnerPhase.)
  */
+/**
+ * 1.60.1 (a user, 2026-10-12): a partnership ended at the Team Lead and paired anew died silently — the run said
+ * «key missing», nobody said «apply». The engine's partner_ended / partner_anew_match (lib/common.sh), the Team Lead's
+ * ended.json, partnerAnew() / partnerApplyPending() (the same rule in PHP), Mr. Backupsy's partner rows and the texts.
+ * The whole run and the setup's carry-over: testBackupPartnerPhase («2.45»).
+ */
+function testPartnerEnded(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner ended: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-ended');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    @mkdir("$tmp/partner", 0700, true);
+    $fp = fn (string $c) => 'SHA256:' . str_repeat($c, 43);
+    $pair = fn (string $id, string $name, string $addr, array $hk, bool $mine = true) => ['id' => $id, 'name' => $name, 'address' => $addr, 'port' => 22,
+        'host_keys' => $hk, 'my_key' => $mine ? $fp('m') : null, 'their_key' => null, 'send' => ['rate_mbit' => 0], 'receive' => null, 'trust' => 'mine',
+        'paired' => 1, 'last_heard' => null, 'last_answer' => null];
+    $writePairs = function (array $pairs) use ($tmp): void {
+        file_put_contents("$tmp/partner/pairs.json", json_encode(['v' => 1, 'pairs' => $pairs]));
+        chmod("$tmp/partner/pairs.json", 0600);
+    };
+
+    // ---- the engine (bash): ended vs paired, the pair made anew by address or host key
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $sh = fn (string $script) => trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/engine UB_PARTNER_PAIRS=$tmp/partner/pairs.json; source $lib >/dev/null 2>&1; $script") . ' 2>&1'));
+    $ended = fn (string $id) => $sh('partner_ended ' . escapeshellarg($id) . ' && echo ended || echo paired');
+    same('partner ended: engine — without pairs.json nothing to tell (never «ended»)', 'paired', $ended('0f1e2d3c'));
+    $writePairs([$pair('5e6f7a8b', 'Tower', '192.168.1.50', [$fp('a')]), $pair('aaaa1111', 'other', '10.1.1.1', [$fp('b')], false)]);
+    same('partner ended: engine — an id the Team Lead no longer pairs is ended, a pair there is not; one it only receives from counts as ended',
+        ['ended', 'paired', 'ended'], [$ended('0f1e2d3c'), $ended('5e6f7a8b'), $ended('aaaa1111')]);
+    $match = fn (string $old, string $addr) => $sh('echo "$(partner_anew_match ' . escapeshellarg($old) . ' ' . escapeshellarg($addr) . ')|"');
+    same('partner ended: engine — the pair made anew by its address, none for another address', ['5e6f7a8b|', '|'],
+        [$match('0f1e2d3c', '192.168.1.50'), $match('0f1e2d3c', '10.9.9.9')]);
+    $writePairs([$pair('5e6f7a8b', 'Tower', 'Tower.LAN', [$fp('a')])]);
+    same('partner ended: engine — an address in other case matches', '5e6f7a8b|', $match('0f1e2d3c', 'tower.lan'));
+    file_put_contents("$tmp/partner/ended.json", json_encode(['v' => 1, 'pairs' => ['0f1e2d3c' => ['name' => 'Backup2', 'address' => '10.0.0.5', 'port' => 22,
+        'host_keys' => [$fp('z'), $fp('a')], 'time' => 1]]]));
+    same('partner ended: engine — by a host key the ended pair had (ended.json), whatever the address; never itself; a receive-only pair never',
+        ['5e6f7a8b|', '|'], [$match('0f1e2d3c', '10.9.9.9'), $match('5e6f7a8b', '10.9.9.9')]);
+    $writePairs([$pair('5e6f7a8b', 'Tower', '192.168.1.50', [$fp('a')], false)]);
+    same('partner ended: engine — … a pair this office doesn\'t send to gets nothing', '|', $match('0f1e2d3c', '192.168.1.50'));
+    $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('partner ended: engine — the run asks partner_ended before the key (why ended), no_key stays for a pair there',
+        (bool) preg_match('/if partner_ended "\$id"; then\s+why="ended".*\n\s+elif .*\n.*\n\s+why="no_key"/', $engine), 'partner_phase');
+
+    // ---- the Team Lead: ended.json kept when a partnership ends (the newest PARTNER_ENDED_KEEP), read back exactly
+    @unlink("$tmp/partner/ended.json");
+    $old = $pair('0f1e2d3c', 'Backup2', '192.168.1.50', [$fp('a')]);
+    partnerEndedRecord($old, "$tmp/partner");
+    same('partner ended: ended.json — the ended pair\'s name, address, port and host keys', ['name' => 'Backup2', 'address' => '192.168.1.50', 'port' => 22, 'host_keys' => [$fp('a')]],
+        array_diff_key(partnerEnded("$tmp/partner")['0f1e2d3c'] ?? [], ['time' => 1]));
+    for ($i = 0; $i < PARTNER_ENDED_KEEP + 3; $i++) {
+        partnerEndedRecord($pair(sprintf('%08x', 0x10000000 + $i), 'n' . $i, '10.0.0.' . ($i + 1), [$fp('c')]), "$tmp/partner");
+    }
+    same('partner ended: ended.json keeps at most PARTNER_ENDED_KEEP', PARTNER_ENDED_KEEP, count(partnerEnded("$tmp/partner")));
+    check('partner ended: ended.json is root\'s own, 0600', (fileperms("$tmp/partner/ended.json") & 0777) === 0600);
+    file_put_contents("$tmp/partner/ended.json", json_encode(['v' => 1, 'pairs' => ['0f1e2d3c' => ['name' => '../x', 'address' => '1.2.3.4', 'port' => 22, 'host_keys' => [], 'time' => 1],
+        'zz' => ['name' => 'a', 'address' => '1.2.3.4', 'port' => 22, 'host_keys' => [], 'time' => 1]]]));
+    same('partner ended: ended.json — an entry not in its shape is no entry', [], partnerEnded("$tmp/partner"));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/partner.php');
+    check('partner ended: partner_end records the pair before it removes it', (bool) preg_match('/partnerEndedRecord\(\$pair\);\s+partnerPairsWrite\(/', $src));
+
+    // ---- partnerAnew() / partnerApplyPending(): the same rule as the engine; what waits for «Apply»
+    $tower = partnerPairUpgrade($pair('5e6f7a8b', 'Tower', '192.168.1.50', [$fp('a')]));
+    $quiet = partnerPairUpgrade($pair('bbbb2222', 'quiet', '10.2.2.2', [$fp('q')]));
+    same('partner ended: partnerAnew — by address, by host key, none', ['5e6f7a8b', '5e6f7a8b', null],
+        [partnerAnew('0f1e2d3c', '192.168.1.50', [], [$tower])['id'] ?? null, partnerAnew('0f1e2d3c', '10.0.0.5', [$fp('a')], [$tower])['id'] ?? null,
+         partnerAnew('0f1e2d3c', '10.0.0.5', [$fp('x')], [$tower])['id'] ?? null]);
+    file_put_contents("$tmp/settings.ini", "[general]\npartner_place = 0f1e2d3c\n[partner \"0f1e2d3c\"]\nname = Backup2\naddress = 192.168.1.50\nport = 22\n"
+        . "[partner \"dddd4444\"]\nname = gone\naddress = 10.4.4.4\nport = 22\n"
+        . "[share \"appdata\"]\nmode = snapshot\npartner = 0f1e2d3c\npartner = dddd4444\n[vm \"Windows11\"]\nmode = snapshot\npartner = 0f1e2d3c\n");
+    $set = backupReadSettings("$tmp/settings.ini");
+    $wait = partnerApplyPending($set, [$tower, $quiet], []);
+    same('partner ended: what waits — Backup2 ended, paired anew as Tower (3 units); «gone» ended without a match; Tower and quiet have nothing yet, Tower gets Backup2\'s',
+        [[['0f1e2d3c', ['id' => '5e6f7a8b', 'name' => 'Tower'], 3], ['dddd4444', null, 1]],
+         [['5e6f7a8b', [['name' => 'Backup2', 'n' => 3]]], ['bbbb2222', []]]],
+        [array_map(fn ($e) => [$e['id'], $e['anew'], count($e['units'])], $wait['ended']), array_map(fn ($e) => [$e['id'], $e['from']], $wait['empty'])]);
+    $rows = backupPartners($set, [], null, $wait);
+    $by = array_column($rows, null, 'id');
+    same('partner ended: Mr. Backupsy\'s rows — the ended ones say so (apply), the new pairs come as rows with nothing sent (apply, from)',
+        [[true, true, 'Tower'], [true, true, null], [false, true, [['name' => 'Backup2', 'n' => 3]], []], [false, true, [], []]],
+        [[$by['0f1e2d3c']['ended'] ?? null, $by['0f1e2d3c']['apply'] ?? null, $by['0f1e2d3c']['anew']['name'] ?? null],
+         [$by['dddd4444']['ended'] ?? null, $by['dddd4444']['apply'] ?? null, array_key_exists('anew', $by['dddd4444'] ?? []) ? $by['dddd4444']['anew'] : 'missing'],
+         [$by['5e6f7a8b']['ended'] ?? null, $by['5e6f7a8b']['apply'] ?? null, $by['5e6f7a8b']['from'] ?? null, $by['5e6f7a8b']['units'] ?? null],
+         [$by['bbbb2222']['ended'] ?? null, $by['bbbb2222']['apply'] ?? null, $by['bbbb2222']['from'] ?? null, $by['bbbb2222']['units'] ?? null]]);
+    file_put_contents("$tmp/settings2.ini", "[partner \"5e6f7a8b\"]\nname = Tower\naddress = 192.168.1.50\nport = 22\n[share \"appdata\"]\nmode = snapshot\npartner = 5e6f7a8b\n");
+    $set2 = backupReadSettings("$tmp/settings2.ini");
+    $rows2 = array_column(backupPartners($set2, [], null, partnerApplyPending($set2, [$tower], [])), null, 'id');
+    same('partner ended: applied — nothing waits, no apply line', [[], false], [partnerApplyPending($set2, [$tower], [])['ended'], $rows2['5e6f7a8b']['apply'] ?? null]);
+
+    // ---- the texts: the engine's why, the rows, the setup's hint, the Team Lead's card — every language
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        $ct = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$l.json"), true) ?: [];
+        same("partner ended: $l — the texts", [], array_values(array_filter(['partner.why_short.ended', 'partner.short_anew', 'partner.short_ended', 'partner.short_from', 'partner.short_apply',
+            'partner.open_setup', 'setup.msg.partner_anew'], fn ($k) => !isset($bk[$k]))) ?: (isset($ct['partner.i_send_apply'], $ct['partner.i_send_none_yet']) ? [] : ['caretaker']));
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        same("partner ended: $l — the run's coded warnings in words, with their parameters", [], array_values(array_filter(['partner_ended' => ['partner'], 'partner_no_key' => ['partner'], 'partner_quota' => ['partner'],
+            'partner_snap_prefix' => ['partner', 'prefix'], 'partner_no_ssh' => ['partner'], 'partner_old' => ['partner']], fn ($ps, $c) => !isset($bk["warn_code.$c"])
+            || array_filter($ps, fn ($x) => !str_contains($bk["warn_code.$c"], '{' . $x . '}')), ARRAY_FILTER_USE_BOTH)));
+    }
+    preg_match_all('/warn_code (partner_[a-z_]+) /', $engine, $wm);
+    $codes = array_values(array_unique($wm[1]));
+    sort($codes);
+    same('partner ended: the engine\'s partner warnings are the six the office words', ['partner_ended', 'partner_no_key', 'partner_no_ssh', 'partner_old', 'partner_quota', 'partner_snap_prefix'], $codes);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
+    check('partner ended: the card says «ended», not «key missing»', $en['partner.why_short.ended'] === 'partnership ended');
+    $ct = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/lang/en.json'), true);
+    check('partner ended: the Team Lead\'s card says plainly to apply', str_starts_with($ct['partner.i_send_apply']['other'] ?? '', 'not sent yet') && str_contains($ct['partner.i_send_apply']['other'], 'apply')
+        && str_contains($ct['partner.i_send_none_yet'], 'and apply'));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js');
+    check('partner ended: the card shows apply_from with the way to the setup', str_contains($js, "T('partner.i_send_apply'") && str_contains($js, "go.href = '#/backup/setup'"));
+    $bjs = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('partner ended: Mr. Backupsy\'s rows link the setup, the apply dialog names the carry-over', str_contains($bjs, "if (p.apply) { const go = el('a', '', T('partner.open_setup')); go.href = '#/backup/setup'")
+        && str_contains($bjs, "m.code === 'partner_anew'"));
+
+    // ---- the apply dialog (a user 2026-10-12: eight field rows, «VM X (neu: VM X)»): one − / + row per partnership, never
+    // «Leave out»; a unit taken over from the ended partner says so, a new one «(new)», under node with the desk's code
+    $node = testsNode();
+    if ($node === '') {
+        check('partner ended: node is missing here - the dialog not run', true);
+    } else {
+        file_put_contents("$tmp/d.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const text = (n) => (n == null ? '' : typeof n === 'string' ? n : (n.textContent || '') + (n.children || []).map(text).join(''));
+const el = (tag, cls, t) => ({ tag, className: cls || '', textContent: Array.isArray(t) ? '' : t == null ? '' : String(t), children: Array.isArray(t) ? t : [],
+  dataset: {}, style: {}, appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+globalThis.Office = { scope: () => T, t: T, el, fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {},
+  has: () => false, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => n };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const O = { 'general|dumps_share': 'place', 'share|appdata|mode': 'snapshot', 'share|appdata|partner': ['0f1e2d3c'], 'share|docs|mode': 'snapshot',
+  'partner|0f1e2d3c|name': 'Backup2', 'partner|0f1e2d3c|address': '192.168.1.50', 'partner|0f1e2d3c|port': '22', 'partner|0f1e2d3c|rate_mbit': '0' };
+const P = { 'general|dumps_share': 'place', 'share|appdata|mode': 'snapshot', 'share|appdata|partner': ['5e6f7a8b'], 'share|docs|mode': 'snapshot',
+  'partner|5e6f7a8b|name': 'Tower', 'partner|5e6f7a8b|address': '192.168.1.50', 'partner|5e6f7a8b|port': '22', 'partner|5e6f7a8b|rate_mbit': '0' };
+S.plan = { have_settings: true, O, P, shares: [{ name: 'appdata', partner_ok: true }, { name: 'docs', partner_ok: true }, { name: 'place', partner_ok: true }], vms: [],
+  partners: [{ id: '5e6f7a8b', name: 'Tower' }], messages: [{ code: 'partner_anew', params: { partner: 'Backup2', new: 'Tower', n: '1' } }] };
+S.draft = { ...JSON.parse(JSON.stringify(P)), 'share|docs|partner': ['5e6f7a8b'] };      // docs ticked here: new
+const saved = b.setupSaved();
+const { view, keys } = b.setupApplyChanges(saved);
+const out = {};
+out.rows = b.partnerSectionRows(keys, saved, view).map((li) => [li.children[0].className || '', text(li)]);
+out.lines = b.partnerApplyLines();
+b.setupDecline('partner|0f1e2d3c|name');
+out.declined = S.draft['partner|0f1e2d3c|name'] === undefined;
+out.sends = [S.draft['share|appdata|partner'], S.draft['share|docs|partner']];
+const flat = (a) => [].concat(a).map((x) => (typeof x === 'string' ? x : `${x.className}:${x.textContent}`));
+out.list = [flat(b.listChangeText(['a', 'b'], ['b', 'c'])), flat(b.listChangeText(['a', 'b'], ['b', 'a']))];
+out.known = [flat(b.knownText(['x'], ['y'])), flat(b.knownText(['x'], ['x']))];
+// the bar and the dialog count the same (setupChangeItems): the case - − Backup2, + Tower, the unit: 3
+S.draft = { ...JSON.parse(JSON.stringify(P)), 'share|docs|partner': ['5e6f7a8b'] };
+const sp = (x) => [x.yours.length, x.mine.length];
+out.countDocs = [b.setupChangeItems().items.map((x) => [x.id, x.kind]), sp(b.setupSplit())];
+S.draft = JSON.parse(JSON.stringify(P));
+out.countCase = [b.setupChangeItems().items.length, sp(b.setupSplit())];
+// a plain one: no partner changed, one setting
+S.plan = { ...S.plan, O: P, messages: [] };
+S.draft = { ...JSON.parse(JSON.stringify(P)), 'general|keep_logs': '30' };
+out.countPlain = [b.setupChangeItems().items.map((x) => [x.id, x.kind]), sp(b.setupSplit())];
+const m = b.diffMark('gone');
+out.mark = [m.textContent, m.title];
+// 1.60.1 (a user): dropnook mounts Nginx-Proxy-Manager-Official's letsencrypt read-only for its certificates - that
+// folder is NPM's, never dropnook's own (no «Make it a dataset…», no partner unit there)
+const ct = (name, project, binds) => ({ name, project, binds, volumes: [], why: '', kopia: false, running: true });
+const mp = { have_settings: true, shares: [{ name: 'appdata', folders: [{ container: 'a' }, { container: 'b' }, { container: 'c' }], children: [] }, { name: 'drop', folders: [] }],
+  containers: [ct('drop', 'dropnook', [{ share: 'appdata', path: 'drop/config', rw: true }, { share: 'appdata', path: 'Nginx-Proxy-Manager-Official/letsencrypt', rw: false }]),
+    ct('drop-share', 'dropnook', [{ share: 'drop', path: '', rw: true }]),
+    ct('Nginx-Proxy-Manager-Official', '', [{ share: 'appdata', path: 'Nginx-Proxy-Manager-Official/data', rw: true }, { share: 'appdata', path: 'Nginx-Proxy-Manager-Official/letsencrypt', rw: true }])],
+  databases: [], nextcloud: [], vms: [], P: {}, O: {} };
+const mm = b.setupModel(mp);
+out.own = mm.apps.map((a) => [a.name, a.ownFolders.map((f) => f.dir), a.otherFolders.map((f) => [f.dir, f.owner])]);
+mp.containers = mp.containers.slice(0, 2);
+out.ownAlone = b.setupModel(mp).apps.map((a) => [a.name, a.ownFolders.map((f) => f.dir), a.otherFolders.map((f) => [f.dir, f.owner])]);
+// 1.60.1 (a user): dropnook set to «local + partner» on the page, then «drop auch schicken» - end to end:
+// the draft, the changes (bar and dialog count), «To Tower», the decisions Apply sends
+{
+  const Oe = { 'general|dumps_share': 'UnraidSecretaryOffice', 'share|appdata|mode': 'snapshot', 'share|drop|mode': 'snapshot', 'share|UnraidSecretaryOffice|mode': 'snapshot',
+    'partner|5e6f7a8b|name': 'Tower', 'kopia|enabled': 'no' };
+  S.plan = { have_settings: true, O: Oe, P: { ...Oe }, partners: [{ id: '5e6f7a8b', name: 'Tower' }], messages: [], pending: {}, preset_new: 'auto',
+    shares: [{ name: 'appdata', exists: true, partner_ok: false, partner_why: 'children', children: ['fast/appdata/drop'], folders: [{ container: 'a' }, { container: 'b' }, { container: 'c' }] },
+      { name: 'drop', exists: true, partner_ok: true, children: [], folders: [] }, { name: 'UnraidSecretaryOffice', exists: true, partner_ok: true, children: [], folders: [] }],
+    containers: [ct('drop', 'dropnook', [{ share: 'appdata', path: 'drop/config', rw: true }, { share: 'drop', path: 'shares', rw: true }]), ct('drop-share', 'dropnook', [{ share: 'drop', path: '', rw: true }])],
+    databases: [], nextcloud: [], vms: [], apps: [], bases: [], kopia: {}, flash: {} };
+  b.setupDraftFromPlan();
+  const app = S.model.apps[0];
+  b.partnerListSet('app|dropnook|partner', true);
+  b.setupDerive();
+  out.e2eGap = b.appDepGaps(app, S.plan).map((g) => g.share);
+  S.deps.add(`${app.id}|drop`);                                   // what «drop auch schicken» does
+  b.dset('share|drop|partner', ['5e6f7a8b']);
+  b.setupDerive();
+  out.e2e = [b.setupChangeItems().items.map((x) => x.id).sort(), b.partnerApplyLines(), b.setupDecisions()['share|drop|partner'] || null, b.setupDecisions()['app|dropnook|folder'] || null,
+    b.appDepGaps(app, S.plan).length];
+}
+// 1.60.1: a declined proposal stays declined while it is the same value; another value is proposed again
+S.plan = { ...S.plan, O: { 'general|keep_logs': '10' }, P: { 'general|keep_logs': '30' }, declined: { 'general|keep_logs': { value: '30', time: 1 }, 'partner|x|name': { value: 'y', time: 1 } } };
+S.draft = { 'general|keep_logs': '30' };
+b.setupDeclinedApply();
+out.declSame = S.draft['general|keep_logs'];
+S.plan.declined = { 'general|keep_logs': { value: '20', time: 1 } };
+S.draft = { 'general|keep_logs': '30' };
+b.setupDeclinedApply();
+out.declOther = S.draft['general|keep_logs'];
+// engine 2.45: apps and the partners - an app whose folder is a dataset of its own is a unit of its own; one inside its
+// share's dataset goes with the share (a chip, no choice); taking the share off says which apps no longer go
+S.plan = { ...S.plan, partners: [{ id: '5e6f7a8b', name: 'Tower' }], messages: [], shares: [{ name: 'appdata', partner_ok: true, children: ['fast/appdata/drop'] }],
+  O: { 'share|appdata|mode': 'snapshot', 'share|appdata|partner': ['5e6f7a8b'] }, P: { 'share|appdata|mode': 'snapshot', 'share|appdata|partner': ['5e6f7a8b'] } };
+S.model = { apps: [{ id: 'a1', name: 'dropnook', folders: [{ share: 'appdata', dir: 'drop' }] }, { id: 'a2', name: 'web', folders: [{ share: 'appdata', dir: 'web' }] }], vms: [] };
+S.levels = { 'app:a1': 1, 'app:a2': 1 };
+S.draft = { 'share|appdata|mode': 'snapshot', 'share|appdata|partner': ['5e6f7a8b'], 'app|dropnook|partner': ['5e6f7a8b'] };
+const ap = (a) => { const x = b.appPartner(a, S.plan); return [x.own, x.withShare.map((p) => p.name), x.key]; };
+out.apps = S.model.apps.map(ap);
+out.units = b.partnerUnits(S.draft, '5e6f7a8b');
+S.draft = { 'share|appdata|mode': 'snapshot', 'share|appdata|partner': [], 'app|dropnook|partner': ['5e6f7a8b'] };
+out.off = b.partnerShareLines();
+S.plan.O = { 'share|appdata|mode': 'snapshot' };
+S.plan.P = { 'share|appdata|mode': 'snapshot' };
+S.draft = { 'share|appdata|mode': 'snapshot', 'share|appdata|partner': ['5e6f7a8b'] };
+out.on = b.partnerShareLines();
+// 1.60.1: dropnook goes to Tower, the share drop it uses doesn't - said on its row and in the dialog, «Send drop too» proposed
+S.plan.shares.push({ name: 'drop', partner_ok: true, children: [] });
+S.model.apps[0].deps = [{ share: 'drop', paths: ['shares'] }];
+S.draft = { 'share|appdata|mode': 'snapshot', 'app|dropnook|partner': ['5e6f7a8b'] };
+out.gaps = b.appDepGaps(S.model.apps[0], S.plan).map((g) => [g.share, g.partners.map((x) => x.name), g.ok]);
+out.gapLine = b.partnerShareLines().filter((x) => x.startsWith('partner.dep_gap'));
+S.draft['share|drop|partner'] = ['5e6f7a8b'];
+out.noGap = b.appDepGaps(S.model.apps[0], S.plan).length;
+console.log(JSON.stringify(out));
+JS);
+        $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/d.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true) ?: [];
+        same('partner ended: the apply dialog — one row per partnership, − the ended one, + the new one (the field rows gone)',
+            [['bk-diff gone', '−partner.ch_gone {"name":"Backup2","address":"192.168.1.50"}'], ['bk-diff add', '+partner.ch_new {"name":"Tower","address":"192.168.1.50"}']], $r['rows'] ?? $r);
+        same('partner ended: … «To Tower» — appdata taken over from Backup2, docs new; never «(new: …)» for a unit carried over',
+            [['partner.apply_to {"name":"Tower"}', 'appdata (partner.apply_from {"name":"Backup2"}), docs (partner.apply_new)']], $r['lines'] ?? $r);
+        same('partner ended: … a [partner] section is never «left out»; the units\' new lines are what Apply sends', [true, [['5e6f7a8b'], ['5e6f7a8b']]],
+            [$r['declined'] ?? null, $r['sends'] ?? null]);
+        same('apply count: the bar and the dialog count the same items - a [partner] section once, a unit once (a user: 3, not 9); the user\'s tick is «yours»',
+            [[[['partner|0f1e2d3c|', 'partner'], ['partner|5e6f7a8b|', 'partner'], ['share|appdata|partner', 'unit'], ['share|docs|partner', 'unit']], [1, 3]],
+             [3, [0, 3]], [[['general|keep_logs', 'key']], [1, 0]]],
+            [$r['countDocs'] ?? null, $r['countCase'] ?? null, $r['countPlain'] ?? null]);
+        $bjs3 = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+        check('apply count: the dialog\'s «N changes» and the bar\'s split both come from setupChangeItems()', str_contains($bjs3, "const { view, keys, items } = setupChangeItems();")
+            && str_contains($bjs3, "const total = items.length;") && str_contains($bjs3, "const { items } = setupChangeItems();"));
+        same('apps and partners 2.45: dropnook (its folder a dataset of its own) a unit of its own, web (a folder in appdata) goes with appdata',
+            [[[true, [], 'app|dropnook|partner'], [false, ['Tower'], 'app|web|partner']], ['share:appdata', 'app:dropnook']], [$r['apps'] ?? null, $r['units'] ?? null]);
+        same('apps and partners 2.45: appdata taken off - the apps that no longer go named, the partner keeps its copy until its retention; put on - those that go too',
+            [['partner.apply_share_off {"n":1,"partner":"Tower","share":"appdata","list":"web"} partner.apply_keeps {"partner":"Tower","share":"appdata"}'],
+             ['partner.apply_share_on {"n":1,"partner":"Tower","share":"appdata","list":"web"}']], [$r['off'] ?? null, $r['on'] ?? null]);
+        same('own folders 1.60.1: dropnook owns appdata/drop; Nginx-Proxy-Manager-Official\'s folder (read-only for dropnook) is NPM\'s - a note at dropnook, never its own',
+            [['dropnook', ['drop'], [['Nginx-Proxy-Manager-Official', 'Nginx-Proxy-Manager-Official']]], ['Nginx-Proxy-Manager-Official', ['Nginx-Proxy-Manager-Official'], []]], $r['own'] ?? $r);
+        same('own folders 1.60.1: … without NPM on the server - still not dropnook\'s (it only reads it), owner unknown', [['dropnook', ['drop'], [['Nginx-Proxy-Manager-Official', null]]]], $r['ownAlone'] ?? null);
+        same('apps and partners 1.60.1: dropnook goes to Tower without its share drop - said (row and dialog); once drop goes too, nothing',
+            [[['drop', ['Tower'], true]], ['partner.dep_gap {"app":"dropnook","partners":"Tower","share":"drop"}'], 0], [$r['gaps'] ?? null, $r['gapLine'] ?? null, $r['noGap'] ?? null]);
+        same('dropnook end to end 1.60.1: «local + partner», then «drop auch schicken» - the bar and the dialog count both units, «To Tower» lists them, Apply sends them',
+            [['drop'], [['app|dropnook|folder', 'app|dropnook|partner', 'share|drop|partner'], [['partner.apply_to {"name":"Tower"}', 'drop (partner.apply_new), partner.unit_app {"name":"dropnook"} (partner.apply_new)']],
+              ['5e6f7a8b'], ['appdata/drop'], 0]], [$r['e2eGap'] ?? null, $r['e2e'] ?? null]);
+        same('declines 1.60.1: the same proposal declined stays declined (settings.ini\'s value), another value is proposed again', ['10', '30'],
+            [$r['declSame'] ?? null, $r['declOther'] ?? null]);
+        same('apply dialog marks: a list\'s change + comes, − goes (the same mark), order alone in words; a value change unmarked',
+            [[['bk-diff add:+', ' c', ' · ', 'bk-diff gone:−', ' a'], ['setup.list_order']], [['bk-diff add:+', ' y', ' · ', 'bk-diff gone:−', ' x'], ['–']], ['−', 'setup.mark_gone']],
+            [$r['list'] ?? null, $r['known'] ?? null, $r['mark'] ?? null]);
+        $bjs2 = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+        check('apply dialog marks: a gone app «−», every new thing on the server «+», a value «old → new» without a mark',
+            str_contains($bjs2, "li.append(diffMark('gone'), T('setup.ch_app_gone'") && str_contains($bjs2, "li.append(diffMark('add'), name);")
+            && str_contains($bjs2, ": `\${valueText(saved[k], k)} → \${valueText(view[k], k)}`"));
+        foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+            $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+            same("apply dialog marks: $l — the marks' words and the partnership rows", [], array_values(array_filter(['setup.mark_add', 'setup.mark_gone', 'partner.ch_gone',
+                'partner.ch_new', 'partner.ch_changed', 'partner.apply_new', 'partner.apply_from'], fn ($k) => !isset($bk[$k]))));
+        }
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testPartnerUnits(): void
 {
     if (posix_geteuid() !== 0) {
@@ -21490,7 +22323,7 @@ function testPartnerStart(): void
             file_put_contents("$mnt/" . RSP_INSIDE . "/tpm/$uuid/tpm2/tpm2-00.permall", 'tpm');
             file_put_contents("$mnt/" . RSP_INSIDE . "/nvram/{$uuid}_VARS-pure-efi-tpm.fd", 'vars');
             file_put_contents("$mnt/" . RSP_INSIDE . '/Debian_VM.xml', "<domain><name>Debian_VM</name><uuid>$uuid</uuid><devices><disk type='file'><source file='/mnt/user/domains/Debian_VM/vdisk1.img'/></disk>"
-                . "<disk type='file'><source file='/mnt/user/isos/debian.iso'/></disk><tpm model='tpm-tis'/></devices></domain>");
+                . "<disk type='file' device='cdrom'><source file='/mnt/user/isos/debian.iso'/></disk><tpm model='tpm-tis'/></devices></domain>");
             file_put_contents("$mnt/" . RSP_INSIDE . '/manifest.json', json_encode(['interface' => 1, 'engine' => '2.43', 'kind' => 'vm', 'name' => 'Debian_VM', 'folder' => 'Debian_VM', 'run' => '20261007-0200',
                 'xml' => 'Debian_VM.xml', 'uuid' => $uuid, 'autostart' => false, 'disks' => [['target' => 'vda', 'source' => '/mnt/user/domains/Debian_VM/vdisk1.img']],
                 'files' => [['path' => 'Debian_VM.xml', 'what' => 'xml'], ['path' => "nvram/{$uuid}_VARS-pure-efi-tpm.fd", 'what' => 'nvram'], ['path' => "tpm/$uuid/tpm2/tpm2-00.permall", 'what' => 'tpm']]]));
@@ -21565,11 +22398,15 @@ function testPartnerStart(): void
     same('partner start: … rspPulled() lists it like a pull', [$ds], array_column(array_filter($as('return rspPulled();'), fn ($x) => $x['journal'] === $run['id']), 'dataset'));
     same('partner start: the files are in domains/<vm> — the disk and the copy\'s .uso-backup', [true, true], [is_file("$user/domains/Debian_VM/vdisk1.img"), is_file("$user/domains/Debian_VM/" . RSP_INSIDE . '/manifest.json')]);
     $xml = (string) @file_get_contents($B["data"] . "/restore/{$run['id']}/start-3-Debian_VM.xml");
-    same('partner start: the VM defined from the copy\'s XML with its disk path pointed at the new folder (the ISO elsewhere left alone)', [true, true, true],
-        [str_contains($xml, "<source file='$user/domains/Debian_VM/vdisk1.img'/>"), str_contains($xml, "<source file='/mnt/user/isos/debian.iso'/>"), (bool) preg_grep('/^define .*start-3-Debian_VM\.xml$/', $virsh())], $xml . json_encode($virsh()));
+    // 1.60.1: from another server (the manifest names no host of this one) - fitted: the ISO that isn't here emptied, its drive kept
+    same('partner start: the VM defined from the copy\'s XML with its disk path pointed at the new folder (the ISO not here: its drive kept, empty)', [true, true, true],
+        [str_contains($xml, "<source file=\"$user/domains/Debian_VM/vdisk1.img\"/>") || str_contains($xml, "<source file='$user/domains/Debian_VM/vdisk1.img'/>"),
+         !str_contains($xml, 'debian.iso') && str_contains($xml, 'device="cdrom"'), (bool) preg_grep('/^define .*start-3-Debian_VM\.xml$/', $virsh())], $xml . json_encode($virsh()));
     same('partner start: … UEFI variables and TPM state put in place (nothing was there), said in the step', [true, true, 'start_vm', 1, 1, 'put'],
         [is_file("$lv/qemu/nvram/{$uuid}_VARS-pure-efi-tpm.fd"), is_file("$lv/qemu/swtpm/tpm-states/$uuid/tpm2/tpm2-00.permall"), $j['steps'][3]['note'] ?? null,
          $j['steps'][3]['params']['rewritten'] ?? null, $j['steps'][3]['params']['nvram'] ?? null, $j['steps'][3]['params']['tpm'] ?? null]);
+    same('partner start 1.60.1: … the fitting said in the step, the original XML kept beside the package', [['cdrom'], true],
+        [array_column($j['steps'][3]['params']['adapted'] ?? [], 'code'), is_file("$user/domains/Debian_VM/" . RSP_INSIDE . '/Debian_VM.xml.original')]);
     same('partner start: the undo recorded — the definition, the files put, the folder, the copy', [['undefine', 'aside', 'aside'], ['aside'], ['drop']],
         [array_column($j['steps'][3]['undo'] ?? [], 'do'), array_column($j['steps'][2]['undo'] ?? [], 'do'), array_column($j['steps'][0]['undo'] ?? [], 'do')]);
     check('partner start: the lock released', !is_file("$B[data]/unraid-backup/state/lock-holder.json"));
@@ -21691,6 +22528,43 @@ function testPartnerStart(): void
     }
     check('partner ready: the card and both dialogs say it (needLine on the send side, the receive side, «Add a partner…», «I send too»)',
         substr_count((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js'), "needLine('send')") === 3 && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js'), "needLine('receive')"));
+
+    // 1.60.1: a share's copy - the apps and VMs its packages name (a look at the snapshot: rspPeek) to pick from; only the
+    // ticked ones come back (the others' folders left out of the copy, their packages not started)
+    @mkdir("$tmp/U2/appdata", 0755, true);
+    $x = $as('$GLOBALS["rs"]["user_root"] = ' . var_export("$tmp/U2", true) . '; $GLOBALS["rs"]["peek"] = fn ($s) => ["" => ["kind" => "app", "name" => "top", "dirs" => []],'
+        . ' "drop" => ["kind" => "app", "name" => "dropnook", "dirs" => ["appdata/drop"]], "web" => ["kind" => "app", "name" => "web", "dirs" => ["appdata/web"]]];'
+        . ' return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "only" => ["drop"], "stamp" => "' . $at(9000) . '"]);');
+    $copy = array_values(array_filter($x['steps'] ?? [], fn ($st) => $st['do'] === 'copy'))[0] ?? [];
+    $from = array_values(array_filter($x['steps'] ?? [], fn ($st) => $st['do'] === 'start_from'))[0] ?? [];
+    same('partner start 1.60.1: a share copy lists what it carries to pick from, the ticks as asked; the others\' folders left out, only the ticked started',
+        [[['drop', 'app', 'dropnook', true], ['web', 'app', 'web', false]], ['web'], ['drop']],
+        [array_map(fn ($f) => [$f['folder'], $f['kind'], $f['name'], $f['on']], $x['options']['found'] ?? []), $copy['skip'] ?? null, $from['only'] ?? null], json_encode($x));
+    // 1.60.1 (a user): dropnook needs the share drop, which isn't here - refused before anything is copied; on the explicit
+    // tick «only the app's own folder» it goes; a share that is here is no blocker
+    $needsPlan = fn (string $more) => $as('$GLOBALS["rs"]["user_root"] = ' . var_export("$tmp/U2", true) . '; $GLOBALS["rs"]["peek"] = fn ($s) => ['
+        . '"drop" => ["kind" => "app", "name" => "dropnook", "dirs" => ["appdata/drop"], "needs" => ["drop", "appdata"]]];'
+        . ' return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $at(9100) . '"' . $more . ']);');
+    $x1 = $needsPlan('');
+    $x2 = $needsPlan(', "only_folder" => true');
+    same('partner start 1.60.1: an app needing a share that isn\'t here - refused before anything is copied (the share named, nothing made); «only its own folder» lets it go',
+        [['restore_partner_app_shares'], [['drop', ['dropnook'], false, false]], []],
+        [array_values(array_intersect(array_column($x1['blockers'] ?? [], 'key'), ['restore_partner_app_shares'])),
+         array_map(fn ($n) => [$n['share'], $n['apps'], $n['exists'], $n['kept']], $x1['options']['needs'] ?? []),
+         array_values(array_intersect(array_column($x2['blockers'] ?? [], 'key'), ['restore_partner_app_shares']))], json_encode($x1['blockers'] ?? null));
+    $psrc2 = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
+    check('partner start 1.60.1: a needed share kept here too comes along on a tick once it exists (pull_local, mount, copy into its empty folder)',
+        str_contains($psrc2, "if (!\$n['with'] || !\$n['exists'] || !\$n['kept'] || \$onlyFolder) {") && str_contains($psrc2, "'note.partner_share_has_data'"));
+    check('partner start 1.60.1: the dialog - the share to create, «Look again», «only the app\'s own folder», «bring it along»',
+        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js'), 'if (needs.length) box.appendChild(needsField(needs, plan, ask, change));'));
+    $rsrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('partner start 1.60.1: the copy leaves the unticked folders out (rsync --exclude=/<folder>/)', str_contains($rsrc, "'--exclude=/' . \$x . '/'"));
+    $rjs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('partner start 1.60.1: the dialog shows the ticks (foundField), a change re-plans with `only`', str_contains($rjs, 'if (found.length) box.appendChild(foundField(found, change));')
+        && str_contains($rjs, "change({ only: [...f.querySelectorAll('input[type=checkbox]')]"));
+    $psrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
+    check('partner start 1.60.1: an app unit (engine 2.45) goes back into <share>/<folder> as its package names it, never over data, then its template or stack',
+        str_contains($psrc, "[\$share, \$dir] = explode('/', (\$peek['']['dirs'][0] ?? '') ?: \"appdata/\$label\", 2);") && str_contains($psrc, "'kind' => 'app', 'beside_as' => \$besideAs"));
 
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
     foreach (['tile.kept', 'kept.title', 'kept.way', 'kept.start', 'rd.title.partner_start', 'rd.start_cancel', 'rd.start_beside', 'rd.start_copy_only', 'step.pull_local', 'step.start_from_vm', 'step.start_from_share', 'step.start_from_look',
@@ -25653,14 +26527,30 @@ function testBackupOneMinute(): void
     same('one a minute: the last run a minute before', null, backupMinuteTaken('backup', $data, $now));
     file_put_contents("$data/state/status.json", json_encode(['run' => '20261008-0102', 'result' => 'ok']));
     same('one a minute: the last run this minute — 20 s to wait', 20, backupMinuteTaken('backup', $data, $now));
-    same('one a minute: … whatever the mode', [20, 20, 20], [backupMinuteTaken('nokopia', $data, $now), backupMinuteTaken('dryrun', $data, $now), backupMinuteTaken('check', $data, $now)]);
+    same('one a minute 1.60.1: only a real backup waits (its snapshots carry the minute) - a tour or a dry run never', [20, null, null],
+        [backupMinuteTaken('nokopia', $data, $now), backupMinuteTaken('dryrun', $data, $now), backupMinuteTaken('check', $data, $now)]);
+    file_put_contents("$data/state/status.json", json_encode(['run' => '20261008-0102', 'mode' => 'check', 'result' => 'ok']));
+    same('one a minute 1.60.1: a tour this minute - a backup needn\'t wait', null, backupMinuteTaken('backup', $data, $now));
     file_put_contents("$data/state/status.json", json_encode(['run' => '20261008-0101', 'result' => 'ok']));
     touch("$data/logs/check-20261008-0102.log");
-    same('one a minute: a check\'s log this minute — another check waits, a backup not', [20, null], [backupMinuteTaken('check', $data, $now), backupMinuteTaken('backup', $data, $now)]);
+    same('one a minute: a check\'s log this minute — neither another check nor a backup waits', [null, null], [backupMinuteTaken('check', $data, $now), backupMinuteTaken('backup', $data, $now)]);
     touch("$data/logs/run-20261008-0102.log");
     same('one a minute: a run\'s log this minute', [20, 20, null], [backupMinuteTaken('backup', $data, $now), backupMinuteTaken('nokopia', $data, $now), backupMinuteTaken('dryrun', $data, $now)]);
     $start = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
-    check('one a minute: backupStart() asks before it launches', ($a = strpos($start, "throw new Problem('one_run_a_minute'")) !== false && $a < strpos($start, 'backupLaunch(array_merge([$dir'));
+    check('one a minute 1.60.1: backupStart() asks before it launches - a taken minute queues the backup for the next one (atd), never a refusal',
+        ($a = strpos($start, 'return backupQueue($mode, $dir, $wait);')) !== false && $a < strpos($start, 'backupLaunch(array_merge([$dir')
+        && str_contains($start, "hostLaunch('backup-queued', ['/bin/sh', '-c', \$script]") && str_contains($start, "'start_cancel' => fn (array \$r) => backupQueueCancel(),"));
+    $eng0 = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('one a minute 2.45: a tour\'s and a dry run\'s log carry the second; a setup\'s too', str_contains($eng0, 'check)   LOG_FILE="$UB_LOGS/check-$TSS.log" ;;')
+        && str_contains($eng0, 'LOG_FILE="$UB_LOGS/dryrun-$TSS.log"') && str_contains((string) file_get_contents(OFFICE_DIR . '/backup/setup.sh'), 'LOG_FILE="$UB_LOGS/setup-$(date +%Y%m%d-%H%M%S).log"'));
+    $names = ['check-20261012-1721.log', 'check-20261012-172002.log', 'check-20261012-1720.log', 'check-20261012-171959.log'];
+    sort($names, SORT_STRING);
+    same('one a minute 2.45: by name a seconds log sorts after its minute\'s and before the next minute (the engine\'s pruning, sort)',
+        ['check-20261012-171959.log', 'check-20261012-1720.log', 'check-20261012-172002.log', 'check-20261012-1721.log'], $names);
+    $sorted = (string) shell_exec("printf '%s\\n' check-20261012-1721.log check-20261012-172002.log check-20261012-1720.log | LC_ALL=C sort -t- -k2");
+    same('one a minute 2.45: … the engine\'s own sort -t- -k2 too', "check-20261012-1720.log\ncheck-20261012-172002.log\ncheck-20261012-1721.log\n", $sorted);
+    same('one a minute 2.45: the office lists a log named by the second', ['check', mktime(17, 20, 2, 10, 12, 2026)],
+        (function () { preg_match(BACKUP_LOG_NAME, 'check-20261012-172002.log', $m); return [$m[1] ?? null, (int) DateTime::createFromFormat('Ymd-His', "$m[2]-$m[3]")->getTimestamp()]; })());
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true);
     check('one a minute: its words, with the seconds', str_contains($en['errors.one_run_a_minute'] ?? '', '{seconds}'));
 
@@ -25674,7 +26564,7 @@ function testBackupOneMinute(): void
     foreach (['run', 'dryrun', 'check'] as $kind) {
         touch("$eng/logs/$kind-20261008-0102.log");
     }
-    foreach (['backup' => [], 'dry run' => ['--dry-run'], 'check' => ['--check']] as $what => $args) {
+    foreach (['backup' => []] as $what => $args) {          // 2.45: only a real backup - a tour's or dry run's log carries the second
         $p = proc_open(array_merge(['bash', OFFICE_DIR . '/backup/backup.sh'], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
             ['UB_DATA' => $eng, 'UB_NO_NOTIFY' => '1', 'PATH' => "$tmp/bin:" . getenv('PATH'), 'OFFICE_RUN_DIR' => TESTS_RUN_DIR]);
         $out = (string) stream_get_contents($pipes[1]);
@@ -25713,6 +26603,8 @@ const minute = Math.floor(now / 60) * 60;
 const st = (status, more) => ({ found: true, compatible: true, running: false, history: [], status, ...more });
 const out = { minute };
 b.setState(st({ mode: 'check', started: minute + 0, finished: minute + 5, result: 'ok' }));
+out.check = b.minuteTaken(minute + 51);
+b.setState(st({ mode: 'backup', started: minute + 0, finished: minute + 5, result: 'ok' }));
 const m = b.minuteTaken(minute + 51);
 out.taken = [m && m.left, m && m.mode, b.minuteTaken(minute + 60), b.minuteTaken(minute - 1) && b.minuteTaken(minute - 1).left];
 out.bubble = b.bubbleText('').filter((x) => x.startsWith('minute.'));
@@ -25724,26 +26616,31 @@ out.older = [b.minuteTaken(), b.deskActions().map((x) => [x.disabled, x.title]),
 b.setState(st({ mode: 'dryrun', started: now, result: 'running' }, { running: true, holder: { holder: 'dryrun' } }));
 out.live = b.minuteTaken();
 b.setState(st({ mode: 'dryrun', started: now, result: 'ok' }));
-out.dry = b.minuteTaken().mode;
+out.dry = b.minuteTaken();
+b.setState(st({ mode: 'backup', started: minute, result: 'ok' }, { queued: { at: minute + 60, mode: 'backup' } }));
+out.queued = [b.bubbleText('').filter((x) => x.startsWith('minute.queued')).length, b.deskActions().map((x) => x.text)];
 console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/minute.js", $js);
     $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/minute.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true);
-    same('one a minute (page): the last run started this minute — 9 s left at :51, free at the next minute, the mode named (a browser a second behind: 61)', [9, 'check', null, 61], $r['taken'] ?? null);
-    same('one a minute (page): the bubble says the tour just ran, with its time', [sprintf('minute.ran_check {"time":"time(%d)"}', $r['minute'] ?? 0)], $r['bubble'] ?? null);
-    same('one a minute (page): «Tour» and «Start a run…» grey, the tooltip counting the seconds', [['check', true, 'minute.wait {"seconds":n}'], ['start', true, 'minute.wait {"seconds":n}']],
+    same('one a minute (page) 1.60.1: a tour this minute holds nothing', [true, null], [array_key_exists('check', $r ?? []), $r['check'] ?? null]);
+    same('one a minute (page): a backup started this minute — 9 s left at :51, free at the next minute (a browser a second behind: 61)', [9, 'backup', null, 61], $r['taken'] ?? null);
+    same('one a minute (page): the bubble says the backup just ran, with its time', [sprintf('minute.ran_backup {"time":"time(%d)"}', $r['minute'] ?? 0)], $r['bubble'] ?? null);
+    same('one a minute (page) 1.60.1: «Tour» and «Start a run…» never grey - the tip says a backup starts at the next minute',
+        [['check', false, 'minute.queue_hint {"time":"time(n)"}'], ['start', false, 'minute.queue_hint {"time":"time(n)"}']],
         $r['buttons'] ?? null);
+    same('one a minute (page) 1.60.1: a backup queued for the next minute - said in the bubble, «Don\'t start it» beside the buttons', [1, ['check', 'start', 'minute.cancel']], $r['queued'] ?? null);
     check('one a minute (page): a countdown ticks until the minute changes', ($r['timer'] ?? false) === true);
     same('one a minute (page): a run of an earlier minute — nothing grey, no tooltip, no line', [null, [[false, ''], [false, '']], []], $r['older'] ?? null);
     same('one a minute (page): while a run goes on — not this rule (the run card and «Stop» speak)', [true, null], [array_key_exists('live', $r ?? []), $r['live'] ?? null]);
-    same('one a minute (page): a dry run names itself', 'dryrun', $r['dry'] ?? null);
+    same('one a minute (page) 1.60.1: a dry run holds nothing either', [true, null], [array_key_exists('dry', $r ?? []), $r['dry'] ?? null]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    check('one a minute (page): the start dialog\'s button and the menu\'s runs wait too',
-        str_contains($js, 'minuteGuard([d.buttons[1]]') && str_contains($js, 'const go = ready && !minuteTaken();'));
+    check('one a minute (page) 1.60.1: the start dialog says when a backup starts; the menu\'s tour and dry run never wait',
+        str_contains($js, "T('minute.queue_note', { time: fmt.time(taken.at) })") && str_contains($js, 'const go = ready;'));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $w = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true);
-        check("one a minute (page): its words in $l", str_contains($w['minute.wait'] ?? '', '{seconds}')
-            && count(array_filter(['check', 'dryrun', 'backup'], fn ($m) => str_contains($w["minute.ran_$m"] ?? '', '{time}'))) === 3);
+        check("one a minute (page): its words in $l", str_contains($w['minute.queued'] ?? '', '{time}') && str_contains($w['minute.queue_hint'] ?? '', '{time}')
+            && str_contains($w['minute.queue_note'] ?? '', '{time}') && isset($w['minute.cancel']) && str_contains($w['minute.ran_backup'] ?? '', '{time}'));
     }
     hardeningRm($tmp);
 }
@@ -29503,6 +30400,36 @@ function testBackupTiles(): void
         str_contains($css, 'white-space:nowrap; overflow:hidden; text-overflow:ellipsis;')
         && str_contains($css, '@media (max-width:640px){.bk-steps{display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr))} .bk-steps li{min-width:0}}')
         && str_contains($js, "if (!li.dataset.tip) li.title = T('step.' + name);"));
+    // 1.60.1 (a user: «the little Unraid wave would be cool here»): the wave wherever a run or a restore goes - always inside .running
+    check('backup tiles: the run card is .running whole - the wave in its title before the name, none on the highlighted step',
+        str_contains($js, "const card = el('div', 'card bk-run running');") && str_contains($js, "top.append(el('span', 'spin'), el('span', 'card-name',")
+        && str_contains($js, "const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));") && !str_contains($js, "card.classList.add('running');"));
+    check('backup tiles: the last backup\'s tile carries the wave while a run goes', substr_count($js, "label: T('stat.last'), running: live(),") === 2
+        && str_contains($js, "label: d.running ? waveLabel(d.label) : d.label,"));
+    foreach (['backup' => 'bk', 'restore' => 'rs'] as $desk => $pre) {
+        $djs = (string) file_get_contents(OFFICE_WEB . "/desks/$desk/desk.js");
+        $dcss = (string) file_get_contents(OFFICE_WEB . "/desks/$desk/desk.css");
+        check("run card ($desk) 1.60.1: the current step's highlight slides - one element behind the list, an ease-in-out of 0.7 s, no move on the first drawing or while the step stays",
+            str_contains($djs, "function {$pre}_slideMark(wrap, ol, key, at)") && str_contains($djs, "const from = {$pre}HlLast.key === key && {$pre}HlLast.at !== at && {$pre}HlLast.box ? {$pre}HlLast.box : null;")
+            && str_contains($dcss, ".$pre-steps-hl{position:absolute; z-index:0; background:var(--accent-soft)") && str_contains($dcss, 'transition:left .7s ease-in-out')
+            && str_contains($dcss, ".$pre-steps li{transition:color .7s ease-in-out}") && !str_contains($dcss, 'font-weight:650; background:var(--accent-soft)}'));
+    }
+    $rjs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
+    check('restore: the wave on the journal\'s «running» chip, the running step, the run card and the tile\'s step while a restore runs',
+        str_contains($rjs, "const waving = (x) => { const w = el('span', 'running'); w.append(el('span', 'spin'), ' ', ...[].concat(x)); return w; };")
+        && str_contains($rjs, "meta.appendChild(r.result === 'running' ? waving(head) : head);") && str_contains($rjs, "li.append(s.state === 'running' ? waving(sc) : sc, ' ', stepText(s));")
+        && str_contains($rjs, "top.append(el('span', 'spin'), el('span', 'card-name', d.title), chip(T('jr.running'), 'accent'));") && str_contains($rjs, "lines: [[line, going && right ? waving(right) : right]]")
+        && str_contains($rjs, "st.state === 'failed' ? 'done failed' : 'done', st.name);"));
+    $ocss = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    preg_match('/--wave:url\("data:image\/svg\+xml,([^"]+)"\);/', $ocss, $w);
+    $svg = rawurldecode($w[1] ?? '');
+    check('the wave: one SVG that moves itself - Unraid\'s nine bars at their places, its gradient, 2-4 up and 6-8 down to the mirror, 2.5 s ease-in-out, its own reduced-motion; 12 px high',
+        substr_count($svg, '<rect ') === 9 && str_contains($svg, "viewBox='0 0 133.52 76.97'") && str_contains($svg, "<stop offset='0' stop-color='#e32929'/><stop offset='1' stop-color='#ff8d30'/>")
+        && substr_count($svg, "class='u'") === 2 && substr_count($svg, "class='d'") === 2 && substr_count($svg, "class='v'") === 1 && substr_count($svg, "class='e'") === 1
+        && str_contains($svg, '@keyframes u{50%{transform:translateY(-38.49px)}}') && str_contains($svg, '@keyframes e{50%{transform:translateY(62.27px)}}')
+        && str_contains($svg, 'animation:2.5s ease-in-out infinite') && str_contains($svg, '@media (prefers-reduced-motion:reduce){*{animation:none}}')
+        && str_contains($ocss, '.spin{display:none; width:20.8px; height:12px;') && substr_count($ocss, 'background:var(--wave) center / contain no-repeat') === 2
+        && !str_contains($ocss, '--wave-rest'), $svg);
     same('backup tiles: no scrollIntoView left (a tile filters, the search reveals)', 0, substr_count($js, 'scrollIntoView'));
     preg_match_all("/setAttribute\\('role', 'button'\\)/", $js, $m, PREG_OFFSET_CAPTURE);
     $roles = array_map(fn ($x) => preg_match_all('/\nfunction (\w+)\(/', substr($js, 0, $x[1]), $f) ? end($f[1]) : '?', $m[0]);
@@ -29519,7 +30446,7 @@ function testBackupTiles(): void
         str_contains($js, "sw = Office.sections({\n    id: ID,") && str_contains($js, "grid: 'stats bk-stats',") && str_contains($js, "default: '',")
         && str_contains($js, "tiles: () => tileList(),") && str_contains($js, "sections: { prot: () => protection() },"));
     check('backup tiles: the tile builder spreads the switcher\'s attributes into Office.stat (no click, aria-pressed or place of its own)',
-        str_contains($js, "return Office.stat({ label: d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.\${d.key}` });")
+        str_contains($js, "return Office.stat({ label: d.running ? waveLabel(d.label) : d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.\${d.key}` });")
         && !str_contains($js, 'protTileClick') && !str_contains($js, 'protRedraw') && !preg_match('/\nfunction summary\(/', $js));
     check('backup tiles: a new visit drops the bars; #/backup/<tile> picks the tile like a click (the switcher, the address back to #/backup)',
         str_contains($js, "protBar = null;\n      histBar = null;\n      switcher().mount(sub);"));
@@ -29527,8 +30454,8 @@ function testBackupTiles(): void
         str_contains($js, "const f = { ...bar.read(), tile: protFilter() };")
         && str_contains($js, "bar.done(v.n, v.total, { ...switcher().note('prot'), onlyAvail: v.off > 0 });"));
     check('backup tiles: both bars draw through the switcher (no section replaced by hand)', substr_count($js, 'onChange: () => switcher().render()') === 2);
-    check('backup tiles: a run going on — its card in the row\'s place, the whole page under it',
-        str_contains($js, "if (s.active()) s.pick('', 'route');") && str_contains($js, 's.grid.hidden = live();'));
+    check('backup tiles 1.60.1: a run going on — its card above the tiles, whatever tile is open; the tiles stay',
+        str_contains($js, 'if (live()) root.appendChild(runningCard());') && !str_contains($js, 's.grid.hidden = live();'));
     check('backup tiles: every tile a place of the search (kind tile, its anchor tile.<id>, #/backup/<tile>), the rows and sections through their tile',
         str_contains($js, "...TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `tile.\${id}`, route: tileRoute(id),")
         && !str_contains($js, 'ITEM_ROUTE') && substr_count($js, 'route: prot }') === 3);
@@ -30770,7 +31697,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

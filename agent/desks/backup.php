@@ -37,7 +37,7 @@ declare(strict_types=1);
 
 const BACKUP_INTERFACE   = 1;
 const BACKUP_MODES       = ['backup' => [], 'nokopia' => ['--no-kopia'], 'dryrun' => ['--dry-run'], 'check' => ['--check']];
-const BACKUP_LOG_NAME    = '/^(?:(run|check|dryrun|setup)-(\d{8})-(\d{4})\.log|unmount\.log)$/';
+const BACKUP_LOG_NAME    = '/^(?:(run|check|dryrun|setup)-(\d{8})-(\d{4}|\d{6})\.log|unmount\.log)$/';    // engine 2.45: tours, dry runs, setups by the second
 const BACKUP_LOG_BYTES   = 512 * 1024;
 const BACKUP_HISTORY     = 60;           // runs shown
 const BACKUP_UPLOAD_LOOK = 180;          // a first upload's rate: from looks at least this far apart (seconds) …
@@ -67,6 +67,7 @@ desk('backup', [
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => backupScan()],
         'start'   => fn (array $r) => backupStart(textField($r, 'mode')),
+        'start_cancel' => fn (array $r) => backupQueueCancel(),             // 1.60.1: a start queued for the next minute
         'abort'   => fn (array $r) => backupAbort(),
         'unmount' => fn (array $r) => backupUnmount(),
         'log'     => fn (array $r) => backupLog(textField($r, 'log')),
@@ -74,11 +75,17 @@ desk('backup', [
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null, $r['plan_time'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),
+        'setup_decline' => fn (array $r) => backupDecline(textField($r, 'key'), $r['value'] ?? null),          // 1.60.1: a declined proposal stays declined
+        'setup_decline_undo' => fn (array $r) => backupDeclineUndo(textField($r, 'key')),
         'schedule'    => fn (array $r) => backupSetSchedule(cronField($r)),       // null: off — said, never a missing key
         // his let-go dialog's «Also clear away what he kept here» (agent/desks/backup-letgo.php): the look, then the clearing
         'letgo_look'  => fn (array $r) => backupLetGoLook(),
         'letgo_clear' => fn (array $r) => backupLetGoClear($r),          // hands the clearing to atd (job backup-letgo)
         'letgo_job'   => fn (array $r) => backupLetGoJobState($r),       // is a job that wrote nothing for a while still alive?
+        // «Make it a dataset of its own…» (1.60.1): the dialog's facts, then one of Mr. Restori's jobs (agent/desks/restore-dataset.php)
+        'dataset_look' => fn (array $r) => mdLook(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack')]),
+        'dataset_make' => fn (array $r) => mdStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
+                                                    'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
     ],
     'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args)],
     'checks' => fn () => backupChecks(),
@@ -242,7 +249,8 @@ function backupScan(): array
         // a run the array stop ended leaves what it stopped noted for the next run (engine 2.24)
         'left'       => !$running && ($status['result'] ?? '') === 'aborted' && ($status['message'] ?? '') === 'array_stopping' ? backupPaused($data) : null,
         'history'    => $history,
-        'skips'      => $skips,                  // backup runs skipped because the lock was busy, newest first
+        'skips'      => $skips,
+        'queued'     => backupQueued(),         // 1.60.1: a backup asked for within a taken minute - it starts at {at}                  // backup runs skipped because the lock was busy, newest first
         'skipped'    => backupSkipRow(readJson("$data/state/skipped.json")),   // the last attempt of any mode
         'estimates'  => backupEstimates($history),
         'upload'     => $running ? backupUpload($status, $history, $settings) : null,     // a first upload to Kopia going on now
@@ -271,9 +279,10 @@ function backupScan(): array
 /**
  * Engine 2.27: the partner offices settings.ini sends to, each with its units and the last run that had it (from the
  * history, newest first: what went, how much, how fast, what was skipped or failed and why) - and, while a run sends
- * to it, what it sends now (status.json partner.current: the unit, since, bytes so far)
+ * to it, what it sends now (status.json partner.current: the unit, since, bytes so far). 1.60.1: `ended`, `anew`, `apply`
+ * (and `from`) - what waits for «Apply» (partnerApplyPending(); $wait for the tests), a pair with nothing yet as a row too
  */
-function backupPartners(array $settings, array $history, ?array $status = null): array
+function backupPartners(array $settings, array $history, ?array $status = null, ?array $wait = null): array
 {
     $out = [];
     $cur = is_array($status['partner']['current'] ?? null) ? $status['partner']['current'] : null;
@@ -290,9 +299,101 @@ function backupPartners(array $settings, array $history, ?array $status = null):
         $p['last'] = $last;
         $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? backupPartnerRate(['unit' => (string) ($cur['unit'] ?? ''), 'since' => (int) ($cur['since'] ?? 0),
             'bytes' => (int) ($cur['bytes'] ?? 0), 'estimate' => is_int($cur['estimate'] ?? null) && $cur['estimate'] > 0 ? $cur['estimate'] : null], $p['id']) : null;
+        $p['ended'] = false;
+        $p['anew'] = null;
+        $p['apply'] = false;
         $out[] = $p;
     }
+    // 1.60.1: what waits for «Apply» - a partner ended at the Team Lead (perhaps paired anew: `anew` gets its units), a
+    // pair this office sends to that settings.ini gives nothing yet (a row of its own: nothing sent yet)
+    $wait ??= function_exists('partnerApplyPending') ? partnerApplyPending($settings) : ['ended' => [], 'empty' => []];
+    $ended = array_column($wait['ended'], null, 'id');
+    foreach ($out as &$p) {
+        if (isset($ended[$p['id']])) {
+            $p['ended'] = true;
+            $p['anew'] = $ended[$p['id']]['anew'];
+            $p['apply'] = true;
+        }
+    }
+    unset($p);
+    foreach ($wait['empty'] as $e) {
+        $i = array_search($e['id'], array_column($out, 'id'), true);
+        if ($i !== false) {
+            $out[$i]['apply'] = true;
+            $out[$i]['from'] = $e['from'];
+        } else {
+            $out[] = ['id' => $e['id'], 'name' => $e['name'], 'address' => '', 'port' => 22, 'rate_mbit' => 0, 'units' => [], 'last' => null,
+                      'current' => null, 'ended' => false, 'anew' => null, 'apply' => true, 'from' => $e['from']];
+        }
+    }
     return $out;
+}
+
+// ---- declined proposals (1.60.1, a user: a «Leave out» came back at every plan) -----------------------------------------
+const BACKUP_DECLINE_KEY = '/^(?!partner\|)[a-z_]+(?:\|[^|\x00-\x1f]{1,128})?\|[a-z_]+$/D';     // a settings.ini key as the plan names it, never a [partner] one
+const BACKUP_DECLINE_MAX = 500;
+
+/** Where the declines lie: his folder in the data folder (root only; tests point it elsewhere) */
+function backupDeclineFile(): string
+{
+    return ($GLOBALS['backupDeclineDir'] ?? DATA_DIR . '/backup') . '/declined.json';
+}
+
+/** key => {value, time}: only entries in exactly that shape */
+function backupDeclined(): array
+{
+    $j = readJson(backupDeclineFile());
+    $out = [];
+    foreach (is_array($j['keys'] ?? null) ? $j['keys'] : [] as $k => $d) {
+        if (is_string($k) && preg_match(BACKUP_DECLINE_KEY, $k) && is_array($d) && array_key_exists('value', $d) && backupDeclineValueOk($d['value']) && is_int($d['time'] ?? null)) {
+            $out[$k] = ['value' => $d['value'], 'time' => $d['time']];
+        }
+    }
+    return $out;
+}
+
+/** A proposal's value as the page has it: null, a string, or a list of strings */
+function backupDeclineValueOk(mixed $v): bool
+{
+    if ($v === null || (is_string($v) && strlen($v) <= 400)) {
+        return true;
+    }
+    return is_array($v) && array_is_list($v) && count($v) <= 200 && !array_filter($v, fn ($x) => !is_string($x) || strlen($x) > 400);
+}
+
+function backupDeclineWrite(array $all): void
+{
+    $dir = dirname(backupDeclineFile());
+    if (!is_dir($dir) && !@mkdir($dir, 0700, true)) {
+        throw new Problem('setup_bad_decisions', ['detail' => $dir]);
+    }
+    writeAtomic(backupDeclineFile(), jsonEncode(['v' => 1, 'keys' => (object) $all]) . "\n", 0600, 0, 0);
+}
+
+/** «Leave out» in the apply dialog: remembered with the value proposed (the newest BACKUP_DECLINE_MAX) */
+function backupDecline(string $key, mixed $value): array
+{
+    if (!preg_match(BACKUP_DECLINE_KEY, $key) || !backupDeclineValueOk($value)) {
+        throw new Problem('bad_request');
+    }
+    $all = backupDeclined();
+    unset($all[$key]);
+    $all[$key] = ['value' => $value, 'time' => time()];
+    uasort($all, fn ($a, $b) => $b['time'] <=> $a['time']);
+    backupDeclineWrite(array_slice($all, 0, BACKUP_DECLINE_MAX, true));
+    return ['ok' => true, 'declined' => (object) backupDeclined()];
+}
+
+/** «Propose again»: the decline forgotten */
+function backupDeclineUndo(string $key): array
+{
+    if (!preg_match(BACKUP_DECLINE_KEY, $key)) {
+        throw new Problem('bad_request');
+    }
+    $all = backupDeclined();
+    unset($all[$key]);
+    backupDeclineWrite($all);
+    return ['ok' => true, 'declined' => (object) backupDeclined()];
 }
 
 const BACKUP_PARTNER_RATE_FILE   = 'backup-partner-rate.json';   // in RUN_DIR: the samples of the transfer going on (RAM, gone with the agent)
@@ -644,7 +745,7 @@ function backupLogs(): array
         }
         $path = "$data/logs/$name";
         $time = isset($m[2]) && $m[2] !== ''
-            ? (int) (DateTime::createFromFormat('Ymd-Hi', "$m[2]-$m[3]")?->getTimestamp() ?: 0)
+            ? (int) (DateTime::createFromFormat(strlen($m[3]) === 6 ? 'Ymd-His' : 'Ymd-Hi', "$m[2]-$m[3]")?->getTimestamp() ?: 0)
             : (int) @filemtime($path);
         $logs[$name] = ['name' => $name, 'kind' => $m[1] ?? 'unmount', 'time' => $time, 'size' => (int) @filesize($path), 'path' => $path];
     }
@@ -1852,8 +1953,10 @@ function backupStart(string $mode): array
     if (!is_file("$data/settings.ini")) {
         throw new Problem('backup_no_settings');
     }
+    // one a minute only for a real backup (its snapshots carry the minute, 1.60.1): taken - it starts at the next minute,
+    // queued through atd (backupQueue()), cancellable; the engine refuses a second one in a minute all the same
     if (($wait = backupMinuteTaken($mode, $data)) !== null) {
-        throw new Problem('one_run_a_minute', ['seconds' => $wait]);
+        return backupQueue($mode, $dir, $wait);
     }
     $before = (int) (readJson("$data/state/status.json")['started'] ?? 0);
     $skipBefore = readJson("$data/state/skipped.json");
@@ -1881,6 +1984,52 @@ function backupStart(string $mode): array
     return ['ok' => true, 'started' => $seen, 'skipped' => $skipped, 'state' => backupScan()];
 }
 
+const BACKUP_QUEUE_FILE = 'backup-queued.json';     // in RUN_DIR: a backup asked for within a taken minute, {at, mode}
+
+/** The queued start, while it waits (null once it ran, was cancelled or is long past) */
+function backupQueued(): ?array
+{
+    $q = readJson(RUN_DIR . '/' . BACKUP_QUEUE_FILE);
+    if (!is_array($q) || !is_int($q['at'] ?? null) || !isset(BACKUP_MODES[$q['mode'] ?? '']) || $q['at'] < time() - 30 || file_exists(RUN_DIR . '/backup-queued.cancel')) {
+        return null;
+    }
+    return ['at' => $q['at'], 'mode' => $q['mode']];
+}
+
+/**
+ * A real backup within a taken minute: handed to atd for the next minute (a shell that sleeps, then looks for a cancel).
+ * It lives in atd's queue, not in the agent: an agent restart meanwhile doesn't lose it (its note in RUN_DIR stays too);
+ * a reboot within that minute does (atd's queue and RUN_DIR are RAM) - then nothing starts and nothing is said.
+ */
+function backupQueue(string $mode, string $dir, int $wait): array
+{
+    if (backupQueued() !== null) {
+        throw new Problem('backup_queued', ['time' => date('H:i', backupQueued()['at'])]);
+    }
+    $at = time() + $wait + 1;
+    $cancel = RUN_DIR . '/backup-queued.cancel';
+    $file = RUN_DIR . '/' . BACKUP_QUEUE_FILE;
+    @unlink($cancel);
+    writeAtomic($file, jsonEncode(['at' => $at, 'mode' => $mode]), 0600, 0, 0);
+    $cmd = implode(' ', array_map('escapeshellarg', array_merge(['/bin/bash', "$dir/backup.sh"], BACKUP_MODES[$mode])));
+    $script = 'sleep ' . ($wait + 1) . '; if [ -e ' . escapeshellarg($cancel) . ' ]; then rm -f ' . escapeshellarg($cancel) . '; exit 0; fi; rm -f '
+        . escapeshellarg($file) . "; exec $cmd";
+    hostLaunch('backup-queued', ['/bin/sh', '-c', $script], ['UB_DATA' => BACKUP_DATA_DIR_USER]);
+    logLine("Backup: $mode asked for within a taken minute - queued for " . date('H:i', $at));
+    return ['ok' => true, 'started' => false, 'queued' => ['at' => $at, 'mode' => $mode], 'state' => backupScan()];
+}
+
+/** «Cancel»: the queued start won't run */
+function backupQueueCancel(): array
+{
+    if (backupQueued() !== null) {
+        @touch(RUN_DIR . '/backup-queued.cancel');
+        @unlink(RUN_DIR . '/' . BACKUP_QUEUE_FILE);
+        logLine('Backup: the queued start was cancelled');
+    }
+    return ['ok' => true, 'state' => backupScan()];
+}
+
 /**
  * One run a minute (QA 2026-10-08, finding 3): the engine's run id, its log and its snapshots' name carry the minute
  * (`uso-backup-YYYYMMDD-HHMM`) — a second run in the same minute failed with «ZFS snapshot … failed» and left two
@@ -1889,10 +2038,14 @@ function backupStart(string $mode): array
  */
 function backupMinuteTaken(string $mode, string $data, ?int $now = null): ?int
 {
+    // 1.60.1: a tour or a dry run makes no snapshot - never held back (its log carries the second, engine 2.45)
+    if (!in_array($mode, ['backup', 'nokopia'], true)) {
+        return null;
+    }
     $now ??= time();
     $id = date('Ymd-Hi', $now);
-    $log = ['dryrun' => 'dryrun', 'check' => 'check'][$mode] ?? 'run';
-    if ((readJson("$data/state/status.json")['run'] ?? null) === $id || is_file("$data/logs/$log-$id.log")) {
+    $status = readJson("$data/state/status.json");
+    if ((($status['run'] ?? null) === $id && in_array($status['mode'] ?? 'backup', ['backup', ''], true)) || is_file("$data/logs/run-$id.log")) {
         return 60 - (int) date('s', $now);
     }
     return null;
@@ -2246,6 +2399,7 @@ function backupSetupGet(): array
         $plan['notes'] = backupSetupNotes($plan['messages'] ?? null);   // the messages grouped, for the page
         // the units the pairs sent up to 1.59 (the step partner-simple): proposed at «local + partner» until applied
         $plan['migrated'] = function_exists('partnerMigratedPending') ? (object) partnerMigratedPending() : (object) [];
+        $plan['declined'] = (object) backupDeclined();     // 1.60.1: the proposals the user declined, with the value proposed
     }
     if (is_array($run)) {
         $run['notes'] = backupSetupNotes($run['messages'] ?? null);
@@ -2618,7 +2772,8 @@ function backupSetupApply(mixed $decisions, mixed $planTime = null): array
             || (preg_match('/^vm\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $vms, true) && in_array($m[2], BACKUP_ITEM_KEYS, true))
             || (preg_match('/^app\|(.+)\|([a-z_]+)$/D', $key, $m) && in_array($m[1], $apps, true) && in_array($m[2], BACKUP_ITEM_KEYS, true))
             // engine 2.27: the partners a unit goes to - a list of the plan's partners only
-            || ((preg_match('/^(share|vm)\|(.+)\|partner$/D', $key, $m) && in_array($m[2], $m[1] === 'share' ? $shares : $vms, true)
+            // 2.45: an app's own folder dataset too
+            || ((preg_match('/^(share|vm|app)\|(.+)\|partner$/D', $key, $m) && in_array($m[2], $m[1] === 'share' ? $shares : ($m[1] === 'vm' ? $vms : $apps), true)
                  || $key === 'general|partner_place')
                 && is_array($value) && !array_diff($value, $partners));
         // engine 2.28: sleeping pools - woken for the snapshot, or left out that night

@@ -72,6 +72,7 @@ $GLOBALS['rs'] = ['state' => null, 'du' => ['queue' => [], 'running' => []]];
 require_once __DIR__ . '/restore-drill.php';
 // across servers (partner offices, stage 3): «At <partner>», «Bring back from <partner>», a new server's pulls — likewise
 require_once __DIR__ . '/restore-partner.php';
+require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of its own…» (1.60.1, asked from Mr. Backupsy's setup)
 
 function rsSizesFile(): string
 {
@@ -140,6 +141,7 @@ desk('restore', [
         'drill_start' => fn (array $r) => drillStart($r),
         'drill_set'   => fn (array $r) => drillSet($r),
         'partner_look' => fn (array $r) => rspWantLook(),
+        'stack_create' => fn (array $r) => rspStackLater(textField($r, 'id'), textField($r, 'name')),   // 1.60.1: «Create the stack now»
     ],
     'jobs'    => ['restore' => fn (array $args) => rsJob($args), 'restore-drill' => fn (array $args) => drillJob($args),
                   'restore-partner-look' => fn (array $args) => rspLookJob($args)],
@@ -1295,6 +1297,7 @@ function rsScan(): array
         'restores' => rsJournals(),            // his restores, newest first
         'partners' => rspState(),              // what partner offices keep of mine (held.json, asked by his look job)
         'kept'     => rspKept(),               // what this office keeps of partners (received/<id>.json, the datasets here) — «Start here…»
+        'compose_here' => rspComposeHere(),    // 1.60.1: «Create the stack now» on a restore whose stack waited for the Compose Manager
     ];
     if ($place['asleep']) {
         // the backup place's disk sleeps: what was read before
@@ -3256,6 +3259,10 @@ function rsJob(array $args): int
             $warn = $warn || $res['state'] === 'warning';
             rsJournalWrite($j);
         }
+        // «Make it a dataset of its own»: a failure (or a stop) rolls back by itself - the folder back, its dataset gone
+        if (($failed || $GLOBALS['rsStop']) && ($j['kind'] ?? '') === 'make_dataset') {
+            mdRollback($j);
+        }
     } finally {
         $stopped = $GLOBALS['rsStop'];
         $j['result'] = $failed || $stopped ? 'failed' : ($warn ? 'warnings' : 'ok');
@@ -3314,6 +3321,14 @@ function rsStep(array &$j, int $i): array
         'drop'      => rsDoDrop($j, $s),
         'pull_local' => rsDoPullLocal($j, $i),
         'start_from' => rsDoStartFrom($j, $i),
+        'md_stopped' => mdDoStopped($j, $s),
+        'md_aside'   => mdDoAside($j, $s),
+        'md_create'  => mdDoCreate($j, $s),
+        'md_copy'    => mdDoCopy($j, $i),
+        'md_compare' => mdDoCompare($j, $s),
+        'md_vm_stop' => mdDoVm($j, $s, false),
+        'md_vm_start' => mdDoVm($j, $s, true),
+        'md_store'   => mdDoStore($j, $s),
         default     => ['state' => 'failed', 'detail' => "unknown step {$s['do']}"],
     };
 }
@@ -4120,7 +4135,9 @@ function rsDoCopy(array &$j, int $i): array
     $args = $file ? [$rsFrom[0], $rsTo] : array_merge(array_map(fn ($x) => "$x/", $rsFrom), ["$rsTo/"]);
     // --sparse: a VM disk's holes stay holes (without it a 108 GB vdisk holding 16 GB is written out in full on XFS or
     // btrfs); a local copy is a whole-file copy, so it always works — never together with --inplace
-    $p = proc_open(array_merge(['rsync', '-aHX', '--sparse', '--numeric-ids', '--info=progress2', '--no-inc-recursive'], $args),
+    // 1.60.1: a partner's share copy with only some of its apps chosen - the folders of the others left out (`skip`)
+    $skip = array_map(fn ($x) => '--exclude=/' . $x . '/', array_values(array_filter((array) ($s['skip'] ?? []), fn ($x) => is_string($x) && preg_match(RS_NAME_PATTERN, $x))));
+    $p = proc_open(array_merge(['rsync', '-aHX', '--sparse', '--numeric-ids', '--info=progress2', '--no-inc-recursive'], $skip, $args),
         [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $log, 'a']], $pipes, '/', rsEnv());
     if (!is_resource($p)) {
         return rsFail('copy_failed', ['path' => $to]);

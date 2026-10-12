@@ -38,15 +38,19 @@ async function load(fresh) {
   return Office.loadState(ID, { fresh }, took);
 }
 function took(j) {
+  const was = !!(state && state.running);
   if (j.ok && j.state) state = j.state;
   if (view && page === 'main') render();
+  // 1.60.1 (a user: the tour «hung» on the setup page - its buttons grey, the bubble «still checking»): the setup page
+  // follows the run too and is drawn anew once it ends
+  else if (view && page === 'setup' && was !== !!(state && state.running)) renderSetup();
   schedule();
 }
 
-/** While a run is going on, look every few seconds */
+/** While a run is going on, look every few seconds - on both pages (the setup's buttons wait for it too) */
 function schedule() {
   clearTimeout(liveTimer);
-  if (view && page === 'main' && state && (state.running || (state.setup && state.setup.running))) {
+  if (view && (page === 'main' || page === 'setup') && state && (state.running || (state.setup && state.setup.running))) {
     liveTimer = setTimeout(() => {
       if (!document.hidden && !Office.dialogOpen() && !Office.menuOpen()) load(true);
       else schedule();
@@ -98,8 +102,8 @@ function srcLabel(name) {
 /** A unit that goes to a partner office (engine 2.27): the backup place, share:<name>, vm:<name> */
 function unitLabel(u) {
   if (u === 'place') return T('partner.unit_place');
-  const m = /^(share|vm):(.*)$/.exec(u || '');
-  return m ? (m[1] === 'vm' ? T('src.vm', { name: m[2] }) : m[2]) : (u || '');
+  const m = /^(share|vm|app):(.*)$/.exec(u || '');
+  return m ? (m[1] === 'vm' ? T('src.vm', { name: m[2] }) : m[1] === 'app' ? T('partner.unit_app', { name: m[2] }) : m[2]) : (u || '');
 }
 /** A partner's name: as the run names it (status.json partner.partners), else as settings.ini does (state.partners) */
 function partnerName(id, run) {
@@ -199,10 +203,11 @@ function runMode() {
  */
 function minuteTaken(now = Date.now() / 1000) {
   const s = status();
-  if (!s || !(s.started > 0) || live()) return null;
+  // 1.60.1 (a user: a tour, a plan or an apply made him wait): only a real backup holds its minute - its snapshots carry it
+  if (!s || !(s.started > 0) || live() || ['check', 'dryrun'].includes(s.mode)) return null;
   const left = Math.ceil((Math.floor(s.started / 60) + 1) * 60 - now);
   // a browser behind the server's clock sees a start «ahead»: still this minute (up to two, anything further is no clock)
-  return left > 0 && left <= 120 ? { left, mode: ['check', 'dryrun'].includes(s.mode) ? s.mode : 'backup', started: s.started } : null;
+  return left > 0 && left <= 120 ? { left, mode: 'backup', started: s.started, at: (Math.floor(s.started / 60) + 1) * 60 } : null;
 }
 let minuteTimer = null;
 /**
@@ -214,7 +219,8 @@ function minuteGuard(buttons, blocked = () => false, onFree = null) {
   clearInterval(minuteTimer);
   const tick = () => {
     const m = minuteTaken();
-    buttons.forEach((b) => { b.disabled = blocked() || !!m; b.title = m ? T('minute.wait', { seconds: m.left }) : ''; });
+    // never grey for the minute (1.60.1): a backup asked for now starts at the next minute (the agent queues it)
+    buttons.forEach((b) => { b.disabled = blocked(); b.title = m ? T('minute.queue_hint', { time: fmt.time(m.at) }) : ''; });
     return m;
   };
   if (!tick()) return;
@@ -375,6 +381,7 @@ function bubbleText(pg) {
   if (place) out.push(place);
   const taken = minuteTaken();
   if (taken) out.push(T('minute.ran_' + taken.mode, { time: fmt.time(taken.started) }));
+  if (state.queued) out.push(T('minute.queued', { time: fmt.time(state.queued.at) }));     // 1.60.1: it starts at the next minute
   if (!last) { if (!place) out.push(T('bubble.no_runs')); }        // no place, no backup: the place says it, once
   else {
     const k = last.kopia || [];
@@ -410,6 +417,14 @@ function deskActions() {
     } else {
       actions.push(button(T('check'), 'plain', () => startRun('check')));
       actions.push(button(T('start'), '', chooseRun));
+      if (state.queued) {                  // 1.60.1: a backup waiting for the next minute - it can be called off
+        actions.push(button(T('minute.cancel'), 'plain', async () => {
+          const j = await Office.api.post(`${ID}.start_cancel`, {});
+          if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+          if (j.state) state = j.state;
+          render();
+        }));
+      }
     }
     const blocked = () => !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()) || (live() && !!state.abort_asked);
     actions.forEach((b) => { b.disabled = blocked(); });
@@ -454,11 +469,8 @@ function render() {
   notices().forEach((n) => root.appendChild(n));
   const s = switcher();
   // a run going on: its card in the row's place, and the whole page under it (nothing to pick without the row)
-  if (live()) {
-    root.appendChild(runningCard());
-    if (s.active()) s.pick('', 'route');
-  }
-  s.grid.hidden = live();
+  // a run going on (1.60.1): its card above the tiles, whatever tile is open - the tiles stay
+  if (live()) root.appendChild(runningCard());
   Office.place('overview', s.grid);
   root.appendChild(s.el);
   s.render();
@@ -567,14 +579,44 @@ function holdBracket(s, p, shown) {
 }
 
 /** A run is going on: steps, Kopia sources, ready at about … */
+/**
+ * The current step's highlight slides (1.60.1, a user: it jumped): one element behind the step list, moved over the current
+ * step with an ease-in-out of 0.7 s, its width the step's. No move on the first drawing or while the step stays - a
+ * redraw at every poll starts from where it stood (bkHlLast); under prefers-reduced-motion it jumps (office.css)
+ */
+let bkHlLast = { key: null, at: -1, box: null };
+function bk_slideMark(wrap, ol, key, at) {
+  if (at < 0 || typeof requestAnimationFrame !== 'function') return;
+  const hl = el('div', 'bk-steps-hl');
+  hl.setAttribute('aria-hidden', 'true');
+  wrap.insertBefore(hl, ol);
+  const place = (b) => { hl.style.left = b.left + 'px'; hl.style.top = b.top + 'px'; hl.style.width = b.width + 'px'; hl.style.height = b.height + 'px'; };
+  requestAnimationFrame(() => {
+    const li = ol.children[at];
+    if (!li || !li.offsetWidth) return;
+    const box = { left: ol.offsetLeft + li.offsetLeft, top: ol.offsetTop + li.offsetTop, width: li.offsetWidth, height: li.offsetHeight };   // li sits in the positioned ol
+    const from = bkHlLast.key === key && bkHlLast.at !== at && bkHlLast.box ? bkHlLast.box : null;
+    hl.style.transition = 'none';
+    place(from || box);
+    if (from) {
+      void hl.offsetWidth;                // the start position laid out before the move
+      hl.style.transition = '';
+      place(box);
+    }
+    bkHlLast = { key, at, box };
+  });
+}
+
 function runningCard() {
   const s = status();
   const p = progress();
   const box = section(T('now'), T('now_sub'), { place: 'now' });
-  const card = el('div', 'card bk-run');
+  // the whole card is .running: the wave beside «running», on the current step, the current Kopia source, the abort
+  // note (CLAUDE.md: the wave) — until 1.60.1 only a card with a Kopia list got the class, so the step's wave never showed
+  const card = el('div', 'card bk-run running');
 
   const top = el('div', 'card-head');
-  top.append(el('span', 'card-name', s ? T('mode.' + runModeOf(s)) : T('mode.backup')), chip(T('result.running'), 'accent'));
+  top.append(el('span', 'spin'), el('span', 'card-name', s ? T('mode.' + runModeOf(s)) : T('mode.backup')), chip(T('result.running'), 'accent'));
   const since = s ? s.started : state.since;
   if (since) top.appendChild(el('span', 'status quiet', T('since', { time: fmt.time(since), duration: fmt.duration(Date.now() / 1000 - since) })));
   card.appendChild(top);
@@ -597,9 +639,9 @@ function runningCard() {
   // the partners' step only in a run that sends to partners (engine 2.27)
   const shown = STEPS.map(([name], i) => [name, i]).filter(([name]) => name !== 'partner' || s.partner);
   shown.forEach(([name, i]) => {
-    const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));
+    const li = el('li', i < p.step ? 'done' : i === p.step ? 'current' : '', T('step.' + name));     // the highlight says it runs: no wave here
     // struck through - and why: offsite switched off, or on but nothing goes this time. Not while the run still looks
-    // around (step 0 has no plan yet — 2026-10-11 on nostromo the step stood struck through at 0 % and Kopia then sent 31)
+    // around (step 0 has no plan yet — 2026-10-11 on a test server the step stood struck through at 0 % and Kopia then sent 31)
     if (name === 'kopia' && (s.skip_kopia || (!p.planned.length && (p.step > 0 || (state.settings && state.settings.kopia_enabled === false))))) {
       li.classList.add('skipped');
       li.dataset.tip = s.skip_kopia ? T('step.kopia_skipped_nokopia') : state.settings && state.settings.kopia_enabled === false ? T('step.kopia_skipped_off') : T('step.kopia_skipped_none');
@@ -607,7 +649,10 @@ function runningCard() {
     if (!li.dataset.tip) li.title = T('step.' + name);     // a narrow card ends a long name in «…» (desk.css)
     steps.appendChild(li);
   });
-  card.appendChild(steps);
+  const sw = el('div', 'bk-steps-wrap');
+  sw.appendChild(steps);
+  card.appendChild(sw);
+  bk_slideMark(sw, steps, s.run || String(s.started || ''), shown.findIndex(([, i]) => i === p.step));
   card.appendChild(holdBracket(s, p, shown));
 
   if (p.percent !== null) {
@@ -672,7 +717,6 @@ function runningCard() {
       r.appendChild(inf);
       list.appendChild(r);
     });
-    card.classList.add('running');
     card.appendChild(list);
   }
 
@@ -739,7 +783,13 @@ function tileList() {
 /** One tile of overviewTiles() as Office.stat — the switcher's attributes (a: the click, aria-pressed, the mark …) spread in;
  *  its place for the search is tile.<id> (the switcher's own, named here too) */
 function tileNode(d, a) {
-  return Office.stat({ label: d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.${d.key}` });
+  return Office.stat({ label: d.running ? waveLabel(d.label) : d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.${d.key}` });
+}
+/** A label with the wave left of it (a run going on: the last backup's tile; CLAUDE.md: the wave) */
+function waveLabel(text) {
+  const w = el('span', 'running');
+  w.append(el('span', 'spin'), ' ', text);
+  return w;
 }
 
 /** «2 hours ago» etc.: durations with seconds when quick (dur), the containers' part of the last backup in one line */
@@ -757,6 +807,7 @@ function containersLine(last) {
 function partnerShort(p) {
   const l = p.last;
   if (p.current) return T('partner.short_now', { name: p.name });
+  if (p.apply) return partnerApplyText(p);
   if (!l) return T('partner.short_never', { name: p.name });
   const parts = [l.sent ? T('partner.short_sent', { name: p.name, when: fmt.relative(l.time) }) : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) })];
   if (l.failed.length) parts.push(T('partner.short_failed', { n: l.failed.length }));
@@ -768,9 +819,9 @@ const partnerLong = (p) => partnerParts(p).join(' · ');
 function partnerParts(p) {
   const l = p.last;
   const parts = [];
+  if (p.apply && !p.current) parts.push(partnerApplyText(p));
   if (p.current) parts.push(T('partner.tile_now', { name: p.name, unit: unitLabel(p.current.unit), size: fmt.size(p.current.bytes || 0) }));
-  else if (!l) parts.push(T('partner.tile_never', { name: p.name, n: p.units.length }));
-  else {
+  else if (!l) { if (!p.apply) parts.push(T('partner.tile_never', { name: p.name, n: p.units.length })); } else {
     parts.push(l.sent ? T('partner.tile_sent', { name: p.name, n: l.sent, size: fmt.size(l.bytes), rate: fmt.bitrate(l.mbit || 0), when: fmt.relative(l.time) })
       : T('partner.tile_none', { name: p.name, when: fmt.relative(l.time) }));
     if (l.skipped.length) parts.push(T('partner.tile_skipped', { n: l.skipped.length, why: [...new Set(l.skipped.map((x) => partnerWhyShort(x.why)))].join(', ') }));
@@ -778,7 +829,18 @@ function partnerParts(p) {
   }
   return parts;
 }
-const partnerTrouble = (p) => !!(p.last && !p.current && (p.last.failed.length || p.last.skipped.some((x) => !['array_stopping', 'signal'].includes(x.why))));
+const partnerTrouble = (p) => !!(p.ended || (p.from || []).length
+  || (p.last && !p.current && (p.last.failed.length || p.last.skipped.some((x) => !['array_stopping', 'signal'].includes(x.why)))));
+/**
+ * 1.60.1: what waits for «Apply» (the agent's partners[].apply): a partner ended at the Team Lead — paired anew as
+ * `anew` (its units go there at the next Apply) or not (they go) — or a pair that settings.ini gives nothing yet
+ */
+function partnerApplyText(p) {
+  if (p.ended && p.anew) return T('partner.short_anew', { name: p.name, new: p.anew.name, n: (p.units || []).length });
+  if (p.ended) return T('partner.short_ended', { name: p.name });
+  if ((p.from || []).length) return T('partner.short_from', { name: p.name, from: p.from.map((f) => f.name).join(', '), n: p.from.reduce((a, f) => a + f.n, 0) });
+  return T('partner.short_apply', { name: p.name });
+}
 
 /** A sub line long enough to be clamped on a phone gets the whole text as its tip too */
 const tipOf = (subs) => { const t = subs.filter(Boolean).join('\n'); return t.length > 48 ? t : ''; };
@@ -809,10 +871,10 @@ function overviewTiles() {
     if (last.finished) when.push(dur(last.finished - last.started));
     // engine 2.28: the shares it left out because their pool slept (the user's choice - the result stays ok)
     if (asleepUnits(last)) when.push(T('asleep.left_out', { n: asleepUnits(last) }));
-    add({ key: 'last', label: T('stat.last'), value: T('result.' + last.result), sub: [when.join(' · '), containersLine(last), tour].filter(Boolean),
+    add({ key: 'last', label: T('stat.last'), running: live(), value: T('result.' + last.result), sub: [when.join(' · '), containersLine(last), tour].filter(Boolean),
       alert: (last.result !== 'ok' && !arrayStopped(last)) || tourBad });
   } else {
-    add({ key: 'last', label: T('stat.last'), value: '–', sub: [T('bubble.no_runs'), tour].filter(Boolean), alert: tourBad });
+    add({ key: 'last', label: T('stat.last'), running: live(), value: '–', sub: [T('bubble.no_runs'), tour].filter(Boolean), alert: tourBad });
   }
   const sc = state.schedule || {};
   const value = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
@@ -1631,6 +1693,7 @@ function partnersSection() {
     else if (partnerTrouble(p)) meta.appendChild(chip(T('result.skipped'), 'warn'));
     rest.forEach((x) => meta.appendChild(el('span', '', x)));
     if ((p.units || []).length) meta.appendChild(el('span', 'note', T('partner.units_line', { list: p.units.map(unitLabel).join(', ') })));
+    if (p.apply) { const go = el('a', '', T('partner.open_setup')); go.href = '#/backup/setup'; meta.appendChild(go); }
     main.appendChild(meta);
     row.appendChild(main);
     list.appendChild(row);
@@ -1729,7 +1792,7 @@ async function chooseRun() {
   const est = state.estimates || {};
   if (est.total) box.appendChild(el('p', 'callout', T('start_hint', { duration: dur(est.total) })));
   const taken = minuteTaken();
-  const note = taken ? el('p', 'callout', T('minute.ran_' + taken.mode, { time: fmt.time(taken.started) })) : null;
+  const note = taken ? el('p', 'callout', T('minute.queue_note', { time: fmt.time(taken.at) })) : null;
   if (note) box.appendChild(note);
   const d = Office.dialog({
     title: T('start_title'),
@@ -1748,6 +1811,7 @@ async function startRun(mode) {
   if (j.state) state = j.state;
   // something took the lock between the agent's look and the start: the engine skipped it and says why
   if (j.skipped) Office.toast(skipText(j.skipped), true);
+  else if (j.queued) Office.toast(T('minute.queued', { time: fmt.time(j.queued.at) }));
   else Office.toast(j.started ? T('started.' + mode) : T('started_pending'));
   render();
   schedule();
@@ -1871,6 +1935,7 @@ function setupDraftFromPlan() {
   const covered = (k) => !!(c && c.all && (!c.items || c.items.has(k)));
   presetApplyNew(presetNow(), new Set([...setup.newItems].filter((k) => !covered(k))));
   setupMigrated();
+  setupDeclinedApply();                    // 1.60.1: what the user declined stays declined (the same value)
   setup.base = clone(setup.draft);         // what the assistant proposes (with the default), before the user clicks
   setup.baseLevels = { ...setup.levels };
   setup.baseHeld = { ...setup.held };
@@ -1998,17 +2063,31 @@ function setupApplyChanges(saved) {
   return { view, keys: setupChanges(saved, view) };
 }
 
-/** A list's change in the apply dialog: only what comes and what goes («dazu: drop · weg: Grafana»), not both lists whole
- * (2026-10-09: «wenn ich immer alles sehe, sehe ich nicht, welche 2 Apps geändert wurden»); order alone is none */
+/**
+ * The apply dialog's mark (1.60.1, a user: one look throughout the list): + something comes, − something goes - a gone
+ * app or partnership, a list's members, what is new on the server. Its word for a screen reader (setup.mark_*); a value
+ * that changes stays «old → new» without one
+ */
+function diffMark(kind) {
+  const b = el('b', `bk-diff ${kind}`, kind === 'add' ? '+' : '−');
+  b.setAttribute('role', 'img');
+  b.setAttribute('aria-label', T(kind === 'add' ? 'setup.mark_add' : 'setup.mark_gone'));
+  b.title = T(kind === 'add' ? 'setup.mark_add' : 'setup.mark_gone');
+  return b;
+}
+
+/** A list's change in the apply dialog: only what comes and what goes («+ drop · − Grafana», marked), not both lists
+ * whole (2026-10-09: «wenn ich immer alles sehe, sehe ich nicht, welche 2 Apps geändert wurden»); order alone is none.
+ * Nodes and text for append() */
 function listChangeText(was, is) {
   const a = was.map(String);
   const b = is.map(String);
   const add = b.filter((x) => !a.includes(x));
   const gone = a.filter((x) => !b.includes(x));
   const parts = [];
-  if (add.length) parts.push(T('setup.list_added', { list: add.join(', ') }));
-  if (gone.length) parts.push(T('setup.list_removed', { list: gone.join(', ') }));
-  return parts.length ? parts.join(' · ') : T('setup.list_order');
+  if (add.length) parts.push([diffMark('add'), ' ' + add.join(', ')]);
+  if (gone.length) parts.push([diffMark('gone'), ' ' + gone.join(', ')]);
+  return parts.length ? parts.flatMap((x, i) => (i ? [' · ', ...x] : x)) : [T('setup.list_order')];
 }
 
 /** What Apply changes against the saved settings: the differences, and a share's first record of its folders (even none) */
@@ -2052,18 +2131,92 @@ function setupSummary() {
 
 /** What Apply really changes in settings.ini (as its dialog lists it), split: `yours` the keys the user touched here,
     `mine` the rest — proposals of Mr. Backupsy's, each one the user can leave out in the dialog (setupDecline()) */
-function setupSplit() {
+const UNIT_PARTNER_KEY = /^(share\|.+\|partner|vm\|.+\|partner|app\|.+\|partner|general\|partner_place)$/;
+
+/**
+ * What Apply changes, as the bar and the dialog both count it (1.60.1, a user: the bar said «9 changes», the dialog showed
+ * two partnership rows and a unit): a key each, but a gone app's section once (engine 2.40), a [partner] section once
+ * per partner (partnerSectionRows()), a unit's partner line once per unit (the dialog's «To <partner>» group).
+ * {saved, view, keys, items: [{id, kind: key|app_gone|partner|unit, keys, yours}]} - yours: the user touched one of its keys
+ */
+function setupChangeItems() {
+  const saved = setupSaved();
+  const { view, keys } = setupApplyChanges(saved);
   const touched = new Set(setupEdits());
-  // a gone app's section counts once, as its dialog line does (engine 2.40)
-  const keys = [...new Set(setupApplyChanges(setupSaved()).keys.map((k) => (goneAppKey(k, setup.plan) ? `app|${k.split('|')[1]}|` : k)))];
-  return { yours: keys.filter((k) => touched.has(k)), mine: keys.filter((k) => !touched.has(k)) };
+  const groups = new Map();
+  keys.forEach((k) => {
+    const p = k.split('|');
+    const [id, kind] = goneAppKey(k, setup.plan) ? [`app|${p[1]}|`, 'app_gone'] : p[0] === 'partner' ? [`partner|${p[1]}|`, 'partner']
+      : UNIT_PARTNER_KEY.test(k) ? [k, 'unit'] : [k, 'key'];
+    if (!groups.has(id)) groups.set(id, { id, kind, keys: [] });
+    groups.get(id).keys.push(k);
+  });
+  const items = [...groups.values()].map((g) => ({ ...g, yours: g.keys.some((k) => touched.has(k)) }));
+  return { saved, view, keys, items };
+}
+
+function setupSplit() {
+  const { items } = setupChangeItems();
+  return { yours: items.filter((x) => x.yours).map((x) => x.id), mine: items.filter((x) => !x.yours).map((x) => x.id) };
 }
 
 /** «Don't take it»: a proposal of mine back to what settings.ini says now (2026-10-10: no way to apply his change
     without my proposal) — in the draft only; Apply then sends the saved value, the next plan may propose it again */
 function setupDecline(k) {
+  if (k.startsWith('partner|')) return;          // a [partner] section mirrors the Team Lead's pairs - never left out
+  const proposed = setup.draft[k];
   const saved = setupSaved();
   if (saved[k] === undefined) delete setup.draft[k]; else setup.draft[k] = Array.isArray(saved[k]) ? [...saved[k]] : saved[k];
+  // 1.60.1 (a user: declined proposals came back at every plan): remembered with the value proposed - the same proposal
+  // isn't made again; another value, or a re-proposal asked for («Propose again»), shows it once more
+  setup.plan.declined = { ...(setup.plan.declined || {}), [k]: { value: proposed === undefined ? null : proposed, time: Math.floor(Date.now() / 1000) } };
+  if (setup.base) setup.base[k] = setup.draft[k];
+  if (Office.api) {                         // (the tests run the page without the messenger)
+    Office.api.post(`${ID}.setup_decline`, { key: k, value: proposed === undefined ? null : proposed }).then((j) => {
+      if (!j.ok) Office.toast(Office.errorText(j.error, ID), true);
+    });
+  }
+}
+
+/** The declines (plan.declined: key → {value, time}) laid over a fresh draft: a key whose proposal is still the value
+ *  declined keeps what settings.ini says; a proposal that changed since is shown again */
+function setupDeclinedApply() {
+  const dec = (setup.plan && setup.plan.declined) || {};
+  const saved = setupSaved();
+  Object.entries(dec).forEach(([k, d]) => {
+    if (k.startsWith('partner|') || !d || !same(setup.draft[k] === undefined ? null : setup.draft[k], d.value)) return;
+    if (saved[k] === undefined) delete setup.draft[k]; else setup.draft[k] = Array.isArray(saved[k]) ? [...saved[k]] : saved[k];
+  });
+}
+
+/** «Declined proposals» under the setup's general settings: each with «Propose again» */
+function declinedList() {
+  const dec = Object.entries((setup.plan && setup.plan.declined) || {}).filter(([k]) => !k.startsWith('partner|'));
+  if (!dec.length) return null;
+  const f = el('div', 'field bk-declined');
+  f.appendChild(el('div', 'field-title', T('setup.declined', { n: dec.length })));
+  const ul = el('ul', 'shortlist');
+  dec.forEach(([k, d]) => {
+    const li = el('li', '', changeLabel(k));
+    const what = el('span', '', valueText(d.value === null ? undefined : d.value, k));
+    const again = el('button', 'btn small plain', T('setup.decline_undo'));
+    again.type = 'button';
+    again.onclick = async () => {
+      again.disabled = true;
+      const j = await Office.api.post(`${ID}.setup_decline_undo`, { key: k });
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); again.disabled = false; return; }
+      const next = { ...(setup.plan.declined || {}) };
+      delete next[k];
+      setup.plan.declined = next;
+      setupDraftKeep();
+      renderSetup();
+    };
+    what.append(' ', again);
+    li.appendChild(what);
+    ul.appendChild(li);
+  });
+  f.appendChild(ul);
+  return f;
 }
 
 /** What the user changed against the assistant's proposal */
@@ -2158,11 +2311,15 @@ function setupApply() {
     // what really changes in settings.ini - against the saved file, not against proposals
     const saved = setupSaved();
     // what Apply really sends (setupApplyChanges()); the units' partner lists have their own group below («To partners»)
-    const { view, keys } = setupApplyChanges(saved);
+    // counted as the bar counts (setupChangeItems()): a key each, a gone app and a [partner] section once, a unit's
+    // partner line once per unit (listed in «To partners» below)
+    const { view, keys, items } = setupChangeItems();
     // a gone app's section (engine 2.40): one line «gone — entry will be removed», never key by key, never declined
     const gone = goneApps(setup.plan).filter((a) => keys.some((k) => k.startsWith(`app|${a.name}|`)));
-    const changes = keys.filter((k) => !/^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$/.test(k) && !goneAppKey(k, setup.plan));
-    const total = changes.length + gone.length;
+    // the [partner] sections mirror the Team Lead's pairs: one row per partner (partnerSectionRows()), never key by key
+    const changes = items.filter((x) => x.kind === 'key').map((x) => x.id);
+    const prows = partnerSectionRows(keys, saved, view);
+    const total = items.length;
     box.appendChild(el('p', '', total ? T('setup.apply_text', { n: total }) : T('setup.apply_none')));
     if (total) {
       const ul = el('ul', 'shortlist');
@@ -2171,9 +2328,10 @@ function setupApply() {
       const touched = new Set(setupEdits());
       [...changes].sort((a, b) => general(a) - general(b)).slice(0, 80).forEach((k) => {
         const li = el('li', '', changeLabel(k));
-        const what = el('span', '', /\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
+        const what = el('span');
+        what.append(...[].concat(/\|kopia_known$/.test(k) ? knownText(saved[k], view[k])
           : Array.isArray(saved[k]) && Array.isArray(view[k]) ? listChangeText(saved[k], view[k])
-          : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`);
+          : `${valueText(saved[k], k)} → ${valueText(view[k], k)}`));
         li.appendChild(what);
         // a proposal of mine (the user didn't touch it): said so, and it can stay out of this Apply
         if (!touched.has(k) && !/\|kopia_known$/.test(k)) {
@@ -2186,12 +2344,15 @@ function setupApply() {
         }
         ul.appendChild(li);
       });
+      // a partnership gone or come (the Team Lead's pairs are the truth): a − / + row each, never declined
+      prows.forEach((r) => ul.appendChild(r));
       gone.forEach((a) => {
-        const li = el('li', '', T('setup.ch_app_gone', { name: a.name }));
+        const li = el('li', 'bk-marked');
+        li.append(diffMark('gone'), T('setup.ch_app_gone', { name: a.name }));
         li.appendChild(el('span', '', T('setup.why.gone')));
         ul.appendChild(li);
       });
-      box.appendChild(ul);
+      if (ul.children.length) box.appendChild(ul);      // units only: they stand in «To partners» below
     }
     // what is new on the server and how this Apply takes it in (engine 2.21: until now only local, kept running)
     const news = setupNewRows();
@@ -2204,7 +2365,8 @@ function setupApply() {
         kind !== 'auto' && !hand ? T('setup.apply_new_default', { name: T('setup.preset.' + kind) }) : ''].filter(Boolean).join(' ')));
       const ul = el('ul', 'shortlist bk-newlist');
       news.forEach(({ name, how, hand: mine }) => {
-        const li = el('li', '', name);
+        const li = el('li', 'bk-marked');
+        li.append(diffMark('add'), name);
         const what = el('span', '', how);
         if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));
         li.appendChild(what);
@@ -2217,6 +2379,9 @@ function setupApply() {
   const pl = (setup.plan.partners || []).length ? partnerApplyLines() : [];
   if (pl.length) {
     box.appendChild(el('p', '', T('partner.apply_group')));
+    // engine 2.45: a partner ended at the Team Lead and paired anew - its units go to the new partnership with this Apply
+    (setup.plan.messages || []).filter((m) => m && m.code === 'partner_anew')
+      .forEach((m) => box.appendChild(el('p', 'callout', T('setup.msg.partner_anew', setupMsgParams(m.params)))));
     const ul = el('ul', 'shortlist');
     pl.forEach(([name, how]) => {
       const li = el('li', '', name);
@@ -2224,6 +2389,7 @@ function setupApply() {
       ul.appendChild(li);
     });
     box.appendChild(ul);
+    partnerShareLines().forEach((t) => box.appendChild(el('p', 'role', t)));     // engine 2.45: what a share carries along
   }
   box.appendChild(el('p', 'role', T(!setup.plan.have_settings ? 'setup.apply_hint_new' : 'setup.apply_hint')));
   box.appendChild(el('p', 'role', T('setup.apply_responsibility')));
@@ -2261,7 +2427,8 @@ function knownText(before, after) {
   const plus = b.filter((x) => !a.includes(x));
   const minus = a.filter((x) => !b.includes(x));
   const list = (l) => (l.length > 8 ? `${l.slice(0, 8).join(', ')} … (${l.length})` : l.join(', '));
-  return [plus.length ? '+ ' + list(plus) : '', minus.length ? '− ' + list(minus) : ''].filter(Boolean).join(' · ') || '–';
+  const parts = [plus.length ? [diffMark('add'), ' ' + list(plus)] : null, minus.length ? [diffMark('gone'), ' ' + list(minus)] : null].filter(Boolean);
+  return parts.length ? parts.flatMap((x, i) => (i ? [' · ', ...x] : x)) : '–';
 }
 
 /** The apply dialog's group «New»: each new VM, app, container of a known app, share and folder, and how Apply takes it in */
@@ -2271,7 +2438,7 @@ function setupNewLines() {
 /**
  * The same rows as {name, how, hand}: hand = the user changed that row against the proposal (the default for new things
  * decided it, then a click) — the dialog says «Your default for new things decided this» only while no row is (2026-10-11
- * on nostromo: the sentence stood over a row changed by hand)
+ * on a test server: the sentence stood over a row changed by hand)
  */
 function setupNewRows() {
   const m = setup.model;
@@ -2492,6 +2659,7 @@ function presetPartners(on, has) {
     else set(`share|${sh.name}|partner`, !!sh.partner_ok);
   });
   (plan.vms || []).forEach((v) => { if (has('vm:' + v.name)) set(`vm|${v.name}|partner`, !!v.partner_ok); });
+  (setup.model ? setup.model.apps : []).forEach((a) => { if (has('app:' + a.id)) { const ap = appPartner(a, plan); set(ap.key, ap.own); } });
 }
 
 /** Under the default «local + Kopia» a new share the engine finds big (over 500 GB) or can't size waits for the user (2026-10-08) */
@@ -3480,24 +3648,96 @@ function partnerUnits(draft, id) {
     const on = mine ? levelOf('vm:' + v.name) > 0 : (draft[`vm|${v.name}|mode`] || 'snapshot') !== 'off';
     if (v.partner_ok && on && (draft[`vm|${v.name}|partner`] || []).includes(id)) out.push('vm:' + v.name);
   });
+  // engine 2.45: an app whose folder is a dataset of its own
+  (setup.model ? setup.model.apps : []).forEach((a) => {
+    const ap = appPartner(a, plan);
+    const on = mine ? levelOf('app:' + a.id) > 0 : true;
+    if (ap.own && on && (draft[ap.key] || []).includes(id) && !out.includes('app:' + a.name)) out.push('app:' + a.name);
+  });
   return out;
 }
 
-/** The apply dialog's group «To partners»: per partner what goes there - and what is new or no longer, against the saved settings */
+/**
+ * The apply dialog's [partner] sections, one row per partner (2026-10-12, a user: eight field rows «address 192.168.1.50
+ * → –» didn't show what goes and what comes): a section gone «− Partnership X (address) goes», one new «+ Partnership Y
+ * (address) comes», one changed lists only its changed fields. They mirror the Team Lead's pairs - no «Leave out»
+ */
+function partnerSectionRows(keys, saved, view) {
+  const ids = [...new Set(keys.filter((k) => k.startsWith('partner|')).map((k) => k.split('|')[1]))].sort();
+  const has = (o, id) => Object.keys(o).some((k) => k.startsWith(`partner|${id}|`) && !empty(o[k]));
+  return ids.map((id) => {
+    const was = has(saved, id);
+    const is = has(view, id);
+    const li = el('li', 'bk-marked');
+    if (was && !is) {
+      li.append(diffMark('gone'), T('partner.ch_gone', { name: saved[`partner|${id}|name`] || id, address: saved[`partner|${id}|address`] || '–' }));
+    } else if (!was && is) {
+      li.append(diffMark('add'), T('partner.ch_new', { name: view[`partner|${id}|name`] || id, address: view[`partner|${id}|address`] || '–' }));
+    } else {
+      li.append(T('partner.ch_changed', { name: view[`partner|${id}|name`] || saved[`partner|${id}|name`] || id }));
+      li.appendChild(el('span', '', keys.filter((k) => k.startsWith(`partner|${id}|`))
+        .map((k) => `${k.split('|')[2]}: ${valueText(saved[k], k)} → ${valueText(view[k], k)}`).join(' · ')));
+    }
+    return li;
+  });
+}
+
+/**
+ * What a share's partner level carries along (engine 2.45, a user: the way back as clear as the way there): a share put
+ * onto or taken off a partner names the apps that go with it (their folder inside the share's dataset) — and, taken
+ * off, that the partner keeps its old copy until its retention ages it out. Apps with a dataset of their own keep
+ * their own level either way (a dataset is never part of its share's transfer).
+ */
+function partnerShareLines() {
+  if (!setup.plan.have_settings || !setup.model) return [];
+  const saved = setupSaved();
+  const out = [];
+  // 1.60.1: an app going to a partner without a share it uses
+  setup.model.apps.forEach((a) => appDepGaps(a, setup.plan).forEach((g) => out.push(T('partner.dep_gap', { app: a.name, partners: g.partners.map((x) => x.name).join(', '), share: g.share }))));
+  (setup.plan.partners || []).forEach((p) => {
+    (setup.plan.shares || []).forEach((sh) => {
+      const k = `share|${sh.name}|partner`;
+      const was = (saved[k] || []).includes(p.id);
+      const is = (setup.draft[k] || []).includes(p.id);
+      if (was === is) return;
+      const apps = [...new Set(setup.model.apps.filter((a) => {
+        const f = (a.folders || [])[0];
+        return f && f.share === sh.name && !ownDataset(setup.plan, f.share, f.dir);
+      }).map((a) => a.name))];
+      if (!apps.length) return;
+      const list = apps.length > 8 ? `${apps.slice(0, 8).join(', ')} … (+${apps.length - 8})` : apps.join(', ');
+      out.push(T(is ? 'partner.apply_share_on' : 'partner.apply_share_off', { n: apps.length, partner: p.name, share: sh.name, list })
+        + (is ? '' : ' ' + T('partner.apply_keeps', { partner: p.name, share: sh.name })));
+    });
+  });
+  return out;
+}
+
+/**
+ * The apply dialog's group «To partners»: per partner what goes there - a unit new to it «(new)», one taken over from
+ * a partnership ended at the Team Lead (engine 2.45, the hint partner_anew) «(taken over from X)», and what no longer goes
+ */
 function partnerApplyLines() {
   const partners = setup.plan.partners || [];
   const saved = setup.plan.have_settings ? setupSaved() : null;
+  // the sections settings.ini has that the plan no longer has: ended partners, by id -> name
+  const goneIds = saved ? [...new Set(Object.keys(saved).filter((k) => /^partner\|[0-9a-f]{8}\|name$/.test(k)).map((k) => k.split('|')[1]))]
+    .filter((id) => !partners.some((p) => p.id === id)) : [];
+  const anew = (setup.plan.messages || []).filter((m) => m && m.code === 'partner_anew' && m.params);
   return partners.map((p) => {
     const now = partnerUnits(setup.draft, p.id);
-    let text = now.length ? now.map(unitLabel).join(', ') : T('partner.apply_none');
-    if (saved) {
-      const before = partnerUnits(saved, p.id);
-      const plus = now.filter((u) => !before.includes(u));
-      const minus = before.filter((u) => !now.includes(u));
-      const diff = [plus.length ? T('partner.apply_added', { list: plus.map(unitLabel).join(', ') }) : '',
-        minus.length ? T('partner.apply_removed', { list: minus.map(unitLabel).join(', ') }) : ''].filter(Boolean).join(' · ');
-      if (diff) text += ` (${diff})`;
-    }
+    if (!saved) return [T('partner.apply_to', { name: p.name }), now.length ? now.map(unitLabel).join(', ') : T('partner.apply_none')];
+    const before = partnerUnits(saved, p.id);
+    const from = goneIds.filter((id) => anew.some((m) => m.params.partner === saved[`partner|${id}|name`] && m.params.new === p.name));
+    const fromOf = (u) => from.find((id) => partnerUnits(saved, id).includes(u));
+    const label = (u) => {
+      if (before.includes(u)) return unitLabel(u);
+      const o = fromOf(u);
+      return `${unitLabel(u)} (${o ? T('partner.apply_from', { name: saved[`partner|${o}|name`] }) : T('partner.apply_new')})`;
+    };
+    const minus = before.filter((u) => !now.includes(u));
+    let text = now.length ? now.map(label).join(', ') : T('partner.apply_none');
+    if (minus.length) text += ` (${T('partner.apply_removed', { list: minus.map(unitLabel).join(', ') })})`;
     return [T('partner.apply_to', { name: p.name }), text];
   });
 }
@@ -3757,6 +3997,10 @@ function setupShares(plan) {
     if (sh.exists && pKey) {
       const pc = partnerChoice(pKey, !!sh.partner_ok, sh.partner_why, dget(`share|${sh.name}|mode`, 'off') === 'off');
       if (pc) modeCell.appendChild(pc);
+      // 1.60.1: explained only - bringing it onto one pool, or making it a dataset, is the user's
+      if (setupPartners().length && !sh.partner_ok && ['not_dataset', 'split'].includes(sh.partner_why)) {
+        modeCell.appendChild(whyFold('share:' + sh.name, T('dsw.share_' + sh.partner_why), null));
+      }
     }
     tr.appendChild(modeCell);
     const why = el('td', 'bk-why', lock ? T('setup.lock', { list: lock.why.join(', ') }) : shareWhy(sh));
@@ -3942,6 +4186,29 @@ function waitingBox(ws) {
 // running containers, dumps and Kopia's exceptions follow from them (setupDerive).
 const LV = ['off', 'snapshot', 'kopia'];
 
+/** Each app's own folders (ownFolders) and the ones it only uses (otherFolders, with their owner's name or null) */
+function ownFoldersOf(apps) {
+  const users = new Map();
+  apps.forEach((a) => a.folders.forEach((f) => {
+    const k = `${f.share}|${f.dir}`;
+    if (!users.has(k)) users.set(k, []);
+    users.get(k).push(a);
+  }));
+  const ownerOf = new Map();
+  users.forEach((list, k) => {
+    const dir = k.slice(k.indexOf('|') + 1).toLowerCase();
+    const named = list.find((a) => [a.name, ...a.members].some((n) => String(n).toLowerCase() === dir));
+    const writers = list.filter((a) => a.rwDirs && a.rwDirs.has(k));
+    ownerOf.set(k, named || (writers.length === 1 ? writers[0] : null));
+  });
+  apps.forEach((a) => {
+    a.ownFolders = a.folders.filter((f) => ownerOf.get(`${f.share}|${f.dir}`) === a);
+    a.otherFolders = a.folders.filter((f) => ownerOf.get(`${f.share}|${f.dir}`) !== a)
+      .map((f) => ({ ...f, owner: (ownerOf.get(`${f.share}|${f.dir}`) || {}).name || null }));
+    delete a.rwDirs;
+  });
+}
+
 /** Apps (a compose stack or a single container) and VMs with the shares and folders they use */
 function setupModel(plan) {
   const names = new Set(plan.shares.map((x) => x.name));
@@ -3957,6 +4224,7 @@ function setupModel(plan) {
   });
   const apps = [...groups.values()].map((a) => {
     const members = a.members.map((c) => c.name);
+    a.rwDirs = new Set(a.members.flatMap((c) => (c.binds || []).filter((b) => b.rw !== false && b.rw !== 'ro').map((b) => `${b.share}|${b.path.split('/')[0]}`)));
     const folders = [];
     const deps = new Map();
     a.members.forEach((c) => (c.binds || []).forEach((b) => {
@@ -3993,6 +4261,10 @@ function setupModel(plan) {
   // the new ones first in their step: they wait for a decision
   apps.sort((x, y) => (y.isNew - x.isNew));
   vms.sort((x, y) => (y.isNew - x.isNew));
+  // 1.60.1 (a user: dropnook got «Make it a dataset…» for Nginx-Proxy-Manager-Official, a folder it only mounts read-only
+  // for the certificates): a folder belongs to ONE app - the one named like it, else the only one writing to it; any other
+  // app using it gets a note («also uses …»), never that folder's actions or partner level
+  ownFoldersOf(apps);
   return { apps, vms, skipped, homes };
 }
 
@@ -4162,18 +4434,191 @@ function setupDeriveItems() {
     } else {
       if (dget(pre + 'kopia') === 'yes') setup.itemKeep[pre] = { kopia_retention: dget(pre + 'kopia_retention'), kopia_ignore: dget(pre + 'kopia_ignore') };
       ITEM_KEYS.forEach((x) => dset(pre + x, undefined));
+      // engine 2.45: an app with a partner level keeps its folder in its section (the unit is its folder's dataset)
+      if (kind === 'app' && (dget(pre + 'partner', []) || []).length && folders.length) dset(pre + 'folder', folders);
     }
   };
   const names = new Set();
   m.apps.forEach((a) => {
     const yes = on && levelOf('app:' + a.id) === 2 && !names.has(a.name);
     names.add(a.name);
-    set('app', a.name, yes, yes ? a.folders.filter((f) => (owner.get(`${f.share}|${f.dir}`) || {}).id === a.id).map((f) => `${f.share}/${f.dir}`) : []);
+    const mine = a.folders.filter((f) => (owner.get(`${f.share}|${f.dir}`) || {}).id === a.id).map((f) => `${f.share}/${f.dir}`);
+    // a partner level: its own folders (ownFoldersOf()), the first being the unit's dataset
+    const own = (a.ownFolders || []).map((f) => `${f.share}/${f.dir}`);
+    set('app', a.name, yes, yes ? mine : (dget(`app|${a.name}|partner`, []) || []).length ? own : []);
   });
   m.vms.forEach((x) => {
     const yes = on && levelOf('vm:' + x.name) === 2;
     set('vm', x.name, yes, yes ? x.folders.map((f) => `${f.share}/${f.dir}`) : []);
   });
+}
+
+/**
+ * An app and the partners (engine 2.45): its folder (the first) a dataset of its own → a unit of its own
+ * (`app|<name>|partner`); a folder inside its share's dataset travels with the share when the share goes to a partner
+ * (`withShare`, said as a chip, no choice). A dataset is never part of its share's transfer (zfs send per dataset), so
+ * an app with its own dataset keeps its own level also when the share goes.
+ */
+function appPartner(a, plan) {
+  const f = (a.ownFolders || a.folders || [])[0] || null;
+  const own = !!(f && ownDataset(plan, f.share, f.dir));
+  const withShare = f && !own ? setupPartners().filter((p) => (dget(`share|${f.share}|partner`, []) || []).includes(p.id)) : [];
+  return { f, own, withShare, key: `app|${a.name}|partner` };
+}
+
+/**
+ * An app going to a partner whose further shares (its binds outside its own folder - the «… mitsichern» rows) don't
+ * go there (a user, dropnook to Tower without its share drop: at the partner its data would be missing) → [{share,
+ * partners [{id, name}], ok (the share can go: a dataset of its own), why}]
+ */
+function appDepGaps(a, plan) {
+  const mine = dget(`app|${a.name}|partner`, []) || [];
+  if (!mine.length || levelOf('app:' + a.id) === 0) return [];
+  return (a.deps || []).map((d) => {
+    const sh = (plan.shares || []).find((x) => x.name === d.share) || {};
+    const has = dget(`share|${d.share}|partner`, []) || [];
+    const partners = setupPartners().filter((p) => mine.includes(p.id) && !has.includes(p.id));
+    return { share: d.share, partners, ok: !!sh.partner_ok, why: sh.partner_why || 'no_dataset' };
+  }).filter((g) => g.partners.length);
+}
+
+/**
+ * «Why?» at a unit that can't take a partner level (1.60.1, a user): snapshots and zfs send work per dataset, so only a
+ * dataset of its own travels alone — said in plain words (dsw.<kind>), folded, kept open as the user left it. For an app's
+ * or a VM's folder on a ZFS pool «Make it a dataset of its own…» (dsw.make): a job of Mr. Restori's (setupMakeDataset()).
+ * `target` {kind, name, share, dir} or null (explain only: a share on several pools, a share in a pool's folder)
+ */
+function whyFold(key, text, target) {
+  const det = keepFold(el('details', 'bk-why'), 'why:' + key, false);
+  det.appendChild(el('summary', '', T('dsw.why')));
+  det.appendChild(el('p', 'role', text));
+  if (target) {
+    const b = el('button', 'btn small', T('dsw.make'));
+    b.type = 'button';
+    b.disabled = !Office.agent.running || live();
+    b.onclick = () => setupMakeDataset(target);
+    det.appendChild(b);
+  }
+  return det;
+}
+/** A unit's folder in a share from a path (/mnt/<user|pool>/<share>/<dir>/…) */
+function folderOf(path) {
+  const m = /^\/mnt\/[^/]+\/([^/]+)\/([^/]+)\//.exec(String(path || ''));
+  return m ? { share: m[1], dir: m[2] } : null;
+}
+/** Is the folder a dataset of its own already (the plan's share children: datasets inside the share)? */
+const ownDataset = (plan, share, dir) => ((plan.shares || []).find((x) => x.name === share) || { children: [] }).children
+  .some((c) => String(c).split('/').pop() === dir);
+
+/**
+ * The job going on (a user: «no progress while it ran»): a dialog with the wave left of the step (stopping · moving aside ·
+ * creating · copying n % · comparing · starting · storeroom), Mr. Restori's job file read every two seconds (api part
+ * restore/job); at the end the result (done / rolled back / failed) and what to do next - and the setup planned anew so
+ * the unit shows its partner levels (as «Look at the server again» does)
+ */
+function datasetProgress(target, id, stack) {
+  const box = el('div', 'bk-dsp');
+  const line = el('p', 'running');
+  const bar = el('div', 'bar thin');
+  const fill = el('i', 'data');
+  bar.appendChild(fill);
+  bar.hidden = true;
+  const after = el('p', 'role');
+  box.append(line, bar, after);
+  line.append(el('span', 'spin'), ' ', T('dsw.queued'));
+  Office.dialog({ title: T('dsw.title', { name: target.dir }), body: box, buttons: [{ text: Office.t('common.close') }] });
+  let fails = 0;
+  const look = async () => {
+    const j = await Office.api.get({ a: 'part', desk: 'restore', part: 'job' });
+    fails = j.ok ? 0 : fails + 1;
+    const job = j.ok && j.part && j.part.id === id ? j.part : null;
+    if (!job || ['queued', 'running'].includes(job.result)) {
+      const st = job ? (job.steps || []).find((x) => x.state === 'running') : null;
+      const pct = st && st.progress && st.progress.percent !== null && st.progress.percent !== undefined ? Math.min(100, Number(st.progress.percent)) : null;
+      line.textContent = '';
+      line.append(el('span', 'spin'), ' ', st ? T('dsw.step.' + st.do) : T('dsw.queued'), pct !== null ? ` · ${pct} %` : '');
+      bar.hidden = pct === null;
+      fill.style.width = (pct || 0) + '%';
+      setTimeout(look, Office.pollDelay(2000, fails));
+      return;
+    }
+    line.classList.remove('running');
+    bar.hidden = true;
+    const ok = job.result === 'ok' || job.result === 'warnings';
+    line.textContent = T(ok ? 'dsw.done' : job.reason === 'md_rolled_back' ? 'dsw.rolled_back' : 'dsw.failed', { path: `${target.share}/${target.dir}` });
+    after.textContent = stack ? T('dsw.done_stack', { stack }) : '';
+    if (ok) Office.toast(T('dsw.done', { path: `${target.share}/${target.dir}` }));
+    await setupPlan(false);           // the unit a dataset of its own now: its partner levels show
+  };
+  look();
+}
+
+/**
+ * «Make it a dataset of its own…»: the dialog says plainly that this step is delicate, when the last backup ran (none
+ * fresh — «Make it» stays grey until the user says he knows, or «Back up first»), what stops and for about how long;
+ * then Mr. Restori's job (backup.dataset_make) — its journal and run card on his page
+ */
+async function setupMakeDataset(target) {
+  const j = await Office.api.post(`${ID}.dataset_look`, target);
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+  const box = el('div');
+  box.appendChild(el('p', 'callout warn', T('dsw.delicate', { path: (j.target && j.target.path) || `${target.share}/${target.dir}` })));
+  // a Compose stack still running is no refusal: the dialog says to stop it in its own tool and looks again on asking
+  const stackRunning = (j.blockers || []).find((b) => b.key === 'md_stack_running');
+  const blockers = (j.blockers || []).filter((b) => b.key !== 'md_stack_running');
+  if (blockers.length) {
+    blockers.forEach((b) => box.appendChild(el('p', 'callout', T('dsw.no.' + b.key, b.params || {}))));
+    Office.dialog({ title: T('dsw.title', { name: target.dir }), body: box, buttons: [{ text: Office.t('common.close') }] });
+    return;
+  }
+  const last = j.last;
+  const fresh = !!(last && last.fresh);
+  box.appendChild(el('p', '', !last || !last.time ? T('dsw.last_none')
+    : T(fresh ? 'dsw.last_fresh' : last.result === 'failed' ? 'dsw.last_failed' : 'dsw.last_old', { when: fmt.relative(last.time) })));
+  const st = j.stops || {};
+  const what = [...(st.containers || []), ...(st.vm ? [st.vm] : [])];
+  if (st.stack) {
+    // a stack: its containers' order (depends_on, the database first) is its own tool's - the user stops and starts it
+    box.appendChild(el('p', '', T('dsw.stack', { stack: st.stack })));
+    // every container of the stack, the running ones marked (a user: the dialog named only «drop», not «drop-share»)
+    const runs = new Set(String((stackRunning && stackRunning.params && stackRunning.params.names) || '').split(', ').filter(Boolean));
+    const all = [...new Set([...(target.members || []), ...runs])];
+    if (all.length) box.appendChild(el('p', '', T('dsw.stack_members', { list: all.map((n) => (runs.has(n) ? T('dsw.runs', { name: n }) : n)).join(', ') })));
+    if (stackRunning) box.appendChild(el('p', 'callout warn', T('dsw.stack_running', { stack: st.stack, names: (stackRunning.params || {}).names || '' })));
+  } else {
+    box.appendChild(el('p', '', what.length ? T('dsw.stops', { list: what.join(', '), n: what.length }) : T('dsw.stops_none')));
+  }
+  if (j.downtime) box.appendChild(el('p', '', T('dsw.downtime', { duration: fmt.duration(j.downtime), size: fmt.size(j.bytes || 0) })));
+  box.appendChild(el('p', 'role', T('dsw.how', { dataset: j.target.dataset })));
+  let ok = fresh && !stackRunning;
+  const tick = el('label', 'check');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  if (!fresh) {
+    tick.append(cb, ' ', T('dsw.no_fresh_ok'));
+    box.appendChild(tick);
+  }
+  const d = Office.dialog({
+    title: T('dsw.title', { name: target.dir }),
+    body: box,
+    wide: true,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      ...(fresh ? [] : [{ text: T('dsw.backup_first'), kind: 'plain', act: async () => { await startRun('backup'); } }]),
+      ...(stackRunning ? [{ text: T('dsw.look_again'), kind: 'plain', act: () => { setTimeout(() => setupMakeDataset(target), 0); } }] : []),
+      { text: T('dsw.go'), kind: '', act: async () => {
+        const { members, ...req } = target;
+        const r = await Office.api.post(`${ID}.dataset_make`, { ...req, no_fresh_ok: !fresh && cb.checked });
+        if (!r.ok) { Office.toast(Office.errorText(r.error, ID), true); return false; }
+        setTimeout(() => datasetProgress(target, r.id, st.stack || null), 0);
+        return true;
+      } },
+    ],
+  });
+  // without a fresh backup «Make it» stays grey until the user says he knows
+  const go = d && d.buttons ? d.buttons[d.buttons.length - 1] : null;
+  if (go) go.disabled = !ok;
+  cb.onchange = () => { ok = cb.checked && !stackRunning; if (go) go.disabled = !ok; };
 }
 
 /**
@@ -4302,6 +4747,12 @@ function setupVms(plan) {
     }
     const pc = partnerChoice(k('partner'), !!v.partner_ok, v.partner_why, l === 0);
     if (pc) main.appendChild(pc);
+    // 1.60.1: why it can't go to a partner alone - and «Make it a dataset of its own…» for its folder
+    if (setupPartners().length && !v.partner_ok && ['no_dataset', 'not_dataset', 'split'].includes(v.partner_why)) {
+      const f = folderOf(((v.disks || [])[0] || {}).source);
+      main.appendChild(whyFold('vm:' + v.name, T(v.partner_why === 'split' ? 'dsw.vm_split' : 'dsw.vm'),
+        v.partner_why !== 'split' && f ? { kind: 'vm', name: v.name, share: f.share, dir: f.dir } : null));
+    }
     row.appendChild(main);
 
     const right = el('div', 'bk-right');
@@ -4371,9 +4822,28 @@ function setupApps(plan) {
     }
     main.appendChild(meta);
     appDataWarnings(a, l, plan).forEach((w) => main.appendChild(w));
+    // 1.60.1: an app travels with its share - alone only as a dataset of its own («Make it a dataset of its own…»)
+    const ap = appPartner(a, plan);
+    if (setupPartners().length) {
+      if (ap.withShare.length) {
+        const pm = el('div', 'row-meta');
+        pm.appendChild(chip(T('partner.with_share', { partners: ap.withShare.map((p) => p.name).join(', '), share: ap.f.share }), 'ok', T('partner.with_share_hint')));
+        main.appendChild(pm);
+      } else if (ap.own && ap.f && (dget(`share|${ap.f.share}|partner`, []) || []).length) {
+        main.appendChild(el('div', 'row-meta role', T('partner.own_too', { share: ap.f.share })));
+      } else if (!ap.own) {
+        (a.ownFolders || a.folders).filter((f) => !ownDataset(plan, f.share, f.dir)).slice(0, 3)
+          .forEach((f) => main.appendChild(whyFold(`app:${a.id}:${f.share}/${f.dir}`, T('dsw.app', { share: f.share, dir: f.dir }),
+            { kind: 'app', name: a.name, share: f.share, dir: f.dir, stack: a.stack ? a.name : '', members: a.members })));
+      }
+      // another app's folder it only uses: a note, never its actions
+      (a.otherFolders || []).slice(0, 3).forEach((f) => main.appendChild(el('div', 'row-meta role',
+        f.owner ? T('partner.uses_other', { folder: `${f.share}/${f.dir}`, owner: f.owner }) : T('partner.uses_folder', { folder: `${f.share}/${f.dir}` }))));
+    }
     row.appendChild(main);
     const right = el('div', 'bk-right');
-    right.appendChild(levelPick('app:' + a.id));
+    // engine 2.45: «local + partner» for an app whose folder is a dataset of its own; none while it goes with its share
+    right.appendChild(levelPick('app:' + a.id, null, setupPartners().length && !ap.withShare.length ? { key: ap.key, ok: ap.own, why: ap.own ? null : 'not_dataset' } : null));
     if (l > 0) {
       const hold = el('select', 'picker');
       hold.append(new Option(T('setup.app_hold.stop'), 'stop'), new Option(T('setup.app_hold.run'), 'run'));
@@ -4384,6 +4854,26 @@ function setupApps(plan) {
     }
     row.appendChild(right);
     list.appendChild(row);
+    // 1.60.1: it goes to a partner, a share it uses doesn't - said, with the way to send that share too
+    appDepGaps(a, plan).forEach((g) => {
+      const w = el('div', 'row nocheck bk-dep');
+      const p = el('p', 'callout warn', T('partner.dep_gap', { app: a.name, partners: g.partners.map((x) => x.name).join(', '), share: g.share }) + ' ');
+      if (g.ok) {
+        const b = el('button', 'btn small', T('partner.dep_send', { share: g.share }));
+        b.type = 'button';
+        b.onclick = () => {
+          setup.deps.add(`${a.id}|${g.share}`);
+          dset(`share|${g.share}|partner`, [...new Set([...(dget(`share|${g.share}|partner`, []) || []), ...g.partners.map((x) => x.id)])]);
+          setupDerive();
+          Office.keepInPlace(w, () => renderSetup());
+        };
+        p.appendChild(b);
+      } else {
+        p.append(T('partner.dep_cannot', { share: g.share, why: T('partner.why_short.' + g.why) }));
+      }
+      w.appendChild(p);
+      list.appendChild(w);
+    });
     // the shares it uses besides its own folder: never ticked unasked - they can grow fast
     if (l > 0) {
       a.deps.forEach((d) => {
@@ -4397,6 +4887,9 @@ function setupApps(plan) {
         sub.title = step3 ? T('setup.app_dep_step3_hint') : '';
         sub.appendChild(checkbox(T('setup.app_dep', { share: d.share }), setup.deps.has(key), (v) => {
           if (v) setup.deps.add(key); else setup.deps.delete(key);
+          // 1.60.1 (a user, dropnook): ticked under an app that goes to partners, the share goes there too (when it can)
+          const ap = dget(`app|${a.name}|partner`, []) || [];
+          if (v && ap.length && sh && sh.partner_ok) dset(`share|${d.share}|partner`, [...new Set([...(dget(`share|${d.share}|partner`, []) || []), ...ap])]);
           setupDerive();
           Office.keepInPlace(sub, () => renderSetup());
         }, [step3, size, where, T('setup.app_dep_hint')].filter(Boolean).join(' · ')));
@@ -4572,6 +5065,8 @@ function setupGeneral(plan) {
     box.appendChild(Office.place('setup.p_ignore', field(T('setup.p_ignore'), listInput('kopia|ignore', 4), T('setup.p_ignore_hint'))));
   }
   s.appendChild(box);
+  const dl = declinedList();          // 1.60.1: what the user declined, with «Propose again»
+  if (dl) s.appendChild(dl);
   return s;
 }
 
@@ -5073,7 +5568,7 @@ Office.desk({
     if (state && state.found) {
       const ready = canAct() && !live();
       items.push({ text: T('schedule.open'), act: state.schedule && state.schedule.script && Office.agent.running ? scheduleDialog : null });
-      const go = ready && !minuteTaken();          // one run a minute: the head's buttons say until when
+      const go = ready;                            // a tour or a dry run never waits for the minute (1.60.1)
       items.push({ text: T('mode.check'), act: go ? () => startRun('check') : null });
       items.push({ text: T('mode.dryrun'), act: go ? () => startRun('dryrun') : null });
       if ((state.mounted || []).length) items.push({ text: T('unmount'), act: ready ? unmount : null });
@@ -5186,7 +5681,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
-    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, minuteTaken, bubbleText, deskActions,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, partnerShareLines, appDepGaps, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace,

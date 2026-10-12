@@ -175,7 +175,7 @@ function officeDashBackupPartner(array $strings, array $backup): ?string
         }
     }
     $unit = (string) ($cur['unit'] ?? '');
-    $unit = $unit === 'place' ? officeDashT($strings, 'backup.partner.unit_place') : (string) preg_replace('/^(share|vm):/', '', $unit);
+    $unit = $unit === 'place' ? officeDashT($strings, 'backup.partner.unit_place') : (string) preg_replace('/^(share|vm|app):/', '', $unit);
     $bytes = max(0, (int) ($cur['bytes'] ?? 0));
     $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
     $i = $bytes > 0 ? min((int) floor(log($bytes, 1024)), count($units) - 1) : 0;

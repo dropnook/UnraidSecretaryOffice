@@ -1,6 +1,19 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.44 - 2026-10-12
+# unraid-backup - backup.sh                       Version 2.45 - 2026-10-12
+#   2.45 A partner settings.ini still names but the Team Lead no longer pairs (ended there, perhaps paired anew) is
+#        skipped as ended, not no_key - the log says so and that Set up... > Apply gives its units to the partnership
+#        made anew; a skip that means the setup or pairing is broken (ended, no_key, snap_prefix, no_ssh) warns every
+#        run with what to do (warning_items partner_*), array_stopped counts nights like unreachable before it warns,
+#        the mail's TO <partner> lines give the reason in words; a full quota at the partner warns every run (no
+#        longer once a day), its pool asleep at the door (refused_asleep) counts nights like unreachable; status.json
+#        names the run's partners from its start (the run card's partner step), their units after the inventory;
+#        apps whose folder is a dataset of its own are partner units (app:<name>, [app] partner = <id>; such a dataset
+#        is no «children» of its share), an older door refusing one is a skip (old_partner, a warning every run); an
+#        app's manifest names its folders (dirs: <share>/<folder>) for a restore elsewhere. A tour's and a dry run's log
+#        carry the second (check-|dryrun-YYYYMMDD-HHMMSS.log): one a minute holds only for a real backup (its snapshots).
+#        setup.sh: a gone partner whose address (or host key, partner/ended.json) a current pair has gets
+#        its units carried over to that pair (hint partner_anew); without a match they go as before (partner_gone)
 #   2.44 The package inside the unit's folder (2.43) goes into every backed-up VM's folder (domains/<vm>/.uso-backup/)
 #        and every app's first-level folder (appdata/<app>/.uso-backup/) whatever dataset they lie in - a share's copy
 #        at a partner carries the VM folders, so they must carry the configuration; 2.43 wrote it only into a folder
@@ -318,14 +331,15 @@ fi
 ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
 
 TS="$(date +%Y%m%d-%H%M)"
+TSS="$(date +%Y%m%d-%H%M%S)"     # 2.45: a tour or a dry run makes no snapshot - its log carries the second, never one a minute
 STARTED_AT="$(date +%s)"
 case "$UB_MODE" in
     backup)  LOG_FILE="$UB_LOGS/run-$TS.log" ;;
-    check)   LOG_FILE="$UB_LOGS/check-$TS.log" ;;
+    check)   LOG_FILE="$UB_LOGS/check-$TSS.log" ;;
     unmount) LOG_FILE="$UB_LOGS/unmount.log" ;;
     recover) LOG_FILE="$UB_LOGS/recover.log" ;;
 esac
-[[ "$DRY" == "1" && "$UB_MODE" == "backup" ]] && LOG_FILE="$UB_LOGS/dryrun-$TS.log"
+[[ "$DRY" == "1" && "$UB_MODE" == "backup" ]] && LOG_FILE="$UB_LOGS/dryrun-$TSS.log"
 # latest.log points at this run's log only once it has the lock (Start, at the end)
 
 STOPPED=()                  # containers actually stopped
@@ -2103,7 +2117,8 @@ pkg_commit_apps() {
             --arg cm "${PKG_APP_CM[$f]:-}" --arg wd "${PKG_PROJ_WD[${PKG_APP_NAME[$f]}]:-}" --arg cfgs "${PKG_PROJ_CFG[${PKG_APP_NAME[$f]}]:-}" \
             --slurpfile ins "$new/.inspect.json" --slurpfile img "$new/.images.json" \
             --argjson files "$files" --argjson dumps "${dumps:-[]}" --argjson nc "${nc:-[]}" --argjson tpls "$tpls" \
-            --argjson sq "${sq:-[]}" --argjson own "$own" '
+            --argjson sq "${sq:-[]}" --argjson own "$own" \
+            --argjson dirs "$(app_own_dirs "$f" | sed -E 's#^/mnt/[^/]+/##' | jq -R 'select(length > 0)' | jq -sc . 2>/dev/null || echo '[]')" '
             ($img[0] // []) as $images |
             {interface: 1, engine: $engine, kind: "app", type: $type, name: $name, folder: $folder, run: $run, time: $time,
              host: $host, result: $result,
@@ -2115,7 +2130,7 @@ pkg_commit_apps() {
                  service: (.Config.Labels["com.docker.compose.service"] // null),
                  template: ($tpls[$n] // null),
                  inspect: .}],
-             dumps: $dumps, nextcloud: $nc, sqlite: $sq, own_backups: $own, files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
+             dumps: $dumps, nextcloud: $nc, sqlite: $sq, own_backups: $own, dirs: $dirs, files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
             || { warn "App '${PKG_APP_NAME[$f]}': manifest.json not written"; pkg_mark apps "$f" warnings; }
         rm -f "$new/.inspect.json" "$new/.images.json"
         pkg_inside_app "$f" "$new"              # 2.43: its package also inside its own dataset (before the swap - the stage is complete)
@@ -2345,7 +2360,7 @@ prune_files() {
         (( PKG_OLD_RUNS > 0 )) || PKG_OLD_ACTION=""
         pkg_status yes
     fi
-    ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | sort -t- -k2 | head -n -"$KEEP_LOGS" \
+    ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | LC_ALL=C sort -t- -k2 | head -n -"$KEEP_LOGS" \
         | while read -r d; do rm -f "$d"; done
     for d in unmount recover; do
         if [[ -f "$UB_LOGS/$d.log" && $(stat -c %s "$UB_LOGS/$d.log") -gt 1048576 ]]; then
@@ -2880,7 +2895,7 @@ partner_plan() {
     # a partner named for a unit without a [partner] section: the partnership ended, the setup not applied since
     local k pk
     for k in "${!CFG[@]}"; do
-        [[ "$k" =~ ^(share\|.+\|partner|vm\|.+\|partner|general\|partner_place)$ ]] || continue
+        [[ "$k" =~ ^(share\|.+\|partner|vm\|.+\|partner|app\|.+\|partner|general\|partner_place)$ ]] || continue
         while IFS= read -r pk; do
             [[ -n "$pk" ]] && ! cfg_has "partner|$pk" && log "  Partner $pk is named in $(sec_display "${k%|*}") but has no [partner \"$pk\"] section - left out (Set up... > Apply)"
         done < <(cfg_list "$k")
@@ -3002,6 +3017,8 @@ partner_send() {
             # a door up to 1.59 keeps only what its Team Lead agreed to (2.42: skipped, not failed - the mutual watch
             # asks it to keep this unit too; an update there takes any unit)
             unit_not_agreed) PS_WHY="not_agreed"; log "    $name runs an older office and hasn't agreed to keep $u - its Team Lead decides (update it: then every unit goes)"; return 3 ;;
+            # 2.45: an office before 1.60.1 knows no app units - skipped, said once a run (partner_refused)
+            bad_unit) if [[ "$u" == app:* ]]; then PS_WHY="old_partner"; log "    $name runs an older office that takes no app on its own ($u) - update it there"; return 3; fi ;;
         esac
         partner_fail "$id" "$u" "$why" "$name refused it ($why)"; return 1
     fi
@@ -3089,16 +3106,40 @@ partner_unit() {
     return 0
 }
 
+# partner_why_text <why>: a skip's or failure's reason in words, for the mail (the office's partner.why_short, English)
+partner_why_text() {
+    case "$1" in
+        unreachable) echo "not reachable" ;; array_stopped) echo "its array stopped" ;; ended) echo "partnership ended - apply Mr. Backupsy's setup" ;;
+        no_key) echo "key missing - pair anew at the Team Lead" ;; no_ssh) echo "ssh missing" ;; snap_prefix) echo "other snapshot names" ;;
+        refused_quota) echo "its quota is full" ;; refused_window) echo "outside its window" ;; refused_asleep) echo "its pool asleep" ;;
+        not_agreed) echo "not agreed by an older partner" ;; asleep) echo "pool asleep here" ;; not_dataset) echo "not a dataset of its own" ;;
+        split) echo "not one dataset" ;; no_dataset) echo "not on ZFS" ;; children) echo "datasets inside" ;; name) echo "name can't travel" ;;
+        not_snapshotted) echo "no snapshot" ;; array_stopping) echo "array stop" ;; signal) echo "run stopped" ;;
+        recv_failed) echo "receive failed" ;; send_failed) echo "send failed" ;; link_lost) echo "link lost" ;;
+        no_answer) echo "no answer" ;; need_full) echo "no common snapshot" ;; refused) echo "refused" ;;
+        *) echo "$1" ;;
+    esac
+}
+
 # A refusal the partner's user can change (its window, its quota): a warning once a day per partner
 partner_refused() { # partner_refused <id> <why>
     local key today
-    case "$2" in refused_quota) key="quota_warned" ;; refused_window) key="window_warned" ;; not_agreed) key="agreed_warned" ;; *) return 0 ;; esac
+    case "$2" in refused_quota) key="quota_warned" ;; refused_window) key="window_warned" ;; not_agreed) key="agreed_warned" ;; old_partner) key="old_warned" ;; *) return 0 ;; esac
     today="$(date +%F)"
     [[ " ${PARTNER_TOLD[$1]:-} " == *" $2 "* ]] && return 0
     PARTNER_TOLD[$1]+=" $2"
+    # 2.45: an older partner office that takes no app unit: a warning every run, with what to do
+    if [[ "$2" == old_partner ]]; then
+        warn_code partner_old "Partner $(partner_name "$1") runs an older office that can't keep an app on its own - update the office there" partner="$(partner_name "$1")"
+        return 0
+    fi
+    # 2.45: a full quota warns every run (once per partner) - nothing goes there until someone acts
+    if [[ "$2" == refused_quota ]]; then
+        warn_code partner_quota "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has; raise the quota at the partner or free space there" partner="$(partner_name "$1")"
+        return 0
+    fi
     if [[ "$(partner_state_get partner-skips.json ".[\"$1\"].$key")" != "$today" ]]; then
         case "$2" in
-            refused_quota)  warn "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has; ask its owner for more room" ;;
             refused_window) warn "Partner $(partner_name "$1") refused: outside its receiving window - the run sends again next night (the window is its owner's setting)" ;;
             not_agreed)     warn "Partner $(partner_name "$1") runs an older office and keeps only what its Team Lead agreed to - update it, or let its Team Lead keep the rest (asked through its door)" ;;
         esac
@@ -3107,7 +3148,8 @@ partner_refused() { # partner_refused <id> <why>
 }
 declare -A PARTNER_TOLD=()
 
-# partner_nights <id> <unreachable 1/0>: nights in a row without an answer; the UB_PARTNER_NIGHTS-th one warns (once a day)
+# partner_nights <id> <down 1/0> [why]: nights in a row without an answer (2.45: or with its array stopped - nothing can
+# be received either way; a partner may sleep a night); the UB_PARTNER_NIGHTS-th one warns (once a day)
 partner_nights() {
     local id="$1" today n first warned
     today="$(date +%F)"
@@ -3120,10 +3162,16 @@ partner_nights() {
     [[ "$(partner_state_get partner-skips.json ".[\"$id\"].last_day")" == "$today" ]] || n=$(( n + 1 ))
     warned="$(partner_state_get partner-skips.json ".[\"$id\"].warned")"
     if (( n >= UB_PARTNER_NIGHTS )) && [[ "$warned" != "$today" ]]; then
-        warn "Partner $(partner_name "$id") has not answered for $n nights in a row (since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)) - nothing went there; is its server on, its office running, the way there open? (partner_unreachable)"
+        if [[ "${3:-}" == "refused_asleep" ]]; then
+            warn "Partner $(partner_name "$id"): its pool sleeps every night - nothing arrives ($n nights in a row, since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)); let it wake for receiving there (partner_asleep)"
+        elif [[ "${3:-}" == "array_stopped" ]]; then
+            warn "Partner $(partner_name "$id") has taken nothing for $n nights in a row (since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)) - its array is stopped; start it there (partner_array_stopped)"
+        else
+            warn "Partner $(partner_name "$id") has not answered for $n nights in a row (since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)) - nothing went there; is its server on, its office running, the way there open? (partner_unreachable)"
+        fi
         warned="$today"
     elif (( n > 0 )); then
-        log "  Partner $(partner_name "$id") did not answer ($n night(s) in a row) - nothing sent; a warning from the ${UB_PARTNER_NIGHTS}th night on"
+        log "  Partner $(partner_name "$id") $(case "${3:-}" in array_stopped) echo "has its array stopped" ;; refused_asleep) echo "has its pool asleep" ;; *) echo "did not answer" ;; esac) ($n night(s) in a row) - nothing sent; a warning from the ${UB_PARTNER_NIGHTS}th night on"
     fi
     partner_state_set partner-skips.json '.[$v.id] |= ((. // {}) + {nights: $v.n, first: $v.first, last_day: $v.day, warned: $v.warned})' \
         "$(jq -nc --arg id "$id" --argjson n "$n" --argjson first "$first" --arg day "$today" --arg warned "$warned" \
@@ -3139,7 +3187,9 @@ partner_phase() {
         log "Partner $name ($id, $(cfg "partner|$id|address"):$(cfg "partner|$id|port" 22)) ..."
         why=""
         key="$UB_PARTNER_DIR/$id.key"
-        if [[ "$SNAP_PREFIX" != "$UB_SNAP_PREFIX" ]]; then why="snap_prefix"; log "  the snapshots are called $SNAP_PREFIX... - a partner's door takes only $UB_SNAP_PREFIX..."
+        if partner_ended "$id"; then
+            why="ended"; log "  the partnership $name ($id) was ended at the Team Lead - Set up... > Apply gives its units to the partnership made anew (or drops them)"
+        elif [[ "$SNAP_PREFIX" != "$UB_SNAP_PREFIX" ]]; then why="snap_prefix"; log "  the snapshots are called $SNAP_PREFIX... - a partner's door takes only $UB_SNAP_PREFIX..."
         elif [[ ! -f "$key" || -L "$key" || ! -f "$UB_PARTNER_DIR/$id.known" || -L "$UB_PARTNER_DIR/$id.known" ]]; then
             why="no_key"; log "  its key or known_hosts is missing ($UB_PARTNER_DIR/$id.key, .known) - pair anew at the Team Lead"
         elif ! command -v ssh >/dev/null 2>&1; then why="no_ssh"; log "  ssh is missing"
@@ -3150,6 +3200,14 @@ partner_phase() {
             fi
         fi
         [[ -n "$why" ]] && PARTNER_DOWN[$id]="$why"
+        # 2.45: a skip that means the setup or the pairing is broken warns every run (once per partner), with what to do -
+        # the run ends «with warnings», never «successful» with units left out; unreachable / array_stopped: partner_nights
+        case "$why" in
+            ended)       warn_code partner_ended "Partner $name: the partnership was ended at the Team Lead - nothing sent; apply Mr. Backupsy's setup (Set up... > Apply) so its units go to the partnership made anew" partner="$name" ;;
+            no_key)      warn_code partner_no_key "Partner $name: this office's key for it is missing - nothing sent; pair anew at the Team Lead" partner="$name" ;;
+            snap_prefix) warn_code partner_snap_prefix "Partner $name: the snapshots are called $SNAP_PREFIX... and a partner takes only $UB_SNAP_PREFIX... - nothing sent; set the snapshot prefix back to $UB_SNAP_PREFIX in Mr. Backupsy's setup" partner="$name" prefix="$UB_SNAP_PREFIX" ;;
+            no_ssh)      warn_code partner_no_ssh "Partner $name: ssh is missing on this server - nothing sent" partner="$name" ;;
+        esac
         for u in "${PARTNER_CANT[@]}"; do
             [[ "$u" == "$id|"* ]] || continue
             IFS='|' read -r _ u why <<<"$u"
@@ -3165,7 +3223,13 @@ partner_phase() {
             partner_unit "$id" "$u" "$ds"
             [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && partner_skip "$id" "$u" unreachable
         done
-        if [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]]; then partner_nights "$id" 1; else partner_nights "$id" 0; fi
+        # 2.45: its pool asleep at the door (refused_asleep) counts the night too - a pool that sleeps every night gets nothing
+        local asleep_there=0 sk
+        for sk in "${ST_PARTNER_SKIPPED[@]}"; do [[ "$sk" == "$id|"*"|refused_asleep" ]] && asleep_there=1; done
+        case "${PARTNER_DOWN[$id]:-}" in
+            unreachable|array_stopped) partner_nights "$id" 1 "${PARTNER_DOWN[$id]}" ;;
+            *) if (( asleep_there )); then partner_nights "$id" 1 refused_asleep; else partner_nights "$id" 0; fi ;;
+        esac
     done
     rm -rf "$PARTNER_TMP"; PARTNER_TMP=""
     local nd=0 nb=0
@@ -3206,7 +3270,8 @@ else
     flock -n 9 || { recover_holds && flock -w "$UB_RECOVER_LOCK_WAIT" 9; } || skip_busy
     # one run a minute (2.34): the run id, its log and the snapshots' name carry the minute - a second run in the same
     # minute would share them (ZFS refuses the existing snapshot name: "failed", one id twice in history.jsonl). Its log
-    # is there already: nothing of that run is touched (lock, note, status.json, latest.log, snapshots), exit 1
+    # is there already: nothing of that run is touched (lock, note, status.json, latest.log, snapshots), exit 1. 2.45: only a
+    # real backup (its snapshots carry the minute); a tour or a dry run names its log by the second (the same second: refused)
     if [[ -e "$LOG_FILE" ]]; then
         echo "ERROR: a run of this minute was made already ($(basename "$LOG_FILE")) - one run a minute: try again in $(( 60 - 10#$(date +%S) )) s" >&2
         exit 1
@@ -3288,6 +3353,11 @@ if [[ "$SNAP_PREFIX_SET" == "$UB_SNAP_PREFIX_LEGACY" ]]; then
 fi
 
 # --- Inventory, plan, drift ------------------------------------------------
+# 2.45: the partners this run sends to are in status.json from its first line (the office's run card shows their step at
+# once, not only from the partner phase on); partner_plan fills in their units after the inventory
+if [[ "$UB_MODE" != "check" ]]; then
+    while IFS= read -r pl_id; do [[ -n "$(partner_units "$pl_id")" ]] && ST_PARTNER_IDS+=( "$pl_id|$(partner_name "$pl_id")" ); done < <(partner_ids)
+fi
 next_phase "inventory"
 inv_scan
 docker_load
@@ -3840,7 +3910,7 @@ run_report() {
         done
         for p in "${ST_PARTNER_SKIPPED[@]}" "${ST_PARTNER_FAILED[@]}"; do
             IFS='|' read -r n d why <<<"$p"
-            [[ "$n" == "$id" ]] && lines+=( "  ${d#*:}   not sent ($why)" )
+            [[ "$n" == "$id" ]] && lines+=( "  ${d#*:}   not sent ($(partner_why_text "$why"))" )
         done
         echo
         if (( ${#items[@]} )); then

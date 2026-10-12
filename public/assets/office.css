@@ -9,7 +9,6 @@
    themes/*.css: black, white, azure, gray). #sso always carries .in-unraid:
    the rules with it lay Unraid's look over the office's basic ones. */
 
-@keyframes wave{to{-webkit-mask-position:12px 0; mask-position:12px 0}}
 @keyframes new{0%,30%{background:color-mix(in srgb, var(--accent) 22%, var(--surface))}100%{background:transparent}}
 @keyframes up{from{opacity:0; translate:0 8px}to{opacity:1; translate:0 0}}
 
@@ -52,7 +51,10 @@
   --mono:bitstream,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --font:clear-sans,sans-serif;
   --under:40px;       /* what Unraid keeps fixed at the bottom (its footer) */
-  --wave:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 9'%3E%3Cpath d='M-.4 2.25h.8v4.5h-.8zM1.1 5.64h.8v2.53h-.8zM2.6 7.04h.8v1.72h-.8zM4.1 5.64h.8v2.53h-.8zM5.6 2.25h.8v4.5h-.8zM7.1 .83h.8v2.53h-.8zM8.6 .24h.8v1.72h-.8zM10.1 .83h.8v2.53h-.8zM11.6 2.25h.8v4.5h-.8z'/%3E%3C/svg%3E");   /* the working mark (.spin) */
+  /* the wave (.spin, .busy): Unraid's loading mark as a vector that moves itself - its nine bars at their exact places
+     (viewBox 0 0 133.52 76.97), its gradient, the bars 2-4 and 6-8 flipping to the mirror and back, 2.5 s ease-in-out;
+     its own reduced-motion rule inside. Drawn by the browser at any size: no bar snaps to the pixel grid */
+  --wave:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 133.52 76.97'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='23.76' y1='81.49' x2='109.76' y2='-4.51' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23e32929'/%3E%3Cstop offset='1' stop-color='%23ff8d30'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cstyle%3Erect%7Bfill:url(%23g)%7D.u,.v,.d,.e%7Banimation:2.5s ease-in-out infinite%7D.u%7Banimation-name:u%7D.v%7Banimation-name:v%7D.d%7Banimation-name:d%7D.e%7Banimation-name:e%7D%40keyframes u%7B50%25%7Btransform:translateY(-38.49px)%7D%7D%40keyframes v%7B50%25%7Btransform:translateY(-62.27px)%7D%7D%40keyframes d%7B50%25%7Btransform:translateY(38.49px)%7D%7D%40keyframes e%7B50%25%7Btransform:translateY(62.27px)%7D%7D%40media (prefers-reduced-motion:reduce)%7B*%7Banimation:none%7D%7D%3C/style%3E%3Crect x='0' y='19.24' width='6.54' height='38.49'/%3E%3Crect x='15.87' y='45.84' width='6.54' height='23.78' class='u'/%3E%3Crect x='31.74' y='62.27' width='6.55' height='14.73' class='v'/%3E%3Crect x='47.62' y='45.84' width='6.54' height='23.78' class='u'/%3E%3Crect x='63.49' y='19.24' width='6.51' height='38.49'/%3E%3Crect x='79.36' y='7.35' width='6.54' height='23.79' class='d'/%3E%3Crect x='95.23' y='0' width='6.54' height='14.7' class='e'/%3E%3Crect x='111.1' y='7.35' width='6.55' height='23.79' class='d'/%3E%3Crect x='127' y='19.24' width='6.54' height='38.49'/%3E%3C/svg%3E");
 
 /* ---------------------------------------------------------------- base */
   font:14px/1.55 var(--font);
@@ -167,17 +169,11 @@
 .Theme--sidebar &.in-unraid .btn:not(.danger):hover:not(:disabled){border-color:var(--hover-button-border)}
 .Theme--sidebar &.in-unraid .btn:not(.plain):not(.danger){font-weight:700; border-color:var(--hover-button-text-color)}
 
-/* «it is working, you needn't wait»: the office's own small wave (2026-10-12, Benj: one mark everywhere — Jack's live
-   panel, Mr. Backupsy's run, tours, dialogs), drawn the way Unraid draws its loading wave (Benj, 12:00: closer to it in
-   shape): a sine of short upright bars — long ones where the wave crosses the middle, short ones at crest and trough,
-   eight to a period —, in the accent, swaying slowly to and fro; still under prefers-reduced-motion (the rule for every
-   animation below). One period is the mask's tile (12 px: --wave above; the bar on its edge drawn half at each end, so
-   the tiles join), the span shows one and a half. Size and speed as before (Benj: «Grösse und Geschwindigkeit passen»). */
-.spin{
-  display:none; width:18px; height:9px; flex:none; vertical-align:middle; color:var(--accent); background:currentColor;
-  -webkit-mask:var(--wave) 0 0 / 12px 9px repeat-x; mask:var(--wave) 0 0 / 12px 9px repeat-x;
-  animation:wave 2.5s ease-in-out infinite alternate;
-}
+/* «it is working, you needn't wait»: Unraid's own loading mark, true to the original (1.60.1, a user): its nine upright
+   bars in their places, its gradient, its flip (the long bars 1, 5, 9 still, 2–4 rising and 6–8 sinking to the mirror
+   image and back, as its keyframes mark_2/3/6/7) - 12 px high (≈ 20.8 px wide), slower (2.5 s ease-in-out). One SVG
+   that animates itself (--wave above): a vector at any size, nothing snaps to the pixel grid. One mark everywhere. */
+.spin{display:none; width:20.8px; height:12px; flex:none; vertical-align:middle; background:var(--wave) center / contain no-repeat}
 .running .spin{display:inline-block}
 
 .more{
@@ -703,9 +699,8 @@
 /* explanations on chips (core.js: initTips) */
 .chip[data-tip], .chip[title]{cursor:help}
 .busy{display:none; position:fixed; inset:0; z-index:10060; cursor:wait;
-  & span{position:absolute; top:50%; left:50%; width:18px; height:9px; margin:-4.5px 0 0 -9px; scale:3;   /* the wave, large */
-    background:var(--accent); -webkit-mask:var(--wave) 0 0 / 12px 9px repeat-x; mask:var(--wave) 0 0 / 12px 9px repeat-x;
-    animation:wave 2.5s ease-in-out infinite alternate}}
+  & span{position:absolute; top:50%; left:50%; width:46.8px; height:27px; margin:-13.5px 0 0 -23.4px;   /* the wave, large */
+    background:var(--wave) center / contain no-repeat}}
 .tip{position:fixed; z-index:10050; max-width:min(340px, calc(100vw - 16px)); padding:7px 10px; border-radius:var(--radius); background:var(--ink); color:var(--surface); font-size:12.5px; line-height:1.45; box-shadow:var(--shadow); pointer-events:none; white-space:pre-line}
 
 /* groups of choices in a dialog (core.js menuNameDialog) */

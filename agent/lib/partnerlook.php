@@ -323,7 +323,7 @@ function partnerLookPlaces(array $pools, ?callable $zfs = null): ?array
 /** The unit a received dataset holds, in the words of the pairing: share-appdata → share:appdata, vm-Debian → vm:Debian, place */
 function partnerLookUnit(string $datasetUnit): string
 {
-    return preg_match('/^(share|vm)-(.+)$/D', $datasetUnit, $m) ? "$m[1]:$m[2]" : $datasetUnit;
+    return preg_match('/^(share|vm|app)-(.+)$/D', $datasetUnit, $m) ? "$m[1]:$m[2]" : $datasetUnit;
 }
 
 /**
