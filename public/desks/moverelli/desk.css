@@ -39,4 +39,39 @@
 .mo-imp-head{margin:12px 0 4px; font-weight:600; font-size:12.5px; color:var(--ink)}
 .mo-imp-scope{margin:8px 0 4px; font-size:12.5px; color:var(--ink2); overflow-wrap:anywhere}
 .shortlist li.mo-imp-warn span{color:var(--danger)}
+/* the pool as a cake (her setup): the slider for Jack's slice, a bar per pool — never moves | Jack's slice | room for new
+   things | free; X and Y as ticks, her reading as a mark; out of reach in the danger colour */
+.mo-cakes{margin:4px 0 14px; max-width:980px}
+.mo-cake-title{font-weight:650; color:var(--ink); margin:6px 0 2px}
+.mo-cake-sub{margin:0 0 8px; font-size:13px; line-height:1.5; color:var(--ink2)}
+.mo-slice{margin:0 0 6px}
+.mo-slice-field{max-width:520px}
+.mo-slice-range{width:100%; accent-color:var(--accent)}
+.mo-cake{margin:10px 0 12px}
+.mo-cake-head{font-size:12.5px; color:var(--ink2); margin:0 0 4px; overflow-wrap:anywhere}
+.mo-cake-bar{position:relative; display:flex; height:22px; border-radius:4px; overflow:visible; background:var(--surface2); border:1px solid var(--line)}
+.mo-cake-seg{position:relative; display:block; height:100%; overflow:hidden; flex:none}
+.mo-cake-seg:first-child{border-radius:3px 0 0 3px}
+.mo-cake-nm, .mo-swatch.mo-cake-nm{background:color-mix(in srgb, var(--ink) 70%, var(--surface))}
+.mo-cake-slice, .mo-swatch.mo-cake-slice{background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 35%, var(--surface)) 0 4px, color-mix(in srgb, var(--accent) 18%, var(--surface)) 4px 8px)}
+.mo-cake-slice > .mo-cake-held{background:var(--accent)}
+.mo-cake-new, .mo-swatch.mo-cake-new{background:color-mix(in srgb, var(--good) 22%, var(--surface))}
+.mo-cake-new > .mo-cake-held{background:color-mix(in srgb, var(--good) 75%, var(--surface))}
+.mo-cake-held{position:absolute; left:0; top:0; bottom:0}
+.mo-swatch.mo-cake-free{background:var(--surface2); border:1px solid var(--line)}
+.mo-cake-tick{position:absolute; top:-4px; bottom:-4px; width:0; border-left:2px solid var(--ink); transform:translateX(-1px)}
+.mo-cake-tick.mo-tick-y{border-left-style:dashed}
+.mo-cake-tick.mo-tick-eff{top:auto; bottom:-9px; border:0; width:0; height:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:7px solid var(--warn); transform:translateX(-5px)}
+.mo-cake-tick.mo-tick-bad{border-left-color:var(--danger)}
+.mo-cake-legend, .mo-cake-marks{display:flex; flex-wrap:wrap; gap:4px 14px; margin:10px 0 0; font-size:12.5px; color:var(--ink2)}
+.mo-cake-marks{margin-top:4px}
+.mo-key{display:inline-flex; align-items:center; gap:6px; overflow-wrap:anywhere}
+.mo-key-bad{color:var(--danger); font-weight:600}
+.mo-swatch{display:inline-block; width:14px; height:10px; border-radius:2px; flex:none}
+.mo-mark{display:inline-block; width:0; height:12px; border-left:2px solid var(--ink); flex:none}
+.mo-mark.mo-tick-y{border-left-style:dashed}
+.mo-key-bad .mo-mark{border-left-color:var(--danger)}
+.mo-mark.mo-tick-eff{height:0; width:0; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:7px solid var(--warn)}
+.mo-cake-numbers{margin:6px 0 0; font-size:12.5px; color:var(--ink2); overflow-wrap:anywhere}
+.mo-cake .callout{margin:8px 0 0}
 }

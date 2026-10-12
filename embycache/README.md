@@ -20,6 +20,20 @@
 >   way (origin disk first, then `cleanup_tool`), nothing is filled; what is playing stays. Afterwards the
 >   list (and the origins) name only what is still on the pool. Jack runs it once when he is let go and
 >   the user ticks «bring the films back».
+> * **Office change (2026-10-12) — free space on ZFS is the whole pool** (a fix for helmi1987 to look at):
+>   `free_percent_after()` measured with `shutil.disk_usage()`, which on ZFS sees only the dataset it is asked about —
+>   `/mnt/<pool>` the nearly empty root dataset, a share's dataset only its `refer` + `avail` (on a test server ≈ 94 %
+>   «free» while the pool was 43 % full), so `min_free_percent` held only once the pool was really full. Now
+>   `pool_usage()` finds the path's dataset in `/proc/mounts` and takes the pool's `used + avail` (`zfs list -Hp`) as the
+>   size and the dataset's `avail` (a quota counts) as free — the same reading as the office and the Smart Mover; not ZFS:
+>   `statvfs` as before. `EMBYCACHE_ZFS` / `EMBYCACHE_MOUNTS` point it at stand-ins for the tests.
+> * **Office change (2026-10-12) — a budget from Ms. Moverelli** (`EMBYCACHE_BUDGET_BYTES`, unset: as before; the
+>   config is never written, standalone users keep `min_free_percent`): Jack's slice of the pool in bytes. Filling skips a
+>   file once what is on the cache plus that file exceeds it (`[SKIP: Platz]`, counted as `slice.waiting` in the status);
+>   once what is on the cache lies more than 5 % above it, the run gives the excess back to the array before filling
+>   (`[ZURÜCK: Stück]`, the files filled last first — in name order reversed; by rank is a later step), until it fits;
+>   what is playing stays. The office also sets `EMBYCACHE_MIN_FREE_PERCENT` = 100 − Ms. Moverelli's limit while she has
+>   one. Status: `slice` = {budget, used, given_back, given_back_bytes, waiting, waiting_bytes}.
 > * `EMBYCACHE_STOP` (a file): once it exists, a real run (`--run`, `--release`) stops after the file it is on — never
 >   in the middle of a copy; what is still on the pool stays on the exclude list; result `stopped`, exit code 3. Jack
 >   writes it when Unraid's mover starts during a run (the mover would move the same files), or when the user asks

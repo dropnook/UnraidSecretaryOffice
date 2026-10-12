@@ -390,14 +390,75 @@ def remove_empty_parents(path, stop_root, log, min_depth=2):
         p = p.parent
 
 
-def free_percent_after(path, size, simulated_delta=0):
-    """Freiplatz in Prozent, nachdem `size` Bytes geschrieben wären (bei ZFS-Quota zählt die Quota).
-    simulated_delta: im Dry-Run der noch nicht ausgeführte Platzgewinn (Cleanup) minus geplante Kopien,
-    damit der Dry-Run denselben Füllstand sieht wie der scharfe Lauf an dieser Stelle."""
+# USO (das Office, 2026-10-12): auf ZFS zählt der ganze Pool. shutil.disk_usage() auf /mnt/<pool> sieht nur das
+# Root-Dataset (fast leer), auf einem Share-Dataset nur refer+avail – EmbyCache sah ~94 % frei statt 57 %. Darum:
+# Grösse = used+avail des Pools (wie das Office und der Smart Mover), frei = avail des Datasets (eine Quota zählt).
+ZFS_BIN = os.environ.get("EMBYCACHE_ZFS") or "zfs"            # die Tests: ein Stand-in
+MOUNTS_FILE = os.environ.get("EMBYCACHE_MOUNTS") or "/proc/mounts"
+_ZFS_DATASET = {}
+
+
+def _zfs_dataset(path):
+    """Das ZFS-Dataset, auf dem `path` liegt (der längste Mountpunkt darüber in /proc/mounts), sonst None."""
+    p = os.path.normpath(str(path))
+    if p in _ZFS_DATASET:
+        return _ZFS_DATASET[p]
+    best = None
+    try:
+        lines = Path(MOUNTS_FILE).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        f = line.split()
+        if len(f) < 3:
+            continue
+        mnt = f[1].replace("\\040", " ")
+        if (p == mnt or p.startswith(mnt.rstrip("/") + "/")) and (best is None or len(mnt) > len(best[0])):
+            best = (mnt, f[0], f[2])
+    ds = best[1] if best and best[2] == "zfs" else None
+    _ZFS_DATASET[p] = ds
+    return ds
+
+
+def _zfs_used_avail(name):
+    try:
+        res = subprocess.run([ZFS_BIN, "list", "-Hp", "-o", "used,avail", name], capture_output=True, text=True, timeout=30)
+        used, avail = res.stdout.split()
+        return (int(used), int(avail)) if res.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def pool_usage(path):
+    """(total, free) für `path`: auf ZFS der ganze Pool (frei = avail des Datasets), sonst statvfs (USO)."""
+    ds = _zfs_dataset(path)
+    if ds:
+        pool = _zfs_used_avail(ds.split("/")[0])
+        own = _zfs_used_avail(ds) if "/" in ds else pool
+        if pool and own and pool[0] + pool[1] > 0:
+            return pool[0] + pool[1], min(own[1], pool[1])
     u = shutil.disk_usage(path)
-    if u.total == 0:
+    return u.total, u.free
+
+
+def free_percent_after(path, size, simulated_delta=0):
+    """Freiplatz in Prozent, nachdem `size` Bytes geschrieben wären (bei ZFS-Quota zählt die Quota; USO: auf ZFS
+    der ganze Pool, pool_usage()). simulated_delta: im Dry-Run der noch nicht ausgeführte Platzgewinn (Cleanup) minus
+    geplante Kopien, damit der Dry-Run denselben Füllstand sieht wie der scharfe Lauf an dieser Stelle."""
+    total, free = pool_usage(path)
+    if total == 0:
         return 0.0
-    return max(0.0, (u.free + simulated_delta - size) / u.total * 100.0)
+    return max(0.0, (free + simulated_delta - size) / total * 100.0)
+
+
+def budget_bytes():
+    """USO: EMBYCACHE_BUDGET_BYTES – Jacks Stück vom Pool in Bytes (Frau Moverelli teilt es zu); None: kein Budget."""
+    v = (os.environ.get("EMBYCACHE_BUDGET_BYTES") or "").strip()
+    if not v:
+        return None
+    if not v.isdigit():
+        raise ConfigError(f"EMBYCACHE_BUDGET_BYTES ist keine ganze Zahl: {v!r}")
+    return int(v)
 
 
 # --------------------------------------------------------------------------- Mover

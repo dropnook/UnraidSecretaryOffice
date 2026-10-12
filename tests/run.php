@@ -30442,6 +30442,445 @@ JS);
 }
 
 /**
+ * The pool as a cake (agent/lib/poolcake.php, 2026-10-12, the owner's rule): the numbers on the concept's nostromo example
+ * (7352 GiB, 3189 used, 801 in the movable shares, Jack Emby's list 671; X 80, Y 60, n 20) — NM, the cake, his slice, her
+ * reading, the offset, his budget, the proposal; the run's bounds (what never moves and his slice reach Y → the fill only
+ * below X; what never moves above X → no fill, his slice 0; ≥ 95 % → everything movable, his budget 0); his slice not set
+ * (as before); the setup's refusals (Y ≤ NM + 5 %, NM ≥ X, NM + j ≥ Y); the look from ZFS (refer and snapshots of the
+ * movable shares, his list's files on the pool, a sleeping pool not looked at unless a run wakes it, no ZFS: none); her
+ * ini's rules and Jack's environment; Smart Mover's variables; her save refused with what she says, the Team Lead's
+ * findings, the notifications of a run's bound; the migration step; her setup's bar and Jack's words under node.
+ */
+function testPoolCake(): void
+{
+    $G = 1 << 30;
+    $m = poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 20, 671 * $G);
+    $gib = fn (int $b) => round($b / $G, 1);
+    same('cake nostromo: NM 2388 GiB (32.5 %), the cake 3493.6, his slice 698.7, her reading 3216.7 (43.8 %), ok — the room for new 2794.9',
+        [2388.0, 32.5, 3493.6, 698.7, 3216.7, 43.8, 'ok', 2794.9, 'normal'],
+        [$gib($m['nm']), $m['nm_pct'], $gib($m['cake']), $gib($m['slice']), $gib($m['eff']), $m['eff_pct'], $m['case'], $gib($m['rest']), $m['fill']]);
+    same('cake nostromo: the offset for Smart Mover j − J = 27.7 GiB, his budget = his slice, nothing over it', [27.7, true, 0],
+        [$gib($m['offset']), $m['budget'] === $m['slice'], $m['excess']]);
+    same('cake nostromo: n 30 — his slice 1048.1 GiB, 377.1 of it free', [1048.1, 377.1],
+        [$gib(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 30, 671 * $G)['slice']), $gib(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, 30, 671 * $G)['offset'])]);
+    same('cake: the proposal from what he holds today — 671 of 3493.6 → 20 %; little → at least 10; all → 100; no cake → none',
+        [20, 10, 100, null], [poolCakeProposal(671 * $G, $m['cake']), poolCakeProposal($G, $m['cake']), poolCakeProposal(5000 * $G, $m['cake']), poolCakeProposal(1, 0)]);
+    $none = poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 80, 60, null, 671 * $G);
+    same('cake: his slice not set — she reads the pool as it is (no offset), no budget, the bound as for the pool', [0, null, 3189.0, 'ok'],
+        [$none['offset'], $none['budget'], $gib($none['eff']), $none['case']]);
+
+    // the run's bounds (section 8): appdata grows
+    $t = poolCakeMath(7352 * $G, 4850 * $G, 801 * $G, 80, 60, 20, 671 * $G);
+    same('cake bound «target»: NM 4049 GiB (55 %) + his slice 366.5 ≥ 60 % — the fill only down to below X, his budget the smaller slice, 304.5 over it',
+        ['target', 'target', 366.5, 366.5, 304.5], [$t['case'], $t['fill'], $gib($t['slice']), $gib((int) $t['budget']), $gib($t['excess'])]);
+    $n = poolCakeMath(7352 * $G, 6000 * $G, 100 * $G, 80, 60, 20, 100 * $G);
+    same('cake bound «none»: NM 5900 GiB ≥ 80 % — no fill, no cake, his slice 0: he gives back all', ['none', 'off', 0, 0, 100.0],
+        [$n['case'], $n['fill'], $n['cake'], $n['budget'], $gib($n['excess'])]);
+    $f = poolCakeMath(7352 * $G, 7000 * $G, 801 * $G, 80, 60, 20, 671 * $G);
+    same('cake bound «full»: 95.2 % used — everything movable goes, his budget 0', ['full', 'all', 0], [$f['case'], $f['fill'], $f['budget']]);
+    same('cake: no limit (X 0) — no cake, no bound', [0, 'ok', 'normal'], array_values(array_intersect_key(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, 0, 0, 20, 671 * $G), array_flip(['cake', 'case', 'fill']))));
+    same('cake: the hysteresis — 4 % over his slice stays, 6 % over goes back', [0, true],
+        [poolCakeMath(1000, 500, 500, 100, 50, 10, 104)['excess'], poolCakeMath(1000, 500, 500, 100, 50, 10, 106)['excess'] > 0]);
+
+    // her setup's refusals: Y above NM + 5 %, X above NM, Jack's slice on top below Y
+    $p = fn (int $x, int $y, ?int $n) => poolCakeSetupProblem(poolCakeMath(7352 * $G, 3189 * $G, 801 * $G, $x, $y, $n, 671 * $G), 'master');
+    same('cake setup: Y 37 ≤ 32.5 + 5 → «… down to» at least 38; X 30 ≤ NM → none; Y 40 with his 20 % (42 %) → the slice; Y 60 fine; no limit fine', [
+        ['moverelli_cake_target', ['pool' => 'master', 'nm' => 32, 'y' => 37, 'min' => 38]],
+        ['moverelli_cake_none', ['pool' => 'master', 'nm' => 32, 'x' => 30]],
+        ['moverelli_cake_slice', ['pool' => 'master', 'nm' => 32, 'y' => 40, 'j' => '699 GB']],
+        null, null, null], [$p(80, 37, null), $p(30, 20, null), $p(80, 40, 20), $p(80, 60, 20), $p(80, 40, null), $p(0, 0, 20)]);
+
+    // the look from ZFS and the stat of his list
+    $tmp = hardeningTmp('poolcake');
+    foreach (["$tmp/shares", "$tmp/bin", "$tmp/mnt/master/Filme/A", "$tmp/mnt/fast/X"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"master\"\n");
+    file_put_contents("$tmp/shares/Serien.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"master\"\n");
+    file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\nshareCachePool=\"master\"\n");
+    file_put_contents("$tmp/shares/Other.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"fast\"\n");
+    file_put_contents("$tmp/mnt/master/Filme/A/a.mkv", str_repeat('a', 4000));
+    file_put_contents("$tmp/mnt/master/Filme/A/b.mkv", str_repeat('b', 1000));
+    file_put_contents("$tmp/mnt/fast/X/x.mkv", str_repeat('x', 500));
+    file_put_contents("$tmp/list.txt", "$tmp/mnt/master/Filme/A/a.mkv\n$tmp/mnt/master/Filme/A/b.mkv\n$tmp/mnt/master/Filme/A/gone.mkv\n$tmp/mnt/fast/X/x.mkv\n");
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *' master' ]] || exit 1\nprintf 'master\\t60000\\t40000\\t100\\t0\\nmaster/Filme\\t9000\\t40000\\t7000\\t2000\\nmaster/Serien\\t3000\\t40000\\t3000\\t0\\nmaster/appdata\\t30000\\t40000\\t30000\\t0\\n'\n");
+    chmod("$tmp/bin/zfs", 0755);
+    $o = ['x' => 80, 'y' => 60, 'n' => 20, 'shares_dir' => "$tmp/shares", 'names' => ['Filme', 'Serien', 'appdata', 'Other'], 'zfs' => "$tmp/bin/zfs",
+          'mnt' => "$tmp/mnt", 'jack_list' => "$tmp/list.txt", 'asleep' => []];
+    $c = poolCake('master', $o);
+    same('cake look: movable Filme (yes) and Serien (prefer), never appdata — M 10000 (refer), snapshots 2000, the pool 100000/60000; his list on master 5000 (a gone file 0, another pool\'s not)',
+        [['Filme', 'Serien'], 10000, 2000, 100000, 60000, 50000, 5000], [$c['shares'] ?? null, $c['movable'] ?? null, $c['snapshots'] ?? null, $c['size'] ?? null, $c['used'] ?? null, $c['nm'] ?? null, $c['jack'] ?? null]);
+    same('cake look: the cake 30000, his slice 6000, the proposal 20 %', [30000, 6000, 20], [$c['cake'] ?? null, $c['slice'] ?? null, $c['proposal'] ?? null]);
+    same('cake look: the pool asleep — not looked at; a run about to wake it looks; no ZFS — none', [null, true, null],
+        [poolCake('master', ['asleep' => ['master' => true]] + $o), poolCake('master', ['asleep' => ['master' => true], 'wake' => true] + $o) !== null, poolCake('fast', $o)]);
+
+    // her ini's rules, Jack's environment
+    file_put_contents("$tmp/ini", "[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=60\n[Filme]\njack_slice_percent=99\n");
+    $jo = ['ini' => "$tmp/ini", 'cache_path' => "$tmp/mnt/master"] + $o;
+    same('cake rules: X, Y from [GLOBAL], no slice yet (a share\'s section doesn\'t count)', ['x' => 80, 'y' => 60, 'n' => null], poolCakeRules("$tmp/ini"));
+    same('cake jack: her limit, no slice yet — EmbyCache keeps 20 % free, no budget', ['EMBYCACHE_MIN_FREE_PERCENT' => '20'], poolCakeJack($jo)['env'] ?? null);
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=60\njack_slice_percent=20\n");
+    same('cake jack: … with his slice — the budget 6000', ['EMBYCACHE_MIN_FREE_PERCENT' => '20', 'EMBYCACHE_BUDGET_BYTES' => '6000'], poolCakeJack($jo)['env'] ?? null);
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=0\njack_slice_percent=20\n");
+    same('cake jack: she has no limit — nothing told (his own minimum); she isn\'t set up — null', [[], null],
+        [poolCakeJack($jo)['env'] ?? null, poolCakeJack(['ini' => "$tmp/none"] + $jo)]);
+    $GLOBALS['embyCake'] = ['ini' => "$tmp/ini", 'shares_dir' => "$tmp/shares", 'names' => $o['names'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
+        'jack_list' => "$tmp/list.txt", 'asleep' => []];
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=60\njack_slice_percent=20\n");
+    same('cake jack: his launch hands it to EmbyCache (embyCakeEnv) — the same', ['EMBYCACHE_MIN_FREE_PERCENT' => '20', 'EMBYCACHE_BUDGET_BYTES' => '6000'],
+        embyCakeEnv(['cache_path' => "$tmp/mnt/master"]));
+    unset($GLOBALS['embyCake']);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('cake jack: EmbyCache\'s dry and real runs get it, the release not', str_contains($src, "+ (in_array(\$mode, ['dry', 'run'], true) ? embyCakeEnv(embyReadSettings()) : [])"));
+
+    // Smart Mover's variables from her cakes
+    same('cake env: the offset where it isn\'t 0, the bounds per pool', ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'master:-200,fast:7', 'CUSTOMMOVER_FILL_ALL' => 'x',
+        'CUSTOMMOVER_FILL_OFF' => 'y', 'CUSTOMMOVER_FILL_TARGET' => 'master:80'],
+        moverelliCakeEnv(['master' => ['offset' => -200, 'fill' => 'target', 'x' => 80], 'fast' => ['offset' => 7, 'fill' => 'normal', 'x' => 80],
+            'x' => ['offset' => 0, 'fill' => 'all', 'x' => 90], 'y' => ['offset' => 0, 'fill' => 'off', 'x' => 70], 'z' => null]));
+    same('cake env: nothing to say — nothing set', [], moverelliCakeEnv(['master' => ['offset' => 0, 'fill' => 'normal', 'x' => 80]]));
+
+    // her save: refused with what she says; her ini with the slice; the Team Lead's findings
+    $v = [];
+    moverelliFixture($tmp . '/her', $v);
+    $T = "$tmp/her";
+    file_put_contents("$T/bin/zfs-cake", "#!/bin/bash\n[[ \"\$*\" == *' cache' ]] || exit 1\nprintf 'cache\\t60000\\t40000\\t100\\t0\\ncache/Filme\\t9000\\t40000\\t7000\\t3000\\ncache/Docs\\t3000\\t40000\\t3000\\t0\\n'\n");
+    chmod("$T/bin/zfs-cake", 0755);
+    @mkdir("$T/mnt/cache/Filme/J", 0700, true);
+    file_put_contents("$T/mnt/cache/Filme/J/j.mkv", str_repeat('j', 5000));
+    file_put_contents("$T/jack.txt", "$T/mnt/cache/Filme/J/j.mkv\n");
+    $GLOBALS['moverelliHost'] += ['zfs' => "$T/bin/zfs-cake", 'asleep' => [], 'jack_cache' => fn () => "$T/mnt/cache", 'jack_list_file' => "$T/jack.txt"];
+    $save = function (array $g) use ($T): string {
+        try {
+            moverelliSave(moverelliTestSettings($g));
+            return 'ok';
+        } catch (Problem $p) {
+            return $p->key . ':' . json_encode($p->params);
+        }
+    };
+    same('cake save: NM 50 % — «… down to» 54 refused (at least 56), X 50 refused (none), his 40 % (62 %) over Y 60 refused, 20 % fine', [
+        'moverelli_cake_target:{"pool":"cache","nm":50,"y":54,"min":56}', 'moverelli_cake_none:{"pool":"cache","nm":50,"x":50}',
+        'moverelli_cake_slice:{"pool":"cache","nm":50,"y":60,"j":"12 KB"}', 'ok'],
+        [$save(['move_when_used_above' => 80, 'move_until_used_below' => 54]), $save(['move_when_used_above' => 50, 'move_until_used_below' => 40]),
+         $save(['move_when_used_above' => 80, 'move_until_used_below' => 60, 'jack_slice_percent' => 40]),
+         $save(['move_when_used_above' => 80, 'move_until_used_below' => 60, 'jack_slice_percent' => 20])]);
+    $ini = (string) file_get_contents("$T/data/smart_mover.ini");
+    check('cake save: her ini carries the slice', str_contains($ini, "jack_slice_percent=20\n"), $ini);
+    same('cake save: a page that doesn\'t know the slice keeps it', ['ok', 20],
+        [$save(['move_when_used_above' => 80, 'move_until_used_below' => 60]), moverelliSettings("$T/data")['global']['jack_slice_percent'] ?? null]);
+    $state = moverelliScan();
+    same('cake state: her pool with Jack\'s slice for the page — his 5000 of 6000, the proposal 20 %, mine',
+        [true, 5000, 6000, 20, 'ok'], [$state['cakes']->cache['mine'] ?? null, $state['cakes']->cache['jack'] ?? null, $state['cakes']->cache['slice'] ?? null,
+         $state['cakes']->cache['proposal'] ?? null, $state['cakes']->cache['case'] ?? null]);
+    $finds = fn () => array_column(array_map(fn ($f) => [$f['id'], [$f['level'], $f['ok'], $f['params']]], array_filter(moverelliChecks(),
+        fn ($f) => str_starts_with($f['id'], 'pool_'))), 1, 0);
+    same('cake checks: the target reachable, a cake, snapshots 3 % (> 2 %) — the hint', [
+        'pool_cake_target' => ['required', true, ['pool' => 'cache', 'nm' => 50, 'j' => '5.9 KB', 'y' => 60]],
+        'pool_cake_none' => ['required', true, ['pool' => 'cache', 'nm' => 50, 'x' => 80]],
+        'pool_snapshots' => ['hint', false, ['pool' => 'cache', 'size' => '2.9 KB']]], $finds());
+    file_put_contents("$T/bin/zfs-cake", "#!/bin/bash\n[[ \"\$*\" == *' cache' ]] || exit 1\nprintf 'cache\\t66000\\t34000\\t100\\t0\\ncache/Filme\\t9000\\t34000\\t7000\\t0\\ncache/Docs\\t3000\\t34000\\t3000\\t0\\n'\n");
+    same('cake checks: appdata grew (NM 56 %, his slice 4800 → 60.8 % ≥ 60) — the target out of reach: required, red; still a cake',
+        [false, true], [$finds()['pool_cake_target'][1] ?? null, $finds()['pool_cake_none'][1] ?? null]);
+    $GLOBALS['moverelliHost']['asleep'] = ['cache' => true];
+    same('cake checks: the pool asleep — not looked at (null)', [['required', null, ['pool' => '']], ['hint', null, ['pool' => '']]],
+        [$finds()['pool_cake_target'] ?? 'x', $finds()['pool_snapshots'] ?? 'x']);
+    $GLOBALS['moverelliHost']['asleep'] = [];
+
+    // a real run's bound: told at once (warning; the overflow an alert), said in her bubble
+    $bin = "$tmp/notify";
+    file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
+    chmod($bin, 0755);
+    $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
+    putenv("OFFICE_NOTIFY_BIN=$bin");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
+    $sent = moverelliCakeNotify(['master' => $t + ['mine' => true], 'fast' => $f, 'ok' => $m, 'none' => null]);
+    $said = (string) @file_get_contents("$tmp/notified");
+    putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
+    putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
+    check('cake notify: the target out of reach a warning, the overflow an alert, nothing for a pool that is fine', $sent === 2
+        && str_contains($said, "-i\nwarning") && str_contains($said, 'master is at 55 % from appdata & co. alone — I can\'t get below 60 % any more, I keep it below 80 %.')
+        && str_contains($said, "-i\nalert") && str_contains($said, 'fast is overflowing (95 %)'), $said);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('cake run: her job hands Smart Mover the variables, keeps the bound with the run, tells it after a real run',
+        str_contains($src, "+ moverelliCakeEnv(\$cakes) + \$h['env']") && str_contains($src, "\$note['cake'] = \$bounds;") && str_contains($src, "moverelliCakeNotify(\$cakes);"));
+
+    // the migration: nothing written, what holds said
+    @mkdir("$tmp/mig/moverelli", 0700, true);
+    same('cake migration: no ini — nothing', 'nothing to change — Ms. Moverelli has no limit for the pool', officeMigrateCake("$tmp/mig"));
+    file_put_contents("$tmp/mig/moverelli/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=70\n");
+    $was = file_get_contents("$tmp/mig/moverelli/smart_mover.ini");
+    check('cake migration: a limit without his slice — said (Jack keeps 20 %), nothing written; the step registered',
+        str_contains(officeMigrateCake("$tmp/mig"), 'Jack Emby keeps 20 % of it free') && file_get_contents("$tmp/mig/moverelli/smart_mover.ini") === $was
+        && in_array('moverelli-cake', array_column(officeMigrateSteps(), 'id'), true));
+    file_put_contents("$tmp/mig/moverelli/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=70\njack_slice_percent=25\n");
+    same('cake migration: his slice set — nothing', "nothing to change — Jack Emby's slice is set (25 %)", officeMigrateCake("$tmp/mig"));
+
+    // her setup's bar and Jack's words under node
+    $node = testsNode();
+    if ($node === '') {
+        check('cake page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, set innerHTML(v) { this.children = []; },
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {} });
+globalThis.document = { createTextNode: (t) => t };
+const size = (b) => Math.round(b / 1073741824) + ' GiB';
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { size, number: (n) => String(n), time: (t) => 'T' + t, duration: (s) => s + 's', date: (t) => 'D' + t }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
+const texts = (n) => (n == null ? [] : typeof n === 'string' ? [n] : [n.textContent || '', ...(n.children || []).flatMap(texts)].filter(Boolean));
+const classes = (n) => (n == null || typeof n === 'string' ? [] : [n.cls || '', ...(n.children || []).flatMap(classes)]);
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const G = 1073741824;
+const raw = { size: 7352 * G, used: 3189 * G, movable: 801 * G, jack: 671 * G, mine: true, proposal: 20, shares: ['Filme', 'Serien'], case: 'ok', nm_pct: 32.5, used_pct: 43.4, x: 80, y: 60 };
+const out = {};
+const c = m.cakeMath(raw, 80, 60, 20);
+out.math = [Math.round(c.cake / G * 10) / 10, Math.round(c.slice / G * 10) / 10, Math.round(c.effPct * 10) / 10, c.bad];
+out.bad = [m.cakeMath(raw, 80, 37, null).bad, m.cakeMath(raw, 80, 37, null).min, m.cakeMath(raw, 30, 20, null).bad, m.cakeMath(raw, 80, 40, 20).bad];
+const g = { move_when_used_above: 80, move_until_used_below: 60, jack_slice_percent: 20 };
+out.bar = texts(m.cakeBar('master', raw, g));
+out.barBad = texts(m.cakeBar('master', raw, { ...g, move_until_used_below: 40 }));
+out.badCls = classes(m.cakeBar('master', raw, { ...g, move_until_used_below: 40 })).filter((x) => /bad/.test(x));
+m.setState({ cakes: { master: raw }, jack: { hired: true } });
+out.slice = texts(m.sliceField({ ...g, jack_slice_percent: null }, raw));
+const sec = m.cakeSection(g);
+out.section = texts(sec);
+m.setState({ cakes: { master: { ...raw, case: 'target', nm_pct: 55.1 } }, jack: { hired: true }, configured: true, unraid: { ok: true }, job: {} });
+out.bubble = m.cakeBubble();
+const e = OFFICE_DESK_TESTS.emby;
+e.setState({ pool: { slice: 750 * G, slice_used: 671 * G, waiting: 3, excess: 0, moverelli: { x: 80, n: 20 }, min_free: 20 } });
+out.jack = e.sliceWords();
+e.setState({ pool: { slice: 600 * G, slice_used: 671 * G, waiting: 0, excess: 71 * G, moverelli: { x: 80, n: 20 }, min_free: 20 } });
+out.over = e.sliceWords();
+e.setState({ pool: { moverelli: { x: 80, n: null }, min_free: 20 } });
+out.pending = e.sliceWords();
+e.setState({ pool: { min_free: 10 } });
+out.nobody = e.sliceWords();
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    same('cake page: the same numbers as the agent — the cake 3493.6 GiB, his slice 698.7, her reading 43.8 %', [3493.6, 698.7, 43.8, null], $j['math'] ?? $err);
+    same('cake page: out of reach as the setup refuses — target (at least 38), none, slice', ['target', 38, 'none', 'slice'], $j['bad'] ?? null);
+    check('cake page: the bar says the pool, the parts, the marks and the numbers', ($j['bar'] ?? null) && in_array('setup.cake_pool {"pool":"master","used":"3189 GiB","size":"7352 GiB"}', $j['bar'], true)
+        && in_array('setup.cake_x {"x":80}', $j['bar'], true) && in_array('setup.cake_eff {"pct":44}', $j['bar'], true)
+        && in_array('setup.cake_numbers {"cake":"3494 GiB","slice":"699 GiB","used":"671 GiB","rest":"2795 GiB"}', $j['bar'], true), json_encode($j['bar'] ?? null));
+    check('cake page: Y out of reach — red, «out of reach», said in her words', in_array('setup.cake_y {"y":40} — setup.cake_unreachable', $j['barBad'] ?? [], true)
+        && in_array('setup.cake_slice_big {"nm":32,"y":40,"j":"699 GiB"}', $j['barBad'] ?? [], true) && in_array('mo-cake-tick mo-tick-y mo-tick-bad', $j['badCls'] ?? [], true), json_encode($j));
+    check('cake page: no slice yet — the proposal and «Use it», the slider says it isn\'t set', in_array('setup.slice_proposed {"n":20} ', $j['slice'] ?? [], true)
+        && in_array('setup.slice_take', $j['slice'] ?? [], true) && in_array('setup.jack_slice_row: setup.slice_none', $j['slice'] ?? [], true), json_encode($j['slice'] ?? null));
+    check('cake page: the section — her sentence, the slider at 20 %', in_array('setup.cake_sub {"x":80,"y":60,"n":20}', $j['section'] ?? [], true)
+        && in_array('setup.jack_slice {"n":20}', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
+    same('cake page: her bubble while a bound holds', 'notify.cake_target {"pool":"master","nm":55,"x":80,"y":60,"used":43}', $j['bubble'] ?? null);
+    same('cake page: Jack\'s words — his slice, the films that wait; over it; not set yet; she isn\'t set up', [
+        ['slice.text {"n":20,"j":"750 GiB","used":"671 GiB"}', 'slice.full {"n":3}'],
+        ['slice.text {"n":20,"j":"600 GiB","used":"671 GiB"}', 'slice.over {"used":"671 GiB","j":"600 GiB","excess":"71 GiB"}'],
+        ['slice.pending {"min":20}'], ['slice.none']], [$j['jack'] ?? null, $j['over'] ?? null, $j['pending'] ?? null, $j['nobody'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * Smart Mover's «cake» hooks (2026-10-12, smartmover/README.md): CUSTOMMOVER_POOL_OFFSET_BYTES on every reading (Jack
+ * Emby's slice counted whole — the trigger, the target, the re-reading after each file; negative too; said in the log;
+ * a dry run estimates the same), CUSTOMMOVER_FILL_TARGET (the fill only down to below X), CUSTOMMOVER_FILL_OFF (no fill,
+ * the age alone), CUSTOMMOVER_FILL_ALL (the overflow: every non-excluded file, without a trigger of its own).
+ */
+function testMoverelliCakeHooks(): void
+{
+    $base = hardeningTmp('moverelli-cake');
+    $n = 0;
+    // files Docs/<name> => [days old, excluded?], 100 bytes each; the pool $size bytes (zfs and df stand-ins count the files)
+    $tree = function (string $ini, int $size, array $env = []) use ($base, &$n): array {
+        $t = "$base/" . ++$n;
+        foreach (['mnt/cache/Docs', 'mnt/disk1', 'mnt/user/Docs', 'bin', 'shares'] as $d) {
+            @mkdir("$t/$d", 0700, true);
+        }
+        file_put_contents("$t/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+        foreach (['z' => [40, false], 'y' => [20, false], 'x' => [10, false], 'w' => [1, false], 'e' => [50, true]] as $f => [$days, $ex]) {
+            file_put_contents("$t/mnt/cache/Docs/$f", str_repeat('x', 100));
+            touch("$t/mnt/cache/Docs/$f", time() - $days * 86400);
+        }
+        file_put_contents("$t/excl.txt", "$t/mnt/cache/Docs/e\n");
+        $count = '$(find "$ZROOT" -type f -printf \'%s\n\' | awk \'{s+=$1} END {print s+0}\')';
+        file_put_contents("$t/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\nu=$count; echo \"\$u \$(( ZSIZE - u ))\"\n");
+        file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+        chmod("$t/bin/zfs", 0755);
+        chmod("$t/bin/move", 0755);
+        file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/excl.txt\nmin_age=30\nage_stat=mtime\n$ini\n");
+        return [$t, $env + ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move",
+            'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size]];
+    };
+    $run = function (array $env, bool $real): array {
+        runEnv(array_merge(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $real ? ['--run'] : []), $env, 60);
+        return readJson($env['CUSTOMMOVER_STATUS']) ?? [];
+    };
+    $on = fn (string $t, string $where) => array_map('basename', glob("$t/mnt/$where/*/*") ?: []);
+    $log = fn (string $t) => (string) @file_get_contents("$t/log");
+    $dry = fn (string $t) => array_map(fn ($l) => basename(trim(substr($l, strpos($l, ']') + 1))),
+        array_values(array_filter(explode("\n", (string) @file_get_contents("$t/log")), fn ($l) => str_starts_with($l, '[DRY-RUN]     '))));
+
+    // 1. the offset: 50 % used, Jack's slice 400 bytes more than his list holds — after the age (z) she sees 80 %: oldest first to below 70 %
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 1000, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'other:5,cache:400']);
+    $run($env, false);
+    same('cake hooks offset, dry: the age (z), then y and x — estimated with the offset', ['z', 'y', 'x'], $dry($t));
+    $st = $run($env, true);
+    same('cake hooks offset: z by age, y and x by the fill (80 % → 60 % seen), w stays, the excluded e never',
+        [['x', 'y', 'z'], ['e', 'w'], '80', '60', true], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['pool_used'] ?? null, $st['shares'][0]['pool_now'] ?? null, $st['shares'][0]['reached'] ?? null]);
+    check('cake hooks offset: said in the log', str_contains($log($t), "pool cache: I see it at 80% – Jack Emby's slice counted whole (+"), $log($t));
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 1000);
+    $run($env, true);
+    same('cake hooks: … without it 40 % after the age — no fill', [['z'], ['e', 'w', 'x', 'y']], [$on($t, 'disk1'), $on($t, 'cache')]);
+
+    // 2. negative: the pool full (500 of 500), his list 300 bytes over his slice — she sees 20 % after the age: no fill
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 500, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'cache:-300']);
+    $run($env, true);
+    same('cake hooks negative offset: what Jack holds over his slice is invisible to her — the age alone', ['z'], $on($t, 'disk1'));
+
+    // 3. the target out of reach: the fill only down to below X
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=60", 1000, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'cache:400', 'CUSTOMMOVER_FILL_TARGET' => 'cache:80']);
+    $st = $run($env, true);
+    same('cake hooks target: below 80 % instead of 60 % — y only, x and w stay; the status says the target', [['y', 'z'], '80', true],
+        [$on($t, 'disk1'), $st['shares'][0]['until'] ?? null, $st['shares'][0]['reached'] ?? null]);
+    check('cake hooks target: said', str_contains($log($t), "pool cache: below 60% can't be reached (office) – the fill goes only down to below 80%"), $log($t));
+
+    // 4. no fill: what never moves is above X
+    [$t, $env] = $tree("move_when_used_above=80\nmove_until_used_below=70", 1000, ['CUSTOMMOVER_POOL_OFFSET_BYTES' => 'cache:400', 'CUSTOMMOVER_FILL_OFF' => 'cache']);
+    $run($env, true);
+    same('cake hooks off: the age alone, said', [['z'], true], [$on($t, 'disk1'), str_contains($log($t), 'what never moves lies above 80% (office) – no fill, the age alone')]);
+
+    // 5. the overflow: everything not excluded, even without a trigger of her own
+    [$t, $env] = $tree("move_when_used_above=0", 1000, ['CUSTOMMOVER_FILL_ALL' => 'cache']);
+    $run($env, true);
+    same('cake hooks all: every file but the excluded e goes, whatever its age; said', [['w', 'x', 'y', 'z'], ['e'], true],
+        [$on($t, 'disk1'), $on($t, 'cache'), str_contains($log($t), 'pool cache overflowing (office): everything not excluded goes, whatever its age')]);
+    [$t, $env] = $tree("move_when_used_above=0", 1000, ['CUSTOMMOVER_FILL_ALL' => 'other']);
+    $run($env, true);
+    same('cake hooks all: another pool named — nothing more than the age', ['z'], $on($t, 'disk1'));
+    hardeningRm($base);
+}
+
+/**
+ * EmbyCache under Ms. Moverelli's cake (2026-10-12, office changes listed in embycache/README.md): free space on ZFS is the
+ * whole pool (the path's dataset from /proc/mounts, the pool's used + avail, the dataset's avail — a quota counts), not
+ * ZFS as before; EMBYCACHE_BUDGET_BYTES — a stand-in Emby, Benj resumes «Alien» (3010 bytes), Kids «Brazil» (2000): a
+ * dry and a real run fill what fits (Brazil waits, said, counted in the status), within 5 % over nothing goes back, a
+ * smaller slice gives the excess back (the files filled last first) and fills what fits then; a budget that is no number
+ * is refused; without the variable as before.
+ */
+function testEmbyBudget(): void
+{
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        check('emby budget: python3 is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('emby-budget');
+    // ZFS: the pool master 7000 + 3000, the share's dataset sees refer 500 + the pool's avail; a quota'd dataset 100 avail
+    @mkdir("$tmp/z/pool/Filme", 0700, true);
+    @mkdir("$tmp/z/plain", 0700, true);
+    file_put_contents("$tmp/z/mounts", "master $tmp/z/pool zfs rw 0 0\nmaster/Filme $tmp/z/pool/Filme zfs rw 0 0\nmaster/Quota $tmp/z/pool/Quota zfs rw 0 0\n/dev/x $tmp/z/plain ext4 rw 0 0\n");
+    @mkdir("$tmp/z/pool/Quota", 0700, true);
+    file_put_contents("$tmp/z/zfs", "#!/bin/bash\ncase \"\${@: -1}\" in master) echo '7000 3000';; master/Filme) echo '500 3000';; master/Quota) echo '50 100';; *) exit 1;; esac\n");
+    chmod("$tmp/z/zfs", 0755);
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; '
+        . 'print(round(l.free_percent_after(sys.argv[2] + "/pool/Filme", 0), 1), round(l.free_percent_after(sys.argv[2] + "/pool", 1000), 1), '
+        . 'round(l.free_percent_after(sys.argv[2] + "/pool/Quota", 0), 1), l.pool_usage(sys.argv[2] + "/plain")[0] > 0)';
+    [, $out, $err] = runEnv(['python3', '-c', $py, OFFICE_DIR . '/embycache', "$tmp/z"], ['EMBYCACHE_ZFS' => "$tmp/z/zfs", 'EMBYCACHE_MOUNTS' => "$tmp/z/mounts",
+        'EMBYCACHE_DIR' => "$tmp/z", 'PYTHONDONTWRITEBYTECODE' => '1', 'PATH' => getenv('PATH')], 30);
+    same('emby zfs: a share\'s dataset — the whole pool 30 % free (not refer+avail: 86 %); 1000 bytes more → 20 %; a quota\'d dataset 1 %; not ZFS — statvfs',
+        '30.0 20.0 1.0 True', trim((string) $out), $err);
+
+    // a stand-in Emby, the pool with an old file going back, rsync both ways
+    $p = "$tmp/py";
+    foreach (["$p/data", "$p/pool/Filme/Old", "$p/user0/Filme/Alien", "$p/user0/Filme/Brazil", "$p/user/Filme", "$p/shares"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$p/pool/Filme/Old/old.mkv", str_repeat('o', 1500));
+    file_put_contents("$p/user0/Filme/Alien/Alien.mkv", str_repeat('a', 3000));
+    file_put_contents("$p/user0/Filme/Alien/Alien.srt", str_repeat('s', 10));
+    file_put_contents("$p/user0/Filme/Brazil/Brazil.mkv", str_repeat('b', 2000));
+    file_put_contents("$p/data/embycache_exclude.txt", "$p/pool/Filme/Old/old.mkv\n");
+    file_put_contents("$p/emby.py", <<<'PY'
+import http.server, json, sys, urllib.parse
+RESUME = {"u1": [{"Type": "Movie", "Id": "m1", "Name": "Alien", "Path": "/media/movies/Alien/Alien.mkv"}],
+          "u2": [{"Type": "Movie", "Id": "m2", "Name": "Brazil", "Path": "/media/movies/Brazil/Brazil.mkv"}]}
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        u = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        if u.path == "/Users":
+            body = [{"Id": "u1", "Name": "Benj"}, {"Id": "u2", "Name": "Kids"}]
+        elif u.path == "/Sessions":
+            body = []
+        elif u.path.endswith("/Items/Resume"):
+            body = {"Items": RESUME.get(u.path.split("/")[2], []) if q.get("IncludeItemTypes") == ["Movie"] else []}
+        else:
+            body = {"Items": []}
+        b = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+    def log_message(self, *a):
+        pass
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1] + ".tmp", "w").write(str(s.server_address[1]))
+import os; os.replace(sys.argv[1] + ".tmp", sys.argv[1])
+s.serve_forever()
+PY);
+    $emby = proc_open(['python3', "$p/emby.py", "$p/port"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$p/emby.err", 'w']], $pipes);
+    for ($i = 0; $i < 50 && !is_file("$p/port"); $i++) {
+        usleep(100000);
+    }
+    $port = (int) @file_get_contents("$p/port");
+    file_put_contents("$p/data/embycache_settings.json", json_encode(['cache_path' => "$p/pool", 'array_path' => "$p/user0", 'user_path' => "$p/user",
+        'array_disks_glob' => "$p/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$p/shares",
+        'api_timeout' => 3, 'min_free_percent' => 0, 'max_resume_movies' => 10, 'max_resume_series' => 0, 'max_favorite_series' => 0, 'use_next_up' => false,
+        'instances' => [['servername' => 'Test', 'url' => "http://127.0.0.1:$port", 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$p/user/Filme"]]]],
+        JSON_UNESCAPED_SLASHES));
+    $go = function (?int $budget, bool $real) use ($p): array {
+        $cmd = ['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", "EMBYCACHE_STATUS=$p/data/status.json", 'EMBYCACHE_FILL_TOOL=rsync', 'EMBYCACHE_CLEANUP_TOOL=rsync',
+                'EMBYCACHE_MOUNTS=/dev/null', 'PYTHONDONTWRITEBYTECODE=1'];
+        if ($budget !== null) {
+            $cmd[] = "EMBYCACHE_BUDGET_BYTES=$budget";
+        }
+        [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/embycache/embycache_run.py'], $real ? ['--run'] : []), 120);
+        return [$exit, readJson("$p/data/status.json") ?? [], $out . $err];
+    };
+    $on = fn () => array_map('basename', glob("$p/pool/Filme/*/*") ?: []);
+    [$exit, $st, $out] = $go(3500, false);
+    same('emby budget, dry: Alien (3010) fits a slice of 3500, Brazil (2000) waits — counted, said', [0, 3500, 3010, 1, 2000, 2],
+        [$exit, $st['slice']['budget'] ?? null, $st['slice']['used'] ?? null, $st['slice']['waiting'] ?? null, $st['slice']['waiting_bytes'] ?? null, $st['fill']['planned'] ?? null], $out);
+    check('emby budget: … «[SKIP: Platz]» in the log', str_contains($out, '[SKIP: Platz] Filme/Brazil/Brazil.mkv'), $out);
+    [$exit, $st, $out] = $go(3500, true);
+    same('emby budget, real: old.mkv back, Alien on the pool, Brazil waits on the array', [0, ['Alien.mkv', 'Alien.srt'], 1, true],
+        [$exit, $on(), $st['slice']['waiting'] ?? null, is_file("$p/user0/Filme/Brazil/Brazil.mkv")], $out);
+    [$exit, $st, $out] = $go(2900, true);
+    same('emby budget: 3010 on the pool, a slice of 2900 — within 5 %: nothing goes back, Brazil still waits', [['Alien.mkv', 'Alien.srt'], 0, 1],
+        [$on(), $st['slice']['given_back'] ?? null, $st['slice']['waiting'] ?? null], $out);
+    [$exit, $st, $out] = $go(2000, true);
+    same('emby budget: a slice of 2000 — Alien goes back (the files filled last first: the .srt, then the .mkv), Brazil fits then', [0, ['Brazil.mkv'], 2, 3010, 2000],
+        [$exit, $on(), $st['slice']['given_back'] ?? null, $st['slice']['given_back_bytes'] ?? null, $st['slice']['used'] ?? null], $out);
+    check('emby budget: … said, Alien back on the array', str_contains($out, '[ZURÜCK: Stück] Filme/Alien/Alien.srt') && is_file("$p/user0/Filme/Alien/Alien.mkv"), $out);
+    [$exit, $st, $out] = $go(null, false);
+    same('emby budget: without the variable — no slice in the status (as before)', [0, false], [$exit, isset($st['slice'])], $out);
+    $cmd = ['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", 'EMBYCACHE_BUDGET_BYTES=12T', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/embycache/embycache_run.py'];
+    [$exit, $out, $err] = run($cmd, 60);
+    check('emby budget: a budget that is no number — refused, nothing done', $exit !== 0 && str_contains($out . $err, 'EMBYCACHE_BUDGET_BYTES'), $out . $err);
+    proc_terminate($emby);
+    proc_close($emby);
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Moverelli's stops and her run card (2026-10-12): with CUSTOMMOVER_STOP Smart Mover hands Unraid's move binary one
  * file at a time — «Stop after this file»: the next file never starts; «Stop at once» (the stop file with now, the move
  * binary TERMed like Unraid's own «mover stop»): the file in flight stays at its source, the partial copy it left at its
@@ -33384,7 +33823,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolCake', 'testMoverelliCakeHooks', 'testEmbyBudget',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

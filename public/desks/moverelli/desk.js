@@ -278,6 +278,8 @@ function bubbleText() {
   if (!unraidOk()) return `${intro} ${T('bubble.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })}`;
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (running()) return T('bubble.running');
+  const cb = cakeBubble();
+  if (cb) return cb;
   if (!othersOff()) return T('bubble.dry');
   if (!state.schedule.enabled && !after().on) return T('bubble.no_schedule');
   return T('bubble.ready');
@@ -876,7 +878,7 @@ function initForm() {
     shares[x.share] = { skip: !!s.skip, min_age: s.min_age ?? null, age_stat: s.age_stat ?? null, move_when_used_above: s.move_when_used_above ?? null,
       move_until_used_below: s.move_until_used_below ?? null, files: s.files || [], patterns: s.patterns || [] };
   });
-  form = { global: { move_until_used_below: 0, ...set.global }, shares };
+  form = { global: { move_until_used_below: 0, jack_slice_percent: null, ...set.global }, shares };
   saved = formSettings(form);
   untilProposals(form, state.shares || []);
   // Jack Emby hired and his list not kept out for every share of his: proposed in the files for all shares — in the form
@@ -1090,10 +1092,11 @@ function formSettings(f) {
   return { global: { ...g, files: [...g.files], patterns: g.patterns.join('\n').trim() === '' ? [] : [...g.patterns] }, shares };
 }
 
-const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'move_prefer_shares', 'mover_debug', 'max_list'];
+const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'move_prefer_shares', 'mover_debug', 'max_list', 'jack_slice_percent'];
 const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below'];
 /** A value as the apply dialog says it (null in a share: as for all shares) */
 function setValue(key, v) {
+  if (key === 'jack_slice_percent') return v === null || v === undefined ? T('setup.slice_none') : `${v} %`;
   if (v === null || v === undefined || v === '') return T('setup.as_global');
   if (typeof v === 'boolean') return Office.t(v ? 'common.yes' : 'common.no');
   if (key === 'min_age') return T('setup.tile.days', { n: Number(v) || 0 });
@@ -1118,7 +1121,8 @@ function setupChangeRows(was, now) {
     own(b.patterns).filter((x) => !own(a.patterns).includes(x)).forEach((x) => rows.push({ mark: 'add', label: pre + T('setup.patterns'), what: x }));
     own(a.patterns).filter((x) => !own(b.patterns).includes(x)).forEach((x) => rows.push({ mark: 'gone', label: pre + T('setup.patterns'), what: x }));
   };
-  const gv = (o, k) => (k === 'move_until_used_below' ? Number(o[k]) || 0 : o[k]);     // an older state without it: 0
+  // an older state without them: 0 / not set
+  const gv = (o, k) => (k === 'move_until_used_below' ? Number(o[k]) || 0 : k === 'jack_slice_percent' ? o[k] ?? null : o[k]);
   SET_KEYS.forEach((k) => {
     if (String(gv(was.global, k)) !== String(gv(now.global, k))) {
       rows.push({ mark: null, label: T('setup.row_global', { what: T(IMPORT_LABEL[k]) }), what: `${setValue(k, was.global[k])} → ${setValue(k, now.global[k])}` });
@@ -1273,8 +1277,151 @@ function setupGlobal() {
   );
   const prop = untilProposedText(form);
   if (prop) s1.appendChild(el('p', 'callout', prop));
-  s1.append(f1, excludeFields(g, 'global'));
+  // the pool as a cake under her two limits: drawn anew at every keystroke of the limits and the slider
+  const cakes = cakeSection(g);
+  s1.addEventListener('input', () => cakes.redraw());
+  s1.append(f1, cakes, excludeFields(g, 'global'));
   return s1;
+}
+
+// ---- the pool as a cake (2026-10-12, agent/lib/poolcake.php): X and Y on the whole pool; the cake = the room the movable
+// shares have below X; Jack Emby's slice = n % of it, always counted whole; the setup refuses a target she can't reach
+/** The cakes of her pools: [pool, raw | null] — Jack Emby's pool first */
+function cakeList() {
+  const c = (state && state.cakes) || {};
+  return Object.entries(c).sort(([a, x], [b, y]) => Number(!!(y && y.mine)) - Number(!!(x && x.mine)) || a.localeCompare(b));
+}
+/** The cake's numbers for the form's X, Y, n (pure; the same rule as poolCakeMath()): bytes, % and what is out of reach */
+function cakeMath(c, x, y, n) {
+  const size = Math.max(0, Number(c.size) || 0);
+  const used = Math.min(Math.max(0, Number(c.used) || 0), size);
+  const m = Math.min(Math.max(0, Number(c.movable) || 0), used);
+  const nm = used - m;
+  x = Number(x) || 0;
+  y = Number(y) || 0;
+  const cake = x > 0 ? Math.max(0, Math.floor(x * size / 100) - nm) : 0;
+  const slice = n === null || n === undefined ? 0 : Math.floor(Math.min(100, Math.max(0, Number(n) || 0)) * cake / 100);
+  const jack = Math.max(0, Number(c.jack) || 0);
+  const eff = n === null || n === undefined ? used : Math.max(0, used - jack + slice);
+  const pct = (b) => (size > 0 ? b * 100 / size : 0);
+  let bad = null;
+  if (x > 0 && size > 0) {
+    if (nm * 100 >= x * size) bad = 'none';
+    else if (y > 0 && y <= pct(nm) + 5) bad = 'target';
+    else if (y > 0 && (nm + slice) * 100 >= y * size) bad = 'slice';
+  }
+  return { size, used, nm, cake, slice, jack, rest: Math.max(0, cake - slice), fresh: Math.max(0, m - jack), eff,
+    nmPct: pct(nm), effPct: pct(eff), x, y, n: n ?? null, bad, min: Math.floor(pct(nm) + 5) + 1 };
+}
+/**
+ * «Der Pool als Kuchen»: a bar per pool, the slider for Jack Emby's slice on his pool while he is hired. redraw() draws the
+ * words and the bars anew (every keystroke in the limits, every move of the slider) — never the slider itself.
+ */
+function cakeSection(g) {
+  const box = el('div', 'mo-cakes');
+  const list = cakeList();
+  box.redraw = () => {};
+  if (!list.length) return box;
+  const hired = !!jack().hired;
+  const mine = list.find(([, c]) => c && c.mine);
+  box.appendChild(el('div', 'mo-cake-title', T('setup.cake')));
+  const sub = hired ? box.appendChild(el('p', 'mo-cake-sub')) : null;
+  if (hired && mine) box.appendChild(sliceField(g, mine[1]));
+  const bars = box.appendChild(el('div', 'mo-cake-bars'));
+  box.redraw = () => {
+    const x = Number(g.move_when_used_above) || 0;
+    if (sub) sub.textContent = T('setup.cake_sub', { x, y: Number(g.move_until_used_below) || 0, n: g.jack_slice_percent ?? 0 });
+    bars.innerHTML = '';
+    if (!(x > 0)) { bars.appendChild(el('p', 'role', T('setup.cake_off'))); return; }
+    list.forEach(([pool, c]) => bars.appendChild(c ? cakeBar(pool, c, g) : el('p', 'role', T('setup.cake_unseen', { pool }))));
+  };
+  box.redraw();
+  return box;
+}
+/** «Jack darf n % vom Kuchen»: the slider (its label says the value), the proposal from what he holds today while none is set */
+function sliceField(g, c) {
+  const wrap = el('div', 'mo-slice');
+  const n = g.jack_slice_percent;
+  if ((n === null || n === undefined) && c.proposal) {
+    const p = el('p', 'callout mo-suggest', T('setup.slice_proposed', { n: c.proposal }) + ' ');
+    p.appendChild(button(T('setup.slice_take'), 'small plain', () => { g.jack_slice_percent = c.proposal; renderSetup(); }));
+    wrap.appendChild(p);
+  }
+  const label = el('label', 'mo-slice-label', n === null || n === undefined ? `${T('setup.jack_slice_row')}: ${T('setup.slice_none')}` : T('setup.jack_slice', { n }));
+  const r = el('input', 'mo-slice-range');
+  r.type = 'range';
+  r.min = 0;
+  r.max = 100;
+  r.step = 1;
+  r.value = n ?? c.proposal ?? 0;
+  r.setAttribute('aria-label', T('setup.jack_slice_row'));
+  r.oninput = () => { g.jack_slice_percent = Number(r.value); label.textContent = T('setup.jack_slice', { n: Number(r.value) }); };
+  const f = el('div', 'field mo-slice-field');
+  f.append(label, r, el('small', '', T('setup.jack_slice_hint', { shares: (c.shares || []).join(', ') || '–', x: Number(g.move_when_used_above) || 0 })));
+  wrap.appendChild(f);
+  return wrap;
+}
+/** One pool's bar: never moves | Jack's slice (what he holds filled) | room for new things (what new holds filled) | free — X and Y as ticks, her reading as a mark */
+function cakeBar(pool, c, g) {
+  const m = cakeMath(c, g.move_when_used_above, g.move_until_used_below, c.mine ? (g.jack_slice_percent ?? null) : null);
+  const box = el('div', 'mo-cake' + (m.bad ? ' mo-cake-bad' : ''));
+  box.appendChild(el('div', 'mo-cake-head', T('setup.cake_pool', { pool, used: fmt.size(m.used), size: fmt.size(m.size) })));
+  const w = (b) => `${Math.max(0, Math.min(100, m.size > 0 ? b * 100 / m.size : 0)).toFixed(2)}%`;
+  const bar = el('div', 'mo-cake-bar');
+  bar.setAttribute('role', 'img');
+  const seg = (cls, bytes, held, of) => {
+    const s = el('span', 'mo-cake-seg ' + cls);
+    s.style.width = w(bytes);
+    if (held !== undefined && of > 0) {
+      const f = el('span', 'mo-cake-held');
+      f.style.width = `${Math.min(100, held * 100 / of).toFixed(2)}%`;
+      s.appendChild(f);
+    }
+    return s;
+  };
+  bar.appendChild(seg('mo-cake-nm', m.nm));
+  if (m.bad !== 'none') {
+    if (m.n !== null) bar.appendChild(seg('mo-cake-slice', m.slice, m.jack, m.slice));
+    bar.appendChild(seg('mo-cake-new', m.rest, m.fresh, m.rest));
+  }
+  const tick = (cls, pct) => { const t = el('i', 'mo-cake-tick ' + cls); t.style.left = `${Math.max(0, Math.min(100, pct))}%`; bar.appendChild(t); };
+  tick('mo-tick-x' + (m.bad === 'none' ? ' mo-tick-bad' : ''), m.x);
+  if (m.y > 0) tick('mo-tick-y' + (m.bad ? ' mo-tick-bad' : ''), m.y);
+  tick('mo-tick-eff', m.effPct);
+  box.appendChild(bar);
+  const legend = el('div', 'mo-cake-legend');
+  const key = (cls, text) => { const k = el('span', 'mo-key'); k.append(el('i', 'mo-swatch ' + cls), document.createTextNode(text)); legend.appendChild(k); };
+  key('mo-cake-nm', T('setup.cake_nm'));
+  if (m.n !== null && m.bad !== 'none') key('mo-cake-slice', T('setup.cake_slice'));
+  if (m.bad !== 'none') key('mo-cake-new', T('setup.cake_new'));
+  key('mo-cake-free', T('setup.cake_free'));
+  box.appendChild(legend);
+  const marks = el('div', 'mo-cake-marks');
+  const mark = (cls, text, bad) => {
+    const k = el('span', 'mo-key' + (bad ? ' mo-key-bad' : ''));
+    k.append(el('i', 'mo-mark ' + cls), document.createTextNode(text + (bad ? ` — ${T('setup.cake_unreachable')}` : '')));
+    marks.appendChild(k);
+  };
+  mark('mo-tick-x', T('setup.cake_x', { x: m.x }), m.bad === 'none');
+  if (m.y > 0) mark('mo-tick-y', T('setup.cake_y', { y: m.y }), !!m.bad);
+  mark('mo-tick-eff', T('setup.cake_eff', { pct: Math.round(m.effPct) }));
+  box.appendChild(marks);
+  if (m.n !== null && m.bad !== 'none') {
+    box.appendChild(el('p', 'mo-cake-numbers', T('setup.cake_numbers', { cake: fmt.size(m.cake), slice: fmt.size(m.slice), used: fmt.size(m.jack), rest: fmt.size(m.rest) })));
+  }
+  const nmPct = Math.floor(m.nmPct);
+  if (m.bad === 'none') box.appendChild(el('p', 'callout warn', T('setup.cake_none', { nm: nmPct, x: m.x })));
+  else if (m.bad === 'target') box.appendChild(el('p', 'callout warn', T('setup.cake_target_low', { nm: nmPct, y: m.y, min: m.min })));
+  else if (m.bad === 'slice') box.appendChild(el('p', 'callout warn', T('setup.cake_slice_big', { nm: nmPct, y: m.y, j: fmt.size(m.slice) })));
+  return box;
+}
+/** Her bubble while a bound holds on a pool (the cake as she last looked): the overflow first, then nothing to gain, then the target out of reach */
+function cakeBubble() {
+  const order = ['full', 'none', 'target'];
+  const hit = cakeList().filter(([, c]) => c && order.includes(c.case)).sort(([, a], [, b]) => order.indexOf(a.case) - order.indexOf(b.case))[0];
+  if (!hit) return null;
+  const [pool, c] = hit;
+  return T('notify.cake_' + c.case, { pool, nm: Math.floor(c.nm_pct), x: c.x, y: c.y, used: Math.floor(c.used_pct) });
 }
 
 /** 2. per share: a fold each (the bar's words: name, where its files go) */
@@ -1331,7 +1478,7 @@ function fillSetupShares(box) {
 let importFolder = '';
 /** The setup's label of a key of the ini */
 const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold', move_until_used_below: 'setup.until',
-  move_prefer_shares: 'setup.prefer',
+  move_prefer_shares: 'setup.prefer', jack_slice_percent: 'setup.jack_slice_row',
   mover_debug: 'setup.debug', max_list: 'setup.max_list', skip: 'setup.skip' };
 
 function importSection() {
@@ -1633,6 +1780,6 @@ if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
     importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, fillText, fillLine, untilProposals, untilProposedText, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
-    setForm: (f) => { form = f; }, initForm, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
+    setForm: (f) => { form = f; }, initForm, cakeMath, cakeSection, cakeBar, cakeBubble, sliceField, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
 })();

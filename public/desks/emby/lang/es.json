@@ -334,8 +334,6 @@
   "setup.episodes": "Episodios por delante por serie",
   "setup.favorites": "Series favoritas: como mucho",
   "setup.zero_off": "0 = desactivado",
-  "setup.min_free": "Mantener libre en el pool (%)",
-  "setup.min_free_hint": "Por debajo de eso EmbyCache ya no mueve nada al pool (ZFS: 15–20 % es razonable).",
   "setup.next_up": "Usar «Next Up» de Emby",
   "setup.next_up_hint": "Los siguientes episodios de las series que la gente está viendo.",
   "setup.more": "Vuelta y lectura del array",
@@ -676,5 +674,12 @@
   "check.mover_tuning_schedule": "{name} no mueve nada con programación propia",
   "check.mover_tuning_schedule_how": "Apaga allí la programación propia de {name} ({schedule}) — de mover se encarga la Señora Moverelli.",
   "sizes_ready": "de ello preparado por EmbyCache: {files} · {size}",
-  "sizes_ready_tip": "Lo que EmbyCache tiene listo en el pool para {share} (su lista)"
+  "sizes_ready_tip": "Lo que EmbyCache tiene listo en el pool para {share} (su lista)",
+  "slice.text": "La señora Moverelli me dice cuánto espacio tengo: el {n} % del pastel, o sea {j} — ahora uso {used}. Las manos quietas con el resto, ya lo sé.",
+  "slice.pending": "La señora Moverelli aún no me ha dado una porción — hasta entonces dejo libre el {min} % del pool.",
+  "slice.none": "La señora Moverelli aún no me ha dado una porción — simulaciones con gusto, ejecuciones reales solo después.",
+  "slice.own": "La señora Moverelli no pone límite al pool — dejo libre el {min} %.",
+  "slice.full": {"one": "Mi porción está llena — {n} película espera en el array hasta que se libere algo.", "other": "Mi porción está llena — {n} películas esperan en el array hasta que se libere algo."},
+  "slice.over": "Me paso de mi porción ({used} de {j}) — en la próxima ejecución devuelvo {excess}.",
+  "pool_tile.slice": "{used} de {j} · {pct} % libre"
 }

@@ -47,6 +47,14 @@
 #                             share with an ERROR (counted as an error) instead of a WARN
 #   CUSTOMMOVER_DISKS_INI     emhttpd's disks.ini: on a real run a share that reaches the array names its
 #                             array disks that sleep and that the run will wake (an INFO line, nothing else)
+# USO «cake» (2026-10-12, Ms. Moverelli's pool budget for Jack Emby; each a comma list, unset: as before):
+#   CUSTOMMOVER_POOL_OFFSET_BYTES  <pool>:<bytes> added to the pool's used bytes in every reading (pool_used_pct; may be
+#                             negative): Jack Emby's slice counted whole — the trigger, the target and the re-reading see it
+#   CUSTOMMOVER_FILL_TARGET   <pool>:<pct> the fill's target for that pool instead of move_until_used_below (the office:
+#                             the target can't be reached any more — the fill goes only down to below the trigger)
+#   CUSTOMMOVER_FILL_OFF      <pool> no fill on that pool (what never moves is above the trigger: moving helps nothing)
+#   CUSTOMMOVER_FILL_ALL      <pool> the emergency (the pool ≥ 95 % used): every non-excluded file of its pool -> array
+#                             shares goes, whatever its age and the trigger (the exclude lists still count)
 # Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
 #   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
 #   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
@@ -99,6 +107,7 @@ STATUS_FILE="${CUSTOMMOVER_STATUS:-}"
 STOP_FILE="${CUSTOMMOVER_STOP:-}"
 EXCL_REQUIRED="${CUSTOMMOVER_EXCLUDES_REQUIRED:-0}"
 DISKS_INI="${CUSTOMMOVER_DISKS_INI:-}"
+POOL_OFFSETS="${CUSTOMMOVER_POOL_OFFSET_BYTES:-}"
 
 usage() {  # prints the header comment block above
     awk 'NR > 2 && /^# =====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"
@@ -286,19 +295,46 @@ stock_mover_running() {
 # USO «fill»: also POOL_USED_B / POOL_SIZE_B (bytes used / used+available; empty if unknown) for a dry run's estimate
 pool_used_pct() {  # pool
     local path="$MNT/$1" ds="" used avail pc
-    POOL_USED=""; POOL_USED_SRC="df"; POOL_USED_B=""; POOL_SIZE_B=""
+    POOL_USED=""; POOL_USED_SRC="df"; POOL_USED_B=""; POOL_SIZE_B=""; POOL_OFFSET_B=0
     if command -v "$ZFS_BIN" >/dev/null 2>&1 && ds=$("$ZFS_BIN" list -H -o name "$path" 2>/dev/null) && [[ -n "$ds" ]]; then
         if read -r used avail < <("$ZFS_BIN" list -Hp -o used,avail "${ds%%/*}" 2>/dev/null) \
             && is_int "$used" && is_int "$avail" && (( used + avail > 0 )); then
             POOL_USED=$(( (used * 100 + used + avail - 1) / (used + avail) ))
             POOL_USED_SRC="zfs"; POOL_USED_B=$used; POOL_SIZE_B=$(( used + avail ))
+            pool_offset "$1"
             return 0
         fi
         log WARN "  zfs gave no usage for pool ${ds%%/*} – falling back to df"
     fi
     read -r used avail pc < <("$DF_BIN" -B1 --output=used,avail,pcent "$path" 2>/dev/null | tail -1)
     POOL_USED=$(printf '%s' "${pc:-}" | tr -dc '0-9')
-    if is_int "${used:-}" && is_int "${avail:-}" && (( used + avail > 0 )); then POOL_USED_B=$used; POOL_SIZE_B=$(( used + avail )); fi
+    if is_int "${used:-}" && is_int "${avail:-}" && (( used + avail > 0 )); then POOL_USED_B=$used; POOL_SIZE_B=$(( used + avail )); pool_offset "$1"; fi
+}
+
+# USO «cake»: the value a comma list <pool>[:<value>] holds for a pool -> POOL_VAL (empty: not listed; a bare <pool>: 1)
+pool_listed() {  # list pool
+    local item
+    POOL_VAL=""
+    local -a items=()
+    IFS=',' read -ra items <<< "$1"
+    for item in "${items[@]}"; do
+        if [[ "${item%%:*}" == "$2" ]]; then
+            if [[ "$item" == *:* ]]; then POOL_VAL="${item#*:}"; else POOL_VAL=1; fi
+            return 0
+        fi
+    done
+    return 1
+}
+
+# USO «cake»: CUSTOMMOVER_POOL_OFFSET_BYTES on the reading just made (POOL_USED_B/POOL_SIZE_B known) -> POOL_USED anew
+pool_offset() {  # pool
+    pool_listed "$POOL_OFFSETS" "$1" || return 0
+    [[ "$POOL_VAL" =~ ^-?[0-9]+$ ]] || return 0
+    POOL_OFFSET_B=$POOL_VAL
+    (( POOL_USED_B += POOL_OFFSET_B, POOL_USED_B < 0 )) && POOL_USED_B=0
+    (( POOL_USED_B > POOL_SIZE_B )) && POOL_USED_B=$POOL_SIZE_B
+    POOL_USED=$(( (POOL_USED_B * 100 + POOL_SIZE_B - 1) / POOL_SIZE_B ))
+    return 0
 }
 
 # ------------------------------------------------------------------ Excludes
@@ -563,6 +599,9 @@ fill_reading() {  # share pool threshold target used(empty: unknown)
     local name="$1" pool="$2" threshold="$3" target="$4" used="$5"
     FILL_GO=false
     SH_POOL="$pool"; SH_UNTIL="$target"; SH_FILL=true; SH_POOL_USED="$used"; SH_POOL_NOW="$used"
+    if [[ -n "$used" && "${POOL_OFFSET_B:-0}" != 0 ]]; then
+        log INFO "  pool $pool: I see it at ${used}% – Jack Emby's slice counted whole ($( (( POOL_OFFSET_B < 0 )) && printf -- '-' || printf '+')$(human "${POOL_OFFSET_B#-}") on what it holds)"
+    fi
     if [[ -z "$used" ]]; then
         log WARN "  pool $pool: usage unknown – no fill"
     elif (( used < threshold )); then
@@ -699,6 +738,19 @@ process_share() {  # name mode pool pool2
     local fill=false target=0
     if [[ "$mode" == "yes" ]] && (( threshold > 0 )) && [[ "$FORCE_AGE" == false ]]; then
         fill=true; target=$(( until > 0 ? until : threshold ))
+    fi
+    # USO «cake»: the office's bounds for this pool (Ms. Moverelli: the pool overflowing, nothing to gain, the target out of reach)
+    if [[ "$mode" == "yes" && "$FORCE_AGE" == false ]]; then
+        if pool_listed "${CUSTOMMOVER_FILL_ALL:-}" "$pool"; then
+            fill=true; threshold=1; target=0; SH_POOL="$pool"; SH_UNTIL=0
+            log WARN "  pool $pool overflowing (office): everything not excluded goes, whatever its age"
+        elif (( threshold > 0 )) && pool_listed "${CUSTOMMOVER_FILL_OFF:-}" "$pool"; then
+            fill=false; SH_UNTIL=""; SH_POOL=""
+            log INFO "  pool $pool: what never moves lies above ${threshold}% (office) – no fill, the age alone"
+        elif [[ "$fill" == true ]] && pool_listed "${CUSTOMMOVER_FILL_TARGET:-}" "$pool" && is_int "$POOL_VAL" && (( POOL_VAL > 0 && POOL_VAL <= threshold )); then
+            target=$POOL_VAL; SH_UNTIL=$target
+            log INFO "  pool $pool: below ${until}% can't be reached (office) – the fill goes only down to below ${target}%"
+        fi
     fi
 
     # Age filter (always: the fill comes on top)

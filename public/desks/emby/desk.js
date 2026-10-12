@@ -581,13 +581,33 @@ function plansList() {
 function poolTile(a) {
   const c = state.cache || {};
   const pool = state.pool;
-  const sub = pool ? T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' }) : '';
-  const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '',
+  const slice = pool && pool.slice != null;
+  const sub = !pool ? '' : slice ? T('pool_tile.slice', { used: fmt.size(pool.slice_used), j: fmt.size(pool.slice), pct: fmt.number(pool.free_percent, 1) })
+    : T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' });
+  const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '', ...sliceWords(),
     c.listed_at ? T('pool_tile.as_of', { when: fmt.relative(c.listed_at) }) : ''].filter(Boolean).join('\n');
   // never a break between a number and its unit («671 GB» stays on one line)
   const nb = (t) => String(t).replace(/(\d) /g, '$1\u00a0');
   return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nb(nOf('files', c.files)), size: nb(fmt.size(c.bytes)) }) : T('pool_tile.none'),
-    sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
+    sub, tip, alert: !!(pool && ((pool.min_free != null && pool.free_percent < pool.min_free) || pool.excess > 0)), ...a });
+}
+
+/**
+ * What Ms. Moverelli gives him (2026-10-12, her cake — agent/lib/poolcake.php): his slice and what of it he holds, the
+ * files that waited because it was full, what he gives back; without her slice: what he keeps free meanwhile, or that
+ * she isn't set up. [line, …] in his words (pure on state.pool).
+ */
+function sliceWords() {
+  const pool = state && state.pool;
+  if (!pool) return [];
+  const mo = pool.moverelli;
+  if (!mo) return [T('slice.none')];
+  if (!(mo.x > 0)) return [T('slice.own', { min: pool.min_free ?? '?' })];
+  if (pool.slice == null) return [T('slice.pending', { min: 100 - mo.x })];
+  const out = [T('slice.text', { n: mo.n, j: fmt.size(pool.slice), used: fmt.size(pool.slice_used) })];
+  if (pool.excess > 0) out.push(T('slice.over', { used: fmt.size(pool.slice_used), j: fmt.size(pool.slice), excess: fmt.size(pool.excess) }));
+  else if (pool.waiting > 0) out.push(T('slice.full', { n: pool.waiting }));
+  return out;
 }
 
 /** The shares that don't suit EmbyCache and its pool (or lack their folder on it) */
@@ -1598,7 +1618,8 @@ function setupScope() {
   poolSel.value = v.cache_path;
   poolSel.onchange = () => { v.cache_path = poolSel.value; renderSetup(); };
   f4.appendChild(field(T('setup.pool'), poolSel, T('setup.pool_hint')));
-  f4.appendChild(field(T('setup.min_free'), number(v, 'min_free_percent', 0, 95), T('setup.min_free_hint')));
+  // how much room he has on the pool is Ms. Moverelli's to say (her cake): his own «leave N % free» field is gone
+  sliceWords().forEach((line, i) => f4.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
   const mode = el('select', 'picker');
   mode.append(new Option(T('setup.mode_count'), 'count'), new Option(T('setup.mode_budget'), 'budget'));
   mode.value = v.budget_mode ? 'budget' : 'count';
@@ -2205,7 +2226,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sliceWords, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,

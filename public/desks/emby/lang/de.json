@@ -334,8 +334,6 @@
   "setup.episodes": "Folgen im Voraus pro Serie",
   "setup.favorites": "Favoriten-Serien: höchstens",
   "setup.zero_off": "0 = aus",
-  "setup.min_free": "Auf dem Pool frei lassen (%)",
-  "setup.min_free_hint": "Darunter legt EmbyCache nichts mehr auf den Pool (ZFS: 15–20 % sind sinnvoll).",
   "setup.next_up": "Embys «Als Nächstes» nutzen",
   "setup.next_up_hint": "Die nächsten Folgen der Serien, die gerade geschaut werden.",
   "setup.more": "Rückweg und Lesen vom Array",
@@ -676,5 +674,12 @@
   "check.mover_tuning_schedule": "{name} verschiebt nichts nach eigenem Zeitplan",
   "check.mover_tuning_schedule_how": "Den eigenen Zeitplan von {name} ({schedule}) dort ausschalten — das Verschieben macht Frau Moverelli.",
   "sizes_ready": "davon von EmbyCache bereitgelegt: {files} · {size}",
-  "sizes_ready_tip": "Was EmbyCache für {share} auf dem Pool bereithält (seine Liste)"
+  "sizes_ready_tip": "Was EmbyCache für {share} auf dem Pool bereithält (seine Liste)",
+  "slice.text": "Frau Moverelli sagt mir, wie viel Platz ich habe: {n} % vom Kuchen, das sind {j} — {used} brauch ich grad. Finger weg vom Rest, ich weiss.",
+  "slice.pending": "Frau Moverelli hat mir noch kein Stück zugeteilt — bis dahin lasse ich {min} % vom Pool frei.",
+  "slice.none": "Frau Moverelli hat mir noch kein Stück zugeteilt — Probeläufe gern, echte erst dann.",
+  "slice.own": "Frau Moverelli setzt dem Pool keine Grenze — ich lasse {min} % davon frei.",
+  "slice.full": {"one": "Mein Stück ist voll — {n} Film wartet auf dem Array, bis was frei wird.", "other": "Mein Stück ist voll — {n} Filme warten auf dem Array, bis was frei wird."},
+  "slice.over": "Ich bin über meinem Stück ({used} von {j}) — beim nächsten Lauf bring ich {excess} zurück.",
+  "pool_tile.slice": "{used} von {j} · {pct} % frei"
 }

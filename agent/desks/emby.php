@@ -53,6 +53,8 @@ const EMBY_WATCH_MAX     = 7200;    // … for up to 2 h, then that night is ski
 const EMBY_WATCH_DURING  = 60;      // during a real gather Emby is asked once a minute; someone watching = stop after the current folder
 const EMBY_WATCH_SHOWN   = 10;      // at most this many watchers kept
 
+require_once dirname(__DIR__) . '/lib/poolcake.php';     // Ms. Moverelli's cake: his slice of the pool (shared with her)
+
 define('EMBY_APP', OFFICE_DIR . '/embycache');
 define('GATHER_APP', OFFICE_DIR . '/gather');
 define('EMBY_DATA', DATA_DIR . '/embycache');
@@ -625,8 +627,49 @@ function embyPoolUsage(?array $settings): ?array
             }
         }
     }
-    return $total > 0 ? ['path' => $cache, 'total' => $total, 'free' => $free,
-                         'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null] : null;
+    if ($total <= 0) {
+        return null;
+    }
+    $out = ['path' => $cache, 'total' => $total, 'free' => $free, 'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null];
+    // Ms. Moverelli's cake (2026-10-12): her limit X keeps 100 − X free for him; his slice once she set it — what of it
+    // he holds, how many files waited in his last run because it was full, what he gives back
+    $look = embyCakeLook($settings);
+    if ($look !== null) {
+        $out['moverelli'] = ['x' => $look['rules']['x'], 'n' => $look['rules']['n']];
+        if ($look['rules']['x'] > 0) {
+            $out['min_free'] = 100 - $look['rules']['x'];
+        }
+        $c = $look['cake'];
+        if ($c !== null && $c['n'] !== null) {
+            $slice = (array) (readJson(EMBY_DATA . '/status.json')['slice'] ?? []);
+            $out += ['slice' => $c['slice'], 'slice_used' => $c['jack'], 'excess' => $c['excess'], 'cake' => $c['cake'], 'case' => $c['case'],
+                     'waiting' => (int) ($slice['waiting'] ?? 0)];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Ms. Moverelli's cake from his side (agent/lib/poolcake.php poolCakeJack()): her rules, his pool's cake, what EmbyCache
+ * is told — null while she isn't set up. $wake: a run is about to wake the pool anyway. The tests: $GLOBALS['embyCake'].
+ */
+function embyCakeLook(?array $settings, bool $wake = false): ?array
+{
+    $o = ($GLOBALS['embyCake'] ?? []) + ['ini' => DATA_DIR . '/moverelli/smart_mover.ini', 'shares_dir' => '/boot/config/shares', 'zfs' => 'zfs',
+        'mnt' => '/mnt', 'jack_list' => EMBY_DATA . '/embycache_exclude.txt', 'asleep' => null];
+    $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
+    return poolCakeJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
+}
+
+/** What EmbyCache is told for a run (dry, real): her limit as his minimum free space, his slice as his budget */
+function embyCakeEnv(?array $settings): array
+{
+    try {
+        return embyCakeLook($settings, true)['env'] ?? [];
+    } catch (Throwable $e) {
+        logLine("Jack Emby: Ms. Moverelli's cake not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
+        return [];
+    }
 }
 
 /**
@@ -2350,7 +2393,9 @@ function embyJob(string $tool, array $args): int
         $cwd = '/';
     } else {
         $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
-        $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : []);
+        $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : [])
+             // Ms. Moverelli's cake: her limit and his slice (a dry run sees what the real one would)
+             + (in_array($mode, ['dry', 'run'], true) ? embyCakeEnv(embyReadSettings()) : []);
         $cwd = EMBY_APP;
         if ($real) {                     // the live panel on his page (emby-progress.php): EmbyCache's progress in RAM
             $progress = embyProgressPaths();
