@@ -52,6 +52,10 @@
 >   nothing (said in the log). A dry run estimates the step from the files' sizes. Not with `--force`/`--force-all`.
 >   `CUSTOMMOVER_DF` points `df` at a stand-in for the tests (like `CUSTOMMOVER_ZFS`). The office's setup requires Y
 >   once X is set; an old ini with X and no Y gets Y = X − 10 proposed (her setup) or set (her import).
+> * Stops and counts (2026-10-12, seen live): Unraid's move writes `<dest>/<rel>.partial` and renames it at the end —
+>   an immediate stop removes only that `.partial` of the file in flight (never a file under the final name), on awake
+>   disks/pools only; after a stop the files of the share not started count as `left`; the live status carries
+>   `errors` and `warnings` (WARN lines) for the run card.
 > * **The cake** (2026-10-12, Ms. Moverelli's pool budget for Jack Emby's EmbyCache; marked «USO «cake»»; each variable a
 >   comma list, unset: as before). `CUSTOMMOVER_POOL_OFFSET_BYTES=<pool>:<bytes>` is added to the pool's used bytes in
 >   every reading of `pool_used_pct()` (may be negative: Jack's slice minus what his list holds — his slice counts as

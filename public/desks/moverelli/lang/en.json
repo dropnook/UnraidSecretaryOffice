@@ -443,5 +443,7 @@
   "notify.cake_full": "{pool} is overflowing ({used} %) — I move everything I may; I can't do more.",
   "rc.counts": "{errors}, {warnings}",
   "rc.show_log": "Log",
-  "count.warnings": {"one": "{n} warning", "other": "{n} warnings"}
+  "count.warnings": {"one": "{n} warning", "other": "{n} warnings"},
+  "rc.rate": "{rate}/s",
+  "rc.file_bytes": "{done} of {size}"
 }

@@ -443,5 +443,7 @@
   "notify.cake_full": "{pool} se desborda ({used} %) — muevo todo lo que puedo; más no puedo hacer.",
   "rc.counts": "{errors}, {warnings}",
   "rc.show_log": "Registro",
-  "count.warnings": {"one": "{n} aviso", "other": "{n} avisos"}
+  "count.warnings": {"one": "{n} aviso", "other": "{n} avisos"},
+  "rc.rate": "{rate}/s",
+  "rc.file_bytes": "{done} de {size}"
 }

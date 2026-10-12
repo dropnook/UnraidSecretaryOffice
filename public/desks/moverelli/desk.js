@@ -84,18 +84,21 @@ function runCardData(p, now) {
   const files = Number(p.share_files) || 0;
   const bytes = Number(p.share_bytes) || 0;
   const dFiles = Number(p.share_done_files) || 0;
-  const dBytes = Number(p.share_done_bytes) || 0;
+  // the file in flight counts with what of its .partial is written (the agent measures it: moverelliInFlight())
+  const fileBytes = Number(p.file_bytes) || 0;
+  const dBytes = (Number(p.share_done_bytes) || 0) + fileBytes;
   const percent = phase !== 'share' ? null : bytes > 0 ? Math.min(100, Math.floor(100 * dBytes / bytes)) : files > 0 ? Math.min(100, Math.floor(100 * dFiles / files)) : null;
   let left = null;
   let end = null;
+  let rate = null;
   if (phase === 'share' && bytes > 0) {
-    const rate = Office.runRate(`moverelli|${p.started}|${p.share}`, dBytes, now);
+    rate = Office.runRate(`moverelli|${p.started}|${p.share}`, dBytes, now);
     if (rate) {
       left = Math.max(0, (bytes - dBytes) / rate);
       if (plan[plan.length - 1] === p.share) end = now + left;
     }
   }
-  return { steps, at, percent, left, end, share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
+  return { steps, at, percent, left, end, rate, fileBytes, fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
     fill: phase === 'share' ? fillLine(p) : null };
 }
 
@@ -125,11 +128,15 @@ function runCard(p, now) {
     if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
     card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
     if (d.percent !== null) {
-      card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
+      card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.rate ? ' · ' + T('rc.rate', { rate: fmt.size(d.rate) }) : '')
+        + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
       card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
     }
     if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
-    if (d.file) card.appendChild(el('div', 'card-line mo-run-file', T('rc.file', { file: d.file })));
+    if (d.file) {
+      card.appendChild(el('div', 'card-line mo-run-file', T('rc.file', { file: d.file })
+        + (d.fileSize ? ' · ' + T('rc.file_bytes', { done: fmt.size(d.fileBytes), size: fmt.size(d.fileSize) }) : '')));
+    }
     if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
   }
   // the foot as Mr. Backupsy's run card: the counts on the left, «Log» on the right (the run's output, followed); her stops

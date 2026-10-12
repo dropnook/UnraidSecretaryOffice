@@ -1193,8 +1193,50 @@ function moverelliProgressState(?array $h = null): array
     $real = $job['running'] && ($job['mode'] ?? '') === 'run';
     $st = $real ? readJson("$h[dir]/status.json") : null;
     $stop = $real ? readJson("$h[dir]/office-stop.json") : null;
+    $prog = is_array($st) && ($st['result'] ?? '') === 'running' ? $st : null;
+    if ($prog !== null) {
+        $prog += moverelliInFlight($prog, $h);
+    }
     return ['time' => time(), 'running' => $job['running'], 'real' => $real, 'stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null,
-            'progress' => is_array($st) && ($st['result'] ?? '') === 'running' ? $st : null];
+            'progress' => $prog];
+}
+
+/**
+ * The file in flight, measured (2026-10-12, seen live): Unraid's move works through shfs (nothing in its /proc io) and
+ * writes to <dest>/<share>/<rel>.partial, renamed at the end — what of it is written is that file's ALLOCATED size
+ * (st_blocks · 512: its apparent size may be preallocated to the whole). Looked for only where the share's files go
+ * (its secondary pool, else the array disks) and only on awake ones (the target is awake while written); the path
+ * strictly from the source's below the share. {file_bytes, file_size} (0 / null when none is found).
+ */
+function moverelliInFlight(array $p, array $h): array
+{
+    $file = (string) ($p['file'] ?? '');
+    $share = (string) ($p['share'] ?? '');
+    $mnt = rtrim($h['mnt'], '/');
+    $none = ['file_bytes' => 0, 'file_size' => null];
+    if ($file === '' || ($p['phase'] ?? '') !== 'share' || !preg_match(MOVERELLI_SHARE, $share)
+        || !preg_match('#^' . preg_quote($mnt, '#') . '/[\w.\-]+/' . preg_quote($share, '#') . '/(.+)$#Du', $file, $m) || str_contains("/$m[1]/", '/../')) {
+        return $none;
+    }
+    $rel = $m[1];
+    $cfg = readCfg("$h[shares_dir]/$share.cfg");
+    $use = (string) ($cfg['shareUseCache'] ?? '');
+    $pool = (string) ($cfg['shareCachePool'] ?? '') ?: 'cache';
+    $second = (string) ($cfg['shareCachePool2'] ?? '');
+    $dests = $use === 'prefer' ? [$pool] : ($second !== '' ? [$second] : array_map('basename', glob("$mnt/disk[0-9]*", GLOB_ONLYDIR) ?: []));
+    $awake = poolsBySleep($dests, $h['asleep'])['awake'];
+    clearstatcache();
+    $src = @stat($file);
+    foreach ($awake as $d) {
+        $part = "$mnt/$d/$share/$rel.partial";
+        $st = @lstat($part);
+        if ($st !== false && ($st['mode'] & 0170000) === 0100000) {
+            $size = $src !== false ? (int) $src['size'] : null;
+            $done = (int) $st['blocks'] * 512;
+            return ['file_bytes' => $size !== null ? min($done, $size) : $done, 'file_size' => $size];
+        }
+    }
+    return ['file_bytes' => 0, 'file_size' => $src !== false ? (int) $src['size'] : null];
 }
 
 /**

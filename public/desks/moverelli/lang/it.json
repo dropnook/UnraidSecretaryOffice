@@ -443,5 +443,7 @@
   "notify.cake_full": "{pool} trabocca ({used} %) — sposto tutto quello che posso; di più non posso fare.",
   "rc.counts": "{errors}, {warnings}",
   "rc.show_log": "Log",
-  "count.warnings": {"one": "{n} avviso", "other": "{n} avvisi"}
+  "count.warnings": {"one": "{n} avviso", "other": "{n} avvisi"},
+  "rc.rate": "{rate}/s",
+  "rc.file_bytes": "{done} di {size}"
 }

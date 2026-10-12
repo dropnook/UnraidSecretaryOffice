@@ -435,16 +435,17 @@ office_partial_cleanup() {  # share src file started dest(array|<pool>)
     if [[ "$dest" == array ]]; then
         for d in "$MNT"/disk[0-9]*; do [[ -d "$d" ]] && office_disk_awake "$(basename "$d")" && roots+=("$d"); done
     else
-        roots+=("$MNT/$dest")
+        office_disk_awake "$dest" && roots+=("$MNT/$dest")
     fi
     for d in "${roots[@]}"; do
-        cand="$d/$share/$rel"
+        # Unraid's move writes to <dest>/<rel>.partial and renames it at the end (seen 2026-10-12): only that name is
+        # ours — a file under the final name was there before (the move binary's «skip») or is a finished copy
+        cand="$d/$share/$rel.partial"
         [[ -f "$cand" && ! -L "$cand" ]] || continue
-        [[ "$cand" -ef "$f" ]] && continue
         dsize=$(stat -c %s -- "$cand" 2>/dev/null) || continue
         dmt=$(stat -c %Y -- "$cand" 2>/dev/null) || continue
         if (( dsize <= ssize && dmt >= t0 - 1 )); then
-            rm -f -- "$cand" && log WARN "  stopped at once: removed the partial copy $cand ($dsize of $ssize bytes) – the file stays at $f"
+            rm -f -- "$cand" && log WARN "  stopped at once: removed the partial copy $cand – the file stays at $f"
         fi
     done
 }
@@ -549,6 +550,9 @@ move_batch() {  # share src dest
         office_move_files "$name" "$src" "$dest" "$mover_out"
         rc=$OFFICE_RC
         # stopped (or the fill's target reached): only the files handed over are verified — the rest was never started
+        OFFICE_NOT_STARTED=0
+        # office: stopped — the files never started stay and count as left (not for the fill: its rest is no candidate)
+        [[ "$STOPPED" == true && -z "$FILL_POOL" ]] && OFFICE_NOT_STARTED=$(( ${#FILES[@]} - OFFICE_TRIED ))
         [[ "$STOPPED" == true || -n "$FILL_POOL" ]] && FILES=("${FILES[@]:0:OFFICE_TRIED}")
     else
         printf '%s\n' "${FILES[@]}" | "${MOVER_CMD[@]}" >"$mover_out" 2>&1
@@ -568,9 +572,12 @@ move_batch() {  # share src dest
     for f in "${FILES[@]}"; do
         if [[ -e "$f" || -L "$f" ]]; then LEFT+=("$f"); else MOVED+=("$f"); fi
     done
-    (( TOTAL_MOVED += ${#MOVED[@]}, TOTAL_LEFT += ${#LEFT[@]} )) || true
-    (( SH_MOVED += ${#MOVED[@]}, SH_LEFT += ${#LEFT[@]} )) || true
-    log INFO "  moved ${#MOVED[@]} of ${#FILES[@]} files"
+    local ns=${OFFICE_NOT_STARTED:-0}
+    OFFICE_NOT_STARTED=0
+    (( TOTAL_MOVED += ${#MOVED[@]}, TOTAL_LEFT += ${#LEFT[@]} + ns )) || true
+    (( SH_MOVED += ${#MOVED[@]}, SH_LEFT += ${#LEFT[@]} + ns )) || true
+    if (( ns > 0 )); then log INFO "  moved ${#MOVED[@]} of $(( ${#FILES[@]} + ns )) files ($ns not started: stopped)"
+    else log INFO "  moved ${#MOVED[@]} of ${#FILES[@]} files"; fi
     if (( ${#LEFT[@]} > 0 )); then
         log WARN "  ${#LEFT[@]} files still on the source side (in use, or already present at the destination):"
         local i=0
@@ -881,7 +888,7 @@ if [[ "$LIST_ONLY" == true ]]; then
 fi
 (( FOUND == 0 )) && log WARN "no share with shareUseCache yes/prefer found in $SHARES_DIR${TARGET_SHARES:+ matching '$TARGET_SHARES'}"
 if [[ "$STOPPED" == true ]]; then
-    log INFO "=== Stopped: $TOTAL_MOVED moved, $TOTAL_LEFT left of $TOTAL_FILES candidates so far ==="
+    log INFO "=== Stopped: $TOTAL_MOVED moved, $TOTAL_LEFT left (stopped) of $TOTAL_FILES candidates so far ==="
     exit 3
 fi
 if [[ "$DRY_RUN" == true ]]; then

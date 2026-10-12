@@ -443,5 +443,7 @@
   "notify.cake_full": "{pool} läuft über ({used} %) — ich zügle alles, was ich darf; mehr kann ich nicht.",
   "rc.counts": "{errors}, {warnings}",
   "rc.show_log": "Protokoll",
-  "count.warnings": {"one": "{n} Warnung", "other": "{n} Warnungen"}
+  "count.warnings": {"one": "{n} Warnung", "other": "{n} Warnungen"},
+  "rc.rate": "{rate}/s",
+  "rc.file_bytes": "{done} von {size}"
 }

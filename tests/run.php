@@ -29918,14 +29918,15 @@ function moverelliFixture(string $tmp, array &$v): void
 [[ -n "${MOVE_FAIL:-}" ]] && { cat >/dev/null; echo "move: refused"; exit 1; }
 # MOVE_SNAP: the live status as Smart Mover left it before this call (its first call only)
 [[ -n "${MOVE_SNAP:-}" && ! -e "$MOVE_SNAP" && -n "${CUSTOMMOVER_STATUS:-}" ]] && cp "$CUSTOMMOVER_STATUS" "$MOVE_SNAP"
-# MOVE_NOW=<file name>: «an immediate stop during this file» — a partial copy at its destination (disk1), the stop file
+# MOVE_NOW=<file name>: «an immediate stop during this file» — a partial copy at its destination (disk1) under Unraid's
+# temporary name <rel>.partial (seen live 2026-10-12), the stop file
 # with now (as the agent writes it before its TERM), the source kept, exit 143 (TERM); MOVE_NOW_GONE: the copy whole and
 # the source gone before the stop (nothing may be removed then)
 if [[ -n "${MOVE_NOW:-}" ]]; then
     IFS= read -r f
     if [[ "$(basename "$f")" == "$MOVE_NOW" ]]; then
         rel=${f#"$MOVE_ROOT"/cache/}; to="$MOVE_ROOT/disk1/$rel"; mkdir -p "$(dirname "$to")"
-        if [[ -n "${MOVE_NOW_GONE:-}" ]]; then mv "$f" "$to"; else head -c 3 "$f" > "$to"; fi
+        if [[ -n "${MOVE_NOW_GONE:-}" ]]; then mv "$f" "$to"; else head -c 3 "$f" > "$to.partial"; fi
         printf '{"why":"now","now":true}' > "$MOVE_STOPFILE"
         exit 143
     fi
@@ -30926,8 +30927,8 @@ function testMoverelliStop(): void
     $exit = moverelliJob(['run', '--office'], moverelliHost());
     $st = readJson("$dir/status.json") ?? [];
     $docs = array_values(array_filter($st['shares'] ?? [], fn ($x) => $x['share'] === 'Docs'))[0] ?? [];
-    same('stop after this file: Docs\' second of four files the last — 2 handed over and moved, the other two never started, nothing «left»',
-        [3, 'Docs', 2, 2, 0, 2], [$exit, $st['stop_share'] ?? null, (int) trim((string) @file_get_contents($calls)), count(glob("$tmp/mnt/cache/Docs/*")), $docs['left'] ?? null, $docs['moved'] ?? null]);
+    same('stop after this file: Docs\' second of four files the last — 2 handed over and moved, the other two never started: «left» (stopped)',
+        [3, 'Docs', 2, 2, 2, 2], [$exit, $st['stop_share'] ?? null, (int) trim((string) @file_get_contents($calls)), count(glob("$tmp/mnt/cache/Docs/*")), $docs['left'] ?? null, $docs['moved'] ?? null]);
     $GLOBALS['moverelliHost']['env']['CUSTOMMOVER_MOVER_BIN'] = "$tmp/bin/move";
 
     // stop at once during a file: the partial at its destination removed, the source kept; one from before stays
@@ -30940,16 +30941,19 @@ function testMoverelliStop(): void
     file_put_contents("$tmp/mnt/disk1/Docs/old.txt", 'o');
     file_put_contents("$tmp/mnt/cache/Docs/old.txt", 'old-and-longer');
     touch("$tmp/mnt/disk1/Docs/old.txt", time() - 3600);
+    file_put_contents("$tmp/mnt/disk1/Docs/$last", 'x');           // a file under the final name: never taken for the partial
     $GLOBALS['moverelliHost']['env']['MOVE_NOW'] = $last;
     $GLOBALS['moverelliHost']['env']['MOVE_STOPFILE'] = "$dir/office-stop.json";
     $exit = moverelliJob(['run', '--office'], moverelliHost());
     $log = (string) file_get_contents("$dir/smart_mover.log");
-    same('stop at once: exit 3, stopped, why now, the file in flight at its source, its partial gone, the older file at the destination kept',
-        [3, 'stopped', 'now', true, false, true, "$tmp/mnt/cache/Docs/$last"],
-        [$exit, readJson("$dir/status.json")['result'] ?? null, $hist()['why'] ?? null, is_file("$tmp/mnt/cache/Docs/$last"), file_exists("$tmp/mnt/disk1/Docs/$last"),
+    same('stop at once: exit 3, stopped, why now, the file in flight at its source, its .partial gone, the final name and the older file at the destination kept',
+        [3, 'stopped', 'now', true, false, true, true, "$tmp/mnt/cache/Docs/$last"],
+        [$exit, readJson("$dir/status.json")['result'] ?? null, $hist()['why'] ?? null, is_file("$tmp/mnt/cache/Docs/$last"), file_exists("$tmp/mnt/disk1/Docs/$last.partial"),
+         is_file("$tmp/mnt/disk1/Docs/$last"),
          is_file("$tmp/mnt/disk1/Docs/old.txt"), $hist()['stop_file'] ?? null]);
-    check('stop at once: said in her log', str_contains($log, "removed the partial copy $tmp/mnt/disk1/Docs/$last") && str_contains($log, "stopped at once during $tmp/mnt/cache/Docs/$last"), $log);
+    check('stop at once: said in her log', str_contains($log, "removed the partial copy $tmp/mnt/disk1/Docs/$last.partial") && str_contains($log, "stopped at once during $tmp/mnt/cache/Docs/$last"), $log);
     // the source gone when the stop came (the move binary had finished): nothing removed
+    @unlink("$tmp/mnt/disk1/Docs/$last");
     $GLOBALS['moverelliHost']['env']['MOVE_NOW_GONE'] = '1';
     $exit = moverelliJob(['run', '--office'], moverelliHost());
     same('stop at once, the source already gone: its copy at the destination kept, said', [3, true, false],
@@ -30971,6 +30975,21 @@ function testMoverelliStop(): void
     same('stop at once from the page: without confirm — refused; no real run going — refused', ['bad_request', 'moverelli_stop_none'],
         [$err(fn () => moverelliStopNow([], $h)), $err(fn () => moverelliStopNow(['confirm' => true], $h, fn () => true))]);
     same('her poll: no run — not real, nothing', [false, null, null], [moverelliProgressState($h)['real'], moverelliProgressState($h)['stopping'], moverelliProgressState($h)['progress']]);
+    // the file in flight measured by its growing .partial (Unraid's move goes through shfs: nothing in /proc io) — its
+    // ALLOCATED size, only on the share's awake destinations, the path strictly from the source's
+    file_put_contents("$tmp/mnt/cache/Docs/big.bin", str_repeat('b', 300000));
+    @mkdir("$tmp/mnt/disk2/Docs", 0700, true);
+    file_put_contents("$tmp/mnt/disk2/Docs/big.bin.partial", str_repeat('p', 50000));
+    $hf = ['asleep' => ['disk2' => true]] + moverelliHost();
+    $p0 = ['phase' => 'share', 'share' => 'Docs', 'file' => "$tmp/mnt/cache/Docs/big.bin"];
+    same('in flight: the partial only on a sleeping disk — not looked at; the source\'s size known', ['file_bytes' => 0, 'file_size' => 300000], moverelliInFlight($p0, $hf));
+    $hf['asleep'] = [];
+    $alloc = (int) (stat("$tmp/mnt/disk2/Docs/big.bin.partial")['blocks'] * 512);
+    same('in flight: … awake — its allocated bytes (never above the source), the source\'s size', ['file_bytes' => min($alloc, 300000), 'file_size' => 300000], moverelliInFlight($p0, $hf));
+    same('in flight: a path outside the share, «..» in it, not moving — nothing', array_fill(0, 3, ['file_bytes' => 0, 'file_size' => null]),
+        [moverelliInFlight(['file' => "/etc/passwd"] + $p0, $hf), moverelliInFlight(['file' => "$tmp/mnt/cache/Docs/../Docs/big.bin"] + $p0, $hf), moverelliInFlight(['phase' => 'look'] + $p0, $hf)]);
+    @unlink("$tmp/mnt/disk2/Docs/big.bin.partial");
+    @unlink("$tmp/mnt/cache/Docs/big.bin");
 
     // Unraid's mover starts while she runs: always at once — the stop file with now and by what, the kill asked
     $stop = "$tmp/watch-stop.json";
@@ -31019,6 +31038,11 @@ const out = {};
 const d0 = m.runCardData(p(200), 2000);
 out.steps = d0.steps.map((s) => [s.name, s.state]);
 out.first = [d0.at, d0.percent, d0.left, d0.end];
+const fl = m.runCardData({ ...p(200), file_bytes: 300, file_size: 500, started: 7 }, 2000);
+m.runCardData({ ...p(200), file_bytes: 400, file_size: 500, started: 7 }, 2010);
+const fl2 = m.runCardData({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2020);
+out.flight = [fl.dBytes, fl.percent, fl2.dBytes, fl2.rate, fl2.fileBytes, fl2.fileSize];
+out.flightCard = texts(m.runCard({ ...p(200), file_bytes: 500, file_size: 500, started: 7 }, 2030));
 m.runCardData(p(300), 2010);
 const d2 = m.runCardData(p(400), 2020);
 out.rate = [d2.percent, d2.left, d2.end];
@@ -31050,10 +31074,13 @@ JS);
         same('run card: the steps — Looking around, a step per share of the run, Tidying up; Back done, Docs running', [['rc.look', 'done'], ['Back', 'done'], ['Docs', 'running'], ['Docs' === '' ? '' : 'rc.tidy', 'pending']],
             $o['steps'] ?? null);
         same('run card: the first reading — the share\'s 20 % by bytes, no time yet (one reading), no end', [2, 20, null, null], $o['first'] ?? null);
+        same('run card: the file in flight counts with its .partial — 200 + 300 = 50 %; 10 B/s from the readings', [500, 50, 700, 10, 500, 500], $o['flight'] ?? null);
+        check('run card: … the rate in the bar\'s words like Mr. Backupsy\'s partner line, the file\'s bytes beside it',
+            (bool) preg_grep('/^70 % · rc\.rate \{"rate":"10 B"\}/', $o['flightCard'] ?? []) && (bool) preg_grep('/^rc\.file .* · rc\.file_bytes \{"done":"500 B","size":"500 B"\}$/', $o['flightCard'] ?? []), json_encode($o['flightCard'] ?? null));
         same('run card: three readings (10 B/s) — 40 %, 60 s left, the end (Docs is the run\'s last share)', [40, 60, 2080], $o['rate'] ?? null);
         same('run card: looking around — the first step, no bar', [0, null, ['running', 'pending', 'pending']], $o['look'] ?? null);
         check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
-            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
+            in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.rate \{"rate":"10 B"\} · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
             && in_array('rc.file {"file":"/mnt/cache/Docs/c2.txt"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
         same('run card: the foot as Mr. Backupsy\'s — «N errors, N warnings» left, «Log» right (a small plain button); no «Watch»',
             [['span', '', 'rc.counts {"errors":"count.errors {\\"n\\":0}","warnings":"count.warnings {\\"n\\":0}"}'], ['button', 'btn small plain', 'rc.show_log']], $o['foot'] ?? null);

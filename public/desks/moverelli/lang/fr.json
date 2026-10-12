@@ -443,5 +443,7 @@
   "notify.cake_full": "{pool} déborde ({used} %) — je déménage tout ce que j'ai le droit ; je ne peux pas faire plus.",
   "rc.counts": "{errors}, {warnings}",
   "rc.show_log": "Journal",
-  "count.warnings": {"one": "{n} avertissement", "other": "{n} avertissements"}
+  "count.warnings": {"one": "{n} avertissement", "other": "{n} avertissements"},
+  "rc.rate": "{rate}/s",
+  "rc.file_bytes": "{done} sur {size}"
 }
