@@ -3720,7 +3720,7 @@ Office.goToPlace = function goToPlace(r) {
   if (!r.hired) {
     Office.toast(t('office.not_hired', { name: t(`${r.desk}.name`) }));
     const gen = routeGen;
-    Office.go('#/caretaker');
+    Office.go('#/caretaker/team');          // his «The team» tile: drawn whatever section was chosen there last
     Office.reveal('team', { since: gen, name: t('caretaker.team') });
     return;
   }

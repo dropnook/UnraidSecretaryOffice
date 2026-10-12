@@ -301,7 +301,7 @@ function caretakerNotifySend(array $items, string $lang): bool
         officeNotifyText('caretaker', 'notify.description', ['list' => $list], $lang),
         'warning',
         $body . "\n\n" . officeNotifyText('caretaker', 'notify.footer', [], $lang),
-        officeNotifyLink('#/caretaker'),
+        officeNotifyLink('#/caretaker/todo'),
     );
 }
 
@@ -538,7 +538,7 @@ function caretakerChecks(): array
     // the office itself: a newer release?
     $office = officeUpdateInfo();
     $out[] = finding('office_update', 'recommended', $office['newer'] ? false : true,
-        ['version' => AGENT_VERSION, 'latest' => (string) ($office['latest'] ?? '')], '#/caretaker');
+        ['version' => AGENT_VERSION, 'latest' => (string) ($office['latest'] ?? '')], '#/caretaker/office');
 
     $out[] = finding('community_apps', 'recommended', housePlugin('community.applications'), [], 'plugins');
     if (!in_array('advisor', staffHired(), true)) {      // once hired, the consultant looks after them
@@ -895,7 +895,7 @@ function caretakerPartnerWatch(): int
         return 0;
     }
     $acks = caretakerAckRead(caretakerAckFile());
-    $finding = fn (array $p, array $e) => finding('partner_silent', 'recommended', false, partnerSilentParams($p, $e), '#/caretaker');
+    $finding = fn (array $p, array $e) => finding('partner_silent', 'recommended', false, partnerSilentParams($p, $e), '#/caretaker/partner');
     $before = partnerStateRead();
     $after = partnerWatch(
         fn (array $p, array $e) => caretakerAckHas($acks, 'caretaker', $finding($p, $e)),
@@ -908,7 +908,7 @@ function caretakerPartnerWatch(): int
                 officeNotifyText('caretaker', 'notify.partner_silent_description', $params, $lang),
                 'warning',
                 officeNotifyText('caretaker', 'notify.partner_silent_message', $params, $lang) . $tailnet,
-                officeNotifyLink('#/caretaker'),
+                officeNotifyLink('#/caretaker/partner'),
             );
             logLine("Partner offices: {$p['name']} ({$p['id']}) is silent since {$params['since']} — " . ($sent ? 'told' : 'could not tell') . " Unraid's notifications");
             return $sent;
@@ -934,7 +934,7 @@ function caretakerPartnerFindings(): array
     foreach (partnerPairs() as $p) {
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
         $silent = partnerSilent($p, $e, $now);
-        $out[] = finding('partner_silent', 'recommended', !$silent, $silent ? partnerSilentParams($p, $e) : ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker');
+        $out[] = finding('partner_silent', 'recommended', !$silent, $silent ? partnerSilentParams($p, $e) : ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker/partner');
     }
     return $out;
 }

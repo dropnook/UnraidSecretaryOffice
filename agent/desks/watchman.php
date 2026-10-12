@@ -3893,7 +3893,7 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
     }
     // partner doors (the Team Lead's partner offices): the lines in authorized_keys, the pairs (not looked at: no tip of theirs)
     $partner = is_array($seen['partner'] ?? null) ? $seen['partner'] : null;
-    $lead = ['to' => 'caretaker', 'path' => '#/caretaker'];
+    $lead = ['to' => 'caretaker', 'path' => '#/caretaker/partner'];
     $pairs = is_array($partner['pairs'] ?? null) ? $partner['pairs'] : null;
     $pairName = fn (string $id): string => (string) ($pairs[$id]['name'] ?? $id);
     $wide = $unknown = [];
