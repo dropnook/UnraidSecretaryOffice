@@ -31,6 +31,9 @@
 >   runs or his last run's marker): EmbyCache writes the list only at its first real run or import, and a list that
 >   isn't there yet protects nothing (the office's shared start lock keeps an EmbyCache run from going at the same time).
 >   Once EmbyCache has run, a missing list is an error again — his films stay where they are.
+> * Always (no variable, 2026-10-12, helmi1987's finding): a `<share>.cfg` whose share is gone — no `/mnt/user/<share>`
+>   (under `CUSTOMMOVER_MNT`); a share removed by hand leaves its .cfg on the flash — is skipped with an INFO line
+>   («skip <share>: no such share (stale .cfg)»), never listed or moved. Not upstream as of `68ee9ce`.
 > * The status JSON's texts are made safe: invalid UTF-8 is dropped (`iconv -c`, when there), control characters and DEL
 >   too.
 > * Upstream changes taken over since the first copy (each also named at the top of the script):

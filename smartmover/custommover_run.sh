@@ -46,6 +46,8 @@
 # Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
 #   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
 #   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
+# USO: a <share>.cfg whose share is gone (no $MNT/user/<share>: a share removed by hand leaves its .cfg)
+#      is skipped with an INFO line, never moved (not upstream as of 68ee9ce)
 #
 # INI (smart_mover.ini):
 #   [GLOBAL]  mover_bin, log_file, min_age (days), age_stat (ctime|mtime), global_excludes (comma list),
@@ -498,6 +500,8 @@ for cfg in "$SHARES_DIR"/*.cfg; do
     MODE=$(sed -n 's/^shareUseCache="\([^"]*\)".*/\1/p' "$cfg" | tr -d '\r' | head -1)
     [[ "$MODE" == "yes" || "$MODE" == "prefer" ]] || continue
     if [[ -n "$TARGET_SHARES" && ",$TARGET_SHARES," != *",$SHARE_NAME,"* ]]; then continue; fi
+    # USO: a stale .cfg is no share — Unraid lists shares from the folders, /mnt/user shows them (FUSE, no disk asked)
+    [[ -d "$MNT/user/$SHARE_NAME" ]] || { log INFO "skip $SHARE_NAME: no such share (stale .cfg)"; continue; }
     POOL=$(sed -n 's/^shareCachePool="\([^"]*\)".*/\1/p' "$cfg" | tr -d '\r' | head -1)
     POOL2=$(sed -n 's/^shareCachePool2="\([^"]*\)".*/\1/p' "$cfg" | tr -d '\r' | head -1)
     [[ -z "$POOL" ]] && POOL="cache"
