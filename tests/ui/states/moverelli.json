@@ -21,7 +21,8 @@
    ],
    "patterns": [
     "*.nfo"
-   ]
+   ],
+   "jack_slice_percent": 25
   },
   "shares": {
    "media": {
@@ -286,6 +287,44 @@
  "jack": {
   "busy": false,
   "list": null,
-  "uncovered": []
+  "uncovered": [],
+  "hired": true,
+  "lists": [],
+  "shares": []
+ },
+ "cakes": {
+  "cache": {
+   "size": 4294967296000,
+   "used": 2040109465600,
+   "movable": 751619276800,
+   "nm": 1288490188800,
+   "cake": 1717986918400,
+   "x": 70,
+   "y": 60,
+   "n": 25,
+   "slice": 429496729600,
+   "jack": 408021893120,
+   "eff": 2061584302080,
+   "floor": 1717986918400,
+   "rest": 1288490188800,
+   "new": 343597383680,
+   "used_pct": 47.5,
+   "nm_pct": 30.0,
+   "eff_pct": 48.0,
+   "floor_pct": 40.0,
+   "case": "ok",
+   "offset": 21474836480,
+   "fill": "normal",
+   "excess": 0,
+   "snapshots": 42949672960,
+   "snap_pct": 1.0,
+   "proposal": 25,
+   "shares": [
+    "downloads",
+    "isos",
+    "media"
+   ],
+   "mine": true
+  }
  }
 }

@@ -967,6 +967,8 @@ function poolSection() {
   const s = section(T('on_pool'), c.listed_at ? T('on_pool_sub', { when: fmt.relative(c.listed_at) }) : T('on_pool_none'),
     el('span', 'hint', c.files ? T('pool_sum', { n: c.files, size: fmt.size(c.bytes) }) : ''), { place: 'on_pool' });
   s.id = 'jo-pool';
+  // what Ms. Moverelli gives him on the pool (her cake), in his words — over the list
+  sliceWords().forEach((line, i) => s.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
   if (!c.files) return s;
   s.appendChild(poolBar.el);
   const box = el('div', 'box');
