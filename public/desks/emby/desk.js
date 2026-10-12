@@ -582,7 +582,9 @@ function poolTile(a) {
   const sub = pool ? T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' }) : '';
   const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '',
     c.listed_at ? T('pool_tile.as_of', { when: fmt.relative(c.listed_at) }) : ''].filter(Boolean).join('\n');
-  return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nOf('files', c.files), size: fmt.size(c.bytes) }) : T('pool_tile.none'),
+  // never a break between a number and its unit («671 GB» stays on one line)
+  const nb = (t) => String(t).replace(/(\d) /g, '$1\u00a0');
+  return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nb(nOf('files', c.files)), size: nb(fmt.size(c.bytes)) }) : T('pool_tile.none'),
     sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
 }
 
@@ -729,7 +731,20 @@ function sizesLine(x) {
   }
   (Array.isArray(x.live) ? x.live : []).forEach((l) => line.appendChild(chip(T('sizes_live', { pool: l.pool, size: fmt.size(l.used) }), 'quiet',
     T('sizes_live_tip', { share: x.share, pool: l.pool }))));
+  // of that, what EmbyCache keeps ready on the pool for this share (the same list the «Ready to watch» tile counts)
+  const r = readyOf(x.share);
+  if (r) line.appendChild(chip(T('sizes_ready', { files: nOf('files', r.files), size: fmt.size(r.bytes) }), 'quiet', T('sizes_ready_tip', { share: x.share })));
   return line;
+}
+
+/** EmbyCache's files on the pool for a share {files, bytes} — the agent's per-share count (an older agent: from the groups), or null */
+function readyOf(share) {
+  const c = (state && state.cache) || {};
+  const by = c.shares && typeof c.shares === 'object' ? c.shares[share] : null;
+  if (by) return by.files ? by : null;
+  if (c.shares) return null;
+  const g = (c.groups || []).filter((x) => x.share === share);
+  return g.length ? { files: g.reduce((n, x) => n + (x.files || 0), 0), bytes: g.reduce((n, x) => n + (x.bytes || 0), 0) } : null;
 }
 
 /** Do the shares of the chosen libraries suit EmbyCache and its pool? And what lies where */
@@ -2188,7 +2203,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,

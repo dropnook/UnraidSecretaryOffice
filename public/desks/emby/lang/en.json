@@ -68,7 +68,7 @@
   "pool_tile.none": "nothing yet",
   "pool_tile.as_of": "as of {when}",
   "pool_tile.free": "{pct} % free · EmbyCache keeps {min} %",
-  "tile.pool": "Pool",
+  "tile.pool": "Ready to watch",
   "gather_tile.sub": "{moved} · {conflicts}",
   "plans.sub": "When EmbyCache and «Consolidate folders» run on their own.",
   "page.setup": "Setup",
@@ -674,5 +674,7 @@
   "check.mover_moverelli_setup": "Ms. Moverelli is set up and supervises Jack Emby",
   "check.mover_moverelli_setup_how": "Ms. Moverelli → «Set up»: save her settings — she keeps EmbyCache's list out of her moves and switches Unraid's mover schedule off.",
   "check.mover_tuning_schedule": "Mover Tuning moves nothing on a schedule of its own",
-  "check.mover_tuning_schedule_how": "Switch Mover Tuning's own schedule off ({schedule}) in Mover Tuning — Ms. Moverelli does the moving."
+  "check.mover_tuning_schedule_how": "Switch Mover Tuning's own schedule off ({schedule}) in Mover Tuning — Ms. Moverelli does the moving.",
+  "sizes_ready": "of that ready from EmbyCache: {files} · {size}",
+  "sizes_ready_tip": "What EmbyCache keeps ready on the pool for {share} (its list)"
 }

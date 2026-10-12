@@ -560,7 +560,8 @@ function embyWriteMeasureIni(array $shares, array $emby, string $gatherDir = GAT
 /**
  * What EmbyCache keeps on the pool right now (its exclude list: absolute pool paths), by film or series folder:
  * files, bytes, the disks they go back to and `since` — when the newest of them came onto the pool (its ctime: the
- * copy made it; read with the size, one stat). Newest first; the page filters and pages them.
+ * copy made it; read with the size, one stat). Newest first; the page filters and pages them. `shares`: per share over
+ * the whole list {files, bytes} — the first folder below the pool, as the groups (his share rows say it).
  */
 function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
 {
@@ -568,6 +569,7 @@ function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
     $origin = readJson("$dir/embycache_origin.json") ?? [];
     $bytes = 0;
     $groups = [];
+    $shares = [];             // per share, over the whole list (the groups are cut at EMBY_POOL_GROUPS): his page's share rows
     $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
     foreach ($list as $path) {
         $size = (int) @filesize($path);
@@ -580,6 +582,9 @@ function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
         $groups[$key] ??= ['share' => $parts[0], 'title' => $parts[1] ?? $parts[0], 'files' => 0, 'bytes' => 0, 'origin' => [], 'since' => null];
         $groups[$key]['files']++;
         $groups[$key]['bytes'] += $size;
+        $shares[$parts[0]] ??= ['files' => 0, 'bytes' => 0];
+        $shares[$parts[0]]['files']++;
+        $shares[$parts[0]]['bytes'] += $size;
         if ($since > 0 && $since > (int) $groups[$key]['since']) {
             $groups[$key]['since'] = $since;
         }
@@ -592,7 +597,8 @@ function embyCacheStats(?array $settings, string $dir = EMBY_DATA): array
     }
     unset($g);
     usort($groups, fn ($a, $b) => [(int) $b['since'], $a['title']] <=> [(int) $a['since'], $b['title']]);
-    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, EMBY_POOL_GROUPS),
+    ksort($shares);
+    return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, EMBY_POOL_GROUPS), 'shares' => (object) $shares,
             'listed_at' => @filemtime("$dir/embycache_exclude.txt") ?: null];
 }
 

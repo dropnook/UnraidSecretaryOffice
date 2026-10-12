@@ -2008,6 +2008,67 @@ JS);
 }
 
 /**
+ * Jack Emby's «Ready to watch» (2026-10-12): EmbyCache's files on the pool split per share over the whole list (the
+ * groups stop at EMBY_POOL_GROUPS), each share row says its part next to «<pool> now …»; the tile's value never breaks
+ * between a number and its unit.
+ */
+function testEmbyReadyShares(): void
+{
+    $tmp = hardeningTmp('emby-ready');
+    $pool = "$tmp/pool";
+    foreach (["$tmp/data", "$pool/Filme/A", "$pool/Filme/B", "$pool/Serien/S/Season 1"] as $d) {
+        mkdir($d, 0700, true);
+    }
+    $files = ["$pool/Filme/A/a.mkv" => 100, "$pool/Filme/B/b.mkv" => 50, "$pool/Serien/S/Season 1/e1.mkv" => 30, "$pool/Serien/S/Season 1/e2.mkv" => 20];
+    foreach ($files as $f => $n) {
+        file_put_contents($f, str_repeat('x', $n));
+    }
+    file_put_contents("$tmp/data/embycache_exclude.txt", implode("\n", array_keys($files)) . "\n");
+    $c = embyCacheStats(['cache_path' => $pool], "$tmp/data");
+    same('ready: per share over the whole list — files and bytes', ['Filme' => ['files' => 2, 'bytes' => 150], 'Serien' => ['files' => 2, 'bytes' => 50]],
+        json_decode(json_encode($c['shares']), true));
+    same('ready: … the sum is the tile\'s', [4, 200], [$c['files'], $c['bytes']]);
+    same('ready: nothing on the list — an empty object (never a list for the page)', '{}', json_encode(embyCacheStats(['cache_path' => $pool], "$tmp/none")['shares']));
+    $node = testsNode();
+    if ($node === '') {
+        check('ready: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, title: '',
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { size: (b) => b + ' GB', date: (t) => 'D' + t, relative: (t) => 'R' + t, number: (n) => String(n) }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, stat: (o) => o };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+e.setState({ cache: { files: 4, bytes: 671, groups: [], shares: { Filme: { files: 2, bytes: 150 } } } });
+out.row = texts(e.sizesLine({ share: 'Filme', live: [{ pool: 'master', used: 900 }] }));
+out.none = texts(e.sizesLine({ share: 'Musik', live: [] }));
+out.tile = [e.poolTile({}).label, e.poolTile({}).value];
+e.setState({ cache: { files: 3, bytes: 5, groups: [{ share: 'Filme', files: 2, bytes: 4 }, { share: 'Filme', files: 1, bytes: 1 }] } });
+out.old = e.readyOf('Filme');
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1'), true);
+    check('ready: page ran under node', is_array($o), json_encode($o));
+    $o = is_array($o) ? $o : [];
+    same('ready: a share row — «master now …» and, of that, EmbyCache\'s part', ['sizes_never', 'sizes_live {"pool":"master","size":"900 GB"}', 'sizes_ready {"files":"count.files {\"n\":2}","size":"150 GB"}'],
+        array_values(array_filter($o['row'] ?? [], fn ($t) => !str_starts_with($t, 'sizes_live_tip') && !str_starts_with($t, 'sizes_ready_tip'))));
+    same('ready: a share without any — nothing said of it', ['sizes_never'], $o['none'] ?? null);
+    same('ready: the tile «Ready to watch», its value with no break between a number and its unit', ['tile.pool', "pool_tile.value {\"files\":\"count.files {\\\"n\\\":4}\",\"size\":\"671\u{a0}GB\"}"], $o['tile'] ?? null);
+    same('ready: an older agent\'s state (no per-share count) — from its groups', ['files' => 3, 'bytes' => 5], $o['old'] ?? null);
+    hardeningRm($tmp);
+}
+
+/**
  * Jack Emby and Unraid's mover (agent/desks/emby-mover.php; 2026-10-12: an intern, only under Ms. Moverelli): real runs
  * only while Unraid's mover schedule is «Disabled» (share.cfg empty, no mover.cron line), Ms. Moverelli is set up and
  * her ini keeps his list out, and Mover Tuning has no schedule of its own — never a Mover Tuning way any more; the
@@ -32901,7 +32962,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',

@@ -68,7 +68,7 @@
   "pool_tile.none": "nada todavía",
   "pool_tile.as_of": "actualizado {when}",
   "pool_tile.free": "{pct} % libre · EmbyCache mantiene {min} %",
-  "tile.pool": "Pool",
+  "tile.pool": "Listo para ver",
   "gather_tile.sub": "{moved} · {conflicts}",
   "plans.sub": "Cuándo EmbyCache y «Agrupar carpetas» se ejecutan solos.",
   "page.setup": "Configuración",
@@ -674,5 +674,7 @@
   "check.mover_moverelli_setup": "La Señora Moverelli está configurada y supervisa a Jack Emby",
   "check.mover_moverelli_setup_how": "Señora Moverelli → «Configurar»: guarda sus ajustes — mantiene la lista de EmbyCache fuera de sus movimientos y apaga la programación del mover de Unraid.",
   "check.mover_tuning_schedule": "Mover Tuning no mueve nada con programación propia",
-  "check.mover_tuning_schedule_how": "Apaga en Mover Tuning su programación propia ({schedule}) — de mover se encarga la Señora Moverelli."
+  "check.mover_tuning_schedule_how": "Apaga en Mover Tuning su programación propia ({schedule}) — de mover se encarga la Señora Moverelli.",
+  "sizes_ready": "de ello preparado por EmbyCache: {files} · {size}",
+  "sizes_ready_tip": "Lo que EmbyCache tiene listo en el pool para {share} (su lista)"
 }

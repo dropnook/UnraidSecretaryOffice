@@ -68,7 +68,7 @@
   "pool_tile.none": "noch nichts",
   "pool_tile.as_of": "Stand {when}",
   "pool_tile.free": "{pct} % frei · EmbyCache lässt {min} % frei",
-  "tile.pool": "Pool",
+  "tile.pool": "Bereitgelegt",
   "gather_tile.sub": "{moved} · {conflicts}",
   "plans.sub": "Wann EmbyCache und «Ordner zusammenführen» von selbst laufen.",
   "page.setup": "Einrichten",
@@ -674,5 +674,7 @@
   "check.mover_moverelli_setup": "Frau Moverelli ist eingerichtet und beaufsichtigt Jack Emby",
   "check.mover_moverelli_setup_how": "Frau Moverelli → «Einrichten»: ihre Einstellungen speichern — sie hält EmbyCaches Liste aus ihren Läufen heraus und schaltet Unraids Mover-Zeitplan aus.",
   "check.mover_tuning_schedule": "Mover Tuning verschiebt nichts nach eigenem Zeitplan",
-  "check.mover_tuning_schedule_how": "Den eigenen Zeitplan von Mover Tuning ({schedule}) in Mover Tuning ausschalten — das Verschieben macht Frau Moverelli."
+  "check.mover_tuning_schedule_how": "Den eigenen Zeitplan von Mover Tuning ({schedule}) in Mover Tuning ausschalten — das Verschieben macht Frau Moverelli.",
+  "sizes_ready": "davon von EmbyCache bereitgelegt: {files} · {size}",
+  "sizes_ready_tip": "Was EmbyCache für {share} auf dem Pool bereithält (seine Liste)"
 }
