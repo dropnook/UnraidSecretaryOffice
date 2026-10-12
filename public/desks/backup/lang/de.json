@@ -1476,5 +1476,6 @@
   "warn_code.vm_not_shut_down": "{name} liess sich nicht herunterfahren — angehalten; der Lauf entsprach nicht genau der Einrichtung.",
   "warn_code.vm_shutdown_refused": "{name} nahm die Bitte zum Herunterfahren nicht an — angehalten; der Lauf entsprach nicht genau der Einrichtung.",
   "warn_code.vm_not_frozen": "{name}: Der Gast-Agent hat die Dateisysteme nicht eingefroren — angehalten; der Lauf entsprach nicht genau der Einrichtung.",
-  "warn_code.vm_not_paused": "{name} liess sich nicht anhalten — sie lief weiter, ihre Disks nur absturzkonsistent; der Lauf entsprach nicht genau der Einrichtung."
+  "warn_code.vm_not_paused": "{name} liess sich nicht anhalten — sie lief weiter, ihre Disks nur absturzkonsistent; der Lauf entsprach nicht genau der Einrichtung.",
+  "setup.level_hint.partner_vm": "Wie lokal, und ihr ZFS-Snapshot geht nach jedem Backup zum Partner-Sekretariat ({partners}) — nur die seit dem letzten geänderten Blöcke, unterwegs verschlüsselt; die Kopie trägt die Konfiguration der VM in sich (XML, UEFI-Variablen, TPM-Stand), der Partner kann sie dort starten."
 }

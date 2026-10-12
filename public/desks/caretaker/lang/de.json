@@ -213,7 +213,7 @@
   "errors.ack_gone": "Dieser Punkt hat sich inzwischen geändert — schau ihn dir nochmals an.",
   "errors.ack_required": "Das ist ein Muss — das lässt sich nicht beiseitelegen. Sobald es erledigt ist, verschwindet es von selbst.",
   "partner.title": "Partner-Sekretariate",
-  "partner.sub": "Ein anderer Unraid-Server mit dem Sekretariat bewahrt Kopien deiner ZFS-Snapshots auf — und du seine, wenn du magst. Verbinden tut der Teamchef; was dorthin geht, ist die Stufe «lokal + Partner» pro Share und VM in Herrn Backupsis Einrichtung. Jede Seite hält die Kopien der anderen mit einer eigenen Aufbewahrung; nie schaltet etwas von selbst um.",
+  "partner.sub": "Ein anderer Unraid-Server mit dem Sekretariat bewahrt Kopien deiner ZFS-Snapshots auf — und du seine, wenn du magst. Verbinden tut der Teamchef; was dorthin geht, ist die Stufe «lokal + Partner» pro Share und VM in Herrn Backupsis Einrichtung. Jede Seite hält die Kopien der anderen mit einer eigenen Aufbewahrung; nie schaltet etwas von selbst um. Seit Engine 2.43 trägt die Kopie einer VM oder App ihre Konfiguration in sich — der Herr Restori des Empfängers kann davon starten («Für … aufbewahrt»); ältere Kopien nicht.",
   "partner.help": "Zwei Sekretariate werden Partner mit zwei Blöcken zum Kopieren und einem Code zum Vergleichen. Danach sagen die Stufen in Herrn Backupsis Einrichtung, was geht: bei jedem Backup schickt er, was sich in den Shares und VMs auf «lokal + Partner» geändert hat (eigene ZFS-Datasets), verschlüsselt über SSH durch die Tür des Partners — ein Schlüssel in dessen authorized_keys, der nur die paar Dinge des Sekretariats kann. Die Zustimmung des Partners ist die Partnerschaft: seine Tür nimmt jede deiner Einheiten an, bis zur Obergrenze, die sein Teamchef bei «Partner annehmen…» gesetzt hat, jederzeit, in eigene Datasets auf seinem Pool mit seiner eigenen Aufbewahrung. Eine Einheit, die er noch nie gesehen hat, trägt auf seiner Karte den Chip «neu»; die Partnerschaft beenden schliesst die Tür.",
   "partner.add": "Partner hinzufügen…",
   "partner.accept": "Partner annehmen…",
@@ -481,5 +481,10 @@
   "check.syslog_off": "Unraids Syslog-Server ist aus",
   "check.syslog_off_how": "Der Nachtwächter ist angestellt und du hast die Router-Anleitung des Beraters geöffnet, aber ⟦Local syslog server⟧ ist aus — der Router kann nirgends hin schicken. Der Berater zeigt die Einstellung.",
   "check.syslog_mikrotik_format": "Der MikroTik-Router {router} schickt sein Protokoll mit den Topics von RouterOS",
-  "check.syslog_mikrotik_format_how": "{router} ({sender}) schickt seine Zeilen ohne die Topics, die RouterOS voranstellen kann (das Format «default», oder «syslog» ohne «add-topics-string=yes»): Der Nachtwächter versteht nur einen Teil davon. In WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — die MikroTik-Anleitung des Beraters zeigt die ganze Einstellung."
+  "check.syslog_mikrotik_format_how": "{router} ({sender}) schickt seine Zeilen ohne die Topics, die RouterOS voranstellen kann (das Format «default», oder «syslog» ohne «add-topics-string=yes»): Der Nachtwächter versteht nur einen Teil davon. In WinBox → New Terminal: /system logging action set [find target=remote] remote-log-format=syslog add-topics-string=yes — die MikroTik-Anleitung des Beraters zeigt die ganze Einstellung.",
+  "partner.need_backupsy": "Zum Schicken braucht es Herrn Backupsi — eingestellt und eingerichtet (mit Backup-Ablage auf einem ZFS-Pool). Dann wählst du dort pro Share und VM «lokal + Partner».",
+  "partner.hire_backupsy": "Herrn Backupsi einstellen",
+  "partner.need_restori": "Um hier von einer Kopie zu starten, braucht es Herrn Restori.",
+  "partner.hire_restori": "Herrn Restori einstellen",
+  "partner.i_keep_start": "Herr Restori kann von diesen Kopien starten («Für {name} aufbewahrt» auf seiner Seite) — die Kopie einer VM oder App trägt seit Engine 2.43 ihre Konfiguration in sich; ältere Kopien nicht."
 }

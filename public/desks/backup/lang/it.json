@@ -1482,5 +1482,6 @@
   "warn_code.vm_not_shut_down": "{name} non si è lasciata spegnere — messa in pausa; il backup non ha seguito esattamente la configurazione.",
   "warn_code.vm_shutdown_refused": "{name} non ha accettato la richiesta di spegnersi — messa in pausa; il backup non ha seguito esattamente la configurazione.",
   "warn_code.vm_not_frozen": "{name}: il guest agent non ha congelato i file system — messa in pausa; il backup non ha seguito esattamente la configurazione.",
-  "warn_code.vm_not_paused": "{name} non si è lasciata mettere in pausa — ha continuato a girare, i dischi solo coerenti come dopo un crash; il backup non ha seguito esattamente la configurazione."
+  "warn_code.vm_not_paused": "{name} non si è lasciata mettere in pausa — ha continuato a girare, i dischi solo coerenti come dopo un crash; il backup non ha seguito esattamente la configurazione.",
+  "setup.level_hint.partner_vm": "Come locale, e il suo snapshot ZFS va alla segreteria partner ({partners}) dopo ogni backup — solo i blocchi cambiati dall'ultimo, cifrati lungo la strada; la copia porta dentro la configurazione della VM (XML, variabili UEFI, stato TPM), il partner può avviarla lì."
 }

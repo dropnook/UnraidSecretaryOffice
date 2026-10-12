@@ -1497,5 +1497,6 @@
   "warn_code.vm_not_shut_down": "{name} n'a pas pu être éteinte — mise en pause à la place ; la sauvegarde n'a pas tout à fait suivi la configuration.",
   "warn_code.vm_shutdown_refused": "{name} n'a pas accepté la demande d'extinction — mise en pause à la place ; la sauvegarde n'a pas tout à fait suivi la configuration.",
   "warn_code.vm_not_frozen": "{name} : son agent invité n'a pas figé les systèmes de fichiers — mise en pause à la place ; la sauvegarde n'a pas tout à fait suivi la configuration.",
-  "warn_code.vm_not_paused": "{name} n'a pas pu être mise en pause — elle a continué de tourner, ses disques seulement cohérents comme après un crash ; la sauvegarde n'a pas tout à fait suivi la configuration."
+  "warn_code.vm_not_paused": "{name} n'a pas pu être mise en pause — elle a continué de tourner, ses disques seulement cohérents comme après un crash ; la sauvegarde n'a pas tout à fait suivi la configuration.",
+  "setup.level_hint.partner_vm": "Comme local, et son snapshot ZFS va au secrétariat partenaire ({partners}) après chaque sauvegarde — seuls les blocs changés depuis la dernière, chiffrés en chemin ; la copie porte la configuration de la VM (XML, variables UEFI, état TPM), le partenaire peut la démarrer là-bas."
 }

@@ -1497,5 +1497,6 @@
   "warn_code.vm_not_shut_down": "{name} no se pudo apagar — pausada en su lugar; la copia no siguió exactamente la configuración.",
   "warn_code.vm_shutdown_refused": "{name} no aceptó la petición de apagarse — pausada en su lugar; la copia no siguió exactamente la configuración.",
   "warn_code.vm_not_frozen": "{name}: su agente invitado no congeló los sistemas de archivos — pausada en su lugar; la copia no siguió exactamente la configuración.",
-  "warn_code.vm_not_paused": "{name} no se pudo pausar — siguió funcionando, sus discos solo consistentes como tras un corte; la copia no siguió exactamente la configuración."
+  "warn_code.vm_not_paused": "{name} no se pudo pausar — siguió funcionando, sus discos solo consistentes como tras un corte; la copia no siguió exactamente la configuración.",
+  "setup.level_hint.partner_vm": "Como local, y su instantánea ZFS va a la secretaría socia ({partners}) tras cada copia — solo los bloques cambiados desde la última, cifrados por el camino; la copia trae la configuración de la VM (XML, variables UEFI, estado TPM), el socio puede arrancarla allí."
 }

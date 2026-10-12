@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.42 - 2026-10-12
+# unraid-backup - backup.sh                       Version 2.43 - 2026-10-12
+#   2.43 Every unit's copy is whole: a VM's package (XML, NVRAM, TPM state, snapshotdb, manifest.json) is also written
+#        into the VM's own dataset as <folder>/.uso-backup/ right after it is built (the VM shut down or held, before
+#        the snapshots); an app whose folder is a dataset of its own (no other app binds into it) gets its package
+#        there too (template or compose files, the manifest, this run's database dumps - never the SQLite copies).
+#        Small files, overwritten each run; a README.txt says what it is. The backup place keeps the packages as
+#        before. A partner office's copy of the dataset thus carries the configuration (its Mr. Restori starts from it)
 #   2.42 Partner offices, simple: the run no longer skips a unit as not_agreed (the partner's door takes any unit
 #        up to its quota; a door up to 1.59 that still answers unit_not_agreed makes it skipped, not failed);
 #        status.json carries skip_kopia (a --no-kopia run) and, while a unit goes to a partner, current.bytes every
@@ -338,6 +344,7 @@ PARTNER_TMP=""              # its files (the door's answers, pv's count), in RAM
 ARRAY_STOP="no"             # the array is being stopped: the run ends at once, starts nothing (2.24, array_stop_check)
 CLEANUP_ARMED="no"          # the cleanup trap is set (from then on an array stop ends the run through it)
 UB_ARRAY_LOOK="${UB_ARRAY_LOOK:-5}"   # seconds between looks at var.ini while Kopia uploads
+UB_LIBVIRT="${UB_LIBVIRT:-/etc/libvirt}"              # libvirt's folder (the VMs' XML, nvram, swtpm, snapshotdb); tests point it elsewhere
 UB_RECOVER_WAIT="${UB_RECOVER_WAIT:-300}"            # --recover: at most so long for Docker and libvirt to answer (2.25)
 UB_RECOVER_LOOK="${UB_RECOVER_LOOK:-5}"              #   asking every so many seconds
 UB_RECOVER_LOCK_WAIT="${UB_RECOVER_LOCK_WAIT:-900}"  # a run that finds a --recover holding the lock waits so long for it
@@ -1683,7 +1690,7 @@ pkg_vms() {
 }
 
 pkg_vm() {
-    local f="$1" n="${PKG_VM_NAME[$1]}" V="$PKG_STAGE/vms/$1" Q=/etc/libvirt/qemu uuid nv x disks auto=false
+    local f="$1" n="${PKG_VM_NAME[$1]}" V="$PKG_STAGE/vms/$1" Q="$UB_LIBVIRT/qemu" uuid nv x disks auto=false
     local t s b fs ds share pth rel sz snap
     PKG_RESULT[vms/$f]="ok"
     mkdir -p "$V"
@@ -1728,6 +1735,130 @@ pkg_vm() {
     PKG_VM_META[$f]="$(jq -nc --arg uuid "$uuid" --arg state "${VM_STATE[$n]:-}" --argjson auto "$auto" \
         --arg prepare "$(vm_prepare "$n")" --arg held "${VM_HELD[$n]:-no}" --argjson disks "${disks:-[]}" \
         '{uuid: $uuid, state: $state, autostart: $auto, prepare: $prepare, held: $held, disks: $disks}')" || PKG_VM_META[$f]='{}'
+    return 0
+}
+
+# A unit's copy is whole (2.43): the package also INSIDE the unit's own dataset, <mountpoint>/.uso-backup/ (UB_INSIDE_DIR)
+# - so every snapshot of the dataset and a partner office's copy of it carry the configuration, and the receiver's
+# Mr. Restori can start from the copy alone («Start here…»). Written from the finished stage right before the package
+# is swapped in (pkg_commit_apps / pkg_commit_rest): the apps are paused, the VMs shut down or held, the snapshots not
+# taken yet. Small files only: a VM's XML, nvram, tpm, snapshotdb and manifest.json; an app's templates, compose files,
+# the office's notes (manifest.json, nextcloud/) and this run's dumps (db/*.sql.gz, *.archive.gz) - never the media
+# servers' SQLite copies (large; their data is in the snapshot anyway), never a second copy of the data. Overwritten
+# each run (the snapshots are the history); built beside as .uso-backup.new-<pid>, then moved into place. A dataset that
+# sleeps this run, isn't mounted, or a VM that runs unheld (prepare = none): nothing written, said in the log.
+# Only a VM's OWN dataset (VM_OWN_DS: no other VM's disks in it) and an app's OWN dataset (app_own_datasets: no other
+# app binds into it) - a shared dataset would be no unit of its own at a partner either.
+declare -A APP_DS_USERS=()      # dataset -> the package folders whose containers bind into it (one per line)
+APP_DS_USERS_BUILT=""
+
+# path_dataset <path>  -> the backed-up ZFS dataset (PLAN_ZFS) a bind source lies in: the deepest of the share's own
+# dataset and its child datasets whose mountpoint holds the path; nothing when not on a dataset of this run
+path_dataset() {
+    local p="${1%/}" s rel b m layer sub ds mp best="" bestrel="" r
+    s="$(src_share "$p")"
+    [[ -n "$s" ]] && inv_has_share "$s" || return 0
+    if [[ "$p" == "$UB_MNT/user/"* || "$p" == "$UB_MNT/user0/"* ]]; then rel="${p#"$UB_MNT"/user/}"; rel="${rel#"$UB_MNT"/user0/}"
+    else
+        rel=""
+        for b in "${INV_BASES[@]}"; do [[ "$p" == "${INV_BASE_PATH[$b]}/"* ]] && { rel="${p#"${INV_BASE_PATH[$b]}"/}"; break; }; done
+    fi
+    [[ -n "$rel" ]] || return 0
+    while IFS='|' read -r b m layer sub; do
+        [[ -n "$b" && "$m" == "zfs" && -n "$layer" && -z "$sub" ]] || continue
+        r="$s"
+        [[ "$rel" == "$r" || "$rel" == "$r/"* ]] && { best="$layer"; bestrel="$r"; }
+    done <<<"${INV_LOCS[$s]:-}"
+    while IFS='|' read -r b ds mp; do
+        [[ -n "$ds" && -n "$mp" && "$mp" == "${INV_BASE_PATH[$b]:-?}/"* ]] || continue
+        r="${mp#"${INV_BASE_PATH[$b]}"/}"
+        [[ "$rel" == "$r" || "$rel" == "$r/"* ]] || continue
+        (( ${#r} > ${#bestrel} )) && { best="$ds"; bestrel="$r"; }
+    done <<<"${INV_CHILDREN[$s]:-}"
+    [[ -n "$best" ]] && in_list "$best" "${PLAN_ZFS[@]}" && printf '%s\n' "$best"
+    return 0
+}
+
+app_ds_users_build() {
+    local f c src ds
+    APP_DS_USERS=()
+    for f in "${PKG_APPS[@]}"; do
+        while IFS= read -r c; do
+            [[ -n "$c" ]] || continue
+            while IFS='|' read -r src _ _; do
+                [[ -n "$src" ]] || continue
+                ds="$(path_dataset "$src")"
+                [[ -n "$ds" ]] || continue
+                grep -Fxq -- "$f" <<<"${APP_DS_USERS[$ds]:-}" || APP_DS_USERS[$ds]+="$f"$'\n'
+            done <<<"${CT_BINDS[$c]:-}"
+        done <<<"${PKG_APP_MEMBERS[$f]}"
+    done
+    APP_DS_USERS_BUILT=1
+}
+
+# app_own_datasets <package folder>  -> the datasets only this app's containers bind into, one per line
+app_own_datasets() {
+    local ds
+    [[ -n "$APP_DS_USERS_BUILT" ]] || app_ds_users_build
+    for ds in "${!APP_DS_USERS[@]}"; do
+        [[ "$(sed '/^$/d' <<<"${APP_DS_USERS[$ds]}" | sort -u | wc -l)" -eq 1 ]] && grep -Fxq -- "$1" <<<"${APP_DS_USERS[$ds]}" && printf '%s\n' "$ds"
+    done | sort
+    return 0
+}
+
+# pkg_inside <vm|app> <name> <stage dir> <dataset>  - the package into <mountpoint of the dataset>/.uso-backup/
+pkg_inside() {
+    local kind="$1" n="$2" src="$3" ds="$4" mp d tmp x y what
+    mp="${ZDS_MP[$ds]:-}"
+    if [[ -n "${ASLEEP_DS[$ds]:-}" ]]; then log "  $kind '$n': its dataset $ds sleeps this run - $UB_INSIDE_DIR inside not written"; return 0; fi
+    if [[ "$mp" != /* || ! -d "$mp" || -L "$mp" ]]; then log "  $kind '$n': its dataset $ds isn't mounted - $UB_INSIDE_DIR inside not written"; return 0; fi
+    d="$mp/$UB_INSIDE_DIR"; tmp="$d.new-$$"
+    rm -rf -- "$tmp"
+    mkdir -m 700 "$tmp" 2>>"$LOG_FILE" || { warn "$kind '$n': $tmp could not be made - $UB_INSIDE_DIR inside not written"; return 0; }
+    for x in "$src"/* "$src"/.[!.]*; do
+        [[ -e "$x" ]] || continue
+        case "${x##*/}" in .inspect.json|.images.json) continue ;; esac
+        if [[ "$kind" == "app" && "${x##*/}" == "db" && -d "$x" ]]; then
+            for y in "$x"/*; do
+                [[ -f "$y" && "${y##*/}" != sqlite_* ]] || continue
+                mkdir -p "$tmp/db" && cp -a "$y" "$tmp/db/" 2>>"$LOG_FILE" || warn "$kind '$n': ${y##*/} not copied into $d"
+            done
+            continue
+        fi
+        cp -a "$x" "$tmp/" 2>>"$LOG_FILE" || warn "$kind '$n': ${x##*/} not copied into $d"
+    done
+    if [[ "$kind" == "vm" ]]; then what="this VM's configuration as of the last backup (XML, UEFI variables, TPM state, Unraid's snapshot list, manifest.json)"
+    else what="this app's package as of the last backup (template or compose files, the database dumps, the backup's notes)"; fi
+    printf '%s\n' "Written by the Unraid Secretary Office's backup engine: $what, so that every snapshot of this folder and every partner office's copy of it carries the configuration - Mr. Restori's «Start here...» reads it." \
+        "Overwritten by every backup run - nothing of yours belongs in here." >"$tmp/README.txt"
+    if rm -rf -- "$d" 2>>"$LOG_FILE" && mv -f -- "$tmp" "$d" 2>>"$LOG_FILE"; then
+        log "  $kind '$n': its package also inside its folder ($d, $(human "$(du -sb "$d" 2>/dev/null | cut -f1)"))"
+    else
+        warn "$kind '$n': $d could not be written"; rm -rf -- "$tmp"
+    fi
+    return 0
+}
+
+# pkg_inside_vm <folder> <stage dir>  - a VM: only its own dataset, only shut down or held (never running unpaused)
+pkg_inside_vm() {
+    local f="$1" src="$2" n="${PKG_VM_NAME[$1]}" own ds
+    own="$(sed '/^$/d' <<<"${VM_OWN_DS[$n]:-}")"
+    [[ -n "$own" && "$(wc -l <<<"$own")" -eq 1 ]] || return 0           # no dataset of its own (or several): no unit of its own
+    ds="$own"
+    if [[ "${VM_STATE[$n]:-}" == "running" && -z "${VM_SHUT_DOWN[$n]:-}" && "${VM_HELD[$n]:-}" != "paused" && "${VM_HELD[$n]:-}" != "frozen" ]]; then
+        log "  VM '$n' runs unheld (prepare none) - $UB_INSIDE_DIR inside its folder not written this run"
+        return 0
+    fi
+    pkg_inside vm "$n" "$src" "$ds"
+}
+
+# pkg_inside_app <folder> <stage dir>  - an app: every dataset only it binds into
+pkg_inside_app() {
+    local f="$1" src="$2" ds
+    while IFS= read -r ds; do
+        [[ -n "$ds" ]] || continue
+        pkg_inside app "${PKG_APP_NAME[$f]}" "$src" "$ds"
+    done < <(app_own_datasets "$f")
     return 0
 }
 
@@ -1915,6 +2046,7 @@ pkg_commit_apps() {
              dumps: $dumps, nextcloud: $nc, sqlite: $sq, own_backups: $own, files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
             || { warn "App '${PKG_APP_NAME[$f]}': manifest.json not written"; pkg_mark apps "$f" warnings; }
         rm -f "$new/.inspect.json" "$new/.images.json"
+        pkg_inside_app "$f" "$new"              # 2.43: its package also inside its own dataset (before the swap - the stage is complete)
         pkg_swap apps "$f" && pkg_count "apps/$f" "$old" "$kb"
     done
     if [[ -d "$PKG_STAGE/flash" ]]; then
@@ -1951,6 +2083,7 @@ pkg_commit_rest() {
             '{interface: 1, engine: $engine, kind: "vm", name: $name, folder: $folder, run: $run, time: $time, host: $host,
               result: $result, xml: $xml} + $meta + {files: $files}' >"$new/manifest.json" 2>>"$LOG_FILE" \
             || { warn "VM '${PKG_VM_NAME[$f]}': manifest.json not written"; pkg_mark vms "$f" warnings; }
+        pkg_inside_vm "$f" "$new"               # 2.43: its package also inside its own dataset (the VM is shut down or held here)
         pkg_swap vms "$f" && pkg_count "vms/$f" "$old" 0
     done
     # server/: the libvirt archive of the last run stays when this one has none (VM service off, failed)
