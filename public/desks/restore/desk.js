@@ -980,16 +980,16 @@ function oldSettingsText(o) {
 
 /** Where Kopia has an app or VM: its own source, or its share's */
 function kopiaBlock(sources) {
-  const b = block(T('from_kopia'), sources.length ? T('kept.text') : T('kept.none'));
+  const b = block(T('from_kopia'), sources.length ? T('kp.text') : T('kp.none'));
   sources.forEach((s) => {
     const line = el('div', 'rs-place');
     line.append(copyCode(`${kopiaRoot()}/${s.source}`), ' ');
-    line.appendChild(el('span', '', T('kept.covers_' + (s.covers || (s.own ? 'all' : 'data')))));
+    line.appendChild(el('span', '', T('kp.covers_' + (s.covers || (s.own ? 'all' : 'data')))));
     line.appendChild(s.last ? chip(T('chip.kopia', { when: fmt.relative(s.last) }), 'ok', fmt.date(s.last)) : chip(T('chip.kopia_never'), 'warn', T('chip.kopia_never_hint')));
     b.appendChild(line);
   });
   if (sources.length) {
-    const go = el('a', '', T('kept.guide'));
+    const go = el('a', '', T('kp.guide'));
     go.href = '#/restore';
     go.onclick = (e) => { e.preventDefault(); openSection('kopia'); };
     const p = el('p', 'role');
@@ -1909,8 +1909,7 @@ function startOptions(box, plan, ask, change, close) {
     box.appendChild(p);
     return;
   }
-  const p = el('div', 'rs-start-conflict');
-  p.appendChild(el('p', 'callout warn', T('rd.start_taken', { path: c.path })));
+  const p = el('div', 'rs-start-conflict');          // the blocker above says what is taken; here the two ways on
   const row = el('div', 'rs-act');
   const cancel = button(T('rd.start_cancel'), 'small plain', () => close());
   const beside = button(c.beside_as ? T('rd.start_beside', { name: c.beside_as.split('/').pop() }) : T('rd.start_copy_only'), 'small', () => change({ beside: true }));

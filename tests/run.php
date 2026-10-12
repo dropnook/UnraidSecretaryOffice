@@ -19741,6 +19741,9 @@ $h = fopen("$dir/zfs.json", 'c+');
 flock($h, LOCK_EX);
 $st = json_decode((string) stream_get_contents($h), true) ?: [];
 $st += ['pools' => [], 'ds' => [], 'snaps' => []];
+// send only reads: the lock goes before it writes its stream — a local send | recv (Mr. Restori's «Start here…») has
+// both ends on this one file, and recv waits for stdin under its lock (2026-10-12: a deadlock in the stand-in, not in zfs)
+if (($a[0] ?? '') === 'send') { flock($h, LOCK_UN); }
 $save = function () use (&$st, $h) { ftruncate($h, 0); rewind($h); fwrite($h, json_encode($st)); fflush($h); };
 $no = function (string $what) { fwrite(STDERR, "cannot open '$what': dataset does not exist\n"); exit(1); };
 if ($me === 'zpool') {
@@ -30033,7 +30036,7 @@ function testRestoreTiles(): void
     // tiles v2 (CLAUDE.md «Tiles»): his row on core's switcher — «Apps» to start, his old key, a partner's tile before the
     // state names it, nothing chosen = every section; a link opens a section without closing it
     check('restore tiles: on Office.sections() — restore.section, «Apps» to start, partner:<id> wanted before the state, no pair of his own',
-        str_contains($js, "key: 'restore.section'") && str_contains($js, "default: 'apps'") && str_contains($js, 'wants: (sub) => /^partner:[0-9a-f]{8}$/.test(sub)')
+        str_contains($js, "key: 'restore.section'") && str_contains($js, "default: 'apps'") && str_contains($js, 'wants: (sub) => /^(partner|kept):[0-9a-f]{8}$/.test(sub)')
         && !preg_match('/^function (renderTiles|renderSection)\\(/m', $js) && str_contains($js, "sw.pick(sec, 'route');"));
     $node = testsNode();
     if ($node === '') {

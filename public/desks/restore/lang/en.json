@@ -983,7 +983,6 @@
   "kept.start": "Start here…",
   "kept.unit_empty": "No moment of it here.",
   "rd.title.partner_start": "Start {what} here from {name}'s copy ({when})",
-  "rd.start_taken": "{path} is here already and holds something — I don't write into it.",
   "rd.start_cancel": "Cancel — I'll tidy up first",
   "rd.start_beside": "Beside, as {name}",
   "rd.start_copy_only": "Only the copy — then «Restore…» per folder",

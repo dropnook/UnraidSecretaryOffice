@@ -983,7 +983,6 @@
   "kept.start": "Partir d'ici…",
   "kept.unit_empty": "Aucun moment ici.",
   "rd.title.partner_start": "Démarrer {what} ici depuis la copie de {name} ({when})",
-  "rd.start_taken": "{path} existe déjà ici et contient quelque chose — je n'y écris pas.",
   "rd.start_cancel": "Annuler — je range d'abord",
   "rd.start_beside": "À côté, comme {name}",
   "rd.start_copy_only": "Seulement la copie — puis « Rapatrier… » par dossier",

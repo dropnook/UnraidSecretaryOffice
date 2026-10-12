@@ -983,7 +983,6 @@
   "kept.start": "Hier starten…",
   "kept.unit_empty": "Kein Stand davon hier.",
   "rd.title.partner_start": "{what} hier von der Kopie von {name} starten ({when})",
-  "rd.start_taken": "{path} gibt es hier schon, mit Inhalt — da hinein schreibe ich nicht.",
   "rd.start_cancel": "Abbrechen — ich räume zuerst auf",
   "rd.start_beside": "Daneben, als {name}",
   "rd.start_copy_only": "Nur die Kopie — dann «Zurückholen…» pro Ordner",

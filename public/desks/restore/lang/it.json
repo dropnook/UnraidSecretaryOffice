@@ -983,7 +983,6 @@
   "kept.start": "Parti da qui…",
   "kept.unit_empty": "Nessun momento qui.",
   "rd.title.partner_start": "Avvia {what} qui dalla copia di {name} ({when})",
-  "rd.start_taken": "{path} esiste già qui e ha contenuto — non ci scrivo dentro.",
   "rd.start_cancel": "Annulla — prima faccio ordine",
   "rd.start_beside": "Accanto, come {name}",
   "rd.start_copy_only": "Solo la copia — poi «Recupera…» per cartella",
