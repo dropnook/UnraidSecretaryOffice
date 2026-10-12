@@ -25630,6 +25630,65 @@ function testBackupOneMinute(): void
             [is_file("$eng/state/status.json"), is_file("$eng/state/lock-holder.json"), is_link("$eng/logs/latest.log"), is_file("$eng/state/skipped.json"), filemtime("$eng/state/lock")]);
     }
     same('one a minute: every date call one the tests\' clock knows', '', testsClockUnsupported("$tmp/clock"));
+
+    // the page (2026-10-12, Benj: «Tour» right after an apply met the refusal — the apply's own tour had just run): it knows
+    // the last run's start and greys «Tour», «Start a run…» and the menu's runs until the minute changes, the tooltip
+    // counting down, the bubble saying which run just ran; the agent's refusal stays the last guard
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('one a minute: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const node = (tag, cls, text) => ({ tag, cls, text, title: '', disabled: false, dataset: {}, appendChild() {}, append() {} });
+globalThis.Office = { scope: () => T, t: T, el: node, fmt: { time: (t) => `time(${t})`, relative: (t) => `rel(${t})`, date: (t) => `date(${t})`, size: (b) => b + ' B' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, agent: { running: true }, dialogOpen: () => false };
+let timers = 0;
+globalThis.setInterval = () => ++timers;       // the countdown's ticks are not run here (node would never end)
+globalThis.clearInterval = () => {};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const now = Math.floor(Date.now() / 1000);
+const minute = Math.floor(now / 60) * 60;
+const st = (status, more) => ({ found: true, compatible: true, running: false, history: [], status, ...more });
+const out = { minute };
+b.setState(st({ mode: 'check', started: minute + 0, finished: minute + 5, result: 'ok' }));
+const m = b.minuteTaken(minute + 51);
+out.taken = [m && m.left, m && m.mode, b.minuteTaken(minute + 60), b.minuteTaken(minute - 1) && b.minuteTaken(minute - 1).left];
+out.bubble = b.bubbleText('').filter((x) => x.startsWith('minute.'));
+const acts = b.deskActions();
+out.buttons = acts.map((x) => [x.text, x.disabled, x.title.replace(/\d+/, 'n')]);
+out.timer = timers > 0;
+b.setState(st({ mode: 'backup', started: minute - 70, finished: minute - 3, result: 'ok' }));
+out.older = [b.minuteTaken(), b.deskActions().map((x) => [x.disabled, x.title]), b.bubbleText('').filter((x) => x.startsWith('minute.'))];
+b.setState(st({ mode: 'dryrun', started: now, result: 'running' }, { running: true, holder: { holder: 'dryrun' } }));
+out.live = b.minuteTaken();
+b.setState(st({ mode: 'dryrun', started: now, result: 'ok' }));
+out.dry = b.minuteTaken().mode;
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/minute.js", $js);
+    $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/minute.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true);
+    same('one a minute (page): the last run started this minute — 9 s left at :51, free at the next minute, the mode named (a browser a second behind: 61)', [9, 'check', null, 61], $r['taken'] ?? null);
+    same('one a minute (page): the bubble says the tour just ran, with its time', [sprintf('minute.ran_check {"time":"time(%d)"}', $r['minute'] ?? 0)], $r['bubble'] ?? null);
+    same('one a minute (page): «Tour» and «Start a run…» grey, the tooltip counting the seconds', [['check', true, 'minute.wait {"seconds":n}'], ['start', true, 'minute.wait {"seconds":n}']],
+        $r['buttons'] ?? null);
+    check('one a minute (page): a countdown ticks until the minute changes', ($r['timer'] ?? false) === true);
+    same('one a minute (page): a run of an earlier minute — nothing grey, no tooltip, no line', [null, [[false, ''], [false, '']], []], $r['older'] ?? null);
+    same('one a minute (page): while a run goes on — not this rule (the run card and «Stop» speak)', [true, null], [array_key_exists('live', $r ?? []), $r['live'] ?? null]);
+    same('one a minute (page): a dry run names itself', 'dryrun', $r['dry'] ?? null);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('one a minute (page): the start dialog\'s button and the menu\'s runs wait too',
+        str_contains($js, 'minuteGuard([d.buttons[1]]') && str_contains($js, 'const go = ready && !minuteTaken();'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $w = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true);
+        check("one a minute (page): its words in $l", str_contains($w['minute.wait'] ?? '', '{seconds}')
+            && count(array_filter(['check', 'dryrun', 'backup'], fn ($m) => str_contains($w["minute.ran_$m"] ?? '', '{time}'))) === 3);
+    }
     hardeningRm($tmp);
 }
 

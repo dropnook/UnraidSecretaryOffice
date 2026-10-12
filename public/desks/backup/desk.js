@@ -190,6 +190,46 @@ function runMode() {
   const s = status();
   return s && s.result === 'running' && ['check', 'dryrun'].includes(s.mode) ? s.mode : 'backup';
 }
+/**
+ * One run a minute (the agent refuses a second one in the minute the last one started: backupMinuteTaken() — the run's
+ * name and its snapshots carry the minute). After an apply the agent starts its own plan + tour, and a click on «Tour»
+ * right after met that refusal (Benj, 2026-10-12): the page knows the last run's start (status.json, any mode) and
+ * says so before the click — {left: seconds until the minute changes, mode, started} while the last run started in this
+ * minute and nothing runs now, else null. The agent's refusal stays the last guard (the clocks may differ by seconds).
+ */
+function minuteTaken(now = Date.now() / 1000) {
+  const s = status();
+  if (!s || !(s.started > 0) || live()) return null;
+  const left = Math.ceil((Math.floor(s.started / 60) + 1) * 60 - now);
+  // a browser behind the server's clock sees a start «ahead»: still this minute (up to two, anything further is no clock)
+  return left > 0 && left <= 120 ? { left, mode: ['check', 'dryrun'].includes(s.mode) ? s.mode : 'backup', started: s.started } : null;
+}
+let minuteTimer = null;
+/**
+ * The buttons that start a run (the head's «Tour» and «Start a run…», the start dialog's button) grey while the minute
+ * is taken, their tooltip counting the seconds down; at the minute's change they come back and the page is drawn again
+ * (the bubble's «The tour just ran» goes). blocked() = every other reason they are grey.
+ */
+function minuteGuard(buttons, blocked = () => false, onFree = null) {
+  clearInterval(minuteTimer);
+  const tick = () => {
+    const m = minuteTaken();
+    buttons.forEach((b) => { b.disabled = blocked() || !!m; b.title = m ? T('minute.wait', { seconds: m.left }) : ''; });
+    return m;
+  };
+  if (!tick()) return;
+  minuteTimer = setInterval(() => {
+    if (tick()) return;
+    clearInterval(minuteTimer);
+    if (onFree) onFree();
+  }, 1000);
+}
+/** The page drawn again at the minute's change (not under an open dialog: it keeps its own buttons) */
+function minuteFree() {
+  if (!view || Office.dialogOpen()) return;
+  if (page === 'setup') renderSetup(); else render();
+}
+
 /** A stop text named by that kind: «Stop the tour» for a check, «Stop the dry run», a backup keeps «Stop the run» */
 const stopKey = (key, mode = runMode()) => (mode === 'backup' ? key : `${key}_${mode}`);
 
@@ -310,6 +350,8 @@ function bubbleText(pg) {
   const last = lastRun();
   const place = pg === 'setup' ? bubblePlace() : '';
   if (place) out.push(place);
+  const taken = minuteTaken();
+  if (taken) out.push(T('minute.ran_' + taken.mode, { time: fmt.time(taken.started) }));
   if (!last) { if (!place) out.push(T('bubble.no_runs')); }        // no place, no backup: the place says it, once
   else {
     const k = last.kopia || [];
@@ -346,7 +388,10 @@ function deskActions() {
       actions.push(button(T('check'), 'plain', () => startRun('check')));
       actions.push(button(T('start'), '', chooseRun));
     }
-    actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()) || (live() && !!state.abort_asked); });
+    const blocked = () => !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()) || (live() && !!state.abort_asked);
+    actions.forEach((b) => { b.disabled = blocked(); });
+    if (!live()) minuteGuard(actions, blocked, minuteFree);     // one run a minute: grey until the minute changes
+    else clearInterval(minuteTimer);
   }
   return actions;
 }
@@ -1659,11 +1704,17 @@ async function chooseRun() {
   });
   const est = state.estimates || {};
   if (est.total) box.appendChild(el('p', 'callout', T('start_hint', { duration: dur(est.total) })));
-  Office.dialog({
+  const taken = minuteTaken();
+  const note = taken ? el('p', 'callout', T('minute.ran_' + taken.mode, { time: fmt.time(taken.started) })) : null;
+  if (note) box.appendChild(note);
+  const d = Office.dialog({
     title: T('start_title'),
     body: box,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('start_go'), kind: '', act: () => startRun(mode) }],
+    onClose: () => clearInterval(minuteTimer),
   });
+  // one run a minute: its button grey until the minute changes (the head's buttons come back with the next drawing)
+  if (d && d.buttons) minuteGuard([d.buttons[1]], () => false, () => { if (note) note.remove(); });
 }
 
 async function startRun(mode) {
@@ -4958,6 +5009,7 @@ Office.desk({
   },
   unmount() {
     view = null;
+    clearInterval(minuteTimer);
     clearTimeout(liveTimer);
     clearTimeout(setupTimer);
   },
@@ -4974,8 +5026,9 @@ Office.desk({
     if (state && state.found) {
       const ready = canAct() && !live();
       items.push({ text: T('schedule.open'), act: state.schedule && state.schedule.script && Office.agent.running ? scheduleDialog : null });
-      items.push({ text: T('mode.check'), act: ready ? () => startRun('check') : null });
-      items.push({ text: T('mode.dryrun'), act: ready ? () => startRun('dryrun') : null });
+      const go = ready && !minuteTaken();          // one run a minute: the head's buttons say until when
+      items.push({ text: T('mode.check'), act: go ? () => startRun('check') : null });
+      items.push({ text: T('mode.dryrun'), act: go ? () => startRun('dryrun') : null });
       if ((state.mounted || []).length) items.push({ text: T('unmount'), act: ready ? unmount : null });
       const latest = (state.logs || [])[0];
       if (latest) items.push({ separator: true }, { text: T('menu.latest_log'), act: () => showLog(latest.name, live()) });
@@ -5086,7 +5139,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
-    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace,
