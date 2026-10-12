@@ -111,7 +111,10 @@
   ],
   "clip": "#sso-dialog",
   "viewport": true,
-  "height": 1000
+  "height": 1000,
+  "states": {
+   "backup.setup_get": "backup.setup_get-apply"
+  }
  },
  {
   "nr": 4,

@@ -36,7 +36,7 @@ export const DEMO = path.join(HERE, 'demo');
 export const DEMO_NAMES_EN = [['FamilienServer', 'FamilyServer'], ['Familienfotos', 'FamilyPhotos'], ['Familienvideos', 'FamilyVideos'],
   ['Familienserien', 'FamilySeries'], ['Familienfilme', 'FamilyMovies'], ['Fotos-Grosseltern', 'Photos-Grandparents'],
   ['Grosseltern', 'Grandparents'], ['Dokumente', 'Documents'], ['Handy-Tochter', 'Phone-Daughter'], ['Tochter', 'Daughter'],
-  ['Mutter', 'Mom'], ['Vater', 'Dad'], ['Schule', 'School'], ['daten', 'data']];
+  ['Mutter', 'Mom'], ['Vater', 'Dad'], ['Onkel', 'Uncle'], ['Schule', 'School'], ['daten', 'data']];
 export function renamed(v, names) {
   if (!names || !names.length || v == null) return v;
   let t = JSON.stringify(v);
