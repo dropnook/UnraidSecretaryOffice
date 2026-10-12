@@ -45,7 +45,7 @@ function scheduleProgress() {
   clearTimeout(progTimer);
   progTimer = null;
   if (!view || page !== 'main' || !realRun()) return;
-  progTimer = setTimeout(askProgress, PROGRESS_POLL);
+  progTimer = setTimeout(askProgress, progress ? PROGRESS_POLL : 300);     // the first look soon after the run shows
 }
 async function askProgress() {
   if (!view || page !== 'main' || !realRun()) return;
@@ -123,7 +123,9 @@ function runCard(p, now) {
   after.disabled = !!stopping || !Office.agent.running;
   const now2 = button(T('stop_now'), 'small plain', stopNowDialog);
   now2.disabled = stopping === 'now' || stopping === 'mover' || !Office.agent.running;
-  foot.append(button(T('show_output_now'), 'small plain', () => showOutput(true)), after, now2);
+  const stops = el('span', 'mo-run-stops');         // the two stops together on the right, the output on the left
+  stops.append(after, ' ', now2);
+  foot.append(button(T('show_output_now'), 'small plain', () => showOutput(true)), stops);
   card.appendChild(foot);
   return card;
 }
@@ -211,7 +213,9 @@ function jackUncoveredIn(f) {
 /** Other movers on a schedule of their own: Mover Tuning's (refuses real runs), scripts that call a mover (named) */
 const foreign = () => (state && state.foreign) || { tuning: { installed: false, active: false, lines: [] }, scripts: [] };
 /** May real runs go: Unraid's schedule off, Mover Tuning without a schedule of its own */
-const othersOff = () => mover().off && !foreign().tuning.active;
+/** Another mover on a schedule of its own besides Unraid's: Mover Tuning's, or any other (moverelliMovers()) */
+const otherMovers = () => foreign().tuning.active || (foreign().movers || []).length > 0;
+const othersOff = () => mover().off && !otherMovers();
 /** Her schedule «right after Jack Emby's scheduled EmbyCache runs»: chosen, Jack hired, his EmbyCache on a schedule; idle = nothing starts her */
 const after = () => (state && state.after) || { on: false, jack: false, jack_scheduled: false, idle: false };
 /** «cache», «array» in words: the array is named in the page's language */
@@ -287,6 +291,8 @@ function moverNotice() {
  * until it is off — in Mover Tuning's settings, never changed by her), User Scripts and cron lines that call a mover
  * (named); and always the hint that such scripts belong switched off while she is in charge.
  */
+/** A schedule as her page says it: a cron line in words, else User Scripts' own word (daily, hourly …) as it is */
+const whenText = (w) => (/^\S+(\s+\S+){4}$/.test(w) ? fmt.cron(w) : w);
 function foreignNotices() {
   const f = foreign();
   const out = [];
@@ -294,8 +300,10 @@ function foreignNotices() {
     const l = f.tuning.lines[0] || {};
     out.push(el('p', 'callout warn', T('notice.tuning', { schedule: l.cron ? fmt.cron(l.cron) : '?', file: l.file || '' })));
   }
-  if ((f.scripts || []).length) out.push(el('p', 'callout warn', T('notice.scripts', { where: f.scripts.join(', ') })));
-  else out.push(el('p', 'role mo-hint', T('notice.scripts_hint')));
+  // every other mover on a schedule of its own (moverelliMovers()): named with its schedule — her real runs wait
+  const movers = Array.isArray(f.movers) ? f.movers : (f.scripts || []).map((name) => ({ name, when: '' }));    // an older agent: names only
+  movers.forEach((x) => out.push(el('p', 'callout warn', T('notice.foreign_mover', { name: x.name, when: x.when ? whenText(x.when) : '?' }))));
+  if (!movers.length) out.push(el('p', 'role mo-hint', T('notice.scripts_hint')));
   return out;
 }
 
@@ -680,7 +688,7 @@ async function chooseRun() {
   if (!(await Office.freshState(ID))) return;
   let mode = 'dry';
   const off = mover().off;
-  const tuning = foreign().tuning.active;
+  const tuning = otherMovers();
   const covered = !(jack().uncovered || []).length;
   const box = radioList('mo-mode', [
     ['dry', T('mode.dry'), T('mode_hint.dry')],

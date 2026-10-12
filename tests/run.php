@@ -29953,6 +29953,8 @@ SH);
         'tuning_dir' => "$tmp/tuning", 'us_dir' => "$tmp/us", 'cron_glob' => "$tmp/plugins/*/*.cron", 'unraid_cron' => "$tmp/plugins/dynamix/mover.cron",
         'jack_lists' => function () use (&$v) { return $v['jack_lists']; }, 'jack_ran' => function () use (&$v) { return $v['jack_ran']; },
         'import_look' => ["$tmp/flash/*/smart_mover.ini"],      // never the server's flash
+        'cron_d' => "$tmp/cron.d/*", 'root_crontab' => "$tmp/crontab.root",
+        'plugin_installed' => function (string $name) use (&$v) { return in_array($name, $v['plugins'] ?? [], true); },
     ];
 }
 
@@ -30405,12 +30407,13 @@ const card = m.runCard(p(400), 2030);
 out.card = texts(card);
 out.cls = card.cls;
 const foot = card.children[card.children.length - 1];
-out.buttons = foot.children.map((b) => [b.text, b.disabled]);
+const btns = (f) => [f.children[0], ...f.children[1].children.filter((x) => typeof x !== 'string')];
+out.buttons = btns(foot).map((b) => [b.text, b.disabled]);
 m.setProgress(p(400), 'user');
 const c2 = m.runCard(p(400), 2030);
-out.stopping = [texts(c2.children[0]), c2.children[c2.children.length - 1].children.map((b) => b.disabled)];
+out.stopping = [texts(c2.children[0]), btns(c2.children[c2.children.length - 1]).map((b) => b.disabled)];
 (async () => {
-  foot.children[2].onclick();
+  btns(foot)[2].onclick();
   const d = dialogs.pop();
   await d.buttons[1].act();
   out.now = [d.title, texts(d.body), posts.map((x) => x[0]), posts[0] && posts[0][1]];
@@ -30903,9 +30906,10 @@ function testMoverelliGates(): void
 }
 
 /**
- * The other movers on a schedule of their own: User Scripts and plugins' cron lines that call a mover (Jack's detection,
- * officeForeignCalls()) — named on her page and to the Team Lead; Unraid's mover.cron and Mover Tuning's own are said
- * apart; scripts that are off, comment lines and unrelated words don't count.
+ * Every other mover on a schedule of its own (2026-10-12, generic — moverelliMovers()): an installed plugin's cron line,
+ * a line in crond's own files that the plugins' don't already hold, root's crontab, a User Script with a schedule —
+ * calling a mover; Unraid's own line, Mover Tuning's (said apart), the office's own, a plugin not installed, a script that
+ * is off, comment lines and words don't count. Named on her page and to the Team Lead (required), real runs refused.
  */
 function testMoverelliForeign(): void
 {
@@ -30915,8 +30919,8 @@ function testMoverelliForeign(): void
     $h = moverelliHost();
     moverelliSave(moverelliTestSettings(), $h);
     $f = moverelliForeign($h);
-    $finding = fn () => array_values(array_filter(moverelliChecks($h), fn ($x) => $x['id'] === 'foreign_scripts'))[0] ?? null;
-    same('moverelli foreign: nothing — no script named, the Team Lead content', [[], true, null, false], [$f['scripts'], $finding()['ok'] ?? null, $f['unraid'], $f['tuning']['active']]);
+    $finding = fn () => array_values(array_filter(moverelliChecks($h), fn ($x) => $x['id'] === 'foreign_mover'))[0] ?? null;
+    same('moverelli foreign: nothing — none named, the Team Lead content', [[], true, null, false], [$f['movers'], $finding()['ok'] ?? null, $f['unraid'], $f['tuning']['active']]);
     $us = "$tmp/us";
     $scripts = ['NightMover' => "#!/bin/bash\n/usr/local/sbin/mover start\n", 'Piped' => "#!/bin/bash\nfind /mnt/cache/x -type f | /usr/libexec/unraid/move -d 1\n",
                 'OwnSmart' => "#!/bin/bash\nbash /mnt/user/system/custommover_run.sh --run\n", 'Off' => "#!/bin/bash\nmover start\n",
@@ -30925,22 +30929,33 @@ function testMoverelliForeign(): void
     foreach ($scripts as $name => $text) {
         @mkdir("$us/scripts/$name", 0700, true);
         file_put_contents("$us/scripts/$name/script", $text);
-        $sched["/boot/config/plugins/user.scripts/scripts/$name/script"] = ['frequency' => $name === 'Off' ? 'disabled' : 'daily', 'custom' => ''];
+        $sched["/boot/config/plugins/user.scripts/scripts/$name/script"] = ['frequency' => $name === 'Off' ? 'disabled' : ($name === 'Piped' ? 'custom' : 'daily'), 'custom' => $name === 'Piped' ? '15 1 * * *' : ''];
     }
     file_put_contents("$us/schedule.json", json_encode($sched));
-    @mkdir("$tmp/plugins/other", 0700, true);
-    file_put_contents("$tmp/plugins/other/other.cron", "30 2 * * * /usr/local/sbin/mover start > /dev/null\n#0 4 * * * mover start\n");
+    foreach (['nightmove', 'notinstalled', 'unraid-secretary-office'] as $d) {
+        @mkdir("$tmp/plugins/$d", 0700, true);
+    }
+    file_put_contents("$tmp/plugins/nightmove/nightmove.cron", "30 2 * * * /usr/local/sbin/mover start > /dev/null\n#0 4 * * * mover start\n");
+    file_put_contents("$tmp/plugins/notinstalled/x.cron", "0 6 * * * mover start\n");
+    file_put_contents("$tmp/plugins/unraid-secretary-office/unraid-secretary-office.cron", "0 4 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh moverelli\n");
     file_put_contents("$tmp/plugins/dynamix/mover.cron", "40 3 * * * /usr/local/sbin/mover start\n");
     file_put_contents("$tmp/tuning/mover.cron", "0 5 * * 0 php /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start\n");
+    @mkdir("$tmp/cron.d", 0700, true);
+    file_put_contents("$tmp/cron.d/root", "40 3 * * * /usr/local/sbin/mover start\n30 2 * * * /usr/local/sbin/mover start > /dev/null\n0 4 * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh moverelli\n0 5 * * 0 php /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start\n10 5 * * * /usr/local/bin/othertool --age_mover-ish\n");
+    file_put_contents("$tmp/crontab.root", "MAILTO=\"\"\n0 1 * * 6 /usr/local/emhttp/plugins/ca.mover.tuning/age_mover start\n20 4 * * * /usr/local/sbin/age_mover start\n");
+    $v['plugins'] = ['nightmove', 'unraid-secretary-office', 'ca.mover.tuning'];
     $f = moverelliForeign($h);
-    $names = $f['scripts'];
-    sort($names);
-    same('moverelli foreign: the scripts and cron lines that start a mover on a schedule (Unraid\'s mover.cron and Mover Tuning\'s apart)',
-        ["$tmp/plugins/other/other.cron", 'User Scripts: NightMover', 'User Scripts: OwnSmart', 'User Scripts: Piped'], $names);
+    $got = array_map(fn ($x) => [$x['name'], $x['when']], $f['movers']);
+    usort($got, fn ($a, $b) => strcmp($a[0], $b[0]));
+    same('moverelli foreign: an installed plugin (Unraid\'s own command in it), root\'s crontab, User Scripts with a schedule — named with their schedules; Unraid\'s own line, Mover Tuning\'s, the office\'s own, a plugin not installed, crond\'s copies, a script that is off, comments and words never',
+        [['User Scripts: NightMover', 'daily'], ['User Scripts: OwnSmart', 'daily'], ['User Scripts: Piped', '15 1 * * *'], ['crontab (root)', '20 4 * * *'], ['nightmove', '30 2 * * *']], $got);
     $x = $finding();
-    same('moverelli foreign: … the Team Lead names them', [false, 'recommended', 'userscripts'], [$x['ok'] ?? null, $x['level'] ?? null, $x['link'] ?? null]);
-    check('moverelli foreign: … every one in his words', count(explode(', ', (string) ($x['params']['where'] ?? ''))) === 4);
-    same('moverelli foreign: … on her page', 4, count(moverelliScan($h)['foreign']['scripts']));
+    same('moverelli foreign: … the Team Lead names them (required, her page)', [false, 'required', '#/moverelli'], [$x['ok'] ?? null, $x['level'] ?? null, $x['link'] ?? null]);
+    check('moverelli foreign: … every one in his words', count(explode(', ', (string) ($x['params']['name'] ?? ''))) === 5);
+    same('moverelli foreign: … on her page', 5, count(moverelliScan($h)['foreign']['movers']));
+    $v['tuning'] = false;      // Mover Tuning out of the way: the others still refuse a real run
+    $err = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return [$p->key, array_keys($p->params)]; } };
+    same('moverelli foreign: a real run refused while one is active — its name and schedule', ['moverelli_foreign_mover', ['name', 'when']], $err());
     same('moverelli foreign: Jack\'s own detection unchanged by the shared reader', [], embyForeignSchedules($us, "$tmp/plugins/*/*.cron", OFFICE_CRON));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
@@ -30976,7 +30991,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.childre
 const out = {};
 const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, job: {}, schedule: {}, history: [], shares: [] };
 m.setState({ ...base, mover: { off: false, schedule: '40 3 * * *', running: false },
-  foreign: { tuning: { installed: true, active: true, lines: [{ file: 'mover.cron', cron: '0 5 * * 0' }] }, scripts: ['User Scripts: NightMover'] } });
+  foreign: { tuning: { installed: true, active: true, lines: [{ file: 'mover.cron', cron: '0 5 * * 0' }] }, movers: [{ name: 'User Scripts: NightMover', when: '0 2 * * *' }], scripts: ['User Scripts: NightMover'] } });
 out.unraid = texts(m.moverNotice());
 out.foreign = m.foreignNotices().map((n) => [n.cls, texts(n)]);
 m.setState({ ...base, mover: { off: true, schedule: null, running: false }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] } });
@@ -30991,8 +31006,8 @@ JS);
     check('moverelli page: it runs', is_array($o));
     $o = is_array($o) ? $o : [];
     same('moverelli page: Unraid\'s schedule on — why, the switch, set it yourself', ['mover.on {"schedule":"C40 3 * * *"}', 'mover.off', 'mover.self'], array_slice($o['unraid'] ?? [], 0, 3));
-    same('moverelli page: Mover Tuning\'s schedule and the scripts — each a warning with its words', [
-        ['callout warn', ['notice.tuning {"schedule":"C0 5 * * 0","file":"mover.cron"}']], ['callout warn', ['notice.scripts {"where":"User Scripts: NightMover"}']]], $o['foreign'] ?? null);
+    same('moverelli page: Mover Tuning\'s schedule and every other mover — each a warning with its name and schedule', [
+        ['callout warn', ['notice.tuning {"schedule":"C0 5 * * 0","file":"mover.cron"}']], ['callout warn', ['notice.foreign_mover {"name":"User Scripts: NightMover","when":"C0 2 * * *"}']]], $o['foreign'] ?? null);
     same('moverelli page: nothing else moves — Unraid\'s off said, the scripts\' hint always there', [['mover.ok'], [['role mo-hint', ['notice.scripts_hint']]]], $o['quiet'] ?? null);
     same('moverelli page: her list of runs in words', ['refused {"why":"err:moverelli_tuning_schedule:{\"schedule\":\"\",\"shares\":\"\",\"version\":\"\",\"needed\":\"7.3.2\"}"} · refused_times {"n":2}',
         'stopped_mover · run_summary {"moved":1,"files":1,"size":"3 B","left":"count.left {\"n\":0}"}', 'dry_summary {"files":"count.files {\"n\":3}","size":"9 B"}'], $o['runs'] ?? null);

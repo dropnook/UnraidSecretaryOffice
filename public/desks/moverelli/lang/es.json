@@ -216,14 +216,11 @@
   "notify.no_status": "El Smart Mover terminó sin estado (código de salida {exit}).",
   "notify.see": "Su página y el registro dicen más.",
   "notice.tuning": "Mover Tuning tiene una programación propia ({schedule}, en su {file}): movería los mismos recursos compartidos que yo, así que solo hago listas y simulaciones. Apaga esa programación en los ajustes de Mover Tuning — yo no los cambio.",
-  "notice.scripts": "Estos arrancan un mover con una programación propia: {where}. Moverían los mismos recursos compartidos que yo — apaga sus programaciones (yo no las cambio).",
   "notice.scripts_hint": "Los scripts que arrancan un mover por su cuenta (User Scripts, tus propias tareas cron) también deben estar apagados mientras yo me encargo.",
-  "mode_hint.run_tuning": "Solo cuando la programación de Mover Tuning esté apagada (ver arriba).",
+  "mode_hint.run_tuning": "Solo cuando ningún otro mover funcione ya con su propia programación (ver arriba).",
   "errors.moverelli_tuning_schedule": "Ejecuciones reales solo cuando la programación de Mover Tuning ({schedule}, {file}) esté apagada — movería los mismos recursos compartidos. Apágala en los ajustes de Mover Tuning.",
   "check.tuning_schedule": "Mover Tuning no tiene programación propia mientras la Señora Moverelli se encarga",
   "check.tuning_schedule_how": "La programación de Mover Tuning ({schedule}) movería los mismos recursos compartidos: apágala en los ajustes de Mover Tuning.",
-  "check.foreign_scripts": "Ningún script arranca un mover por su cuenta",
-  "check.foreign_scripts_how": "{where} arrancan un mover con una programación propia y moverían los mismos recursos compartidos que la Señora Moverelli: apaga sus programaciones.",
   "import.title": "Retomar una instalación anterior",
   "import.sub": "¿Ya usabas el Smart Mover de helmi1987, por ejemplo desde un User Script? Dime la carpeta donde está su smart_mover.ini — lo leo en el servidor y primero te muestro lo que pasaría.",
   "import.open": "Retomar…",
@@ -394,5 +391,9 @@
   "rc.share": "{share}: {done} de {files} · {done_size} de {size}",
   "rc.file": "En camino: {file}",
   "rc.waiting": "Echo un vistazo …",
-  "last_run_none": "todavía ninguna"
+  "last_run_none": "todavía ninguna",
+  "notice.foreign_mover": "{name} mueve con su propia programación ({when}) — no conoce mis excepciones. Apágalo allí, por favor.",
+  "errors.moverelli_foreign_mover": "Ejecuciones reales solo cuando {name} ya no mueva con su propia programación ({when}) — no conoce mis excepciones. Apágalo allí, por favor.",
+  "check.foreign_mover": "Ningún otro mover mueve con su propia programación",
+  "check.foreign_mover_how": "{name} mueve con su propia programación ({when}) — no conoce las excepciones de la Señora Moverelli. Apágalo allí, por favor."
 }

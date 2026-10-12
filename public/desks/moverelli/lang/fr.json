@@ -216,14 +216,11 @@
   "notify.no_status": "Le Smart Mover s'est terminé sans état (code de sortie {exit}).",
   "notify.see": "Sa page et le journal en disent plus.",
   "notice.tuning": "Mover Tuning a sa propre planification ({schedule}, dans son {file}) : il déplacerait les mêmes partages que moi, donc je ne fais que des listes et des essais à blanc. Désactive cette planification dans les réglages de Mover Tuning — je ne les modifie pas.",
-  "notice.scripts": "Ceux-ci lancent un mover selon leur propre planification : {where}. Ils déplaceraient les mêmes partages que moi — désactive leurs planifications (je ne les modifie pas).",
   "notice.scripts_hint": "Les scripts qui lancent un mover tout seuls (User Scripts, tes propres tâches cron) doivent aussi être désactivés tant que je m'en occupe.",
-  "mode_hint.run_tuning": "Seulement quand la planification de Mover Tuning est désactivée (voir plus haut).",
+  "mode_hint.run_tuning": "Seulement quand aucun autre mover ne tourne plus selon sa propre planification (voir plus haut).",
   "errors.moverelli_tuning_schedule": "Des exécutions réelles seulement quand la planification de Mover Tuning ({schedule}, {file}) est désactivée — il déplacerait les mêmes partages. Désactive-la dans les réglages de Mover Tuning.",
   "check.tuning_schedule": "Mover Tuning n'a pas de planification propre pendant que Madame Moverelli s'en occupe",
   "check.tuning_schedule_how": "La planification de Mover Tuning ({schedule}) déplacerait les mêmes partages : désactive-la dans les réglages de Mover Tuning.",
-  "check.foreign_scripts": "Aucun script ne lance un mover tout seul",
-  "check.foreign_scripts_how": "{where} lancent un mover selon leur propre planification et déplaceraient les mêmes partages que Madame Moverelli : désactive leurs planifications.",
   "import.title": "Reprendre une installation précédente",
   "import.sub": "Tu as déjà utilisé le Smart Mover de helmi1987, par exemple depuis un User Script ? Indique-moi le dossier où se trouve son smart_mover.ini — je le lis sur le serveur et je te montre d'abord ce qui serait repris.",
   "import.open": "Reprendre…",
@@ -394,5 +391,9 @@
   "rc.share": "{share} : {done} sur {files} · {done_size} sur {size}",
   "rc.file": "En route : {file}",
   "rc.waiting": "Je fais le tour …",
-  "last_run_none": "aucune encore"
+  "last_run_none": "aucune encore",
+  "notice.foreign_mover": "{name} déplace selon sa propre planification ({when}) — il ne connaît pas mes exceptions. Éteins-le là-bas, s'il te plaît.",
+  "errors.moverelli_foreign_mover": "Des exécutions réelles seulement quand {name} ne déplace plus selon sa propre planification ({when}) — il ne connaît pas mes exceptions. Éteins-le là-bas, s'il te plaît.",
+  "check.foreign_mover": "Aucun autre mover ne déplace selon sa propre planification",
+  "check.foreign_mover_how": "{name} déplace selon sa propre planification ({when}) — il ne connaît pas les exceptions de Madame Moverelli. Éteins-le là-bas, s'il te plaît."
 }

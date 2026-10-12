@@ -120,6 +120,11 @@ function moverelliHost(): array
         'us_dir'        => $h['us_dir'] ?? US_DIR,
         'cron_glob'     => $h['cron_glob'] ?? '/boot/config/plugins/*/*.cron',
         'unraid_cron'   => $h['unraid_cron'] ?? EMBY_MOVER_CRON,
+        // the other places a mover may be scheduled (moverelliMovers()): Unraid's crond's own files (RAM), root's crontab,
+        // and whether a plugin is installed (only an installed plugin's *.cron runs — update_cron)
+        'cron_d'        => $h['cron_d'] ?? '/etc/cron.d/*',
+        'root_crontab'  => $h['root_crontab'] ?? '/var/spool/cron/crontabs/root',
+        'plugin_installed' => $h['plugin_installed'] ?? fn (string $name): bool => is_file("/var/log/plugins/$name.plg"),
         // taking over an earlier install (moverelliImportContext()): what the tests put in place of the server's pools, disks, tree
         'import'        => $h['import'] ?? [],
         // where she looks for an earlier install by herself (the flash only — moverelliImportFound()); the tests: their own
@@ -181,10 +186,96 @@ function moverelliForeign(array $h): array
 {
     $own = ($h['unraid'])();
     $tuning = moverelliTuning($h);
-    $skip = array_merge([OFFICE_CRON, $h['unraid_cron']], glob("$h[tuning_dir]/*.cron") ?: []);
-    $scripts = array_values(array_filter(officeForeignCalls(MOVERELLI_FOREIGN, $h['us_dir'], $h['cron_glob'], $skip), fn ($f) => $f['enabled']));
+    $movers = moverelliMovers($h);
     return ['unraid' => embyMoverScheduleOff($own) ? null : (string) ($own['cron'] ?? $own['set']), 'tuning' => $tuning,
-            'scripts' => array_values(array_unique(array_column($scripts, 'where')))];
+            'movers' => $movers, 'scripts' => array_values(array_unique(array_column($movers, 'name')))];
+}
+
+/**
+ * Every other mover on a schedule of its own (2026-10-12, the owner's decision — generic, not only Mover Tuning by name):
+ * read from the flash and RAM only (nothing woken) — the plugins' *.cron (installed ones: only those run), Unraid's
+ * crond's own files (/etc/cron.d/*, without lines the plugins' files already hold — update_cron copies them there), root's
+ * crontab, User Scripts' scripts with a schedule. An active line or script that calls `mover`, `age_mover`, `mover.php`,
+ * Unraid's move binary or a Smart Mover of one's own (MOVERELLI_FOREIGN) is one — except Unraid's own mover line (said
+ * apart: her setup switches it off), Mover Tuning's (said apart, `tuning`) and the office's own. [{name, where, when}],
+ * name: the plugin folder, the cron file's name, «User Scripts: <script>», root's crontab.
+ */
+function moverelliMovers(array $h): array
+{
+    $calls = function (string $line): bool {
+        foreach (MOVERELLI_FOREIGN as $re) {
+            if (preg_match($re, $line)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    $norm = fn (string $l): string => preg_replace('/\s+/', ' ', trim($l));
+    $out = [];
+    $seen = [];
+    $lines = function (string $file) use ($h): array {
+        $keep = [];
+        foreach (explode("\n", embyActiveText((string) @file_get_contents($file, false, null, 0, 1 << 20))) as $line) {
+            $line = trim($line);
+            // a line that runs something; never the office's own (her job, the others) nor User Scripts' (said by script below)
+            if (preg_match(MOVERELLI_CRON_LINE, $line) && !str_contains($line, 'unraid-secretary-office') && !str_contains($line, (string) $h['us_dir'])) {
+                $keep[] = $line;
+            }
+        }
+        return $keep;
+    };
+    $add = function (string $name, string $where, string $line) use (&$out, &$seen, $norm): void {
+        $seen[$norm($line)] = true;
+        $out[] = ['name' => $name, 'where' => $where, 'when' => (string) embyMoverCronLine($line, '/\S/')];
+    };
+    // the plugins' cron files: Unraid's own mover.cron and Mover Tuning's are said apart, the office's file is its own
+    foreach (glob($h['cron_glob']) ?: [] as $file) {
+        $folder = basename(dirname($file));
+        $skip = in_array($file, [OFFICE_CRON, $h['unraid_cron']], true) || realpath(dirname($file)) === realpath((string) $h['tuning_dir'])
+            || $folder === 'dynamix' || $folder === 'unraid-secretary-office';
+        foreach ($lines($file) as $line) {
+            if ($skip) {
+                $seen[$norm($line)] = true;        // never again from /etc/cron.d
+                continue;
+            }
+            if ($calls($line) && ($h['plugin_installed'])($folder)) {
+                $add($folder, $file, $line);
+            }
+        }
+    }
+    foreach (array_merge(glob((string) $h['cron_d']) ?: [], [(string) $h['root_crontab']]) as $file) {
+        if (!is_file($file)) {
+            continue;
+        }
+        $name = $file === $h['root_crontab'] ? 'crontab (root)' : basename($file);
+        foreach ($lines($file) as $line) {
+            // Unraid's own mover line (said apart) — wherever it was copied to
+            if (!isset($seen[$norm($line)]) && $calls($line) && !preg_match('~/usr/local/sbin/mover(\.old)?\s+start\b~', $line)
+                && !str_contains($line, 'ca.mover.tuning')) {
+                $add($name, $file, $line);
+            }
+        }
+    }
+    // User Scripts with a schedule that call a mover
+    $plans = [];
+    foreach ((array) json_decode((string) @file_get_contents("$h[us_dir]/schedule.json", false, null, 0, 1 << 20), true) as $key => $plan) {
+        if (is_string($key) && is_array($plan)) {
+            $plans[basename(dirname($key))] = $plan;
+        }
+    }
+    foreach (glob("$h[us_dir]/scripts/*/script") ?: [] as $file) {
+        $script = basename(dirname($file));
+        $plan = $plans[$script] ?? [];
+        $freq = (string) ($plan['frequency'] ?? 'disabled');
+        $when = $freq === 'custom' ? trim((string) ($plan['custom'] ?? '')) : $freq;
+        if (in_array($freq, ['', 'disabled'], true) || $when === '') {
+            continue;
+        }
+        if ($calls(embyActiveText((string) @file_get_contents($file, false, null, 0, 65536)))) {
+            $out[] = ['name' => "User Scripts: $script", 'where' => $file, 'when' => $when];
+        }
+    }
+    return $out;
 }
 
 /** Mover Tuning: {installed, lines: [{file, cron}] — the active lines of its plugin folder's cron files, active} (Jack Emby's rule asks it too) */
@@ -841,6 +932,10 @@ function moverelliRunCheck(string $mode, array $h): void
     if ($tuning['active']) {
         throw new Problem('moverelli_tuning_schedule', ['schedule' => $tuning['lines'][0]['cron'], 'file' => $tuning['lines'][0]['file']]);
     }
+    // nor any other mover on a schedule of its own (a plugin, a cron line, a User Script): it doesn't know her exceptions
+    if ($m = moverelliMovers($h)) {
+        throw new Problem('moverelli_foreign_mover', ['name' => $m[0]['name'], 'when' => $m[0]['when']]);
+    }
     // Jack Emby hired: EmbyCache's films stay on the pool — his list in her ini for each of his shares
     if ($uncovered = moverelliJackUncovered(($h['emby'])(), $h['dir'])) {
         throw new Problem('moverelli_emby_list', ['shares' => implode(', ', $uncovered)]);
@@ -1410,7 +1505,9 @@ function moverelliChecks(?array $h = null): array
     if ($f['tuning']['installed']) {
         $out[] = finding('tuning_schedule', 'required', !$f['tuning']['active'], ['schedule' => (string) ($f['tuning']['lines'][0]['cron'] ?? '')], '#/moverelli');
     }
-    $out[] = finding('foreign_scripts', 'recommended', !$f['scripts'], ['where' => implode(', ', $f['scripts'])], 'userscripts');
+    // every other mover on a schedule of its own: required — her real runs are refused while one is active
+    $m = $f['movers'];
+    $out[] = finding('foreign_mover', 'required', !$m, ['name' => implode(', ', array_column($m, 'name')), 'when' => (string) ($m[0]['when'] ?? '')], '#/moverelli');
     $emby = ($h['emby'])();
     if ($after) {
         // «right after Jack Emby»: nothing starts her while he is let go or his EmbyCache has no schedule; did she follow his last scheduled run?

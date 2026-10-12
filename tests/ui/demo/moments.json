@@ -457,5 +457,22 @@
   "clip": "#sso-dialog",
   "viewport": true,
   "height": 1300
+ },
+ {
+  "nr": 13,
+  "desk": "moverelli",
+  "moment": "run",
+  "title": "Frau Moverelli - ein echter Lauf: Schritte pro Share, die Datei unterwegs, anhalten nach dieser Datei oder sofort",
+  "route": "moverelli",
+  "states": {
+   "moverelli": "moverelli-run"
+  },
+  "prepare": [
+   {
+    "wait": ".mo-run .run-steps",
+    "pause": 800
+   }
+  ],
+  "clip": ".mo-run"
  }
 ]

@@ -216,14 +216,11 @@
   "notify.no_status": "Der Smart Mover hat ohne Status geendet (Exit-Code {exit}).",
   "notify.see": "Ihre Seite und das Log sagen mehr.",
   "notice.tuning": "Mover Tuning hat einen eigenen Zeitplan ({schedule}, in seiner {file}): Er würde dieselben Shares verschieben wie ich, darum mache ich nur Listen und Probeläufe. Schalte diesen Zeitplan in den Einstellungen von Mover Tuning aus — ich ändere dort nichts.",
-  "notice.scripts": "Diese starten einen Mover nach eigenem Zeitplan: {where}. Sie würden dieselben Shares verschieben wie ich — schalte ihre Zeitpläne aus (ich ändere nichts daran).",
   "notice.scripts_hint": "Skripte, die von selbst einen Mover starten (User Scripts, eigene Cron-Jobs), gehören ebenfalls ausgeschaltet, solange ich zuständig bin.",
-  "mode_hint.run_tuning": "Erst wenn der eigene Zeitplan von Mover Tuning aus ist (siehe oben).",
+  "mode_hint.run_tuning": "Erst wenn kein anderer Mover mehr nach eigenem Zeitplan läuft (siehe oben).",
   "errors.moverelli_tuning_schedule": "Echte Läufe erst, wenn der eigene Zeitplan von Mover Tuning ({schedule}, {file}) aus ist — er würde dieselben Shares verschieben. Schalte ihn in den Einstellungen von Mover Tuning aus.",
   "check.tuning_schedule": "Mover Tuning hat keinen eigenen Zeitplan, solange Frau Moverelli zuständig ist",
   "check.tuning_schedule_how": "Der Zeitplan von Mover Tuning ({schedule}) würde dieselben Shares verschieben: in den Einstellungen von Mover Tuning ausschalten.",
-  "check.foreign_scripts": "Kein Skript startet von selbst einen Mover",
-  "check.foreign_scripts_how": "{where} starten einen Mover nach eigenem Zeitplan und würden dieselben Shares verschieben wie Frau Moverelli: ihre Zeitpläne ausschalten.",
   "import.title": "Eine frühere Installation übernehmen",
   "import.sub": "Den Smart Mover von helmi1987 schon früher benutzt, etwa aus einem User Script? Sag mir den Ordner, in dem seine smart_mover.ini liegt — ich lese sie auf dem Server und zeige dir zuerst, was herüberkäme.",
   "import.open": "Übernehmen…",
@@ -394,5 +391,9 @@
   "rc.share": "{share}: {done} von {files} · {done_size} von {size}",
   "rc.file": "Gerade unterwegs: {file}",
   "rc.waiting": "Ich schaue mich um …",
-  "last_run_none": "noch keiner"
+  "last_run_none": "noch keiner",
+  "notice.foreign_mover": "{name} verschiebt nach eigenem Zeitplan ({when}) — es kennt meine Ausnahmen nicht. Bitte dort ausschalten.",
+  "errors.moverelli_foreign_mover": "Echte Läufe erst, wenn {name} nicht mehr nach eigenem Zeitplan verschiebt ({when}) — es kennt meine Ausnahmen nicht. Bitte dort ausschalten.",
+  "check.foreign_mover": "Kein anderer Mover verschiebt nach eigenem Zeitplan",
+  "check.foreign_mover_how": "{name} verschiebt nach eigenem Zeitplan ({when}) — es kennt Frau Moverellis Ausnahmen nicht. Bitte dort ausschalten."
 }

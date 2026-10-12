@@ -74,8 +74,16 @@ function embyMoverHost(): array
         'note'       => $h['note'] ?? fn (string $was, string $logging) => moverelliUnraidNoteKeep($was, $logging),
         // Ms. Moverelli while hired and set up: what her smart_mover.ini keeps out (moverelliExcludeLook()), else null
         'moverelli'  => $h['moverelli'] ?? fn (): ?array => function_exists('moverelliExcludeLook') ? moverelliExcludeLook() : null,
-        // Mover Tuning's own schedule, if it has one ({file, cron}), else null (Ms. Moverelli's moverelliTuning())
-        'tuning'     => $h['tuning'] ?? fn (): ?array => moverelliTuning(moverelliHost())['lines'][0] ?? null,
+        // another mover on a schedule of its own ({file, cron}): Mover Tuning's, else any other (Ms. Moverelli's
+        // moverelliTuning(), moverelliMovers()) — it would carry his films back; null when none
+        'tuning'     => $h['tuning'] ?? function (): ?array {
+            $mh = moverelliHost();
+            $m = moverelliTuning($mh)['lines'][0] ?? null;
+            if ($m === null && ($o = moverelliMovers($mh)[0] ?? null)) {
+                $m = ['file' => $o['name'], 'cron' => $o['when']];
+            }
+            return $m;
+        },
     ];
 }
 

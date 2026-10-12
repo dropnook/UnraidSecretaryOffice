@@ -216,14 +216,11 @@
   "notify.no_status": "The Smart Mover ended without a status (exit code {exit}).",
   "notify.see": "Her page and the log say more.",
   "notice.tuning": "Mover Tuning has a schedule of its own ({schedule}, in its {file}): it would move the same shares as I do, so I only make lists and dry runs. Switch that schedule off in Mover Tuning's own settings — I don't change them.",
-  "notice.scripts": "These start a mover on a schedule of their own: {where}. They would move the same shares as I do — switch their schedules off (I don't change them).",
   "notice.scripts_hint": "Scripts that start a mover on their own (User Scripts, cron jobs of your own) belong switched off too while I'm in charge.",
-  "mode_hint.run_tuning": "Only once Mover Tuning's own schedule is off (see above).",
+  "mode_hint.run_tuning": "Only once no other mover runs on a schedule of its own (see above).",
   "errors.moverelli_tuning_schedule": "Real runs only once Mover Tuning's own schedule ({schedule}, {file}) is off — it would move the same shares. Switch it off in Mover Tuning's settings.",
   "check.tuning_schedule": "Mover Tuning has no schedule of its own while Ms. Moverelli is in charge",
   "check.tuning_schedule_how": "Mover Tuning's schedule ({schedule}) would move the same shares: switch it off in Mover Tuning's own settings.",
-  "check.foreign_scripts": "No script starts a mover on its own",
-  "check.foreign_scripts_how": "{where} start a mover on a schedule of their own and would move the same shares as Ms. Moverelli: switch their schedules off.",
   "import.title": "Take over an earlier install",
   "import.sub": "Ran helmi1987's Smart Mover before, say from a User Script? Tell me the folder where its smart_mover.ini lies — I read it on the server and show you first what would come over.",
   "import.open": "Take over…",
@@ -394,5 +391,9 @@
   "rc.share": "{share}: {done} of {files} · {done_size} of {size}",
   "rc.file": "On its way: {file}",
   "rc.waiting": "Looking around …",
-  "last_run_none": "none yet"
+  "last_run_none": "none yet",
+  "notice.foreign_mover": "{name} moves on a schedule of its own ({when}) — it doesn't know my exceptions. Please switch it off there.",
+  "errors.moverelli_foreign_mover": "Real runs only once {name} no longer moves on a schedule of its own ({when}) — it doesn't know my exceptions. Please switch it off there.",
+  "check.foreign_mover": "No other mover moves on a schedule of its own",
+  "check.foreign_mover_how": "{name} moves on a schedule of its own ({when}) — it doesn't know Ms. Moverelli's exceptions. Please switch it off there."
 }
