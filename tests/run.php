@@ -29440,6 +29440,13 @@ JS;
 function testBackupTiles(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    // 390 px (2026-10-11): the run card's step names ran into each other — a grid of whole cells there, a long name in «…»
+    // with its title
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.css');
+    check('backup tiles: the run card\'s steps never overlap (ellipsis, a grid of two at a phone\'s width, the name in the title)',
+        str_contains($css, 'white-space:nowrap; overflow:hidden; text-overflow:ellipsis;')
+        && str_contains($css, '@media (max-width:640px){.bk-steps{display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr))} .bk-steps li{min-width:0}}')
+        && str_contains($js, "if (!li.dataset.tip) li.title = T('step.' + name);"));
     same('backup tiles: no scrollIntoView left (a tile filters, the search reveals)', 0, substr_count($js, 'scrollIntoView'));
     preg_match_all("/setAttribute\\('role', 'button'\\)/", $js, $m, PREG_OFFSET_CAPTURE);
     $roles = array_map(fn ($x) => preg_match_all('/\nfunction (\w+)\(/', substr($js, 0, $x[1]), $f) ? end($f[1]) : '?', $m[0]);
@@ -30030,6 +30037,11 @@ function testCleanupTiles(): void
     check('cleanup tiles: STAT_CORNERS stays as data — the number tiles of before (array, Docker, VMs, SMB, User Scripts, the engine, the hottest disk, SMART, notices)',
         array_keys($map) === ['array', 'docker', 'vms', 'smb', 'scripts', 'backup', 'temp', 'smart', 'notices'], json_encode($map));
     same('cleanup tiles: … each names a corner that exists (its numbers sit on that corner\'s tile)', [], array_values(array_diff($map, $corners[1] ?? [])));
+    // 2026-10-12 (side finding of the cosmetics worker): unfoldBar was declared twice — the rooms' and a copy inside Where
+    // shadowing it; one function now, Where's corners with their own class and keys
+    check('cleanup tiles: one «Unfold all» bar for rooms and corners (no second declaration)',
+        substr_count($js, 'function unfoldBar(') === 1 && str_contains($js, "unfoldBar(body, mine, { cls: 'clw-unfold', keys: 'where.' })")
+        && str_contains($js, 'unfoldBar(list, mine)'));
     check('cleanup tiles: two pages as tabs, the last one kept as cleanup.page (#/cleanup opens it)',
         str_contains($js, "pages: { list: PAGES(), current: page, store: PAGE_KEY }") && str_contains($js, "const PAGE_KEY = 'cleanup.page';")
         && str_contains($js, "Office.pageFrom(PAGES(), s, PAGE_KEY)"));

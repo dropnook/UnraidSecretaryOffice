@@ -604,6 +604,7 @@ function runningCard() {
       li.classList.add('skipped');
       li.dataset.tip = s.skip_kopia ? T('step.kopia_skipped_nokopia') : state.settings && state.settings.kopia_enabled === false ? T('step.kopia_skipped_off') : T('step.kopia_skipped_none');
     }
+    if (!li.dataset.tip) li.title = T('step.' + name);     // a narrow card ends a long name in «…» (desk.css)
     steps.appendChild(li);
   });
   card.appendChild(steps);
