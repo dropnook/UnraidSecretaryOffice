@@ -41,8 +41,6 @@
 #   CUSTOMMOVER_STOP          a file: once it exists, no further share is started (exit 3)
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
-#   CUSTOMMOVER_EXCLUDES_OPTIONAL  comma separated exclude files that may be missing: one that is gone
-#                             counts as an empty list (INFO), even with CUSTOMMOVER_EXCLUDES_REQUIRED=1
 # Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
 #   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
 #   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
@@ -85,7 +83,6 @@ case "${CUSTOMMOVER_FORCE:-}" in age) FORCE_AGE=true ;; all) FORCE_AGE=true; FOR
 STATUS_FILE="${CUSTOMMOVER_STATUS:-}"
 STOP_FILE="${CUSTOMMOVER_STOP:-}"
 EXCL_REQUIRED="${CUSTOMMOVER_EXCLUDES_REQUIRED:-0}"
-EXCL_OPTIONAL="${CUSTOMMOVER_EXCLUDES_OPTIONAL:-}"
 
 usage() {  # prints the header comment block above
     awk 'NR > 2 && /^# =====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"
@@ -277,8 +274,6 @@ build_excludes() {  # share_name source_root exclude_files(comma list)...
         f="${f#"${f%%[![:space:]]*}"}"; f="${f%"${f##*[![:space:]]}"}"
         [[ -z "$f" ]] && continue
         if [[ ! -f "$f" ]]; then
-            # office: a list that may not exist yet (EmbyCache's before its first run) protects nothing — an empty list
-            if [[ -n "$EXCL_OPTIONAL" && ",$EXCL_OPTIONAL," == *",$f,"* ]]; then log INFO "  exclude file not there yet (taken as empty): $f"; continue; fi
             # office: on a real run a list that is gone must not let its files move
             if [[ "$EXCL_REQUIRED" == "1" && "$DRY_RUN" == false ]]; then log ERROR "  exclude file not found: $f"; EXCL_MISSING="$f"
             else log WARN "  exclude file not found: $f"; fi
