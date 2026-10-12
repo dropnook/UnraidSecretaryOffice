@@ -132,16 +132,22 @@ function runCard(p, now) {
     if (d.file) card.appendChild(el('div', 'card-line mo-run-file', T('rc.file', { file: d.file })));
     if (d.end) card.appendChild(el('div', 'card-line', T('rc.end', { time: fmt.time(d.end) })));
   }
+  // the foot as Mr. Backupsy's run card: the counts on the left, «Log» on the right (the run's output, followed); her stops
+  // are in the head where his «Abort» is (stopButtons())
   const foot = el('div', 'card-foot');
-  const after = button(T('stop'), 'small', async () => { after.disabled = true; await act('stop'); });
-  after.disabled = !!stopping || !Office.agent.running;
-  const now2 = button(T('stop_now'), 'small plain', stopNowDialog);
-  now2.disabled = stopping === 'now' || stopping === 'mover' || !Office.agent.running;
-  const stops = el('span', 'mo-run-stops');         // the two stops together on the right, the output on the left
-  stops.append(after, ' ', now2);
-  foot.append(button(T('show_output_now'), 'small plain', () => showOutput(true)), stops);
+  foot.appendChild(el('span', '', T('rc.counts', { errors: nOf('errors', p ? p.errors : 0), warnings: nOf('warnings', p ? p.warnings : 0) })));
+  foot.appendChild(button(T('rc.show_log'), 'small plain', () => showOutput(true)));
   card.appendChild(foot);
   return card;
+}
+
+/** While a real run goes: «Stop after this file» and «Stop at once…» in the head — where Mr. Backupsy has his «Abort», his style */
+function stopButtons() {
+  const after = button(T('stop'), 'danger plain', async () => { after.disabled = true; await act('stop'); });
+  after.disabled = !!stopping || !Office.agent.running;
+  const now = button(T('stop_now'), 'danger plain', stopNowDialog);
+  now.disabled = stopping === 'now' || stopping === 'mover' || !Office.agent.running;
+  return [after, now];
 }
 
 /** «Stop at once…»: what it does (the file in flight stays at its source, a partial copy is removed), then moverelli.stop_now */
@@ -401,6 +407,7 @@ function tileList() {
 
 /** The desk's own actions — on both tabs (the other page is the tab, no head button for it) */
 function headActions() {
+  if (realRun()) return stopButtons();
   const actions = [];
   if (state && state.configured) {
     actions.push(button(T('list'), 'plain', () => startRun('list')));
@@ -468,7 +475,7 @@ function hints() {
     out.push(runCard(progress, Date.now() / 1000));
   } else if (running()) {
     const p = el('p', 'callout', T('notice.running', { mode: T('mode.' + state.job.mode) }) + ' ');
-    p.appendChild(button(T('show_output_now'), 'small', () => showOutput(true))).disabled = !Office.agent.running;
+    p.appendChild(button(T('rc.show_log'), 'small plain', () => showOutput(true))).disabled = !Office.agent.running;
     if (realRun()) {
       p.appendChild(document.createTextNode(' '));
       const stop = button(state.stopping ? T('stopping') : T('stop'), 'small plain', async () => { stop.disabled = true; await act('stop'); });
@@ -731,16 +738,16 @@ async function chooseRun() {
       const j = await Office.api.post(`${ID}.start_run`, { mode });
       if (!j.ok) { showError(err, j.error); return false; }
       if (j.state) state = j.state;
-      if (view && page === 'main') render();
-      showOutput(true);
+      if (view && page === 'main') render();     // no log dialog: a real run shows its card (as Mr. Backupsy's)
       return true;
     } }],
   });
 }
 
 async function startRun(mode) {
+  // no dialog (as Mr. Backupsy's and Mr. Restori's runs): a real run shows its card, the others their result under the tiles
   const j = await act('start_run', { mode });
-  if (j) showOutput(true);
+  if (j) render();
 }
 
 /** The output of her last run, following it while it runs */
@@ -1778,7 +1785,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, fillText, fillLine, untilProposals, untilProposedText, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, stopButtons, headActions, fillText, fillLine, untilProposals, untilProposedText, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, cakeMath, cakeSection, cakeBar, cakeBubble, sliceField, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

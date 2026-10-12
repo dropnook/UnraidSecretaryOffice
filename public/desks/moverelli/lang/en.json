@@ -96,7 +96,6 @@
   "credit": "The Smart Mover is his work — I just carry the boxes. Under GPL-3.0.",
   "show_log": "Log",
   "show_output": "Output ({mode})",
-  "show_output_now": "Watch",
   "output_title": "Smart Mover",
   "output_empty": "(nothing yet)",
   "output_running": "running",
@@ -441,5 +440,8 @@
   "notify.cake_subject": "Ms. Moverelli: pool {pool}",
   "notify.cake_target": "{pool} is at {nm} % from appdata & co. alone — I can't get below {y} % any more, I keep it below {x} %. Please make room.",
   "notify.cake_none": "{pool} is above {x} % from appdata & co. alone — moving files doesn't help, please make room.",
-  "notify.cake_full": "{pool} is overflowing ({used} %) — I move everything I may; I can't do more."
+  "notify.cake_full": "{pool} is overflowing ({used} %) — I move everything I may; I can't do more.",
+  "rc.counts": "{errors}, {warnings}",
+  "rc.show_log": "Log",
+  "count.warnings": {"one": "{n} warning", "other": "{n} warnings"}
 }

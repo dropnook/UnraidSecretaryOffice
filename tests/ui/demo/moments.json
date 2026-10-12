@@ -473,6 +473,9 @@
     "pause": 800
    }
   ],
-  "clip": ".mo-run"
+  "clip": [
+   ".deskhead",
+   ".mo-run"
+  ]
  }
 ]

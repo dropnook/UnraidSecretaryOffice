@@ -96,7 +96,6 @@
   "credit": "Lo Smart Mover è opera sua — io porto solo gli scatoloni. Sotto GPL-3.0.",
   "show_log": "Log",
   "show_output": "Output ({mode})",
-  "show_output_now": "Guarda",
   "output_title": "Smart Mover",
   "output_empty": "(ancora niente)",
   "output_running": "in esecuzione",
@@ -441,5 +440,8 @@
   "notify.cake_subject": "Signora Moverelli: pool {pool}",
   "notify.cake_target": "{pool} è al {nm} % solo per appdata & co. — sotto il {y} % non arrivo più, lo tengo sotto il {x} %. Per favore fai spazio.",
   "notify.cake_none": "{pool} è sopra il {x} % solo per appdata & co. — spostare non serve, per favore fai spazio.",
-  "notify.cake_full": "{pool} trabocca ({used} %) — sposto tutto quello che posso; di più non posso fare."
+  "notify.cake_full": "{pool} trabocca ({used} %) — sposto tutto quello che posso; di più non posso fare.",
+  "rc.counts": "{errors}, {warnings}",
+  "rc.show_log": "Log",
+  "count.warnings": {"one": "{n} avviso", "other": "{n} avvisi"}
 }

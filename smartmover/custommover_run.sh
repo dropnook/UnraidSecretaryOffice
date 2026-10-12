@@ -132,6 +132,7 @@ STATUS_MSG=""
 STOPPED=false
 STOP_SHARE=""
 ERRORS=0
+WARNINGS=0      # office: WARN lines so far (the run card's «N errors, N warnings», as Mr. Backupsy's)
 SHARE_JSON=()
 SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
@@ -191,8 +192,8 @@ office_progress() {
     local plan joined p
     plan=""; for p in "${PLAN[@]}"; do plan+="${plan:+,}$(json_str "$p")"; done
     joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
-    printf '{"mode":"run","result":"running","started":%s,"time":%s,"plan":[%s],"phase":"%s","share":%s,"file":%s,"share_files":%s,"share_bytes":%s,"share_done_files":%s,"share_done_bytes":%s,"done_files":%s,"done_bytes":%s,"files":%s,"bytes":%s%s,"shares":[%s]}\n' \
-        "$STARTED" "$(date +%s)" "$plan" "$PHASE" "$(json_str "$CUR_SHARE")" "$(json_str "$CUR_FILE")" "$(json_num "$SH_FILES")" "$(json_num "$SH_BYTES")" \
+    printf '{"mode":"run","result":"running","errors":%s,"warnings":%s,"started":%s,"time":%s,"plan":[%s],"phase":"%s","share":%s,"file":%s,"share_files":%s,"share_bytes":%s,"share_done_files":%s,"share_done_bytes":%s,"done_files":%s,"done_bytes":%s,"files":%s,"bytes":%s%s,"shares":[%s]}\n' \
+        "$(json_num "$ERRORS")" "$(json_num "$WARNINGS")" "$STARTED" "$(date +%s)" "$plan" "$PHASE" "$(json_str "$CUR_SHARE")" "$(json_str "$CUR_FILE")" "$(json_num "$SH_FILES")" "$(json_num "$SH_BYTES")" \
         "$(json_num "$SH_DONE_FILES")" "$(json_num "$SH_DONE_BYTES")" "$(json_num "$RUN_DONE_FILES")" "$(json_num "$RUN_DONE_BYTES")" \
         "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" "$(fill_json)" "$joined" \
         > "$STATUS_FILE.$$.tmp" 2>/dev/null && mv -f "$STATUS_FILE.$$.tmp" "$STATUS_FILE" 2>/dev/null
@@ -256,6 +257,7 @@ log() {  # level message
     [[ "$level" == "DEBUG" && "$LOG_LEVEL" != "DEBUG" ]] && return 0
     ts=$(date '+%Y-%m-%d %H:%M:%S')
     case "$level" in INFO) c=$GREEN ;; WARN) c=$YELLOW ;; ERROR) c=$RED ;; DEBUG) c=$GREY ;; esac
+    [[ "$level" == "WARN" ]] && (( WARNINGS++ ))      # office: counted for the run card
     printf '%b[%s] [%s] %s%b\n' "$c" "$ts" "$level" "$msg" "$NC"
     printf '[%s] [%s] %s\n' "$ts" "$level" "$msg" >> "$LOG_FILE"
 }

@@ -96,7 +96,6 @@
   "credit": "Le Smart Mover est son œuvre — moi, je porte juste les cartons. Sous GPL-3.0.",
   "show_log": "Journal",
   "show_output": "Sortie ({mode})",
-  "show_output_now": "Regarder",
   "output_title": "Smart Mover",
   "output_empty": "(rien pour l'instant)",
   "output_running": "en cours",
@@ -441,5 +440,8 @@
   "notify.cake_subject": "Madame Moverelli : pool {pool}",
   "notify.cake_target": "{pool} est à {nm} % rien qu'avec appdata & cie — je ne passe plus sous {y} %, je le garde sous {x} %. Merci de faire de la place.",
   "notify.cake_none": "{pool} est au-dessus de {x} % rien qu'avec appdata & cie — déménager n'aide pas, merci de faire de la place.",
-  "notify.cake_full": "{pool} déborde ({used} %) — je déménage tout ce que j'ai le droit ; je ne peux pas faire plus."
+  "notify.cake_full": "{pool} déborde ({used} %) — je déménage tout ce que j'ai le droit ; je ne peux pas faire plus.",
+  "rc.counts": "{errors}, {warnings}",
+  "rc.show_log": "Journal",
+  "count.warnings": {"one": "{n} avertissement", "other": "{n} avertissements"}
 }

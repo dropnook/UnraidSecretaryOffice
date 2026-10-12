@@ -31029,13 +31029,14 @@ const card = m.runCard(p(400), 2030);
 out.card = texts(card);
 out.cls = card.cls;
 const foot = card.children[card.children.length - 1];
-const btns = (f) => [f.children[0], ...f.children[1].children.filter((x) => typeof x !== 'string')];
-out.buttons = btns(foot).map((b) => [b.text, b.disabled]);
+out.foot = foot.children.map((b) => [b.tag, b.cls, b.text]);
+const stops = m.stopButtons();
+out.buttons = stops.map((b) => [b.text, b.cls, b.disabled]);
 m.setProgress(p(400), 'user');
 const c2 = m.runCard(p(400), 2030);
-out.stopping = [texts(c2.children[0]), btns(c2.children[c2.children.length - 1]).map((b) => b.disabled)];
+out.stopping = [texts(c2.children[0]), m.stopButtons().map((b) => b.disabled)];
 (async () => {
-  btns(foot)[2].onclick();
+  stops[1].onclick();
   const d = dialogs.pop();
   await d.buttons[1].act();
   out.now = [d.title, texts(d.body), posts.map((x) => x[0]), posts[0] && posts[0][1]];
@@ -31054,8 +31055,11 @@ JS);
         check('run card: its title, the steps, «40 % · about … left», the share\'s counts, the file in flight, the end',
             in_array('rc.title', $o['card'] ?? [], true) && (bool) preg_grep('/^40 % · rc\.left/', $o['card'] ?? []) && (bool) preg_grep('/^rc\.share \{"share":"Docs","done":1/', $o['card'] ?? [])
             && in_array('rc.file {"file":"/mnt/cache/Docs/c2.txt"}', $o['card'] ?? [], true) && (bool) preg_grep('/^rc\.end/', $o['card'] ?? []), json_encode($o['card'] ?? null));
-        same('run card: the buttons — the output, «Stop after this file», «Stop at once…»', [['show_output_now', false], ['stop', false], ['stop_now', false]], $o['buttons'] ?? null);
-        same('run card: stopping after the file — said, «Stop after this file» off, «Stop at once…» still there', [['rc.title', 'stopping'], [false, true, false]],
+        same('run card: the foot as Mr. Backupsy\'s — «N errors, N warnings» left, «Log» right (a small plain button); no «Watch»',
+            [['span', '', 'rc.counts {"errors":"count.errors {\\"n\\":0}","warnings":"count.warnings {\\"n\\":0}"}'], ['button', 'btn small plain', 'rc.show_log']], $o['foot'] ?? null);
+        same('run card: her stops in the head where his «Abort» is, his style — «Stop after this file», «Stop at once…»',
+            [['stop', 'btn danger plain', false], ['stop_now', 'btn danger plain', false]], $o['buttons'] ?? null);
+        same('run card: stopping after the file — said, «Stop after this file» off, «Stop at once…» still there', [['rc.title', 'stopping'], [true, false]],
             [array_slice($o['stopping'][0] ?? [], 0, 2), $o['stopping'][1] ?? null]);
         same('run card: «Stop at once…» — a confirm saying what happens, then moverelli.stop_now {confirm}', ['stop_now_title', ['stop_now_text', 'stop_now_after'], ['moverelli.stop_now'], ['confirm' => true]],
             $o['now'] ?? null);
