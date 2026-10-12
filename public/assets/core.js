@@ -833,6 +833,17 @@ Office.selbar = function setSelbar(spec) {
   return { sub };
 };
 
+/**
+ * A change's mark in an apply dialog's list (Mr. Backupsy's look, «+» comes / «−» goes): <b class="diff-mark add|gone">
+ * with its words for a screen reader and a tooltip ($title)
+ */
+Office.diffMark = function diffMark(kind, title) {
+  const b = el('b', `diff-mark ${kind === 'add' ? 'add' : 'gone'}`, kind === 'add' ? '+' : '−');
+  b.setAttribute('role', 'img');
+  if (title) { b.setAttribute('aria-label', title); b.title = title; }
+  return b;
+};
+
 // ------------------------------------------------------------------ desks & routing
 Office.desk = function registerDesk(desk) {
   const meta = CONFIG.desks.find((d) => d.id === desk.id) || {};

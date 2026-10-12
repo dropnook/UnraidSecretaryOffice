@@ -29860,6 +29860,7 @@ SH);
         'tuning' => function () use (&$v) { return $v['tuning']; },
         'tuning_dir' => "$tmp/tuning", 'us_dir' => "$tmp/us", 'cron_glob' => "$tmp/plugins/*/*.cron", 'unraid_cron' => "$tmp/plugins/dynamix/mover.cron",
         'jack_lists' => function () use (&$v) { return $v['jack_lists']; }, 'jack_ran' => function () use (&$v) { return $v['jack_ran']; },
+        'import_look' => ["$tmp/flash/*/smart_mover.ini"],      // never the server's flash
     ];
 }
 
@@ -30048,7 +30049,19 @@ function testMoverelliUnraid(): void
     check('smart mover: a dry run says nothing of it', !str_contains((string) @file_get_contents("$dir/smart_mover.log"), 'asleep'));
     unset($GLOBALS['disksIni']);
 
-    // her page under node: the consent dialog on save, the let-go part
+    // an earlier install she finds by herself (the flash only — the tests' own folder): its folder, a link never, the one taken over not again
+    same('import found: nothing there — none', [], moverelliImportFound($h));
+    @mkdir("$tmp/flash/old", 0700, true);
+    @mkdir("$tmp/flash/other", 0700, true);
+    file_put_contents("$tmp/flash/old/smart_mover.ini", "[GLOBAL]\n");
+    symlink("$tmp/flash/old/smart_mover.ini", "$tmp/flash/other/smart_mover.ini");
+    same('import found: a smart_mover.ini there — its folder (a link is none)', ["$tmp/flash/old"], moverelliImportFound($h));
+    file_put_contents("$dir/office-import.json", json_encode(['v' => 1, 'folder' => "$tmp/flash/old", 'at' => 1]));
+    same('import found: … taken over already — not offered again', [], moverelliImportFound($h));
+    check('import found: her state carries it, the import notes the folder', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "'import_found' => moverelliImportFound(\$h),")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-import.php'), 'writeAtomic("$h[dir]/office-import.json"'));
+
+    // her page under node: the setup's bar and apply dialog, the let-go part
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('unraid mover: page - node is missing here - skipped', true);
@@ -30066,22 +30079,51 @@ let answer = () => ({ ok: true });
 globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
   scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C(' + c + ')', size: (b) => b + ' B', date: (t) => 'D' + t }, desk: () => {}, places: () => {}, placesFrom: () => {},
   store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key, dialog: (o) => { dialogs.push(o); return { buttons: [] }; },
+  diffMark: (k) => mk('b', 'diff-mark ' + k, k === 'add' ? '+' : '−'), selbar: () => null, toast: () => {},
   api: { post: async (a, b) => { posts.push([a, b]); return answer(a, b); } } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const m = OFFICE_DESK_TESTS.moverelli;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
 (async () => {
   const out = {};
-  m.setState({ mover: { off: true, schedule: null } });
-  out.none = await m.moverConsent();
-  m.setState({ mover: { off: false, schedule: '40 3 * * *' } });
-  let p = m.moverConsent();
-  const d = dialogs.pop();
-  d.buttons[1].act();
-  out.yes = [await p, d.title, texts(d.body), d.buttons.map((b) => b.text)];
-  p = m.moverConsent();
-  dialogs.pop().onClose();
-  out.cancel = await p;
+  // the setup's bar and its apply dialog: the bar counts the dialog's rows; the consent a section of that dialog
+  const base = { configured: true, settings: { global: { min_age: 0, age_stat: 'ctime', move_when_used_above: 0, move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [] },
+    shares: { Filme: { skip: false, min_age: 30, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } },
+    shares: [{ share: 'Filme', mode: 'yes' }, { share: 'Docs', mode: 'yes' }], mover: { off: true, schedule: null }, jack: { hired: true, list: null } };
+  m.setState(base);
+  m.setPage('setup');
+  m.setForm(null);
+  m.initForm();
+  out.noBar = m.setupBarSpec();
+  const f = m.form();
+  f.global.min_age = 14;
+  f.global.files.push('/mnt/user/appdata/x/embycache_exclude.txt');
+  f.global.patterns = ['*.nfo'];
+  f.shares.Filme.min_age = null;
+  f.shares.Filme.age_stat = 'mtime';
+  f.shares.Docs.skip = true;
+  const rows = m.setupChangeRows(m.formSettings({ global: base.settings.global, shares: { Filme: base.settings.shares.Filme, Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } }), m.formSettings(f));
+  const spec = m.setupBarSpec();
+  out.bar = [spec.title, spec.buttons.map((b) => [b.text, b.disabled])];
+  out.rows = rows.map((r) => [r.mark, r.label, r.what]);
+  m.setupApply();
+  let d = dialogs.pop();
+  const items = (n) => (typeof n === 'string' ? [] : n.tag === 'li' ? [n] : n.children.flatMap(items));
+  out.dialog = [d.title, items(d.body).length, d.buttons.map((b) => b.text), texts(d.body).includes('consent.title')];
+  m.setState({ ...base, mover: { off: false, schedule: '40 3 * * *' } });
+  m.setupApply();
+  d = dialogs.pop();
+  out.consent = [items(d.body).length, texts(d.body).filter((t) => t.startsWith('consent.'))];
+  answer = (a, b) => ({ ok: true, mover_off: !!b.mover_off });
+  posts.length = 0;
+  await d.buttons[1].act();
+  out.sent = [posts[0][0], Object.keys(posts[0][1]).sort(), posts[0][1].mover_off === true, posts[0][1].settings.global.min_age];
+  m.setState({ ...base, jack: { hired: false } , mover: { off: false, schedule: '40 3 * * *' } });
+  out.solo = texts(m.consentSection()).filter((t) => t.startsWith('consent.move'));
+  m.setState({ ...base, import_found: ['/boot/config/plugins/user.scripts/scripts/mover'] });
+  out.found = texts(m.foundNotice());
+  m.setState(base);
+  out.notFound = m.foundNotice();
   out.view = [m.letGoView({ ok: true, jack: true }), m.letGoView({ ok: true, jack: false, schedule: '0 4 * * *', after: false, unraid: { off: true, back: '40 3 * * *' } }),
     m.letGoView({ ok: true, jack: false, schedule: null, after: false, unraid: { off: false, back: null } }), m.letGoView({ ok: true, jack: false, schedule: null, after: true, unraid: { off: true, back: null } })];
   out.done = [m.letGoDoneLines({ ok: true, unraid: { back: true, was: '40 3 * * *' } }), m.letGoDoneLines({ ok: true, unraid: { kept: true, schedule: '0 */6 * * *' } }),
@@ -30094,10 +30136,21 @@ JS);
         if (!is_array($o) || isset($o['error'])) {
             check('unraid mover: page ran under node', false, $raw);
         } else {
-            same('unraid mover page: Unraid\'s schedule off — no question', false, $o['none']);
-            same('unraid mover page: on — the consent: she takes Unraid\'s mover by the hand (its schedule so far), ⟦Move now⟧, it comes back with her let-go; «Agree and save» → true',
-                [true, 'consent.title', ['consent.text {"schedule":"C(40 3 * * *)"}', 'consent.move_now_solo', 'consent.back'], ['common.cancel', 'consent.go']], $o['yes']);
-            same('unraid mover page: closed without — null (nothing saved)', null, $o['cancel']);
+            same('unraid mover page: her setup unchanged and set up — no bar', null, array_key_exists('noBar', $o) ? $o['noBar'] : 'x');
+            same('unraid mover page: the bar — «N changes», Discard, Apply…', ['setup.bar_changes {"n":6}', [['setup.discard', false], ['setup.save', false]]], $o['bar']);
+            same('unraid mover page: the changes, Mr. Backupsy\'s marks — a value «a → b», + a list, + an own line, a share\'s own rules new, a share\'s rules changed', [
+                [null, 'setup.row_global {"what":"setup.min_age"}', 'setup.tile.days {"n":0} → setup.tile.days {"n":14}'],
+                ['add', 'setup.files', '/mnt/user/appdata/x/embycache_exclude.txt'], ['add', 'setup.patterns', '*.nfo'],
+                ['add', 'setup.row_share {"share":"Docs"}', 'setup.row_own'],
+                [null, 'setup.row_share {"share":"Filme"} — setup.min_age', 'setup.tile.days {"n":30} → setup.as_global'],
+                [null, 'setup.row_share {"share":"Filme"} — setup.age_stat', 'setup.as_global → age_stat.mtime']], $o['rows']);
+            same('unraid mover page: the apply dialog — its title, as many rows as the bar counts, «Apply»; Unraid\'s mover off — no consent', ['setup.apply_title', 6, ['common.cancel', 'setup.apply_go'], false], $o['dialog']);
+            same('unraid mover page: Unraid\'s schedule on — the consent a section of the same dialog (its schedule, the Move-now warning with Jack, the let-go), the rows as before',
+                [6, ['consent.title', 'consent.text {"schedule":"C(40 3 * * *)"}', 'consent.move_now', 'consent.back']], $o['consent']);
+            same('unraid mover page: «Apply» saves once, with the consent', ['moverelli.save', ['mover_off', 'settings'], true, 14], $o['sent']);
+            same('unraid mover page: Jack not hired — the warning without his films', ['consent.move_now_solo'], $o['solo']);
+            same('unraid mover page: an earlier install found on the flash — offered at the top; none — nothing', [['import.found {"folder":"/boot/config/plugins/user.scripts/scripts/mover"} ', 'import.open'], null],
+                [$o['found'], $o['notFound']]);
             same('unraid mover page: her let-go\'s lines — Jack hired / her schedule and Unraid\'s back / Unraid\'s on already / «after Jack» and Unraid\'s stays off', [
                 [['callout warn', 'letgo.jack']],
                 [['', 'letgo.sched_off'], ['', 'letgo.unraid_back {"schedule":"C(40 3 * * *)"}']],
@@ -31245,9 +31298,11 @@ const fs = require('fs');
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const mk = (tag, cls, text) => { const n = { tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false,
-  dataset: {}, style: {}, isConnected: true, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, remove() {} };
+  dataset: {}, style: {}, isConnected: true, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, remove() {},
+  addEventListener() {} };
   Object.defineProperty(n, 'innerHTML', { set() { n.children = []; } }); return n; };
 const specs = [];
+const bars = [];
 const places = [];
 globalThis.document = { createTextNode: (t) => t };
 globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B', date: (t) => 'D' + t, duration: (s) => s + 's' },
@@ -31258,7 +31313,8 @@ globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c,
   pageFrom: (list, sub) => (String(sub || '').split('/')[0] === 'setup' ? 'setup' : ''),
   stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
   sections: (o) => { specs.push(o); return { el: mk('div', 'sections'), render() {}, mount: () => false, pick() {}, active: () => '' }; },
-  filterBar: (o) => ({ o, el: mk('div', 'filterbar'), words: [], read() { return { words: this.words }; }, done(n, t) { this.doneArgs = [n, t]; }, reset() { this.words = []; } }) };
+  filterBar: (o) => ({ o, el: mk('div', 'filterbar'), words: [], read() { return { words: this.words }; }, done(n, t) { this.doneArgs = [n, t]; }, reset() { this.words = []; } }),
+  selbar: (spec) => { bars.push(spec); return spec; } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const m = OFFICE_DESK_TESTS.moverelli;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
@@ -31299,6 +31355,9 @@ m.renderSetup();
 out.setupPage = sv.children.map((c) => c.cls || c.tag);
 out.setupSpec = [specs[1].id, specs[1].key, specs[1].default, specs[1].wants('shares'), specs[1].wants('nope')];
 out.setupTiles = m.setupTileData().map((d) => [d.id, d.key, d.value, d.sub, d.alert]);
+out.setupBar = bars[bars.length - 1];
+m.setState({ ...base, import_found: ['/boot/config/plugins/user.scripts/scripts/mover'] });
+out.setupFound = m.setupTileData().map((d) => [d.id, d.value, d.sub]);
 m.setState({ ...base, configured: false });
 m.setForm(null);
 m.initForm();
@@ -31325,15 +31384,16 @@ JS);
         $o['sections'] ?? null);
     check('moverelli tiles: the footer — Smart Mover\'s and Unraid\'s versions, the credit to helmi1987',
         in_array('credit_title', $o['foot'] ?? [], true) && (bool) preg_grep('/^Smart Mover V7/', $o['foot'] ?? []) && (bool) preg_grep('/^Unraid 7\.3\.2/', $o['foot'] ?? []));
-    same('moverelli tiles: the setup page — the head with tabs, the help, its head line, the row of steps, the save bar', ['deskhead', 'help', 'mo-pagehead', 'sections', 'toolbar'],
-        $o['setupPage'] ?? null);
+    same('moverelli tiles: the setup page — the head with tabs, the help, its head line, the row of steps, the quiet link to an earlier install; no save button (the bar)',
+        ['deskhead', 'help', 'mo-pagehead', 'sections', 'role mo-import-link'], $o['setupPage'] ?? null);
+    same('moverelli tiles: … set up, nothing changed — no bar', null, array_key_exists('setupBar', $o) ? $o['setupBar'] : 'x');
     same('moverelli tiles: the setup\'s switcher — its routes, kept as moverelli.setup.tile, every step to start, a step\'s route before her state', ['moverelli/setup', 'moverelli.setup.tile', '', true, false],
         $o['setupSpec'] ?? null);
-    same('moverelli tiles: the setup\'s steps — for all (age, fill, what stays), per share (own rules, left out), taking over (once set up)', [
+    same('moverelli tiles: the setup\'s steps — for all (age, fill, what stays), per share (own rules, left out); no earlier install found: no tile', [
         ['global', 'setup.global', 'setup.tile.days {"n":30}', ['rule_threshold {"pct":80}', 'setup.tile.stays {"lists":"count.lists {\"n\":1}","lines":"count.lines {\"n\":1}"}'], false],
-        ['shares', 'setup.shares', '0', ['setup.tile.own {"n":0}', 'setup.tile.skipped {"n":0}'], false],
-        ['import', 'import.title', 'setup.tile.optional', [], false]], $o['setupTiles'] ?? null);
-    same('moverelli tiles: not set up — taking over stands over the row, no tile', ['global', 'shares'], $o['setupUnset'] ?? null);
+        ['shares', 'setup.shares', '0', ['setup.tile.own {"n":0}', 'setup.tile.skipped {"n":0}'], false]], $o['setupTiles'] ?? null);
+    same('moverelli tiles: … one found on the flash — its tile, the folder', ['import', 'setup.tile.found', ['/boot/config/plugins/user.scripts/scripts/mover']], $o['setupFound'][2] ?? null);
+    same('moverelli tiles: not set up, nothing found — no import tile', ['global', 'shares'], $o['setupUnset'] ?? null);
     $pl = $o['places'] ?? [];
     same('moverelli tiles: her places — the sections by their tiles\' routes, the tiles, the setup\'s steps and their tiles', [
         ['section', 'schedule', '', '#/moverelli/schedule'], ['section', 'shares', '', '#/moverelli/shares'], ['section', 'history', '', '#/moverelli/runs'],
@@ -31390,7 +31450,7 @@ globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c,
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {},
   sectionHead: (title) => mk('h', 'section-head', title), errorText: (e) => 'err:' + e.key, pageHelp: () => mk('div', 'help'), withGreeting: (id, b) => b,
   desks: { get: () => ({ id: 'moverelli' }) }, deskHead: () => ({ head: mk('div', 'deskhead') }), stat: (o) => ({ tag: 'button', o, children: [] }),
-  sections: () => ({ el: mk('div', 'sections'), render() {}, mount: () => false }) };
+  sections: () => ({ el: mk('div', 'sections'), render() {}, mount: () => false }), selbar: () => null };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const m = OFFICE_DESK_TESTS.moverelli;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));

@@ -117,6 +117,8 @@ function moverelliHost(): array
         'unraid_cron'   => $h['unraid_cron'] ?? EMBY_MOVER_CRON,
         // taking over an earlier install (moverelliImportContext()): what the tests put in place of the server's pools, disks, tree
         'import'        => $h['import'] ?? [],
+        // where she looks for an earlier install by herself (the flash only — moverelliImportFound()); the tests: their own
+        'import_look'   => $h['import_look'] ?? MOVERELLI_IMPORT_LOOK,
         // her schedule's line (the office's cron file; the tests: a file of their own, not applied) and «right after Jack Emby»
         'cron_file'     => $h['cron_file'] ?? OFFICE_CRON,
         'cron_apply'    => $h['cron_apply'] ?? true,
@@ -784,6 +786,8 @@ function moverelliScan(?array $h = null): array
                          'uncovered' => moverelliJackUncovered($emby, $dir),
                          // EmbyCache's list in her ini, but EmbyCache never ran yet: her real runs wait for his first one
                          'pending' => moverelliJackListPending($h)],
+        // an earlier install she found by herself on the flash: her setup page offers it at the top
+        'import_found' => moverelliImportFound($h),
     ];
     if ($h['write_state']) {
         writeAtomic(deskFile('moverelli'), jsonEncode($state));

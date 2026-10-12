@@ -20,6 +20,8 @@ let view = null;
 let page = 'main';            // main | setup
 let outTimer = null;
 let form = null;              // the setup page's values (from her settings, anew on every visit)
+let saved = null;             // what is saved, as the page sends it (formSettings() of her settings): what the bar compares with
+let noJack = false;           // «Discard» this visit: Jack Emby's list not proposed again
 const folds = new Map();      // the setup's share rows: unfolded or not, while the page lives
 
 // ------------------------------------------------------------------ loading
@@ -207,24 +209,16 @@ async function moverOffDialog() {
 }
 
 /**
- * Her setup's consent while Unraid's own mover schedule is on: she takes Unraid's mover by the hand (its own schedule
- * goes, the one it had named), ⟦Move now⟧ stays, her let-go gives it back — no Settings path here (that is in her help). → true (agreed), false (nothing to switch off), null (cancelled)
+ * Her taking Unraid's mover by the hand — a section of the apply dialog while its own schedule is on: the schedule it
+ * had, the ⟦Move now⟧ warning (Jack Emby's films named while he is hired), her let-go gives it back. No Settings path
+ * here (that is in her help).
  */
-function moverConsent() {
+function consentSection() {
   const m = mover();
-  if (m.off) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    let agreed = false;
-    const body = el('div', 'mo-consent');
-    body.append(el('p', '', T('consent.text', { schedule: m.schedule ? fmt.cron(m.schedule) : '?' })),
-      el('p', 'role', T(jack().hired ? 'consent.move_now' : 'consent.move_now_solo')), el('p', 'role', T('consent.back')));
-    Office.dialog({
-      title: T('consent.title'),
-      body,
-      buttons: [{ text: Office.t('common.cancel') }, { text: T('consent.go'), kind: '', act: () => { agreed = true; resolve(true); return true; } }],
-      onClose: () => { if (!agreed) resolve(null); },
-    });
-  });
+  const box = el('div', 'mo-consent');
+  box.append(el('p', 'mo-imp-head', T('consent.title')), el('p', '', T('consent.text', { schedule: m.schedule ? fmt.cron(m.schedule) : '?' })),
+    el('p', 'role', T(jack().hired ? 'consent.move_now' : 'consent.move_now_solo')), el('p', 'role', T('consent.back')));
+  return box;
 }
 
 // ------------------------------------------------------------------ main view
@@ -730,10 +724,11 @@ function initForm() {
       files: s.files || [], patterns: s.patterns || [] };
   });
   form = { global: set.global, shares };
+  saved = formSettings(form);
   // Jack Emby hired and his list not kept out for every share of his: proposed in the files for all shares — in the form
   // only, nothing is written before «Save»; what was there stays, «Remove it again» takes exactly this line out
   const list = jack().list;
-  if (list && jackUncoveredIn(form).length) {
+  if (list && !noJack && jackUncoveredIn(form).length) {
     form.global.files = [...form.global.files, list];
     form.jackAdded = list;
   }
@@ -751,6 +746,7 @@ function jackNotice() {
     p.appendChild(button(T('setup.jack_remove'), 'small plain', () => {
       form.global.files = form.global.files.filter((x) => x !== form.jackAdded);
       form.jackAdded = null;
+      noJack = true;
       renderSetup();
     }));
     return p;
@@ -827,7 +823,7 @@ function excludeFields(obj, scope) {
     field(T('setup.patterns'), textarea(obj.patterns, (v) => { obj.patterns = linesOf(v); }, 4), T('setup.patterns_hint')));
   const list = jack().list;
   if (list && !obj.files.includes(list)) {
-    const b = button(T('setup.add_emby'), 'small plain', () => { obj.files = [...obj.files, list]; files.value = obj.files.join('\n'); b.remove(); });
+    const b = button(T('setup.add_emby'), 'small plain', () => { obj.files = [...obj.files, list]; files.value = obj.files.join('\n'); b.remove(); setupChanged(); });
     b.title = list;
     b.dataset.scope = scope;
     box.appendChild(b);
@@ -856,17 +852,167 @@ function renderSetup() {
   // hints over the row (they stay at every click): Jack Emby's list — added for you, or still missing for a share of his
   const jn = jackNotice();
   if (jn) root.appendChild(jn);
-  if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the Smart Mover before
+  // an earlier install she found by herself (the flash): offered at the top; else only a quiet link at the very bottom
+  const found = foundNotice();
+  if (found) root.appendChild(found);
   // the row of her setup's steps and under it the step chosen (none: every step in order — the page as before the tiles)
   const s = setupSwitcher();
   root.appendChild(s.el);
   s.render();
-  // the save bar under all
-  const bar = el('div', 'toolbar');
-  const save = button(T('setup.save'), '', saveSetup);
-  save.disabled = !Office.agent.running || running();
-  bar.appendChild(save);
-  root.appendChild(bar);
+  if (!found) {
+    const more = el('p', 'role mo-import-link');
+    const a = el('a', '', T('import.link'));
+    a.href = '#';
+    a.onclick = (e) => { e.preventDefault(); importDialog(); };
+    more.appendChild(a);
+    root.appendChild(more);
+  }
+  // every change goes into the bar at the bottom (Mr. Backupsy's: Office.selbar) — the form tells it at each keystroke
+  if (!root.dataset.moBar) {
+    root.dataset.moBar = '1';
+    const bump = () => { if (page === 'setup') setTimeout(setupChanged, 0); };
+    root.addEventListener('input', bump);
+    root.addEventListener('change', bump);
+  }
+  setupChanged();
+}
+
+/** «I found an earlier install (<folder>) — take it over?» over the row, while she finds one on the flash */
+function foundNotice() {
+  const f = (state && state.import_found) || [];
+  if (!f.length) return null;
+  const p = el('p', 'callout mo-found', T('import.found', { folder: f[0] }) + ' ');
+  const b = button(T('import.open'), 'small', () => { importFolder = f[0]; importDialog(); });
+  b.disabled = !Office.agent.running;
+  p.appendChild(b);
+  return p;
+}
+
+// ---- the change bar and the apply dialog (like Mr. Backupsy's setup, 2026-10-12)
+/** The settings as the page sends them (pure): only the shares with something of their own, empty own lines none */
+function formSettings(f) {
+  const shares = {};
+  Object.entries(f.shares).forEach(([name, sh]) => {
+    const patterns = sh.patterns.join('\n').trim() === '' ? [] : sh.patterns;
+    if (sh.skip || sh.min_age !== null || sh.age_stat !== null || sh.move_when_used_above !== null || sh.files.length || patterns.length) {
+      shares[name] = { ...sh, files: [...sh.files], patterns: [...patterns] };
+    }
+  });
+  const g = f.global;
+  return { global: { ...g, files: [...g.files], patterns: g.patterns.join('\n').trim() === '' ? [] : [...g.patterns] }, shares };
+}
+
+const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list'];
+const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above'];
+/** A value as the apply dialog says it (null in a share: as for all shares) */
+function setValue(key, v) {
+  if (v === null || v === undefined || v === '') return T('setup.as_global');
+  if (typeof v === 'boolean') return Office.t(v ? 'common.yes' : 'common.no');
+  if (key === 'min_age') return T('setup.tile.days', { n: Number(v) || 0 });
+  if (key === 'age_stat') return T('age_stat.' + v);
+  if (key === 'move_when_used_above') return Number(v) ? `${v} %` : T('rule_always');
+  return String(v);
+}
+
+/**
+ * Every change of the form against what is saved, as the dialog lists it (pure): [{mark: 'add'|'gone'|null, label, what}]
+ * — a value «a → b», a list of what stays and an own line + / −, a share's own rules + / − as a whole, a share's
+ * changed rule with its name. The bar counts exactly these rows.
+ */
+function setupChangeRows(was, now) {
+  const rows = [];
+  const lists = (scope, a, b) => {
+    const pre = scope ? T('setup.row_share', { share: scope }) + ' — ' : '';
+    b.files.filter((x) => !a.files.includes(x)).forEach((x) => rows.push({ mark: 'add', label: pre + T('setup.files'), what: x }));
+    a.files.filter((x) => !b.files.includes(x)).forEach((x) => rows.push({ mark: 'gone', label: pre + T('setup.files'), what: x }));
+    const own = (l) => l.map((x) => x.trim()).filter(Boolean);
+    own(b.patterns).filter((x) => !own(a.patterns).includes(x)).forEach((x) => rows.push({ mark: 'add', label: pre + T('setup.patterns'), what: x }));
+    own(a.patterns).filter((x) => !own(b.patterns).includes(x)).forEach((x) => rows.push({ mark: 'gone', label: pre + T('setup.patterns'), what: x }));
+  };
+  SET_KEYS.forEach((k) => {
+    if (String(was.global[k]) !== String(now.global[k])) {
+      rows.push({ mark: null, label: T('setup.row_global', { what: T(IMPORT_LABEL[k]) }), what: `${setValue(k, was.global[k])} → ${setValue(k, now.global[k])}` });
+    }
+  });
+  lists('', was.global, now.global);
+  const names = [...new Set([...Object.keys(was.shares), ...Object.keys(now.shares)])].sort();
+  names.forEach((n) => {
+    const a = was.shares[n];
+    const b = now.shares[n];
+    if (!a) { rows.push({ mark: 'add', label: T('setup.row_share', { share: n }), what: T('setup.row_own') }); return; }
+    if (!b) { rows.push({ mark: 'gone', label: T('setup.row_share', { share: n }), what: T('setup.row_own') }); return; }
+    SHARE_KEYS.forEach((k) => {
+      if (String(a[k] ?? null) !== String(b[k] ?? null)) {
+        rows.push({ mark: null, label: `${T('setup.row_share', { share: n })} — ${T(IMPORT_LABEL[k])}`,
+          what: k === 'skip' ? Office.t(b[k] ? 'common.yes' : 'common.no') : `${setValue(k, a[k])} → ${setValue(k, b[k])}` });
+      }
+    });
+    lists(n, a, b);
+  });
+  return rows;
+}
+
+/** The bar's spec (pure): null while nothing differs from what is saved and she is set up; else the count = the dialog's rows */
+function setupBarSpec() {
+  if (page !== 'setup' || !state || !form || !saved) return null;
+  const n = setupChangeRows(saved, formSettings(form)).length;
+  if (!n && state.configured) return null;
+  return {
+    title: n ? T('setup.bar_changes', { n }) : T('setup.bar_new'),
+    sub: T(state.configured ? 'setup.bar_sub' : 'setup.bar_sub_new'),
+    buttons: [
+      { text: T('setup.discard'), kind: 'plain', disabled: !n, act: () => { noJack = true; form = null; renderSetup(); } },
+      { text: T('setup.save'), disabled: !Office.agent.running || running(), act: setupApply },
+    ],
+  };
+}
+/** The form changed (or was drawn): the bar anew */
+function setupChanged() {
+  Office.selbar(setupBarSpec());
+}
+
+/**
+ * «Apply…»: every change with Mr. Backupsy's marks, and — while Unraid's own mover schedule is on — her taking it by
+ * the hand as a section of its own (its schedule, the ⟦Move now⟧ warning, her let-go gives it back): one dialog,
+ * «Apply» saves (with the consent when that section is there)
+ */
+function setupApply() {
+  const now = formSettings(form);
+  const rows = setupChangeRows(saved, now);
+  const box = el('div', 'mo-apply');
+  box.appendChild(el('p', '', rows.length ? T('setup.apply_text', { n: rows.length }) : T('setup.apply_new')));
+  if (rows.length) {
+    const ul = el('ul', 'shortlist');
+    rows.forEach((r) => {
+      const li = el('li', r.mark ? 'marked' : '');
+      if (r.mark) li.appendChild(Office.diffMark(r.mark, T(r.mark === 'add' ? 'setup.mark_add' : 'setup.mark_gone')));
+      li.appendChild(document.createTextNode(r.label));
+      li.appendChild(el('span', '', r.what));
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
+  const off = !mover().off;
+  if (off) box.appendChild(consentSection());
+  box.appendChild(el('p', 'role', T('setup.help_save')));
+  const err = errorLine();
+  box.appendChild(err);
+  Office.dialog({
+    title: T('setup.apply_title'),
+    body: box,
+    wide: true,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('setup.apply_go'), kind: '', act: async () => {
+      const j = await Office.api.post(`${ID}.save`, off ? { settings: now, mover_off: true } : { settings: now });
+      if (!j.ok) { showError(err, j.error); return false; }
+      if (j.state) state = j.state;
+      Office.toast(T(j.mover_off ? 'setup.saved_mover_off' : 'setup.saved'));
+      form = null;
+      saved = null;
+      Office.selbar(null);
+      Office.go(`#/${ID}`);
+      return true;
+    } }],
+  });
 }
 
 // ---- the setup's steps as tiles (tiles v2, 2026-10-12, like Jack Emby's): a number tile per step — the rules for all
@@ -917,7 +1063,7 @@ function setupTileData() {
       T('setup.tile.stays', { lists: nOf('lists', g.files.length), lines: nOf('lines', lines) })], alert: jackUncoveredIn(form).length > 0 });
   out.push({ id: 'shares', key: 'setup.shares', value: String(own.length),
     sub: [T('setup.tile.own', { n: own.length }), T('setup.tile.skipped', { n: Object.values(form.shares).filter((s) => s.skip).length })], alert: false });
-  if (state.configured) out.push({ id: 'import', key: 'import.title', value: T('setup.tile.optional'), sub: [], alert: false });
+  if ((state.import_found || []).length) out.push({ id: 'import', key: 'import.title', value: T('setup.tile.found'), sub: [state.import_found[0]], alert: false });
   return out;
 }
 
@@ -973,26 +1119,6 @@ function fillSetupShares(box) {
   });
   if (!shares.length) box.appendChild(el('p', 'empty', T('shares_none')));
   if (setupBar) setupBar.done(fit.length, shares.length);
-}
-
-async function saveSetup() {
-  const shares = {};
-  Object.entries(form.shares).forEach(([name, s]) => {
-    const patterns = s.patterns.join('\n').trim() === '' ? [] : s.patterns;
-    if (s.skip || s.min_age !== null || s.age_stat !== null || s.move_when_used_above !== null || s.files.length || patterns.length) {
-      shares[name] = { ...s, patterns };
-    }
-  });
-  const g = form.global;
-  const settings = { global: { ...g, patterns: g.patterns.join('\n').trim() === '' ? [] : g.patterns }, shares };
-  // Unraid's own mover goes off with her setup — asked first while it is on (agent/desks/moverelli-unraid.php)
-  const consent = await moverConsent();
-  if (consent === null) return;
-  const j = await act('save', consent ? { settings, mover_off: true } : { settings });
-  if (!j) return;
-  Office.toast(T(j.mover_off ? 'setup.saved_mover_off' : 'setup.saved'));
-  form = null;
-  Office.go(`#/${ID}`);
 }
 
 // ------------------------------------------------------------------ taking over an earlier install
@@ -1240,6 +1366,7 @@ Office.desk({
       renderSetup();
       return;
     }
+    Office.selbar(null);        // the setup's change bar stays on the setup page
     // her tiles as places: #/moverelli/<tile> picks it exactly like a click (the address is her page's again); the Team
     // Lead's «Open» for her schedule (#/moverelli/schedule) picks «Schedule» and opens its dialog as before
     switcher().mount(sub);
@@ -1247,7 +1374,7 @@ Office.desk({
     await load(false);
     if (sub === 'schedule') scheduleDialog();
   },
-  unmount() { view = null; clearTimeout(outTimer); },
+  unmount() { view = null; clearTimeout(outTimer); Office.selbar(null); },
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
   menu() {
@@ -1302,7 +1429,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, moverConsent, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, setupChangeRows, setupBarSpec, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

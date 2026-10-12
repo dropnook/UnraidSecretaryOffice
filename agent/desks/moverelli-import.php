@@ -86,6 +86,30 @@ function moverelliImportPreview(array $r, ?array $h = null): array
     return ['ok' => true, 'preview' => $plan['preview'] + ['running' => moverelliBusy($h['dir'])]];
 }
 
+/**
+ * An earlier install she finds by herself — only on the flash (it never sleeps, nothing is woken): a smart_mover.ini in
+ * a User Script's folder or a plugin's folder (`MOVERELLI_IMPORT_LOOK`), a plain file. The folders, at most 5, without
+ * the one she took over last (office-import.json). Her setup page offers it at the top; elsewhere the user types it.
+ */
+const MOVERELLI_IMPORT_LOOK = ['/boot/config/plugins/user.scripts/scripts/*/smart_mover.ini', '/boot/config/plugins/*/smart_mover.ini'];
+
+function moverelliImportFound(?array $h = null): array
+{
+    $h ??= moverelliHost();
+    $done = (string) (readJson("$h[dir]/office-import.json")['folder'] ?? '');
+    $out = [];
+    foreach ((array) ($h['import_look'] ?? MOVERELLI_IMPORT_LOOK) as $pattern) {
+        foreach (glob($pattern, GLOB_NOSORT) ?: [] as $file) {
+            $dir = dirname($file);
+            if (is_file($file) && !is_link($file) && !is_link($dir) && $dir !== $done && !in_array($dir, $out, true)) {
+                $out[] = $dir;
+            }
+        }
+    }
+    sort($out);
+    return array_slice($out, 0, 5);
+}
+
 /** moverelli.import_apply {folder, token, mover_off?}: does what the preview showed — not while a run of hers goes, not when anything changed since */
 function moverelliImportDo(array $r, ?array $h = null): array
 {
@@ -112,6 +136,8 @@ function moverelliImportDo(array $r, ?array $h = null): array
         }
         $backups = importBackup($h['dir'], $names, $stamp);
     }, moverelliConsent($r));       // Unraid's own mover goes off with it, like her save (moverelli-unraid.php)
+    // the folder taken over: her page doesn't offer it again
+    writeAtomic("$h[dir]/office-import.json", jsonEncode(['v' => 1, 'folder' => $folder, 'at' => time()]), 0600, 0, 0);
     $lines = count($plan['set']['global']['patterns']) + array_sum(array_map(fn ($s) => count($s['patterns']), $plan['set']['shares']));
     logLine("Ms. Moverelli: took over an earlier install from $folder (" . count($plan['set']['shares']) . " shares with rules of their own, $lines lines of what stays)"
         . ($backups ? "; copies of hers: .before-import-$stamp" : ''));
