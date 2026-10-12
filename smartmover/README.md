@@ -24,6 +24,11 @@
 > * `CUSTOMMOVER_EXCLUDES_REQUIRED=1`: on a real run (`--run`) an exclude file that is missing skips its share with an
 >   ERROR (counted in `errors`, state `error`) instead of a WARN — a list that is gone never lets its files move. Dry runs
 >   still only warn. Ms. Moverelli sets it for real runs.
+> * `CUSTOMMOVER_DISKS_INI` (emhttpd's disks.ini): on a real run a share that reaches the array names its array disks
+>   that sleep (its `shareInclude`, else all, less `shareExclude`) in one INFO line — a prefer share before its scan of
+>   `/mnt/user0`, a share moving to the array before the move binary starts. Nothing else changes.
+> * Always: the share's own path in an exclude entry (`/mnt/user/<share>/…`, `/mnt/user0/<share>/…`) is replaced quoted —
+>   a share name with `[ ] * ?` is no pattern.
 > * Always (no variable, 2026-10-12, helmi1987's finding): a `<share>.cfg` whose share is gone — no `/mnt/user/<share>`
 >   (under `CUSTOMMOVER_MNT`); a share removed by hand leaves its .cfg on the flash — is skipped with an INFO line
 >   («skip <share>: no such share (stale .cfg)»), never listed or moved. Not upstream as of `68ee9ce`.

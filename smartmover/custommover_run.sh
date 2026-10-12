@@ -41,6 +41,8 @@
 #   CUSTOMMOVER_STOP          a file: once it exists, no further share is started (exit 3)
 #   CUSTOMMOVER_EXCLUDES_REQUIRED  1 = on a real run (--run) an exclude file that is missing skips its
 #                             share with an ERROR (counted as an error) instead of a WARN
+#   CUSTOMMOVER_DISKS_INI     emhttpd's disks.ini: on a real run a share that reaches the array names its
+#                             array disks that sleep and that the run will wake (an INFO line, nothing else)
 # Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
 #   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
 #   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
@@ -83,6 +85,7 @@ case "${CUSTOMMOVER_FORCE:-}" in age) FORCE_AGE=true ;; all) FORCE_AGE=true; FOR
 STATUS_FILE="${CUSTOMMOVER_STATUS:-}"
 STOP_FILE="${CUSTOMMOVER_STOP:-}"
 EXCL_REQUIRED="${CUSTOMMOVER_EXCLUDES_REQUIRED:-0}"
+DISKS_INI="${CUSTOMMOVER_DISKS_INI:-}"
 
 usage() {  # prints the header comment block above
     awk 'NR > 2 && /^# =====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"
@@ -284,8 +287,8 @@ build_excludes() {  # share_name source_root exclude_files(comma list)...
             line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
             [[ -z "$line" || "$line" == \#* || "$line" == \;* ]] && continue
             line="${line%/}"
-            line="${line/#$MNT\/user\/$share/$src}"
-            line="${line/#$MNT\/user0\/$share/$src}"
+            line="${line/#"$MNT/user/$share"/"$src"}"      # USO: quoted — a share or path with [ ] * ? is no pattern
+            line="${line/#"$MNT/user0/$share"/"$src"}"
             case "$line" in
                 /*)  # absolute path: file or subtree, matched literally
                     find_literal "$line"
@@ -321,6 +324,24 @@ remove_empty_parents() {  # root file...
 
 # ------------------------------------------------------------------ Share processing
 TOTAL_FILES=0; TOTAL_BYTES=0; TOTAL_MOVED=0; TOTAL_LEFT=0
+
+# office: the array disks a share may use (its cfg's shareInclude, else all, less shareExclude) that sleep now —
+# read from emhttpd's disks.ini (RAM, no disk asked); prints them comma separated, nothing when none or no ini
+asleep_disks() {  # share
+    [[ -n "$DISKS_INI" && -r "$DISKS_INI" ]] || return 0
+    local cfg="$SHARES_DIR/$1.cfg" inc exc sec="" line out=""
+    inc=$(sed -n 's/^shareInclude="\([^"]*\)".*/\1/p' "$cfg" 2>/dev/null | tr -d '\r' | head -1)
+    exc=$(sed -n 's/^shareExclude="\([^"]*\)".*/\1/p' "$cfg" 2>/dev/null | tr -d '\r' | head -1)
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        if [[ "$line" =~ ^\[\"?([A-Za-z0-9_]+)\"?\]$ ]]; then sec="${BASH_REMATCH[1]}"; continue; fi
+        [[ "$sec" =~ ^disk[0-9]+$ && "$line" == 'spundown="1"' ]] || continue
+        [[ -n "$inc" && ",$inc," != *",$sec,"* ]] && continue
+        [[ -n "$exc" && ",$exc," == *",$sec,"* ]] && continue
+        out+="${out:+, }$sec"
+    done < "$DISKS_INI"
+    printf '%s' "$out"
+}
 
 process_share() {  # name mode pool pool2
     local name="$1" mode="$2" pool="$3" pool2="$4"
@@ -363,6 +384,10 @@ process_share() {  # name mode pool pool2
     fi
 
     log INFO "[$name] $direction  (source: $src)"
+    local asleep=""
+    [[ "$DRY_RUN" == false && -z "$pool2" ]] && asleep=$(asleep_disks "$name")
+    # office: a prefer share's scan reads the array (/mnt/user0) — its sleeping disks wake now
+    [[ -n "$asleep" && "$mode" == "prefer" ]] && log INFO "  array disks asleep: $asleep – this run wakes them"
     if [[ ! -d "$src" ]]; then SH_STATE=no_source; log INFO "  nothing on the source side – skipped"; return 0; fi
 
     # Threshold: only move when the pool that should be freed is fuller than X% (pool -> array shares only)
@@ -437,6 +462,8 @@ process_share() {  # name mode pool pool2
     fi
 
     # Execute
+    # office: moving to the array wakes the disk Unraid's move binary writes to — said once per share, before
+    [[ -n "$asleep" && "$mode" == "yes" ]] && log INFO "  array disks asleep: $asleep – this run wakes the one it writes to"
     log INFO "  moving $count files ($(human "$bytes")) via $MOVER_BIN"
     local mover_out rc
     mover_out=$(mktemp)
