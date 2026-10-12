@@ -29996,8 +29996,8 @@ JS);
             check('unraid mover: page ran under node', false, $raw);
         } else {
             same('unraid mover page: Unraid\'s schedule off — no question', false, $o['none']);
-            same('unraid mover page: on — the consent: what goes off, its schedule, ⟦Move now⟧, it comes back with her let-go; «Switch it off and save» → true',
-                [true, 'consent.title', ['consent.text', 'consent.schedule {"schedule":"C(40 3 * * *)"}', 'consent.move_now', 'consent.back'], ['common.cancel', 'consent.go']], $o['yes']);
+            same('unraid mover page: on — the consent: she takes Unraid\'s mover by the hand (its schedule so far), ⟦Move now⟧, it comes back with her let-go; «Agree and save» → true',
+                [true, 'consent.title', ['consent.text {"schedule":"C(40 3 * * *)"}', 'consent.move_now', 'consent.back'], ['common.cancel', 'consent.go']], $o['yes']);
             same('unraid mover page: closed without — null (nothing saved)', null, $o['cancel']);
             same('unraid mover page: her let-go\'s lines — Jack hired / her schedule and Unraid\'s back / Unraid\'s on already / «after Jack» and Unraid\'s stays off', [
                 [['callout warn', 'letgo.jack']],

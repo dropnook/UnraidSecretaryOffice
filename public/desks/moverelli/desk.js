@@ -207,8 +207,8 @@ async function moverOffDialog() {
 }
 
 /**
- * Her setup's consent while Unraid's own mover schedule is on: «Unraid's own mover will be switched off — I move from now
- * on», the schedule it has, that her let-go brings it back. → true (agreed), false (nothing to switch off), null (cancelled)
+ * Her setup's consent while Unraid's own mover schedule is on: she takes Unraid's mover by the hand (its own schedule
+ * goes, the one it had named), ⟦Move now⟧ stays, her let-go gives it back — no Settings path here (that is in her help). → true (agreed), false (nothing to switch off), null (cancelled)
  */
 function moverConsent() {
   const m = mover();
@@ -216,7 +216,7 @@ function moverConsent() {
   return new Promise((resolve) => {
     let agreed = false;
     const body = el('div', 'mo-consent');
-    body.append(el('p', '', T('consent.text')), el('p', 'callout', T('consent.schedule', { schedule: m.schedule ? fmt.cron(m.schedule) : '?' })),
+    body.append(el('p', '', T('consent.text', { schedule: m.schedule ? fmt.cron(m.schedule) : '?' })),
       el('p', 'role', T('consent.move_now')), el('p', 'role', T('consent.back')));
     Office.dialog({
       title: T('consent.title'),
@@ -1123,7 +1123,7 @@ function importPreview(p, folder) {
   // Unraid's own mover goes off with it, like her save: said here, the button says it too (its click is the consent)
   const off = !mover().off;
   if (off && p.ready && !p.running) {
-    box.appendChild(el('p', 'callout', `${T('consent.text')} ${T('consent.schedule', { schedule: mover().schedule ? fmt.cron(mover().schedule) : '?' })} ${T('consent.back')}`));
+    box.appendChild(el('p', 'callout', `${T('consent.text', { schedule: mover().schedule ? fmt.cron(mover().schedule) : '?' })} ${T('consent.back')}`));
   }
   const err = errorLine();
   box.appendChild(err);
