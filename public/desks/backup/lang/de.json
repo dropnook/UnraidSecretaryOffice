@@ -81,7 +81,7 @@
   "mode_hint.check": "Vergleicht den Server mit settings.ini und listet auf, was sich geändert hat. Dauert Sekunden.",
   "start_title": "Backup starten",
   "start_go": "Starten",
-  "start_hint": "Ein volles Backup dauerte zuletzt etwa {duration}. Es läuft weiter, auch wenn du diese Seite schliesst.",
+  "start_hint": "Ein volles Backup dauerte zuletzt etwa {duration} — es läuft weiter, auch wenn du diese Seite schliesst.",
   "started.backup": "Backup gestartet",
   "started.nokopia": "Backup ohne Upload ausser Haus gestartet",
   "started.dryrun": "Probelauf gestartet",
