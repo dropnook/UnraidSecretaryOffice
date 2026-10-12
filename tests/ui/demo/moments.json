@@ -368,9 +368,13 @@
   "nr": 3,
   "desk": "backup",
   "moment": "levels",
-  "title": "Herr Backupsi - Einrichten: die Stufe pro VM mit fünf Feldern, grau wo kein eigenes Dataset",
+  "title": "Herr Backupsi - Einrichten: die Stufe pro VM mit fünf Feldern (ausser Haus eingeschaltet), grau wo kein eigenes Dataset",
   "route": "backup/setup",
   "prepare": [
+   {
+    "js": "[...document.querySelectorAll(\"label.check\")].find((n) => n.textContent.startsWith(Office.t(\"backup.setup.kopia_on\"))).querySelector(\"input\").click()",
+    "pause": 500
+   },
    {
     "js": "document.querySelector('[data-place=\"setup.vms\"]').scrollIntoView({block: 'start'}); window.scrollBy(0, -60)",
     "pause": 400
