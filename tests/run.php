@@ -18554,7 +18554,7 @@ JS);
     check('search: places per desk ' . json_encode($count), array_sum($count) > 250, (string) array_sum($count));
     // Ms. Dustdevil's rooms: drawn only when visible() — each tile a rule, her «Tidying up» the part they lie in
     $rooms = array_values(array_filter($r['registry']['cleanup'] ?? [], fn ($p) => $p['kind'] === 'tile' && str_starts_with($p['anchor'], 'room.')));
-    same('search cleanup: every room\'s tile carries her rule (shown) and her «Tidying up» as its part', [10, 10],
+    same('search cleanup: every room\'s tile (11 with «On the flash», 2026-10-12) carries her rule (shown) and her «Tidying up» as its part', [11, 11],
         [count(array_filter($rooms, fn ($p) => ($p['shown'] ?? null) === 'boolean')), count(array_filter($rooms, fn ($p) => ($p['part'] ?? null) === 'part.tidy'))]);
     same('search: a place not drawn now is not listed (her state unknown: listed; no partner left: not, VMs off: not; some left: listed)',
         [true, false, false, true], $r['hidden'] ?? null);
@@ -28149,6 +28149,12 @@ function moverelliFixture(string $tmp, array &$v): void
               "$tmp/mnt/cache/Docs", "$tmp/mnt/user0/Back", "$tmp/mnt/disk1"] as $d) {
         @mkdir($d, 0700, true);
     }
+    // the shares as Unraid shows them (a cfg alone is no share — officeShareExists()): /mnt/user/<share>, the array started
+    foreach (['Back', 'Docs', 'Filme', 'Arr', 'GLOBAL', '2024'] as $d) {
+        @mkdir("$tmp/mnt/user/$d", 0700, true);
+    }
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    file_put_contents("$tmp/shares.ini", '');
     file_put_contents("$tmp/shares/Back.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");
     file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\nshareCachePool2=\"\"\n");
     file_put_contents("$tmp/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
@@ -28182,7 +28188,8 @@ SH);
            'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => ["$tmp/jack/embycache_exclude.txt", '/mnt/user/appdata/x/embycache/embycache_exclude.txt'],
            'jack_ran' => false];
     $GLOBALS['moverelliHost'] = [
-        'dir' => "$tmp/data", 'shares_dir' => "$tmp/shares", 'mnt' => "$tmp/mnt", 'waitdir' => "$tmp/run", 'write_state' => false, 'look_every' => 0,
+        'dir' => "$tmp/data", 'shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'var_ini' => "$tmp/var.ini",
+        'mnt' => "$tmp/mnt", 'waitdir' => "$tmp/run", 'write_state' => false, 'look_every' => 0,
         'env' => ['CUSTOMMOVER_MOVER_BIN' => "$tmp/bin/move", 'CUSTOMMOVER_ZFS' => "$tmp/bin/zfs", 'MOVE_ROOT' => "$tmp/mnt"],
         'version' => function () use (&$v) { return $v['version']; },
         'unraid' => function () use (&$v) { return $v['own']; },
@@ -29209,6 +29216,145 @@ function testCleanupInUseLocked(): void
 }
 
 /**
+ * A deleted share's .cfg is no share (2026-10-12, helmi1987's finding: Ms. Dustdevil advised «2 shares write straight to
+ * the array: docker, domains2» — both long gone, only their /boot/config/shares/*.cfg left; Ms. Moverelli listed them
+ * too). One truth, officeShareExists(): shares.ini, else /mnt/user/<name> (FUSE, never a disk), true while the array is
+ * stopped. waShares() flags a cfg-only name `stale_cfg` + `storage.missing` (the write-method tip names only real shares),
+ * Ms. Moverelli's list and Smart Mover's loop skip it, and her room «On the flash» offers the file: into the flash's
+ * storeroom as shares/<name>.cfg and back — never while Unraid knows the share or can't tell.
+ */
+function testStaleShares(): void
+{
+    $tmp = hardeningTmp('stale-shares');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    foreach (["$tmp/boot/config/shares", "$tmp/mnt/user/media", "$tmp/mnt/user/docs"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    $cfgs = "$tmp/boot/config/shares";
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    file_put_contents("$tmp/stopped.ini", "fsState=\"Stopped\"\n");
+    file_put_contents("$tmp/shares.ini", "[\"docs\"]\nname=\"docs\"\nuseCache=\"no\"\nexclusive=\"no\"\n");
+    file_put_contents("$cfgs/docs.cfg", "shareUseCache=\"no\"\nshareComment=\"\"\n");             // a real share on the array
+    file_put_contents("$cfgs/docker.cfg", "shareUseCache=\"no\"\n");                              // gone: only its cfg is left
+    file_put_contents("$cfgs/domains2.cfg", "shareUseCache=\"prefer\"\nshareCachePool=\"cache\"\n");  // gone too
+    $ini = "$tmp/shares.ini";
+    $var = "$tmp/var.ini";
+
+    // --- the one truth
+    same('stale shares: exists — in shares.ini, a folder under /mnt/user (not listed yet), gone; never an empty, «..» or slashed name',
+        [true, true, false, false, false, false],
+        [officeShareExists('docs', $ini, "$tmp/mnt", $var), officeShareExists('media', $ini, "$tmp/mnt", $var), officeShareExists('docker', $ini, "$tmp/mnt", $var),
+         officeShareExists('', $ini, "$tmp/mnt", $var), officeShareExists('..', $ini, "$tmp/mnt", $var), officeShareExists('a/b', $ini, "$tmp/mnt", $var)]);
+    same('stale shares: … the array stopped (no var.ini «Started»): Unraid can\'t tell — nothing is called gone', [true, true, false, true],
+        [officeShareExists('docker', $ini, "$tmp/mnt", "$tmp/stopped.ini"), officeShareExists('docker', $ini, "$tmp/mnt", "$tmp/none.ini"),
+         officeSharesKnown("$tmp/stopped.ini"), officeSharesKnown($var)]);
+
+    // --- Ms. Dustdevil's shares and her write-method tip
+    $shares = waShares([], [], [], [], $ini, $cfgs, "$tmp/mnt", $var);
+    $by = array_column($shares, null, 'name');
+    same('stale shares: waShares — every name, the cfg-only ones flagged stale and missing, the real one not',
+        [['docker', 'docs', 'domains2'], [true, true], [true, true], [false, false]],
+        [array_keys($by), [!empty($by['docker']['stale_cfg']), $by['docker']['storage']['missing']], [!empty($by['domains2']['stale_cfg']), $by['domains2']['storage']['missing']],
+         [!empty($by['docs']['stale_cfg']), $by['docs']['storage']['missing']]]);
+    $disks = ['parity' => ['name' => 'parity', 'type' => 'Parity', 'device' => 'sdb'], 'disk1' => ['name' => 'disk1', 'type' => 'Data', 'device' => 'sdc'],
+              'disk2' => ['name' => 'disk2', 'type' => 'Data', 'device' => 'sdd']];
+    $wm = waWriteMethod(['md_write_method' => 'auto', 'spindownDelay' => '0'], $disks, $shares, null);
+    same('stale shares: «n shares write straight to the array» names only the real one (helmi1987: docker, domains2 were gone)',
+        [['docs'], 0, 'turbo'], [$wm['direct'], $wm['pooled'], $wm['tip']]);
+    same('stale shares: … the array stopped — Unraid can\'t tell, every cfg counts as before', [false, false],
+        [!empty(array_column(waShares([], [], [], [], $ini, $cfgs, "$tmp/mnt", "$tmp/stopped.ini"), null, 'name')['docker']['stale_cfg']),
+         array_column(waShares([], [], [], [], $ini, $cfgs, "$tmp/mnt", "$tmp/stopped.ini"), null, 'name')['docker']['storage']['missing']]);
+    $where = (string) file_get_contents(OFFICE_DIR . '/agent/lib/where.php');
+    check('stale shares: the page\'s list and the folders leave a stale cfg out (her room «On the flash» has it); the backup guess asks too',
+        str_contains($where, "\$real = array_values(array_filter(\$shares, fn (\$s) => empty(\$s['stale_cfg'])));") && str_contains($where, "'shares'      => \$real,")
+        && str_contains($where, "waFolders(\$real,") && str_contains($where, "preg_match('/backup|sicherung|time.?machine/i', \$name) && officeShareExists(\$name)"));
+
+    // --- Ms. Moverelli's list and Smart Mover's loop
+    $h = ['shares_ini' => $ini, 'mnt' => "$tmp/mnt", 'var_ini' => $var];
+    same('stale shares: Ms. Moverelli lists only shares that exist', [['docs'], ['docker', 'docs', 'domains2']],
+        [moverelliShareNames($cfgs, $h), moverelliShareNames($cfgs, ['var_ini' => "$tmp/stopped.ini"] + $h)]);
+    $mt = "$tmp/moverelli";
+    $v = [];
+    moverelliFixture($mt, $v);
+    file_put_contents("$mt/shares/Gone.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");     // no $mt/mnt/user/Gone
+    @mkdir("$mt/mnt/cache/Gone", 0700, true);
+    file_put_contents("$mt/mnt/cache/Gone/old.mkv", 'x');
+    $mh = moverelliHost();
+    $r = moverelliSave(moverelliTestSettings(), $mh);
+    same('stale shares: … her share table (as --list-shares sees it) without Gone', ['Arr', 'Back', 'Docs', 'Filme'], array_column($r['state']['shares'], 'share'));
+    $env = ['CUSTOMMOVER_INI' => "$mt/data/smart_mover.ini", 'CUSTOMMOVER_SHARES_DIR' => "$mt/shares", 'CUSTOMMOVER_MNT' => "$mt/mnt", 'CUSTOMMOVER_LOG' => "$mt/data/x.log",
+            'CUSTOMMOVER_LOCK' => "$mt/data/x.lock", 'CUSTOMMOVER_STATUS' => "$mt/data/x.json"];
+    [, $out] = runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--list-shares'], $env, 30);
+    check('stale shares: Smart Mover --list-shares skips a cfg without /mnt/user/<share> and says so', !preg_match('/^\s*Gone\s/m', $out)
+        && str_contains($out, 'skip Gone: no such share (stale .cfg)') && (bool) preg_match('/^\s*Docs\s/m', $out), $out);
+    runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $env, 30);
+    same('stale shares: … a dry run\'s status names no Gone, its file stays', [['Back', 'Docs', 'Filme'], true],
+        [array_column(readJson("$mt/data/x.json")['shares'] ?? [], 'share'), is_file("$mt/mnt/cache/Gone/old.mkv")]);
+    $sm = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
+    check('stale shares: the script\'s guard right after the share filter, a USO: line in its header',
+        str_contains($sm, "    [[ -d \"\$MNT/user/\$SHARE_NAME\" ]] || { log INFO \"skip \$SHARE_NAME: no such share (stale .cfg)\"; continue; }")
+        && str_contains($sm, "# USO: a <share>.cfg whose share is gone"));
+    unset($GLOBALS['moverelliHost']);
+
+    // --- her room «On the flash»
+    $room = clShareCfgs($cfgs, true, fn (string $n) => officeShareExists($n, $ini, "$tmp/mnt", $var));
+    same('stale shares: her room — every cfg: gone ones «stale» (offered), the real one «used» (why share_known), with mtime and useCache',
+        [['docker', 'stale', null], ['docs', 'used', 'share_known'], ['domains2', 'stale', null], 'prefer', 'cache', true],
+        [[$room['list'][0]['name'], $room['list'][0]['category'], $room['list'][0]['why']], [$room['list'][1]['name'], $room['list'][1]['category'], $room['list'][1]['why']],
+         [$room['list'][2]['name'], $room['list'][2]['category'], $room['list'][2]['why']], $room['list'][2]['use_cache'], $room['list'][2]['pool'],
+         $room['list'][0]['mtime'] > 0]);
+    same('stale shares: … the array stopped — every file «unknown», nothing offered', [['unknown'], ['shares_unknown'], false],
+        (function () use ($cfgs) { $x = clShareCfgs($cfgs, false, fn () => false); return [array_values(array_unique(array_column($x['list'], 'category'))), array_values(array_unique(array_column($x['list'], 'why'))), $x['known']]; })());
+    $refused = function (array $e): ?string { try { clParkCheck($e, true); return null; } catch (Problem $p) { return $p->key; } };
+    same('stale shares: never put away while Unraid knows the share or can\'t tell — not even with force',
+        ['cleanup_share_known', 'cleanup_shares_unknown', null], [$refused($room['list'][1]), $refused(['why' => 'shares_unknown'] + $room['list'][0]), $refused($room['list'][0])]);
+
+    // put away and back — her own actions on her look given (the flash's storeroom of the fixture)
+    $GLOBALS['clShareCfgDir'] = $cfgs;
+    $trash = "$tmp/boot/config/" . CL_TRASH;
+    $look = function () use ($cfgs, $ini, $tmp, $var, $trash): array {
+        $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+        $runs = clTrashRuns([], ['ok' => false], [$trash]);
+        $runs = array_values(array_filter($runs, fn ($r) => $r['root'] === $trash));
+        return ['templates' => ['list' => []], 'stacks' => ['list' => [], 'root' => "$tmp/none"], 'scripts' => ['list' => []], 'appdata' => ['list' => []],
+                'vms' => ['list' => []], 'leftovers' => ['list' => []], 'partners' => ['list' => []], 'backup_running' => false,
+                'flash' => clShareCfgs($cfgs, true, fn (string $n) => officeShareExists($n, $ini, "$tmp/mnt", $var)), 'trash' => ['runs' => $runs]];
+    };
+    $GLOBALS['clScanStub'] = $look;
+    $res = clPark(['sharecfg:docker'], false);
+    $runs = $res['state']['trash']['runs'];
+    $item = $runs[0]['items'][0] ?? [];
+    same('stale shares: put away — the cfg into the flash\'s storeroom as shares/docker.cfg, its manifest entry (kind sharecfg, from where)',
+        [true, false, true, 'sharecfg', 'shares/docker.cfg', "$cfgs/docker.cfg", ['docs', 'domains2']],
+        [$res['results'][0]['ok'] ?? null, is_file("$cfgs/docker.cfg"), is_file(($runs[0]['path'] ?? '') . '/shares/docker.cfg'), $item['kind'] ?? null, $item['as'] ?? null,
+         $item['from'] ?? null, array_column($res['state']['flash']['list'], 'name')]);
+    $back = clRestore([$item['id'] ?? '']);
+    same('stale shares: «Put back» — the cfg where it was, the run gone', [true, true, []],
+        [$back['results'][0]['ok'] ?? null, is_file("$cfgs/docker.cfg"), $back['state']['trash']['runs']]);
+    unset($GLOBALS['clScanStub'], $GLOBALS['clShareCfgDir'], $GLOBALS['clCtx']);
+    same('stale shares: the storeroom knows the kind (shares/<file>, two parts)', [true, false, false],
+        [clTrashAsOk('shares/x.cfg', 'sharecfg', '20261012-101010'), clTrashAsOk('shares/a/x.cfg', 'sharecfg', '20261012-101010'), clTrashAsOk('shares/x.cfg', 'template', '20261012-101010')]);
+
+    // the page: a room of her own, only what is gone can be ticked
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('stale shares: the page has the room «flash» (tile, groups, candidates, rows, help), shown only when her state has one',
+        str_contains($js, "const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'flash',") && str_contains($js, "flash: ['stale', 'unknown', 'used'],")
+        && str_contains($js, "  flash: ['stale'],") && str_contains($js, "sharecfg: () => [shareCfgMeta, shareCfgDetail],")
+        && str_contains($js, "sec === 'flash' ? !!s.flash && s.flash.list.length > 0") && str_contains($js, "[T('section.flash'), T('help.flash_text')],"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/cleanup/lang/$l.json"), true) ?: [];
+        $need = ['section.flash', 'section.flash_sub', 'cat.flash.stale', 'cat.flash.stale_text', 'cat.flash.unknown', 'cat.flash.used', 'flash.where', 'flash.unknown',
+                 'flash.stale_text', 'why.share_known', 'why.shares_unknown', 'park.text_flash', 'park.where_flash', 'empty.flash', 'bubble.flash', 'fact.flash',
+                 'help.flash_text', 'item.sharecfg', 'errors.cleanup_share_known', 'errors.cleanup_shares_unknown'];
+        same("stale shares ($l): her room's words", [], array_values(array_diff($need, array_keys($t))));
+    }
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/de.json'), true) ?: [];
+    same('stale shares (de): in her voice, Swiss «ss»', ['Unraid kennt diesen Share nicht mehr — die Datei blieb zurück', false],
+        [$de['cat.flash.stale_text'] ?? null, (bool) preg_match('/ß/u', implode(' ', array_filter($de, 'is_string')))]);
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Dustdevil's tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»): two pages as tabs («Where is what» / «Tidying up»,
  * cleanup.page), each a row of tiles on the section switcher. «Where is what»: 13 tiles (her advice, «Where things are»,
  * the eleven corners) — the number row «What's going on» is gone, its live numbers on the corner tiles (STAT_CORNERS
@@ -29901,7 +30047,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
