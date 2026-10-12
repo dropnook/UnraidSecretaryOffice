@@ -217,7 +217,7 @@ function moverConsent() {
     let agreed = false;
     const body = el('div', 'mo-consent');
     body.append(el('p', '', T('consent.text', { schedule: m.schedule ? fmt.cron(m.schedule) : '?' })),
-      el('p', 'role', T('consent.move_now')), el('p', 'role', T('consent.back')));
+      el('p', 'role', T(jack().hired ? 'consent.move_now' : 'consent.move_now_solo')), el('p', 'role', T('consent.back')));
     Office.dialog({
       title: T('consent.title'),
       body,
