@@ -5503,11 +5503,11 @@ function testBackupInside(): void
     $data = "$tmp/data/unraid-backup";
     $lv = "$tmp/libvirt";
     foreach (["$tmp/bin", "$fake/ct", "$data/state", "$tmp/boot/config/shares", "$tmp/boot/config/plugins/dockerMan/templates-user", "$mnt/user/UnraidSecretaryOffice/backup", "$pool/appdata/c1", "$pool/appdata/c2",
-              "$pool/appdata/c3", "$pool/UnraidSecretaryOffice/backup", "$pool/domains/vm1", "$pool/domains/vm2", "$tmp/stage", "$lv/qemu/nvram", "$lv/qemu/swtpm/tpm-states/uuid-vm1/tpm2",
+              "$pool/appdata/c3", "$pool/UnraidSecretaryOffice/backup", "$pool/domains/vm1", "$pool/domains/vm2", "$pool/domains/vm3", "$tmp/stage", "$lv/qemu/nvram", "$lv/qemu/swtpm/tpm-states/uuid-vm1/tpm2",
               "$lv/qemu/snapshotdb/vm1"] as $d) {
         @mkdir($d, 0700, true);
     }
-    foreach (['vm1', 'vm2'] as $v) {
+    foreach (['vm1', 'vm2', 'vm3'] as $v) {
         touch("$pool/domains/$v/vdisk1.img");
         file_put_contents("$lv/qemu/$v.xml", "<domain><name>$v</name><uuid>uuid-$v</uuid><os><nvram>$lv/qemu/nvram/uuid-${v}_VARS.fd</nvram></os><devices><tpm model='tpm-tis'/></devices></domain>");
         file_put_contents("$lv/qemu/nvram/uuid-${v}_VARS.fd", 'vars');
@@ -5559,7 +5559,7 @@ SH);
 #!/bin/bash
 n="${2:-}"; [[ "$2" == --* ]] && n="${@: -1}"
 case "$1" in
-  list) printf 'vm1\nvm2\n' ;;
+  list) printf 'vm1\nvm2\nvm3\n' ;;
   domstate) cat "$FAKE/state.$n" 2>/dev/null || echo running ;;
   dominfo) echo "Autostart:      disable" ;;
   dumpxml) cat "$LV/qemu/$n.xml" ;;
@@ -5602,7 +5602,7 @@ SH);
             . "snap_prefix = uso-backup-\ndumps_share = UnraidSecretaryOffice\nmin_free_gb = 0\n[docker]\nstop = all\nknown = c1 c2 c3\n[flash]\nmode = off\n[libvirt]\nmode = off\n[kopia]\nenabled = no\n"
             . ($dump ? "[dump \"c1\"]\ntype = mariadb\n" : '')
             . "[share \"appdata\"]\nmode = snapshot\n[share \"domains\"]\nmode = snapshot\n[share \"UnraidSecretaryOffice\"]\nmode = snapshot\n"
-            . "[vm \"vm1\"]\nmode = snapshot\nprepare = pause\n[vm \"vm2\"]\nmode = snapshot\nprepare = none\n");
+            . "[vm \"vm1\"]\nmode = snapshot\nprepare = pause\n[vm \"vm2\"]\nmode = snapshot\nprepare = none\n[vm \"vm3\"]\nmode = snapshot\nprepare = pause\n");
     };
     $run = function () use ($env, $clock, $fake, $data): array {
         foreach (glob("$fake/{events,state.*}", GLOB_BRACE) ?: [] as $f) {
@@ -5634,7 +5634,10 @@ SH);
         [file_exists("$pool/domains/vm2/.uso-backup"), str_contains($out, "VM 'vm2' runs unheld (prepare none) - .uso-backup inside its folder not written")], $out);
     same('inside: an app whose folder is a dataset of its own — template, manifest, this run\'s dump, README; before the snapshot', [true, true, true, true, true],
         [is_file("$app/my-c1.xml"), is_file("$app/manifest.json"), is_file("$app/db/mariadb_c1_mydb.sql.gz"), is_file("$app/README.txt"), in_array('snapshot sees c1 inside', $events(), true)], $out);
-    same('inside: an app in a shared dataset (appdata, two apps bind into it) gets nothing', [false, false], [file_exists("$pool/appdata/c2/.uso-backup"), file_exists("$pool/appdata/.uso-backup")]);
+    same('inside 2.44: a VM whose folder lies in the share\'s dataset (no dataset of its own) gets its package too — the share\'s copy carries it', [true, true],
+        [is_file("$pool/domains/vm3/.uso-backup/vm3.xml"), is_file("$pool/domains/vm3/.uso-backup/manifest.json")], $out);
+    same('inside 2.44: an app whose folder lies in appdata\'s dataset gets its package into appdata/<app>; never the share\'s root', [true, true, false],
+        [is_file("$pool/appdata/c2/.uso-backup/manifest.json"), is_file("$pool/appdata/c3/.uso-backup/manifest.json"), file_exists("$pool/appdata/.uso-backup")]);
     $readme = (string) @file_get_contents("$vm/README.txt");
     same('inside: README.txt — two lines, says what it is and that every run overwrites it', [2, true, true],
         [count(array_filter(explode("\n", $readme))), str_contains($readme, 'Overwritten by every backup run'), str_contains($readme, 'Mr. Restori')]);
@@ -6092,7 +6095,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.43', [1, '2.43'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.44', [1, '2.44'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -21561,9 +21564,9 @@ function testPartnerStart(): void
         [isset($zfsB()['ds'][$ds]), array_values(array_filter($calls, fn ($c) => $c[0] === 'mount')), array_column($j['pulled'] ?? [], 'dataset'), $j['pulled'][0]['local'] ?? null, $j['pulled'][0]['path'] ?? null]);
     same('partner start: … rspPulled() lists it like a pull', [$ds], array_column(array_filter($as('return rspPulled();'), fn ($x) => $x['journal'] === $run['id']), 'dataset'));
     same('partner start: the files are in domains/<vm> — the disk and the copy\'s .uso-backup', [true, true], [is_file("$user/domains/Debian_VM/vdisk1.img"), is_file("$user/domains/Debian_VM/" . RSP_INSIDE . '/manifest.json')]);
-    $xml = (string) @file_get_contents($B["data"] . "/restore/{$run['id']}/start-3.xml");
+    $xml = (string) @file_get_contents($B["data"] . "/restore/{$run['id']}/start-3-Debian_VM.xml");
     same('partner start: the VM defined from the copy\'s XML with its disk path pointed at the new folder (the ISO elsewhere left alone)', [true, true, true],
-        [str_contains($xml, "<source file='$user/domains/Debian_VM/vdisk1.img'/>"), str_contains($xml, "<source file='/mnt/user/isos/debian.iso'/>"), (bool) preg_grep('/^define .*start-3\.xml$/', $virsh())], $xml . json_encode($virsh()));
+        [str_contains($xml, "<source file='$user/domains/Debian_VM/vdisk1.img'/>"), str_contains($xml, "<source file='/mnt/user/isos/debian.iso'/>"), (bool) preg_grep('/^define .*start-3-Debian_VM\.xml$/', $virsh())], $xml . json_encode($virsh()));
     same('partner start: … UEFI variables and TPM state put in place (nothing was there), said in the step', [true, true, 'start_vm', 1, 1, 'put'],
         [is_file("$lv/qemu/nvram/{$uuid}_VARS-pure-efi-tpm.fd"), is_file("$lv/qemu/swtpm/tpm-states/$uuid/tpm2/tpm2-00.permall"), $j['steps'][3]['note'] ?? null,
          $j['steps'][3]['params']['rewritten'] ?? null, $j['steps'][3]['params']['nvram'] ?? null, $j['steps'][3]['params']['tpm'] ?? null]);
@@ -21611,18 +21614,51 @@ function testPartnerStart(): void
     $r2 = $as('$p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $st . '"]);'
         . ' $jid = rsLaunch($p, false); $code = rsJob([$jid]); return ["id" => $jid, "code" => $code, "j" => rsJournal($jid)];');
     $j2 = $r2['j'] ?? [];
-    same('partner start: an app — the files in the share, its template into templates-user, its dump named (never a container started)', [0, 'ok', 'start_app', ['my-nextcloud.xml'], [], ["$user/appdata/" . RSP_INSIDE . '/db/mariadb_nextcloud-db_nextcloud.sql.gz'], true, true],
-        [$r2['code'] ?? null, $j2['result'] ?? null, $j2['steps'][3]['note'] ?? null, $j2['steps'][3]['params']['templates'] ?? null, $j2['steps'][3]['params']['skipped'] ?? null, $j2['steps'][3]['params']['dumps'] ?? null,
+    same('partner start: an app — the files in the share, its template into templates-user, its dump named (never a container started)', [0, 'ok', 'start_share_found', ['nextcloud (template put) · dumps: mariadb_nextcloud-db_nextcloud.sql.gz'], ['–'], ["$user/appdata/" . RSP_INSIDE . '/db/mariadb_nextcloud-db_nextcloud.sql.gz'], true, true],
+        [$r2['code'] ?? null, $j2['result'] ?? null, $j2['steps'][3]['note'] ?? null, $j2['steps'][3]['params']['apps'] ?? null, $j2['steps'][3]['params']['vms'] ?? null, $j2['steps'][3]['params']['dumps'] ?? null,
          is_file("$tpl/my-nextcloud.xml"), is_file("$user/appdata/nextcloud/config.php")], json_encode($j2));
     exec('rm -rf ' . escapeshellarg("$user/appdata") . ' && mkdir -p ' . escapeshellarg("$user/appdata"));
     $st2 = $at(4000);
     $fixture("$tmp/B/restored/homeserver-share-appdata-$st2", 'app');
     $r3 = $as('$p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261006-0200", "stamp" => "' . $st2 . '"]);'
         . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
-    same('partner start: … a template that is there is never written over — left as it is, said', [['my-nextcloud.xml'], []], [$r3['steps'][3]['params']['skipped'] ?? null, $r3['steps'][3]['params']['templates'] ?? null]);
+    same('partner start: … a template that is there is never written over — left as it is, said', ['nextcloud (template left as it is) · dumps: mariadb_nextcloud-db_nextcloud.sql.gz'], $r3['steps'][3]['params']['apps'] ?? null);
+
+    // ---- a share's copy carrying VM folders with their packages (engine 2.44): every VM defined, a name that is here refused, an app's template put
+    exec('rm -rf ' . escapeshellarg("$user/appdata") . ' && mkdir -p ' . escapeshellarg("$user/appdata"));
+    @unlink("$B[bin]/virsh.log");
+    $st4 = $at(3500);
+    $mnt4 = "$tmp/B/restored/homeserver-share-appdata-$st4";
+    foreach (['vmA', 'vmB'] as $v) {
+        @mkdir("$mnt4/$v/" . RSP_INSIDE, 0755, true);
+        file_put_contents("$mnt4/$v/vdisk1.img", 'disk');
+        file_put_contents("$mnt4/$v/" . RSP_INSIDE . "/$v.xml", "<domain><name>$v</name><devices><disk type='file'><source file='/mnt/user/appdata/$v/vdisk1.img'/></disk></devices></domain>");
+        file_put_contents("$mnt4/$v/" . RSP_INSIDE . '/manifest.json', json_encode(['kind' => 'vm', 'name' => $v, 'xml' => "$v.xml", 'uuid' => '', 'files' => [['path' => "$v.xml", 'what' => 'xml']]]));
+    }
+    @mkdir("$mnt4/immich/" . RSP_INSIDE . '/db', 0755, true);
+    file_put_contents("$mnt4/immich/" . RSP_INSIDE . '/my-immich.xml', '<Container><Name>immich</Name></Container>');
+    file_put_contents("$mnt4/immich/" . RSP_INSIDE . '/db/postgres_immich.sql.gz', 'd');
+    file_put_contents("$mnt4/immich/" . RSP_INSIDE . '/manifest.json', json_encode(['kind' => 'app', 'name' => 'immich', 'containers' => [], 'files' => []]));
+    $r5 = $as('$GLOBALS["rs"]["vm_states"] = ["vmB" => "shut off"]; $p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $st4 . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('partner start 2.44: a share copy — the VMs found defined (vmA), a VM of that name refused (vmB), the app\'s template put; the step lists it',
+        ['warning', 'start_share_found', ['vmA'], ['vmB (a VM of that name is here)'], 1, true, true, ['undefine', 'aside']],
+        [$r5['steps'][3]['state'] ?? null, $r5['steps'][3]['note'] ?? null, $r5['steps'][3]['params']['vms'] ?? null, $r5['steps'][3]['params']['refused'] ?? null, $r5['steps'][3]['params']['n_apps'] ?? null,
+         (bool) preg_grep('/^define .*start-3-vmA\.xml$/', $virsh()) && !preg_grep('/vmB\.xml$/', $virsh()), is_file("$tpl/my-immich.xml"), array_column($r5['steps'][3]['undo'] ?? [], 'do')], json_encode($r5));
+    check('partner start 2.44: … vmA\'s XML points at the copied folder', str_contains((string) @file_get_contents("$B[data]/restore/{$r5['id']}/start-3-vmA.xml"), "<source file='$user/appdata/vmA/vdisk1.img'/>"));
+    exec('rm -rf ' . escapeshellarg("$user/appdata") . ' && mkdir -p ' . escapeshellarg("$user/appdata"));
+    same('partner start 2.44: … the preflight of a share copy says it scans the folders', true, in_array('note.partner_start_share_scan', array_column($plan(['unit' => 'share:appdata', 'snap' => 'uso-backup-20261007-0200'])['notes'] ?? [], 'key'), true));
+
+    // ---- the tick: the door's received/<id>.json changed (a transfer came in) — the kept list in his state anew
+    $tick = fn (string $more = '') => $as('$GLOBALS["rs"]["state"] = ["kept" => ["stale"], "partners" => []]; $GLOBALS["rspNext"] = 0; ' . $more . ' rspTick(); return readJson(deskFile("restore"))["kept"] ?? "unwritten";');
+    same('partner start 2.44: the first tick writes the kept list', ['vault'], array_column((array) $tick(), 'pool'));
+    $again = $as('$GLOBALS["rs"]["state"] = ["kept" => ["stale"], "partners" => []]; $GLOBALS["rspNext"] = 0; $GLOBALS["rspSig"] = "x"; rspTick(); $GLOBALS["rspNext"] = 0; $GLOBALS["rs"]["state"]["kept"] = ["stale"];'
+        . ' touch(partnerDir() . "/received/' . $id . '.json", time() + 5); rspTick(); return readJson(deskFile("restore"))["kept"];');
+    same('partner start 2.44: … and again when received/<id>.json changes (its mtime in the tick\'s signature)', ['vault'], array_column((array) $again, 'pool'));
 
     // ---- an older sender: the copy carries no .uso-backup — the files come, the rest is said plainly
     exec('rm -rf ' . escapeshellarg("$user/domains/Debian_VM*"));
+    @unlink("$B[bin]/virsh.log");
     $st3 = $at(3000);
     $fixture("$tmp/B/restored/homeserver-vm-Debian_VM-$st3", 'old');
     $r4 = $as('$p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $st3 . '"]);'

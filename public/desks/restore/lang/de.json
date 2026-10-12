@@ -991,7 +991,7 @@
   "rd.start_back": "Doch nicht so",
   "step.pull_local": "{unit} im Stand {snap} (Kopie von {partner}) kopieren → {dataset} — ein unabhängiges Dataset auf diesem Pool; die Kopie des Partners bleibt, wie sie ist",
   "step.start_from_vm": "{to}/.uso-backup lesen: die VM {name} aus ihrem XML definieren (die Disk-Pfade auf {to} gezeigt), ihre UEFI-Variablen und ihren TPM-Stand dorthin legen, wo noch nichts liegt — wenn die Kopie sie trägt",
-  "step.start_from_share": "{to}/.uso-backup lesen: das Template einer App zu Unraids Templates (hinzufügen über ⟦Docker⟧ → ⟦Add Container⟧), ihre Dumps nennen — wenn die Kopie sie trägt",
+  "step.start_from_share": "Die .uso-backup-Ordner in {to} lesen (an der Wurzel und eine Ebene tiefer): jede gefundene VM aus ihrem XML definieren (Disk-Pfade auf den kopierten Ordner gezeigt, UEFI-Variablen und TPM-Stand dorthin, wo noch nichts liegt), das Template jeder App zu Unraids Templates (hinzufügen über ⟦Docker⟧ → ⟦Add Container⟧), ihre Dumps nennen — soweit die Kopie sie trägt",
   "step.start_from_look": "Nachsehen, was die Kopie unter {mount}/.uso-backup trägt (nichts geht in den Share: er hat schon Inhalt)",
   "note.partner_start_copy": "Zuerst eine unabhängige Kopie dieses Stands auf dem Pool {pool}: {dataset}, nur lesbar eingehängt — die Kopie von {name} und ihre Snapshots bleiben genau, wie sie waren. Das dauert einen Moment ({bytes}).",
   "note.partner_start_package": "Eine Kopie von einem Sekretariat mit Engine 2.43 oder neuer trägt die Konfiguration der VM bzw. App in sich (.uso-backup). Eine ältere nicht: dann kommen nur die Dateien, und die VM oder App legst du selbst an — der Schritt sagt, was er gefunden hat.",
@@ -1018,5 +1018,8 @@
   "j.start_putback_hint": "Macht genau rückgängig, was dieser Start gemacht hat: die Definition entfernt, die Dateien beiseite (nie gelöscht), die Kopie unter UnraidSecretaryOffice-restored zerstört — die Kopie des Partners wird nie angerührt.",
   "aside.started": "Aufgestellt: {from} → {to}",
   "fit.partner_kept": {"one": "Dieses Sekretariat bewahrt 1 Einheit eines Partners auf — davon kann ich hier starten («Für … aufbewahrt»), und zurückholen, was Partner von diesem Server aufbewahren.", "other": "Dieses Sekretariat bewahrt {n} Einheiten von Partnern auf — davon kann ich hier starten («Für … aufbewahrt»), und zurückholen, was Partner von diesem Server aufbewahren."},
-  "notice.no_engine_kept": "Herrn Backupsis Backup-Engine ist nicht da: keine eigenen Pakete dieses Servers. Was dieses Sekretariat für Partner aufbewahrt, ist trotzdem hier («Für … aufbewahrt»)."
+  "notice.no_engine_kept": "Herrn Backupsis Backup-Engine ist nicht da: keine eigenen Pakete dieses Servers. Was dieses Sekretariat für Partner aufbewahrt, ist trotzdem hier («Für … aufbewahrt»).",
+  "sn.start_share_found": "In der Kopie gefunden — VMs mit Konfiguration, definiert: {vms}; abgelehnt: {refused} · Apps: {apps}. Dumps liegen neben dem Template ihrer App in deren .uso-backup/db — nach dem Installieren einspielen.",
+  "sn.start_vm_odd_name": "Nicht definiert: der Name der VM in der Kopie ist keiner, den ich libvirt gebe.",
+  "note.partner_start_share_scan": "Sind die Dateien an ihrem Platz, schaue ich eine Ebene tief in die Ordner der Kopie nach .uso-backup (Engine 2.43 oder neuer schreibt das Paket jeder VM und App in ihren Ordner): jede gefundene VM definiere ich nach denselben Regeln (eine VM dieses Namens hier oder der VM-Dienst aus: abgelehnt, im Schritt gesagt), das Template jeder App lege ich ab — der Schritt zählt auf, was er gefunden hat."
 }

@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.43 - 2026-10-12
+# unraid-backup - backup.sh                       Version 2.44 - 2026-10-12
+#   2.44 The package inside the unit's folder (2.43) goes into every backed-up VM's folder (domains/<vm>/.uso-backup/)
+#        and every app's first-level folder (appdata/<app>/.uso-backup/) whatever dataset they lie in - a share's copy
+#        at a partner carries the VM folders, so they must carry the configuration; 2.43 wrote it only into a folder
+#        that was a dataset of its own
 #   2.43 Every unit's copy is whole: a VM's package (XML, NVRAM, TPM state, snapshotdb, manifest.json) is also written
 #        into the VM's own dataset as <folder>/.uso-backup/ right after it is built (the VM shut down or held, before
 #        the snapshots); an app whose folder is a dataset of its own (no other app binds into it) gets its package
@@ -1806,12 +1810,15 @@ app_own_datasets() {
     return 0
 }
 
-# pkg_inside <vm|app> <name> <stage dir> <dataset>  - the package into <mountpoint of the dataset>/.uso-backup/
+# pkg_inside <vm|app> <name> <stage dir> <folder>  - the package into <folder>/.uso-backup/ (2.44: the unit's folder in
+# whatever snapshotted dataset it lies in - a VM's folder in the share's dataset travels with the share's copy, so it
+# must carry the configuration too; up to 2.43 only a folder that was a dataset of its own)
 pkg_inside() {
-    local kind="$1" n="$2" src="$3" ds="$4" mp d tmp x y what
-    mp="${ZDS_MP[$ds]:-}"
+    local kind="$1" n="$2" src="$3" mp="$4" ds d tmp x y what
+    ds="$(path_dataset "$mp")"
+    if [[ -z "$ds" ]]; then log "  $kind '$n': $mp lies in no dataset of this run - $UB_INSIDE_DIR inside not written"; return 0; fi
     if [[ -n "${ASLEEP_DS[$ds]:-}" ]]; then log "  $kind '$n': its dataset $ds sleeps this run - $UB_INSIDE_DIR inside not written"; return 0; fi
-    if [[ "$mp" != /* || ! -d "$mp" || -L "$mp" ]]; then log "  $kind '$n': its dataset $ds isn't mounted - $UB_INSIDE_DIR inside not written"; return 0; fi
+    if [[ "$mp" != /* || ! -d "$mp" || -L "$mp" ]]; then log "  $kind '$n': $mp isn't there - $UB_INSIDE_DIR inside not written"; return 0; fi
     d="$mp/$UB_INSIDE_DIR"; tmp="$d.new-$$"
     rm -rf -- "$tmp"
     mkdir -m 700 "$tmp" 2>>"$LOG_FILE" || { warn "$kind '$n': $tmp could not be made - $UB_INSIDE_DIR inside not written"; return 0; }
@@ -1839,26 +1846,91 @@ pkg_inside() {
     return 0
 }
 
-# pkg_inside_vm <folder> <stage dir>  - a VM: only its own dataset, only shut down or held (never running unpaused)
+# ub_pool_path <path>  -> the path as the pool or disk holds it (/mnt/user/<share>/x -> <base>/<share>/x, the first base
+# where it exists; a pool path stays); empty when it lies nowhere the inventory knows
+ub_pool_path() {
+    local p="${1%/}" rel b
+    if [[ "$p" == "$UB_MNT/user/"* || "$p" == "$UB_MNT/user0/"* ]]; then
+        rel="${p#"$UB_MNT"/user/}"; rel="${rel#"$UB_MNT"/user0/}"
+        while IFS= read -r b; do
+            [[ -n "$b" && -e "${INV_BASE_PATH[$b]}/$rel" ]] && { printf '%s\n' "${INV_BASE_PATH[$b]}/$rel"; return 0; }
+        done < <(ub_path_bases "$p")
+        return 0
+    fi
+    for b in "${INV_BASES[@]}"; do [[ "$p" == "${INV_BASE_PATH[$b]}/"* ]] && { printf '%s\n' "$p"; return 0; }; done
+    return 0
+}
+
+# pkg_inside_vm <folder> <stage dir>  - a VM: the folder its disks lie in (the first disk's; every distinct one), only
+# shut down or held (never running unpaused)
 pkg_inside_vm() {
-    local f="$1" src="$2" n="${PKG_VM_NAME[$1]}" own ds
-    own="$(sed '/^$/d' <<<"${VM_OWN_DS[$n]:-}")"
-    [[ -n "$own" && "$(wc -l <<<"$own")" -eq 1 ]] || return 0           # no dataset of its own (or several): no unit of its own
-    ds="$own"
+    local f="$1" src="$2" n="${PKG_VM_NAME[$1]}" t s b fs ds share pth dir
+    local -A seen=()
     if [[ "${VM_STATE[$n]:-}" == "running" && -z "${VM_SHUT_DOWN[$n]:-}" && "${VM_HELD[$n]:-}" != "paused" && "${VM_HELD[$n]:-}" != "frozen" ]]; then
         log "  VM '$n' runs unheld (prepare none) - $UB_INSIDE_DIR inside its folder not written this run"
         return 0
     fi
-    pkg_inside vm "$n" "$src" "$ds"
+    while IFS='|' read -r t s b fs ds share; do
+        [[ -n "$t" && -n "$s" ]] || continue
+        [[ "$s" == *.iso || "$s" == *.ISO || "$share" == "isos" ]] && continue      # a CD-ROM: not the VM's folder
+        pth="$(ub_pool_path "$s")"; [[ -n "$pth" ]] || continue
+        dir="${pth%/*}"
+        [[ -n "${seen[$dir]:-}" ]] && continue
+        seen[$dir]=1
+        # never a share's root (a disk lying right in /mnt/user/<share>): the folder of a unit, not the share
+        for b in "${INV_BASES[@]}"; do [[ "$dir" == "${INV_BASE_PATH[$b]}" || "${dir#"${INV_BASE_PATH[$b]}"/}" != */* && "$dir" == "${INV_BASE_PATH[$b]}/"* ]] && { dir=""; break; }; done
+        [[ -n "$dir" ]] && pkg_inside vm "$n" "$src" "$dir"
+    done <<<"${VM_DISKS[$n]:-}"
+    return 0
 }
 
-# pkg_inside_app <folder> <stage dir>  - an app: every dataset only it binds into
+# app_dirs_build / app_own_dirs <folder>  -> the first-level folders below a share an app's containers bind into
+# (appdata/<app>, a folder of its own in another share) that no other app binds into - as pool paths; and the
+# mountpoints of datasets only it binds into (a share of its own)
+declare -A APP_DIR_USERS=()
+APP_DIR_USERS_BUILT=""
+app_dirs_build() {
+    local f c src dir rel b ds
+    APP_DIR_USERS=()
+    for f in "${PKG_APPS[@]}"; do
+        while IFS= read -r c; do
+            [[ -n "$c" ]] || continue
+            while IFS='|' read -r src _ _; do
+                [[ -n "$src" ]] || continue
+                dir="$(ub_pool_path "$src")"; [[ -n "$dir" ]] || continue
+                for b in "${INV_BASES[@]}"; do
+                    [[ "$dir" == "${INV_BASE_PATH[$b]}/"* ]] || continue
+                    rel="${dir#"${INV_BASE_PATH[$b]}"/}"
+                    [[ "$rel" == */* ]] || { dir=""; break; }                   # a whole share: no folder of a unit
+                    dir="${INV_BASE_PATH[$b]}/${rel%%/*}/$(cut -d/ -f2 <<<"$rel")"
+                    break
+                done
+                [[ -n "$dir" ]] || continue
+                grep -Fxq -- "$f" <<<"${APP_DIR_USERS[$dir]:-}" || APP_DIR_USERS[$dir]+="$f"$'\n'
+            done <<<"${CT_BINDS[$c]:-}"
+        done <<<"${PKG_APP_MEMBERS[$f]}"
+    done
+    APP_DIR_USERS_BUILT=1
+}
+app_own_dirs() {
+    local dir ds
+    [[ -n "$APP_DIR_USERS_BUILT" ]] || app_dirs_build
+    {
+        for dir in "${!APP_DIR_USERS[@]}"; do
+            [[ "$(sed '/^$/d' <<<"${APP_DIR_USERS[$dir]}" | sort -u | wc -l)" -eq 1 ]] && grep -Fxq -- "$1" <<<"${APP_DIR_USERS[$dir]}" && printf '%s\n' "$dir"
+        done
+        while IFS= read -r ds; do [[ -n "$ds" && "${ZDS_MP[$ds]:-}" == /* ]] && printf '%s\n' "${ZDS_MP[$ds]}"; done < <(app_own_datasets "$1")
+    } | sort -u
+    return 0
+}
+
+# pkg_inside_app <folder> <stage dir>  - an app: its folders (app_own_dirs)
 pkg_inside_app() {
-    local f="$1" src="$2" ds
-    while IFS= read -r ds; do
-        [[ -n "$ds" ]] || continue
-        pkg_inside app "${PKG_APP_NAME[$f]}" "$src" "$ds"
-    done < <(app_own_datasets "$f")
+    local f="$1" src="$2" dir
+    while IFS= read -r dir; do
+        [[ -n "$dir" ]] || continue
+        pkg_inside app "${PKG_APP_NAME[$f]}" "$src" "$dir"
+    done < <(app_own_dirs "$f")
     return 0
 }
 

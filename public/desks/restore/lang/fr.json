@@ -991,7 +991,7 @@
   "rd.start_back": "Pas comme ça",
   "step.pull_local": "Copier {unit} à l'état {snap} (copie de {partner}) → {dataset} — un dataset indépendant sur ce pool ; la copie du partenaire reste telle quelle",
   "step.start_from_vm": "Lire {to}/.uso-backup : définir la VM {name} depuis son XML (les chemins des disques pointés vers {to}), poser ses variables UEFI et son état TPM là où il n'y a encore rien — si la copie les porte",
-  "step.start_from_share": "Lire {to}/.uso-backup : le modèle d'une app dans les modèles d'Unraid (à ajouter par ⟦Docker⟧ → ⟦Add Container⟧), ses dumps nommés — si la copie les porte",
+  "step.start_from_share": "Lire les dossiers .uso-backup de {to} (à la racine et un niveau en dessous) : chaque VM trouvée définie depuis son XML (chemins des disques pointés vers le dossier copié, variables UEFI et état TPM là où il n'y a rien), le modèle de chaque app dans les modèles d'Unraid (à ajouter par ⟦Docker⟧ → ⟦Add Container⟧), ses dumps nommés — autant que la copie les porte",
   "step.start_from_look": "Regarder ce que la copie porte dans {mount}/.uso-backup (rien ne va dans le partage : il a déjà du contenu)",
   "note.partner_start_copy": "D'abord une copie indépendante de ce moment sur le pool {pool} : {dataset}, montée en lecture seule — la copie de {name} et ses snapshots restent exactement tels quels. Cela prend un moment ({bytes}).",
   "note.partner_start_package": "Une copie faite par un secrétariat avec le moteur 2.43 ou plus récent porte en elle la configuration de la VM ou de l'app (.uso-backup). Une plus ancienne non : alors seuls les fichiers viennent, et la VM ou l'app est à créer vous-même — l'étape dit ce qu'elle a trouvé.",
@@ -1018,5 +1018,8 @@
   "j.start_putback_hint": "Défait exactement ce que ce démarrage a fait : la définition retirée, les fichiers mis de côté (jamais supprimés), la copie sous UnraidSecretaryOffice-restored détruite — la copie du partenaire n'est jamais touchée.",
   "aside.started": "Mis en place : {from} → {to}",
   "fit.partner_kept": {"one": "Ce secrétariat garde {n} unité d'un partenaire — je peux la démarrer ici (« Gardé pour … »), et rapatrier ce que les partenaires gardent de ce serveur.", "other": "Ce secrétariat garde {n} unités de partenaires — je peux les démarrer ici (« Gardé pour … »), et rapatrier ce que les partenaires gardent de ce serveur."},
-  "notice.no_engine_kept": "Le moteur de sauvegarde de M. Backupsy n'est pas là : aucun paquet propre à ce serveur. Ce que ce secrétariat garde pour des partenaires est là quand même (« Gardé pour … »)."
+  "notice.no_engine_kept": "Le moteur de sauvegarde de M. Backupsy n'est pas là : aucun paquet propre à ce serveur. Ce que ce secrétariat garde pour des partenaires est là quand même (« Gardé pour … »).",
+  "sn.start_share_found": "Trouvé dans la copie — VM avec configuration, définies : {vms} ; refusées : {refused} · apps : {apps}. Les dumps sont à côté du modèle de leur app, dans son .uso-backup/db — à importer après l'installation.",
+  "sn.start_vm_odd_name": "Pas définie : le nom de la VM dans la copie n'est pas un nom que je passe à libvirt.",
+  "note.partner_start_share_scan": "Les fichiers en place, je regarde un niveau dans les dossiers de la copie pour .uso-backup (le moteur 2.43 ou plus récent écrit le paquet de chaque VM et app dans son dossier) : chaque VM trouvée est définie selon les mêmes règles (une VM de ce nom ici ou le service VM arrêté : refusée, dit dans l'étape), le modèle de chaque app est posé — l'étape liste ce qu'elle a trouvé."
 }

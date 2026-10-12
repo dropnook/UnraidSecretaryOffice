@@ -991,7 +991,7 @@
   "rd.start_back": "Not that way",
   "step.pull_local": "Copy {unit} as of {snap} ({partner}'s copy) → {dataset} — an independent dataset on this pool; the partner's copy stays as it is",
   "step.start_from_vm": "Read {to}/.uso-backup: define the VM {name} from its XML (the disk paths pointed at {to}), its UEFI variables and TPM state put where nothing is yet — if the copy carries them",
-  "step.start_from_share": "Read {to}/.uso-backup: an app's template into Unraid's templates (to add from ⟦Docker⟧ → ⟦Add Container⟧), its dumps named — if the copy carries them",
+  "step.start_from_share": "Read {to}'s .uso-backup folders (its root and one level below): every VM found defined from its XML (disk paths pointed at the copied folder, UEFI variables and TPM state put where nothing is), every app's template into Unraid's templates (to add from ⟦Docker⟧ → ⟦Add Container⟧), its dumps named — as far as the copy carries them",
   "step.start_from_look": "Look what the copy carries at {mount}/.uso-backup (nothing goes into the share: it holds data already)",
   "note.partner_start_copy": "First an independent copy of that moment on the pool {pool}: {dataset}, mounted read-only — {name}'s copy and its snapshots stay exactly as they were. That takes a moment ({bytes}).",
   "note.partner_start_package": "A copy made by an office with engine 2.43 or newer carries the VM's or app's configuration inside (.uso-backup). An older copy doesn't: then only the files come, and the VM or app is yours to create — the step says what it found.",
@@ -1018,5 +1018,8 @@
   "j.start_putback_hint": "Undoes exactly what this start made: the definition removed, the files put aside (never deleted), the copy under UnraidSecretaryOffice-restored destroyed — the partner's copy is never touched.",
   "aside.started": "Put in place: {from} → {to}",
   "fit.partner_kept": {"one": "This office keeps 1 unit of a partner — I can start from it here («Kept for …»), and pull what partners keep of this server.", "other": "This office keeps {n} units of partners — I can start from them here («Kept for …»), and pull what partners keep of this server."},
-  "notice.no_engine_kept": "Mr. Backupsy's backup engine isn't there: no packages of this server's own. What this office keeps for partners is here all the same («Kept for …»)."
+  "notice.no_engine_kept": "Mr. Backupsy's backup engine isn't there: no packages of this server's own. What this office keeps for partners is here all the same («Kept for …»).",
+  "sn.start_share_found": "Found in the copy — VMs with configuration, defined: {vms}; refused: {refused} · apps: {apps}. Dumps lie beside their app's template in its folder's .uso-backup/db — import after installing.",
+  "sn.start_vm_odd_name": "Not defined: the VM's name in the copy isn't one I pass to libvirt.",
+  "note.partner_start_share_scan": "Once the files are in place I look one level into the copy's folders for .uso-backup (engine 2.43 or newer writes every VM's and app's package into its folder): each VM found is defined by the same rules (a VM of that name here or the VM service off: refused, said in the step), each app's template put — the step lists what it found."
 }

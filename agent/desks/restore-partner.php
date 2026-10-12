@@ -317,11 +317,27 @@ function rspTick(): void
             logLine('Mr. Restori: the look at the partners could not be started: ' . $e->getMessage());
         }
     }
+    // what the door received of a partner (received/<id>.json, written at the end of every receive): the kept list
+    // anew - its moments come from the datasets here (2026-10-12: the 11:21 transfer stood on the tile, the moments stayed old)
+    $recv = [];
+    foreach (partnerPairs() as $p) {
+        if (is_array($p['receive'] ?? null)) {
+            $f = partnerDir() . "/received/{$p['id']}.json";
+            clearstatcache(true, $f);
+            $recv[] = $p['id'] . ':' . (int) @filemtime($f);
+        }
+    }
     $sig = implode(',', $sig) . ($want ? '+' : '') . (rspLooking() ? '*' : '');
-    if ($sig !== ($GLOBALS['rspSig'] ?? null) && is_array($GLOBALS['rs']['state'] ?? null)) {
+    $recvSig = implode(',', $recv);
+    if (($sig !== ($GLOBALS['rspSig'] ?? null) || $recvSig !== ($GLOBALS['rspRecvSig'] ?? null)) && is_array($GLOBALS['rs']['state'] ?? null)) {
+        $kept = $recvSig !== ($GLOBALS['rspRecvSig'] ?? null);
         $GLOBALS['rspSig'] = $sig;
+        $GLOBALS['rspRecvSig'] = $recvSig;
         $state = $GLOBALS['rs']['state'];
         $state['partners'] = rspState();
+        if ($kept) {
+            $state['kept'] = rspKept();
+        }
         rsWrite($state);
     }
 }
@@ -1157,6 +1173,7 @@ function rsPlanPartnerStart(array $r, string $stamp): array
                 $plan['notes'][] = ['key' => 'note.partner_start_empty', 'params' => ['path' => $to]];
             }
             $plan['after'][] = ['key' => 'after.partner_start_share', 'params' => ['share' => $share, 'path' => $to]];
+            $plan['notes'][] = ['key' => 'note.partner_start_share_scan', 'params' => []];
         }
     } else {
         $vm = $label;
@@ -1351,79 +1368,74 @@ function rspPutFile(string $from, string $to): bool
 }
 
 /**
- * What the copy's .uso-backup allows, once the files are in place: a VM's definition (XML pointed at the new folder,
- * UEFI variables and TPM state put where nothing is - never over), an app's template into Unraid's templates (never
- * over one that is there) with its dumps named. Without .uso-backup (an older sender): said, nothing more - the files
- * are there, the VM or app is the user's to create. Each thing put records its undo.
+ * A VM's definition from a package inside the copy: XML with the disk paths pointed at the folder the files went to,
+ * UEFI variables and TPM state put only where nothing is. $states: libvirt's VMs now (null: the service is off).
+ * Returns ['state' => ok|skipped|failed, 'why' => …, params] and appends to $undo.
  */
-function rsDoStartFrom(array &$j, int $i): array
+function rspStartVm(array &$j, int $i, array $m, string $folder, string $lv, ?array $states, array &$undo): array
 {
-    $s = $j['steps'][$i];
-    $base = is_string($s['to'] ?? null) && $s['to'] !== '' ? rtrim((string) $s['to'], '/') : rtrim((string) ($s['mount'] ?? ''), '/');
-    $dir = "$base/" . RSP_INSIDE;
-    clearstatcache();
-    $m = is_file("$dir/manifest.json") ? readJson("$dir/manifest.json") : null;
-    if (!is_array($m) || !in_array($m['kind'] ?? '', ['vm', 'app'], true)) {
-        return ['state' => 'warning', 'note' => 'start_no_package', 'params' => ['path' => $base]];
+    $dir = "$folder/" . RSP_INSIDE;
+    $pkg = rsVmPackage($m, basename($folder), $dir);
+    $name = $pkg['name'];
+    if ($states === null) {
+        return ['state' => 'skipped', 'why' => 'start_vm_service_off', 'name' => $name];
     }
-    $undo = [];
-    if ($m['kind'] === 'vm') {
-        $name = (string) ($s['name'] ?? rsStr($m['name'] ?? ''));
-        if (($s['kind'] ?? '') !== 'vm' || ($s['to'] ?? null) === null) {
-            return ['state' => 'warning', 'note' => 'start_vm_in_copy', 'params' => ['name' => rsStr($m['name'] ?? ''), 'path' => $dir]];
-        }
-        if (empty($s['define'])) {
-            return ['state' => 'warning', 'note' => (string) ($s['define_why'] ?? 'start_vm_exists'), 'params' => ['name' => $name, 'path' => $dir]];
-        }
-        $pkg = rsVmPackage($m, $name, $dir);
-        if ($pkg['xml'] === '') {
-            return rsFail('restore_file_gone', ['path' => "$dir/<vm>.xml"]);
-        }
-        $lv = (string) ($s['libvirt'] ?? rspLibvirt());
-        $back = "$lv/" . RS_LIBVIRT_ASIDE . "/{T}/$name";
-        $put = $skipped = [];
-        foreach ($pkg['nvram'] as $n) {
-            if (preg_match('/S\d{14}_VARS/', $n) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $n)) {
-                continue;
-            }
-            $to = "$lv/qemu/nvram/$n";
-            if (file_exists($to) || is_link($to)) {
-                $skipped[] = $n;
-                continue;
-            }
-            if (!rspPutFile("$dir/nvram/$n", $to)) {
-                return rsFail('copy_failed', ['path' => $to]) + ['undo' => $undo];
-            }
-            $undo[] = ['do' => 'aside', 'path' => $to, 'to' => "$back/nvram/$n", 'optional' => true];
-            $put[] = $n;
-        }
-        $tpm = 'none';
-        if ($pkg['tpm']) {
-            $to = "$lv/qemu/swtpm/tpm-states/{$pkg['uuid']}";
-            if (file_exists($to) || is_link($to)) {
-                $tpm = 'kept';
-            } elseif (!rsMkdirs(dirname($to)) || rsRun($j, ['cp', '-a', "$dir/tpm/{$pkg['uuid']}", $to], 120)[0] !== 0) {
-                return rsFail('copy_failed', ['path' => $to]) + ['undo' => $undo];
-            } else {
-                $undo[] = ['do' => 'aside', 'path' => $to, 'to' => "$back/tpm/{$pkg['uuid']}", 'optional' => true];
-                $tpm = 'put';
-            }
-        }
-        [$xml, $rewritten] = rspRewriteXml((string) @file_get_contents("$dir/{$pkg['xml']}", false, null, 0, 1 << 22), (string) $s['to']);
-        $file = rsDir($j['id']) . "/start-$i.xml";
-        if (!@file_put_contents($file, $xml)) {
-            return rsFail('copy_failed', ['path' => $file]) + ['undo' => $undo];
-        }
-        [$exit, , $err] = rsRun($j, [partnerBin('virsh') ?? 'virsh', 'define', $file], 60);
-        if ($exit !== 0) {
-            return rsFail('virsh_failed', ['name' => $name], trim($err)) + ['undo' => $undo];
-        }
-        array_unshift($undo, ['do' => 'undefine', 'name' => $name]);        // the definition first, then its files aside
-        return ['state' => 'ok', 'undo' => $undo, 'note' => 'start_vm', 'params' => ['name' => $name, 'rewritten' => $rewritten, 'nvram' => count($put), 'nvram_kept' => count($skipped), 'tpm' => $tpm]];
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/D', $name)) {
+        return ['state' => 'skipped', 'why' => 'start_vm_odd_name', 'name' => $name];
     }
-    // an app's package: its template(s) into Unraid's templates-user, never over one that is there; its dumps named
-    $name = rsStr($m['name'] ?? '') ?: basename($base);
-    $templates = (string) ($s['templates'] ?? rspTemplates());
+    if (isset($states[$name])) {
+        return ['state' => 'skipped', 'why' => 'start_vm_exists', 'name' => $name];
+    }
+    if ($pkg['xml'] === '') {
+        return ['state' => 'failed', 'note' => 'restore_file_gone', 'params' => ['path' => "$dir/<vm>.xml"], 'name' => $name];
+    }
+    $back = "$lv/" . RS_LIBVIRT_ASIDE . "/{T}/$name";
+    $put = $skipped = [];
+    foreach ($pkg['nvram'] as $n) {
+        if (preg_match('/S\d{14}_VARS/', $n) || !preg_match('/^[A-Za-z0-9_.-]+$/D', $n)) {
+            continue;
+        }
+        $to = "$lv/qemu/nvram/$n";
+        if (file_exists($to) || is_link($to)) {
+            $skipped[] = $n;
+            continue;
+        }
+        if (!rspPutFile("$dir/nvram/$n", $to)) {
+            return ['state' => 'failed', 'note' => 'copy_failed', 'params' => ['path' => $to], 'name' => $name];
+        }
+        $undo[] = ['do' => 'aside', 'path' => $to, 'to' => "$back/nvram/$n", 'optional' => true];
+        $put[] = $n;
+    }
+    $tpm = 'none';
+    if ($pkg['tpm']) {
+        $to = "$lv/qemu/swtpm/tpm-states/{$pkg['uuid']}";
+        if (file_exists($to) || is_link($to)) {
+            $tpm = 'kept';
+        } elseif (!rsMkdirs(dirname($to)) || rsRun($j, ['cp', '-a', "$dir/tpm/{$pkg['uuid']}", $to], 120)[0] !== 0) {
+            return ['state' => 'failed', 'note' => 'copy_failed', 'params' => ['path' => $to], 'name' => $name];
+        } else {
+            $undo[] = ['do' => 'aside', 'path' => $to, 'to' => "$back/tpm/{$pkg['uuid']}", 'optional' => true];
+            $tpm = 'put';
+        }
+    }
+    [$xml, $rewritten] = rspRewriteXml((string) @file_get_contents("$dir/{$pkg['xml']}", false, null, 0, 1 << 22), $folder);
+    $file = rsDir($j['id']) . "/start-$i-" . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name) . '.xml';
+    if (!@file_put_contents($file, $xml)) {
+        return ['state' => 'failed', 'note' => 'copy_failed', 'params' => ['path' => $file], 'name' => $name];
+    }
+    [$exit, , $err] = rsRun($j, [partnerBin('virsh') ?? 'virsh', 'define', $file], 60);
+    if ($exit !== 0) {
+        return ['state' => 'failed', 'note' => 'virsh_failed', 'params' => ['name' => $name], 'detail' => trim($err), 'name' => $name];
+    }
+    array_unshift($undo, ['do' => 'undefine', 'name' => $name]);        // the definition first, then its files aside
+    return ['state' => 'ok', 'name' => $name, 'rewritten' => $rewritten, 'nvram' => count($put), 'nvram_kept' => count($skipped), 'tpm' => $tpm];
+}
+
+/** An app's package inside the copy: its template(s) into Unraid's templates-user (never over one that is there), its dumps named */
+function rspStartApp(array $m, string $folder, string $templates, bool $place, array &$undo): array
+{
+    $dir = "$folder/" . RSP_INSIDE;
+    $name = rsStr($m['name'] ?? '') ?: basename($folder);
     $put = $skipped = [];
     foreach (glob("$dir/my-*.xml") ?: [] as $t) {
         $f = basename($t);
@@ -1431,21 +1443,101 @@ function rsDoStartFrom(array &$j, int $i): array
             continue;
         }
         $to = "$templates/$f";
-        if (file_exists($to) || is_link($to)) {
-            $skipped[] = $f;
-            continue;
-        }
-        if (($s['to'] ?? null) === null) {
-            $skipped[] = $f;          // only the copy was made (the share holds data): the template waits in the copy
+        if (file_exists($to) || is_link($to) || !$place) {
+            $skipped[] = $f;          // there already, or only the copy was made: the template waits in the copy
             continue;
         }
         if (!rspPutFile($t, $to)) {
-            return rsFail('copy_failed', ['path' => $to]) + ['undo' => $undo];
+            return ['state' => 'failed', 'note' => 'copy_failed', 'params' => ['path' => $to], 'name' => $name];
         }
         $undo[] = ['do' => 'aside', 'path' => $to, 'to' => rsAsideFor($to, '{T}', 'putback'), 'optional' => true];
         $put[] = $f;
     }
-    $dumps = array_values(array_map(fn ($d) => "$base/" . RSP_INSIDE . '/db/' . basename($d), array_filter(glob("$dir/db/*") ?: [], 'is_file')));
-    return ['state' => 'ok', 'undo' => $undo, 'note' => $put || $skipped ? 'start_app' : 'start_app_none',
-            'params' => ['name' => $name, 'templates' => $put, 'skipped' => $skipped, 'dumps' => $dumps, 'path' => $dir]];
+    $dumps = array_values(array_map(fn ($d) => "$dir/db/" . basename($d), array_filter(glob("$dir/db/*") ?: [], 'is_file')));
+    return ['state' => 'ok', 'name' => $name, 'templates' => $put, 'skipped' => $skipped, 'dumps' => $dumps];
+}
+
+/**
+ * What the copy's .uso-backup allows, once the files are in place: a VM's definition (XML pointed at the new folder,
+ * UEFI variables and TPM state put where nothing is - never over), an app's template into Unraid's templates (never
+ * over one that is there) with its dumps named. A share's copy (2.44: the engine writes every VM's and app's package
+ * into its folder) is scanned one level deep - every VM found is defined by the same rules (a VM of that name here:
+ * refused, said), every app's template put; the step says what it found. Without .uso-backup anywhere (an older
+ * sender): said, nothing more - the files are there, the VM or app is the user's to create. Each thing put records
+ * its undo.
+ */
+function rsDoStartFrom(array &$j, int $i): array
+{
+    $s = $j['steps'][$i];
+    $place = is_string($s['to'] ?? null) && $s['to'] !== '';
+    $base = $place ? rtrim((string) $s['to'], '/') : rtrim((string) ($s['mount'] ?? ''), '/');
+    $lv = (string) ($s['libvirt'] ?? rspLibvirt());
+    $templates = (string) ($s['templates'] ?? rspTemplates());
+    $states = array_key_exists('vm_states', $GLOBALS['rs'] ?? []) ? $GLOBALS['rs']['vm_states'] : rsVmStates();
+    clearstatcache();
+    $undo = [];
+    $manifest = fn (string $folder): ?array => is_file("$folder/" . RSP_INSIDE . '/manifest.json') ? readJson("$folder/" . RSP_INSIDE . '/manifest.json') : null;
+    if (($s['kind'] ?? '') === 'vm') {
+        $m = $manifest($base);
+        if (!is_array($m) || ($m['kind'] ?? '') !== 'vm') {
+            return ['state' => 'warning', 'note' => 'start_no_package', 'params' => ['path' => $base]];
+        }
+        $name = (string) ($s['name'] ?? rsStr($m['name'] ?? ''));
+        if (!$place) {
+            return ['state' => 'warning', 'note' => 'start_vm_in_copy', 'params' => ['name' => rsStr($m['name'] ?? ''), 'path' => "$base/" . RSP_INSIDE]];
+        }
+        if (empty($s['define'])) {
+            return ['state' => 'warning', 'note' => (string) ($s['define_why'] ?? 'start_vm_exists'), 'params' => ['name' => $name, 'path' => "$base/" . RSP_INSIDE]];
+        }
+        $r = rspStartVm($j, $i, $m, $base, $lv, $states, $undo);
+        if ($r['state'] === 'failed') {
+            return rsFail($r['note'], $r['params'], (string) ($r['detail'] ?? '')) + ['undo' => $undo];
+        }
+        if ($r['state'] === 'skipped') {
+            return ['state' => 'warning', 'note' => $r['why'], 'params' => ['name' => $name, 'path' => "$base/" . RSP_INSIDE], 'undo' => $undo];
+        }
+        return ['state' => 'ok', 'undo' => $undo, 'note' => 'start_vm', 'params' => array_diff_key($r, ['state' => 1])];
+    }
+    // a share's copy: the app at its root (a share of its own), the VMs' and apps' folders one level below
+    $folders = [$base];
+    foreach (glob("$base/*", GLOB_ONLYDIR) ?: [] as $d) {
+        if (!is_link($d) && basename($d) !== RSP_INSIDE) {
+            $folders[] = $d;
+        }
+    }
+    $vms = $refused = $apps = $notes = [];
+    foreach ($folders as $folder) {
+        $m = $manifest($folder);
+        if (!is_array($m)) {
+            continue;
+        }
+        if (($m['kind'] ?? '') === 'vm') {
+            if (!$place) {
+                $refused[] = rsStr($m['name'] ?? basename($folder)) . ' (copy only)';
+                continue;
+            }
+            $r = rspStartVm($j, $i, $m, $folder, $lv, $states, $undo);
+            if ($r['state'] === 'failed') {
+                return rsFail($r['note'], $r['params'], (string) ($r['detail'] ?? '')) + ['undo' => $undo];
+            }
+            if ($r['state'] === 'skipped') {
+                $refused[] = $r['name'] . ' (' . ($r['why'] === 'start_vm_exists' ? 'a VM of that name is here' : ($r['why'] === 'start_vm_service_off' ? 'VM service off' : 'odd name')) . ')';
+            } else {
+                $vms[] = $r['name'];
+            }
+        } elseif (($m['kind'] ?? '') === 'app') {
+            $r = rspStartApp($m, $folder, $templates, $place, $undo);
+            if ($r['state'] === 'failed') {
+                return rsFail($r['note'], $r['params']) + ['undo' => $undo];
+            }
+            $apps[] = $r['name'] . ($r['templates'] ? ' (template put)' : ($r['skipped'] ? ' (template left as it is)' : ' (no template)'))
+                . ($r['dumps'] ? ' · dumps: ' . implode(', ', array_map('basename', $r['dumps'])) : '');
+            $notes = array_merge($notes, $r['dumps']);
+        }
+    }
+    if (!$vms && !$refused && !$apps) {
+        return ['state' => 'warning', 'note' => 'start_no_package', 'params' => ['path' => $base], 'undo' => $undo];
+    }
+    return ['state' => $refused ? 'warning' : 'ok', 'undo' => $undo, 'note' => 'start_share_found',
+            'params' => ['n_vms' => count($vms), 'vms' => $vms ?: ['–'], 'refused' => $refused ?: ['–'], 'n_apps' => count($apps), 'apps' => $apps ?: ['–'], 'dumps' => $notes, 'path' => $base]];
 }

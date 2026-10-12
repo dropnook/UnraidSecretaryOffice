@@ -991,7 +991,7 @@
   "rd.start_back": "Non così",
   "step.pull_local": "Copia {unit} al momento {snap} (copia di {partner}) → {dataset} — un dataset indipendente su questo pool; la copia del partner resta com'è",
   "step.start_from_vm": "Leggi {to}/.uso-backup: definisci la VM {name} dal suo XML (i percorsi dei dischi puntati a {to}), metti le sue variabili UEFI e lo stato TPM dove non c'è ancora nulla — se la copia li porta",
-  "step.start_from_share": "Leggi {to}/.uso-backup: il template di un'app nei template di Unraid (da aggiungere con ⟦Docker⟧ → ⟦Add Container⟧), i suoi dump nominati — se la copia li porta",
+  "step.start_from_share": "Leggi le cartelle .uso-backup di {to} (alla radice e un livello sotto): ogni VM trovata definita dal suo XML (percorsi dei dischi puntati alla cartella copiata, variabili UEFI e stato TPM dove non c'è ancora nulla), il template di ogni app nei template di Unraid (da aggiungere con ⟦Docker⟧ → ⟦Add Container⟧), i suoi dump nominati — per quanto la copia li porta",
   "step.start_from_look": "Guarda cosa porta la copia in {mount}/.uso-backup (nulla va nella condivisione: ha già contenuto)",
   "note.partner_start_copy": "Prima una copia indipendente di quel momento sul pool {pool}: {dataset}, montata in sola lettura — la copia di {name} e i suoi snapshot restano esattamente com'erano. Ci vuole un momento ({bytes}).",
   "note.partner_start_package": "Una copia fatta da una segreteria con engine 2.43 o più recente porta dentro la configurazione della VM o dell'app (.uso-backup). Una più vecchia no: allora arrivano solo i file, e la VM o l'app la crei tu — il passo dice cosa ha trovato.",
@@ -1018,5 +1018,8 @@
   "j.start_putback_hint": "Annulla esattamente ciò che questo avvio ha fatto: la definizione rimossa, i file messi da parte (mai cancellati), la copia sotto UnraidSecretaryOffice-restored distrutta — la copia del partner non viene mai toccata.",
   "aside.started": "Messo al suo posto: {from} → {to}",
   "fit.partner_kept": {"one": "Questa segreteria conserva 1 unità di un partner — posso avviarla qui («Conservato per …»), e recuperare ciò che i partner conservano di questo server.", "other": "Questa segreteria conserva {n} unità di partner — posso avviarle qui («Conservato per …»), e recuperare ciò che i partner conservano di questo server."},
-  "notice.no_engine_kept": "L'engine di backup del signor Backupsi non c'è: nessun pacchetto di questo server. Ciò che questa segreteria conserva per i partner è qui lo stesso («Conservato per …»)."
+  "notice.no_engine_kept": "L'engine di backup del signor Backupsi non c'è: nessun pacchetto di questo server. Ciò che questa segreteria conserva per i partner è qui lo stesso («Conservato per …»).",
+  "sn.start_share_found": "Trovato nella copia — VM con configurazione, definite: {vms}; rifiutate: {refused} · app: {apps}. I dump stanno accanto al template della loro app, nel suo .uso-backup/db — importali dopo l'installazione.",
+  "sn.start_vm_odd_name": "Non definita: il nome della VM nella copia non è uno che passo a libvirt.",
+  "note.partner_start_share_scan": "Una volta i file al loro posto guardo un livello dentro le cartelle della copia cercando .uso-backup (l'engine 2.43 o più recente scrive il pacchetto di ogni VM e app nella sua cartella): ogni VM trovata la definisco con le stesse regole (una VM con quel nome qui o il servizio VM spento: rifiutata, detto nel passo), il template di ogni app lo metto — il passo elenca cosa ha trovato."
 }
