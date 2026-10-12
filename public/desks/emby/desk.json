@@ -2,6 +2,7 @@
   "order": 50,
   "icon": "🍿",
   "refresh_after": 300,
+  "needs": "moverelli",
   "parts": {
     "progress": { "refresh_after": 5, "action": "progress" }
   }

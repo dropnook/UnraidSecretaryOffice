@@ -86,7 +86,7 @@ function moverelliImportPreview(array $r, ?array $h = null): array
     return ['ok' => true, 'preview' => $plan['preview'] + ['running' => moverelliBusy($h['dir'])]];
 }
 
-/** moverelli.import_apply {folder, token}: does what the preview showed — not while a run of hers goes, not when anything changed since */
+/** moverelli.import_apply {folder, token, mover_off?}: does what the preview showed — not while a run of hers goes, not when anything changed since */
 function moverelliImportDo(array $r, ?array $h = null): array
 {
     $h ??= moverelliHost();
@@ -111,7 +111,7 @@ function moverelliImportDo(array $r, ?array $h = null): array
             $names['excludes/' . basename($f)] = true;
         }
         $backups = importBackup($h['dir'], $names, $stamp);
-    });
+    }, moverelliConsent($r));       // Unraid's own mover goes off with it, like her save (moverelli-unraid.php)
     $lines = count($plan['set']['global']['patterns']) + array_sum(array_map(fn ($s) => count($s['patterns']), $plan['set']['shares']));
     logLine("Ms. Moverelli: took over an earlier install from $folder (" . count($plan['set']['shares']) . " shares with rules of their own, $lines lines of what stays)"
         . ($backups ? "; copies of hers: .before-import-$stamp" : ''));

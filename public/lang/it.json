@@ -346,5 +346,7 @@
   "search.kind.setting": "Impostazione",
   "search.kind.help": "Spiegato",
   "search.kind.guide": "Guida",
-  "search.kind.item": "Voce"
+  "search.kind.item": "Voce",
+  "errors.needs_colleague": "{desk} lavora solo sotto la supervisione di {with} — assumili insieme, oppure prima {with}.",
+  "errors.needed_by": "{by} non può restare senza {desk} — licenzia prima {by}."
 }

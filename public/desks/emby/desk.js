@@ -228,25 +228,22 @@ const mover = () => (state && state.mover) || null;
 const moverOk = () => { const m = mover(); return !m || !!m.ok; };
 /** Why real runs don't go now, in words (the agent's refusal) */
 function moverWhy(m) {
-  const t = m.tuning || {};
   // Ms. Moverelli's ini without his list: her shares named (emby-mover.php embyMoverelliUncovered())
   const mo = m.why === 'moverelli_list' ? (m.moverelli || {}) : null;
-  const shares = mo ? (mo.uncovered || []) : (t.overrides || []);
-  // EmbyCache's list: Mover Tuning's entry, or for Ms. Moverelli the list itself (also without Mover Tuning)
-  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo ? mo.file : t.file) || '', detail: t.error || '', shares: shares.join(', ') } }, ID);
+  const schedule = m.why === 'tuning_schedule' ? (m.tuning || {}).cron : m.schedule;
+  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '' } }, ID);
 }
 
 /**
- * Unraid's mover and EmbyCache's files on the pool: real runs only while Unraid's own mover schedule is «Disabled»
- * (2026-10-09). Not met: why; for the schedule «Switch the mover schedule off…» (moverOffDialog) and «set it
- * yourself» (Unraid's ⟦Mover Settings⟧). Met: what still moves them (⟦Move now⟧ by hand — his run stops after the
- * current file then); Mover Tuning, if installed, keeps his list (he enters it there himself). Mover Tuning's «Move
- * All» threshold, the mover at work right now.
+ * Unraid's mover and EmbyCache's files on the pool: real runs only under Ms. Moverelli — she is set up and keeps his
+ * list out, Unraid's own mover schedule «Disabled» (2026-10-12; her setup switches it off). Not met: why; for the
+ * schedule «Switch the mover schedule off…» (moverOffDialog) and «set it yourself» (Unraid's ⟦Mover Settings⟧), for her
+ * a link to her setup. Met: what still moves them (⟦Move now⟧ by hand — his run stops after the current file then), the
+ * mover at work right now.
  */
 function moverNotice() {
   const m = mover();
   if (!m) return null;
-  const t = m.tuning || {};
   const box = el('div', m.ok ? 'jo-mover' : 'callout warn jo-mover');
   if (!m.ok) {
     box.appendChild(el('p', '', moverWhy(m)));
@@ -258,14 +255,17 @@ function moverNotice() {
       a.href = '/Settings/MoverSettings';
       bar.append(b, a);
       box.appendChild(bar);
+    } else if (m.why === 'moverelli' || m.why === 'moverelli_list') {
+      const bar = el('div', 'toolbar');
+      const a = el('a', 'btn small', T('mover.to_moverelli'));
+      a.href = '#/moverelli/setup';
+      bar.appendChild(a);
+      box.appendChild(bar);
     }
   } else {
     box.appendChild(el('p', 'role', T('mover.ok.disabled')));
-    if (m.way === 'moverelli') box.appendChild(el('p', 'role', T('mover.ok.moverelli')));
-    if (t.installed && t.listed) box.appendChild(el('p', 'role', T('mover.ok.tuning', { file: t.file || '' })));
+    box.appendChild(el('p', 'role', T('mover.ok.moverelli')));
   }
-  if (t.changed) box.appendChild(el('p', 'role', T('mover.changed', { file: t.file || '' })));
-  if (t.installed && t.move_all) box.appendChild(el('p', 'role', T('mover.move_all', { pct: String(t.move_all) })));
   if (m.running) box.appendChild(el('p', 'role', T('mover.running')));
   return box;
 }
@@ -1917,10 +1917,9 @@ async function saveSetup() {
  * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo; agent/desks/emby-letgo.php). He looks
  * first what letting him go does here (emby.letgo_look): both schedules go off — always, no tick; a run that is going
  * finishes; one tick «Also bring the prepared films back to the array», off by default and only when that can be done
- * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool; when Mover
- * Tuning ignores his list, a second tick, on by default: «Also take my list out of Mover Tuning again» (then Mover
- * Tuning moves what is left back on its own). «Let go» — while he is still hired — sends emby.letgo {confirm, release,
- * unlist} once; he is let go whatever came of it, then a dialog says what he did.
+ * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool. «Let go» —
+ * while he is still hired — sends emby.letgo {confirm, release} once; he is let go whatever came of it, then a dialog
+ * says what he did.
  */
 function letGoPart(box) {
   const wrap = el('div', 'jo-letgo');
@@ -1935,17 +1934,7 @@ function letGoPart(box) {
   label.append(cb, text);
   label.hidden = true;
   const more = el('div', 'jo-letgo-more');
-  // his list out of Mover Tuning again — on by default, only when its cfg names it
-  const label2 = el('label', 'check');
-  const cb2 = el('input');
-  cb2.type = 'checkbox';
-  cb2.checked = true;
-  const text2 = el('span', '', T('letgo.unlist'));
-  const hint2 = el('small', '', '');
-  text2.appendChild(hint2);
-  label2.append(cb2, text2);
-  label2.hidden = true;
-  wrap.append(lines, label, more, label2);
+  wrap.append(lines, label, more);
   box.appendChild(wrap);
   let button = null;
   let sent = null;
@@ -1959,8 +1948,6 @@ function letGoPart(box) {
     if (cb.disabled) cb.checked = false;
     hint.textContent = v.hint;
     more.replaceChildren(...v.more.map(letGoLine));
-    label2.hidden = !v.unlist;
-    if (v.unlist) hint2.textContent = T('letgo.unlist_hint', { file: v.file });
     sync();
   };
   let asked = null;
@@ -1975,9 +1962,8 @@ function letGoPart(box) {
     before() {                   // once, even if «Let go» is pressed again
       if (!sent) {
         const release = cb.checked && !cb.disabled;
-        const unlist = !label2.hidden && cb2.checked;
-        cb.disabled = cb2.disabled = true;
-        sent = Office.api.post(`${ID}.letgo`, { confirm: true, release, unlist });
+        cb.disabled = true;
+        sent = Office.api.post(`${ID}.letgo`, { confirm: true, release });
       }
       return sent;
     },
@@ -1996,11 +1982,10 @@ function letGoList(jobs, cron) {
 }
 
 /**
- * What the look says: lines above the tick, whether there is one and may be ticked, its hint, lines below it, whether
- * Mover Tuning names his list (the second tick) and its file (pure)
+ * What the look says: lines above the tick, whether there is one and may be ticked, its hint, lines below it (pure)
  */
 function letGoView(j) {
-  if (!j.ok) return { lines: [['callout warn', Office.errorText(j.error, ID)], ['role', T('letgo.agent_away')]], tick: false, tickable: false, hint: '', more: [], unlist: false, file: '' };
+  if (!j.ok) return { lines: [['callout warn', Office.errorText(j.error, ID)], ['role', T('letgo.agent_away')]], tick: false, tickable: false, hint: '', more: [] };
   const lines = [];
   const sch = j.schedules || {};
   const on = Object.keys(sch).filter((k) => sch[k]);
@@ -2018,11 +2003,9 @@ function letGoView(j) {
     else if (rel.why) more.push(['callout warn', Office.errorText({ key: rel.why, params: rel.params || {} }, ID)]);
     more.push(['role', T('letgo.tick_off')]);
   }
-  const mt = j.mover_tuning || {};
   more.push(['role', T('letgo.stays')]);
-  if (j.mover_off) more.push(['role', T('letgo.mover_stays')]);       // Unraid's mover schedule stays off — where to switch it on
-  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more,
-    unlist: !!mt.listed, file: mt.listed ? mt.file || '' : '' };
+  if (j.mover_off) more.push(['role', T('letgo.mover_stays')]);       // Unraid's mover schedule stays off — Ms. Moverelli moves
+  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more };
 }
 
 /** After he was let go: what he did — the schedules switched off (or not), the release started (or why not) */
@@ -2039,9 +2022,6 @@ function letGoDoneLines(r) {
     out.push(['callout warn', T('letgo.done_release_not', { error: Office.errorText(rel.error || { key: 'internal' }, ID) })]);
     if (rel.error && rel.error.key === 'emby_release_watching') out.push(['who', rel.error.params.who || []]);
   }
-  const un = r.unlist;
-  if (un && un.done) out.push(['', T('letgo.done_unlisted')]);
-  else if (un) out.push(['callout warn', T('letgo.done_unlist_not', { error: Office.errorText(un.error || { key: 'internal' }, ID) })]);
   return out;
 }
 function letGoDone(r) {

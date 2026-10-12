@@ -519,5 +519,6 @@
   "partner.hire_backupsy": "Contratar al señor Backupsi",
   "partner.need_restori": "Para empezar aquí desde una copia hace falta el señor Restori.",
   "partner.hire_restori": "Contratar al señor Restori",
-  "partner.i_keep_start": "El señor Restori puede empezar desde estas copias («Guardado para {name}» en su página) — la copia de una VM o de una app trae su configuración desde el motor 2.43; las copias más antiguas no."
+  "partner.i_keep_start": "El señor Restori puede empezar desde estas copias («Guardado para {name}» en su página) — la copia de una VM o de una app trae su configuración desde el motor 2.43; las copias más antiguas no.",
+  "needs_away": "{name} vendría — pero solo bajo la supervisión de {with}, y ella no puede venir aquí."
 }

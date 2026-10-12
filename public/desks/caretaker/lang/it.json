@@ -519,5 +519,6 @@
   "partner.hire_backupsy": "Assumi il signor Backupsi",
   "partner.need_restori": "Per partire qui da una copia serve il signor Restori.",
   "partner.hire_restori": "Assumi il signor Restori",
-  "partner.i_keep_start": "Il signor Restori può partire da queste copie («Conservato per {name}» nella sua pagina) — la copia di una VM o di un'app porta dentro la sua configurazione dall'engine 2.43; le copie più vecchie no."
+  "partner.i_keep_start": "Il signor Restori può partire da queste copie («Conservato per {name}» nella sua pagina) — la copia di una VM o di un'app porta dentro la sua configurazione dall'engine 2.43; le copie più vecchie no.",
+  "needs_away": "{name} verrebbe — ma solo sotto la supervisione di {with}, e lei qui non può venire."
 }

@@ -16,28 +16,13 @@ declare(strict_types=1);
  * the agent does what Unraid's form does with «Disabled» + ⟦Apply⟧: `emcmd "shareMoverSchedule=&shareMoverLogging=<as it
  * is>&changeMover=Apply"`, then looks that share.cfg says "" and no mover.cron line is left. Or the user sets it himself.
  *
- * Mover Tuning (ca.mover.tuning, 2026.10.03 by masterwishx) stays optional — for those who want other files moved on its
- * own schedule. While it is installed and he is hired, Jack enters EmbyCache's exclude list there himself, without
- * asking, and again at every look when it was taken out or changed (embyTuningLook()), so its own schedule leaves his
- * files alone: the global cfg /boot/config/plugins/ca.mover.tuning/ca.mover.tuning.cfg, keys `filelistf="yes"`
- * (⟦Ignore files listed inside of a text file⟧) and `filelistv="<file>"` — written like its own page writes them
- * (Unraid's update.php: `key="value"` lines), but line by line: every other line, key and comment stays as it was; every
- * line of those two keys gets the new value (Unraid's parse_ini takes the last of a key, age_mover's cfg() the first); a
- * new file + rename; the cfg as it was copied next to it once (`<cfg>.before-jack-emby`). Nothing to reload: age_mover
- * reads the cfg at each run. With Unraid's schedule off, what still lets Mover Tuning's own schedule take his files
- * (found in its code and tried on a test server, 2026-10-09) — each refuses real runs too:
- *   - his list couldn't be entered → `tuning_list`;
- *   - its «Force move all files on a schedule» (force="yes", its own mover.cron: «mover.php force start») runs Unraid's
- *     mover → `tuning_force`;
- *   - a share override (shareOverrideConfig/<share>.cfg with moverOverride="yes") whose own filelistf is «No», or «Yes»
- *     with another file, for one of his shares → `tuning_override`.
- * Its «Move All from Primary->Secondary» (omovercfg) drops the filters above its threshold: said, not refused.
- * Ms. Moverelli (agent/desks/moverelli.php) runs the bundled Smart Mover on the office's schedule: while she is hired
- * and set up (her smart_mover.ini there — without it she runs nothing and counts as not hired here),
- * her smart_mover.ini must keep his list out for each of his shares — the file in `global_excludes` or in the share's
- * `excludes=`, or the share `skip=yes` — else she would carry his films back (`moverelli_list`); kept, real runs go that
- * way (`way` «moverelli») — an alternative to Mover Tuning's list: then Mover Tuning (installed or not, its list or a
- * share's override) doesn't count, only its forced move on a schedule. Her runs and his never run at the same time
+ * Jack is an intern: he works only under Ms. Moverelli (2026-10-12, the owner's decision — desk.json `needs`, he can't be
+ * hired without her). Real runs go only while she is hired and set up (her smart_mover.ini there) and her ini keeps his
+ * list out for each of his shares — the file in `global_excludes` or in the share's `excludes=`, or the share `skip=yes`
+ * — else she would carry his films back (`moverelli_list`); not hired or not set up → `moverelli`. Mover Tuning is no
+ * way for him any more (up to 1.60 he entered his list there): while it is installed with an active schedule of its
+ * own (moverelliTuning(), her own refusal `moverelli_tuning_schedule`) it would move his films back — `tuning_schedule`,
+ * switched off by the user in Mover Tuning, never by him. Her runs and his never run at the same time
  * (embyRunCheck(), moverelliRunCheck()); their starts take one lock (embyMoversLock()), so two cron jobs of the same
  * minute can't both pass the check.
  * ⟦Move now⟧ in ⟦Mover Settings⟧ and on the Main page start Unraid's mover by hand — a hand's doing: the guards below
@@ -57,10 +42,8 @@ const EMBY_MOVER_SHARE_CFG = '/boot/config/share.cfg';
 const EMBY_MOVER_CRON      = '/boot/config/plugins/dynamix/mover.cron';
 const EMBY_MOVER_PID       = '/var/run/mover.pid';
 const EMBY_MOVER_PROCS     = ['mover', 'age_mover', 'move'];      // Unraid's mover script, Mover Tuning's, Unraid's move binary
-const EMBY_TUNING_NAME     = 'ca.mover.tuning';
+const EMBY_TUNING_NAME     = 'ca.mover.tuning';                  // Mover Tuning: only looked at (Ms. Moverelli's moverelliTuning())
 const EMBY_TUNING_DIR      = '/boot/config/plugins/ca.mover.tuning';
-const EMBY_TUNING_BACKUP   = '.before-jack-emby';                // the cfg as it was before his first change, next to it
-const EMBY_MOVER_NOTE      = 'office-mover.json';                // in his data folder: what he changed in Mover Tuning, what was there
 const EMBY_MOVER_EVERY     = 300;      // a scheduled run that finds the mover at work looks again every 5 min …
 const EMBY_MOVER_MAX       = 7200;     // … for up to 2 h, then that run is skipped
 const EMBY_MOVER_LOOK      = 5;        // during a real run: is the mover at work? every 5 s
@@ -77,7 +60,7 @@ function embyMoverHost(): array
         'mover_cron' => $h['mover_cron'] ?? EMBY_MOVER_CRON,
         'tuning_dir' => $h['tuning_dir'] ?? EMBY_TUNING_DIR,
         'installed'  => $h['installed'] ?? fn (): bool => is_file('/var/log/plugins/' . EMBY_TUNING_NAME . '.plg'),
-        // his list as Mover Tuning gets it (the path as set — what other programs get), and the forms that count as his
+        // his list as other programs get it (the path as set), and the forms that count as his
         'lists'      => $h['lists'] ?? fn (): array => array_values(array_unique([dataPathUser(EMBY_DATA . '/embycache_exclude.txt'), EMBY_DATA . '/embycache_exclude.txt'])),
         'dir'        => $h['dir'] ?? EMBY_DATA,
         'shares'     => $h['shares'] ?? fn (): array => ($s = embyReadSettings()) ? array_column(embyShares($s), 'share') : [],
@@ -87,190 +70,13 @@ function embyMoverHost(): array
         'var_ini'    => $h['var_ini'] ?? EMBY_MOVER_VAR,
         'emcmd'      => $h['emcmd'] ?? (getenv('OFFICE_EMCMD_BIN') ?: EMBY_EMCMD),
         'wait'       => $h['wait'] ?? fn (int $ms) => usleep($ms * 1000),
+        // what the schedule was before it is switched off — noted once for Ms. Moverelli's let-go (moverelli-unraid.php)
+        'note'       => $h['note'] ?? fn (string $was, string $logging) => moverelliUnraidNoteKeep($was, $logging),
         // Ms. Moverelli while hired and set up: what her smart_mover.ini keeps out (moverelliExcludeLook()), else null
         'moverelli'  => $h['moverelli'] ?? fn (): ?array => function_exists('moverelliExcludeLook') ? moverelliExcludeLook() : null,
+        // Mover Tuning's own schedule, if it has one ({file, cron}), else null (Ms. Moverelli's moverelliTuning())
+        'tuning'     => $h['tuning'] ?? fn (): ?array => moverelliTuning(moverelliHost())['lines'][0] ?? null,
     ];
-}
-
-function embyTuningCfg(array $h): string
-{
-    return $h['tuning_dir'] . '/' . EMBY_TUNING_NAME . '.cfg';
-}
-
-/**
- * A `key="value"` file as Unraid's plugins keep it: every value of each key, in order (one outer pair of quotes taken
- * off, like age_mover's cfg()). Comment and other lines are left out.
- *
- * @return array<string, list<string>>
- */
-function embyTuningValues(string $text): array
-{
-    $out = [];
-    foreach (preg_split('/\r?\n/', $text) ?: [] as $line) {
-        if (preg_match('/^\s*([A-Za-z0-9_]{1,64})\s*=(.*)$/D', $line, $m)) {
-            $v = trim($m[2]);
-            if (strlen($v) >= 2 && $v[0] === '"' && str_ends_with($v, '"')) {
-                $v = substr($v, 1, -1);
-            }
-            $out[$m[1]][] = $v;
-        }
-    }
-    return $out;
-}
-
-/** The first value of a key (age_mover reads the first), or '' */
-function embyTuningFirst(array $values, string $key): string
-{
-    return (string) ($values[$key][0] ?? '');
-}
-
-/** Does the cfg name his list — every line of both keys (so Unraid's page and age_mover read the same)? */
-function embyTuningListed(array $values, array $lists): bool
-{
-    $f = $values['filelistf'] ?? [];
-    $v = $values['filelistv'] ?? [];
-    return $f && $v && !array_diff($f, ['yes']) && !array_diff($v, $lists);
-}
-
-/** A value fit for `key="value"` in such a file: a path without quotes, backslashes, $, `, | or control characters */
-function embyTuningValueOk(string $v): bool
-{
-    return (bool) preg_match('~^/[^"\\\\`$|\x00-\x1f\x7f]{1,4000}$~D', $v);
-}
-
-/**
- * The text with $set written in: every line of such a key gets `key="value"` where it stands (its line ending kept), a
- * key not there is added at the end; every other byte stays.
- */
-function embyTuningSet(string $text, array $set): string
-{
-    $eol = str_contains($text, "\r\n") ? "\r\n" : "\n";
-    $lines = $text === '' ? [] : (preg_split('/(?<=\n)/', $text) ?: []);
-    $seen = [];
-    foreach ($lines as $i => $line) {
-        if (preg_match('/^\s*([A-Za-z0-9_]{1,64})\s*=/', $line, $m) && array_key_exists($m[1], $set)) {
-            $end = str_ends_with($line, "\r\n") ? "\r\n" : (str_ends_with($line, "\n") ? "\n" : '');
-            $lines[$i] = $m[1] . '="' . $set[$m[1]] . '"' . $end;
-            $seen[$m[1]] = true;
-        }
-    }
-    $out = implode('', $lines);
-    foreach ($set as $key => $value) {
-        if (!isset($seen[$key])) {
-            if ($out !== '' && !str_ends_with($out, "\n")) {
-                $out .= $eol;
-            }
-            $out .= $key . '="' . $value . '"' . $eol;
-        }
-    }
-    return $out;
-}
-
-/** His note about Mover Tuning (what he entered, what was there before his first change), or null */
-function embyMoverNote(string $dir): ?array
-{
-    $n = readJson("$dir/" . EMBY_MOVER_NOTE);
-    return $n && ($n['v'] ?? null) === 1 && is_array($n['before'] ?? null) ? $n : null;
-}
-
-/**
- * Writes his list into Mover Tuning's cfg: the backup first (once), then the new file; logged; his note keeps what was
- * there before his first change (for his let-go). $text: the cfg as read (false: there is none).
- */
-function embyTuningWrite(string $cfg, string|false $text, string $want, string $dir): void
-{
-    if (!embyTuningValueOk($want)) {
-        throw new Problem('emby_mover_tuning_list', ['detail' => 'path']);
-    }
-    if (is_link($cfg) || ($text === false && file_exists($cfg))) {
-        throw new Problem('emby_mover_tuning_list', ['detail' => 'not a plain file']);
-    }
-    if (!is_dir(dirname($cfg))) {
-        throw new Problem('emby_mover_tuning_list', ['detail' => 'no folder']);
-    }
-    $old = $text === false ? '' : $text;
-    $values = embyTuningValues($old);
-    $backup = $cfg . EMBY_TUNING_BACKUP;
-    if ($text !== false && !file_exists($backup) && !is_link($backup)) {
-        writeAtomic($backup, $old, 0600, 0, 0);
-    }
-    writeAtomic($cfg, embyTuningSet($old, ['filelistf' => 'yes', 'filelistv' => $want]), 0600, 0, 0);
-    $was = 'filelistf=' . (embyTuningFirst($values, 'filelistf') ?: '–') . ', filelistv=' . (embyTuningFirst($values, 'filelistv') ?: '–');
-    logLine("Jack Emby: entered his list in Mover Tuning («Ignore files listed inside of a text file»: $want) — before: $was"
-        . (file_exists($backup) ? ' (the cfg as it was: ' . basename($backup) . ')' : ''));
-    $note = embyMoverNote($dir);
-    try {
-        embyDataDir($dir);
-        writeAtomic("$dir/" . EMBY_MOVER_NOTE, jsonEncode([
-            'v'       => 1,
-            'entered' => (int) ($note['entered'] ?? time()),
-            'last'    => time(),
-            'times'   => (int) ($note['times'] ?? 0) + 1,
-            'file'    => $want,
-            // what the user had before his first change — his let-go puts it back
-            'before'  => $note['before'] ?? ['filelistf' => $values['filelistf'][0] ?? null, 'filelistv' => $values['filelistv'][0] ?? null],
-        ]), 0600, 0, 0);
-    } catch (Throwable $e) {
-        logLine('Jack Emby: could not note his change in Mover Tuning: ' . $e->getMessage());
-    }
-}
-
-/**
- * Mover Tuning as it stands for him: installed? his list in place (entered now when $enforce and it wasn't)? what else
- * would let the mover take his files (its forced move, a share's override), its «Move All» threshold.
- */
-function embyTuningLook(array $h, bool $enforce): array
-{
-    if (!($h['installed'])()) {
-        return ['installed' => false];
-    }
-    $cfg = embyTuningCfg($h);
-    $lists = ($h['lists'])();
-    $text = @file_get_contents($cfg, false, null, 0, 1 << 20);
-    $values = embyTuningValues($text === false ? '' : $text);
-    $out = ['installed' => true, 'listed' => embyTuningListed($values, $lists), 'file' => $lists[0], 'changed' => false];
-    if (!$out['listed'] && $enforce && !embyLetGoRecent($h['dir'])) {      // not in the moment of his let-go (emby-letgo.php)
-        try {
-            embyTuningWrite($cfg, $text, $lists[0], $h['dir']);
-            $text = @file_get_contents($cfg, false, null, 0, 1 << 20);
-            $values = embyTuningValues($text === false ? '' : $text);
-            $out['listed'] = embyTuningListed($values, $lists);
-            $out['changed'] = true;
-        } catch (Throwable $e) {
-            $out['error'] = mb_substr($e instanceof Problem ? (string) ($e->params['detail'] ?? $e->key) : $e->getMessage(), 0, 300);
-            logLine('Jack Emby: could not enter his list in Mover Tuning: ' . $out['error']);
-        }
-    }
-    $force = embyTuningFirst($values, 'force') === 'yes'
-        && embyMoverCronLine((string) @file_get_contents($h['tuning_dir'] . '/mover.cron', false, null, 0, 65536), '/mover\.php\s+force\b/') !== null;
-    $out += [
-        'force'     => $force,
-        'overrides' => embyTuningOverrides($h['tuning_dir'], ($h['shares'])(), $lists),
-        'move_all'  => embyTuningFirst($values, 'omovercfg') === 'yes' ? (embyTuningFirst($values, 'omoverthresh') ?: null) : false,
-        'by_jack'   => $out['listed'] && embyMoverNote($h['dir']) !== null,
-    ];
-    return $out;
-}
-
-/** His shares whose Mover Tuning override switches his list off: filelistf «No», or «Yes» with another file */
-function embyTuningOverrides(string $dir, array $shares, array $lists): array
-{
-    $off = [];
-    foreach ($shares as $share) {
-        if (!is_string($share) || !preg_match('/^[^\/\x00-\x1f]{1,255}$/D', $share) || $share === '.' || $share === '..') {
-            continue;
-        }
-        $text = @file_get_contents("$dir/shareOverrideConfig/$share.cfg", false, null, 0, 65536);
-        if ($text === false || !str_contains($text, 'moverOverride="yes"')) {
-            continue;                                   // age_mover applies an override only with exactly that line
-        }
-        $v = embyTuningValues($text);
-        $f = embyTuningFirst($v, 'filelistf');
-        if ($f === 'no' || ($f === 'yes' && !in_array(embyTuningFirst($v, 'filelistv'), $lists, true))) {
-            $off[] = $share;
-        }
-    }
-    return $off;
 }
 
 /**
@@ -352,33 +158,29 @@ function embyMoverelliUncovered(array $look, array $lists, array $shares): array
 }
 
 /**
- * The rule: may EmbyCache and the gather run for real? {ok, way: disabled|moverelli|null, why: null|schedule|
- * moverelli_list|tuning_list|tuning_force|tuning_override, schedule: Unraid's own (cron, else as set) or null, tuning:
- * embyTuningLook(), moverelli: null (not hired, or no smart_mover.ini yet) or {uncovered: his shares her ini doesn't keep his list away from}}.
- * Unraid's own schedule «Disabled» always; with Mover Tuning installed also nothing of its own that takes his files.
- * $enforce: his list is entered into Mover Tuning when it isn't (only while he is hired).
+ * The rule: may EmbyCache and the gather run for real? {ok, way: moverelli|null, why: null|schedule|moverelli|
+ * moverelli_list|tuning_schedule, schedule: Unraid's own (cron, else as set) or null, moverelli: null (not hired, or no
+ * smart_mover.ini yet) or {uncovered: his shares her ini doesn't keep his list away from, file}, tuning: Mover Tuning's
+ * schedule {file, cron} or null}. Unraid's own schedule «Disabled», Ms. Moverelli supervising with his list kept out,
+ * and no schedule of Mover Tuning's own.
  */
-function embyMoverRule(bool $enforce = true, ?array $h = null): array
+function embyMoverRule(?array $h = null): array
 {
     $h ??= embyMoverHost();
     $own = embyMoverOwn($h);
-    $t = embyTuningLook($h, $enforce && ($h['hired'])());
     $m = ($h['moverelli'])();
     $lists = ($h['lists'])();
     $uncovered = $m === null ? [] : embyMoverelliUncovered($m, $lists, ($h['shares'])());
-    // Ms. Moverelli hired and keeping his list out replaces Mover Tuning's list: only its forced schedule still counts
+    $tuning = ($h['tuning'])();
     $why = match (true) {
-        !embyMoverScheduleOff($own)                  => 'schedule',
-        (bool) $uncovered                            => 'moverelli_list',
-        $m !== null                                  => $t['installed'] && $t['force'] ? 'tuning_force' : null,
-        !$t['installed']                             => null,
-        !$t['listed']                                => 'tuning_list',
-        $t['force']                                  => 'tuning_force',
-        (bool) $t['overrides']                       => 'tuning_override',
-        default                                      => null,
+        !embyMoverScheduleOff($own) => 'schedule',
+        $m === null                 => 'moverelli',
+        (bool) $uncovered           => 'moverelli_list',
+        $tuning !== null            => 'tuning_schedule',
+        default                     => null,
     };
-    return ['ok' => $why === null, 'way' => $why === null ? ($m !== null ? 'moverelli' : 'disabled') : null, 'why' => $why,
-            'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null), 'tuning' => $t,
+    return ['ok' => $why === null, 'way' => $why === null ? 'moverelli' : null, 'why' => $why,
+            'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null), 'tuning' => $tuning,
             'moverelli' => $m === null ? null : ['uncovered' => $uncovered, 'file' => $lists[0] ?? '']];
 }
 
@@ -389,36 +191,24 @@ function embyMoverProblem(array $rule): ?Problem
         return null;
     }
     $key = match ($rule['why']) {
-        'tuning_list'     => 'emby_mover_tuning_list',
-        'tuning_force'    => 'emby_mover_tuning_force',
-        'tuning_override' => 'emby_mover_tuning_override',
+        'moverelli'       => 'emby_mover_moverelli',
         'moverelli_list'  => 'emby_mover_moverelli_list',
+        'tuning_schedule' => 'emby_mover_tuning_schedule',
         default           => 'emby_mover_schedule',
     };
     return new Problem($key, array_filter([
-        'schedule' => $rule['schedule'] ?? null,
-        'file'     => match ($rule['why']) {
-            'tuning_list'     => $rule['tuning']['file'] ?? null,
-            'moverelli_list'  => $rule['moverelli']['file'] ?? null,      // EmbyCache's list — also without Mover Tuning
-            default           => null,
-        },
-        'shares'   => match ($rule['why']) {
-            'tuning_override' => implode(', ', $rule['tuning']['overrides']),
-            'moverelli_list'  => implode(', ', $rule['moverelli']['uncovered'] ?? []),
-            default           => null,
-        },
-        'detail'   => $rule['tuning']['error'] ?? null,
+        'schedule' => $rule['why'] === 'tuning_schedule' ? ($rule['tuning']['cron'] ?? null) : ($rule['schedule'] ?? null),
+        'file'     => $rule['why'] === 'moverelli_list' ? ($rule['moverelli']['file'] ?? null) : null,
+        'shares'   => $rule['why'] === 'moverelli_list' ? implode(', ', $rule['moverelli']['uncovered'] ?? []) : null,
     ], fn ($v) => $v !== null));
 }
 
-/** For his page and the Team Lead: the rule (without the list's changes said again) and whether the mover is at work */
+/** For his page and the Team Lead: the rule and whether the mover is at work */
 function embyMoverState(?array $rule = null): array
 {
     $rule ??= embyMoverRule();
-    $t = $rule['tuning'];
-    return ['ok' => $rule['ok'], 'way' => $rule['way'], 'why' => $rule['why'], 'schedule' => $rule['schedule'], 'running' => embyMoverRunning(),
-            'tuning' => $t['installed'] ? array_intersect_key($t, array_flip(['installed', 'listed', 'file', 'changed', 'error', 'force', 'overrides', 'move_all', 'by_jack']))
-                                        : ['installed' => false]]
+    return ['ok' => $rule['ok'], 'way' => $rule['way'], 'why' => $rule['why'], 'schedule' => $rule['schedule'], 'running' => embyMoverRunning()]
+         + ($rule['tuning'] !== null ? ['tuning' => $rule['tuning']] : [])
          + (($rule['moverelli'] ?? null) !== null ? ['moverelli' => $rule['moverelli']] : []);     // only while Ms. Moverelli is hired and set up
 }
 
@@ -468,6 +258,7 @@ function embyMoverOff(array $r, ?array $h = null, ?callable $log = null): array
     if (!is_file($bin) || !is_executable($bin)) {
         throw new Problem('emby_mover_off_failed', ['detail' => "$bin not found"]);
     }
+    ($h['note'])($own['set'], $logging);      // the first schedule switched off is the one Ms. Moverelli's let-go brings back
     [$exit, $out, $err] = run([$bin, "shareMoverSchedule=&shareMoverLogging=$logging&changeMover=Apply"], 30);
     for ($i = 0; $i < 10 && !embyMoverScheduleOff($own = embyMoverOwn($h)); $i++) {
         ($h['wait'])(300);

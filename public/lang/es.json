@@ -346,5 +346,7 @@
   "search.kind.setting": "Ajuste",
   "search.kind.help": "Explicado",
   "search.kind.guide": "Guía",
-  "search.kind.item": "Elemento"
+  "search.kind.item": "Elemento",
+  "errors.needs_colleague": "{desk} solo trabaja bajo la supervisión de {with} — contrátalos juntos, o primero a {with}.",
+  "errors.needed_by": "{by} no puede quedarse sin {desk} — despide primero a {by}."
 }

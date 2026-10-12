@@ -340,5 +340,7 @@
   "search.kind.setting": "Setting",
   "search.kind.help": "Explained",
   "search.kind.guide": "Guide",
-  "search.kind.item": "Item"
+  "search.kind.item": "Item",
+  "errors.needs_colleague": "{desk} works only under {with}'s supervision — hire them together, or {with} first.",
+  "errors.needed_by": "{by} can't stay without {desk} — let {by} go first."
 }

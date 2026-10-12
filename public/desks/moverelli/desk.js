@@ -206,6 +206,27 @@ async function moverOffDialog() {
   });
 }
 
+/**
+ * Her setup's consent while Unraid's own mover schedule is on: «Unraid's own mover will be switched off — I move from now
+ * on», the schedule it has, that her let-go brings it back. → true (agreed), false (nothing to switch off), null (cancelled)
+ */
+function moverConsent() {
+  const m = mover();
+  if (m.off) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let agreed = false;
+    const body = el('div', 'mo-consent');
+    body.append(el('p', '', T('consent.text')), el('p', 'callout', T('consent.schedule', { schedule: m.schedule ? fmt.cron(m.schedule) : '?' })),
+      el('p', 'role', T('consent.move_now')), el('p', 'role', T('consent.back')));
+    Office.dialog({
+      title: T('consent.title'),
+      body,
+      buttons: [{ text: Office.t('common.cancel') }, { text: T('consent.go'), kind: '', act: () => { agreed = true; resolve(true); return true; } }],
+      onClose: () => { if (!agreed) resolve(null); },
+    });
+  });
+}
+
 // ------------------------------------------------------------------ main view
 /*
  * Her page (tiles v2, CLAUDE.md «Tiles», 2026-10-12): a tile is a section. The row — «Schedule» (hers and Unraid's
@@ -294,6 +315,8 @@ function hints() {
   if (idle) out.push(idle);
   const j = jack();
   if (j.busy && !running()) out.push(el('p', 'callout', T('notice.jack_busy')));
+  // EmbyCache's list in her rules before EmbyCache's first run: her real runs wait for it (said here, never notified)
+  if (j.pending) out.push(el('p', 'callout', T('notice.jack_pending')));
   if ((j.uncovered || []).length) {
     const p = el('p', 'callout warn', T('notice.emby_list', { shares: j.uncovered.join(', '), file: j.list || '' }) + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
@@ -962,9 +985,12 @@ async function saveSetup() {
   });
   const g = form.global;
   const settings = { global: { ...g, patterns: g.patterns.join('\n').trim() === '' ? [] : g.patterns }, shares };
-  const j = await act('save', { settings });
+  // Unraid's own mover goes off with her setup — asked first while it is on (agent/desks/moverelli-unraid.php)
+  const consent = await moverConsent();
+  if (consent === null) return;
+  const j = await act('save', consent ? { settings, mover_off: true } : { settings });
   if (!j) return;
-  Office.toast(T('setup.saved'));
+  Office.toast(T(j.mover_off ? 'setup.saved_mover_off' : 'setup.saved'));
   form = null;
   Office.go(`#/${ID}`);
 }
@@ -1094,15 +1120,20 @@ function importPreview(p, folder) {
   if (p.running) box.appendChild(el('p', 'callout warn', T('errors.moverelli_running')));
   else if (!p.ready) box.appendChild(el('p', 'callout warn', T('errors.moverelli_import_blocked')));
   else box.appendChild(el('p', 'role', T('import.backup_note')));
+  // Unraid's own mover goes off with it, like her save: said here, the button says it too (its click is the consent)
+  const off = !mover().off;
+  if (off && p.ready && !p.running) {
+    box.appendChild(el('p', 'callout', `${T('consent.text')} ${T('consent.schedule', { schedule: mover().schedule ? fmt.cron(mover().schedule) : '?' })} ${T('consent.back')}`));
+  }
   const err = errorLine();
   box.appendChild(err);
   const buttons = [{ text: Office.t('common.cancel') }];
-  if (p.ready && !p.running && Office.agent.running) buttons.push({ text: T('import.go'), kind: '', act: () => importGo(folder, p, err) });
+  if (p.ready && !p.running && Office.agent.running) buttons.push({ text: T(off ? 'import.go_mover_off' : 'import.go'), kind: '', act: () => importGo(folder, p, err, off) });
   Office.dialog({ title: T('import.preview_title'), body: box, wide: true, buttons });
 }
 
-async function importGo(folder, p, err) {
-  const j = await Office.api.post(`${ID}.import_apply`, { folder, token: p.token });
+async function importGo(folder, p, err, moverOff) {
+  const j = await Office.api.post(`${ID}.import_apply`, moverOff ? { folder, token: p.token, mover_off: true } : { folder, token: p.token });
   if (!j.ok) { showError(err, j.error); return false; }
   if (j.state) state = j.state;
   form = null;
@@ -1128,8 +1159,71 @@ function importDone(d) {
     buttons: [{ text: Office.t('common.close'), kind: '' }], onClose: () => Office.go(`#/${ID}`) });
 }
 
+// ------------------------------------------------------------------ let go
+/**
+ * Her part of the let-go dialog (core.js Office.fireDialog → letGo; agent/desks/moverelli-unraid.php). She looks first
+ * (moverelli.letgo_look): Jack Emby still hired — she can't go, the intern never works unsupervised (the button stays
+ * off; src/staff.php refuses too); else her schedule goes off and Unraid's own mover schedule comes back as it was before
+ * her. «Let go» — while she is still hired — sends moverelli.letgo {confirm} once; afterwards a dialog says what she did.
+ */
+function letGoPart(box) {
+  const lines = el('div', 'mo-letgo');
+  box.appendChild(lines);
+  let button = null;
+  let blocked = false;
+  let sent = null;
+  const show = (j) => {
+    lines.replaceChildren(...letGoView(j).map(([cls, text]) => el('p', cls, text)));
+    blocked = !!(j && j.ok && j.jack);
+    if (button) button.disabled = blocked;
+  };
+  let looked = null;
+  if (!Office.agent.running) lines.replaceChildren(el('p', 'callout warn', T('letgo.agent_away')));
+  else {
+    lines.replaceChildren(el('p', 'role', T('letgo.looking')));
+    looked = Office.api.post(`${ID}.letgo_look`, {}).then(show, (e) => show({ ok: false, error: { key: 'internal', params: { detail: String((e && e.message) || e) } } }));
+  }
+  return {
+    looked,                      // the look under way (the tests wait for it)
+    bind(b) { button = b; if (blocked) b.disabled = true; },
+    before() {                   // once, even if «Let go» is pressed again
+      if (!sent) sent = Office.api.post(`${ID}.letgo`, { confirm: true });
+      return sent;
+    },
+    done(r) {
+      const out = letGoDoneLines(r);
+      if (!out.length) return;
+      const body = el('div');
+      out.forEach(([cls, text]) => body.appendChild(el('p', cls, text)));
+      Office.dialog({ title: T('letgo.done_title'), body, buttons: [{ text: Office.t('common.close'), kind: '' }] });
+    },
+  };
+}
+/** What her look says, as lines [class, text] (pure) */
+function letGoView(j) {
+  if (!j || !j.ok) return [['callout warn', Office.errorText((j && j.error) || { key: 'internal' }, ID)]];
+  if (j.jack) return [['callout warn', T('letgo.jack')]];
+  const out = [['', T(j.schedule || j.after ? 'letgo.sched_off' : 'letgo.sched_none')]];
+  const u = j.unraid || {};
+  if (!u.off) out.push(['role', T('letgo.unraid_on')]);
+  else if (u.back) out.push(['', T('letgo.unraid_back', { schedule: fmt.cron(u.back) })]);
+  else out.push(['role', T('letgo.unraid_stays')]);
+  return out;
+}
+/** After she was let go: what she did (pure) */
+function letGoDoneLines(r) {
+  if (!r || !r.ok) return [['callout warn', T('letgo.done_error', { error: Office.errorText((r && r.error) || { key: 'internal' }, ID) })]];
+  const out = [];
+  const u = r.unraid || {};
+  if (u.back) out.push(['', T('letgo.done_back', { schedule: fmt.cron(u.was) })]);
+  else if (u.kept) out.push(['role', T('letgo.done_kept', { schedule: fmt.cron(u.schedule) })]);
+  else if (u.error) out.push(['callout warn', T('letgo.done_back_not', { error: Office.errorText(u.error, ID) })]);
+  return out;
+}
+
 // ------------------------------------------------------------------ desk
 Office.desk({
+  letGo: letGoPart,
   id: ID,
   async mount(root, sub) {
     view = root;
@@ -1208,7 +1302,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, moverConsent, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

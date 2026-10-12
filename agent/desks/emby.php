@@ -64,9 +64,13 @@ desk('emby', [
         if (!$emby) {
             return fit(false, 'no_emby');
         }
-        // real runs only while Unraid's mover schedule is «Disabled» (emby-mover.php) — his list he enters into Mover Tuning (if any) once hired
-        $rule = embyMoverRule(false);
-        return fit(true, !$rule['ok'] && $rule['why'] !== 'tuning_list' ? 'yes_dry' : 'yes', ['name' => $emby[0]['name']]);
+        // an intern: only under Ms. Moverelli (desk.json `needs`) — she can't come, he can't either
+        if (function_exists('moverelliUnraidOk') && !moverelliUnraidOk((string) (moverelliHost()['version'])())) {
+            return fit(false, 'no_moverelli', ['name' => $emby[0]['name']]);
+        }
+        // real runs once she is set up and keeps his list out, Unraid's mover schedule «Disabled» (emby-mover.php)
+        $rule = embyMoverRule();
+        return fit(true, $rule['ok'] || $rule['why'] === 'moverelli' ? 'yes' : 'yes_dry', ['name' => $emby[0]['name']]);
     },
     'start'   => fn () => embyScan(),
     'actions' => [
@@ -172,7 +176,7 @@ function embyScan(): array
         'share_info' => embyShareInfo(),
         'pool_dirs'  => embyPoolDirs(),
         'old_clone'  => is_dir(EMBY_DATA . '/app/.git'),
-        // Unraid's mover: may real runs go (its schedule «Disabled»; Mover Tuning, if installed, with his list — entered here when it isn't), is it at work
+        // Unraid's mover: may real runs go (its schedule «Disabled», Ms. Moverelli supervising with his list kept out), is it at work
         'mover'      => embyMoverState(),
         'waiting'    => ['embycache' => embyRunWaiting('embycache'), 'gather' => embyRunWaiting('gather')],
         'letgo'      => embyLetGoNote(),       // hired again: what he switched off when he was let go (said once)
@@ -2178,7 +2182,7 @@ function embyRunCheck(string $tool, string $mode): void
     if (function_exists('moverelliBusy') && moverelliBusy()) {
         throw new Problem('emby_moverelli_running');
     }
-    // real runs only while Unraid's mover schedule is «Disabled» (emby-mover.php) — and Mover Tuning, if installed, keeps his list
+    // real runs only while Unraid's mover schedule is «Disabled» and Ms. Moverelli keeps his list out (emby-mover.php)
     if ($mode === 'run' && ($p = embyMoverProblem(embyMoverRule()))) {
         throw $p;
     }
@@ -2794,31 +2798,23 @@ function embyActiveText(string $text): string
 // ===================================================================== checks (for the caretaker)
 
 /**
- * The Team Lead's point about the mover: `mover` (Unraid's own schedule must be «Disabled» — his page has the switch;
- * ok once it is and nothing of Mover Tuning's takes his files), else, with Unraid's schedule off, what keeps Mover
- * Tuning's own schedule from leaving his files alone: `mover_tuning` (his list couldn't be entered), `mover_force` (its
- * forced move on a schedule), `mover_override` (a share's override). Required: without it no real run goes. Links his
- * page.
+ * The Team Lead's point about the mover: `mover` (Unraid's own schedule must be «Disabled» — Ms. Moverelli switches it
+ * off with her setup), `mover_moverelli_setup` (she isn't set up yet), `mover_moverelli` (her ini doesn't keep his list
+ * out for these shares), `mover_tuning_schedule` (Mover Tuning moves on a schedule of its own). Required: without it no
+ * real run goes. Links his page — hers for what she must do.
  */
 function embyMoverFinding(array $rule): array
 {
     $id = match ($rule['why']) {
-        'tuning_list'     => 'mover_tuning',
-        'tuning_force'    => 'mover_force',
-        'tuning_override' => 'mover_override',
+        'moverelli'       => 'mover_moverelli_setup',
         'moverelli_list'  => 'mover_moverelli',
+        'tuning_schedule' => 'mover_tuning_schedule',
         default           => 'mover',
     };
-    $t = $rule['tuning'];
     return finding($id, 'required', $rule['ok'], array_filter([
-        'file'     => $id === 'mover_tuning' ? (string) ($t['file'] ?? '') : null,
-        'detail'   => $id === 'mover_tuning' ? (string) ($t['error'] ?? '') : null,
-        'shares'   => match ($id) {
-            'mover_override'  => implode(', ', $t['overrides'] ?? []),
-            'mover_moverelli' => implode(', ', $rule['moverelli']['uncovered'] ?? []),
-            default           => null,
-        },
-    ], fn ($v) => $v !== null), '#/emby');
+        'shares'   => $id === 'mover_moverelli' ? implode(', ', $rule['moverelli']['uncovered'] ?? []) : null,
+        'schedule' => $id === 'mover_tuning_schedule' ? (string) ($rule['tuning']['cron'] ?? '') : null,
+    ], fn ($v) => $v !== null), in_array($id, ['mover_moverelli_setup', 'mover_moverelli'], true) ? '#/moverelli/setup' : '#/emby');
 }
 
 function embyChecks(): array

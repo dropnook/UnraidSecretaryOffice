@@ -529,7 +529,12 @@ function paintAsOf(desk, node) {
 Office.lastError = {};
 Office.errorText = function errorText(error, desk) {
   if (!error) return t('errors.internal', { detail: '?' });
-  const params = error.params || {};
+  let params = error.params || {};
+  // the hire rules name desks by id (src/staff.php: desk, with, by) — said with their names
+  if (['in_training', 'needs_colleague', 'needed_by'].includes(error.key)) {
+    params = { ...params };
+    for (const k of ['desk', 'with', 'by']) if (typeof params[k] === 'string' && Office.has(`${params[k]}.name`)) params[k] = t(`${params[k]}.name`);
+  }
   if (typeof error.key === 'string' && !/^report_/.test(error.key)) {
     Office.lastError[desk || 'office'] = { key: error.key, params, at: Math.floor(Date.now() / 1000) };
   }

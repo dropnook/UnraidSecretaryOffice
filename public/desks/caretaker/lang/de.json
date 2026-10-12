@@ -519,5 +519,6 @@
   "partner.hire_backupsy": "Herrn Backupsi einstellen",
   "partner.need_restori": "Um hier von einer Kopie zu starten, braucht es Herrn Restori.",
   "partner.hire_restori": "Herrn Restori einstellen",
-  "partner.i_keep_start": "Herr Restori kann von diesen Kopien starten («Für {name} aufbewahrt» auf seiner Seite) — die Kopie einer VM oder App trägt seit Engine 2.43 ihre Konfiguration in sich; ältere Kopien nicht."
+  "partner.i_keep_start": "Herr Restori kann von diesen Kopien starten («Für {name} aufbewahrt» auf seiner Seite) — die Kopie einer VM oder App trägt seit Engine 2.43 ihre Konfiguration in sich; ältere Kopien nicht.",
+  "needs_away": "{name} käme gern — aber nur unter der Aufsicht von {with}, und sie kann hier nicht kommen."
 }

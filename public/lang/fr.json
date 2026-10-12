@@ -346,5 +346,7 @@
   "search.kind.setting": "Réglage",
   "search.kind.help": "Expliqué",
   "search.kind.guide": "Guide",
-  "search.kind.item": "Élément"
+  "search.kind.item": "Élément",
+  "errors.needs_colleague": "{desk} ne travaille que sous l'encadrement de {with} — embauche-les ensemble, ou {with} d'abord.",
+  "errors.needed_by": "{by} ne peut pas rester sans {desk} — congédie d'abord {by}."
 }

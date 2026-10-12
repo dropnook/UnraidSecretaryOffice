@@ -1668,8 +1668,8 @@ function testEmbyImport(): void
 
 /**
  * Letting Jack Emby go (2026-10-09; agent/desks/emby-letgo.php): both schedules off — always, no tick — his lines
- * only (Mr. Backupsy's stays); the look (what is on the pool, a run going, someone watching, Mover Tuning named — read
- * only); emby.letgo needs `confirm` and `release` said, is refused for an unhired Jack (the hired gate) and changes
+ * only (Mr. Backupsy's stays); the look (what is on the pool, a run going, someone watching — read only; Mover Tuning is
+ * never his business any more, 2026-10-12); emby.letgo needs `confirm` and `release` said, is refused for an unhired Jack (the hired gate) and changes
  * nothing then; the tick's release handed to atd as `job embycache release --letgo` — refused while a run is going or
  * someone watches (his list of runs says so); the note for his page when hired again, said once; EmbyCache's own
  * `--release` on a fixture tree (everything on the list back the cleanup's way, a duplicate stays and stays listed,
@@ -1690,28 +1690,23 @@ function testEmbyLetGo(): void
     officeJobSetSchedule('backup', '0 2 * * *', $cron, false);
     officeJobSetSchedule('embycache', '15 * * * *', $cron, false);
     officeJobSetSchedule('gather', '0 3 * * 0', $cron, false);
-    // Mover Tuning's cfg as its page writes it (2026.10.03: filelistf «Yes», filelistv the file)
-    $tuningText = "moverDisabled=\"no\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt\"\n";
-    file_put_contents("$tmp/tuning.cfg", $tuningText);
-    $lists = ['/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt', "$dir/embycache_exclude.txt"];
     $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
     $W = ['state' => 'watching', 'who' => [['user' => 'anna', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
     $running = null;
     $look = ['state' => 'free', 'who' => []];
     $launched = [];
-    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir, 'tuning' => "$tmp/tuning.cfg", 'lists' => fn () => $lists,
+    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir,
         'settings' => function () use (&$settings) { return $settings; }, 'running' => function () use (&$running) { return $running; },
         'waiting' => fn () => false, 'look' => function () use (&$look) { return $look; }, 'python' => fn () => true,
         'launch' => function (string $job, array $args) use (&$launched) { $launched[] = [$job, $args]; },
         'mover_off' => function () use (&$moverOff) { return $moverOff; }];
     $moverOff = true;
 
-    // the look: his two schedules, what lies on the pool (only what is there, under the pool), Mover Tuning naming his list
+    // the look: his two schedules, what lies on the pool (only what is there, under the pool); nothing of Mover Tuning
     $l = embyLetGoLook();
-    same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, Mover Tuning names his list',
-        [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []],
-         ['there' => true, 'listed' => true, 'key' => 'filelistv', 'file' => '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt']],
-        [$l['schedules'], $l['running'], $l['pool'], $l['release'], $l['mover_tuning']]);
+    same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, no Mover Tuning',
+        [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []], false],
+        [$l['schedules'], $l['running'], $l['pool'], $l['release'], array_key_exists('mover_tuning', $l)]);
     $moverOff = false;
     same('let Jack go: the look says whether Unraid\'s mover schedule is off (it stays so — the dialog says where to switch it on)', [true, false],
         [$l['mover_off'], embyLetGoLook()['mover_off']]);
@@ -1730,12 +1725,6 @@ function testEmbyLetGo(): void
     $settings = null;
     same('let Jack go: never set up — nothing to bring back', ['emby_not_configured', 0], [embyLetGoLook()['release']['why'], embyLetGoLook()['pool']['files']]);
     $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
-    file_put_contents("$tmp/tuning-off.cfg", "filelistf=\"no\"\nfilelistv=\"{$lists[0]}\"\n");
-    file_put_contents("$tmp/tuning-other.cfg", "filelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/mover_ignore.txt\"\n");
-    same('let Jack go: Mover Tuning without his list (none, switched off, another file) / not installed',
-        [['there' => true, 'listed' => false], ['there' => true, 'listed' => false], ['there' => true, 'listed' => false], ['there' => false, 'listed' => false]],
-        [embyLetGoTuning("$tmp/office.cron", $lists), embyLetGoTuning("$tmp/tuning-off.cfg", $lists), embyLetGoTuning("$tmp/tuning-other.cfg", $lists), embyLetGoTuning("$tmp/none.cfg", $lists)]);
-    check('let Jack go: Mover Tuning\'s cfg only read by the look', md5_file("$tmp/tuning.cfg") === md5($tuningText));
 
     // through the agent's dispatch: the hired gate, then the request's shape — and nothing changed by a refusal
     $staffBefore = $GLOBALS['agentStaffFile'] ?? null;
@@ -1768,28 +1757,7 @@ function testEmbyLetGo(): void
     same('let Jack go again with nothing on: nothing to switch off, the earlier note not yet shown stays', [[], ['embycache', 'gather']],
         [$r['off'] ?? null, embyLetGoNote($dir)['off'] ?? null]);
     same('let Jack go: hired again, his page said it — said once', [['ok' => true], null], [embyLetGoSeen($dir), embyLetGoNote($dir)]);
-    check('let Jack go: without `unlist` (a page from before) Mover Tuning stays as it is', md5_file("$tmp/tuning.cfg") === md5($tuningText)
-        && array_key_exists('unlist', $r) && $r['unlist'] === null);
-    check('let Jack go: a let-go a moment ago keeps his enforcing away (the look between the let-go and «fire»)', embyLetGoRecent($dir));
-
-    // the second tick: his list out of Mover Tuning again — back to what was there before his first change, every other line kept
-    file_put_contents("$dir/office-mover.json", json_encode(['v' => 1, 'entered' => 1, 'last' => 1, 'times' => 1, 'file' => $lists[0],
-        'before' => ['filelistf' => 'yes', 'filelistv' => '/mnt/user/Files/mover_ignore.txt']]));
-    file_put_contents("$tmp/tuning.cfg", "# a comment of the user's\n" . $tuningText);
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
-    same('let Jack go with «take my list out»: done, the user\'s own list back, the comment and every other line kept, his note gone',
-        [['done' => true, 'to' => ['filelistf' => 'yes', 'filelistv' => '/mnt/user/Files/mover_ignore.txt']],
-         "# a comment of the user's\nmoverDisabled=\"no\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/mover_ignore.txt\"\n", false],
-        [$r['unlist'] ?? null, file_get_contents("$tmp/tuning.cfg"), file_exists("$dir/office-mover.json")]);
-    file_put_contents("$tmp/tuning.cfg", $tuningText);
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
-    same('let Jack go with «take my list out», nothing known of before: «No», no file', [['filelistf' => 'no', 'filelistv' => ''], "moverDisabled=\"no\"\nfilelistf=\"no\"\nfilelistv=\"\"\n"],
-        [$r['unlist']['to'] ?? null, file_get_contents("$tmp/tuning.cfg")]);
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => true]));
-    same('let Jack go with «take my list out» when it isn\'t there: said, nothing written', [false, 'emby_letgo_unlisted', "moverDisabled=\"no\"\nfilelistf=\"no\"\nfilelistv=\"\"\n"],
-        [$r['unlist']['done'] ?? null, $r['unlist']['error']['key'] ?? null, file_get_contents("$tmp/tuning.cfg")]);
-    same('let Jack go: `unlist` must be a bool when said', 'bad_request', $ask(['action' => 'emby.letgo', 'confirm' => true, 'release' => false, 'unlist' => 'yes']));
-    file_put_contents("$tmp/tuning.cfg", $tuningText);
+    same('let Jack go: the answer says nothing of Mover Tuning', false, array_key_exists('unlist', $r));
     check('let Jack go: a schedule switched on again also ends the note', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'),
         "if (\$cron !== null) {\n        embyLetGoSeen();"));
 
@@ -1918,11 +1886,11 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
 (async () => {
   const out = {};
   const look = { ok: true, schedules: { embycache: '15 * * * *', gather: null }, running: null, waiting: false, pool: { files: 2, bytes: 8000, pool: '/mnt/maple' },
-    release: { ok: true, why: null, params: {} }, mover_tuning: { there: true, listed: true, key: 'filelistf', file: '/x/embycache_exclude.txt' } };
+    release: { ok: true, why: null, params: {} } };
   out.view = e.letGoView(look);
-  out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} }, mover_tuning: { there: false } });
+  out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
   out.watching = e.letGoView({ ...look, release: { ok: false, why: 'emby_release_watching', params: { who: [{ user: 'anna', title: 'Alien', device: 'iPad' }] } } });
-  out.nothing = e.letGoView({ ...look, schedules: { embycache: null, gather: null }, pool: { files: 0, bytes: 0 }, release: { ok: false, why: 'emby_letgo_nothing', params: {} }, mover_tuning: { there: false } });
+  out.nothing = e.letGoView({ ...look, schedules: { embycache: null, gather: null }, pool: { files: 0, bytes: 0 }, release: { ok: false, why: 'emby_letgo_nothing', params: {} } });
   out.mover_off = e.letGoView({ ...look, mover_off: true }).more;
   // the part: looks at once; the tick off by default; ticked — «Let go and bring back»; before() once, with confirm and release
   answer = (a) => (a === 'emby.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
@@ -1948,23 +1916,8 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   await p2.looked;
   await p2.before();
   out.untickedSent = posts[1];
-  // the second tick: shown and on when Mover Tuning names his list; unticked — unlist false; not listed — hidden, never asked
-  posts.length = 0;
-  const box5 = mk('div');
-  const p5 = e.letGoPart(box5);
-  await p5.looked;
-  const l2 = box5.children[0].children[3];
-  const shown = [l2.hidden, l2.children[0].checked, l2.children[1].text, l2.children[1].children[0].textContent];
-  l2.children[0].checked = false;
-  await p5.before();
-  const sentUnticked = posts[1];
-  answer = (a) => (a === 'emby.letgo_look' ? { ...look, mover_tuning: { there: true, listed: false } } : { ok: true });
-  const box6 = mk('div');
-  const p6 = e.letGoPart(box6);
-  await p6.looked;
-  out.unlistTick = [...shown, sentUnticked, box6.children[0].children[3].hidden];
-  answer = (a) => (a === 'emby.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
-    release: { started: true, files: 2, bytes: 8000 } });
+  // no second tick any more (Mover Tuning is never his): the part has the lines, the tick and what is below it
+  out.parts = box.children[0].children.length;
   // busy: the tick there but can't be ticked; «Let go» stays «Let go»
   answer = () => ({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
   const box3 = mk('div');
@@ -1987,9 +1940,6 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
     release: { started: false, error: { key: 'emby_release_watching', params: { who: [{ user: 'anna' }] } } } });
   out.doneLeft = e.letGoDoneLines({ ok: true, was: { embycache: '15 * * * *', gather: null }, off: [], left: ['embycache'], failed: { key: 'command_failed' }, running: null, release: null });
   out.doneNone = e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null });
-  out.doneUnlist = [e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null, unlist: { done: true } }),
-    e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null,
-      unlist: { done: false, error: { key: 'emby_letgo_unlisted' } } })];
   out.doneErr = e.letGoDoneLines({ ok: false, error: { key: 'agent_away' } });
   // hired again: the note, said once (letgo_seen posted once), kept this visit, gone when the schedules are on again
   posts.length = 0;
@@ -2018,28 +1968,26 @@ JS);
         hardeningRm($tmp);
         return;
     }
-    same('let Jack go: the look\'s lines — the schedules switched off; the tick there and free; its hint; without it they stay, Mover Tuning named, settings stay', [
+    same('let Jack go: the look\'s lines — the schedules switched off; the tick there and free; its hint; without it they stay, settings stay', [
         'lines' => [['', 'letgo.sched_off {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}']], 'tick' => true, 'tickable' => true,
         'hint' => 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}',
-        'more' => [['role', 'letgo.tick_off'], ['role', 'letgo.stays']], 'unlist' => true, 'file' => '/x/embycache_exclude.txt'], $o['view']);
-    same('let Jack go: a run going — it finishes (said), the tick waits, Mover Tuning in general words',
-        [['callout', 'letgo.running.gather'], false, true, [['callout warn', 'letgo.release_busy'], ['role', 'letgo.tick_off'], ['role', 'letgo.stays']], false],
-        [$o['busy']['lines'][1] ?? null, $o['busy']['tickable'], $o['busy']['tick'], $o['busy']['more'], $o['busy']['unlist']]);
+        'more' => [['role', 'letgo.tick_off'], ['role', 'letgo.stays']]], $o['view']);
+    same('let Jack go: a run going — it finishes (said), the tick waits',
+        [['callout', 'letgo.running.gather'], false, true, [['callout warn', 'letgo.release_busy'], ['role', 'letgo.tick_off'], ['role', 'letgo.stays']]],
+        [$o['busy']['lines'][1] ?? null, $o['busy']['tickable'], $o['busy']['tick'], $o['busy']['more']]);
     same('let Jack go: someone watches — who, and the gentler way', [['callout warn', 'letgo.watching'], ['who', [['user' => 'anna', 'title' => 'Alien', 'device' => 'iPad']]]],
         array_slice($o['watching']['more'], 0, 2));
     same('let Jack go: nothing on, nothing on the pool — no tick, said so', [[['', 'letgo.sched_none'], ['role', 'letgo.nothing']], false, '', [['role', 'letgo.stays']]],
         [$o['nothing']['lines'], $o['nothing']['tick'], $o['nothing']['hint'], $o['nothing']['more']]);
-    same('let Jack go: Unraid\'s mover schedule off — one line: it stays off, where it is switched on again', [['role', 'letgo.tick_off'], ['role', 'letgo.stays'], ['role', 'letgo.mover_stays']],
+    same('let Jack go: Unraid\'s mover schedule off — one line: it stays off, Ms. Moverelli moves and brings it back', [['role', 'letgo.tick_off'], ['role', 'letgo.stays'], ['role', 'letgo.mover_stays']],
         $o['mover_off'] ?? null);
     same('let Jack go: the part looks at once; the tick shown, off by default, «Let go» as always', [false, false, false, 'office.fire', ['emby.letgo_look'], true,
         ['letgo.tick', 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}']], $o['start']);
     same('let Jack go: ticked — «Let go and bring back»', 'letgo.button', $o['ticked']);
-    same('let Jack go: before() once — schedules off, the release and his list out of Mover Tuning (on by default), with confirm',
-        [[['emby.letgo', ['confirm' => true, 'release' => true, 'unlist' => true]]], true, true], $o['sent']);
-    same('let Jack go: unticked — schedules off and his list out of Mover Tuning', ['emby.letgo', ['confirm' => true, 'release' => false, 'unlist' => true]], $o['untickedSent']);
-    same('let Jack go: the second tick shown (Mover Tuning names his list), on, its hint names the file; taken off — not asked',
-        [false, true, 'letgo.unlist', 'letgo.unlist_hint {"file":"/x/embycache_exclude.txt"}', ['emby.letgo', ['confirm' => true, 'release' => false, 'unlist' => false]], true],
-        $o['unlistTick']);
+    same('let Jack go: before() once — schedules off and the release, with confirm',
+        [[['emby.letgo', ['confirm' => true, 'release' => true]]], true, true], $o['sent']);
+    same('let Jack go: unticked — schedules off only', ['emby.letgo', ['confirm' => true, 'release' => false]], $o['untickedSent']);
+    same('let Jack go: no second tick — the lines, the tick, what is below it', 3, $o['parts']);
     same('let Jack go: a run going — the tick can\'t be ticked, «Let go» stays', [false, true, 'office.fire'], $o['busyPart']);
     same('let Jack go: the agent away — no look, said that the schedules can\'t be switched off', [0, ['letgo.agent_away']], $o['away']);
     same('let Jack go: done — what went off, the run that finishes, the release started', [
@@ -2050,8 +1998,6 @@ JS);
         ['callout warn', 'letgo.done_still {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}'], ['role', 'letgo.done_hire']], $o['doneLeft']);
     same('let Jack go: done — nothing on, nothing asked: no dialog; the request failed: said, still running', [[], [['callout warn', 'letgo.done_error {"error":"err:emby:agent_away"}'], ['role', 'letgo.done_hire']]],
         [$o['doneNone'], $o['doneErr']]);
-    same('let Jack go: done — his list out of Mover Tuning, or why not', [[['', 'letgo.done_unlisted']],
-        [['callout warn', 'letgo.done_unlist_not {"error":"err:emby:emby_letgo_unlisted"}']]], $o['doneUnlist']);
     same('let Jack go: hired again — the note once (seen posted once), kept this visit, a button per schedule still off; gone when they are on',
         ['letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
          ['schedule_title.embycache', 'schedule_title.gather'], 'letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
@@ -2062,20 +2008,18 @@ JS);
 }
 
 /**
- * Jack Emby and Unraid's mover (agent/desks/emby-mover.php, 2026-10-09): real runs only while Unraid's mover schedule
- * is «Disabled» (share.cfg empty, no mover.cron line) or Mover Tuning ignores his list — entered by him (the real
- * 2026.10.03 cfg as fixtures: a fresh install's and its default.cfg, which has no last newline), every other line and
- * comment kept, a backup next to it once, again after it was taken out; what still lets the mover take his files (Unraid's
- * own schedule beside it from 7.2.1 on, its forced move, a share's override); the refusals' words; the mover at work (pid
- * file, processes — not his own run's move); the scheduled wait and the refusal from the page; the stop mid-run (EmbyCache
- * stops after the file it is on, fixture tree, an rsync stand-in that starts «the mover» after the first file); the
- * notification; a scheduled refusal counted, not repeated; his page under node.
+ * Jack Emby and Unraid's mover (agent/desks/emby-mover.php; 2026-10-12: an intern, only under Ms. Moverelli): real runs
+ * only while Unraid's mover schedule is «Disabled» (share.cfg empty, no mover.cron line), Ms. Moverelli is set up and
+ * her ini keeps his list out, and Mover Tuning has no schedule of its own — never a Mover Tuning way any more; the
+ * refusals' words; the switch-off notes the schedule it had (for her let-go); the mover at work (pid file, processes —
+ * not his own run's move); the scheduled wait and the refusal from the page; the stop mid-run (EmbyCache stops after the
+ * file it is on, fixture tree, an rsync stand-in that starts «the mover» after the first file); the notification; a
+ * scheduled refusal counted, not repeated; his page under node.
  */
 function testEmbyMover(): void
 {
     $tmp = hardeningTmp('embymover');
-    $fx = OFFICE_DIR . '/tests/fixtures/movertuning';
-    foreach (["$tmp/data", "$tmp/tuning/shareOverrideConfig", "$tmp/dynamix", "$tmp/proc"] as $d) {
+    foreach (["$tmp/data", "$tmp/tuning", "$tmp/dynamix", "$tmp/proc"] as $d) {
         mkdir($d, 0700, true);
     }
     $list = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
@@ -2083,13 +2027,18 @@ function testEmbyMover(): void
     $hired = true;
     $shares = ['Filme', 'Serien'];
     $waited = [];
+    // Ms. Moverelli set up, her ini keeping his list out for all shares; Mover Tuning without a schedule of its own
+    $look = ['global' => [$list], 'shares' => []];
+    $tuning = null;
+    $notes = [];
     $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'tuning_dir' => "$tmp/tuning",
         'installed' => function () use (&$installed) { return $installed; },
         'lists' => fn () => [$list, "$tmp/data/embycache_exclude.txt"], 'dir' => "$tmp/data", 'shares' => function () use (&$shares) { return $shares; },
         'hired' => function () use (&$hired) { return $hired; }, 'pid' => "$tmp/mover.pid", 'proc' => "$tmp/proc",
+        'moverelli' => function () use (&$look) { return $look; }, 'tuning' => function () use (&$tuning) { return $tuning; },
+        'note' => function (string $was, string $logging) use (&$notes) { $notes[] = [$was, $logging]; },
         // never Unraid's own emcmd: a stand-in (below), var.ini of the test's own, no real waiting
         'var_ini' => "$tmp/var.ini", 'emcmd' => "$tmp/emcmd", 'wait' => function (int $ms) use (&$waited) { $waited[] = $ms; }];
-    $cfg = "$tmp/tuning/ca.mover.tuning.cfg";
     $daily = "# Generated mover schedule:\n40 3 * * * /usr/local/sbin/mover start > /dev/null 2> >(logger -t move)\n\n";
 
     // way 1: Unraid's own schedule — as Unraid 7.3.3 writes it (a test server: «Daily» writes mover.cron, «Disabled» empties the key, deletes the file)
@@ -2102,127 +2051,50 @@ function testEmbyMover(): void
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
     @unlink("$tmp/dynamix/mover.cron");
     $r = embyMoverRule();
-    same('mover: «Disabled» — real runs go', [true, 'disabled', null, null], [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)]);
+    same('mover: «Disabled», Ms. Moverelli keeping his list out — real runs go her way', [true, 'moverelli', null, null], [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)]);
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     same('mover: the key empty but the cron line still there — it runs: no', [false, 'schedule'], [embyMoverRule()['ok'], embyMoverRule()['why']]);
     file_put_contents("$tmp/dynamix/mover.cron", "# Generated mover schedule:\n# 40 3 * * * /usr/local/sbin/mover start\n");
     same('mover: a commented line doesn\'t run', true, embyMoverRule()['ok']);
     @unlink("$tmp/dynamix/mover.cron");
 
-    // Mover Tuning (optional, Unraid's schedule off) — not hired: read only, nothing written
-    $installed = true;
-    $fresh = (string) file_get_contents("$fx/ca.mover.tuning.fresh.cfg");
-    file_put_contents($cfg, $fresh);
-    $hired = false;
+    // Mover Tuning is no way for him any more (2026-10-12): only a schedule of its own counts — it would carry his films back
+    $tuning = ['file' => 'mover.tuning.cron', 'cron' => '0 5 * * 0'];
     $r = embyMoverRule();
-    same('mover: Mover Tuning installed, his list not there, not hired — not entered, why', [false, 'tuning_list', $fresh, false],
-        [$r['ok'], $r['why'], file_get_contents($cfg), file_exists($cfg . EMBY_TUNING_BACKUP)]);
-    $hired = true;
-    $r = embyMoverRule();
-    same('mover: hired — his list entered (the fresh install\'s cfg), real runs go (Unraid\'s schedule off), said changed', [true, 'disabled', true, true, $list],
-        [$r['ok'], $r['way'], $r['tuning']['listed'], $r['tuning']['changed'], $r['tuning']['file']]);
-    same('mover: … written like its page: every line kept, the two keys added at the end', $fresh . "filelistf=\"yes\"\nfilelistv=\"$list\"\n", file_get_contents($cfg));
-    same('mover: … the cfg as it was next to it', $fresh, file_get_contents($cfg . EMBY_TUNING_BACKUP));
-    $note = readJson("$tmp/data/" . EMBY_MOVER_NOTE);
-    same('mover: … his note: what was there before (nothing), the file, once', [1, ['filelistf' => null, 'filelistv' => null], $list, 1],
-        [$note['v'] ?? null, $note['before'] ?? null, $note['file'] ?? null, $note['times'] ?? null]);
-    $r = embyMoverRule();
-    same('mover: looked again — nothing to change', [true, false], [$r['ok'], $r['tuning']['changed']]);
-    check('mover: Mover Tuning reads it as age_mover does (first value) and as Unraid\'s page does (parse_ini: last)',
-        (parse_ini_file($cfg)['filelistv'] ?? null) === $list && (parse_ini_file($cfg)['filelistf'] ?? null) === 'yes');
-
-    // taken out or changed by the user → entered again; the backup stays the first one; the note keeps what was there first
-    $text = (string) file_get_contents($cfg);
-    file_put_contents($cfg, str_replace("filelistv=\"$list\"", 'filelistv="/mnt/user/Files/mover_ignore.txt"', $text));
-    $r = embyMoverRule();
-    same('mover: changed to another file — entered again', [true, true, $text], [$r['ok'], $r['tuning']['changed'], file_get_contents($cfg)]);
-    same('mover: … the backup is still the first one, the note counts, keeps what was there before his first change', [$fresh, 2, null],
-        [file_get_contents($cfg . EMBY_TUNING_BACKUP), readJson("$tmp/data/" . EMBY_MOVER_NOTE)['times'] ?? null, readJson("$tmp/data/" . EMBY_MOVER_NOTE)['before']['filelistv']]);
-    file_put_contents($cfg, str_replace('filelistf="yes"', 'filelistf="no"', $text));
-    same('mover: switched off («No») — entered again', [true, $text], [embyMoverRule()['ok'], file_get_contents($cfg)]);
-
-    // the plugin's default.cfg (every key, no last newline), comments, CRLF, a key twice: only those lines change
-    @unlink("$tmp/data/" . EMBY_MOVER_NOTE);
-    @unlink($cfg . EMBY_TUNING_BACKUP);
-    $def = "# kept as it is\r\n" . (string) file_get_contents("$fx/ca.mover.tuning.default.cfg");
-    $def = str_replace("\n", "\r\n", str_replace("\r\n", "\n", $def)) . "\r\nfilelistv=\"/old/twice.txt\"";
-    file_put_contents($cfg, $def);
-    embyMoverRule();
-    $got = (string) file_get_contents($cfg);
-    $want = str_replace(['filelistf="no"', 'filelistv=""', 'filelistv="/old/twice.txt"'], ['filelistf="yes"', "filelistv=\"$list\"", "filelistv=\"$list\""], $def);
-    same('mover: default.cfg with a comment, CRLF and filelistv twice — those lines only, in place, CRLF kept', $want, $got);
-    same('mover: … his note keeps the first values there were', ['filelistf' => 'no', 'filelistv' => ''], readJson("$tmp/data/" . EMBY_MOVER_NOTE)['before'] ?? null);
-
-    // Mover Tuning is no way around Unraid's own schedule (2026-10-09): its list in place, Unraid's schedule on — no
-    file_put_contents("$tmp/dynamix/mover.cron", $daily);
-    $r = embyMoverRule();
-    same('mover: Mover Tuning with his list plus Unraid\'s own schedule — no, the one refusal: switch it off', [false, 'schedule', 'emby_mover_schedule', true],
-        [$r['ok'], $r['why'], embyMoverProblem($r)?->key, $r['tuning']['listed']]);
-    @unlink("$tmp/dynamix/mover.cron");
-    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"40 3 * * *\"\n");
-    same('mover: … the key set while Mover Tuning renamed mover.cron away (its install) — still no (emhttpd writes it again)', 'schedule', embyMoverRule()['why']);
-    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
-    // with Unraid's schedule off, what keeps Mover Tuning's own schedule from leaving his files alone
-    $base = (string) file_get_contents($cfg);
-    file_put_contents($cfg, str_replace('force="no"', 'force="yes"', $base));
-    same('mover: «Force move all files on a schedule» said yes, but no schedule file — fine', true, embyMoverRule()['ok']);
-    file_put_contents("$tmp/tuning/mover.cron", "# Generated schedule for forced move:\n0 5 * * 0 /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start |& logger -t move\n");
-    $r = embyMoverRule();
-    same('mover: … with its schedule — Unraid\'s mover by force: no', [false, 'tuning_force'], [$r['ok'], $r['why']]);
-    file_put_contents($cfg, $base);
-    @unlink("$tmp/tuning/mover.cron");
-    $ov = "$tmp/tuning/shareOverrideConfig/Filme.cfg";
-    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"no\"\nfilelistv=\"\"\n");
-    $r = embyMoverRule();
-    same('mover: an override of one of his shares says «No» — no, the share named', [false, 'tuning_override', ['Filme'], ['shares' => 'Filme']],
-        [$r['ok'], $r['why'], $r['tuning']['overrides'], embyMoverProblem($r)?->params]);
-    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"yes\"\nfilelistv=\"/mnt/user/Files/other.txt\"\n");
-    same('mover: … «Yes» with another file — no', 'tuning_override', embyMoverRule()['why']);
-    foreach (["moverOverride=\"yes\"\nfilelistf=\"\"\n" => '«Use global»', "moverOverride=\"no\"\nfilelistf=\"no\"\n" => 'the override switched off',
-              "moverOverride=\"yes\"\nfilelistf=\"yes\"\nfilelistv=\"$list\"\n" => 'his own list'] as $text => $what) {
-        file_put_contents($ov, $text);
-        same("mover: an override with $what — fine", true, embyMoverRule()['ok']);
-    }
-    file_put_contents("$tmp/tuning/shareOverrideConfig/Musik.cfg", "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
-    same('mover: an override of a share that isn\'t his — fine', true, embyMoverRule()['ok']);
-    file_put_contents($cfg, str_replace(['omovercfg="no"', 'omoverthresh=""'], ['omovercfg="yes"', 'omoverthresh="90"'], $base));
-    $r = embyMoverRule();
-    same('mover: Mover Tuning\'s «Move All» from 90 % — said, not refused', [true, '90'], [$r['ok'], $r['tuning']['move_all']]);
-    file_put_contents($cfg, $base);
-
-    // a cfg he can't write: a link — refused, said; a let-go a moment ago — not entered
-    @unlink($cfg);
-    symlink("$tmp/elsewhere.cfg", $cfg);
-    file_put_contents("$tmp/elsewhere.cfg", $fresh);
-    $r = embyMoverRule();
-    same('mover: the cfg a link — not written through it, refused with why', [false, 'tuning_list', $fresh, 'emby_mover_tuning_list', $list],
-        [$r['ok'], $r['why'], file_get_contents("$tmp/elsewhere.cfg"), embyMoverProblem($r)?->key, embyMoverProblem($r)?->params['file'] ?? null]);
-    unlink($cfg);
-    file_put_contents($cfg, $fresh);
-    file_put_contents("$tmp/data/" . EMBY_LETGO_NOTE, json_encode(['time' => time(), 'at' => time(), 'off' => [], 'shown' => false]));
-    same('mover: let go a moment ago — not entered again meanwhile', [false, $fresh], [embyMoverRule()['ok'], file_get_contents($cfg)]);
-    file_put_contents("$tmp/data/" . EMBY_LETGO_NOTE, json_encode(['time' => time() - 4000, 'at' => time() - 4000, 'off' => [], 'shown' => true]));
-    same('mover: … an hour later (hired again) — entered', true, embyMoverRule()['ok']);
-    @unlink("$tmp/tuning/shareOverrideConfig/Musik.cfg");
+    same('mover: Mover Tuning with a schedule of its own — no, why, its time (refusal)', [false, null, 'tuning_schedule', 'emby_mover_tuning_schedule', ['schedule' => '0 5 * * 0']],
+        [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)?->key, embyMoverProblem($r)?->params]);
+    $tuning = null;
+    check('mover: no Mover Tuning way left in his code (no list entered, no override, no forced-move look)',
+        !preg_match('/embyTuning(Look|Write|Set|Overrides)|filelistv|tuning_list|tuning_force|tuning_override/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby-mover.php')
+            . file_get_contents(OFFICE_DIR . '/agent/desks/emby-letgo.php') . file_get_contents(OFFICE_DIR . '/agent/desks/emby.php')));
 
     // the Team Lead's point, the page's state
     $ids = [];
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     $ids[] = embyMoverFinding(embyMoverRule());
     @unlink("$tmp/dynamix/mover.cron");
-    file_put_contents($ov, "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
+    $tuning = ['file' => 'mover.tuning.cron', 'cron' => '0 5 * * 0'];
     $ids[] = embyMoverFinding(embyMoverRule());
-    @unlink($ov);
+    $tuning = null;
+    $look = null;
     $ids[] = embyMoverFinding(embyMoverRule());
-    $installed = false;
+    $look = ['global' => [$list], 'shares' => []];
+    $ids[] = embyMoverFinding(embyMoverRule());
+    same('mover: the Team Lead\'s point — what is missing (Unraid\'s schedule, Mover Tuning\'s, Ms. Moverelli not set up), required, whose page',
+        [['mover', false, [], '#/emby'], ['mover_tuning_schedule', false, ['schedule' => '0 5 * * 0'], '#/emby'], ['mover_moverelli_setup', false, [], '#/moverelli/setup'],
+         ['mover', true, [], '#/emby']],
+        array_map(fn ($f) => [$f['id'], $f['ok'], $f['params'], $f['link']], $ids));
+    check('mover: … required', !array_filter($ids, fn ($f) => $f['level'] !== 'required'));
+    $look = null;
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
-    $ids[] = embyMoverFinding(embyMoverRule());
-    same('mover: the Team Lead\'s point — what is missing, required, his page',
-        [['mover', false, []], ['mover_override', false, ['shares' => 'Filme']], ['mover', true, []], ['mover', false, []]],
-        array_map(fn ($f) => [$f['id'], $f['ok'], $f['params']], $ids));
-    check('mover: … required, linking his page', !array_filter($ids, fn ($f) => $f['level'] !== 'required' || $f['link'] !== '#/emby'));
     $st = embyMoverState(embyMoverRule());
-    same('mover: his page\'s state without Mover Tuning', ['ok' => false, 'way' => null, 'why' => 'schedule', 'schedule' => '0 */4 * * *', 'running' => false, 'tuning' => ['installed' => false]], $st);
+    same('mover: his page\'s state — Unraid\'s schedule on, Ms. Moverelli not set up, no Mover Tuning', ['ok' => false, 'way' => null, 'why' => 'schedule', 'schedule' => '0 */4 * * *', 'running' => false], $st);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
+    $r = embyMoverRule();
+    same('mover: Ms. Moverelli not hired or not set up — no real run, the refusal says she supervises him', [false, null, 'moverelli', 'emby_mover_moverelli', false],
+        [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)?->key, array_key_exists('moverelli', embyMoverState($r))]);
+    $look = ['global' => [$list], 'shares' => []];
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
 
     // «Switch the mover schedule off…» (emby.mover_off): exactly Unraid's form — a stand-in for emcmd notes its argument and
     // does what emhttpd does with it («Disabled»: the key emptied, mover.cron deleted); Unraid's own is never run here
@@ -2249,8 +2121,10 @@ function testEmbyMover(): void
     same('mover off: without confirm, confirm not true — refused, emcmd not run, the schedule as it was',
         [['bad_request', []], ['bad_request', []], [], '40 3 * * *'], [$offErr([]), $offErr(['confirm' => 1]), $calls(), embyMoverOwn(embyMoverHost())['cron']]);
     $waited = [];
+    $notes = [];
     $r = embyMoverOff(['confirm' => true]);
     same('mover off: emcmd once with exactly the form\'s fields — «Disabled», ⟦Mover logging⟧ kept (yes), ⟦Apply⟧', ['1:shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], $calls());
+    same('mover off: … the schedule it had noted first (Ms. Moverelli\'s let-go brings it back)', [['40 3 * * *', 'yes']], $notes);
     same('mover off: … looked at afterwards: share.cfg says "", mover.cron gone, the rest of share.cfg kept; what it was; no waiting needed',
         [['ok' => true, 'already' => false, 'was' => '40 3 * * *'], ['set' => '', 'cron' => null], "# Generated settings:\nshareMoverSchedule=\"\"\nshareMoverLogging=\"yes\"\nshareMoverProgress=\"no\"\n", []],
         [$r, embyMoverOwn(embyMoverHost()), file_get_contents("$tmp/share.cfg"), $waited]);
@@ -2415,79 +2289,48 @@ function testEmbyMover(): void
         && str_contains($src, "(\$real ? ['EMBYCACHE_STOP' => \"\$dir/office-stop.json\"] : [])")
         && str_contains($src, "\$real = (\$tool === 'gather' && \$mode === 'run') || (\$tool === 'embycache' && in_array(\$mode, ['run', 'release'], true));"));
 
-    // Ms. Moverelli (agent/desks/moverelli.php) while hired: her smart_mover.ini must keep his list out for his shares — the
+    // Ms. Moverelli (agent/desks/moverelli.php): her smart_mover.ini must keep his list out for his shares — the
     // global_excludes or the share's excludes= name it, or the share is skip=yes — else real runs are refused; kept: way «moverelli»
     $look = null;
-    $GLOBALS['embyMoverHost']['moverelli'] = function () use (&$look) { return $look; };
     $r = embyMoverRule();
-    same('mover moverelli: not hired — as before, nothing said of her', [true, 'disabled', null, false],
-        [$r['ok'], $r['way'], $r['moverelli'], array_key_exists('moverelli', embyMoverState($r))]);
+    same('mover moverelli: not hired (or not set up) — no real run, nothing said of her ini', [false, null, 'moverelli', null, false],
+        [$r['ok'], $r['way'], $r['why'], $r['moverelli'], array_key_exists('moverelli', embyMoverState($r))]);
     $look = ['global' => [], 'shares' => []];
     $r = embyMoverRule();
-    same('mover moverelli: hired, her ini without his list — no, his shares and EmbyCache\'s list named (no Mover Tuning here) (refusal, the Team Lead\'s point, his page\'s state)',
-        [false, null, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['file' => $list, 'shares' => 'Filme, Serien'], ['mover_moverelli', false, ['shares' => 'Filme, Serien']],
+    same('mover moverelli: her ini without his list — no, his shares and EmbyCache\'s list named (refusal, the Team Lead\'s point linking her setup, his page\'s state)',
+        [false, null, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['file' => $list, 'shares' => 'Filme, Serien'], ['mover_moverelli', false, ['shares' => 'Filme, Serien'], '#/moverelli/setup'],
          ['uncovered' => ['Filme', 'Serien'], 'file' => $list]],
         [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'], embyMoverProblem($r)?->key, array_intersect_key(embyMoverProblem($r)?->params ?? [], ['shares' => 1, 'file' => 1]),
-         [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok'], embyMoverFinding($r)['params']], embyMoverState($r)['moverelli'] ?? null]);
+         [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok'], embyMoverFinding($r)['params'], embyMoverFinding($r)['link']], embyMoverState($r)['moverelli'] ?? null]);
     $look = ['global' => ['/mnt/user/system/keep.txt', $list], 'shares' => []];
     $r = embyMoverRule();
-    same('mover moverelli: his list in her global_excludes — real runs go, the third way', [true, 'moverelli', null, []], [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered']]);
+    same('mover moverelli: his list in her global_excludes — real runs go her way', [true, 'moverelli', null, []], [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered']]);
     $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ["$tmp/data/embycache_exclude.txt"]], 'Serien' => ['skip' => true, 'excludes' => []]]];
     same('mover moverelli: … per share (the list by its other path), a share left out — fine', [true, 'moverelli'], [embyMoverRule()['ok'], embyMoverRule()['way']]);
-    // her way is an alternative to Mover Tuning's: installed but without his list (not hired: not entered), a share's
-    // override saying «No» — her list holds; only Mover Tuning's forced move on a schedule still refuses
-    $cfgWas = (string) file_get_contents($cfg);
-    [$installed, $hired] = [true, false];
-    file_put_contents($cfg, $fresh);
-    file_put_contents("$tmp/tuning/shareOverrideConfig/Filme.cfg", "moverOverride=\"yes\"\nfilelistf=\"no\"\n");
-    $r = embyMoverRule();
-    same('mover moverelli: Mover Tuning without his list and a share\'s override «No» — her way holds', [true, 'moverelli', null, false, $fresh],
-        [$r['ok'], $r['way'], $r['why'], $r['tuning']['listed'], file_get_contents($cfg)]);
-    file_put_contents($cfg, str_replace('force="no"', 'force="yes"', $fresh) . "force=\"yes\"\n");
-    file_put_contents("$tmp/tuning/mover.cron", "0 5 * * 0 /usr/local/emhttp/plugins/ca.mover.tuning/mover.php force start |& logger -t move\n");
-    same('mover moverelli: … Mover Tuning\'s forced move on a schedule — still no', [false, 'tuning_force'], [embyMoverRule()['ok'], embyMoverRule()['why']]);
-    @unlink("$tmp/tuning/mover.cron");
-    @unlink("$tmp/tuning/shareOverrideConfig/Filme.cfg");
-    file_put_contents($cfg, $cfgWas);
-    [$installed, $hired] = [false, true];
     $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ['/mnt/user/system/keep.txt']], 'Musik' => ['skip' => false, 'excludes' => [$list]]]];
     same('mover moverelli: another list for Filme, his list only for a share that isn\'t his — no', ['moverelli_list', ['Filme', 'Serien']],
         [embyMoverRule()['why'], embyMoverRule()['moverelli']['uncovered']]);
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     same('mover moverelli: Unraid\'s own schedule on as well — that is said first', 'schedule', embyMoverRule()['why']);
     @unlink("$tmp/dynamix/mover.cron");
-    // hired but not set up (no smart_mover.ini — she refuses all her own runs): she doesn't count, his rule is exactly
-    // the one without her — through her own moverelliExcludeLook(); then an ini without his list, then one with it
+    // through her own moverelliExcludeLook(): hired but no smart_mover.ini — she isn't set up: refused; then an ini
+    // without his list, then one with it; not hired — her ini doesn't count
     $mo = "$tmp/moverelli";
     mkdir($mo, 0700, true);
     $GLOBALS['embyMoverHost']['moverelli'] = fn () => moverelliExcludeLook($mo, true);
-    $ruleOf = fn ($r) => [$r['ok'], $r['way'], $r['why'], $r['moverelli'], embyMoverProblem($r)?->key, embyMoverFinding($r)['id'], embyMoverFinding($r)['ok'],
-        array_key_exists('moverelli', embyMoverState($r))];
-    $without = function () use ($ruleOf) { $was = $GLOBALS['embyMoverHost']['moverelli']; $GLOBALS['embyMoverHost']['moverelli'] = fn () => null;
-        $r = $ruleOf(embyMoverRule()); $GLOBALS['embyMoverHost']['moverelli'] = $was; return $r; };
-    $notHired = $without();
-    same('mover moverelli: hired, no smart_mover.ini — as without her: real runs go, way «disabled», nothing said of her, no finding',
-        [[true, 'disabled', null, null, null, 'mover', true, false], $notHired], [$ruleOf(embyMoverRule()), $notHired]);
-    file_put_contents("$tmp/dynamix/mover.cron", $daily);
-    same('mover moverelli: … Unraid\'s schedule on — the same refusal as without her', [$without(), 'schedule'], [$ruleOf(embyMoverRule()), embyMoverRule()['why']]);
-    @unlink("$tmp/dynamix/mover.cron");
-    $cfgWas = (string) file_get_contents($cfg);
-    [$installed, $hired] = [true, false];
-    file_put_contents($cfg, $fresh);
-    same('mover moverelli: … Mover Tuning without his list — the same as without her (tuning_list), not her way', [$without(), 'tuning_list', false],
-        [$ruleOf(embyMoverRule()), embyMoverRule()['why'], embyMoverRule()['way'] === 'moverelli']);
+    $r = embyMoverRule();
+    same('mover moverelli: hired, no smart_mover.ini — refused (moverelli), the Team Lead\'s point links her setup', [false, 'moverelli', 'emby_mover_moverelli', 'mover_moverelli_setup', '#/moverelli/setup'],
+        [$r['ok'], $r['why'], embyMoverProblem($r)?->key, embyMoverFinding($r)['id'], embyMoverFinding($r)['link']]);
     file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt\n\n[Filme]\nexcludes = \n");
     $r = embyMoverRule();
     same('mover moverelli: … her ini there, his list not in it — refused (moverelli_list), his shares named, his finding', [false, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['mover_moverelli', false]],
         [$r['ok'], $r['why'], $r['moverelli']['uncovered'] ?? null, embyMoverProblem($r)?->key, [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok']]]);
     file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt,$list\n");
     $r = embyMoverRule();
-    same('mover moverelli: … her ini keeps his list out — real runs go her way, Mover Tuning\'s list doesn\'t count', [true, 'moverelli', null, []],
+    same('mover moverelli: … her ini keeps his list out — real runs go her way', [true, 'moverelli', null, []],
         [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'] ?? null]);
     same('mover moverelli: … not hired — her ini doesn\'t count', null, moverelliExcludeLook($mo, false));
-    file_put_contents($cfg, $cfgWas);
-    [$installed, $hired] = [false, true];
-    unset($GLOBALS['embyMoverHost']['moverelli']);
+    $GLOBALS['embyMoverHost']['moverelli'] = function () use (&$look) { return $look; };
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('mover moverelli: his runs never beside one of hers (embyRunCheck asks moverelliBusy())',
         str_contains($src, "if (function_exists('moverelliBusy') && moverelliBusy()) {\n        throw new Problem('emby_moverelli_running');"));
@@ -2557,20 +2400,20 @@ const e = OFFICE_DESK_TESTS.emby;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
 const base = { configured: true, schedules: {}, jobs: { embycache: {}, gather: {} } };
-e.setState({ ...base, mover: { ok: false, way: null, why: 'schedule', schedule: '40 3 * * *', running: false, tuning: { installed: false } } });
+e.setState({ ...base, mover: { ok: false, way: null, why: 'schedule', schedule: '40 3 * * *', running: false } });
 let n = e.moverNotice();
 out.schedule = [n.cls, texts(n), n.children[1].children.map((c) => [c.tag, c.href || null]), e.moverOk()];
-e.setState({ ...base, mover: { ok: false, way: null, why: 'tuning_override', running: true, tuning: { installed: true, listed: true, file: '/x/l.txt', overrides: ['Filme'], move_all: false } } });
+e.setState({ ...base, mover: { ok: false, way: null, why: 'moverelli', schedule: null, running: true } });
 n = e.moverNotice();
-out.override = [texts(n), n.children.length];
-e.setState({ ...base, mover: { ok: true, way: 'disabled', why: null, running: false, tuning: { installed: true, listed: true, changed: true, file: '/x/l.txt', move_all: '90' } } });
+out.supervise = [texts(n), n.children[1].children.map((c) => [c.tag, c.href || null]), n.children.length];
+e.setState({ ...base, mover: { ok: false, way: null, why: 'moverelli_list', schedule: null, running: false, moverelli: { uncovered: ['Filme'], file: '/x/l.txt' } } });
+out.list = texts(e.moverNotice());
+e.setState({ ...base, mover: { ok: true, way: 'moverelli', why: null, running: false, moverelli: { uncovered: [], file: '/x/l.txt' } } });
 n = e.moverNotice();
-out.tuning = [n.cls, texts(n), e.moverOk()];
-e.setState({ ...base, mover: { ok: true, way: 'disabled', why: null, running: false, tuning: { installed: false } } });
-out.off = texts(e.moverNotice());
-e.setState({ ...base, mover: { ok: false, way: null, why: 'tuning_list', running: false, tuning: { installed: true, listed: false, file: '/x/l.txt', error: 'not a plain file' } } });
+out.ok = [n.cls, texts(n), e.moverOk()];
+e.setState({ ...base, mover: { ok: false, way: null, why: 'tuning_schedule', schedule: null, running: false, tuning: { file: 'mover.tuning.cron', cron: '0 5 * * 0' } } });
 n = e.moverNotice();
-out.list = [texts(n), n.children.length];
+out.tuning = [texts(n), n.children.length];
 e.setState({ ...base });
 out.old = [e.moverNotice(), e.moverOk()];
 out.runs = [
@@ -2613,15 +2456,14 @@ JS);
         return;
     }
     same('mover page: Unraid\'s schedule on — a warning with why, «Switch the mover schedule off…» and «Set it yourself» (Unraid\'s Mover Settings); no real run',
-        ['callout warn jo-mover', ['err:emby_mover_schedule:{"file":"","detail":"","shares":""}', 'mover.off', 'mover.self'],
+        ['callout warn jo-mover', ['err:emby_mover_schedule:{"file":"","shares":"","schedule":"40 3 * * *"}', 'mover.off', 'mover.self'],
          [['button', null], ['a', '/Settings/MoverSettings']], false], $o['schedule']);
-    same('mover page: an override — why with the share, no buttons; the mover at work said', [['err:emby_mover_tuning_override:{"file":"/x/l.txt","detail":"","shares":"Filme"}', 'mover.running'], 2],
-        $o['override']);
-    same('mover page: Unraid\'s schedule off, Mover Tuning keeps his list — quiet lines, the list entered again, «Move All» said', ['jo-mover', ['mover.ok.disabled',
-        'mover.ok.tuning {"file":"/x/l.txt"}', 'mover.changed {"file":"/x/l.txt"}', 'mover.move_all {"pct":"90"}'], true], $o['tuning']);
-    same('mover page: Unraid\'s schedule off, no Mover Tuning — one quiet line', ['mover.ok.disabled'], $o['off']);
-    same('mover page: Mover Tuning couldn\'t take his list — why, no switch (it isn\'t Unraid\'s schedule)',
-        [['err:emby_mover_tuning_list:{"file":"/x/l.txt","detail":"not a plain file","shares":""}'], 1], $o['list']);
+    same('mover page: Ms. Moverelli not set up — why, a link to her setup; the mover at work said',
+        [['err:emby_mover_moverelli:{"file":"","shares":"","schedule":""}', 'mover.to_moverelli', 'mover.running'], [['a', '#/moverelli/setup']], 3], $o['supervise']);
+    same('mover page: her ini without his list — why with his shares and the list, the link to her setup',
+        ['err:emby_mover_moverelli_list:{"file":"/x/l.txt","shares":"Filme","schedule":""}', 'mover.to_moverelli'], $o['list']);
+    same('mover page: real runs go her way — quiet lines', ['jo-mover', ['mover.ok.disabled', 'mover.ok.moverelli'], true], $o['ok']);
+    same('mover page: Mover Tuning with a schedule of its own — why with its time, no button', [['err:emby_mover_tuning_schedule:{"file":"","shares":"","schedule":"0 5 * * 0"}'], 1], $o['tuning']);
     same('mover page: «Switch the mover schedule off…» — the dialog says what it does, «Switch off» sends confirm, a toast, closes',
         ['mover.off_title', ['mover.off_text', 'mover.off_move_now', 'mover.off_back'], ['common.cancel', 'mover.off_go'], true,
          [['emby.mover_off', ['confirm' => true]]], [['mover.off_done', false]]], $o['dialog'] ?? null);
@@ -17444,8 +17286,8 @@ function testHireWith(): void
     [$out, $raw] = $web(OFFICE_DIR . '/public/desks', 'echo json_encode([array_map(fn ($d) => $d["with"], officeDesks()),'
         . ' officeStaffAction("office.hire", ["desks" => ["backup", "restore"]]),'
         . ' array_keys(json_decode((string) file_get_contents(OFFICE_DATA . "/office/staff.json"), true)["hired"] ?? [])]);');
-    same('hire with: Mr. Restori names Mr. Backupsy (desk.json "with"), nobody else names anyone',
-        ['restore' => 'backup'], is_array($out) ? array_filter($out[0]) : $raw);
+    same('hire with: Mr. Restori names Mr. Backupsy (desk.json "with"), Jack Emby Ms. Moverelli (his "needs" is his with), nobody else names anyone',
+        ['restore' => 'backup', 'emby' => 'moverelli'], is_array($out) ? array_filter($out[0]) : $raw);
     same('hire with: both hired in one go, the colleague first', ['backup', 'restore'], $out[2] ?? $raw);
     // only another desk that exists
     $fake = "$tmp/desks";
@@ -17531,6 +17373,153 @@ JS);
     same('hire with: Mr. Backupsy hired already, declining or still in training — plain «Hire», Mr. Restori alone',
         array_fill(0, 3, ['text' => 'hire', 'hires' => ['restore']]),
         array_map(fn ($k) => array_intersect_key($r[$k]['restore'] ?? [], ['text' => 1, 'hires' => 1]), ['colleague_here', 'colleague_declines', 'colleague_training']));
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack Emby is an intern: he works only under Ms. Moverelli (2026-10-12, the owner's decision; desk.json "needs"): the
+ * web side's staff rules (src/staff.php officeStaffNeeds()) — hired only with her or after her, she is let go only after
+ * him, nothing written by a refusal; an unknown "needs" is none; the Team Lead's row (under node): «Hire together with
+ * Ms. Moverelli», after her plain «Hire», she can't come — no button, said why; «Hire all» leaves him out then; the
+ * strings ×5; his fit when she can't work here; her let-go refused while he is hired, the error names both by name.
+ */
+function testHireNeeds(): void
+{
+    $tmp = hardeningTmp('hire-needs');
+    $web = function (string $code) use ($tmp): array {
+        @mkdir("$tmp/plugin/src", 0700, true);
+        foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+            copy($f, "$tmp/plugin/src/" . basename($f));
+        }
+        @unlink("$tmp/plugin/desks");
+        symlink(OFFICE_DIR . '/public/desks', "$tmp/plugin/desks");
+        @unlink("$tmp/plugin/lang");
+        symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
+        @mkdir("$tmp/data/office", 0700, true);
+        file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; '
+            . '$try = function (callable $f) { try { $f(); return "ok"; } catch (OfficeProblem $p) { return [$p->key, $p->status, $p->params]; } }; '
+            . '$hired = fn () => array_keys(json_decode((string) @file_get_contents(OFFICE_DATA . "/office/staff.json"), true)["hired"] ?? []); ' . $code);
+        $p = proc_open([PHP_BINARY, "$tmp/web.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return [json_decode($raw, true), $raw];
+    };
+    [$o, $raw] = $web('$out = [officeDesks()["emby"]["needs"], officeDesks()["emby"]["with"], officeDesks()["moverelli"]["needs"]];'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby", "moverelli"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "moverelli"])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "emby"]));'
+        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "moverelli"]));'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["moverelli"]]));'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' echo json_encode($out);');
+    if (!is_array($o)) {
+        check('hire needs: the web side ran', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('hire needs: Jack Emby needs Ms. Moverelli (his with too), she needs nobody', ['moverelli', 'moverelli', null], array_slice($o, 0, 3));
+    same('hire needs: Jack alone — refused (409, both named), nothing written', [['needs_colleague', 409, ['desk' => 'emby', 'with' => 'moverelli']], []], array_slice($o, 3, 2));
+    same('hire needs: both in one request (in any order) — hired', ['ok', ['emby', 'moverelli']], array_slice($o, 5, 2));
+    same('hire needs: letting her go while he is here — refused, he is named, both stay', [['needed_by', 409, ['desk' => 'moverelli', 'by' => 'emby']], ['emby', 'moverelli']], array_slice($o, 7, 2));
+    same('hire needs: him first, then her — both go; him alone again — refused; her, then him — hired',
+        ['ok', 'ok', ['needs_colleague', 409, ['desk' => 'emby', 'with' => 'moverelli']], [], 'ok', 'ok', ['moverelli', 'emby']], array_slice($o, 9, 7));
+    // an unknown or own "needs" is none
+    $fake = "$tmp/desks";
+    foreach (['a' => 'b', 'b' => 'b', 'c' => 'ghost'] as $id => $need) {
+        @mkdir("$fake/$id", 0700, true);
+        file_put_contents("$fake/$id/desk.json", json_encode(['order' => 50, 'needs' => $need]));
+        file_put_contents("$fake/$id/desk.js", '');
+    }
+    @unlink("$tmp/plugin/desks");
+    $code = '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; echo json_encode(array_map(fn ($d) => [$d["needs"], $d["with"]], officeDesks()));';
+    file_put_contents("$tmp/web2.php", $code);
+    symlink($fake, "$tmp/plugin/desks");
+    $p = proc_open([PHP_BINARY, "$tmp/web2.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+        ['OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+    $raw = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+    proc_close($p);
+    same('hire needs: only another desk that exists — itself, an unknown one: none', ['a' => ['b', 'b'], 'b' => [null, null], 'c' => [null, null]], json_decode($raw, true) ?? $raw);
+
+    // the strings ×5: the Team Lead's line, the two refusals, her name as «with …» needs it
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $ct = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$l.json"), true) ?: [];
+        $of = json_decode((string) file_get_contents(OFFICE_WEB . "/lang/$l.json"), true) ?: [];
+        $mo = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/moverelli/lang/$l.json"), true) ?: [];
+        check("hire needs: $l — the row's line, the refusals with both names, her name for «with …»",
+            str_contains((string) ($ct['needs_away'] ?? ''), '{with}') && str_contains((string) ($of['errors.needs_colleague'] ?? ''), '{with}')
+            && str_contains((string) ($of['errors.needed_by'] ?? ''), '{by}') && ($mo['name_with'] ?? '') !== '');
+    }
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('hire needs: the refusals name the desks by their names (core.js errorText)', str_contains($core, "['in_training', 'needs_colleague', 'needed_by'].includes(error.key)"));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('hire needs: Jack\'s fit — Ms. Moverelli can\'t work here (Unraid too old), so he can\'t either',
+        str_contains($src, "return fit(false, 'no_moverelli', ['name' => \$emby[0]['name']]);"));
+    $mu = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-unraid.php');
+    check('hire needs: her own let-go refuses while Jack is hired (before anything is switched back)',
+        strpos($mu, "throw new Problem('moverelli_jack_hired');") < strpos($mu, 'moverelliSetSchedule(null, $h);'));
+
+    // the Team Lead's row, under node
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('hire needs: the candidate row - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+globalThis.document = { currentScript: null };
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text || '', children: [], dataset: {}, disabled: false, type: '', onclick: null,
+  appendChild(c) { this.children.push(c); return c; } }; n.classList = { add(c) { n.className += ' ' + c; } }; return n; };
+const hired = [];
+const desks = new Map();
+globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'moverelli.name_with', fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
+  sections: () => ({ places: () => [], mount: () => false, render() {}, active: () => '' }),
+  place: (a, n) => { n.dataset.place = a; return n; }, avatar: () => mk('span'), agent: { running: true }, deskRank: () => 0, desks, config: {},
+  hire: async (ids) => { hired.push(ids); return true; }, toast: () => {}, loadState: async () => {}, fireDialog: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const c = OFFICE_DESK_TESTS.caretaker;
+const walk = (n, out = []) => { if (n && typeof n === 'object') { out.push(n); (n.children || []).forEach((x) => walk(x, out)); } return out; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  const out = {};
+  const run = async (name, mo) => {
+    desks.clear();
+    desks.set('emby', { id: 'emby', order: 50, hired: false, with: 'moverelli', needs: 'moverelli' });
+    desks.set('moverelli', { id: 'moverelli', order: 55, hired: mo.hired });
+    c.setState({ staff: { emby: { hired: false, ok: true, why: 'yes' }, moverelli: mo } });
+    const x = c.staff().find((s) => s.id === 'emby');
+    const row = c.teamRow(x);
+    const b = walk(row).find((n) => n.tag === 'button');
+    const lines = walk(row).filter((n) => n.className === 'row-detail').map((n) => n.textContent);
+    hired.length = 0;
+    if (b) { await b.onclick(); await sleep(5); }
+    out[name] = { text: b ? b.textContent : null, hires: hired[0] || null, lines };
+  };
+  await run('both', { hired: false, ok: true, why: 'yes' });
+  await run('she_is_here', { hired: true, ok: true, why: 'yes' });
+  await run('she_cant', { hired: false, ok: false, why: 'unraid_old' });
+  console.log(JSON.stringify(out));
+})().catch((e) => { console.log(JSON.stringify({ error: String(e && e.stack || e) })); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/caretaker/desk.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('hire needs: the candidate row ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    same('hire needs: she isn\'t here and would come — his button hires both, her first', ['hire_with {"name":"moverelli.name_with"}', ['moverelli', 'emby']],
+        [$r['both']['text'] ?? null, $r['both']['hires'] ?? null]);
+    same('hire needs: she is here — plain «Hire», him alone', ['hire', ['emby']], [$r['she_is_here']['text'] ?? null, $r['she_is_here']['hires'] ?? null]);
+    same('hire needs: she can\'t come — no button, the row says why', [null, null, true],
+        [array_key_exists('text', $r['she_cant'] ?? []) ? $r['she_cant']['text'] : 'x', array_key_exists('hires', $r['she_cant'] ?? []) ? $r['she_cant']['hires'] : 'x', in_array('needs_away {"name":"emby.name","with":"moverelli.name_with"}', $r['she_cant']['lines'] ?? [], true)]);
+    $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('hire needs: «Hire all» leaves out who can\'t come without his colleague', str_contains($ct, 'const open = all.filter((s) => !s.hired && s.ok && !needsAway(s));'));
     hardeningRm($tmp);
 }
 
@@ -29757,7 +29746,7 @@ SH);
         chmod("$tmp/bin/$b", 0755);
     }
     $v += ['version' => '7.3.2', 'own' => ['set' => '', 'cron' => null], 'mover' => false, 'mover_self' => false, 'busy' => false, 'emby' => null,
-           'tuning' => false, 'env' => [], 'hired' => true];
+           'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => [], 'jack_ran' => true];
     $GLOBALS['moverelliHost'] = [
         'dir' => "$tmp/data", 'shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'var_ini' => "$tmp/var.ini",
         'mnt' => "$tmp/mnt", 'waitdir' => "$tmp/run", 'write_state' => false, 'look_every' => 0,
@@ -29771,7 +29760,256 @@ SH);
         'hired' => function () use (&$v) { return $v['hired']; },
         'tuning' => function () use (&$v) { return $v['tuning']; },
         'tuning_dir' => "$tmp/tuning", 'us_dir' => "$tmp/us", 'cron_glob' => "$tmp/plugins/*/*.cron", 'unraid_cron' => "$tmp/plugins/dynamix/mover.cron",
+        'jack_lists' => function () use (&$v) { return $v['jack_lists']; }, 'jack_ran' => function () use (&$v) { return $v['jack_ran']; },
     ];
+}
+
+/**
+ * Ms. Moverelli and Unraid's own mover (agent/desks/moverelli-unraid.php, 2026-10-12): her save (and the import's apply)
+ * refused while Unraid's schedule is on unless the page's consent comes along, nothing written then; with it Unraid's
+ * form «Disabled» (an emcmd stand-in — never Unraid's own), the schedule it had noted once; her let-go refused while
+ * Jack Emby is hired, else her schedule off and Unraid's schedule back exactly as noted (URL-encoded as the form sends
+ * it, looked at afterwards), one set by hand meanwhile kept, a noted value of another shape never sent, a failure said;
+ * EmbyCache's list before its first run (D1: no real run, said, a Team Lead hint; his traces); the share's path quoted
+ * in an exclude entry and the sleeping array disks named in her log (Smart Mover); her page's consent and let-go under node.
+ */
+function testMoverelliUnraid(): void
+{
+    $tmp = hardeningTmp('moverelli-unraid');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $GLOBALS['moverelliHost']['cron_file'] = "$tmp/office.cron";
+    $GLOBALS['moverelliHost']['cron_apply'] = false;
+    $h = moverelliHost();
+    $dir = "$tmp/data";
+    @mkdir("$tmp/dynamix", 0700, true);
+    $waited = [];
+    $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'var_ini' => "$tmp/ui-var.ini", 'emcmd' => "$tmp/emcmd",
+        'wait' => function (int $ms) use (&$waited) { $waited[] = $ms; }, 'tuning' => fn () => null, 'moverelli' => fn () => null,
+        'note' => fn (string $was, string $logging) => moverelliUnraidNoteKeep($was, $logging, $dir)];
+    $calls = function () use ($tmp): array { $c = file_exists("$tmp/emcmd.calls") ? file("$tmp/emcmd.calls", FILE_IGNORE_NEW_LINES) : []; @unlink("$tmp/emcmd.calls"); return $c; };
+    // the stand-in does what emhttpd does with Unraid's form: «Disabled» empties the key and deletes mover.cron, a schedule writes both
+    $cfgQ = escapeshellarg("$tmp/share.cfg");
+    $cronQ = escapeshellarg("$tmp/dynamix/mover.cron");
+    $emcmd = function (string $body) use ($tmp) {
+        file_put_contents("$tmp/emcmd", "#!/bin/bash\nprintf '%s\\n' \"\$1\" >> " . escapeshellarg("$tmp/emcmd.calls") . "\n$body\n");
+        chmod("$tmp/emcmd", 0755);
+    };
+    $asUnraid = 'case "$1" in shareMoverSchedule=\&*) sed -i \'s/^shareMoverSchedule=.*/shareMoverSchedule=""/\' ' . $cfgQ . '; rm -f ' . $cronQ . ' ;; '
+        . 'shareMoverSchedule=40%203%20%2A%20%2A%20%2A\&*) sed -i \'s/^shareMoverSchedule=.*/shareMoverSchedule="40 3 * * *"/\' ' . $cfgQ
+        . '; printf \'# Generated mover schedule:\n40 3 * * * /usr/local/sbin/mover start > /dev/null\n\' > ' . $cronQ . ' ;; esac; exit 0';
+    $emcmd($asUnraid);
+    $daily = function () use ($tmp, &$v) {
+        file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"40 3 * * *\"\nshareMoverLogging=\"yes\"\n");
+        file_put_contents("$tmp/dynamix/mover.cron", "40 3 * * * /usr/local/sbin/mover start > /dev/null\n");
+        $v['own'] = ['set' => '40 3 * * *', 'cron' => '40 3 * * *'];
+    };
+    $err = function (callable $f) { try { $f(); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
+
+    // the note: the first schedule only, «Disabled» never
+    moverelliUnraidNoteKeep('', 'no', $dir);
+    $n0 = moverelliUnraidNote($dir);
+    moverelliUnraidNoteKeep('0 */4 * * *', 'no', $dir);
+    moverelliUnraidNoteKeep('40 3 * * *', 'yes', $dir);
+    same('unraid mover: noted once — «Disabled» never, the first schedule stays', [null, '0 */4 * * *', 'no'], [$n0, moverelliUnraidNote($dir)['was'] ?? null, moverelliUnraidNote($dir)['logging'] ?? null]);
+    @unlink("$dir/" . MOVERELLI_UNRAID_NOTE);
+
+    // her save: Unraid's schedule on — refused without the consent, nothing written, nothing sent
+    $daily();
+    $set = moverelliTestSettings(['patterns' => ['*.nfo']]);
+    same('unraid mover: her save while Unraid\'s schedule is on, no consent — refused with its schedule, nothing written, emcmd not run',
+        [['moverelli_mover_consent', ['schedule' => '40 3 * * *']], false, []], [$err(fn () => moverelliSave($set, $h)), file_exists("$dir/smart_mover.ini"), $calls()]);
+    $r = moverelliSave($set, $h, null, true);
+    same('unraid mover: with the consent — Unraid\'s form «Disabled» once (logging kept), then her settings written; said so',
+        [['shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], true, true, ['set' => '', 'cron' => null]],
+        [$calls(), file_exists("$dir/smart_mover.ini"), $r['mover_off'] ?? null, embyMoverOwn(embyMoverHost())]);
+    same('unraid mover: … what it was noted for her let-go', ['40 3 * * *', 'yes'], [moverelliUnraidNote($dir)['was'] ?? null, moverelliUnraidNote($dir)['logging'] ?? null]);
+    $v['own'] = ['set' => '', 'cron' => null];
+    same('unraid mover: off already — saved without asking, nothing sent', [false, []], [moverelliSave($set, $h)['mover_off'] ?? null, $calls()]);
+    $daily();
+    $emcmd('exit 0');
+    $was = (string) file_get_contents("$dir/smart_mover.ini");
+    file_put_contents("$dir/smart_mover.ini", $was . "\n");
+    same('unraid mover: emhttpd changed nothing — refused (her words), her settings not written', [['moverelli_mover_off_failed'], "$was\n"],
+        [array_slice((array) $err(fn () => moverelliSave(moverelliTestSettings(), $h, null, true)), 0, 1), file_get_contents("$dir/smart_mover.ini")]);
+    $calls();
+    $emcmd($asUnraid);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php') . file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-import.php');
+    check('unraid mover: the save action and the import\'s apply carry the consent (mover_off exactly true)',
+        str_contains($src, "moverelliSave(\$r['settings'] ?? null, null, null, moverelliConsent(\$r))") && str_contains($src, "}, moverelliConsent(\$r));")
+        && moverelliConsent(['mover_off' => true]) && !moverelliConsent([]) && $err(fn () => moverelliConsent(['mover_off' => 'yes']))[0] === 'bad_request');
+    check('unraid mover: never a hand-written cron line — only Unraid\'s form', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-unraid.php'), 'mover.cron"'));
+
+    // her let-go: refused while Jack is hired — nothing changed
+    officeJobSetSchedule('moverelli', '0 4 * * *', "$tmp/office.cron", false);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\nshareMoverLogging=\"yes\"\n");
+    @unlink("$tmp/dynamix/mover.cron");
+    $v['own'] = ['set' => '', 'cron' => null];
+    $v['emby'] = ['lists' => ['/x/l.txt'], 'shares' => ['Filme']];
+    $l = moverelliLetGoLook($h);
+    same('unraid mover: her let-go look with Jack hired — he is named, her schedule, Unraid\'s comes back', [true, '0 4 * * *', ['off' => true, 'back' => '40 3 * * *']],
+        [$l['jack'], $l['schedule'], $l['unraid']]);
+    same('unraid mover: her let-go with Jack hired — refused, her schedule stays, Unraid\'s stays off, nothing sent', [['moverelli_jack_hired', []], '0 4 * * *', '', []],
+        [$err(fn () => moverelliLetGo(['confirm' => true], $h)), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'], embyMoverOwn(embyMoverHost())['set'], $calls()]);
+    $v['emby'] = null;
+    same('unraid mover: without confirm — refused', ['bad_request', []], $err(fn () => moverelliLetGo([], $h)));
+    $r = moverelliLetGo(['confirm' => true], $h);
+    same('unraid mover: her let-go — her schedule off, Unraid\'s back through its form (the value URL-encoded), looked at, the note gone',
+        [true, ['back' => true, 'was' => '40 3 * * *'], ['shareMoverSchedule=40%203%20%2A%20%2A%20%2A&shareMoverLogging=yes&changeMover=Apply'], null, ['set' => '40 3 * * *', 'cron' => '40 3 * * *'], null],
+        [$r['schedule_off'], $r['unraid'], $calls(), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'] ?? null, embyMoverOwn(embyMoverHost()), moverelliUnraidNote($dir)]);
+    same('unraid mover: let go again — nothing noted, nothing sent', [false, ['none' => true], []], [moverelliLetGo(['confirm' => true], $h)['schedule_off'], moverelliLetGo(['confirm' => true], $h)['unraid'], $calls()]);
+    moverelliUnraidNoteKeep('40 3 * * *', 'yes', $dir);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */6 * * *\"\n");
+    file_put_contents("$tmp/dynamix/mover.cron", "0 */6 * * * /usr/local/sbin/mover start > /dev/null\n");
+    same('unraid mover: a schedule set by hand meanwhile — kept, the note gone, nothing sent', [['kept' => true, 'schedule' => '0 */6 * * *'], null, []],
+        [moverelliUnraidBack(embyMoverHost(), $dir), moverelliUnraidNote($dir), $calls()]);
+    file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
+    @unlink("$tmp/dynamix/mover.cron");
+    file_put_contents("$dir/" . MOVERELLI_UNRAID_NOTE, json_encode(['v' => 1, 'was' => '40 3 * * *&cmdStartMover=1', 'logging' => 'no', 'at' => 1]));
+    $e = $err(fn () => moverelliUnraidBack(embyMoverHost(), $dir));
+    same('unraid mover: a noted value of a shape Unraid\'s form never makes — refused, nothing sent', ['moverelli_unraid_back_failed', []], [$e[0] ?? null, $calls()]);
+    foreach (['40 3 * * *', '0 */4 * * *', '5 2 * * 0', '0 1 15 * *'] as $ok) {
+        check("unraid mover: the form's shape «{$ok}» is sent", (bool) preg_match(MOVERELLI_UNRAID_CRON, $ok));
+    }
+    file_put_contents("$dir/" . MOVERELLI_UNRAID_NOTE, json_encode(['v' => 1, 'was' => '40 3 * * *', 'logging' => 'yes', 'at' => 1]));
+    $emcmd('exit 0');
+    $waited = [];
+    $r = moverelliLetGo(['confirm' => true], $h);
+    same('unraid mover: emhttpd changed nothing — looked again up to 3 s, said, the note kept for another try', ['moverelli_unraid_back_failed', 10, '40 3 * * *'],
+        [$r['unraid']['error']['key'] ?? null, count($waited), moverelliUnraidNote($dir)['was'] ?? null]);
+    $calls();
+    @unlink("$dir/" . MOVERELLI_UNRAID_NOTE);
+    unset($GLOBALS['embyMoverHost']);
+
+    // D1: EmbyCache's list in her ini before EmbyCache's first run — no real run (said once, never notified), a Team Lead hint
+    $list = "$tmp/emby/embycache_exclude.txt";
+    @mkdir("$tmp/emby", 0700, true);
+    $v['jack_lists'] = [$list, '/mnt/user/appdata/x/embycache_exclude.txt'];
+    $v['jack_ran'] = false;
+    $v['own'] = ['set' => '', 'cron' => null];
+    moverelliSave(moverelliTestSettings(['files' => [$list]]), $h);
+    $why = function (string $mode) use ($h) { try { moverelliRunCheck($mode, $h); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
+    same('jack list: named, not there, EmbyCache never ran — a real run refused with the file; a dry run not (it only warns)',
+        [['moverelli_jack_list_pending', ['file' => $list]], 'ok', $list], [$why('run'), $why('dry'), moverelliJackListPending($h)]);
+    $f = array_column(moverelliChecks($h), null, 'id')['jack_list_pending'] ?? null;
+    same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/emby'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
+    $v['jack_ran'] = true;
+    same('jack list: EmbyCache ran (the list existed) and it is gone — no refusal here: Smart Mover\'s ERROR skips the share', ['ok', null], [$why('run'), moverelliJackListPending($h)]);
+    $v['jack_ran'] = false;
+    file_put_contents($list, '');
+    same('jack list: there (also empty) — fine', ['ok', null], [$why('run'), moverelliJackListPending($h)]);
+    unlink($list);
+    moverelliSave(moverelliTestSettings(), $h);
+    same('jack list: not named in her rules — none of her business', null, moverelliJackListPending($h));
+    $hist = moverelliHistory($dir);
+    $mr = function (array $entry) use ($dir) { moverelliRemember($entry, $dir); };
+    foreach ([100, 3700] as $t) {
+        $mr(['mode' => 'run', 'by' => 'schedule', 'started' => $t, 'finished' => $t, 'result' => 'refused', 'why' => 'moverelli_jack_list_pending']);
+    }
+    same('jack list: refused on schedule again and again — one line, counted (said once)', [2], [moverelliHistory($dir)[0]['times'] ?? null]);
+    same('jack list: a refusal is never a notification', null, moverelliNotifyOutcome('run', 'refused', []));
+    $jd = "$tmp/jack";
+    @mkdir($jd, 0700, true);
+    $ran = [moverelliJackRan($jd)];
+    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'run', 'result' => 'refused'], ['tool' => 'gather', 'mode' => 'run', 'result' => 'ok']]]));
+    $ran[] = moverelliJackRan($jd);
+    file_put_contents("$jd/office-history.json", json_encode(['runs' => [['tool' => 'embycache', 'mode' => 'release', 'result' => 'ok']]]));
+    $ran[] = moverelliJackRan($jd);
+    unlink("$jd/office-history.json");
+    file_put_contents("$jd/embycache_origin.json", '{}');
+    $ran[] = moverelliJackRan($jd);
+    unlink("$jd/embycache_origin.json");
+    file_put_contents("$jd/embycache_exclude.txt.before-import-20261012-101010", '');
+    $ran[] = moverelliJackRan($jd);
+    same('jack list: EmbyCache\'s traces — none, a refused run or a gather, a release, origin.json, an import\'s copy', [false, false, true, true, true], $ran);
+
+    // Smart Mover: the share's path in an exclude entry is replaced quoted — a share with [ ] is no pattern
+    [$ex, $out] = run(['bash', '-c', 'MNT=/mnt; share="Film[1]"; src="/mnt/cache/Film[1]"; line="/mnt/user/Film[1]/a.mkv"; '
+        . 'a="${line/#"$MNT/user/$share"/"$src"}"; b="${line/#$MNT\/user\/$share/$src}"; printf "%s|%s" "$a" "$b"'], 10);
+    same('smart mover: quoted, «Film[1]» is replaced; unquoted it is a pattern and isn\'t', '/mnt/cache/Film[1]/a.mkv|/mnt/user/Film[1]/a.mkv', $out);
+    check('smart mover: … the script quotes both', str_contains((string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh'), 'line="${line/#"$MNT/user/$share"/"$src"}"')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh'), 'line="${line/#"$MNT/user0/$share"/"$src"}"'));
+
+    // Smart Mover: a real run names the share's sleeping array disks in her log (disks.ini; Docs may use disk1 and disk2)
+    file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\nshareCachePool2=\"\"\nshareInclude=\"disk1,disk2\"\n");
+    file_put_contents("$tmp/disks.ini", "[\"parity\"]\nname=\"parity\"\nspundown=\"1\"\n[\"disk1\"]\nname=\"disk1\"\nspundown=\"1\"\n[\"disk2\"]\nname=\"disk2\"\nspundown=\"0\"\n[\"disk3\"]\nname=\"disk3\"\nspundown=\"1\"\n[\"cache\"]\nname=\"cache\"\nspundown=\"1\"\n");
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $v['jack_lists'] = [];
+    moverelliSave(moverelliTestSettings(), $h);
+    @unlink("$dir/smart_mover.log");
+    $exit = moverelliJob(['run', '--office'], $h);
+    $log = (string) @file_get_contents("$dir/smart_mover.log");
+    check('smart mover: the real run went', $exit === 0, (string) @file_get_contents("$dir/office-output.txt"));
+    check('smart mover: Docs (disk1, disk2) — only disk1 asleep, named before its move; disk3 not its disk; parity and the pool never',
+        (bool) preg_match('/\[Docs\][^\n]*\n(?:[^\n]*\n)*?[^\n]*array disks asleep: disk1 – this run wakes the one it writes to\n[^\n]*moving 1 files/', $log)
+        && !str_contains($log, 'parity') && !str_contains($log, 'cache –') && !str_contains($log, ', cache'), $log);
+    check('smart mover: Back (prefer from the array, every data disk) — named before its scan', str_contains($log, 'array disks asleep: disk1, disk3 – this run wakes them'), $log);
+    @unlink("$dir/smart_mover.log");
+    moverelliJob(['dry', '--office'], $h);
+    check('smart mover: a dry run says nothing of it', !str_contains((string) @file_get_contents("$dir/smart_mover.log"), 'asleep'));
+    unset($GLOBALS['disksIni']);
+
+    // her page under node: the consent dialog on save, the let-go part
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('unraid mover: page - node is missing here - skipped', true);
+    } else {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, replaceChildren(...c) { this.children = c; }, setAttribute() {} });
+globalThis.document = { createTextNode: (t) => t };
+const dialogs = [];
+const posts = [];
+let answer = () => ({ ok: true });
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C(' + c + ')', size: (b) => b + ' B', date: (t) => 'D' + t }, desk: () => {}, places: () => {}, placesFrom: () => {},
+  store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key, dialog: (o) => { dialogs.push(o); return { buttons: [] }; },
+  api: { post: async (a, b) => { posts.push([a, b]); return answer(a, b); } } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+(async () => {
+  const out = {};
+  m.setState({ mover: { off: true, schedule: null } });
+  out.none = await m.moverConsent();
+  m.setState({ mover: { off: false, schedule: '40 3 * * *' } });
+  let p = m.moverConsent();
+  const d = dialogs.pop();
+  d.buttons[1].act();
+  out.yes = [await p, d.title, texts(d.body), d.buttons.map((b) => b.text)];
+  p = m.moverConsent();
+  dialogs.pop().onClose();
+  out.cancel = await p;
+  out.view = [m.letGoView({ ok: true, jack: true }), m.letGoView({ ok: true, jack: false, schedule: '0 4 * * *', after: false, unraid: { off: true, back: '40 3 * * *' } }),
+    m.letGoView({ ok: true, jack: false, schedule: null, after: false, unraid: { off: false, back: null } }), m.letGoView({ ok: true, jack: false, schedule: null, after: true, unraid: { off: true, back: null } })];
+  out.done = [m.letGoDoneLines({ ok: true, unraid: { back: true, was: '40 3 * * *' } }), m.letGoDoneLines({ ok: true, unraid: { kept: true, schedule: '0 */6 * * *' } }),
+    m.letGoDoneLines({ ok: true, unraid: { error: { key: 'moverelli_unraid_back_failed' } } }), m.letGoDoneLines({ ok: true, unraid: { none: true } })];
+  console.log(JSON.stringify(out));
+})().catch((e) => console.log(JSON.stringify({ error: String(e && e.stack || e) })));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1');
+        $o = json_decode($raw, true);
+        if (!is_array($o) || isset($o['error'])) {
+            check('unraid mover: page ran under node', false, $raw);
+        } else {
+            same('unraid mover page: Unraid\'s schedule off — no question', false, $o['none']);
+            same('unraid mover page: on — the consent: what goes off, its schedule, ⟦Move now⟧, it comes back with her let-go; «Switch it off and save» → true',
+                [true, 'consent.title', ['consent.text', 'consent.schedule {"schedule":"C(40 3 * * *)"}', 'consent.move_now', 'consent.back'], ['common.cancel', 'consent.go']], $o['yes']);
+            same('unraid mover page: closed without — null (nothing saved)', null, $o['cancel']);
+            same('unraid mover page: her let-go\'s lines — Jack hired / her schedule and Unraid\'s back / Unraid\'s on already / «after Jack» and Unraid\'s stays off', [
+                [['callout warn', 'letgo.jack']],
+                [['', 'letgo.sched_off'], ['', 'letgo.unraid_back {"schedule":"C(40 3 * * *)"}']],
+                [['', 'letgo.sched_none'], ['role', 'letgo.unraid_on']],
+                [['', 'letgo.sched_off'], ['role', 'letgo.unraid_stays']]], $o['view']);
+            same('unraid mover page: done — back, kept, failed, nothing to say', [[['', 'letgo.done_back {"schedule":"C(40 3 * * *)"}']], [['role', 'letgo.done_kept {"schedule":"C(0 */6 * * *)"}']],
+                [['callout warn', 'letgo.done_back_not {"error":"err:moverelli_unraid_back_failed"}']], []], $o['done']);
+        }
+    }
+    unset($GLOBALS['moverelliHost']);
+    hardeningRm($tmp);
 }
 
 /** Her settings as the page sends them: Smart Mover's defaults, files and own lines per scope */
@@ -32505,9 +32743,9 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
