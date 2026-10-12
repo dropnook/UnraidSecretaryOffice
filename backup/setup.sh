@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.45 - 2026-10-12
+# unraid-backup - setup.sh                        Version 2.46 - 2026-10-12
+#   2.46 No change here (the engine's version: backup.sh says the partner's warnings at once)
 #   2.45 Apps whose folder is a dataset of its own take a partner level ([app] partner = <id>, kept only for such an
 #        app - partner_cannot_app / partner_off_app otherwise; the [app] section written for it, folder listed).
 #        A partner no longer paired at the Team Lead whose address - or one of whose host keys (partner/ended.json) -

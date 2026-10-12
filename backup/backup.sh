@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.45 - 2026-10-12
+# unraid-backup - backup.sh                       Version 2.46 - 2026-10-12
+#   2.46 A partner that got nothing or not all of a run is said in that run (no nights of grace): unreachable, its array
+#        stopped, a refusal (an older door's refused_asleep, refused_window, not_agreed), a failed transfer - one coded
+#        warning per partner (warning_items partner_missed, partner + why) unless another coded one named it; the
+#        nights counter and state/partner-skips.json are gone (a stale file is harmless), UB_PARTNER_NIGHTS no longer read
 #   2.45 A partner settings.ini still names but the Team Lead no longer pairs (ended there, perhaps paired anew) is
 #        skipped as ended, not no_key - the log says so and that Set up... > Apply gives its units to the partnership
 #        made anew; a skip that means the setup or pairing is broken (ended, no_key, snap_prefix, no_ssh) warns every
@@ -2853,8 +2857,8 @@ ct_rests() {
 #   recv <unit> <snap> [<from>]  zfs send -L -c [-i <base>] <ds>@<snap> | mbuffer | pv | ssh - the door answers one JSON
 #                  line on stderr before it reads (admitted or refused: refused_window, refused_quota, refused_asleep,
 #                  need_full -> a full send, ...) and one after (bytes, seconds, or recv_failed)
-# then the bookmark moves to the snapshot sent. A partner that doesn't answer: every unit skipped (unreachable), a
-# warning only from the UB_PARTNER_NIGHTS-th night in a row (once a day, state/partner-skips.json). The array stop
+# then the bookmark moves to the snapshot sent. A partner that doesn't answer: every unit skipped (unreachable) and,
+# like everything that did not arrive, a warning in this very run (2.46, partner_missed - no nights of grace). The array stop
 # ends the phase like Kopia's (partner_stop: SIGTERM to the pipe; the receiver's zfs recv -s keeps a resume token):
 # partner.interrupted, the rest skipped - never failed. (zfs send never gets -s: that is --skip-missing, only with -R.)
 PARTNER_ORDER=()            # "id|unit|dataset|bytes" - the phase's transfers in their order (partner_plan)
@@ -3121,61 +3125,68 @@ partner_why_text() {
     esac
 }
 
-# A refusal the partner's user can change (its window, its quota): a warning once a day per partner
+# A refusal the partner's user can change: a full quota or an older office that takes no app warns at once, with what
+# to do (a coded warning of its own); any other refusal is said by partner_missed at the partner's end (2.46)
 partner_refused() { # partner_refused <id> <why>
-    local key today
-    case "$2" in refused_quota) key="quota_warned" ;; refused_window) key="window_warned" ;; not_agreed) key="agreed_warned" ;; old_partner) key="old_warned" ;; *) return 0 ;; esac
-    today="$(date +%F)"
+    case "$2" in refused_quota|old_partner) ;; *) return 0 ;; esac
     [[ " ${PARTNER_TOLD[$1]:-} " == *" $2 "* ]] && return 0
-    PARTNER_TOLD[$1]+=" $2"
+    PARTNER_TOLD[$1]+=" $2"; PARTNER_WARNED[$1]=1
     # 2.45: an older partner office that takes no app unit: a warning every run, with what to do
     if [[ "$2" == old_partner ]]; then
         warn_code partner_old "Partner $(partner_name "$1") runs an older office that can't keep an app on its own - update the office there" partner="$(partner_name "$1")"
         return 0
     fi
     # 2.45: a full quota warns every run (once per partner) - nothing goes there until someone acts
-    if [[ "$2" == refused_quota ]]; then
-        warn_code partner_quota "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has; raise the quota at the partner or free space there" partner="$(partner_name "$1")"
-        return 0
-    fi
-    if [[ "$(partner_state_get partner-skips.json ".[\"$1\"].$key")" != "$today" ]]; then
-        case "$2" in
-            refused_window) warn "Partner $(partner_name "$1") refused: outside its receiving window - the run sends again next night (the window is its owner's setting)" ;;
-            not_agreed)     warn "Partner $(partner_name "$1") runs an older office and keeps only what its Team Lead agreed to - update it, or let its Team Lead keep the rest (asked through its door)" ;;
-        esac
-        partner_state_set partner-skips.json ".[\$v.id].$key = \$v.day" "$(jq -nc --arg id "$1" --arg day "$today" '{id: $id, day: $day}')"
-    fi
+    warn_code partner_quota "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has; raise the quota at the partner or free space there" partner="$(partner_name "$1")"
 }
 declare -A PARTNER_TOLD=()
+declare -A PARTNER_WARNED=()   # 2.46: id -> 1 once a coded warning of this run names that partner (partner_missed adds none)
 
-# partner_nights <id> <down 1/0> [why]: nights in a row without an answer (2.45: or with its array stopped - nothing can
-# be received either way; a partner may sleep a night); the UB_PARTNER_NIGHTS-th one warns (once a day)
-partner_nights() {
-    local id="$1" today n first warned
-    today="$(date +%F)"
-    if [[ "$2" != 1 ]]; then
-        partner_state_set partner-skips.json '.[$v] |= ((. // {}) | .nights = 0 | del(.first, .last_day))' "$(jq -nc --arg v "$id" '$v')"
-        return 0
+# partner_missed_hint <why>: what to do about it, after the reason in words (the mail's and the log's warning)
+partner_missed_hint() {
+    case "$1" in
+        unreachable)    echo " - is its server on, its office running, the way there open?" ;;
+        array_stopped)  echo " - its array is stopped; start it there" ;;
+        refused_asleep) echo " - its office is older and refuses while its pool sleeps; update the office there" ;;
+        refused_window) echo " - outside its receiving window (an older office there; update it)" ;;
+        not_agreed)     echo " - an older office there keeps only what its Team Lead agreed to; update it there" ;;
+        link_lost)      echo " - the next run continues it" ;;
+        *)              echo "" ;;
+    esac
+}
+
+# partner_missed <id>: 2.46 - a partner that got nothing or not all of this run is said IN this run, no nights of grace
+# (Benj 2026-10-12: a failed part is reported at once, in the mail and in Mr. Backupsy's bubble). One coded warning per
+# partner (partner_missed, partner + why: the office names the partner and the reason in its own words) unless another
+# coded one already named it (ended, no_key, snap_prefix, no_ssh, quota, old_partner). The units this server can't send
+# at all (PARTNER_CANT: not a dataset of its own, its pool asleep here with asleep_pools = skip ...) are the setup's
+# business, said there - not counted here. A failed transfer warned already (partner_fail): its item, no second count.
+partner_missed() {
+    local id="$1" l c why="" failed=0 cant name
+    [[ -n "${PARTNER_WARNED[$id]:-}" ]] && return 0
+    for l in "${ST_PARTNER_FAILED[@]}"; do
+        [[ "$l" == "$id|"* ]] || continue
+        failed=1; [[ -n "$why" ]] || why="${l##*|}"
+    done
+    if [[ -z "$why" ]]; then
+        for l in "${ST_PARTNER_SKIPPED[@]}"; do
+            [[ "$l" == "$id|"* ]] || continue
+            cant=0
+            for c in "${PARTNER_CANT[@]}"; do [[ "$c" == "$l" ]] && { cant=1; break; }; done
+            (( cant )) && continue
+            why="${l##*|}"; break
+        done
     fi
-    n="$(partner_state_get partner-skips.json ".[\"$id\"].nights")"; is_uint "$n" || n=0
-    first="$(partner_state_get partner-skips.json ".[\"$id\"].first")"; is_uint "$first" || first="$(date +%s)"
-    [[ "$(partner_state_get partner-skips.json ".[\"$id\"].last_day")" == "$today" ]] || n=$(( n + 1 ))
-    warned="$(partner_state_get partner-skips.json ".[\"$id\"].warned")"
-    if (( n >= UB_PARTNER_NIGHTS )) && [[ "$warned" != "$today" ]]; then
-        if [[ "${3:-}" == "refused_asleep" ]]; then
-            warn "Partner $(partner_name "$id"): its pool sleeps every night - nothing arrives ($n nights in a row, since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)); let it wake for receiving there (partner_asleep)"
-        elif [[ "${3:-}" == "array_stopped" ]]; then
-            warn "Partner $(partner_name "$id") has taken nothing for $n nights in a row (since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)) - its array is stopped; start it there (partner_array_stopped)"
-        else
-            warn "Partner $(partner_name "$id") has not answered for $n nights in a row (since $(date -d "@$first" '+%Y-%m-%d' 2>/dev/null)) - nothing went there; is its server on, its office running, the way there open? (partner_unreachable)"
-        fi
-        warned="$today"
-    elif (( n > 0 )); then
-        log "  Partner $(partner_name "$id") $(case "${3:-}" in array_stopped) echo "has its array stopped" ;; refused_asleep) echo "has its pool asleep" ;; *) echo "did not answer" ;; esac) ($n night(s) in a row) - nothing sent; a warning from the ${UB_PARTNER_NIGHTS}th night on"
+    [[ -n "$why" ]] || return 0                         # every unit it should get arrived (or none was due)
+    [[ -n "${PARTNER_DOWN[$id]:-}" ]] && why="${PARTNER_DOWN[$id]}"     # the cause, when the whole partner was down
+    PARTNER_WARNED[$id]=1
+    name="$(partner_name "$id")"
+    if (( failed )); then
+        WARN_ITEMS+=( "partner_missed"$'\x1f'"partner=$name"$'\x1f'"why=$why" )
+        log "  Partner $name: this run's copy did not arrive whole - $(partner_why_text "$why")$(partner_missed_hint "$why")"
+    else
+        warn_code partner_missed "Partner $name: this run's copy did not arrive - $(partner_why_text "$why")$(partner_missed_hint "$why")" partner="$name" why="$why"
     fi
-    partner_state_set partner-skips.json '.[$v.id] |= ((. // {}) + {nights: $v.n, first: $v.first, last_day: $v.day, warned: $v.warned})' \
-        "$(jq -nc --arg id "$id" --argjson n "$n" --argjson first "$first" --arg day "$today" --arg warned "$warned" \
-            '{id: $id, n: $n, first: $first, day: $day, warned: $warned}')"
 }
 
 partner_phase() {
@@ -3201,7 +3212,8 @@ partner_phase() {
         fi
         [[ -n "$why" ]] && PARTNER_DOWN[$id]="$why"
         # 2.45: a skip that means the setup or the pairing is broken warns every run (once per partner), with what to do -
-        # the run ends «with warnings», never «successful» with units left out; unreachable / array_stopped: partner_nights
+        # the run ends «with warnings», never «successful» with units left out; unreachable / array_stopped: partner_missed
+        case "$why" in ended|no_key|snap_prefix|no_ssh) PARTNER_WARNED[$id]=1 ;; esac
         case "$why" in
             ended)       warn_code partner_ended "Partner $name: the partnership was ended at the Team Lead - nothing sent; apply Mr. Backupsy's setup (Set up... > Apply) so its units go to the partnership made anew" partner="$name" ;;
             no_key)      warn_code partner_no_key "Partner $name: this office's key for it is missing - nothing sent; pair anew at the Team Lead" partner="$name" ;;
@@ -3223,13 +3235,8 @@ partner_phase() {
             partner_unit "$id" "$u" "$ds"
             [[ "${PARTNER_DOWN[$id]:-}" == "unreachable" ]] && ! partner_done_has "$id|$u" && partner_skip "$id" "$u" unreachable
         done
-        # 2.45: its pool asleep at the door (refused_asleep) counts the night too - a pool that sleeps every night gets nothing
-        local asleep_there=0 sk
-        for sk in "${ST_PARTNER_SKIPPED[@]}"; do [[ "$sk" == "$id|"*"|refused_asleep" ]] && asleep_there=1; done
-        case "${PARTNER_DOWN[$id]:-}" in
-            unreachable|array_stopped) partner_nights "$id" 1 "${PARTNER_DOWN[$id]}" ;;
-            *) if (( asleep_there )); then partner_nights "$id" 1 refused_asleep; else partner_nights "$id" 0; fi ;;
-        esac
+        # 2.46: whatever did not arrive is said in this run - unreachable, array stopped, refused, failed (no nights of grace)
+        partner_missed "$id"
     done
     rm -rf "$PARTNER_TMP"; PARTNER_TMP=""
     local nd=0 nb=0
