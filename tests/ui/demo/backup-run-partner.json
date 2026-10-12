@@ -1194,7 +1194,13 @@
    "flash": 20
   },
   "before": 900,
-  "total": 2015
+  "prepare": 780,
+  "total": 2015,
+  "partner": {
+   "2ec7accd|place": 4,
+   "2ec7accd|share:Familienfotos": 70,
+   "2ec7accd|share:Dokumente": 46
+  }
  },
  "upload": null,
  "drift": {

@@ -3,8 +3,11 @@
 .bk-steps{display:flex; gap:4px; margin:2px 0 0; padding:0; list-style:none; flex-wrap:wrap; counter-reset:bk}
 .bk-steps li{
   flex:1 1 0; min-width:92px; font-size:12px; color:var(--muted); padding:5px 8px 5px 8px;
-  border-top:3px solid var(--line); counter-increment:bk; white-space:nowrap;
+  border-top:3px solid var(--line); counter-increment:bk; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+/* narrow (390 px, 2026-10-11: «Datenbank-Dumps» ran into «3 · Snapshots»): a grid of whole cells, two at a phone's width —
+   a name that still doesn't fit ends in «…», the whole name in its title */
+@media (max-width:640px){.bk-steps{display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr))} .bk-steps li{min-width:0}}
 .bk-steps li::before{content:counter(bk) " · "; color:var(--line2)}
 .bk-steps li.done{border-top-color:var(--accent); color:var(--ink2)}
 .bk-steps li.current{border-top-color:var(--accent); color:var(--accent-ink); font-weight:650; background:var(--accent-soft)}

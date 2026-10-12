@@ -828,9 +828,10 @@ it/es («il signor Restori», «la señora Snapshotini»), capitalised in fr («
 ## UI conventions (every desk looks and behaves the same)
 
 * **Working, no need to wait: the wave** (2026-10-12): `el('span', 'spin')` (shown inside `.running`) is the office's
-  own small wave — a sine stroke in the accent (office.css `--wave`, a mask; 18 × 9 px), swaying slowly (2.5 s each way),
-  still under `prefers-reduced-motion`. One mark everywhere (Jack's live panel, Mr. Backupsy's run, tours, dialogs, the
-  busy fallback); never Unraid's loading wave or a circle spinner, never a GIF.
+  own small wave — since 12:00 drawn like Unraid's loading wave (a sine of upright bars, eight to a period, long at the
+  middle, short at crest and trough; Benj) in the accent (office.css `--wave`, a mask; 18 × 9 px), swaying slowly (2.5 s
+  each way), still under `prefers-reduced-motion`. One mark everywhere (Jack's live panel, Mr. Backupsy's run, tours,
+  dialogs, the busy fallback); never Unraid's own logo animation or files, a circle spinner, or a GIF.
 * **Inside Unraid:** everything the office shows lives in `#sso` (src/page.php);
   office.css and every desk.css nest all their rules in `#sso{ … }` (CSS
   nesting), so nothing leaks out and, under the id, Unraid's rules don't leak

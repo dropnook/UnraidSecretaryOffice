@@ -190,6 +190,46 @@ function runMode() {
   const s = status();
   return s && s.result === 'running' && ['check', 'dryrun'].includes(s.mode) ? s.mode : 'backup';
 }
+/**
+ * One run a minute (the agent refuses a second one in the minute the last one started: backupMinuteTaken() — the run's
+ * name and its snapshots carry the minute). After an apply the agent starts its own plan + tour, and a click on «Tour»
+ * right after met that refusal (Benj, 2026-10-12): the page knows the last run's start (status.json, any mode) and
+ * says so before the click — {left: seconds until the minute changes, mode, started} while the last run started in this
+ * minute and nothing runs now, else null. The agent's refusal stays the last guard (the clocks may differ by seconds).
+ */
+function minuteTaken(now = Date.now() / 1000) {
+  const s = status();
+  if (!s || !(s.started > 0) || live()) return null;
+  const left = Math.ceil((Math.floor(s.started / 60) + 1) * 60 - now);
+  // a browser behind the server's clock sees a start «ahead»: still this minute (up to two, anything further is no clock)
+  return left > 0 && left <= 120 ? { left, mode: ['check', 'dryrun'].includes(s.mode) ? s.mode : 'backup', started: s.started } : null;
+}
+let minuteTimer = null;
+/**
+ * The buttons that start a run (the head's «Tour» and «Start a run…», the start dialog's button) grey while the minute
+ * is taken, their tooltip counting the seconds down; at the minute's change they come back and the page is drawn again
+ * (the bubble's «The tour just ran» goes). blocked() = every other reason they are grey.
+ */
+function minuteGuard(buttons, blocked = () => false, onFree = null) {
+  clearInterval(minuteTimer);
+  const tick = () => {
+    const m = minuteTaken();
+    buttons.forEach((b) => { b.disabled = blocked() || !!m; b.title = m ? T('minute.wait', { seconds: m.left }) : ''; });
+    return m;
+  };
+  if (!tick()) return;
+  minuteTimer = setInterval(() => {
+    if (tick()) return;
+    clearInterval(minuteTimer);
+    if (onFree) onFree();
+  }, 1000);
+}
+/** The page drawn again at the minute's change (not under an open dialog: it keeps its own buttons) */
+function minuteFree() {
+  if (!view || Office.dialogOpen()) return;
+  if (page === 'setup') renderSetup(); else render();
+}
+
 /** A stop text named by that kind: «Stop the tour» for a check, «Stop the dry run», a backup keeps «Stop the run» */
 const stopKey = (key, mode = runMode()) => (mode === 'backup' ? key : `${key}_${mode}`);
 
@@ -258,15 +298,38 @@ function progress() {
     return e;
   };
 
-  const pr = s.phase === 'partner' ? partnerRateOf(s) : null;
-  if (pr && pr.eta !== null && pr.rate) {
-    // a unit on its way to a partner (engine 2.42): what is left of this transfer at the measured rate, then Kopia's sources
-    remaining += pr.eta;
+  // the partner step (engine 2.27; status.json partner.planned from the run's start): every planned transfer not made yet
+  // at the seconds of its last one (agent: estimates.partner) — a unit never sent makes it unknown, never 99 % (2026-10-12)
+  const sp = s.partner && Array.isArray(s.partner.planned) ? s.partner : null;
+  const pest = est.partner || {};
+  const unitKey = (x) => `${x.id}|${x.unit}`;
+  const partnerLeft = () => {
+    if (!sp) return 0;
+    const over = new Set([...(sp.done || []), ...(sp.skipped || []), ...(sp.failed || []), ...(sp.current ? [sp.current] : [])].map(unitKey));
+    return sp.planned.reduce((sum, x) => {
+      if (over.has(unitKey(x))) return sum;
+      const e = pest[unitKey(x)];
+      if (typeof e !== 'number') { known = false; return sum; }
+      return sum + e;
+    }, 0);
+  };
+
+  if (s.phase === 'partner') {
+    // a unit on its way to a partner (engine 2.42): what is left of this transfer at the measured rate — before the rate,
+    // its last transfer's seconds less the time it is on its way —, then the partner units after it, then Kopia's sources
+    const pr = partnerRateOf(s);
+    if (pr && pr.eta !== null && pr.rate) remaining += pr.eta;
+    else if (sp && sp.current && typeof pest[unitKey(sp.current)] === 'number') remaining += Math.max(0, pest[unitKey(sp.current)] - (now - (sp.current.since || now)));
+    else if (sp && sp.current) known = false;
+    remaining += partnerLeft();
     planned.forEach((n) => { remaining += sourceLeft(n); });
   } else if (step < KOPIA_STEP) {
-    if (est.before) remaining += Math.max(0, est.before - (now - s.started));
-    else if (!planned.length && est.total) remaining += Math.max(0, est.total - (now - s.started));
+    // the part before the partner step (an agent before 2026-10-12: before Kopia, the partners' last time in it)
+    const pre = typeof est.prepare === 'number' ? est.prepare : est.before;
+    if (typeof pre === 'number') remaining += Math.max(0, pre - (now - s.started));
+    else if (!planned.length && !(sp && sp.planned.length) && est.total) remaining += Math.max(0, est.total - (now - s.started));
     else known = false;
+    if (typeof est.prepare === 'number') remaining += partnerLeft();
     planned.forEach((n) => { remaining += sourceLeft(n); });
   } else if (step === KOPIA_STEP) {
     planned.filter((n) => !done.has(n)).forEach((n) => { remaining += sourceLeft(n); });
@@ -310,6 +373,8 @@ function bubbleText(pg) {
   const last = lastRun();
   const place = pg === 'setup' ? bubblePlace() : '';
   if (place) out.push(place);
+  const taken = minuteTaken();
+  if (taken) out.push(T('minute.ran_' + taken.mode, { time: fmt.time(taken.started) }));
   if (!last) { if (!place) out.push(T('bubble.no_runs')); }        // no place, no backup: the place says it, once
   else {
     const k = last.kopia || [];
@@ -346,7 +411,10 @@ function deskActions() {
       actions.push(button(T('check'), 'plain', () => startRun('check')));
       actions.push(button(T('start'), '', chooseRun));
     }
-    actions.forEach((b) => { b.disabled = !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()) || (live() && !!state.abort_asked); });
+    const blocked = () => !canAct() || !!(state.setup && state.setup.running) || (restoring() && !live()) || (live() && !!state.abort_asked);
+    actions.forEach((b) => { b.disabled = blocked(); });
+    if (!live()) minuteGuard(actions, blocked, minuteFree);     // one run a minute: grey until the minute changes
+    else clearInterval(minuteTimer);
   }
   return actions;
 }
@@ -536,6 +604,7 @@ function runningCard() {
       li.classList.add('skipped');
       li.dataset.tip = s.skip_kopia ? T('step.kopia_skipped_nokopia') : state.settings && state.settings.kopia_enabled === false ? T('step.kopia_skipped_off') : T('step.kopia_skipped_none');
     }
+    if (!li.dataset.tip) li.title = T('step.' + name);     // a narrow card ends a long name in «…» (desk.css)
     steps.appendChild(li);
   });
   card.appendChild(steps);
@@ -1659,11 +1728,17 @@ async function chooseRun() {
   });
   const est = state.estimates || {};
   if (est.total) box.appendChild(el('p', 'callout', T('start_hint', { duration: dur(est.total) })));
-  Office.dialog({
+  const taken = minuteTaken();
+  const note = taken ? el('p', 'callout', T('minute.ran_' + taken.mode, { time: fmt.time(taken.started) })) : null;
+  if (note) box.appendChild(note);
+  const d = Office.dialog({
     title: T('start_title'),
     body: box,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('start_go'), kind: '', act: () => startRun(mode) }],
+    onClose: () => clearInterval(minuteTimer),
   });
+  // one run a minute: its button grey until the minute changes (the head's buttons come back with the next drawing)
+  if (d && d.buttons) minuteGuard([d.buttons[1]], () => false, () => { if (note) note.remove(); });
 }
 
 async function startRun(mode) {
@@ -2119,16 +2194,20 @@ function setupApply() {
       box.appendChild(ul);
     }
     // what is new on the server and how this Apply takes it in (engine 2.21: until now only local, kept running)
-    const news = setupNewLines();
+    const news = setupNewRows();
     if (news.length) {
-      // engine 2.31: decided in advance by the default for new things - said, so nothing goes along unseen
+      // engine 2.31: decided in advance by the default for new things - said, so nothing goes along unseen; only while
+      // no new row was changed by hand (such a row shows the hand's value and says so)
       const kind = presetNow();
+      const hand = news.some((r) => r.hand);
       box.appendChild(el('p', '', [T('setup.apply_group_new', { n: news.length }),
-        kind !== 'auto' ? T('setup.apply_new_default', { name: T('setup.preset.' + kind) }) : ''].filter(Boolean).join(' ')));
+        kind !== 'auto' && !hand ? T('setup.apply_new_default', { name: T('setup.preset.' + kind) }) : ''].filter(Boolean).join(' ')));
       const ul = el('ul', 'shortlist bk-newlist');
-      news.forEach(([name, how]) => {
+      news.forEach(({ name, how, hand: mine }) => {
         const li = el('li', '', name);
-        li.appendChild(el('span', '', how));
+        const what = el('span', '', how);
+        if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));
+        li.appendChild(what);
         ul.appendChild(li);
       });
       box.appendChild(ul);
@@ -2187,22 +2266,40 @@ function knownText(before, after) {
 
 /** The apply dialog's group «New»: each new VM, app, container of a known app, share and folder, and how Apply takes it in */
 function setupNewLines() {
+  return setupNewRows().map(({ name, how }) => [name, how]);
+}
+/**
+ * The same rows as {name, how, hand}: hand = the user changed that row against the proposal (the default for new things
+ * decided it, then a click) — the dialog says «Your default for new things decided this» only while no row is (2026-10-11
+ * on nostromo: the sentence stood over a row changed by hand)
+ */
+function setupNewRows() {
   const m = setup.model;
   if (!m) return [];
   const out = [];
+  const edited = new Set(setup.base ? setupEdits() : []);
+  const baseLevels = setup.baseLevels || setup.levels;
+  const baseHeld = setup.baseHeld || setup.held;
+  const levelHand = (key) => (setup.levels[key] ?? 0) !== (baseLevels[key] ?? 0);
+  const appHand = (a) => levelHand('app:' + a.id) || (setup.held[a.id] || 'stop') !== (baseHeld[a.id] || 'stop');
   const appHow = (a) => {
     const l = levelOf('app:' + a.id);
     return l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.app_hold.' + (setup.held[a.id] || 'stop'))}`;
   };
   m.vms.filter((x) => x.isNew).forEach((x) => {
     const l = levelOf('vm:' + x.name);
-    out.push([T('setup.new_vm', { name: x.name }), l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`]);
+    out.push({ name: T('setup.new_vm', { name: x.name }),
+      how: l === 0 ? T('setup.level.0') : `${T('setup.level.' + l)}, ${T('setup.vm_prep.' + dget(`vm|${x.name}|prepare`, 'none'))}`,
+      hand: levelHand('vm:' + x.name) || edited.has(`vm|${x.name}|prepare`) || edited.has(`vm|${x.name}|mode`) });
   });
-  m.apps.filter((a) => a.isNew).forEach((a) => out.push([T('setup.new_app', { name: a.name }), appHow(a)]));
-  m.apps.filter((a) => a.newMembers.length).forEach((a) => out.push([T('setup.new_member', { name: a.newMembers.join(', '), app: a.name }), appHow(a)]));
+  m.apps.filter((a) => a.isNew).forEach((a) => out.push({ name: T('setup.new_app', { name: a.name }), how: appHow(a), hand: appHand(a) }));
+  m.apps.filter((a) => a.newMembers.length).forEach((a) => out.push({ name: T('setup.new_member', { name: a.newMembers.join(', '), app: a.name }),
+    how: appHow(a), hand: appHand(a) }));
   setup.plan.shares.filter((sh) => sh.exists && setup.newItems.has('share:' + sh.name))
-    .forEach((sh) => out.push([T('setup.new_share', { name: sh.name }), T('setup.mode.' + dget(`share|${sh.name}|mode`, 'off'))]));
-  waitingFolders().forEach((w) => out.push([`${w.share}/${w.dir}`, waitHow(w)]));
+    .forEach((sh) => out.push({ name: T('setup.new_share', { name: sh.name }), how: T('setup.mode.' + dget(`share|${sh.name}|mode`, 'off')),
+      hand: edited.has(`share|${sh.name}|mode`) }));
+  waitingFolders().forEach((w) => out.push({ name: `${w.share}/${w.dir}`, how: waitHow(w),
+    hand: w.owner ? levelHand(w.owner.key) : !!setup.base && waitChoice(w) !== waitChoice(w, setup.base) }));
   return out;
 }
 
@@ -3779,9 +3876,10 @@ function waitingFolders() {
 /** A folder as a part of a Kopia rule: what Kopia reads as a pattern becomes ? (like the engine's new_rule_name) */
 const ruleName = (dir) => dir.replace(/[*?[\]\\]/g, '?');
 /** local | kopia | null (not decided in the draft) */
-function waitChoice(w) {
-  const known = dget(`share|${w.share}|kopia_known`, []) || [];
-  const ign = dget(`share|${w.share}|kopia_ignore`, []) || [];
+function waitChoice(w, from = null) {          // from: other settings than the draft (the proposal: setup.base)
+  const get = (k) => (from ? from[k] : dget(k, [])) || [];
+  const known = get(`share|${w.share}|kopia_known`);
+  const ign = get(`share|${w.share}|kopia_ignore`);
   if (known.includes(`/${w.dir}/`)) return 'kopia';
   if (ign.includes(`/${w.dir}/`) || ign.includes(`/${ruleName(w.dir)}/`)) return 'local';
   return null;
@@ -4958,6 +5056,7 @@ Office.desk({
   },
   unmount() {
     view = null;
+    clearInterval(minuteTimer);
     clearTimeout(liveTimer);
     clearTimeout(setupTimer);
   },
@@ -4974,8 +5073,9 @@ Office.desk({
     if (state && state.found) {
       const ready = canAct() && !live();
       items.push({ text: T('schedule.open'), act: state.schedule && state.schedule.script && Office.agent.running ? scheduleDialog : null });
-      items.push({ text: T('mode.check'), act: ready ? () => startRun('check') : null });
-      items.push({ text: T('mode.dryrun'), act: ready ? () => startRun('dryrun') : null });
+      const go = ready && !minuteTaken();          // one run a minute: the head's buttons say until when
+      items.push({ text: T('mode.check'), act: go ? () => startRun('check') : null });
+      items.push({ text: T('mode.dryrun'), act: go ? () => startRun('dryrun') : null });
       if ((state.mounted || []).length) items.push({ text: T('unmount'), act: ready ? unmount : null });
       const latest = (state.logs || [])[0];
       if (latest) items.push({ separator: true }, { text: T('menu.latest_log'), act: () => showLog(latest.name, live()) });
@@ -5082,11 +5182,11 @@ if (globalThis.OFFICE_DESK_TESTS) {
     driftText, driftParams,
     overviewTiles, tileNode, tileList, protRows, protView, protTileCounts, historyRows, PROT_TILES, PROT_ID, TILES,
     setState: (s) => { state = s; },
-    setupDraftFromPlan, setupNewLines, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
+    setupDraftFromPlan, setupNewLines, setupNewRows, setupChanges, setupSaved, waitingFolders, waitChoice, waitSet, levelOf, waitingText, appSharesText,
     placeLines, placeIntro, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
-    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace,

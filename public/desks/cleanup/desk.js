@@ -541,12 +541,15 @@ function roomSection(sec) {
   return s;
 }
 
-/** "Unfold all" / "Fold all" for the rows (and groups) of one room */
-function unfoldBar(body, rows) {
-  const bar = el('div', 'toolbar cl-unfold');
+/**
+ * "Unfold all" / "Fold all" for the rows (and groups) of one room — and of one corner of «Where is what» (its own class
+ * and keys: `clw-unfold`, `where.*`). One function for both pages (2026-10-12: a copy of it inside Where shadowed this one).
+ */
+function unfoldBar(body, rows, { cls = 'cl-unfold', keys = '' } = {}) {
+  const bar = el('div', 'toolbar ' + cls);
   const b = el('button', 'btn small plain');
   b.type = 'button';
-  const set = () => { b.textContent = rows.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
+  const set = () => { b.textContent = rows.some((x) => !x.open()) ? T(keys + 'unfold_all') : T(keys + 'fold_all'); };
   b.onclick = () => {
     const open = rows.some((x) => !x.open());
     Office.keepInPlace(bar, () => {
@@ -3050,29 +3053,9 @@ function whereCorner(id) {
   CORNERS()[id](body);
   if ((words().length || onlyOdd()) && !drawnRows && !body.querySelector('.empty')) body.appendChild(emptyNote(T('where.filter_none')));
   const mine = shown;
-  if (mine.length > 1) s.appendChild(unfoldBar(body, mine));
+  if (mine.length > 1) s.appendChild(unfoldBar(body, mine, { cls: 'clw-unfold', keys: 'where.' }));
   s.appendChild(body);
   return s;
-}
-
-/** "Unfold all" / "Fold all" for the rows (and groups) of one corner */
-function unfoldBar(body, rows) {
-  const box = el('div', 'toolbar clw-unfold');
-  const b = el('button', 'btn small plain');
-  b.type = 'button';
-  const label = () => { b.textContent = rows.some((x) => !x.open()) ? T('where.unfold_all') : T('where.fold_all'); };
-  b.onclick = () => {
-    const open = rows.some((x) => !x.open());
-    Office.keepInPlace(box, () => {
-      body.querySelectorAll('.group').forEach((g) => g.classList.toggle('closed', !open));
-      rows.forEach((x) => x.set(open));
-    });
-    label();
-  };
-  body.addEventListener('click', () => setTimeout(label, 0));
-  label();
-  box.appendChild(b);
-  return box;
 }
 
 // --------------------------------------------------------------- shares

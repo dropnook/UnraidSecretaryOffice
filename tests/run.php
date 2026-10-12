@@ -8334,6 +8334,15 @@ out.kopia = look();
 out.kopiaOld = old() === plain;
 out.kopiaLines = b.setupNewLines();
 out.kopiaUpload = b.firstUpload(b.draftMode, b.draftVm);
+// the dialog's «Your default for new things decided this» only while no new row was changed by hand (2026-10-11)
+out.handNone = b.setupNewRows().filter((r) => r.hand).length;
+S.levels['vm:vmnew'] = 1;
+b.setupDerive();
+S.draft['share|fresh|mode'] = 'snapshot';
+const loose = b.waitingFolders().find((w) => w.dir === 'loose');
+if (loose) b.waitSet(loose, b.waitChoice(loose) === 'kopia' ? 'local' : 'kopia');
+out.hand = b.setupNewRows().filter((r) => r.hand).map((r) => r.name).sort();
+out.handLines = b.setupNewLines().length === b.setupNewRows().length;
 load('local');
 out.local = look();
 out.localOld = old() === plain;
@@ -8404,6 +8413,12 @@ JS;
          'loose' => 'local', 'kopia' => 'yes', 'key' => 'local', 'now' => 'local', 'changed' => false, 'chosen' => true,
          'start' => 'setup.preset.new_sub {"name":"setup.preset.local"}'], $n['local']);
     check('default: local stored - everything that was there before exactly as without a default', $n['localOld']);
+    same('default: the dialog\'s new rows — none changed by hand right after the default decided (its sentence stands)', 0, $n['handNone'] ?? null);
+    same('default: … the new VM\'s level, a new share\'s mode and a waiting folder changed by hand — those rows say «changed by you», the sentence goes',
+        ['appdata/loose', 'setup.new_share {"name":"fresh"}', 'setup.new_vm {"name":"vmnew"}'], $n['hand'] ?? null);
+    check('default: … the dialog: the sentence only without a hand row, the chip on such a row',
+        str_contains($js, "kind !== 'auto' && !hand ? T('setup.apply_new_default'") && str_contains($js, "if (mine) what.append(' ', chip(T('setup.preset.changed'), 'quiet'));")
+        && ($n['handLines'] ?? false) === true);
     same('default: kopia stored while Kopia is off - never switched on: the new things local', [[1, 1], 'no', ['snapshot', 'off', 'snapshot', 'snapshot', 'snapshot']],
         [$n['kopiaOff']['levels'], $n['kopiaOff']['kopia'], $n['kopiaOff']['modes']]);
     same('default: «only to what is new» chosen on the page - the new things get it, the key set, the hand change and every row before stay',
@@ -25631,6 +25646,65 @@ function testBackupOneMinute(): void
             [is_file("$eng/state/status.json"), is_file("$eng/state/lock-holder.json"), is_link("$eng/logs/latest.log"), is_file("$eng/state/skipped.json"), filemtime("$eng/state/lock")]);
     }
     same('one a minute: every date call one the tests\' clock knows', '', testsClockUnsupported("$tmp/clock"));
+
+    // the page (2026-10-12, Benj: «Tour» right after an apply met the refusal — the apply's own tour had just run): it knows
+    // the last run's start and greys «Tour», «Start a run…» and the menu's runs until the minute changes, the tooltip
+    // counting down, the bubble saying which run just ran; the agent's refusal stays the last guard
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('one a minute: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const node = (tag, cls, text) => ({ tag, cls, text, title: '', disabled: false, dataset: {}, appendChild() {}, append() {} });
+globalThis.Office = { scope: () => T, t: T, el: node, fmt: { time: (t) => `time(${t})`, relative: (t) => `rel(${t})`, date: (t) => `date(${t})`, size: (b) => b + ' B' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, agent: { running: true }, dialogOpen: () => false };
+let timers = 0;
+globalThis.setInterval = () => ++timers;       // the countdown's ticks are not run here (node would never end)
+globalThis.clearInterval = () => {};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const now = Math.floor(Date.now() / 1000);
+const minute = Math.floor(now / 60) * 60;
+const st = (status, more) => ({ found: true, compatible: true, running: false, history: [], status, ...more });
+const out = { minute };
+b.setState(st({ mode: 'check', started: minute + 0, finished: minute + 5, result: 'ok' }));
+const m = b.minuteTaken(minute + 51);
+out.taken = [m && m.left, m && m.mode, b.minuteTaken(minute + 60), b.minuteTaken(minute - 1) && b.minuteTaken(minute - 1).left];
+out.bubble = b.bubbleText('').filter((x) => x.startsWith('minute.'));
+const acts = b.deskActions();
+out.buttons = acts.map((x) => [x.text, x.disabled, x.title.replace(/\d+/, 'n')]);
+out.timer = timers > 0;
+b.setState(st({ mode: 'backup', started: minute - 70, finished: minute - 3, result: 'ok' }));
+out.older = [b.minuteTaken(), b.deskActions().map((x) => [x.disabled, x.title]), b.bubbleText('').filter((x) => x.startsWith('minute.'))];
+b.setState(st({ mode: 'dryrun', started: now, result: 'running' }, { running: true, holder: { holder: 'dryrun' } }));
+out.live = b.minuteTaken();
+b.setState(st({ mode: 'dryrun', started: now, result: 'ok' }));
+out.dry = b.minuteTaken().mode;
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/minute.js", $js);
+    $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/minute.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true);
+    same('one a minute (page): the last run started this minute — 9 s left at :51, free at the next minute, the mode named (a browser a second behind: 61)', [9, 'check', null, 61], $r['taken'] ?? null);
+    same('one a minute (page): the bubble says the tour just ran, with its time', [sprintf('minute.ran_check {"time":"time(%d)"}', $r['minute'] ?? 0)], $r['bubble'] ?? null);
+    same('one a minute (page): «Tour» and «Start a run…» grey, the tooltip counting the seconds', [['check', true, 'minute.wait {"seconds":n}'], ['start', true, 'minute.wait {"seconds":n}']],
+        $r['buttons'] ?? null);
+    check('one a minute (page): a countdown ticks until the minute changes', ($r['timer'] ?? false) === true);
+    same('one a minute (page): a run of an earlier minute — nothing grey, no tooltip, no line', [null, [[false, ''], [false, '']], []], $r['older'] ?? null);
+    same('one a minute (page): while a run goes on — not this rule (the run card and «Stop» speak)', [true, null], [array_key_exists('live', $r ?? []), $r['live'] ?? null]);
+    same('one a minute (page): a dry run names itself', 'dryrun', $r['dry'] ?? null);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('one a minute (page): the start dialog\'s button and the menu\'s runs wait too',
+        str_contains($js, 'minuteGuard([d.buttons[1]]') && str_contains($js, 'const go = ready && !minuteTaken();'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $w = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true);
+        check("one a minute (page): its words in $l", str_contains($w['minute.wait'] ?? '', '{seconds}')
+            && count(array_filter(['check', 'dryrun', 'backup'], fn ($m) => str_contains($w["minute.ran_$m"] ?? '', '{time}'))) === 3);
+    }
     hardeningRm($tmp);
 }
 
@@ -29311,9 +29385,84 @@ JS);
  * desk.js read as text: no hand-made role=button tile and no scrollIntoView left, tile filters / words / switches never in
  * Office.store, the sub-routes #/backup/<tile> set the filter like a click, the places, the agent's schedule with `next`.
  */
+/**
+ * The progress before the partner step (2026-10-12, Benj: 99 % / «0 min left» in the step Snapshots — the partner step
+ * counted only once it was on): the agent's estimates know each unit's last transfer (history's partner block) and the
+ * part before the partner step; progress() adds the planned units not sent yet — a unit never sent makes it unknown.
+ */
+function testBackupPartnerEta(): void
+{
+    $run = fn (int $started, int $first, array $partner, string $result = 'ok') => ['run' => "r$started", 'started' => $started, 'finished' => $first + 100,
+        'result' => $result, 'kopia_first' => $first, 'kopia' => [['name' => 'appdata', 'ok' => true, 'seconds' => 100, 'finished' => $first + 100]], 'partner' => $partner];
+    $p = fn (string $id, array $units, array $skipped = []) => ['id' => $id, 'seconds' => array_sum(array_column($units, 'seconds')),
+        'units' => $units, 'skipped' => array_map(fn ($u) => ['unit' => $u, 'why' => 'asleep'], $skipped)];
+    $u = fn (string $unit, int $sec) => ['unit' => $unit, 'bytes' => $sec * 1000, 'seconds' => $sec, 'resumed' => false];
+    $e = backupEstimates([
+        $run(5000, 5900, [$p('a1b2c3d4', [$u('place', 30), $u('vm:win', 500)], ['share:media'])]),
+        $run(1000, 1300, [$p('a1b2c3d4', [$u('place', 200), $u('share:docs', 60)])], 'aborted'),
+    ]);
+    same('partner eta: each unit\'s newest transfer (an aborted run\'s too), a unit skipped last = 0',
+        ['a1b2c3d4|place' => 30, 'a1b2c3d4|vm:win' => 500, 'a1b2c3d4|share:media' => 0, 'a1b2c3d4|share:docs' => 60], $e['partner']);
+    same('partner eta: the part before the partner step = before Kopia less the run\'s partner seconds', [900, 370], [$e['before'], $e['prepare']]);
+    same('partner eta: nothing known', [null, []], [backupEstimates([])['prepare'], backupEstimates([])['partner']]);
+
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('partner eta: page - node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-eta');
+    $js = <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => b + ' B', relative: () => 'now', time: (t) => `time(${t})` }, desk: () => {}, places: () => {},
+  placesFrom: () => {}, placesTook: () => {}, selbar: () => {}, has: () => false, agent: { running: true } };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const now = Math.floor(Date.now() / 1000);
+Date.now = () => now * 1000;                 // one clock for the whole check
+const est = { sources: { appdata: 100 }, before: 900, prepare: 370, total: 1000, partner: { 'p1|place': 30, 'p1|vm:win': 500 } };
+const st = (phase, partner, more) => ({ found: true, compatible: true, running: true, estimates: est, partners: [], holder: { holder: 'backup' },
+  status: { mode: 'backup', started: now - 100, phase, result: 'running', kopia: { planned: ['appdata'], done: [], current: '' }, partner }, ...more });
+const left = (p) => (p.eta === null ? null : Math.round(p.eta - now));
+const out = {};
+const plan = (more) => ({ planned: [{ id: 'p1', unit: 'place' }, { id: 'p1', unit: 'vm:win' }], done: [], skipped: [], failed: [], current: null, ...more });
+b.setState(st('snapshots', plan()));
+let p = b.progress();
+out.snapshots = [left(p), p.percent];
+b.setState(st('snapshots', null));
+out.noPartner = left(b.progress());
+b.setState(st('snapshots', plan({ planned: [{ id: 'p1', unit: 'place' }, { id: 'p1', unit: 'share:new' }] })));
+p = b.progress();
+out.never = [p.eta, p.percent];
+b.setState(st('partner', plan({ done: [{ id: 'p1', unit: 'place' }], current: { id: 'p1', unit: 'vm:win', since: now - 200, bytes: 1 } })));
+out.partnerNoRate = left(b.progress());
+b.setState(st('partner', plan({ current: { id: 'p1', unit: 'place', since: now - 10, bytes: 1 } }),
+  { partners: [{ id: 'p1', current: { unit: 'place', rate: 1000, eta: 40 } }] }));
+out.partnerRate = left(b.progress());
+console.log(JSON.stringify(out));
+JS;
+    file_put_contents("$tmp/eta.js", $js);
+    $r = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/eta.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1'), true);
+    same('partner eta (page): in the step Snapshots the partner units count — 270 before + 30 + 500 + Kopia 100, 10 %', [900, 10], $r['snapshots'] ?? null);
+    same('partner eta (page): a run without partners — before + Kopia as ever', 370, $r['noPartner'] ?? null);
+    same('partner eta (page): a unit never sent — unknown, no percent (never 99 %)', [null, null], $r['never'] ?? null);
+    same('partner eta (page): on the way without a rate yet — its last time less 200 s, then Kopia', 400, $r['partnerNoRate'] ?? null);
+    same('partner eta (page): with the rate — 40 s of this one, 500 for the next unit, Kopia 100', 640, $r['partnerRate'] ?? null);
+    hardeningRm($tmp);
+}
+
 function testBackupTiles(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    // 390 px (2026-10-11): the run card's step names ran into each other — a grid of whole cells there, a long name in «…»
+    // with its title
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.css');
+    check('backup tiles: the run card\'s steps never overlap (ellipsis, a grid of two at a phone\'s width, the name in the title)',
+        str_contains($css, 'white-space:nowrap; overflow:hidden; text-overflow:ellipsis;')
+        && str_contains($css, '@media (max-width:640px){.bk-steps{display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr))} .bk-steps li{min-width:0}}')
+        && str_contains($js, "if (!li.dataset.tip) li.title = T('step.' + name);"));
     same('backup tiles: no scrollIntoView left (a tile filters, the search reveals)', 0, substr_count($js, 'scrollIntoView'));
     preg_match_all("/setAttribute\\('role', 'button'\\)/", $js, $m, PREG_OFFSET_CAPTURE);
     $roles = array_map(fn ($x) => preg_match_all('/\nfunction (\w+)\(/', substr($js, 0, $x[1]), $f) ? end($f[1]) : '?', $m[0]);
@@ -29904,6 +30053,11 @@ function testCleanupTiles(): void
     check('cleanup tiles: STAT_CORNERS stays as data — the number tiles of before (array, Docker, VMs, SMB, User Scripts, the engine, the hottest disk, SMART, notices)',
         array_keys($map) === ['array', 'docker', 'vms', 'smb', 'scripts', 'backup', 'temp', 'smart', 'notices'], json_encode($map));
     same('cleanup tiles: … each names a corner that exists (its numbers sit on that corner\'s tile)', [], array_values(array_diff($map, $corners[1] ?? [])));
+    // 2026-10-12 (side finding of the cosmetics worker): unfoldBar was declared twice — the rooms' and a copy inside Where
+    // shadowing it; one function now, Where's corners with their own class and keys
+    check('cleanup tiles: one «Unfold all» bar for rooms and corners (no second declaration)',
+        substr_count($js, 'function unfoldBar(') === 1 && str_contains($js, "unfoldBar(body, mine, { cls: 'clw-unfold', keys: 'where.' })")
+        && str_contains($js, 'unfoldBar(list, mine)'));
     check('cleanup tiles: two pages as tabs, the last one kept as cleanup.page (#/cleanup opens it)',
         str_contains($js, "pages: { list: PAGES(), current: page, store: PAGE_KEY }") && str_contains($js, "const PAGE_KEY = 'cleanup.page';")
         && str_contains($js, "Office.pageFrom(PAGES(), s, PAGE_KEY)"));
@@ -30578,7 +30732,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

@@ -876,13 +876,28 @@ function backupRunFromLog(string $path, string $run, int $started): array
  * count: a first run uploads everything to Kopia and takes hours, the
  * incremental ones after it minutes — so the median of the last three, and
  * with fewer than three simply the newest.
+ * Partners (2026-10-12, Benj: 99 % in the step Snapshots, the partner step not yet counted): `partner` = per
+ * "<id>|<unit>" the seconds of its newest transfer (history's partner block, engine 2.27: done[].seconds; skipped
+ * there last = 0, a failed one says nothing), `prepare` = the part before the partner step (before Kopia less the
+ * run's partner seconds; a run without Kopia: up to its end) — the page adds the units this run plans on its own.
  */
 function backupEstimates(array $history): array
 {
     $sources = [];
     $before = [];
+    $prepare = [];
     $total = [];
+    $partner = [];
     foreach ($history as $run) {
+        // a unit's newest transfer counts, whatever became of the run after it
+        foreach ($run['partner'] ?? [] as $p) {
+            foreach ($p['units'] ?? [] as $u) {
+                $partner[$p['id'] . '|' . $u['unit']] ??= (int) $u['seconds'];
+            }
+            foreach ($p['skipped'] ?? [] as $u) {
+                $partner[$p['id'] . '|' . $u['unit']] ??= 0;
+            }
+        }
         if ($run['result'] === 'failed' || $run['result'] === 'aborted') {
             continue;
         }
@@ -899,6 +914,10 @@ function backupEstimates(array $history): array
         if ($first && count($before) < 3) {
             $before[] = max(0, $first - $run['started']);
         }
+        $sent = array_sum(array_map(fn ($p) => (int) ($p['seconds'] ?? 0), $run['partner'] ?? []));
+        if (($first ?: $run['finished']) && count($prepare) < 3) {
+            $prepare[] = max(0, ($first ?: $run['finished']) - $run['started'] - $sent);
+        }
         if ($run['finished'] && count($total) < 3) {
             $total[] = $run['finished'] - $run['started'];
         }
@@ -914,7 +933,9 @@ function backupEstimates(array $history): array
     return [
         'sources' => array_map($median, $sources),
         'before'  => $median($before),
+        'prepare' => $median($prepare),
         'total'   => $median($total),
+        'partner' => $partner,
     ];
 }
 
