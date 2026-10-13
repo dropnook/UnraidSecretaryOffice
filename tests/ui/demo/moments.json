@@ -478,15 +478,9 @@
  {
   "nr": 13,
   "desk": "moverelli",
-  "moment": "share",
-  "title": "Frau Moverelli - Einrichten: eine Grenze, Jack Emby und die Downloads je mit ihrem Teil, was die nächste Nacht bewegt",
-  "route": "moverelli/setup",
-  "prepare": [
-   {
-    "wait": ".mo-levels .mo-level-pool",
-    "pause": 500
-   }
-  ],
-  "clip": ".mo-levels"
+  "moment": "night",
+  "title": "Frau Moverelli - ein Lauf mit Jack Emby: was heute Nacht geschieht, Probelauf, Unraids Mover aus",
+  "route": "moverelli",
+  "clip": "section:has(> [data-place=\"schedule\"])"
  }
 ]
