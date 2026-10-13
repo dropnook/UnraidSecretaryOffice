@@ -45,7 +45,9 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
   EMBYCACHE_LOG_LEVEL         DEBUG | INFO | WARNING (Default INFO)
   EMBYCACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent)
   EMBYCACHE_GIVE_BACK_FREE    USO: "1" (das Office) – unter min_free_percent gibt der Lauf zurück, nach Rang, bis
-                              FREE_HYSTERESIS Punkte mehr frei sind; sonst hört das Befüllen dort nur auf (wie bisher)
+                              es wieder reicht; sonst hört das Befüllen dort nur auf (wie bisher)
+  EMBYCACHE_KEEP_BYTES        USO: der Boden dieser Rückgabe in Bytes (das Office: Jacks Hälfte) – was auf dem Cache
+                              liegt, geht nie darunter zurück; leer: kein Boden
   EMBYCACHE_MOVER_DEBUG       0–3, Parameter -d für das move-Binary (überschreibt mover_debug_level)
   EMBYCACHE_RSYNC_ARGS        vollständige rsync-Optionen, Default "-aAX --numeric-ids" (überschreibt rsync_args)
   EMBYCACHE_FILL_TOOL         rsync | mover (überschreibt fill_tool)
@@ -57,9 +59,6 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
                               neu geschrieben: Phase (plan | back | fill | done), «Zurück aufs Array» geplant/erledigt,
                               pro Benutzer geplant/erledigt (Dateien, Bytes) mit Beginn/Ende, die Datei in Arbeit mit
                               Ziel und Grund, die Warteschlange des Befüllens (queue, pos: wer wann dran ist)
-  EMBYCACHE_BUDGET_BYTES      USO: Jacks Stück vom Pool in Bytes (Frau Moverelli teilt es zu): befüllt wird nur, solange
-                              alles auf dem Cache plus die Datei hineinpasst ([SKIP: Platz], Status «slice.waiting»);
-                              liegt mehr als 5 % darüber, gibt der Lauf das Überzählige zurück aufs Array
   EMBYCACHE_ZFS, EMBYCACHE_MOUNTS  USO: zfs und /proc/mounts für die Tests (Freiplatz auf ZFS: der ganze Pool)
   EMBYCACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
                               Kopie); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
@@ -81,7 +80,7 @@ def stop_requested():
     return bool(STOP_FILE) and os.path.exists(STOP_FILE)
 
 from embycache_lib import (
-    ConfigError, EmbyApi, Locations, acquire_lock, array_location, budget_bytes, pool_usage, collect_sessions, detect_mover_bin,
+    ConfigError, EmbyApi, Locations, acquire_lock, array_location, keep_bytes, pool_usage, collect_sessions, detect_mover_bin,
     free_percent_after, human, is_playing, load_config, origin_target, read_exclude, read_origin,
     remove_empty_parents, run_mover, setup_logging, share_mover_mode, summarize_mover_output,
     unraid_mover_running, write_exclude, write_origin, write_progress, write_status, EXCLUDE_FILE, MOVER_MODE_HINT,
@@ -641,15 +640,8 @@ class Planner:
         return ", ".join(self.users[k].name if k in self.users else str(k) for k in keys)
 
 
-# USO: wie weit über die Freiplatz-Grenze die Rückgabe geht (Prozentpunkte des Pools). Das Befüllen hört genau an der
-# Grenze auf; ohne Abstand stiesse schon ein Download von ein paar GB den Pool wieder darunter und jeder Lauf gäbe ein,
-# zwei Folgen zurück und holte sie beim nächsten wieder (Pendeln, Platten wecken). 2 Punkte sind auf einem 1–8 TB
-# Pool 20–160 GB – ein, zwei Tage Downloads, aber nur ein paar Folgen von Jacks Liste.
-FREE_HYSTERESIS = 2.0
-
-
 def ahead_words(ahead, who):
-    """USO: der Rang in Worten fürs Log – «angefangen, Benj», «als Nächstes, Benj», «Folge 10 voraus, Mutter»."""
+    """USO: der Rang in Worten fürs Log – «angefangen, Vater», «als Nächstes, Vater», «Folge 10 voraus, Mutter»."""
     what = "angefangen" if ahead <= 0 else "als Nächstes" if ahead == 1 else f"Folge {ahead} voraus"
     return f"{what}, {who}" if who else what
 
@@ -706,12 +698,12 @@ class Runner:
         self.origin = read_origin()       # Cache-Pfad -> diskN
         self.stopped = False              # EMBYCACHE_STOP: nach der aktuellen Datei aufgehört
         self.progress = Progress(mode, self.run_mode and bool(PROGRESS_FILE))   # EMBYCACHE_PROGRESS
-        # USO: Jacks Stück (EMBYCACHE_BUDGET_BYTES, None: keins) – was davon belegt ist, was zurückgeht, was wartet
-        self.budget = budget_bytes()
-        self.slice_used = 0
+        # USO: Jacks Boden (EMBYCACHE_KEEP_BYTES, None: keiner) – was auf dem Cache liegt, was zurückgeht, was wartet
+        self.keep = keep_bytes()
+        self.held = 0
         self.given_back = self.given_back_bytes = 0
         self.waiting = self.waiting_bytes = 0
-        # USO (Phase 2): was übers Stück zurückgeht – Cache-Pfad -> {title, ahead, who} (Fortschritt) und seine Stelle
+        # USO (Phase 2): was über die Grenze zurückgeht – Cache-Pfad -> {title, ahead, who} (Fortschritt) und seine Stelle
         self.back_why, self.back_rank, self.given_back_list = {}, {}, []
         # USO: im Office (EMBYCACHE_GIVE_BACK_FREE=1) ist auch der Freiplatz eine Grenze – unter min_free_percent gibt der
         # Lauf zurück (0: keine Grenze); eigenständig hört das Befüllen dort nur auf, wie bisher
@@ -1015,31 +1007,36 @@ class Runner:
         return n
 
     def give_back(self, loc, files, current, sessions, planner, cleanup_runs=True):
-        """USO: Jacks Grenze. Was On-Deck schon auf dem Cache liegt, belegt sein Stück (J). Liegt er darüber, nimmt der Lauf
-        Dateien aus `current` (der Cleanup bringt sie zurück aufs Array), bis es passt – ein Stück in Bytes
-        (EMBYCACHE_BUDGET_BYTES; erst mehr als 5 % darüber, dann bis J ≤ Stück) oder der Freiplatz des Pools unter
-        min_free_percent (nur mit EMBYCACHE_GIVE_BACK_FREE=1) (gemessen wie beim Befüllen, auf ZFS der ganze Pool; dann bis FREE_HYSTERESIS Punkte darüber).
-        Beide Grenzen gelten, die strengere entscheidet. Was schon geschaut ist, geht immer zuerst (Benj): beim Freiplatz
-        zählt, was der Cleanup gleich zurückbringt (nicht mehr on deck, läuft nicht), schon als frei – zurückgegeben wird
-        nur, was dann noch fehlt (cleanup_runs=False: der Cleanup fällt aus, nichts davon zählt). Das Stück zählt ohnehin
-        nur On-Deck-Dateien. Die Reihenfolge nach Rang (give_back_order):
-        das am weitesten voraus Liegende zuerst, was jemand angefangen hat zuletzt; was gerade läuft, bleibt."""
+        """USO: Jacks Grenze ist der Freiplatz des Pools (nur mit EMBYCACHE_GIVE_BACK_FREE=1, das Office): liegt weniger frei
+        als min_free_percent (gemessen wie beim Befüllen, auf ZFS der ganze Pool), nimmt der Lauf Dateien aus `current`
+        (der Cleanup bringt sie zurück aufs Array), bis es wieder reicht (der Pool auf Frau Moverellis
+        Ziel Y = 100 − min_free_percent) – aber nie unter
+        EMBYCACHE_KEEP_BYTES (Jacks Hälfte: was On-Deck auf dem Cache liegt, bleibt mindestens so viel). Was schon
+        geschaut ist, geht immer zuerst: der Freiplatz zählt, was der Cleanup gleich zurückbringt (nicht mehr on
+        deck, läuft nicht), schon als frei – zurückgegeben wird nur, was dann noch fehlt (cleanup_runs=False: der Cleanup
+        fällt aus, nichts davon zählt). Die Reihenfolge nach Rang (give_back_order): das am weitesten voraus Liegende
+        zuerst, was jemand angefangen hat zuletzt; was gerade läuft, bleibt."""
         kept = [f for f in files if f.on_cache and loc.on_cache(f.rel).exists()]
-        self.slice_used = sum(f.size for f in kept)
-        need, why = 0, ""
-        if self.budget is not None and self.slice_used * 100 > self.budget * 105:
-            need = self.slice_used - self.budget
-            why = (f"Über meinem Stück: {human(self.slice_used)} auf dem Cache, Frau Moverelli gibt mir {human(self.budget)} "
-                   f"– das Überzählige geht zurück aufs Array, das am weitesten voraus Liegende zuerst")
-        if self.give_back_free:
-            total, free = pool_usage(loc.cache)
-            free += self.cleanup_frees(loc, current, sessions) if cleanup_runs else 0
-            min_free = float(self.cfg["min_free_percent"])
-            short = int(total * (min_free + FREE_HYSTERESIS) / 100) - free if total > 0 and free * 100 < total * min_free else 0
-            if short > need:
-                need = short
-                why = (f"Zu wenig frei auf dem Pool: {free / total * 100:.1f} % ({human(free)} von {human(total)}), Minimum {min_free:g} % "
-                       f"– {human(short)} gehen zurück aufs Array (bis {min_free + FREE_HYSTERESIS:g} % frei), das am weitesten voraus Liegende zuerst")
+        self.held = sum(f.size for f in kept)
+        if not self.give_back_free:
+            return
+        total, free = pool_usage(loc.cache)
+        free += self.cleanup_frees(loc, current, sessions) if cleanup_runs else 0
+        min_free = float(self.cfg["min_free_percent"])
+        need = int(-(-total * min_free // 100)) - free if total > 0 and free * 100 < total * min_free else 0
+        if need <= 0:
+            return
+        why = (f"Zu wenig frei auf dem Pool: {free / total * 100:.1f} % ({human(free)} von {human(total)}), Minimum {min_free:g} % "
+               f"– {human(need)} gehen zurück aufs Array (bis {min_free:g} % frei), das am weitesten voraus Liegende zuerst")
+        if self.keep is not None:
+            room = self.held - self.keep
+            if room <= 0:
+                log.info(f"Zu wenig frei auf dem Pool ({free / total * 100:.1f} %, Minimum {min_free:g} %), aber ich halte nur "
+                         f"{human(self.held)} – meine Hälfte ist {human(self.keep)}: nichts geht zurück")
+                return
+            if room < need:
+                need = room
+                why += f" – höchstens {human(room)}: meine Hälfte ({human(self.keep)}) bleibt"
         if need <= 0:
             return
         log.warning(why)
@@ -1053,7 +1050,7 @@ class Runner:
             p = str(loc.on_cache(f.rel))
             current.discard(p)
             freed += f.size
-            self.slice_used -= f.size
+            self.held -= f.size
             self.given_back += 1
             self.given_back_bytes += f.size
             who = planner.names(f)
@@ -1063,7 +1060,7 @@ class Runner:
             if not self.given_back_list or self.given_back_list[-1]["title"] != entry["title"]:
                 if len(self.given_back_list) < 20:
                     self.given_back_list.append(dict(entry))
-            log.info(f"[ZURÜCK: Stück] {f.rel} ({human(f.size)}) – Gebe zurück: {f.title or f.rel} ({ahead_words(f.ahead(), who)})")
+            log.info(f"[ZURÜCK: Rang] {f.rel} ({human(f.size)}) – Gebe zurück: {f.title or f.rel} ({ahead_words(f.ahead(), who)})")
 
     def fill(self, loc, files, sessions):
         """On-Deck-Dateien vom Array auf den Cache – per rsync (Quelle erst nach Prüfung löschen) oder per move-Binary."""
@@ -1096,13 +1093,6 @@ class Runner:
                     continue
                 if self.run_mode:
                     share_root.mkdir(parents=True, exist_ok=True)
-            # USO: Jacks Stück – nur was hineinpasst; der Rest wartet auf dem Array, bis etwas frei wird
-            if self.budget is not None and self.slice_used + f.size > self.budget:
-                log.warning(f"[SKIP: Platz] {f.rel} ({human(f.size)}) – mein Stück ist voll ({human(self.slice_used)} von {human(self.budget)})")
-                self.waiting += 1
-                self.waiting_bytes += f.size
-                self.progress.drop(f)
-                continue
             # Dataset (Quota) und Pool-Wurzel prüfen – appdata liegt oft auf demselben Pool
             free_after = free_percent_after(loc.cache, f.size, self.sim_delta)
             if share_root.is_dir():
@@ -1110,6 +1100,8 @@ class Runner:
             if free_after < min_free:
                 log.warning(f"[SKIP: Freiplatz] {f.rel} ({human(f.size)}) – danach nur {free_after:.1f} % frei, Minimum {min_free:g} %"
                             + (" (Dry-Run: Cleanup und geplante Kopien eingerechnet)" if not self.run_mode else ""))
+                self.waiting += 1             # USO: wartet auf dem Array, bis Platz frei wird
+                self.waiting_bytes += f.size
                 self.progress.drop(f)
                 continue
             sources = loc.on_disk(f.rel) if from_disk else []
@@ -1122,7 +1114,7 @@ class Runner:
                 continue
             self.to_cache += f.size
             self.fill_planned += 1
-            self.slice_used += f.size     # USO: das Stück zählt die geplante Kopie (auch im Dry-Run)
+            self.held += f.size           # USO: zählt die geplante Kopie (auch im Dry-Run)
             key = group_key(f.rel)
             if key != last_group:
                 log.info(f"[{label if self.run_mode else 'PLAN:'} -> CACHE] {key}   ({f.reason})")
@@ -1308,7 +1300,7 @@ class Runner:
         loc = Locations(cfg, cfg["instances"][0]["_mappings"])
         current = {str(loc.on_cache(f.rel)) for f in files}
         protected = set()
-        if self.budget is not None or self.give_back_free:
+        if self.give_back_free:
             self.give_back(loc, files, current, sessions, planner, not (planner.errors or not sessions_ok))
         try:
             if planner.errors or not sessions_ok:
@@ -1343,10 +1335,8 @@ class Runner:
                                "bytes_planned": self.to_cache, "bytes_done": self.copied_bytes}
         self.status["protected"] = len(protected)
         self.status["incomplete"] = bool(planner.errors or not sessions_ok)
-        if self.budget is not None:       # USO: Jacks Stück
-            self.status["slice"] = {"budget": self.budget, "used": self.slice_used, "given_back": self.given_back,
-                                    "given_back_bytes": self.given_back_bytes, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
-        if self.budget is not None or self.give_back_free:      # USO (Phase 2): was zurückging, in Worten fürs Office
+        if self.give_back_free:           # USO: was er hält, sein Boden, was zurückging (in Worten fürs Office), was wartet
+            self.status["pool"] = {"keep": self.keep, "held": self.held, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
             self.status["give_back"] = {"files": self.given_back, "bytes": self.given_back_bytes, "items": self.given_back_list}
         if self.stopped:
             log.info("Angehalten nach der aktuellen Datei (EMBYCACHE_STOP) – der nächste Lauf macht weiter")
@@ -1409,7 +1399,7 @@ def main():
     started = int(time.time())
     try:
         cfg = load_config()
-        budget_bytes()        # USO: a budget that is no number stops here, like a bad setting
+        keep_bytes()          # USO: a floor that is no number stops here, like a bad setting
     except ConfigError as e:
         log.error(str(e))
         write_status({"mode": mode, "result": "config", "message": str(e), "started": started, "finished": int(time.time())})

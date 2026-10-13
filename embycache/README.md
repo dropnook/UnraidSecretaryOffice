@@ -27,13 +27,6 @@
 >   `pool_usage()` finds the path's dataset in `/proc/mounts` and takes the pool's `used + avail` (`zfs list -Hp`) as the
 >   size and the dataset's `avail` (a quota counts) as free — the same reading as the office and the Smart Mover; not ZFS:
 >   `statvfs` as before. `EMBYCACHE_ZFS` / `EMBYCACHE_MOUNTS` point it at stand-ins for the tests.
-> * **Office change (2026-10-12) — a budget from Ms. Moverelli** (`EMBYCACHE_BUDGET_BYTES`, unset: as before; the
->   config is never written, standalone users keep `min_free_percent`): Jack's slice of the pool in bytes. Filling skips a
->   file once what is on the cache plus that file exceeds it (`[SKIP: Platz]`, counted as `slice.waiting` in the status);
->   once what is on the cache lies more than 5 % above it, the run gives the excess back to the array before filling
->   (`[ZURÜCK: Stück]`, in rank order — see the next point), until it fits;
->   what is playing stays. The office also sets `EMBYCACHE_MIN_FREE_PERCENT` = 100 − Ms. Moverelli's limit while she has
->   one. Status: `slice` = {budget, used, given_back, given_back_bytes, waiting, waiting_bytes}.
 > * **Office change (2026-10-13) — a sensible order both ways** (jack-phase2): every on-deck file knows, per person, how
 >   far ahead it lies (`ahead`: 0 started — a resume point, 1 next up, n the n-th episode ahead; a file several persons
 >   queue carries each). **Filling** goes round-robin across the persons by their next item (person 1's next, person 2's,
@@ -41,15 +34,17 @@
 >   when the room is short everyone gets something, not the first ones in path order everything (`Planner.fill_order`).
 >   **Giving back** over the limit (`give_back_order`): the farthest ahead first (the 10th next episode before the next
 >   one; a shared item counts at its nearest rank), on equal rank first from the person who has most on the cache right
->   now (recounted after each), what someone has started last; what plays stays; an item's files go together. It works
->   with **either limit**: the byte slice (above), and — **only with `EMBYCACHE_GIVE_BACK_FREE=1`, which the office sets
->   when it launches EmbyCache; standalone, `min_free_percent` only stops filling, as before** — `min_free_percent`: when the pool (measured as above, on
->   ZFS the whole pool) has less free than that, the run gives back until it has `FREE_HYSTERESIS` (2) points more
->   (the fill stops exactly at the limit; without the margin a few GB of downloads would push it under again and every
->   run would give back an episode and fetch it again); with both, the stricter decides; `min_free_percent` 0 = none.
+>   now (recounted after each), what someone has started last; what plays stays; an item's files go together. The limit is
+>   the pool's free space — **only with `EMBYCACHE_GIVE_BACK_FREE=1`, which the office sets when it launches EmbyCache;
+>   standalone, `min_free_percent` only stops filling, as before**: when the pool (measured as above, on ZFS the whole
+>   pool) has less free than `min_free_percent`, the run gives back until it has that much again — the office sets it
+>   to 100 − Ms. Moverelli's target Y, so Jack fills up to Y and gives back above it. **`EMBYCACHE_KEEP_BYTES`**
+>   (2026-10-13, the pool simply; unset: no floor) is that give-back's floor: what Jack holds on the cache never goes
+>   below it (the office: his half of the room below Y that appdata & co. leave). Status `pool` = {keep, held, waiting,
+>   waiting_bytes} (`waiting`: files that found no room and wait on the array). `min_free_percent` 0 = none.
 >   What was watched always goes first: the free-% decision counts what the cleanup is about to send back (no longer on
 >   deck, not playing, a safe way back) as already free and gives back ranked items only for what is still missing.
->   The log says it in words (`[ZURÜCK: Stück] <rel> (<size>) – Gebe zurück: Serie – S01E10 (Folge 10 voraus, Mutter)`),
+>   The log says it in words (`[ZURÜCK: Rang] <rel> (<size>) – Gebe zurück: Serie – S01E10 (Folge 10 voraus, Mutter)`),
 >   the status gets `give_back` = {files, bytes, items: [{title, ahead, who}, …] (≤ 20)}, the progress file's `current`
 >   while going back a `why` {title, ahead, who}; the cleanup moves what is given back in that order (after what nobody
 >   queues any more). Jack's live panel and page say it in five languages.
