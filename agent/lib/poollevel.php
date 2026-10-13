@@ -13,9 +13,10 @@ declare(strict_types=1);
  *   H          = R · k / 100                             (k = jack_min_percent, default 50: half each — Jack's floor)
  *   J          = Σ size of the entries of EmbyCache's list on this pool
  *
- * Jack runs first: he fills up to Y (EMBYCACHE_MIN_FREE_PERCENT = 100 − Y — borrowing what the downloads don't need) and
- * gives back above Y, the farthest ahead first, but never below H (EMBYCACHE_KEEP_BYTES = H). Ms. Moverelli right after:
- * the age rule always, at/above X the oldest downloads until below Y. NM ≥ Y: nothing to share (pool_never_moves).
+ * Jack Emby fills up to Y (EMBYCACHE_MIN_FREE_PERCENT = 100 − Y — borrowing what the downloads don't need) and
+ * gives back above Y, the farthest ahead first, but never below H (EMBYCACHE_KEEP_BYTES = H). Ms. Moverelli: the age rule
+ * always, at/above X the oldest downloads down to their half. Both in ONE night run (nightrun.php): check, reckon, free
+ * (who must free more first), recheck, fill (Jack Emby last). NM ≥ Y: nothing to share (pool_never_moves).
  * Only ZFS pools are measured here (refer per dataset); a sleeping pool is not looked at (null) unless a run wakes it.
  */
 
@@ -26,8 +27,8 @@ const POOL_JACK_DEFAULT   = 50;     // jack_min_percent: Jack's guaranteed share
 
 /**
  * The numbers (pure). x, y: % of the whole pool (0: no limit); k: Jack's guaranteed % of R; jack: J. `back`: what Jack
- * gives back the next night (over Y, never below H); `goes`: what of the downloads goes then because the pool is still
- * at/above X (down to below Y); `never`: what never moves reaches Y — nothing to share.
+ * gives back the next night (over Y, never below H); `goes`: what of the downloads goes then because the pool is
+ * at/above X (only what they borrowed over their half, at most what is still needed to reach Y); `need`: used − Y; `never`: what never moves reaches Y — nothing to share.
  */
 function poolLevelMath(int $size, int $used, int $movable, int $x, int $y, int $k, int $jack): array
 {
@@ -39,13 +40,16 @@ function poolLevelMath(int $size, int $used, int $movable, int $x, int $y, int $
     $yb = $y > 0 ? intdiv($y * $size, 100) : 0;
     $room = $y > 0 ? max(0, $yb - $nm) : 0;
     $half = intdiv($room * max(0, min(100, $k)), 100);
-    $back = $y > 0 && $used > $yb ? min(max(0, $jack - $half), $used - $yb) : 0;
-    $after = $used - $back;
-    $goes = $x > 0 && $y > 0 && $after * 100 >= $x * $size ? min(max(0, $m - $jack), $after - $yb + 1) : 0;
+    // the night run (agent/lib/nightrun.php): what must go so the pool stands at Y; Jack Emby gives back only what he
+    // borrowed (over Y, never below H); the downloads give only what they borrowed over their half, and only from X on —
+    // the air Y…X belongs to the day's downloads
+    $need = $y > 0 ? max(0, $used - $yb) : 0;
+    $back = $y > 0 && $used > $yb ? min(max(0, $jack - $half), $need) : 0;
+    $goes = $x > 0 && $y > 0 && $used * 100 >= $x * $size ? min(max(0, $m - $jack - ($room - $half)), $need - $back) : 0;
     $pct = fn (int $b): float => $size > 0 ? round($b * 100 / $size, 1) : 0.0;
     return [
         'size' => $size, 'used' => $used, 'movable' => $m, 'nm' => $nm, 'x' => $x, 'y' => $y, 'k' => $k,
-        'room' => $room, 'half' => $half, 'jack' => $jack, 'downloads' => $m - $jack, 'back' => $back, 'goes' => $goes,
+        'room' => $room, 'half' => $half, 'half_d' => $room - $half, 'jack' => $jack, 'downloads' => $m - $jack, 'need' => $need, 'back' => $back, 'goes' => $goes,
         'used_pct' => $pct($used), 'nm_pct' => $pct($nm), 'never' => $y > 0 && $size > 0 && $nm >= $yb,
     ];
 }

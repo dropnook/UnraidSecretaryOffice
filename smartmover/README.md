@@ -50,6 +50,10 @@
 >   nothing (said in the log). A dry run estimates the step from the files' sizes. Not with `--force`/`--force-all`.
 >   `CUSTOMMOVER_DF` points `df` at a stand-in for the tests (like `CUSTOMMOVER_ZFS`). The office's setup requires Y
 >   once X is set; an old ini with X and no Y gets Y = X − 10 proposed (her setup) or set (her import).
+> * `CUSTOMMOVER_FILL_MAX_BYTES` (+ optional `CUSTOMMOVER_FILL_MAX_POOL`, 2026-10-13, the office's night run with Jack Emby):
+>   the fill moves at most this many bytes in this run, on that pool (empty: every pool); `0` = no fill there. With it the
+>   fill starts at/above the *target* (the office already decided that something must go, and how much); a file that would
+>   go past the cap is not started. The age rule is untouched; a dry run counts the same. Unset: as before.
 > * Leftovers and counts (2026-10-12/13, seen live): Unraid's move writes `<dest>/<share>/<rel>.partial` and renames it
 >   at the end. Before a real run moves a share's files, a leftover `.partial` (a power cut, a crash) on the share's awake
 >   destinations is removed — only while its source `<src>/<rel>` still exists, only that exact name, never a file under

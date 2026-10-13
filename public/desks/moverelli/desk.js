@@ -36,6 +36,7 @@ function took(j) {
 
 // ------------------------------------------------------------------ her run card (2026-10-12, like Mr. Restori's)
 let progress = null;          // Smart Mover's live status while a real run goes (the part «progress»)
+let nightNow = null;          // the night run's short state while it goes (the part «progress»: phase, round, who works)
 let stopping = null;          // the stop file's why while she stops (user | now | mover)
 let progressAt = 0;
 let progTimer = null;
@@ -56,8 +57,9 @@ function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
   progressAt = p.time;
-  if (!p.real) { progress = null; stopping = null; load(true); return; }     // the run ended: her state anew — the card goes
+  if (!p.real) { progress = null; stopping = null; nightNow = null; load(true); return; }     // the run ended: her state anew — the card goes
   progress = p.progress || null;
+  nightNow = p.night || null;
   stopping = p.stopping || null;
   redrawCard();
   scheduleProgress();
@@ -116,15 +118,38 @@ function fillLine(x) {
   return t;
 }
 
+/**
+ * The night run's phases as the card's steps, pure: Check, Free, (Check again — only once a round more went), Fetch (only
+ * with Jack Emby) — the one going «running», those before «done»
+ */
+function nightSteps(n) {
+  const order = ['check', 'free', 'recheck', 'fill'];
+  const at = order.indexOf(n.phase || 'check');
+  const list = order.filter((ph) => (ph !== 'recheck' || Number(n.round) > 1 || n.phase === 'recheck') && (ph !== 'fill' || n.jack));
+  return list.map((ph) => ({ name: T('rc.phase.' + ph) + (ph === 'recheck' && Number(n.round) > 1 ? ' · ' + T('night.rounds', { n: Number(n.round) }) : ''),
+    state: n.phase === 'done' || order.indexOf(ph) < at ? 'done' : ph === n.phase ? 'running' : 'pending' }));
+}
+
 /** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file» */
 function runCard(p, now) {
   const card = el('div', 'card mo-run running');
   const top = el('div', 'card-head');
-  top.append(el('span', 'spin'), el('span', 'card-name', T('rc.title')));
+  const nn = nightNow || (nightGoing() ? night().last : null);
+  top.append(el('span', 'spin'), el('span', 'card-name', T(nn ? 'rc.night_title' : 'rc.title')));
   if (stopping) top.appendChild(chip(T('stopping'), 'warn'));
   card.appendChild(top);
+  // the night run: its phases, and who is at work — Jack Emby's files show on his page (his live panel)
+  if (nn) {
+    const steps = nightSteps(nn);
+    card.appendChild(Office.runSteps(steps, steps.findIndex((x) => x.state === 'running'), `night|${nn.started}`));
+    if (nn.who === 'jack') {
+      const line = el('div', 'card-line', T('rc.night_jack') + ' ');
+      line.appendChild(link(T('rc.night_jack_open'), () => Office.go('#/emby')));
+      card.appendChild(line);
+    }
+  }
   if (!p) {
-    card.appendChild(el('p', 'role', T('rc.waiting')));
+    if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', T('rc.waiting')));
   } else {
     const d = runCardData(p, now);
     if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
@@ -214,7 +239,7 @@ function showError(box, error) {
 const running = () => !!(state && state.job && state.job.running);
 /** Her last run that moved or would have (a real or a dry run that started) — a look at the shares' list is none */
 const lastRun = () => ((state && state.history) || []).find((r) => ['run', 'dry'].includes(r.mode) && !['refused', 'skipped'].includes(r.result)) || null;
-const realRun = () => running() && state.job.mode === 'run';
+const realRun = () => (running() && state.job.mode === 'run') || nightGoing();
 const unraidOk = () => !!(state && state.unraid && state.unraid.ok);
 const mover = () => (state && state.mover) || { off: true, schedule: null, running: false };
 const jack = () => (state && state.jack) || { busy: false, list: null, uncovered: [] };
@@ -240,12 +265,13 @@ const foreign = () => (state && state.foreign) || { tuning: { installed: false, 
 /** Another mover on a schedule of its own besides Unraid's: Mover Tuning's, or any other (moverelliMovers()) */
 const otherMovers = () => foreign().tuning.active || (foreign().movers || []).length > 0;
 const othersOff = () => mover().off && !otherMovers();
-/** Her schedule «right after Jack Emby's scheduled EmbyCache runs»: chosen, Jack hired, his EmbyCache on a schedule; idle = nothing starts her */
-const after = () => (state && state.after) || { on: false, jack: false, jack_scheduled: false, idle: false };
+/** The night run (agent/lib/nightrun.php): with Jack Emby, tonight's plan, the last night or the one going */
+const night = () => (state && state.night) || { jack: false, plan: null, last: null };
+/** A real night run going (her tool or Jack Emby's at work in it) */
+const nightGoing = () => !!(night().last && night().last.running && night().last.mode === 'run');
 /** «cache», «array» in words: the array is named in the page's language */
 const where = (x) => (x === 'array' ? T('array') : x || '–');
 function schedText(sc) {
-  if (after().on) return T('schedule.after_short');
   if (!sc || !sc.enabled) return T('not_scheduled');
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
@@ -282,7 +308,7 @@ function bubbleText() {
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (running()) return T('bubble.running');
   if (!othersOff()) return T('bubble.dry');
-  if (!state.schedule.enabled && !after().on) return T('bubble.no_schedule');
+  if (!state.schedule.enabled) return T('bubble.no_schedule');
   return T('bubble.ready');
 }
 
@@ -441,7 +467,7 @@ function render() {
   root.appendChild(footer());
 }
 
-/** What stands over the row: Unraid's mover, other movers, «after Jack Emby» idle, Jack Emby, a run going, not set up */
+/** What stands over the row: Unraid's mover, other movers, Jack Emby, a run going (the night's too), not set up */
 function hints() {
   const out = [];
   if (!unraidOk()) out.push(el('p', 'callout warn', T('notice.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })));
@@ -449,10 +475,8 @@ function hints() {
     out.push(moverNotice());
     out.push(...foreignNotices());
   }
-  const idle = afterNotice();
-  if (idle) out.push(idle);
   const j = jack();
-  if (j.busy && !running()) out.push(el('p', 'callout', T('notice.jack_busy')));
+  if (j.busy && !running() && !nightGoing()) out.push(el('p', 'callout', T('notice.jack_busy')));
   // EmbyCache's list in her rules before EmbyCache's first run: her real runs wait for it (said here, never notified)
   if (j.pending) out.push(el('p', 'callout', T('notice.jack_pending')));
   if ((j.uncovered || []).length) {
@@ -487,14 +511,39 @@ function hints() {
 }
 
 // ---- the tiles: each the summary of its section
-/** «Schedule»: hers (a time, «after Jack Emby», none), Unraid's mover's as its line — alert while nothing starts her or Unraid's is on */
+/** «Schedule»: the night run's (a time, none), tonight's plan, Unraid's mover's as its line — alert while nothing starts it or Unraid's is on */
 function scheduleTile(a) {
   const sc = state.schedule || {};
-  const af = after();
   const m = mover();
-  const sub = [af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : (sc.enabled ? T('by_office') : T('tile.no_schedule')),
-    `${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`];
-  return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || (af.on ? af.idle : !sc.enabled), ...a });
+  const n = night();
+  const sub = [sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('tile.no_schedule')];
+  if (n.jack && n.plan) sub.push(tonightText(n.plan));
+  sub.push(`${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`);
+  return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || !sc.enabled, ...a });
+}
+
+/**
+ * Tonight's plan in words, pure (tests/run.php under node): «Tonight: Jack Emby gives back 70 GB · Ms. Moverelli moves
+ * 20 GB of downloads · Jack Emby fetches 20 GB (40 GB wait)» — from the pool as it stands and his last status
+ */
+function tonightText(p) {
+  if (!p || !p.measured) return T('night.unmeasured');
+  const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_none'),
+    Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none'),
+    Number(p.fill) > 0 ? T('night.fill', { size: fmt.size(p.fill) }) : T('night.fill_none')];
+  if (Number(p.wait) > 0) parts.push(T('night.wait', { size: fmt.size(p.wait) }));
+  return T('night.tonight', { what: parts.join(' · ') });
+}
+
+/** The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused), its rounds */
+function lastNightText(l) {
+  if (!l || !l.started) return '';
+  const when = fmt.relative(l.finished || l.started);
+  const how = l.result === 'missed' ? T('night.last_missed', { pct: l.end_pct ?? '?' })
+    : l.result === 'stopped' ? T('night.last_stopped', { phase: T('rc.phase.' + (l.stopped_in || 'free')) })
+    : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
+  return T('night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
+    + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '');
 }
 /** «Shares»: how many move, the rules for all as its line — alert while Jack Emby's list isn't kept out for a share of his */
 function sharesTile(a) {
@@ -529,18 +578,30 @@ function scheduleSection() {
   const s = section(T('schedule'), T('schedule_sub'), { place: 'schedule' });
   const box = el('div', 'box');
   const sc = state.schedule || {};
-  const af = after();
+  const n = night();
   const mine = Office.place('sched:mine', el('div', 'row nocheck'));
   const main = el('div', 'row-main');
-  main.appendChild(el('div', 'row-name', T('sched.mine')));
+  main.appendChild(el('div', 'row-name', T(n.jack ? 'sched.night' : 'sched.mine')));
   const meta = el('div', 'row-meta');
-  meta.appendChild(sc.enabled || af.on ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), 'warn'));
-  meta.appendChild(el('span', '', af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : sc.enabled ? T('by_office') : T('schedule.off_hint')));
+  meta.appendChild(sc.enabled ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), 'warn'));
+  meta.appendChild(el('span', '', sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('schedule.off_hint')));
   main.appendChild(meta);
   const change = button(T('sched.change'), 'small plain', () => scheduleDialog());
   change.disabled = !Office.agent.running;
   mine.append(main, change);
   box.appendChild(mine);
+  // the night run with Jack Emby: tonight's plan (no Emby asked — what waits from his last run), the last night, a dry run
+  if (n.jack && state.configured) {
+    const plan = Office.place('sched:night', el('div', 'row nocheck'));
+    const pm = el('div', 'row-main');
+    pm.appendChild(el('div', 'row-name', tonightText(n.plan)));
+    const last = lastNightText(n.last);
+    pm.appendChild(el('div', 'row-meta', T('night.steps') + (last ? ' · ' + last : '')));
+    const dry = button(T('night.dry'), 'small plain', async () => { dry.disabled = true; await act('start_run', { mode: 'dry' }, T('night.dry_started')); });
+    dry.disabled = !Office.agent.running || running() || nightGoing();
+    plan.append(pm, dry);
+    box.appendChild(plan);
+  }
   const m = mover();
   const own = Office.place('sched:unraid', el('div', 'row nocheck'));
   const main2 = el('div', 'row-main');
@@ -777,14 +838,6 @@ async function showLog() {
   pre.scrollTop = pre.scrollHeight;
 }
 
-/** «Right after Jack Emby» chosen, but nothing starts her by herself: Jack let go, or his EmbyCache without a schedule */
-function afterNotice() {
-  if (!state || !state.configured || !after().idle) return null;
-  const p = el('p', 'callout warn', T(after().jack ? 'notice.after_idle_off' : 'notice.after_idle_letgo') + ' ');
-  p.appendChild(button(T('schedule_title'), 'small', scheduleDialog)).disabled = !Office.agent.running;
-  return p;
-}
-
 // ------------------------------------------------------------------ her schedule
 /** When Smart Mover runs for real on its own: once a night (default 05:15), a cron expression, or not at all */
 async function scheduleDialog() {
@@ -801,9 +854,7 @@ async function scheduleDialog() {
   const cur = (sc.enabled && sc.custom) || '';
   const pad = (n) => String(n).padStart(2, '0');
   const m2 = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cur);
-  const af = after();
-  // nothing set yet while Jack Emby is hired: «right after Jack Emby» proposed (2026-10-13 — he gives back first, she moves after him)
-  let mode = af.on ? 'after' : sc.enabled ? (m2 ? 'daily' : 'custom') : af.jack ? 'after' : 'daily';
+  let mode = sc.enabled ? (m2 ? 'daily' : 'custom') : 'daily';
   const time = el('input', 'input');
   time.type = 'time';
   time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : '05:15';
@@ -811,7 +862,7 @@ async function scheduleDialog() {
   cron.value = cur || '15 5 * * *';
   cron.spellcheck = false;
   const box = el('div', 'mo-schedule');
-  box.appendChild(el('p', '', T('schedule.intro')));
+  box.appendChild(el('p', '', T(night().jack ? 'schedule.intro_night' : 'schedule.intro')));
   if (!othersOff()) box.appendChild(el('p', 'callout warn', T('schedule.unraid_on')));
   const option = (id, text, hint, extra, off) => {
     const label = el('label', 'check');
@@ -833,8 +884,6 @@ async function scheduleDialog() {
   };
   option('daily', T('schedule.nightly'), T('schedule.nightly_hint'), time);
   option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
-  // the third way (2026-10-11): right after Jack Emby's scheduled EmbyCache runs — only while he is with us
-  option('after', T('schedule.after'), af.jack ? T('schedule.after_hint') : T('schedule.after_no_jack'), null, !af.jack && mode !== 'after');
   option('off', T('schedule.off'), T('schedule.off_hint'));
   const update = () => { time.disabled = mode !== 'daily'; cron.disabled = mode !== 'custom'; };
   update();
@@ -850,11 +899,11 @@ async function scheduleDialog() {
           const [h, m] = time.value.split(':').map(Number);
           expr = `${m} ${h} * * *`;
         } else if (mode === 'custom') expr = cron.value.trim();
-        const j = await Office.api.post(`${ID}.schedule`, mode === 'after' ? { cron: null, after: 'emby' } : { cron: expr, after: '' });
+        const j = await Office.api.post(`${ID}.schedule`, { cron: expr });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         if (j.state) state = j.state;
         if (!j.live) Office.toast(T('schedule.not_live'), true);
-        else Office.toast(mode === 'after' ? T('schedule.saved_after') : expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
+        else Office.toast(expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
         if (view && page === 'main') render();
         return true;
       } },
@@ -1319,7 +1368,7 @@ function setupGlobal() {
 
 // ---- the pool, simply (2026-10-13, agent/lib/poollevel.php): one limit X; Y = X − offset; below Y the room that appdata &
 // co. leave is shared half and half (jack_min_percent) between Jack Emby and the downloads — each may borrow what the other
-// doesn't need. Jack runs first and gives back above Y (never below his half), she moves the oldest downloads from X on.
+// doesn't need. In the night run Jack Emby gives back above Y (never below his half), she moves the downloads' borrowed part from X on.
 /** Her pools: [pool, raw | null] — Jack Emby's pool first */
 function levelList() {
   const c = (state && state.levels) || {};
@@ -1337,10 +1386,12 @@ function levelMath(c, x, y, k) {
   const yb = y > 0 ? Math.floor(y * size / 100) : 0;
   const room = y > 0 ? Math.max(0, yb - nm) : 0;
   const half = Math.floor(room * Math.min(100, Math.max(0, Number(k ?? 50) || 0)) / 100);
-  const back = y > 0 && used > yb ? Math.min(Math.max(0, jack - half), used - yb) : 0;
-  const after = used - back;
-  const goes = x > 0 && y > 0 && after * 100 >= x * size ? Math.min(Math.max(0, m - jack), after - yb + 1) : 0;
-  return { size, used, nm, x, y, room, half, jack, back, goes, never: y > 0 && size > 0 && nm >= yb, nmPct: size > 0 ? nm * 100 / size : 0 };
+  // the night run: what must go to stand at Y; Jack Emby only what he borrowed (never below his half), the downloads only
+  // from X on and only what they borrowed over their part (room − half)
+  const need = y > 0 ? Math.max(0, used - yb) : 0;
+  const back = y > 0 && used > yb ? Math.min(Math.max(0, jack - half), need) : 0;
+  const goes = x > 0 && y > 0 && used * 100 >= x * size ? Math.min(Math.max(0, m - jack - (room - half)), need - back) : 0;
+  return { size, used, nm, x, y, room, half, jack, need, back, goes, never: y > 0 && size > 0 && nm >= yb, nmPct: size > 0 ? nm * 100 / size : 0 };
 }
 /** What the next night moves on a pool, in her words */
 function levelNight(pool, m) {
@@ -1649,7 +1700,7 @@ function letGoPart(box) {
 function letGoView(j) {
   if (!j || !j.ok) return [['callout warn', Office.errorText((j && j.error) || { key: 'internal' }, ID)]];
   if (j.jack) return [['callout warn', T('letgo.jack')]];
-  const out = [['', T(j.schedule || j.after ? 'letgo.sched_off' : 'letgo.sched_none')]];
+  const out = [['', T(j.schedule ? 'letgo.sched_off' : 'letgo.sched_none')]];
   const u = j.unraid || {};
   if (!u.off) out.push(['role', T('letgo.unraid_on')]);
   else if (u.back) out.push(['', T('letgo.unraid_back', { schedule: fmt.cron(u.back) })]);
@@ -1750,7 +1801,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, offsetOf, untilOf, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, offsetOf, untilOf, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, tonightText, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, advancedFold, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

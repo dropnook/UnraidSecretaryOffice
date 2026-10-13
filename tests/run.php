@@ -1820,8 +1820,8 @@ function testEmbyLetGo(): void
     @unlink("$tmp/notified");
     embyReleaseRefusedTell('emby_release_watching');
     $sent = (string) @file_get_contents("$tmp/notified");
-    check('release: refused in the job — told as a warning, the films stay', str_contains($sent, "-i\nwarning") && str_contains($sent, 'not started')
-        && str_contains($sent, 'The films stay on the pool.'), $sent);
+    check('release: refused in the job — told as a warning, what Jack Emby laid out stays', str_contains($sent, "-i\nwarning") && str_contains($sent, 'not started')
+        && str_contains($sent, 'What Jack Emby laid out stays on the pool.'), $sent);
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
 
@@ -30217,7 +30217,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   m.setState(base);
   out.notFound = m.foundNotice();
   out.view = [m.letGoView({ ok: true, jack: true }), m.letGoView({ ok: true, jack: false, schedule: '0 4 * * *', after: false, unraid: { off: true, back: '40 3 * * *' } }),
-    m.letGoView({ ok: true, jack: false, schedule: null, after: false, unraid: { off: false, back: null } }), m.letGoView({ ok: true, jack: false, schedule: null, after: true, unraid: { off: true, back: null } })];
+    m.letGoView({ ok: true, jack: false, schedule: null, after: false, unraid: { off: false, back: null } }), m.letGoView({ ok: true, jack: false, schedule: '15 1 * * *', unraid: { off: true, back: null } })];
   out.done = [m.letGoDoneLines({ ok: true, unraid: { back: true, was: '40 3 * * *' } }), m.letGoDoneLines({ ok: true, unraid: { kept: true, schedule: '0 */6 * * *' } }),
     m.letGoDoneLines({ ok: true, unraid: { error: { key: 'moverelli_unraid_back_failed' } } }), m.letGoDoneLines({ ok: true, unraid: { none: true } })];
   console.log(JSON.stringify(out));
@@ -30243,7 +30243,7 @@ JS);
             same('unraid mover page: Jack not hired — the warning without his films', ['consent.move_now_solo'], $o['solo']);
             same('unraid mover page: an earlier install found on the flash — offered at the top; none — nothing', [['import.found {"folder":"/boot/config/plugins/user.scripts/scripts/mover"} ', 'import.open'], null],
                 [$o['found'], $o['notFound']]);
-            same('unraid mover page: her let-go\'s lines — Jack hired / her schedule and Unraid\'s back / Unraid\'s on already / «after Jack» and Unraid\'s stays off', [
+            same('unraid mover page: her let-go\'s lines — Jack hired / her schedule and Unraid\'s back / Unraid\'s on already / the night\'s time and Unraid\'s stays off', [
                 [['callout warn', 'letgo.jack']],
                 [['', 'letgo.sched_off'], ['', 'letgo.unraid_back {"schedule":"C(40 3 * * *)"}']],
                 [['', 'letgo.sched_none'], ['role', 'letgo.unraid_on']],
@@ -30372,6 +30372,28 @@ function testMoverelliFill(): void
     check('fill: a target not below its trigger skips the share with an error, nothing moved', ($st['shares'][0]['state'] ?? '') === 'error' && $on($t, 'disk1') === []
         && str_contains((string) file_get_contents("$t/log"), 'move_until_used_below 80% must be below move_when_used_above 80%'));
 
+    // 8. the night run's cap (CUSTOMMOVER_FILL_MAX_BYTES, 2026-10-13): the age rule in full, the fill at most n bytes — and,
+    // with the cap, from the target on (the office decided); 0 = no fill; another pool than CUSTOMMOVER_FILL_MAX_POOL: as without
+    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=30", 500);
+    $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '150', 'CUSTOMMOVER_FILL_MAX_POOL' => 'cache'], true);
+    same('fill cap: the age (z) in full, the fill only 150 bytes — y (100) goes, x (would reach 200) never starts; said',
+        [['y', 'z'], ['e', 'w', 'x'], false], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['reached'] ?? null]);
+    check('fill cap: … the log says the cap', str_contains((string) file_get_contents("$t/log"), 'fill: its cap reached'), (string) @file_get_contents("$t/log"));
+    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=60", 500);
+    $dry = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '100'], false);
+    same('fill cap dry: the same count — z by age, then only y', ['z', 'y'], $dryList($t));
+    [$t, $env] = $tree($files, $ini, 500);
+    $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '0'], true);
+    check('fill cap 0: the age alone (z), no fill — said', $on($t, 'disk1') === ['z'] && str_contains((string) file_get_contents("$t/log"), 'fill: none in this run'),
+        (string) @file_get_contents("$t/log"));
+    [$t, $env] = $tree($files, $ini, 500);
+    $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '0', 'CUSTOMMOVER_FILL_MAX_POOL' => 'other'], true);
+    same('fill cap: for another pool — this one fills as without it', ['x', 'y', 'z'], $on($t, 'disk1'));
+    // with the cap the fill starts from the target, not the trigger: the pool at 70 % (below X 80, above Y 60), 100 allowed
+    [$t, $env] = $tree($files, $ini, 650);
+    $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '100'], true);
+    same('fill cap: below X but above Y — with the cap the fill goes (the office decided it), one file', ['y', 'z'], $on($t, 'disk1'));
+
     // her setup's check and her ini
     $dir = "$base/her";
     @mkdir($dir, 0700, true);
@@ -30437,7 +30459,7 @@ JS);
  * what the next night moves (Jack back above Y, never below H; the oldest downloads from X on); NM ≥ Y: nothing to share;
  * her rules from her ini (Y missing → X − 10, jack_min_percent); the look from ZFS; what Jack is told (100 − Y, H); her
  * save (no refusals any more, jack_min_percent kept and checked), her state, the Team Lead's findings (pool_never_moves,
- * pool_snapshots, moverelli_before_jack); a fill that missed its target told at once; Smart Mover without the cake's
+ * pool_snapshots, night_schedule); a fill that missed its target told at once; Smart Mover without the cake's
  * hooks; the migration step `pool-simple`; her setup's sentence, the next night, «Advanced» and Jack's words under node.
  */
 function testPoolLevel(): void
@@ -30456,6 +30478,9 @@ function testPoolLevel(): void
     same('level: Jack under his half — he gives nothing back, downloads above theirs go (180)', [0.0, 180.0], [$gib($m['back']), $gib($m['goes'])]);
     $m = poolLevelMath(1000 * $G, 900 * $G, 150 * $G, 80, 70, 50, 100 * $G);
     same('level: NM 750 ≥ Y — nothing to share (R 0, H 0), Jack brings back what he has', [true, 0.0, 0.0, 100.0], [$m['never'], $gib($m['room']), $gib($m['half']), $gib($m['back'])]);
+    $m = poolLevelMath(1000 * $G, 850 * $G, 550 * $G, 80, 70, 50, 450 * $G);
+    same('level: the night\'s need (150 over Y); Jack borrowed 250 — he gives 150; the downloads (100) under their half (200) — none of them goes, though ≥ X',
+        [150.0, 200.0, 150.0, 0.0], [$gib($m['need']), $gib($m['half_d']), $gib($m['back']), $gib($m['goes'])]);
     same('level: Jack guaranteed 30 % — H 120; no limit — nothing', [120.0, [0, 0, 0, false]], [$gib(poolLevelMath(1000 * $G, 500 * $G, 200 * $G, 80, 70, 30, 150 * $G)['half']),
         array_values(array_intersect_key(poolLevelMath(1000 * $G, 900 * $G, 200 * $G, 0, 0, 50, 150 * $G), array_flip(['room', 'back', 'goes', 'never'])))]);
 
@@ -30558,17 +30583,17 @@ function testPoolLevel(): void
     same('level checks: the pool asleep — not looked at (null)', [['recommended', null, ['pool' => '']], ['hint', null, ['pool' => '']]],
         [$finds()['pool_never_moves'] ?? 'x', $finds()['pool_snapshots'] ?? 'x']);
     $GLOBALS['moverelliHost']['asleep'] = [];
-    // she by time before Jack: the Team Lead's hint; after him, or «right after Jack Emby»: none
+    // one schedule for both (the night run): Jack Emby's EmbyCache on a line of its own — the Team Lead says so; no «before Jack» any more
     $v['emby'] = ['lists' => [], 'shares' => []];
-    $before = function (?int $mine, ?int $his): ?bool {
-        $GLOBALS['moverelliHost']['next_run'] = fn () => $mine;
-        $GLOBALS['moverelliHost']['emby_next'] = fn () => $his;
-        $f = array_values(array_filter(moverelliChecks(), fn ($f) => $f['id'] === 'moverelli_before_jack'));
+    $own = function (bool $line): ?bool {
+        $GLOBALS['moverelliHost']['emby_scheduled'] = fn () => $line;
+        $f = array_values(array_filter(moverelliChecks(), fn ($f) => $f['id'] === 'night_schedule'));
         return $f ? $f[0]['ok'] : null;
     };
-    same('level before Jack: she at 00:30, he at 01:00 — the hint; she at 02:00, he at 01:00 — fine; his schedule off — fine; Jack not hired — no finding',
-        [false, true, true, null], [$before(1800, 3600), $before(7200, 3600), $before(1800, null), ($v['emby'] = null) ?? $before(1800, 3600)]);
-    unset($GLOBALS['moverelliHost']['next_run'], $GLOBALS['moverelliHost']['emby_next']);
+    same('level night schedule: his own EmbyCache line — open; none — fine; Jack not hired — no finding; «before Jack» gone',
+        [false, true, null, false], [$own(true), $own(false), ($v['emby'] = null) ?? $own(true),
+         in_array('moverelli_before_jack', array_column(moverelliChecks(), 'id'), true)]);
+    unset($GLOBALS['moverelliHost']['emby_scheduled']);
 
     // a real run's fill that ended above its target: told at once (a warning per pool), never after a stop
     $bin = "$tmp/notify";
@@ -30586,8 +30611,8 @@ function testPoolLevel(): void
     check('level notify: the target missed on master — one warning; reached and stopped — nothing', $sent === [1, 0]
         && str_contains($said, "-i\nwarning") && str_contains($said, 'master is still at 83 % after my run — I couldn\'t get below 70 %.'), json_encode($sent) . $said);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
-    check('level run: after a real run she tells a missed target; Smart Mover gets no pool variables from her',
-        str_contains($src, "moverelliTargetNotify(\$status);") && !str_contains($src, 'CUSTOMMOVER_POOL_OFFSET') && !str_contains($src, 'CUSTOMMOVER_FILL_'));
+    check('level run: after a real run she tells a missed target (inside the night with a cap: the night does); Smart Mover gets no cake variables, only the night\'s cap',
+        str_contains($src, "moverelliTargetNotify(\$status);") && !str_contains($src, 'CUSTOMMOVER_POOL_OFFSET') && !preg_match('/CUSTOMMOVER_FILL_(?!MAX_)/', $src));
     $sm = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('level: Smart Mover without the cake\'s hooks', !preg_match('/CUSTOMMOVER_(?:POOL_OFFSET|FILL_TARGET|FILL_OFF|FILL_ALL)|cake/i', $sm));
 
@@ -30598,10 +30623,10 @@ function testPoolLevel(): void
     file_put_contents("$tmp/mig/moverelli/smart_mover.ini", $was);
     file_put_contents("$tmp/mig/moverelli/office-schedule.json", '{"v":1,"cron":"30 0 * * *","after":null}');
     $said = officeMigratePoolSimple("$tmp/mig", '1.62.0');
-    same('level migration: Y = X − 10 after her limit, the slice line gone (a share\'s own limit untouched), the ini before kept, her time said',
+    same('level migration: Y = X − 10 after her limit, the slice line gone (a share\'s own limit untouched), the ini before kept, «right after Jack Emby» never proposed',
         ["[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=70\nmax_list=50\n[Filme]\nmove_when_used_above=60\n", $was, true, true],
         [file_get_contents("$tmp/mig/moverelli/smart_mover.ini"), @file_get_contents("$tmp/mig/moverelli/smart_mover.ini.before-1.62.0"),
-         str_contains($said, 'her target set to 70 %'), str_contains($said, '«right after Jack Emby» is the better choice')]);
+         str_contains($said, 'her target set to 70 %'), !str_contains($said, 'right after Jack Emby')]);
     same('level migration: again — nothing (idempotent); the step registered', [true, false, true],
         [str_starts_with(officeMigratePoolSimple("$tmp/mig", '1.62.0'), 'nothing to change'), is_file("$tmp/mig/moverelli/smart_mover.ini.before-1.62.0-2"),
          in_array('pool-simple', array_column(officeMigrateSteps(), 'id'), true) && !in_array('moverelli-cake', array_column(officeMigrateSteps(), 'id'), true)]);
@@ -30800,7 +30825,7 @@ PY);
     file_put_contents("$p/zfs", "#!/bin/bash\nu=\$(( \$(cat " . escapeshellarg("$p/base") . ") + \$(find " . escapeshellarg("$p/pool") . " -type f -printf '%s\\n' | awk '{s+=\$1} END {print s+0}') ))\necho \"\$u \$(( 10000 - u ))\"\n");
     chmod("$p/zfs", 0755);
     // a run as the office starts it: Ms. Moverelli's Y as 100 − Y free, his half as the floor (null: none); $office false: standalone
-    $go = function (int $y, int $base, ?string $keep = null, bool $office = true) use ($p, $settings): array {
+    $go = function (int $y, int $base, ?string $keep = null, bool $office = true, bool $noFill = false) use ($p, $settings): array {
         $settings(100 - $y);
         file_put_contents("$p/base", (string) $base);
         @unlink("$p/data/status.json");
@@ -30811,6 +30836,9 @@ PY);
         }
         if ($keep !== null) {
             $cmd[] = "EMBYCACHE_KEEP_BYTES=$keep";
+        }
+        if ($noFill) {
+            $cmd[] = 'EMBYCACHE_NO_FILL=1';
         }
         [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/embycache/embycache_run.py', '--run']), 120);
         $log = (string) @file_get_contents("$p/data/logs/embycache.log");
@@ -30831,6 +30859,10 @@ PY);
         return $m[1];
     };
 
+    // the night run's freeing pass (EMBYCACHE_NO_FILL=1): nothing fetched, what waits counted (all six of everyone's queue)
+    [$exit, $st, $out] = $go(50, 2000, null, true, true);
+    same('emby no fill: the freeing pass — nothing fetched, the six queued files counted as waiting, said', [0, [], 6, 6000, 0, true],
+        [$exit, $on(), $st['pool']['waiting'] ?? null, $st['pool']['waiting_bytes'] ?? null, $st['fill']['planned'] ?? null, str_contains($out, 'EMBYCACHE_NO_FILL')], $out);
     [$exit, $st, $out] = $go(50, 2000);
     same('emby yield: Y 50 %, appdata & co. 2000 — round-robin by everyone\'s next (Mutter E01, Vater E03, Kids Brazil) up to Y, the rest waits (counted)',
         [0, ['Brazil', 'S01E01', 'S01E03'], ['S01E01', 'S01E03', 'Brazil'], 3], [$exit, $on(), array_values(array_unique($copied($out))), $st['pool']['waiting'] ?? null], $out);
@@ -32020,166 +32052,264 @@ JS);
 }
 
 /**
- * Her third way (2026-10-11, the owner's decision): «right after Jack Emby's scheduled EmbyCache runs» — one of off / a
- * time / after Jack (a time switches it off, it removes her cron line); only a SCHEDULED real EmbyCache run that ran
- * hands her real run to atd (whatever its outcome) — one started on his page, dry runs, reports, the release and the
- * gather don't; not hired / not set up / not chosen → nothing; her job so started goes through all her gates and is
- * recorded `by: emby`; the Team Lead's points when nothing starts her; her page and Jack's line.
+ * The night run's plan (agent/lib/nightrun.php, pure): the concept's 1 TB SSD (NM 300, X 80, Y 70: H 200 each) — night 1
+ * (used 770, Jack Emby 320, 60 GB waiting: he gives back 70 first, she only by age, nothing fetched), night 2 (the
+ * downloads grew: her age rule 50 before his 30), a download burst over X (she first, only down to the downloads' half,
+ * he down to his), both full (nothing goes, nothing comes), «nearly reached» (1 % of the pool, at least 1 GiB), NM ≥ Y,
+ * not measured; the words for the pages.
  */
-function testMoverelliAfterEmby(): void
+function testNightPlan(): void
 {
-    $tmp = hardeningTmp('moverelli-after');
+    $G = 1 << 30;
+    $gib = fn (int $b): float => round($b / $G, 1);
+    $lv = fn (int $used, int $jack, int $movable, int $x = 80, int $y = 70) => poolLevelMath(1000 * $G, $used * $G, $movable * $G, $x, $y, 50, $jack * $G) + ['pool' => 'cache'];
+    $p = nightPlan($lv(770, 320, 470), 60 * $G);
+    same('night plan 1: need 70; Jack Emby gives 70 (120 borrowed), she only by age (under X), he goes first; nothing fits, 60 wait',
+        [70.0, 70.0, 0.0, ['jack', 'her'], 0.0, 60.0, false], [$gib($p['need']), $gib($p['back']), $gib($p['goes']), $p['order'], $gib($p['fill']), $gib($p['wait']), $p['done']]);
+    $p = nightPlan($lv(760, 230, 460), 60 * $G, 50 * $G);
+    same('night plan 2: need 60; Jack Emby only his 30 borrowed; her age rule 50 is more — she first; afterwards 680: 20 fit, 40 wait',
+        [30.0, 0.0, ['her', 'jack'], 20.0, 40.0], [$gib($p['back']), $gib($p['goes']), $p['order'], $gib($p['fill']), $gib($p['wait'])]);
+    $p = nightPlan($lv(900, 250, 600), 0);
+    same('night plan: a burst over X (900) — Jack Emby down to his half (50), the downloads only what they borrowed over theirs (150); 200 in all',
+        [200.0, 50.0, 150.0, ['her', 'jack']], [$gib($p['need']), $gib($p['back']), $gib($p['goes']), $p['order']]);
+    $p = nightPlan($lv(700, 200, 400), 30 * $G);
+    same('night plan: both full (each exactly H, the pool at Y) — nothing goes, nothing comes, the queue waits', [0.0, 0.0, 0.0, 30.0, true],
+        [$gib($p['back']), $gib($p['goes']), $gib($p['fill']), $gib($p['wait']), $p['done']]);
+    same('night plan: «nearly» — 1 % of the pool (10 GiB here), at least 1 GiB on a small one', [10 * $G, $G, true, false],
+        [nightPlan($lv(705, 250, 405))['near'], nightNear(20 * $G), nightPlan($lv(709, 250, 409))['done'], nightPlan($lv(712, 250, 412))['done']]);
+    $p = nightPlan(poolLevelMath(1000 * $G, 900 * $G, 100 * $G, 80, 70, 50, 50 * $G));
+    same('night plan: NM ≥ Y — never; Jack Emby gives what he has (H 0)', [true, 50.0], [$p['never'], $gib($p['back'])]);
+    $p = nightPlan(null, 5 * $G);
+    same('night plan: not measured — no numbers, her part first, what waits stays', [false, ['her', 'jack'], 5.0, true], [$p['measured'], $p['order'], $gib($p['wait']), $p['done']]);
+    same('night words: for the pages', ['measured' => true, 'back' => 70 * $G, 'goes' => 0, 'age' => 0, 'fill' => 0, 'wait' => 60 * $G, 'first' => 'jack'],
+        nightWords(nightPlan($lv(770, 320, 470), 60 * $G)));
+}
+
+/**
+ * The night run itself (nightRun(), stand-ins for both tools and the pool): the concept's night 1 with a download burst while
+ * they free — Jack Emby frees, she by age, the pool measured anew and a second pass for Jack Emby, he fetches last; one lock
+ * (the runs inside pass, others are refused); a stop in «free» ends it (stopped, nothing after); «Stop after this file»
+ * from the page (the tool at work and the night); the target missed — told at once; only she; no limit; the dry run;
+ * the schedule (one line, his own goes), the Team Lead, the migration `night-run` (four cases), Jack Emby's side, the pages.
+ */
+function testNightRun(): void
+{
+    $G = 1 << 30;
+    $tmp = hardeningTmp('night-run');
     $v = [];
     moverelliFixture($tmp, $v);
-    $launched = [];
-    $v['emby_sched'] = true;
-    $v['emby_runs'] = [];
-    $v['array'] = true;
-    $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false,
-        'array_running' => function () use (&$v) { return $v['array']; },
-        'launch' => function (array $args) use (&$launched) { $launched[] = $args; },
-        'emby_scheduled' => function () use (&$v) { return $v['emby_sched']; },
-        'emby_runs' => function () use (&$v) { return $v['emby_runs']; }];
+    $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false, 'emby_scheduled' => fn () => (officeCronLines("$tmp/office.cron")['embycache'] ?? null) !== null];
     $h = moverelliHost();
     $dir = "$tmp/data";
-    $err = function (callable $f): string {
-        try {
-            $f();
-            return 'none';
-        } catch (Problem $p) {
-            return $p->key;
-        }
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70]), $h);
+    // the pool in GiB: used = NM + J + D; the stand-ins move J and D as the tools would
+    $p = ['nm' => 300, 'j' => 320, 'd' => 150, 'wait' => 60, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false];
+    $calls = [];
+    $notified = [];
+    $inside = [];
+    $level = function () use (&$p, $G): array {
+        $used = $p['nm'] + $p['j'] + $p['d'];
+        return poolLevelMath(1000 * $G, $used * $G, ($p['j'] + $p['d']) * $G, 80, 70, 50, $p['j'] * $G) + ['pool' => 'cache'];
     };
-    $line = fn (): ?string => officeCronLines("$tmp/office.cron")['moverelli'] ?? null;
-    $jack = ['lists' => ['/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt'], 'shares' => []];
+    $runs = [];
+    $GLOBALS['nightHost'] = [
+        'jack_on' => fn () => true,
+        'level' => fn (array $g, array $hh, bool $wake) => $level(),
+        'emby_status' => function () use (&$p, $G) { return ['pool' => ['waiting_bytes' => $p['wait'] * $G]]; },
+        'emby_runs' => function () use (&$runs) { return $runs; },
+        'emby_stop' => "$tmp/emby-stop.json",
+        'notify' => function (string $s, string $b) use (&$notified) { $notified[] = $s; return true; },
+        'emby_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir) {
+            $calls[] = 'jack ' . implode(' ', $args);
+            $inside[] = [nightRunning($dir), moverelliBusy($dir), nightInside()];
+            $exit = array_shift($p['jack_exit']) ?? 0;
+            if ($exit === 0 && in_array('--nofill', $args, true)) {
+                $used = $p['nm'] + $p['j'] + $p['d'];
+                $give = max(0, min($p['j'] - 200, $used - 700));       // over Y, never below H 200
+                $p['j'] -= $give;
+            } elseif ($exit === 0 && $args[0] === 'run') {
+                $used = $p['nm'] + $p['j'] + $p['d'];
+                $fetch = max(0, min($p['wait'], 700 - $used));
+                $p['j'] += $fetch;
+                $p['wait'] -= $fetch;
+            }
+            array_unshift($runs, ['tool' => 'embycache', 'result' => $exit === 3 ? 'stopped' : 'ok']);
+            if (($p['stop_ask'] ?? false) && nightStopAsk()) {
+                $p['stop_ask'] = false;
+            }
+            return $exit;
+        },
+        'her_job' => function (array $args, array $hh) use (&$p, &$calls, $dir, $G) {
+            $calls[] = 'her ' . implode(' ', $args);
+            $cap = null;
+            foreach ($args as $a) {
+                if (str_starts_with($a, '--fill-max=')) {
+                    $cap = (int) substr($a, 11);
+                }
+            }
+            $p['her_cap'] = $cap;
+            $p['d'] -= $p['age'] ?? 0;                      // the age rule
+            $p['age'] = 0;
+            if ($cap !== null && !$p['her_stall']) {
+                $p['d'] -= intdiv($cap, $G);
+            }
+            $p['d'] += $p['burst'];                         // downloads arrive while she works
+            $p['burst'] = 0;
+            moverelliRemember(['mode' => $args[0], 'by' => 'night', 'started' => time(), 'finished' => time(), 'result' => 'ok'], $dir);
+            return 0;
+        },
+    ];
+    $night = fn () => nightState($dir) ?? [];
 
-    // (1) the choice: none by default; not set up / Jack not hired / with a time / an unknown word — refused
-    same('moverelli after: no choice by default; refused while she isn\'t set up', [null, 'moverelli_not_configured'],
-        [moverelliAfterChoice($dir), $err(fn () => moverelliSetSchedule(null, $h, 'emby'))]);
-    moverelliSave(moverelliTestSettings(), $h);
-    same('moverelli after: refused without Jack Emby, with a time beside it, with another word', ['moverelli_after_no_jack', 'bad_request', 'bad_request'],
-        [$err(fn () => moverelliSetSchedule(null, $h, 'emby')), $err(fn () => moverelliSetSchedule('15 5 * * *', $h, 'emby')),
-         $err(fn () => moverelliSetSchedule(null, $h, 'jack'))]);
-    $v['emby'] = $jack;
-    moverelliSetSchedule('15 5 * * *', $h);
-    same('moverelli after: a time — her cron line, no «after Jack»', ['15 5 * * *', null], [$line(), moverelliAfterChoice($dir)]);
-    $r = moverelliSetSchedule(null, $h, 'emby');
-    same('moverelli after: «after Jack» — her cron line goes, the choice kept in her folder, her state says so', [null, 'emby', 'emby',
-        ['on' => true, 'jack' => true, 'jack_scheduled' => true, 'idle' => false]],
-        [$line(), moverelliAfterChoice($dir), readJson("$dir/office-schedule.json")['after'] ?? null, $r['state']['after']]);
-    moverelliSetSchedule('0 4 * * *', $h);
-    same('moverelli after: a time again switches «after Jack» off', ['0 4 * * *', null], [$line(), moverelliAfterChoice($dir)]);
-    moverelliSetSchedule(null, $h);
-    same('moverelli after: off — neither', [null, null], [$line(), moverelliAfterChoice($dir)]);
-    file_put_contents("$dir/office-schedule.json", '{"after": ["emby"], "set": "x"}');
-    same('moverelli after: a file of another shape reads as no choice', null, moverelliAfterChoice($dir));
+    // (1) the concept's night 1 with a burst of 40 GiB while she works
+    $p['age'] = 20;
+    $p['burst'] = 40;
+    $exit = nightRun(['run', '--office']);
+    $n = $night();
+    same('night run 1: Jack Emby frees (no fill), she by age (cap 0), the pool grew: a second pass for Jack Emby only, then he fetches — last',
+        [0, ['jack run --night --nofill', 'her run --night --fill-max=0 --fill-pool=cache', 'jack run --night --nofill', 'jack run --night']],
+        [$exit, $calls]);
+    same('night run 1: … the pool at Y (700), Jack Emby at 230 (his half 200 kept), nothing fetched (60 wait), two passes, done',
+        [700, 230, 60, 2, 'ok', 'done', false], [$p['nm'] + $p['j'] + $p['d'], $p['j'], $p['wait'], $n['round'] ?? null, $n['result'] ?? null, $n['phase'] ?? null, $n['running'] ?? null]);
+    same('night run 1: inside the night the runs pass its lock (night held, not «busy» for them)', [true, false, true], $inside[0] ?? null);
+    same('night run 1: the plan kept for the pages; nothing notified', [70 * $G, 'jack', []], [$n['plan']['back'] ?? null, $n['plan']['first'] ?? null, $notified]);
+    check('night run: the lock — after the night nobody holds it; another start meanwhile is refused (moverelliBusy outside the night)',
+        !nightRunning($dir) && !moverelliBusy($dir));
 
-    // (2) what starts her: only a scheduled real EmbyCache run that ran; once, with her job's command line
-    moverelliSetSchedule(null, $h, 'emby');
-    $want = [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--after-emby'];
-    $launched = [];
-    $got = [];
-    foreach ([['embycache', 'run', 'schedule'], ['embycache', 'run', 'office'], ['embycache', 'dry', 'schedule'], ['embycache', 'report', 'schedule'],
-              ['embycache', 'release', 'letgo'], ['embycache', 'release', 'schedule'], ['gather', 'run', 'schedule'], ['gather', 'measure', 'office']] as [$tool, $mode, $by]) {
-        $got["$tool $mode $by"] = moverelliAfterEmby($tool, $mode, $by, $h);
-    }
-    same('moverelli after: a scheduled real EmbyCache run starts her — one started on his page, dry runs, reports, the release and the gather don\'t',
-        ['embycache run schedule' => true, 'embycache run office' => false, 'embycache dry schedule' => false, 'embycache report schedule' => false,
-         'embycache release letgo' => false, 'embycache release schedule' => false, 'gather run schedule' => false, 'gather measure office' => false], $got);
-    same('moverelli after: … handed to atd once, as her own job with its mark', [$want], $launched);
-    check('moverelli after: … through hostLaunch(), whose job file carries the office\'s mark (the night watchman knows it as the office\'s own)',
-        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "'launch'        => \$h['launch'] ?? fn (array \$args) => hostLaunch('moverelli', \$args),")
-        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php'), '$script = "#!/bin/sh\\n" . HOST_LAUNCH_MARK'));
-    $launched = [];
-    same('moverelli after: Jack\'s side (embyRunAfter) hands it on the same way — not after a page-started run, nor when EmbyCache never ran (127)',
-        [true, false, false, [$want]],
-        [embyRunAfter('embycache', 'run', 'schedule', 0), embyRunAfter('embycache', 'run', 'office', 0), embyRunAfter('embycache', 'run', 'schedule', 127), $launched]);
-    $launched = [];
-    same('moverelli after: … errors (exit 1) and a stop (exit 3) count — the run ran', [true, true, 2],
-        [embyRunAfter('embycache', 'run', 'schedule', 1), embyRunAfter('embycache', 'run', 'schedule', 3), count($launched)]);
-    // in his job: once, at its very end — after his list of runs and his finished marker, after every outcome of a run
-    // that ran (errors, stopped); refused and skipped starts return before
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    $job = substr($src, (int) strpos($src, 'function embyJob('), (int) strpos($src, 'function embyGateRefused(') - (int) strpos($src, 'function embyJob('));
-    $at = (int) strpos($job, 'embyRunAfter($tool, $mode, $by, $exit);');
-    check('moverelli after: Jack\'s job calls it once, after his bookkeeping (list of runs, finished marker, notification), right before its end',
-        substr_count($job, 'embyRunAfter($tool, $mode, $by, $exit);') === 1 && $at > (int) strrpos($job, "embyRemember(['tool' => \$tool, 'mode' => \$mode, 'by' => \$by, 'started' => \$started")
-        && $at > (int) strrpos($job, "writeAtomic(\"\$dir/office-run.json\"") && $at > (int) strrpos($job, 'embyNotify(')
-        && str_starts_with(trim(substr($job, $at + strlen('embyRunAfter($tool, $mode, $by, $exit);'))), 'return $exit;'));
-    check('moverelli after: … his marker gives the start lock back long before (her run is never refused for his)', (int) strpos($job, 'embyMoversUnlock($movers);', (int) strpos($job, '$started = time();')) < $at);
+    // (2) night 2: the downloads grew (she has more to free: age 50 vs his 30) — she first; 20 fit, he fetches them
+    $calls = [];
+    $p = ['nm' => 300, 'j' => 230, 'd' => 230, 'wait' => 60, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false, 'age' => 50];
+    $exit = nightRun(['run']);
+    same('night run 2: the order follows who must free more — Jack Emby 30 vs her age unknown beforehand (counted 0): he first; then the fill: 20 fit',
+        [0, 'jack run --night --nofill', 'jack run --night', 680 + 20, 40], [$exit, $calls[0] ?? null, end($calls), $p['nm'] + $p['j'] + $p['d'], $p['wait']]);
 
-    // (3) not hired, not set up, not chosen — nothing
-    $launched = [];
-    $v['hired'] = false;
-    $a = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
-    $v['hired'] = true;
-    rename("$dir/smart_mover.ini", "$dir/smart_mover.ini.x");
-    $b = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
-    rename("$dir/smart_mover.ini.x", "$dir/smart_mover.ini");
-    moverelliSetSchedule('15 5 * * *', $h);
-    $c = moverelliAfterEmby('embycache', 'run', 'schedule', $h);
-    same('moverelli after: not hired, not set up, a time of her own — nothing handed on', [false, false, false, []], [$a, $b, $c, $launched]);
-    moverelliSetSchedule(null, $h, 'emby');
+    // (3) a burst over X: she first with her cap (only the downloads' borrowed part), then Jack Emby
+    $calls = [];
+    $p = ['nm' => 300, 'j' => 250, 'd' => 350, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false];
+    nightRun(['run']);
+    same('night run burst (900 %): she first, her cap 150 GiB (the downloads over their half), then Jack Emby down to his half — the pool at Y',
+        ['her run --night --fill-max=' . (150 * $G) . ' --fill-pool=cache', 'jack run --night --nofill', 700, 200], [$calls[0] ?? null, $calls[1] ?? null, $p['nm'] + $p['j'] + $p['d'], $p['j']]);
 
-    // (4) her job so started: all her gates, recorded `by: emby`
+    // (4) the target missed: she moves nothing (all her files excluded, say) — still ≥ X: told at once, result «missed»
+    $calls = [];
+    $notified = [];
+    $p = ['nm' => 300, 'j' => 200, 'd' => 350, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => true];
     $envBefore = getenv('OFFICE_NOTIFY_BIN');
     putenv("OFFICE_NOTIFY_BIN=$tmp/bin/notify");
-    $v['array'] = false;
-    $exit = moverelliJob(['run', '--after-emby'], $h);
-    $top = moverelliHistory($dir)[0] ?? [];
-    same('moverelli after: the array not started (atd skips job.sh\'s look) — refused, recorded «by emby»', [1, 'refused', 'moverelli_array', 'emby'],
-        [$exit, $top['result'] ?? null, $top['why'] ?? null, $top['by'] ?? null]);
-    $v['array'] = true;
-    moverelliSetSchedule('15 5 * * *', $h);
-    $n = count(moverelliHistory($dir));
-    same('moverelli after: her choice changed between the hand-over and the start — ends without a run, nothing recorded', [0, $n],
-        [moverelliJob(['run', '--after-emby'], $h), count(moverelliHistory($dir))]);
-    moverelliSetSchedule(null, $h, 'emby');
-    $v['own'] = ['set' => '40 3 * * *', 'cron' => '40 3 * * *'];
-    $exit = moverelliJob(['run', '--after-emby'], $h);
-    $top = moverelliHistory($dir)[0] ?? [];
-    same('moverelli after: started after Jack, Unraid\'s schedule on — refused like a scheduled one, recorded «by emby»', [1, 'refused', 'moverelli_schedule', 'emby'],
-        [$exit, $top['result'] ?? null, $top['why'] ?? null, $top['by'] ?? null]);
-    moverelliJob(['run', '--after-emby'], $h);
-    same('moverelli after: … refused again for the same reason counts up (beside the array refusal)', [2, 2], [(int) (moverelliHistory($dir)[0]['times'] ?? 0), count(moverelliHistory($dir))]);
-    $v['own'] = ['set' => '', 'cron' => null];
-    $exit = moverelliJob(['run', '--after-emby'], $h);
-    $top = moverelliHistory($dir)[0] ?? [];
-    same('moverelli after: … with nothing in the way it runs, «by emby»', [0, 'run', 'emby', 'ok'], [$exit, $top['mode'] ?? null, $top['by'] ?? null, $top['result'] ?? null]);
+    nightRun(['run']);
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    $n = $night();
+    same('night run missed: 850 ≥ X after the night — «missed», told once; the recheck tried her again (cap 150) and stopped there (no ping-pong: 3 passes at most)',
+        ['missed', 1, 85, 3], [$n['result'] ?? null, count($notified), $n['end_pct'] ?? null, $n['round'] ?? null]);
+    check('night run missed: … the subject names the pool', str_contains($notified[0] ?? '', 'cache'), json_encode($notified));
 
-    // (5) the Team Lead: nothing starts her while Jack is let go or his EmbyCache has no schedule; did she follow his last scheduled run?
+    // (5) stopped in «free»: Jack Emby's first pass ends with 3 — nothing after it, stopped
+    $calls = [];
+    $p = ['nm' => 300, 'j' => 320, 'd' => 150, 'wait' => 60, 'burst' => 0, 'jack_exit' => [3], 'her_cap' => null, 'her_stall' => false];
+    $exit = nightRun(['run']);
+    $n = $night();
+    same('night run stopped: in «free», nothing after it (no fill), exit 3', [3, ['jack run --night --nofill'], 'stopped', 'free'], [$exit, $calls, $n['result'] ?? null, $n['stopped_in'] ?? null]);
+    // «Stop after this file» from a page while Jack Emby works: his stop file and the night's — the night ends after his step
+    $calls = [];
+    $p = ['nm' => 300, 'j' => 320, 'd' => 150, 'wait' => 60, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false, 'stop_ask' => true];
+    @unlink("$tmp/emby-stop.json");
+    nightRun(['run']);
+    same('night run stop asked: the tool at work got its stop file, the night ended after its step, its stop file gone afterwards',
+        [true, 1, 'stopped', false, false], [is_file("$tmp/emby-stop.json"), count($calls), $night()['result'] ?? null, is_file("$dir/night-stop.json"), nightStopAsk()]);
+
+    // (6) only she (Jack Emby not taking part): her part alone, as 1.61 — no cap, no fill
+    $calls = [];
+    $GLOBALS['nightHost']['jack_on'] = fn () => false;
+    nightRun(['run']);
+    same('night run without Jack Emby: her part alone, no cap', ['her run --night'], $calls);
+    $GLOBALS['nightHost']['jack_on'] = fn () => true;
+    // no limit (the pool not measured): her part, then Jack Emby's whole run (his own minimum free space)
+    $calls = [];
+    $GLOBALS['nightHost']['level'] = fn () => null;
+    nightRun(['run']);
+    same('night run without a limit: her part, then Jack Emby\'s whole run', ['her run --night', 'jack run --night'], $calls);
+    // the dry run: both dry with the same values
+    $GLOBALS['nightHost']['level'] = fn (array $g, array $hh, bool $wake) => $level();
+    $calls = [];
+    $p = ['nm' => 300, 'j' => 250, 'd' => 350, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false];
+    nightRun(['dry', '--office']);
+    same('night dry run: Jack Emby dry, then she dry with her cap — no recheck, no fill', ['jack dry --night', 'her dry --night --fill-max=' . (150 * $G) . ' --fill-pool=cache'], $calls);
+    // not hired, a run of hers going: refused
+    $v['hired'] = false;
+    same('night run: she isn\'t hired — nothing', 1, nightRun(['run']));
+    $v['hired'] = true;
+    $v['busy'] = true;
+    $exit = nightRun(['run']);
+    same('night run: one of Jack Emby\'s own runs going — refused, in her list «night»', [1, 'refused', 'moverelli_emby_running', true],
+        [$exit, moverelliHistory($dir)[0]['result'] ?? null, moverelliHistory($dir)[0]['why'] ?? null, moverelliHistory($dir)[0]['night'] ?? null]);
+    $v['busy'] = false;
+
+    // (7) the job: her line runs the night; her own part (--night) and the list go to Smart Mover directly
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('night job: `job moverelli` = the night run; --night and list = Smart Mover', str_contains($src,
+        "'moverelli' => fn (array \$args) => in_array('--night', \$args, true) || in_array('list', \$args, true) ? moverelliJob(\$args) : nightRun(\$args),"));
+    // her part inside the night: by «night», the cap passed to Smart Mover, no gate wait, no target notification of her own
+    unset($GLOBALS['nightHost']);
+    $exit = moverelliJob(['run', '--night', '--fill-max=123', '--fill-pool=cache'], $h);
+    same('night her part: ran, «by night»', [0, 'night'], [$exit, moverelliHistory($dir)[0]['by'] ?? null]);
+    check('night her part: the cap reaches Smart Mover as CUSTOMMOVER_FILL_MAX_BYTES / _POOL', str_contains($src, "['CUSTOMMOVER_FILL_MAX_BYTES' => \$cap]")
+        && str_contains($src, "['CUSTOMMOVER_FILL_MAX_POOL' => \$capPool]"));
+    $esrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('night Jack Emby\'s part: --night, --nofill → EMBYCACHE_NO_FILL=1; no «after Jack Emby» hand-over any more',
+        str_contains($esrc, "\$noFill = in_array('--nofill', \$args, true);") && str_contains($esrc, "+ (\$noFill ? ['EMBYCACHE_NO_FILL' => '1'] : [])")
+        && !str_contains($esrc, 'embyRunAfter') && !str_contains($src, 'moverelliAfterEmby'));
+    check('night Jack Emby\'s «Run now» (real) starts the whole night run', str_contains($esrc, "hostLaunch('moverelli', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--office']);"));
+
+    // (8) one schedule: hers; Jack Emby's own line goes with it; the Team Lead's night_schedule
+    officeJobSetSchedule('embycache', '0 1 * * *', "$tmp/office.cron", false);
+    $v['emby'] = ['lists' => [], 'shares' => []];
     $ids = fn (): array => array_column(array_map(fn ($f) => ['id' => $f['id'], 'ok' => $f['ok']], moverelliChecks($h)), 'ok', 'id');
     $c = $ids();
-    same('moverelli after: checks — her schedule counts as set, something starts her, no «ran» of her cron', [true, true, false],
-        [$c['schedule'] ?? null, $c['after_idle'] ?? null, array_key_exists('ran', $c)]);
-    $v['emby_sched'] = false;
-    $off = $ids()['after_idle'] ?? null;
-    $v['emby_sched'] = true;
-    $v['emby'] = null;
-    $gone = $ids()['after_idle'] ?? null;
-    $state = moverelliScan($h)['after'];
-    $v['emby'] = $jack;
-    same('moverelli after: … his EmbyCache without a schedule, Jack let go — the point is open; her state idle', [false, false, ['on' => true, 'jack' => false, 'jack_scheduled' => false, 'idle' => true]],
-        [$off, $gone, $state]);
-    $set = (int) readJson("$dir/office-schedule.json")['set'];
-    $jr = fn (string $by, int $at) => ['tool' => 'embycache', 'mode' => 'run', 'by' => $by, 'result' => 'ok', 'started' => $at, 'finished' => $at + 60];
-    file_put_contents("$dir/office-history.json", json_encode(['runs' => []]));
-    same('moverelli after: «did she follow?» — his scheduled run hours ago, nothing of hers: no; too early: unknown; his page-started run: not counted; none since she was set so: unknown',
-        [false, null, null, null], [moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 3600),
-         moverelliRanAfterJack($dir, [$jr('office', $set + 10)], $set + 7 * 3600), moverelliRanAfterJack($dir, [$jr('schedule', $set - 10)], $set + 7 * 3600)]);
-    moverelliRemember(['mode' => 'dry', 'by' => 'office', 'started' => $set + 50, 'finished' => $set + 60, 'result' => 'ok'], $dir);
-    moverelliRemember(['mode' => 'list', 'by' => 'office', 'started' => $set + 70, 'finished' => $set + 80, 'result' => 'ok'], $dir);
-    same('moverelli after: … a dry run and a list of hers after it don\'t count: still no', false, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
-    moverelliRemember(['mode' => 'run', 'by' => 'emby', 'started' => $set + 100, 'finished' => $set + 200, 'result' => 'ok'], $dir);
-    same('moverelli after: … a real run of hers after it: yes', true, moverelliRanAfterJack($dir, [$jr('schedule', $set + 10)], $set + 7 * 3600));
-    same('moverelli after: Jack\'s page — she follows (hired, set up, chosen)', [true, false], [moverelliFollowsJack($h), (function () use ($h) { moverelliSetSchedule(null, $h); return moverelliFollowsJack($h); })()]);
+    same('night checks: his own line — night_schedule open; no «after Jack» findings', [false, false, false, false],
+        [$c['night_schedule'] ?? null, array_key_exists('after_idle', $c), array_key_exists('ran_after', $c), array_key_exists('moverelli_before_jack', $c)]);
+    $r = moverelliSetSchedule('15 1 * * *', $h);
+    same('night schedule: her time — one line for both, his own gone; the Team Lead content', ['15 1 * * *', null, true],
+        [officeCronLines("$tmp/office.cron")['moverelli'] ?? null, officeCronLines("$tmp/office.cron")['embycache'] ?? null, $ids()['night_schedule'] ?? null]);
+    same('night schedule: her state carries the night (with Jack Emby, the plan, the last night)', [true, true, true],
+        [$r['state']['night']['jack'] ?? null, array_key_exists('plan', $r['state']['night'] ?? []), is_array($r['state']['night']['last'] ?? null)]);
+    same('night schedule: «after» is gone from her file', [false, '15 1 * * *'], [array_key_exists('after', readJson("$dir/office-schedule.json") ?? []), readJson("$dir/office-schedule.json")['cron'] ?? null]);
     unset($GLOBALS['moverelliHost']);
 
-    // (6) her page (under node, where it is): the third choice, its notice, the overview
-    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    // (9) the migration `night-run`: four cases, only while she is set up; idempotent
+    $mig = function (?string $his, ?string $hers, bool $after, bool $setUp = true) use ($tmp): array {
+        $d = "$tmp/mig" . bin2hex(random_bytes(3));
+        @mkdir("$d/moverelli", 0700, true);
+        if ($setUp) {
+            file_put_contents("$d/moverelli/smart_mover.ini", "[GLOBAL]\n");
+        }
+        file_put_contents("$d/moverelli/office-schedule.json", json_encode(['v' => 1, 'set' => 1, 'cron' => $hers, 'after' => $after ? 'emby' : null]));
+        @unlink("$d/cron");
+        if ($his !== null) {
+            officeJobSetSchedule('embycache', $his, "$d/cron", false);
+        }
+        if ($hers !== null) {
+            officeJobSetSchedule('moverelli', $hers, "$d/cron", false);
+        }
+        $said = officeMigrateNightRun($d, "$d/cron", false);
+        $again = officeMigrateNightRun($d, "$d/cron", false);
+        $l = officeCronLines("$d/cron");
+        return [$l['moverelli'] ?? null, $l['embycache'] ?? null, array_key_exists('after', readJson("$d/moverelli/office-schedule.json") ?? []), $again, $said];
+    };
+    $a = $mig('0 1 * * *', null, true);
+    $b = $mig('0 3 * * *', '30 1 * * *', false);
+    $c = $mig('0 2 * * *', null, false);
+    $d = $mig(null, '15 5 * * *', false);
+    $e = $mig('0 2 * * *', null, false, false);
+    same('night migration: his line + «after Jack Emby» → his time is the night\'s; both their own → the earlier; only his → his; only hers → hers; she not set up → untouched',
+        [['0 1 * * *', null, false, 'nothing to change'], ['30 1 * * *', null, false, 'nothing to change'], ['0 2 * * *', null, false, 'nothing to change'],
+         ['15 5 * * *', null, false, 'nothing to change'], [null, '0 2 * * *', true, 'nothing to change — Ms. Moverelli is not set up']],
+        [array_slice($a, 0, 4), array_slice($b, 0, 4), array_slice($c, 0, 4), array_slice($d, 0, 4), array_slice($e, 0, 4)]);
+    check('night migration: … the merge said; the step registered', str_contains($b[4], 'merged into one') && in_array('night-run', array_column(officeMigrateSteps(), 'id'), true), $b[4]);
+
+    // (10) the pages under node: her schedule (no third choice), tonight's line, the card's phases; Jack Emby's row
+    $node = testsNode();
     if ($node === '') {
-        check('moverelli after page: node is missing here - skipped', true);
+        check('night page: node is missing here - skipped', true);
         hardeningRm($tmp);
         return;
     }
@@ -32192,63 +32322,74 @@ const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? ''
 const dialogs = [];
 const posts = [];
 globalThis.document = { createTextNode: (t) => t };
-globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => b + ' B' }, desk: () => {}, places: () => {},
-  placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => Math.round(b / 1073741824) + ' GiB', number: (n) => String(n), time: (t) => 'T' + t, duration: (s) => s + 's' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'), stat: (o) => o,
+  runSteps: (steps, at) => ({ ...mk('div', 'steps'), steps, at }), runBar: () => mk('div', 'bar'), runRate: () => null,
   dialog: (o) => dialogs.push(o), freshState: async () => true, toast: () => {}, errorText: (e) => 'err:' + e.key,
   api: { post: async (a, d) => { posts.push([a, d]); return { ok: true, live: true }; } } };
-(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
 const m = OFFICE_DESK_TESTS.moverelli;
+const e = OFFICE_DESK_TESTS.emby;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const radios = (n) => (typeof n === 'string' ? [] : [...(n.tag === 'input' ? [n] : []), ...n.children.flatMap(radios)]);
-const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, job: {}, schedule: { enabled: false }, history: [], shares: [],
-  mover: { off: true }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, settings: { global: { min_age: 0, age_stat: 'ctime', move_when_used_above: 0 } }, last: null };
+const G = 1073741824;
+const plan = { measured: true, back: 70 * G, goes: 0, age: 0, fill: 20 * G, wait: 40 * G, first: 'jack' };
+const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '7.3.2' }, job: {}, schedule: { enabled: true, frequency: 'custom', custom: '15 1 * * *' }, history: [], shares: [],
+  mover: { off: true }, foreign: { tuning: { installed: false, active: false, lines: [] }, scripts: [] }, settings: { global: { min_age: 0, age_stat: 'ctime', move_when_used_above: 80 } }, last: null,
+  night: { jack: true, plan, last: { mode: 'run', started: 100, finished: 200, result: 'missed', end_pct: 81, round: 2, phase: 'done' } } };
 (async () => {
   const out = {};
-  m.setState({ ...base, after: { on: true, jack: true, jack_scheduled: false, idle: true } });
-  out.notice = texts(m.afterNotice());
-  out.sched = m.schedText(base.schedule);
-  out.bubble = m.bubbleText();
-  out.overview = texts(m.scheduleSection());
+  m.setState(base);
+  out.tonight = m.tonightText(plan);
+  out.unmeasured = m.tonightText({ measured: false });
+  out.last = m.lastNightText(base.night.last);
+  out.section = texts(m.scheduleSection());
   await m.scheduleDialog();
-  const box = dialogs[0].body;
-  out.options = texts(box);
-  out.checked = radios(box).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
+  out.radios = radios(dialogs[0].body).filter((r) => r.type === 'radio').length;
+  out.intro = texts(dialogs[0].body)[0];
   await dialogs[0].buttons[1].act();
   out.post = posts[0];
-  m.setState({ ...base, after: { on: false, jack: false, jack_scheduled: false, idle: false } });
-  out.notice2 = m.afterNotice();
-  await m.scheduleDialog();
-  out.checked2 = radios(dialogs[1].body).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
-  out.options2 = texts(dialogs[1].body);
-  m.setState({ ...base, after: { on: true, jack: false, jack_scheduled: false, idle: true } });
-  out.notice3 = texts(m.afterNotice());
-  m.setState({ ...base, after: { on: false, jack: true, jack_scheduled: true, idle: false } });
-  await m.scheduleDialog();
-  out.checked3 = radios(dialogs[2].body).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
+  out.steps = m.nightSteps({ phase: 'recheck', round: 2, jack: true }).map((s) => [s.name, s.state]);
+  out.steps2 = m.nightSteps({ phase: 'free', round: 1, jack: false }).map((s) => [s.name, s.state]);
+  m.setState({ ...base, night: { jack: true, plan, last: { mode: 'run', started: 100, phase: 'free', who: 'jack', round: 1, jack: true, running: true } } });
+  m.setNight(null);
+  const card = m.runCard(null, 300);
+  out.card = texts(card);
+  out.cardSteps = (card.children.find((c) => c.steps) || {}).steps;
+  e.setState({ schedules: { embycache: { enabled: false }, gather: { enabled: false } }, night: { schedule: { enabled: true, frequency: 'custom', custom: '15 1 * * *', next: 0 }, jack: true, plan } });
+  out.plans = texts(e.plansSection());
+  out.tile = e.plansTile({}).value;
+  out.jtonight = e.tonightText(plan);
   console.log(JSON.stringify(out));
 })();
 JS);
-    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' 2>&1'), true);
-    check('moverelli after page: it runs', is_array($o), json_encode($o));
-    $o = is_array($o) ? $o : [];
-    same('moverelli after page: chosen, his EmbyCache without a schedule — the notice and its button; the schedule says «after Jack Emby»; not «no schedule»',
-        [['notice.after_idle_off ', 'schedule_title'], 'schedule.after_short', 'bubble.ready'],
-        [$o['notice'] ?? null, $o['sched'] ?? null, $o['bubble'] ?? null]);
-    check('moverelli after page: the section «Schedule» — «after Jack Emby» with «nothing starts me by myself»',
-        in_array('schedule.after_short', $o['overview'] ?? [], true) && in_array('schedule.after_idle_sub', $o['overview'] ?? [], true));
-    same('moverelli after page: the dialog — the third choice with its words, chosen, sent as {cron: null, after: emby}',
-        [true, true, [[false, false], [false, false], [true, false], [false, false]], ['moverelli.schedule', ['cron' => null, 'after' => 'emby']]],
-        [in_array('schedule.after', $o['options'] ?? [], true), in_array('schedule.after_hint', $o['options'] ?? [], true), $o['checked'] ?? null, $o['post'] ?? null]);
-    same('moverelli after page: nothing set yet, Jack hired — «right after Jack Emby» proposed (2026-10-13, the pool simply)',
-        [[false, false], [false, false], [true, false], [false, false]], $o['checked3'] ?? null);
-    same('moverelli after page: Jack not hired — the choice offered disabled with why, no notice; chosen and Jack let go — the other notice',
-        [[[true, false], [false, false], [false, true], [false, false]], true, null, ['notice.after_idle_letgo ', 'schedule_title']],
-        [$o['checked2'] ?? null, in_array('schedule.after_no_jack', $o['options2'] ?? [], true), array_key_exists('notice2', $o) ? $o['notice2'] : 'x', $o['notice3'] ?? null]);
-    // Jack Emby's page: one quiet line under his schedules while she follows him
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    check('moverelli after: Jack\'s page — the line under his schedules, only while she follows (his state\'s moverelli_after)',
-        str_contains($js, "if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));")
-        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'), "'moverelli_after' => function_exists('moverelliFollowsJack') && moverelliFollowsJack(),"));
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('night page: it runs', $j !== [], $out . $err);
+    same('night page: tonight in words — Jack Emby gives back, she only by age, he fetches, what waits; not measured',
+        ['night.tonight {"what":"night.back {\"size\":\"70 GiB\"} · night.goes_none · night.fill {\"size\":\"20 GiB\"} · night.wait {\"size\":\"40 GiB\"}"}', 'night.unmeasured'],
+        [$j['tonight'] ?? null, $j['unmeasured'] ?? null]);
+    same('night page: the last night — missed at 81 %, two passes', 'night.last {"when":"R200","how":"night.last_missed {\"pct\":81}"} · night.rounds {"n":2}', $j['last'] ?? null);
+    check('night page: her schedule section — «Night run with Jack Emby», tonight, the steps and the dry run', in_array('sched.night', $j['section'] ?? [], true)
+        && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
+    same('night page: the dialog — three choices (no «after Jack Emby»), the night\'s intro, sent as {cron}', [3, 'schedule.intro_night', ['moverelli.schedule', ['cron' => '15 1 * * *']]],
+        [$j['radios'] ?? null, $j['intro'] ?? null, $j['post'] ?? null]);
+    same('night page: the card\'s phases — check and free done, a second pass running, fill pending; without Jack Emby: no fill, no recheck',
+        [[['rc.phase.check', 'done'], ['rc.phase.free', 'done'], ['rc.phase.recheck · night.rounds {"n":2}', 'running'], ['rc.phase.fill', 'pending']],
+         [['rc.phase.check', 'done'], ['rc.phase.free', 'running']]], [$j['steps'] ?? null, $j['steps2'] ?? null]);
+    check('night page: the card while Jack Emby works in it — «Night run», his line with the way to his page, no «looking around»',
+        in_array('rc.night_title', $j['card'] ?? [], true) && in_array('rc.night_jack ', $j['card'] ?? [], true) && !in_array('rc.waiting', $j['card'] ?? [], true)
+        && count($j['cardSteps'] ?? []) === 3, json_encode($j['card'] ?? null));
+    check('night page: Jack Emby\'s schedules — EmbyCache with Ms. Moverelli at her time, her page to change it, tonight\'s line; the tile counts it',
+        in_array('plans.night_name', $j['plans'] ?? [], true) && in_array('plans.night {"when":"C15 1 * * *"}', $j['plans'] ?? [], true)
+        && in_array('plans.night_open', $j['plans'] ?? [], true) && in_array($j['jtonight'] ?? '-', $j['plans'] ?? [], true) && str_starts_with((string) ($j['tile'] ?? ''), 'plans.on'),
+        json_encode([$j['plans'] ?? null, $j['tile'] ?? null]));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("night lang $l: the words there, «after Jack Emby» gone", isset($lang['night.tonight'], $lang['rc.phase.recheck'], $lang['notify.night_missed'], $lang['check.night_schedule'])
+            && !isset($lang['schedule.after'], $lang['check.after_idle'], $lang['check.moverelli_before_jack']));
+    }
     hardeningRm($tmp);
 }
 
@@ -33899,7 +34040,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

@@ -197,7 +197,7 @@
   "source.parity": "Parity checks",
   "source.user_script": "{name}",
   "help.source": "Log",
-  "help.source_text": "Around the office (messenger, Mr. Backupsy's runs, Jack's EmbyCache), Unraid's own logs (syslog, kernel, VMs, web UI, Samba …), what every User Script printed last, and every container's logs.",
+  "help.source_text": "Around the office (messenger, Mr. Backupsy's runs, Jack Emby's EmbyCache), Unraid's own logs (syslog, kernel, VMs, web UI, Samba …), what every User Script printed last, and every container's logs.",
   "help.live": "Like tail -f: every two seconds I fetch what was added. Scroll up to read in peace — I only jump to the end again when you're at the bottom.",
   "help.only": "Shows only the lines that sound like an error (red) or a warning (yellow) — by the same rules as my tour (see «What I count»). Whether something is really bad, I don't know.",
   "help.red": "error …",

@@ -46,6 +46,8 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
   EMBYCACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent)
   EMBYCACHE_GIVE_BACK_FREE    USO: "1" (das Office) – unter min_free_percent gibt der Lauf zurück, nach Rang, bis
                               es wieder reicht; sonst hört das Befüllen dort nur auf (wie bisher)
+  EMBYCACHE_NO_FILL           USO: "1" (das Office, die gemeinsame Nacht mit Frau Moverelli) – der Lauf gibt nur frei
+                              (Rückgabe + Cleanup) und holt nichts; was auf dem Array wartet, wird gezählt (waiting)
   EMBYCACHE_KEEP_BYTES        USO: der Boden dieser Rückgabe in Bytes (das Office: Jacks Hälfte) – was auf dem Cache
                               liegt, geht nie darunter zurück; leer: kein Boden
   EMBYCACHE_MOVER_DEBUG       0–3, Parameter -d für das move-Binary (überschreibt mover_debug_level)
@@ -73,6 +75,7 @@ import sys
 from pathlib import Path
 
 STOP_FILE = os.environ.get("EMBYCACHE_STOP") or ""
+NO_FILL = os.environ.get("EMBYCACHE_NO_FILL") == "1"     # USO: nur freigeben, nichts holen (das Office)
 
 
 def stop_requested():
@@ -1309,8 +1312,16 @@ class Runner:
                 protected.update(p for p in read_exclude() if Path(p).exists())
             else:
                 self.cleanup(loc, current, sessions, protected)
-            self.progress.phase("fill")
-            self.fill(loc, files, sessions)
+            if NO_FILL:
+                # USO: nur freigeben (das Office holt später, in einem zweiten Lauf) – was wartet, nur gezählt
+                for f in files:
+                    if not loc.on_cache(f.rel).exists():
+                        self.waiting += 1
+                        self.waiting_bytes += f.size
+                log.info(f"Nur freigeben (EMBYCACHE_NO_FILL): nichts geholt – {self.waiting} Dateien ({human(self.waiting_bytes)}) warten auf dem Array")
+            else:
+                self.progress.phase("fill")
+                self.fill(loc, files, sessions)
         finally:
             self.progress.phase("done")
             if self.run_mode:

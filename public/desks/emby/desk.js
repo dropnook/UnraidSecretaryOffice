@@ -149,6 +149,19 @@ function schedText(sc) {
   if (!sc || !sc.enabled) return T('not_scheduled');
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
+/** The night run with Ms. Moverelli (agent/lib/nightrun.php): one schedule for both — hers; null while she isn't hired */
+const night = () => (state && state.night) || null;
+/** EmbyCache's schedule as it runs: the night run's while Ms. Moverelli is hired, else its own line */
+const embySched = () => (night() ? night().schedule : (state.schedules || {}).embycache) || {};
+/** Tonight's plan in his words, pure: what he gives back, what of the downloads goes, what he fetches, what waits */
+function tonightText(p) {
+  if (!p || !p.measured) return T('night.unmeasured');
+  const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_none'),
+    Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none'),
+    Number(p.fill) > 0 ? T('night.fill', { size: fmt.size(p.fill) }) : T('night.fill_none')];
+  if (Number(p.wait) > 0) parts.push(T('night.wait', { size: fmt.size(p.wait) }));
+  return T('night.tonight', { what: parts.join(' · ') });
+}
 
 /**
  * «anna watches … on iPad · last activity 10 hours ago» — who watches what on which device (Emby's
@@ -328,7 +341,7 @@ function bubbleText() {
   if (!state.gather.ready) return T('bubble.gather_first');
   const c = state.cache;
   const parts = [c.files ? T('bubble.on_pool', { n: c.files, size: fmt.size(c.bytes) }) : T('bubble.nothing_yet')];
-  if (!state.schedules.embycache.enabled) parts.push(T('bubble.no_schedule'));
+  if (!embySched().enabled) parts.push(T('bubble.no_schedule'));
   return parts.join(' ');
 }
 
@@ -537,7 +550,7 @@ function lastRunTile(a) {
 
 /** The two schedules in one tile: «2 active · next 04:30» / «off»; its section: their list */
 function plansTile(a) {
-  const sc = state.schedules || {};
+  const sc = { ...(state.schedules || {}), embycache: embySched() };
   const jobs = ['embycache', 'gather'];
   const on = jobs.filter((j) => sc[j] && sc[j].enabled);
   const nexts = on.map((j) => sc[j].next).filter((n) => typeof n === 'number' && n > 0);
@@ -551,23 +564,26 @@ function plansSection() {
   const s = section(T('schedules'), T('plans.sub'), { place: 'plans' });
   s.id = 'jo-plans';
   s.appendChild(plansList());
-  // Ms. Moverelli follows his scheduled real EmbyCache runs (her schedule «right after Jack Emby») — one quiet line
-  if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));
+  // the night run with Ms. Moverelli: tonight's plan — one quiet line
+  if (night() && night().jack) s.appendChild(el('p', 'role', tonightText(night().plan)));
   return s;
 }
 function plansList() {
   const box = el('div', 'box jo-plans');
   ['embycache', 'gather'].forEach((job) => {
-    const sc = (state.schedules || {})[job] || {};
+    const sc = job === 'embycache' ? embySched() : (state.schedules || {})[job] || {};
+    // EmbyCache runs in the night run with Ms. Moverelli: one time for both, set on her page
+    const together = job === 'embycache' && !!night();
     const row = Office.place(`plan:${job}`, el('div', 'row nocheck'));
     const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name', T('tool.' + job)));
+    main.appendChild(el('div', 'row-name', together ? T('plans.night_name') : T('tool.' + job)));
     const meta = el('div', 'row-meta');
-    meta.appendChild(sc.enabled ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), job === 'embycache' ? 'warn' : 'quiet'));
+    meta.appendChild(sc.enabled ? el('span', '', together ? T('plans.night', { when: schedText(sc) }) : schedText(sc)) : chip(T('not_scheduled'), job === 'embycache' ? 'warn' : 'quiet'));
     if (sc.enabled && typeof sc.next === 'number' && sc.next > 0) meta.appendChild(el('span', '', T('plans.next', { when: fmt.relative(sc.next) })));
     main.appendChild(meta);
-    const change = button(T('plans.change'), 'small plain', () => scheduleDialog(job));
-    change.disabled = !Office.agent.running;
+    const change = together ? button(T('plans.night_open'), 'small plain', () => Office.go('#/moverelli/schedule'))
+      : button(T('plans.change'), 'small plain', () => scheduleDialog(job));
+    change.disabled = !together && !Office.agent.running;
     row.append(main, change);
     box.appendChild(row);
   });
@@ -608,6 +624,7 @@ function roomWords() {
   if (pool.never) out.push(T('room.never', { y: mo.y }));
   else if (pool.back > 0) out.push(T('room.back', { y: mo.y, back: fmt.size(pool.back) }));
   if (pool.waiting > 0) out.push(T('room.waiting', { n: pool.waiting }));
+  if (night() && night().jack && night().plan) out.push(tonightText(night().plan));
   const gb = pool.given_back && Array.isArray(pool.given_back.items) ? pool.given_back.items : [];
   if (gb.length) {
     const shown = gb.slice(0, 3).map(rankItem).join(' · ');
@@ -2246,7 +2263,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,

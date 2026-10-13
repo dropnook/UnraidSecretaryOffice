@@ -197,7 +197,7 @@
   "source.parity": "Contrôles de parité",
   "source.user_script": "{name}",
   "help.source": "Journal",
-  "help.source_text": "Autour du secrétariat (coursier, sauvegardes de Monsieur Backupsi, l'EmbyCache de Jack), les journaux d'Unraid lui-même (syslog, noyau, VM, interface web, Samba …), ce que chaque User Script a affiché en dernier, et les journaux de chaque conteneur.",
+  "help.source_text": "Autour du secrétariat (coursier, sauvegardes de Monsieur Backupsi, l'EmbyCache de Jack Emby), les journaux d'Unraid lui-même (syslog, noyau, VM, interface web, Samba …), ce que chaque User Script a affiché en dernier, et les journaux de chaque conteneur.",
   "help.live": "Comme tail -f : toutes les deux secondes, je récupère ce qui a été ajouté. Remonte pour lire tranquillement — je ne saute à la fin que si tu es tout en bas.",
   "help.only": "N'affiche que les lignes qui ressemblent à une erreur (rouge) ou à un avertissement (jaune) — selon les mêmes règles que ma tournée (voir « Ce que je compte »). Si quelque chose est vraiment grave, je ne sais pas.",
   "help.red": "error …",

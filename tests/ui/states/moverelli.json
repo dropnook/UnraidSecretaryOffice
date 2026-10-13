@@ -320,5 +320,72 @@
    "never": false,
    "mine": true
   }
+ },
+ "night": {
+  "jack": true,
+  "plan": {
+   "measured": true,
+   "back": 75161927680,
+   "goes": 0,
+   "age": 0,
+   "fill": 0,
+   "wait": 64424509440,
+   "first": "jack"
+  },
+  "last": {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791599988,
+   "finished": 1791603588,
+   "phase": "done",
+   "round": 2,
+   "jack": true,
+   "pool": "cache",
+   "plan": {
+    "measured": true,
+    "back": 75161927680,
+    "goes": 0,
+    "age": 0,
+    "fill": 0,
+    "wait": 64424509440,
+    "first": "jack",
+    "used_pct": 77.0,
+    "x": 80,
+    "y": 70
+   },
+   "steps": [
+    {
+     "who": "jack",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "her",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "jack",
+     "phase": "free",
+     "round": 2,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "jack",
+     "phase": "fill",
+     "round": 2,
+     "exit": 0,
+     "result": "ok"
+    }
+   ],
+   "result": "ok",
+   "end_pct": 70.0,
+   "running": false
+  }
  }
 }

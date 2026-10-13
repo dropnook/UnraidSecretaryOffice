@@ -46,6 +46,9 @@
 #                             share with an ERROR (counted as an error) instead of a WARN
 #   CUSTOMMOVER_DISKS_INI     emhttpd's disks.ini: on a real run a share that reaches the array names its
 #                             array disks that sleep and that the run will wake (an INFO line, nothing else)
+#   CUSTOMMOVER_FILL_MAX_BYTES  USO: the fill (below) moves at most this many bytes in this run (0 = no fill; the age rule
+#                             is untouched); with it the fill starts at/above the TARGET (the caller decided it must go)
+#   CUSTOMMOVER_FILL_MAX_POOL USO: the pool that cap is for (empty: every pool shares it; other pools fill as without it)
 # Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
 #   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
 #   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
@@ -98,6 +101,10 @@ STATUS_FILE="${CUSTOMMOVER_STATUS:-}"
 STOP_FILE="${CUSTOMMOVER_STOP:-}"
 EXCL_REQUIRED="${CUSTOMMOVER_EXCLUDES_REQUIRED:-0}"
 DISKS_INI="${CUSTOMMOVER_DISKS_INI:-}"
+FILL_MAX_B="${CUSTOMMOVER_FILL_MAX_BYTES:-}"       # USO: the fill's cap (empty: none)
+[[ -z "$FILL_MAX_B" || "$FILL_MAX_B" =~ ^[0-9]+$ ]] || FILL_MAX_B=0
+FILL_MAX_POOL="${CUSTOMMOVER_FILL_MAX_POOL:-}"
+FILL_LEFT_B="${FILL_MAX_B:-0}"                     # what the cap still allows
 
 usage() {  # prints the header comment block above
     awk 'NR > 2 && /^# =====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"
@@ -128,7 +135,7 @@ SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
 # USO «fill»: the pool, its target, its usage when the share started and the last reading, the target reached in it
 SH_POOL=""; SH_UNTIL=""; SH_POOL_USED=""; SH_POOL_NOW=""; SH_FILL=false; SH_REACHED=false; SH_RC=0
-FILL_POOL=""; FILL_TARGET=0; FILL_REACHED=false
+FILL_POOL=""; FILL_TARGET=0; FILL_REACHED=false; FILL_CAP=false; FILL_CAPPED=false
 declare -A POOL_REACHED=() POOL_SIM_B=()
 # office: the live progress of a real run (CUSTOMMOVER_STATUS while it runs: result «running»)
 PLAN=(); PHASE=look; CUR_SHARE=""; CUR_FILE=""; LAST_FILE=""; SH_DONE_FILES=0; SH_DONE_BYTES=0; RUN_DONE_FILES=0; RUN_DONE_BYTES=0
@@ -415,9 +422,14 @@ office_move_files() {  # share src dest out
             log WARN "stop requested ($STOP_FILE) – stopped after ${LAST_FILE:-the files before}; the rest of $share and the shares after it are left for the next run"
             break
         fi
+        size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
+        # USO: the fill's cap (CUSTOMMOVER_FILL_MAX_BYTES) — a file that would go past it is not started
+        if [[ -n "$FILL_POOL" && "$FILL_CAP" == true ]] && (( size > FILL_LEFT_B )); then
+            FILL_CAPPED=true
+            break
+        fi
         CUR_FILE="$f"; office_progress
         (( OFFICE_TRIED++ )) || true
-        size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
         printf '%s\n' "$f" | "${MOVER_CMD[@]}" >>"$out" 2>&1
         r=$?
         (( r != 0 )) && OFFICE_RC=$r
@@ -425,6 +437,7 @@ office_move_files() {  # share src dest out
         if [[ ! -e "$f" && ! -L "$f" ]]; then
             (( SH_DONE_FILES++, RUN_DONE_FILES++ )) || true
             (( SH_DONE_BYTES += size, RUN_DONE_BYTES += size )) || true
+            [[ -n "$FILL_POOL" && "$FILL_CAP" == true ]] && { (( FILL_LEFT_B -= size )) || true; }
         fi
         # USO «fill»: the pool after this file — below its target, the rest of the share stays
         if [[ -n "$FILL_POOL" ]]; then
@@ -571,6 +584,7 @@ fill_reading() {  # share pool threshold target used(empty: unknown)
 # pool re-read after each file, until it is below the target
 fill_run() {  # share src dest pool threshold target
     local name="$1" src="$2" dest="$3" pool="$4" threshold="$5" target="$6" n bytes2
+    fill_capped "$pool" && threshold=$target
     pool_used_pct "$pool"
     fill_reading "$name" "$pool" "$threshold" "$target" "$POOL_USED"
     [[ "$FILL_GO" == true ]] || return 0
@@ -580,10 +594,11 @@ fill_run() {  # share src dest pool threshold target
     bytes2=0; for n in "${FILL_SIZES[@]}"; do (( bytes2 += n )) || true; done
     (( SH_FILES += ${#FILES[@]}, SH_BYTES += bytes2 )) || true      # the run card's whole while it fills
     log INFO "  fill: up to ${#FILES[@]} files ($(human "$bytes2")) oldest first via $MOVER_BIN"
-    FILL_POOL="$pool"; FILL_TARGET=$target; FILL_REACHED=false
+    FILL_POOL="$pool"; FILL_TARGET=$target; FILL_REACHED=false; FILL_CAPPED=false
+    fill_capped "$pool" && FILL_CAP=true || FILL_CAP=false
     local all=${#FILES[@]}
     move_batch "$name" "$src" "$dest"
-    FILL_POOL=""
+    FILL_POOL=""; FILL_CAP=false
     # only the files handed over count as candidates
     local kept=0 i
     for (( i = 0; i < ${#FILES[@]}; i++ )); do (( kept += FILL_SIZES[i] )) || true; done
@@ -592,15 +607,23 @@ fill_run() {  # share src dest pool threshold target
     if [[ "$FILL_REACHED" == true ]]; then
         SH_REACHED=true; POOL_REACHED[$pool]="$name"
         log INFO "  target reached: pool $pool at ${SH_POOL_NOW}% (< ${target}%) – the rest stays (not handed over: $(( all - ${#FILES[@]} )))"
+    elif [[ "$FILL_CAPPED" == true ]]; then
+        log INFO "  fill: its cap reached (at most $(human "$FILL_MAX_B") in this run) – pool $pool at ${SH_POOL_NOW:-?}%, the rest stays"
     elif [[ "$STOPPED" == false ]]; then
         log WARN "  target not reached: pool $pool at ${SH_POOL_NOW:-?}% after all ${#FILES[@]} further files"
     fi
 }
 
+# USO: does CUSTOMMOVER_FILL_MAX_BYTES hold for this pool? (set, and for it or for every pool)
+fill_capped() {  # pool
+    [[ -n "$FILL_MAX_B" ]] && [[ -z "$FILL_MAX_POOL" || "$FILL_MAX_POOL" == "$1" ]]
+}
+
 # USO «fill», a dry run: the pool after the age step estimated from the sizes (and what the shares before on this pool
 # would have freed); at/above the trigger the oldest of the rest listed until the estimate is below the target
 fill_dry() {  # share src pool threshold target aged_bytes
-    local name="$1" src="$2" pool="$3" threshold="$4" target="$5" aged="$6" used_b size_b pct n=0 sz b2=0
+    local name="$1" src="$2" pool="$3" threshold="$4" target="$5" aged="$6" used_b size_b pct n=0 sz b2=0 cap=false
+    fill_capped "$pool" && { threshold=$target; cap=true; }
     pool_used_pct "$pool"
     used_b="${POOL_SIM_B[$pool]:-$POOL_USED_B}"; size_b="$POOL_SIZE_B"
     if [[ -z "$used_b" || -z "$size_b" ]]; then fill_reading "$name" "$pool" "$threshold" "$target" "$POOL_USED"; FILL_GO=false
@@ -613,7 +636,9 @@ fill_dry() {  # share src pool threshold target aged_bytes
         for sz in "${FILL_SIZES[@]}"; do
             pct=$(( (used_b * 100 + size_b - 1) / size_b ))
             (( pct < target )) && break
+            [[ "$cap" == true ]] && (( sz > FILL_LEFT_B )) && break      # USO: the fill's cap
             (( used_b -= sz, b2 += sz, n++ )) || true
+            [[ "$cap" == true ]] && { (( FILL_LEFT_B -= sz )) || true; }
         done
         (( used_b < 0 )) && used_b=0
         pct=$(( (used_b * 100 + size_b - 1) / size_b ))
@@ -692,6 +717,11 @@ process_share() {  # name mode pool pool2
     local fill=false target=0
     if [[ "$mode" == "yes" ]] && (( threshold > 0 )) && [[ "$FORCE_AGE" == false ]]; then
         fill=true; target=$(( until > 0 ? until : threshold ))
+        # USO: the fill's cap used up (or 0): no fill for this pool in this run — the age rule as always
+        if fill_capped "$pool" && (( FILL_LEFT_B <= 0 )); then
+            fill=false
+            log INFO "  fill: none in this run (its cap: $(human "$FILL_MAX_B"))"
+        fi
     fi
     # Age filter (always: the fill comes on top)
     local -a AGE_ARGS=()

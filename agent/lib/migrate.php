@@ -64,6 +64,9 @@ function officeMigrateSteps(): array
         // the pool, simply (agent/lib/poollevel.php, replaces 1.61's cake): her ini gets Y = X − 10 where it has a limit
         // without one, Jack Emby's old slice line goes; her schedule before his is said (the Team Lead's hint says it too)
         ['id' => 'pool-simple', 'version' => '1.62.0', 'run' => fn (string $dir, string $to): string => officeMigratePoolSimple($dir, $to)],
+        // the night run (agent/lib/nightrun.php): Jack Emby and Ms. Moverelli on ONE schedule — her line (job moverelli);
+        // his EmbyCache line goes into it, «right after Jack Emby» goes away
+        ['id' => 'night-run', 'version' => '1.62.0', 'run' => fn (string $dir, string $to): string => officeMigrateNightRun($dir)],
     ];
 }
 
@@ -395,8 +398,7 @@ function officeCronBack(string $file = OFFICE_CRON, ?callable $apply = null, ?ca
 /**
  * Step `pool-simple` (1.62.0): her smart_mover.ini in [GLOBAL] — a limit X without a target below it gets
  * move_until_used_below = X − 10; the cake's jack_slice_percent line goes (the whole ini kept beside it first,
- * <name>.before-<version>). Idempotent: an ini with both and no slice line is left alone. Her time schedule running before
- * Jack Emby's is only said («right after Jack Emby» is the better choice).
+ * <name>.before-<version>). Idempotent: an ini with both and no slice line is left alone. (The schedules: step `night-run`.)
  */
 function officeMigratePoolSimple(string $dir, string $to): string
 {
@@ -438,14 +440,57 @@ function officeMigratePoolSimple(string $dir, string $to): string
         $done[] = "her target set to $new % (her limit $x % minus 10)";
     }
     $says = '';
-    $sched = readJson("$dir/moverelli/office-schedule.json") ?? [];
-    if (($sched['after'] ?? null) !== 'emby' && is_string($sched['cron'] ?? null) && $sched['cron'] !== '') {
-        $says = '; she runs on a time of her own — «right after Jack Emby» is the better choice while he is hired (her schedule)';
-    }
     if (!$done) {
         return 'nothing to change' . $says;
     }
     $kept = officeMigrateKeep($ini, $text, $to);
     writeAtomic($ini, implode('', $out), 0600, 0, 0);
     return implode(', ', $done) . ' (the ini before: ' . basename($kept) . ')' . $says;
+}
+
+/**
+ * Step `night-run` (1.62.0): Jack Emby's EmbyCache and Ms. Moverelli run as ONE night run on her line (job moverelli).
+ * Only while she is set up (her ini there — else his line stays: without her he has no real runs anyway). His line and
+ * «right after Jack Emby» → his time is the night's; his line and a time of hers → the earlier of the two (said in the
+ * log); only his → his; only hers → hers. His line goes; office-schedule.json loses `after` (the file stays). Idempotent.
+ * $cron, $apply: the tests' cron file (not applied).
+ */
+function officeMigrateNightRun(string $dir, string $cron = OFFICE_CRON, bool $apply = true): string
+{
+    $ini = "$dir/moverelli/smart_mover.ini";
+    clearstatcache(true, $ini);
+    if (!is_file($ini) || is_link($ini)) {
+        return 'nothing to change — Ms. Moverelli is not set up';
+    }
+    $lines = officeCronLines($cron);
+    $his = $lines['embycache'] ?? null;
+    $hers = $lines['moverelli'] ?? null;
+    $file = "$dir/moverelli/office-schedule.json";
+    $sched = readJson($file);
+    $after = is_array($sched) && ($sched['after'] ?? null) === 'emby';
+    $done = [];
+    if ($his !== null) {
+        $time = $his;
+        if ($hers !== null && !$after) {
+            // the earlier of the two: by the time of day for daily lines, else by their next run
+            $day = fn (string $c): ?int => preg_match('/^(\d{1,2}) (\d{1,2}) \* \* \*$/D', $c, $m) ? (int) $m[2] * 60 + (int) $m[1] : null;
+            $now = time();
+            $time = $day($hers) !== null && $day($his) !== null ? ($day($hers) < $day($his) ? $hers : $his)
+                : ((cronNext($hers, $now) ?? PHP_INT_MAX) < (cronNext($his, $now) ?? PHP_INT_MAX) ? $hers : $his);
+            $done[] = "two schedules merged into one: the earlier ($time)";
+        } else {
+            $done[] = "Jack Emby's time ($his) is the night run's";
+        }
+        officeJobSetSchedule('moverelli', $time, $cron, $apply);
+        officeJobSetSchedule('embycache', null, $cron, $apply);
+    }
+    if (is_array($sched) && array_key_exists('after', $sched)) {
+        unset($sched['after']);
+        if ($his === null && $after) {
+            $done[] = '«right after Jack Emby» without a time of his — no schedule';
+        }
+        writeAtomic($file, jsonEncode($sched), 0600, 0, 0);
+        $done[] = '«right after Jack Emby» removed';
+    }
+    return $done ? implode(', ', $done) : 'nothing to change';
 }

@@ -48,6 +48,9 @@
 >   the status gets `give_back` = {files, bytes, items: [{title, ahead, who}, …] (≤ 20)}, the progress file's `current`
 >   while going back a `why` {title, ahead, who}; the cleanup moves what is given back in that order (after what nobody
 >   queues any more). Jack's live panel and page say it in five languages.
+>   **`EMBYCACHE_NO_FILL=1`** (2026-10-13, the office's night run with Ms. Moverelli; unset: as before): the run only frees
+>   (give-back and cleanup) and fetches nothing; what waits on the array is counted (`pool.waiting`, `waiting_bytes`). The
+>   office calls EmbyCache twice a night: once with it (freeing, before or after Ms. Moverelli), once without (filling, last).
 > * `EMBYCACHE_STOP` (a file): once it exists, a real run (`--run`, `--release`) stops after the file it is on — never
 >   in the middle of a copy; what is still on the pool stays on the exclude list; result `stopped`, exit code 3. Jack
 >   writes it when Unraid's mover starts during a run (the mover would move the same files), or when the user asks
