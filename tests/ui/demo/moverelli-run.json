@@ -11,8 +11,8 @@
   "global": {
    "min_age": 30,
    "age_stat": "ctime",
-   "move_when_used_above": 70,
-   "move_until_used_below": 60,
+   "move_when_used_above": 80,
+   "move_until_used_below": 70,
    "move_prefer_shares": true,
    "mover_debug": 0,
    "max_list": 50,
@@ -50,8 +50,8 @@
    "state": "moves",
    "min_age": 14,
    "age_stat": "ctime",
-   "threshold": 70,
-   "until": 60,
+   "threshold": 80,
+   "until": 70,
    "excludes": 3
   },
   {
@@ -81,9 +81,25 @@
    "state": "moves",
    "min_age": 30,
    "age_stat": "ctime",
-   "threshold": 70,
-   "until": 60,
+   "threshold": 80,
+   "until": 70,
    "excludes": 2
+  },
+  {
+   "share": "Schule",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": 80,
+   "excludes": 2,
+   "until": 70
   },
   {
    "share": "appdata",
@@ -96,21 +112,6 @@
    "to": null,
    "state": "none",
    "min_age": 30,
-   "age_stat": "ctime",
-   "threshold": null,
-   "excludes": 2
-  },
-  {
-   "share": "isos",
-   "use": "prefer",
-   "primary": "cache",
-   "secondary": "",
-   "own": false,
-   "mode": "prefer",
-   "from": "array",
-   "to": "cache",
-   "state": "moves",
-   "min_age": 0,
    "age_stat": "ctime",
    "threshold": null,
    "excludes": 2
@@ -161,7 +162,7 @@
     "direction": "cache -> array",
     "min_age": "30",
     "age_stat": "ctime",
-    "threshold": "70",
+    "threshold": "80",
     "excludes": ""
    },
    {
@@ -174,7 +175,7 @@
     "direction": "cache -> array",
     "min_age": "30",
     "age_stat": "ctime",
-    "threshold": "70",
+    "threshold": "80",
     "excludes": ""
    }
   ]

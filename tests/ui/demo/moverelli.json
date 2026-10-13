@@ -11,8 +11,8 @@
   "global": {
    "min_age": 30,
    "age_stat": "ctime",
-   "move_when_used_above": 70,
-   "move_until_used_below": 60,
+   "move_when_used_above": 80,
+   "move_until_used_below": 70,
    "move_prefer_shares": true,
    "mover_debug": 0,
    "max_list": 50,
@@ -22,7 +22,7 @@
    "patterns": [
     "*.nfo"
    ],
-   "jack_slice_percent": 25
+   "jack_slice_percent": 40
   },
   "shares": {
    "Familienfilme": {
@@ -51,8 +51,8 @@
    "state": "moves",
    "min_age": 14,
    "age_stat": "ctime",
-   "threshold": 70,
-   "until": 60,
+   "threshold": 80,
+   "until": 70,
    "excludes": 3
   },
   {
@@ -82,9 +82,25 @@
    "state": "moves",
    "min_age": 30,
    "age_stat": "ctime",
-   "threshold": 70,
-   "until": 60,
+   "threshold": 80,
+   "until": 70,
    "excludes": 2
+  },
+  {
+   "share": "Schule",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": 80,
+   "excludes": 2,
+   "until": 70
   },
   {
    "share": "appdata",
@@ -97,21 +113,6 @@
    "to": null,
    "state": "none",
    "min_age": 30,
-   "age_stat": "ctime",
-   "threshold": null,
-   "excludes": 2
-  },
-  {
-   "share": "isos",
-   "use": "prefer",
-   "primary": "cache",
-   "secondary": "",
-   "own": false,
-   "mode": "prefer",
-   "from": "array",
-   "to": "cache",
-   "state": "moves",
-   "min_age": 0,
    "age_stat": "ctime",
    "threshold": null,
    "excludes": 2
@@ -165,7 +166,7 @@
     "direction": "cache -> array",
     "min_age": "30",
     "age_stat": "ctime",
-    "threshold": "70",
+    "threshold": "80",
     "excludes": ""
    },
    {
@@ -178,7 +179,7 @@
     "direction": "cache -> array",
     "min_age": "30",
     "age_stat": "ctime",
-    "threshold": "70",
+    "threshold": "80",
     "excludes": ""
    }
   ]
@@ -294,35 +295,35 @@
  },
  "cakes": {
   "cache": {
-   "size": 4294967296000,
-   "used": 2040109465600,
-   "movable": 751619276800,
-   "nm": 1288490188800,
-   "cake": 1717986918400,
-   "x": 70,
-   "y": 60,
-   "n": 25,
-   "slice": 429496729600,
-   "jack": 408021893120,
-   "eff": 2061584302080,
-   "floor": 1717986918400,
-   "rest": 1288490188800,
-   "new": 343597383680,
-   "used_pct": 47.5,
-   "nm_pct": 30.0,
-   "eff_pct": 48.0,
-   "floor_pct": 40.0,
+   "size": 1099511627776,
+   "used": 654982512640,
+   "movable": 332859965440,
+   "nm": 322122547200,
+   "cake": 557486755020,
+   "x": 80,
+   "y": 70,
+   "n": 40,
+   "slice": 222994702008,
+   "jack": 214748364800,
+   "eff": 663228849848,
+   "floor": 545117249208,
+   "rest": 334492053012,
+   "new": 118111600640,
+   "used_pct": 59.6,
+   "nm_pct": 29.3,
+   "eff_pct": 60.3,
+   "floor_pct": 49.6,
    "case": "ok",
-   "offset": 21474836480,
+   "offset": 8246337208,
    "fill": "normal",
    "excess": 0,
-   "snapshots": 42949672960,
-   "snap_pct": 1.0,
-   "proposal": 25,
+   "snapshots": 6442450944,
+   "snap_pct": 0.6,
+   "proposal": 40,
    "shares": [
     "Familienfilme",
     "Familienserien",
-    "isos"
+    "Schule"
    ],
    "mine": true
   }

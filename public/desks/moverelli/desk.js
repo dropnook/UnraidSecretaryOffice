@@ -1475,10 +1475,16 @@ function cakeBar(pool, c, g) {
   box.appendChild(bar);
   const legend = el('div', 'mo-cake-legend');
   const key = (cls, text) => { const k = el('span', 'mo-key'); k.append(el('i', 'mo-swatch ' + cls), document.createTextNode(text)); legend.appendChild(k); };
+  // the legend says exactly what the bar draws: inside his slice what he holds (solid) and what is still free (hatched),
+  // inside the room for new things what is there (solid) and what is still free — each only when it is drawn
+  const held = Math.min(m.jack, m.slice);
+  const fresh = Math.min(m.fresh, m.rest);
   key('mo-cake-nm', T('setup.cake_nm'));
-  if (m.n !== null && m.bad !== 'none') key('mo-cake-slice', T('setup.cake_slice'));
+  if (m.n !== null && m.bad !== 'none' && held > 0) key('mo-cake-jack', T('setup.cake_held'));
+  if (m.n !== null && m.bad !== 'none' && m.slice > held) key('mo-cake-slice', T('setup.cake_slice_free'));
   if (m.over > 0 && m.bad !== 'none') key('mo-cake-over', T('setup.cake_over'));
-  if (m.bad !== 'none') key('mo-cake-new', T('setup.cake_new'));
+  if (m.bad !== 'none' && fresh > 0) key('mo-cake-fresh', T('setup.cake_new_held'));
+  if (m.bad !== 'none' && m.rest > fresh) key('mo-cake-new', T('setup.cake_new'));
   key('mo-cake-free', T('setup.cake_free'));
   box.appendChild(legend);
   const marks = el('div', 'mo-cake-marks');
