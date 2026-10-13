@@ -118,41 +118,35 @@ function fillLine(x) {
   return t;
 }
 
-/**
- * The night run's phases as the card's steps, pure: Check, Free, (Check again — only once a round more went), Fetch (only
- * with Jack Emby) — the one going «running», those before «done»
- */
-function nightSteps(n) {
-  const order = ['check', 'free', 'recheck', 'fill'];
-  const at = order.indexOf(n.phase || 'check');
-  const list = order.filter((ph) => (ph !== 'recheck' || Number(n.round) > 1 || n.phase === 'recheck') && (ph !== 'fill' || n.jack));
-  return list.map((ph) => ({ name: T('rc.phase.' + ph) + (ph === 'recheck' && Number(n.round) > 1 ? ' · ' + T('night.rounds', { n: Number(n.round) }) : ''),
-    state: n.phase === 'done' || order.indexOf(ph) < at ? 'done' : ph === n.phase ? 'running' : 'pending' }));
-}
+/** The night run's phases as the card's steps, pure — core.js Office.nightSteps() (Jack Emby's page shows the same) */
+const nightSteps = (n) => Office.nightSteps(n, T);
 
 /** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file» */
 function runCard(p, now) {
-  const card = el('div', 'card mo-run running');
-  const top = el('div', 'card-head');
   const nn = nightNow || (nightGoing() ? night().last : null);
-  top.append(el('span', 'spin'), el('span', 'card-name', T(nn ? 'rc.night_title' : 'rc.title')));
-  if (stopping) top.appendChild(chip(T('stopping'), 'warn'));
-  card.appendChild(top);
-  // the night run: its phases, and who is at work — Jack Emby's files show on his page (his live panel)
+  // the night run: the card Jack Emby's page shows too (core.js Office.nightCard — «Joint run», since when, its phases);
+  // who is at work — Jack Emby's files show on his page (his live panel)
+  let card;
+  let top;
   if (nn) {
-    const steps = nightSteps(nn);
-    card.appendChild(Office.runSteps(steps, steps.findIndex((x) => x.state === 'running'), `night|${nn.started}`));
+    card = Office.nightCard(nn, { T, now, stopping, cls: 'mo-run' });
     if (nn.who === 'jack') {
       const line = el('div', 'card-line', T('rc.night_jack') + ' ');
       line.appendChild(link(T('rc.night_jack_open'), () => Office.go('#/emby')));
       card.appendChild(line);
     }
+  } else {
+    card = el('div', 'card mo-run running');
+    top = el('div', 'card-head');
+    top.append(el('span', 'spin'), el('span', 'card-name', T('rc.title')));
+    if (stopping) top.appendChild(chip(T('stopping'), 'warn'));
+    card.appendChild(top);
   }
   if (!p) {
     if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', T('rc.waiting')));
   } else {
     const d = runCardData(p, now);
-    if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
+    if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
     card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
     if (d.percent !== null) {
       card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.rate ? ' · ' + T('rc.rate', { rate: fmt.size(d.rate) }) : '')

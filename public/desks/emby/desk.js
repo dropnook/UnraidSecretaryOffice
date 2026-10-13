@@ -9,6 +9,8 @@
 
 const ID = 'emby';
 const T = Office.scope(ID);
+/** Ms. Moverelli's texts: the night run's card is hers and reads the same on his page (core.js Office.nightCard) */
+const MT = Office.scope('moverelli');
 /** «{n} <noun>» from the lang key count.<what> — its one/other forms (several counts in one text are composed of these) */
 const nOf = (what, n) => T('count.' + what, { n: Number(n) || 0 });
 const { el, fmt } = Office;
@@ -40,6 +42,7 @@ let stopping = null;          // «Stop after this file» asked (why: user, move
 let progTimer = null;
 let progAsked = 0;            // when the part was last asked for (this browser's clock — never compared with the server's)
 let progBox = null;           // the panel on the page, redrawn in place
+let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: embyNightNow()) — her card's phases on his page
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
 
 // ------------------------------------------------------------------ loading
@@ -56,7 +59,12 @@ function took(j) {
 /** His state arrives: the panel's numbers with it, unless the part brought newer ones */
 function stateIn(s) {
   state = s;
-  if (typeof s.time === 'number' && s.time >= progressAt) { progress = s.progress || null; stopping = s.stopping || null; progressAt = s.time; }
+  if (typeof s.time === 'number' && s.time >= progressAt) {
+    progress = s.progress || null;
+    stopping = s.stopping || null;
+    nightNow = (s.night && s.night.now) || null;
+    progressAt = s.time;
+  }
 }
 
 async function act(action, data, okText) {
@@ -71,16 +79,20 @@ async function act(action, data, okText) {
 
 /** EmbyCache runs for real (run, or the let-go's release): the live panel instead of the output button */
 const realRun = () => !!(state && state.jobs && state.jobs.embycache.running && ['run', 'release'].includes(state.jobs.embycache.mode));
+/** The night run with Ms. Moverelli going for real (she or he at work in it, or between their steps) */
+const nightGoing = () => !!nightNow;
+/** Something on his page to follow live: EmbyCache's real run, or the night run */
+const liveRun = () => realRun() || nightGoing();
 
 /** While a real run goes: the part «progress» every 10 s (the first ask soon after the page shows the run); nothing otherwise */
 function scheduleProgress() {
   clearTimeout(progTimer);
   progTimer = null;
-  if (!view || page !== 'main' || !realRun()) return;
+  if (!view || page !== 'main' || !liveRun()) return;
   progTimer = setTimeout(askProgress, Math.max(300, PROGRESS_POLL - (Date.now() - progAsked)));
 }
 async function askProgress() {
-  if (!view || page !== 'main' || !realRun()) return;
+  if (!view || page !== 'main' || !liveRun()) return;
   progAsked = Date.now();
   if (document.hidden || Office.dialogOpen() || Office.menuOpen()) { scheduleProgress(); return; }
   try {
@@ -93,9 +105,13 @@ async function askProgress() {
 function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
-  if (!p.real) { progressAt = p.time; load(true); return; }        // the run ended: his state anew — the panel goes
+  if (!p.real && !p.night) { progressAt = p.time; nightNow = null; load(true); return; }     // the run ended: his state anew — the panel goes
+  // the night's steps change who works: her step over, his starting (or the other way) — his state anew for the rest
+  const was = nightNow ? `${nightNow.who}|${nightNow.phase}|${realRun()}` : '';
   progress = p.progress || null;
   stopping = p.stopping || null;
+  nightNow = p.night || null;
+  if (nightNow && (`${nightNow.who}|${nightNow.phase}|${!!p.real}` !== was)) { progressAt = p.time; load(true); return; }
   progressAt = p.time;
   redrawProgress();
   scheduleProgress();
@@ -103,7 +119,7 @@ function tookProgress(j) {
 /** The panel drawn again in place */
 function redrawProgress() {
   if (progBox && progBox.isConnected) {
-    const n = progressPanel();
+    const n = livePanel();
     progBox.replaceWith(n);
     progBox = n;
   }
@@ -380,7 +396,7 @@ function headActions() {
     actions.push(button(T('report'), 'plain', () => startRun('embycache', 'report')));
     actions.push(button(T('start'), '', chooseRun));
   }
-  actions.forEach((b) => { b.disabled = !Office.agent.running || running(); });
+  actions.forEach((b) => { b.disabled = !Office.agent.running || running() || nightGoing(); });
   return actions;
 }
 /** His head with the two tabs (Office.pages()): the bubble is always his own */
@@ -438,7 +454,7 @@ function render() {
     root.appendChild(p);
   }
   // a real run going: the live panel over the row (a hint — it stays at every click)
-  progBox = realRun() ? progressPanel() : null;
+  progBox = liveRun() ? livePanel() : null;
   if (progBox) root.appendChild(progBox);
   if (state.configured) root.appendChild(scopeLine());
   root.appendChild(sw.el);
@@ -665,11 +681,24 @@ function link(text, onclick) {
  * the file being copied small under its bar, with its reason. Before the first file: «working out what goes where».
  */
 function progressPanel() {
-  const p = progress;
   const box = el('div', 'box jo-prog running');
   const head = el('div', 'jo-prog-head');
   head.append(el('span', 'spin'), el('span', '', T('progress.title')));
   box.appendChild(head);
+  progressRows(box);
+  const foot = el('div', 'jo-prog-foot');
+  if (stopping) foot.appendChild(el('span', 'jo-prog-stopping', T('progress.stopping')));
+  foot.appendChild(link(T('progress.raw'), () => showOutput('embycache', true)));
+  const stop = button(T('progress.stop'), 'small plain', () => stopAsk(stop));
+  stop.disabled = !!stopping || !Office.agent.running;
+  foot.appendChild(stop);
+  box.appendChild(foot);
+  return box;
+}
+
+/** The panel's bars into $box: the bracket, «back to the array», one per person, the file being copied */
+function progressRows(box) {
+  const p = progress;
   if (!p || p.phase === 'plan') {
     box.appendChild(el('div', 'jo-prog-line', T('progress.plan')));
   } else if (!p.total || !p.total.files) {
@@ -684,14 +713,42 @@ function progressPanel() {
     const placed = (p.back && p.back.here) || (p.users || []).some((u) => u.here);
     if (p.current && !placed) box.appendChild(progFile(p.current));
   }
-  const foot = el('div', 'jo-prog-foot');
-  if (stopping) foot.appendChild(el('span', 'jo-prog-stopping', T('progress.stopping')));
-  foot.appendChild(link(T('progress.raw'), () => showOutput('embycache', true)));
+}
+
+/** What follows live over his row: the night run's card while it goes, else EmbyCache's panel */
+function livePanel() {
+  return nightGoing() ? nightPanel() : progressPanel();
+}
+
+/**
+ * The night run with Ms. Moverelli on his page (2026-10-13): her run card's head and phases (core.js Office.nightCard —
+ * «Joint run», since when, the phase going), under it what is at work — EmbyCache giving back or fetching: his bars per
+ * person; she moving: «Ms. Moverelli is moving downloads — <share>, 5 of 12 files» (her status, no look of its own);
+ * between their steps: she measures the pool. «Stop after this file» stops the whole night (emby.stop → nightStopAsk()).
+ */
+function nightPanel(now) {
+  const n = nightNow;
+  const asked = stopping || n.stopping || null;
+  const card = Office.nightCard(n, { T: MT, now: now ?? Date.now() / 1000, stopping: asked, cls: 'jo-night' });
+  const jack = n.who === 'jack' && realRun();
+  if (jack) {
+    const rows = el('div', 'jo-prog jo-night-prog');
+    progressRows(rows);
+    card.appendChild(rows);
+  } else {
+    const her = n.who === 'her' ? n.her : null;
+    const line = el('div', 'card-line jo-night-her', (her ? T('night.her_moving', { share: her.share, done: Number(her.done) || 0, files: nOf('files', her.files) })
+      : T(n.who === 'her' ? 'night.her_busy' : n.who === 'jack' ? 'night.jack_soon' : 'night.her_check')) + ' ');
+    line.appendChild(link(T('night.her_open'), () => Office.go('#/moverelli')));
+    card.appendChild(line);
+  }
+  const foot = el('div', 'card-foot jo-prog-foot');
+  if (jack) foot.appendChild(link(T('progress.raw'), () => showOutput('embycache', true)));
   const stop = button(T('progress.stop'), 'small plain', () => stopAsk(stop));
-  stop.disabled = !!stopping || !Office.agent.running;
+  stop.disabled = !!asked || !Office.agent.running;
   foot.appendChild(stop);
-  box.appendChild(foot);
-  return box;
+  card.appendChild(foot);
+  return card;
 }
 
 /** «Stop after this file»: EmbyCache ends after the file it is on (emby.stop — the mover guard's stop request, why user) */
@@ -1067,7 +1124,14 @@ async function chooseRun() {
     ['dry', T('mode.dry'), T('mode_hint.dry')],
     ['run', T('mode.run'), !free ? T('mode_hint.run_mover') : ready ? T('mode_hint.run') : T('mode_hint.run_gather'), !ready || !free],
   ], mode, (m) => { mode = m; });
-  Office.dialog({
+  // with Ms. Moverelli: the real run is the night run for both; the dry run for both lives on her schedule's row
+  let dlg = null;
+  if (night()) {
+    const p = el('p', 'role jo-night-dry', T('night.dry_both') + ' ');
+    p.appendChild(link(T('night.dry_both_open'), () => { if (dlg) dlg.close(); Office.go('#/moverelli/schedule'); }));
+    box.appendChild(p);
+  }
+  dlg = Office.dialog({
     title: T('start_title'),
     body: box,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('start_go'), kind: '', act: () => startRun('embycache', mode) }],
@@ -2268,6 +2332,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
-    progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText };
+    progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
+    setNight: (n) => { nightNow = n; }, nightGoing };
 }
 })();

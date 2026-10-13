@@ -70,5 +70,47 @@
    "title": "Film Tauchgang Ägypten 1993"
   }
  },
- "stopping": null
+ "stopping": null,
+ "night": {
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791898140,
+  "phase": "fill",
+  "round": 1,
+  "who": "jack",
+  "jack": true,
+  "pool": "cache",
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack",
+   "used_pct": 71.4,
+   "x": 80,
+   "y": 70
+  },
+  "steps": [
+   {
+    "who": "jack",
+    "phase": "free",
+    "round": 1,
+    "exit": 0,
+    "result": "ok"
+   },
+   {
+    "who": "her",
+    "phase": "free",
+    "round": 1,
+    "exit": 0,
+    "result": "ok"
+   }
+  ],
+  "result": null,
+  "running": true,
+  "stopping": null,
+  "her": null
+ }
 }

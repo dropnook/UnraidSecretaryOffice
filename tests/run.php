@@ -2861,7 +2861,7 @@ function testEmbyProgress(): void
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('stop: the action asks embyStopAsk(); the job notes why user', str_contains($src, "'stop'           => fn (array \$r) => ['ok' => true, 'asked' => embyStopAsk(), 'state' => embyScan()]")
+    check('stop: the action asks embyStopAsk() (the whole night while one goes: nightStopAsk()); the job notes why user', str_contains($src, "'stop'           => fn (array \$r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()]")
         && str_contains($src, "\$note['why'] = in_array(\$stoppedWhy, ['mover', 'user'], true) ? \$stoppedWhy : 'watching';"));
     embyProgressClear($paths);
     same('progress part: the run ended — its files gone, no panel', [false, false, null], [is_file($paths['file']), is_file($paths['samples']), $state(['running' => true, 'mode' => 'run'])['progress']]);
@@ -2869,7 +2869,7 @@ function testEmbyProgress(): void
     check('progress: Jack\'s job sets EMBYCACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
         (bool) preg_match('/if \(\$real\) \{[^}]*embyProgressClear\(\$progress\);\s*\$env\[\'EMBYCACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
         && str_contains($src, 'tick: $progress !== null ? embyProgressTicker($progress) : null')
-        && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => embyProgressState()]"));
+        && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => embyProgressState() + ['night' => embyNightNow()]]"));
     require_once OFFICE_DIR . '/src/desks.php';
     same('progress: his desk.json asks the part «progress» from the agent', ['refresh_after' => 5, 'action' => 'progress'],
         officeDeskParts(json_decode((string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.json'), true)['parts'] ?? null)['progress'] ?? null);
@@ -28691,6 +28691,20 @@ function testsRunHelpersJs(string $tmp): string
     return $file;
 }
 
+/**
+ * core.js's night run card (Office.nightSteps, Office.nightCard — Ms. Moverelli's run card and Jack Emby's page share it)
+ * as a file a node test evals after its Office stub (the stub's runSteps, el and fmt stay). Returns the file's path.
+ */
+function testsNightHelpersJs(string $tmp): string
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $a = strpos($core, "/**\n * The night run's phases (agent/lib/nightrun.php) as a run's steps");
+    $b = strpos($core, '// ---- end run card helpers');
+    $file = "$tmp/night-helpers.js";
+    file_put_contents($file, '(function (el) {' . "\n" . substr($core, (int) $a, (int) $b - (int) $a) . "\n})(Office.el);\n");
+    return $file;
+}
+
 /** node for the tests that run a page's code (tests/watchbook.js, tests/filter.js): '' where it is missing */
 function testsNode(): string
 {
@@ -32367,7 +32381,7 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   console.log(JSON.stringify(out));
 })();
 JS);
-    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/emby/desk.js'], 30);
     $j = json_decode(trim((string) $out), true) ?? [];
     check('night page: it runs', $j !== [], $out . $err);
     same('night page: tonight in words — Jack Emby gives back, she only by age, he fetches, what waits; not measured',
@@ -32399,6 +32413,149 @@ JS);
         $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
         check("night lang $l: the words there, «after Jack Emby» gone", isset($lang['night.tonight'], $lang['rc.phase.recheck'], $lang['notify.night_missed'], $lang['check.night_schedule'])
             && !isset($lang['schedule.after'], $lang['check.after_idle'], $lang['check.moverelli_before_jack']));
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * The night run on Jack Emby's page (2026-10-13): the same card as hers (core.js Office.nightCard — «Joint run», since,
+ * the phases), under it his bars while EmbyCache works, her share while she moves, «Stop after this file» for the
+ * whole night; his dry-run dialog points to her schedule's row. Without Ms. Moverelli: his live panel as before.
+ * Agent side: embyNightNow() — night.json going, her share from her status, the night's stop asked.
+ */
+function testNightJackCard(): void
+{
+    $tmp = hardeningTmp('night-jack');
+    $dir = "$tmp/mo";
+    mkdir($dir, 0700, true);
+    // (1) the agent: nothing without her or without a night going; a night going for real with her share and the stop
+    same('night card (agent): not hired / no night.json → nothing', [null, null], [embyNightNow($dir, false), embyNightNow($dir, true)]);
+    $night = ['v' => 1, 'mode' => 'run', 'by' => 'schedule', 'started' => time() - 600, 'phase' => 'free', 'round' => 1, 'who' => 'her', 'jack' => true,
+              'pool' => 'cache', 'plan' => ['measured' => true], 'steps' => [['who' => 'jack', 'phase' => 'free', 'round' => 1, 'exit' => 0, 'result' => 'ok']], 'result' => null];
+    file_put_contents("$dir/night.json", json_encode($night));
+    check('night card (agent): night.json without its lock held → nothing (a night that died)', embyNightNow($dir, true) === null);
+    $lock = fopen("$dir/night.lock", 'c');
+    flock($lock, LOCK_EX);
+    file_put_contents("$dir/status.json", json_encode(['result' => 'running', 'phase' => 'share', 'share' => 'Downloads', 'share_files' => 12, 'share_done_files' => 5, 'pid' => 1]));
+    $a = embyNightNow($dir, true);
+    same('night card (agent): her phase — her share, 5 of 12, not asked to stop; the night as the pages read it',
+        [['share' => 'Downloads', 'done' => 5, 'files' => 12], null, 'free', 'her', true], [$a['her'] ?? '-', array_key_exists('stopping', $a ?? []) ? $a['stopping'] : '-', $a['phase'] ?? null, $a['who'] ?? null, $a['running'] ?? null]);
+    file_put_contents("$dir/night-stop.json", json_encode(['time' => time(), 'why' => 'user']));
+    file_put_contents("$dir/night.json", json_encode(['who' => 'jack', 'phase' => 'fill'] + $night));
+    $b = embyNightNow($dir, true);
+    same('night card (agent): his phase — no share of hers; the night asked to stop', [null, 'user', 'jack'], [array_key_exists('her', $b ?? []) ? $b['her'] : '-', $b['stopping'] ?? null, $b['who'] ?? null]);
+    file_put_contents("$dir/night.json", json_encode(['mode' => 'dry'] + $night));
+    check('night card (agent): a dry night has no card', embyNightNow($dir, true) === null);
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('night card (agent): his part «progress» carries the night, his stop stops the whole night while it goes',
+        str_contains($src, "embyProgressState() + ['night' => embyNightNow()]") && str_contains($src, 'embyNightNow() !== null ? nightStopAsk() : embyStopAsk()'));
+
+    // (2) the page under node
+    $node = testsNode();
+    if ($node === '') {
+        check('night card (page): node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, checked: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+const dialogs = [];
+const posts = [];
+const went = [];
+globalThis.document = { createTextNode: (t) => t, hidden: false };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: (d) => (k, p) => d + ':' + T(k, p), t: T, el: mk, fmt: { cron: (c) => 'C' + c, relative: (t) => 'R' + t, size: (b) => Math.round(b / 1073741824) + ' GiB', number: (n) => String(n), time: (t) => 'T' + t, duration: (s) => s + 's' },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: (r) => went.push(r), sectionHead: () => mk('h'), stat: (o) => o,
+  runSteps: (steps, at) => ({ ...mk('div', 'steps'), steps, at }), runBar: () => mk('div', 'bar'), runRate: () => null, dialogOpen: () => false, menuOpen: () => false,
+  dialog: (o) => { dialogs.push(o); return { close: () => { o.closed = true; } }; }, freshState: async () => true, toast: () => {}, errorText: (e) => 'err:' + e.key,
+  loadState: async () => ({}), api: { post: async (a, d) => { posts.push([a, d]); return { ok: true }; } } };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const find = (n, f) => (typeof n === 'string' ? null : f(n) ? n : n.children.map((c) => find(c, f)).find(Boolean) || null);
+const G = 1073741824;
+const prog = { phase: 'copy', total: { files: 4, done_files: 1, bytes: 8 * G, done_bytes: 2 * G }, users: [{ name: 'Mother', server: 'a', files: 4, done_files: 1, bytes: 8 * G, done_bytes: 2 * G }], speed: 100 };
+const base = (jack, night) => ({ jobs: { embycache: { running: jack, mode: 'run' }, gather: { running: false } }, gather: { ready: true }, mover: { ok: true }, configured: true, night });
+const n0 = { mode: 'run', started: 1000, phase: 'free', round: 1, who: 'her', jack: true, running: true, stopping: null, her: { share: 'Downloads', done: 5, files: 12 } };
+(async () => {
+  const out = {};
+  // she moves: her card's head and phases, her share, the way to her page, the stop
+  e.setState(base(false, { schedule: {}, jack: true, now: n0 }));
+  e.setNight(n0);
+  let c = e.nightPanel(1600);
+  out.her = texts(c);
+  out.herSteps = (find(c, (x) => x.steps) || {}).steps.map((s) => [s.name, s.state]);
+  out.herCls = c.cls;
+  find(c, (x) => x.textContent === 'emby:night.her_open').onclick();
+  out.went = went.slice();
+  const stop = find(c, (x) => x.textContent === 'emby:progress.stop');
+  await stop.onclick();
+  out.posts = posts.slice();
+  out.headOff = e.headActions().map((b) => b.disabled);
+  // between their steps; she at work without her share yet
+  e.setNight({ ...n0, who: null, phase: 'check', her: null });
+  out.between = texts(e.nightPanel(1600));
+  e.setNight({ ...n0, her: null });
+  out.busy = texts(e.nightPanel(1600));
+  // he fetches: his bars inside the same card, the raw output, the night's stop asked → greyed
+  e.setState(base(true, { schedule: {}, jack: true, now: { ...n0, who: 'jack', phase: 'fill', her: null, stopping: 'user' } }));
+  e.setProgress(prog, null);
+  e.setNight({ ...n0, who: 'jack', phase: 'fill', her: null, stopping: 'user' });
+  c = e.livePanel();
+  out.jack = texts(c);
+  out.jackStop = find(c, (x) => x.textContent === 'emby:progress.stop').disabled;
+  // without Ms. Moverelli: no night, his live panel as before
+  e.setState(base(true, null));
+  e.setNight(null);
+  c = e.livePanel();
+  out.plain = [e.nightGoing(), c.cls, texts(c).includes('emby:progress.title')];
+  // his «Start…»: with her the dry run for both is on her schedule's row; without her nothing of it
+  e.setState(base(false, { schedule: {}, jack: true }));
+  await e.chooseRun();
+  out.dlg = texts(dialogs[dialogs.length - 1].body);
+  find(dialogs[dialogs.length - 1].body, (x) => x.textContent === 'emby:night.dry_both_open').onclick();
+  out.dlgClosed = !!dialogs[dialogs.length - 1].closed;
+  out.dlgWent = went[went.length - 1];
+  e.setState(base(false, null));
+  await e.chooseRun();
+  out.dlgPlain = texts(dialogs[dialogs.length - 1].body).filter((t) => t.includes('night.')).length;
+  console.log(JSON.stringify(out));
+})();
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('night card (page): it runs', $j !== [], $out . $err);
+    $her = $j['her'] ?? [];
+    check('night card (page): she moves — her card\'s «Joint run», since when, her share «Downloads, 5 of 12 files», the way to her page, the stop',
+        in_array('moverelli:rc.night_title', $her, true) && in_array('moverelli:rc.since {"time":"T1000","duration":"600s"}', $her, true)
+        && in_array('emby:night.her_moving {"share":"Downloads","done":5,"files":"emby:count.files {\"n\":12}"} ', $her, true)
+        && in_array('emby:night.her_open', $her, true) && in_array('emby:progress.stop', $her, true) && !in_array('emby:progress.raw', $her, true), json_encode($her));
+    same('night card (page): her phases in her words — Check done, Free going, Fill waiting; the card is the shared one',
+        [[['moverelli:rc.phase.check', 'done'], ['moverelli:rc.phase.free', 'running'], ['moverelli:rc.phase.fill', 'pending']], 'card running night-card jo-night'],
+        [$j['herSteps'] ?? null, $j['herCls'] ?? null]);
+    same('night card (page): her page opens; «Stop after this file» asks his desk (the agent stops the whole night); his head buttons wait',
+        [['#/moverelli'], [['emby.stop', []]], [true, true]], [$j['went'] ?? null, $j['posts'] ?? null, $j['headOff'] ?? null]);
+    check('night card (page): between their steps she measures the pool; at work without a share yet: «at work»',
+        in_array('emby:night.her_check ', $j['between'] ?? [], true) && in_array('emby:night.her_busy ', $j['busy'] ?? [], true), json_encode([$j['between'] ?? null, $j['busy'] ?? null]));
+    $jack = $j['jack'] ?? [];
+    check('night card (page): he fetches — the same card with his bars per person inside, the raw output; the night asked to stop: «Stopping …», the button grey',
+        in_array('moverelli:rc.night_title', $jack, true) && in_array('moverelli:stopping', $jack, true) && in_array('Mother', $jack, true)
+        && in_array('emby:progress.raw', $jack, true) && !in_array('emby:progress.title', $jack, true) && ($j['jackStop'] ?? false) === true, json_encode($jack));
+    same('night card (page): without Ms. Moverelli — no night, his live panel as before', [false, 'box jo-prog running', true], $j['plain'] ?? null);
+    check('night card (page): his «Start…» with her — the dry run for both on her schedule\'s row (the dialog closes, her schedule opens); without her nothing of it',
+        in_array('emby:night.dry_both ', $j['dlg'] ?? [], true) && ($j['dlgClosed'] ?? false) && ($j['dlgWent'] ?? '') === '#/moverelli/schedule' && ($j['dlgPlain'] ?? 1) === 0,
+        json_encode([$j['dlg'] ?? null, $j['dlgWent'] ?? null, $j['dlgPlain'] ?? null]));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/emby/lang/$l.json") ?? [];
+        $words = implode(' ', array_map(fn ($k) => (string) ($lang[$k] ?? ''), ['night.her_moving', 'night.her_busy', 'night.her_check', 'night.jack_soon', 'night.dry_both']));
+        check("night card lang $l: her words there, «Jack Emby» never alone as «Jack»",
+            isset($lang['night.her_open'], $lang['night.dry_both_open']) && str_contains($lang['night.her_moving'] ?? '', '{share}') && !preg_match('/\bJack\b(?! Emby)/u', $words));
     }
     hardeningRm($tmp);
 }
@@ -34050,7 +34207,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

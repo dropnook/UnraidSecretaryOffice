@@ -701,5 +701,12 @@
   "night.fill": "Jack Emby prende {size}",
   "night.fill_none": "Jack Emby non prende nulla",
   "night.wait": "{size} aspettano sull'array",
-  "night.unmeasured": "Stanotte: prima ciò che deve andare, poi prende Jack Emby — il pool non è misurato, quindi niente numeri."
+  "night.unmeasured": "Stanotte: prima ciò che deve andare, poi prende Jack Emby — il pool non è misurato, quindi niente numeri.",
+  "night.her_moving": "La signora Moverelli sta spostando i download — {share}, {done} di {files}",
+  "night.her_busy": "La signora Moverelli è al lavoro.",
+  "night.her_check": "La signora Moverelli misura il pool.",
+  "night.jack_soon": "Tra un attimo tocca a Jack Emby.",
+  "night.her_open": "Vai dalla signora Moverelli",
+  "night.dry_both": "La prova a secco per entrambi — la signora Moverelli e Jack Emby insieme — è sulla riga della sua pianificazione.",
+  "night.dry_both_open": "Alla sua pianificazione"
 }
