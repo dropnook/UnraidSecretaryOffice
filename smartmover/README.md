@@ -50,20 +50,15 @@
 >   nothing (said in the log). A dry run estimates the step from the files' sizes. Not with `--force`/`--force-all`.
 >   `CUSTOMMOVER_DF` points `df` at a stand-in for the tests (like `CUSTOMMOVER_ZFS`). The office's setup requires Y
 >   once X is set; an old ini with X and no Y gets Y = X − 10 proposed (her setup) or set (her import).
+> * `CUSTOMMOVER_FILL_MAX_BYTES` (+ optional `CUSTOMMOVER_FILL_MAX_POOL`, 2026-10-13, the office's night run with Jack Emby):
+>   the fill moves at most this many bytes in this run, on that pool (empty: every pool); `0` = no fill there. With it the
+>   fill starts at/above the *target* (the office already decided that something must go, and how much); a file that would
+>   go past the cap is not started. The age rule is untouched; a dry run counts the same. Unset: as before.
 > * Leftovers and counts (2026-10-12/13, seen live): Unraid's move writes `<dest>/<share>/<rel>.partial` and renames it
 >   at the end. Before a real run moves a share's files, a leftover `.partial` (a power cut, a crash) on the share's awake
 >   destinations is removed — only while its source `<src>/<rel>` still exists, only that exact name, never a file under
 >   its final name (`office_partial_leftovers`). After a stop the files of the share not started count as `left`; the
 >   live status carries `errors` and `warnings` (WARN lines) for the run card.
-> * **The cake** (2026-10-12, Ms. Moverelli's pool budget for Jack Emby's EmbyCache; marked «USO «cake»»; each variable a
->   comma list, unset: as before). `CUSTOMMOVER_POOL_OFFSET_BYTES=<pool>:<bytes>` is added to the pool's used bytes in
->   every reading of `pool_used_pct()` (may be negative: Jack's slice minus what his list holds — his slice counts as
->   full whether he uses it or not), said in the log («I see it at 44 % – Jack Emby's slice counted whole»); the
->   trigger, the target and the re-reading after each file all see it. `CUSTOMMOVER_FILL_TARGET=<pool>:<pct>` replaces
->   the fill's target for that pool (the office: what never moves plus Jack's slice reach Y — the fill goes only down to
->   below X). `CUSTOMMOVER_FILL_OFF=<pool>`: no fill there (what never moves is above X; the age rule still moves).
->   `CUSTOMMOVER_FILL_ALL=<pool>`: the emergency (≥ 95 % used) — every non-excluded file of that pool's `yes` shares
->   goes, whatever its age and the trigger. Nothing else changes: the age rule, oldest first, the exclude lists.
 > * Always (no variable, 2026-10-12, helmi1987's finding): a `<share>.cfg` whose share is gone — no `/mnt/user/<share>`
 >   (under `CUSTOMMOVER_MNT`); a share removed by hand leaves its .cfg on the flash — is skipped with an INFO line
 >   («skip <share>: no such share (stale .cfg)»), never listed or moved. Not upstream as of `68ee9ce`.

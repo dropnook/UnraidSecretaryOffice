@@ -22,7 +22,7 @@
    "patterns": [
     "*.nfo"
    ],
-   "jack_slice_percent": 25
+   "jack_min_percent": 50
   },
   "shares": {
    "media": {
@@ -292,39 +292,95 @@
   "lists": [],
   "shares": []
  },
- "cakes": {
+ "levels": {
   "cache": {
-   "size": 4294967296000,
-   "used": 2040109465600,
-   "movable": 751619276800,
-   "nm": 1288490188800,
-   "cake": 1717986918400,
-   "x": 70,
-   "y": 60,
-   "n": 25,
-   "slice": 429496729600,
-   "jack": 408021893120,
-   "eff": 2061584302080,
-   "floor": 1717986918400,
-   "rest": 1288490188800,
-   "new": 343597383680,
-   "used_pct": 47.5,
-   "nm_pct": 30.0,
-   "eff_pct": 48.0,
-   "floor_pct": 40.0,
-   "case": "ok",
-   "offset": 21474836480,
-   "fill": "normal",
-   "excess": 0,
-   "snapshots": 42949672960,
-   "snap_pct": 1.0,
-   "proposal": 25,
+   "pool": "cache",
    "shares": [
     "downloads",
     "isos",
     "media"
    ],
-   "mine": true
+   "snapshots": 42949672960,
+   "snap_pct": 1.0,
+   "size": 4294967296000,
+   "used": 2040109465600,
+   "movable": 751619276800,
+   "nm": 1288490188800,
+   "x": 70,
+   "y": 60,
+   "k": 50,
+   "room": 1288490188800,
+   "half": 644245094400,
+   "jack": 41200000000,
+   "downloads": 710419276800,
+   "back": 0,
+   "goes": 0,
+   "used_pct": 47.5,
+   "nm_pct": 30.0,
+   "never": false,
+   "mine": true,
+   "need": 0,
+   "half_d": 644245094400
+  }
+ },
+ "night": {
+  "jack": true,
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "last": {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791599988,
+   "finished": 1791603588,
+   "phase": "done",
+   "round": 1,
+   "jack": true,
+   "pool": "cache",
+   "plan": {
+    "measured": true,
+    "back": 0,
+    "goes": 0,
+    "age": 0,
+    "fill": 12884901888,
+    "wait": 0,
+    "first": "jack",
+    "used_pct": 47.5,
+    "x": 70,
+    "y": 60
+   },
+   "steps": [
+    {
+     "who": "jack",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "her",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "jack",
+     "phase": "fill",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    }
+   ],
+   "result": "ok",
+   "end_pct": 47.5,
+   "running": false
   }
  }
 }

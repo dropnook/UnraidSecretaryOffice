@@ -53,7 +53,7 @@ const EMBY_WATCH_MAX     = 7200;    // … for up to 2 h, then that night is ski
 const EMBY_WATCH_DURING  = 60;      // during a real gather Emby is asked once a minute; someone watching = stop after the current folder
 const EMBY_WATCH_SHOWN   = 10;      // at most this many watchers kept
 
-require_once dirname(__DIR__) . '/lib/poolcake.php';     // Ms. Moverelli's cake: his slice of the pool (shared with her)
+require_once dirname(__DIR__) . '/lib/poollevel.php';    // Ms. Moverelli's limit and his half of the pool (shared with her)
 
 define('EMBY_APP', OFFICE_DIR . '/embycache');
 define('GATHER_APP', OFFICE_DIR . '/gather');
@@ -171,8 +171,8 @@ function embyScan(): array
         'last_status' => readJson(EMBY_DATA . '/status.json'),       // what the last run of any mode did: the result box under the tiles
         'history'    => array_slice($history, 0, 20),
         'schedules'  => ['embycache' => officeJobSchedule('embycache'), 'gather' => officeJobSchedule('gather')],
-        // Ms. Moverelli follows his real EmbyCache runs (her schedule «right after Jack Emby») — a quiet line under his schedules
-        'moverelli_after' => function_exists('moverelliFollowsJack') && moverelliFollowsJack(),
+        // the night run with Ms. Moverelli (agent/lib/nightrun.php): its one schedule (her line), tonight's plan, the last night
+        'night'      => embyNight(),
         'foreign'    => embyForeignSchedules(),
         'pools'      => embyPools(),
         'share_info' => embyShareInfo(),
@@ -631,44 +631,77 @@ function embyPoolUsage(?array $settings): ?array
         return null;
     }
     $out = ['path' => $cache, 'total' => $total, 'free' => $free, 'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null];
-    // Ms. Moverelli's cake (2026-10-12): her limit X keeps 100 − X free for him; his slice once she set it — what of it
-    // he holds, how many files waited in his last run because it was full, what he gives back
-    $look = embyCakeLook($settings);
+    // Ms. Moverelli (2026-10-13, the pool simply): she keeps the pool below X, he may fill up to Y = X − offset, his half H
+    // is his for sure — what he holds, how many files waited in his last run for room, what he gave back
+    $look = embyPoolLook($settings);
     if ($look !== null) {
-        $out['moverelli'] = ['x' => $look['rules']['x'], 'n' => $look['rules']['n']];
+        $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y']];
         if ($look['rules']['x'] > 0) {
-            $out['min_free'] = 100 - $look['rules']['x'];
+            $out['min_free'] = 100 - $look['rules']['y'];
         }
-        $c = $look['cake'];
-        if ($c !== null && $c['n'] !== null) {
-            $slice = (array) (readJson(EMBY_DATA . '/status.json')['slice'] ?? []);
-            $out += ['slice' => $c['slice'], 'slice_used' => $c['jack'], 'excess' => $c['excess'], 'cake' => $c['cake'], 'case' => $c['case'],
-                     'waiting' => (int) ($slice['waiting'] ?? 0)];
+        $l = $look['level'];
+        if ($l !== null) {
+            $st = (array) (readJson(EMBY_DATA . '/status.json')['pool'] ?? []);
+            $out += ['keep' => $l['half'], 'held' => $l['jack'], 'back' => $l['back'], 'never' => $l['never'],
+                     'waiting' => embyProgressInt($st['waiting'] ?? 0), 'given_back' => embyGiveBackList()];
         }
     }
     return $out;
 }
 
 /**
- * Ms. Moverelli's cake from his side (agent/lib/poolcake.php poolCakeJack()): her rules, his pool's cake, what EmbyCache
- * is told — null while she isn't set up. $wake: a run is about to wake the pool anyway. The tests: $GLOBALS['embyCake'].
+ * What his last run gave back over his limit, in words for his page (jack-phase2): EmbyCache's status `give_back.items`
+ * [{title, ahead, who}, …] (the farthest ahead first), at most 20, each in its shape; with how many files went back.
  */
-function embyCakeLook(?array $settings, bool $wake = false): ?array
+function embyGiveBackList(?array $status = null): array
 {
-    $o = ($GLOBALS['embyCake'] ?? []) + ['ini' => DATA_DIR . '/moverelli/smart_mover.ini', 'shares_dir' => '/boot/config/shares', 'zfs' => 'zfs',
-        'mnt' => '/mnt', 'jack_list' => EMBY_DATA . '/embycache_exclude.txt', 'asleep' => null];
-    $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
-    return poolCakeJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
+    $g = (array) (($status ?? readJson(EMBY_DATA . '/status.json') ?? [])['give_back'] ?? []);
+    $items = [];
+    foreach (array_slice(is_array($g['items'] ?? null) ? array_values($g['items']) : [], 0, 20) as $w) {
+        if (($w = embyGiveBackWhy($w)) !== null) {
+            $items[] = $w;
+        }
+    }
+    return ['files' => embyProgressInt($g['files'] ?? 0), 'items' => $items];
 }
 
-/** What EmbyCache is told for a run (dry, real): her limit as his minimum free space, his slice as his budget */
-function embyCakeEnv(?array $settings): array
+/**
+ * Ms. Moverelli's limit from his side (agent/lib/poollevel.php poolLevelJack()): her rules, his pool, what EmbyCache is
+ * told — null while she isn't set up. $wake: a run is about to wake the pool anyway. The tests: $GLOBALS['embyPool'].
+ */
+function embyPoolLook(?array $settings, bool $wake = false): ?array
+{
+    $o = ($GLOBALS['embyPool'] ?? []) + ['ini' => DATA_DIR . '/moverelli/smart_mover.ini', 'shares_dir' => '/boot/config/shares', 'zfs' => 'zfs',
+        'mnt' => '/mnt', 'jack_list' => EMBY_DATA . '/embycache_exclude.txt', 'asleep' => null];
+    $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
+    return poolLevelJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
+}
+
+/** What EmbyCache is told for a run (dry, real): 100 − Y as his minimum free space, his half as the floor of his give-back */
+function embyPoolEnv(?array $settings): array
 {
     try {
-        return embyCakeLook($settings, true)['env'] ?? [];
+        return embyPoolLook($settings, true)['env'] ?? [];
     } catch (Throwable $e) {
-        logLine("Jack Emby: Ms. Moverelli's cake not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
+        logLine("Jack Emby: Ms. Moverelli's limit not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
         return [];
+    }
+}
+
+/**
+ * The night run with Ms. Moverelli for his page (agent/lib/nightrun.php): her schedule (the one for both), tonight's
+ * plan and the last night — null while she isn't hired.
+ */
+function embyNight(): ?array
+{
+    if (!function_exists('moverelliNight') || !moverelliHired()) {
+        return null;
+    }
+    try {
+        $h = moverelliHost();
+        return ['schedule' => officeJobSchedule('moverelli', $h['cron_file'])] + moverelliNight($h, moverelliSettings($h['dir']));
+    } catch (Throwable $e) {
+        return null;
     }
 }
 
@@ -925,11 +958,15 @@ function runEnv(array $command, array $env, int $timeout = 60): array
     return run(array_merge(['env'], $vars, $command), $timeout);
 }
 
-/** What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output — and rsync both ways (over any settings file) */
+/**
+ * What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output — and rsync both ways (over
+ * any settings file); in the office its minimum free space is a limit he gives back to, not only one he stops filling at
+ * (EMBYCACHE_GIVE_BACK_FREE, jack-phase2 — standalone EmbyCache keeps the old behaviour)
+ */
 function embyPyEnv(): array
 {
     return ['EMBYCACHE_DIR' => EMBY_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
-            'EMBYCACHE_FILL_TOOL' => EMBY_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => EMBY_TOOLS_RSYNC['cleanup_tool']];
+            'EMBYCACHE_FILL_TOOL' => EMBY_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => EMBY_TOOLS_RSYNC['cleanup_tool'], 'EMBYCACHE_GIVE_BACK_FREE' => '1'];
 }
 
 // ===================================================================== the gather's settings
@@ -2183,6 +2220,13 @@ function embyStart(string $tool, string $mode): array
         logLine("Jack Emby: $tool (run) not started — Unraid's mover is at work");
         throw new Problem('emby_mover_running');
     }
+    // EmbyCache's real run is the night run with Ms. Moverelli (2026-10-13): frees, rechecks, fetches last — the whole of it
+    if ($tool === 'embycache' && $mode === 'run' && function_exists('nightRun') && moverelliHired()) {
+        hostLaunch('moverelli', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--office']);
+        logLine('Jack Emby: started the night run with Ms. Moverelli via at');
+        usleep(800000);
+        return ['ok' => true, 'state' => embyScan()];
+    }
     if ($tool === 'gather' && in_array($mode, ['run', 'measure'], true)) {      // a measurement reads every disk of the shares: not while someone watches either
         // asked in the agent's own loop: a short look (an Emby that is slow counts as down here — the job asks again, fully)
         $look = embyWatching(null, fn (string $url, string $key) => embyWatchFetch($url, $key, EMBY_WATCH_PAGE));
@@ -2268,7 +2312,8 @@ function embyJobInfo(string $tool): array
  */
 function embyJob(string $tool, array $args): int
 {
-    $by = in_array('--letgo', $args, true) ? 'letgo' : (in_array('--office', $args, true) ? 'office' : 'schedule');
+    $by = in_array('--night', $args, true) ? 'night' : (in_array('--letgo', $args, true) ? 'letgo' : (in_array('--office', $args, true) ? 'office' : 'schedule'));
+    $noFill = in_array('--nofill', $args, true);       // inside the night run: only free (give back, cleanup), fetch nothing
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     $dir = embyToolDir($tool);
@@ -2394,8 +2439,9 @@ function embyJob(string $tool, array $args): int
     } else {
         $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
         $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : [])
-             // Ms. Moverelli's cake: her limit and his slice (a dry run sees what the real one would)
-             + (in_array($mode, ['dry', 'run'], true) ? embyCakeEnv(embyReadSettings()) : []);
+             // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
+             + (in_array($mode, ['dry', 'run'], true) ? embyPoolEnv(embyReadSettings()) : [])
+             + ($noFill ? ['EMBYCACHE_NO_FILL' => '1'] : []);
         $cwd = EMBY_APP;
         if ($real) {                     // the live panel on his page (emby-progress.php): EmbyCache's progress in RAM
             $progress = embyProgressPaths();
@@ -2460,31 +2506,7 @@ function embyJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
-    embyRunAfter($tool, $mode, $by, $exit);
     return $exit;
-}
-
-/**
- * The very end of a run that ran (embyJob(): his bookkeeping done, his marker finished, his locks let go): a SCHEDULED
- * real EmbyCache run (`run` from the office's cron file — whatever its outcome; one started on his page doesn't count, the
- * owner's correction 2026-10-11) hands Ms. Moverelli's real run to atd while she follows him (moverelliAfterEmby(),
- * moverelli.php) — the array's disks spin up once. Refused and skipped starts never get here; neither counts a run that
- * never ran ($exit 127: proc_open failed, or python couldn't be started).
- */
-function embyRunAfter(string $tool, string $mode, string $by, int $exit = 0): bool
-{
-    if (!function_exists('moverelliAfterEmby') || $exit === 127) {
-        return false;
-    }
-    try {
-        if (moverelliAfterEmby($tool, $mode, $by)) {
-            logLine('Jack Emby: Ms. Moverelli follows his scheduled EmbyCache run — her run handed to at');
-            return true;
-        }
-    } catch (Throwable $e) {
-        fwrite(STDERR, "$tool: Ms. Moverelli not started: {$e->getMessage()}\n");
-    }
-    return false;
 }
 
 /**
@@ -2727,6 +2749,18 @@ function embySetSchedule(string $job, ?string $cron): array
     if (!in_array($job, ['embycache', 'gather'], true)) {
         throw new Problem('unknown_target', ['target' => $job]);
     }
+    // EmbyCache's schedule is the night run's (2026-10-13): one time for Ms. Moverelli and him — her line
+    if ($job === 'embycache' && function_exists('moverelliSetSchedule') && moverelliHired()) {
+        if ($cron !== null && !embyReadSettings()) {
+            throw new Problem('emby_not_configured');
+        }
+        $r = moverelliSetSchedule($cron);
+        if ($cron === null && officeJobSchedule('embycache')['enabled']) {
+            officeJobSetSchedule('embycache', null);
+        }
+        logLine('Jack Emby: the night run with Ms. Moverelli ' . ($cron !== null ? "set to $cron" : 'switched off'));
+        return ['ok' => true, 'live' => $r['live'], 'state' => embyScan()];
+    }
     if ($cron !== null) {
         if ($job === 'embycache' && !embyReadSettings()) {
             throw new Problem('emby_not_configured');
@@ -2890,7 +2924,8 @@ function embyChecks(): array
     $unfit = array_column(array_filter($shares, fn ($s) => !in_array($s['fit'], ['ok', 'array_only'], true)), 'share');
     $out[] = finding('share_fit', 'recommended', !$unfit, ['shares' => implode(', ', $unfit)], '#/emby');
     $out[] = finding('gather_done', 'required', embyGatherReady(), [], '#/emby');
-    $out[] = finding('schedule', 'recommended', officeJobSchedule('embycache')['enabled'], [], '#/emby/schedule');
+    // EmbyCache runs in the night run with Ms. Moverelli (her line) — or, without her, on a line of its own
+    $out[] = finding('schedule', 'recommended', officeJobSchedule('moverelli')['enabled'] || officeJobSchedule('embycache')['enabled'], [], '#/emby/schedule');
     $out[] = finding('gather_schedule', 'recommended', officeJobSchedule('gather')['enabled'], [], '#/emby/gather-schedule');
     $foreign = array_filter(embyForeignSchedules(), fn ($f) => $f['enabled']);
     $out[] = finding('foreign', 'recommended', !$foreign, ['where' => implode(', ', array_column($foreign, 'where'))], 'userscripts');

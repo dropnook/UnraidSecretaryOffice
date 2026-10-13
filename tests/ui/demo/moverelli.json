@@ -22,7 +22,7 @@
    "patterns": [
     "*.nfo"
    ],
-   "jack_slice_percent": 40
+   "jack_min_percent": 50
   },
   "shares": {
    "Familienfilme": {
@@ -293,39 +293,95 @@
   "lists": [],
   "shares": []
  },
- "cakes": {
+ "levels": {
   "cache": {
-   "size": 1099511627776,
-   "used": 654982512640,
-   "movable": 332859965440,
-   "nm": 322122547200,
-   "cake": 557486755020,
-   "x": 80,
-   "y": 70,
-   "n": 40,
-   "slice": 222994702008,
-   "jack": 214748364800,
-   "eff": 663228849848,
-   "floor": 545117249208,
-   "rest": 334492053012,
-   "new": 118111600640,
-   "used_pct": 59.6,
-   "nm_pct": 29.3,
-   "eff_pct": 60.3,
-   "floor_pct": 49.6,
-   "case": "ok",
-   "offset": 8246337208,
-   "fill": "normal",
-   "excess": 0,
-   "snapshots": 6442450944,
-   "snap_pct": 0.6,
-   "proposal": 40,
+   "pool": "cache",
    "shares": [
     "Familienfilme",
     "Familienserien",
     "Schule"
    ],
-   "mine": true
+   "snapshots": 6442450944,
+   "snap_pct": 0.6,
+   "size": 1099511627776,
+   "used": 654982512640,
+   "movable": 332859965440,
+   "nm": 322122547200,
+   "x": 80,
+   "y": 70,
+   "k": 50,
+   "room": 447535592243,
+   "half": 223767796121,
+   "jack": 30064771071,
+   "downloads": 302795194369,
+   "back": 0,
+   "goes": 0,
+   "used_pct": 59.6,
+   "nm_pct": 29.3,
+   "never": false,
+   "mine": true,
+   "need": 0,
+   "half_d": 223767796122
+  }
+ },
+ "night": {
+  "jack": true,
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "last": {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791600002,
+   "finished": 1791603602,
+   "phase": "done",
+   "round": 1,
+   "jack": true,
+   "pool": "cache",
+   "plan": {
+    "measured": true,
+    "back": 0,
+    "goes": 0,
+    "age": 0,
+    "fill": 12884901888,
+    "wait": 0,
+    "first": "jack",
+    "used_pct": 59.6,
+    "x": 80,
+    "y": 70
+   },
+   "steps": [
+    {
+     "who": "jack",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "her",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "jack",
+     "phase": "fill",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    }
+   ],
+   "result": "ok",
+   "end_pct": 59.6,
+   "running": false
   }
  }
 }

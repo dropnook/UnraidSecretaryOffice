@@ -196,10 +196,10 @@ function moverelliImportPlan(string $folder, array $ctx): array
         $global['move_until_used_below'] = max(1, $global['move_when_used_above'] - 10);
     }
     [$global['files'], $global['patterns'], $lists[]] = moverelliImportLists('GLOBAL', (string) ($g['global_excludes'] ?? ''), $ctx, $blocked, $budget);
-    // Jack Emby's slice is the office's own (an earlier install never has it): left out — her save keeps the one set
-    unset($global['jack_slice_percent']);
+    // what Jack Emby keeps for sure is the office's own (an earlier install never has it): left out — her save keeps the one set
+    unset($global['jack_min_percent']);
     $values = [];
-    foreach (array_diff(array_keys(MOVERELLI_DEFAULTS), ['jack_slice_percent']) as $k) {
+    foreach (array_diff(array_keys(MOVERELLI_DEFAULTS), ['jack_min_percent']) as $k) {
         $values[] = ['key' => $k, 'value' => $global[$k], 'old' => isset($taken[$k])];
     }
 

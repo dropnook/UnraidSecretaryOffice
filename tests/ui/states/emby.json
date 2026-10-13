@@ -102,18 +102,17 @@
  },
  "pool": {
   "path": "/mnt/big",
-  "free_percent": 42.5,
-  "free": 1900000000000,
-  "min_free": 30,
+  "free_percent": 52.5,
+  "free": 2254857830400,
+  "min_free": 40,
   "moverelli": {
    "x": 70,
-   "n": 25
+   "y": 60
   },
-  "slice": 429496729600,
-  "slice_used": 408021893120,
-  "excess": 0,
-  "cake": 1717986918400,
-  "case": "ok",
+  "keep": 644245094400,
+  "held": 41200000000,
+  "back": 0,
+  "never": false,
   "waiting": 2
  },
  "gather": {
@@ -355,5 +354,71 @@
    "title": "The Expanse – S02E05 Home"
   }
  },
- "stopping": null
+ "stopping": null,
+ "night": {
+  "schedule": {
+   "script": true,
+   "frequency": "custom",
+   "custom": "15 5 * * *",
+   "enabled": true
+  },
+  "jack": true,
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "last": {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791479074,
+   "finished": 1791482674,
+   "phase": "done",
+   "round": 1,
+   "jack": true,
+   "pool": "cache",
+   "plan": {
+    "measured": true,
+    "back": 0,
+    "goes": 0,
+    "age": 0,
+    "fill": 12884901888,
+    "wait": 0,
+    "first": "jack",
+    "used_pct": 47.5,
+    "x": 70,
+    "y": 60
+   },
+   "steps": [
+    {
+     "who": "jack",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "her",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "jack",
+     "phase": "fill",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    }
+   ],
+   "result": "ok",
+   "end_pct": 47.5,
+   "running": false
+  }
+ }
 }

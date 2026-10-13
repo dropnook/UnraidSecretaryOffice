@@ -27,13 +27,30 @@
 >   `pool_usage()` finds the path's dataset in `/proc/mounts` and takes the pool's `used + avail` (`zfs list -Hp`) as the
 >   size and the dataset's `avail` (a quota counts) as free — the same reading as the office and the Smart Mover; not ZFS:
 >   `statvfs` as before. `EMBYCACHE_ZFS` / `EMBYCACHE_MOUNTS` point it at stand-ins for the tests.
-> * **Office change (2026-10-12) — a budget from Ms. Moverelli** (`EMBYCACHE_BUDGET_BYTES`, unset: as before; the
->   config is never written, standalone users keep `min_free_percent`): Jack's slice of the pool in bytes. Filling skips a
->   file once what is on the cache plus that file exceeds it (`[SKIP: Platz]`, counted as `slice.waiting` in the status);
->   once what is on the cache lies more than 5 % above it, the run gives the excess back to the array before filling
->   (`[ZURÜCK: Stück]`, the files filled last first — in name order reversed; by rank is a later step), until it fits;
->   what is playing stays. The office also sets `EMBYCACHE_MIN_FREE_PERCENT` = 100 − Ms. Moverelli's limit while she has
->   one. Status: `slice` = {budget, used, given_back, given_back_bytes, waiting, waiting_bytes}.
+> * **Office change (2026-10-13) — a sensible order both ways** (jack-phase2): every on-deck file knows, per person, how
+>   far ahead it lies (`ahead`: 0 started — a resume point, 1 next up, n the n-th episode ahead; a file several persons
+>   queue carries each). **Filling** goes round-robin across the persons by their next item (person 1's next, person 2's,
+>   …, then everyone's second; per person by rank, then in planning order), a shared item once, at its earliest place —
+>   when the room is short everyone gets something, not the first ones in path order everything (`Planner.fill_order`).
+>   **Giving back** over the limit (`give_back_order`): the farthest ahead first (the 10th next episode before the next
+>   one; a shared item counts at its nearest rank), on equal rank first from the person who has most on the cache right
+>   now (recounted after each), what someone has started last; what plays stays; an item's files go together. The limit is
+>   the pool's free space — **only with `EMBYCACHE_GIVE_BACK_FREE=1`, which the office sets when it launches EmbyCache;
+>   standalone, `min_free_percent` only stops filling, as before**: when the pool (measured as above, on ZFS the whole
+>   pool) has less free than `min_free_percent`, the run gives back until it has that much again — the office sets it
+>   to 100 − Ms. Moverelli's target Y, so Jack fills up to Y and gives back above it. **`EMBYCACHE_KEEP_BYTES`**
+>   (2026-10-13, the pool simply; unset: no floor) is that give-back's floor: what Jack holds on the cache never goes
+>   below it (the office: his half of the room below Y that appdata & co. leave). Status `pool` = {keep, held, waiting,
+>   waiting_bytes} (`waiting`: files that found no room and wait on the array). `min_free_percent` 0 = none.
+>   What was watched always goes first: the free-% decision counts what the cleanup is about to send back (no longer on
+>   deck, not playing, a safe way back) as already free and gives back ranked items only for what is still missing.
+>   The log says it in words (`[ZURÜCK: Rang] <rel> (<size>) – Gebe zurück: Serie – S01E10 (Folge 10 voraus, Mutter)`),
+>   the status gets `give_back` = {files, bytes, items: [{title, ahead, who}, …] (≤ 20)}, the progress file's `current`
+>   while going back a `why` {title, ahead, who}; the cleanup moves what is given back in that order (after what nobody
+>   queues any more). Jack's live panel and page say it in five languages.
+>   **`EMBYCACHE_NO_FILL=1`** (2026-10-13, the office's night run with Ms. Moverelli; unset: as before): the run only frees
+>   (give-back and cleanup) and fetches nothing; what waits on the array is counted (`pool.waiting`, `waiting_bytes`). The
+>   office calls EmbyCache twice a night: once with it (freeing, before or after Ms. Moverelli), once without (filling, last).
 > * `EMBYCACHE_STOP` (a file): once it exists, a real run (`--run`, `--release`) stops after the file it is on — never
 >   in the middle of a copy; what is still on the pool stays on the exclude list; result `stopped`, exit code 3. Jack
 >   writes it when Unraid's mover starts during a run (the mover would move the same files), or when the user asks
@@ -42,7 +59,7 @@
 >   phase (plan, back, fill, done), «back to the array» and per Emby user what is planned and done (files, bytes) with
 >   `started`/`ended` (the first file's start, the last one's end), the file being copied with its target, its user and
 >   its reason (`resume`, `next_up`, `next_episode`, `favorite`), and the fill's queue — `queue` = `[[user index, bytes],
->   …]` in the order the files are copied (path order, all users mixed; only what isn't on the pool yet; none beyond
+>   …]` in the order the files are copied (round-robin by rank, all users mixed; only what isn't on the pool yet; none beyond
 >   5000 files), `pos` = how many of them are done or dropped. Jack draws a live panel from it (when each user will be
 >   done, how long each part took; he stats rsync's temporary file next to the target for the bytes inside the file).
 > * Jack always moves with rsync, both ways: he sets `EMBYCACHE_FILL_TOOL`/`EMBYCACHE_CLEANUP_TOOL` to `rsync` and

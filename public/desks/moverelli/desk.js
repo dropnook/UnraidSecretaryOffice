@@ -36,6 +36,7 @@ function took(j) {
 
 // ------------------------------------------------------------------ her run card (2026-10-12, like Mr. Restori's)
 let progress = null;          // Smart Mover's live status while a real run goes (the part «progress»)
+let nightNow = null;          // the night run's short state while it goes (the part «progress»: phase, round, who works)
 let stopping = null;          // the stop file's why while she stops (user | now | mover)
 let progressAt = 0;
 let progTimer = null;
@@ -56,8 +57,9 @@ function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
   progressAt = p.time;
-  if (!p.real) { progress = null; stopping = null; load(true); return; }     // the run ended: her state anew — the card goes
+  if (!p.real) { progress = null; stopping = null; nightNow = null; load(true); return; }     // the run ended: her state anew — the card goes
   progress = p.progress || null;
+  nightNow = p.night || null;
   stopping = p.stopping || null;
   redrawCard();
   scheduleProgress();
@@ -116,15 +118,38 @@ function fillLine(x) {
   return t;
 }
 
+/**
+ * The night run's phases as the card's steps, pure: Check, Free, (Check again — only once a round more went), Fetch (only
+ * with Jack Emby) — the one going «running», those before «done»
+ */
+function nightSteps(n) {
+  const order = ['check', 'free', 'recheck', 'fill'];
+  const at = order.indexOf(n.phase || 'check');
+  const list = order.filter((ph) => (ph !== 'recheck' || Number(n.round) > 1 || n.phase === 'recheck') && (ph !== 'fill' || n.jack));
+  return list.map((ph) => ({ name: T('rc.phase.' + ph) + (ph === 'recheck' && Number(n.round) > 1 ? ' · ' + T('night.rounds', { n: Number(n.round) }) : ''),
+    state: n.phase === 'done' || order.indexOf(ph) < at ? 'done' : ph === n.phase ? 'running' : 'pending' }));
+}
+
 /** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file» */
 function runCard(p, now) {
   const card = el('div', 'card mo-run running');
   const top = el('div', 'card-head');
-  top.append(el('span', 'spin'), el('span', 'card-name', T('rc.title')));
+  const nn = nightNow || (nightGoing() ? night().last : null);
+  top.append(el('span', 'spin'), el('span', 'card-name', T(nn ? 'rc.night_title' : 'rc.title')));
   if (stopping) top.appendChild(chip(T('stopping'), 'warn'));
   card.appendChild(top);
+  // the night run: its phases, and who is at work — Jack Emby's files show on his page (his live panel)
+  if (nn) {
+    const steps = nightSteps(nn);
+    card.appendChild(Office.runSteps(steps, steps.findIndex((x) => x.state === 'running'), `night|${nn.started}`));
+    if (nn.who === 'jack') {
+      const line = el('div', 'card-line', T('rc.night_jack') + ' ');
+      line.appendChild(link(T('rc.night_jack_open'), () => Office.go('#/emby')));
+      card.appendChild(line);
+    }
+  }
   if (!p) {
-    card.appendChild(el('p', 'role', T('rc.waiting')));
+    if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', T('rc.waiting')));
   } else {
     const d = runCardData(p, now);
     if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
@@ -214,7 +239,7 @@ function showError(box, error) {
 const running = () => !!(state && state.job && state.job.running);
 /** Her last run that moved or would have (a real or a dry run that started) — a look at the shares' list is none */
 const lastRun = () => ((state && state.history) || []).find((r) => ['run', 'dry'].includes(r.mode) && !['refused', 'skipped'].includes(r.result)) || null;
-const realRun = () => running() && state.job.mode === 'run';
+const realRun = () => (running() && state.job.mode === 'run') || nightGoing();
 const unraidOk = () => !!(state && state.unraid && state.unraid.ok);
 const mover = () => (state && state.mover) || { off: true, schedule: null, running: false };
 const jack = () => (state && state.jack) || { busy: false, list: null, uncovered: [] };
@@ -240,12 +265,13 @@ const foreign = () => (state && state.foreign) || { tuning: { installed: false, 
 /** Another mover on a schedule of its own besides Unraid's: Mover Tuning's, or any other (moverelliMovers()) */
 const otherMovers = () => foreign().tuning.active || (foreign().movers || []).length > 0;
 const othersOff = () => mover().off && !otherMovers();
-/** Her schedule «right after Jack Emby's scheduled EmbyCache runs»: chosen, Jack hired, his EmbyCache on a schedule; idle = nothing starts her */
-const after = () => (state && state.after) || { on: false, jack: false, jack_scheduled: false, idle: false };
+/** The night run (agent/lib/nightrun.php): with Jack Emby, tonight's plan, the last night or the one going */
+const night = () => (state && state.night) || { jack: false, plan: null, last: null };
+/** A real night run going (her tool or Jack Emby's at work in it) */
+const nightGoing = () => !!(night().last && night().last.running && night().last.mode === 'run');
 /** «cache», «array» in words: the array is named in the page's language */
 const where = (x) => (x === 'array' ? T('array') : x || '–');
 function schedText(sc) {
-  if (after().on) return T('schedule.after_short');
   if (!sc || !sc.enabled) return T('not_scheduled');
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
@@ -281,10 +307,8 @@ function bubbleText() {
   if (!unraidOk()) return `${intro} ${T('bubble.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })}`;
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (running()) return T('bubble.running');
-  const cb = cakeBubble();
-  if (cb) return cb;
   if (!othersOff()) return T('bubble.dry');
-  if (!state.schedule.enabled && !after().on) return T('bubble.no_schedule');
+  if (!state.schedule.enabled) return T('bubble.no_schedule');
   return T('bubble.ready');
 }
 
@@ -443,7 +467,7 @@ function render() {
   root.appendChild(footer());
 }
 
-/** What stands over the row: Unraid's mover, other movers, «after Jack Emby» idle, Jack Emby, a run going, not set up */
+/** What stands over the row: Unraid's mover, other movers, Jack Emby, a run going (the night's too), not set up */
 function hints() {
   const out = [];
   if (!unraidOk()) out.push(el('p', 'callout warn', T('notice.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })));
@@ -451,10 +475,8 @@ function hints() {
     out.push(moverNotice());
     out.push(...foreignNotices());
   }
-  const idle = afterNotice();
-  if (idle) out.push(idle);
   const j = jack();
-  if (j.busy && !running()) out.push(el('p', 'callout', T('notice.jack_busy')));
+  if (j.busy && !running() && !nightGoing()) out.push(el('p', 'callout', T('notice.jack_busy')));
   // EmbyCache's list in her rules before EmbyCache's first run: her real runs wait for it (said here, never notified)
   if (j.pending) out.push(el('p', 'callout', T('notice.jack_pending')));
   if ((j.uncovered || []).length) {
@@ -489,14 +511,51 @@ function hints() {
 }
 
 // ---- the tiles: each the summary of its section
-/** «Schedule»: hers (a time, «after Jack Emby», none), Unraid's mover's as its line — alert while nothing starts her or Unraid's is on */
+/** «Schedule»: the night run's (a time, none), tonight's plan, Unraid's mover's as its line — alert while nothing starts it or Unraid's is on */
 function scheduleTile(a) {
   const sc = state.schedule || {};
-  const af = after();
   const m = mover();
-  const sub = [af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : (sc.enabled ? T('by_office') : T('tile.no_schedule')),
-    `${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`];
-  return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || (af.on ? af.idle : !sc.enabled), ...a });
+  const n = night();
+  const sub = [sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('tile.no_schedule')];
+  const short = n.jack ? tonightShort(n.plan) : null;
+  if (short) sub.push(short);
+  sub.push(`${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`);
+  return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || !sc.enabled, ...a });
+}
+
+/**
+ * Tonight's plan in words, pure (tests/run.php under node): «Tonight: Jack Emby gives back 70 GB · Ms. Moverelli moves
+ * 20 GB of downloads · Jack Emby fetches 20 GB (40 GB wait)» — from the pool as it stands and his last status
+ */
+function tonightText(p) {
+  if (!p || !p.measured) return T('night.unmeasured');
+  const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_none'),
+    Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none'),
+    Number(p.fill) > 0 ? T('night.fill', { size: fmt.size(p.fill) }) : T('night.fill_none')];
+  if (Number(p.wait) > 0) parts.push(T('night.wait', { size: fmt.size(p.wait) }));
+  return T('night.tonight', { what: parts.join(' · ') });
+}
+
+/** Tonight's plan short, for the tile, pure: «Tonight: 70 GB back · 60 GB wait» — the long line lives in the section */
+function tonightShort(p) {
+  if (!p || !p.measured) return null;
+  const parts = [];
+  if (Number(p.back) > 0) parts.push(T('night.tile_back', { size: fmt.size(p.back) }));
+  if (Number(p.goes) > 0) parts.push(T('night.tile_goes', { size: fmt.size(p.goes) }));
+  if (Number(p.fill) > 0) parts.push(T('night.tile_fill', { size: fmt.size(p.fill) }));
+  if (Number(p.wait) > 0) parts.push(T('night.tile_wait', { size: fmt.size(p.wait) }));
+  return T('night.tile', { what: parts.length ? parts.join(' · ') : T('night.tile_none') });
+}
+
+/** The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused), its rounds */
+function lastNightText(l) {
+  if (!l || !l.started) return '';
+  const when = fmt.relative(l.finished || l.started);
+  const how = l.result === 'missed' ? T('night.last_missed', { pct: l.end_pct ?? '?' })
+    : l.result === 'stopped' ? T('night.last_stopped', { phase: T('rc.phase.' + (l.stopped_in || 'free')) })
+    : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
+  return T('night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
+    + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '');
 }
 /** «Shares»: how many move, the rules for all as its line — alert while Jack Emby's list isn't kept out for a share of his */
 function sharesTile(a) {
@@ -531,18 +590,30 @@ function scheduleSection() {
   const s = section(T('schedule'), T('schedule_sub'), { place: 'schedule' });
   const box = el('div', 'box');
   const sc = state.schedule || {};
-  const af = after();
+  const n = night();
   const mine = Office.place('sched:mine', el('div', 'row nocheck'));
   const main = el('div', 'row-main');
-  main.appendChild(el('div', 'row-name', T('sched.mine')));
+  main.appendChild(el('div', 'row-name', T(n.jack ? 'sched.night' : 'sched.mine')));
   const meta = el('div', 'row-meta');
-  meta.appendChild(sc.enabled || af.on ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), 'warn'));
-  meta.appendChild(el('span', '', af.on ? T(af.idle ? 'schedule.after_idle_sub' : 'schedule.after_sub') : sc.enabled ? T('by_office') : T('schedule.off_hint')));
+  meta.appendChild(sc.enabled ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), 'warn'));
+  meta.appendChild(el('span', '', sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('schedule.off_hint')));
   main.appendChild(meta);
   const change = button(T('sched.change'), 'small plain', () => scheduleDialog());
   change.disabled = !Office.agent.running;
   mine.append(main, change);
   box.appendChild(mine);
+  // the night run with Jack Emby: tonight's plan (no Emby asked — what waits from his last run), the last night, a dry run
+  if (n.jack && state.configured) {
+    const plan = Office.place('sched:night', el('div', 'row nocheck'));
+    const pm = el('div', 'row-main');
+    pm.appendChild(el('div', 'row-name', tonightText(n.plan)));
+    const last = lastNightText(n.last);
+    pm.appendChild(el('div', 'row-meta', T('night.steps') + (last ? ' · ' + last : '')));
+    const dry = button(T('night.dry'), 'small plain', async () => { dry.disabled = true; await act('start_run', { mode: 'dry' }, T('night.dry_started')); });
+    dry.disabled = !Office.agent.running || running() || nightGoing();
+    plan.append(pm, dry);
+    box.appendChild(plan);
+  }
   const m = mover();
   const own = Office.place('sched:unraid', el('div', 'row nocheck'));
   const main2 = el('div', 'row-main');
@@ -779,14 +850,6 @@ async function showLog() {
   pre.scrollTop = pre.scrollHeight;
 }
 
-/** «Right after Jack Emby» chosen, but nothing starts her by herself: Jack let go, or his EmbyCache without a schedule */
-function afterNotice() {
-  if (!state || !state.configured || !after().idle) return null;
-  const p = el('p', 'callout warn', T(after().jack ? 'notice.after_idle_off' : 'notice.after_idle_letgo') + ' ');
-  p.appendChild(button(T('schedule_title'), 'small', scheduleDialog)).disabled = !Office.agent.running;
-  return p;
-}
-
 // ------------------------------------------------------------------ her schedule
 /** When Smart Mover runs for real on its own: once a night (default 05:15), a cron expression, or not at all */
 async function scheduleDialog() {
@@ -803,8 +866,7 @@ async function scheduleDialog() {
   const cur = (sc.enabled && sc.custom) || '';
   const pad = (n) => String(n).padStart(2, '0');
   const m2 = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cur);
-  const af = after();
-  let mode = af.on ? 'after' : !sc.enabled ? 'daily' : m2 ? 'daily' : 'custom';
+  let mode = sc.enabled ? (m2 ? 'daily' : 'custom') : 'daily';
   const time = el('input', 'input');
   time.type = 'time';
   time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : '05:15';
@@ -812,7 +874,7 @@ async function scheduleDialog() {
   cron.value = cur || '15 5 * * *';
   cron.spellcheck = false;
   const box = el('div', 'mo-schedule');
-  box.appendChild(el('p', '', T('schedule.intro')));
+  box.appendChild(el('p', '', T(night().jack ? 'schedule.intro_night' : 'schedule.intro')));
   if (!othersOff()) box.appendChild(el('p', 'callout warn', T('schedule.unraid_on')));
   const option = (id, text, hint, extra, off) => {
     const label = el('label', 'check');
@@ -834,8 +896,6 @@ async function scheduleDialog() {
   };
   option('daily', T('schedule.nightly'), T('schedule.nightly_hint'), time);
   option('custom', T('schedule.custom'), T('schedule.custom_hint'), cron);
-  // the third way (2026-10-11): right after Jack Emby's scheduled EmbyCache runs — only while he is with us
-  option('after', T('schedule.after'), af.jack ? T('schedule.after_hint') : T('schedule.after_no_jack'), null, !af.jack && mode !== 'after');
   option('off', T('schedule.off'), T('schedule.off_hint'));
   const update = () => { time.disabled = mode !== 'daily'; cron.disabled = mode !== 'custom'; };
   update();
@@ -851,11 +911,11 @@ async function scheduleDialog() {
           const [h, m] = time.value.split(':').map(Number);
           expr = `${m} ${h} * * *`;
         } else if (mode === 'custom') expr = cron.value.trim();
-        const j = await Office.api.post(`${ID}.schedule`, mode === 'after' ? { cron: null, after: 'emby' } : { cron: expr, after: '' });
+        const j = await Office.api.post(`${ID}.schedule`, { cron: expr });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
         if (j.state) state = j.state;
         if (!j.live) Office.toast(T('schedule.not_live'), true);
-        else Office.toast(mode === 'after' ? T('schedule.saved_after') : expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
+        else Office.toast(expr ? T('schedule.saved_on', { when: fmt.cron(expr) }) : T('schedule.saved_off'));
         if (view && page === 'main') render();
         return true;
       } },
@@ -881,9 +941,9 @@ function initForm() {
     shares[x.share] = { skip: !!s.skip, min_age: s.min_age ?? null, age_stat: s.age_stat ?? null, move_when_used_above: s.move_when_used_above ?? null,
       move_until_used_below: s.move_until_used_below ?? null, files: s.files || [], patterns: s.patterns || [] };
   });
-  form = { global: { move_until_used_below: 0, jack_slice_percent: null, ...set.global }, shares };
+  form = { global: { move_until_used_below: 0, jack_min_percent: 50, ...set.global }, shares };
+  form.global.offset = offsetOf(form.global);
   saved = formSettings(form);
-  untilProposals(form, state.shares || []);
   // Jack Emby hired and his list not kept out for every share of his: proposed in the files for all shares — in the form
   // only, nothing is written before «Save»; what was there stays, «Remove it again» takes exactly this line out
   const list = jack().list;
@@ -1048,37 +1108,17 @@ function foundNotice() {
   return p;
 }
 
-// ---- the fill's target (2026-10-12): a trigger needs its target below it
-/**
- * An install from before the fill (a threshold, no target — then a gate): the target proposed 10 points below its
- * trigger, for all shares and for a share with a trigger of its own, in the form only (pure on the form; the change
- * bar and the apply dialog list it like any change). form.untilProposed: [scope ('' for all shares), until, trigger]
- */
-function untilProposals(f, shares) {
-  const out = [];
-  const g = f.global;
-  const below = (pct) => Math.max(1, Number(pct) - 10);
-  if (Number(g.move_when_used_above) && !Number(g.move_until_used_below)) {
-    g.move_until_used_below = below(g.move_when_used_above);
-    out.push(['', g.move_until_used_below, g.move_when_used_above]);
-  }
-  shares.filter((x) => x.mode === 'yes' && f.shares[x.share]).forEach((x) => {
-    const s = f.shares[x.share];
-    const th = Number(s.move_when_used_above ?? g.move_when_used_above);
-    const un = Number(s.move_until_used_below ?? g.move_until_used_below);
-    if (th && (!un || un >= th) && s.move_when_used_above !== null) {
-      s.move_until_used_below = below(th);
-      out.push([x.share, s.move_until_used_below, th]);
-    }
-  });
-  f.untilProposed = out;
-  return out;
+// ---- the fill's target (2026-10-13, the pool simply): one number X; Y = X − offset is written, never asked
+/** The offset X − Y as her ini has it (an ini without a target below its limit: 10) */
+function offsetOf(g) {
+  const x = Number(g.move_when_used_above) || 0;
+  const y = Number(g.move_until_used_below) || 0;
+  return x > 0 && y > 0 && y < x ? x - y : 10;
 }
-/** The proposal in words over the rules for all shares, or null */
-function untilProposedText(f) {
-  const p = (f && f.untilProposed) || [];
-  if (!p.length) return null;
-  return T('setup.until_proposed', { list: p.map(([sc, un, th]) => T('setup.until_proposed_one', { scope: sc || T('setup.global'), pct: th, until: un })).join(' · ') });
+/** Y for a limit and the form's offset (0: no limit) */
+function untilOf(x, offset) {
+  x = Number(x) || 0;
+  return x > 0 ? x - (Number(offset) || 0) : 0;
 }
 
 // ---- the change bar and the apply dialog (like Mr. Backupsy's setup, 2026-10-12)
@@ -1093,14 +1133,18 @@ function formSettings(f) {
     }
   });
   const g = f.global;
-  return { global: { ...g, files: [...g.files], patterns: g.patterns.join('\n').trim() === '' ? [] : [...g.patterns] }, shares };
+  const { offset, ...rest } = g;
+  // Y follows X: for all shares and for a share with a limit of its own (never asked)
+  Object.values(shares).forEach((sh) => { sh.move_until_used_below = sh.move_when_used_above === null ? null : untilOf(sh.move_when_used_above, offset); });
+  return { global: { ...rest, move_until_used_below: untilOf(g.move_when_used_above, offset), files: [...g.files],
+    patterns: g.patterns.join('\n').trim() === '' ? [] : [...g.patterns] }, shares };
 }
 
-const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'move_prefer_shares', 'mover_debug', 'max_list', 'jack_slice_percent'];
+const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'move_prefer_shares', 'mover_debug', 'max_list', 'jack_min_percent'];
 const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below'];
 /** A value as the apply dialog says it (null in a share: as for all shares) */
 function setValue(key, v) {
-  if (key === 'jack_slice_percent') return v === null || v === undefined ? T('setup.slice_none') : `${v} %`;
+  if (key === 'jack_min_percent') return `${Number(v ?? 50)} %`;
   if (v === null || v === undefined || v === '') return T('setup.as_global');
   if (typeof v === 'boolean') return Office.t(v ? 'common.yes' : 'common.no');
   if (key === 'min_age') return T('setup.tile.days', { n: Number(v) || 0 });
@@ -1126,7 +1170,7 @@ function setupChangeRows(was, now) {
     own(a.patterns).filter((x) => !own(b.patterns).includes(x)).forEach((x) => rows.push({ mark: 'gone', label: pre + T('setup.patterns'), what: x }));
   };
   // an older state without them: 0 / not set
-  const gv = (o, k) => (k === 'move_until_used_below' ? Number(o[k]) || 0 : k === 'jack_slice_percent' ? o[k] ?? null : o[k]);
+  const gv = (o, k) => (k === 'move_until_used_below' ? Number(o[k]) || 0 : k === 'jack_min_percent' ? o[k] ?? 50 : o[k]);
   SET_KEYS.forEach((k) => {
     if (String(gv(was.global, k)) !== String(gv(now.global, k))) {
       rows.push({ mark: null, label: T('setup.row_global', { what: T(IMPORT_LABEL[k]) }), what: `${setValue(k, was.global[k])} → ${setValue(k, now.global[k])}` });
@@ -1151,34 +1195,25 @@ function setupChangeRows(was, now) {
 }
 
 /**
- * What keeps the form from being saved, at once (pure; the same rules as moverelliCheck() and moverelliCakeCheck()):
- * [{scope: '' | share, text}] — «… bis» missing under a limit or not below it (for all shares and per share, as it holds
- * for the share), the cake out of reach on a pool (for all shares)
+ * What keeps the form from being saved, at once (pure; the same rules as moverelliCheck()): [{scope: '' | share | '~adv',
+ * text}] — the offset leaves no target above 0 (for all shares and per share, as it holds for the share), the offset or
+ * what Jack keeps for sure out of their bounds (under «Advanced»)
  */
 function setupProblems(f) {
   const out = [];
   const g = f.global;
-  const limits = (scope, th, un) => {
+  const whole = (v, lo, hi) => Number.isInteger(Number(v)) && String(v ?? '').trim() !== '' && Number(v) >= lo && Number(v) <= hi;
+  const offOk = whole(g.offset, 1, 99);
+  if (!offOk) out.push({ scope: '~adv', text: T('setup.err_offset') });
+  if (!whole(g.jack_min_percent, 0, 100)) out.push({ scope: '~adv', text: T('setup.err_jack_min') });
+  const limit = (scope, th) => {
     th = Number(th) || 0;
-    un = Number(un) || 0;
-    if (th > 0 && !un) out.push({ scope, text: T('setup.err_until_missing', { x: th }) });
-    else if (th > 0 && un >= th) out.push({ scope, text: T('setup.err_until_high', { x: th, y: un }) });
+    if (offOk && th > 0 && th - Number(g.offset) < 1) out.push({ scope, text: T('setup.err_offset_big', { x: th, offset: Number(g.offset) }) });
   };
-  limits('', g.move_when_used_above, g.move_until_used_below);
+  limit('', g.move_when_used_above);
   Object.entries(f.shares).forEach(([name, sv]) => {
-    if ((sv.move_when_used_above ?? null) === null && (sv.move_until_used_below ?? null) === null) return;
-    limits(name, sv.move_when_used_above ?? g.move_when_used_above, sv.move_until_used_below ?? g.move_until_used_below);
+    if ((sv.move_when_used_above ?? null) !== null) limit(name, sv.move_when_used_above);
   });
-  if (!out.some((p) => p.scope === '') && Number(g.move_when_used_above) > 0) {
-    cakeList().forEach(([pool, c]) => {
-      if (!c) return;
-      const m = cakeMath(c, g.move_when_used_above, g.move_until_used_below, c.mine ? (g.jack_slice_percent ?? null) : null);
-      const nm = Math.floor(m.nmPct);
-      if (m.bad === 'none') out.push({ scope: '', text: T('setup.cake_none', { nm, x: m.x }) });
-      else if (m.bad === 'target') out.push({ scope: '', text: T('setup.cake_target_low', { nm, y: m.y, min: m.min }) });
-      else if (m.bad === 'slice') out.push({ scope: '', text: T('setup.cake_slice_big', { nm, y: m.y, j: fmt.size(m.slice), max: m.maxN }) });
-    });
-  }
   return out;
 }
 /** The two limit fields per scope ('' = for all shares) as drawn now: [threshold field, until field, error line] */
@@ -1208,7 +1243,7 @@ function setupBarSpec() {
   if (!n && state.configured) return null;
   // a problem in the form: «Apply…» stays off, the bar says why (the fields say it too)
   const p = setupProblems(form)[0];
-  const why = p ? (p.scope ? `${T('setup.row_share', { share: p.scope })} — ${p.text}` : p.text) : null;
+  const why = p ? (p.scope && p.scope !== '~adv' ? `${T('setup.row_share', { share: p.scope })} — ${p.text}` : p.text) : null;
   return {
     title: n ? T('setup.bar_changes', { n }) : T('setup.bar_new'),
     sub: why ? T('setup.bar_blocked', { why }) : T(state.configured ? 'setup.bar_sub' : 'setup.bar_sub_new'),
@@ -1246,10 +1281,8 @@ function setupApply() {
     });
     box.appendChild(ul);
   }
-  // n 0 while Jack is hired: said again (allowed — he gives back what he holds)
-  const mine = cakeList().find(([, c]) => c && c.mine);
-  const zero = jack().hired && mine ? sliceNote(now.global, mine[1]) : null;
-  if (zero && Number(now.global.jack_slice_percent) === 0) box.appendChild(el('p', 'callout warn', zero));
+  // what the next night moves with these numbers, per pool
+  levelList().forEach(([pool, c]) => { if (c) box.appendChild(el('p', 'callout', levelNight(pool, levelMath(c, now.global.move_when_used_above, now.global.move_until_used_below, now.global.jack_min_percent)))); });
   const off = !mover().off;
   if (off) box.appendChild(consentSection());
   box.appendChild(el('p', 'role', T('setup.help_save')));
@@ -1333,194 +1366,98 @@ function setupGlobal() {
   f1.append(
     field(T('setup.min_age'), number(g, 'min_age', 0, 3650), T(jack().hired ? 'setup.min_age_hint_jack' : 'setup.min_age_hint')),
     field(T('setup.age_stat'), select(g, 'age_stat', [['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]]), T('setup.age_stat_hint')),
-    ...limitsOf('', g, T('setup.threshold_hint'), T('setup.until_hint'), false),
+    ...limitsOf('', g, T('setup.threshold_hint'), false),
     field(T('setup.debug'), select(g, 'mover_debug', [0, 1, 2, 3].map((n) => [String(n), String(n)])), T('setup.debug_hint')),
     field(T('setup.max_list'), number(g, 'max_list', 1, 100000), T('setup.max_list_hint')),
     check(T('setup.prefer'), g.move_prefer_shares, (on) => { g.move_prefer_shares = on; }, T('setup.prefer_hint')),
   );
-  const prop = untilProposedText(form);
-  if (prop) s1.appendChild(el('p', 'callout', prop));
-  // the pool as a cake under her two limits: drawn anew at every keystroke of the limits and the slider
-  const cakes = cakeSection(g);
-  s1.addEventListener('input', () => cakes.redraw());
-  s1.append(f1, cakes, excludeFields(g, 'global'));
+  // the rule in her words and per pool the numbers: drawn anew at every keystroke
+  const levels = levelSection(g);
+  s1.addEventListener('input', () => levels.redraw());
+  s1.append(f1, levels, advancedFold(g), excludeFields(g, 'global'));
   return s1;
 }
 
-// ---- the pool as a cake (2026-10-12, agent/lib/poolcake.php): X and Y on the whole pool; the cake = the room the movable
-// shares have below X; Jack Emby's slice = n % of it, always counted whole; the setup refuses a target she can't reach
-/** The cakes of her pools: [pool, raw | null] — Jack Emby's pool first */
-function cakeList() {
-  const c = (state && state.cakes) || {};
+// ---- the pool, simply (2026-10-13, agent/lib/poollevel.php): one limit X; Y = X − offset; below Y the room that appdata &
+// co. leave is shared half and half (jack_min_percent) between Jack Emby and the downloads — each may borrow what the other
+// doesn't need. In the night run Jack Emby gives back above Y (never below his half), she moves the downloads' borrowed part from X on.
+/** Her pools: [pool, raw | null] — Jack Emby's pool first */
+function levelList() {
+  const c = (state && state.levels) || {};
   return Object.entries(c).sort(([a, x], [b, y]) => Number(!!(y && y.mine)) - Number(!!(x && x.mine)) || a.localeCompare(b));
 }
-/** The cake's numbers for the form's X, Y, n (pure; the same rule as poolCakeMath()): bytes, % and what is out of reach */
-function cakeMath(c, x, y, n) {
+/** The numbers for the form's X, Y, k (pure; the same rule as poolLevelMath()): bytes; back = Jack the next night, goes = downloads then */
+function levelMath(c, x, y, k) {
   const size = Math.max(0, Number(c.size) || 0);
   const used = Math.min(Math.max(0, Number(c.used) || 0), size);
   const m = Math.min(Math.max(0, Number(c.movable) || 0), used);
   const nm = used - m;
   x = Number(x) || 0;
   y = Number(y) || 0;
-  const cake = x > 0 ? Math.max(0, Math.floor(x * size / 100) - nm) : 0;
-  const slice = n === null || n === undefined ? 0 : Math.floor(Math.min(100, Math.max(0, Number(n) || 0)) * cake / 100);
-  const jack = Math.max(0, Number(c.jack) || 0);
-  const eff = n === null || n === undefined ? used : Math.max(0, used - jack + slice);
-  const pct = (b) => (size > 0 ? b * 100 / size : 0);
-  let bad = null;
-  if (x > 0 && size > 0) {
-    if (nm * 100 >= x * size) bad = 'none';
-    else if (y > 0 && y <= pct(nm) + 5) bad = 'target';
-    else if (y > 0 && (nm + slice) * 100 >= y * size) bad = 'slice';
-  }
-  // the most she allows Jack: his slice still leaves the target reachable (nm + slice < Y)
-  const maxN = cake > 0 && y > 0 ? Math.max(0, Math.min(100, Math.ceil((y * size / 100 - nm) * 100 / cake) - 1)) : 100;
-  return { size, used, nm, cake, slice, jack, rest: Math.max(0, cake - slice), fresh: Math.max(0, m - jack), over: n === null || n === undefined ? 0 : Math.max(0, jack - slice), eff,
-    nmPct: pct(nm), effPct: pct(eff), x, y, n: n ?? null, bad, min: Math.floor(pct(nm) + 5) + 1, maxN };
+  const jack = c.mine ? Math.min(Math.max(0, Number(c.jack) || 0), m) : 0;
+  const yb = y > 0 ? Math.floor(y * size / 100) : 0;
+  const room = y > 0 ? Math.max(0, yb - nm) : 0;
+  const half = Math.floor(room * Math.min(100, Math.max(0, Number(k ?? 50) || 0)) / 100);
+  // the night run: what must go to stand at Y; Jack Emby only what he borrowed (never below his half), the downloads only
+  // from X on and only what they borrowed over their part (room − half)
+  const need = y > 0 ? Math.max(0, used - yb) : 0;
+  const back = y > 0 && used > yb ? Math.min(Math.max(0, jack - half), need) : 0;
+  const goes = x > 0 && y > 0 && used * 100 >= x * size ? Math.min(Math.max(0, m - jack - (room - half)), need - back) : 0;
+  return { size, used, nm, x, y, room, half, jack, need, back, goes, never: y > 0 && size > 0 && nm >= yb, nmPct: size > 0 ? nm * 100 / size : 0 };
 }
-/**
- * «Der Pool als Kuchen»: a bar per pool, the slider for Jack Emby's slice on his pool while he is hired. redraw() draws the
- * words and the bars anew (every keystroke in the limits, every move of the slider) — never the slider itself.
- */
-function cakeSection(g) {
-  const box = el('div', 'mo-cakes');
-  const list = cakeList();
-  box.redraw = () => {};
-  if (!list.length) return box;
-  const hired = !!jack().hired;
-  const mine = list.find(([, c]) => c && c.mine);
-  box.appendChild(el('div', 'mo-cake-title', T('setup.cake')));
-  const sub = hired ? box.appendChild(el('p', 'mo-cake-sub')) : null;
-  const note = hired && mine ? el('p', 'callout warn mo-slice-note') : null;
-  if (hired && mine) box.append(sliceField(g, mine[1]), note);
-  const bars = box.appendChild(el('div', 'mo-cake-bars'));
+/** What the next night moves on a pool, in her words */
+function levelNight(pool, m) {
+  if (m.back && m.goes) return T('setup.level_night_both', { pool, back: fmt.size(m.back), goes: fmt.size(m.goes) });
+  if (m.back) return T('setup.level_night_back', { pool, back: fmt.size(m.back) });
+  if (m.goes) return T('setup.level_night_goes', { pool, goes: fmt.size(m.goes) });
+  return T('setup.level_night_none', { pool });
+}
+/** One pool in words: what it holds and what never moves, the halves (Jack hired) or the downloads' room, the next night */
+function levelLines(pool, c, g) {
+  const m = levelMath(c, g.move_when_used_above, untilOf(g.move_when_used_above, g.offset), g.jack_min_percent);
+  const out = [T('setup.level_pool', { pool, used: fmt.size(m.used), size: fmt.size(m.size), nm: fmt.size(m.nm) })];
+  if (m.never) return { lines: out, warn: T('setup.level_never', { pool, nm: Math.floor(m.nmPct), y: m.y }) };
+  out.push(c.mine && jack().hired ? T('setup.level_half', { y: m.y, h: fmt.size(m.half), d: fmt.size(m.room - m.half) }) : T('setup.level_room', { r: fmt.size(m.room), y: m.y }));
+  out.push(levelNight(pool, m));
+  return { lines: out, warn: null };
+}
+/** «Der Pool»: her rule with the numbers put in, per pool a few lines — drawn anew at every keystroke (redraw()) */
+function levelSection(g) {
+  const box = el('div', 'mo-levels');
   box.redraw = () => {
+    box.innerHTML = '';
     const x = Number(g.move_when_used_above) || 0;
-    if (note) {
-      const t = sliceNote(g, mine[1]);
-      note.textContent = t || '';
-      note.hidden = !t;
-    }
-    if (sub) sub.textContent = T('setup.cake_sub', { x, y: Number(g.move_until_used_below) || 0, n: g.jack_slice_percent ?? 0 });
-    bars.innerHTML = '';
-    if (!(x > 0)) { bars.appendChild(el('p', 'role', T('setup.cake_off'))); return; }
-    list.forEach(([pool, c]) => bars.appendChild(c ? cakeBar(pool, c, g) : el('p', 'role', T('setup.cake_unseen', { pool }))));
+    if (!(x > 0)) { box.appendChild(el('p', 'role', T('setup.level_off'))); return; }
+    const y = untilOf(x, g.offset);
+    box.appendChild(el('p', 'mo-level-rule', T(jack().hired ? 'setup.level_rule_jack' : 'setup.level_rule', { x, y })));
+    levelList().forEach(([pool, c]) => {
+      if (!c) { box.appendChild(el('p', 'role', T('setup.level_unseen', { pool }))); return; }
+      const v = levelLines(pool, c, g);
+      box.appendChild(el('p', 'mo-level-pool', v.lines.join(' ')));
+      if (v.warn) box.appendChild(el('p', 'callout warn', v.warn));
+    });
   };
   box.redraw();
   return box;
 }
-/**
- * Under the slider, at once (pure): n 0 while he holds something — he gets no room and gives back what he has (allowed,
- * asked); too far right — the target out of reach, at most n % (refused: «Apply…» off). '' / null: nothing to say.
- */
-function sliceNote(g, c) {
-  const n = g.jack_slice_percent;
-  if (n === null || n === undefined || !(Number(g.move_when_used_above) > 0)) return null;
-  const m = cakeMath(c, g.move_when_used_above, g.move_until_used_below, n);
-  if (m.bad === 'slice') return T('setup.cake_slice_big', { nm: Math.floor(m.nmPct), y: m.y, j: fmt.size(m.slice), max: m.maxN });
-  if (Number(n) === 0) return T('setup.slice_zero', { used: fmt.size(m.jack) });
-  return null;
-}
-/** «Jack darf n % vom Kuchen»: the slider (its label says the value), the proposal from what he holds today while none is set */
-function sliceField(g, c) {
-  const wrap = el('div', 'mo-slice');
-  const n = g.jack_slice_percent;
-  if ((n === null || n === undefined) && c.proposal) {
-    const p = el('p', 'callout mo-suggest', T('setup.slice_proposed', { n: c.proposal }) + ' ');
-    p.appendChild(button(T('setup.slice_take'), 'small plain', () => { g.jack_slice_percent = c.proposal; renderSetup(); }));
-    wrap.appendChild(p);
-  }
-  const label = el('label', 'mo-slice-label', n === null || n === undefined ? `${T('setup.jack_slice_row')}: ${T('setup.slice_none')}` : T('setup.jack_slice', { n }));
-  const r = el('input', 'mo-slice-range');
-  r.type = 'range';
-  r.min = 0;
-  r.max = 100;
-  r.step = 1;
-  r.value = n ?? c.proposal ?? 0;
-  r.setAttribute('aria-label', T('setup.jack_slice_row'));
-  r.oninput = () => { g.jack_slice_percent = Number(r.value); label.textContent = T('setup.jack_slice', { n: Number(r.value) }); };
-  const f = el('div', 'field mo-slice-field');
-  f.append(label, r, el('small', '', T('setup.jack_slice_hint', { shares: (c.shares || []).join(', ') || '–', x: Number(g.move_when_used_above) || 0 })));
-  wrap.appendChild(f);
-  return wrap;
-}
-/** One pool's bar: never moves | Jack's slice (what he holds filled) | room for new things (what new holds filled) | free — X and Y as ticks, her reading as a mark */
-function cakeBar(pool, c, g) {
-  const m = cakeMath(c, g.move_when_used_above, g.move_until_used_below, c.mine ? (g.jack_slice_percent ?? null) : null);
-  const box = el('div', 'mo-cake' + (m.bad ? ' mo-cake-bad' : ''));
-  box.appendChild(el('div', 'mo-cake-head', T('setup.cake_pool', { pool, used: fmt.size(m.used), size: fmt.size(m.size) })));
-  const w = (b) => `${Math.max(0, Math.min(100, m.size > 0 ? b * 100 / m.size : 0)).toFixed(2)}%`;
-  const bar = el('div', 'mo-cake-bar');
-  bar.setAttribute('role', 'img');
-  const seg = (cls, bytes, held, of) => {
-    const s = el('span', 'mo-cake-seg ' + cls);
-    s.style.width = w(bytes);
-    if (held !== undefined && of > 0) {
-      const f = el('span', 'mo-cake-held');
-      f.style.width = `${Math.min(100, held * 100 / of).toFixed(2)}%`;
-      s.appendChild(f);
-    }
-    return s;
-  };
-  bar.appendChild(seg('mo-cake-nm', m.nm));
-  if (m.bad !== 'none') {
-    if (m.n !== null) bar.appendChild(seg('mo-cake-slice', m.slice, m.jack, m.slice));
-    if (m.over > 0) bar.appendChild(seg('mo-cake-over', m.over));        // what he holds over his slice: he gives it back
-    bar.appendChild(seg('mo-cake-new', m.rest, m.fresh, m.rest));
-  }
-  const tick = (cls, pct) => { const t = el('i', 'mo-cake-tick ' + cls); t.style.left = `${Math.max(0, Math.min(100, pct))}%`; bar.appendChild(t); };
-  tick('mo-tick-x' + (m.bad === 'none' ? ' mo-tick-bad' : ''), m.x);
-  if (m.y > 0) tick('mo-tick-y' + (m.bad ? ' mo-tick-bad' : ''), m.y);
-  tick('mo-tick-eff', m.effPct);
-  box.appendChild(bar);
-  const legend = el('div', 'mo-cake-legend');
-  const key = (cls, text) => { const k = el('span', 'mo-key'); k.append(el('i', 'mo-swatch ' + cls), document.createTextNode(text)); legend.appendChild(k); };
-  // the legend says exactly what the bar draws: inside his slice what he holds (solid) and what is still free (hatched),
-  // inside the room for new things what is there (solid) and what is still free — each only when it is drawn
-  const held = Math.min(m.jack, m.slice);
-  const fresh = Math.min(m.fresh, m.rest);
-  key('mo-cake-nm', T('setup.cake_nm'));
-  if (m.n !== null && m.bad !== 'none' && held > 0) key('mo-cake-jack', T('setup.cake_held'));
-  if (m.n !== null && m.bad !== 'none' && m.slice > held) key('mo-cake-slice', T('setup.cake_slice_free'));
-  if (m.over > 0 && m.bad !== 'none') key('mo-cake-over', T('setup.cake_over'));
-  if (m.bad !== 'none' && fresh > 0) key('mo-cake-fresh', T('setup.cake_new_held'));
-  if (m.bad !== 'none' && m.rest > fresh) key('mo-cake-new', T('setup.cake_new'));
-  key('mo-cake-free', T('setup.cake_free'));
-  box.appendChild(legend);
-  const marks = el('div', 'mo-cake-marks');
-  const mark = (cls, text, bad) => {
-    const k = el('span', 'mo-key' + (bad ? ' mo-key-bad' : ''));
-    k.append(el('i', 'mo-mark ' + cls), document.createTextNode(text + (bad ? ` — ${T('setup.cake_unreachable')}` : '')));
-    marks.appendChild(k);
-  };
-  mark('mo-tick-x', T('setup.cake_x', { x: m.x }), m.bad === 'none');
-  if (m.y > 0) mark('mo-tick-y', T('setup.cake_y', { y: m.y }), !!m.bad);
-  mark('mo-tick-eff', T('setup.cake_eff', { pct: Math.round(m.effPct) }));
-  box.appendChild(marks);
-  if (m.n !== null && m.bad !== 'none') {
-    box.appendChild(el('p', 'mo-cake-numbers', T('setup.cake_numbers', { cake: fmt.size(m.cake), slice: fmt.size(m.slice), used: fmt.size(m.jack), rest: fmt.size(m.rest) })));
-  }
-  const nmPct = Math.floor(m.nmPct);
-  if (m.bad === 'none') box.appendChild(el('p', 'callout warn', T('setup.cake_none', { nm: nmPct, x: m.x })));
-  else if (m.bad === 'target') box.appendChild(el('p', 'callout warn', T('setup.cake_target_low', { nm: nmPct, y: m.y, min: m.min })));
-  else if (m.bad === 'slice' && !(c.mine && jack().hired)) box.appendChild(el('p', 'callout warn', T('setup.cake_slice_big', { nm: nmPct, y: m.y, j: fmt.size(m.slice), max: m.maxN })));
-  return box;
-}
-/** Her bubble while a bound holds on a pool (the cake as she last looked): the overflow first, then nothing to gain, then the target out of reach */
-function cakeBubble() {
-  const order = ['full', 'none', 'target'];
-  const hit = cakeList().filter(([, c]) => c && order.includes(c.case)).sort(([, a], [, b]) => order.indexOf(a.case) - order.indexOf(b.case))[0];
-  if (!hit) return null;
-  const [pool, c] = hit;
-  return T('notify.cake_' + c.case, { pool, nm: Math.floor(c.nm_pct), x: c.x, y: c.y, used: Math.floor(c.used_pct) });
+/** «Advanced»: the offset X − Y and what Jack keeps for sure — checked at once like the limit */
+function advancedFold(g) {
+  const det = keepFold(el('details', 'box mo-share mo-adv'), '~adv', false);
+  det.appendChild(el('summary', '', T('setup.advanced')));
+  const f = el('div', 'mo-form');
+  const off = field(T('setup.offset'), number(g, 'offset', 1, 99), T('setup.offset_hint'));
+  const jk = field(T('setup.jack_min'), number(g, 'jack_min_percent', 0, 100), T('setup.jack_min_hint'));
+  f.append(off, jk);
+  limitPair('~adv', off, jk);
+  det.appendChild(f);
+  return det;
 }
 
-/** «Höchstens so voll» and «… bis» for a scope, registered for the immediate check (markLimits()) */
-function limitsOf(scope, obj, thHint, unHint, optional) {
+/** «Höchstens so voll» for a scope (its target follows: X − offset), registered for the immediate check (markLimits()) */
+function limitsOf(scope, obj, thHint, optional) {
   const th = field(T('setup.threshold'), number(obj, 'move_when_used_above', 0, 100, optional), thHint);
-  const un = field(T('setup.until'), number(obj, 'move_until_used_below', 0, 99, optional), unHint);
-  limitPair(scope, th, un);
-  return [th, un];
+  limitPair(scope, th, th);
+  return [th];
 }
 
 /** 2. per share: a fold each (the bar's words: name, where its files go) */
@@ -1556,7 +1493,7 @@ function fillSetupShares(box) {
         field(T('setup.min_age'), number(sv, 'min_age', 0, 3650, true), x.mode === 'prefer' ? T('setup.min_age_prefer') : ''),
         field(T('setup.age_stat'), select(sv, 'age_stat', [['', T('setup.as_global')], ['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]])));
       if (x.mode === 'yes') {
-        f.append(...limitsOf(x.share, sv, '', '', true));
+        f.append(...limitsOf(x.share, sv, '', true));
       }
       det.append(f, excludeFields(sv, x.share));
     }
@@ -1576,7 +1513,7 @@ function fillSetupShares(box) {
 let importFolder = '';
 /** The setup's label of a key of the ini */
 const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold', move_until_used_below: 'setup.until',
-  move_prefer_shares: 'setup.prefer', jack_slice_percent: 'setup.jack_slice_row',
+  move_prefer_shares: 'setup.prefer', jack_min_percent: 'setup.jack_min',
   mover_debug: 'setup.debug', max_list: 'setup.max_list', skip: 'setup.skip' };
 
 function importSection() {
@@ -1775,7 +1712,7 @@ function letGoPart(box) {
 function letGoView(j) {
   if (!j || !j.ok) return [['callout warn', Office.errorText((j && j.error) || { key: 'internal' }, ID)]];
   if (j.jack) return [['callout warn', T('letgo.jack')]];
-  const out = [['', T(j.schedule || j.after ? 'letgo.sched_off' : 'letgo.sched_none')]];
+  const out = [['', T(j.schedule ? 'letgo.sched_off' : 'letgo.sched_none')]];
   const u = j.unraid || {};
   if (!u.off) out.push(['role', T('letgo.unraid_on')]);
   else if (u.back) out.push(['', T('letgo.unraid_back', { schedule: fmt.cron(u.back) })]);
@@ -1876,8 +1813,8 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, untilProposals, untilProposedText, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, afterNotice, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, offsetOf, untilOf, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, tonightText, tonightShort, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
-    setForm: (f) => { form = f; }, initForm, cakeMath, cakeSection, cakeBar, cakeBubble, sliceField, sliceNote, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
+    setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, advancedFold, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
 })();

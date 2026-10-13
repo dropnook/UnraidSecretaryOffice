@@ -15,7 +15,7 @@ declare(strict_types=1);
  *     that comes back.
  *   - Letting her go (her part of the let-go dialog: moverelli.letgo_look, moverelli.letgo {confirm: true}): refused
  *     while Jack Emby is hired (`moverelli_jack_hired` — he never works without her; src/staff.php refuses the let-go
- *     too); her schedule off (a time or «after Jack Emby»); Unraid's own schedule back exactly as noted, again through
+ *     too); her schedule off (the night run's time); Unraid's own schedule back exactly as noted, again through
  *     Unraid's form (`shareMoverSchedule=<was>&shareMoverLogging=<as it is>&changeMover=Apply`, the value URL-encoded
  *     as the browser sends it), looked at afterwards: share.cfg says it and mover.cron has its `mover start` line. A
  *     schedule set by hand meanwhile stays (`kept`); a noted value of a shape Unraid's form can't make is never sent
@@ -108,7 +108,7 @@ function moverelliLetGoLook(?array $h = null): array
     $own = ($h['unraid'])();
     $note = moverelliUnraidNote($h['dir']);
     return ['ok' => true, 'jack' => ($h['emby'])() !== null,
-            'schedule' => officeJobSchedule('moverelli', $h['cron_file'])['custom'], 'after' => moverelliAfterChoice($h['dir']) !== null,
+            'schedule' => officeJobSchedule('moverelli', $h['cron_file'])['custom'],
             'unraid' => ['off' => embyMoverScheduleOff($own), 'back' => $note['was'] ?? null]];
 }
 
@@ -126,8 +126,7 @@ function moverelliLetGo(array $r, ?array $h = null, ?array $moverHost = null): a
         throw new Problem('moverelli_jack_hired');
     }
     $was = officeJobSchedule('moverelli', $h['cron_file'])['custom'];
-    $after = moverelliAfterChoice($h['dir']) !== null;
-    if ($was !== null || $after) {
+    if ($was !== null) {
         moverelliSetSchedule(null, $h);
     }
     try {
@@ -135,5 +134,5 @@ function moverelliLetGo(array $r, ?array $h = null, ?array $moverHost = null): a
     } catch (Problem $p) {
         $unraid = ['error' => $p->toArray()];
     }
-    return ['ok' => true, 'schedule_off' => $was !== null || $after, 'unraid' => $unraid];
+    return ['ok' => true, 'schedule_off' => $was !== null, 'unraid' => $unraid];
 }

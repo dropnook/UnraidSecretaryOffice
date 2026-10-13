@@ -204,16 +204,15 @@
   "path": "/mnt/cache",
   "free_percent": 40.4,
   "free": 444529115136,
-  "min_free": 20,
+  "min_free": 30,
   "moverelli": {
    "x": 80,
-   "n": 40
+   "y": 70
   },
-  "slice": 222994702008,
-  "slice_used": 214748364800,
-  "excess": 0,
-  "cake": 557486755020,
-  "case": "ok",
+  "keep": 223767796121,
+  "held": 30064771071,
+  "back": 0,
+  "never": false,
   "waiting": 2
  },
  "gather": {
@@ -380,9 +379,9 @@
  "schedules": {
   "embycache": {
    "script": true,
-   "frequency": "custom",
-   "custom": "30 4 * * *",
-   "enabled": true
+   "frequency": "disabled",
+   "custom": null,
+   "enabled": false
   },
   "gather": {
    "script": true,
@@ -518,5 +517,71 @@
    "title": "Film Tauchgang Ägypten 1993"
   }
  },
- "stopping": null
+ "stopping": null,
+ "night": {
+  "schedule": {
+   "script": true,
+   "frequency": "custom",
+   "custom": "15 5 * * *",
+   "enabled": true
+  },
+  "jack": true,
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "last": {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791828000,
+   "finished": 1791831600,
+   "phase": "done",
+   "round": 1,
+   "jack": true,
+   "pool": "cache",
+   "plan": {
+    "measured": true,
+    "back": 0,
+    "goes": 0,
+    "age": 0,
+    "fill": 12884901888,
+    "wait": 0,
+    "first": "jack",
+    "used_pct": 59.6,
+    "x": 80,
+    "y": 70
+   },
+   "steps": [
+    {
+     "who": "jack",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "her",
+     "phase": "free",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    },
+    {
+     "who": "jack",
+     "phase": "fill",
+     "round": 1,
+     "exit": 0,
+     "result": "ok"
+    }
+   ],
+   "result": "ok",
+   "end_pct": 59.6,
+   "running": false
+  }
+ }
 }

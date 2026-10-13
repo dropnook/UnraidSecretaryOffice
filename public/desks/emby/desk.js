@@ -149,6 +149,19 @@ function schedText(sc) {
   if (!sc || !sc.enabled) return T('not_scheduled');
   return sc.frequency === 'custom' ? fmt.cron(sc.custom) : sc.frequency;
 }
+/** The night run with Ms. Moverelli (agent/lib/nightrun.php): one schedule for both — hers; null while she isn't hired */
+const night = () => (state && state.night) || null;
+/** EmbyCache's schedule as it runs: the night run's while Ms. Moverelli is hired, else its own line */
+const embySched = () => (night() ? night().schedule : (state.schedules || {}).embycache) || {};
+/** Tonight's plan in his words, pure: what he gives back, what of the downloads goes, what he fetches, what waits */
+function tonightText(p) {
+  if (!p || !p.measured) return T('night.unmeasured');
+  const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_none'),
+    Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none'),
+    Number(p.fill) > 0 ? T('night.fill', { size: fmt.size(p.fill) }) : T('night.fill_none')];
+  if (Number(p.wait) > 0) parts.push(T('night.wait', { size: fmt.size(p.wait) }));
+  return T('night.tonight', { what: parts.join(' · ') });
+}
 
 /**
  * «anna watches … on iPad · last activity 10 hours ago» — who watches what on which device (Emby's
@@ -328,7 +341,7 @@ function bubbleText() {
   if (!state.gather.ready) return T('bubble.gather_first');
   const c = state.cache;
   const parts = [c.files ? T('bubble.on_pool', { n: c.files, size: fmt.size(c.bytes) }) : T('bubble.nothing_yet')];
-  if (!state.schedules.embycache.enabled) parts.push(T('bubble.no_schedule'));
+  if (!embySched().enabled) parts.push(T('bubble.no_schedule'));
   return parts.join(' ');
 }
 
@@ -537,7 +550,7 @@ function lastRunTile(a) {
 
 /** The two schedules in one tile: «2 active · next 04:30» / «off»; its section: their list */
 function plansTile(a) {
-  const sc = state.schedules || {};
+  const sc = { ...(state.schedules || {}), embycache: embySched() };
   const jobs = ['embycache', 'gather'];
   const on = jobs.filter((j) => sc[j] && sc[j].enabled);
   const nexts = on.map((j) => sc[j].next).filter((n) => typeof n === 'number' && n > 0);
@@ -551,23 +564,26 @@ function plansSection() {
   const s = section(T('schedules'), T('plans.sub'), { place: 'plans' });
   s.id = 'jo-plans';
   s.appendChild(plansList());
-  // Ms. Moverelli follows his scheduled real EmbyCache runs (her schedule «right after Jack Emby») — one quiet line
-  if (state.moverelli_after) s.appendChild(el('p', 'role', T('plans.moverelli_after')));
+  // the night run with Ms. Moverelli: tonight's plan — one quiet line
+  if (night() && night().jack) s.appendChild(el('p', 'role', tonightText(night().plan)));
   return s;
 }
 function plansList() {
   const box = el('div', 'box jo-plans');
   ['embycache', 'gather'].forEach((job) => {
-    const sc = (state.schedules || {})[job] || {};
+    const sc = job === 'embycache' ? embySched() : (state.schedules || {})[job] || {};
+    // EmbyCache runs in the night run with Ms. Moverelli: one time for both, set on her page
+    const together = job === 'embycache' && !!night();
     const row = Office.place(`plan:${job}`, el('div', 'row nocheck'));
     const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name', T('tool.' + job)));
+    main.appendChild(el('div', 'row-name', together ? T('plans.night_name') : T('tool.' + job)));
     const meta = el('div', 'row-meta');
-    meta.appendChild(sc.enabled ? el('span', '', schedText(sc)) : chip(T('not_scheduled'), job === 'embycache' ? 'warn' : 'quiet'));
+    meta.appendChild(sc.enabled ? el('span', '', together ? T('plans.night', { when: schedText(sc) }) : schedText(sc)) : chip(T('not_scheduled'), job === 'embycache' ? 'warn' : 'quiet'));
     if (sc.enabled && typeof sc.next === 'number' && sc.next > 0) meta.appendChild(el('span', '', T('plans.next', { when: fmt.relative(sc.next) })));
     main.appendChild(meta);
-    const change = button(T('plans.change'), 'small plain', () => scheduleDialog(job));
-    change.disabled = !Office.agent.running;
+    const change = together ? button(T('plans.night_open'), 'small plain', () => Office.go('#/moverelli/schedule'))
+      : button(T('plans.change'), 'small plain', () => scheduleDialog(job));
+    change.disabled = !together && !Office.agent.running;
     row.append(main, change);
     box.appendChild(row);
   });
@@ -581,32 +597,38 @@ function plansList() {
 function poolTile(a) {
   const c = state.cache || {};
   const pool = state.pool;
-  const slice = pool && pool.slice != null;
-  const sub = !pool ? '' : slice ? T('pool_tile.slice', { used: fmt.size(pool.slice_used), j: fmt.size(pool.slice), pct: fmt.number(pool.free_percent, 1) })
+  const held = pool && pool.keep != null;
+  const sub = !pool ? '' : held ? T('pool_tile.held', { used: fmt.size(pool.held), h: fmt.size(pool.keep), pct: fmt.number(pool.free_percent, 1) })
     : T('pool_tile.free', { pct: fmt.number(pool.free_percent, 1), min: pool.min_free ?? '?' });
-  const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '', ...sliceWords(),
+  const tip = [pool ? T('pool_sub', { pool: pool.path, free: fmt.size(pool.free), min: pool.min_free ?? '?' }) : '', ...roomWords(),
     c.listed_at ? T('pool_tile.as_of', { when: fmt.relative(c.listed_at) }) : ''].filter(Boolean).join('\n');
   // never a break between a number and its unit («671 GB» stays on one line)
   const nb = (t) => String(t).replace(/(\d) /g, '$1\u00a0');
   return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nb(nOf('files', c.files)), size: nb(fmt.size(c.bytes)) }) : T('pool_tile.none'),
-    sub, tip, alert: !!(pool && ((pool.min_free != null && pool.free_percent < pool.min_free) || pool.excess > 0)), ...a });
+    sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
 }
 
 /**
- * What Ms. Moverelli gives him (2026-10-12, her cake — agent/lib/poolcake.php): his slice and what of it he holds, the
- * files that waited because it was full, what he gives back; without her slice: what he keeps free meanwhile, or that
- * she isn't set up. [line, …] in his words (pure on state.pool).
+ * What Ms. Moverelli gives him (2026-10-13, the pool simply — agent/lib/poollevel.php): she keeps the pool below X, he may
+ * fill up to Y, his half is his for sure — what he holds, the films that wait for room, what he gives back; without her
+ * limit: what he keeps free, or that she isn't set up. [line, …] in his words (pure on state.pool).
  */
-function sliceWords() {
+function roomWords() {
   const pool = state && state.pool;
   if (!pool) return [];
   const mo = pool.moverelli;
-  if (!mo) return [T('slice.none')];
-  if (!(mo.x > 0)) return [T('slice.own', { min: pool.min_free ?? '?' })];
-  if (pool.slice == null) return [T('slice.pending', { min: 100 - mo.x })];
-  const out = [T('slice.text', { n: mo.n, j: fmt.size(pool.slice), used: fmt.size(pool.slice_used) })];
-  if (pool.excess > 0) out.push(T('slice.over', { used: fmt.size(pool.slice_used), j: fmt.size(pool.slice), excess: fmt.size(pool.excess) }));
-  else if (pool.waiting > 0) out.push(T('slice.full', { n: pool.waiting }));
+  if (!mo) return [T('room.none')];
+  if (!(mo.x > 0)) return [T('room.own', { min: pool.min_free ?? '?' })];
+  if (pool.keep == null) return [T('room.plain', { x: mo.x, y: mo.y })];
+  const out = [T('room.text', { x: mo.x, y: mo.y, h: fmt.size(pool.keep), used: fmt.size(pool.held) })];
+  if (pool.never) out.push(T('room.never', { y: mo.y }));
+  else if (pool.back > 0) out.push(T('room.back', { y: mo.y, back: fmt.size(pool.back) }));
+  if (pool.waiting > 0) out.push(T('room.waiting', { n: pool.waiting }));
+  const gb = pool.given_back && Array.isArray(pool.given_back.items) ? pool.given_back.items : [];
+  if (gb.length) {
+    const shown = gb.slice(0, 3).map(rankItem).join(' · ');
+    out.push(gb.length > 3 ? T('room.gave_back_more', { list: shown, n: gb.length - 3 }) : T('room.gave_back', { list: shown }));
+  }
   return out;
 }
 
@@ -723,11 +745,23 @@ function etaText(eta, total) {
 function progFile(cur) {
   const line = el('div', 'jo-prog-file');
   line.append(el('span', 'jo-prog-rel', cur.rel || ''), el('span', '', T('progress.bytes', { done: fmt.size(cur.done || 0), size: fmt.size(cur.size || 0) })));
-  if (cur.source) {
+  if (cur.why) {
+    line.appendChild(el('span', 'jo-prog-why', T('progress.giveback', { what: rankItem(cur.why) })));
+  } else if (cur.source) {
     const src = T('progress.source.' + cur.source);
     line.appendChild(el('span', 'jo-prog-why', cur.title ? T('progress.why', { source: src, title: cur.title }) : src));
   }
   return line;
+}
+
+/**
+ * What goes back over his limit, in words (jack-phase2): «Breaking Bad – S01E10 (episode 10 ahead, Mother)» — how far
+ * ahead it lies for whoever watches it soonest (0 started, 1 next up, n the n-th episode ahead) and who queues it.
+ */
+function rankItem(w) {
+  const n = Math.max(0, Number(w.ahead) || 0);
+  const what = n === 0 ? T('rank.started') : n === 1 ? T('rank.next') : T('rank.ahead', { n });
+  return T('rank.item', { title: w.title || '', why: w.who ? T('rank.who', { what, who: w.who }) : what });
 }
 
 function peopleText(vu) {
@@ -967,8 +1001,10 @@ function poolSection() {
   const s = section(T('on_pool'), c.listed_at ? T('on_pool_sub', { when: fmt.relative(c.listed_at) }) : T('on_pool_none'),
     el('span', 'hint', c.files ? T('pool_sum', { n: c.files, size: fmt.size(c.bytes) }) : ''), { place: 'on_pool' });
   s.id = 'jo-pool';
-  // what Ms. Moverelli gives him on the pool (her cake), in his words — over the list
-  sliceWords().forEach((line, i) => s.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
+  // what Ms. Moverelli gives him on the pool, in his words — over the list
+  roomWords().forEach((line, i) => s.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
+  // the night run with Ms. Moverelli: what tonight brings — a plain line, no warning
+  if (night() && night().jack && night().plan) s.appendChild(el('p', 'callout jo-slice', tonightText(night().plan)));
   if (!c.files) return s;
   s.appendChild(poolBar.el);
   const box = el('div', 'box');
@@ -1620,8 +1656,8 @@ function setupScope() {
   poolSel.value = v.cache_path;
   poolSel.onchange = () => { v.cache_path = poolSel.value; renderSetup(); };
   f4.appendChild(field(T('setup.pool'), poolSel, T('setup.pool_hint')));
-  // how much room he has on the pool is Ms. Moverelli's to say (her cake): his own «leave N % free» field is gone
-  sliceWords().forEach((line, i) => f4.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
+  // how much room he has on the pool is Ms. Moverelli's to say (her limit): his own «leave N % free» field is gone
+  roomWords().forEach((line, i) => f4.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
   const mode = el('select', 'picker');
   mode.append(new Option(T('setup.mode_count'), 'count'), new Option(T('setup.mode_budget'), 'budget'));
   mode.value = v.budget_mode ? 'budget' : 'count';
@@ -2228,7 +2264,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sliceWords, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,

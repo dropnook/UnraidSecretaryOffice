@@ -451,13 +451,14 @@ def free_percent_after(path, size, simulated_delta=0):
     return max(0.0, (free + simulated_delta - size) / total * 100.0)
 
 
-def budget_bytes():
-    """USO: EMBYCACHE_BUDGET_BYTES – Jacks Stück vom Pool in Bytes (Frau Moverelli teilt es zu); None: kein Budget."""
-    v = (os.environ.get("EMBYCACHE_BUDGET_BYTES") or "").strip()
+def keep_bytes():
+    """USO: EMBYCACHE_KEEP_BYTES – was Jack in jedem Fall behalten darf (seine Hälfte des Platzes unter Frau Moverellis
+    Ziel, das Office rechnet sie aus); die Rückgabe nach Freiplatz geht nie darunter. None: kein Boden."""
+    v = (os.environ.get("EMBYCACHE_KEEP_BYTES") or "").strip()
     if not v:
         return None
     if not v.isdigit():
-        raise ConfigError(f"EMBYCACHE_BUDGET_BYTES ist keine ganze Zahl: {v!r}")
+        raise ConfigError(f"EMBYCACHE_KEEP_BYTES ist keine ganze Zahl: {v!r}")
     return int(v)
 
 

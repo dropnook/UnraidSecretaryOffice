@@ -34,5 +34,35 @@
     "left": 0
    }
   ]
+ },
+ "night": {
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791671222,
+  "phase": "free",
+  "round": 1,
+  "who": "her",
+  "jack": true,
+  "pool": "cache",
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "steps": [
+   {
+    "who": "jack",
+    "phase": "free",
+    "round": 1,
+    "exit": 0,
+    "result": "ok"
+   }
+  ],
+  "result": null,
+  "running": true
  }
 }
