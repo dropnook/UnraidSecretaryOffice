@@ -638,7 +638,7 @@ class Planner:
         return order
 
     def names(self, f):
-        """Wer die Datei vormerkt, der am ehesten Schauende zuerst: «Mutter, Benj»."""
+        """Wer die Datei vormerkt, der am ehesten Schauende zuerst: «Mutter, Vater»."""
         keys = sorted(f.ranks, key=lambda k: (f.ranks[k], self.users[k].name.lower() if k in self.users else str(k)))
         return ", ".join(self.users[k].name if k in self.users else str(k) for k in keys)
 
