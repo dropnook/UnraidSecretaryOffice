@@ -681,13 +681,14 @@
   "check.mover_tuning_schedule_how": "Den eigenen Zeitplan von {name} ({schedule}) dort ausschalten — das Verschieben macht Frau Moverelli.",
   "sizes_ready": "davon von EmbyCache bereitgelegt: {files} · {size}",
   "sizes_ready_tip": "Was EmbyCache für {share} auf dem Pool bereithält (seine Liste)",
-  "slice.text": "Frau Moverelli sagt mir, wie viel Platz ich habe: {n} % vom Kuchen, das sind {j} — {used} brauch ich grad. Finger weg vom Rest, ich weiss.",
-  "slice.pending": "Frau Moverelli hat mir noch kein Stück zugeteilt — bis dahin lasse ich {min} % vom Pool frei.",
-  "slice.none": "Frau Moverelli hat mir noch kein Stück zugeteilt — Probeläufe gern, echte erst dann.",
-  "slice.own": "Frau Moverelli setzt dem Pool keine Grenze — ich lasse {min} % davon frei.",
-  "slice.full": {"one": "Mein Stück ist voll — {n} Film wartet auf dem Array, bis was frei wird.", "other": "Mein Stück ist voll — {n} Filme warten auf dem Array, bis was frei wird."},
-  "slice.over": "Ich bin über meinem Stück ({used} von {j}) — beim nächsten Lauf bring ich {excess} zurück.",
-  "slice.gave_back": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list}.",
-  "slice.gave_back_more": {"one": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list} und {n} weiteres.", "other": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list} und {n} weitere."},
-  "pool_tile.slice": "{used} von {j} · {pct} % frei"
+  "room.none": "Frau Moverelli ist noch nicht eingerichtet — Probeläufe gern, echte erst dann.",
+  "room.own": "Frau Moverelli setzt keine Grenze für den Pool — ich lass {min} % davon frei.",
+  "room.plain": "Frau Moverelli hält den Pool unter {x} % — ich darf ihn bis {y} % füllen.",
+  "room.text": "Frau Moverelli hält den Pool unter {x} % — ich darf bis {y} %, mindestens {h} gehören mir, {used} brauch ich grad.",
+  "room.back": "Der Pool ist über {y} % — beim nächsten Lauf bring ich {back} zurück, das am weitesten voraus Liegende zuerst. Mein Teil bleibt.",
+  "room.never": "appdata & Co. allein füllen den Pool über {y} % — für mich bleibt nichts.",
+  "room.waiting": {"one": "{n} Film wartet auf dem Array, bis Platz frei wird.", "other": "{n} Filme warten auf dem Array, bis Platz frei wird."},
+  "room.gave_back": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list}.",
+  "room.gave_back_more": {"one": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list} und {n} weiteres.", "other": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list} und {n} weitere."},
+  "pool_tile.held": "{used} · mindestens {h} meins · {pct} % frei"
 }

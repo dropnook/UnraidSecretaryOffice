@@ -681,13 +681,14 @@
   "check.mover_tuning_schedule_how": "Switch off the schedule of {name} ({schedule}) there — Ms. Moverelli does the moving.",
   "sizes_ready": "of that ready from EmbyCache: {files} · {size}",
   "sizes_ready_tip": "What EmbyCache keeps ready on the pool for {share} (its list)",
-  "slice.text": "Ms. Moverelli tells me how much room I have: {n} % of the cake, that's {j} — I need {used} right now. Hands off the rest, I know.",
-  "slice.pending": "Ms. Moverelli hasn't given me a slice yet — until then I leave {min} % of the pool free.",
-  "slice.none": "Ms. Moverelli hasn't given me a slice yet — dry runs gladly, real ones only then.",
-  "slice.own": "Ms. Moverelli sets no limit for the pool — I leave {min} % of it free.",
-  "slice.full": {"one": "My slice is full — {n} film waits on the array until something frees up.", "other": "My slice is full — {n} films wait on the array until something frees up."},
-  "slice.over": "I'm over my slice ({used} of {j}) — at the next run I bring {excess} back.",
-  "slice.gave_back": "Last run I gave back, the farthest ahead first: {list}.",
-  "slice.gave_back_more": {"one": "Last run I gave back, the farthest ahead first: {list} and {n} more.", "other": "Last run I gave back, the farthest ahead first: {list} and {n} more."},
-  "pool_tile.slice": "{used} of {j} · {pct} % free"
+  "room.none": "Ms. Moverelli isn't set up yet — dry runs gladly, real ones only then.",
+  "room.own": "Ms. Moverelli sets no limit for the pool — I leave {min} % of it free.",
+  "room.plain": "Ms. Moverelli keeps the pool below {x} % — I may fill it up to {y} %.",
+  "room.text": "Ms. Moverelli keeps the pool below {x} % — I may fill it up to {y} %, at least {h} are mine, {used} I need right now.",
+  "room.back": "The pool is above {y} % — at the next run I bring back {back}, the farthest ahead first. My share stays.",
+  "room.never": "appdata & co. alone fill the pool above {y} % — no room left for me.",
+  "room.waiting": {"one": "{n} film waits on the array until there's room.", "other": "{n} films wait on the array until there's room."},
+  "room.gave_back": "Last run I gave back, the farthest ahead first: {list}.",
+  "room.gave_back_more": {"one": "Last run I gave back, the farthest ahead first: {list} and {n} more.", "other": "Last run I gave back, the farthest ahead first: {list} and {n} more."},
+  "pool_tile.held": "{used} · at least {h} mine · {pct} % free"
 }

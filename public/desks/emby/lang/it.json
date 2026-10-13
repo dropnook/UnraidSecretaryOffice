@@ -681,13 +681,14 @@
   "check.mover_tuning_schedule_how": "Spegni lì la pianificazione propria di {name} ({schedule}) — a spostare ci pensa la Signora Moverelli.",
   "sizes_ready": "di cui preparato da EmbyCache: {files} · {size}",
   "sizes_ready_tip": "Ciò che EmbyCache tiene pronto sul pool per {share} (il suo elenco)",
-  "slice.text": "La signora Moverelli mi dice quanto spazio ho: il {n} % della torta, cioè {j} — adesso me ne servono {used}. Giù le mani dal resto, lo so.",
-  "slice.pending": "La signora Moverelli non mi ha ancora dato una fetta — fino ad allora lascio libero il {min} % del pool.",
-  "slice.none": "La signora Moverelli non mi ha ancora dato una fetta — prove a secco volentieri, esecuzioni vere solo dopo.",
-  "slice.own": "La signora Moverelli non mette limiti al pool — ne lascio libero il {min} %.",
-  "slice.full": {"one": "La mia fetta è piena — {n} film aspetta sull'array finché si libera qualcosa.", "other": "La mia fetta è piena — {n} film aspettano sull'array finché si libera qualcosa."},
-  "slice.over": "Sono oltre la mia fetta ({used} di {j}) — alla prossima esecuzione riporto indietro {excess}.",
-  "slice.gave_back": "All'ultima esecuzione ho restituito, prima ciò che è più lontano: {list}.",
-  "slice.gave_back_more": {"one": "All'ultima esecuzione ho restituito, prima ciò che è più lontano: {list} e {n} altro.", "other": "All'ultima esecuzione ho restituito, prima ciò che è più lontano: {list} e altri {n}."},
-  "pool_tile.slice": "{used} di {j} · {pct} % libero"
+  "room.none": "La signora Moverelli non è ancora configurata — prove volentieri, quelle vere solo dopo.",
+  "room.own": "La signora Moverelli non mette limiti al pool — ne lascio libero il {min} %.",
+  "room.plain": "La signora Moverelli tiene il pool sotto il {x} % — io posso riempirlo fino al {y} %.",
+  "room.text": "La signora Moverelli tiene il pool sotto il {x} % — io posso arrivare al {y} %, almeno {h} sono miei, ora me ne servono {used}.",
+  "room.back": "Il pool è sopra il {y} % — al prossimo giro riporto {back}, prima ciò che sta più avanti. La mia parte resta.",
+  "room.never": "appdata & co. da soli riempiono il pool oltre il {y} % — per me non resta nulla.",
+  "room.waiting": {"one": "{n} film aspetta sull'array finché si libera spazio.", "other": "{n} film aspettano sull'array finché si libera spazio."},
+  "room.gave_back": "All'ultimo giro ho restituito, prima il più lontano: {list}.",
+  "room.gave_back_more": {"one": "All'ultimo giro ho restituito, prima il più lontano: {list} e {n} altro.", "other": "All'ultimo giro ho restituito, prima il più lontano: {list} e altri {n}."},
+  "pool_tile.held": "{used} · almeno {h} miei · {pct} % libero"
 }
