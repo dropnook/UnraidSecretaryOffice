@@ -30640,6 +30640,8 @@ out.edges = [m.sliceNote({ ...g, jack_slice_percent: 0 }, raw), m.sliceNote({ ..
   m.cakeMath(raw, 80, 40, 15).bad, m.cakeMath(raw, 80, 40, 16).bad];
 const zeroBar = m.cakeBar('master', raw, { ...g, jack_slice_percent: 0 });
 out.overBar = [classes(zeroBar).includes('mo-cake-seg mo-cake-over'), texts(zeroBar).includes('setup.cake_over')];
+// the legend says what the bar draws (2026-10-13: «Jack's slice» hatched in the legend, his held part solid in the bar)
+out.legend = [m.cakeBar('master', raw, g), zeroBar].map((b) => classes(b).filter((x) => x.startsWith('mo-swatch')).map((x) => x.slice(18)));
 m.setState({ cakes: { master: raw }, jack: { hired: true } });
 out.slice = texts(m.sliceField({ ...g, jack_slice_percent: null }, raw));
 const sec = m.cakeSection(g);
@@ -30692,6 +30694,12 @@ JS);
     same('cake page: the slider\'s edges — 0 %: no room, he gives back his 671 GiB (asked); too far right: at most 15 % (15 % fine, 16 % out of reach); fine: nothing', [
         'setup.slice_zero {"used":"671 GiB"}', 'setup.cake_slice_big {"nm":32,"y":40,"j":"699 GiB","max":15}', null, null, 'slice'], $j['edges'] ?? null);
     same('cake page: at 0 % the bar draws what he holds over his slice, «over his slice» in the legend', [true, true], $j['overBar'] ?? null);
+    same('cake page: the legend as drawn — what Jack holds solid, his free slice hatched, new things and their room; at 0 % no slice keys, over it',
+        [['nm', 'jack', 'slice', 'fresh', 'new', 'free'], ['nm', 'over', 'fresh', 'new', 'free']], $j['legend'] ?? null);
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.css');
+    check('cake page: each legend swatch shares its rule with the part of the bar it names',
+        str_contains($css, '.mo-cake-slice > .mo-cake-held, .mo-swatch.mo-cake-jack{') && str_contains($css, '.mo-cake-new > .mo-cake-held, .mo-swatch.mo-cake-fresh{')
+        && str_contains($css, '.mo-cake-slice, .mo-swatch.mo-cake-slice{') && str_contains($css, '.mo-cake-new, .mo-swatch.mo-cake-new{'));
     same('cake page: her bubble while a bound holds', 'notify.cake_target {"pool":"master","nm":55,"x":80,"y":60,"used":43}', $j['bubble'] ?? null);
     same('limits at once: Y ≥ X (for all shares and for Filme with its own 60 %), Y missing, fine, the cake out of reach — what she says', [
         [['', 'setup.err_until_high {"x":70,"y":80}'], ['Filme', 'setup.err_until_high {"x":60,"y":80}']],
