@@ -473,10 +473,7 @@
     "pause": 800
    }
   ],
-  "clip": [
-   ".deskhead",
-   ".mo-run"
-  ]
+  "clip": ".mo-run"
  },
  {
   "nr": 13,
