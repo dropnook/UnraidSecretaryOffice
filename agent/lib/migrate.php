@@ -61,13 +61,9 @@ function officeMigrateSteps(): array
             require_once __DIR__ . '/partner.php';
             return partnerMigrateSimple($dir);
         }],
-        // Ms. Moverelli's cake (agent/lib/poolcake.php): her ini from before it has no jack_slice_percent — nothing is written;
-        // her setup proposes his slice from what he holds today, until «Apply» she reads the pool as before and Jack keeps
-        // 100 − X % free instead of his own minimum (said here once)
-        ['id' => 'moverelli-cake', 'version' => '1.61.0', 'run' => function (string $dir, string $to): string {
-            require_once __DIR__ . '/poolcake.php';
-            return officeMigrateCake($dir);
-        }],
+        // the pool, simply (agent/lib/poollevel.php, replaces 1.61's cake): her ini gets Y = X − 10 where it has a limit
+        // without one, Jack Emby's old slice line goes; her schedule before his is said (the Team Lead's hint says it too)
+        ['id' => 'pool-simple', 'version' => '1.62.0', 'run' => fn (string $dir, string $to): string => officeMigratePoolSimple($dir, $to)],
     ];
 }
 
@@ -397,19 +393,59 @@ function officeCronBack(string $file = OFFICE_CRON, ?callable $apply = null, ?ca
 }
 
 /**
- * Step `moverelli-cake`: reads her smart_mover.ini, writes nothing (idempotent). With a limit X and no Jack's slice yet:
- * says what holds until she sets one — her reading as before (no offset), Jack Emby without a budget but with
- * EMBYCACHE_MIN_FREE_PERCENT = 100 − X instead of his own setting.
+ * Step `pool-simple` (1.62.0): her smart_mover.ini in [GLOBAL] — a limit X without a target below it gets
+ * move_until_used_below = X − 10; the cake's jack_slice_percent line goes (the whole ini kept beside it first,
+ * <name>.before-<version>). Idempotent: an ini with both and no slice line is left alone. Her time schedule running before
+ * Jack Emby's is only said («right after Jack Emby» is the better choice).
  */
-function officeMigrateCake(string $dir): string
+function officeMigratePoolSimple(string $dir, string $to): string
 {
-    $rules = poolCakeRules("$dir/moverelli/smart_mover.ini");
-    if ($rules === null || $rules['x'] <= 0) {
-        return 'nothing to change — Ms. Moverelli has no limit for the pool';
+    $ini = "$dir/moverelli/smart_mover.ini";
+    clearstatcache(true, $ini);
+    $st = @lstat($ini);
+    if ($st === false || ($st['mode'] & 0170000) !== 0100000) {
+        return 'nothing to change — Ms. Moverelli is not set up';
     }
-    if ($rules['n'] !== null) {
-        return "nothing to change — Jack Emby's slice is set ({$rules['n']} %)";
+    $text = (string) @file_get_contents($ini, false, null, 0, 4 << 20);
+    $lines = preg_split('/(?<=\n)/', $text);
+    $in = false;
+    $x = $y = null;
+    $at = null;                 // the line after which Y goes (her limit's)
+    $out = [];
+    $done = [];
+    foreach ($lines as $line) {
+        if (preg_match('/^\s*\[(.*)\]\s*$/', $line, $m)) {
+            $in = trim($m[1]) === 'GLOBAL';
+        } elseif ($in && preg_match('/^\s*jack_slice_percent\s*=/', $line)) {
+            $done[] = 'the old slice line removed';
+            continue;
+        } elseif ($in && preg_match('/^\s*move_when_used_above\s*=\s*(\d{1,3})\s*$/', $line, $m)) {
+            $x = (int) $m[1];
+            $at = count($out);
+        } elseif ($in && preg_match('/^\s*move_until_used_below\s*=\s*(\d{1,3})\s*$/', $line, $m)) {
+            $y = (int) $m[1];
+        }
+        $out[] = $line;
     }
-    return "nothing written — Jack Emby's slice isn't set yet: her setup proposes one; until then she reads the pool as before and "
-        . 'Jack Emby keeps ' . (100 - $rules['x']) . ' % of it free (her limit ' . $rules['x'] . ' %) instead of his own minimum';
+    if ($x !== null && $x > 0 && $x <= 100 && ($y === null || $y <= 0 || $y >= $x) && $at !== null) {
+        $new = max(1, $x - 10);
+        if ($y !== null) {
+            $out = array_map(fn ($l) => preg_match('/^\s*move_until_used_below\s*=/', $l) ? "move_until_used_below=$new\n" : $l, $out);
+        } else {
+            $line = $out[$at];
+            $out[$at] = (str_ends_with($line, "\n") ? $line : "$line\n") . "move_until_used_below=$new\n";
+        }
+        $done[] = "her target set to $new % (her limit $x % minus 10)";
+    }
+    $says = '';
+    $sched = readJson("$dir/moverelli/office-schedule.json") ?? [];
+    if (($sched['after'] ?? null) !== 'emby' && is_string($sched['cron'] ?? null) && $sched['cron'] !== '') {
+        $says = '; she runs on a time of her own — «right after Jack Emby» is the better choice while he is hired (her schedule)';
+    }
+    if (!$done) {
+        return 'nothing to change' . $says;
+    }
+    $kept = officeMigrateKeep($ini, $text, $to);
+    writeAtomic($ini, implode('', $out), 0600, 0, 0);
+    return implode(', ', $done) . ' (the ini before: ' . basename($kept) . ')' . $says;
 }

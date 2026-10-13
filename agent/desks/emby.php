@@ -53,7 +53,7 @@ const EMBY_WATCH_MAX     = 7200;    // … for up to 2 h, then that night is ski
 const EMBY_WATCH_DURING  = 60;      // during a real gather Emby is asked once a minute; someone watching = stop after the current folder
 const EMBY_WATCH_SHOWN   = 10;      // at most this many watchers kept
 
-require_once dirname(__DIR__) . '/lib/poolcake.php';     // Ms. Moverelli's cake: his slice of the pool (shared with her)
+require_once dirname(__DIR__) . '/lib/poollevel.php';    // Ms. Moverelli's limit and his half of the pool (shared with her)
 
 define('EMBY_APP', OFFICE_DIR . '/embycache');
 define('GATHER_APP', OFFICE_DIR . '/gather');
@@ -631,19 +631,19 @@ function embyPoolUsage(?array $settings): ?array
         return null;
     }
     $out = ['path' => $cache, 'total' => $total, 'free' => $free, 'free_percent' => round($free / $total * 100, 1), 'min_free' => $settings['min_free_percent'] ?? null];
-    // Ms. Moverelli's cake (2026-10-12): her limit X keeps 100 − X free for him; his slice once she set it — what of it
-    // he holds, how many files waited in his last run because it was full, what he gives back
-    $look = embyCakeLook($settings);
+    // Ms. Moverelli (2026-10-13, the pool simply): she keeps the pool below X, he may fill up to Y = X − offset, his half H
+    // is his for sure — what he holds, how many files waited in his last run for room, what he gave back
+    $look = embyPoolLook($settings);
     if ($look !== null) {
-        $out['moverelli'] = ['x' => $look['rules']['x'], 'n' => $look['rules']['n']];
+        $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y']];
         if ($look['rules']['x'] > 0) {
-            $out['min_free'] = 100 - $look['rules']['x'];
+            $out['min_free'] = 100 - $look['rules']['y'];
         }
-        $c = $look['cake'];
-        if ($c !== null && $c['n'] !== null) {
-            $slice = (array) (readJson(EMBY_DATA . '/status.json')['slice'] ?? []);
-            $out += ['slice' => $c['slice'], 'slice_used' => $c['jack'], 'excess' => $c['excess'], 'cake' => $c['cake'], 'case' => $c['case'],
-                     'waiting' => (int) ($slice['waiting'] ?? 0), 'given_back' => embyGiveBackList()];
+        $l = $look['level'];
+        if ($l !== null) {
+            $st = (array) (readJson(EMBY_DATA . '/status.json')['pool'] ?? []);
+            $out += ['keep' => $l['half'], 'held' => $l['jack'], 'back' => $l['back'], 'never' => $l['never'],
+                     'waiting' => embyProgressInt($st['waiting'] ?? 0), 'given_back' => embyGiveBackList()];
         }
     }
     return $out;
@@ -666,24 +666,24 @@ function embyGiveBackList(?array $status = null): array
 }
 
 /**
- * Ms. Moverelli's cake from his side (agent/lib/poolcake.php poolCakeJack()): her rules, his pool's cake, what EmbyCache
- * is told — null while she isn't set up. $wake: a run is about to wake the pool anyway. The tests: $GLOBALS['embyCake'].
+ * Ms. Moverelli's limit from his side (agent/lib/poollevel.php poolLevelJack()): her rules, his pool, what EmbyCache is
+ * told — null while she isn't set up. $wake: a run is about to wake the pool anyway. The tests: $GLOBALS['embyPool'].
  */
-function embyCakeLook(?array $settings, bool $wake = false): ?array
+function embyPoolLook(?array $settings, bool $wake = false): ?array
 {
-    $o = ($GLOBALS['embyCake'] ?? []) + ['ini' => DATA_DIR . '/moverelli/smart_mover.ini', 'shares_dir' => '/boot/config/shares', 'zfs' => 'zfs',
+    $o = ($GLOBALS['embyPool'] ?? []) + ['ini' => DATA_DIR . '/moverelli/smart_mover.ini', 'shares_dir' => '/boot/config/shares', 'zfs' => 'zfs',
         'mnt' => '/mnt', 'jack_list' => EMBY_DATA . '/embycache_exclude.txt', 'asleep' => null];
     $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
-    return poolCakeJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
+    return poolLevelJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
 }
 
-/** What EmbyCache is told for a run (dry, real): her limit as his minimum free space, his slice as his budget */
-function embyCakeEnv(?array $settings): array
+/** What EmbyCache is told for a run (dry, real): 100 − Y as his minimum free space, his half as the floor of his give-back */
+function embyPoolEnv(?array $settings): array
 {
     try {
-        return embyCakeLook($settings, true)['env'] ?? [];
+        return embyPoolLook($settings, true)['env'] ?? [];
     } catch (Throwable $e) {
-        logLine("Jack Emby: Ms. Moverelli's cake not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
+        logLine("Jack Emby: Ms. Moverelli's limit not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
         return [];
     }
 }
@@ -2414,8 +2414,8 @@ function embyJob(string $tool, array $args): int
     } else {
         $cmd = array_merge(['python3', EMBY_APP . '/embycache_run.py'], EMBY_MODES[$mode]);
         $env = embyPyEnv() + ['EMBYCACHE_STATUS' => "$dir/status.json"] + ($real ? ['EMBYCACHE_STOP' => "$dir/office-stop.json"] : [])
-             // Ms. Moverelli's cake: her limit and his slice (a dry run sees what the real one would)
-             + (in_array($mode, ['dry', 'run'], true) ? embyCakeEnv(embyReadSettings()) : []);
+             // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
+             + (in_array($mode, ['dry', 'run'], true) ? embyPoolEnv(embyReadSettings()) : []);
         $cwd = EMBY_APP;
         if ($real) {                     // the live panel on his page (emby-progress.php): EmbyCache's progress in RAM
             $progress = embyProgressPaths();
