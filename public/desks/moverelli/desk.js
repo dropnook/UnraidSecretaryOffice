@@ -802,7 +802,8 @@ async function scheduleDialog() {
   const pad = (n) => String(n).padStart(2, '0');
   const m2 = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cur);
   const af = after();
-  let mode = af.on ? 'after' : !sc.enabled ? 'daily' : m2 ? 'daily' : 'custom';
+  // nothing set yet while Jack Emby is hired: «right after Jack Emby» proposed (2026-10-13 — he gives back first, she moves after him)
+  let mode = af.on ? 'after' : sc.enabled ? (m2 ? 'daily' : 'custom') : af.jack ? 'after' : 'daily';
   const time = el('input', 'input');
   time.type = 'time';
   time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : '05:15';
@@ -1378,7 +1379,7 @@ function levelSection(g) {
 }
 /** «Advanced»: the offset X − Y and what Jack keeps for sure — checked at once like the limit */
 function advancedFold(g) {
-  const det = keepFold(el('details', 'box mo-adv'), '~adv', false);
+  const det = keepFold(el('details', 'box mo-share mo-adv'), '~adv', false);
   det.appendChild(el('summary', '', T('setup.advanced')));
   const f = el('div', 'mo-form');
   const off = field(T('setup.offset'), number(g, 'offset', 1, 99), T('setup.offset_hint'));

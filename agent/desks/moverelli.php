@@ -620,7 +620,8 @@ function moverelliIniText(array $set, string $dir): string
           . "min_age={$g['min_age']}\nage_stat={$g['age_stat']}\nmove_when_used_above={$g['move_when_used_above']}\n"
           . ($g['move_until_used_below'] ? "move_until_used_below={$g['move_until_used_below']}\n" : '')
           . 'move_prefer_shares=' . ($g['move_prefer_shares'] ? 'yes' : 'no') . "\nmover_debug={$g['mover_debug']}\nmax_list={$g['max_list']}\n"
-          . "jack_min_percent={$g['jack_min_percent']}\n";
+          // what Jack Emby keeps for sure: only when not the default (an ini without it reads 50)
+          . ((int) ($g['jack_min_percent'] ?? MOVERELLI_DEFAULTS['jack_min_percent']) !== MOVERELLI_DEFAULTS['jack_min_percent'] ? "jack_min_percent={$g['jack_min_percent']}\n" : '');
     if (($l = $list($g['files'], null, $g['patterns'])) !== '') {
         $text .= "global_excludes=$l\n";
     }

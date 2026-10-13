@@ -32222,6 +32222,9 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   out.options2 = texts(dialogs[1].body);
   m.setState({ ...base, after: { on: true, jack: false, jack_scheduled: false, idle: true } });
   out.notice3 = texts(m.afterNotice());
+  m.setState({ ...base, after: { on: false, jack: true, jack_scheduled: true, idle: false } });
+  await m.scheduleDialog();
+  out.checked3 = radios(dialogs[2].body).filter((r) => r.type === 'radio').map((r) => [r.checked, r.disabled]);
   console.log(JSON.stringify(out));
 })();
 JS);
@@ -32236,6 +32239,8 @@ JS);
     same('moverelli after page: the dialog — the third choice with its words, chosen, sent as {cron: null, after: emby}',
         [true, true, [[false, false], [false, false], [true, false], [false, false]], ['moverelli.schedule', ['cron' => null, 'after' => 'emby']]],
         [in_array('schedule.after', $o['options'] ?? [], true), in_array('schedule.after_hint', $o['options'] ?? [], true), $o['checked'] ?? null, $o['post'] ?? null]);
+    same('moverelli after page: nothing set yet, Jack hired — «right after Jack Emby» proposed (2026-10-13, the pool simply)',
+        [[false, false], [false, false], [true, false], [false, false]], $o['checked3'] ?? null);
     same('moverelli after page: Jack not hired — the choice offered disabled with why, no notice; chosen and Jack let go — the other notice',
         [[[true, false], [false, false], [false, true], [false, false]], true, null, ['notice.after_idle_letgo ', 'schedule_title']],
         [$o['checked2'] ?? null, in_array('schedule.after_no_jack', $o['options2'] ?? [], true), array_key_exists('notice2', $o) ? $o['notice2'] : 'x', $o['notice3'] ?? null]);
@@ -32838,7 +32843,7 @@ JS);
         'plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}', false, 'clicked plans'], $r['plans'] ?? null, $raw);
     same('his tiles: «Pool» — «Pool free» and «Ready on the pool» in one: files and size, how free and what EmbyCache keeps; the path and «as of» in the tip', ['tile.pool',
         'pool_tile.value {"files":"count.files {\"n\":12}","size":"4000B"}', 'pool_tile.free {"pct":"41.3","min":20}', false,
-        "pool_sub {\"pool\":\"/mnt/cache\",\"free\":\"700B\",\"min\":20}\nslice.none\npool_tile.as_of {\"when\":\"R1700\"}"], $r['pool'] ?? null, $raw);   // 1.61: no slice from Ms. Moverelli yet — said in the tip
+        "pool_sub {\"pool\":\"/mnt/cache\",\"free\":\"700B\",\"min\":20}\nroom.none\npool_tile.as_of {\"when\":\"R1700\"}"], $r['pool'] ?? null, $raw);   // 1.62: Ms. Moverelli not set up yet — said in the tip
     same('his tiles: «Shares» — how many, one needs a look (alert)', ['count.shares {"n":2}', 'shares_bad {"n":1}', true], $r['shares'] ?? null, $raw);
     same('his tiles: «Consolidate folders» — when, what it moved and the conflicts', ['R1600', 'gather_tile.sub {"moved":"count.moved {\"n\":14}","conflicts":"count.conflicts {\"n\":0}"}', false],
         $r['gather'] ?? null, $raw);

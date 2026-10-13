@@ -44,8 +44,7 @@
 .mo-level-rule{margin:6px 0 6px; font-size:13px; line-height:1.5; color:var(--ink)}
 .mo-level-pool{margin:0 0 6px; font-size:12.5px; line-height:1.5; color:var(--ink2); overflow-wrap:anywhere}
 .mo-levels .callout{margin:4px 0 8px}
-.mo-adv{margin:0 0 14px}
-.mo-adv > summary{cursor:pointer; font-weight:600}
+.mo-adv{margin:0 0 14px; max-width:980px}
 /* the limits checked at once: both fields in the danger colour, the reason under «… bis» */
 .field.mo-bad input{border-color:var(--danger); box-shadow:0 0 0 1px var(--danger)}
 .field.mo-bad > label{color:var(--danger)}
