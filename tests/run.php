@@ -17285,6 +17285,8 @@ function testStaffOrder(): void
     $default = array_keys($meta);
     same('staff order: a fresh office — the team lead, then Ms. Dustdevil (where Ms. Whereabouts was, order 20)',
         [['caretaker', 'cleanup'], 20], [array_slice($default, 0, 2), $meta['cleanup']['order'] ?? null]);
+    same('staff order: Ms. Moverelli right before Jack Emby, Ms. Protocolli last (2026-10-13)',
+        [true, 'logs'], [array_search('moverelli', $default) + 1 === array_search('emby', $default), end($default)]);
     check('staff order: no desk.json places a desk differently at the reception any more',
         !array_filter($meta, fn ($m) => array_key_exists('reception_order', $m)));
 
@@ -17656,7 +17658,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const run = async (name, mo) => {
     desks.clear();
     desks.set('emby', { id: 'emby', order: 50, hired: false, with: 'moverelli', needs: 'moverelli' });
-    desks.set('moverelli', { id: 'moverelli', order: 55, hired: mo.hired });
+    desks.set('moverelli', { id: 'moverelli', order: 48, hired: mo.hired });
     c.setState({ staff: { emby: { hired: false, ok: true, why: 'yes' }, moverelli: mo } });
     const x = c.staff().find((s) => s.id === 'emby');
     const row = c.teamRow(x);
