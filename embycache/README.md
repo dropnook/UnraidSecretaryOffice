@@ -42,10 +42,13 @@
 >   **Giving back** over the limit (`give_back_order`): the farthest ahead first (the 10th next episode before the next
 >   one; a shared item counts at its nearest rank), on equal rank first from the person who has most on the cache right
 >   now (recounted after each), what someone has started last; what plays stays; an item's files go together. It works
->   with **either limit**: the byte slice (above), and now also `min_free_percent` — when the pool (measured as above, on
+>   with **either limit**: the byte slice (above), and — **only with `EMBYCACHE_GIVE_BACK_FREE=1`, which the office sets
+>   when it launches EmbyCache; standalone, `min_free_percent` only stops filling, as before** — `min_free_percent`: when the pool (measured as above, on
 >   ZFS the whole pool) has less free than that, the run gives back until it has `FREE_HYSTERESIS` (2) points more
 >   (the fill stops exactly at the limit; without the margin a few GB of downloads would push it under again and every
 >   run would give back an episode and fetch it again); with both, the stricter decides; `min_free_percent` 0 = none.
+>   What was watched always goes first: the free-% decision counts what the cleanup is about to send back (no longer on
+>   deck, not playing, a safe way back) as already free and gives back ranked items only for what is still missing.
 >   The log says it in words (`[ZURÜCK: Stück] <rel> (<size>) – Gebe zurück: Serie – S01E10 (Folge 10 voraus, Mutter)`),
 >   the status gets `give_back` = {files, bytes, items: [{title, ahead, who}, …] (≤ 20)}, the progress file's `current`
 >   while going back a `why` {title, ahead, who}; the cleanup moves what is given back in that order (after what nobody

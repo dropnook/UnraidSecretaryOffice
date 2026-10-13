@@ -30989,11 +30989,14 @@ PY);
     file_put_contents("$p/mounts", "master $p/pool zfs rw 0 0\n");
     file_put_contents("$p/zfs", "#!/bin/bash\ncat " . escapeshellarg("$p/zfsnum") . "\n");
     chmod("$p/zfs", 0755);
-    $go = function (?int $budget, int $minFree = 0, ?int $free = null) use ($p, $settings): array {
+    $go = function (?int $budget, int $minFree = 0, ?int $free = null, bool $office = true) use ($p, $settings): array {
         $settings($minFree);
         @unlink("$p/data/status.json");
         $cmd = ['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", "EMBYCACHE_STATUS=$p/data/status.json", 'EMBYCACHE_FILL_TOOL=rsync',
                 'EMBYCACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', "EMBYCACHE_PROGRESS=$p/data/progress.json"];
+        if ($office) {
+            $cmd[] = 'EMBYCACHE_GIVE_BACK_FREE=1';
+        }
         if ($free !== null) {
             file_put_contents("$p/zfsnum", (10000 - $free) . " $free\n");
             array_push($cmd, "EMBYCACHE_MOUNTS=$p/mounts", "EMBYCACHE_ZFS=$p/zfs");
@@ -31037,6 +31040,17 @@ PY);
         [$st['give_back']['files'] ?? null, array_map(fn ($w) => [$w['title'], $w['ahead'], $w['who']], $st['give_back']['items'] ?? [])]);
     [$exit, $st, $out] = $go(null, 20, 2100);
     same('emby rank: free-% limit 20, the pool 79 % full (limit − 1) — nothing goes back, nothing more fills', [0, [], ['Brazil', 'S01E01', 'S01E03']], [$exit, $back($out), $on()], $out);
+    // what was watched always goes back first (Benj): old.mkv (400, no one's any more) on the pool and the list — 81 % full,
+    // but the cleanup frees 400 → 23 % free: no ranked give-back, only old.mkv goes
+    @mkdir("$p/pool/Filme/Old", 0700, true);
+    file_put_contents("$p/pool/Filme/Old/old.mkv", str_repeat('o', 400));
+    file_put_contents("$p/data/embycache_exclude.txt", "$p/pool/Filme/Old/old.mkv\n", FILE_APPEND);
+    [$exit, $st, $out] = $go(null, 20, 1900);
+    same('emby rank: watched files alone bring the pool under the limit — no ranked give-back, the watched one back on the array',
+        [0, [], ['Brazil', 'S01E01', 'S01E03'], false, true], [$exit, $back($out), $on(), is_file("$p/pool/Filme/Old/old.mkv"), is_file("$p/user0/Filme/Old/old.mkv")], $out);
+    [$exit, $st, $out] = $go(null, 20, 1900, false);
+    same('emby rank: standalone (no EMBYCACHE_GIVE_BACK_FREE) at limit + 1 — nothing goes back, min_free only stops filling (as before)',
+        [0, [], ['Brazil', 'S01E01', 'S01E03'], false], [$exit, $back($out), $on(), isset($st['give_back'])], $out);
     [$exit, $st, $out] = $go(null, 20, 1900);
     same('emby rank: the pool 81 % full (limit + 1) — back until 22 % free (300 bytes: one item), the next up E03 before what is started',
         [0, ['S01E03'], ['Brazil', 'S01E01']], [$exit, $back($out), $on()], $out);
@@ -31049,6 +31063,7 @@ PY);
     proc_terminate($emby);
     proc_close($emby);
 
+    same('emby rank: the office launches EmbyCache with the free-% give-back on', '1', embyPyEnv()['EMBYCACHE_GIVE_BACK_FREE'] ?? null);
     // the live panel's file going back and his page's words — in their shape
     file_put_contents("$tmp/progress.json", json_encode(['v' => 1, 'phase' => 'back', 'started' => 1, 'updated' => 2, 'back' => ['files' => 1, 'bytes' => 9],
         'users' => [], 'current' => ['phase' => 'back', 'rel' => 'Serien/S/E10.mkv', 'size' => 9, 'target' => '/x', 'since' => 2,

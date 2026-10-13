@@ -43,8 +43,9 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
   EMBYCACHE_DIR               Arbeitsverzeichnis (Settings, Exclude-Liste, Lock, logs/); Default: Script-Verzeichnis
   EMBYCACHE_CONFIG            Pfad zur Settings-JSON
   EMBYCACHE_LOG_LEVEL         DEBUG | INFO | WARNING (Default INFO)
-  EMBYCACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent; USO: darunter gibt
-                              der Lauf zurück, bis FREE_HYSTERESIS Punkte mehr frei sind – nach Rang)
+  EMBYCACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent)
+  EMBYCACHE_GIVE_BACK_FREE    USO: "1" (das Office) – unter min_free_percent gibt der Lauf zurück, nach Rang, bis
+                              FREE_HYSTERESIS Punkte mehr frei sind; sonst hört das Befüllen dort nur auf (wie bisher)
   EMBYCACHE_MOVER_DEBUG       0–3, Parameter -d für das move-Binary (überschreibt mover_debug_level)
   EMBYCACHE_RSYNC_ARGS        vollständige rsync-Optionen, Default "-aAX --numeric-ids" (überschreibt rsync_args)
   EMBYCACHE_FILL_TOOL         rsync | mover (überschreibt fill_tool)
@@ -712,8 +713,9 @@ class Runner:
         self.waiting = self.waiting_bytes = 0
         # USO (Phase 2): was übers Stück zurückgeht – Cache-Pfad -> {title, ahead, who} (Fortschritt) und seine Stelle
         self.back_why, self.back_rank, self.given_back_list = {}, {}, []
-        # USO: auch der Freiplatz ist eine Grenze – unter min_free_percent gibt der Lauf zurück (0: keine Grenze)
-        self.give_back_free = float(cfg["min_free_percent"]) > 0
+        # USO: im Office (EMBYCACHE_GIVE_BACK_FREE=1) ist auch der Freiplatz eine Grenze – unter min_free_percent gibt der
+        # Lauf zurück (0: keine Grenze); eigenständig hört das Befüllen dort nur auf, wie bisher
+        self.give_back_free = os.environ.get("EMBYCACHE_GIVE_BACK_FREE") == "1" and float(cfg["min_free_percent"]) > 0
 
     def halt(self):
         """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
@@ -993,12 +995,34 @@ class Runner:
                     log.error("Ziel voll: der Mover findet auf dem Array keinen Platz (Share-Einstellung «Minimum free space», "
                               "Allocation/Split-Level oder eingeschlossene Disks prüfen).")
 
-    def give_back(self, loc, files, current, sessions, planner):
+    def cleanup_frees(self, loc, current, sessions):
+        """USO: die Bytes, die der Cleanup gleich aufs Array bringt – Exclude-Einträge, die nicht mehr on deck sind, noch
+        auf dem Cache liegen und nicht laufen; nur, wo der Weg sicher ist (rsync oder eine bekannte Herkunft)."""
+        n = 0
+        for p in read_exclude():
+            if p in current:
+                continue
+            path = Path(p)
+            try:
+                rel = path.relative_to(loc.cache)
+                if is_playing(rel, sessions):
+                    continue
+                if self.cfg["cleanup_tool"] != "rsync" and not (self.cfg["return_to_origin"] and self.origin.get(p)):
+                    continue
+                n += path.stat().st_size
+            except (ValueError, OSError):
+                continue
+        return n
+
+    def give_back(self, loc, files, current, sessions, planner, cleanup_runs=True):
         """USO: Jacks Grenze. Was On-Deck schon auf dem Cache liegt, belegt sein Stück (J). Liegt er darüber, nimmt der Lauf
         Dateien aus `current` (der Cleanup bringt sie zurück aufs Array), bis es passt – ein Stück in Bytes
         (EMBYCACHE_BUDGET_BYTES; erst mehr als 5 % darüber, dann bis J ≤ Stück) oder der Freiplatz des Pools unter
-        min_free_percent (gemessen wie beim Befüllen, auf ZFS der ganze Pool; dann bis FREE_HYSTERESIS Punkte darüber).
-        Beide Grenzen gelten, die strengere entscheidet. Die Reihenfolge nach Rang (give_back_order):
+        min_free_percent (nur mit EMBYCACHE_GIVE_BACK_FREE=1) (gemessen wie beim Befüllen, auf ZFS der ganze Pool; dann bis FREE_HYSTERESIS Punkte darüber).
+        Beide Grenzen gelten, die strengere entscheidet. Was schon geschaut ist, geht immer zuerst (Benj): beim Freiplatz
+        zählt, was der Cleanup gleich zurückbringt (nicht mehr on deck, läuft nicht), schon als frei – zurückgegeben wird
+        nur, was dann noch fehlt (cleanup_runs=False: der Cleanup fällt aus, nichts davon zählt). Das Stück zählt ohnehin
+        nur On-Deck-Dateien. Die Reihenfolge nach Rang (give_back_order):
         das am weitesten voraus Liegende zuerst, was jemand angefangen hat zuletzt; was gerade läuft, bleibt."""
         kept = [f for f in files if f.on_cache and loc.on_cache(f.rel).exists()]
         self.slice_used = sum(f.size for f in kept)
@@ -1009,6 +1033,7 @@ class Runner:
                    f"– das Überzählige geht zurück aufs Array, das am weitesten voraus Liegende zuerst")
         if self.give_back_free:
             total, free = pool_usage(loc.cache)
+            free += self.cleanup_frees(loc, current, sessions) if cleanup_runs else 0
             min_free = float(self.cfg["min_free_percent"])
             short = int(total * (min_free + FREE_HYSTERESIS) / 100) - free if total > 0 and free * 100 < total * min_free else 0
             if short > need:
@@ -1284,7 +1309,7 @@ class Runner:
         current = {str(loc.on_cache(f.rel)) for f in files}
         protected = set()
         if self.budget is not None or self.give_back_free:
-            self.give_back(loc, files, current, sessions, planner)
+            self.give_back(loc, files, current, sessions, planner, not (planner.errors or not sessions_ok))
         try:
             if planner.errors or not sessions_ok:
                 log.warning("Planung unvollständig (Emby nicht vollständig erreichbar) – Cleanup wird übersprungen, "

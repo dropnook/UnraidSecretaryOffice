@@ -941,11 +941,15 @@ function runEnv(array $command, array $env, int $timeout = 60): array
     return run(array_merge(['env'], $vars, $command), $timeout);
 }
 
-/** What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output — and rsync both ways (over any settings file) */
+/**
+ * What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output — and rsync both ways (over
+ * any settings file); in the office its minimum free space is a limit he gives back to, not only one he stops filling at
+ * (EMBYCACHE_GIVE_BACK_FREE, jack-phase2 — standalone EmbyCache keeps the old behaviour)
+ */
 function embyPyEnv(): array
 {
     return ['EMBYCACHE_DIR' => EMBY_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
-            'EMBYCACHE_FILL_TOOL' => EMBY_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => EMBY_TOOLS_RSYNC['cleanup_tool']];
+            'EMBYCACHE_FILL_TOOL' => EMBY_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => EMBY_TOOLS_RSYNC['cleanup_tool'], 'EMBYCACHE_GIVE_BACK_FREE' => '1'];
 }
 
 // ===================================================================== the gather's settings
