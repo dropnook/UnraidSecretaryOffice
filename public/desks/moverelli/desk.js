@@ -517,7 +517,8 @@ function scheduleTile(a) {
   const m = mover();
   const n = night();
   const sub = [sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('tile.no_schedule')];
-  if (n.jack && n.plan) sub.push(tonightText(n.plan));
+  const short = n.jack ? tonightShort(n.plan) : null;
+  if (short) sub.push(short);
   sub.push(`${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`);
   return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || !sc.enabled, ...a });
 }
@@ -533,6 +534,17 @@ function tonightText(p) {
     Number(p.fill) > 0 ? T('night.fill', { size: fmt.size(p.fill) }) : T('night.fill_none')];
   if (Number(p.wait) > 0) parts.push(T('night.wait', { size: fmt.size(p.wait) }));
   return T('night.tonight', { what: parts.join(' · ') });
+}
+
+/** Tonight's plan short, for the tile, pure: «Tonight: 70 GB back · 60 GB wait» — the long line lives in the section */
+function tonightShort(p) {
+  if (!p || !p.measured) return null;
+  const parts = [];
+  if (Number(p.back) > 0) parts.push(T('night.tile_back', { size: fmt.size(p.back) }));
+  if (Number(p.goes) > 0) parts.push(T('night.tile_goes', { size: fmt.size(p.goes) }));
+  if (Number(p.fill) > 0) parts.push(T('night.tile_fill', { size: fmt.size(p.fill) }));
+  if (Number(p.wait) > 0) parts.push(T('night.tile_wait', { size: fmt.size(p.wait) }));
+  return T('night.tile', { what: parts.length ? parts.join(' · ') : T('night.tile_none') });
 }
 
 /** The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused), its rounds */
@@ -1801,7 +1813,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, offsetOf, untilOf, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, tonightText, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, offsetOf, untilOf, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, tonightText, tonightShort, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, advancedFold, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

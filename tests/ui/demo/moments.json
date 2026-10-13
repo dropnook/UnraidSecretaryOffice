@@ -462,7 +462,7 @@
   "nr": 13,
   "desk": "moverelli",
   "moment": "run",
-  "title": "Frau Moverelli - ein echter Lauf: Schritte pro Share, die Datei unterwegs, anhalten nach dieser Datei oder sofort",
+  "title": "Frau Moverelli - der gemeinsame Lauf mit Jack Emby: die Phasen (Prüfen, Freigeben, Füllen), Schritte pro Share, die Datei unterwegs, anhalten nach dieser Datei",
   "route": "moverelli",
   "states": {
    "moverelli": "moverelli-run"

@@ -108,7 +108,7 @@
   "mover.on": "La planification du mover d'Unraid est activée ({schedule}). Tant qu'elle l'est, je ne fais que des listes et des essais à blanc — sinon nous déplacerions tous les deux les mêmes partages.",
   "mover.off": "Désactiver la planification du mover d'Unraid…",
   "mover.self": "Le régler toi-même",
-  "mover.ok": "La planification du mover d'Unraid est éteinte — les exécutions réelles vont. S'il te plaît, n'appuie pas sur ⟦Move now⟧ à la main (⟦Mover Settings⟧, la page ⟦Main⟧) : le mover d'Unraid ne connaît pas mes exceptions et porte tout sur l'array. S'il démarre pendant mon exécution, je m'arrête aussitôt et je range.",
+  "mover.ok": "La planification du mover d'Unraid est éteinte — les exécutions réelles vont. S'il te plaît, n'appuie pas sur ⟦Move now⟧ à la main (⟦Mover Settings⟧, la page ⟦Main⟧) : le mover d'Unraid ne connaît pas mes exceptions et porte tout sur l'array. S'il démarre pendant mon exécution, je m'arrête après le fichier en cours.",
   "mover.running": "Le mover d'Unraid travaille en ce moment — lancé à la main (⟦Move now⟧) ou selon une planification à lui. Il ne connaît pas mes exceptions et porte tout sur l'array. Une exécution réelle de ma part l'attend.",
   "mover.off_title": "Désactiver la planification du mover d'Unraid",
   "mover.off_text": "Je règle le paramètre d'Unraid ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ sur ⟦Disabled⟧ et j'appuie sur ⟦Apply⟧ — exactement comme le fait la page. Ensuite, c'est ma planification qui déplace tes partages.",
@@ -401,7 +401,7 @@
   "setup.err_offset_big": "Avec {x} % et un décalage de {offset}, il ne reste rien jusqu'où vider — un décalage plus petit.",
   "setup.level_off": "Sans limite, je déménage seulement selon l'âge.",
   "setup.level_rule": "Le pool peut être plein à {x} % au plus. Au-delà, je déménage les téléchargements les plus anciens vers l'array jusqu'à ce qu'il passe sous {y} %. Ce qui est plus vieux que les jours ci-dessus, je le déménage de toute façon.",
-  "setup.level_rule_jack": "Le pool peut être plein à {x} % au plus. Jack Emby peut le remplir de ce qu'il prépare de ses bibliothèques jusqu'à {y} % — au-delà, il rend d'abord ce qui est le plus loin devant, jamais sous sa part. Seulement si le pool est encore au-dessus de {x} %, je déménage les téléchargements les plus anciens vers l'array, jusqu'à ce qu'il passe sous {y} %. Ce qui est plus vieux que les jours ci-dessus, je le déménage de toute façon.",
+  "setup.level_rule_jack": "Le pool peut être plein à {x} % au plus. Une seule exécution avec Jack Emby : il peut le remplir jusqu'à {y} % de ce qu'il prépare de ses bibliothèques. Sous {y} %, lui et les téléchargements ont chacun leur moitié — qui a emprunté rend, jamais de sa propre moitié. Ce qui est plus vieux que les jours ci-dessus, je le déménage de toute façon.",
   "setup.level_unseen": "Je n'ai pas regardé le pool {pool} (il dort ou n'est pas en ZFS).",
   "setup.level_pool": "Pool {pool} : {used} sur {size} occupés, dont {nm} ne bougent jamais (appdata & cie, snapshots).",
   "setup.level_half": "De la place sous {y} %, Jack Emby a au moins {h}, les téléchargements au moins {d}.",
@@ -447,5 +447,11 @@
   "check.night_schedule": "Jack Emby ne tourne que dans l'exécution commune avec Madame Moverelli",
   "check.night_schedule_how": "EmbyCache a encore sa propre planification et tourne hors de l'exécution commune : règle l'heure sur la page de Madame Moverelli (Planification) — cela la désactive.",
   "notify.night_subject": "Pool {pool} encore au-dessus de la limite",
-  "notify.night_missed": "Après l'exécution commune, le pool {pool} est encore à {now} % (limite {x} %). {nm} % ne bougent jamais ; Jack Emby garde sa part, les téléchargements la leur. Monte la limite ou fais de la place."
+  "notify.night_missed": "Après l'exécution commune, le pool {pool} est encore à {now} % (limite {x} %). {nm} % ne bougent jamais ; Jack Emby garde sa part, les téléchargements la leur. Monte la limite ou fais de la place.",
+  "night.tile": "Cette nuit : {what}",
+  "night.tile_back": "{size} rendus",
+  "night.tile_goes": "{size} de téléchargements",
+  "night.tile_fill": "{size} rapportés",
+  "night.tile_wait": "{size} attendent",
+  "night.tile_none": "rien à déménager"
 }

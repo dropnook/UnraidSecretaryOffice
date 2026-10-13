@@ -108,7 +108,7 @@
   "mover.on": "La programación del mover de Unraid está encendida ({schedule}). Mientras lo esté, solo hago listas y simulaciones — si no, moveríamos los dos los mismos recursos compartidos.",
   "mover.off": "Apagar la programación del mover de Unraid…",
   "mover.self": "Ponerlo tú mismo",
-  "mover.ok": "La programación del mover de Unraid está apagada — las ejecuciones reales van. Por favor, no pulses ⟦Move now⟧ a mano (⟦Mover Settings⟧, la página ⟦Main⟧): el mover de Unraid no conoce mis excepciones y lo lleva todo al array. Si arranca durante mi ejecución, paro en el acto y lo dejo en orden.",
+  "mover.ok": "La programación del mover de Unraid está apagada — las ejecuciones reales van. Por favor, no pulses ⟦Move now⟧ a mano (⟦Mover Settings⟧, la página ⟦Main⟧): el mover de Unraid no conoce mis excepciones y lo lleva todo al array. Si arranca durante mi ejecución, paro después del archivo en el que estoy.",
   "mover.running": "El mover de Unraid está trabajando ahora — puesto en marcha a mano (⟦Move now⟧) o por una programación propia. No conoce mis excepciones y lo lleva todo al array. Una ejecución real mía lo espera.",
   "mover.off_title": "Apagar la programación del mover de Unraid",
   "mover.off_text": "Pongo el ajuste propio de Unraid ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ en ⟦Disabled⟧ y pulso ⟦Apply⟧ — exactamente como lo hace la página. Después es mi programación la que mueve tus recursos compartidos.",
@@ -401,7 +401,7 @@
   "setup.err_offset_big": "Con {x} % y un desfase de {offset} no queda nada hasta donde vaciar — un desfase menor.",
   "setup.level_off": "Sin límite muevo solo por antigüedad.",
   "setup.level_rule": "El pool puede estar lleno como mucho al {x} %. Por encima, muevo las descargas más antiguas al array hasta que baje del {y} %. Lo que es más antiguo que los días de arriba lo muevo de todos modos.",
-  "setup.level_rule_jack": "El pool puede estar lleno como mucho al {x} %. Jack Emby puede llenarlo con lo que prepara de sus bibliotecas hasta el {y} % — por encima, primero devuelve lo que está más adelante, nunca por debajo de su parte. Solo si el pool sigue por encima del {x} % muevo las descargas más antiguas al array, hasta que baje del {y} %. Lo que es más antiguo que los días de arriba lo muevo de todos modos.",
+  "setup.level_rule_jack": "El pool puede estar lleno como mucho al {x} %. Una sola ejecución con Jack Emby: puede llenarlo hasta el {y} % con lo que prepara de sus bibliotecas. Por debajo del {y} %, él y las descargas tienen cada uno su mitad — quien tomó prestado lo devuelve, nunca de su propia mitad. Lo que es más antiguo que los días de arriba lo muevo de todos modos.",
   "setup.level_unseen": "No he mirado el pool {pool} (duerme o no es ZFS).",
   "setup.level_pool": "Pool {pool}: {used} de {size} ocupados, de ellos {nm} no se mueven nunca (appdata y cía., snapshots).",
   "setup.level_half": "Del espacio por debajo del {y} %, Jack Emby tiene al menos {h}, las descargas al menos {d}.",
@@ -447,5 +447,11 @@
   "check.night_schedule": "Jack Emby solo se ejecuta en la ejecución conjunta con la señora Moverelli",
   "check.night_schedule_how": "EmbyCache todavía tiene una programación propia y se ejecuta fuera de la ejecución conjunta: pon la hora en la página de la señora Moverelli (Programación) — eso la apaga.",
   "notify.night_subject": "Pool {pool} aún por encima del límite",
-  "notify.night_missed": "Tras la ejecución conjunta el pool {pool} sigue al {now} % (límite {x} %). El {nm} % nunca se mueve; Jack Emby conserva su parte, las descargas la suya. Sube el límite o haz sitio."
+  "notify.night_missed": "Tras la ejecución conjunta el pool {pool} sigue al {now} % (límite {x} %). El {nm} % nunca se mueve; Jack Emby conserva su parte, las descargas la suya. Sube el límite o haz sitio.",
+  "night.tile": "Esta noche: {what}",
+  "night.tile_back": "{size} devueltos",
+  "night.tile_goes": "{size} de descargas",
+  "night.tile_fill": "{size} traídos",
+  "night.tile_wait": "{size} esperan",
+  "night.tile_none": "nada que mover"
 }

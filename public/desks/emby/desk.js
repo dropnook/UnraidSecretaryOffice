@@ -624,7 +624,6 @@ function roomWords() {
   if (pool.never) out.push(T('room.never', { y: mo.y }));
   else if (pool.back > 0) out.push(T('room.back', { y: mo.y, back: fmt.size(pool.back) }));
   if (pool.waiting > 0) out.push(T('room.waiting', { n: pool.waiting }));
-  if (night() && night().jack && night().plan) out.push(tonightText(night().plan));
   const gb = pool.given_back && Array.isArray(pool.given_back.items) ? pool.given_back.items : [];
   if (gb.length) {
     const shown = gb.slice(0, 3).map(rankItem).join(' · ');
@@ -1004,6 +1003,8 @@ function poolSection() {
   s.id = 'jo-pool';
   // what Ms. Moverelli gives him on the pool, in his words — over the list
   roomWords().forEach((line, i) => s.appendChild(el('p', i ? 'callout warn jo-slice' : 'callout jo-slice', line)));
+  // the night run with Ms. Moverelli: what tonight brings — a plain line, no warning
+  if (night() && night().jack && night().plan) s.appendChild(el('p', 'callout jo-slice', tonightText(night().plan)));
   if (!c.files) return s;
   s.appendChild(poolBar.el);
   const box = el('div', 'box');

@@ -108,7 +108,7 @@
   "mover.on": "Unraids eigener Mover-Zeitplan ist an ({schedule}). Solange er an ist, mache ich nur Listen und Probeläufe — sonst würden wir beide dieselben Shares verschieben.",
   "mover.off": "Unraids Mover-Zeitplan ausschalten…",
   "mover.self": "Selbst einstellen",
-  "mover.ok": "Unraids Mover-Zeitplan ist aus — echte Läufe gehen. Bitte drück ⟦Move now⟧ nicht von Hand (⟦Mover Settings⟧, die Seite ⟦Main⟧): Unraids Mover kennt meine Ausnahmen nicht und trägt alles aufs Array. Startet er während meines Laufs, höre ich sofort auf und räume auf.",
+  "mover.ok": "Unraids Mover-Zeitplan ist aus — echte Läufe gehen. Bitte drück ⟦Move now⟧ nicht von Hand (⟦Mover Settings⟧, die Seite ⟦Main⟧): Unraids Mover kennt meine Ausnahmen nicht und trägt alles aufs Array. Startet er während meines Laufs, höre ich nach der Datei auf, an der ich bin.",
   "mover.running": "Unraids Mover arbeitet gerade — von Hand angestossen (⟦Move now⟧) oder nach einem eigenen Zeitplan. Er kennt meine Ausnahmen nicht und trägt alles aufs Array. Ein echter Lauf von mir wartet auf ihn.",
   "mover.off_title": "Unraids Mover-Zeitplan ausschalten",
   "mover.off_text": "Ich stelle Unraids eigene Einstellung ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ auf ⟦Disabled⟧ und drücke ⟦Apply⟧ — genau wie die Seite es tut. Danach verschiebt mein Zeitplan deine Shares.",
@@ -401,7 +401,7 @@
   "setup.err_offset_big": "Mit {x} % und einem Offset von {offset} bleibt nichts, bis wohin ich leeren kann — kleineren Offset.",
   "setup.level_off": "Ohne Grenze zügle ich nur nach Alter.",
   "setup.level_rule": "Der Pool darf höchstens {x} % voll sein. Wird's mehr, zügle ich die ältesten Downloads aufs Array, bis er unter {y} % ist. Was älter ist als die Tage oben, zügle ich sowieso.",
-  "setup.level_rule_jack": "Der Pool darf höchstens {x} % voll sein. Jack Emby darf ihn mit dem, was er aus seinen Bibliotheken bereitlegt, bis {y} % füllen — ist er drüber, bringt Jack Emby zuerst zurück, was am weitesten voraus liegt, nie unter seinen Teil. Erst wenn der Pool dann noch über {x} % ist, zügle ich die ältesten Downloads aufs Array, bis er unter {y} % ist. Was älter ist als die Tage oben, zügle ich sowieso.",
+  "setup.level_rule_jack": "Der Pool darf höchstens {x} % voll sein. Ein Lauf mit Jack Emby: Er darf ihn bis {y} % mit dem füllen, was er aus seinen Bibliotheken bereitlegt. Unter {y} % haben er und die Downloads je ihre Hälfte — wer geliehen hat, gibt es zurück, nie aus der eigenen Hälfte. Was älter ist als die Tage oben, zügle ich sowieso.",
   "setup.level_unseen": "Den Pool {pool} hab ich nicht angeschaut (er schläft oder ist kein ZFS).",
   "setup.level_pool": "Pool {pool}: {used} von {size} belegt, {nm} davon zügeln nie (appdata & Co., Snapshots).",
   "setup.level_half": "Vom Platz unter {y} % hat Jack Emby mindestens {h}, die Downloads mindestens {d}.",
@@ -447,5 +447,11 @@
   "check.night_schedule": "Jack Emby läuft nur im gemeinsamen Lauf mit Frau Moverelli",
   "check.night_schedule_how": "EmbyCache hat noch einen eigenen Zeitplan und läuft ausserhalb des gemeinsamen Laufs: Stell die Zeit auf der Seite von Frau Moverelli ein (Zeitplan) — das schaltet ihn aus.",
   "notify.night_subject": "Pool {pool} noch über der Grenze",
-  "notify.night_missed": "Nach dem gemeinsamen Lauf steht der Pool {pool} noch bei {now} % (Grenze {x} %). {nm} % davon zügeln nie; Jack Emby behält seinen Teil, die Downloads ihren. Grenze höher setzen oder Platz schaffen."
+  "notify.night_missed": "Nach dem gemeinsamen Lauf steht der Pool {pool} noch bei {now} % (Grenze {x} %). {nm} % davon zügeln nie; Jack Emby behält seinen Teil, die Downloads ihren. Grenze höher setzen oder Platz schaffen.",
+  "night.tile": "Heute Nacht: {what}",
+  "night.tile_back": "{size} zurück",
+  "night.tile_goes": "{size} Downloads",
+  "night.tile_fill": "{size} geholt",
+  "night.tile_wait": "{size} warten",
+  "night.tile_none": "nichts zu zügeln"
 }

@@ -312,25 +312,27 @@
    "k": 50,
    "room": 447535592243,
    "half": 223767796121,
-   "jack": 214748364800,
-   "downloads": 118111600640,
+   "jack": 30064771071,
+   "downloads": 302795194369,
    "back": 0,
    "goes": 0,
    "used_pct": 59.6,
    "nm_pct": 29.3,
    "never": false,
-   "mine": true
+   "mine": true,
+   "need": 0,
+   "half_d": 223767796122
   }
  },
  "night": {
   "jack": true,
   "plan": {
    "measured": true,
-   "back": 75161927680,
+   "back": 0,
    "goes": 0,
    "age": 0,
-   "fill": 0,
-   "wait": 64424509440,
+   "fill": 12884901888,
+   "wait": 0,
    "first": "jack"
   },
   "last": {
@@ -339,18 +341,18 @@
    "started": 1791600002,
    "finished": 1791603602,
    "phase": "done",
-   "round": 2,
+   "round": 1,
    "jack": true,
    "pool": "cache",
    "plan": {
     "measured": true,
-    "back": 75161927680,
+    "back": 0,
     "goes": 0,
     "age": 0,
-    "fill": 0,
-    "wait": 64424509440,
+    "fill": 12884901888,
+    "wait": 0,
     "first": "jack",
-    "used_pct": 77.0,
+    "used_pct": 59.6,
     "x": 80,
     "y": 70
    },
@@ -371,21 +373,14 @@
     },
     {
      "who": "jack",
-     "phase": "free",
-     "round": 2,
-     "exit": 0,
-     "result": "ok"
-    },
-    {
-     "who": "jack",
      "phase": "fill",
-     "round": 2,
+     "round": 1,
      "exit": 0,
      "result": "ok"
     }
    ],
    "result": "ok",
-   "end_pct": 70.0,
+   "end_pct": 59.6,
    "running": false
   }
  }

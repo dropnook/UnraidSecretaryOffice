@@ -32343,6 +32343,7 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   m.setState(base);
   out.tonight = m.tonightText(plan);
   out.unmeasured = m.tonightText({ measured: false });
+  out.short = [m.tonightShort(plan), m.tonightShort({ measured: true, back: 0, goes: 0, fill: 0, wait: 0 }), m.tonightShort({ measured: false })];
   out.last = m.lastNightText(base.night.last);
   out.section = texts(m.scheduleSection());
   await m.scheduleDialog();
@@ -32370,6 +32371,13 @@ JS);
     same('night page: tonight in words — Jack Emby gives back, she only by age, he fetches, what waits; not measured',
         ['night.tonight {"what":"night.back {\"size\":\"70 GiB\"} · night.goes_none · night.fill {\"size\":\"20 GiB\"} · night.wait {\"size\":\"40 GiB\"}"}', 'night.unmeasured'],
         [$j['tonight'] ?? null, $j['unmeasured'] ?? null]);
+    same('night page: the tile keeps it short (the long line lives in the section); nothing to move; not measured — none',
+        ['night.tile {"what":"night.tile_back {\"size\":\"70 GiB\"} · night.tile_fill {\"size\":\"20 GiB\"} · night.tile_wait {\"size\":\"40 GiB\"}"}',
+         'night.tile {"what":"night.tile_none"}', null], $j['short'] ?? null);
+    $en = readJson(OFFICE_WEB . '/desks/moverelli/lang/en.json') ?? [];
+    check('night texts: Unraid\'s mover starting stops her after the file she is on (never «at once» since 1.61); her rule is the one run with Jack Emby',
+        str_contains($en['mover.ok'] ?? '', "I stop after the file I'm on") && !str_contains($en['mover.ok'] ?? '', 'at once')
+        && str_contains($en['setup.level_rule_jack'] ?? '', 'One run with Jack Emby') && !str_contains($en['setup.level_rule_jack'] ?? '', 'Only if'));
     same('night page: the last night — missed at 81 %, two passes', 'night.last {"when":"R200","how":"night.last_missed {\"pct\":81}"} · night.rounds {"n":2}', $j['last'] ?? null);
     check('night page: her schedule section — «Night run with Jack Emby», tonight, the steps and the dry run', in_array('sched.night', $j['section'] ?? [], true)
         && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));

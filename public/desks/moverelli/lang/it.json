@@ -108,7 +108,7 @@
   "mover.on": "La pianificazione del mover di Unraid è accesa ({schedule}). Finché lo è, faccio solo elenchi e prove a secco — altrimenti sposteremmo tutti e due le stesse condivisioni.",
   "mover.off": "Spegni la pianificazione del mover di Unraid…",
   "mover.self": "Impostala tu",
-  "mover.ok": "La pianificazione del mover di Unraid è spenta — le esecuzioni vere vanno. Per favore non premere ⟦Move now⟧ a mano (⟦Mover Settings⟧, la pagina ⟦Main⟧): il mover di Unraid non conosce le mie eccezioni e porta tutto sull'array. Se parte durante una mia esecuzione, mi fermo subito e metto in ordine.",
+  "mover.ok": "La pianificazione del mover di Unraid è spenta — le esecuzioni vere vanno. Per favore non premere ⟦Move now⟧ a mano (⟦Mover Settings⟧, la pagina ⟦Main⟧): il mover di Unraid non conosce le mie eccezioni e porta tutto sull'array. Se parte durante una mia esecuzione, mi fermo dopo il file a cui sono.",
   "mover.running": "Il mover di Unraid sta lavorando — avviato a mano (⟦Move now⟧) o da una sua pianificazione. Non conosce le mie eccezioni e porta tutto sull'array. Una mia esecuzione vera lo aspetta.",
   "mover.off_title": "Spegnere la pianificazione del mover di Unraid",
   "mover.off_text": "Imposto l'impostazione di Unraid ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ su ⟦Disabled⟧ e premo ⟦Apply⟧ — esattamente come fa la pagina. Poi è la mia pianificazione a spostare le tue condivisioni.",
@@ -401,7 +401,7 @@
   "setup.err_offset_big": "Con {x} % e un offset di {offset} non resta nulla fino a cui svuotare — un offset più piccolo.",
   "setup.level_off": "Senza limite sposto solo per età.",
   "setup.level_rule": "Il pool può essere pieno al massimo al {x} %. Oltre, sposto i download più vecchi sull'array finché scende sotto il {y} %. Ciò che è più vecchio dei giorni qui sopra lo sposto comunque.",
-  "setup.level_rule_jack": "Il pool può essere pieno al massimo al {x} %. Jack Emby può riempirlo con ciò che prepara dalle sue librerie fino al {y} % — oltre, riporta prima ciò che sta più avanti, mai sotto la sua parte. Solo se il pool è ancora sopra il {x} % sposto i download più vecchi sull'array, finché scende sotto il {y} %. Ciò che è più vecchio dei giorni qui sopra lo sposto comunque.",
+  "setup.level_rule_jack": "Il pool può essere pieno al massimo al {x} %. Un'esecuzione con Jack Emby: può riempirlo fino al {y} % con ciò che prepara dalle sue librerie. Sotto il {y} % lui e i download hanno ciascuno la propria metà — chi ha preso in prestito lo restituisce, mai dalla propria metà. Ciò che è più vecchio dei giorni qui sopra lo sposto comunque.",
   "setup.level_unseen": "Non ho guardato il pool {pool} (dorme o non è ZFS).",
   "setup.level_pool": "Pool {pool}: {used} di {size} occupati, di cui {nm} non si spostano mai (appdata & co., snapshot).",
   "setup.level_half": "Dello spazio sotto il {y} % Jack Emby ha almeno {h}, i download almeno {d}.",
@@ -447,5 +447,11 @@
   "check.night_schedule": "Jack Emby gira solo nell'esecuzione comune con la signora Moverelli",
   "check.night_schedule_how": "EmbyCache ha ancora una pianificazione propria e gira fuori dall'esecuzione comune: imposta l'orario sulla pagina della signora Moverelli (Pianificazione) — così si spegne.",
   "notify.night_subject": "Pool {pool} ancora sopra il limite",
-  "notify.night_missed": "Dopo l'esecuzione comune il pool {pool} è ancora al {now} % (limite {x} %). Il {nm} % non si sposta mai; Jack Emby tiene la sua parte, i download la loro. Alza il limite o fai spazio."
+  "notify.night_missed": "Dopo l'esecuzione comune il pool {pool} è ancora al {now} % (limite {x} %). Il {nm} % non si sposta mai; Jack Emby tiene la sua parte, i download la loro. Alza il limite o fai spazio.",
+  "night.tile": "Stanotte: {what}",
+  "night.tile_back": "{size} restituiti",
+  "night.tile_goes": "{size} di download",
+  "night.tile_fill": "{size} presi",
+  "night.tile_wait": "{size} aspettano",
+  "night.tile_none": "niente da spostare"
 }

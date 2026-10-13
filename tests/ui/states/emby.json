@@ -102,15 +102,15 @@
  },
  "pool": {
   "path": "/mnt/big",
-  "free_percent": 42.5,
-  "free": 1900000000000,
+  "free_percent": 52.5,
+  "free": 2254857830400,
   "min_free": 40,
   "moverelli": {
    "x": 70,
    "y": 60
   },
   "keep": 644245094400,
-  "held": 408021893120,
+  "held": 41200000000,
   "back": 0,
   "never": false,
   "waiting": 2
@@ -359,17 +359,17 @@
   "schedule": {
    "script": true,
    "frequency": "custom",
-   "custom": "30 1 * * *",
+   "custom": "15 5 * * *",
    "enabled": true
   },
   "jack": true,
   "plan": {
    "measured": true,
-   "back": 75161927680,
+   "back": 0,
    "goes": 0,
    "age": 0,
-   "fill": 0,
-   "wait": 64424509440,
+   "fill": 12884901888,
+   "wait": 0,
    "first": "jack"
   },
   "last": {
@@ -378,20 +378,20 @@
    "started": 1791479074,
    "finished": 1791482674,
    "phase": "done",
-   "round": 2,
+   "round": 1,
    "jack": true,
    "pool": "cache",
    "plan": {
     "measured": true,
-    "back": 75161927680,
+    "back": 0,
     "goes": 0,
     "age": 0,
-    "fill": 0,
-    "wait": 64424509440,
+    "fill": 12884901888,
+    "wait": 0,
     "first": "jack",
-    "used_pct": 77.0,
-    "x": 80,
-    "y": 70
+    "used_pct": 47.5,
+    "x": 70,
+    "y": 60
    },
    "steps": [
     {
@@ -410,21 +410,14 @@
     },
     {
      "who": "jack",
-     "phase": "free",
-     "round": 2,
-     "exit": 0,
-     "result": "ok"
-    },
-    {
-     "who": "jack",
      "phase": "fill",
-     "round": 2,
+     "round": 1,
      "exit": 0,
      "result": "ok"
     }
    ],
    "result": "ok",
-   "end_pct": 70.0,
+   "end_pct": 47.5,
    "running": false
   }
  }

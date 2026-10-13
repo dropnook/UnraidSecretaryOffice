@@ -108,7 +108,7 @@
   "mover.on": "Unraid's own mover schedule is on ({schedule}). As long as it is, I only make lists and dry runs — otherwise both of us would move the same shares.",
   "mover.off": "Switch Unraid's mover schedule off…",
   "mover.self": "Set it yourself",
-  "mover.ok": "Unraid's mover schedule is off — real runs go. Please don't press ⟦Move now⟧ by hand (⟦Mover Settings⟧, the ⟦Main⟧ page): Unraid's mover doesn't know my exceptions and carries everything to the array. If it starts during my run, I stop at once and tidy up.",
+  "mover.ok": "Unraid's mover schedule is off — real runs go. Please don't press ⟦Move now⟧ by hand (⟦Mover Settings⟧, the ⟦Main⟧ page): Unraid's mover doesn't know my exceptions and carries everything to the array. If it starts during my run, I stop after the file I'm on.",
   "mover.running": "Unraid's mover is at work right now — started by hand (⟦Move now⟧) or by a schedule of its own. It doesn't know my exceptions and carries everything to the array. A real run of mine waits for it.",
   "mover.off_title": "Switch Unraid's mover schedule off",
   "mover.off_text": "I set Unraid's own setting ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ to ⟦Disabled⟧ and press ⟦Apply⟧ — exactly as the page does. Then my schedule moves your shares instead.",
@@ -401,7 +401,7 @@
   "setup.err_offset_big": "With {x} % and an offset of {offset} there is nothing left to empty down to — a smaller offset.",
   "setup.level_off": "Without a limit I move by age only.",
   "setup.level_rule": "The pool may be at most {x} % full. Above that I move the oldest downloads to the array until it is below {y} %. What is older than the days above I move anyway.",
-  "setup.level_rule_jack": "The pool may be at most {x} % full. Jack Emby may fill it with what he lays out from his libraries up to {y} % — above that he first brings back what lies farthest ahead, never below his share. Only if the pool is still above {x} % then do I move the oldest downloads to the array, until it is below {y} %. What is older than the days above I move anyway.",
+  "setup.level_rule_jack": "The pool may be at most {x} % full. One run with Jack Emby: he may fill it up to {y} % with what he lays out from his libraries. Below {y} %, he and the downloads each have their half — whoever borrowed gives it back, never from their own half. What is older than the days above I move anyway.",
   "setup.level_unseen": "I haven't looked at the pool {pool} (it sleeps or isn't ZFS).",
   "setup.level_pool": "Pool {pool}: {used} of {size} used, {nm} of it never moves (appdata & co., snapshots).",
   "setup.level_half": "Of the room below {y} %, Jack Emby has at least {h}, the downloads at least {d}.",
@@ -447,5 +447,11 @@
   "check.night_schedule": "Jack Emby runs only in the night run with Ms. Moverelli",
   "check.night_schedule_how": "EmbyCache still has a schedule of its own and runs outside the night run: set the time on Ms. Moverelli's page (Schedule) — that switches it off.",
   "notify.night_subject": "Pool {pool} still over the limit",
-  "notify.night_missed": "After the night run the pool {pool} is still at {now} % (limit {x} %). {nm} % of it never moves; Jack Emby keeps his share, the downloads theirs. Set the limit higher or make room."
+  "notify.night_missed": "After the night run the pool {pool} is still at {now} % (limit {x} %). {nm} % of it never moves; Jack Emby keeps his share, the downloads theirs. Set the limit higher or make room.",
+  "night.tile": "Tonight: {what}",
+  "night.tile_back": "{size} back",
+  "night.tile_goes": "{size} of downloads",
+  "night.tile_fill": "{size} fetched",
+  "night.tile_wait": "{size} wait",
+  "night.tile_none": "nothing to move"
 }
