@@ -45,7 +45,8 @@ const require = createRequire(import.meta.url);
 
 // each route's own shots, named: what the forum and the product page want of it
 const SHOTS = {
-  emby: [{ name: 'top', until: '.jo-prog' }, { name: 'panel', clip: '.jo-prog' }],
+  // the joint run's card with Ms. Moverelli (the demo's night) — or, without her, EmbyCache's live panel
+  emby: [{ name: 'top', until: '.jo-night, .jo-prog' }, { name: 'panel', clip: '.jo-night, .jo-prog' }],
 };
 const LOCALES = { de: 'de-CH', en: 'en-US', fr: 'fr-CH', it: 'it-CH', es: 'es-ES' };
 

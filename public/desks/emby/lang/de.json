@@ -701,5 +701,12 @@
   "night.fill": "Jack Emby holt {size}",
   "night.fill_none": "Jack Emby holt nichts",
   "night.wait": "{size} warten auf dem Array",
-  "night.unmeasured": "Heute Nacht: zuerst, was gehen muss, dann holt Jack Emby — der Pool ist nicht gemessen, darum keine Zahlen."
+  "night.unmeasured": "Heute Nacht: zuerst, was gehen muss, dann holt Jack Emby — der Pool ist nicht gemessen, darum keine Zahlen.",
+  "night.her_moving": "Frau Moverelli zügelt gerade Downloads — {share}, {done} von {files}",
+  "night.her_busy": "Frau Moverelli ist gerade an der Arbeit.",
+  "night.her_check": "Frau Moverelli misst den Pool.",
+  "night.jack_soon": "Jack Emby ist gleich dran.",
+  "night.her_open": "Zu Frau Moverelli",
+  "night.dry_both": "Den Probelauf für beide — Frau Moverelli und Jack Emby zusammen — gibt es auf ihrer Zeitplan-Zeile.",
+  "night.dry_both_open": "Zu ihrem Zeitplan"
 }

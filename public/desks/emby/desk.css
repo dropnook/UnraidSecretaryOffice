@@ -85,4 +85,9 @@
 .jo-letgo .check small{overflow-wrap:anywhere}   /* the second tick names the list's path */
 .jo-letgo-more{margin:2px 0 0 26px}
 @media (max-width:600px){ .jo-letgo-more{margin-left:0} }
+/* the joint run with Ms. Moverelli (her run card's head and phases, core.js Office.nightCard): his bars inside it */
+.jo-night{margin:10px 0 0; display:flex; flex-direction:column; gap:8px}
+.jo-night-prog{margin:2px 0 0; padding:0}
+.jo-night-her{overflow-wrap:anywhere}
+.jo-night-dry{margin:10px 0 0}
 }

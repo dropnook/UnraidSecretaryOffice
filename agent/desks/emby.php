@@ -94,9 +94,11 @@ desk('emby', [
         // «Switch the mover schedule off…» (emby-mover.php): Unraid's own ⟦Mover schedule⟧ «Disabled», as its form sets it
         'mover_off'      => fn (array $r) => embyMoverOff($r) + ['state' => embyScan()],
         // the part «progress» (desk.json): the live panel while EmbyCache runs for real (emby-progress.php) — two RAM files
-        'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState()],
-        // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (emby-progress.php)
-        'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyStopAsk(), 'state' => embyScan()],
+        // — and, while the night run with Ms. Moverelli goes, its card (embyNightNow(): phases, who works, her share)
+        'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState() + ['night' => embyNightNow()]],
+        // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (emby-progress.php); while the
+        // night run goes, the whole night stops after the file in flight (nightStopAsk(), as on her card)
+        'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()],
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => embyJob('embycache', $args),
@@ -699,10 +701,35 @@ function embyNight(): ?array
     }
     try {
         $h = moverelliHost();
-        return ['schedule' => officeJobSchedule('moverelli', $h['cron_file'])] + moverelliNight($h, moverelliSettings($h['dir']));
+        return ['schedule' => officeJobSchedule('moverelli', $h['cron_file']), 'now' => embyNightNow($h['dir'], true)]
+            + moverelliNight($h, moverelliSettings($h['dir']));
     } catch (Throwable $e) {
         return null;
     }
+}
+
+/**
+ * The night run going for real, for his page's card (2026-10-13 — the same phases as her run card): night.json as the
+ * pages read it, whether it was asked to stop, and while she works in it her share in flight from Smart Mover's own
+ * status ({share, done, files} — no disk asked, no .partial measured). null: she isn't hired, no real night going.
+ */
+function embyNightNow(?string $dir = null, ?bool $hired = null): ?array
+{
+    if (!function_exists('nightState') || !($hired ?? (function_exists('moverelliHired') && moverelliHired()))) {
+        return null;
+    }
+    $dir ??= MOVERELLI_DATA;
+    $n = nightState($dir);
+    if ($n === null || !$n['running'] || ($n['mode'] ?? '') !== 'run') {
+        return null;
+    }
+    $her = null;
+    $st = ($n['who'] ?? '') === 'her' ? readJson("$dir/status.json") : null;
+    if (is_array($st) && ($st['result'] ?? '') === 'running' && ($st['phase'] ?? '') === 'share' && is_string($st['share'] ?? null) && $st['share'] !== '') {
+        $her = ['share' => $st['share'], 'done' => max(0, (int) ($st['share_done_files'] ?? 0)), 'files' => max(0, (int) ($st['share_files'] ?? 0))];
+    }
+    $stop = readJson("$dir/night-stop.json");
+    return moverelliNightShort($n) + ['stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null, 'her' => $her];
 }
 
 /**

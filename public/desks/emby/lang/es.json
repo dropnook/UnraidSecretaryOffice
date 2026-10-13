@@ -701,5 +701,12 @@
   "night.fill": "Jack Emby trae {size}",
   "night.fill_none": "Jack Emby no trae nada",
   "night.wait": "{size} esperan en el array",
-  "night.unmeasured": "Esta noche: primero lo que tiene que irse, luego trae Jack Emby — el pool no está medido, así que sin cifras."
+  "night.unmeasured": "Esta noche: primero lo que tiene que irse, luego trae Jack Emby — el pool no está medido, así que sin cifras.",
+  "night.her_moving": "La señora Moverelli está moviendo descargas — {share}, {done} de {files}",
+  "night.her_busy": "La señora Moverelli está trabajando.",
+  "night.her_check": "La señora Moverelli mide el pool.",
+  "night.jack_soon": "Enseguida le toca a Jack Emby.",
+  "night.her_open": "Ir con la señora Moverelli",
+  "night.dry_both": "La simulación para ambos — la señora Moverelli y Jack Emby juntos — está en la fila de su programación.",
+  "night.dry_both_open": "A su programación"
 }

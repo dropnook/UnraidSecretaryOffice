@@ -892,6 +892,35 @@ Office.runBar = function runBar(percent, label) {
   bar.append(fill, el('span', 'run-bar-label', label));
   return bar;
 };
+/**
+ * The night run's phases (agent/lib/nightrun.php) as a run's steps, pure: Check, Free, (Check again — only once a round
+ * more went), Fill (only with Jack Emby) — the one going «running», those before «done». $T: Ms. Moverelli's texts
+ * (Office.scope('moverelli') — the night is hers, Jack Emby's page shows it in the same words).
+ */
+Office.nightSteps = function nightSteps(n, T) {
+  const order = ['check', 'free', 'recheck', 'fill'];
+  const at = order.indexOf(n.phase || 'check');
+  const list = order.filter((ph) => (ph !== 'recheck' || Number(n.round) > 1 || n.phase === 'recheck') && (ph !== 'fill' || n.jack));
+  return list.map((ph) => ({ name: T('rc.phase.' + ph) + (ph === 'recheck' && Number(n.round) > 1 ? ' · ' + T('night.rounds', { n: Number(n.round) }) : ''),
+    state: n.phase === 'done' || order.indexOf(ph) < at ? 'done' : ph === n.phase ? 'running' : 'pending' }));
+};
+/**
+ * The night run's card — the same on Ms. Moverelli's page and Jack Emby's (2026-10-13): «Joint run», since when and how
+ * long, «Stopping …» once asked, its phases. The pages add what is theirs under it and the foot. {T (her texts), now,
+ * stopping, cls} → the card.
+ */
+Office.nightCard = function nightCard(n, o) {
+  const T = o.T;
+  const card = el('div', 'card running night-card' + (o.cls ? ' ' + o.cls : ''));
+  const top = el('div', 'card-head');
+  top.append(el('span', 'spin'), el('span', 'card-name', T('rc.night_title')));
+  if (o.stopping) top.appendChild(el('span', 'chip warn', T('stopping')));
+  if (n.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: Office.fmt.time(n.started), duration: Office.fmt.duration(Math.max(0, o.now - n.started)) })));
+  card.appendChild(top);
+  const steps = Office.nightSteps(n, T);
+  card.appendChild(Office.runSteps(steps, steps.findIndex((x) => x.state === 'running'), `night|${n.started}`));
+  return card;
+};
 // ---- end run card helpers
 
 /**

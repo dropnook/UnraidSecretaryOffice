@@ -15,7 +15,11 @@
   "moment": "live",
   "title": "Jack Emby - live: EmbyCache legt für jede Person bereit, was sie als Nächstes schaut",
   "route": "emby",
-  "clip": ".jo-prog"
+  "clip": ".jo-prog",
+  "states": {
+   "emby": "emby-live",
+   "emby-progress": "emby-progress-live"
+  }
  },
  {
   "nr": 2,

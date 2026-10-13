@@ -701,5 +701,12 @@
   "night.fill": "Jack Emby fetches {size}",
   "night.fill_none": "Jack Emby fetches nothing",
   "night.wait": "{size} wait on the array",
-  "night.unmeasured": "Tonight: first what must go, then Jack Emby fetches — the pool isn't measured, so no numbers."
+  "night.unmeasured": "Tonight: first what must go, then Jack Emby fetches — the pool isn't measured, so no numbers.",
+  "night.her_moving": "Ms. Moverelli is moving downloads right now — {share}, {done} of {files}",
+  "night.her_busy": "Ms. Moverelli is at work right now.",
+  "night.her_check": "Ms. Moverelli is measuring the pool.",
+  "night.jack_soon": "Jack Emby's turn comes in a moment.",
+  "night.her_open": "Open Ms. Moverelli",
+  "night.dry_both": "The dry run for both — Ms. Moverelli and Jack Emby together — is on her schedule's row.",
+  "night.dry_both_open": "To her schedule"
 }
