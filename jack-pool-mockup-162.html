@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pool-Mockup 1.62.1</title>
+<style>
+:root {
+  --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #dddbd5;
+  --accent: #2f6fdf; --warn: #c2410c; --ok: #15803d; --bad: #b91c1c;
+  --nm: #8b8b8b; --shares: #d9a441; --unw: #2f6fdf; --wat: #9bb8ef; --res: #2f6fdf;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --card: #20201e; --ink: #ecebe7; --muted: #a3a29c; --line: #3a3936;
+    --accent: #6c9cf0; --warn: #f0894f; --ok: #4ade80; --bad: #f87171;
+    --nm: #77766f; --shares: #c9973a; --unw: #5b8de8; --wat: #3b5a8f; --res: #6c9cf0;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --card: #20201e; --ink: #ecebe7; --muted: #a3a29c; --line: #3a3936;
+  --accent: #6c9cf0; --warn: #f0894f; --ok: #4ade80; --bad: #f87171;
+  --nm: #77766f; --shares: #c9973a; --unw: #5b8de8; --wat: #3b5a8f; --res: #6c9cf0;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+h3 { font-size: 14px; margin: 14px 0 6px; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; min-width: 0; }
+.steps { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.steps span { padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.steps span.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
+.choice { border: 2px solid var(--line); border-radius: 10px; padding: 14px; cursor: pointer; background: transparent; color: inherit; text-align: left; font: inherit; }
+.choice.sel { border-color: var(--accent); }
+.choice b { display: block; font-size: 15px; margin-bottom: 6px; }
+.choice ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+label { color: var(--muted); }
+input[type=number], select { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; width: 110px; }
+input[type=range] { width: 180px; max-width: 100%; }
+button.btn { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; font: inherit; cursor: pointer; }
+button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+.msg { border-left: 3px solid var(--warn); padding: 6px 10px; margin: 8px 0; color: var(--warn); }
+.msg.ok { border-color: var(--ok); color: var(--ok); }
+.msg.bad { border-color: var(--bad); color: var(--bad); }
+.note { border-left: 3px solid var(--line); padding: 6px 10px; margin: 8px 0; color: var(--muted); }
+.intro { border-left: 3px solid var(--accent); }
+.intro p { margin: 4px 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; }
+.ctl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 6px 18px; }
+.ctl .row { margin: 2px 0; justify-content: space-between; }
+.ctl output { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+.bar { position: relative; height: 34px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); display: flex; margin: 26px 0 26px; }
+.seg { height: 100%; }
+.seg.nm { background: var(--nm); } .seg.shares { background: var(--shares); }
+.seg.unw { background: var(--unw); } .seg.wat { background: var(--wat); }
+.seg.res { background: repeating-linear-gradient(45deg, transparent 0 5px, color-mix(in srgb, var(--res) 45%, transparent) 5px 7px); outline: 1px dashed var(--res); outline-offset: -1px; }
+.mark { position: absolute; top: -22px; bottom: -4px; border-left: 2px solid var(--ink); }
+.mark span { position: absolute; top: 0; left: 3px; font-size: 11px; white-space: nowrap; color: var(--ink); }
+.mark.flip { border-left: 0; border-right: 2px solid var(--ink); } .mark.flip span { left: auto; right: 3px; }
+.mark.minfree { top: -4px; bottom: -22px; border-color: var(--warn); } .mark.minfree span { top: auto; bottom: 0; color: var(--warn); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-variant-numeric: tabular-nums; margin-top: 10px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.state { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+.state.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.state.hold { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.state.free { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 8px; margin: 8px 0 4px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.tile small { display: block; color: var(--muted); font-size: 11px; }
+.tile b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.tile.bad { border-color: var(--bad); } .tile.bad b { color: var(--bad); }
+.tile.low { border-color: var(--warn); } .tile.low b { color: var(--warn); }
+.scroll { overflow-x: auto; max-height: 240px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+td, th { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.log { font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; }
+.log .back { color: var(--warn); } .log .fill { color: var(--ok); } .log .skip { color: var(--muted); } .log .hold { color: var(--bad); } .log .mov { color: var(--shares); }
+.events { display: flex; gap: 8px; flex-wrap: wrap; }
+.tag { font-size: 11px; color: var(--muted); }
+@media (max-width: 600px) { input[type=range] { width: 130px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Jack Emby und Frau Moverelli: Pool-Mockup</h1>
+  <p class="sub">Nur Benutzerführung und Logik, keine echte Funktion. Werte in GB (1 TB = 1024 GB). Alles ist seeded: gleiche Eingaben, gleiches Ergebnis.</p>
+
+  <section class="card intro note">
+    <p><b>Variante 1 = USO-Release 1.62.1.</b> Moverelli hat X (ihr Limit) und Y = X − Offset. Das Platzstück R unter Y teilen sich Jack (Garantie H = k % von R) und die Downloads (Rest). Jack füllt bis Y und leiht sich, was die Downloads nicht brauchen. Im Nachtlauf gibt er über Y zurück (am weitesten voraus zuerst, nie unter H). Moverelli schiebt immer nach Altersregel und ab X die Downloads, die über ihre Hälfte geliehen haben. Optional: «nur freigeben» nach Rückgabe.</p>
+    <p><b>Variante 2 = fixes Budget.</b> Jack bekommt ein festes cache_budget und sein eigenes min_free_percent. Passt eine Folge nicht mehr, ist er im Zustand «nur freigeben»: nichts Neues, Gesehenes geht zurück, Ungesehenes nie. Moverelli zählt das Budget als reservierten Block.</p>
+    <p>Gesehene Files gehen in beiden Varianten bei Jacks Lauf immer aufs Array.</p>
+  </section>
+
+  <!-- Wizard -->
+  <section class="card" id="wizard">
+    <div class="steps"><span data-s="1">1 · Variante</span><span data-s="2">2 · Einstellungen</span><span data-s="3">3 · Zusammenfassung</span></div>
+    <div id="wz"></div>
+  </section>
+
+  <!-- Simulator -->
+  <section class="card">
+    <h2>Simulator <span class="tag" id="dayTag"></span></h2>
+    <div class="ctl" id="ctl"></div>
+    <div class="row"><label><input type="checkbox" id="latchOn"> Vorschlag: nach Rückgabe nur freigeben (Variante 1)</label></div>
+    <div class="row"><label><input type="checkbox" id="v2emerg"> Notfall ab 95 %: alles zurück (Variante 2)</label></div>
+    <h3>Tage</h3>
+    <div class="events">
+      <button class="btn" data-ev="day1">Tag simulieren</button>
+      <button class="btn" data-ev="day7">7 Tage</button>
+      <button class="btn" data-ev="day14">14 Tage</button>
+      <button class="ghost" data-ev="reset">Zurücksetzen</button>
+    </div>
+    <h3>Ereignisse (wirken auf beide Varianten)</h3>
+    <div class="events">
+      <button class="ghost" data-ev="nm+">appdata +50 GB</button>
+      <button class="ghost" data-ev="nm-">appdata −50 GB</button>
+      <button class="ghost" data-ev="sh+">Share-Caches +100 GB</button>
+      <button class="ghost" data-ev="sh-">Share-Caches −100 GB</button>
+    </div>
+    <div class="events" style="margin-top:8px">
+      <button class="ghost" data-ev="watch">Schauen</button><label>Folgen geschaut <input type="number" id="manWatch" min="0" max="50" value="3"></label>
+      <button class="ghost" data-ev="new">Neue Folgen erscheinen</button><label>Anzahl <input type="number" id="manNew" min="0" max="50" value="3"></label>
+    </div>
+    <div class="events" style="margin-top:8px">
+      <button class="btn" data-ev="jack">Lauf Jack Emby</button>
+      <button class="btn" data-ev="mov">Lauf Moverelli</button>
+    </div>
+  </section>
+
+  <div class="grid2" id="cols"></div>
+
+  <section class="card">
+    <h2>Regeln im Mockup</h2>
+    <h3>Tagesablauf</h3>
+    <ul>
+      <li>Downloads kommen an, es wird geschaut, neue Folgen erscheinen (auf dem Array), dann läuft die Nacht für beide Varianten.</li>
+      <li>Jack füllt reihum pro Person, nächste Folge zuerst. Passt eine Folge nicht, stoppt diese Person (nie Folge 5 ohne Folge 4).</li>
+      <li>Pingpong: ein ungesehenes File, das zurückging und innerhalb von 7 Tagen wieder geholt wird.</li>
+    </ul>
+    <h3>Variante 1 (1.62.1, <code>poollevel.php</code> / <code>nightrun.php</code>)</h3>
+    <ul>
+      <li><code>R = max(0, Y·Pool − NM)</code>, <code>H = R·k</code>, <code>half_d = R − H</code>. Jack füllt bis Y.</li>
+      <li><code>need = used − Y</code>. <code>back = min(max(0, J − H), need)</code> bei used &gt; Y. <code>goes = min(max(0, D − half_d), need − back)</code> bei used ≥ X. <code>age</code> immer.</li>
+      <li>Wer mehr freigibt, geht zuerst. Bis zu 3 Runden mit Nachmessen. Danach <code>fill = min(wartend, max(0, Y − after))</code>.</li>
+      <li>Platz für andere Shares = <code>half_d + (X − Y)·Pool</code>.</li>
+    </ul>
+    <h3>Variante 2: fixes Budget</h3>
+    <ul>
+      <li>Befüllen nur wenn <code>J + File ≤ Budget</code> und Pool-frei nach Copy ≥ T. Sonst «nur freigeben».</li>
+      <li>Moverellis Wert = <code>belegt − J + Budget</code>. Altersregel immer, ab X die ältesten Downloads bis Y.</li>
+      <li>Platz für andere Shares = <code>Y·Pool − NM − Budget</code>.</li>
+    </ul>
+    <h3>Annahmen im Mockup</h3>
+    <ul>
+      <li>Gesehene Files werden zu Beginn der Nacht zurückgeräumt, bevor gemessen wird.</li>
+      <li>Altersregel: Download-Block mit Alter ≥ Tage-Regler wird geschoben. Ein Download-Block pro Tag.</li>
+      <li>Ganze Files werden zurückgegeben (Stopp, sobald die Menge erreicht ist, nie unter H).</li>
+      <li>V2: Moverellis Trigger «≥ X» wird vor der Altersregel gemessen. Notfall-Nacht füllt nicht neu.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+// ---- constants ----
+const NIGHT_ROUNDS_MAX = 3;
+const FULL = 95;          // V2 emergency threshold
+const PP_DAYS = 7;        // ping-pong window
+const USERS = ['Anna', 'Ben', 'Carla'];
+const SERIES = ['Andor', 'Severance', 'Shogun'];
+
+// ---- wizard state ----
+const wz = { step: 1, variant: null, unit: 'GB', applied: false };
+
+// ---- simulator inputs ----
+const sim = { pool: 1024, nm: 150, dl: 60, watch: 3, neu: 3, x: 80, off: 10, k: 50, age: 3, band: 5, budget: 400, T: 10, latchOn: false, emerg: false };
+const DEFAULTS = Object.assign({}, sim);
+
+// ---- seeded RNG (mulberry32) ----
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rnd, world, V;
+
+const sum = (a) => a.reduce((s, x) => s + x, 0);
+const gb = (v) => v >= 1024 ? `${(v / 1024).toFixed(2)} TB` : `${Math.round(v * 10) / 10} GB`;
+const Y = () => Math.max(1, sim.x - sim.off);
+const yB = () => Y() / 100 * sim.pool;
+const NM = () => Math.min(sim.nm, sim.pool);
+const near = () => Math.max(sim.pool / 100, 1);
+
+// ---- world ----
+function mkEp(ui) {
+  const u = world.users[ui];
+  const film = rnd() < 0.1;
+  const size = film ? Math.round(30 + rnd() * 30) : Math.round(3 + rnd() * 11);
+  const idx = u.next++;
+  return { uid: ui, idx, title: film ? `${u.name} · Film ${idx + 1}` : `${u.name} · ${SERIES[ui]} #${idx + 1}`, size, watched: false, onPool: false, seq: 0, backDay: null };
+}
+function newVariant(key) {
+  return { key, eps: world.eps.map((e) => ({ ...e })), dl: world.dl0.map((d) => ({ ...d })), log: [], latch: false, seq: 0,
+    pp: 0, upT: 0, downT: 0, downUnwT: 0, movT: 0, dayUp: 0, dayDown: 0, hist: [], minPlatz: Infinity, lastPlan: null };
+}
+function resetSim() {
+  Object.assign(sim, DEFAULTS, { latchOn: sim.latchOn, emerg: sim.emerg });
+  rnd = mulberry32(162);
+  world = { day: 0, watchRR: 0, newRR: 0, users: USERS.map((name) => ({ name, next: 0 })), eps: [], dl0: [{ day: -2, size: 60 }, { day: -1, size: 60 }] };
+  for (let i = 0; i < 25; i++) for (let u = 0; u < 3; u++) world.eps.push(mkEp(u));
+  V = { v1: newVariant('v1'), v2: newVariant('v2') };
+  for (const k of ['v1', 'v2']) recordMin(V[k]);
+}
+
+// ---- measuring ----
+function measure(st) {
+  const J = sum(st.eps.filter((f) => f.onPool).map((f) => f.size));
+  const Jw = sum(st.eps.filter((f) => f.onPool && f.watched).map((f) => f.size));
+  const D = sum(st.dl.map((d) => d.size));
+  const nm = NM();
+  return { J, Jw, D, nm, used: Math.min(sim.pool, nm + D + J) };
+}
+// V1 math, 1:1 poolLevelMath()
+function v1math(st) {
+  const S = sim.pool, m = measure(st), ybB = yB();
+  const room = Math.max(0, ybB - m.nm);
+  const half = room * Math.max(0, Math.min(100, sim.k)) / 100;
+  const halfD = room - half;
+  const need = Math.max(0, m.used - ybB);
+  const back = m.used > ybB ? Math.min(Math.max(0, m.J - half), need) : 0;
+  const goes = m.used * 100 >= sim.x * S ? Math.min(Math.max(0, m.D - halfD), need - back) : 0;
+  return { ...m, room, half, halfD, need, back, goes, never: m.nm >= ybB };
+}
+function agedBytes(st) { return sum(st.dl.filter((d) => world.day - d.day >= sim.age).map((d) => d.size)); }
+function platz(key) {
+  if (key === 'v1') { const a = v1math(V.v1); return a.halfD + (sim.off / 100) * sim.pool; }
+  return yB() - NM() - sim.budget;
+}
+function recordMin(st) { st.minPlatz = Math.min(st.minPlatz, platz(st.key)); }
+
+// ---- actions ----
+function nextUnwatchedIdx(st, uid) {
+  const l = st.eps.filter((f) => f.uid === uid && !f.watched);
+  return l.length ? Math.min(...l.map((f) => f.idx)) : 0;
+}
+function cleanupWatched(st, L) {
+  for (const f of st.eps.filter((f) => f.onPool && f.watched)) {
+    f.onPool = false; st.dayDown += f.size; st.downT += f.size;
+    L('back', `[ZURÜCK: gesehen] ${f.title} (${gb(f.size)})`);
+  }
+}
+// give back unwatched files, farthest ahead first; floor = Jack's J must not fall below it; returns bytes freed
+function giveBack(st, amount, floor, tag, L) {
+  const nx = [0, 1, 2].map((u) => nextUnwatchedIdx(st, u));
+  const c = st.eps.filter((f) => f.onPool && !f.watched).sort((a, b) => (b.idx - nx[b.uid]) - (a.idx - nx[a.uid]) || b.seq - a.seq);
+  let freed = 0, J = measure(st).J;
+  for (const f of c) {
+    if (freed >= amount) break;
+    if (J - f.size < floor) continue;
+    f.onPool = false; f.backDay = world.day; freed += f.size; J -= f.size;
+    st.dayDown += f.size; st.downT += f.size; st.downUnwT += f.size;
+    L('back', `[ZURÜCK: ${tag}] ${f.title} (${gb(f.size)}), Rang +${f.idx - nx[f.uid]}`);
+  }
+  return freed;
+}
+function moveAged(st, L) {
+  let moved = 0;
+  for (const d of st.dl.filter((d) => world.day - d.day >= sim.age)) { moved += d.size; }
+  st.dl = st.dl.filter((d) => world.day - d.day < sim.age);
+  if (moved > 0) { st.movT += moved; L('mov', `[MOVERELLI: Alter] ${gb(moved)} älter als ${sim.age} Tage aufs Array`); }
+  return moved;
+}
+function moveOldest(st, amount, tag, L) {
+  let left = amount, moved = 0;
+  st.dl.sort((a, b) => a.day - b.day);
+  for (const d of st.dl) {
+    if (left <= 0) break;
+    const t = Math.min(d.size, left); d.size -= t; left -= t; moved += t;
+  }
+  st.dl = st.dl.filter((d) => d.size > 0.0001);
+  if (moved > 0) { st.movT += moved; L('mov', `[MOVERELLI: ${tag}] ${gb(moved)} älteste Downloads aufs Array`); }
+  return moved;
+}
+// Jack fills round-robin per person, next episode first. fit(f, used, J) -> null (fits) | 'platz' | 'budget' | 'minfree'
+function fillRR(st, fit, L) {
+  const stopped = new Set();
+  let m = measure(st), progress = true;
+  const rot = world.day % 3;
+  while (progress) {
+    progress = false;
+    for (let i = 0; i < 3; i++) {
+      const u = (i + rot) % 3;
+      if (stopped.has(u)) continue;
+      const cand = st.eps.filter((f) => f.uid === u && !f.watched && !f.onPool).sort((a, b) => a.idx - b.idx)[0];
+      if (!cand) { stopped.add(u); continue; }
+      const r = fit(cand, m.used, m.J);
+      if (r) {
+        stopped.add(u);
+        const why = { platz: `Pool würde über Y ${Y()} % gehen`, budget: `Budget ${gb(m.J)} von ${gb(sim.budget)}`, minfree: `frei danach ${((sim.pool - m.used - cand.size) * 100 / sim.pool).toFixed(1)} % < T ${sim.T} %` }[r];
+        L(r === 'minfree' ? 'hold' : 'skip', `[SKIP: Platz] ${cand.title} (${gb(cand.size)}), ${why}`);
+        continue;
+      }
+      cand.onPool = true; cand.seq = ++st.seq; m.used += cand.size; m.J += cand.size;
+      st.dayUp += cand.size; st.upT += cand.size;
+      let extra = '';
+      if (cand.backDay !== null && world.day - cand.backDay <= PP_DAYS) { st.pp++; extra = ` PINGPONG (zurück an Tag ${cand.backDay})`; }
+      cand.backDay = null;
+      L('fill', `[COPY] ${cand.title} (${gb(cand.size)})${extra}`);
+      progress = true;
+    }
+  }
+}
+
+// ---- night runs ----
+function nightV1(st, L) {
+  cleanupWatched(st, L);
+  if (!sim.latchOn) st.latch = false;
+  let backTotal = 0, round = 0;
+  for (round = 1; round <= NIGHT_ROUNDS_MAX; round++) {
+    const a = v1math(st), aged = agedBytes(st);
+    if (round === 1) st.lastPlan = { back: a.back, goes: a.goes, age: aged };
+    if (round > 1 && (a.need <= near() || a.back + a.goes === 0)) break;
+    if (round === 1 && a.never) L('skip', `[SKIP: Platz] appdata/NM ${gb(a.nm)} ≥ Y: nichts zu teilen`);
+    const jackFirst = a.back >= a.goes + aged;
+    L('skip', `Runde ${round}: belegt ${gb(a.used)}, need ${gb(a.need)}, back ${gb(a.back)}, goes ${gb(a.goes)}, Alter ${gb(aged)}, zuerst ${jackFirst ? 'Jack' : 'Moverelli'}`);
+    const jack = () => { if (a.back > 0) backTotal += giveBack(st, a.back, a.half, 'geliehen', L); };
+    const her = () => { moveAged(st, L); if (a.goes > 0) moveOldest(st, a.goes, 'über X', L); };
+    if (jackFirst) { jack(); her(); } else { her(); jack(); }
+  }
+  v1Fill(st, backTotal, L);
+}
+function v1Fill(st, backTotal, L) {
+  const m = measure(st), ybB = yB();
+  let setNow = false;
+  if (sim.latchOn && backTotal > 0 && !st.latch) { st.latch = true; setNow = true; }
+  if (st.latch && !setNow && m.used <= ybB - sim.band / 100 * sim.pool) {
+    st.latch = false; L('fill', `[NUR FREIGEBEN] aufgehoben: belegt ${gb(m.used)} ≤ Y − ${sim.band} %`);
+  }
+  if (st.latch) {
+    const w = sum(st.eps.filter((f) => !f.watched && !f.onPool).map((f) => f.size));
+    L('hold', `[NUR FREIGEBEN] kein Füllen (wartet ${gb(w)}), bis belegt ≤ ${gb(ybB - sim.band / 100 * sim.pool)}`);
+  } else {
+    fillRR(st, (f, used) => used + f.size > ybB ? 'platz' : null, L);
+  }
+}
+function nightV2(st, L) {
+  cleanupWatched(st, L);
+  const S = sim.pool;
+  let emergency = false;
+  let m = measure(st);
+  if (sim.emerg && m.used * 100 >= FULL * S) {
+    emergency = true;
+    giveBack(st, Infinity, 0, 'Notfall', L);
+  }
+  // Moverelli: budget counts as a reserved block
+  m = measure(st);
+  const reading = m.used - m.J + sim.budget;
+  const aged = moveAged(st, L);
+  if (reading * 100 >= sim.x * S) {
+    const m2 = measure(st);
+    const r2 = m2.used - m2.J + sim.budget;
+    const need = Math.max(0, r2 - yB());
+    const moved = moveOldest(st, need, 'über X', L);
+    if (moved < need - 0.01) L('skip', `[MOVERELLI: über X] Y nicht erreichbar, Downloads leer`);
+  }
+  nightV2Jack(st, L, emergency);
+}
+function nightV2Jack(st, L, emergency = null) {
+  const S = sim.pool, T = sim.T;
+  if (emergency === null && sim.emerg && measure(st).used * 100 >= FULL * S) { cleanupWatched(st, L); giveBack(st, Infinity, 0, 'Notfall', L); emergency = true; }
+  else if (emergency === null) { cleanupWatched(st, L); emergency = false; }
+  if (emergency) {
+    L('hold', `[NUR FREIGEBEN] Notfall ab ${FULL} %: keine neuen Files heute Nacht`);
+  } else {
+    fillRR(st, (f, used, J) => J + f.size > sim.budget ? 'budget' : ((S - used - f.size) * 100 / S < T ? 'minfree' : null), L);
+    const mf = (S - measure(st).used) * 100 / S;
+    if (mf < T) L('hold', `[NUR FREIGEBEN] Pool frei ${mf.toFixed(1)} % < T ${T} %`);
+  }
+}
+
+
+// ---- manual runs (single desks) ----
+function herPart(st, key, L) {
+  if (key === 'v1') {
+    const a = v1math(st);
+    moveAged(st, L);
+    if (a.goes > 0) moveOldest(st, a.goes, 'über X', L);
+    if (a.goes === 0 && a.used * 100 < sim.x * sim.pool) L('skip', `[MOVERELLI] belegt ${gb(a.used)} < X ${sim.x} %: nur Altersregel`);
+  } else {
+    const m = measure(st), reading = m.used - m.J + sim.budget;
+    moveAged(st, L);
+    if (reading * 100 >= sim.x * sim.pool) {
+      const m2 = measure(st), need = Math.max(0, m2.used - m2.J + sim.budget - yB());
+      const moved = moveOldest(st, need, 'über X', L);
+      if (moved < need - 0.01) L('skip', '[MOVERELLI: über X] Y nicht erreichbar, Downloads leer');
+    } else L('skip', `[MOVERELLI] Wert ${gb(reading)} < X ${sim.x} %: nur Altersregel`);
+  }
+}
+function jackPart(st, key, L) {
+  if (key === 'v2') return nightV2Jack(st, L);
+  cleanupWatched(st, L);
+  if (!sim.latchOn) st.latch = false;
+  const a = v1math(st);
+  const backTotal = a.back > 0 ? giveBack(st, a.back, a.half, 'geliehen', L) : 0;
+  v1Fill(st, backTotal, L);
+}
+function manualRun(who) {
+  for (const key of ['v1', 'v2']) {
+    const st = V[key];
+    const L = (cls, t) => st.log.push({ d: world.day, cls, t });
+    L('skip', `── Manuell: ${who === 'mov' ? 'Lauf Moverelli' : 'Lauf Jack Emby'} (Tag ${world.day})`);
+    if (who === 'mov') herPart(st, key, L); else jackPart(st, key, L);
+    recordMin(st);
+  }
+}
+function manualWatch(n) {
+  let done = 0;
+  for (let w = 0; w < n; w++) {
+    for (let t = 0; t < 3; t++) {
+      const uid = (world.watchRR++) % 3;
+      const cand = world.eps.filter((f) => f.uid === uid && !f.watched).sort((a, b) => a.idx - b.idx)[0];
+      if (cand) { cand.watched = true; done++; break; }
+    }
+  }
+  for (const key of ['v1', 'v2']) {
+    for (const f of V[key].eps) { const w = world.eps.find((x) => x.uid === f.uid && x.idx === f.idx); if (w && w.watched) f.watched = true; }
+    V[key].log.push({ d: world.day, cls: 'skip', t: `Geschaut: ${done} Folgen (nichts bewegt)` });
+  }
+}
+function manualNew(n) {
+  const fresh = [];
+  for (let i = 0; i < n; i++) { const e = mkEp((world.newRR++) % 3); world.eps.push(e); fresh.push(e); }
+  for (const key of ['v1', 'v2']) { for (const e of fresh) V[key].eps.push({ ...e }); V[key].log.push({ d: world.day, cls: 'skip', t: `${n} neue Folgen auf dem Array` }); }
+}
+
+// ---- a day ----
+function simulateDay() {
+  world.day++;
+  const d = world.day;
+  // 1. downloads arrive
+  // 2. viewing
+  const watched = [];
+  for (let w = 0; w < sim.watch; w++) {
+    const uid = (d * 7 + w) % 3;
+    const cand = world.eps.filter((f) => f.uid === uid && !f.watched).sort((a, b) => a.idx - b.idx)[0];
+    if (cand) { cand.watched = true; watched.push(cand.idx); }
+  }
+  // 3. new episodes
+  const fresh = [];
+  for (let n = 0; n < sim.neu; n++) { const e = mkEp((d * 5 + n) % 3); world.eps.push(e); fresh.push(e); }
+  for (const key of ['v1', 'v2']) {
+    const st = V[key];
+    const L = (cls, t) => st.log.push({ d, cls, t });
+    st.dayUp = 0; st.dayDown = 0;
+    // downloads
+    const free = Math.max(0, sim.pool - measure(st).used);
+    const got = Math.min(sim.dl, free);
+    if (got > 0) st.dl.push({ day: d, size: got });
+    // viewing mirrors the shared world: copy flags
+    for (const f of st.eps) { const w = world.eps.find((x) => x.uid === f.uid && x.idx === f.idx); if (w && w.watched) f.watched = true; }
+    for (const e of fresh) st.eps.push({ ...e });
+    L('skip', `── Tag ${d}: Downloads ${gb(got)}${got < sim.dl ? ' (Pool voll, Rest verloren)' : ''}, geschaut ${watched.length}, neu ${fresh.length}`);
+    if (key === 'v1') nightV1(st, L); else nightV2(st, L);
+    const m = measure(st);
+    recordMin(st);
+    st.hist.push({ day: d, pct: m.used * 100 / sim.pool, up: st.dayUp, down: st.dayDown, platz: platz(key) });
+    if (st.log.length > 600) st.log.splice(0, st.log.length - 600);
+  }
+}
+
+// ---- manual events ----
+function event(ev) {
+  if (ev === 'reset') { resetSim(); render(); return; }
+  if (ev === 'mov' || ev === 'jack') manualRun(ev);
+  if (ev === 'watch') manualWatch(Math.max(0, Number(document.getElementById('manWatch').value) || 0));
+  if (ev === 'new') manualNew(Math.max(0, Number(document.getElementById('manNew').value) || 0));
+  if (ev === 'day1') simulateDay();
+  if (ev === 'day7') for (let i = 0; i < 7; i++) simulateDay();
+  if (ev === 'day14') for (let i = 0; i < 14; i++) simulateDay();
+  if (ev === 'nm+') sim.nm += 50;
+  if (ev === 'nm-') sim.nm = Math.max(0, sim.nm - 50);
+  for (const key of ['v1', 'v2']) {
+    const st = V[key];
+    if (ev === 'sh+') st.dl.push({ day: world.day, size: Math.min(100, Math.max(0, sim.pool - measure(st).used)) });
+    if (ev === 'sh-') moveOldest(st, 100, 'manuell', () => {});
+    recordMin(st);
+  }
+  render();
+}
+document.querySelectorAll('[data-ev]').forEach((b) => b.addEventListener('click', () => event(b.dataset.ev)));
+document.getElementById('latchOn').addEventListener('change', (e) => { sim.latchOn = e.target.checked; render(); });
+document.getElementById('v2emerg').addEventListener('change', (e) => { sim.emerg = e.target.checked; render(); });
+
+// ---- controls ----
+const pct = (v) => `${v} %`;
+const CTL = [
+  ['pool', 'Pool-Grösse', 512, 4096, 64, gb],
+  ['nm', 'appdata / System (NM)', 0, 1024, 10, gb],
+  ['dl', 'Downloads pro Tag', 0, 200, 5, gb],
+  ['watch', 'Gesehene Folgen pro Tag', 0, 12, 1, String],
+  ['neu', 'Neue Folgen pro Tag', 0, 12, 1, String],
+  ['x', 'X (Moverelli-Limit)', 20, 95, 1, pct],
+  ['off', 'Offset (Y = X − Offset)', 0, 30, 1, pct],
+  ['k', 'V1: Jack garantiert (k)', 0, 100, 5, pct],
+  ['age', 'Altersregel (Tage)', 1, 14, 1, String],
+  ['band', 'V1: Band für «nur freigeben»', 1, 20, 1, pct],
+  ['budget', 'V2: cache_budget', 0, 2048, 10, gb],
+  ['T', 'V2: min_free_percent T', 0, 50, 1, pct],
+];
+function buildCtl() {
+  const box = document.getElementById('ctl');
+  box.innerHTML = '';
+  for (const [k, label, min, max, step, fmt] of CTL) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<label>${label}</label><span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${sim[k]}"> <output>${fmt(sim[k])}</output></span>`;
+    const inp = row.querySelector('input');
+    inp.addEventListener('input', () => {
+      sim[k] = Number(inp.value);
+      row.querySelector('output').textContent = fmt(sim[k]);
+      for (const key of ['v1', 'v2']) recordMin(V[key]);
+      render(false);
+    });
+    box.appendChild(row);
+  }
+  document.getElementById('latchOn').checked = sim.latchOn;
+  document.getElementById('v2emerg').checked = sim.emerg;
+}
+
+// ---- status chips ----
+function chip(key) {
+  const st = V[key], m = measure(st);
+  if (key === 'v1' && st.latch && sim.latchOn) return ['Nur freigeben', 'free'];
+  const waiting = st.eps.filter((f) => !f.watched && !f.onPool);
+  if (!waiting.length) return ['Normal', 'ok'];
+  const cands = [0, 1, 2].map((u) => waiting.filter((f) => f.uid === u).sort((a, b) => a.idx - b.idx)[0]).filter(Boolean);
+  const S = sim.pool;
+  const reasons = cands.map((f) => {
+    if (key === 'v1') return m.used + f.size > yB() ? 'platz' : null;
+    if (sim.emerg && m.used * 100 >= FULL * S) return 'minfree';
+    if (m.J + f.size > sim.budget) return 'budget';
+    return (S - m.used - f.size) * 100 / S < sim.T ? 'minfree' : null;
+  });
+  if (reasons.some((r) => r === null)) return ['Normal', 'ok'];
+  if (reasons.includes('minfree')) return ['Nur freigeben', 'free'];
+  return ['Budget voll', 'hold'];
+}
+
+// ---- render columns ----
+function column(key) {
+  const st = V[key], m = measure(st), S = sim.pool;
+  const p = (v) => `${Math.max(0, v) * 100 / S}%`;
+  const Ju = m.J - m.Jw;
+  const reserved = key === 'v2' ? Math.max(0, sim.budget - m.J) : 0;
+  const [chipTxt, chipCls] = chip(key);
+  const pl = platz(key);
+  const plCls = pl <= 0 ? 'bad' : (pl < sim.dl ? 'low' : '');
+  const waiting = st.eps.filter((f) => !f.onPool && !f.watched);
+  const last = st.hist[st.hist.length - 1];
+  const mk = (v, txt, cls = '') => `<div class="mark ${cls} ${v > 70 ? 'flip' : ''}" style="left:${v}%"><span>${txt}</span></div>`;
+  const title = key === 'v1' ? 'Variante 1: dynamisch (1.62.1)' : 'Variante 2: fixes Budget';
+  let kv;
+  if (key === 'v1') {
+    const a = v1math(st);
+    const pl1 = st.lastPlan;
+    kv = `<dt>Y, R, H</dt><dd>Y ${Y()} % · R ${gb(a.room)} · H ${gb(a.half)} (k ${sim.k} %)</dd>
+      <dt>half_d (Downloads)</dt><dd>${gb(a.halfD)} · Luft Y…X ${gb(sim.off / 100 * S)}</dd>
+      <dt>Jack J / Downloads D</dt><dd>${gb(m.J)} (ungesehen ${gb(Ju)}, gesehen ${gb(m.Jw)}) / ${gb(m.D)}</dd>
+      <dt>Pool belegt</dt><dd>${gb(m.used)} · ${(m.used * 100 / S).toFixed(1)} %</dd>
+      <dt>Vorschau Nacht</dt><dd>back ${gb(a.back)} · goes ${gb(a.goes)} · Alter ${gb(agedBytes(st))}</dd>
+      <dt>Letzter Plan</dt><dd>${pl1 ? `back ${gb(pl1.back)} · goes ${gb(pl1.goes)} · Alter ${gb(pl1.age)}` : '–'}</dd>
+      <dt>Latch «nur freigeben»</dt><dd>${!sim.latchOn ? 'Schalter aus' : (st.latch ? `<b style="color:var(--bad)">gesetzt</b>, Ende bei belegt ≤ ${gb(yB() - sim.band / 100 * S)}` : 'nicht gesetzt')}</dd>
+      <dt>Wartet auf Array</dt><dd>${waiting.length} Files, ${gb(sum(waiting.map((f) => f.size)))}</dd>`;
+  } else {
+    kv = `<dt>Budget / J</dt><dd>${gb(sim.budget)} / ${gb(m.J)} (ungesehen ${gb(Ju)}, gesehen ${gb(m.Jw)})</dd>
+      <dt>Downloads D</dt><dd>${gb(m.D)}</dd>
+      <dt>Pool belegt</dt><dd>${gb(m.used)} · frei ${((S - m.used) * 100 / S).toFixed(1)} % (T ${sim.T} %)</dd>
+      <dt>Moverellis Wert</dt><dd>${gb(m.used - m.J + sim.budget)} · ${((m.used - m.J + sim.budget) * 100 / S).toFixed(1)} %${(m.used - m.J + sim.budget) * 100 >= sim.x * S ? ' → sie schiebt' : ''}</dd>
+      <dt>Wartet auf Array</dt><dd>${waiting.length} Files, ${gb(sum(waiting.map((f) => f.size)))}</dd>`;
+  }
+  const rows = st.eps.filter((f) => f.onPool || !f.watched).sort((a, b) => (b.onPool - a.onPool) || (a.uid - b.uid) || (a.idx - b.idx)).map((f) => {
+    const s = f.onPool ? (f.watched ? 'Pool · gesehen' : 'Pool · ungesehen') : 'Array · wartet';
+    return `<tr><td>${f.title}</td><td class="n">${gb(f.size)}</td><td>${s}</td></tr>`;
+  }).join('');
+  const hist = st.hist.slice(-14).map((h) => `<tr><td class="n">${h.day}</td><td class="n">${h.pct.toFixed(1)} %</td><td class="n">${Math.round(h.up)}</td><td class="n">${Math.round(h.down)}</td><td class="n">${Math.round(h.platz)}</td></tr>`).join('');
+  return `<section class="card" data-col="${key}">
+    <h2>${title} <span class="state ${chipCls}" data-m="${key}.chip">${chipTxt}</span></h2>
+    <div class="tiles">
+      <div class="tile ${plCls}"><small>Platz für andere Shares</small><b data-m="${key}.platz">${gb(pl)}</b><small>Minimum: <span data-m="${key}.minplatz">${gb(st.minPlatz)}</span></small></div>
+      <div class="tile"><small>Pingpong (ungesehen, ≤ 7 Tage)</small><b data-m="${key}.pp">${st.pp}</b><small>zurück und wieder geholt</small></div>
+      <div class="tile"><small>Jack bewegt gesamt</small><b><span data-m="${key}.up">↑ ${Math.round(st.upT)}</span> · <span data-m="${key}.down">↓ ${Math.round(st.downT)}</span></b><small>GB, davon ungesehen ↓ <span data-m="${key}.downunw">${Math.round(st.downUnwT)}</span></small></div>
+      <div class="tile"><small>Letzter Tag (GB)</small><b>${last ? `↑ ${Math.round(last.up)} · ↓ ${Math.round(last.down)}` : '–'}</b><small>Moverelli gesamt ${Math.round(st.movT)} GB</small></div>
+    </div>
+    <div class="bar">
+      <div class="seg nm" style="width:${p(m.nm)}" title="appdata"></div>
+      <div class="seg shares" style="width:${p(m.D)}" title="Downloads"></div>
+      <div class="seg unw" style="width:${p(Ju)}" title="Jack ungesehen"></div>
+      <div class="seg wat" style="width:${p(m.Jw)}" title="Jack gesehen"></div>
+      <div class="seg res" style="width:${p(Math.min(reserved, S - m.used))}" title="reserviert, leer"></div>
+      ${mk(sim.x, `X ${sim.x}%`)}${mk(Y(), `Y ${Y()}%`)}${key === 'v2' ? mk(100 - sim.T, `T ${sim.T}%`, 'minfree') : ''}
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--nm)"></i>appdata</span><span><i style="background:var(--shares)"></i>Downloads</span>
+      <span><i style="background:var(--unw)"></i>Jack ungesehen</span><span><i style="background:var(--wat)"></i>Jack gesehen</span>
+      ${key === 'v2' ? '<span><i class="seg res" style="display:inline-block"></i>Budget reserviert, leer</span>' : ''}
+    </div>
+    <dl class="kv">${kv}</dl>
+    <div class="log" data-log="${key}">${st.log.map((l) => `<div class="${l.cls}">${l.t}</div>`).join('') || '<span class="skip">Noch kein Lauf.</span>'}</div>
+    <h3>Letzte Tage</h3>
+    <div class="scroll"><table><thead><tr><th>Tag</th><th>belegt</th><th>↑ GB</th><th>↓ GB</th><th>Platz GB</th></tr></thead><tbody>${hist || '<tr><td colspan="5">–</td></tr>'}</tbody></table></div>
+    <h3>Files</h3>
+    <div class="scroll"><table><thead><tr><th>Titel</th><th>Grösse</th><th>Ort</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </section>`;
+}
+
+// ---- wizard ----
+const budgetGB = () => sim.budget;
+function wizardChecks() {
+  const S = sim.pool, b = budgetGB(), T = sim.T;
+  const pl = yB() - NM() - b;
+  const out = [];
+  if (b <= 0) out.push(['bad', 'Budget fehlt.']);
+  out.push([pl <= 0 ? 'bad' : (pl < sim.dl ? 'bad' : 'ok'), `Platz für andere Shares: ${gb(pl)} (Y ${Y()} % von ${gb(S)} − appdata ${gb(NM())} − Budget ${gb(b)})${pl <= 0 ? ': nichts bleibt für andere Shares, Moverelli kommt nie unter Y.' : (pl < sim.dl ? `: weniger als ein Tag Downloads (${gb(sim.dl)}).` : '.')}`]);
+  const usable = S * (1 - T / 100) - NM();
+  if (b > usable) out.push(['warn', `Budget ${gb(b)} ist grösser als der Platz bis T nach appdata (${gb(Math.max(0, usable))}). T stoppt das Befüllen vorher.`]);
+  return out;
+}
+const msgCls = { ok: 'ok', bad: 'bad', warn: '' };
+function renderWizard() {
+  document.querySelectorAll('.steps span').forEach((s) => s.classList.toggle('on', Number(s.dataset.s) === wz.step));
+  const box = document.getElementById('wz');
+  if (wz.step === 1) {
+    box.innerHTML = `<h2>Wie soll Jack den Pool nutzen?</h2>
+      <div class="choices">
+        <button class="choice ${wz.variant === 1 ? 'sel' : ''}" data-v="1"><b>Variante 1: dynamisch (1.62.1)</b>Moverellis X bestimmt alles. Jack füllt bis Y und leiht sich, was die Downloads nicht brauchen.
+          <ul><li>Garantie H = k % des Platzstücks unter Y.</li><li>Über Y gibt Jack zurück, auch Ungesehenes, nie unter H.</li><li>Optional: nach Rückgabe nur freigeben.</li></ul></button>
+        <button class="choice ${wz.variant === 2 ? 'sel' : ''}" data-v="2"><b>Variante 2: fixes Budget</b>Du gibst Jack einen festen Platz in GB/TB und sein eigenes T.
+          <ul><li>Platz ist reserviert, Moverelli rechnet ihn ein.</li><li>Ungesehene Folgen bleiben auf dem Pool.</li><li>Voll oder T erreicht: nur freigeben, Gesehenes geht weiter zurück.</li></ul></button>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn" id="wzNext" ${wz.variant ? '' : 'disabled'}>Weiter</button></div>`;
+    box.querySelectorAll('[data-v]').forEach((b) => b.addEventListener('click', () => { wz.variant = Number(b.dataset.v); renderWizard(); }));
+    box.querySelector('#wzNext').addEventListener('click', () => { wz.step = 2; renderWizard(); });
+  } else if (wz.step === 2) {
+    if (wz.variant === 1) {
+      const a = v1math(V.v1);
+      box.innerHTML = `<h2>Variante 1: dynamisch (1.62.1)</h2>
+        <p>X ${sim.x} %, Offset ${sim.off} % → Y ${Y()} %. Jack garantiert k = ${sim.k} % (Simulator-Regler). R ${gb(a.room)}, H ${gb(a.half)}, half_d ${gb(a.halfD)}.</p>
+        <div class="msg ${platz('v1') <= 0 ? 'bad' : 'ok'}">Platz für andere Shares: ${gb(platz('v1'))} (half_d plus Luft Y…X).</div>
+        <div class="row"><label><input type="checkbox" id="wzLatch" ${sim.latchOn ? 'checked' : ''}> Vorschlag: nach Rückgabe nur freigeben (Band ${sim.band} %)</label></div>`;
+      box.querySelector('#wzLatch').addEventListener('change', (e) => { sim.latchOn = e.target.checked; render(); });
+    } else {
+      box.innerHTML = `<h2>Variante 2: fixes Budget</h2>
+        <div class="row"><label>cache_budget</label><input type="number" id="bv" min="0" step="1" value="${wz.unit === 'TB' ? sim.budget / 1024 : sim.budget}">
+          <select id="bu"><option ${wz.unit === 'GB' ? 'selected' : ''}>GB</option><option ${wz.unit === 'TB' ? 'selected' : ''}>TB</option></select></div>
+        <div class="row"><label>min_free_percent T</label><input type="number" id="mf" min="0" max="90" step="1" value="${sim.T}"> <span class="tag">%, darunter kommt nichts Neues auf den Pool</span></div>
+        <div class="row"><label><input type="checkbox" id="wzEm" ${sim.emerg ? 'checked' : ''}> Notfall ab 95 %: alles zurück</label></div>
+        <div id="chk"></div>`;
+      const upd = () => {
+        wz.unit = box.querySelector('#bu').value;
+        sim.budget = (Number(box.querySelector('#bv').value) || 0) * (wz.unit === 'TB' ? 1024 : 1);
+        sim.T = Number(box.querySelector('#mf').value) || 0;
+        box.querySelector('#chk').innerHTML = wizardChecks().map(([k, t]) => `<div class="msg ${msgCls[k]}">${t}</div>`).join('');
+        const nb = document.getElementById('wzNext'); if (nb) nb.disabled = sim.budget <= 0;
+        for (const key of ['v1', 'v2']) recordMin(V[key]);
+        buildCtl(); renderCols();
+      };
+      box.querySelectorAll('input[type=number],select').forEach((i) => i.addEventListener('input', upd));
+      box.querySelector('#wzEm').addEventListener('change', (e) => { sim.emerg = e.target.checked; buildCtl(); renderCols(); });
+      setTimeout(upd);
+    }
+    box.insertAdjacentHTML('beforeend', `<div class="row" style="margin-top:12px"><button class="ghost" id="wzBack">Zurück</button><button class="btn" id="wzNext">Weiter</button></div>`);
+    box.querySelector('#wzBack').addEventListener('click', () => { wz.step = 1; renderWizard(); });
+    box.querySelector('#wzNext').addEventListener('click', () => { wz.step = 3; renderWizard(); });
+  } else {
+    const lines = wz.variant === 1
+      ? ['Variante: dynamisch (USO 1.62.1)', `X ${sim.x} %, Y ${Y()} % (Offset ${sim.off} %), k ${sim.k} %`, `Nur freigeben nach Rückgabe: ${sim.latchOn ? `ja (Band ${sim.band} %)` : 'nein'}`, `Platz für andere Shares: ${gb(platz('v1'))}`]
+      : ['Variante: fixes Budget', `cache_budget: ${gb(sim.budget)}`, `min_free_percent: ${sim.T} %`, `Notfall ab 95 %: ${sim.emerg ? 'ja' : 'nein'}`, 'Moverelli: zeigt das Budget als reservierten Block'];
+    box.innerHTML = `<h2>Zusammenfassung</h2><ul>${lines.map((l) => `<li>${l}</li>`).join('')}</ul>
+      ${wz.variant === 2 ? wizardChecks().filter(([k]) => k !== 'ok').map(([k, t]) => `<div class="msg ${msgCls[k]}">${t}</div>`).join('') : ''}
+      <div class="row"><button class="ghost" id="wzBack">Zurück</button><button class="btn" id="wzApply">Übernehmen</button></div>
+      ${wz.applied ? '<div class="msg ok">Übernommen. Der Simulator nutzt diese Werte.</div>' : ''}`;
+    box.querySelector('#wzBack').addEventListener('click', () => { wz.step = 2; renderWizard(); });
+    box.querySelector('#wzApply').addEventListener('click', () => { wz.applied = true; renderWizard(); render(); });
+  }
+}
+
+function renderCols() {
+  const logTop = {};
+  document.querySelectorAll('[data-log]').forEach((el) => { logTop[el.dataset.log] = el.scrollTop; });
+  document.getElementById('cols').innerHTML = column('v1') + column('v2');
+  document.querySelectorAll('[data-log]').forEach((el) => { el.scrollTop = el.scrollHeight; });
+  document.getElementById('dayTag').textContent = `· Tag ${world.day}`;
+}
+function render(rebuild = true) {
+  if (rebuild) buildCtl();
+  renderCols();
+}
+resetSim();
+renderWizard();
+render();
+</script>
+</body>
+</html>
