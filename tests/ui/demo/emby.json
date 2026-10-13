@@ -204,16 +204,15 @@
   "path": "/mnt/cache",
   "free_percent": 40.4,
   "free": 444529115136,
-  "min_free": 20,
+  "min_free": 30,
   "moverelli": {
    "x": 80,
-   "n": 40
+   "y": 70
   },
-  "slice": 222994702008,
-  "slice_used": 214748364800,
-  "excess": 0,
-  "cake": 557486755020,
-  "case": "ok",
+  "keep": 223767796121,
+  "held": 214748364800,
+  "back": 0,
+  "never": false,
   "waiting": 2
  },
  "gather": {

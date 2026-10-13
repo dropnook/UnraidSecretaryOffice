@@ -479,14 +479,14 @@
   "nr": 13,
   "desk": "moverelli",
   "moment": "share",
-  "title": "Frau Moverelli - Einrichten: den verfügbaren Platz mit Jack Emby teilen, der Schieber und der Balken pro Pool",
+  "title": "Frau Moverelli - Einrichten: eine Grenze, Jack Emby und die Downloads je mit ihrem Teil, was die nächste Nacht bewegt",
   "route": "moverelli/setup",
   "prepare": [
    {
-    "wait": ".mo-cakes .mo-cake-bar",
+    "wait": ".mo-levels .mo-level-pool",
     "pause": 500
    }
   ],
-  "clip": ".mo-cakes"
+  "clip": ".mo-levels"
  }
 ]
