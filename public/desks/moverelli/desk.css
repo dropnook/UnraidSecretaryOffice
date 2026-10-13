@@ -54,9 +54,9 @@
 .mo-cake-seg:first-child{border-radius:3px 0 0 3px}
 .mo-cake-nm, .mo-swatch.mo-cake-nm{background:color-mix(in srgb, var(--ink) 70%, var(--surface))}
 .mo-cake-slice, .mo-swatch.mo-cake-slice{background:repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 35%, var(--surface)) 0 4px, color-mix(in srgb, var(--accent) 18%, var(--surface)) 4px 8px)}
-.mo-cake-slice > .mo-cake-held{background:var(--accent)}
+.mo-cake-slice > .mo-cake-held, .mo-swatch.mo-cake-jack{background:var(--accent)}
 .mo-cake-new, .mo-swatch.mo-cake-new{background:color-mix(in srgb, var(--good) 22%, var(--surface))}
-.mo-cake-new > .mo-cake-held{background:color-mix(in srgb, var(--good) 75%, var(--surface))}
+.mo-cake-new > .mo-cake-held, .mo-swatch.mo-cake-fresh{background:color-mix(in srgb, var(--good) 75%, var(--surface))}
 .mo-cake-held{position:absolute; left:0; top:0; bottom:0}
 .mo-swatch.mo-cake-free{background:var(--surface2); border:1px solid var(--line)}
 .mo-cake-tick{position:absolute; top:-4px; bottom:-4px; width:0; border-left:2px solid var(--ink); transform:translateX(-1px)}
