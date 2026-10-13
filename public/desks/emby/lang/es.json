@@ -111,6 +111,12 @@
   "progress.source.next_episode": "Episodio siguiente",
   "progress.source.favorite": "Serie favorita",
   "progress.source.other": "En la lista",
+  "progress.giveback": "Devuelvo: {what}",
+  "rank.started": "empezado",
+  "rank.next": "el siguiente",
+  "rank.ahead": "episodio {n} más adelante",
+  "rank.who": "{what}, {who}",
+  "rank.item": "{title} ({why})",
   "progress.raw": "Salida sin procesar",
   "progress.nothing": "Nada que copiar – todo está donde debe.",
   "progress.took": "listo en {time}",
@@ -681,5 +687,7 @@
   "slice.own": "La señora Moverelli no pone límite al pool — dejo libre el {min} %.",
   "slice.full": {"one": "Mi porción está llena — {n} película espera en el array hasta que se libere algo.", "other": "Mi porción está llena — {n} películas esperan en el array hasta que se libere algo."},
   "slice.over": "Me paso de mi porción ({used} de {j}) — en la próxima ejecución devuelvo {excess}.",
+  "slice.gave_back": "En la última ejecución devolví, primero lo más lejano: {list}.",
+  "slice.gave_back_more": {"one": "En la última ejecución devolví, primero lo más lejano: {list} y {n} más.", "other": "En la última ejecución devolví, primero lo más lejano: {list} y {n} más."},
   "pool_tile.slice": "{used} de {j} · {pct} % libre"
 }

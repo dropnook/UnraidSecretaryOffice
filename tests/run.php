@@ -30911,6 +30911,199 @@ PY);
 }
 
 /**
+ * Jack's order (jack-phase2, office blocks in EmbyCache): a stand-in Emby — Mutter resumes «Serie» S01E01 (E02–E05
+ * follow, 1–4 ahead), Benj has S01E03 next up (E04, E05 follow: shared with Mutter, each counted once at its nearest
+ * rank), the Kids resume «Brazil»; 1000 bytes each. Fill round-robin by everyone's next item (E01, E03, Brazil before
+ * E02); a growing slice fills the rest; a shrinking one gives back the farthest ahead first (E05, E04, then Mutter's E02
+ * before the shared E03 — she has the most), what is started last; the free-% limit (ZFS stand-in): at limit−1 nothing,
+ * at limit+1 back to limit−2 points (FREE_HYSTERESIS); mixed with a slice the stricter decides, what plays stays; the
+ * words in the log, the status, the live panel and his page.
+ */
+function testEmbyRank(): void
+{
+    [$exit] = run(['python3', '--version'], 10);
+    if ($exit !== 0) {
+        check('emby rank: python3 is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('emby-rank');
+    $p = "$tmp/py";
+    foreach (["$p/data", "$p/pool", "$p/user0/Filme/Brazil", "$p/user0/Serien/Serie", "$p/user/Filme", "$p/user/Serien", "$p/shares"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    for ($e = 1; $e <= 5; $e++) {
+        file_put_contents("$p/user0/Serien/Serie/S01E0$e.mkv", str_repeat((string) $e, 1000));
+    }
+    file_put_contents("$p/user0/Filme/Brazil/Brazil.mkv", str_repeat('b', 1000));
+    file_put_contents("$p/playing", '');
+    file_put_contents("$p/emby.py", <<<'PY'
+import http.server, json, sys, urllib.parse
+NAMES = ["Eins", "Zwei", "Drei", "Vier", "Fünf"]
+EPS = [{"Type": "Episode", "Id": f"e{i}", "Name": NAMES[i - 1], "SeriesId": "s1", "SeriesName": "Serie", "ParentIndexNumber": 1,
+        "IndexNumber": i, "Path": f"/media/tv/Serie/S01E0{i}.mkv"} for i in range(1, 6)]
+BRAZIL = {"Type": "Movie", "Id": "m2", "Name": "Brazil", "Path": "/media/movies/Brazil/Brazil.mkv"}
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        u = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        kind = (q.get("IncludeItemTypes") or [""])[0]
+        if u.path == "/Users":
+            body = [{"Id": "u1", "Name": "Mutter"}, {"Id": "u2", "Name": "Benj"}, {"Id": "u3", "Name": "Kids"}]
+        elif u.path == "/Sessions":
+            playing = open(sys.argv[2]).read().strip()
+            body = [{"UserName": "Kids", "NowPlayingItem": {"Path": playing}}] if playing else []
+        elif u.path.endswith("/Items/Resume"):
+            uid = u.path.split("/")[2]
+            body = {"Items": ([EPS[0]] if uid == "u1" and kind == "Episode" else [BRAZIL] if uid == "u3" and kind == "Movie" else [])}
+        elif u.path == "/Shows/NextUp":
+            body = {"Items": [EPS[2]] if q.get("UserId") == ["u2"] else []}
+        elif q.get("ParentId") == ["s1"]:
+            body = {"Items": EPS}
+        else:
+            body = {"Items": []}
+        b = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+    def log_message(self, *a):
+        pass
+s = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1] + ".tmp", "w").write(str(s.server_address[1]))
+import os; os.replace(sys.argv[1] + ".tmp", sys.argv[1])
+s.serve_forever()
+PY);
+    $emby = proc_open(['python3', "$p/emby.py", "$p/port", "$p/playing"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$p/emby.err", 'w']], $pipes);
+    for ($i = 0; $i < 50 && !is_file("$p/port"); $i++) {
+        usleep(100000);
+    }
+    $port = (int) @file_get_contents("$p/port");
+    $settings = fn (int $minFree) => file_put_contents("$p/data/embycache_settings.json", json_encode(['cache_path' => "$p/pool", 'array_path' => "$p/user0",
+        'user_path' => "$p/user", 'array_disks_glob' => "$p/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true,
+        'shares_cfg_dir' => "$p/shares", 'create_share_root' => true, 'api_timeout' => 3, 'min_free_percent' => $minFree, 'max_resume_movies' => 10,
+        'max_resume_series' => 10, 'max_favorite_series' => 0, 'use_next_up' => true, 'number_episodes' => 4,
+        'instances' => [['servername' => 'Test', 'url' => "http://127.0.0.1:$port", 'api_key' => 'k',
+                         'path_mappings' => ['/media/movies' => "$p/user/Filme", '/media/tv' => "$p/user/Serien"]]]], JSON_UNESCAPED_SLASHES));
+    // the ZFS stand-in: the pool «master» at $p/pool, used and avail from a file the steps write
+    file_put_contents("$p/mounts", "master $p/pool zfs rw 0 0\n");
+    file_put_contents("$p/zfs", "#!/bin/bash\ncat " . escapeshellarg("$p/zfsnum") . "\n");
+    chmod("$p/zfs", 0755);
+    $go = function (?int $budget, int $minFree = 0, ?int $free = null) use ($p, $settings): array {
+        $settings($minFree);
+        @unlink("$p/data/status.json");
+        $cmd = ['env', 'PATH=' . getenv('PATH'), "EMBYCACHE_DIR=$p/data", "EMBYCACHE_STATUS=$p/data/status.json", 'EMBYCACHE_FILL_TOOL=rsync',
+                'EMBYCACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', "EMBYCACHE_PROGRESS=$p/data/progress.json"];
+        if ($free !== null) {
+            file_put_contents("$p/zfsnum", (10000 - $free) . " $free\n");
+            array_push($cmd, "EMBYCACHE_MOUNTS=$p/mounts", "EMBYCACHE_ZFS=$p/zfs");
+        } else {
+            $cmd[] = 'EMBYCACHE_MOUNTS=/dev/null';
+        }
+        if ($budget !== null) {
+            $cmd[] = "EMBYCACHE_BUDGET_BYTES=$budget";
+        }
+        [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/embycache/embycache_run.py', '--run']), 120);
+        $log = (string) @file_get_contents("$p/data/logs/embycache.log");
+        @unlink("$p/data/logs/embycache.log");
+        return [$exit, readJson("$p/data/status.json") ?? [], $out . $err . $log];
+    };
+    $on = function () use ($p): array {
+        $l = array_map(fn ($f) => basename($f, '.mkv'), array_merge(glob("$p/pool/Serien/Serie/*.mkv") ?: [], glob("$p/pool/Filme/*/*.mkv") ?: []));
+        sort($l);
+        return $l;
+    };
+    $back = function (string $out): array {
+        preg_match_all('/\[ZURÜCK: Stück\] \S+\/(\w+)\.mkv/u', $out, $m);
+        return array_values(array_unique($m[1]));     // the console and the log file
+    };
+    $copied = function (string $out): array {
+        preg_match_all('/^.*\d+ B\s+\S+\/(\w+)\.mkv$/mu', $out, $m);
+        return $m[1];
+    };
+
+    [$exit, $st, $out] = $go(3000);
+    same('emby rank: a slice of 3000 — round-robin by everyone\'s next (Mutter E01, Benj E03, Kids Brazil), the rest waits',
+        [0, ['Brazil', 'S01E01', 'S01E03'], ['S01E01', 'S01E03', 'Brazil'], 3], [$exit, $on(), array_values(array_unique($copied($out))), $st['slice']['waiting'] ?? null], $out);
+    [$exit, $st, $out] = $go(6000);
+    same('emby rank: the slice grows to 6000 — the rest comes, nearest first (E02, E04, E05)', [['Brazil', 'S01E01', 'S01E02', 'S01E03', 'S01E04', 'S01E05'], ['S01E02', 'S01E04', 'S01E05']],
+        [$on(), array_values(array_unique($copied($out)))], $out);
+    [$exit, $st, $out] = $go(3500);
+    same('emby rank: shrinks to 3500 — back the farthest ahead first: E05 (3 ahead for Benj), E04, then Mutter\'s E02 (she has the most) before the shared E03',
+        [0, ['S01E05', 'S01E04', 'S01E02'], ['Brazil', 'S01E01', 'S01E03']], [$exit, $back($out), $on()], $out);
+    check('emby rank: … said in words (the nearest watcher first)', str_contains($out, 'Gebe zurück: Serie – S01E05 Fünf (Folge 3 voraus, Benj, Mutter)')
+        && str_contains($out, 'Gebe zurück: Serie – S01E02 Zwei (als Nächstes, Mutter)'), $out);
+    same('emby rank: … the status names them in order, for his page', [3, [['Serie – S01E05 Fünf', 3, 'Benj, Mutter'], ['Serie – S01E04 Vier', 2, 'Benj, Mutter'], ['Serie – S01E02 Zwei', 1, 'Mutter']]],
+        [$st['give_back']['files'] ?? null, array_map(fn ($w) => [$w['title'], $w['ahead'], $w['who']], $st['give_back']['items'] ?? [])]);
+    [$exit, $st, $out] = $go(null, 20, 2100);
+    same('emby rank: free-% limit 20, the pool 79 % full (limit − 1) — nothing goes back, nothing more fills', [0, [], ['Brazil', 'S01E01', 'S01E03']], [$exit, $back($out), $on()], $out);
+    [$exit, $st, $out] = $go(null, 20, 1900);
+    same('emby rank: the pool 81 % full (limit + 1) — back until 22 % free (300 bytes: one item), the next up E03 before what is started',
+        [0, ['S01E03'], ['Brazil', 'S01E01']], [$exit, $back($out), $on()], $out);
+    check('emby rank: … said with the limit and the margin', str_contains($out, 'Zu wenig frei auf dem Pool: 19.0 %') && str_contains($out, 'bis 22 % frei'), $out);
+    file_put_contents("$p/playing", '/media/movies/Brazil/Brazil.mkv');
+    [$exit, $st, $out] = $go(1500, 20, 1000);
+    same('emby rank: mixed — slice 1500 (500 over) and 10 % free (1200 short): the stricter decides, both started ones would go, Brazil plays and stays',
+        [0, ['S01E01'], ['Brazil']], [$exit, $back($out), $on()], $out);
+    check('emby rank: … the one playing said', str_contains($out, '[BLEIBT: läuft gerade] Filme/Brazil/Brazil.mkv'), $out);
+    proc_terminate($emby);
+    proc_close($emby);
+
+    // the live panel's file going back and his page's words — in their shape
+    file_put_contents("$tmp/progress.json", json_encode(['v' => 1, 'phase' => 'back', 'started' => 1, 'updated' => 2, 'back' => ['files' => 1, 'bytes' => 9],
+        'users' => [], 'current' => ['phase' => 'back', 'rel' => 'Serien/S/E10.mkv', 'size' => 9, 'target' => '/x', 'since' => 2,
+        'why' => ['title' => "S – S01E10\x01", 'ahead' => 10, 'who' => 'Mutter']]]));
+    $pr = embyProgressRead("$tmp/progress.json");
+    same('emby rank: the progress file — why it goes back, in its shape', ['title' => 'S – S01E10 ', 'ahead' => 10, 'who' => 'Mutter'], $pr['current']['why'] ?? null);
+    same('emby rank: … the view passes it on; nonsense is none', [10, null, null],
+        [embyProgressView($pr, [], 3)['current']['why']['ahead'] ?? null, embyGiveBackWhy(['title' => 'x', 'ahead' => -1]), embyGiveBackWhy(['ahead' => 2])]);
+    same('emby rank: the status list for his page', ['files' => 4, 'items' => [['title' => 'A', 'ahead' => 0, 'who' => '']]],
+        embyGiveBackList(['give_back' => ['files' => 4, 'items' => [['title' => 'A', 'ahead' => 0], 'junk']]]));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('emby rank: page - node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, scrollIntoView() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t, number: (n) => String(n) },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+out.items = [{ title: 'S – E10', ahead: 10, who: 'Mutter' }, { title: 'S – E2', ahead: 1, who: 'Benj' }, { title: 'Brazil', ahead: 0, who: '' }].map(e.rankItem);
+out.file = texts(e.progFile({ phase: 'back', rel: 'Serien/S/E10.mkv', size: 9, done: 0, why: { title: 'S – E10', ahead: 10, who: 'Mutter' } }));
+const items = [1, 2, 3, 4].map((n) => ({ title: 'T' + n, ahead: n, who: 'M' }));
+e.setState({ pool: { slice: 100, slice_used: 50, waiting: 0, excess: 0, moverelli: { x: 80, n: 20 }, min_free: 20, given_back: { files: 4, items } } });
+out.more = e.sliceWords();
+e.setState({ pool: { slice: 100, slice_used: 50, waiting: 0, excess: 0, moverelli: { x: 80, n: 20 }, min_free: 20, given_back: { files: 1, items: items.slice(0, 1) } } });
+out.one = e.sliceWords();
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    same('emby rank: the words — n ahead, next up, started (no one named: just that)', [
+        'rank.item {"title":"S – E10","why":"rank.who {\"what\":\"rank.ahead {\\\\\"n\\\\\":10}\",\"who\":\"Mutter\"}"}',
+        'rank.item {"title":"S – E2","why":"rank.who {\"what\":\"rank.next\",\"who\":\"Benj\"}"}',
+        'rank.item {"title":"Brazil","why":"rank.started"}'], $j['items'] ?? $err);
+    check('emby rank: the live panel — «Giving back: …» under the file', (bool) preg_grep('/^progress\.giveback .*S – E10/', $j['file'] ?? []), json_encode($j['file'] ?? null));
+    check('emby rank: his page — the last run\'s give-back, three named and «and 1 more»; one alone', str_starts_with(end($j['more']) ?: '', 'slice.gave_back_more')
+        && str_ends_with(end($j['more']), '"n":1}') && str_starts_with(end($j['one']) ?: '', 'slice.gave_back {'), json_encode($j));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/emby/lang/$l.json") ?? [];
+        check("emby rank: lang $l has the words", count(array_intersect_key($lang, array_flip(['progress.giveback', 'rank.started', 'rank.next', 'rank.ahead', 'rank.who', 'rank.item', 'slice.gave_back', 'slice.gave_back_more']))) === 8);
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Moverelli's stops and her run card (2026-10-12): with CUSTOMMOVER_STOP Smart Mover hands Unraid's move binary one
  * file at a time — «Stop after this file»: the next file never starts; «Stop at once» (the stop file with now, the move
  * binary TERMed like Unraid's own «mover stop»): the file in flight stays at its source, the partial copy it left at its
@@ -33875,7 +34068,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolCake', 'testMoverelliCakeHooks', 'testEmbyBudget',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testMoverelliAfterEmby', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolCake', 'testMoverelliCakeHooks', 'testEmbyBudget', 'testEmbyRank',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

@@ -111,6 +111,12 @@
   "progress.source.next_episode": "Nächste Folge",
   "progress.source.favorite": "Favoriten-Serie",
   "progress.source.other": "Auf der Liste",
+  "progress.giveback": "Gebe zurück: {what}",
+  "rank.started": "angefangen",
+  "rank.next": "als Nächstes",
+  "rank.ahead": "Folge {n} voraus",
+  "rank.who": "{what}, {who}",
+  "rank.item": "{title} ({why})",
   "progress.raw": "Rohausgabe",
   "progress.nothing": "Nichts zu kopieren – alles liegt, wo es hingehört.",
   "progress.took": "fertig in {time}",
@@ -681,5 +687,7 @@
   "slice.own": "Frau Moverelli setzt dem Pool keine Grenze — ich lasse {min} % davon frei.",
   "slice.full": {"one": "Mein Stück ist voll — {n} Film wartet auf dem Array, bis was frei wird.", "other": "Mein Stück ist voll — {n} Filme warten auf dem Array, bis was frei wird."},
   "slice.over": "Ich bin über meinem Stück ({used} von {j}) — beim nächsten Lauf bring ich {excess} zurück.",
+  "slice.gave_back": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list}.",
+  "slice.gave_back_more": {"one": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list} und {n} weiteres.", "other": "Beim letzten Lauf hab ich zurückgegeben, das am weitesten voraus Liegende zuerst: {list} und {n} weitere."},
   "pool_tile.slice": "{used} von {j} · {pct} % frei"
 }

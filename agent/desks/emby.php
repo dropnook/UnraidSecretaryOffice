@@ -643,10 +643,26 @@ function embyPoolUsage(?array $settings): ?array
         if ($c !== null && $c['n'] !== null) {
             $slice = (array) (readJson(EMBY_DATA . '/status.json')['slice'] ?? []);
             $out += ['slice' => $c['slice'], 'slice_used' => $c['jack'], 'excess' => $c['excess'], 'cake' => $c['cake'], 'case' => $c['case'],
-                     'waiting' => (int) ($slice['waiting'] ?? 0)];
+                     'waiting' => (int) ($slice['waiting'] ?? 0), 'given_back' => embyGiveBackList()];
         }
     }
     return $out;
+}
+
+/**
+ * What his last run gave back over his limit, in words for his page (jack-phase2): EmbyCache's status `give_back.items`
+ * [{title, ahead, who}, …] (the farthest ahead first), at most 20, each in its shape; with how many files went back.
+ */
+function embyGiveBackList(?array $status = null): array
+{
+    $g = (array) (($status ?? readJson(EMBY_DATA . '/status.json') ?? [])['give_back'] ?? []);
+    $items = [];
+    foreach (array_slice(is_array($g['items'] ?? null) ? array_values($g['items']) : [], 0, 20) as $w) {
+        if (($w = embyGiveBackWhy($w)) !== null) {
+            $items[] = $w;
+        }
+    }
+    return ['files' => embyProgressInt($g['files'] ?? 0), 'items' => $items];
 }
 
 /**

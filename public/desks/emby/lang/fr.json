@@ -111,6 +111,12 @@
   "progress.source.next_episode": "Épisode suivant",
   "progress.source.favorite": "Série favorite",
   "progress.source.other": "Sur la liste",
+  "progress.giveback": "Je rends : {what}",
+  "rank.started": "commencé",
+  "rank.next": "le prochain",
+  "rank.ahead": "épisode {n} plus loin",
+  "rank.who": "{what}, {who}",
+  "rank.item": "{title} ({why})",
   "progress.raw": "Sortie brute",
   "progress.nothing": "Rien à copier – tout est à sa place.",
   "progress.took": "terminé en {time}",
@@ -681,5 +687,7 @@
   "slice.own": "Madame Moverelli ne fixe aucune limite au pool — j'en laisse {min} % libre.",
   "slice.full": {"one": "Ma part est pleine — {n} film attend sur l'array que quelque chose se libère.", "other": "Ma part est pleine — {n} films attendent sur l'array que quelque chose se libère."},
   "slice.over": "Je dépasse ma part ({used} sur {j}) — à la prochaine exécution, je rapporte {excess}.",
+  "slice.gave_back": "À la dernière exécution, j'ai rendu, le plus lointain d'abord : {list}.",
+  "slice.gave_back_more": {"one": "À la dernière exécution, j'ai rendu, le plus lointain d'abord : {list} et {n} autre.", "other": "À la dernière exécution, j'ai rendu, le plus lointain d'abord : {list} et {n} autres."},
   "pool_tile.slice": "{used} sur {j} · {pct} % libre"
 }

@@ -111,6 +111,12 @@
   "progress.source.next_episode": "Next episode",
   "progress.source.favorite": "Favourite series",
   "progress.source.other": "On the list",
+  "progress.giveback": "Giving back: {what}",
+  "rank.started": "started",
+  "rank.next": "next up",
+  "rank.ahead": "episode {n} ahead",
+  "rank.who": "{what}, {who}",
+  "rank.item": "{title} ({why})",
   "progress.raw": "Raw output",
   "progress.nothing": "Nothing to copy — everything is where it belongs.",
   "progress.took": "done in {time}",
@@ -681,5 +687,7 @@
   "slice.own": "Ms. Moverelli sets no limit for the pool — I leave {min} % of it free.",
   "slice.full": {"one": "My slice is full — {n} film waits on the array until something frees up.", "other": "My slice is full — {n} films wait on the array until something frees up."},
   "slice.over": "I'm over my slice ({used} of {j}) — at the next run I bring {excess} back.",
+  "slice.gave_back": "Last run I gave back, the farthest ahead first: {list}.",
+  "slice.gave_back_more": {"one": "Last run I gave back, the farthest ahead first: {list} and {n} more.", "other": "Last run I gave back, the farthest ahead first: {list} and {n} more."},
   "pool_tile.slice": "{used} of {j} · {pct} % free"
 }

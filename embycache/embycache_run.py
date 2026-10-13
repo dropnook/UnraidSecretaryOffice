@@ -43,7 +43,8 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
   EMBYCACHE_DIR               Arbeitsverzeichnis (Settings, Exclude-Liste, Lock, logs/); Default: Script-Verzeichnis
   EMBYCACHE_CONFIG            Pfad zur Settings-JSON
   EMBYCACHE_LOG_LEVEL         DEBUG | INFO | WARNING (Default INFO)
-  EMBYCACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent)
+  EMBYCACHE_MIN_FREE_PERCENT  Mindest-Freiplatz auf dem Cache in Prozent (überschreibt min_free_percent; USO: darunter gibt
+                              der Lauf zurück, bis FREE_HYSTERESIS Punkte mehr frei sind – nach Rang)
   EMBYCACHE_MOVER_DEBUG       0–3, Parameter -d für das move-Binary (überschreibt mover_debug_level)
   EMBYCACHE_RSYNC_ARGS        vollständige rsync-Optionen, Default "-aAX --numeric-ids" (überschreibt rsync_args)
   EMBYCACHE_FILL_TOOL         rsync | mover (überschreibt fill_tool)
@@ -79,7 +80,7 @@ def stop_requested():
     return bool(STOP_FILE) and os.path.exists(STOP_FILE)
 
 from embycache_lib import (
-    ConfigError, EmbyApi, Locations, acquire_lock, array_location, budget_bytes, collect_sessions, detect_mover_bin,
+    ConfigError, EmbyApi, Locations, acquire_lock, array_location, budget_bytes, pool_usage, collect_sessions, detect_mover_bin,
     free_percent_after, human, is_playing, load_config, origin_target, read_exclude, read_origin,
     remove_empty_parents, run_mover, setup_logging, share_mover_mode, summarize_mover_output,
     unraid_mover_running, write_exclude, write_origin, write_progress, write_status, EXCLUDE_FILE, MOVER_MODE_HINT,
@@ -108,12 +109,20 @@ log = setup_logging("EmbyCache", "embycache.log")
 
 
 class OnDeckFile:
-    __slots__ = ("rel", "size", "on_cache", "reason", "user", "source", "title")
+    __slots__ = ("rel", "size", "on_cache", "reason", "user", "source", "title", "ranks", "item")
 
-    def __init__(self, rel, size, on_cache, reason, user=None, source=None, title=None):
+    def __init__(self, rel, size, on_cache, reason, user=None, source=None, title=None, ahead=0, item=None):
         self.rel, self.size, self.on_cache, self.reason = rel, size, on_cache, reason
         # für EMBYCACHE_PROGRESS: wessen Datei (UserPlan.key), warum (SOURCE_CODES) und was («Serie – S01E02 Titel»)
         self.user, self.source, self.title = user, source, title
+        # USO (Phase 2, Rang): pro Benutzer, wie weit voraus (0 angefangen, 1 als Nächstes, n die n-te Folge voraus);
+        # eine Datei, die mehrere vormerken, trägt alle; item: das Emby-Item (alle Dateien eines Items gehen zusammen)
+        self.ranks = {user: ahead}
+        self.item = item
+
+    def ahead(self):
+        """Wie weit voraus für den, der sie am ehesten schaut."""
+        return min(self.ranks.values()) if self.ranks else 0
 
 
 # Die Quellen als Codes für EMBYCACHE_PROGRESS (ein Programm übersetzt sie selbst)
@@ -126,7 +135,7 @@ class Progress:
     Arbeit mit ihrem Ziel (dort liegt rsyncs temporäre Datei .<name>.XXXXXX – deren Grösse ist der Stand in der Datei).
     Geplant ist, was der Lauf vorhat; was er unterwegs auslässt (läuft gerade, Freiplatz, Fehler), fällt aus «geplant».
     «Zurück aufs Array» und jeder Benutzer: started (Beginn der ersten Datei) und ended (Ende der letzten).
-    Das Befüllen kopiert eine Datei nach der anderen, alle Benutzer gemischt, nach Pfad: queue = [[Index in users, Bytes],
+    Das Befüllen kopiert eine Datei nach der anderen, alle Benutzer gemischt, reihum nach Rang (USO, Planner.fill_order): queue = [[Index in users, Bytes],
     …] in genau dieser Reihenfolge (nur, was nicht schon auf dem Cache liegt), pos = wie viele davon erledigt sind
     (kopiert oder ausgelassen) – so weiss ein Programm, wann jeder Benutzer fertig ist. Mehr als QUEUE_MAX: keine queue."""
 
@@ -173,7 +182,7 @@ class Progress:
                 self.users[u.key] = entry
                 self.data["users"].append(entry)
         index = {e["key"]: i for i, e in enumerate(self.data["users"])}
-        order = [f for f in sorted(files, key=lambda x: str(x.rel)) if not f.on_cache]      # wie fill()
+        order = [f for f in files if not f.on_cache]      # wie fill(): reihum über die Benutzer (Planner.fill_order)
         if len(order) <= self.QUEUE_MAX:
             self.data["queue"] = [[index.get(f.user, -1), int(f.size)] for f in order]
             self.qidx = {id(f): i for i, f in enumerate(order)}
@@ -186,8 +195,8 @@ class Progress:
         if entry is not None and entry["done_files"] >= entry["files"] and entry.get("started") and not entry.get("ended"):
             entry["ended"] = int(time.time())
 
-    def start(self, phase, rel, size, target, f=None):
-        """Eine Datei beginnt (vor dem rsync): wer, was, wohin."""
+    def start(self, phase, rel, size, target, f=None, why=None):
+        """Eine Datei beginnt (vor dem rsync): wer, was, wohin; why (USO, Rückgabe übers Stück): {"title", "ahead", "who"}."""
         now = int(time.time())
         entry = self.users.get(f.user) if f is not None else self.data["back"] if phase == "back" else None
         if entry is not None and not entry.get("started"):
@@ -195,6 +204,8 @@ class Progress:
         self.data["current"] = {"phase": phase, "rel": str(rel), "size": int(size), "target": str(target),
                                 "user": f.user if f is not None else None, "source": f.source if f is not None else None,
                                 "title": f.title if f is not None else None, "since": now}
+        if why is not None:
+            self.data["current"]["why"] = why
         self.write()
 
     def done(self, size, f=None):
@@ -307,7 +318,8 @@ class Planner:
         stem = rel.stem
         return [f for f in loc.list_files(parent, recursive=False) if f.name.startswith(stem)]
 
-    def make_group(self, loc, item, category, chain, source, title, uname, series=None):
+    def make_group(self, loc, item, category, chain, source, title, uname, series=None, ahead=0):
+        """ahead (USO, Phase 2): wie weit voraus – 0 angefangen (Weiterschauen), 1 als Nächstes, n die n-te Folge voraus."""
         reason = f"{uname}: {source} «{series + ' – ' if series else ''}{title}»"
         what = f"{series} – {title}" if series else title
         files = []
@@ -320,7 +332,8 @@ class Planner:
             except OSError as e:
                 log.warning(f"Datei nicht lesbar, übersprungen: {src} ({e})")
                 continue
-            files.append(OnDeckFile(rel, size, on_cache, reason, self.planning, SOURCE_CODES.get(source, "other"), what))
+            files.append(OnDeckFile(rel, size, on_cache, reason, self.planning, SOURCE_CODES.get(source, "other"), what,
+                                    ahead, f"{item.get('Id')}|{item.get('Path')}"))
         return Group(files, category, chain, source, series, title, reason) if files else None
 
     # ------------------------------------------------------------------ Emby-Abfragen
@@ -398,8 +411,8 @@ class Planner:
             if g:
                 chain.append(g)
             try:
-                for ep in self.next_episodes_after(api, uid, item):
-                    g = self.make_group(loc, ep, "series", f"series:{sid}", "Nächste Folge", ep_label(ep), uname, sname)
+                for i, ep in enumerate(self.next_episodes_after(api, uid, item), 1):
+                    g = self.make_group(loc, ep, "series", f"series:{sid}", "Nächste Folge", ep_label(ep), uname, sname, i)
                     if g:
                         chain.append(g)
             except RuntimeError as e:
@@ -425,12 +438,12 @@ class Planner:
                     continue
                 seen_series.add(sid)
                 chain = []
-                g = self.make_group(loc, item, "series", f"series:{sid}", "Als Nächstes", ep_label(item), uname, sname)
+                g = self.make_group(loc, item, "series", f"series:{sid}", "Als Nächstes", ep_label(item), uname, sname, 1)
                 if g:
                     chain.append(g)
                 try:
-                    for ep in self.next_episodes_after(api, uid, item):
-                        g = self.make_group(loc, ep, "series", f"series:{sid}", "Nächste Folge", ep_label(ep), uname, sname)
+                    for i, ep in enumerate(self.next_episodes_after(api, uid, item), 2):
+                        g = self.make_group(loc, ep, "series", f"series:{sid}", "Nächste Folge", ep_label(ep), uname, sname, i)
                         if g:
                             chain.append(g)
                 except RuntimeError as e:
@@ -453,8 +466,8 @@ class Planner:
                 seen_series.add(sid)
                 chain = []
                 try:
-                    for ep in self.next_unplayed(api, uid, sid):
-                        g = self.make_group(loc, ep, "series", f"series:{sid}", "Favorit", ep_label(ep), uname, series.get("Name", "?"))
+                    for i, ep in enumerate(self.next_unplayed(api, uid, sid), 1):
+                        g = self.make_group(loc, ep, "series", f"series:{sid}", "Favorit", ep_label(ep), uname, series.get("Name", "?"), i)
                         if g:
                             chain.append(g)
                 except RuntimeError as e:
@@ -589,12 +602,89 @@ class Planner:
         for u in self.users.values():
             for g in u.selected:
                 for f in g.files:
-                    self.files.setdefault(str(f.rel), f)
+                    first = self.files.setdefault(str(f.rel), f)
+                    if first is not f:      # USO: eine Datei, die mehrere vormerken – jeder mit seinem Rang
+                        for k, a in f.ranks.items():
+                            first.ranks[k] = min(a, first.ranks.get(k, a))
         if self.budget_mode:
             total = sum(f.size for f in self.files.values())
             log.info(f"Budget gesamt: {human(total)} von {human(int(self.cfg['cache_budget_bytes']))} "
                      f"für {sum(1 for u in self.users.values() if u.has_candidates())} aktive Benutzer")
-        return list(self.files.values())
+        return self.fill_order()
+
+    def fill_order(self):
+        """USO (Phase 2): die Reihenfolge des Befüllens – reihum über die Benutzer nach ihrem nächsten Eintrag
+        (des ersten Nächstes, des zweiten Nächstes, …, dann jedermanns Zweites), damit bei knappem Platz jeder etwas
+        bekommt statt die ersten in der Pfadliste alles. Pro Benutzer nach Rang (angefangen, als Nächstes, …), bei
+        gleichem Rang in der Reihenfolge seiner Planung. Ein Eintrag, den mehrere vormerken, zählt einmal – an der
+        frühesten Stelle. Die Dateien eines Eintrags bleiben zusammen (nach Pfad)."""
+        lists = []
+        for u in self.users.values():
+            groups = [(min(f.ranks.get(u.key, 0) for f in g.files), i, g) for i, g in enumerate(u.selected) if g.files]
+            lists.append([g for _, _, g in sorted(groups, key=lambda t: (t[0], t[1]))])
+        order, placed = [], set()
+        for r in range(max((len(l) for l in lists), default=0)):
+            for l in lists:
+                if r < len(l):
+                    for f in sorted(l[r].files, key=lambda x: str(x.rel)):
+                        canon = self.files.get(str(f.rel))
+                        if canon is not None and id(canon) not in placed:
+                            placed.add(id(canon))
+                            order.append(canon)
+        order += [f for f in self.files.values() if id(f) not in placed]     # nichts geht verloren
+        return order
+
+    def names(self, f):
+        """Wer die Datei vormerkt, der am ehesten Schauende zuerst: «Mutter, Benj»."""
+        keys = sorted(f.ranks, key=lambda k: (f.ranks[k], self.users[k].name.lower() if k in self.users else str(k)))
+        return ", ".join(self.users[k].name if k in self.users else str(k) for k in keys)
+
+
+# USO: wie weit über die Freiplatz-Grenze die Rückgabe geht (Prozentpunkte des Pools). Das Befüllen hört genau an der
+# Grenze auf; ohne Abstand stiesse schon ein Download von ein paar GB den Pool wieder darunter und jeder Lauf gäbe ein,
+# zwei Folgen zurück und holte sie beim nächsten wieder (Pendeln, Platten wecken). 2 Punkte sind auf einem 1–8 TB
+# Pool 20–160 GB – ein, zwei Tage Downloads, aber nur ein paar Folgen von Jacks Liste.
+FREE_HYSTERESIS = 2.0
+
+
+def ahead_words(ahead, who):
+    """USO: der Rang in Worten fürs Log – «angefangen, Benj», «als Nächstes, Benj», «Folge 10 voraus, Mutter»."""
+    what = "angefangen" if ahead <= 0 else "als Nächstes" if ahead == 1 else f"Folge {ahead} voraus"
+    return f"{what}, {who}" if who else what
+
+
+def give_back_order(kept, prepared_of=None):
+    """USO (Phase 2): in welcher Reihenfolge Dateien zurück aufs Array gehen, wenn Jack über seiner Grenze liegt –
+    egal welche (ein Stück in Bytes, ein Freiplatz in Prozent): das am weitesten voraus Liegende zuerst (die 10. nächste
+    Folge vor der nächsten; was jemand angefangen hat, ganz zuletzt); bei gleichem Rang zuerst vom Benutzer, der gerade
+    am meisten auf dem Cache hat (nach jeder Rückgabe neu gezählt); ein Eintrag, den mehrere vormerken, gilt mit dem
+    nächsten Rang und zählt für jeden. Die Dateien eines Emby-Items gehen zusammen. Ergibt die Dateien in Reihenfolge."""
+    items = {}
+    for f in kept:
+        items.setdefault(f.item if f.item is not None else str(f.rel), []).append(f)
+    prepared = {}
+    for f in kept:
+        for k in f.ranks:
+            prepared[k] = prepared.get(k, 0) + f.size
+    by_ahead = {}
+    for key, fs in items.items():
+        ranks = {}
+        for f in fs:
+            for k, a in f.ranks.items():
+                ranks[k] = min(a, ranks.get(k, a))
+        by_ahead.setdefault(min(ranks.values()) if ranks else 0, []).append((key, fs, ranks))
+    out = []
+    for ahead in sorted(by_ahead, reverse=True):
+        pending = sorted(by_ahead[ahead], key=lambda t: max(str(f.rel) for f in t[1]), reverse=True)
+        while pending:
+            # wer hat am meisten? von dessen Einträgen (auf diesem Rang) der nach Namen letzte zuerst
+            best = max(range(len(pending)), key=lambda i: (max((prepared.get(k, 0) for k, a in pending[i][2].items() if a == ahead), default=0), -i))
+            _, fs, _ = pending.pop(best)
+            for f in sorted(fs, key=lambda x: str(x.rel), reverse=True):
+                out.append(f)
+                for k in f.ranks:
+                    prepared[k] = prepared.get(k, 0) - f.size
+    return out
 
 
 # --------------------------------------------------------------------------- Ausführung
@@ -620,6 +710,10 @@ class Runner:
         self.slice_used = 0
         self.given_back = self.given_back_bytes = 0
         self.waiting = self.waiting_bytes = 0
+        # USO (Phase 2): was übers Stück zurückgeht – Cache-Pfad -> {title, ahead, who} (Fortschritt) und seine Stelle
+        self.back_why, self.back_rank, self.given_back_list = {}, {}, []
+        # USO: auch der Freiplatz ist eine Grenze – unter min_free_percent gibt der Lauf zurück (0: keine Grenze)
+        self.give_back_free = float(cfg["min_free_percent"]) > 0
 
     def halt(self):
         """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
@@ -677,7 +771,7 @@ class Runner:
             self.make_dirs_like(loc.cache, loc.array, rel.parent)
             cmd = ["rsync", *rsync_args, str(src), str(dst)]
             log.debug("rsync-Aufruf (Cleanup): " + " ".join(cmd))
-            self.progress.start("back", rel, sizes.get(p, 0), dst)
+            self.progress.start("back", rel, sizes.get(p, 0), dst, why=self.back_why.get(p))
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode != 0:
                 failures += 1
@@ -749,7 +843,7 @@ class Runner:
                 continue
             cmd = ["rsync", *rsync_args, str(src), str(dst)]
             log.debug("rsync-Aufruf (Herkunft): " + " ".join(cmd))
-            self.progress.start("back", rel, sizes.get(p, 0), dst)
+            self.progress.start("back", rel, sizes.get(p, 0), dst, why=self.back_why.get(p))
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode != 0:
                 failures += 1
@@ -800,7 +894,8 @@ class Runner:
         """Alte Exclude-Einträge, die nicht mehr on deck sind -> move-Binary (Cache -> Array)."""
         previous = read_exclude()
         candidates, listing, checked = [], [], {}
-        for p in sorted(previous):
+        # zuerst, was niemand mehr vormerkt (nach Pfad), dann, was übers Stück zurückgeht – in seiner Reihenfolge
+        for p in sorted(previous, key=lambda q: (q in self.back_rank, self.back_rank.get(q, 0), q)):
             if p in current:
                 continue
             path = Path(p)
@@ -898,27 +993,52 @@ class Runner:
                     log.error("Ziel voll: der Mover findet auf dem Array keinen Platz (Share-Einstellung «Minimum free space», "
                               "Allocation/Split-Level oder eingeschlossene Disks prüfen).")
 
-    def give_back(self, loc, files, current, sessions):
-        """USO: Jacks Stück (EMBYCACHE_BUDGET_BYTES). Was On-Deck schon auf dem Cache liegt, belegt es (J). Liegt J mehr als
-        5 % über dem Stück, nimmt der Lauf Dateien aus `current` (der Cleanup bringt sie zurück aufs Array), bis J ≤ Stück
-        – die zuletzt befüllten zuerst (umgekehrte Reihenfolge des Befüllens; nach Rang erst in Phase 2); was läuft, bleibt."""
+    def give_back(self, loc, files, current, sessions, planner):
+        """USO: Jacks Grenze. Was On-Deck schon auf dem Cache liegt, belegt sein Stück (J). Liegt er darüber, nimmt der Lauf
+        Dateien aus `current` (der Cleanup bringt sie zurück aufs Array), bis es passt – ein Stück in Bytes
+        (EMBYCACHE_BUDGET_BYTES; erst mehr als 5 % darüber, dann bis J ≤ Stück) oder der Freiplatz des Pools unter
+        min_free_percent (gemessen wie beim Befüllen, auf ZFS der ganze Pool; dann bis FREE_HYSTERESIS Punkte darüber).
+        Beide Grenzen gelten, die strengere entscheidet. Die Reihenfolge nach Rang (give_back_order):
+        das am weitesten voraus Liegende zuerst, was jemand angefangen hat zuletzt; was gerade läuft, bleibt."""
         kept = [f for f in files if f.on_cache and loc.on_cache(f.rel).exists()]
         self.slice_used = sum(f.size for f in kept)
-        if self.slice_used * 100 <= self.budget * 105:
+        need, why = 0, ""
+        if self.budget is not None and self.slice_used * 100 > self.budget * 105:
+            need = self.slice_used - self.budget
+            why = (f"Über meinem Stück: {human(self.slice_used)} auf dem Cache, Frau Moverelli gibt mir {human(self.budget)} "
+                   f"– das Überzählige geht zurück aufs Array, das am weitesten voraus Liegende zuerst")
+        if self.give_back_free:
+            total, free = pool_usage(loc.cache)
+            min_free = float(self.cfg["min_free_percent"])
+            short = int(total * (min_free + FREE_HYSTERESIS) / 100) - free if total > 0 and free * 100 < total * min_free else 0
+            if short > need:
+                need = short
+                why = (f"Zu wenig frei auf dem Pool: {free / total * 100:.1f} % ({human(free)} von {human(total)}), Minimum {min_free:g} % "
+                       f"– {human(short)} gehen zurück aufs Array (bis {min_free + FREE_HYSTERESIS:g} % frei), das am weitesten voraus Liegende zuerst")
+        if need <= 0:
             return
-        log.warning(f"Über meinem Stück: {human(self.slice_used)} auf dem Cache, Frau Moverelli gibt mir {human(self.budget)} "
-                    f"– das Überzählige geht zurück aufs Array")
-        for f in sorted(kept, key=lambda x: str(x.rel), reverse=True):
-            if self.slice_used <= self.budget:
+        log.warning(why)
+        freed = 0
+        for f in give_back_order(kept):
+            if freed >= need:
                 break
             if is_playing(f.rel, sessions):
                 log.info(f"[BLEIBT: läuft gerade] {f.rel}")
                 continue
-            current.discard(str(loc.on_cache(f.rel)))
+            p = str(loc.on_cache(f.rel))
+            current.discard(p)
+            freed += f.size
             self.slice_used -= f.size
             self.given_back += 1
             self.given_back_bytes += f.size
-            log.info(f"[ZURÜCK: Stück] {f.rel} ({human(f.size)})")
+            who = planner.names(f)
+            entry = {"title": f.title or str(f.rel), "ahead": f.ahead(), "who": who}
+            self.back_why[p] = entry
+            self.back_rank[p] = len(self.back_rank)
+            if not self.given_back_list or self.given_back_list[-1]["title"] != entry["title"]:
+                if len(self.given_back_list) < 20:
+                    self.given_back_list.append(dict(entry))
+            log.info(f"[ZURÜCK: Stück] {f.rel} ({human(f.size)}) – Gebe zurück: {f.title or f.rel} ({ahead_words(f.ahead(), who)})")
 
     def fill(self, loc, files, sessions):
         """On-Deck-Dateien vom Array auf den Cache – per rsync (Quelle erst nach Prüfung löschen) oder per move-Binary."""
@@ -930,7 +1050,7 @@ class Runner:
         mover_batch = []  # (OnDeckFile, src) für fill_tool=mover
         failures = 0
         last_group = None
-        for f in sorted(files, key=lambda x: str(x.rel)):
+        for f in files:                   # USO: reihum über die Benutzer nach Rang (Planner.fill_order)
             if f.on_cache:
                 continue
             if self.halt():
@@ -1163,8 +1283,8 @@ class Runner:
         loc = Locations(cfg, cfg["instances"][0]["_mappings"])
         current = {str(loc.on_cache(f.rel)) for f in files}
         protected = set()
-        if self.budget is not None:
-            self.give_back(loc, files, current, sessions)
+        if self.budget is not None or self.give_back_free:
+            self.give_back(loc, files, current, sessions, planner)
         try:
             if planner.errors or not sessions_ok:
                 log.warning("Planung unvollständig (Emby nicht vollständig erreichbar) – Cleanup wird übersprungen, "
@@ -1201,6 +1321,8 @@ class Runner:
         if self.budget is not None:       # USO: Jacks Stück
             self.status["slice"] = {"budget": self.budget, "used": self.slice_used, "given_back": self.given_back,
                                     "given_back_bytes": self.given_back_bytes, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
+        if self.budget is not None or self.give_back_free:      # USO (Phase 2): was zurückging, in Worten fürs Office
+            self.status["give_back"] = {"files": self.given_back, "bytes": self.given_back_bytes, "items": self.given_back_list}
         if self.stopped:
             log.info("Angehalten nach der aktuellen Datei (EMBYCACHE_STOP) – der nächste Lauf macht weiter")
         return 3 if self.stopped else 0

@@ -62,6 +62,20 @@ function embyProgressText(mixed $v, int $max = 300): ?string
     return is_string($v) && $v !== '' ? mb_substr((string) preg_replace('/[\x00-\x1f\x7f]/u', ' ', $v), 0, $max) : null;
 }
 
+/**
+ * Why a file goes back over his limit (jack-phase2, office block in EmbyCache): {title, ahead, who} — what it is, how far
+ * ahead it lies for whoever watches it soonest (0 started, 1 next up, n the n-th episode ahead) and who queues it; null
+ * when there is none or it isn't that. Also the items of the status's `give_back`.
+ */
+function embyGiveBackWhy(mixed $w): ?array
+{
+    if (!is_array($w) || !is_int($w['ahead'] ?? null) || $w['ahead'] < 0) {
+        return null;
+    }
+    $title = embyProgressText($w['title'] ?? null, 200);
+    return $title === null ? null : ['title' => $title, 'ahead' => min($w['ahead'], 9999), 'who' => embyProgressText($w['who'] ?? null, 200) ?? ''];
+}
+
 /** A time EmbyCache wrote (started, ended): a positive int, else null */
 function embyProgressTime(mixed $v): ?int
 {
@@ -113,7 +127,8 @@ function embyProgressRead(string $file): ?array
         $current = ['phase' => $cur['phase'], 'rel' => embyProgressText($cur['rel'], 500) ?? '', 'size' => embyProgressInt($cur['size'] ?? 0),
                     'target' => $cur['target'], 'user' => is_string($cur['user'] ?? null) ? $cur['user'] : null,
                     'source' => in_array($cur['source'] ?? null, EMBY_PROGRESS_SOURCES, true) ? $cur['source'] : null,
-                    'title' => embyProgressText($cur['title'] ?? null, 200), 'since' => embyProgressInt($cur['since'] ?? 0)];
+                    'title' => embyProgressText($cur['title'] ?? null, 200), 'since' => embyProgressInt($cur['since'] ?? 0),
+                    'why' => $cur['phase'] === 'back' ? embyGiveBackWhy($cur['why'] ?? null) : null];
     }
     return ['mode' => in_array($j['mode'] ?? null, ['run', 'release'], true) ? $j['mode'] : 'run', 'phase' => $j['phase'],
             'started' => embyProgressInt($j['started'] ?? 0), 'updated' => embyProgressInt($j['updated'] ?? 0),
@@ -267,7 +282,7 @@ function embyProgressView(array $p, array $samples, int $now, bool $stopping = f
     };
     // the file being copied: under the bar it belongs to (`here`) — «back to the array», or its user's
     $shown = $cur === null ? null : ['phase' => $cur['phase'], 'rel' => $cur['rel'], 'size' => $cur['size'], 'done' => $part,
-                                     'source' => $cur['source'], 'title' => $cur['title']];
+                                     'source' => $cur['source'], 'title' => $cur['title'], 'why' => $cur['why'] ?? null];
     $inBack = ($cur['phase'] ?? '') === 'back';
     $back = $p['back'] !== null ? $bar($p['back'], $inBack) + ['ended' => in_array($p['phase'], ['fill', 'done'], true), 'here' => $inBack] : null;
     // the fill's queue: the bytes from now until each user's last remaining file is done (and their next file's place)

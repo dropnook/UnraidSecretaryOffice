@@ -607,6 +607,11 @@ function sliceWords() {
   const out = [T('slice.text', { n: mo.n, j: fmt.size(pool.slice), used: fmt.size(pool.slice_used) })];
   if (pool.excess > 0) out.push(T('slice.over', { used: fmt.size(pool.slice_used), j: fmt.size(pool.slice), excess: fmt.size(pool.excess) }));
   else if (pool.waiting > 0) out.push(T('slice.full', { n: pool.waiting }));
+  const gb = pool.given_back && Array.isArray(pool.given_back.items) ? pool.given_back.items : [];
+  if (gb.length) {
+    const shown = gb.slice(0, 3).map(rankItem).join(' · ');
+    out.push(gb.length > 3 ? T('slice.gave_back_more', { list: shown, n: gb.length - 3 }) : T('slice.gave_back', { list: shown }));
+  }
   return out;
 }
 
@@ -723,11 +728,23 @@ function etaText(eta, total) {
 function progFile(cur) {
   const line = el('div', 'jo-prog-file');
   line.append(el('span', 'jo-prog-rel', cur.rel || ''), el('span', '', T('progress.bytes', { done: fmt.size(cur.done || 0), size: fmt.size(cur.size || 0) })));
-  if (cur.source) {
+  if (cur.why) {
+    line.appendChild(el('span', 'jo-prog-why', T('progress.giveback', { what: rankItem(cur.why) })));
+  } else if (cur.source) {
     const src = T('progress.source.' + cur.source);
     line.appendChild(el('span', 'jo-prog-why', cur.title ? T('progress.why', { source: src, title: cur.title }) : src));
   }
   return line;
+}
+
+/**
+ * What goes back over his limit, in words (jack-phase2): «Breaking Bad – S01E10 (episode 10 ahead, Mother)» — how far
+ * ahead it lies for whoever watches it soonest (0 started, 1 next up, n the n-th episode ahead) and who queues it.
+ */
+function rankItem(w) {
+  const n = Math.max(0, Number(w.ahead) || 0);
+  const what = n === 0 ? T('rank.started') : n === 1 ? T('rank.next') : T('rank.ahead', { n });
+  return T('rank.item', { title: w.title || '', why: w.who ? T('rank.who', { what, who: w.who }) : what });
 }
 
 function peopleText(vu) {
@@ -2228,7 +2245,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sliceWords, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, sliceWords, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
