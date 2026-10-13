@@ -451,7 +451,7 @@
   "night.tile": "Esta noche: {what}",
   "night.tile_back": "{size} devueltos",
   "night.tile_goes": "{size} de descargas",
-  "night.tile_fill": "{size} traídos",
+  "night.tile_fill": "{size} por traer",
   "night.tile_wait": "{size} esperan",
   "night.tile_none": "nada que mover"
 }

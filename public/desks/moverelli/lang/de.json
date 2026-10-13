@@ -451,7 +451,7 @@
   "night.tile": "Heute Nacht: {what}",
   "night.tile_back": "{size} zurück",
   "night.tile_goes": "{size} Downloads",
-  "night.tile_fill": "{size} geholt",
+  "night.tile_fill": "{size} holen",
   "night.tile_wait": "{size} warten",
   "night.tile_none": "nichts zu zügeln"
 }

@@ -451,7 +451,7 @@
   "night.tile": "Stanotte: {what}",
   "night.tile_back": "{size} restituiti",
   "night.tile_goes": "{size} di download",
-  "night.tile_fill": "{size} presi",
+  "night.tile_fill": "{size} da prendere",
   "night.tile_wait": "{size} aspettano",
   "night.tile_none": "niente da spostare"
 }

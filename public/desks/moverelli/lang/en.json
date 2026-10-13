@@ -451,7 +451,7 @@
   "night.tile": "Tonight: {what}",
   "night.tile_back": "{size} back",
   "night.tile_goes": "{size} of downloads",
-  "night.tile_fill": "{size} fetched",
+  "night.tile_fill": "{size} to fetch",
   "night.tile_wait": "{size} wait",
   "night.tile_none": "nothing to move"
 }

@@ -451,7 +451,7 @@
   "night.tile": "Cette nuit : {what}",
   "night.tile_back": "{size} rendus",
   "night.tile_goes": "{size} de téléchargements",
-  "night.tile_fill": "{size} rapportés",
+  "night.tile_fill": "{size} à rapporter",
   "night.tile_wait": "{size} attendent",
   "night.tile_none": "rien à déménager"
 }
