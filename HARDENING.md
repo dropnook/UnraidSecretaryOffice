@@ -3,7 +3,7 @@
 What the office's own code enforces (web side, mailbox, agent, desks, root jobs, the plugin's install and remove,
 outgoing requests), for reviewers. First written as the review before the first Community Applications release (branch
 `task/hardening`, commits `Hardening: …`) and kept up to date since — each row names its tests (`php tests/run.php <test>`;
-the part `hardening` holds the core ones). What users read about it: README «Security».
+the part `hardening` holds the core ones). What users read about it: README «Careful by design» and docs/GUIDE.md «Security».
 
 ## Who gets in
 

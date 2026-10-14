@@ -1,6 +1,6 @@
 # Developing the Unraid Secretary Office
 
-What the office does for its users is in the [README](../README.md). This file is the overview for contributors: how
+What the office does for its users is in the [README](../README.md) and, desk by desk, the [guide](GUIDE.md). This file is the overview for contributors: how
 it works inside, where everything lies, how a desk or a language is added, how to test and release.
 [CLAUDE.md](../CLAUDE.md) is the reference — the conventions, each desk in a few sentences, the server facts that bite
 and the checklist for a change; where the two differ, CLAUDE.md is right. The detailed build notes up to 1.60.0 (every
@@ -318,7 +318,7 @@ active, `backup/` is left alone.
 * **Screenshots:** `bash tools/ui-shots.sh` — the same harness with invented family data (`tests/ui/demo/`, never a
   real server's names) inside Unraid's look; `--moments` makes the product page's moments (black, 1280 px, de/en) with
   a contact sheet, `--moments --themes black,white` each of them in Unraid's black and white theme. The README's
-  pictures in `docs/screenshots/` are the English moments, `<name>-dark.png` and `<name>-light.png` in a `<picture>`
+  and the guide's pictures in `docs/screenshots/` are the English moments (the team picture `team-*.webp` comes from the product page), `<name>-dark.png` and `<name>-light.png` in a `<picture>`
   that follows the reader's theme (the names without a theme are the dark ones, for the Community Applications listing).
 * **Reports to the makers** (*⋯ → Report a problem or a wish…*): the inbox is `OFFICE_FEEDBACK_URL` in
   `src/place.php` (shared by the web side and the agent; `''` hides the feature), a Cloudflare Worker in the maintainer's private

@@ -4,4 +4,4 @@ A small office for your Unraid server: backups and restores, snapshots, a night 
 
 It sits in Unraid's menu bar by default; ⋯ → Entry in Unraid moves it to Settings → User Utilities or to a button in Unraid's header.
 
-Jack Emby's tools, EmbyCache and media-disk-gather, are by helmi1987 — thank you! A share of the tips goes to him.
+Jack Streamer's tools, EmbyCache and media-disk-gather, and Ms. Moverelli's Smart Mover are by helmi1987 — thank you! A share of the tips goes to him.
