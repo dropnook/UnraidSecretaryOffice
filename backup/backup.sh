@@ -2288,6 +2288,7 @@ pkg_old_runs() { # pkg_old_runs list|count|remove
 prune_zfs() { # prune_zfs <dataset> <"d w m">  - only the engine's snapshots (zfs_prune_select, lib/common.sh)
     local ds="$1" s
     local -a doomed
+    ub_prune_own "$ds" || return 0                       # a partner's copy, the storeroom (2.48)
     mapfile -t doomed < <(zfs list -H -t snapshot -o name -s creation -d 1 "$ds" 2>/dev/null | zfs_prune_select "$2")
     [[ ${#doomed[@]} -eq 0 ]] && return 0
     mounts_load
@@ -2674,7 +2675,15 @@ cleanup() {
     ub_holder_clear
     exit "$rc"
 }
-on_signal() { ST_ABORTED="yes"; exit 143; }
+# 2.48: a second stop while the run is already on its way out (a second click, a second SIGTERM) never cuts the cleanup
+# short - the containers, the maintenance mode and the VMs it is bringing back would otherwise wait for the next run
+on_signal() {
+    if [[ "$CLEANUP_DONE" == "yes" ]]; then
+        log "  Stop asked again - the run is already ending: what it stopped comes back first"
+        return 0
+    fi
+    ST_ABORTED="yes"; exit 143
+}
 
 # The lock is busy: this run does not happen, and nobody may miss that. It touches nothing the run
 # going on uses - not status.json (that describes the run going on), not latest.log, no settings, no
@@ -3801,6 +3810,8 @@ if command -v zfs >/dev/null 2>&1; then
         mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null | snap_filter | sed 's/@.*//' | sort -u)
     fi
     for ds in "${OWNERS[@]}"; do
+        # 2.48: a partner's copy here (the door's retention keeps it) and the storeroom are never thinned by this one
+        ub_prune_own "$ds" || continue
         array_stop_check "while pruning"
         prune_zfs "$ds" "${PLAN_ZFS_RET[$ds]:-$ZFS_RETENTION}"
     done
@@ -3872,11 +3883,15 @@ run_report() {
     for i in "${!dl[@]}"; do lines+=( "$(printf '  %-*s   %*s' "$w1" "${dl[$i]}" "$w2" "${ds[$i]}")" ); done
     local -A sq=()
     local k
-    for k in $(printf '%s\n' "${!SQ_STATE[@]}" | LC_ALL=C sort); do
+    # a database file's name may hold spaces or * ? [ ] (2.48: read line by line, never split or globbed)
+    while IFS= read -r k; do
+        [[ -n "$k" ]] || continue
         ct="${k%%|*}"; f="${k#*|}"; f="${f#sqlite_"$ct"_}"; f="${f%.db}"
         sq[$ct|${SQ_STATE[$k]}]+="${sq[$ct|${SQ_STATE[$k]}]:+, }$f"
-    done
-    for k in $(printf '%s\n' "${!sq[@]}" | LC_ALL=C sort); do lines+=( "  ${k%%|*}: ${sq[$k]}   ${k#*|}" ); done
+    done < <(printf '%s\n' "${!SQ_STATE[@]}" | LC_ALL=C sort)
+    while IFS= read -r k; do
+        [[ -n "$k" ]] && lines+=( "  ${k%%|*}: ${sq[$k]}   ${k#*|}" )
+    done < <(printf '%s\n' "${!sq[@]}" | LC_ALL=C sort)
     if (( ${#lines[@]} )); then echo; echo "DATABASES"; printf '%s\n' "${lines[@]}"; fi
     # PACKAGES
     echo; echo "PACKAGES"

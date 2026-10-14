@@ -4676,6 +4676,28 @@ SH);
         same("vm order: stopped $when — aborted, no downtime, nothing noted", ['aborted', 0, false], [$s['result'] ?? null, $s['downtime_s'] ?? null, file_exists("$data/state/vms")]);
     }
 
+    // --- stopped twice (2.48, review 2026-10-15): the second SIGTERM comes while the run's way out waits for the VM - it
+    // never cuts that short: the VM is still started again once it is off, said in the log
+    $night(['vmslow' => 'slow']);
+    $t = testsClockRun($clock);
+    $runLog = fn () => (string) @file_get_contents("$data/logs/run-" . date('Ymd-Hi', $t) . '.log');
+    $p = proc_open(['bash', '-c', "$env UB_VM_SHUTDOWN_TIMEOUT=60 UB_VM_SHUTDOWN_RETRY=120; exec bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' </dev/null >/dev/null 2>&1'], [], $pipes);
+    $pid = proc_get_status($p)['pid'];
+    $until(fn () => str_contains($runLog(), "VM 'vmslow': shutting down"));
+    posix_kill($pid, SIGTERM);
+    $waited = $until(fn () => str_contains($runLog(), 'Waiting for 1 VM(s) going down'));
+    posix_kill($pid, SIGTERM);
+    $again = $until(fn () => str_contains($runLog(), 'Stop asked again'));
+    touch("$fake/vm/vmslow.go");
+    for ($i = 0; $i < 300 && proc_get_status($p)['running']; $i++) {
+        usleep(50000);
+    }
+    proc_close($p);
+    $names = array_column($events(), 1);
+    check('vm order: stopped twice — the second stop is said and waits: the VM started again, nothing noted',
+        $waited && $again && $names === ['virsh shutdown vmslow', 'virsh start vmslow'] && !file_exists("$data/state/vms")
+        && ($status()['result'] ?? null) === 'aborted', json_encode($names) . $runLog());
+
     // --- killed while it goes down (kill -9): state/vms names it; the next start starts it once it is off
     $night(['vmslow' => 'slow']);
     file_put_contents("$data/state/vms", "vmslow|shutdown\n");
@@ -4895,6 +4917,34 @@ JS);
  * and backup.sh --recover - nothing noted, the array being stopped, the lock busy, what a stopped run left
  * brought back right after the array start, Docker silent, a run waiting for a recover instead of skipping.
  */
+/**
+ * Review 2026-10-15 (engine 2.48): the engine's ZFS retention thins only what is its own to thin. A partner office's
+ * copies on this server (<pool>/UnraidSecretaryOffice-partners/<pair>/<unit>) carry uso-backup-* names too - before 2.48
+ * the receiver's own nightly retention («7 4 6», or «0 0 0») destroyed them past the pair's «d w m» the door keeps. Nor
+ * a dataset put away in Ms. Dustdevil's storeroom (she gives it back as it was).
+ */
+function testBackupPruneOwn(): void
+{
+    if (!defined('PARTNER_PARENT')) {
+        require_once OFFICE_DIR . '/agent/lib/partner.php';
+    }
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $tmp = sys_get_temp_dir() . '/office-tests-pruneown-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $sh = fn (string $script) => trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; $script") . ' 2>&1'));
+    same('prune own: the engine names the partners\' parent as the agent does', PARTNER_PARENT, $sh('printf %s "$UB_PARTNER_PARENT"'));
+    $cases = ['maple/appdata' => 'yes', 'maple' => 'yes', 'maple/domains/vm 1' => 'yes', 'maple/UnraidSecretaryOffice' => 'yes',
+              'maple/UnraidSecretaryOffice-partners' => 'no', 'maple/UnraidSecretaryOffice-partners/p1/share-docs' => 'no',
+              'hazel/UnraidSecretaryOffice-partners/p1/vm-Win 11' => 'no', 'maple/appdata/UnraidSecretaryOffice-partners' => 'yes',
+              'maple/.UnraidSecretaryOffice-trash' => 'no', 'maple/.UnraidSecretaryOffice-trash-20261001-0100-docs' => 'no',
+              'maple/_UnraidSecretaryOffice-trash-20261001-0100-docs' => 'no', 'maple/docs/.UnraidSecretaryOffice-trash/x' => 'no',
+              'maple/docs-UnraidSecretaryOffice-trash' => 'yes'];
+    foreach ($cases as $ds => $want) {
+        same("prune own: $ds", $want, $sh('ub_prune_own ' . escapeshellarg($ds) . ' && echo yes || echo no'));
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupArrayStop(): void
 {
     if (posix_getuid() !== 0) {
@@ -5142,6 +5192,10 @@ SH);
 
     // --- a normal night: the fixture works (Kopia for every share, maintenance mode on and off, VMs, pruning)
     $night();
+    // 2.48: a partner's copy here and a dataset in the storeroom carry the engine's names too - never thinned by its retention
+    $foreign = ['maple/UnraidSecretaryOffice-partners/p1/share-docs@uso-backup-20200101-0100', 'maple/UnraidSecretaryOffice-partners/p1/share-docs@uso-backup-20200102-0100',
+                'maple/.UnraidSecretaryOffice-trash-20200103-0100-old@uso-backup-20200101-0100', 'maple/.UnraidSecretaryOffice-trash-20200103-0100-old@uso-backup-20200102-0100'];
+    file_put_contents("$fake/snaps.txt", implode("\n", $foreign) . "\n", FILE_APPEND);
     [$code, , $out] = $run();
     $s = $status();
     $n = $names();
@@ -5152,6 +5206,9 @@ SH);
     check('array stop: a normal run — maintenance on and off, the VMs held and back, the old snapshots pruned',
         in_array('occ maintenance on', $n, true) && in_array('occ maintenance off', $n, true) && in_array('virsh start vmshut', $n, true) && in_array('virsh resume vmpause', $n, true)
         && in_array('zfs destroy maple/appdata@uso-backup-20200101-0100', $n, true), json_encode($n));
+    check('array stop: a normal run — a partner\'s copy and the storeroom keep all their snapshots (2.48)',
+        !preg_grep('/^zfs destroy maple\/(UnraidSecretaryOffice-partners|\.UnraidSecretaryOffice-trash)/', $n)
+        && array_diff($foreign, file("$fake/snaps.txt", FILE_IGNORE_NEW_LINES) ?: []) === [], json_encode($n));
     check('array stop: a normal run — its mounts gone, no array-stop notification', $ours() === [] && !preg_grep('/array stop/', $notes()), json_encode([$ours(), $notes()]));
 
     $prunedRuns = fn () => count(json_decode((string) @file_get_contents("$data/state/pruned.json"), true)['runs'] ?? []);
@@ -35246,7 +35303,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
