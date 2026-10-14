@@ -55,15 +55,15 @@ function moverelliImportContext(?array $h = null): array
     return $over + [
         'dir'       => $h['dir'],
         'fs'        => '',
-        'pools'     => array_key_exists('pools', $over) ? [] : embyPools(),
+        'pools'     => array_key_exists('pools', $over) ? [] : jackPools(),
         'asleep'    => array_key_exists('asleep', $over) ? [] : sleepingDisks(),
         'share_cfg' => fn (string $s): array => preg_match(MOVERELLI_SHARE, $s) ? readCfg("$sharesDir/$s.cfg") : [],
         'shares'    => moverelliShareNames($sharesDir, $h),
-        'emby'      => ($h['emby'])(),
+        'jack_desk'      => ($h['jack_desk'])(),
         'own'       => [$h['dir'], "$h[dir]/excludes"],
-        // never read from the office's own data (as the agent reaches it, and as set) — but Jack Emby's list (emby_dirs)
+        // never read from the office's own data (as the agent reaches it, and as set) — but Jack Emby's list (jack_dirs)
         'own_below' => array_values(array_unique([DATA_DIR, DATA_DIR_USER])),
-        'emby_dirs' => array_values(array_unique([EMBY_DATA, dataPathUser(EMBY_DATA)])),
+        'jack_dirs' => array_values(array_unique([JACK_DATA, dataPathUser(JACK_DATA)])),
         'read_cap'  => MOVERELLI_IMPORT_READ_CAP,
     ];
 }
@@ -258,10 +258,10 @@ function moverelliImportPlan(string $folder, array $ctx): array
         'blocked'    => $blocked,
         'configured' => $mine !== null,
         'gone'       => $gone,
-        'jack'       => $ctx['emby'] !== null,
+        'jack'       => $ctx['jack_desk'] !== null,
         'jack_lists' => count(array_filter($lists, fn ($l) => in_array('jack', array_column($l['files'], 'how'), true))),
         // Jack Emby hired: his shares the imported settings don't keep EmbyCache's list away from (her real runs are refused then)
-        'jack_uncovered' => moverelliImportJackUncovered($set, $ctx['emby']),
+        'jack_uncovered' => moverelliImportJackUncovered($set, $ctx['jack_desk']),
         'ready'      => !$blocked,
     ];
     // the token: what the page saw, what will be written, and her own files as they are now
@@ -299,17 +299,17 @@ function moverelliImportValue(string $key, string $v, mixed &$value): ?string
     return null;
 }
 
-/** Jack Emby's shares the settings to be written don't keep EmbyCache's list away from (embyMoverelliUncovered(), as her rule will see it); [] while he isn't hired */
-function moverelliImportJackUncovered(array $set, ?array $emby): array
+/** Jack Emby's shares the settings to be written don't keep EmbyCache's list away from (jackMoverelliUncovered(), as her rule will see it); [] while he isn't hired */
+function moverelliImportJackUncovered(array $set, ?array $jackDesk): array
 {
-    if ($emby === null) {
+    if ($jackDesk === null) {
         return [];
     }
     $look = ['global' => $set['global']['files'], 'shares' => []];
     foreach ($set['shares'] as $share => $s) {
         $look['shares'][(string) $share] = ['skip' => $s['skip'], 'excludes' => $s['files']];
     }
-    return embyMoverelliUncovered($look, (array) ($emby['lists'] ?? []), array_map('strval', (array) ($emby['shares'] ?? [])));
+    return jackMoverelliUncovered($look, (array) ($jackDesk['lists'] ?? []), array_map('strval', (array) ($jackDesk['shares'] ?? [])));
 }
 
 /**
@@ -330,7 +330,7 @@ function moverelliImportLists(string $scope, string $value, array $ctx, array &$
     foreach ($names as $f) {
         $entry = ['file' => mb_substr($f, 0, 300)];
         $emby = basename($f) === MOVERELLI_IMPORT_EMBY;
-        if ($emby && $ctx['emby'] !== null && ($jack = (string) ($ctx['emby']['lists'][0] ?? '')) !== '') {
+        if ($emby && $ctx['jack_desk'] !== null && ($jack = (string) ($ctx['jack_desk']['lists'][0] ?? '')) !== '') {
             if (!in_array($jack, $files, true)) {
                 $files[] = $jack;
             }
@@ -382,7 +382,7 @@ function moverelliImportLists(string $scope, string $value, array $ctx, array &$
 function moverelliImportIsJackList(string $file, array $ctx): bool
 {
     $here = realpath(($ctx['fs'] ?? '') . dirname($file));
-    foreach ((array) ($ctx['emby_dirs'] ?? []) as $d) {
+    foreach ((array) ($ctx['jack_dirs'] ?? []) as $d) {
         if ($here !== false && $here === realpath((string) $d)) {
             return true;
         }

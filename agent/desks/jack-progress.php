@@ -6,11 +6,11 @@ declare(strict_types=1);
  * like Mr. Backupsy's run progress). EmbyCache writes a small progress file when EMBYCACHE_PROGRESS is set (atomic, at
  * every file boundary; embycache_run.py `Progress`): the phase (plan, back, fill, done), «back to the array» and per Emby
  * user what is planned and done (files, bytes), the file being copied with its target, its user and its reason. Jack's
- * job sets it for real runs (run, release) to a file in RAM (`RUN_DIR/emby-progress.json`) and, every
- * EMBY_PROGRESS_EVERY seconds while EmbyCache copies, keeps a sample of the bytes moved so far — the files done plus the
+ * job sets it for real runs (run, release) to a file in RAM (`RUN_DIR/jack-progress.json`) and, every
+ * JACK_PROGRESS_EVERY seconds while EmbyCache copies, keeps a sample of the bytes moved so far — the files done plus the
  * part of the current one: rsync's temporary file `.<name>.XXXXXX` next to the target, one directory listing and one
  * lstat, read only (the pool or the disk is awake: it is being written) — in a second RAM file
- * (`RUN_DIR/emby-progress-speed.json`, the last EMBY_PROGRESS_WINDOW seconds). The speed is the MEDIAN of the rates
+ * (`RUN_DIR/jack-progress-speed.json`, the last JACK_PROGRESS_WINDOW seconds). The speed is the MEDIAN of the rates
  * between those samples (a stall or a burst doesn't swing it), there after the first step of 10 s (two samples);
  * every ETA is bytes / that speed. The bracket's: everything left. A user's (2026-10-10, the first real run on
  * a large server — «2 min» for 12 GB nothing of which had started while another's 49 GB file copied): EmbyCache fills one
@@ -21,27 +21,27 @@ declare(strict_types=1);
  * the queue position of their next file, finished ones at the end; a finished bar says how long it took (`took`: the
  * first file's start to the last one's end), the bracket how long the run has been going (`running`).
  *
- * «Stop after this file» (emby.stop, emby.php): the same stop request as the mover guard's (`office-stop.json` in his
+ * «Stop after this file» (jack.stop, jack.php): the same stop request as the mover guard's (`office-stop.json` in his
  * data folder, EMBYCACHE_STOP) with why `user`; the part says it was asked (`stopping`).
  *
  * His page asks the part `progress` (desk.json; the agent's action `progress`, two RAM reads, nothing written) every
  * 10 s while a real EmbyCache run goes, never otherwise. Both RAM files go when the run ends.
  */
 
-const EMBY_PROGRESS_EVERY  = 10;      // a sample of the bytes moved every 10 s while EmbyCache copies
-const EMBY_PROGRESS_WINDOW = 600;     // the speed: the median rate of the last 10 minutes
-const EMBY_PROGRESS_USERS  = 50;      // at most this many users' bars
-const EMBY_PROGRESS_SOURCES = ['resume', 'next_up', 'next_episode', 'favorite', 'other'];
-const EMBY_PROGRESS_QUEUE  = 5000;    // EmbyCache's fill queue: at most this many entries (more: none, each user's own estimate)
+const JACK_PROGRESS_EVERY  = 10;      // a sample of the bytes moved every 10 s while EmbyCache copies
+const JACK_PROGRESS_WINDOW = 600;     // the speed: the median rate of the last 10 minutes
+const JACK_PROGRESS_USERS  = 50;      // at most this many users' bars
+const JACK_PROGRESS_SOURCES = ['resume', 'next_up', 'next_episode', 'favorite', 'other'];
+const JACK_PROGRESS_QUEUE  = 5000;    // EmbyCache's fill queue: at most this many entries (more: none, each user's own estimate)
 
 /** The two RAM files of a real run: EmbyCache's progress and the job's speed samples */
-function embyProgressPaths(string $dir = RUN_DIR): array
+function jackProgressPaths(string $dir = RUN_DIR): array
 {
-    return ['file' => "$dir/emby-progress.json", 'samples' => "$dir/emby-progress-speed.json"];
+    return ['file' => "$dir/jack-progress.json", 'samples' => "$dir/jack-progress-speed.json"];
 }
 
 /** A run starts or ends: neither file of a run before stays */
-function embyProgressClear(array $paths): void
+function jackProgressClear(array $paths): void
 {
     foreach ($paths as $f) {
         if (is_file($f) && !is_link($f)) {
@@ -51,13 +51,13 @@ function embyProgressClear(array $paths): void
 }
 
 /** A count as EmbyCache writes it: an int ≥ 0, else 0 */
-function embyProgressInt(mixed $v): int
+function jackProgressInt(mixed $v): int
 {
     return is_int($v) && $v >= 0 ? $v : (is_float($v) && $v >= 0 && $v < 1e18 ? (int) $v : 0);
 }
 
 /** A text of EmbyCache's for the page: a string, no control characters, capped */
-function embyProgressText(mixed $v, int $max = 300): ?string
+function jackProgressText(mixed $v, int $max = 300): ?string
 {
     return is_string($v) && $v !== '' ? mb_substr((string) preg_replace('/[\x00-\x1f\x7f]/u', ' ', $v), 0, $max) : null;
 }
@@ -67,17 +67,17 @@ function embyProgressText(mixed $v, int $max = 300): ?string
  * ahead it lies for whoever watches it soonest (0 started, 1 next up, n the n-th episode ahead) and who queues it; null
  * when there is none or it isn't that. Also the items of the status's `give_back`.
  */
-function embyGiveBackWhy(mixed $w): ?array
+function jackGiveBackWhy(mixed $w): ?array
 {
     if (!is_array($w) || !is_int($w['ahead'] ?? null) || $w['ahead'] < 0) {
         return null;
     }
-    $title = embyProgressText($w['title'] ?? null, 200);
-    return $title === null ? null : ['title' => $title, 'ahead' => min($w['ahead'], 9999), 'who' => embyProgressText($w['who'] ?? null, 200) ?? ''];
+    $title = jackProgressText($w['title'] ?? null, 200);
+    return $title === null ? null : ['title' => $title, 'ahead' => min($w['ahead'], 9999), 'who' => jackProgressText($w['who'] ?? null, 200) ?? ''];
 }
 
 /** A time EmbyCache wrote (started, ended): a positive int, else null */
-function embyProgressTime(mixed $v): ?int
+function jackProgressTime(mixed $v): ?int
 {
     return is_int($v) && $v > 0 ? $v : null;
 }
@@ -88,7 +88,7 @@ function embyProgressTime(mixed $v): ?int
  * since}, queue [[user index, bytes], …] (indexes into the users taken here; -1 or one left out: nobody's) and pos
  * (0…its length) — a queue not in that shape is none. Null when there is none or it isn't that.
  */
-function embyProgressRead(string $file): ?array
+function jackProgressRead(string $file): ?array
 {
     if (!is_file($file) || is_link($file) || (int) @filesize($file) > 1048576) {
         return null;
@@ -97,20 +97,20 @@ function embyProgressRead(string $file): ?array
     if (!is_array($j) || ($j['v'] ?? null) !== 1 || !in_array($j['phase'] ?? null, ['plan', 'back', 'fill', 'done'], true)) {
         return null;
     }
-    $count = fn (mixed $c): ?array => is_array($c) ? ['files' => embyProgressInt($c['files'] ?? 0), 'bytes' => embyProgressInt($c['bytes'] ?? 0),
-        'done_files' => embyProgressInt($c['done_files'] ?? 0), 'done_bytes' => embyProgressInt($c['done_bytes'] ?? 0),
-        'started' => embyProgressTime($c['started'] ?? null), 'ended' => embyProgressTime($c['ended'] ?? null)] : null;
+    $count = fn (mixed $c): ?array => is_array($c) ? ['files' => jackProgressInt($c['files'] ?? 0), 'bytes' => jackProgressInt($c['bytes'] ?? 0),
+        'done_files' => jackProgressInt($c['done_files'] ?? 0), 'done_bytes' => jackProgressInt($c['done_bytes'] ?? 0),
+        'started' => jackProgressTime($c['started'] ?? null), 'ended' => jackProgressTime($c['ended'] ?? null)] : null;
     $users = [];
     $index = [];                         // EmbyCache's user index -> ours
-    foreach (array_slice(is_array($j['users'] ?? null) ? array_values($j['users']) : [], 0, EMBY_PROGRESS_USERS) as $i => $u) {
+    foreach (array_slice(is_array($j['users'] ?? null) ? array_values($j['users']) : [], 0, JACK_PROGRESS_USERS) as $i => $u) {
         if (is_array($u) && is_string($u['key'] ?? null)) {
             $index[$i] = count($users);
-            $users[] = ['key' => $u['key'], 'name' => embyProgressText($u['name'] ?? null, 100) ?? '?', 'server' => embyProgressText($u['server'] ?? null, 100) ?? '']
+            $users[] = ['key' => $u['key'], 'name' => jackProgressText($u['name'] ?? null, 100) ?? '?', 'server' => jackProgressText($u['server'] ?? null, 100) ?? '']
                      + $count($u);
         }
     }
     $queue = null;
-    if (is_array($j['queue'] ?? null) && array_is_list($j['queue']) && count($j['queue']) <= EMBY_PROGRESS_QUEUE
+    if (is_array($j['queue'] ?? null) && array_is_list($j['queue']) && count($j['queue']) <= JACK_PROGRESS_QUEUE
         && is_int($j['pos'] ?? null) && $j['pos'] >= 0 && $j['pos'] <= count($j['queue'])) {
         $queue = [];
         foreach ($j['queue'] as $q) {
@@ -124,14 +124,14 @@ function embyProgressRead(string $file): ?array
     $cur = is_array($j['current'] ?? null) ? $j['current'] : null;
     $current = null;
     if ($cur !== null && in_array($cur['phase'] ?? null, ['back', 'fill'], true) && is_string($cur['rel'] ?? null) && is_string($cur['target'] ?? null)) {
-        $current = ['phase' => $cur['phase'], 'rel' => embyProgressText($cur['rel'], 500) ?? '', 'size' => embyProgressInt($cur['size'] ?? 0),
+        $current = ['phase' => $cur['phase'], 'rel' => jackProgressText($cur['rel'], 500) ?? '', 'size' => jackProgressInt($cur['size'] ?? 0),
                     'target' => $cur['target'], 'user' => is_string($cur['user'] ?? null) ? $cur['user'] : null,
-                    'source' => in_array($cur['source'] ?? null, EMBY_PROGRESS_SOURCES, true) ? $cur['source'] : null,
-                    'title' => embyProgressText($cur['title'] ?? null, 200), 'since' => embyProgressInt($cur['since'] ?? 0),
-                    'why' => $cur['phase'] === 'back' ? embyGiveBackWhy($cur['why'] ?? null) : null];
+                    'source' => in_array($cur['source'] ?? null, JACK_PROGRESS_SOURCES, true) ? $cur['source'] : null,
+                    'title' => jackProgressText($cur['title'] ?? null, 200), 'since' => jackProgressInt($cur['since'] ?? 0),
+                    'why' => $cur['phase'] === 'back' ? jackGiveBackWhy($cur['why'] ?? null) : null];
     }
     return ['mode' => in_array($j['mode'] ?? null, ['run', 'release'], true) ? $j['mode'] : 'run', 'phase' => $j['phase'],
-            'started' => embyProgressInt($j['started'] ?? 0), 'updated' => embyProgressInt($j['updated'] ?? 0),
+            'started' => jackProgressInt($j['started'] ?? 0), 'updated' => jackProgressInt($j['updated'] ?? 0),
             'back' => $count($j['back'] ?? null), 'users' => $users, 'current' => $current,
             'queue' => $queue, 'pos' => $queue !== null ? $j['pos'] : 0];
 }
@@ -142,7 +142,7 @@ function embyProgressRead(string $file): ?array
  * the folder lies on the pool or the disk being written to. A target that isn't a plain path under /mnt ($root, the
  * tests' own): 0.
  */
-function embyProgressPartial(?array $cur, string $root = '/mnt/'): int
+function jackProgressPartial(?array $cur, string $root = '/mnt/'): int
 {
     if ($cur === null) {
         return 0;
@@ -169,7 +169,7 @@ function embyProgressPartial(?array $cur, string $root = '/mnt/'): int
 }
 
 /** The bytes moved so far: back and every user's done, plus what of the current file is there */
-function embyProgressMoved(array $p, int $partial): int
+function jackProgressMoved(array $p, int $partial): int
 {
     $n = (int) ($p['back']['done_bytes'] ?? 0) + $partial;
     foreach ($p['users'] as $u) {
@@ -179,7 +179,7 @@ function embyProgressMoved(array $p, int $partial): int
 }
 
 /** The job's samples, only in their shape: [[time, bytes moved, the current file's rel, its part], …] of this run */
-function embyProgressSamples(string $file, int $started): array
+function jackProgressSamples(string $file, int $started): array
 {
     $j = is_file($file) && !is_link($file) ? json_decode((string) @file_get_contents($file), true) : null;
     if (!is_array($j) || ($j['run'] ?? null) !== $started || !is_array($j['samples'] ?? null)) {
@@ -195,23 +195,23 @@ function embyProgressSamples(string $file, int $started): array
 }
 
 /**
- * One sample (the job, every EMBY_PROGRESS_EVERY s while the run goes): only while EmbyCache copies (back, fill), the
- * samples of the last EMBY_PROGRESS_WINDOW (and the one before, for the first rate) kept in RAM. True when one was taken.
+ * One sample (the job, every JACK_PROGRESS_EVERY s while the run goes): only while EmbyCache copies (back, fill), the
+ * samples of the last JACK_PROGRESS_WINDOW (and the one before, for the first rate) kept in RAM. True when one was taken.
  */
-function embyProgressSample(array $paths, ?int $now = null, ?callable $partial = null): bool
+function jackProgressSample(array $paths, ?int $now = null, ?callable $partial = null): bool
 {
     $now ??= time();
-    $p = embyProgressRead($paths['file']);
+    $p = jackProgressRead($paths['file']);
     if ($p === null || !in_array($p['phase'], ['back', 'fill'], true)) {
         return false;
     }
-    $part = ($partial ?? 'embyProgressPartial')($p['current']);
-    $samples = embyProgressSamples($paths['samples'], $p['started']);
-    $samples[] = [$now, embyProgressMoved($p, $part), $p['current']['rel'] ?? null, $part];
+    $part = ($partial ?? 'jackProgressPartial')($p['current']);
+    $samples = jackProgressSamples($paths['samples'], $p['started']);
+    $samples[] = [$now, jackProgressMoved($p, $part), $p['current']['rel'] ?? null, $part];
     $keep = [];
     foreach ($samples as $i => $s) {
         // the window, and the newest sample before it (the first rate inside it starts there)
-        if ($s[0] >= $now - EMBY_PROGRESS_WINDOW || (isset($samples[$i + 1]) && $samples[$i + 1][0] >= $now - EMBY_PROGRESS_WINDOW)) {
+        if ($s[0] >= $now - JACK_PROGRESS_WINDOW || (isset($samples[$i + 1]) && $samples[$i + 1][0] >= $now - JACK_PROGRESS_WINDOW)) {
             $keep[] = $s;
         }
     }
@@ -219,8 +219,8 @@ function embyProgressSample(array $paths, ?int $now = null, ?callable $partial =
     return true;
 }
 
-/** The job's ticker for embyRunWatch(): a sample every EMBY_PROGRESS_EVERY s once EmbyCache copies (asked every half second) */
-function embyProgressTicker(array $paths, ?callable $now = null): callable
+/** The job's ticker for jackRunWatch(): a sample every JACK_PROGRESS_EVERY s once EmbyCache copies (asked every half second) */
+function jackProgressTicker(array $paths, ?callable $now = null): callable
 {
     $now ??= fn (): int => time();
     $next = 0;
@@ -230,24 +230,24 @@ function embyProgressTicker(array $paths, ?callable $now = null): callable
             return;
         }
         try {
-            $took = embyProgressSample($paths, $t);
+            $took = jackProgressSample($paths, $t);
         } catch (Throwable) {
             $took = false;
         }
-        $next = $t + ($took ? EMBY_PROGRESS_EVERY : 2);      // not copying yet: look again soon, so the first step starts at once
+        $next = $t + ($took ? JACK_PROGRESS_EVERY : 2);      // not copying yet: look again soon, so the first step starts at once
     };
 }
 
 /**
- * Bytes per second: the median of the rates between consecutive samples of the last EMBY_PROGRESS_WINDOW s (a step
- * that began up to one EMBY_PROGRESS_EVERY before it counts; a longer gap — the job was away — doesn't); null before two
+ * Bytes per second: the median of the rates between consecutive samples of the last JACK_PROGRESS_WINDOW s (a step
+ * that began up to one JACK_PROGRESS_EVERY before it counts; a longer gap — the job was away — doesn't); null before two
  */
-function embyProgressSpeed(array $samples, int $now): ?float
+function jackProgressSpeed(array $samples, int $now): ?float
 {
     $rates = [];
     for ($i = 1; $i < count($samples); $i++) {
         [$a, $b] = [$samples[$i - 1], $samples[$i]];
-        if ($b[0] > $a[0] && $a[0] >= $now - EMBY_PROGRESS_WINDOW - EMBY_PROGRESS_EVERY) {
+        if ($b[0] > $a[0] && $a[0] >= $now - JACK_PROGRESS_WINDOW - JACK_PROGRESS_EVERY) {
             $rates[] = max(0, $b[1] - $a[1]) / ($b[0] - $a[0]);        // a failed copy's part gone: no negative rate
         }
     }
@@ -266,9 +266,9 @@ function embyProgressSpeed(array $samples, int $now): ?float
  * left: null without a speed. A user's: until their last remaining file in EmbyCache's queue is done (see the top).
  * The users: the one being copied, then by their next file's place in the queue, finished ones at the end.
  */
-function embyProgressView(array $p, array $samples, int $now, bool $stopping = false): array
+function jackProgressView(array $p, array $samples, int $now, bool $stopping = false): array
 {
-    $speed = embyProgressSpeed($samples, $now);
+    $speed = jackProgressSpeed($samples, $now);
     $last = $samples ? $samples[count($samples) - 1] : null;
     $cur = $p['current'];
     $part = $cur !== null && $last !== null && $last[2] === $cur['rel'] && $last[0] >= $p['updated'] ? min($last[3], $cur['size']) : 0;
@@ -343,7 +343,7 @@ function embyProgressView(array $p, array $samples, int $now, bool $stopping = f
 }
 
 /** «Stop after this file» asked — the stop request in his data folder (EMBYCACHE_STOP): its why (user, mover, watching), else null */
-function embyProgressStopping(string $file): ?string
+function jackProgressStopping(string $file): ?string
 {
     clearstatcache(true, $file);
     if (!is_file($file) || is_link($file)) {
@@ -358,30 +358,30 @@ function embyProgressStopping(string $file): ?string
  * view and whether it was asked to stop — two RAM files, his office-run.json and a look for the stop request beside
  * it; nothing written, nothing on a disk asked.
  */
-function embyProgressState(?array $job = null, ?array $paths = null, ?int $now = null, ?string $stopFile = null): array
+function jackProgressState(?array $job = null, ?array $paths = null, ?int $now = null, ?string $stopFile = null): array
 {
     $now ??= time();
-    $job ??= embyJobInfo('embycache');
-    $paths ??= embyProgressPaths();
+    $job ??= jackJobInfo('embycache');
+    $paths ??= jackProgressPaths();
     $real = !empty($job['running']) && in_array($job['mode'] ?? '', ['run', 'release'], true);
-    $p = $real ? embyProgressRead($paths['file']) : null;
+    $p = $real ? jackProgressRead($paths['file']) : null;
     return ['time' => $now, 'running' => !empty($job['running']), 'mode' => (string) ($job['mode'] ?? ''), 'real' => $real,
-            'stopping' => $stopping = ($real ? embyProgressStopping($stopFile ?? EMBY_DATA . '/office-stop.json') : null),
-            'progress' => $p !== null ? embyProgressView($p, embyProgressSamples($paths['samples'], $p['started']), $now, $stopping !== null) : null];
+            'stopping' => $stopping = ($real ? jackProgressStopping($stopFile ?? JACK_DATA . '/office-stop.json') : null),
+            'progress' => $p !== null ? jackProgressView($p, jackProgressSamples($paths['samples'], $p['started']), $now, $stopping !== null) : null];
 }
 
 /**
  * «Stop after this file» (his panel; 2026-10-10): only while a real EmbyCache run goes (run, release) — the same
  * stop request the mover guard writes (`office-stop.json`, EMBYCACHE_STOP), why `user`, once; EmbyCache ends after the
- * file it is on (exit 3, result `stopped`), embyRunWatch() takes the why from the file. Already asked: nothing new.
+ * file it is on (exit 3, result `stopped`), jackRunWatch() takes the why from the file. Already asked: nothing new.
  * Returns whether it was written now.
  */
-function embyStopAsk(?array $job = null, ?string $file = null): bool
+function jackStopAsk(?array $job = null, ?string $file = null): bool
 {
-    $job ??= embyJobInfo('embycache');
-    $file ??= EMBY_DATA . '/office-stop.json';
+    $job ??= jackJobInfo('embycache');
+    $file ??= JACK_DATA . '/office-stop.json';
     if (empty($job['running']) || !in_array($job['mode'] ?? '', ['run', 'release'], true)) {
-        throw new Problem('emby_stop_none');
+        throw new Problem('jack_stop_none');
     }
     clearstatcache(true, $file);
     if (file_exists($file) || is_link($file)) {

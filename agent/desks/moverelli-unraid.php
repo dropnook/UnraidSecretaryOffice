@@ -7,11 +7,11 @@ declare(strict_types=1);
  *   - Her setup switches Unraid's own ⟦Mover schedule⟧ off — with consent: while it is on, moverelli.save (and the
  *     import's apply) is refused with `moverelli_mover_consent` {schedule} unless the request carries `mover_off: true`;
  *     her page asks first («Unraid's own mover will be switched off — I move from now on»). With it, after her checks
- *     and before anything of hers is written, embyMoverOff() does what Unraid's form does with «Disabled» + ⟦Apply⟧
- *     (emcmd, emby-mover.php) and looks that it took — refused (`moverelli_mover_off_failed`), nothing of hers is
+ *     and before anything of hers is written, jackMoverOff() does what Unraid's form does with «Disabled» + ⟦Apply⟧
+ *     (emcmd, jack-mover.php) and looks that it took — refused (`moverelli_mover_off_failed`), nothing of hers is
  *     written. Never a hand-written cron line.
  *   - What it was is noted once (MOVERELLI_UNRAID_NOTE in her data folder: {v, was, logging, at}) — by every switch-off
- *     through embyMoverOff() (hers, Jack Emby's button), only when there is no note yet: the first schedule is the one
+ *     through jackMoverOff() (hers, Jack Emby's button), only when there is no note yet: the first schedule is the one
  *     that comes back.
  *   - Letting her go (her part of the let-go dialog: moverelli.letgo_look, moverelli.letgo {confirm: true}): refused
  *     while Jack Emby is hired (`moverelli_jack_hired` — he never works without her; src/staff.php refuses the let-go
@@ -33,7 +33,7 @@ function moverelliUnraidNote(string $dir = MOVERELLI_DATA): ?array
     return is_array($n) && is_string($n['was'] ?? null) ? $n : null;
 }
 
-/** Notes the schedule Unraid's mover had before it is switched off — only the first (embyMoverOff() calls it) */
+/** Notes the schedule Unraid's mover had before it is switched off — only the first (jackMoverOff() calls it) */
 function moverelliUnraidNoteKeep(string $was, string $logging, string $dir = MOVERELLI_DATA): void
 {
     if ($was === '' || moverelliUnraidNote($dir) !== null) {
@@ -45,13 +45,13 @@ function moverelliUnraidNoteKeep(string $was, string $logging, string $dir = MOV
 
 /**
  * Her save's consent: Unraid's own schedule on (her host's look, `unraid`) and no `mover_off` → refused with what it
- * is; with it → switched off now (embyMoverOff(), her name in the log). Off already: nothing. {off: bool — switched off
+ * is; with it → switched off now (jackMoverOff(), her name in the log). Off already: nothing. {off: bool — switched off
  * just now, was}
  */
 function moverelliUnraidOffForSave(bool $consent, array $h, ?array $moverHost = null): array
 {
     $own = ($h['unraid'])();
-    if (embyMoverScheduleOff($own)) {
+    if (jackMoverScheduleOff($own)) {
         return ['off' => false, 'was' => null];
     }
     if (!$consent) {
@@ -67,13 +67,13 @@ function moverelliUnraidOffForSave(bool $consent, array $h, ?array $moverHost = 
  */
 function moverelliUnraidBack(?array $moverHost = null, string $dir = MOVERELLI_DATA): array
 {
-    $h = $moverHost ?? embyMoverHost();
+    $h = $moverHost ?? jackMoverHost();
     $note = moverelliUnraidNote($dir);
     if ($note === null) {
         return ['none' => true];
     }
-    $own = embyMoverOwn($h);
-    if (!embyMoverScheduleOff($own)) {
+    $own = jackMoverOwn($h);
+    if (!jackMoverScheduleOff($own)) {
         @unlink("$dir/" . MOVERELLI_UNRAID_NOTE);
         return ['kept' => true, 'schedule' => (string) ($own['cron'] ?? $own['set'])];
     }
@@ -81,14 +81,14 @@ function moverelliUnraidBack(?array $moverHost = null, string $dir = MOVERELLI_D
     if (!preg_match(MOVERELLI_UNRAID_CRON, $was)) {
         throw new Problem('moverelli_unraid_back_failed', ['detail' => 'the noted schedule «' . mb_substr($was, 0, 40) . '» isn\'t one Unraid\'s form makes']);
     }
-    $logging = embyMoverLogging($h) ?? 'no';
+    $logging = jackMoverLogging($h) ?? 'no';
     $bin = $h['emcmd'];
     if (!is_file($bin) || !is_executable($bin)) {
         throw new Problem('moverelli_unraid_back_failed', ['detail' => "$bin not found"]);
     }
     [$exit, $out, $err] = run([$bin, 'shareMoverSchedule=' . rawurlencode($was) . "&shareMoverLogging=$logging&changeMover=Apply"], 30);
     $on = fn (array $o): bool => $o['set'] === $was && $o['cron'] !== null;
-    for ($i = 0; $i < 10 && !$on($own = embyMoverOwn($h)); $i++) {
+    for ($i = 0; $i < 10 && !$on($own = jackMoverOwn($h)); $i++) {
         ($h['wait'])(300);
     }
     $said = mb_substr(trim($out . ' ' . $err), 0, 300);
@@ -107,9 +107,9 @@ function moverelliLetGoLook(?array $h = null): array
     $h ??= moverelliHost();
     $own = ($h['unraid'])();
     $note = moverelliUnraidNote($h['dir']);
-    return ['ok' => true, 'jack' => ($h['emby'])() !== null,
+    return ['ok' => true, 'jack' => ($h['jack_desk'])() !== null,
             'schedule' => officeJobSchedule('moverelli', $h['cron_file'])['custom'],
-            'unraid' => ['off' => embyMoverScheduleOff($own), 'back' => $note['was'] ?? null]];
+            'unraid' => ['off' => jackMoverScheduleOff($own), 'back' => $note['was'] ?? null]];
 }
 
 /**
@@ -122,7 +122,7 @@ function moverelliLetGo(array $r, ?array $h = null, ?array $moverHost = null): a
         throw new Problem('bad_request');
     }
     $h ??= moverelliHost();
-    if (($h['emby'])() !== null) {
+    if (($h['jack_desk'])() !== null) {
         throw new Problem('moverelli_jack_hired');
     }
     $was = officeJobSchedule('moverelli', $h['cron_file'])['custom'];
