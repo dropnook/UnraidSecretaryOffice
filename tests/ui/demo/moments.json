@@ -13,7 +13,7 @@
   "nr": 2,
   "desk": "jack",
   "moment": "live",
-  "title": "Jack Emby - live: EmbyCache legt für jede Person bereit, was sie als Nächstes schaut",
+  "title": "Jack Streamer - live: er legt für jede Person bereit, was sie als Nächstes schaut",
   "route": "jack",
   "clip": ".jo-prog",
   "states": {
@@ -25,7 +25,7 @@
   "nr": 2,
   "desk": "jack",
   "moment": "shares",
-  "title": "Jack Emby - die Shares der Bibliotheken: wie viel auf welcher Disk und welchem Pool liegt",
+  "title": "Jack Streamer - die Shares der Bibliotheken: wie viel auf welcher Disk und welchem Pool liegt",
   "route": "jack",
   "clip": [
    ".jo-tiles",
@@ -36,6 +36,23 @@
     "click": "[data-place=\"tile.shares\"]",
     "pause": 500
    }
+  ]
+ },
+ {
+  "nr": 2,
+  "desk": "jack",
+  "moment": "setup",
+  "title": "Jack Streamer - Einrichten: das Budget in GB, Filme und Serien als Vorgaben darin, die Grenze X von Frau Moverelli",
+  "route": "jack/setup",
+  "prepare": [
+   {
+    "click": "[data-place=\"setup.tile.scope\"]",
+    "pause": 500
+   }
+  ],
+  "clip": [
+   ".jo-setup-tiles",
+   "section:has(> [data-place=\"setup.scope\"])"
   ]
  },
  {
@@ -466,7 +483,7 @@
   "nr": 13,
   "desk": "moverelli",
   "moment": "run",
-  "title": "Frau Moverelli - der gemeinsame Lauf mit Jack Emby: die Phasen (Prüfen, Freigeben, Füllen), Schritte pro Share, die Datei unterwegs, anhalten nach dieser Datei",
+  "title": "Frau Moverelli - der Nachtlauf mit Jack Streamer: die Phasen (Prüfen, Platz machen, Jack Streamer holt), Schritte pro Share, die Datei unterwegs, anhalten nach dieser Datei",
   "route": "moverelli",
   "states": {
    "moverelli": "moverelli-run"
@@ -482,9 +499,18 @@
  {
   "nr": 13,
   "desk": "moverelli",
-  "moment": "night",
-  "title": "Frau Moverelli - ein Lauf mit Jack Emby: was heute Nacht geschieht, Probelauf, Unraids Mover aus",
+  "moment": "live",
+  "title": "Frau Moverelli - das Bild des Nachtlaufs, live: der Pool vorher und danach (Prognose), das Array, Dateien unterwegs",
   "route": "moverelli",
-  "clip": "section:has(> [data-place=\"schedule\"])"
+  "states": {
+   "moverelli": "moverelli-run"
+  },
+  "prepare": [
+   {
+    "wait": ".mo-pic",
+    "pause": 800
+   }
+  ],
+  "clip": ".mo-pic"
  }
 ]
