@@ -30182,7 +30182,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   f.global.files.push('/mnt/user/appdata/x/embycache_exclude.txt');
   f.global.patterns = ['*.nfo'];
   f.shares.Filme.min_age = null;
-  f.shares.Filme.age_stat = 'mtime';
+  f.shares.Filme.move_when_used_above = 70;
   f.shares.Docs.skip = true;
   const rows = m.setupChangeRows(m.formSettings({ global: base.settings.global, shares: { Filme: base.settings.shares.Filme, Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } }), m.formSettings(f));
   const spec = m.setupBarSpec();
@@ -30225,7 +30225,7 @@ JS);
                 ['add', 'setup.files', '/mnt/user/appdata/x/embycache_exclude.txt'], ['add', 'setup.patterns', '*.nfo'],
                 ['add', 'setup.row_share {"share":"Docs"}', 'setup.row_own'],
                 [null, 'setup.row_share {"share":"Filme"} — setup.min_age', 'setup.tile.days {"n":30} → setup.as_global'],
-                [null, 'setup.row_share {"share":"Filme"} — setup.age_stat', 'setup.as_global → age_stat.mtime']], $o['rows']);
+                [null, 'setup.row_share {"share":"Filme"} — setup.threshold', 'setup.as_global → 70 %']], $o['rows']);
             same('unraid mover page: the apply dialog — its title, as many rows as the bar counts, «Apply»; Unraid\'s mover off — no consent', ['setup.apply_title', 6, ['common.cancel', 'setup.apply_go'], false], $o['dialog']);
             same('unraid mover page: Unraid\'s schedule on — the consent a section of the same dialog (its schedule, the Move-now warning with Jack, the let-go), the rows as before',
                 [6, ['consent.title', 'consent.text {"schedule":"C(40 3 * * *)"}', 'consent.move_now', 'consent.back']], $o['consent']);
@@ -30386,6 +30386,17 @@ function testMoverelliFill(): void
     [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
     $st = $run($env + ['CUSTOMMOVER_FILL_UNTIL_BYTES' => '250', 'CUSTOMMOVER_FILL_UNTIL_POOL' => 'other'], true);
     same('fill room: for another pool — this one by percent (80 % ≥ 80: z goes, then 60 %)', ['z'], $on($t, 'disk1'));
+
+    // 10. age_stat=newest (the office, 2026-10-14): the age rule too counts the younger of created (birth, else ctime) and
+    // modified — a file modified 40 days ago but added just now is young: it stays; with mtime it would go
+    [$t, $env] = $tree(['Docs/old' => [40, false]], "min_age=30\nage_stat=newest\nmove_when_used_above=0", 500);
+    $st = $run($env, true);
+    same('age newest: modified 40 days ago, added now — not older than 30 days, stays; said in the log as «newest»', [[], ['old']],
+        [$on($t, 'disk1'), $on($t, 'cache')]);
+    check('age newest: … the log names the rule', str_contains((string) file_get_contents("$t/log"), 'older than 30 days (newest)'), (string) @file_get_contents("$t/log"));
+    [$t, $env] = $tree(['Docs/old' => [40, false]], "min_age=30\nage_stat=mtime\nmove_when_used_above=0", 500);
+    $run($env, true);
+    same('age mtime (upstream): the same file goes', ['old'], $on($t, 'disk1'));
 
     // her setup's check and her ini: only X — an older page's Y and «Jack guaranteed» are not read, never written
     $dir = "$base/her";
@@ -31119,11 +31130,11 @@ function testPoolLevel(): void
     // the ini before kept; after `pool-simple` on a 1.61 data folder; idempotent
     @mkdir("$tmp/mx/moverelli", 0700, true);
     same('level migration x: no ini — nothing', 'nothing to change — Ms. Moverelli is not set up', officeMigratePoolX("$tmp/mx", '1.63.0'));
-    $was = "# mine\n[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=70\njack_min_percent=30\noffset=10\nmax_list=50\n\n[Filme]\nmove_when_used_above=60\nmove_until_used_below=50\nexcludes=/a,/b\n";
+    $was = "# mine\n[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=70\njack_min_percent=30\noffset=10\nmax_list=50\n\n[Filme]\nmove_when_used_above=60\nmove_until_used_below=50\nage_stat=mtime\nexcludes=/a,/b\n";
     file_put_contents("$tmp/mx/moverelli/smart_mover.ini", $was);
     $said = officeMigratePoolX("$tmp/mx", '1.63.0');
-    same('level migration x: only X stays (for all and Filme\'s own), the rest of the file as it was, the ini before kept, said', [
-        "# mine\n[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmax_list=50\n\n[Filme]\nmove_when_used_above=60\nexcludes=/a,/b\n", $was, true],
+    same('level migration x: only X stays (for all and Filme\'s own), always the younger date (age_stat=newest, Filme\'s mtime gone), the rest as it was, the ini before kept, said', [
+        "# mine\n[GLOBAL]\nage_stat=newest\nlog_file=/x\nmove_when_used_above=80\nmax_list=50\n\n[Filme]\nmove_when_used_above=60\nexcludes=/a,/b\n", $was, true],
         [file_get_contents("$tmp/mx/moverelli/smart_mover.ini"), @file_get_contents("$tmp/mx/moverelli/smart_mover.ini.before-1.63.0"),
          str_contains($said, 'move_until_used_below (×2), jack_min_percent, offset')]);
     $ids = array_column(officeMigrateSteps(), 'id');
@@ -31678,8 +31689,8 @@ function testMoverelliIni(): void
     moverelliFixture($tmp, $v);
     $h = moverelliHost();
     $dir = "$tmp/data";
-    same('moverelli ini: none yet — not configured, the page starts from Smart Mover\'s defaults', [null, MOVERELLI_DEFAULTS['min_age'], 'ctime'],
-        [moverelliSettings($dir), moverelliScan($h)['settings']['global']['min_age'], moverelliScan($h)['settings']['global']['age_stat']]);
+    same('moverelli ini: none yet — not configured, the page starts from Smart Mover\'s defaults (no «which time counts»: always the younger)', [null, MOVERELLI_DEFAULTS['min_age'], false],
+        [moverelliSettings($dir), moverelliScan($h)['settings']['global']['min_age'], array_key_exists('age_stat', moverelliScan($h)['settings']['global'])]);
     $in = moverelliTestSettings(['min_age' => 30, 'move_when_used_above' => 80, 'move_until_used_below' => 70, 'files' => ['/mnt/user/appdata/emby/embycache_exclude.txt'], 'patterns' => ['# metadata', '*.nfo', '']],
         ['Filme' => ['skip' => false, 'min_age' => 14, 'age_stat' => 'mtime', 'move_when_used_above' => null, 'files' => [], 'patterns' => ['/mnt/user/Filme/Kids']],
          'Back' => ['skip' => true, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []],
@@ -31687,15 +31698,15 @@ function testMoverelliIni(): void
     $r = moverelliSave($in, $h);
     $ini = (string) file_get_contents("$dir/smart_mover.ini");
     same('moverelli ini: written as Smart Mover reads it — GLOBAL, a section per share with something of its own (Docs: none), her lists after the others',
-        ["[GLOBAL]", 'min_age=30', 'move_when_used_above=80', "global_excludes=/mnt/user/appdata/emby/embycache_exclude.txt,$dir/excludes/global.txt",
-         '[Back]', 'skip=yes', '[Filme]', 'min_age=14', 'age_stat=mtime', "excludes=$dir/excludes/share-Filme.txt"],
-        array_values(array_filter(explode("\n", $ini), fn ($l) => preg_match('/^(\[|min_age|move_when|global_ex|skip|age_stat=m|excludes)/', $l))));
+        ["[GLOBAL]", 'min_age=30', 'age_stat=newest', 'move_when_used_above=80', "global_excludes=/mnt/user/appdata/emby/embycache_exclude.txt,$dir/excludes/global.txt",
+         '[Back]', 'skip=yes', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
+        array_values(array_filter(explode("\n", $ini), fn ($l) => preg_match('/^(\[|min_age|move_when|global_ex|skip|age_stat|excludes)/', $l))));
     check('moverelli ini: … no section for Docs, 0600', !str_contains($ini, '[Docs]') && (fileperms("$dir/smart_mover.ini") & 0777) === 0600);
     same('moverelli ini: her own lists (the empty last line dropped)', ["# metadata\n*.nfo\n", "/mnt/user/Filme/Kids\n"],
         [file_get_contents("$dir/excludes/global.txt"), file_get_contents("$dir/excludes/share-Filme.txt")]);
     $back = moverelliSettings($dir);
     same('moverelli ini: read back the same', [30, 80, ['/mnt/user/appdata/emby/embycache_exclude.txt'], ['# metadata', '*.nfo'], ['Back', 'Filme'],
-        [true, null], [14, 'mtime', null, [], ['/mnt/user/Filme/Kids']]],
+        [true, null], [14, null, [], ['/mnt/user/Filme/Kids']]],
         [$back['global']['min_age'], $back['global']['move_when_used_above'], $back['global']['files'], $back['global']['patterns'], array_keys($back['shares']),
          [$back['shares']['Back']['skip'], $back['shares']['Back']['min_age']],
          array_values(array_intersect_key($back['shares']['Filme'], array_flip(['min_age', 'age_stat', 'move_when_used_above', 'files', 'patterns'])))]);
@@ -31712,8 +31723,8 @@ function testMoverelliIni(): void
     $env = ['CUSTOMMOVER_INI' => "$dir/smart_mover.ini", 'CUSTOMMOVER_SHARES_DIR' => "$tmp/shares", 'CUSTOMMOVER_MNT' => "$tmp/mnt", 'CUSTOMMOVER_LOG' => "$dir/x.log",
             'CUSTOMMOVER_LOCK' => "$dir/x.lock", 'CUSTOMMOVER_STATUS' => "$dir/x.json"];
     [, $out] = runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--list-shares'], $env, 30);
-    check('moverelli ini: Smart Mover reads the rules (Filme 14 d mtime, Docs 30 d ctime 80 %)', (bool) preg_match('/Docs\s+yes\s+cache -> array\s+age>30 d \(ctime\)\s+threshold 80%/', $out)
-        && (bool) preg_match('/Filme\s+yes\s+cache -> array\s+age>14 d \(mtime\)\s+threshold 80%/', $out) && !str_contains($out, 'Back '), $out);
+    check('moverelli ini: Smart Mover reads the rules (Filme 14 d, Docs 30 d, 80 %, both by the younger date: newest)', (bool) preg_match('/Docs\s+yes\s+cache -> array\s+age>30 d \(newest\)\s+threshold 80%/', $out)
+        && (bool) preg_match('/Filme\s+yes\s+cache -> array\s+age>14 d \(newest\)\s+threshold 80%/', $out) && !str_contains($out, 'Back '), $out);
     same('moverelli ini: … its status says the same per share', [['Back', 'skip'], ['Docs', 'list'], ['Filme', 'list']],
         array_map(fn ($x) => [$x['share'], $x['state']], readJson("$dir/x.json")['shares'] ?? []));
     // the threshold on a ZFS pool counts the whole pool (upstream 6382fb4): a stand-in zfs — 10 % used: Docs (80 %) stays; 90 %: it goes
@@ -31732,12 +31743,12 @@ function testMoverelliIni(): void
     $bad = function (array $in) use ($h): string { try { moverelliSave($in, $h); return 'ok'; } catch (Problem $p) { return $p->key . ':' . ($p->params['field'] ?? $p->params['share'] ?? ''); } };
     $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]];
     same('moverelli ini: refused — out of range, wrong type, unknown words, paths that would break or leave, control characters, unknown shares', [
-        'moverelli_bad_value:min_age', 'moverelli_bad_value:min_age', 'moverelli_bad_value:min_age', 'moverelli_bad_value:age_stat', 'moverelli_bad_value:move_when_used_above',
+        'moverelli_bad_value:min_age', 'moverelli_bad_value:min_age', 'moverelli_bad_value:min_age', 'moverelli_bad_value:move_when_used_above',
         'moverelli_bad_value:mover_debug', 'moverelli_bad_value:max_list', 'moverelli_bad_value:move_prefer_shares', 'moverelli_bad_value:global.files', 'moverelli_bad_value:global.files',
         'moverelli_bad_value:global.files', 'moverelli_bad_value:global.files', 'moverelli_bad_value:global.files', 'moverelli_bad_value:global.patterns',
         'moverelli_bad_share:Nope', 'moverelli_bad_share:../x', 'moverelli_bad_value:Filme.min_age', 'moverelli_bad_value:Filme.skip', 'bad_request:'],
         [$bad(moverelliTestSettings(['min_age' => -1])), $bad(moverelliTestSettings(['min_age' => 4000])), $bad(moverelliTestSettings(['min_age' => '5'])),
-         $bad(moverelliTestSettings(['age_stat' => 'atime'])), $bad(moverelliTestSettings(['move_when_used_above' => 101])), $bad(moverelliTestSettings(['mover_debug' => 4])),
+         $bad(moverelliTestSettings(['move_when_used_above' => 101])), $bad(moverelliTestSettings(['mover_debug' => 4])),
          $bad(moverelliTestSettings(['max_list' => 0])), $bad(moverelliTestSettings(['move_prefer_shares' => 'yes'])),
          $bad(moverelliTestSettings(['files' => ['/mnt/a,b.txt']])), $bad(moverelliTestSettings(['files' => ['relative.txt']])),
          $bad(moverelliTestSettings(['files' => ['/mnt/user/../../etc/x']])), $bad(moverelliTestSettings(['files' => ["$dir/excludes/global.txt"]])),
@@ -32309,11 +32320,11 @@ function testMoverelliImport(): void
     // Jack Emby not hired: EmbyCache's list copied (a frozen copy)
     $p = moverelliImportPreview(['folder' => "$old/"], $h)['preview'];
     same('moverelli import: GLOBAL — what is taken, Smart Mover\'s default where the old value was bad or empty', [
-        ['min_age', 30, true], ['age_stat', 'ctime', false], ['move_when_used_above', 0, false], ['move_prefer_shares', false, true],
+        ['min_age', 30, true], ['move_when_used_above', 0, false], ['move_prefer_shares', false, true],
         ['mover_debug', 0, false], ['max_list', 100, true]], array_map(fn ($x) => [$x['key'], $x['value'], $x['old']], $p['global']));
     same('moverelli import: left out — hers, bad values (with why), unknown keys', [
-        ['GLOBAL', 'mover_bin', 'hers', null], ['GLOBAL', 'log_file', 'hers', null], ['GLOBAL', 'age_stat', 'bad', 'word'], ['GLOBAL', 'mover_debug', 'bad', 'range'],
-        ['GLOBAL', 'colour', 'unknown', null], ['Docs', 'skip', 'bad', 'word'], ['Back', 'mover_bin', 'unknown', null]],
+        ['GLOBAL', 'mover_bin', 'hers', null], ['GLOBAL', 'log_file', 'hers', null], ['GLOBAL', 'age_stat', 'hers', null], ['GLOBAL', 'mover_debug', 'bad', 'range'],
+        ['GLOBAL', 'colour', 'unknown', null], ['Docs', 'skip', 'bad', 'word'], ['Back', 'mover_bin', 'hers', null]],
         array_map(fn ($x) => [$x['section'], $x['key'], $x['why'], $x['reason'] ?? null], $p['left']));
     same('moverelli import: sections skipped — no such share here, a name she can\'t write', [['Gone', 'no_share'], ['bad/name', 'name']],
         array_map(fn ($x) => [$x['section'], $x['why']], $p['skipped']));
@@ -32408,7 +32419,7 @@ function testMoverelliImport(): void
          file_get_contents("$dir/excludes/share-Arr.txt.before-import-$stamp")]);
     $ini = (string) file_get_contents("$dir/smart_mover.ini");
     same('moverelli import: her ini as her save writes it — her log, no mover_bin, the old values, her own lists', [
-        "log_file=$dir/smart_mover.log", 'min_age=30', 'age_stat=ctime', 'move_when_used_above=0', 'move_prefer_shares=no', 'mover_debug=0', 'max_list=100',
+        "log_file=$dir/smart_mover.log", 'min_age=30', 'age_stat=newest', 'move_when_used_above=0', 'move_prefer_shares=no', 'mover_debug=0', 'max_list=100',
         "global_excludes=$dir/excludes/global.txt", '[Back]', 'skip=yes', '[Docs]', 'move_when_used_above=80', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
         array_values(array_filter(explode("\n", $ini), fn ($l) => $l !== '' && $l[0] !== '#' && $l !== '[GLOBAL]')));
     same('moverelli import: … her lists hold the old content (merged, de-duplicated, comments gone), Arr\'s gone with its rules', [
@@ -32493,7 +32504,7 @@ JS);
     $body = $o[0]['body'] ?? [];
     $has = fn (array $b, string $x): bool => in_array($x, $b, true);
     same('moverelli import page: the preview — the old values (a default marked), the shares, the lists file by file, what is left out and skipped', [true, true, true, true, true, true, true, true, true, true],
-        [$has($body, 'import.preview_bubble'), $has($body, 'age_stat.ctime · import.default'), $has($body, 'setup.min_age'), $has($body, 'setup.min_age: 14'),
+        [$has($body, 'import.preview_bubble'), $has($body, '0 · import.default'), $has($body, 'setup.min_age'), $has($body, 'setup.min_age: 14'),
          $has($body, 'import.scope_global — import.taken {"entries":"count.entries {\"n\":2}"}'), $has($body, 'import.how.copied {"entries":"count.entries {\\"n\\":3}"}'),
          $has($body, 'import.how.frozen'), $has($body, 'import.why.hers {"value":"/usr/libexec/unraid/move"}'), $has($body, 'import.skip_why.no_share'),
          $has($body, 'import.backup_note')]);
@@ -33144,7 +33155,7 @@ JS);
     same('moverelli tiles: her switcher — kept as moverelli.tile, no start tile (the whole page)', ['moverelli', '', '', 'stats mo-tiles'], $o['spec'] ?? null);
     same('moverelli tiles: «Schedule» (hers, Unraid\'s mover as its line), «Shares» (moving of all, the rules for all), «Last run» — each a button with its summary', [
         ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['by_office', 'unraid_schedule: unraid_off'], false, 'function'],
-        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_fill {"pct":80}'], false, 'function'],
+        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30} · rule_fill {"pct":80}'], false, 'function'],
         ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
     same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
     same('moverelli tiles: «Last run» — a look at the shares\' list is no run: none yet; one after a real run doesn\'t hide it', [['last_run_none', [], null], 'R900'],

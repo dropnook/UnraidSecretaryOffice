@@ -9,8 +9,8 @@ declare(strict_types=1);
  * Emby's (agent/lib/import.php: absolute, no "." or "..", the places she reads from, awake, real folders, not her own),
  * then only smart_mover.ini is read there (plain, one hard link, size-capped) and parsed as Smart Mover reads it
  * (moverelliIniParse() — never sourced, never run). What comes over:
- *   - the keys her setup knows ([GLOBAL] min_age, age_stat, move_when_used_above, move_prefer_shares, mover_debug,
- *     max_list; per share skip, min_age, age_stat, move_when_used_above), each checked like her setup page's values — a
+ *   - the keys her setup knows ([GLOBAL] min_age, move_when_used_above, move_prefer_shares, mover_debug,
+ *     max_list; per share skip, min_age, move_when_used_above; age_stat is hers — always the younger date), each checked like her setup page's values — a
  *     value that fails is named with why and left out (the GLOBAL key then gets Smart Mover's default, a share's «as
  *     for all») — but a bad min_age or move_when_used_above blocks the import (their fallback 0 would move at once /
  *     always); a GLOBAL key left out or empty gets Smart Mover's default, as the old install had it;
@@ -42,9 +42,9 @@ const MOVERELLI_IMPORT_FILES_MAX = 50;              // exclude files one scope o
 const MOVERELLI_IMPORT_NO_FALLBACK = ['min_age', 'move_when_used_above'];     // a bad one blocks: its default (0) moves at once / always
 const MOVERELLI_IMPORT_SAMPLE    = 3;               // entries of a list the preview shows
 const MOVERELLI_IMPORT_EMBY      = 'embycache_exclude.txt';
-const MOVERELLI_IMPORT_GLOBAL    = ['min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list', 'global_excludes'];
-const MOVERELLI_IMPORT_SHARE     = ['skip', 'min_age', 'age_stat', 'move_when_used_above', 'excludes'];     // (only X since 2026-10-14: a Y is left aside)
-const MOVERELLI_IMPORT_HERS      = ['mover_bin', 'log_file'];     // where the old install ran and logged: hers now
+const MOVERELLI_IMPORT_GLOBAL    = ['min_age', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list', 'global_excludes'];
+const MOVERELLI_IMPORT_SHARE     = ['skip', 'min_age', 'move_when_used_above', 'excludes'];     // (only X since 2026-10-14: a Y is left aside)
+const MOVERELLI_IMPORT_HERS      = ['mover_bin', 'log_file', 'age_stat'];     // where the old install ran and logged, which time counts (always the younger): hers now
 
 /** What the import looks at: her folder, the shares (their cfg on the flash), pools, sleeping disks, Jack Emby (the tests put their own in moverelliHost()['import']) */
 function moverelliImportContext(?array $h = null): array
@@ -212,14 +212,16 @@ function moverelliImportPlan(string $folder, array $ctx): array
             $skipped[] = ['section' => $sec, 'why' => 'no_share'];
             continue;
         }
-        $row = ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []];
+        $row = ['skip' => false, 'min_age' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []];
         $given = [];
         foreach ($vals as $k => $v) {
             $k = (string) $k;
             if ($v === '' || $k === 'excludes') {
                 continue;
             }
-            if (!in_array($k, MOVERELLI_IMPORT_SHARE, true)) {
+            if (in_array($k, MOVERELLI_IMPORT_HERS, true)) {
+                $left[] = ['section' => $sec, 'key' => $k, 'why' => 'hers', 'value' => mb_substr((string) $v, 0, 80)];
+            } elseif (!in_array($k, MOVERELLI_IMPORT_SHARE, true)) {
                 $left[] = ['section' => $sec, 'key' => mb_substr($k, 0, 80), 'why' => 'unknown'];
             } elseif (($why = moverelliImportValue($k, $v, $value)) !== null) {
                 $bad($sec, $k, $why, $v);
@@ -231,7 +233,7 @@ function moverelliImportPlan(string $folder, array $ctx): array
         if (($vals['excludes'] ?? '') !== '') {
             [$row['files'], $row['patterns'], $lists[]] = moverelliImportLists($sec, (string) $vals['excludes'], $ctx, $blocked, $budget);
         }
-        if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null
+        if ($row['skip'] || $row['min_age'] !== null || $row['move_when_used_above'] !== null
             || $row['files'] || $row['patterns']) {
             $shares[$sec] = $row;
             $rows[] = ['share' => $sec, 'values' => $given];
@@ -272,7 +274,7 @@ function moverelliImportPlan(string $folder, array $ctx): array
 }
 
 /**
- * One value of the old ini, checked like her setup's: numbers whole and in their range, age_stat ctime|mtime, switches
+ * One value of the old ini, checked like her setup's: numbers whole and in their range, switches
  * yes|no. Returns null and sets $value, or why it can't be taken (number, range, word).
  */
 function moverelliImportValue(string $key, string $v, mixed &$value): ?string
@@ -288,13 +290,6 @@ function moverelliImportValue(string $key, string $v, mixed &$value): ?string
             return 'range';
         }
         $value = $n;
-        return null;
-    }
-    if ($key === 'age_stat') {
-        if (!in_array($v, ['ctime', 'mtime'], true)) {
-            return 'word';
-        }
-        $value = $v;
         return null;
     }
     if (!in_array($v, ['yes', 'no'], true)) {          // move_prefer_shares, skip

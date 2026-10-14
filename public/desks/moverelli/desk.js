@@ -556,7 +556,7 @@ function lastNightText(l) {
 function sharesTile(a) {
   const shares = state.shares || [];
   const g = (state.settings || {}).global || {};
-  const rule = [T('rule_age', { n: g.min_age ?? 0, stat: g.age_stat || 'ctime' }),
+  const rule = [T('rule_age', { n: g.min_age ?? 0 }),
     fillText(g.move_when_used_above)].join(' · ');
   const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), rule];
   return Office.stat({ label: T('shares'), value: `${shares.filter((x) => x.state === 'moves').length} / ${shares.length}`, sub, tip: sub.join('\n'),
@@ -670,7 +670,7 @@ function fillShares(box) {
     main.appendChild(meta);
     if (x.state === 'moves') {
       const rules = el('div', 'row-meta');
-      rules.appendChild(el('span', '', T('rule_age', { n: x.min_age, stat: x.age_stat })));
+      rules.appendChild(el('span', '', T('rule_age', { n: x.min_age })));
       if (x.threshold) rules.appendChild(el('span', '', fillText(x.threshold)));
       if (x.excludes) rules.appendChild(el('span', '', nOf('lists', x.excludes)));
       main.appendChild(rules);
@@ -933,11 +933,11 @@ function initForm() {
   const shares = {};
   (state.shares || []).forEach((x) => {
     const s = set.shares[x.share] || {};
-    shares[x.share] = { skip: !!s.skip, min_age: s.min_age ?? null, age_stat: s.age_stat ?? null, move_when_used_above: s.move_when_used_above ?? null,
+    shares[x.share] = { skip: !!s.skip, min_age: s.min_age ?? null, move_when_used_above: s.move_when_used_above ?? null,
       files: s.files || [], patterns: s.patterns || [] };
   });
   // (an older agent's move_until_used_below / jack_min_percent: not carried — only X since 2026-10-14)
-  const { move_until_used_below: _y, jack_min_percent: _k, ...g } = set.global;
+  const { move_until_used_below: _y, jack_min_percent: _k, age_stat: _a, ...g } = set.global;
   form = { global: g, shares };
   saved = formSettings(form);
   // Jack Emby hired and his list not kept out for every share of his: proposed in the files for all shares — in the form
@@ -1110,7 +1110,7 @@ function formSettings(f) {
   const shares = {};
   Object.entries(f.shares).forEach(([name, sh]) => {
     const patterns = sh.patterns.join('\n').trim() === '' ? [] : sh.patterns;
-    if (sh.skip || sh.min_age !== null || sh.age_stat !== null || sh.move_when_used_above !== null || sh.files.length || patterns.length) {
+    if (sh.skip || sh.min_age !== null || sh.move_when_used_above !== null || sh.files.length || patterns.length) {
       shares[name] = { ...sh, files: [...sh.files], patterns: [...patterns] };
     }
   });
@@ -1119,14 +1119,13 @@ function formSettings(f) {
     patterns: g.patterns.join('\n').trim() === '' ? [] : [...g.patterns] }, shares };
 }
 
-const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list'];
-const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above'];
+const SET_KEYS = ['min_age', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list'];
+const SHARE_KEYS = ['skip', 'min_age', 'move_when_used_above'];
 /** A value as the apply dialog says it (null in a share: as for all shares) */
 function setValue(key, v) {
   if (v === null || v === undefined || v === '') return T('setup.as_global');
   if (typeof v === 'boolean') return Office.t(v ? 'common.yes' : 'common.no');
   if (key === 'min_age') return T('setup.tile.days', { n: Number(v) || 0 });
-  if (key === 'age_stat') return T('age_stat.' + v);
   if (key === 'move_when_used_above') return Number(v) ? `${v} %` : T('setup.fill_off');
   return String(v);
 }
@@ -1309,7 +1308,7 @@ function setupStep(id) {
  */
 function setupTileData() {
   const g = form.global;
-  const own = Object.values(form.shares).filter((s) => s.skip || s.min_age !== null || s.age_stat !== null || s.move_when_used_above !== null
+  const own = Object.values(form.shares).filter((s) => s.skip || s.min_age !== null || s.move_when_used_above !== null
     || s.files.length || s.patterns.join('\n').trim() !== '');
   const lines = g.patterns.filter((x) => x.trim() !== '' && !x.trim().startsWith('#')).length;
   const out = [];
@@ -1329,7 +1328,6 @@ function setupGlobal() {
   const f1 = el('div', 'mo-form');
   f1.append(
     field(T('setup.min_age'), number(g, 'min_age', 0, 3650), T(jack().hired ? 'setup.min_age_hint_jack' : 'setup.min_age_hint')),
-    field(T('setup.age_stat'), select(g, 'age_stat', [['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]]), T('setup.age_stat_hint')),
     ...limitsOf('', g, T('setup.threshold_hint'), false),
     field(T('setup.debug'), select(g, 'mover_debug', [0, 1, 2, 3].map((n) => [String(n), String(n)])), T('setup.debug_hint')),
     field(T('setup.max_list'), number(g, 'max_list', 1, 100000), T('setup.max_list_hint')),
@@ -1434,8 +1432,7 @@ function fillSetupShares(box) {
     } else {
       const f = el('div', 'mo-form');
       f.append(check(T('setup.skip'), sv.skip, (on) => { sv.skip = on; }, T('setup.skip_hint')),
-        field(T('setup.min_age'), number(sv, 'min_age', 0, 3650, true), x.mode === 'prefer' ? T('setup.min_age_prefer') : ''),
-        field(T('setup.age_stat'), select(sv, 'age_stat', [['', T('setup.as_global')], ['ctime', T('age_stat.ctime')], ['mtime', T('age_stat.mtime')]])));
+        field(T('setup.min_age'), number(sv, 'min_age', 0, 3650, true), x.mode === 'prefer' ? T('setup.min_age_prefer') : ''));
       if (x.mode === 'yes') {
         f.append(...limitsOf(x.share, sv, '', true));
       }
@@ -1456,7 +1453,7 @@ function fillSetupShares(box) {
  */
 let importFolder = '';
 /** The setup's label of a key of the ini */
-const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold',
+const IMPORT_LABEL = { min_age: 'setup.min_age', move_when_used_above: 'setup.threshold',
   move_prefer_shares: 'setup.prefer',
   mover_debug: 'setup.debug', max_list: 'setup.max_list', skip: 'setup.skip' };
 
@@ -1490,7 +1487,6 @@ async function importLook(err) {
 /** A value as her setup page says it */
 function importValue(key, v) {
   if (typeof v === 'boolean') return T(v ? 'import.yes' : 'import.no');
-  if (key === 'age_stat') return T('age_stat.' + v);
   return String(v);
 }
 
