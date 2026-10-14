@@ -39,7 +39,7 @@ const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_s
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'return_to_origin', 'array_source', 'array_path', 'user_path',
                        'array_disks_glob', 'create_share_root', 'mover_debug_level', 'give_back_unwatched_days'];
-// Jack the Skipper's wizard (2026-10-14): a series or film nobody watched for this many days may go back unwatched — saved in
+// Jack Streamer's wizard (2026-10-14): a series or film nobody watched for this many days may go back unwatched — saved in
 // his settings file, read by nothing yet (the pool simulator plays it through; the night run stays as it is)
 const EMBY_UNWATCHED_DAYS = [1, 365, 30];        // min, max, default
 // both ways always rsync (2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
@@ -102,7 +102,7 @@ desk('emby', [
         // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (emby-progress.php); while the
         // night run goes, the whole night stops after the file in flight (nightStopAsk(), as on her card)
         // the setup's pool simulator, real data: the pool measured now — only on the user's click (it may wake the pool)
-        'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embySkipperLevel(embyPoolLook(embyReadSettings(), true))],
+        'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyReadSettings(), true))],
         'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()],
     ],
     'jobs'    => [
@@ -643,8 +643,8 @@ function embyPoolUsage(?array $settings): ?array
     $look = embyPoolLook($settings);
     if ($look !== null) {
         $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y'], 'k' => $look['rules']['k'],
-                             'min_age' => embySkipperAge(DATA_DIR . '/moverelli/smart_mover.ini')];
-        $out['level'] = embySkipperLevel($look);         // the setup's pool simulator: the numbers as measured (null: not measured)
+                             'min_age' => embyStreamerAge(DATA_DIR . '/moverelli/smart_mover.ini')];
+        $out['level'] = embyStreamerLevel($look);         // the setup's pool simulator: the numbers as measured (null: not measured)
         if ($look['rules']['x'] > 0) {
             $out['min_free'] = 100 - $look['rules']['y'];
         }
@@ -690,7 +690,7 @@ function embyPoolLook(?array $settings, bool $wake = false): ?array
  * The pool as the setup's simulator needs it (bytes; pure on poolLevelJack()'s answer): size, used, NM, what Jack holds,
  * the other caching shares (downloads …), their names and when — null when not measured (no ZFS pool, asleep, no limit).
  */
-function embySkipperLevel(?array $look): ?array
+function embyStreamerLevel(?array $look): ?array
 {
     $l = $look['level'] ?? null;
     if (!is_array($l)) {
@@ -702,7 +702,7 @@ function embySkipperLevel(?array $look): ?array
 }
 
 /** Ms. Moverelli's age rule (smart_mover.ini [GLOBAL] min_age, days) for the simulator's defaults — null: none set */
-function embySkipperAge(string $ini): ?int
+function embyStreamerAge(string $ini): ?int
 {
     if (!is_file($ini)) {
         return null;

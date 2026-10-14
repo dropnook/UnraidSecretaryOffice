@@ -44,8 +44,8 @@ let progAsked = 0;            // when the part was last asked for (this browser'
 let progBox = null;           // the panel on the page, redrawn in place
 let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: embyNightNow()) — her card's phases on his page
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
-// the setup's pool simulator lives in skipper.js beside this file (loaded once, when its step is first drawn — like Mr.
-// Restori's drill.js); it says when it is there (Office.skipperLoaded)
+// the setup's pool simulator lives in streamer.js beside this file (loaded once, when its step is first drawn — like Mr.
+// Restori's drill.js); it says when it is there (Office.streamerLoaded)
 const SELF = typeof document !== 'undefined' && document.currentScript ? document.currentScript.src : null;
 
 // ------------------------------------------------------------------ loading
@@ -1372,11 +1372,11 @@ async function scheduleDialog(job) {
 // ------------------------------------------------------------------ setup (#/emby/setup)
 /*
  * Everything EmbyCache's own setup asks (embycache_setup.py), plus the
- * choices it leaves to its settings file — as a wizard (2026-10-14, Jack the Skipper): step chips (the row of tiles),
+ * choices it leaves to its settings file — as a wizard (2026-10-14, Jack Streamer): step chips (the row of tiles),
  * «Back» / «Next» under each step, saving in the summary:
  *   1 server (the media server, then one or more Emby instances)   2 libraries and their folders
  *   3 people (and their own budgets)   4 pool and sharing (amount; Ms. Moverelli's limits; «not watched for N days»)
- *   5 the pool simulator (skipper.js)   6 more (way back, tools, sources)   7 import (once set up)   8 summary and «Save»
+ *   5 the pool simulator (streamer.js)   6 more (way back, tools, sources)   7 import (once set up)   8 summary and «Save»
  * Saving writes the same settings as before, plus give_back_unwatched_days (read by nothing yet).
  * The gather has its own small settings (gatherSettingsDialog).
  */
@@ -1481,7 +1481,7 @@ function renderSetup() {
   ]));
   if (!state) return;
   if (!form) initForm();
-  loadSkipper();                    // the simulator's math (the sharing words use it too): once per page life
+  loadStreamer();                    // the simulator's math (the sharing words use it too): once per page life
   const card = wizardCard(currentStep());
   root.appendChild(card);
   focusBack(spot);
@@ -1852,7 +1852,7 @@ function setupSettings() {
 
 /**
  * Sharing the pool (2026-10-14): Ms. Moverelli's limits as she has them (global per pool, her desk sets them — shown, not
- * asked here), the new «not watched for … days», the rule in words — with numbers once the pool is measured (skipper.js's
+ * asked here), the new «not watched for … days», the rule in words — with numbers once the pool is measured (streamer.js's
  * math, the same as the simulator's)
  */
 function sharePart() {
@@ -1889,7 +1889,7 @@ function shareWords() {
   const out = [T('share.rule_back', { n: Number(v.give_back_unwatched_days) || 0 })];
   if (!mo || !(mo.x > 0)) return out;
   const lv = pool.level;
-  const m = lv && Office.skipperMath ? Office.skipperMath.skipperPoolMath({ size: lv.size, nm: lv.nm, jack: lv.jack, others: lv.others,
+  const m = lv && Office.streamerMath ? Office.streamerMath.streamerPoolMath({ size: lv.size, nm: lv.nm, jack: lv.jack, others: lv.others,
     x: mo.x, offset: mo.x - mo.y, k: mo.k ?? 50 }) : null;
   if (!m) {
     out.unshift(T('share.rule', { y: mo.y }));
@@ -1934,10 +1934,10 @@ function advancedPart() {
   return det;
 }
 
-/** 5. the pool simulator (skipper.js, loaded once on first need; until then the wave) */
+/** 5. the pool simulator (streamer.js, loaded once on first need; until then the wave) */
 function setupSimulator() {
-  if (Office.skipperSim) {
-    return Office.skipperSim.view({ T, el, fmt, nOf, button, section: (title, sub) => { const d = el('div', 'jo-wiz-part'); d.appendChild(el('p', 'role', sub)); return d; },
+  if (Office.streamerSim) {
+    return Office.streamerSim.view({ T, el, fmt, nOf, button, section: (title, sub) => { const d = el('div', 'jo-wiz-part'); d.appendChild(el('p', 'role', sub)); return d; },
       base: simBase,
       measure: async () => {
         const j = await Office.api.post(`${ID}.pool_measure`, {});
@@ -1946,7 +1946,7 @@ function setupSimulator() {
         return j.level;
       } });
   }
-  loadSkipper();
+  loadStreamer();
   const s = el('div', 'jo-wiz-part');
   s.appendChild(el('span', 'spin'));
   return s;
@@ -1957,11 +1957,11 @@ function simBase() {
   const mo = pool.moverelli || {};
   return { days: form ? form.values.give_back_unwatched_days : UNWATCHED_DAYS, x: mo.x || 0, y: mo.y || 0, k: mo.k, age: mo.min_age, level: pool.level || null };
 }
-function loadSkipper() {
-  if (Office.skipperSim || !SELF || Office.skipperLoaded) return;
-  Office.skipperLoaded = () => { if (view && page === 'setup') renderSetup(); };
+function loadStreamer() {
+  if (Office.streamerSim || !SELF || Office.streamerLoaded) return;
+  Office.streamerLoaded = () => { if (view && page === 'setup') renderSetup(); };
   const sc = document.createElement('script');
-  sc.src = SELF.replace(/desk\.js(\?[^#]*)?$/, 'skipper.js$1');
+  sc.src = SELF.replace(/desk\.js(\?[^#]*)?$/, 'streamer.js$1');
   (document.head || document.body).appendChild(sc);
 }
 

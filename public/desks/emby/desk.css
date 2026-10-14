@@ -91,7 +91,7 @@
 .jo-night-her{overflow-wrap:anywhere}
 .jo-night-dry{margin:10px 0 0}
 
-/* the setup wizard (2026-10-14, Jack the Skipper — like Unraid's own welcome setup): one step at a time in a centred card */
+/* the setup wizard (2026-10-14, Jack Streamer — like Unraid's own welcome setup): one step at a time in a centred card */
 .jo-wiz{width:100%; max-width:880px; margin:18px auto 8px; padding:20px 24px 16px; min-height:0; min-width:0; box-sizing:border-box}
 .jo-wiz-body, .jo-wiz-part, .jo-sim-body > *{min-width:0; max-width:100%}
 .jo-wiz-head{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px}
@@ -130,7 +130,7 @@
 .jo-media-card.on{border-color:var(--accent)}
 .jo-media-card.off{opacity:.5}
 .jo-share-kv{grid-column:1 / -1; margin:4px 0 6px}
-/* the pool simulator (skipper.js) */
+/* the pool simulator (streamer.js) */
 .jo-sim-body{display:flex; flex-direction:column; gap:12px; min-width:0}
 .jo-sim-src{display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px}
 .jo-sim-src .check{margin:0}

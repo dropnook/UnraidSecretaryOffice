@@ -1,13 +1,13 @@
-/* Jack the Skipper's pool simulator (2026-10-14, the owner's rules — a mockup: the real night run in agent/lib/nightrun.php,
+/* Jack Streamer's pool simulator (2026-10-14, the owner's rules — a mockup: the real night run in agent/lib/nightrun.php,
    agent/lib/poollevel.php, EmbyCache and Smart Mover is NOT changed by this file). A step of his setup wizard (desk.js):
    play the pool's nights through, by hand or in seeded scenarios, and see whether the rules hold — before the real night
    run is changed. Two parts:
-     1. the pure math (no DOM, no Office — runs under node for tests/run.php): skipperPoolMath() (→ poolLevelMath() in
-        agent/lib/poollevel.php), skipperNight() (→ nightRun()/nightPlan() in agent/lib/nightrun.php and EmbyCache's
+     1. the pure math (no DOM, no Office — runs under node for tests/run.php): streamerPoolMath() (→ poolLevelMath() in
+        agent/lib/poollevel.php), streamerNight() (→ nightRun()/nightPlan() in agent/lib/nightrun.php and EmbyCache's
         give_back/fill in embycache/embycache_run.py), the invented world (people, series, films, downloads), the
         scenarios, the invariants after every night; the rules of 1.62.1 beside them (v162Math(), the night as built),
         so a scenario shows the difference.
-     2. the step's page (Office.skipperSim.view()), loaded by desk.js like Mr. Restori's drill.js.
+     2. the step's page (Office.streamerSim.view()), loaded by desk.js like Mr. Restori's drill.js.
    Units: GB (floats) throughout the math — the PHP target works in bytes (ints); a size of 1 GB here is 2^30 bytes there.
    Every text of the page and the log is a lang key (sim.*) of his desk; the log keeps {k, p} and the page words it. */
 (() => {
@@ -44,7 +44,7 @@ const r1 = (v) => Math.round(v * 10) / 10;
  * PHP target: poolLevelMath() gets `jack_limit`, `others_limit` beside `half`/`half_d` (EMBYCACHE_KEEP_BYTES = H stays,
  * a new EMBYCACHE_FILL_MAX_BYTES = jackLimit; Smart Mover CUSTOMMOVER_FILL_MAX_BYTES = max(0, D − othersLimit)).
  */
-function skipperPoolMath(p) {
+function streamerPoolMath(p) {
   const size = Math.max(0, +p.size || 0);
   const nm = Math.max(0, +p.nm || 0);
   const jack = Math.max(0, +p.jack || 0);
@@ -126,7 +126,7 @@ function addEp(w, s, day) {
 }
 
 /**
- * Real data: Jack the Skipper already holds `gb` on the pool — the invented world grows (a new series per person in turn,
+ * Real data: Jack Streamer already holds `gb` on the pool — the invented world grows (a new series per person in turn,
  * watched lately, unwatched episodes) until what he wants is at least that much, so day 0 can hold it
  */
 function growFor(w, gb) {
@@ -179,7 +179,7 @@ function mathOf(w, side) {
   const want = sum(wanted(w, side).map((e) => e.size));
   const c = w.cfg;
   const p = { size: c.pool, nm: m.nm, jack: m.jack, others: m.others, x: c.x, offset: c.offset, k: c.k, want };
-  return { ...skipperPoolMath(p), want, watched: m.watched, v162: side.rules === 'v162' ? v162Math(p) : null };
+  return { ...streamerPoolMath(p), want, watched: m.watched, v162: side.rules === 'v162' ? v162Math(p) : null };
 }
 
 // ---------------------------------------------------------------------- the day
@@ -318,7 +318,7 @@ function fill(w, side, cap, L) {
  * PHP target: nightPlan()/nightRun() in agent/lib/nightrun.php; Jack's part EmbyCache's give_back (EMBYCACHE_KEEP_BYTES,
  * a new EMBYCACHE_STALE_DAYS) and fill (a new EMBYCACHE_FILL_MAX_BYTES), hers Smart Mover's fill (CUSTOMMOVER_FILL_MAX_BYTES).
  */
-function skipperNight(w, side, L) {
+function streamerNight(w, side, L) {
   const c = w.cfg;
   side.fetchedTonight = 0;
   for (let round = 1; round <= NIGHT_ROUNDS_MAX; round++) {
@@ -340,9 +340,9 @@ function skipperNight(w, side, L) {
     const backStale = staleList;
     jack -= sum(backStale.map((e) => e.size));
     const aged = sum(side.dl.filter((d) => w.day - d.day >= c.age).map((d) => d.size));
-    const after = skipperPoolMath({ size: c.pool, nm: m.nm, jack, others: m.others - aged, x: c.x, offset: c.offset, k: c.k, want: m.want });
+    const after = streamerPoolMath({ size: c.pool, nm: m.nm, jack, others: m.others - aged, x: c.x, offset: c.offset, k: c.k, want: m.want });
     // hers only from X (as 1.62.1, the owner 2026-10-14): what they borrowed over their limit first, then — the pool still
-    // over Y — out of their own half too; below X they stay (Jack the Skipper is held back by his fill limit instead)
+    // over Y — out of their own half too; below X they stay (Jack Streamer is held back by his fill limit instead)
     let goes = 0;
     if (m.over) {
       goes = Math.max(0, after.others - after.othersLimit);
@@ -409,7 +409,7 @@ function v162Night(w, side, L) {
 
 /**
  * The end of the night: still at/over X → «told at once»; and the warning (the owner, 2026-10-14 — a message, not a rule)
- * when the cache for new writes is practically gone because Jack the Skipper can't give back fast enough (appdata growing
+ * when the cache for new writes is practically gone because Jack Streamer can't give back fast enough (appdata growing
  * fast): the room left up to X (their free room under Y plus the air) is less than one day of writes while he holds more
  * than his fill limit, or the others no longer have what they are promised (half of their own half plus the air, what they hold and the room up to X together).
  * Target in the office: nightrun.php's end, beside nightMissedTell() — officeNotify('warning', …) with a new
@@ -498,7 +498,7 @@ function newSim(cfg, seed) {
     // own test values: the first night fills him; the server's: day 0 is the pool as measured (no night before it)
     side.eve = mathOf(w, side);                // day 0 «before the run»: the start as set
     side.prevMorn = null;
-    if (!(w.cfg.jack0 > 0)) (side.rules === 'new' ? skipperNight : v162Night)(w, side, logger(w, side));
+    if (!(w.cfg.jack0 > 0)) (side.rules === 'new' ? streamerNight : v162Night)(w, side, logger(w, side));
     side.morn = mathOf(w, side);
     record(w, side, { spilled: 0, forced: 0, pingpong: 0, told: 0 }, false);
   }
@@ -530,7 +530,7 @@ function simDay(sim) {
     // (after the joint night run)
     side.prevMorn = side.morn;
     side.eve = mathOf(w, side);
-    (side.rules === 'new' ? skipperNight : v162Night)(w, side, L);
+    (side.rules === 'new' ? streamerNight : v162Night)(w, side, L);
     side.morn = mathOf(w, side);
     record(w, side, before, true);
   }
@@ -664,14 +664,14 @@ function segWidths(values, min) {
   return out;
 }
 
-const math = { skipperPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, v162Math, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
+const math = { streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, v162Math, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
   INVARIANTS, EVENTS: Object.keys(EVENTS), rng, PINGPONG_DAYS };
 if (typeof module !== 'undefined' && module.exports) module.exports = math;       // tests/run.php under node
 if (typeof Office === 'undefined') return;
 
 // ====================================================================== 2. the step's page
 /*
- * Office.skipperSim.view(h) → the simulator's section for his wizard (desk.js setupSimulator()). h: {T, el, fmt, nOf,
+ * Office.streamerSim.view(h) → the simulator's section for his wizard (desk.js setupSimulator()). h: {T, el, fmt, nOf,
  * button, section, base() (the settings to start from: his form's N days, Ms. Moverelli's X/offset/k/age, his pool as
  * measured — or null), measure() (the explicit «Measure now»: the agent measures the pool now, may wake it)}. The
  * simulation lives here across the wizard's drawings (V); a control redraws only the simulator's body, in place.
@@ -703,7 +703,7 @@ function setCfg(h, cfg) {
   V.src = 'test';
   restart(h);
 }
-/** The start as the «before the run» bar shows it now: NM, what the others and Jack the Skipper hold — a handle moves one */
+/** The start as the «before the run» bar shows it now: NM, what the others and Jack Streamer hold — a handle moves one */
 function shownStart() {
   const m = V.sim.sides[V.rules].eve;
   return { ...V.cfg, nm: r1(m.nm), others0: r1(m.others), jack0: r1(m.jack), nmGrow: V.cfg.nmGrow };
@@ -859,7 +859,7 @@ function draw(h, body) {
  * changed (the evening against the morning before, the morning against the evening). Segments > 0 keep a few pixels
  * (segWidths(), 10 px); the words keep the true values — the one legend says each before → after. Four handles on the «before» bar set the start directly (pointer —
  * mouse and touch —, keys, role=slider): the grey/white edge (NM), the white's end (what the others hold), X and Y (the
- * offset). Jack the Skipper's part is the rules': it follows. A move sets a new start and rebuilds day 0 (cheap), both
+ * offset). Jack Streamer's part is the rules': it follows. A move sets a new start and rebuilds day 0 (cheap), both
  * bars updated in place — H and the fill limit move live; letting go draws the simulator anew. From real data the first
  * move switches to own test values, starting from the real ones.
  */
@@ -1202,7 +1202,7 @@ function scenarios(h, body) {
   return box;
 }
 
-Office.skipperMath = math;
-Office.skipperSim = { view, math };
-if (typeof Office.skipperLoaded === 'function') Office.skipperLoaded();
+Office.streamerMath = math;
+Office.streamerSim = { view, math };
+if (typeof Office.streamerLoaded === 'function') Office.streamerLoaded();
 })();
