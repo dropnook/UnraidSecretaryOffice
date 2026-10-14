@@ -1494,10 +1494,10 @@ function renderSetup() {
 // first time on step 1. A step's route #/emby/setup/<step> (the search) opens that step. The form lives across every
 // drawing (form): a click in a step draws the card anew from it — the typed values stay, the focus comes back to the
 // control clicked (focusSpot()/focusBack()). No row of tiles here: the card is the page (its main page keeps its tiles).
-/** The steps in the wizard's order: {id, place (the lang key of its title — its place for the search), minutes it takes} */
-const SETUP_STEPS = [{ id: 'servers', place: 'wizard.title.servers', min: 2 }, { id: 'users', place: 'wizard.title.users', min: 1 },
-  { id: 'libraries', place: 'wizard.title.libraries', min: 2 }, { id: 'settings', place: 'wizard.title.settings', min: 3 },
-  { id: 'simulator', place: 'sim.title', min: 5 }, { id: 'summary', place: 'wizard.summary', min: 1 }];
+/** The steps in the wizard's order: {id, place (the lang key of its title — its place for the search)} */
+const SETUP_STEPS = [{ id: 'servers', place: 'wizard.title.servers' }, { id: 'users', place: 'wizard.title.users' },
+  { id: 'libraries', place: 'wizard.title.libraries' }, { id: 'settings', place: 'wizard.title.settings' },
+  { id: 'simulator', place: 'sim.title' }, { id: 'summary', place: 'wizard.summary' }];
 /** Steps one may skip (what they hold stays as it is) */
 const SKIPPABLE = new Set(['users', 'settings', 'simulator']);
 /** The routes of the setup's tiles before the wizard (bookmarks, an old search): the step that holds them now */
@@ -1518,16 +1518,16 @@ function goStep(id) {
   if (card && card.getBoundingClientRect && card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: 'start' }); /* reveal */
 }
 
-/** The card of one step: head (title, minutes, intro), the step, the foot (where one is, back, skip, next — or save) */
+/** The card of one step: head (title, intro), the step, the foot (where one is, back, skip, next — or save) */
 function wizardCard(id) {
   const i = SETUP_STEPS.findIndex((x) => x.id === id);
-  const { place: key, min: minutes } = SETUP_STEPS[i];
+  const { place: key } = SETUP_STEPS[i];
   const card = el('div', 'box jo-wiz');
   card.dataset.section = id;               // focusSpot()/focusBack() find the control again inside it
   const head = el('div', 'jo-wiz-head');
   const title = el('h2', 'jo-wiz-title', T(key));
   Office.place(key, title);
-  head.append(title, chip(nOf('minutes', minutes), 'jo-wiz-time'));
+  head.append(title);
   card.append(head, el('p', 'jo-wiz-intro', T('wizard.intro.' + id)));
   const body = el('div', 'jo-wiz-body');
   body.appendChild(stepBody(id));
@@ -1997,7 +1997,7 @@ function setupSummary() {
     const row = el('div', 'jo-sum-row');
     const text = el('div', 'jo-sum-text');
     text.append(el('b', '', T(d.key)), el('span', '', d.value || '–'));
-    row.append(text, button(T('wizard.change'), 'small plain', () => goStep(d.id)));
+    row.append(text, button(T(d.id === 'simulator' ? 'wizard.test' : 'wizard.change'), 'small plain', () => goStep(d.id)));
     list.appendChild(row);
   });
   s.appendChild(list);

@@ -96,7 +96,6 @@
 .jo-wiz-body, .jo-wiz-part, .jo-sim-body > *{min-width:0; max-width:100%}
 .jo-wiz-head{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px}
 .jo-wiz-title{margin:0; font-size:19px; font-weight:650; color:var(--ink)}
-.jo-wiz-time{color:var(--muted)}
 .jo-wiz-intro{margin:10px 0 16px; padding:6px 12px; border-left:3px solid var(--accent); background:var(--surface2); color:var(--ink2); font-size:13px; line-height:1.5; overflow-wrap:anywhere}
 .jo-wiz-body{min-width:0}
 .jo-wiz-foot{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 14px; margin:18px 0 0; padding:12px 0 0; border-top:1px solid var(--line)}
