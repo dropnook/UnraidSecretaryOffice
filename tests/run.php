@@ -30521,7 +30521,10 @@ out.budget = ['budget_small', 'budget_big'].map((id) => {
 out.caps = [S.budgetCaps(300, [500, 500, 500], [100, 0, 0]), S.budgetCaps(300, [50, 500, 500], []), S.budgetCaps(100, [500, 500], [150, 0])];
 // play: one day per tick, the checks that turned red with it (they stop the play)
 const calm = S.newSim({}, 162);
-const flood = S.newSim({ writes: 5000 }, 162);
+// the flood while he has borrowed beyond his half (the others wrote little): their writes don't fit — their room taken
+// (2026-10-14: a flood the others make on their own, with him inside his half, is their own overflow, not red)
+const flood = S.newSim({ writes: 10 }, 162);
+flood.w.cfg.writes = 5000;
 out.play = { calm: S.playTick(calm), calmDay: calm.w.day, flood: S.playTick(flood), again: S.playTick(flood) };
 const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
 out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
@@ -30561,7 +30564,7 @@ JS);
     same('streamer sim: the terms the rules share with poolLevelMath() are its numbers (room A, H, the others\' half, need)', $php, $r['terms']);
     check('streamer sim: the same seed gives the same month, another seed another', $r['same'] === true && $r['other'] === true);
     $sc = $r['sc'];
-    same('streamer sim: all scenarios ran', ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'budget_small', 'budget_big', 'tiny'], array_keys($sc));
+    same('streamer sim: all scenarios ran', ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'budget_small', 'budget_big', 'both', 'tiny'], array_keys($sc));
     foreach ($sc as $id => $x) {
         same("streamer sim: $id, new rules — Jack keeps his half and limit, nothing unwatched back early, no ping-pong, the pool ≤ X",
             [null, null, null, null, 0, 0, 0], [$x['new']['inv']['jack'], $x['new']['inv']['unwatched'], $x['new']['inv']['pingpong'], $x['new']['inv']['limit'],
@@ -30590,7 +30593,7 @@ JS);
         && $bs['maxHeld'] <= $bs['budget'] + $bs['biggest'] + 0.01, json_encode($bs));
     check('streamer sim: by budget bigger than his fill limit — green, the fill limit holds him (min(budget, limit)), nothing reserved for the budget',
         $bb['ok'] && $bb['budget'] > $bb['limit'] && $bb['jack'] <= $bb['limit'] + $bb['biggest'] + 0.01 && $bb['want'] > $bb['limit'], json_encode($bb));
-    same('streamer sim: play — a day per tick; a calm day turns nothing red, a flood of writes turns «room» red on that day (it stops the play), only once',
+    same('streamer sim: play — a day per tick; a calm day turns nothing red, a flood of writes while he has borrowed beyond his half turns «room» red on that day (it stops the play), only once',
         [[], 1, ['others'], []], [$r['play']['calm'], $r['play']['calmDay'], $r['play']['flood'], $r['play']['again']]);
     $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/streamer.js');
     check('streamer sim: play has one timer — set only by its step, cleared by stopPlay(); a second click never starts a second; a new start, a scenario, a gone simulator (the dialog closed) stop it',
@@ -31102,6 +31105,101 @@ JS);
         [[true, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']],
          [false, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']]],
         [$r['save_true'] ?? null, $r['save_false'] ?? null]);
+}
+
+/**
+ * The halves are floors (2026-10-14, the owner, from his server: pool 1 TB, NM 150 GB, Y 60 %, X 70 %, the others holding
+ * 455 GB, Jack Streamer wanting 19 GB got 4.6 GB — the pool sat between Y and X and Ms. Moverelli moved theirs only from X
+ * on). Now she also moves the others' oldest below X when he needs room inside his half (halfRoom(): min(want, H) − what he
+ * holds − the free room up to Y, never the others below their half plus what he doesn't want); both wanting more than their
+ * half → 50/50 (the check «halves», the scenario «both»). The «others» check is red for a spill only while he held more
+ * than his half (their own overflow is theirs). Step 4: everyone chosen with a budget of their own — the rest unused, said.
+ */
+function testStreamerHalves(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('streamer halves: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('streamer-halves');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [simFile, emFile] = process.argv.slice(2);
+const S = require(simFile);
+const out = {};
+const r1 = (v) => Math.round(v * 10) / 10;
+// pure: her amount for his half on the owner's server's numbers
+const at = (others, jack) => S.streamerPoolMath({ size: 1024, nm: 150, jack: jack || 0, others, x: 70, offset: 10, k: 50 });
+out.room = [r1(S.halfRoom(at(455), 0, 19)), r1(S.halfRoom(at(455), 0, 500)), S.halfRoom(at(455, 232.2), 232.2, 500), S.halfRoom(at(232.2), 0, 500),
+  r1(S.halfRoom(at(455), 0, 19, 5)), r1(S.halfRoom(at(480), 0, 19))];
+// the owner\'s month: he gets what he wants every morning (less one file), her moves for him said in the log
+const cfg = { pool: 1024, nm: 150, x: 70, offset: 10, k: 50, others0: 455, people: 1, episodes: 1, writes: 20, age: 30 };
+const sim = S.newSim(cfg, 162);
+const side = sim.sides.new;
+let short = [];
+for (let d = 1; d <= 20; d++) {
+  S.simDay(sim);
+  const m = S.mathOf(sim.w, side);
+  if (m.jack < Math.min(m.want, m.half) - 10 - 0.01) short.push([d, r1(m.jack), r1(m.want)]);
+}
+out.real = { short, ok: S.summary(sim).new.ok, forJack: side.log.filter((l) => l.k === 'goes_jack').length > 0, used: r1(S.mathOf(sim.w, side).used * 100 / 1024) };
+// both want a lot: 50/50 of the room under Y
+const both = S.runScenario('both', {}, 162);
+const bm = S.mathOf(both.w, both.sides.new);
+out.both = { ok: S.summary(both).new.ok, halves: both.sides.new.inv.halves.ok, jack: r1(bm.jack), half: r1(bm.half), others: r1(bm.others), halfD: r1(bm.halfD), want: bm.want > bm.half };
+const both2 = S.runScenario('both', { pool: 1024, nm: 150, x: 70, offset: 10, others0: 455 }, 162);
+const bm2 = S.mathOf(both2.w, both2.sides.new);
+out.both2 = { ok: S.summary(both2).new.ok, jack: r1(bm2.jack), half: r1(bm2.half), others: r1(bm2.others), halfD: r1(bm2.halfD) };
+// their own overflow: the day's writes spill while he holds less than his half — not red
+const heavy = S.newSim({ pool: 1024, nm: 150, x: 70, offset: 10, others0: 455, writes: 400, age: 3, people: 2 }, 162);
+S.simDays(heavy, 20);
+out.heavy = { spilled: heavy.sides.new.spilled > 0, taken: heavy.sides.new.spilledTaken, others: heavy.sides.new.inv.others.ok };
+out.inv = S.INVARIANTS;
+// step 4's line when everyone chosen has a budget of their own
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, replaceChildren() { this.children = []; }, closest: () => null,
+  setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => Math.round(b / 1073741824) + ' GB', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, dialog: () => ({ setTitle() {}, close() {} }) };
+(0, eval)(fs.readFileSync(emFile, 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+e.setForm({ instances: [{ users: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], server: {} }], chosenUsers: new Set(['a', 'b']), budgets: { a: '100G', b: '50G' }, values: { budget_mode: true, cache_budget: '300G' } });
+const words = () => e.budgetLine().children.map((c) => [c.className, c.textContent]);
+out.allFixed = words();
+e.form().values.cache_budget = '150G';
+out.allFixedExact = words();
+e.form().budgets = { a: '100G' };
+e.form().values.cache_budget = '300G';
+out.oneOpen = words().map((x) => x[1].replace(/ \{.*$/, ''));
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/streamer.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('streamer halves: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    same('streamer halves: her amount for his half (his server: Y 614.4, H = the others\' half = 232.2) — he wants 19: 19 − the 9.4 free up to Y; both want more: 222.8 (then 50/50); he holds his half: 0; the others at their half: 0; with 5 moved from X already: 4.6; over Y by 25: also that',
+        [9.6, 222.8, 0, 0, 4.6, 34.6], $r['room']);
+    same('streamer halves: the owner\'s month — every morning he holds what he wants (less one file), every check green, her moves for him in the log, the pool at Y',
+        ['short' => [], 'ok' => true, 'forJack' => true, 'atY' => true], ['short' => $r['real']['short'], 'ok' => $r['real']['ok'], 'forJack' => $r['real']['forJack'], 'atY' => $r['real']['used'] <= 60.05]);
+    $b = $r['both'];
+    check('streamer halves: «both want a lot» — each its half under Y (he ± one file: films up to 80 GB), every check green incl. «halves»',
+        $b['ok'] && $b['halves'] && $b['want'] && abs($b['jack'] - $b['half']) <= 80 && $b['others'] >= $b['halfD'] - 0.1 && $b['others'] <= $b['halfD'] + 1, json_encode($b));
+    $b2 = $r['both2'];
+    check('streamer halves: … on the owner\'s server\'s numbers too', $b2['ok'] && abs($b2['jack'] - $b2['half']) <= 80 && abs($b2['others'] - $b2['halfD']) <= 1, json_encode($b2));
+    same('streamer halves: the others overflowing on their own (400 GB a day, he under his half): spilled, but no promise broken — the check stays green',
+        ['spilled' => true, 'taken' => 0, 'others' => true], $r['heavy']);
+    same('streamer halves: six checks, «halves» after «others»', ['jack', 'others', 'halves', 'unwatched', 'pingpong', 'limit'], $r['inv']);
+    same('streamer halves: step 4 — everyone chosen with a budget of their own: the rest unused, said (EmbyCache\'s apply_budget shares it only among people without one)',
+        [[['callout jo-slice', 'setup.users_budget_all_fixed_rest {"fixed":"150 GB","rest":"150 GB"}']], [['callout jo-slice', 'setup.users_budget_all_fixed {"fixed":"150 GB"}']], ['setup.users_budget_split']],
+        [$r['allFixed'], $r['allFixedExact'], $r['oneOpen']]);
 }
 
 /**
@@ -34962,7 +35060,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testStreamerHalves', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
