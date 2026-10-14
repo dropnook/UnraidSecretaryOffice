@@ -163,7 +163,7 @@ the office's authorized_keys lines. A new agent version → «Reload» offered, 
 
 Desks know each other only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.php`, `nightrun.php`,
 `poollevel.php`) and links (`#/<desk>`) — each must work on its own. Entry tests: `testSnapshot*`, `testPlanGone`,
-`testSleepingPools`, `testBackup*`, `testSetup*`, `testEmby*`, `testMoverelli*`, `testNight*`, `testPoolLevel`, `testHireNeeds`,
+`testSleepingPools`, `testBackup*`, `testSetup*`, `testJack*`, `testMoverelli*`, `testNight*`, `testPoolLevel`, `testHireNeeds`,
 `testLogs*`, `testWatchman*`, `testParityWhy`, `testCleanup*`, `testWhere*`, `testHiddenStoreroom`, `testAdvisor*`,
 `testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`.
 
@@ -178,16 +178,16 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   office never makes the share**; place facts warn, never block. Apply sends only what was chosen and lists exactly what
   changes; a plan older than settings.ini is refused; a failed plan shows its errors. **Warns about Kopia autostart, never
   starts Kopia.**
-* **`emby` — Jack Emby (the intern).** EmbyCache + «Consolidate folders». Settings via EmbyCache's own `save_config()`; **the
-  API key never leaves the server. Rsync both ways, always** (`EMBY_TOOLS_RSYNC`). **He works only under Ms. Moverelli**
-  (desk.json `"needs"`: hired only with/after her, she leaves only after him; real runs only her way, `embyMoverRule()`).
+* **`jack` — Jack Emby (the intern; id `emby` until 2026-10-14).** EmbyCache + «Consolidate folders». Settings via EmbyCache's own `save_config()`; **the
+  API key never leaves the server. Rsync both ways, always** (`JACK_TOOLS_RSYNC`). **He works only under Ms. Moverelli**
+  (desk.json `"needs"`: hired only with/after her, she leaves only after him; real runs only her way, `jackMoverRule()`).
   Unraid's mover schedule is switched off only through Unraid's form via `emcmd` (tests: `OFFICE_EMCMD_BIN`); **he never writes
   into Mover Tuning.** A mover at work stops his run after the current file; never side by side with her. **Never a real gather
-  while someone watches Emby** (`embyWatching()`; dry runs never ask). Let go: both his schedules off, Unraid's mover stays off.
+  while someone watches Emby** (`jackWatching()`; dry runs never ask). Let go: both his schedules off, Unraid's mover stays off.
   Import: the user types the folder, he never searches, preview without API key, copies aside first. «Last run» from his runs,
   not status.json. **His setup is the «Set up» tab with tiles, budget mode only** (a GB budget in total = the hard cap, every
   person ≥ 20 GB, counts are defaults inside it; no wizard, no simulator — the rule in sentences); settings without a budget
-  = «not set up yet» (`embyConfigured()`, no migration).
+  = «not set up yet» (`jackConfigured()`, no migration).
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
@@ -261,8 +261,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   Reception button via lang key `visit`, else «Visit {name}». Titles small in it/es running text, capitalised in fr.
 * **Jack Streamer** (2026-10-14, his German name): German texts say «Jack Streamer», always in full (never
   «Jack»); a normal name, so the genitive where it reads better («Jack Streamers Liste»). His and Ms. Moverelli's bubbles
-  (`bubble.*`, `greet.*`) and en/it/fr/es keep «Jack Emby» until the release renames them. Ids, routes, files, env vars,
-  EmbyCache stay.
+  (`bubble.*`, `greet.*`) and en/it/fr/es keep «Jack Emby» until the release renames them. The desk id is `jack` (`#/jack`, `jack*.php`,
+  `JACK_*`; old `#/emby…` addresses lead there, step `jack-id`); EmbyCache, `EMBYCACHE_*` and its data folder stay.
 
 ## Words
 
