@@ -30423,14 +30423,12 @@ JS);
 }
 
 /**
- * The pool, simply (agent/lib/poollevel.php, 2026-10-13, the owner's rule — replaces the cake): one limit X, Y = X − offset
- * (written, never asked); below Y the room appdata & co. leave (R) is shared — Jack's half H = R · jack_min_percent / 100
- * is his for sure, each side may borrow. The numbers on the concept's 1 TB SSD (300 appdata, X 80, Y 70: R 400, H 200);
- * what the next night moves (Jack back above Y, never below H; the oldest downloads from X on); NM ≥ Y: nothing to share;
- * her rules from her ini (Y missing → X − 10, jack_min_percent); the look from ZFS; what Jack is told (100 − Y, H); her
- * save (no refusals any more, jack_min_percent kept and checked), her state, the Team Lead's findings (pool_never_moves,
- * pool_snapshots, night_schedule); a fill that missed its target told at once; Smart Mover without the cake's
- * hooks; the migration step `pool-simple`; her setup's sentence, the next night, «Advanced» and Jack's words under node.
+ * The pool, only X (agent/lib/poollevel.php, 2026-10-14 — replaces the halves of 1.62): the numbers (fixed, Jack Emby,
+ * the others, what must go, never, jack_over) and the keys older readers still get; her rule from her ini; the look from
+ * ZFS; what Jack is told (100 − X, only what was watched); her save (X only), her state, the Team Lead's findings
+ * (pool_never_moves against X, pool_snapshots, night_schedule); a fill that missed its target told at once; Smart Mover
+ * without the cake's hooks and without a cap from the office; the migrations `pool-simple` and `pool-x`; her setup's
+ * sentence, the next night and the warnings under node.
  */
 /**
  * Jack Streamer's pool simulator (public/desks/emby/streamer.js, 2026-10-14 — a mockup; the real night run is untouched).
@@ -31314,36 +31312,24 @@ function testPoolLevel(): void
 {
     $G = 1 << 30;
     $gib = fn (int $b): float => round($b / $G, 1);
-    $m = poolLevelMath(1000 * $G, 500 * $G, 200 * $G, 80, 70, 50, 150 * $G);
-    same('level 1 TB: NM 300, R 400, H 200, Jack 150, downloads 50 — below Y nothing moves', [300.0, 400.0, 200.0, 150.0, 50.0, 0.0, 0.0, false],
-        [$gib($m['nm']), $gib($m['room']), $gib($m['half']), $gib($m['jack']), $gib($m['downloads']), $gib($m['back']), $gib($m['goes']), $m['never']]);
-    $m = poolLevelMath(1000 * $G, 850 * $G, 550 * $G, 80, 70, 50, 350 * $G);
-    same('level: Jack borrowed (350 of H 200), the pool at 85 % — he brings back 150 down to Y, no download goes', [150.0, 0.0], [$gib($m['back']), $gib($m['goes'])]);
-    $m = poolLevelMath(1000 * $G, 900 * $G, 600 * $G, 80, 70, 50, 250 * $G);
-    same('level: a download burst (90 %) — Jack back only to his half (50), still ≥ X: the oldest downloads go down to below Y (150)', [50.0, 150.0],
-        [$gib($m['back']), $gib($m['goes'])]);
-    $m = poolLevelMath(1000 * $G, 880 * $G, 580 * $G, 80, 70, 50, 150 * $G);
-    same('level: Jack under his half — he gives nothing back, downloads above theirs go (180)', [0.0, 180.0], [$gib($m['back']), $gib($m['goes'])]);
-    $m = poolLevelMath(1000 * $G, 900 * $G, 150 * $G, 80, 70, 50, 100 * $G);
-    same('level: NM 750 ≥ Y — nothing to share (R 0, H 0), Jack brings back what he has', [true, 0.0, 0.0, 100.0], [$m['never'], $gib($m['room']), $gib($m['half']), $gib($m['back'])]);
-    $m = poolLevelMath(1000 * $G, 850 * $G, 550 * $G, 80, 70, 50, 450 * $G);
-    same('level: the night\'s need (150 over Y); Jack borrowed 250 — he gives 150; the downloads (100) under their half (200) — none of them goes, though ≥ X',
-        [150.0, 200.0, 150.0, 0.0], [$gib($m['need']), $gib($m['half_d']), $gib($m['back']), $gib($m['goes'])]);
-    same('level: Jack guaranteed 30 % — H 120; no limit — nothing', [120.0, [0, 0, 0, false]], [$gib(poolLevelMath(1000 * $G, 500 * $G, 200 * $G, 80, 70, 30, 150 * $G)['half']),
-        array_values(array_intersect_key(poolLevelMath(1000 * $G, 900 * $G, 200 * $G, 0, 0, 50, 150 * $G), array_flip(['room', 'back', 'goes', 'never'])))]);
+    $pick = fn (array $m) => [$gib($m['nm']), $gib($m['jack']), $gib($m['others']), $gib($m['need']), $gib($m['free']), $m['never'], $m['jack_over']];
+    // only X (2026-10-14): the numbers on a 1 TB SSD (300 appdata & co., X 80)
+    same('level 1 TB at 50 %: fixed 300, Jack 150, the others 50 — nothing must go, 500 free', [300.0, 150.0, 50.0, 0.0, 500.0, false, false],
+        $pick(poolLevelMath(1000 * $G, 500 * $G, 200 * $G, 80, 150 * $G)));
+    same('level at 90 %: 100 must go (to be at X 80)', [300.0, 250.0, 350.0, 100.0, 100.0, false, false], $pick(poolLevelMath(1000 * $G, 900 * $G, 600 * $G, 80, 250 * $G)));
+    same('level: fixed 850 ≥ X — never; fixed 300 + Jack 550 ≥ X — only Jack Emby\'s bytes keep it over', [[true, false], [false, true]],
+        [array_slice($pick(poolLevelMath(1000 * $G, 900 * $G, 50 * $G, 80, 50 * $G)), 5), array_slice($pick(poolLevelMath(1000 * $G, 900 * $G, 600 * $G, 80, 550 * $G)), 5)]);
+    same('level: no limit — nothing must go, never nothing', [0.0, false, false], array_values(array_intersect_key($pick(poolLevelMath(1000 * $G, 900 * $G, 200 * $G, 0, 150 * $G)), [3 => 1, 5 => 1, 6 => 1])));
+    $old = poolLevelMath(1000 * $G, 900 * $G, 600 * $G, 80, 250 * $G);
+    same('level: the keys of older readers (Jack Emby\'s desk until its rewrite) — y = x, no half, nothing borrowed', [80, 0, 0, 0, 350.0], [$old['y'], $old['k'], $old['half'], $old['back'], $gib($old['downloads'])]);
 
     $tmp = hardeningTmp('poollevel');
-    // her rules from her ini
-    file_put_contents("$tmp/ini", "[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=60\n[Filme]\njack_min_percent=99\n");
+    // her rule from her ini: only X (an old Y, «Jack guaranteed» and a share's section don't count)
+    file_put_contents("$tmp/ini", "[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=60\njack_min_percent=30\n[Filme]\nmove_when_used_above=99\n");
     $r = [poolLevelRules("$tmp/ini")];
-    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\njack_min_percent=30\n");
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=abc\n");
     $r[] = poolLevelRules("$tmp/ini");
-    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=70\nmove_until_used_below=75\n");
-    $r[] = poolLevelRules("$tmp/ini");
-    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=0\nmove_until_used_below=40\n");
-    $r[] = poolLevelRules("$tmp/ini");
-    same('level rules: X, Y from [GLOBAL] (a share\'s section doesn\'t count), Jack 50; Y missing → X − 10, Jack 30; Y ≥ X → X − 10; no limit → no Y; no ini → null',
-        [['x' => 80, 'y' => 60, 'k' => 50], ['x' => 80, 'y' => 70, 'k' => 30], ['x' => 70, 'y' => 60, 'k' => 50], ['x' => 0, 'y' => 0, 'k' => 50], null],
+    same('level rule: X from [GLOBAL] (y = x for older readers); not a number — 0; no ini — null', [['x' => 80, 'y' => 80, 'k' => 0], ['x' => 0, 'y' => 0, 'k' => 0], null],
         [...$r, poolLevelRules("$tmp/none")]);
 
     // the look from ZFS and the stat of his list
@@ -31360,37 +31346,34 @@ function testPoolLevel(): void
     file_put_contents("$tmp/list.txt", "$tmp/mnt/master/Filme/A/a.mkv\n$tmp/mnt/master/Filme/A/b.mkv\n$tmp/mnt/master/Filme/A/gone.mkv\n$tmp/mnt/fast/X/x.mkv\n");
     file_put_contents("$tmp/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == *' master' ]] || exit 1\nprintf 'master\\t60000\\t40000\\t100\\t0\\nmaster/Filme\\t9000\\t40000\\t7000\\t2000\\nmaster/Serien\\t3000\\t40000\\t3000\\t0\\nmaster/appdata\\t30000\\t40000\\t30000\\t0\\n'\n");
     chmod("$tmp/bin/zfs", 0755);
-    $o = ['x' => 80, 'y' => 70, 'k' => 50, 'shares_dir' => "$tmp/shares", 'names' => ['Filme', 'Serien', 'appdata', 'Other'], 'zfs' => "$tmp/bin/zfs",
+    $o = ['x' => 80, 'shares_dir' => "$tmp/shares", 'names' => ['Filme', 'Serien', 'appdata', 'Other'], 'zfs' => "$tmp/bin/zfs",
           'mnt' => "$tmp/mnt", 'jack_list' => "$tmp/list.txt", 'asleep' => []];
     $c = poolLevel('master', $o);
     same('level look: movable Filme (yes) and Serien (prefer), never appdata — M 10000 (refer), snapshots 2000, the pool 100000/60000; his list on master 5000 (a gone file 0, another pool\'s not)',
         [['Filme', 'Serien'], 10000, 2000, 100000, 60000, 50000, 5000], [$c['shares'] ?? null, $c['movable'] ?? null, $c['snapshots'] ?? null, $c['size'] ?? null, $c['used'] ?? null, $c['nm'] ?? null, $c['jack'] ?? null]);
-    same('level look: R 20000 below 70 %, his half 10000', [20000, 10000], [$c['room'] ?? null, $c['half'] ?? null]);
+    same('level look: X 80 % = 80000 — nothing must go; the others 5000', [80000, 0, 5000], [$c['xb'] ?? null, $c['need'] ?? null, $c['others'] ?? null]);
     same('level look: the pool asleep — not looked at; a run about to wake it looks; no ZFS — none', [null, true, null],
         [poolLevel('master', ['asleep' => ['master' => true]] + $o), poolLevel('master', ['asleep' => ['master' => true], 'wake' => true] + $o) !== null, poolLevel('fast', $o)]);
 
-    // what Jack is told
+    // what Jack is told: 100 − X and «only what was watched» — never a floor or a give-back by rank
     $jo = ['ini' => "$tmp/ini", 'cache_path' => "$tmp/mnt/master"] + $o;
-    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=70\n");
-    $e = [poolLevelJack($jo)['env'] ?? null];
     file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=70\njack_min_percent=20\n");
-    $e[] = poolLevelJack($jo)['env'] ?? null;
-    $e[] = poolLevelJack(['cache_path' => "$tmp/mnt/fast"] + $jo)['env'] ?? null;
+    $e = [poolLevelJack($jo)['env'] ?? null, poolLevelJack(['cache_path' => "$tmp/mnt/fast"] + $jo)['env'] ?? null];
     file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=0\n");
     $e[] = poolLevelJack($jo)['env'] ?? null;
-    same('level jack: 100 − Y free and his half as the floor; Jack guaranteed 20 % → 4000; a pool not measured — the limit alone; no limit — nothing; she isn\'t set up — null', [
-        ['EMBYCACHE_MIN_FREE_PERCENT' => '30', 'EMBYCACHE_KEEP_BYTES' => '10000'], ['EMBYCACHE_MIN_FREE_PERCENT' => '30', 'EMBYCACHE_KEEP_BYTES' => '4000'],
-        ['EMBYCACHE_MIN_FREE_PERCENT' => '30'], [], null], [...$e, poolLevelJack(['ini' => "$tmp/none"] + $jo)]);
+    $want = ['EMBYCACHE_MIN_FREE_PERCENT' => '20', 'EMBYCACHE_WATCHED_ONLY' => '1'];
+    same('level jack: 100 − X free and only what was watched (an old Y and «guaranteed» ignored); a pool not measured — the same; no limit — nothing; she isn\'t set up — null',
+        [$want, $want, [], null], [...$e, poolLevelJack(['ini' => "$tmp/none"] + $jo)]);
     $GLOBALS['embyPool'] = ['ini' => "$tmp/ini", 'shares_dir' => "$tmp/shares", 'names' => $o['names'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
         'jack_list' => "$tmp/list.txt", 'asleep' => []];
-    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\nmove_until_used_below=70\n");
-    same('level jack: his launch hands it to EmbyCache (embyPoolEnv) — the same', ['EMBYCACHE_MIN_FREE_PERCENT' => '30', 'EMBYCACHE_KEEP_BYTES' => '10000'],
-        embyPoolEnv(['cache_path' => "$tmp/mnt/master"]));
+    file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\n");
+    same('level jack: his launch hands it to EmbyCache (embyPoolEnv) — the same', $want, embyPoolEnv(['cache_path' => "$tmp/mnt/master"]));
     unset($GLOBALS['embyPool']);
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('level jack: EmbyCache\'s dry and real runs get it, the release not', str_contains($src, "+ (in_array(\$mode, ['dry', 'run'], true) ? embyPoolEnv(embyReadSettings()) : [])"));
+    $py = (string) file_get_contents(OFFICE_DIR . '/embycache/embycache_run.py');
+    check('level jack: EmbyCache with EMBYCACHE_WATCHED_ONLY never gives back by rank (EMBYCACHE_GIVE_BACK_FREE then off) and still writes its pool status',
+        str_contains($py, 'os.environ.get("EMBYCACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY') && str_contains($py, 'self.office_pool = self.give_back_free or WATCHED_ONLY'));
 
-    // her save: no refusals for the pool any more; what Jack keeps for sure checked and kept
+    // her save: only X — an older page's Y and «Jack guaranteed» not read, never written
     $v = [];
     moverelliFixture($tmp . '/her', $v);
     $T = "$tmp/her";
@@ -31408,25 +31391,23 @@ function testPoolLevel(): void
             return $p->key . ':' . json_encode($p->params);
         }
     };
-    same('level save: NM 50 % and Y 54 — saved (no refusal: the Team Lead says it); Jack guaranteed 101 — refused; 30 — saved', [
-        'ok', 'moverelli_bad_value:{"field":"jack_min_percent","value":"101"}', 'ok'],
-        [$save(['move_when_used_above' => 64, 'move_until_used_below' => 54]), $save(['move_when_used_above' => 80, 'move_until_used_below' => 70, 'jack_min_percent' => 101]),
-         $save(['move_when_used_above' => 80, 'move_until_used_below' => 70, 'jack_min_percent' => 30])]);
+    same('level save: X alone; an older page\'s Y 90 and «Jack guaranteed» 101 — not read, saved', ['ok', 'ok'],
+        [$save(['move_when_used_above' => 64]), $save(['move_when_used_above' => 80, 'move_until_used_below' => 90, 'jack_min_percent' => 101])]);
     $ini = (string) file_get_contents("$T/data/smart_mover.ini");
-    check('level save: her ini carries X, Y and what Jack keeps for sure', str_contains($ini, "move_when_used_above=80\nmove_until_used_below=70\n") && str_contains($ini, "jack_min_percent=30\n"), $ini);
-    same('level save: a page that doesn\'t know it keeps it', ['ok', 30],
-        [$save(['move_when_used_above' => 80, 'move_until_used_below' => 70]), moverelliSettings("$T/data")['global']['jack_min_percent'] ?? null]);
+    check('level save: her ini carries X only', str_contains($ini, "move_when_used_above=80\n") && !str_contains($ini, 'move_until_used_below') && !str_contains($ini, 'jack_min_percent'), $ini);
+    same('level save: her settings without Y and «guaranteed»', [false, false],
+        [array_key_exists('move_until_used_below', moverelliSettings("$T/data")['global']), array_key_exists('jack_min_percent', moverelliSettings("$T/data")['global'])]);
     $state = moverelliScan();
-    same('level state: her pool for the page — Jack\'s 5000 on his pool, R 20000 below 70 %, his 30 % = 6000, mine',
-        [true, 5000, 20000, 6000, false], [$state['levels']->cache['mine'] ?? null, $state['levels']->cache['jack'] ?? null, $state['levels']->cache['room'] ?? null,
-         $state['levels']->cache['half'] ?? null, $state['levels']->cache['never'] ?? null]);
+    same('level state: her pool for the page — Jack\'s 5000 on his pool, the others 5000, X 80, nothing must go, mine',
+        [true, 5000, 5000, 80, 0, false], [$state['levels']->cache['mine'] ?? null, $state['levels']->cache['jack'] ?? null, $state['levels']->cache['others'] ?? null,
+         $state['levels']->cache['x'] ?? null, $state['levels']->cache['need'] ?? null, $state['levels']->cache['never'] ?? null]);
     $finds = fn () => array_column(array_map(fn ($f) => [$f['id'], [$f['level'], $f['ok'], $f['params']]], array_filter(moverelliChecks(),
         fn ($f) => str_starts_with($f['id'], 'pool_'))), 1, 0);
-    same('level checks: what never moves below Y, snapshots 3 % (> 2 %) — the hint', [
-        'pool_never_moves' => ['recommended', true, ['pool' => 'cache', 'nm' => 50, 'size' => '98 KB', 'y' => 70]],
+    same('level checks: what never moves below X, snapshots 3 % (> 2 %) — the hint', [
+        'pool_never_moves' => ['recommended', true, ['pool' => 'cache', 'nm' => 50, 'size' => '98 KB', 'x' => 80]],
         'pool_snapshots' => ['hint', false, ['pool' => 'cache', 'size' => '2.9 KB']]], $finds());
-    file_put_contents("$T/bin/zfs-level", "#!/bin/bash\n[[ \"\$*\" == *' cache' ]] || exit 1\nprintf 'cache\\t81000\\t19000\\t100\\t0\\ncache/Filme\\t9000\\t19000\\t7000\\t0\\ncache/Docs\\t3000\\t19000\\t3000\\t0\\n'\n");
-    same('level checks: appdata grew (NM 71 % ≥ 70) — nothing to share: recommended, red', [false, 71], [$finds()['pool_never_moves'][1] ?? null, $finds()['pool_never_moves'][2]['nm'] ?? null]);
+    file_put_contents("$T/bin/zfs-level", "#!/bin/bash\n[[ \"\$*\" == *' cache' ]] || exit 1\nprintf 'cache\\t91000\\t9000\\t100\\t0\\ncache/Filme\\t9000\\t9000\\t7000\\t0\\ncache/Docs\\t3000\\t9000\\t3000\\t0\\n'\n");
+    same('level checks: appdata grew (NM 81 % ≥ X 80) — she never gets below it: recommended, red', [false, 81], [$finds()['pool_never_moves'][1] ?? null, $finds()['pool_never_moves'][2]['nm'] ?? null]);
     $GLOBALS['moverelliHost']['asleep'] = ['cache' => true];
     same('level checks: the pool asleep — not looked at (null)', [['recommended', null, ['pool' => '']], ['hint', null, ['pool' => '']]],
         [$finds()['pool_never_moves'] ?? 'x', $finds()['pool_snapshots'] ?? 'x']);
@@ -31459,8 +31440,8 @@ function testPoolLevel(): void
     check('level notify: the target missed on master — one warning; reached and stopped — nothing', $sent === [1, 0]
         && str_contains($said, "-i\nwarning") && str_contains($said, 'master is still at 83 % after my run — I couldn\'t get below 70 %.'), json_encode($sent) . $said);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
-    check('level run: after a real run she tells a missed target (inside the night with a cap: the night does); Smart Mover gets no cake variables, only the night\'s cap',
-        str_contains($src, "moverelliTargetNotify(\$status);") && !str_contains($src, 'CUSTOMMOVER_POOL_OFFSET') && !preg_match('/CUSTOMMOVER_FILL_(?!MAX_)/', $src));
+    check('level run: after a real run she tells a missed target; Smart Mover gets no cake variables and no fill cap from the office (only X, 2026-10-14)',
+        str_contains($src, "moverelliTargetNotify(\$status);") && !str_contains($src, 'CUSTOMMOVER_POOL_OFFSET') && !str_contains($src, 'CUSTOMMOVER_FILL_') && !str_contains($src, '--fill-max'));
     $sm = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('level: Smart Mover without the cake\'s hooks', !preg_match('/CUSTOMMOVER_(?:POOL_OFFSET|FILL_TARGET|FILL_OFF|FILL_ALL)|cake/i', $sm));
 
@@ -31481,6 +31462,22 @@ function testPoolLevel(): void
     file_put_contents("$tmp/mig/moverelli/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=70\nmove_until_used_below=75\n");
     officeMigratePoolSimple("$tmp/mig", '1.62.0');
     same('level migration: Y not below X — set to X − 10', "[GLOBAL]\nmove_when_used_above=70\nmove_until_used_below=60\n", file_get_contents("$tmp/mig/moverelli/smart_mover.ini"));
+
+    // the migration `pool-x` (2026-10-14): Y (global and per share), «Jack guaranteed» and an offset line go, every other byte stays,
+    // the ini before kept; after `pool-simple` on a 1.61 data folder; idempotent
+    @mkdir("$tmp/mx/moverelli", 0700, true);
+    same('level migration x: no ini — nothing', 'nothing to change — Ms. Moverelli is not set up', officeMigratePoolX("$tmp/mx", '1.63.0'));
+    $was = "# mine\n[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmove_until_used_below=70\njack_min_percent=30\noffset=10\nmax_list=50\n\n[Filme]\nmove_when_used_above=60\nmove_until_used_below=50\nexcludes=/a,/b\n";
+    file_put_contents("$tmp/mx/moverelli/smart_mover.ini", $was);
+    $said = officeMigratePoolX("$tmp/mx", '1.63.0');
+    same('level migration x: only X stays (for all and Filme\'s own), the rest of the file as it was, the ini before kept, said', [
+        "# mine\n[GLOBAL]\nlog_file=/x\nmove_when_used_above=80\nmax_list=50\n\n[Filme]\nmove_when_used_above=60\nexcludes=/a,/b\n", $was, true],
+        [file_get_contents("$tmp/mx/moverelli/smart_mover.ini"), @file_get_contents("$tmp/mx/moverelli/smart_mover.ini.before-1.63.0"),
+         str_contains($said, 'move_until_used_below (×2), jack_min_percent, offset')]);
+    $ids = array_column(officeMigrateSteps(), 'id');
+    same('level migration x: again — nothing (idempotent), no second copy; the step registered after pool-simple', [true, false, true],
+        [str_starts_with(officeMigratePoolX("$tmp/mx", '1.63.0'), 'nothing to change'), is_file("$tmp/mx/moverelli/smart_mover.ini.before-1.63.0-2"),
+         array_search('pool-x', $ids, true) > array_search('pool-simple', $ids, true)]);
 
     // her setup and Jack's words under node
     $node = testsNode();
@@ -31507,70 +31504,31 @@ const m = OFFICE_DESK_TESTS.moverelli;
 const G = 1073741824;
 const raw = { size: 1000 * G, used: 900 * G, movable: 600 * G, jack: 250 * G, mine: true };
 const out = {};
-const c = m.levelMath(raw, 80, 70, 50);
-out.math = [c.nm, c.room, c.half, c.back, c.goes, c.never].map((b) => (typeof b === 'number' ? Math.round(b / G) : b));
-out.night = [m.levelNight('cache', c), m.levelNight('cache', m.levelMath({ ...raw, used: 500 * G, movable: 200 * G, jack: 150 * G }, 80, 70, 50))];
+const c = m.levelMath(raw, 80);
+out.math = [c.nm, c.jack, c.others, c.need, c.never, c.jackOver].map((b) => (typeof b === 'number' ? Math.round(b / G) : b));
+out.night = [m.levelNight('cache', c), m.levelNight('cache', m.levelMath({ ...raw, used: 500 * G, movable: 200 * G, jack: 150 * G }, 80))];
 m.setState({ levels: { cache: raw, fast: null }, jack: { hired: true } });
-const g = { move_when_used_above: 80, move_until_used_below: 70, offset: 10, jack_min_percent: 50 };
+const g = { move_when_used_above: 80 };
 out.section = texts(m.levelSection(g));
-out.never = texts(m.levelSection({ ...g, move_when_used_above: 30, offset: 10 }));
-out.off = texts(m.levelSection({ ...g, move_when_used_above: 0 }));
+out.never = texts(m.levelSection({ move_when_used_above: 30 }));
+out.jackOver = texts(m.levelSection({ move_when_used_above: 50 }));
+out.off = texts(m.levelSection({ move_when_used_above: 0 }));
 m.setState({ levels: { cache: { ...raw, mine: false } }, jack: { hired: false } });
 out.alone = texts(m.levelSection(g));
-// «Advanced»: the offset and Jack's share checked at once; the target follows X − offset when sent
-const base = { min_age: 0, age_stat: 'ctime', move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [], jack_min_percent: 50 };
-const share = { skip: false, min_age: null, age_stat: null, move_when_used_above: 60, move_until_used_below: null, files: [], patterns: [] };
-const form = (x, off, k) => ({ global: { ...base, move_when_used_above: x, move_until_used_below: 0, offset: off, jack_min_percent: k ?? 50 }, shares: { Filme: { ...share } } });
-out.probs = [[80, 10], [80, 0], [80, 10, 101], [5, 10], [80, 60]].map(([x, o, k]) => m.setupProblems(form(x, o, k)).map((p) => [p.scope, p.text]));
-const sent = m.formSettings(form(80, 15, 40));
-out.sent = [sent.global.move_until_used_below, sent.shares.Filme.move_until_used_below, 'offset' in sent.global, sent.global.jack_min_percent];
-const f1 = form(80, 0);
-m.setForm(f1);
-m.setSaved(m.formSettings(form(80, 10)));
-m.setPage('setup');
-m.setState({ levels: { cache: raw }, jack: { hired: true }, configured: true, unraid: { ok: true }, job: {} });
-const adv = m.advancedFold(f1.global);
-const spec = m.setupBarSpec();
-out.marks = [texts(adv).includes('setup.err_offset'), spec.buttons[1].disabled, spec.sub];
-f1.global.offset = 10;
-m.markLimits();
-out.fixed = [texts(adv).includes('setup.err_offset'), m.setupBarSpec() === null];
-const e = OFFICE_DESK_TESTS.emby;
-e.setState({ pool: { keep: 200 * G, held: 150 * G, back: 0, never: false, waiting: 3, moverelli: { x: 80, y: 70 }, min_free: 30 } });
-out.jack = e.roomWords();
-e.setState({ pool: { keep: 200 * G, held: 350 * G, back: 150 * G, never: false, waiting: 0, moverelli: { x: 80, y: 70 }, min_free: 30 } });
-out.over = e.roomWords();
-e.setState({ pool: { moverelli: { x: 80, y: 70 }, min_free: 30 } });
-out.plain = e.roomWords();
-e.setState({ pool: { min_free: 10 } });
-out.nobody = e.roomWords();
-e.setState({ pool: { path: '/mnt/cache', free: 1, free_percent: 25, keep: 200 * G, held: 350 * G, moverelli: { x: 80, y: 70 }, min_free: 30 }, cache: {} });
-const tile = e.poolTile({});
-out.tile = [tile.sub, tile.alert];
 console.log(JSON.stringify(out));
 JS);
-    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
     $j = json_decode(trim((string) $out), true) ?? [];
-    same('level page: the same numbers as the agent — NM 300, R 400, H 200, Jack back 50, downloads 150 go', [300, 400, 200, 50, 150, false], $j['math'] ?? $err);
-    same('level page: the next night in her words — both; nothing but the age', ['setup.level_night_both {"pool":"cache","back":"50 GiB","goes":"150 GiB"}',
+    same('level page: the same numbers as the agent — fixed 300, Jack 250, the others 350, 100 must go', [300, 250, 350, 100, false, false], $j['math'] ?? $err);
+    same('level page: the next night in her words — about 100 of the oldest; nothing but the age', ['setup.level_night_goes {"pool":"cache","goes":"100 GiB"}',
         'setup.level_night_none {"pool":"cache"}'], $j['night'] ?? null);
-    same('level page: her rule with X and Y, the pool, the halves, the next night; a pool not looked at said', [
-        'setup.level_rule_jack {"x":80,"y":70}', 'setup.level_pool {"pool":"cache","used":"900 GiB","size":"1000 GiB","nm":"300 GiB"} setup.level_half {"y":70,"h":"200 GiB","d":"200 GiB"} '
-        . 'setup.level_night_both {"pool":"cache","back":"50 GiB","goes":"150 GiB"}', 'setup.level_unseen {"pool":"fast"}'], $j['section'] ?? null);
-    check('level page: X 30 — what never moves above Y: said, red', in_array('setup.level_never {"pool":"cache","nm":30,"y":20}', $j['never'] ?? [], true), json_encode($j['never'] ?? null));
-    same('level page: no limit — by age only; Jack not hired — the downloads\' room, her rule without him', [['setup.level_off'], 'setup.level_rule {"x":80,"y":70}', true],
-        [$j['off'] ?? null, $j['alone'][0] ?? null, str_contains($j['alone'][1] ?? '', 'setup.level_room {"r":"400 GiB","y":70}')]);
-    same('level page: at once — fine; offset 0; Jack 101; X 5 with offset 10; offset 60 under Filme\'s own 60', [
-        [], [['~adv', 'setup.err_offset']], [['~adv', 'setup.err_jack_min']],
-        [['', 'setup.err_offset_big {"x":5,"offset":10}']], [['Filme', 'setup.err_offset_big {"x":60,"offset":60}']]], $j['probs'] ?? null);
-    same('level page: sent — Y = X − offset for all (65) and Filme\'s own (45), the offset never sent, Jack 40', [65, 45, false, 40], $j['sent'] ?? null);
-    same('level page: «Advanced» — offset 0 red, «Apply…» off with the reason; corrected — gone', [[true, true, 'setup.bar_blocked {"why":"setup.err_offset"}'], [false, true]],
-        [$j['marks'] ?? null, $j['fixed'] ?? null]);
-    same('level page: Jack\'s words — X, Y, his half, what he holds, the films that wait; over Y he brings back; her limit not measured; she isn\'t set up', [
-        ['room.text {"x":80,"y":70,"h":"200 GiB","used":"150 GiB"}', 'room.waiting {"n":3}'],
-        ['room.text {"x":80,"y":70,"h":"200 GiB","used":"350 GiB"}', 'room.back {"y":70,"back":"150 GiB"}'],
-        ['room.plain {"x":80,"y":70}'], ['room.none']], [$j['jack'] ?? null, $j['over'] ?? null, $j['plain'] ?? null, $j['nobody'] ?? null]);
-    same('level page: his pool tile — what he holds, his half, free; under 30 % free red', ['pool_tile.held {"used":"350 GiB","h":"200 GiB","pct":"25"}', true], $j['tile'] ?? null);
+    same('level page: her rule with X (Jack Emby hired: his unwatched stays), the pool, the next night; a pool not looked at said', [
+        'setup.level_rule_jack {"x":80}', 'setup.level_pool {"pool":"cache","used":"900 GiB","size":"1000 GiB","nm":"300 GiB"} setup.level_night_goes {"pool":"cache","goes":"100 GiB"}',
+        'setup.level_unseen {"pool":"fast"}'], $j['section'] ?? null);
+    check('level page: X 30 — what never moves above X: said, red', in_array('setup.level_never {"pool":"cache","nm":30,"x":30}', $j['never'] ?? [], true), json_encode($j['never'] ?? null));
+    check('level page: X 50 — what never moves and Jack Emby\'s 250 over it: his budget too big, said', in_array('setup.level_jack_over {"pool":"cache","jack":"250 GiB","x":50}', $j['jackOver'] ?? [], true),
+        json_encode($j['jackOver'] ?? null));
+    same('level page: no limit — by age only; Jack not hired — her rule without him', [['setup.level_off'], 'setup.level_rule {"x":80}'], [$j['off'] ?? null, $j['alone'][0] ?? null]);
     hardeningRm($tmp);
 }
 
@@ -31673,7 +31631,7 @@ PY);
     file_put_contents("$p/zfs", "#!/bin/bash\nu=\$(( \$(cat " . escapeshellarg("$p/base") . ") + \$(find " . escapeshellarg("$p/pool") . " -type f -printf '%s\\n' | awk '{s+=\$1} END {print s+0}') ))\necho \"\$u \$(( 10000 - u ))\"\n");
     chmod("$p/zfs", 0755);
     // a run as the office starts it: Ms. Moverelli's Y as 100 − Y free, his half as the floor (null: none); $office false: standalone
-    $go = function (int $y, int $base, ?string $keep = null, bool $office = true, bool $noFill = false) use ($p, $settings): array {
+    $go = function (int $y, int $base, ?string $keep = null, bool $office = true, bool $noFill = false, bool $watched = false) use ($p, $settings): array {
         $settings(100 - $y);
         file_put_contents("$p/base", (string) $base);
         @unlink("$p/data/status.json");
@@ -31687,6 +31645,9 @@ PY);
         }
         if ($noFill) {
             $cmd[] = 'EMBYCACHE_NO_FILL=1';
+        }
+        if ($watched) {
+            $cmd[] = 'EMBYCACHE_WATCHED_ONLY=1';
         }
         [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/embycache/embycache_run.py', '--run']), 120);
         $log = (string) @file_get_contents("$p/data/logs/embycache.log");
@@ -31745,6 +31706,12 @@ PY);
     same('emby yield: Y 30 % (2000 short), his half 2500 — back only down to it: the next up E03 (500 over his half) before what is started',
         [0, ['S01E03'], ['Brazil', 'S01E01'], 2000], [$exit, $back($out), $on(), $st['pool']['held'] ?? null], $out);
     check('emby yield: … said with the floor', str_contains($out, 'meine Hälfte (2.4 KiB) bleibt') || str_contains($out, 'meine Hälfte ('), $out);
+    // only X (2026-10-14): EMBYCACHE_WATCHED_ONLY — over the limit, nothing goes back by rank (GIVE_BACK_FREE set or not); what
+    // he holds and what waits still in the status; the progress file keeps the files done (`recent`)
+    [$exit, $st, $out] = $go(30, 2000, null, true, true, true);
+    same('emby watched only: over the limit (Y 30 %), nothing back by rank, nothing fetched; his pool status written all the same', [0, [], ['Brazil', 'S01E01'], 2000, true],
+        [$exit, $back($out), $on(), $st['pool']['held'] ?? null, isset($st['pool']['waiting_bytes'])], $out);
+    same('emby watched only: … the progress keeps `recent` (a list)', true, is_array((readJson("$p/data/progress.json") ?? [])['recent'] ?? null));
     file_put_contents("$p/playing", '/media/movies/Brazil/Brazil.mkv');
     [$exit, $st, $out] = $go(10, 2000);
     same('emby yield: Y 10 %, no floor — both started ones would go, Brazil plays and stays', [0, ['S01E01'], ['Brazil']], [$exit, $back($out), $on()], $out);
@@ -31918,7 +31885,7 @@ function testMoverelliStop(): void
     check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => embyMoverScheduleOff((\$h['unraid'])()));"));
     $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('smart mover: one file at a time only with CUSTOMMOVER_STOP (the office); without it the share\'s list at once, as upstream',
-        str_contains($sh, "if [[ -n \"\$STOP_FILE\" || -n \"\$FILL_POOL\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
+        str_contains($sh, "if [[ -n \"\$STOP_FILE\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
 
     // her card under node: the steps, the bar by bytes, the file, the time left from two readings, the end on the last share
     $node = testsNode();
@@ -32108,7 +32075,7 @@ function testMoverelliIni(): void
     };
     same('moverelli zfs: the fill\'s trigger measures the whole ZFS pool — 10 % below 80 %: the age alone (30 d keeps the new file); 90 %: the fill takes it',
         [['none', 0], ['dry', 1]], [$docs(100), $docs(900)]);
-    check('moverelli zfs: … said so in the log', str_contains((string) file_get_contents("$dir/x.log"), 'pool cache 90% (zfs) >= 80% -> target below 70%'));
+    check('moverelli zfs: … said so in the log', str_contains((string) file_get_contents("$dir/x.log"), '[fill] pool cache 90% (zfs) – the oldest first across Docs'));
     // refused values: nothing written
     $bad = function (array $in) use ($h): string { try { moverelliSave($in, $h); return 'ok'; } catch (Problem $p) { return $p->key . ':' . ($p->params['field'] ?? $p->params['share'] ?? ''); } };
     $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]];
@@ -32690,7 +32657,7 @@ function testMoverelliImport(): void
     // Jack Emby not hired: EmbyCache's list copied (a frozen copy)
     $p = moverelliImportPreview(['folder' => "$old/"], $h)['preview'];
     same('moverelli import: GLOBAL — what is taken, Smart Mover\'s default where the old value was bad or empty', [
-        ['min_age', 30, true], ['age_stat', 'ctime', false], ['move_when_used_above', 0, false], ['move_until_used_below', 0, false], ['move_prefer_shares', false, true],
+        ['min_age', 30, true], ['age_stat', 'ctime', false], ['move_when_used_above', 0, false], ['move_prefer_shares', false, true],
         ['mover_debug', 0, false], ['max_list', 100, true]], array_map(fn ($x) => [$x['key'], $x['value'], $x['old']], $p['global']));
     same('moverelli import: left out — hers, bad values (with why), unknown keys', [
         ['GLOBAL', 'mover_bin', 'hers', null], ['GLOBAL', 'log_file', 'hers', null], ['GLOBAL', 'age_stat', 'bad', 'word'], ['GLOBAL', 'mover_debug', 'bad', 'range'],
@@ -32699,7 +32666,7 @@ function testMoverelliImport(): void
     same('moverelli import: sections skipped — no such share here, a name she can\'t write', [['Gone', 'no_share'], ['bad/name', 'name']],
         array_map(fn ($x) => [$x['section'], $x['why']], $p['skipped']));
     same('moverelli import: the shares with rules of their own (the first min_age counts, as Smart Mover reads it)', [
-        ['Filme', [['min_age', 14]]], ['Docs', [['move_when_used_above', 80], ['move_until_used_below', 70]]], ['Back', [['skip', true]]]],     // the fill's target: 10 below
+        ['Filme', [['min_age', 14]]], ['Docs', [['move_when_used_above', 80]]], ['Back', [['skip', true]]]],     // only X (2026-10-14): no target proposed
         array_map(fn ($x) => [$x['share'], array_map(fn ($y) => [$y['key'], $y['value']], $x['values'])], $p['shares']));
     $lists = array_column($p['lists'], null, 'scope');
     same('moverelli import: the lists — taken, files copied or not read with why, EmbyCache\'s a frozen copy', [
@@ -32790,7 +32757,7 @@ function testMoverelliImport(): void
     $ini = (string) file_get_contents("$dir/smart_mover.ini");
     same('moverelli import: her ini as her save writes it — her log, no mover_bin, the old values, her own lists', [
         "log_file=$dir/smart_mover.log", 'min_age=30', 'age_stat=ctime', 'move_when_used_above=0', 'move_prefer_shares=no', 'mover_debug=0', 'max_list=100',
-        "global_excludes=$dir/excludes/global.txt", '[Back]', 'skip=yes', '[Docs]', 'move_when_used_above=80', 'move_until_used_below=70', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
+        "global_excludes=$dir/excludes/global.txt", '[Back]', 'skip=yes', '[Docs]', 'move_when_used_above=80', '[Filme]', 'min_age=14', "excludes=$dir/excludes/share-Filme.txt"],
         array_values(array_filter(explode("\n", $ini), fn ($l) => $l !== '' && $l[0] !== '#' && $l !== '[GLOBAL]')));
     same('moverelli import: … her lists hold the old content (merged, de-duplicated, comments gone), Arr\'s gone with its rules', [
         "*.nfo\n/mnt/user/Filme/Kids/\n", "/mnt/cache/Filme/A/a.mkv\n*.nfo\n/mnt/user/Filme/Extras\n", false, false],
@@ -32909,28 +32876,26 @@ JS);
 function testNightPlan(): void
 {
     $G = 1 << 30;
-    $gib = fn (int $b): float => round($b / $G, 1);
-    $lv = fn (int $used, int $jack, int $movable, int $x = 80, int $y = 70) => poolLevelMath(1000 * $G, $used * $G, $movable * $G, $x, $y, 50, $jack * $G) + ['pool' => 'cache'];
-    $p = nightPlan($lv(770, 320, 470), 60 * $G);
-    same('night plan 1: need 70; Jack Emby gives 70 (120 borrowed), she only by age (under X), he goes first; nothing fits, 60 wait',
-        [70.0, 70.0, 0.0, ['jack', 'her'], 0.0, 60.0, false], [$gib($p['need']), $gib($p['back']), $gib($p['goes']), $p['order'], $gib($p['fill']), $gib($p['wait']), $p['done']]);
-    $p = nightPlan($lv(760, 230, 460), 60 * $G, 50 * $G);
-    same('night plan 2: need 60; Jack Emby only his 30 borrowed; her age rule 50 is more — she first; afterwards 680: 20 fit, 40 wait',
-        [30.0, 0.0, ['her', 'jack'], 20.0, 40.0], [$gib($p['back']), $gib($p['goes']), $p['order'], $gib($p['fill']), $gib($p['wait'])]);
-    $p = nightPlan($lv(900, 250, 600), 0);
-    same('night plan: a burst over X (900) — Jack Emby down to his half (50), the downloads only what they borrowed over theirs (150); 200 in all',
-        [200.0, 50.0, 150.0, ['her', 'jack']], [$gib($p['need']), $gib($p['back']), $gib($p['goes']), $p['order']]);
-    $p = nightPlan($lv(700, 200, 400), 30 * $G);
-    same('night plan: both full (each exactly H, the pool at Y) — nothing goes, nothing comes, the queue waits', [0.0, 0.0, 0.0, 30.0, true],
-        [$gib($p['back']), $gib($p['goes']), $gib($p['fill']), $gib($p['wait']), $p['done']]);
-    same('night plan: «nearly» — 1 % of the pool (10 GiB here), at least 1 GiB on a small one', [10 * $G, $G, true, false],
-        [nightPlan($lv(705, 250, 405))['near'], nightNear(20 * $G), nightPlan($lv(709, 250, 409))['done'], nightPlan($lv(712, 250, 412))['done']]);
-    $p = nightPlan(poolLevelMath(1000 * $G, 900 * $G, 100 * $G, 80, 70, 50, 50 * $G));
-    same('night plan: NM ≥ Y — never; Jack Emby gives what he has (H 0)', [true, 50.0], [$p['never'], $gib($p['back'])]);
+    $gib = fn (?int $b): ?float => $b === null ? null : round($b / $G, 1);
+    // only X (2026-10-14): 1 TB, X 80 (800), fixed 300
+    $lv = fn (int $used, int $jack, int $movable, int $x = 80) => poolLevelMath(1000 * $G, $used * $G, $movable * $G, $x, $jack * $G) + ['pool' => 'cache'];
+    $p = nightPlan($lv(850, 400, 550), 60 * $G);
+    same('night plan: 50 must go; before Jack Emby looked (his watched unknown) the others give 50; then nothing fits — 60 wait',
+        [50.0, null, 50.0, 0.0, 60.0, false, null], [$gib($p['need']), $p['jack_back'], $gib($p['others_back']), $gib($p['jack_fetch']), $gib($p['wait']), $p['over'], $p['why']]);
+    $p = nightPlan($lv(850, 400, 550), 60 * $G, 70 * $G);
+    same('night plan: Jack Emby gave back 70 watched — the others give nothing, 20 fit under X, 40 wait', [70.0, 0.0, 20.0, 40.0],
+        [$gib($p['jack_back']), $gib($p['others_back']), $gib($p['jack_fetch']), $gib($p['wait'])]);
+    same('night plan: the picture — before {size, fixed, others, jack, free} and the forecast after the moves', [
+        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 400.0, 'free' => 150.0], ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 350.0, 'free' => 200.0]],
+        [array_map($gib, $p['before']), array_map($gib, $p['forecast'])]);
+    $p = nightPlan($lv(920, 520, 620), 0, 0);
+    same('night plan: the others (100) all go, still over X — only Jack Emby\'s unwatched keeps it there', [100.0, true, 'jack'], [$gib($p['others_back']), $p['over'], $p['why']]);
+    $p = nightPlan($lv(900, 50, 100), 0, 0);
+    same('night plan: what never moves (800) at X — never', [true, 'never'], [$p['never'], $p['why']]);
     $p = nightPlan(null, 5 * $G);
-    same('night plan: not measured — no numbers, her part first, what waits stays', [false, ['her', 'jack'], 5.0, true], [$p['measured'], $p['order'], $gib($p['wait']), $p['done']]);
-    same('night words: for the pages', ['measured' => true, 'back' => 70 * $G, 'goes' => 0, 'age' => 0, 'fill' => 0, 'wait' => 60 * $G, 'first' => 'jack'],
-        nightWords(nightPlan($lv(770, 320, 470), 60 * $G)));
+    same('night plan: not measured — no numbers, what waits stays', [false, 5.0, null], [$p['measured'], $gib($p['wait']), $p['before']]);
+    same('night words: for the pages', ['measured' => true, 'back' => 70 * $G, 'goes' => 0, 'fill' => 20 * $G, 'wait' => 40 * $G, 'over' => false, 'why' => null],
+        nightWords(nightPlan($lv(850, 400, 550), 60 * $G, 70 * $G)));
 }
 
 /**
@@ -32949,35 +32914,38 @@ function testNightRun(): void
     $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false, 'emby_scheduled' => fn () => (officeCronLines("$tmp/office.cron")['embycache'] ?? null) !== null];
     $h = moverelliHost();
     $dir = "$tmp/data";
-    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70]), $h);
-    // the pool in GiB: used = NM + J + D; the stand-ins move J and D as the tools would
-    $p = ['nm' => 300, 'j' => 320, 'd' => 150, 'wait' => 60, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false];
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80]), $h);
+    // the pool in GiB (1 TB, X 80 = 800): used = nm + j + d; w of Jack Emby's j is watched; the stand-ins move as the tools would
+    $p = [];
     $calls = [];
     $notified = [];
     $inside = [];
     $level = function () use (&$p, $G): array {
         $used = $p['nm'] + $p['j'] + $p['d'];
-        return poolLevelMath(1000 * $G, $used * $G, ($p['j'] + $p['d']) * $G, 80, 70, 50, $p['j'] * $G) + ['pool' => 'cache'];
+        return poolLevelMath(1000 * $G, $used * $G, ($p['j'] + $p['d']) * $G, 80, $p['j'] * $G) + ['pool' => 'cache'];
     };
     $runs = [];
     $GLOBALS['nightHost'] = [
         'jack_on' => fn () => true,
         'level' => fn (array $g, array $hh, bool $wake) => $level(),
-        'emby_status' => function () use (&$p, $G) { return ['pool' => ['waiting_bytes' => $p['wait'] * $G]]; },
+        'emby_status' => function () use (&$p, $G) {
+            return ['pool' => ['waiting_bytes' => $p['wait'] * $G], 'cleanup' => ['bytes_done' => ($p['gave'] ?? 0) * $G, 'bytes_planned' => $p['w'] * $G],
+                    'fill' => ['bytes_planned' => min($p['wait'], max(0, 800 - $p['nm'] - $p['j'] + $p['w'] - $p['d'])) * $G]];
+        },
+        'emby_live' => fn () => ['recent' => [['name' => 'Film/a.mkv', 'bytes' => 7, 'from' => 'cache', 'to' => 'array'], ['name' => 1, 'bytes' => 'x']]],
         'emby_runs' => function () use (&$runs) { return $runs; },
         'emby_stop' => "$tmp/emby-stop.json",
-        'notify' => function (string $s, string $b) use (&$notified) { $notified[] = $s; return true; },
+        'notify' => function (string $s, string $b) use (&$notified) { $notified[] = $b; return true; },
         'emby_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir) {
             $calls[] = 'jack ' . implode(' ', $args);
             $inside[] = [nightRunning($dir), moverelliBusy($dir), nightInside()];
             $exit = array_shift($p['jack_exit']) ?? 0;
             if ($exit === 0 && in_array('--nofill', $args, true)) {
-                $used = $p['nm'] + $p['j'] + $p['d'];
-                $give = max(0, min($p['j'] - 200, $used - 700));       // over Y, never below H 200
-                $p['j'] -= $give;
+                $p['gave'] = $p['w'];                       // only what was watched, never by rank
+                $p['j'] -= $p['w'];
+                $p['w'] = 0;
             } elseif ($exit === 0 && $args[0] === 'run') {
-                $used = $p['nm'] + $p['j'] + $p['d'];
-                $fetch = max(0, min($p['wait'], 700 - $used));
+                $fetch = max(0, min($p['wait'], 800 - ($p['nm'] + $p['j'] + $p['d'])));     // up to X, never past it
                 $p['j'] += $fetch;
                 $p['wait'] -= $fetch;
             }
@@ -32987,101 +32955,102 @@ function testNightRun(): void
             }
             return $exit;
         },
-        'her_job' => function (array $args, array $hh) use (&$p, &$calls, $dir, $G) {
+        'her_job' => function (array $args, array $hh) use (&$p, &$calls, $dir) {
             $calls[] = 'her ' . implode(' ', $args);
-            $cap = null;
-            foreach ($args as $a) {
-                if (str_starts_with($a, '--fill-max=')) {
-                    $cap = (int) substr($a, 11);
-                }
-            }
-            $p['her_cap'] = $cap;
             $p['d'] -= $p['age'] ?? 0;                      // the age rule
             $p['age'] = 0;
-            if ($cap !== null && !$p['her_stall']) {
-                $p['d'] -= intdiv($cap, $G);
+            $used = $p['nm'] + $p['j'] + $p['d'];
+            if ($used >= 800 && !$p['her_stall']) {         // the oldest of the others until below X
+                $p['d'] -= min($p['d'], $used - 799);
             }
             $p['d'] += $p['burst'];                         // downloads arrive while she works
             $p['burst'] = 0;
+            writeAtomic("$dir/status.json", jsonEncode(['result' => 'ok', 'recent' => [['name' => 'Docs/old.iso', 'bytes' => 5, 'from' => 'cache', 'to' => 'array']]]), 0600, 0, 0);
             moverelliRemember(['mode' => $args[0], 'by' => 'night', 'started' => time(), 'finished' => time(), 'result' => 'ok'], $dir);
             return 0;
         },
     ];
     $night = fn () => nightState($dir) ?? [];
+    $fresh = fn (array $x) => $x + ['nm' => 300, 'j' => 0, 'w' => 0, 'd' => 0, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_stall' => false];
 
-    // (1) the concept's night 1 with a burst of 40 GiB while she works
-    $p['age'] = 20;
-    $p['burst'] = 40;
+    // (1) 850: Jack Emby gives back his 50 watched, she brings it below X — and downloads (40) arrive meanwhile: a recheck round,
+    // her part again; then he fetches only up to X
+    $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'burst' => 40]);
     $exit = nightRun(['run', '--office']);
     $n = $night();
-    same('night run 1: Jack Emby frees (no fill), she by age (cap 0), the pool grew: a second pass for Jack Emby only, then he fetches — last',
-        [0, ['jack run --night --nofill', 'her run --night --fill-max=0 --fill-pool=cache', 'jack run --night --nofill', 'jack run --night']],
-        [$exit, $calls]);
-    same('night run 1: … the pool at Y (700), Jack Emby at 230 (his half 200 kept), nothing fetched (60 wait), two passes, done',
-        [700, 230, 60, 2, 'ok', 'done', false], [$p['nm'] + $p['j'] + $p['d'], $p['j'], $p['wait'], $n['round'] ?? null, $n['result'] ?? null, $n['phase'] ?? null, $n['running'] ?? null]);
+    same('night run 1: Jack Emby frees (watched only, no fill), she moves the oldest, the pool grew: her part again, then he fetches — last',
+        [0, ['jack run --night --nofill', 'her run --night', 'her run --night', 'jack run --night']], [$exit, $calls]);
+    same('night run 1: … the pool at X (800), Jack Emby 350 + 1 fetched, 59 wait, two rounds, done',
+        [800, 351, 59, 2, 'ok', 'done', false, []], [$p['nm'] + $p['j'] + $p['d'], $p['j'], $p['wait'], $n['round'] ?? null, $n['result'] ?? null, $n['phase'] ?? null,
+         $n['running'] ?? null, $notified]);
     same('night run 1: inside the night the runs pass its lock (night held, not «busy» for them)', [true, false, true], $inside[0] ?? null);
-    same('night run 1: the plan kept for the pages; nothing notified', [70 * $G, 'jack', []], [$n['plan']['back'] ?? null, $n['plan']['first'] ?? null, $notified]);
+    $pic = $n['picture'] ?? [];
+    same('night run 1: the picture — X, where she moves to, each phase as it began (before, forecast, planned), the files done by both',
+        [80, ['to' => 'array', 'size' => null, 'used' => null], ['check', 'free', 'recheck', 'fill', 'done'], ['before', 'forecast', 'planned'],
+         ['jack_back' => 50 * $G, 'others_back' => 0, 'jack_fetch' => 0], ['size', 'fixed', 'others', 'jack', 'free'],
+         [['Film/a.mkv', 'jack'], ['Docs/old.iso', 'her']]],
+        [$pic['x'] ?? null, $pic['dest'] ?? null, array_keys($pic['phases'] ?? []), array_keys($pic['phases']['free'] ?? []), $pic['phases']['free']['planned'] ?? null,
+         array_keys($pic['phases']['check']['before'] ?? []), array_slice(array_map(fn ($f) => [$f['name'], $f['who']], $pic['files'] ?? []), 0, 2)]);
+    same('night run 1: the check\'s picture — 850 used: fixed 300, others 150, Jack Emby 400, free 150', [300 * $G, 150 * $G, 400 * $G, 150 * $G],
+        array_values(array_intersect_key($pic['phases']['check']['before'] ?? [], array_flip(['fixed', 'others', 'jack', 'free']))));
     check('night run: the lock — after the night nobody holds it; another start meanwhile is refused (moverelliBusy outside the night)',
         !nightRunning($dir) && !moverelliBusy($dir));
 
-    // (2) night 2: the downloads grew (she has more to free: age 50 vs his 30) — she first; 20 fit, he fetches them
+    // (2) Jack Emby never gives back what isn't watched: 920 with his 520 unwatched — the others' 100 go, still over X: missed, told why
     $calls = [];
-    $p = ['nm' => 300, 'j' => 230, 'd' => 230, 'wait' => 60, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false, 'age' => 50];
-    $exit = nightRun(['run']);
-    same('night run 2: the order follows who must free more — Jack Emby 30 vs her age unknown beforehand (counted 0): he first; then the fill: 20 fit',
-        [0, 'jack run --night --nofill', 'jack run --night', 680 + 20, 40], [$exit, $calls[0] ?? null, end($calls), $p['nm'] + $p['j'] + $p['d'], $p['wait']]);
-
-    // (3) a burst over X: she first with her cap (only the downloads' borrowed part), then Jack Emby
-    $calls = [];
-    $p = ['nm' => 300, 'j' => 250, 'd' => 350, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false];
-    nightRun(['run']);
-    same('night run burst (900 %): she first, her cap 150 GiB (the downloads over their half), then Jack Emby down to his half — the pool at Y',
-        ['her run --night --fill-max=' . (150 * $G) . ' --fill-pool=cache', 'jack run --night --nofill', 700, 200], [$calls[0] ?? null, $calls[1] ?? null, $p['nm'] + $p['j'] + $p['d'], $p['j']]);
-
-    // (4) the target missed: she moves nothing (all her files excluded, say) — still ≥ X: told at once, result «missed»
-    $calls = [];
-    $notified = [];
-    $p = ['nm' => 300, 'j' => 200, 'd' => 350, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => true];
+    $p = $fresh(['j' => 520, 'd' => 100]);
     $envBefore = getenv('OFFICE_NOTIFY_BIN');
     putenv("OFFICE_NOTIFY_BIN=$tmp/bin/notify");
     nightRun(['run']);
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     $n = $night();
-    same('night run missed: 850 ≥ X after the night — «missed», told once; the recheck tried her again (cap 150) and stopped there (no ping-pong: 3 passes at most)',
-        ['missed', 1, 85, 3], [$n['result'] ?? null, count($notified), $n['end_pct'] ?? null, $n['round'] ?? null]);
-    check('night run missed: … the subject names the pool', str_contains($notified[0] ?? '', 'cache'), json_encode($notified));
+    same('night run unwatched: Jack Emby keeps his 520 (nothing watched), she moves all the others\' 100, nothing more to move — «missed» (jack), told once',
+        [520, 0, ['jack run --night --nofill', 'her run --night', 'jack run --night'], 'missed', 'jack', true, 1, 82],
+        [$p['j'], $p['d'], $calls, $n['result'] ?? null, $n['why'] ?? null, $n['missed'] ?? null, count($notified), $n['end_pct'] ?? null]);
+    check('night run unwatched: … the warning says only Jack Emby\'s unwatched is over it (his budget too big)', str_contains($notified[0] ?? '', "Only what Jack Emby hasn't watched yet is over it"),
+        json_encode($notified));
 
-    // (5) stopped in «free»: Jack Emby's first pass ends with 3 — nothing after it, stopped
+    // (3) Jack Emby fills only up to X: 600 used, 300 wait — 200 fetched, 100 wait
     $calls = [];
-    $p = ['nm' => 300, 'j' => 320, 'd' => 150, 'wait' => 60, 'burst' => 0, 'jack_exit' => [3], 'her_cap' => null, 'her_stall' => false];
+    $notified = [];
+    $p = $fresh(['j' => 200, 'd' => 100, 'wait' => 300]);
+    nightRun(['run']);
+    same('night run fill: nothing to free, he fetches 200 — the pool at X, 100 wait, no warning', [['jack run --night --nofill', 'her run --night', 'jack run --night'], 800, 100, [], 'ok'],
+        [$calls, $p['nm'] + $p['j'] + $p['d'], $p['wait'], $notified, $night()['result'] ?? null]);
+
+    // (4) stopped in «free»: Jack Emby's first pass ends with 3 — nothing after it, stopped
+    $calls = [];
+    $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'jack_exit' => [3]]);
     $exit = nightRun(['run']);
     $n = $night();
     same('night run stopped: in «free», nothing after it (no fill), exit 3', [3, ['jack run --night --nofill'], 'stopped', 'free'], [$exit, $calls, $n['result'] ?? null, $n['stopped_in'] ?? null]);
     // «Stop after this file» from a page while Jack Emby works: his stop file and the night's — the night ends after his step
     $calls = [];
-    $p = ['nm' => 300, 'j' => 320, 'd' => 150, 'wait' => 60, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false, 'stop_ask' => true];
+    $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'stop_ask' => true]);
     @unlink("$tmp/emby-stop.json");
     nightRun(['run']);
     same('night run stop asked: the tool at work got its stop file, the night ended after its step, its stop file gone afterwards',
         [true, 1, 'stopped', false, false], [is_file("$tmp/emby-stop.json"), count($calls), $night()['result'] ?? null, is_file("$dir/night-stop.json"), nightStopAsk()]);
 
-    // (6) only she (Jack Emby not taking part): her part alone, as 1.61 — no cap, no fill
+    // (5) only she (Jack Emby not taking part): her part alone
     $calls = [];
     $GLOBALS['nightHost']['jack_on'] = fn () => false;
     nightRun(['run']);
-    same('night run without Jack Emby: her part alone, no cap', ['her run --night'], $calls);
+    same('night run without Jack Emby: her part alone', ['her run --night'], $calls);
     $GLOBALS['nightHost']['jack_on'] = fn () => true;
     // no limit (the pool not measured): her part, then Jack Emby's whole run (his own minimum free space)
     $calls = [];
     $GLOBALS['nightHost']['level'] = fn () => null;
     nightRun(['run']);
     same('night run without a limit: her part, then Jack Emby\'s whole run', ['her run --night', 'jack run --night'], $calls);
-    // the dry run: both dry with the same values
+    // the dry run: both dry; the plan from Jack Emby's dry answer (what was watched, what he would fetch)
     $GLOBALS['nightHost']['level'] = fn (array $g, array $hh, bool $wake) => $level();
     $calls = [];
-    $p = ['nm' => 300, 'j' => 250, 'd' => 350, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_cap' => null, 'her_stall' => false];
+    $p = $fresh(['j' => 400, 'w' => 70, 'd' => 150, 'wait' => 60]);
     nightRun(['dry', '--office']);
-    same('night dry run: Jack Emby dry, then she dry with her cap — no recheck, no fill', ['jack dry --night', 'her dry --night --fill-max=' . (150 * $G) . ' --fill-pool=cache'], $calls);
+    $n = $night();
+    same('night dry run: Jack Emby dry, then she dry — no recheck, no fill; the plan: 70 watched back, 20 fetched (from his dry answer)',
+        [['jack dry --night', 'her dry --night'], 70 * $G, 0, 20 * $G], [$calls, $n['plan']['back'] ?? null, $n['plan']['goes'] ?? null, $n['plan']['fill'] ?? null]);
     // not hired, a run of hers going: refused
     $v['hired'] = false;
     same('night run: she isn\'t hired — nothing', 1, nightRun(['run']));
@@ -33092,16 +33061,18 @@ function testNightRun(): void
         [$exit, moverelliHistory($dir)[0]['result'] ?? null, moverelliHistory($dir)[0]['why'] ?? null, moverelliHistory($dir)[0]['night'] ?? null]);
     $v['busy'] = false;
 
-    // (7) the job: her line runs the night; her own part (--night) and the list go to Smart Mover directly
+    // (6) the job: her line runs the night; her own part (--night) and the list go to Smart Mover directly
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('night job: `job moverelli` = the night run; --night and list = Smart Mover', str_contains($src,
         "'moverelli' => fn (array \$args) => in_array('--night', \$args, true) || in_array('list', \$args, true) ? moverelliJob(\$args) : nightRun(\$args),"));
-    // her part inside the night: by «night», the cap passed to Smart Mover, no gate wait, no target notification of her own
+    // her part inside the night: by «night», no cap any more (only X), no gate wait
     unset($GLOBALS['nightHost']);
-    $exit = moverelliJob(['run', '--night', '--fill-max=123', '--fill-pool=cache'], $h);
+    $exit = moverelliJob(['run', '--night'], $h);
     same('night her part: ran, «by night»', [0, 'night'], [$exit, moverelliHistory($dir)[0]['by'] ?? null]);
-    check('night her part: the cap reaches Smart Mover as CUSTOMMOVER_FILL_MAX_BYTES / _POOL', str_contains($src, "['CUSTOMMOVER_FILL_MAX_BYTES' => \$cap]")
-        && str_contains($src, "['CUSTOMMOVER_FILL_MAX_POOL' => \$capPool]"));
+    check('night her part: no fill cap from the office (only X, 2026-10-14)', !str_contains($src, 'CUSTOMMOVER_FILL_MAX') && !str_contains($src, '--fill-max'));
+    $nsrc = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
+    check('night run: never a give-back by rank — no EMBYCACHE_GIVE_BACK_FREE, no cap, no halves in the night', !str_contains($nsrc, "'EMBYCACHE_GIVE_BACK_FREE'")
+        && !str_contains($nsrc, 'fill-max') && !str_contains($nsrc, "'half'"));
     $esrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('night Jack Emby\'s part: --night, --nofill → EMBYCACHE_NO_FILL=1; no «after Jack Emby» hand-over any more',
         str_contains($esrc, "\$noFill = in_array('--nofill', \$args, true);") && str_contains($esrc, "+ (\$noFill ? ['EMBYCACHE_NO_FILL' => '1'] : [])")
@@ -33225,7 +33196,7 @@ JS);
     $en = readJson(OFFICE_WEB . '/desks/moverelli/lang/en.json') ?? [];
     check('night texts: Unraid\'s mover starting stops her after the file she is on (never «at once» since 1.61); her rule is the one run with Jack Emby',
         str_contains($en['mover.ok'] ?? '', "I stop after the file I'm on") && !str_contains($en['mover.ok'] ?? '', 'at once')
-        && str_contains($en['setup.level_rule_jack'] ?? '', 'One run with Jack Emby') && !str_contains($en['setup.level_rule_jack'] ?? '', 'Only if'));
+        && str_contains($en['setup.level_rule_jack'] ?? '', "What Jack Emby hasn't watched yet stays") && !str_contains($en['setup.level_rule_jack'] ?? '', 'half'));
     same('night page: the last night — missed at 81 %, two passes', 'night.last {"when":"R200","how":"night.last_missed {\"pct\":81}"} · night.rounds {"n":2}', $j['last'] ?? null);
     check('night page: her schedule section — «Night run with Jack Emby», tonight, the steps and the dry run', in_array('sched.night', $j['section'] ?? [], true)
         && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
@@ -33497,7 +33468,7 @@ JS);
     same('moverelli tiles: her switcher — kept as moverelli.tile, no start tile (the whole page)', ['moverelli', '', '', 'stats mo-tiles'], $o['spec'] ?? null);
     same('moverelli tiles: «Schedule» (hers, Unraid\'s mover as its line), «Shares» (moving of all, the rules for all), «Last run» — each a button with its summary', [
         ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['by_office', 'unraid_schedule: unraid_off'], false, 'function'],
-        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_fill {"pct":80,"until":70}'], false, 'function'],
+        ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30,"stat":"ctime"} · rule_fill {"pct":80}'], false, 'function'],
         ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
     same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
     same('moverelli tiles: «Last run» — a look at the shares\' list is no run: none yet; one after a real run doesn\'t hide it', [['last_run_none', [], null], 'R900'],
@@ -33520,7 +33491,7 @@ JS);
     same('moverelli tiles: the setup\'s switcher — its routes, kept as moverelli.setup.tile, every step to start, a step\'s route before her state', ['moverelli/setup', 'moverelli.setup.tile', '', true, false],
         $o['setupSpec'] ?? null);
     same('moverelli tiles: the setup\'s steps — for all (age, fill, what stays), per share (own rules, left out); no earlier install found: no tile', [
-        ['global', 'setup.global', 'setup.tile.days {"n":30}', ['rule_fill {"pct":80,"until":70}', 'setup.tile.stays {"lists":"count.lists {\"n\":1}","lines":"count.lines {\"n\":1}"}'], false],
+        ['global', 'setup.global', 'setup.tile.days {"n":30}', ['rule_fill {"pct":80}', 'setup.tile.stays {"lists":"count.lists {\"n\":1}","lines":"count.lines {\"n\":1}"}'], false],
         ['shares', 'setup.shares', '0', ['setup.tile.own {"n":0}', 'setup.tile.skipped {"n":0}'], false]], $o['setupTiles'] ?? null);
     same('moverelli tiles: … one found on the flash — its tile, the folder', ['import', 'setup.tile.found', ['/boot/config/plugins/user.scripts/scripts/mover']], $o['setupFound'][2] ?? null);
     same('moverelli tiles: not set up, nothing found — no import tile', ['global', 'shares'], $o['setupUnset'] ?? null);

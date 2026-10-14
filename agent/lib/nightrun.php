@@ -14,7 +14,7 @@ declare(strict_types=1);
  *             at most NIGHT_ROUNDS_MAX rounds; nothing of the others' left → stop (only Jack Emby's unwatched is over X)
  *   fill      Jack Emby fetches what waits, by his list, only up to X (EMBYCACHE_MIN_FREE_PERCENT = 100 − X) and his
  *             GB budget (always last)
- *   tell      the pool still at/above X: «target missed» at once — with why (what never moves, or Jack Emby's
+ *   tell      the pool still over X: «target missed» at once — with why (what never moves, or Jack Emby's
  *             unwatched alone keeps it over X: his budget is too big for this pool)
  *
  * Helmi's tools are called unchanged otherwise; each keeps its own status, history and live panel. One lock: the
@@ -94,7 +94,7 @@ function nightPlan(?array $level, int $waiting = 0, ?int $jackBack = null): arra
     $others = $xb > 0 ? min((int) $level['others'], max(0, $after - $xb)) : 0;
     $after -= $others;
     $fetch = $xb > 0 ? min($waiting, max(0, $xb - $after)) : $waiting;
-    $over = $xb > 0 && $after >= $xb;
+    $over = $xb > 0 && $after > $xb;            // at X is no miss (Jack Emby fills up to X exactly)
     $before = nightPicture($level);
     $forecast = ['size' => $size, 'fixed' => $before['fixed'], 'others' => $before['others'] - $others, 'jack' => $before['jack'] - $back + $fetch,
                  'free' => max(0, $size - $after - $fetch)];
@@ -399,8 +399,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         // free: Jack Emby gives back what was watched, then she moves the others' oldest down to below X
         $go = $step('jack', 'free');
         $back = $go ? nightJackBack($h, $real) : 0;
-        // a dry run: what his dry step would fetch stands for what waits
-        $plan = nightPlan($real ? ($h['level'])($g, $h, true) : $level, $real ? nightWaiting($h) : nightDryFetch($h), $back);
+        // a real run measures the pool anew (his give-back is in it, kept as a number); a dry run reckons it from his dry answer,
+        // what his dry step would fetch standing for what waits
+        $plan = $real ? ['jack_back' => $back] + nightPlan(($h['level'])($g, $h, true), nightWaiting($h), 0) : nightPlan($level, nightDryFetch($h), $back);
         $phase('free', $plan);
         $n['plan'] = nightWords($plan) + ['used_pct' => $plan['used_pct'], 'x' => $plan['x']];
         $go = $go && $step('her', 'free');
@@ -433,14 +434,15 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             $go = $real ? $step('jack', 'fill') : true;     // a dry run: his dry free step showed his fetch already
         }
     }
-    // tell: the pool still at/above X after the night (a real one that ran through)
+    // tell: the pool still over X after the night (a real one that ran through)
     $end = $jack && $real ? ($h['level'])($g, $h, false) : null;
     if ($end !== null) {
         $n['end_pct'] = $end['used_pct'];
         $phase('done', nightPlan($end, 0, 0));
     }
     $n['result'] ??= 'ok';
-    if ($go && $end !== null && $end['x'] > 0 && $end['used'] * 100 >= $end['x'] * $end['size']) {
+    // over X (Jack Emby fills up to X exactly — at X is no miss)
+    if ($go && $end !== null && $end['x'] > 0 && $end['need'] > 0) {
         $n['result'] = 'missed';
         $n['why'] = $end['never'] ? 'never' : ($end['jack_over'] ? 'jack' : null);
         nightMissedTell($end, $h);
