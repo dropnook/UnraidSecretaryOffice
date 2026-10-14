@@ -241,18 +241,22 @@ function partnerTile(a) {
   const p = state.partners || {};
   const pairs = p.pairs || [];
   const held = p.ticket_pairs || [];
-  const silent = pairs.filter((x) => x.silent).length;
-  const answer = pairs.filter((x) => !x.silent && x.reachable !== false && x.last_heard).length;
+  // a key or a door gone (a plugin remove takes both) counts at once — never the last «answers» of the state
+  const broken = (x) => x.key_missing || x.door === 'closed' || x.door === 'changed';
+  const lost = pairs.filter(broken).length;
+  const silent = pairs.filter((x) => !broken(x) && x.silent).length;
+  const answer = pairs.filter((x) => !broken(x) && !x.silent && x.reachable !== false && x.last_heard).length;
   const waiting = (p.pending || []).length + (p.ticket_requests || []).length
     + pairs.filter((x) => x.offer && Array.isArray(x.offer.pending) && x.offer.pending.length).length;
   const sub = [];
+  if (lost) sub.push(T('count.pair_anew', { n: lost }));
   if (silent) sub.push(T('count.silent', { n: silent }));
   else if (answer && answer === pairs.length) sub.push(T('tile.partner_all', { n: answer }));
   else if (answer) sub.push(T('count.answers', { n: answer }));
   if (waiting) sub.push(T('count.waiting', { n: waiting }));
   if (!pairs.length && !held.length && !waiting) sub.push(T('tile.partner_none'));
   return Office.stat({ label: T('tile.partner'), value: fmt.number(pairs.length + held.length), sub: sub.join(' · '),
-    alert: silent > 0 || waiting > 0, ...a });
+    alert: lost > 0 || silent > 0 || waiting > 0, ...a });
 }
 
 /** «In place»: what is fine, and how many points you noted */

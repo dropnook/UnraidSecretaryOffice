@@ -1527,6 +1527,9 @@ function partnerPublic(): array
             'silent'     => partnerSilent($p, $e, $now),
             'tailnet'    => $e['tailnet'] ?? null,
             'sends'      => $p['my_key'] !== null,
+            // my key for this pair (or the partner's pinned host key) gone from the flash — after a plugin remove, the
+            // data folder (pairs.json, state.json) stays: said at once, never the last «answers» of state.json
+            'key_missing' => $p['my_key'] !== null && (!is_file(partnerKeyFile($p['id'])) || !is_file(partnerKnownFile($p['id']))),
             'send_units' => $p['my_key'] !== null ? partnerSendUnits($p['id']) : [],       // the levels in Mr. Backupsy's setup (settings.ini)
             'apply_from' => $p['my_key'] !== null ? ($apply['from'][$p['id']] ?? []) : [],  // [{name, n}]: an ended partner's units come here at the next Apply
             'offer'      => $e['offer'] ?? null,                 // the last offer to an older partner: time, ok, why, pending

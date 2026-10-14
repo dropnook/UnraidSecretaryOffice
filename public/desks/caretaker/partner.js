@@ -98,6 +98,9 @@ function chip(cls, text, tip) {
 
 /** How a partner is, in one chip */
 function stateChip(x) {
+  // a key or a door gone (a plugin remove takes both): said at once, never the last «answers»
+  if (x.key_missing) return chip('danger', T('partner.key_missing'), T('partner.key_missing_tip'));
+  if (x.door === 'closed' || x.door === 'changed') return chip('danger', T('partner.door_' + x.door), T('partner.door_' + x.door + '_tip'));
   if (x.silent) return chip('danger', T('partner.silent'), T('partner.silent_tip', { since: x.last_heard ? fmt.date(x.last_heard) : T('partner.never') }));
   if (x.reachable === false) return chip('warn', T('partner.unreachable'), T('partner.why.' + (x.why || 'unreachable')));
   if (x.last_heard) return chip('ok', T('partner.answers'), T('partner.answers_tip', { when: fmt.date(x.last_heard) }));
@@ -154,7 +157,7 @@ function card(x) {
   if (x.array === 'stopped') meta.appendChild(chip('warn', x.night ? T('partner.night') : T('partner.array_stopped'), T('partner.array_stopped_tip')));
   meta.appendChild(chip('quiet', T('partner.trust.' + x.trust), T('partner.trust_tip.' + x.trust)));
   if (x.public) meta.appendChild(chip('warn', T('partner.public'), T('partner.public_tip')));
-  if (x.door === 'closed' || x.door === 'changed') meta.appendChild(chip('danger', T('partner.door_' + x.door), T('partner.door_' + x.door + '_tip')));
+  if (x.key_missing && (x.door === 'closed' || x.door === 'changed')) meta.appendChild(chip('danger', T('partner.door_' + x.door), T('partner.door_' + x.door + '_tip')));
   meta.appendChild(el('span', '', `${x.address}:${x.port}`));
   if (x.last_heard) meta.appendChild(el('span', '', T('partner.last_heard', { when: fmt.relative(x.last_heard) })));
   if (x.version) meta.appendChild(el('span', '', T('partner.version', { version: x.version })));
