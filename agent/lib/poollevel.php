@@ -100,7 +100,11 @@ function poolLevelMovable(string $pool, string $sharesDir, array $names): array
     return $out;
 }
 
-/** The pool from ZFS: {size, used, movable (Σ refer), snapshots (Σ usedbysnapshots)} of the shares' datasets; null: no ZFS pool */
+/**
+ * The pool from ZFS: {size, used, movable (Σ refer), snapshots (Σ usedbysnapshots)} of the shares' datasets, snap_all
+ * (Σ usedbysnapshots of the pool's own dataset and every one directly below it — her picture's black part; a deeper
+ * dataset's own snapshots stay in «appdata & co.»); null: no ZFS pool
+ */
 function poolLevelLook(string $pool, array $shares, string $zfs = 'zfs'): ?array
 {
     if (!preg_match('/^[\w.\-]{1,64}$/D', $pool)) {
@@ -121,11 +125,12 @@ function poolLevelLook(string $pool, array $shares, string $zfs = 'zfs'): ?array
         return null;
     }
     $m = $snap = 0;
+    $all = array_sum(array_column($rows, 'snap'));
     foreach ($shares as $s) {
         $m += $rows["$pool/$s"]['refer'] ?? 0;
         $snap += $rows["$pool/$s"]['snap'] ?? 0;
     }
-    return ['size' => $rows[$pool]['used'] + $rows[$pool]['avail'], 'used' => $rows[$pool]['used'], 'movable' => $m, 'snapshots' => $snap];
+    return ['size' => $rows[$pool]['used'] + $rows[$pool]['avail'], 'used' => $rows[$pool]['used'], 'movable' => $m, 'snapshots' => $snap, 'snap_all' => $all];
 }
 
 /**
@@ -181,7 +186,7 @@ function poolLevel(string $pool, array $o): ?array
         return null;
     }
     [$jack, $jackLogical] = poolLevelJackBytes($o['jack_list'] ?? null, $pool, $o['mnt'] ?? '/mnt');
-    return ['pool' => $pool, 'shares' => $shares, 'snapshots' => $look['snapshots'], 'jack_logical' => $jackLogical,
+    return ['pool' => $pool, 'shares' => $shares, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
             'snap_pct' => $look['size'] > 0 ? round($look['snapshots'] * 100 / $look['size'], 1) : 0.0]
          + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jack);
 }

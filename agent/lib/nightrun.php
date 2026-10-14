@@ -28,7 +28,8 @@ declare(strict_types=1);
  *   {pool, x, dest: {to: "array"|<pool>, size, used},                                (the array's from disks.ini, nothing woken)
  *    phases: {check|free|recheck|fill|done: {before: B, forecast: B, planned: P}},   (each phase as it began)
  *    files: [{name, bytes, from, to, who: "jack"|"her"}, …]}                         (the last NIGHT_FILES_MAX done)
- *   B = {size, fixed (pool-only shares + snapshots + overhead), others (the other caching shares), jack, free,
+ *   B = {size, fixed (pool-only shares + overhead), snapshots (the pool's snapshots, ZFS: snap_all — null: no figure, then
+ *        inside fixed), others (the other caching shares), jack, free,
  *        jack_watched (of jack what was watched — goes back in this run; null: not known yet),
  *        jack_reserve (his room not yet filled: min(his GB budget, X − fixed) − jack; null: no budget — nightPictureReserve()),
  *        assumed (forecast only, true: what waits with him isn't known — no run of his yet — so he fills his reserve)}
@@ -71,13 +72,18 @@ function nightState(string $dir): ?array
     return $n;
 }
 
-/** The pool in the picture's shape (bytes): {size, fixed, others, jack, free, jack_watched (null: not known)} — null: not measured */
+/**
+ * The pool in the picture's shape (bytes): {size, fixed, snapshots, others, jack, free, jack_watched (null: not known)} —
+ * null: not measured. The snapshots (ZFS, poolLevel()'s snap_all) apart from what never moves, never more than it; no
+ * figure (btrfs, xfs, an older reader) — null, all of it in fixed.
+ */
 function nightPicture(?array $level, ?int $watched = null): ?array
 {
     if ($level === null) {
         return null;
     }
-    return ['size' => (int) $level['size'], 'fixed' => (int) $level['nm'], 'others' => (int) $level['others'], 'jack' => (int) $level['jack'],
+    $snaps = is_int($level['snap_all'] ?? null) ? min(max(0, (int) $level['nm']), max(0, $level['snap_all'])) : null;
+    return ['size' => (int) $level['size'], 'fixed' => (int) $level['nm'] - (int) $snaps, 'snapshots' => $snaps, 'others' => (int) $level['others'], 'jack' => (int) $level['jack'],
             'free' => max(0, (int) $level['size'] - (int) $level['used']),
             'jack_watched' => $watched === null ? null : min(max(0, (int) $level['jack']), max(0, $watched))];
 }
@@ -150,7 +156,8 @@ function nightPlan(?array $level, int $waiting = 0, ?int $jackBack = null): arra
     };
     $before = nightPicture($level, $jackBack === null ? null : $back);
     // after the run nothing watched is left on the pool (all of it goes back) — once that is known
-    $forecast = ['size' => $size, 'fixed' => $fixed, 'others' => $others - $othersBack, 'jack' => $kept + $fetch, 'free' => max(0, $size - $after),
+    $snaps = $before['snapshots'];
+    $forecast = ['size' => $size, 'fixed' => $fixed - (int) $snaps, 'snapshots' => $snaps, 'others' => $others - $othersBack, 'jack' => $kept + $fetch, 'free' => max(0, $size - $after),
                  'jack_watched' => $jackBack === null ? null : 0];
     return ['measured' => true, 'x' => (int) $level['x'], 'size' => $size, 'used_pct' => (float) $level['used_pct'], 'need' => (int) $level['need'],
             'jack_back' => $jackBack === null ? null : $back, 'others_back' => $othersBack, 'jack_fetch' => $fetch, 'wait' => $waitLeft,
@@ -179,7 +186,7 @@ function nightPictureReserve(array $plan, ?int $budget, bool $waitKnown = true):
         return $plan;
     }
     $size = (int) $b['size'];
-    $fixed = (int) $b['fixed'];
+    $fixed = (int) $b['fixed'] + (int) ($b['snapshots'] ?? 0);
     $xb = (int) ($plan['x'] ?? 0) > 0 ? intdiv((int) $plan['x'] * $size, 100) : 0;
     $cap = $budget === null || $budget <= 0 ? null : min($budget, max(0, ($xb > 0 ? $xb : $size) - $fixed));
     $reserve = fn (int $held): ?int => $cap === null ? null : max(0, $cap - $held);

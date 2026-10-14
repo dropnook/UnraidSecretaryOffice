@@ -33367,8 +33367,8 @@ function testNightPlan(): void
     $p = nightPlan($lv(850, 400, 550), 60 * $G, 70 * $G);
     same('night plan: Jack Emby gave back 70 watched — he still gets his 60, the others give only 40', [70.0, 60.0, 40.0], [$gib($p['jack_back']), $gib($p['jack_fetch']), $gib($p['others_back'])]);
     same('night plan: the picture — before {size, fixed, others, jack, free, jack_watched} and the forecast after the moves (at X, nothing watched left)', [
-        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 400.0, 'free' => 150.0, 'jack_watched' => 70.0],
-        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 110.0, 'jack' => 390.0, 'free' => 200.0, 'jack_watched' => 0.0]],
+        ['size' => 1000.0, 'fixed' => 300.0, 'snapshots' => null, 'others' => 150.0, 'jack' => 400.0, 'free' => 150.0, 'jack_watched' => 70.0],
+        ['size' => 1000.0, 'fixed' => 300.0, 'snapshots' => null, 'others' => 110.0, 'jack' => 390.0, 'free' => 200.0, 'jack_watched' => 0.0]],
         [array_map($gib, $p['before']), array_map($gib, $p['forecast'])]);
     $p = nightPlan($lv(600, 200, 300), 300 * $G, 0);
     same('night plan: his budget crowds the others out — 300 fetched, the others (100) all pushed under X: crowded', [300.0, 100.0, 500.0, 'crowded', false],
@@ -33491,7 +33491,7 @@ function testNightRun(): void
     $pic = $n['picture'] ?? [];
     same('night run 1: the picture — X, where she moves to (the array\'s data disks from disks.ini), each phase as it began (before, forecast, planned), the files done by both',
         [80, ['to' => 'array', 'size' => 8000000000 * 1024, 'used' => 2000000000 * 1024], ['check', 'free', 'recheck', 'fill', 'done'], ['before', 'forecast', 'planned'],
-         ['jack_back' => 50 * $G, 'others_back' => 60 * $G, 'jack_fetch' => 60 * $G, 'until' => 740 * $G], ['size', 'fixed', 'others', 'jack', 'free', 'jack_watched', 'jack_reserve'],
+         ['jack_back' => 50 * $G, 'others_back' => 60 * $G, 'jack_fetch' => 60 * $G, 'until' => 740 * $G], ['size', 'fixed', 'snapshots', 'others', 'jack', 'free', 'jack_watched', 'jack_reserve'],
          [['Film/a.mkv', 'jack'], ['Docs/old.iso', 'her']]],
         [$pic['x'] ?? null, $pic['dest'] ?? null, array_keys($pic['phases'] ?? []), array_keys($pic['phases']['free'] ?? []), $pic['phases']['free']['planned'] ?? null,
          array_keys($pic['phases']['check']['before'] ?? []), array_slice(array_map(fn ($f) => [$f['name'], $f['who']], $pic['files'] ?? []), 0, 2)]);
@@ -33978,15 +33978,15 @@ out.run = [d.measured, d.x, d.forecast, d.before.segs.map((s) => s.bytes / G), d
   Math.round(sum(d.after) * 1e9) / 1e9, d.dest];
 // a small part on a narrow bar keeps its 10 px; the free part is what the size leaves (never a stale «free»)
 const tiny = m.pictureBars({ ...pic, phases: { check: { before: { ...B(300, 1, 400, 999), others: 0.5 * G } } } }, 375, false);
-out.tiny = [tiny.before.segs[1].w >= 10 / 375 - 1e-12, tiny.before.segs[5].bytes / G, Math.round(sum(tiny.before) * 1e9) / 1e9, tiny.after];
+out.tiny = [tiny.before.segs[2].w >= 10 / 375 - 1e-12, tiny.before.segs[6].bytes / G, Math.round(sum(tiny.before) * 1e9) / 1e9, tiny.after];
 // every part with something in it keeps 10 px, only a real 0 goes: a tiny Jack Emby and a tiny free part beside a big one;
 // the target's used part too (tiny, and nothing used)
 const big = m.pictureBars({ ...pic, phases: { check: { before: { size: 1000 * G, fixed: 999 * G, others: 0, jack: 0.3 * G, free: 0 } } },
   dest: { to: 'array', size: 8000 * G, used: 1 * G } }, 375, false, 160);
 const bw = big.before.segs.map((s) => s.w);
 const empty = m.pictureBars({ ...pic, dest: { to: 'array', size: 8000 * G, used: 0 } }, 800, false, 160);
-out.min = [bw[0] < 1, bw[1], bw[2] >= 10 / 375 - 1e-12, bw[5] >= 10 / 375 - 1e-12, Math.round(bw.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
-  big.dest.w >= 10 / 160 - 1e-12, empty.dest.w, bw[3]];
+out.min = [bw[0] < 1, bw[2], bw[3] >= 10 / 375 - 1e-12, bw[6] >= 10 / 375 - 1e-12, Math.round(bw.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
+  big.dest.w >= 10 / 160 - 1e-12, empty.dest.w, bw[4]];
 // Jack Streamer's part in two (2026-10-15): not yet watched / watched, each part with something in it ≥ 10 px on a phone's
 // bar (a tiny watched part too), the sum still 1; watched null → no split (all his, the watched part 0); never more than his
 const W = (b, w) => ({ ...b, jack_watched: w });
@@ -33996,8 +33996,8 @@ const thinW = thin.before.segs.map((s) => s.w);
 const over = m.pictureBars({ ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 900 * G) } } }, 800, false);
 const junk = m.pictureBars({ ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 'x') } } }, 800, false);
 out.split = [split.before.segs.map((s) => s.k), split.before.segs.map((s) => s.bytes / G), split.before.watched / G, split.before.jack / G, split.after.segs.map((s) => s.bytes / G),
-  thinW[2] >= 10 / 375 - 1e-12, thinW[3] >= 10 / 375 - 1e-12, Math.round(thinW.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
-  over.before.segs.map((s) => s.bytes / G), d.before.watched, d.before.segs[3].w, junk.before.watched];
+  thinW[3] >= 10 / 375 - 1e-12, thinW[4] >= 10 / 375 - 1e-12, Math.round(thinW.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
+  over.before.segs.map((s) => s.bytes / G), d.before.watched, d.before.segs[4].w, junk.before.watched];
 const splitBox = texts(m.nightPicture({ running: true, started: 11, picture: { ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 50 * G), forecast: W(B(300, 90, 410, 200), 0) } } } }));
 out.splitLegend = [splitBox.filter((t) => /^pic\.(watched|seg\.jack )/.test(t)), texts(m.nightPicture({ running: true, started: 12, picture: pic })).filter((t) => /^pic\.watched/.test(t))];
 out.flyer = [m.picFlyer(true), m.picFlyer(false)].map((h) => [(h.match(/class="mo-wing /g) || []).length, h.includes('mo-fly-reel'), /<script|on\w+=/.test(h)]);
@@ -34048,13 +34048,13 @@ JS);
     check('night picture: it runs', $j !== [], $out . $err);
     same('night picture: widths — sum 1, a small part at least 10 px, nothing stays nothing, order kept', [1, true, 0, true], $j['seg'] ?? null);
     same('night picture: while it runs — X at 80 %, before = the check\'s pool, after = the latest forecast (free\'s), each bar sums to 1, the array measured',
-        [true, 0.8, true, [300, 150, 400, 0, 0, 150], [300, 80, 410, 0, 0, 210], 1, 1, ['to' => 'array', 'size' => 8000 * (1 << 30), 'used' => 2000 * (1 << 30), 'measured' => true, 'w' => 0.25]],
+        [true, 0.8, true, [300, 0, 150, 400, 0, 0, 150], [300, 0, 80, 410, 0, 0, 210], 1, 1, ['to' => 'array', 'size' => 8000 * (1 << 30), 'used' => 2000 * (1 << 30), 'measured' => true, 'w' => 0.25]],
         $j['run'] ?? null);
     same('night picture: a tiny part keeps 10 px on a phone\'s bar, free = what the size leaves, still 1; no forecast — no after bar', [true, 299.5, 1, null], $j['tiny'] ?? null);
     same('night picture: 10 px for every part with something in it — a tiny Jack Emby and the free 0.7 GB beside 999 GB, the array\'s 1 GB used; a real 0 goes',
         [true, 0, true, true, 1, true, 0, 0], $j['min'] ?? null);
     same('night picture: Jack Streamer\'s part in two — not yet watched 350, watched 50 (its own part beside his), the forecast without any; a tiny watched part and his keep 10 px on a phone, still 1; never more than his; watched unknown or junk — no split',
-        [['fixed', 'others', 'jack', 'watched', 'reserve', 'free'], [300, 150, 350, 50, 0, 150], 50, 400, [300, 90, 410, 0, 0, 200], true, true, 1, [300, 150, 0, 400, 0, 150], null, 0, null],
+        [['fixed', 'snaps', 'others', 'jack', 'watched', 'reserve', 'free'], [300, 0, 150, 350, 50, 0, 150], 50, 400, [300, 0, 90, 410, 0, 0, 200], true, true, 1, [300, 0, 150, 0, 400, 0, 150], null, 0, null],
         $j['split'] ?? null);
     same('night picture: the legend — his part as a whole (before → after), «of which watched 50 GiB» in green once known; unknown — no such line',
         [['pic.seg.jack pic.change {"before":"400 GiB","after":"410 GiB"}', 'pic.watched {"size":"50 GiB"}'], []], $j['splitLegend'] ?? null);
@@ -34064,7 +34064,7 @@ JS);
     same('night picture: the trip — out of the bar it leaves very small, full size while high (34 px above the higher end), small again into the bar it reaches, faded in and out; never above the box\'s top part; leaning into its way (right: clockwise, left: the other way)',
         [[0, 0.05, 0.3, 0.7, 0.95, 1], [0.12, 0.15, 1, 1, 0.15, 0.12], [0, 1, 1, 1, 1, 0], [100, 120], [500, 200], 86, 86, 34,
          [5, 5, 10, 10, 5, 5], [-5, -5, -10, -10, -5, -5]], $j['flight'] ?? null);
-    same('night picture: once done — the pool as measured at the end, no forecast', [false, [300, 90, 410, 0, 0, 200]], $j['done'] ?? null);
+    same('night picture: once done — the pool as measured at the end, no forecast', [false, [300, 0, 90, 410, 0, 0, 200]], $j['done'] ?? null);
     same('night picture: nothing measured — no bars, no X, the target «not measured»', [false, null, ['to' => 'array', 'size' => null, 'used' => null, 'measured' => false, 'w' => null]],
         $j['none'] ?? null);
     same('night picture: the files\' way — Jack Emby from the array onto the pool, his watched off it, hers off it, hers back for a «prefer» share', [true, false, false, true],
@@ -34078,7 +34078,7 @@ JS);
         && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $box, true), json_encode($box));
     same('night picture without Jack Emby in the night: his part gone from the legend (not «0 B»); with him in it shown even at 0', [false, true],
         array_map(fn ($t) => (bool) preg_grep('/^pic\.seg\.jack /', (array) $t), $j['alone'] ?? [[], []]));
-    same('night picture: X on both bars, six parts each (his watched one and his reserve too) and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 13], [$j['x'] ?? null, count($j['segs'] ?? [])]);
+    same('night picture: X on both bars, seven parts each (the snapshots, his watched one and his reserve too) and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 15], [$j['x'] ?? null, count($j['segs'] ?? [])]);
     check('night picture: nothing measured — said, the array «not measured», no bar', in_array('pic.pool_unmeasured', $j['boxNone'] ?? [], true)
         && in_array('pic.unmeasured', $j['boxNone'] ?? [], true) && !in_array('pic.before', $j['boxNone'] ?? [], true), json_encode($j['boxNone'] ?? null));
     same('night picture: no picture in night.json (an older agent) — none; the live one fed anew for the same run, a new one for the next', [null, [true, true]],
@@ -34089,6 +34089,88 @@ JS);
         && !in_array('pic.title_last', $j['section'] ?? [], true), json_encode([$hist, $j['section'] ?? null]));
     check('night picture: while the run goes — none in «My runs» (the live one under her run card)', !preg_grep('/^pic\./', (array) ($j['historyRun'] ?? ['x'])),
         json_encode($j['historyRun'] ?? null));
+    hardeningRm($tmp);
+}
+
+/**
+ * The snapshots apart in her picture (owner, 2026-10-15, release 1.63.1): ZFS's usedbysnapshots of the pool's own dataset
+ * and every one directly below it (poolLevelLook()'s snap_all, the same zfs list) as their own black part after «appdata &
+ * co.» (fixed less them, never below 0); no figure (btrfs, xfs, an older night.json) — no part, no legend line, all in fixed.
+ */
+function testNightSnaps(): void
+{
+    $G = 1 << 30;
+    $tmp = hardeningTmp('night-snaps');
+    file_put_contents("$tmp/zfs", "#!/bin/bash\nprintf 'cache\\t60000\\t40000\\t100\\t300\\ncache/appdata\\t9000\\t40000\\t7000\\t500\\ncache/Filme\\t3000\\t40000\\t2000\\t1000\\n'\n");
+    chmod("$tmp/zfs", 0700);
+    $look = poolLevelLook('cache', ['Filme'], "$tmp/zfs");
+    same('night snaps: the same zfs list — the shares\' snapshots as before (1000), all of the pool\'s (300 + 500 + 1000)', [1000, 1800], [$look['snapshots'] ?? null, $look['snap_all'] ?? null]);
+    $lv = ['size' => 1000 * $G, 'used' => 850 * $G, 'nm' => 300 * $G, 'others' => 150 * $G, 'jack' => 400 * $G, 'x' => 80, 'used_pct' => 85.0, 'need' => 50 * $G, 'never' => false];
+    $p = nightPicture(['snap_all' => 40 * $G] + $lv);
+    $plan = nightPlan(['snap_all' => 40 * $G] + $lv, 60 * $G);
+    same('night snaps: the picture — appdata & co. 260, snapshots 40 (before and forecast); the plan\'s numbers as without; his reserve against both (X − 300)',
+        [260 * $G, 40 * $G, 260 * $G, 40 * $G, nightPlan($lv, 60 * $G)['until'], nightPictureReserve(nightPlan($lv, 60 * $G), 450 * $G)['before']['jack_reserve']],
+        [$p['fixed'], $p['snapshots'], $plan['forecast']['fixed'], $plan['forecast']['snapshots'], $plan['until'], nightPictureReserve($plan, 450 * $G)['before']['jack_reserve']]);
+    same('night snaps: more snapshots than what never moves — capped (fixed 0); none (non-ZFS) or junk — null, all in fixed',
+        [[0, 300 * $G], [300 * $G, null], [300 * $G, null]],
+        array_map(fn ($x) => [nightPicture($x + $lv)['fixed'], nightPicture($x + $lv)['snapshots']], [['snap_all' => 900 * $G], [], ['snap_all' => 'x']]));
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.css');
+    check('night snaps: their part black with a fine light edge (seen on a dark theme, apart from the other shares on a light one), no colour of its own beyond the theme\'s',
+        (bool) preg_match('/\.mo-seg-snaps\{background:color-mix\(in srgb, var\(--black, #000\) \d+%, var\(--text-color\)\); box-shadow:inset 0 0 0 1px color-mix\(in srgb, var\(--on-fill\)/', $css));
+
+    $node = testsNode();
+    if ($node === '') {
+        check('night snaps (page): node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {}, attrs: {},
+  set innerHTML(v) { this.children = []; }, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; },
+  setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, querySelectorAll: () => [] });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({}), scope: () => T, t: T, el: mk, fmt: { size: (b) => Math.round(b / 1073741824) + ' GiB', number: (n, d) => n.toFixed(d), relative: (t) => 'R' + t, cron: (c) => c, time: (t) => t, duration: (s) => s },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+  runSteps: () => mk('div'), runBar: () => mk('div'), runRate: () => null, nightSteps: () => [], nightCard: () => mk('div', 'card') };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const G = 1073741824;
+const B = (fixed, snaps, others, jack, free) => ({ size: 1000 * G, fixed: fixed * G, snapshots: snaps == null ? snaps : snaps * G, others: others * G, jack: jack * G, free: free * G });
+const pic = (before, forecast) => ({ pool: 'cache', x: 80, dest: { to: 'array', size: 8000 * G, used: 2000 * G }, phases: { check: { before, forecast } }, files: [] });
+const sum = (b) => Math.round(b.segs.reduce((a, s) => a + s.w, 0) * 1e9) / 1e9;
+const out = {};
+const d = m.pictureBars(pic(B(260, 40, 150, 400, 150), B(260, 40, 90, 410, 200)), 800, false);
+out.bars = [d.before.segs.map((s) => [s.k, s.bytes / G]), d.after.segs.map((s) => s.bytes / G), d.before.used / G, sum(d.before), sum(d.after)];
+const thin = m.pictureBars(pic(B(299.8, 0.2, 150, 400, 150)), 800, false);
+out.thin = [thin.before.segs[1].w >= 10 / 800 - 1e-12, sum(thin.before)];
+const none = m.pictureBars(pic(B(300, null, 150, 400, 150)), 800, false);
+out.none = [none.before.snaps, none.before.segs[1].bytes, none.before.segs[1].w];
+const legend = (p) => texts(m.nightPicture({ running: true, jack: true, started: Math.random(), picture: p })).filter((t) => /^pic\.seg\.(snaps|fixed)/.test(t));
+out.legend = legend(pic(B(260, 40, 150, 400, 150), B(260, 40, 90, 410, 200)));
+out.legendNone = legend(pic(B(300, null, 150, 400, 150), B(300, null, 90, 410, 200)));
+out.undef = /undefined|NaN/.test(JSON.stringify(out));
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('night snaps (page): it runs', $j !== [], $out . $err);
+    same('night snaps (page): appdata & co. | snapshots | other shares | Jack Streamer … — both bars, the used part with them, each sums to 1',
+        [[['fixed', 260], ['snaps', 40], ['others', 150], ['jack', 400], ['watched', 0], ['reserve', 0], ['free', 150]], [260, 40, 90, 410, 0, 0, 200], 850, 1, 1], $j['bars'] ?? null);
+    same('night snaps (page): a tiny snapshot part keeps 10 px, still 1', [true, 1], $j['thin'] ?? null);
+    same('night snaps (page): no figure (not ZFS) — no part', [null, 0, 0], $j['none'] ?? null);
+    same('night snaps (page): the legend — «appdata & co.» and «Snapshots 40 GiB» apart; without a figure no snapshots line',
+        [['pic.seg.fixed pic.change {"before":"260 GiB","after":"260 GiB"}', 'pic.seg.snaps pic.change {"before":"40 GiB","after":"40 GiB"}'], ['pic.seg.fixed pic.change {"before":"300 GiB","after":"300 GiB"}']],
+        [$j['legend'] ?? null, $j['legendNone'] ?? null]);
+    check('night snaps (page): no «undefined» or NaN', ($j['undef'] ?? true) === false, (string) $out);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
+        check("night snaps lang $l: «appdata & co.» without the snapshots, the snapshots' own name",
+            str_starts_with($lang['pic.seg.fixed'] ?? '', 'appdata') && !preg_match('/snap|instant/i', $lang['pic.seg.fixed'] ?? '') && ($lang['pic.seg.snaps'] ?? '') !== '');
+    }
     hardeningRm($tmp);
 }
 
@@ -34158,10 +34240,10 @@ out.bars = [d.before.segs.map((s) => [s.k, s.bytes / G]), d.after.segs.map((s) =
 const wide = m.pictureBars(pic(B(300, 150, 400, 150, 300)), 800, false);
 out.wide = [wide.before.segs.map((s) => s.bytes / G), wide.before.reserve / G, sum(wide.before)];
 const thin = m.pictureBars(pic(B(300, 150, 400, 150, 0.2)), 375, false);
-out.thin = [thin.before.segs[4].w >= 10 / 375 - 1e-12, sum(thin.before)];
+out.thin = [thin.before.segs[5].w >= 10 / 375 - 1e-12, sum(thin.before)];
 const none = m.pictureBars(pic(B(300, 150, 400, 150, null), B(300, 90, 410, 200, null)), 800, false);
 const junk = m.pictureBars(pic({ ...B(300, 150, 400, 150), jack_reserve: 'x' }), 800, false);
-out.none = [none.before.reserve, none.before.segs[4].bytes, none.before.segs[4].w, junk.before.reserve];
+out.none = [none.before.reserve, none.before.segs[5].bytes, none.before.segs[5].w, junk.before.reserve];
 const legend = (p) => texts(m.nightPicture({ running: true, jack: true, started: Math.random(), picture: p })).filter((t) => /^pic\.(reserve|assumed)/.test(t));
 out.legend = legend(pic(B(300, 150, 400, 150, 50), B(300, 90, 410, 200, 40)));
 out.legendSame = legend(pic(B(300, 150, 400, 150, 50), B(300, 90, 410, 200, 50)));
@@ -34174,9 +34256,9 @@ JS);
     $j = json_decode(trim((string) $out), true) ?? [];
     check('night reserve (page): it runs', $j !== [], $out . $err);
     same('night reserve (page): his reserve hatched after his part, out of the free part (150 − 50 = 100), both bars, each sums to 1',
-        [[['fixed', 300], ['others', 150], ['jack', 400], ['watched', 0], ['reserve', 50], ['free', 100]], [300, 90, 410, 0, 40, 160], 50, 1, 1], $j['bars'] ?? null);
+        [[['fixed', 300], ['snaps', 0], ['others', 150], ['jack', 400], ['watched', 0], ['reserve', 50], ['free', 100]], [300, 0, 90, 410, 0, 40, 160], 50, 1, 1], $j['bars'] ?? null);
     same('night reserve (page): a reserve bigger than the free part — drawn as the free part (never past the bar), its true value kept for the words',
-        [[300, 150, 400, 0, 150, 0], 300, 1], $j['wide'] ?? null);
+        [[300, 0, 150, 400, 0, 150, 0], 300, 1], $j['wide'] ?? null);
     same('night reserve (page): a tiny reserve keeps 10 px on a phone, still 1', [true, 1], $j['thin'] ?? null);
     same('night reserve (page): no budget (null) or junk — no reserve, nothing drawn', [null, 0, 0, null], $j['none'] ?? null);
     same('night reserve (page): the legend — «Jack Streamer reserves 50 → 40 GiB (his budget)», one value when it stays; no budget — no line; assumed forecast — the small note',
@@ -36099,7 +36181,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

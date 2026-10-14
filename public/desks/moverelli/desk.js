@@ -212,7 +212,8 @@ function runCard(p, now) {
 // pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
 // Jack Streamer's part in two (the owner, 2026-10-15): not yet watched in his colour, already watched (goes back) in green
 // and his reserved room (owner + helmi1987, 2026-10-15): hatched after his part — his budget's room not yet filled
-const PIC_SEGS = ['fixed', 'others', 'jack', 'watched', 'reserve', 'free'];
+// the snapshots apart in black (owner, 2026-10-15; ZFS only — no figure, no part)
+const PIC_SEGS = ['fixed', 'snaps', 'others', 'jack', 'watched', 'reserve', 'free'];
 const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
 const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
 
@@ -265,14 +266,15 @@ function pictureBars(pic, px, done, destPx) {
     const size = Number(b.size);
     const jack = Math.max(0, Number(b.jack) || 0);
     const watched = b.jack_watched == null || !Number.isFinite(Number(b.jack_watched)) ? null : Math.min(jack, Math.max(0, Number(b.jack_watched)));
-    const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: jack - (watched || 0), watched: watched || 0 };
-    const used = Math.min(size, val.fixed + val.others + jack);
+    const snaps = b.snapshots == null || !Number.isFinite(Number(b.snapshots)) ? null : Math.max(0, Number(b.snapshots));
+    const val = { fixed: Math.max(0, Number(b.fixed) || 0), snaps: snaps || 0, others: Math.max(0, Number(b.others) || 0), jack: jack - (watched || 0), watched: watched || 0 };
+    const used = Math.min(size, val.fixed + val.snaps + val.others + jack);
     const free = Math.max(0, size - used);
     const reserve = b.jack_reserve == null || !Number.isFinite(Number(b.jack_reserve)) ? null : Math.max(0, Number(b.jack_reserve));
     val.reserve = Math.min(free, reserve || 0);
     val.free = free - val.reserve;
     const w = segWidths(PIC_SEGS.map((k) => val[k]), min);
-    return { size, used, jack, watched, reserve, assumed: b.assumed === true, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
+    return { size, used, jack, watched, snaps, reserve, assumed: b.assumed === true, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
   };
   const x = Number(pic.x) > 0 ? Math.min(1, Number(pic.x) / 100) : null;
   const after = end || fc;
@@ -354,6 +356,7 @@ function nightPicture(n) {
           legend.appendChild(it);
           continue;
         }
+        if (k === 'snaps' && data.before.snaps == null && (!data.after || data.after.snaps == null)) continue;     // no figure (not ZFS)
         if (k === 'reserve') {
           // «Jack Streamer reserves … (his budget)»: only with a budget — the true values, before → after
           const rb = data.before.reserve;

@@ -65,6 +65,8 @@
 .mo-pic-seg{display:block; height:100%}
 .mo-seg-fixed{background:var(--data)}
 .mo-seg-others{background:var(--ink2)}
+/* the snapshots: black — with a fine light edge: seen on a dark theme, and apart from the dark other shares on a light one */
+.mo-seg-snaps{background:color-mix(in srgb, var(--black, #000) 94%, var(--text-color)); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--on-fill) 60%, transparent)}
 .mo-seg-jack{background:var(--accent)}
 .mo-seg-watched{background:var(--good)}  /* Jack Streamer's already watched — green means only this (2026-10-15) */
 /* Jack Streamer's reserved room (his budget not yet filled): his colour hatched over the free part */
