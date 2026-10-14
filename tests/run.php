@@ -32906,6 +32906,17 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   out.tonight = m.tonightText(plan);
   out.unmeasured = m.tonightText({ measured: false });
   out.short = [m.tonightShort(plan), m.tonightShort({ measured: true, back: 0, goes: 0, fill: 0, wait: 0 }), m.tonightShort({ measured: false })];
+  // below X the age rule still moves (owner 2026-10-14): its days, 0 = everything, shares differing, no share moving
+  const p0 = { measured: true, back: 0, goes: 0, fill: 0, wait: 0 };
+  const ages = [];
+  for (const [shares, sset] of [[[{ share: 'a', state: 'moves', min_age: '30' }, { share: 'b', state: 'skip', min_age: '' }], {}],
+    [[{ share: 'a', state: 'moves', min_age: '' }], { a: { min_age: 0 } }], [[{ share: 'a', state: 'moves', min_age: '30' }, { share: 'b', state: 'moves', min_age: '7' }], {}],
+    [[{ share: 'a', state: 'skip', min_age: '' }], {}], [[], {}]]) {
+    m.setState({ ...base, shares, settings: { global: { min_age: 14 }, shares: sset } });
+    ages.push(m.tonightShort(p0, m.ageRule()));
+  }
+  m.setState(base);
+  out.ages = ages;
   out.last = m.lastNightText(base.night.last);
   out.section = texts(m.scheduleSection());
   out.mine = [m.tonightText({ measured: true, back: 0, goes: 50 * G, fill: 0, wait: 0 }, false), m.tonightText({ measured: false }, false),
@@ -32941,6 +32952,9 @@ JS);
     same('night page: the tile keeps it short (the long line lives in the section); nothing to move; not measured — none',
         ['night.tile {"what":"night.tile_back {\"size\":\"70 GiB\"} · night.tile_fill {\"size\":\"20 GiB\"} · night.tile_wait {\"size\":\"40 GiB\"}"}',
          'night.tile {"what":"night.tile_none"}', null], $j['short'] ?? null);
+    same('night page: below X the tile says what the age rule moves — 30 days, 0 = everything (a share\'s own), shares differing, nothing only when no share moves, the global days unlisted',
+        ['night.tile {"what":"night.tile_age {\\"n\\":30}"}', 'night.tile {"what":"night.tile_age_all"}', 'night.tile {"what":"night.tile_age_mixed"}',
+         'night.tile {"what":"night.tile_none"}', 'night.tile {"what":"night.tile_age {\\"n\\":14}"}'], $j['ages'] ?? null);
     $en = readJson(OFFICE_WEB . '/desks/moverelli/lang/en.json') ?? [];
     check('night texts: Unraid\'s mover starting stops her after the file she is on (never «at once» since 1.61); her rule is the one run with Jack Emby',
         str_contains($en['mover.ok'] ?? '', "I stop after the file I'm on") && !str_contains($en['mover.ok'] ?? '', 'at once')
@@ -33107,6 +33121,11 @@ m.setState({ configured: true, unraid: { ok: true }, job: {}, schedule: { enable
   night: { jack: true, plan: { measured: false }, last: { mode: 'run', started: 100, finished: 200, result: 'ok', round: 1, phase: 'done', running: false,
     picture: { ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } } } } });
 out.section = texts(m.scheduleSection());
+out.history = texts(m.historySection());
+// while the run goes: none in «My runs» (the live one stands under her run card)
+m.setState({ configured: true, unraid: { ok: true }, job: {}, schedule: { enabled: true }, history: [], shares: [], mover: { off: true }, settings: { global: {} }, last: null,
+  night: { jack: true, plan: { measured: false }, last: { mode: 'run', started: 100, phase: 'free', round: 1, running: true, picture: pic } } });
+out.historyRun = texts(m.historySection());
 console.log(JSON.stringify(out));
 JS);
     [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
@@ -33138,8 +33157,12 @@ JS);
         && in_array('pic.unmeasured', $j['boxNone'] ?? [], true) && !in_array('pic.before', $j['boxNone'] ?? [], true), json_encode($j['boxNone'] ?? null));
     same('night picture: no picture in night.json (an older agent) — none; the live one fed anew for the same run, a new one for the next', [null, [true, true]],
         [array_key_exists('noPic', $j) ? $j['noPic'] : 'x', $j['live'] ?? null]);
-    check('night picture: after the run — in her schedule\'s section, measured at the end (no forecast)', in_array('pic.title_last', $j['section'] ?? [], true)
-        && in_array('pic.after', $j['section'] ?? [], true) && !in_array('pic.forecast', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
+    $hist = $j['history'] ?? [];
+    check('night picture: after the run — on top of «My runs» (the «Last run» tile\'s section, before the list), measured at the end (no forecast); not in the schedule\'s section',
+        ($hist[0] ?? null) === 'pic.title_last' && in_array('pic.after', $hist, true) && !in_array('pic.forecast', $hist, true)
+        && !in_array('pic.title_last', $j['section'] ?? [], true), json_encode([$hist, $j['section'] ?? null]));
+    check('night picture: while the run goes — none in «My runs» (the live one under her run card)', !preg_grep('/^pic\./', (array) ($j['historyRun'] ?? ['x'])),
+        json_encode($j['historyRun'] ?? null));
     hardeningRm($tmp);
 }
 
@@ -33403,7 +33426,7 @@ JS);
     same('moverelli tiles: her page — the head with tabs, the help, the hints, the row, the footer under all', ['deskhead', 'help', 'mo-mover', 'role mo-hint', 'sections', 'mo-foot'],
         $o['page'] ?? null);
     same('moverelli tiles: the sections — «Schedule» (hers with «Change…», Unraid\'s), «Shares» (head, bar, box), «My runs» (the last run\'s result on top)', [
-        ['schedule', 'sched.mine', 'C15 5 * * *', 'by_office', 'sched.change', 'unraid_schedule', 'unraid_off', 'unraid_off_sub'], 3,
+        ['schedule', 'sched.mine', 'C15 5 * * *', 'by_office', 'sched.change', 'night.unmeasured_mine', 'night.steps_mine', 'night.dry', 'unraid_schedule', 'unraid_off', 'unraid_off_sub'], 3,
         ['history', 'run_summary {"moved":2,"files":2,"size":"5 B","left":"count.left {\"n\":0}"}', 'share_moved {"share":"Filme","moved":2,"files":"count.files {\"n\":2}","size":"5 B","left":"count.left {\"n\":0}"}', 'show_log']],
         $o['sections'] ?? null);
     check('moverelli tiles: the footer — Smart Mover\'s and Unraid\'s versions, the credit to helmi1987',
