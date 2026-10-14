@@ -14,6 +14,9 @@
 > * A path mapping with an empty host path means "deliberately not cached": such items are
 >   skipped quietly (debug log) instead of a warning each.
 > * `EMBYCACHE_STATUS`: a JSON file with the result of a run (mode, counts, warnings, errors).
+> * **Office change (2026-10-15) — the API key only to Emby's own host:** `EmbyApi.get()` sends `X-Emby-Token` as an
+>   unredirected header through an opener whose redirect handler (`_SameHostRedirect`) carries it on only to the same
+>   host (Emby's own http → https); a redirect to another host gets no key (urllib copied it there before).
 > * A path with `..` (an item path from Emby or a path mapping) is never followed out of the
 >   share: such an item is skipped like one without a mapping (`Locations.to_rel`).
 > * `--release` (mode `release`): everything on the exclude list goes back to the array — the cleanup's own

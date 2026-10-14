@@ -264,6 +264,21 @@ def save_config(cfg):
 
 
 # --------------------------------------------------------------------------- Emby API
+class _SameHostRedirect(urllib.request.HTTPRedirectHandler):
+    """USO: a redirect keeps the Emby key only when it stays on the same host (http -> https of Emby itself);
+    urllib hands only redirected headers on, and the key is an unredirected one - to another host it never goes."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        key = req.unredirected_hdrs.get("X-emby-token")
+        if new is not None and key and urllib.parse.urlsplit(newurl).hostname == urllib.parse.urlsplit(req.full_url).hostname:
+            new.add_unredirected_header("X-Emby-Token", key)
+        return new
+
+
+_OPENER = urllib.request.build_opener(_SameHostRedirect)
+
+
 class EmbyApi:
     """Minimaler Emby-Client auf urllib-Basis. API-Key geht als Header X-Emby-Token, nicht in die URL."""
 
@@ -275,9 +290,11 @@ class EmbyApi:
     def get(self, path, **params):
         query = urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
         full = f"{self.url}{path}" + (f"?{query}" if query else "")
-        req = urllib.request.Request(full, headers={"X-Emby-Token": self.api_key, "Accept": "application/json"})
+        req = urllib.request.Request(full, headers={"Accept": "application/json"})
+        # USO: the key only to Emby's own host - unredirected, and _SameHostRedirect carries it on a redirect to that host only
+        req.add_unredirected_header("X-Emby-Token", self.api_key)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with _OPENER.open(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8") or "null")
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"HTTP {e.code} bei {path}") from e
