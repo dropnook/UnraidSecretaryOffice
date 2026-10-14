@@ -40,10 +40,10 @@
   },
   "valid_users": [],
   "cache_path": "/mnt/cache",
-  "cache_budget": "",
+  "cache_budget": "300G",
   "number_episodes": 3,
   "movie_share_percent": 50,
-  "max_episodes_per_series": 0,
+  "max_episodes_per_series": 3,
   "max_resume_items": 10,
   "max_resume_movies": 10,
   "max_resume_series": 10,
@@ -56,7 +56,7 @@
   "array_path": "/mnt/user0",
   "user_path": "/mnt/user",
   "array_disks_glob": "/mnt/disk[0-9]*",
-  "create_share_root": false,
+  
   "mover_debug_level": 0
  },
  "shares": [

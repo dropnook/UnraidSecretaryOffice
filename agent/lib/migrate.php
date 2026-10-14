@@ -67,6 +67,10 @@ function officeMigrateSteps(): array
         // the night run (agent/lib/nightrun.php): Jack Emby and Ms. Moverelli on ONE schedule — her line (job moverelli);
         // his EmbyCache line goes into it, «right after Jack Emby» goes away
         ['id' => 'night-run', 'version' => '1.62.0', 'run' => fn (string $dir, string $to): string => officeMigrateNightRun($dir)],
+        // Jack Streamer's setup back on tiles, budget mode only (2026-10-14): his count-mode settings get a budget (what he held,
+        // rounded up to 50 GB, at least 20 GB per person), episodes ahead → max_episodes_per_series; the wizard's
+        // give_back_unwatched_days goes; his page says so once
+        ['id' => 'streamer-budget', 'version' => '1.63.0', 'run' => fn (string $dir, string $to): string => officeMigrateStreamerBudget($dir, $to)],
     ];
 }
 
@@ -493,4 +497,74 @@ function officeMigrateNightRun(string $dir, string $cron = OFFICE_CRON, bool $ap
         $done[] = '«right after Jack Emby» removed';
     }
     return $done ? implode(', ', $done) : 'nothing to change';
+}
+
+/**
+ * Step `streamer-budget` (1.63.0): Jack Streamer works by budget only. His settings (embycache/embycache_settings.json, a
+ * regular file) in count mode (no cache_budget) → cache_budget = what he held at his last look (emby.json's cache.bytes —
+ * never a disk read) rounded up to the next 50 GB, at least 20 GB per chosen person (none chosen: one); episodes ahead
+ * (number_episodes) → max_episodes_per_series when that is 0 or missing; a person's own budget under 20 GB → 20 GB.
+ * give_back_unwatched_days goes in either mode. The file before is kept beside it; a note for his page
+ * (office-budget-note.json: {time, gb, episodes}) when count mode was moved. Idempotent: budget mode without the key is
+ * left alone. Objects stay objects (path_mappings {} — EmbyCache wants a dict).
+ */
+function officeMigrateStreamerBudget(string $dir, string $to): string
+{
+    $file = "$dir/embycache/embycache_settings.json";
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if ($st === false || ($st['mode'] & 0170000) !== 0100000) {
+        return 'nothing to change — Jack Streamer is not set up';
+    }
+    $raw = (string) @file_get_contents($file, false, null, 0, 4 << 20);
+    $cfg = json_decode($raw);
+    if (!$cfg instanceof stdClass) {
+        return 'nothing to change — his settings are not readable as JSON';
+    }
+    $gb = 1 << 30;
+    $min = 20;
+    $done = [];
+    $note = null;
+    if (property_exists($cfg, 'give_back_unwatched_days')) {
+        unset($cfg->give_back_unwatched_days);
+        $done[] = '«not watched for N days» removed';
+    }
+    if (!is_string($cfg->cache_budget ?? null) || trim($cfg->cache_budget) === '') {
+        $users = $cfg->valid_users ?? [];
+        $people = max(1, is_array($users) ? count($users) : ($users instanceof stdClass ? count(get_object_vars($users)) : 0));
+        $fixed = 0;
+        if ($users instanceof stdClass) {
+            foreach (get_object_vars($users) as $id => $u) {
+                if ($u instanceof stdClass && is_string($u->budget ?? null) && preg_match('/^(\d+(?:\.\d+)?)\s*([KMGTP])?B?$/iD', trim($u->budget), $m)) {
+                    $b = (float) $m[1] * ['' => 1 / $gb, 'K' => 1 / (1 << 20), 'M' => 1 / 1024, 'G' => 1, 'T' => 1024, 'P' => 1 << 20][strtoupper($m[2] ?? '')];
+                    if ($b < $min) {
+                        $u->budget = "{$min}G";
+                        $b = $min;
+                    }
+                    $fixed += $b;
+                }
+            }
+        }
+        $state = json_decode((string) @file_get_contents("$dir/emby.json", false, null, 0, 64 << 20), true);
+        $held = is_array($state) && is_int($state['cache']['bytes'] ?? null) ? max(0, $state['cache']['bytes']) : 0;
+        $budget = max(50, (int) ceil($held / $gb / 50) * 50, $min * $people, (int) ceil($fixed / 50) * 50);
+        $cfg->cache_budget = "{$budget}G";
+        $eps = is_int($cfg->number_episodes ?? null) ? $cfg->number_episodes : 3;
+        if (!is_int($cfg->max_episodes_per_series ?? null) || $cfg->max_episodes_per_series <= 0) {
+            $cfg->max_episodes_per_series = max(0, $eps);
+        }
+        $note = ['time' => time(), 'gb' => $budget, 'episodes' => (int) $cfg->max_episodes_per_series];
+        $done[] = "count mode → a budget of {$budget} GB (held " . round($held / $gb, 1) . " GB, $people " . ($people === 1 ? 'person' : 'people')
+            . "), {$cfg->max_episodes_per_series} episodes ahead per series";
+    }
+    if (!$done) {
+        return 'nothing to change — already by budget';
+    }
+    $kept = officeMigrateKeep($file, $raw, $to);
+    @chmod($kept, 0600);                               // his API keys: only root reads them, the copy too
+    writeAtomic($file, (string) json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0600, 0, 0);
+    if ($note !== null) {
+        writeAtomic("$dir/embycache/office-budget-note.json", (string) json_encode($note), 0600, 0, 0);
+    }
+    return implode(', ', $done) . ' (his settings before: ' . basename($kept) . ')';
 }

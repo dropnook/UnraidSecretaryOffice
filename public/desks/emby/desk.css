@@ -94,56 +94,17 @@
 .jo-night-her{overflow-wrap:anywhere}
 .jo-night-dry{margin:10px 0 0}
 
-/* the setup wizard (2026-10-14, Jack Streamer — like Unraid's own welcome setup): one step at a time in a centred card */
-.jo-wiz{width:100%; max-width:880px; margin:18px auto 8px; padding:20px 24px 16px; min-height:0; min-width:0; box-sizing:border-box}
-.jo-wiz-body, .jo-wiz-part, .jo-sim-body > *{min-width:0; max-width:100%}
-/* the wizard as a modal dialog (Office.dialog({modal}), 2026-10-14): wide, its content without the card's frame, the foot
-   always in view at the dialog's bottom; the «Set up» tab keeps the card (summary, or the intro before the first setup) */
-.dialog.jo-wiz-dialog{width:min(1000px,100%)}
-.dialog .jo-wiz{max-width:none; margin:0; padding:0; border:0; background:none; width:auto}
-/* her values and the pool as a compact two-column list inside the dialog too (the dialog's dl is a column by default) */
-.dialog-body dl.jo-share-kv{display:grid; grid-template-columns:auto 1fr; gap:4px 16px; font-size:13px}
-.dialog-body dl.jo-share-kv dt{font-weight:500; color:var(--muted); font-size:13px}
-.dialog-body dl.jo-share-kv dd{margin:0; color:var(--ink); overflow-wrap:anywhere}
-@media (max-width:640px){ .dialog-body dl.jo-share-kv{grid-template-columns:1fr; gap:0} .dialog-body dl.jo-share-kv dd{margin-bottom:6px} }
-.dialog-foot > .jo-wiz-foot{flex:1 1 auto; margin:0; padding:0; border-top:0}
-.jo-wiz-confirm{padding:8px 0 4px}
-.jo-wiz-confirm-q{margin:0 0 6px; font-size:16px; font-weight:650; color:var(--ink)}
-.jo-setup-card .toolbar{margin-top:12px}
+/* his setup (#/emby/setup, 2026-10-14: tiles again — the wizard went): a part's body, the offer, the pools, the save bar */
+.jo-part-body{min-width:0; max-width:100%}
 .jo-reset{justify-content:flex-end; border-top:1px solid var(--line); padding-top:10px; margin-top:16px}
-.jo-wiz-head{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px}
-.jo-wiz-title{margin:0; font-size:19px; font-weight:650; color:var(--ink)}
-.jo-wiz-intro{margin:10px 0 16px; padding:6px 12px; border-left:3px solid var(--accent); background:var(--surface2); color:var(--ink2); font-size:13px; line-height:1.5; overflow-wrap:anywhere}
-.jo-wiz-body{min-width:0}
-.jo-wiz-foot{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 14px; margin:18px 0 0; padding:12px 0 0; border-top:1px solid var(--line)}
-.jo-wiz-left, .jo-wiz-right{display:flex; gap:8px; flex-wrap:wrap}
-.jo-wiz-left{min-width:90px}
-/* why the step can't go on (the people by budget), next to its button */
-.jo-wiz-why{color:var(--danger); max-width:340px; text-align:right; align-self:center}
-.jo-wiz-why[hidden]{display:none}
-.jo-wiz-where{display:flex; flex-direction:column; align-items:center; gap:4px; font-size:12px; color:var(--muted)}
-.jo-wiz-dots{display:flex; gap:5px}
-.jo-wiz-dots i{width:7px; height:7px; border-radius:50%; background:var(--line2)}
-.jo-wiz-dots i.done{background:var(--accent-soft)}
-.jo-wiz-dots i.on{background:var(--accent)}
-.jo-wiz-offer{margin:14px 0 0}
-.jo-wiz-offer p{margin:0 0 6px}
-.jo-wiz-pools{margin:12px 0 0}
-.jo-wiz-pools p{margin:0 0 6px}
-.jo-adv{margin-top:12px}
-.jo-adv > summary{cursor:pointer}
-.jo-sum{display:flex; flex-direction:column}
-.jo-sum-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--line)}
-.jo-sum-text{display:flex; flex-direction:column; gap:2px; min-width:0; font-size:13px; color:var(--ink2); overflow-wrap:anywhere}
-.jo-sum-text b{color:var(--ink); font-weight:600}
-@media (max-width:640px){
-  .jo-wiz{padding:14px 12px 12px; margin-top:10px}
-  .jo-wiz-foot{justify-content:center}
-  .jo-wiz-where{order:-1; flex-basis:100%}
-  .jo-wiz-left, .jo-wiz-right{flex:1 1 auto}
-  .jo-wiz-right{justify-content:flex-end}
-  .jo-wiz-why{flex-basis:100%; max-width:none}
-}
+.jo-offer{margin:14px 0 0}
+.jo-offer p{margin:0 0 6px}
+.jo-pools{margin:12px 0 0}
+.jo-pools p{margin:0 0 6px}
+.jo-rule{margin:4px 0 0}
+.jo-save{margin-top:14px; align-items:center; flex-wrap:wrap; gap:8px 14px}
+.jo-save-why.jo-save-no{color:var(--danger)}
+.jo-budget-note{margin:10px 0}
 .jo-media{margin:4px 0 14px}
 .jo-media-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
 .jo-media-row{display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 230px), 1fr))}
@@ -161,91 +122,4 @@
 .jo-media-card.off .jo-media-logo{filter:grayscale(1); opacity:.6}
 .jo-media-card.off{opacity:.5}
 .jo-share-kv{grid-column:1 / -1; margin:4px 0 6px}
-/* the pool simulator (streamer.js) */
-.jo-sim-body{display:flex; flex-direction:column; gap:12px; min-width:0}
-.jo-sim-src{display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px}
-.jo-sim-src .check{margin:0}
-.jo-sim-label{font-size:11px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--muted)}
-.jo-sim-day{margin-left:auto; font-size:12.5px; color:var(--ink2)}
-.jo-sim-facts p{margin:0 0 4px; overflow-wrap:anywhere}
-.jo-sim-ctl{display:grid; gap:4px 22px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr))}
-.jo-sim-slider{display:grid; grid-template-columns:minmax(0, 1fr) minmax(90px, 140px) 76px; align-items:center; gap:8px; font-size:12.5px; color:var(--ink2)}
-.jo-sim-slider input[type=range]{width:100%; accent-color:var(--accent)}
-.jo-sim-out{text-align:right; font-variant-numeric:tabular-nums; color:var(--ink)}
-.jo-sim-seed{width:100%}
-.jo-sim-acts{flex-wrap:wrap; gap:6px}
-.jo-sim-pic{margin:20px 0 0}
-.jo-sim-bar{position:relative; display:flex; height:30px; border:1px solid var(--line2); border-radius:6px; background:var(--surface); margin:0 0 22px}
-.jo-sim-seg{display:block; height:100%}
-.jo-sim-seg.nm{background:var(--data)}
-.jo-sim-seg.others{background:var(--ink2)}
-.jo-sim-seg.unw{background:var(--danger)}
-.jo-sim-seg.wat{background:var(--good)}
-.jo-sim-seg.free{background:var(--surface); border:1px solid var(--line2)}
-.jo-sim-mark{position:absolute; top:-18px; bottom:-2px; border-left:2px solid var(--ink)}
-.jo-sim-mark > span{position:absolute; top:0; left:3px; font-size:11px; line-height:1; white-space:nowrap; color:var(--ink)}
-.jo-sim-mark.below{top:-2px; bottom:-18px; border-left-style:dashed}
-.jo-sim-mark.below > span{top:auto; bottom:0}
-.jo-sim-mark.below.stagger{bottom:-34px}
-.jo-sim-bar.staggered{margin-bottom:38px}
-.jo-sim-mark.flip > span{left:auto; right:3px}
-.jo-sim-bar{margin-top:30px}
-/* on the bar with handles the X and Y labels start past their knob */
-.jo-sim-bar.grips .jo-sim-mark:not(.below) > span{left:10px}
-.jo-sim-bar.grips .jo-sim-mark.flip:not(.below) > span{left:auto; right:10px}
-.jo-sim-rowhead{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 12px; font-size:12.5px; color:var(--ink2); margin:6px 0 0}
-.jo-sim-rowhead b{color:var(--ink); font-weight:600}
-.jo-sim-changes{overflow-wrap:anywhere}
-/* the bar's handles (2026-10-14): 28 px wide hit areas, a pill on the bar's edges, a knob on X and Y; the value shows while
-   dragging or focused */
-.jo-sim-grip{position:absolute; width:28px; margin-left:-14px; display:flex; justify-content:center; cursor:ew-resize; touch-action:none; z-index:2; outline:0}
-.jo-sim-grip.mid{top:-5px; bottom:-5px; align-items:center}
-.jo-sim-grip.mid::before{content:''; width:8px; height:100%; border-radius:4px; background:var(--surface); border:2px solid var(--ink); box-sizing:border-box}
-.jo-sim-grip.top{top:-34px; height:30px; align-items:flex-end}
-.jo-sim-grip.top::before{content:''; width:14px; height:14px; border-radius:50%; background:var(--surface); border:2px solid var(--ink); box-sizing:border-box}
-.jo-sim-grip:hover::before, .jo-sim-grip.dragging::before, .jo-sim-grip:focus-visible::before{border-color:var(--accent); background:var(--accent-soft)}
-.jo-sim-grip:focus-visible{box-shadow:0 0 0 2px var(--accent); border-radius:6px}
-.jo-sim-tip{display:none; position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%); white-space:nowrap; padding:3px 8px; border-radius:4px;
-  background:var(--ink); color:var(--bg); font-size:11.5px; pointer-events:none; z-index:3}
-.jo-sim-segtip{top:calc(100% + 6px); bottom:auto}
-.jo-sim-grip.mid .jo-sim-tip{bottom:auto; top:calc(100% + 4px)}
-.jo-sim-grip.dragging .jo-sim-tip, .jo-sim-grip:focus-visible .jo-sim-tip{display:block}
-.jo-sim-dragfoot{margin-top:6px; flex-wrap:wrap; gap:6px 12px}
-.jo-sim-warnmsg{margin:10px 0 6px; overflow-wrap:anywhere}
-.jo-mode-help{display:flex; flex-direction:column; gap:3px}
-.jo-mode-help b{color:var(--ink); font-weight:600}
-/* play: the bars move from day to day (no transition under reduced motion); the check that stopped it marked */
-.jo-sim-pic.playing .jo-sim-seg{transition:width .6s ease}
-.jo-sim-pic.playing .jo-sim-mark, .jo-sim-pic.playing .jo-sim-grip{transition:left .6s ease}
-@media (prefers-reduced-motion: reduce){ .jo-sim-pic.playing .jo-sim-seg, .jo-sim-pic.playing .jo-sim-mark, .jo-sim-pic.playing .jo-sim-grip{transition:none} }
-.jo-sim-table tr.jo-sim-hot td{background:var(--danger-soft)}
-.jo-sim-stopnote{margin:10px 0}
-.jo-sim-speed{width:auto; min-width:70px}
-.jo-sim-dice{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px}
-.jo-sim-more > summary{cursor:pointer; font-size:12.5px; color:var(--ink2); margin:2px 0 8px}
-.jo-sim-legend{display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; color:var(--muted)}
-.jo-sim-key{display:inline-flex; align-items:center; gap:5px}
-.jo-sim-key .jo-sim-seg{width:10px; height:10px; border-radius:2px}
-.jo-sim-numbers{margin:6px 0 0; overflow-wrap:anywhere}
-.jo-sim-scroll{overflow-x:auto; min-width:0}
-.jo-sim-days{max-height:260px; overflow-y:auto}
-.jo-sim-table{width:100%; border-collapse:collapse; font-size:12.5px}
-.jo-sim-table th, .jo-sim-table td{padding:4px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top}
-.jo-sim-table th{color:var(--muted); font-weight:600}
-.jo-sim-table th.num, .jo-sim-table td.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
-.jo-sim-cellnote{display:block; margin-top:2px; font-size:11.5px}
-.jo-sim-kv{margin:0}
-.jo-sim-log{font:12px/1.5 var(--mono); background:var(--surface2); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:260px; overflow:auto; overflow-wrap:anywhere}
-.jo-sim-line.day{color:var(--ink); font-weight:600; margin-top:4px}
-.jo-sim-line.back, .jo-sim-line.mov{color:var(--warn)}
-.jo-sim-line.fill{color:var(--good)}
-.jo-sim-line.skip, .jo-sim-line.hold{color:var(--muted)}
-.jo-sim-line.bad{color:var(--danger)}
-.jo-sim-sc{border:1px solid var(--line); border-radius:var(--radius); padding:0 0 8px}
-.jo-sim-sc > p, .jo-sim-sc > .toolbar, .jo-sim-sc > .jo-sim-scroll{margin:8px 12px}
-@media (max-width:640px){
-  .jo-sim-slider{grid-template-columns:minmax(0, 1fr) 76px}
-  .jo-sim-slider input[type=range]{grid-column:1 / -1; grid-row:2}
-  .jo-sim-day{margin-left:0}
-}
 }
