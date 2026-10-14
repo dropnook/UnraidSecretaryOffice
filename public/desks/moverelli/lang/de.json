@@ -309,7 +309,7 @@
   "setup.jack_added": "Ich habe Jack Streamers Liste ({file}) bei den Listen eingetragen, was für alle Shares bleibt — so bleibt auf dem Pool, was er aus seinen Bibliotheken bereitgelegt hat. Zum Behalten speichern.",
   "setup.jack_remove": "Wieder entfernen",
   "name_with": "Frau Moverelli",
-  "greet.5": "Jack Emby! Finger weg vom Pool, bis ich es sage.",
+  "greet.5": "Jack Streamer! Finger weg vom Pool, bis ich es sage.",
   "errors.moverelli_mover_consent": "Unraids eigener Mover-Zeitplan ist noch an ({schedule}). Das Speichern meiner Einrichtung schaltet ihn aus — bestätige das zuerst.",
   "errors.moverelli_jack_list_pending": "Jack Streamer hat seine Liste noch nicht geschrieben ({file}) — EmbyCache schreibt sie beim ersten echten Lauf. Ab seinem ersten Lauf verschiebe ich; Probeläufe gehen schon.",
   "errors.moverelli_unraid_back_failed": "Unraids Mover-Zeitplan liess sich nicht wieder einschalten ({detail}). Stell ihn selbst unter ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ ein.",
