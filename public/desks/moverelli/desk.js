@@ -489,16 +489,19 @@ function livePicture(nn) {
 /** A whole trip of a file between the bars (the owner, 2026-10-15: slow — the reel readable, its wings seen flapping) */
 const PIC_FLIGHT_MS = 9000;
 const PIC_LIFT = 34;              // px the flyer rises above the higher of its two ends (never above the box's top part)
+const PIC_TILT = 10;              // degrees it leans into its flight (to the right: clockwise) — the direction at a glance
 /**
  * One trip's keyframes, pure (tests/run.php): out of the bar it leaves very small, slowly growing to full size while it
- * rises, across at full size, then slowly shrinking and sinking into the bar it reaches; {x, y} in the box's pixels.
+ * rises, across at full size leaning into its way, then slowly shrinking and sinking into the bar it reaches (his fetch:
+ * out of the array into the pool, his give-back and hers the other way — fileOnto()); {x, y} in the box's pixels.
  */
 function picFlight(from, to) {
   const top = Math.max(PIC_LIFT, Math.min(from.y, to.y) - PIC_LIFT);
+  const tilt = to.x >= from.x ? PIC_TILT : -PIC_TILT;
   const at = (t, lift, scale) => {
     const x = from.x + (to.x - from.x) * t;
     const y = from.y + (to.y - from.y) * t;
-    return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift).toFixed(1)}px) scale(${scale})`;
+    return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift).toFixed(1)}px) rotate(${scale >= 1 ? tilt : tilt / 2}deg) scale(${scale})`;
   };
   return [
     { transform: at(0, 0, 0.12), opacity: 0, offset: 0 },

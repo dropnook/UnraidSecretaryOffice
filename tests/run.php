@@ -33797,9 +33797,10 @@ const reel = m.picFlyer(true);
 out.reel = [(reel.match(/class="mo-feather"/g) || []).length, (reel.match(/class="mo-reel-hole"/g) || []).length, reel.includes('mo-reel-hub'), reel.includes('mo-film-holes'),
   m.picFlyer(false).includes('mo-film')];
 const fl = m.picFlight({ x: 100, y: 120 }, { x: 500, y: 200 });
-const tr = (k) => k.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(([\d.]+)\)/).slice(1).map(Number);
+const tr = (k) => k.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\) rotate\([-\d.]+deg\) scale\(([\d.]+)\)/).slice(1).map(Number);
+const tilt = (f) => f.map((k) => Number(k.transform.match(/rotate\(([-\d.]+)deg\)/)[1]));
 out.flight = [fl.map((k) => k.offset), fl.map((k) => tr(k)[2]), fl.map((k) => k.opacity), tr(fl[0]).slice(0, 2), tr(fl[fl.length - 1]).slice(0, 2), tr(fl[2])[1], tr(fl[3])[1],
-  tr(m.picFlight({ x: 0, y: 40 }, { x: 10, y: 50 })[2])[1]];
+  tr(m.picFlight({ x: 0, y: 40 }, { x: 10, y: 50 })[2])[1], tilt(fl), tilt(m.picFlight({ x: 500, y: 200 }, { x: 100, y: 120 }))];
 const done = m.pictureBars({ ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } }, 800, true);
 out.done = [done.forecast, done.after.segs.map((s) => s.bytes / G)];
 // nothing measured: no pool numbers (the check's before null), the target without size; no limit: no X
@@ -33850,8 +33851,9 @@ JS);
     same('night picture: what flies — two wings each, a film reel for Jack Streamer\'s, a block for hers; nothing that runs', [[2, true, false], [2, false, false]], $j['flyer'] ?? null);
     same('night picture: the winged reel — five feathers a wing, six holes around a hub, a strip of film with sprocket holes; her block without film',
         [10, 6, true, true, false], $j['reel'] ?? null);
-    same('night picture: the trip — out of the bar it leaves very small, full size while high (34 px above the higher end), small again into the bar it reaches, faded in and out; never above the box\'s top part',
-        [[0, 0.05, 0.3, 0.7, 0.95, 1], [0.12, 0.15, 1, 1, 0.15, 0.12], [0, 1, 1, 1, 1, 0], [100, 120], [500, 200], 86, 86, 34], $j['flight'] ?? null);
+    same('night picture: the trip — out of the bar it leaves very small, full size while high (34 px above the higher end), small again into the bar it reaches, faded in and out; never above the box\'s top part; leaning into its way (right: clockwise, left: the other way)',
+        [[0, 0.05, 0.3, 0.7, 0.95, 1], [0.12, 0.15, 1, 1, 0.15, 0.12], [0, 1, 1, 1, 1, 0], [100, 120], [500, 200], 86, 86, 34,
+         [5, 5, 10, 10, 5, 5], [-5, -5, -10, -10, -5, -5]], $j['flight'] ?? null);
     same('night picture: once done — the pool as measured at the end, no forecast', [false, [300, 90, 410, 0, 0, 200]], $j['done'] ?? null);
     same('night picture: nothing measured — no bars, no X, the target «not measured»', [false, null, ['to' => 'array', 'size' => null, 'used' => null, 'measured' => false, 'w' => null]],
         $j['none'] ?? null);
