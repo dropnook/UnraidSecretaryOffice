@@ -215,6 +215,8 @@ function nightHost(?array $h = null): array
         'jack_live'   => $n['jack_live'] ?? fn (): array => function_exists('jackProgressPaths') ? (array) (readJson(jackProgressPaths()['file']) ?? []) : [],
         'notify'      => $n['notify'] ?? fn (string $subject, string $body): bool => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli')),
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
+        // seconds the pool gets after Jack Emby's give-back before it is measured (ZFS shows freed space a txg later)
+        'settle'      => $n['settle'] ?? 6,
         // Jack Emby's pool measured for her rules (the tests: a pool of their own)
         'level'       => $n['level'] ?? fn (array $g, array $hh, bool $wake): ?array => nightLevel($g, $hh, $wake),
         // Unraid's bookkeeping of the disks: the array's size and use for the picture (the tests: a file of their own)
@@ -489,6 +491,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         $go = $step('her', 'free');
     } elseif ($jack && $plan['measured']) {
         $back = $go ? nightJackBack($h, $real) : 0;
+        if ($go && $real && $back > 0 && (int) $h['settle'] > 0) {
+            sleep(min(30, (int) $h['settle']));     // what he gave back shows in the pool's reading a txg later (R2, 2026-10-15)
+        }
         // a real run measures the pool anew (his give-back is in it, kept as a number); a dry run reckons it from his dry answer,
         // what his dry step would fetch standing for what waits
         $plan = $real ? ['jack_back' => $back] + nightPlan(($h['level'])($g, $h, true), nightWaiting($h), 0) : nightPlan($level, nightDryFetch($h), $back);

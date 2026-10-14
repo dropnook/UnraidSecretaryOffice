@@ -32898,6 +32898,7 @@ function testNightRun(): void
         . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\nfsSize=\"4000000000\"\nfsUsed=\"1000000000\"\n"
         . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsSize=\"7\"\nfsUsed=\"7\"\n");
     $GLOBALS['nightHost'] = [
+        'settle' => 0,
         'disks_ini' => "$tmp/disks.ini",
         'jack_on' => fn () => true,
         'level' => fn (array $g, array $hh, bool $wake) => $level(),
