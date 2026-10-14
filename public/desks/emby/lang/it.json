@@ -922,17 +922,8 @@
   "sim.speed": "Velocità (un giorno ogni …)",
   "sim.stopped_red": "Fermato al giorno {day}: {checks} è diventato rosso.",
   "reset.button": "Configura da capo …",
-  "reset.title": "Configurare da capo?",
-  "reset.text_gone": "Tutte le impostazioni di Jack Emby se ne vanno: l'indirizzo del server, la chiave API, le librerie, le persone, le quantità, gli N giorni. Ne resta una copia — puoi ripristinarla finché non è configurato di nuovo.",
-  "reset.text_stays": "Ciò che ha messo sul pool resta lì, e anche il suo elenco — la signora Moverelli lascia quei file dove sono.",
-  "reset.text_night": "Finché la nuova configurazione non è salvata, la sua parte dell'esecuzione notturna non gira.",
-  "reset.go": "Ricomincia da capo",
-  "reset.restore_button": "Ripristina le impostazioni precedenti (del {date})",
-  "reset.restore_title": "Ripristinare le impostazioni precedenti?",
-  "reset.restore_text": "Tornano le impostazioni del {date}: server, chiave API, librerie, persone, quantità. Poi è di nuovo configurato come prima.",
-  "reset.restore_go": "Ripristina",
-  "reset.restored": "Impostazioni precedenti ripristinate.",
-  "errors.emby_restore_none": "Non c'è una copia delle impostazioni precedenti.",
-  "errors.emby_restore_configured": "È configurato — una copia si ripristina solo prima di una nuova configurazione.",
-  "errors.emby_restore_bad": "La copia {file} non si può leggere."
+  "reset.title": "Cancellare tutto e configurare da capo?",
+  "reset.text_night": "Spariscono anche: le impostazioni di «Consolida cartelle» e le sue pianificazioni. Finché la nuova configurazione non è salvata, la sua parte dell'esecuzione notturna non gira.",
+  "reset.go": "Cancella tutto e ricomincia da capo",
+  "reset.text": {"one": "Tutte le impostazioni di Jack Emby vengono cancellate, senza copia. Il suo elenco viene svuotato: ciò che ha preparato sul pool ({n} file, {size}) la signora Moverelli lo tratta poi come qualsiasi altra cache e lo porta sull'array secondo le sue regole.", "other": "Tutte le impostazioni di Jack Emby vengono cancellate, senza copia. Il suo elenco viene svuotato: ciò che ha preparato sul pool ({n} file, {size}) la signora Moverelli lo tratta poi come qualsiasi altra cache e lo porta sull'array secondo le sue regole."}
 }

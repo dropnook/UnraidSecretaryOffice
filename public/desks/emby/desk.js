@@ -1625,10 +1625,15 @@ function summaryCard() {
   card.appendChild(foot);
   return card;
 }
-/** «Set up from scratch …»: what happens, then his settings aside (agent: emby.reset) and the wizard at step 1 */
+/**
+ * «Set up from scratch …» (the owner: really zero, no copy): what goes and what becomes of the files he placed on the pool
+ * (his list's count and size — ordinary cache for Ms. Moverelli afterwards), then emby.reset and the wizard at step 1
+ */
 function resetDialog() {
+  const c = state.cache || {};
   const box = el('div');
-  ['reset.text_gone', 'reset.text_stays', 'reset.text_night'].forEach((k) => box.appendChild(el('p', '', T(k))));
+  box.appendChild(el('p', '', T('reset.text', { n: Number(c.files) || 0, size: fmt.size(Number(c.bytes) || 0) })));
+  box.appendChild(el('p', '', T('reset.text_night')));
   Office.dialog({ title: T('reset.title'), body: box, buttons: [
     { text: Office.t('common.cancel') },
     { text: T('reset.go'), kind: 'danger', act: async () => {
@@ -1641,29 +1646,12 @@ function resetDialog() {
     } },
   ] });
 }
-/** «Restore earlier settings» (the newest copy «from scratch» kept): after a confirm, then his summary again */
-function restoreDialog() {
-  const b = state.reset_backup;
-  Office.dialog({ title: T('reset.restore_title'), body: T('reset.restore_text', { date: fmt.date(b.time) }), buttons: [
-    { text: Office.t('common.cancel') },
-    { text: T('reset.restore_go'), kind: '', act: async () => {
-      const j = await act('restore');
-      if (!j) return false;
-      form = null;
-      Office.toast(T('reset.restored'));
-      renderSetup();
-      return true;
-    } },
-  ] });
-}
 /** … before: a short intro and «Start the setup» (the wizard at step 1) */
 function introCard() {
   const card = el('div', 'box jo-wiz jo-setup-card');
   const go = button(T('wizard.start'), '', () => openWizard('servers'));
   const bar = el('div', 'toolbar');
   bar.appendChild(go);
-  // the way back after «from scratch»: the newest copy, with its date
-  if (state && state.reset_backup) bar.appendChild(button(T('reset.restore_button', { date: fmt.date(state.reset_backup.time) }), 'plain', restoreDialog));
   card.append(el('h2', 'jo-wiz-title', T('wizard.start_title')), el('p', 'jo-wiz-intro', T('wizard.start_text')), bar);
   return card;
 }
@@ -2779,7 +2767,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, resetDialog, restoreDialog, summaryCard, introCard, budgetGb, budgetSplit,
+    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, resetDialog, summaryCard, introCard, budgetGb, budgetSplit,
     stepOf, startStep, openWizard, cancelWizard, wiz: () => wiz, formKey, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,

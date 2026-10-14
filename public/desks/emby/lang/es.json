@@ -922,17 +922,8 @@
   "sim.speed": "Velocidad (un día cada …)",
   "sim.stopped_red": "Parado el día {day}: {checks} se puso en rojo.",
   "reset.button": "Configurar desde cero …",
-  "reset.title": "¿Configurar desde cero?",
-  "reset.text_gone": "Todos los ajustes de Jack Emby se van: la dirección del servidor, la clave API, las bibliotecas, las personas, las cantidades, los N días. Se guarda una copia — puedes recuperarla mientras no se vuelva a configurar.",
-  "reset.text_stays": "Lo que ha puesto en el pool se queda allí, y su lista también — la señora Moverelli deja esos archivos donde están.",
-  "reset.text_night": "Hasta que se guarde la nueva configuración, su parte de la ejecución nocturna no corre.",
-  "reset.go": "Empezar desde cero",
-  "reset.restore_button": "Restaurar los ajustes anteriores (del {date})",
-  "reset.restore_title": "¿Restaurar los ajustes anteriores?",
-  "reset.restore_text": "Vuelven los ajustes del {date}: servidor, clave API, bibliotecas, personas, cantidades. Entonces queda configurado como antes.",
-  "reset.restore_go": "Restaurar",
-  "reset.restored": "Ajustes anteriores restaurados.",
-  "errors.emby_restore_none": "No hay copia de ajustes anteriores.",
-  "errors.emby_restore_configured": "Está configurado — una copia solo se restaura antes de una nueva configuración.",
-  "errors.emby_restore_bad": "La copia {file} no se puede leer."
+  "reset.title": "¿Borrar todo y configurar desde cero?",
+  "reset.text_night": "También desaparecen: los ajustes de «Agrupar carpetas» y sus propias programaciones. Hasta que se guarde la nueva configuración, su parte de la ejecución nocturna no corre.",
+  "reset.go": "Borrar todo y empezar desde cero",
+  "reset.text": {"one": "Se borran todos los ajustes de Jack Emby, sin copia. Su lista se vacía: lo que preparó en el pool ({n} archivo, {size}) la señora Moverelli lo trata después como cualquier otra caché y lo lleva al array según sus reglas.", "other": "Se borran todos los ajustes de Jack Emby, sin copia. Su lista se vacía: lo que preparó en el pool ({n} archivos, {size}) la señora Moverelli lo trata después como cualquier otra caché y lo lleva al array según sus reglas."}
 }

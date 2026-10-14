@@ -101,9 +101,8 @@ desk('emby', [
         'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState() + ['night' => embyNightNow()]],
         // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (emby-progress.php); while the
         // night run goes, the whole night stops after the file in flight (nightStopAsk(), as on her card)
-        // «Set up from scratch» (2026-10-14): his settings aside (a copy kept), and back
+        // «Set up from scratch» (2026-10-14, the owner: really zero — no copy)
         'reset'          => fn (array $r) => embyReset(),
-        'restore'        => fn (array $r) => embyRestore(),
         // the setup's pool simulator, real data: the pool measured now — only on the user's click (it may wake the pool)
         'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyReadSettings(), true))],
         'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()],
@@ -164,8 +163,6 @@ function embyScan(): array
         'emby'       => embyContainers(),
         'versions'   => embyVersions(),
         'configured' => $settings !== null && !empty($settings['instances']),
-        // «Set up from scratch» keeps copies of his settings: the newest one's time (the intro card offers it back)
-        'reset_backup' => ($b = embyResetBackups()[0] ?? null) ? ['time' => $b['time']] : null,
         'settings'   => $settings !== null ? embySettingsPublic($settings) : null,
         'shares'     => $settings !== null ? embySharesSized(embyShares($settings)) : [],
         'cache'      => embyCacheStats($settings),
@@ -963,76 +960,62 @@ function embySave(mixed $in): array
 
 // ===================================================================== set up from scratch (2026-10-14)
 /*
- * «Set up from scratch»: EmbyCache's settings file (server, API key, libraries, people, amounts, N days) goes aside as
- * embycache_settings.json.bak-<YYYYmmdd-HHMMSS> beside it (0600; the newest EMBY_RESET_KEEP kept) — that alone makes him
- * «not set up». Everything else stays: what he placed on the pool and his list of it (embycache_exclude.txt,
- * embycache_origin.json — Ms. Moverelli's ini names the list, Smart Mover keeps those files where they are), his runs
- * (office-history), logs, status, the gather's own settings (gather.json — it works without EmbyCache) and every
- * schedule (the night run leaves him out while he isn't set up: nightrun.php jack_on; an EmbyCache job refuses quietly,
- * emby_not_configured). «Restore earlier settings» puts the newest copy back while he isn't set up.
+ * «Set up from scratch» — really zero (the owner): no copy, no way back. Gone: EmbyCache's settings (server, API key,
+ * libraries, people, amounts, N days), the import's copies (*.before-import-*), his origin (embycache_origin.json),
+ * his runs' state and history (office-run/-history/-output/-stop, the progress, status.json); the gather's settings
+ * and state (gather.json, its ini files, last-real, sizes, status, its office-* files); his own schedules (EmbyCache's,
+ * the gather's — Ms. Moverelli's night run is hers and stays; it leaves him out while he has no settings). His list is
+ * emptied but kept as a file: Ms. Moverelli's ini names it (global_excludes) and Smart Mover stops a real run when a
+ * named list is MISSING — an empty one simply protects nothing. So what he placed on the pool stays where it is and
+ * becomes ordinary cache: she moves it by her rules (the age rule, from X). Kept: the logs (Ms. Protocolli shows
+ * embycache.log and consolidate.log) and the lock files. Never while a run of his (EmbyCache or the gather) goes.
  */
-const EMBY_RESET_KEEP = 3;
+const EMBY_RESET_GONE   = ['embycache_settings.json', '.embycache_settings.trial.json', 'embycache_origin.json', 'office-history.json',
+                           'office-run.json', 'office-output.txt', 'office-stop.json', 'emby-progress.json', 'emby-progress-speed.json', 'status.json'];
+const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
+                           'office-run.json', 'office-output.txt', 'office-stop.json'];
 
-/** His settings' copies beside the file: [{file, time}], the newest first */
-function embyResetBackups(string $dir = EMBY_DATA): array
+/**
+ * «Set up from scratch». $o (the tests): dir, gather (the folders), running (a run of his goes?), schedule (job, null)
+ * — default his and the gather's cron lines off. Answer {ok, state, gone: [file …]}.
+ */
+function embyReset(array $o = []): array
 {
-    $out = [];
-    foreach (glob("$dir/embycache_settings.json.bak-*") ?: [] as $f) {
-        if (preg_match('/\.bak-(\d{8})-(\d{6})(?:-\d+)?$/D', $f, $m) && is_file($f) && !is_link($f)) {
-            $t = DateTime::createFromFormat('Ymd His', "$m[1] $m[2]");
-            $out[] = ['file' => $f, 'time' => $t ? $t->getTimestamp() : (int) filemtime($f)];
+    $dir = $o['dir'] ?? EMBY_DATA;
+    $gdir = $o['gather'] ?? GATHER_DATA;
+    if (($o['running'] ?? 'embyAnyRunning')()) {
+        throw new Problem('emby_running');
+    }
+    $gone = [];
+    $drop = function (string $f) use (&$gone): void {
+        if ((is_file($f) || is_link($f)) && @unlink($f)) {
+            $gone[] = $f;
+        }
+    };
+    foreach (EMBY_RESET_GONE as $f) {
+        $drop("$dir/$f");
+    }
+    foreach (glob("$dir/*.before-import-*") ?: [] as $f) {
+        $drop($f);
+    }
+    foreach (GATHER_RESET_GONE as $f) {
+        $drop("$gdir/$f");
+    }
+    // his list emptied, the file kept (her ini names it: a missing list stops her real runs, an empty one protects nothing)
+    if (is_dir($dir) && !is_link("$dir/embycache_exclude.txt")) {
+        writeAtomic("$dir/embycache_exclude.txt", '', 0600, 0, 0);
+    }
+    $schedule = $o['schedule'] ?? fn (string $job) => officeJobSetSchedule($job, null);
+    foreach (['embycache', 'gather'] as $job) {
+        try {
+            $schedule($job);
+        } catch (Throwable $e) {
+            logLine("Jack Emby: set up from scratch — the $job schedule not switched off ({$e->getMessage()})");
         }
     }
-    usort($out, fn ($a, $b) => [$b['time'], $b['file']] <=> [$a['time'], $a['file']]);
-    return $out;
-}
-
-/** «Set up from scratch»: his settings aside (a copy kept), never while a run of his goes */
-function embyReset(string $dir = EMBY_DATA, ?callable $running = null): array
-{
-    if (($running ?? 'embyAnyRunning')()) {
-        throw new Problem('emby_running');
-    }
-    $file = "$dir/embycache_settings.json";
-    if (!is_file($file) || is_link($file)) {
-        throw new Problem('emby_not_configured');
-    }
-    $bak = "$file.bak-" . date('Ymd-His');
-    for ($n = 2; file_exists($bak); $n++) {
-        $bak = "$file.bak-" . date('Ymd-His') . "-$n";
-    }
-    if (!@rename($file, $bak)) {
-        throw new Problem('emby_config', ['detail' => 'cannot put the settings aside']);
-    }
-    @chmod($bak, 0600);
-    foreach (array_slice(embyResetBackups($dir), EMBY_RESET_KEEP) as $old) {
-        @unlink($old['file']);
-    }
-    logLine('Jack Emby: set up from scratch — settings put aside as ' . basename($bak) . ' (his list and what lies on the pool stay)');
-    return ['ok' => true, 'state' => $dir === EMBY_DATA ? embyScan() : null];
-}
-
-/** «Restore earlier settings»: the newest copy back — only while he isn't set up, never while a run of his goes */
-function embyRestore(string $dir = EMBY_DATA, ?callable $running = null): array
-{
-    if (($running ?? 'embyAnyRunning')()) {
-        throw new Problem('emby_running');
-    }
-    $file = "$dir/embycache_settings.json";
-    if (file_exists($file)) {
-        throw new Problem('emby_restore_configured');
-    }
-    $b = embyResetBackups($dir)[0] ?? null;
-    if ($b === null) {
-        throw new Problem('emby_restore_none');
-    }
-    $text = (string) @file_get_contents($b['file']);
-    if (!is_array(json_decode($text, true))) {
-        throw new Problem('emby_restore_bad', ['file' => basename($b['file'])]);
-    }
-    writeAtomic($file, $text, 0600, 0, 0);
-    logLine('Jack Emby: earlier settings restored from ' . basename($b['file']));
-    return ['ok' => true, 'state' => $dir === EMBY_DATA ? embyScan() : null];
+    logLine('Jack Emby: set up from scratch — settings, gather settings, his list (emptied), origin, runs and schedules gone ('
+        . count($gone) . ' files); what lies on the pool stays as ordinary cache');
+    return ['ok' => true, 'state' => $dir === EMBY_DATA ? embyScan() : null, 'gone' => array_map('basename', $gone)];
 }
 
 /**

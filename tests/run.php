@@ -30789,15 +30789,20 @@ JS);
 }
 
 /**
- * «Set up from scratch» (2026-10-14): embyReset() puts EmbyCache's settings aside as .bak-<time> (0600, the newest 3
- * kept) and touches nothing else — his list (embycache_exclude.txt), embycache_origin.json, his runs stay byte for byte;
- * refused while a run of his goes or when there is nothing to put aside. embyRestore() brings the newest copy back, only
- * while he isn't set up. The page: the quiet button under the summary, its confirm, then the wizard at step 1; the intro
- * card offers the newest copy back with its date.
+ * «Set up from scratch» (2026-10-14, the owner: really zero): embyReset() deletes his settings, the gather's settings and
+ * state, his origin, runs and import copies, switches his and the gather's schedules off and EMPTIES his list (the file
+ * stays: her ini names it) — logs stay; refused while a run of his goes. The consequence: his files on the pool are
+ * ordinary cache — Smart Mover with his list listed protects them, after the reset it moves them by her age rule, and a
+ * real run that requires its lists raises no error for the empty one; her «list pending» guard stays quiet. The page: the
+ * quiet button under the summary, the confirm with his list's count and size, then the wizard at step 1.
  */
 function testStreamerReset(): void
 {
-    $dir = hardeningTmp('streamer-reset');
+    $base = hardeningTmp('streamer-reset');
+    $dir = "$base/embycache";
+    $gdir = "$base/gather";
+    @mkdir($dir, 0700, true);
+    @mkdir($gdir, 0700, true);
     $refused = function (callable $f): string {
         try {
             $f();
@@ -30806,42 +30811,71 @@ function testStreamerReset(): void
             return $e->key;
         }
     };
-    $idle = fn (): bool => false;
-    $busy = fn (): bool => true;
+    $jobs = [];
+    $o = ['dir' => $dir, 'gather' => $gdir, 'running' => fn (): bool => false, 'schedule' => function (string $job) use (&$jobs) { $jobs[] = $job; }];
+    $his = ['embycache_settings.json', 'embycache_origin.json', 'office-history.json', 'office-run.json', 'office-output.txt', 'office-stop.json',
+            'emby-progress.json', 'status.json', 'embycache_settings.json.before-import-20261001'];
+    foreach ($his as $f) {
+        file_put_contents("$dir/$f", '{}');
+    }
     file_put_contents("$dir/embycache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
-    file_put_contents("$dir/embycache_origin.json", '{"a":"disk1"}');
-    file_put_contents("$dir/office-history.json", '{"runs":[]}');
-    $keep = array_map(fn ($f) => md5_file("$dir/$f"), ['embycache_exclude.txt', 'embycache_origin.json', 'office-history.json']);
-    file_put_contents("$dir/embycache_settings.json", '{"instances":[{"url":"http://e:8096"}],"n":1}');
-    same('reset: refused while a run of his goes — the settings stay', ['emby_running', true], [$refused(fn () => embyReset($dir, $busy)), is_file("$dir/embycache_settings.json")]);
-    same('reset: his settings aside, 0600, nothing else touched', ['ok', false, 1, '0600'], [$refused(fn () => embyReset($dir, $idle)), is_file("$dir/embycache_settings.json"),
-        count(embyResetBackups($dir)), substr(sprintf('%o', fileperms(embyResetBackups($dir)[0]['file'])), -4)]);
-    same('reset: … his list, origin and runs byte for byte', $keep, array_map(fn ($f) => md5_file("$dir/$f"), ['embycache_exclude.txt', 'embycache_origin.json', 'office-history.json']));
-    same('reset: nothing to put aside — said', 'emby_not_configured', $refused(fn () => embyReset($dir, $idle)));
-    for ($i = 2; $i <= 4; $i++) {
-        file_put_contents("$dir/embycache_settings.json", '{"instances":[{"url":"http://e:8096"}],"n":' . $i . '}');
-        embyReset($dir, $idle);
+    file_put_contents("$dir/embycache.log", "a line\n");
+    foreach (['gather.json', 'consolidate.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-run.json'] as $f) {
+        file_put_contents("$gdir/$f", '{}');
     }
-    same('reset: the newest 3 copies kept', 3, count(embyResetBackups($dir)));
-    file_put_contents("$dir/embycache_settings.json", '{"instances":[],"n":9}');
-    same('restore: refused while a settings file is there', 'emby_restore_configured', $refused(fn () => embyRestore($dir, $idle)));
-    unlink("$dir/embycache_settings.json");
-    same('restore: refused while a run goes', 'emby_running', $refused(fn () => embyRestore($dir, $busy)));
-    same('restore: the newest copy back (0600), the copies stay', ['ok', 4, '0600', 3], [$refused(fn () => embyRestore($dir, $idle)),
-        json_decode((string) file_get_contents("$dir/embycache_settings.json"), true)['n'] ?? null, substr(sprintf('%o', fileperms("$dir/embycache_settings.json")), -4), count(embyResetBackups($dir))]);
-    foreach (embyResetBackups($dir) as $b) {
-        unlink($b['file']);
+    file_put_contents("$gdir/consolidate.log", "a line\n");
+    same('reset: refused while a run of his goes — nothing touched', ['emby_running', true, 25],
+        [$refused(fn () => embyReset(['running' => fn (): bool => true] + $o)), is_file("$dir/embycache_settings.json"), filesize("$dir/embycache_exclude.txt")]);
+    same('reset: done', 'ok', $refused(fn () => embyReset($o)));
+    same('reset: his settings, origin, runs, progress, status and import copies gone — no copy', [], array_values(array_filter($his, fn ($f) => file_exists("$dir/$f"))));
+    same('reset: … no .bak of anything', [], glob("$dir/*bak*") ?: []);
+    same('reset: his list emptied, the file kept (her ini names it)', [true, 0], [is_file("$dir/embycache_exclude.txt"), filesize("$dir/embycache_exclude.txt")]);
+    same('reset: the gather\'s settings and state gone', ['consolidate.log'], array_map('basename', glob("$gdir/*") ?: []));
+    same('reset: the logs stay (Ms. Protocolli shows them)', [true, true], [is_file("$dir/embycache.log"), is_file("$gdir/consolidate.log")]);
+    same('reset: his and the gather\'s schedules off', ['embycache', 'gather'], $jobs);
+    hardeningRm($base);
+
+    // the consequence for Ms. Moverelli: Smart Mover over a pool with his film (40 days old) and her age rule (30 days)
+    $t = hardeningTmp('streamer-reset-mover');
+    foreach (['mnt/cache/Filme', 'mnt/user/Filme', 'mnt/disk1', 'bin', 'shares', 'embycache', 'gather'] as $d) {
+        @mkdir("$t/$d", 0700, true);
     }
-    unlink("$dir/embycache_settings.json");
-    same('restore: no copy — said', 'emby_restore_none', $refused(fn () => embyRestore($dir, $idle)));
-    same('reset: … and still nothing else touched', $keep, array_map(fn ($f) => md5_file("$dir/$f"), ['embycache_exclude.txt', 'embycache_origin.json', 'office-history.json']));
-    hardeningRm($dir);
+    file_put_contents("$t/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$t/mnt/cache/Filme/film.mkv", str_repeat('x', 100));
+    touch("$t/mnt/cache/Filme/film.mkv", time() - 40 * 86400);
+    file_put_contents("$t/embycache/embycache_exclude.txt", "$t/mnt/cache/Filme/film.mkv\n");
+    file_put_contents("$t/embycache/embycache_settings.json", '{}');
+    file_put_contents("$t/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+    file_put_contents("$t/bin/zfs", "#!/bin/bash\nexit 1\n");
+    file_put_contents("$t/bin/df", "#!/bin/bash\necho 'Used Avail Use%'; echo '100 900 10%'\n");
+    foreach (['move', 'zfs', 'df'] as $b) {
+        chmod("$t/bin/$b", 0755);
+    }
+    file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/embycache/embycache_exclude.txt\nmin_age=30\nage_stat=mtime\n");
+    $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
+            'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_DF' => "$t/bin/df",
+            'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'CUSTOMMOVER_EXCLUDES_REQUIRED' => '1', 'CUSTOMMOVER_IGNORE_MOVER' => '1',
+            'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1"];
+    $dry = function () use ($t, $env): array {
+        @unlink("$t/log");
+        runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $env, 60);
+        return array_values(array_filter(explode("\n", (string) @file_get_contents("$t/log")), fn ($l) => str_starts_with($l, '[DRY-RUN]')));
+    };
+    same('reset → mover: while listed his film stays (her dry run hands over nothing)', 0, count(array_filter($dry(), fn ($l) => str_contains($l, 'film.mkv'))));
+    embyReset(['dir' => "$t/embycache", 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $j) => null]);
+    same('reset → mover: after the reset it is ordinary cache — her age rule hands it over', 1, count(array_filter($dry(), fn ($l) => str_contains($l, 'film.mkv'))));
+    @unlink("$t/log");
+    runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--run'], $env, 60);
+    $log = (string) @file_get_contents("$t/log");
+    same('reset → mover: a real run (lists required) moves it to the array — no error for the empty list, nothing left behind or twice',
+        [false, true, false], [str_contains($log, 'ERROR'), is_file("$t/mnt/disk1/Filme/film.mkv"), is_file("$t/mnt/cache/Filme/film.mkv")], $log);
+    hardeningRm($t);
+    $mo = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('reset → mover: her «list pending» guard stays quiet while the (empty) list file is there',
+        str_contains($mo, "foreach (\$lists as \$f) {\n        clearstatcache(true, \$f);\n        if (is_file(\$f)) {\n            return null;"));
     $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('reset: the actions emby.reset and emby.restore, the newest copy\'s time in his state', str_contains($emby, "'reset'          => fn (array \$r) => embyReset(),")
-        && str_contains($emby, "'restore'        => fn (array \$r) => embyRestore(),") && str_contains($emby, "'reset_backup' => (\$b = embyResetBackups()[0] ?? null) ? ['time' => \$b['time']] : null,"));
-    $night = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
-    check('reset: the night run leaves him out while he has no settings (Ms. Moverelli alone; her ini still names his list)',
-        str_contains($night, "embyReadSettings() !== null"));
+    check('reset: the action emby.reset — no restore, no copy', str_contains($emby, "'reset'          => fn (array \$r) => embyReset(),")
+        && !str_contains($emby, 'embyRestore') && !str_contains($emby, '.bak-'));
     // the page
     $node = testsNode();
     if ($node === '') {
@@ -30878,16 +30912,13 @@ const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
   btn.onclick();
   const d = dialogs.at(-1);
   out.confirm = [d.o.title, d.o.buttons.map((b) => b.text), all(d.o.body).map((n) => n.textContent).filter(Boolean)];
-  answer = { ok: true, state: { ...st, configured: false, settings: null, reset_backup: { time: 1760000000 } } };
+  answer = { ok: true, state: { ...st, configured: false, settings: null } };
   out.went = await d.o.buttons[1].act();
   await new Promise((r) => setTimeout(r, 5));
   const w = dialogs.at(-1);
   out.after = [posts, w !== d && w.o.modal === true, e.wiz() && e.wiz().step];
   e.setState(answer.state);
-  const intro = e.introCard();
-  out.restore = all(intro).map((n) => n.textContent).filter((t) => t.startsWith('reset.restore_button'));
-  e.setState({ ...st, configured: false, reset_backup: null });
-  out.noCopy = all(e.introCard()).map((n) => n.textContent).filter((t) => t.startsWith('reset.restore_button'));
+  out.intro = all(e.introCard()).filter((n) => n.tag === 'button' || /btn/.test(n.className)).map((n) => n.textContent);
   console.log(JSON.stringify(out));
 })();
 JS);
@@ -30900,10 +30931,11 @@ JS);
         return;
     }
     same('reset: a quiet button under the summary (plain, danger)', 'btn small plain danger', $r['button']);
-    same('reset: its confirm says what goes, what stays, the night — «Start from scratch» / «Cancel»',
-        ['reset.title', ['common.cancel', 'reset.go'], ['reset.text_gone', 'reset.text_stays', 'reset.text_night']], $r['confirm']);
+    $cache = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/emby.json'), true)['cache'];
+    same('reset: its confirm — deleted without a copy, his list emptied with its count and size (ordinary cache afterwards), the gather and schedules; «Cancel» / «Delete everything …»',
+        ['reset.title', ['common.cancel', 'reset.go'], ['reset.text {"n":' . $cache['files'] . ',"size":"' . $cache['bytes'] . ' B"}', 'reset.text_night']], $r['confirm']);
     same('reset: then emby.reset, and the wizard opens at step 1', [true, [['emby.reset'], true, 'servers']], [$r['went'], $r['after']]);
-    same('reset: the intro card offers the newest copy back with its date — none without one', [['reset.restore_button {"date":"D1760000000"}'], []], [$r['restore'], $r['noCopy']]);
+    same('reset: afterwards the intro card has only «Start the setup» (no way back)', ['wizard.start'], $r['intro']);
 }
 
 function testPoolLevel(): void
