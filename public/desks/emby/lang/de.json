@@ -905,5 +905,16 @@
   "setup.users_budget_split": {"one": "Fest vergeben {fixed}, der Rest ({rest}) wird gleichmässig auf {n} Person verteilt; was jemand nicht braucht, fliesst an die anderen.", "other": "Fest vergeben {fixed}, der Rest ({rest}) wird gleichmässig auf {n} Personen verteilt; was jemand nicht braucht, fliesst an die anderen."},
   "setup.users_budget_over": "Die festen Budgets ({fixed}) übersteigen das ganze Budget ({total}) — EmbyCache gibt den anderen dann nichts und schreibt eine Warnung ins Protokoll.",
   "setup.user_budget_gb": "Eigenes Budget (GB, freiwillig)",
-  "setup.user_budget_gb_hint": "z. B. 300 — leer: fairer Anteil"
+  "setup.user_budget_gb_hint": "z. B. 300 — leer: fairer Anteil",
+  "wizard.cancel": "Abbrechen",
+  "wizard.discard_q": "Änderungen verwerfen?",
+  "wizard.discard_text": "Was du in dieser Einrichtung geändert hast, ist noch nicht gespeichert.",
+  "wizard.discard": "Verwerfen",
+  "wizard.keep_editing": "Weiter bearbeiten",
+  "wizard.inline_intro": "So ist Jack Streamer eingerichtet. «Ändern» öffnet diesen Schritt.",
+  "wizard.start_title": "Jack Streamer einrichten",
+  "wizard.start_text": "Ein paar Schritte: der Medienserver, seine Shares, wie viel er bereitlegt, für wen — dann im Simulator ausprobieren und speichern.",
+  "wizard.start": "Einrichtung starten",
+  "wizard.left_unsaved": "Einrichten von Jack Streamer abgebrochen – nichts gespeichert.",
+  "sim.of_pool": "{pct} % des Pools"
 }

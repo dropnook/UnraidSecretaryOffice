@@ -905,5 +905,16 @@
   "setup.users_budget_split": {"one": "Assegnati fissi {fixed}, il resto ({rest}) è diviso in parti uguali su {n} persona; ciò che a qualcuno non serve va agli altri.", "other": "Assegnati fissi {fixed}, il resto ({rest}) è diviso in parti uguali su {n} persone; ciò che a qualcuno non serve va agli altri."},
   "setup.users_budget_over": "I budget fissi ({fixed}) superano il budget intero ({total}) — EmbyCache allora non dà nulla agli altri e scrive un avviso nel log.",
   "setup.user_budget_gb": "Budget proprio (GB, facoltativo)",
-  "setup.user_budget_gb_hint": "p. es. 300 — vuoto: una quota equa"
+  "setup.user_budget_gb_hint": "p. es. 300 — vuoto: una quota equa",
+  "wizard.cancel": "Annulla",
+  "wizard.discard_q": "Scartare le modifiche?",
+  "wizard.discard_text": "Ciò che hai cambiato in questa configurazione non è ancora salvato.",
+  "wizard.discard": "Scarta",
+  "wizard.keep_editing": "Continua a modificare",
+  "wizard.inline_intro": "Così è configurato Jack Emby. «Modifica» apre quel passo.",
+  "wizard.start_title": "Configura Jack Emby",
+  "wizard.start_text": "Pochi passi: il media server, le sue condivisioni, quanto prepara, per chi — poi provalo nel simulatore e salva.",
+  "wizard.start": "Avvia la configurazione",
+  "wizard.left_unsaved": "Configurazione di Jack Emby annullata — nulla salvato.",
+  "sim.of_pool": "{pct} % del pool"
 }

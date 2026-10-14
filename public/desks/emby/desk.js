@@ -1464,9 +1464,9 @@ function libraryList() {
 function renderSetup() {
   if (!view) return;
   const root = view;
-  const spot = focusSpot();         // the control a click redraws the page from keeps the focus (focusBack())
+  const spot = wiz ? null : focusSpot();      // the control a click redraws the page from keeps the focus (focusBack())
   root.innerHTML = '';
-  // the tabs say where one is (no «← Back», no head button); his setup is one card: the wizard
+  // the tabs say where one is (no «← Back», no head button); under them his setup as it stands — the wizard is a dialog
   root.appendChild(deskHead());
   root.appendChild(Office.pageHelp(ID + '-setup', [
     [T('import.title'), T('import.help')],
@@ -1482,18 +1482,18 @@ function renderSetup() {
   if (!state) return;
   if (!form) initForm();
   loadStreamer();                    // the simulator's math (the sharing words use it too): once per page life
-  const card = wizardCard(currentStep());
-  root.appendChild(card);
-  focusBack(spot);
-  return card;
+  root.appendChild(startStep() === 'summary' ? summaryCard() : introCard());
+  if (wiz) drawWizard();
+  else focusBack(spot);
 }
 
-// ---- the wizard (2026-10-14, the owner: a guided wizard like Unraid's own welcome setup — one step at a time in a
-// centred card: a head with the title, how long it takes and a short intro; the step; a foot with «Back», where one is,
-// «Skip» where it makes sense, «Next ›»). Once he is set up, «Set up» opens on the summary with «Change» per step; the
-// first time on step 1. A step's route #/emby/setup/<step> (the search) opens that step. The form lives across every
-// drawing (form): a click in a step draws the card anew from it — the typed values stay, the focus comes back to the
-// control clicked (focusSpot()/focusBack()). No row of tiles here: the card is the page (its main page keeps its tiles).
+// ---- the wizard (2026-10-14, the owner: a guided wizard like Unraid's own welcome setup) — an exclusive dialog over the
+// page (Office.dialog({modal}): near the top, the page dimmed, blurred and inert, a click outside does nothing, Escape =
+// «Cancel»). One step at a time: the step's title, a short intro, the step, a foot with «Cancel», «Back», where one is,
+// «Skip» where it makes sense, «Next ›» — «Save» on the summary. The «Set up» tab shows the summary (each row's «Change»
+// opens the wizard at that step), the first time an intro card with «Start the setup». A step's route
+// #/emby/setup/<step> (bookmarks, the search) opens the wizard there; closing it is #/emby/setup again. «Cancel» with
+// changes asks inside the dialog («Discard changes?»), without just closes. The form lives across every drawing (form).
 /** The steps in the wizard's order: {id, place (the lang key of its title — its place for the search)} */
 // (2026-10-14, the owner: the people after the settings — what is set per person depends on the amount's mode)
 const SETUP_STEPS = [{ id: 'servers', place: 'wizard.title.servers' }, { id: 'libraries', place: 'wizard.title.libraries' },
@@ -1503,38 +1503,92 @@ const SETUP_STEPS = [{ id: 'servers', place: 'wizard.title.servers' }, { id: 'li
 const SKIPPABLE = new Set(['users', 'settings', 'simulator']);
 /** The routes of the setup's tiles before the wizard (bookmarks, an old search): the step that holds them now */
 const OLD_STEPS = { scope: 'settings', more: 'settings', import: 'servers' };
-let step = null;                  // the step shown; null: the start (set up: the summary, else step 1)
+/** The wizard while it is open: {step, dlg (Office.dialog's answer), box (its body), snap (the form when opened), confirm} */
+let wiz = null;
 const connected = () => !!form && form.instances.some((i) => i.server);
-const currentStep = () => step || (state && state.configured ? 'summary' : 'servers');
+/** What the «Set up» tab shows: the summary once he is set up, the intro card before */
+const startStep = () => (state && state.configured ? 'summary' : 'servers');
 /** A step's id from a route's part (old tile ids map to their step), '' when none */
 function stepOf(sub) {
   const s = OLD_STEPS[sub] || sub;
   return SETUP_STEPS.some((x) => x.id === s) ? s : '';
 }
+/** The form as a string — changed since the wizard opened? («Discard changes?») */
+function formKey() {
+  if (!form) return '';
+  return JSON.stringify({ i: form.instances.map((x) => [x.servername, x.url, x.api_key, x.mappings, [...x.skip].sort()]),
+    l: [...form.chosenLibs].sort(), u: [...form.chosenUsers].sort(), b: form.budgets, v: form.values });
+}
+const changed = () => !!wiz && formKey() !== wiz.snap;
 
-/** To a step: drawn anew, its card's head in view when it isn't */
+/** The wizard opened at a step (the intro card's «Start», a summary row's «Change», a step's route) */
+function openWizard(id) {
+  if (!form) initForm();
+  if (wiz) { goStep(id); return; }
+  const box = el('div', 'jo-wiz');
+  const me = { step: id, box, snap: formKey(), confirm: false, dlg: null };
+  wiz = me;
+  me.dlg = Office.dialog({ title: '', body: box, buttons: [], wide: true, modal: true, cls: 'jo-wiz-dialog', onEscape: cancelWizard,
+    onClose: () => { if (wiz === me) wiz = null; if (view && page === 'setup') Office.subroute('setup'); } });
+  Office.subroute(`setup/${id}`);
+  drawWizard();
+}
+/** To a step inside the wizard: drawn anew, the dialog's content back at its top */
 function goStep(id) {
-  step = id;
-  const card = renderSetup();
-  if (card && card.getBoundingClientRect && card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: 'start' }); /* reveal */
+  if (!wiz) { openWizard(id); return; }
+  wiz.step = id;
+  wiz.confirm = false;
+  Office.subroute(`setup/${id}`);
+  drawWizard();
+  const scroller = wiz.box.closest('.dialog-body');
+  if (scroller) scroller.scrollTop = 0;
+}
+/** «Cancel» (and Escape): with changes ask first, inside the dialog; without close */
+function cancelWizard() {
+  if (!wiz) return;
+  if (changed() && !wiz.confirm) { wiz.confirm = true; drawWizard(); return; }
+  closeWizard();
+}
+/** The wizard closed without saving: the form back to his settings, the tab drawn anew */
+function closeWizard() {
+  const w = wiz;
+  wiz = null;
+  form = null;
+  if (w) w.dlg.close();
+  renderSetup();
 }
 
-/** The card of one step: head (title, intro), the step, the foot (where one is, back, skip, next — or save) */
-function wizardCard(id) {
+/** The open wizard's content anew: intro, the step, the foot — or «Discard changes?» */
+function drawWizard() {
+  if (!wiz) return;
+  const spot = focusSpot();
+  const id = wiz.step;
   const i = SETUP_STEPS.findIndex((x) => x.id === id);
   const { place: key } = SETUP_STEPS[i];
-  const card = el('div', 'box jo-wiz');
-  card.dataset.section = id;               // focusSpot()/focusBack() find the control again inside it
-  const head = el('div', 'jo-wiz-head');
-  const title = el('h2', 'jo-wiz-title', T(key));
+  wiz.dlg.setTitle(T(key));
+  const box = wiz.box;
+  box.replaceChildren();
+  box.dataset.section = id;                // focusSpot()/focusBack() find the control again inside it
+  if (wiz.confirm) {
+    const c = el('div', 'jo-wiz-confirm');
+    c.append(el('p', 'jo-wiz-confirm-q', T('wizard.discard_q')), el('p', 'role', T('wizard.discard_text')));
+    const bar = el('div', 'toolbar');
+    const keep = button(T('wizard.keep_editing'), '', () => { wiz.confirm = false; drawWizard(); });
+    bar.append(button(T('wizard.discard'), 'danger', closeWizard), keep);
+    c.appendChild(bar);
+    box.appendChild(c);
+    keep.focus();
+    return;
+  }
+  const title = el('span', 'jo-wiz-place');
   Office.place(key, title);
-  head.append(title);
-  card.append(head, el('p', 'jo-wiz-intro', T('wizard.intro.' + id)));
+  box.append(title, el('p', 'jo-wiz-intro', T('wizard.intro.' + id)));
   const body = el('div', 'jo-wiz-body');
   body.appendChild(stepBody(id));
-  card.appendChild(body);
+  box.appendChild(body);
   const foot = el('div', 'jo-wiz-foot');
   const left = el('div', 'jo-wiz-left');
+  left.appendChild(button(T('wizard.cancel'), 'plain', cancelWizard));
   if (i > 0) left.appendChild(button(T('wizard.back'), 'plain', () => goStep(SETUP_STEPS[i - 1].id)));
   const where = el('div', 'jo-wiz-where');
   where.appendChild(el('span', '', T('wizard.of', { n: i + 1, total: SETUP_STEPS.length })));
@@ -1552,7 +1606,25 @@ function wizardCard(id) {
     right.appendChild(button(T('wizard.next'), '', () => goStep(SETUP_STEPS[i + 1].id)));
   }
   foot.append(left, where, right);
-  card.appendChild(foot);
+  box.appendChild(foot);
+  focusBack(spot);
+}
+
+/** The «Set up» tab once he is set up: the summary as saved, each row's «Change» opens the wizard at that step */
+function summaryCard() {
+  const card = el('div', 'box jo-wiz jo-setup-card');
+  const title = el('h2', 'jo-wiz-title', T('wizard.summary'));
+  Office.place('wizard.summary', title);
+  card.append(title, el('p', 'jo-wiz-intro', T('wizard.inline_intro')), setupSummary(true));
+  return card;
+}
+/** … before: a short intro and «Start the setup» (the wizard at step 1) */
+function introCard() {
+  const card = el('div', 'box jo-wiz jo-setup-card');
+  const go = button(T('wizard.start'), '', () => openWizard('servers'));
+  const bar = el('div', 'toolbar');
+  bar.appendChild(go);
+  card.append(el('h2', 'jo-wiz-title', T('wizard.start_title')), el('p', 'jo-wiz-intro', T('wizard.start_text')), bar);
   return card;
 }
 
@@ -1579,14 +1651,16 @@ function notYet() {
 /** The control that has the focus inside the card: its step and its place among the step's controls (drawn anew) */
 function focusSpot() {
   const a = typeof document !== 'undefined' ? document.activeElement : null;
-  const sec = a && view && view.contains(a) && a.closest ? a.closest('[data-section]') : null;
+  const root = wiz ? wiz.box : view;       // inside the wizard's dialog while it is open
+  const sec = a && root && root.contains(a) && a.closest ? a.closest('[data-section]') : null;
   if (!sec) return null;
   return { section: sec.dataset.section, i: [...sec.querySelectorAll('input, select, textarea, button')].indexOf(a) };
 }
 /** … and back to the same control once drawn anew (no scroll: the page stays where it was) */
 function focusBack(spot) {
-  if (!spot || spot.i < 0 || !view) return;
-  const sec = view.querySelector(`[data-section="${spot.section}"]`);
+  const root = wiz ? wiz.box : view;
+  if (!spot || spot.i < 0 || !root) return;
+  const sec = root.dataset.section === spot.section ? root : root.querySelector(`[data-section="${spot.section}"]`);
   const x = sec ? sec.querySelectorAll('input, select, textarea, button')[spot.i] : null;
   if (x && document.activeElement !== x) x.focus({ preventScroll: true });
 }
@@ -1938,7 +2012,16 @@ function sharePart() {
     add('share.age', mo.min_age == null ? '–' : nOf('days', mo.min_age));
     f.appendChild(kv);
     const her = el('p', 'role');
-    her.appendChild(link(T('share.her_link'), () => Office.go('#/moverelli/setup')));
+    // her desk sets these (global per pool): the wizard ends without asking (the owner) — said on her page when it held changes
+    her.appendChild(link(T('share.her_link'), () => {
+      const lost = changed();
+      const w = wiz;
+      wiz = null;
+      form = null;
+      if (w) w.dlg.close();
+      Office.go('#/moverelli/setup/global');
+      if (lost) Office.toast(T('wizard.left_unsaved'));
+    }));
     f.appendChild(her);
   } else {
     f.appendChild(el('p', 'callout jo-slice', T(mo ? 'room.own' : 'room.none', { min: pool.min_free ?? '?' })));
@@ -2078,17 +2161,18 @@ function peopleWords(ids, names, budgets) {
 }
 
 /** 6. the summary: a row per step with «Change» (jumps into that step), then «Save» (in the card's foot) */
-function setupSummary() {
+function setupSummary(inline) {
   const s = el('div', 'jo-wiz-part');
   const list = el('div', 'jo-sum');
   summaryData().forEach((d) => {
     const row = el('div', 'jo-sum-row');
     const text = el('div', 'jo-sum-text');
     text.append(el('b', '', T(d.key)), el('span', '', d.value || '–'));
-    row.append(text, button(T(d.id === 'simulator' ? 'wizard.test' : 'wizard.change'), 'small plain', () => goStep(d.id)));
+    row.append(text, button(T(d.id === 'simulator' ? 'wizard.test' : 'wizard.change'), 'small plain', () => (wiz ? goStep(d.id) : openWizard(d.id))));
     list.appendChild(row);
   });
   s.appendChild(list);
+  if (inline) return s;                  // the tab: his setup as saved — saving is the wizard's
   if (!connected()) s.appendChild(notYet());
   else s.appendChild(el('p', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
   return s;
@@ -2369,8 +2453,12 @@ async function saveSetup() {
   const j = await act('save', { settings });
   if (!j) return;
   Office.toast(T('setup.saved'));
+  // saved: the wizard closes, the tab shows his setup as saved now
+  const w = wiz;
+  wiz = null;
   form = null;
-  Office.go(`#/${ID}`);
+  if (w) w.dlg.close();
+  renderSetup();
 }
 
 // ------------------------------------------------------------------ desk
@@ -2549,7 +2637,7 @@ Office.desk({
     if (page === 'setup') {
       // #/emby/setup/<step> (the search, a step's place, an old tile's route) opens that step, the address keeps its page;
       // else the start: the summary once he is set up, step 1 before
-      step = stepOf(String(sub || '').split('/')[1] || '') || null;
+      const want = stepOf(String(sub || '').split('/')[1] || '');
       if (String(sub || '').includes('/')) Office.subroute('setup');
       if (!state) await load(false);
       await Office.freshState(ID);      // the form starts from his settings: from a fresh look, never a stale one
@@ -2558,6 +2646,7 @@ Office.desk({
       // (2026-10-10: 12 episodes ahead became 7)
       form = null;
       renderSetup();
+      if (want) openWizard(want);       // #/emby/setup/<step>: the wizard at that step
       return;
     }
     bars();
@@ -2575,7 +2664,7 @@ Office.desk({
     if (plan) Office.reveal(`plan:${plan}`);
     await load(false);
   },
-  unmount() { view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
+  unmount() { if (wiz) { const w = wiz; wiz = null; w.dlg.close(); } view = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
@@ -2651,7 +2740,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, budgetGb, budgetSplit,
-    stepOf, currentStep, setStep: (x) => { step = x; }, wizardCard, derivedPool, poolsOfChoice, cacheable,
+    stepOf, startStep, openWizard, cancelWizard, wiz: () => wiz, formKey, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };

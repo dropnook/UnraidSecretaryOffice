@@ -907,6 +907,26 @@ function picture(h, body) {
     const bar = el('div', 'jo-sim-bar' + (handles ? ' grips' : ''));
     const segs = {};
     for (const cls of SEGS) { segs[cls] = el('i', 'jo-sim-seg ' + cls); bar.appendChild(segs[cls]); }
+    // a segment's words (GB and % of the pool): on hover with a mouse, on a tap with a finger (gone after a moment)
+    const segTip = el('span', 'jo-sim-tip jo-sim-segtip');
+    bar.appendChild(segTip);
+    let tipTimer = 0;
+    const showTip = (seg) => {
+      clearTimeout(tipTimer);
+      segTip.textContent = seg.dataset.words || '';
+      const b = bar.getBoundingClientRect();
+      const r = seg.getBoundingClientRect();
+      segTip.style.display = 'block';
+      const tw = segTip.offsetWidth;
+      const mid = r.left - b.left + r.width / 2;
+      segTip.style.left = `${Math.round(Math.max(tw / 2, Math.min(b.width - tw / 2, mid)))}px`;
+    };
+    const hideTip = () => { segTip.style.display = ''; };
+    for (const seg of Object.values(segs)) {
+      seg.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') showTip(seg); });
+      seg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hideTip(); });
+      seg.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') { showTip(seg); tipTimer = setTimeout(hideTip, 2500); } });
+    }
     const marks = {};
     for (const [mid, below, left] of [['x', false, false], ['y', false, true], ['budget', false, true], ['h', true, true], ['limit', true, false]]) {
       const k = el('span', 'jo-sim-mark' + (below ? ' below' : ''));
@@ -937,7 +957,12 @@ function picture(h, body) {
       const val = { nm: m.nm, others: m.others, unw: m.jack - m.watched, wat: m.watched };
       const wid = segWidths([...SEGS.map((c) => val[c]), Math.max(0, pool - m.used)], MIN_PX / Math.max(200, bar.clientWidth || 800));
       const titles = { nm: 'sim.bar.nm', others: 'sim.bar.others', unw: 'sim.bar.unw', wat: 'sim.bar.wat' };
-      SEGS.forEach((c, i) => { segs[c].style.width = `${(wid[i] * 100).toFixed(3)}%`; segs[c].title = `${T(titles[c])} · ${gbText(val[c])}`; });
+      const ofPool = (gb) => T('sim.of_pool', { pct: fmt.number(Math.max(0, gb) * 100 / pool, 1) });
+      SEGS.forEach((c, i) => {
+        segs[c].style.width = `${(wid[i] * 100).toFixed(3)}%`;
+        segs[c].dataset.words = `${T(titles[c])} · ${gbText(val[c])} · ${ofPool(val[c])}`;
+        segs[c].setAttribute('aria-label', segs[c].dataset.words);
+      });
       bar.setAttribute('role', 'img');
       bar.setAttribute('aria-label', `${T('sim.bar.' + id)}: ${T('sim.bar_label', { pct: r1(m.used * 100 / pool) })}`);
       // H and the fill limit from where his part starts (NM + others) — but he fills only up to Y: a marker past Y stands
@@ -972,7 +997,7 @@ function picture(h, body) {
         const [now, lo, hi] = vals[key];
         const sizeKey = key === 'nm' || key === 'end';
         g.node.style.left = sizeKey ? `${(edge[key] * 100).toFixed(3)}%` : `${now}%`;
-        const text = sizeKey ? gbText(key === 'nm' ? m.nm : m.others) : `${now} %`;
+        const text = sizeKey ? `${gbText(key === 'nm' ? m.nm : m.others)} · ${ofPool(key === 'nm' ? m.nm : m.others)}` : `${now} %`;
         g.node.setAttribute('aria-valuenow', String(r1(now)));
         g.node.setAttribute('aria-valuemin', String(r1(lo)));
         g.node.setAttribute('aria-valuemax', String(r1(hi)));

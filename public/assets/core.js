@@ -681,14 +681,20 @@ Office.copy = function copy(text) {
 let closeDialog = null;
 Office.dialogOpen = () => !!closeDialog;
 
-/** buttons: [{text, kind, act}] — when act() returns false the dialog stays open.
+/** buttons: [{text, kind, act}] — when act() returns false the dialog stays open; [] = no foot (the body brings its own).
     wide: true = 760 px; 'log' = as wide and tall as the window allows (logs with long lines, 2026-10-10).
-    onClose() runs however the dialog ends (button, Escape, click outside, another dialog). */
-Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
+    onClose() runs however the dialog ends (button, Escape, click outside, another dialog).
+    modal: true (2026-10-14, Jack Streamer's setup wizard) — an exclusive dialog: near the top, the page behind dimmed and
+    blurred and inert (everything outside the dialog, Unraid's header too), a click outside does nothing and Escape calls
+    onEscape() instead of closing. cls: a class of the desk's own on the dialog. Answer: {buttons, close, setTitle}. */
+Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, onEscape, cls }) {
   if (closeDialog) closeDialog();
   const backdrop = $('#sso-dialog-backdrop');
   $('#sso-dialog').classList.toggle('wide', !!wide);
   $('#sso-dialog').classList.toggle('log', wide === 'log');
+  const own = cls ? String(cls).split(/\s+/).filter(Boolean) : [];
+  own.forEach((c) => $('#sso-dialog').classList.add(c));
+  backdrop.classList.toggle('modal', !!modal);
   $('#sso-dialog-title').textContent = title;
   const box = $('#sso-dialog-body');
   box.innerHTML = '';
@@ -716,6 +722,15 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
   });
 
   backdrop.hidden = false;
+  // modal: everything outside the dialog inert (the office's other parts, Unraid's page around it) until it closes
+  const inerted = [];
+  if (modal) {
+    for (let n = backdrop; n && n.parentElement && n !== document.body; n = n.parentElement) {
+      for (const sib of n.parentElement.children) {
+        if (sib !== n && !sib.inert && !['SCRIPT', 'STYLE', 'LINK'].includes(sib.tagName)) { sib.inert = true; inerted.push(sib); }
+      }
+    }
+  }
   const field = box.querySelector('input.input:not([type=search])');
   if (field) { field.focus(); field.select(); } else if (made[0]) made[0].focus();
 
@@ -724,11 +739,15 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
     if (closed) return;
     closed = true;
     backdrop.hidden = true;
+    backdrop.classList.remove('modal');
+    own.forEach((c) => $('#sso-dialog').classList.remove(c));
+    inerted.forEach((x) => { x.inert = false; });
     closeDialog = null;
     document.removeEventListener('keydown', onKey);
     if (onClose) onClose();
   }
   function onKey(e) {
+    if (e.key === 'Escape' && modal) { e.preventDefault(); if (onEscape) onEscape(); return; }
     if (e.key === 'Escape') close();
     if (e.key === 'Enter' && e.target.matches && e.target.matches('input.input:not([type=search])') && made.length) {
       e.preventDefault();
@@ -736,10 +755,10 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose }) {
     }
   }
   document.addEventListener('keydown', onKey);
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+  backdrop.onclick = (e) => { if (e.target === backdrop && !modal) close(); };
   backdrop.onwheel = dialogWheel;
   closeDialog = close;
-  return { buttons: made, close };
+  return { buttons: made, close, setTitle: (text) => { $('#sso-dialog-title').textContent = text; } };
 };
 
 /**

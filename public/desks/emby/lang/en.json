@@ -905,5 +905,16 @@
   "setup.users_budget_split": {"one": "Fixed {fixed}, the rest ({rest}) is shared evenly on {n} person; what someone doesn't need flows to the others.", "other": "Fixed {fixed}, the rest ({rest}) is shared evenly on {n} people; what someone doesn't need flows to the others."},
   "setup.users_budget_over": "The fixed budgets ({fixed}) exceed the whole budget ({total}) — EmbyCache gives the others nothing then and logs a warning.",
   "setup.user_budget_gb": "Own budget (GB, optional)",
-  "setup.user_budget_gb_hint": "e.g. 300 — empty: a fair share"
+  "setup.user_budget_gb_hint": "e.g. 300 — empty: a fair share",
+  "wizard.cancel": "Cancel",
+  "wizard.discard_q": "Discard changes?",
+  "wizard.discard_text": "What you changed in this setup is not saved yet.",
+  "wizard.discard": "Discard",
+  "wizard.keep_editing": "Keep editing",
+  "wizard.inline_intro": "This is how Jack Emby is set up. «Change» opens that step.",
+  "wizard.start_title": "Set up Jack Emby",
+  "wizard.start_text": "A few steps: the media server, its shares, how much he lays out, for whom — then try it in the simulator and save.",
+  "wizard.start": "Start the setup",
+  "wizard.left_unsaved": "Setting up Jack Emby cancelled — nothing saved.",
+  "sim.of_pool": "{pct} % of the pool"
 }
