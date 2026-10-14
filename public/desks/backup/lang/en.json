@@ -266,6 +266,7 @@
   "errors.setup_running": "The setup is busy right now — try again in a moment.",
   "errors.setup_bad_decisions": "These settings can't be applied ({detail}). Read the server again and retry.",
   "errors.setup_plan_old": "The settings were written after I last looked at the server — I'm looking again. Check the list then and apply once more.",
+  "errors.setup_zero_partner": "{name} goes to a partner office, so its local snapshots must keep at least one (for example «1 0 0» instead of «0 0 0»): a partner gets only what changed since a snapshot both sides still have — without one, everything would go over in full every time.",
   "setup.replan": "Plan anew",
   "setup.measure": "Measure sizes",
   "setup.measure_hint": "Measures shares without a ZFS dataset with du (up to 2 min each) — wakes sleeping array disks.",

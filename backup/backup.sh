@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.49 - 2026-10-15
+# unraid-backup - backup.sh                       Version 2.50 - 2026-10-15
+#   2.50 A unit that goes to a partner office never keeps «0 0 0» local snapshots: settings.ini refused (cfg_validate) -
+#        the partner's incremental send needs one snapshot both sides still have
 #   2.49 Review: UB_DATA a real folder of root's that nobody else can write, settings.ini a plain root-owned file -
 #        else refused before anything is read or written there (ub_data_trusted, exit 4, an alert)
 #   2.48 Review: the ZFS retention never thins a partner office's copies here (<pool>/UnraidSecretaryOffice-partners/...,

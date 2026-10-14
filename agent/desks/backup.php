@@ -2871,11 +2871,54 @@ function backupSetupApply(mixed $decisions, mixed $planTime = null): array
         }
         $clean[$key] = $value;
     }
+    // engine 2.50: what goes to a partner keeps at least one local snapshot (said here before the engine refuses it)
+    if (($unit = backupZeroPartner($clean)) !== null) {
+        throw new Problem('setup_zero_partner', ['name' => $unit]);
+    }
     $file = "$data/state/setup-decisions.json";
     writeAtomic($file, jsonEncode($clean), 0600, 0, 0);
     backupLaunch(["$dir/setup.sh", "--apply=$file"], ['UB_SIZE_TIMEOUT' => 0]);
     logLine('Backup: setup.sh --apply started via at (' . count($clean) . ' decisions)');
     return ['ok' => true, 'started' => backupSetupWait(), 'state' => backupScan()];
+}
+
+/**
+ * Engine 2.50 (review 2026-10-15, R3-8): «0 0 0» local snapshots only for what goes to no partner office — a partner gets
+ * only what changed since the snapshot both sides still have, and with none kept everything would go over in full every
+ * time. The same rule as the engine's cfg_validate (unit_retention): a VM's own retention, else its share's (an app's
+ * first folder's, the backup place's), else [zfs] retention (default «7 4 6»). The name of the first such unit, else null.
+ *
+ * @param array<string, mixed> $d settings.ini keys as the setup's decisions carry them
+ */
+function backupZeroPartner(array $d): ?string
+{
+    $str = fn (string $k): string => is_string($d[$k] ?? null) ? trim($d[$k]) : '';
+    $ret = function (string $share) use ($str): string {
+        $own = $share !== '' ? $str("share|$share|retention") : '';
+        return $own !== '' ? $own : ($str('zfs|retention') !== '' ? $str('zfs|retention') : '7 4 6');
+    };
+    foreach ($d as $key => $value) {
+        if (!is_array($value) || !preg_grep('/^[0-9a-f]{8}$/D', array_filter($value, 'is_string'))) {
+            continue;
+        }
+        if ($key === 'general|partner_place') {
+            [$name, $r] = [$str('general|dumps_share'), $ret($str('general|dumps_share'))];
+        } elseif (preg_match('/^share\|(.+)\|partner$/D', (string) $key, $m)) {
+            [$name, $r] = [$m[1], $ret($m[1])];
+        } elseif (preg_match('/^vm\|(.+)\|partner$/D', (string) $key, $m)) {
+            [$name, $r] = [$m[1], $str("vm|{$m[1]}|retention") !== '' ? $str("vm|{$m[1]}|retention") : $ret('')];
+        } elseif (preg_match('/^app\|(.+)\|partner$/D', (string) $key, $m)) {
+            $folders = $d["app|{$m[1]}|folder"] ?? [];
+            $first = is_array($folders) ? (string) (array_values(array_filter($folders, 'is_string'))[0] ?? '') : (is_string($folders) ? $folders : '');
+            [$name, $r] = [$m[1], $ret(explode('/', $first)[0])];
+        } else {
+            continue;
+        }
+        if (preg_match('/^(\d+) (\d+) (\d+)$/D', $r, $n) && (int) $n[1] + (int) $n[2] + (int) $n[3] === 0) {
+            return $name;
+        }
+    }
+    return null;
 }
 
 /**

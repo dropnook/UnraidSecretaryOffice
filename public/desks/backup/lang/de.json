@@ -266,6 +266,7 @@
   "errors.setup_running": "Die Einrichtung ist gerade beschäftigt — gleich nochmals versuchen.",
   "errors.setup_bad_decisions": "Diese Einstellungen lassen sich nicht übernehmen ({detail}). Server neu einlesen und nochmals versuchen.",
   "errors.setup_plan_old": "Die Einstellungen wurden geschrieben, nachdem ich zuletzt auf den Server geschaut habe — ich schaue nochmals. Prüf dann die Liste und übernimm nochmals.",
+  "errors.setup_zero_partner": "{name} geht an ein Partner-Sekretariat, darum muss bei seinen lokalen Snapshots mindestens einer bleiben (zum Beispiel «1 0 0» statt «0 0 0»): Ein Partner bekommt nur, was sich seit einem Snapshot geändert hat, den beide Seiten noch haben — ohne ihn ginge jedes Mal alles vollständig hinüber.",
   "setup.replan": "Neu planen",
   "setup.measure": "Grössen messen",
   "setup.measure_hint": "Misst Shares ohne ZFS-Dataset mit du (bis 2 Min. je Share) — weckt schlafende Array-Disks.",

@@ -2300,10 +2300,38 @@ function setupAfterPlan() {
   Office.api.post(`${ID}.start`, { mode: 'check' }).then(() => load(true));
 }
 
+/**
+ * Engine 2.50: «0 0 0» local snapshots only for what goes to no partner office (a partner needs one snapshot both sides
+ * still have). The draft's first unit that goes to a partner and would keep none, else null - the rule of the agent's
+ * backupZeroPartner() and the engine's cfg_validate: a VM's own retention, else its share's (an app's first folder's,
+ * the backup place's), else the shared one («7 4 6» unset).
+ */
+function setupZeroPartner() {
+  const str = (k) => String(dget(k, '') || '').trim();
+  const ret = (share) => (share && str(`share|${share}|retention`)) || str('zfs|retention') || '7 4 6';
+  const zero = (r) => /^\d+ \d+ \d+$/.test(r) && r.split(' ').every((x) => Number(x) === 0);
+  for (const k of Object.keys(setup.draft)) {
+    const v = setup.draft[k];
+    if (!Array.isArray(v) || !v.some((id) => typeof id === 'string' && /^[0-9a-f]{8}$/.test(id))) continue;
+    let m;
+    if (k === 'general|partner_place') { if (zero(ret(str('general|dumps_share')))) return str('general|dumps_share'); }
+    else if ((m = /^share\|(.+)\|partner$/.exec(k))) { if (zero(ret(m[1]))) return m[1]; }
+    else if ((m = /^vm\|(.+)\|partner$/.exec(k))) { if (zero(str(`vm|${m[1]}|retention`) || ret(''))) return m[1]; }
+    else if ((m = /^app\|(.+)\|partner$/.exec(k))) {
+      const f = dget(`app|${m[1]}|folder`, []);
+      const first = Array.isArray(f) ? String(f.find((x) => typeof x === 'string') || '') : String(f || '');
+      if (zero(ret(first.split('/')[0]))) return m[1];
+    }
+  }
+  return null;
+}
+
 function setupApply() {
   const ds = dget('general|dumps_share', '');
   if (!ds) { Office.toast(T('setup.ds_missing'), true); return; }
   if (dget(`share|${ds}|mode`, 'off') === 'off') { Office.toast(T('setup.ds_off', { share: ds }), true); return; }
+  const zero = setupZeroPartner();
+  if (zero !== null) { Office.toast(T('errors.setup_zero_partner', { name: zero }), true); return; }
   const box = el('div');
   if (!setup.plan.have_settings) {
     // nothing saved yet: no list of differences, but what will be backed up how

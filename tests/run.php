@@ -4189,7 +4189,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.49'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.50'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -5652,9 +5652,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.49 everywhere it is named', ['2.49', '2.49', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.49"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.49** –')]);
+    same('data trust: the engine\'s version 2.50 everywhere it is named', ['2.50', '2.50', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.50"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.50** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -5704,6 +5704,158 @@ function testDataTrust(): void
     check('data trust: the .plg says «Jack Streamer», never «Jack Emby»', !str_contains($src('plugin/unraid-secretary-office.plg'), 'Jack Emby'));
     check('data trust: the guide says a partner\'s copy is trusted like your own backup', str_contains($src('docs/GUIDE.md'), "trusts that partner like your own backup"));
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Owner 2026-10-15 (review R3-8): retention «0 0 0» only for what goes to no partner office - a partner needs one snapshot
+ * both sides still have. The engine's cfg_validate (2.50) refuses it, the agent's setup Apply (backupZeroPartner()) and
+ * the page (setupZeroPartner()) say it before; the same rule: a VM's own, else its share's (an app's first folder's, the
+ * backup place's), else [zfs] retention.
+ */
+function testRetentionPartner(): void
+{
+    $tmp = hardeningTmp('retpartner');
+    $lib = OFFICE_DIR . '/backup/lib/common.sh';
+    $p = 'partner = 0a1b2c3d';
+    $errs = function (string $ini) use ($tmp, $lib): string {
+        file_put_contents("$tmp/settings.ini", $ini);
+        [, $out] = runEnv(['bash', '-c', 'source "$1" >/dev/null 2>&1; cfg_load "$2"; cfg_validate; printf "%s\n" "${CFG_ERRORS[@]}"', 'sh', $lib, "$tmp/settings.ini"], [], 20);
+        return trim($out);
+    };
+    $zero = fn (string $ini) => str_contains($errs($ini), 'which goes to a partner office, is invalid');
+    same('retention 0 0 0 + partner: the engine refuses it for a share, the backup place, a VM, an app; elsewhere or kept, fine',
+        [true, true, true, true, true, false, false, false, false, false],
+        array_map($zero, [
+            "[share \"media\"]\nmode = snapshot\nretention = 0 0 0\n$p\n",
+            "[zfs]\nretention = 0 0 0\n[share \"media\"]\nmode = snapshot\n$p\n",
+            "[general]\ndumps_share = backups\npartner_place = 0a1b2c3d\n[share \"backups\"]\nmode = snapshot\nretention = 0 0 0\n",
+            "[zfs]\nretention = 0 0 0\n[vm \"win\"]\nmode = snapshot\n$p\n",
+            "[share \"appdata\"]\nmode = snapshot\nretention = 0 0 0\n[app \"immich\"]\nfolder = appdata/immich\n$p\n",
+            "[share \"media\"]\nmode = snapshot\nretention = 0 0 0\n",
+            "[zfs]\nretention = 0 0 0\n[share \"media\"]\nmode = snapshot\nretention = 1 0 0\n$p\n",
+            "[zfs]\nretention = 0 0 0\n[vm \"win\"]\nmode = snapshot\nretention = 0 1 0\n$p\n",
+            "[share \"media\"]\nmode = snapshot\nretention = 0 0 0\npartner = bad\n",
+            "[share \"media\"]\nmode = snapshot\n$p\n",
+        ]));
+    check('retention 0 0 0 + partner: the engine says why, in plain words', str_contains($errs("[share \"media\"]\nmode = snapshot\nretention = 0 0 0\n$p\n"), 'keep at least one snapshot'));
+    $id = ['0a1b2c3d'];
+    same('retention 0 0 0 + partner: the setup\'s Apply - the same rule, the unit named',
+        ['media', 'backups', 'win', 'immich', null, null, null],
+        [backupZeroPartner(['share|media|retention' => '0 0 0', 'share|media|partner' => $id]),
+         backupZeroPartner(['general|dumps_share' => 'backups', 'share|backups|retention' => '0 0 0', 'general|partner_place' => $id]),
+         backupZeroPartner(['zfs|retention' => '0 0 0', 'vm|win|partner' => $id]),
+         backupZeroPartner(['share|appdata|retention' => '0 0 0', 'app|immich|folder' => ['appdata/immich'], 'app|immich|partner' => $id]),
+         backupZeroPartner(['share|media|retention' => '0 0 0', 'share|media|partner' => []]),
+         backupZeroPartner(['zfs|retention' => '0 0 0', 'share|media|retention' => '2 0 0', 'share|media|partner' => $id]),
+         backupZeroPartner(['share|media|partner' => $id])]);
+    $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/$f");
+    check('retention 0 0 0 + partner: Apply refuses before the engine is started, the page says it before Apply',
+        (bool) preg_match("/backupZeroPartner\\(\\\$clean\\)\\) !== null\\) \\{\\s*throw new Problem\\('setup_zero_partner'.*?backupLaunch\\(/s", $src('agent/desks/backup.php'))
+        && str_contains($src('public/desks/backup/desk.js'), "if (zero !== null) { Office.toast(T('errors.setup_zero_partner', { name: zero }), true); return; }"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = (json_decode($src("public/desks/backup/lang/$l.json"), true) ?: [])['errors.setup_zero_partner'] ?? '';
+        check("retention 0 0 0 + partner: $l - the error with the unit's name and «0 0 0»", str_contains($t, '{name}') && str_contains($t, '0 0 0'), $t);
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * Owner 2026-10-15 (review F2): the office's own folder above the data folder, <appdata>/UnraidSecretaryOffice, is
+ * root:root 0755 - set by the .plg's install and at every agent start, only that folder (never what is in it), never
+ * through a link; a data folder elsewhere: the user's folder above is left alone, and the Team Lead looks only at the
+ * data folder there.
+ */
+function testOfficeHome(): void
+{
+    $tmp = hardeningTmp('officehome');
+    hardeningRm($tmp);
+    @mkdir($tmp, 0700, true);
+    $appdata = "$tmp/appdata";
+    $home = "$appdata/UnraidSecretaryOffice";
+    $mk = function () use ($home): void {
+        @mkdir("$home/data", 0755, true);
+        file_put_contents("$home/data/state.json", '{}');
+        foreach (["$home/data/state.json", "$home/data", $home] as $f) {
+            chown($f, 99);
+            chgrp($f, 100);
+        }
+        chmod($home, 0777);
+    };
+    $own = function (string $f): string {
+        clearstatcache();
+        $st = lstat($f);
+        return sprintf('%d:%d %o', $st['uid'], $st['gid'], $st['mode'] & 07777);
+    };
+    file_put_contents("$tmp/docker.cfg", "DOCKER_APP_CONFIG_PATH=\"$appdata/\"\n");
+    same('office home: the default place by Docker\'s appdata - the folder above is the office\'s own; elsewhere not',
+        ["$home/data", true, false], [officeDefaultDataDir("$tmp/docker.cfg"), officeHomeIsOwn("$home/data/", officeDefaultDataDir("$tmp/docker.cfg")),
+         officeHomeIsOwn("$tmp/mine/data", officeDefaultDataDir("$tmp/docker.cfg"))]);
+    // the agent's start
+    $mk();
+    $said = officeHomeOwn($home);
+    same('office home: the agent makes it root:root 0755 - only that folder, the data folder and its files keep theirs',
+        ['0:0 755', '99:100 755', '99:100 644', true], [$own($home), $own("$home/data"), $own("$home/data/state.json"), str_contains((string) $said, 'made root:root 0755 (was 99:100 777)')]);
+    same('office home: as it should be already - nothing done, nothing said', null, officeHomeOwn($home));
+    // a link in its place: never followed
+    @mkdir("$tmp/elsewhere", 0777);
+    chmod("$tmp/elsewhere", 0777);
+    chown("$tmp/elsewhere", 99);
+    hardeningRm($home);
+    symlink("$tmp/elsewhere", $home);
+    same('office home: a link in its place - left alone, its target untouched', [null, '99:0 777'], [officeHomeOwn($home), $own("$tmp/elsewhere")]);
+    unlink($home);
+    // the Team Lead: in appdata both folders; a data folder elsewhere only itself
+    $mk();
+    chmod($home, 0755);
+    chown("$home/data", 0);             // the data folder as the agent makes it
+    same('office home: the Team Lead - the folder above only where it is the office\'s own', [false, true],
+        [officeDataTrust("$home/data", true)['ok'], officeDataTrust("$home/data", false)['ok']]);
+    chown("$home/data", 99);
+    check('office home: the agent\'s start and the Team Lead use the rule', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), 'officeHomeIsOwn(DATA_DIR_USER) && ($said = officeHomeOwn(dirname(DATA_DIR))) !== null')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), 'officeDataTrust(DATA_DIR, officeHomeIsOwn(DATA_DIR_USER))'));
+
+    // the .plg's install (pointed at the tests' folders, a stand-in agent)
+    $name = 'unraid-secretary-office';
+    file_put_contents("$tmp/install.sh", plgScript('install', $tmp));
+    $p = "$tmp/stage/$name";
+    foreach (['agent', 'scripts'] as $d) {
+        @mkdir("$p/$d", 0755, true);
+    }
+    file_put_contents("$p/marker", 'new');
+    file_put_contents("$p/agent/agent.php", "<?php\n");
+    file_put_contents("$p/scripts/agent.sh", plgTestAgentSh());
+    file_put_contents("$p/scripts/partner-door.sh", "#!/bin/bash\n");
+    @mkdir("$tmp/flash", 0700, true);
+    @mkdir("$tmp/plugins", 0755, true);
+    exec('tar -cJf ' . escapeshellarg("$tmp/flash/$name-2026.10.08.txz") . ' -C ' . escapeshellarg("$tmp/stage") . " $name");
+    $run = function () use ($tmp): array {
+        exec('cd / && env USO_PLG_LOG=' . escapeshellarg("$tmp/calls.log") . ' bash ' . escapeshellarg("$tmp/install.sh") . ' 2>&1', $out, $code);
+        return [$code, implode("\n", $out)];
+    };
+    chmod($home, 0777);
+    chown($home, 99);
+    [$code, $out] = $run();
+    same('office home: the .plg\'s install - the .cfg names the default place, the folder made root:root 0755, the data inside keeps its owner',
+        [0, "DATA_DIR=\"$home/data\"", '0:0 755', '99:100 755', '99:100 644'],
+        [$code, trim((string) @file_get_contents("$tmp/flash/$name.cfg")), $own($home), $own("$home/data"), $own("$home/data/state.json")]);
+    // a data folder elsewhere: the folder above is the user's - never touched
+    @mkdir("$tmp/mine/data", 0755, true);
+    chmod("$tmp/mine", 0777);
+    chown("$tmp/mine", 99);
+    file_put_contents("$tmp/flash/$name.cfg", "DATA_DIR=\"$tmp/mine/data\"\n");
+    chmod($home, 0777);
+    chown($home, 99);
+    chgrp($home, 100);
+    [$code] = $run();
+    same('office home: the .plg\'s install with a data folder elsewhere - neither its folder above nor appdata\'s touched', [0, '99:0 777', '99:100 777'],
+        [$code, $own("$tmp/mine"), $own($home)]);
+    // a link where the office's folder belongs: never followed
+    file_put_contents("$tmp/flash/$name.cfg", "DATA_DIR=\"$home/data\"\n");
+    hardeningRm($home);
+    symlink("$tmp/elsewhere", $home);
+    [$code] = $run();
+    same('office home: the .plg\'s install - a link in its place left alone, its target untouched', [0, '99:0 777'], [$code, $own("$tmp/elsewhere")]);
+    hardeningRm($tmp);
 }
 
 function testBackupEpipe(): void
@@ -6489,7 +6641,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.49', [1, '2.49'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.50', [1, '2.50'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -7097,7 +7249,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.49', [1, '2.49'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.50', [1, '2.50'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -26891,7 +27043,7 @@ function plgScript(string $method, string $root): string
                                : '/<FILE Run="\/bin\/bash">\s*<INLINE>\s*<!\[CDATA\[\n(.*?)\]\]>/s';
     $s = preg_match($re, $plg, $m) ? $m[1] : '';
     return strtr($s, ['dir=/usr/local/emhttp/plugins/$name' => "dir=$root/plugins/\$name", 'flash=/boot/config/plugins/$name' => "flash=$root/flash",
-                      'run=/var/run/$name' => "run=$root/run", 'keys=/boot/config/ssh/root/authorized_keys' => "keys=$root/authorized_keys",
+                      'run=/var/run/$name' => "run=$root/run", 'docker=/boot/config/docker.cfg' => "docker=$root/docker.cfg", 'keys=/boot/config/ssh/root/authorized_keys' => "keys=$root/authorized_keys",
                       '/usr/local/sbin/update_cron' => "$root/update_cron", '@VERSION@' => '2026.10.08', '@OFFICE_VERSION@' => '1.42.0']);
 }
 
@@ -35657,7 +35809,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
