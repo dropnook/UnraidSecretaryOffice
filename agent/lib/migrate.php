@@ -501,7 +501,7 @@ function officeMigrateNightRun(string $dir, string $cron = OFFICE_CRON, bool $ap
 /**
  * Step `pool-x` (1.63.0): Ms. Moverelli keeps only her limit X — in her smart_mover.ini every move_until_used_below
  * (in [GLOBAL] and in a share's section), jack_min_percent and offset line goes (Smart Mover then fills down to below
- * X); the whole ini kept beside it first (<name>.before-<version>). Every other byte stays. Idempotent: an ini without
+ * X); every age_stat goes and [GLOBAL] gets age_stat=newest (always the younger date); the whole ini kept beside it first (<name>.before-<version>). Every other byte stays. Idempotent: an ini without
  * those lines is left alone. Jack Emby's own settings are his step's.
  */
 function officeMigratePoolX(string $dir, string $to): string
@@ -515,12 +515,22 @@ function officeMigratePoolX(string $dir, string $to): string
     $text = (string) @file_get_contents($ini, false, null, 0, 4 << 20);
     $out = [];
     $gone = [];
+    $newest = (bool) preg_match('/^\s*age_stat\s*=\s*newest\s*$/m', $text);     // the office's value there already: kept, once
+    $once = false;
     foreach (preg_split('/(?<=\n)/', $text) as $line) {
-        if (preg_match('/^\s*(move_until_used_below|jack_min_percent|offset)\s*=/', $line, $m)) {
+        if ($newest && !$once && preg_match('/^\s*age_stat\s*=\s*newest\s*$/', $line)) {
+            $once = true;
+        } elseif (preg_match('/^\s*(move_until_used_below|jack_min_percent|offset|age_stat)\s*=/', $line, $m)) {
             $gone[$m[1]] = ($gone[$m[1]] ?? 0) + 1;
             continue;
         }
         $out[] = $line;
+        // always the younger date (2026-10-14): age_stat=newest right under [GLOBAL]
+        if (!$newest && preg_match('/^\s*\[GLOBAL\]\s*$/', $line)) {
+            $out[] = "age_stat=newest\n";
+            $newest = true;
+            $gone['age_stat=newest added'] = 1;
+        }
     }
     if (!$gone) {
         return 'nothing to change';

@@ -59,7 +59,7 @@
 #      is skipped with an INFO line, never moved (not upstream as of 68ee9ce)
 #
 # INI (smart_mover.ini):
-#   [GLOBAL]  mover_bin, log_file, min_age (days), age_stat (ctime|mtime), global_excludes (comma list),
+#   [GLOBAL]  mover_bin, log_file, min_age (days), age_stat (ctime|mtime; USO: newest), global_excludes (comma list),
 #             move_when_used_above (percent, 0 = off; USO: the fill's trigger), move_until_used_below (percent, its target),
 #             move_prefer_shares (yes|no), mover_debug (0-3), max_list (dry-run lines shown on console)
 #   [<Share>] min_age, age_stat, excludes, move_when_used_above, move_until_used_below, skip=yes
@@ -71,6 +71,8 @@
 #      after each one (like the threshold: ZFS whole pool, else df), until the pool is below move_until_used_below=Y %
 #      (Y < X; 0/empty: below X). Several shares on one pool share the target: once below, later shares fill nothing.
 #      A dry run estimates it from the files' sizes. Not with --force/--force-all (they move everything anyway).
+# USO «newest» (2026-10-14, the office): age_stat=newest — a file's age is the YOUNGER of its birth (stat %W where the
+#   filesystem has it, else ctime) and its mtime, for the age rule too: older than min_age only when both are.
 # USO «oldest first across the pool» (2026-10-14): the fill no longer goes share by share — after the age step of every
 #   share, all pool -> array (or secondary pool) shares with a trigger on one pool fill TOGETHER: their files (never an
 #   excluded one) in one list, oldest first, a file's age being the YOUNGER of its birth (stat %W where the filesystem
@@ -313,7 +315,7 @@ is_int "$GLOBAL_MIN_AGE" || die "GLOBAL min_age must be a whole number of days (
 is_int "$GLOBAL_THRESHOLD" || die "GLOBAL move_when_used_above must be a percentage 0-100 (got '$GLOBAL_THRESHOLD')"
 is_int "$GLOBAL_UNTIL" || die "GLOBAL move_until_used_below must be a percentage 0-100 (got '$GLOBAL_UNTIL')"
 is_int "$MOVER_DEBUG" || die "mover_debug must be 0-3"
-[[ "$GLOBAL_AGE_STAT" == "ctime" || "$GLOBAL_AGE_STAT" == "mtime" ]] || die "age_stat must be ctime or mtime"
+[[ "$GLOBAL_AGE_STAT" =~ ^(ctime|mtime|newest)$ ]] || die "age_stat must be ctime, mtime or newest"
 [[ -d "$SHARES_DIR" ]] || die "Share config directory not found: $SHARES_DIR"
 
 # ------------------------------------------------------------------ Lock / stock mover
@@ -771,7 +773,7 @@ process_share() {  # name mode pool pool2
         log ERROR "[$name] move_until_used_below ${until}% must be below move_when_used_above ${threshold}% – share skipped"; return 1
     fi
     if [[ "$mode" == "yes" ]] && (( threshold > 0 )); then SH_POOL="$pool"; SH_UNTIL=$(( until > 0 ? until : threshold )); fi
-    [[ "$age_stat" == "ctime" || "$age_stat" == "mtime" ]] || { log ERROR "[$name] age_stat must be ctime|mtime – share skipped"; return 1; }
+    [[ "$age_stat" =~ ^(ctime|mtime|newest)$ ]] || { log ERROR "[$name] age_stat must be ctime|mtime|newest – share skipped"; return 1; }
 
     if [[ "$LIST_ONLY" == true ]]; then
         printf '  %-24s %-7s %-24s age>%s d (%s)  threshold %s%%%s  excludes: %s\n' "$name" "$mode" "$direction" "$age_days" "$age_stat" "$threshold" \
@@ -806,7 +808,7 @@ process_share() {  # name mode pool pool2
         log WARN "  FORCE: age filter ignored (configured: $age_days days)"
     elif (( age_days > 0 )); then
         local mins=$(( age_days * 1440 )) flag="-cmin"
-        [[ "$age_stat" == "mtime" ]] && flag="-mmin"
+        [[ "$age_stat" == "mtime" || "$age_stat" == "newest" ]] && flag="-mmin"
         AGE_ARGS=("$flag" "+$mins")
         log INFO "  age filter: older than $age_days days ($age_stat)"
     else
@@ -829,6 +831,17 @@ process_share() {  # name mode pool pool2
     local -a FILES=()
     find_candidates "$src" "${AGE_ARGS[@]}"
     FILES=("${FOUND_FILES[@]}")
+    # USO «newest»: find took those modified before the age (-mmin); of them only those also created (birth, else ctime) before it
+    if [[ "$age_stat" == "newest" && ${#AGE_ARGS[@]} -gt 0 && ${#FILES[@]} -gt 0 ]]; then
+        local cut=$(( $(date +%s) - age_days * 86400 )) rec b c
+        local -a old=()
+        while IFS= read -r -d '' rec; do
+            b=${rec%%$'\t'*}; rec=${rec#*$'\t'}; c=${rec%%$'\t'*}
+            is_int "$b" && (( b > 0 )) || b=$c
+            (( b < cut )) && old+=("${rec#*$'\t'}")
+        done < <(printf '%s\0' "${FILES[@]}" | xargs -0 -r stat --printf '%W\t%Z\t%n\0' 2>/dev/null)
+        FILES=("${old[@]}")
+    fi
 
     local count=${#FILES[@]} bytes=0
     (( count > 0 )) && bytes=$(printf '%s\0' "${FILES[@]}" | xargs -0 stat -c %s 2>/dev/null | awk '{s+=$1} END {print s+0}')

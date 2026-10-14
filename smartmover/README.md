@@ -63,6 +63,9 @@
 >   fill starts at/above the *target* (the office already decided that something must go, and how much); a file that would
 >   go past the cap is not started. The age rule is untouched; a dry run counts the same. Unset: as before. Since
 >   2026-10-14 the office no longer sets it (kept for anyone who calls the script by hand).
+> * **`age_stat=newest`** (2026-10-14, the office's value; marked «USO «newest»»): a file's age is the **younger** of its
+>   birth time (`stat %W`, else ctime) and its mtime — for the age rule as for the fill: older than `min_age` only when
+>   both are (find by `-mmin`, then the birth/ctime looked at). The office always writes it; `ctime`/`mtime` work as upstream.
 > * `CUSTOMMOVER_FILL_UNTIL_BYTES` (+ `CUSTOMMOVER_FILL_UNTIL_POOL`, 2026-10-14, the office's night run: Jack Emby's GB
 >   come first): on that pool the fill goes — every share with a trigger, oldest first across the pool — while the pool
 >   uses more than this many bytes, so Jack Emby's fetch afterwards ends at X. Unset: by percent, as above.

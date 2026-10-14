@@ -34,7 +34,10 @@ const MOVERELLI_FILES_MAX = 20;             // exclude files per scope (global, 
 const MOVERELLI_LINES_MAX = 2000;           // lines of one of her own exclude lists
 const MOVERELLI_SHARE     = '/^[\w.\- ]{1,64}$/uD';     // a share name she writes as an INI section and a file name
 // (2026-10-14: only X — move_until_used_below, the offset and jack_min_percent are gone; officeMigratePoolX() takes them out)
-const MOVERELLI_DEFAULTS  = ['min_age' => 0, 'age_stat' => 'ctime', 'move_when_used_above' => 0, 'move_prefer_shares' => true,
+// which date counts (2026-10-14): always the younger of created (birth, else ctime) and modified — Smart Mover's office
+// value age_stat=newest, written by the office for all, never a setting
+const MOVERELLI_AGE_STAT  = 'newest';
+const MOVERELLI_DEFAULTS  = ['min_age' => 0, 'move_when_used_above' => 0, 'move_prefer_shares' => true,
                              'mover_debug' => 0, 'max_list' => 50];     // Smart Mover's own defaults (its README)
 // what each number may be: [min, max]
 const MOVERELLI_RANGES    = ['min_age' => [0, 3650], 'move_when_used_above' => [0, 100], 'mover_debug' => [0, 3], 'max_list' => [1, 100000]];
@@ -382,9 +385,9 @@ function moverelliIniInt(?string $v, string $key): ?int
 }
 
 /**
- * Her settings as the page sees them, from her smart_mover.ini and her own lists: {global: {min_age, age_stat,
+ * Her settings as the page sees them, from her smart_mover.ini and her own lists: {global: {min_age,
  * move_when_used_above, move_prefer_shares, mover_debug, max_list, files, patterns}, shares: {share:
- * {skip, min_age, age_stat, move_when_used_above (null: as global), files, patterns}}}. The fill (2026-10-12; only X
+ * {skip, min_age, move_when_used_above (null: as global), files, patterns}}}. The fill (2026-10-12; only X
  * since 2026-10-14): the age rule always moves; is the pool at/above move_when_used_above X (0: off), the oldest files
  * across the pool go, whatever their age, until it is below X — Smart Mover's «fill»
  * (smartmover/custommover_run.sh). `files` are the other exclude files the ini
@@ -411,7 +414,6 @@ function moverelliSettings(string $dir): ?array
     [$files, $patterns] = $split((string) ($g['global_excludes'] ?? ''), null);
     $out = ['global' => [
         'min_age'              => moverelliIniInt($g['min_age'] ?? null, 'min_age') ?? MOVERELLI_DEFAULTS['min_age'],
-        'age_stat'             => in_array($g['age_stat'] ?? '', ['ctime', 'mtime'], true) ? $g['age_stat'] : MOVERELLI_DEFAULTS['age_stat'],
         'move_when_used_above' => moverelliIniInt($g['move_when_used_above'] ?? null, 'move_when_used_above') ?? MOVERELLI_DEFAULTS['move_when_used_above'],
         'move_prefer_shares'   => ($g['move_prefer_shares'] ?? 'yes') === 'yes',
         'mover_debug'          => moverelliIniInt($g['mover_debug'] ?? null, 'mover_debug') ?? MOVERELLI_DEFAULTS['mover_debug'],
@@ -427,7 +429,6 @@ function moverelliSettings(string $dir): ?array
         $out['shares'][$sec] = [
             'skip'                 => ($v['skip'] ?? '') === 'yes',
             'min_age'              => moverelliIniInt($v['min_age'] ?? null, 'min_age'),
-            'age_stat'             => in_array($v['age_stat'] ?? '', ['ctime', 'mtime'], true) ? $v['age_stat'] : null,
             'move_when_used_above' => moverelliIniInt($v['move_when_used_above'] ?? null, 'move_when_used_above'),
             'files'                => $files,
             'patterns'             => $patterns,
@@ -485,7 +486,7 @@ function moverelliShareNames(string $sharesDir, ?array $h = null): array
 }
 
 /**
- * The page's settings checked, every value: numbers in their range, age_stat ctime|mtime, switches true/false, files
+ * The page's settings checked, every value: numbers in their range (an older page's age_stat not read — always the younger date), switches true/false, files
  * (moverelliPathOk(), at most MOVERELLI_FILES_MAX), her own lines (no control characters, ≤ 1000 bytes each, at most
  * MOVERELLI_LINES_MAX), shares only those with a cfg. Refused with what is wrong (`moverelli_bad_value`).
  */
@@ -502,16 +503,6 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
         }
         [$min, $max] = MOVERELLI_RANGES[$key];
         if (!is_int($v) || $v < $min || $v > $max) {
-            throw $bad($field, $v);
-        }
-        return $v;
-    };
-    $stat = function (array $a, string $field, bool $optional) use ($bad): ?string {
-        $v = $a['age_stat'] ?? null;
-        if ($v === null && $optional) {
-            return null;
-        }
-        if (!in_array($v, ['ctime', 'mtime'], true)) {
             throw $bad($field, $v);
         }
         return $v;
@@ -548,7 +539,6 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
     [$files, $patterns] = $lists($g, 'global');
     $out = ['global' => [
         'min_age'              => $int($g, 'min_age', 'min_age', false),
-        'age_stat'             => $stat($g, 'age_stat', false),
         'move_when_used_above' => $int($g, 'move_when_used_above', 'move_when_used_above', false),
         'move_prefer_shares'   => $g['move_prefer_shares'],
         'mover_debug'          => $int($g, 'mover_debug', 'mover_debug', false),
@@ -569,13 +559,12 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
         $row = [
             'skip'                 => $s['skip'],
             'min_age'              => $int($s, 'min_age', "$share.min_age", true),
-            'age_stat'             => $stat($s, "$share.age_stat", true),
             'move_when_used_above' => $int($s, 'move_when_used_above', "$share.move_when_used_above", true),
             'files'                => $files,
             'patterns'             => $patterns,
         ];
         // a share without anything of its own needs no section
-        if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null || $files || $patterns) {
+        if ($row['skip'] || $row['min_age'] !== null || $row['move_when_used_above'] !== null || $files || $patterns) {
             if ($share === 'GLOBAL') {       // its section would be a second [GLOBAL]: Smart Mover reads the first for both
                 throw new Problem('moverelli_global_share', ['share' => $share]);
             }
@@ -598,7 +587,7 @@ function moverelliIniText(array $set, string $dir): string
     $g = $set['global'];
     $text = "# Ms. Moverelli (Unraid Secretary Office) - written by the office; change it on her setup page\n[GLOBAL]\n"
           . 'log_file=' . dataPathUser("$dir/smart_mover.log") . "\n"
-          . "min_age={$g['min_age']}\nage_stat={$g['age_stat']}\nmove_when_used_above={$g['move_when_used_above']}\n"
+          . "min_age={$g['min_age']}\nage_stat=" . MOVERELLI_AGE_STAT . "\nmove_when_used_above={$g['move_when_used_above']}\n"
           . 'move_prefer_shares=' . ($g['move_prefer_shares'] ? 'yes' : 'no') . "\nmover_debug={$g['mover_debug']}\nmax_list={$g['max_list']}\n";
     if (($l = $list($g['files'], null, $g['patterns'])) !== '') {
         $text .= "global_excludes=$l\n";
@@ -609,7 +598,7 @@ function moverelliIniText(array $set, string $dir): string
         if ($s['skip']) {
             $text .= "skip=yes\n";
         }
-        foreach (['min_age', 'age_stat', 'move_when_used_above'] as $k) {
+        foreach (['min_age', 'move_when_used_above'] as $k) {
             if (($s[$k] ?? null) !== null) {
                 $text .= "$k={$s[$k]}\n";
             }
@@ -825,7 +814,6 @@ function moverelliShares(array $set, string $sharesDir, ?array $h = null): array
             default                                           => 'moves',
         };
         $row['min_age'] = $own['min_age'] ?? ($use === 'prefer' ? 0 : $g['min_age']);
-        $row['age_stat'] = $own['age_stat'] ?? $g['age_stat'];
         $row['threshold'] = $use === 'yes' ? ($own['move_when_used_above'] ?? $g['move_when_used_above']) : null;
         $row['excludes'] = count($g['files']) + ($g['patterns'] ? 1 : 0) + count($own['files'] ?? []) + (($own['patterns'] ?? []) ? 1 : 0);
         $out[] = $row;
