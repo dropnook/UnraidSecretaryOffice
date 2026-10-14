@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.47 - 2026-10-14
+# unraid-backup - setup.sh                        Version 2.48 - 2026-10-15
+#   2.48 No change here (the engine's version: backup.sh's review fixes)
 #   2.47 A gone partner paired anew is also found by its name when neither its address nor a host key matches (exactly
 #        one current pair of that name - a partner office reinstalled under a new address); hint partner_anew as before
 #   2.46 No change here (the engine's version: backup.sh says the partner's warnings at once)

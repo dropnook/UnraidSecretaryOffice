@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.47 - 2026-10-14
+# unraid-backup - backup.sh                       Version 2.48 - 2026-10-15
+#   2.48 Review: the ZFS retention never thins a partner office's copies here (<pool>/UnraidSecretaryOffice-partners/...,
+#        the door's retention keeps them) nor a dataset in the storeroom; a second stop during the cleanup never cuts it
+#        short; MariaDB names one a line (a space, a * - never split or globbed; / ' \ said, not dumped); a failed thaw
+#        tried twice, then an alert, a failed freeze thawed before the pause; keep_logs = 0 keeps the run's own log
 #   2.47 No change here (the engine's version: setup.sh finds a partner paired anew by its name too)
 #   2.46 A partner that got nothing or not all of a run is said in that run (no nights of grace): unreachable, its array
 #        stopped, a refusal (an older door's refused_asleep, refused_window, not_agreed), a failed transfer - one coded
