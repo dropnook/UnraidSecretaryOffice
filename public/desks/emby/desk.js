@@ -1413,7 +1413,7 @@ function initForm() {
       min_free_percent: set.min_free_percent ?? 20,
       return_to_origin: set.return_to_origin ?? true,
       array_source: set.array_source || 'user0',
-      create_share_root: !!set.create_share_root,
+      create_share_root: !!set.create_share_root,      // no field: kept as his settings have it, written on unchanged
       give_back_unwatched_days: Number.isInteger(set.give_back_unwatched_days) ? set.give_back_unwatched_days : UNWATCHED_DAYS,
     },
   };
@@ -1447,7 +1447,7 @@ function suggestChoice(inst) {
     .filter((info) => info && info.use === 'yes' && !info.secondary && state.pools.includes('/mnt/' + info.primary));
   if (primaries.length) form.values.cache_path = '/mnt/' + primaries[0].primary;
   const pool = form.values.cache_path.replace('/mnt/', '');
-  const fitting = media.filter((lib) => shares(lib).every((sh) => ['ok', 'array_only'].includes(shareFit(state.share_info[sh], pool))));
+  const fitting = media.filter((lib) => shares(lib).every((sh) => cacheable(sh) && state.share_info[sh].primary === pool));
   (fitting.length ? fitting : media).forEach((l) => form.chosenLibs.add(l.name));
 }
 
@@ -1600,15 +1600,25 @@ function drawWizard() {
   SETUP_STEPS.forEach((_, k) => dots.appendChild(el('i', k === i ? 'on' : k < i ? 'done' : '')));
   where.appendChild(dots);
   const right = el('div', 'jo-wiz-right');
+  // a step that can't go on says why, next to its button (the people by budget: someone would get too little)
+  const why = el('span', 'role jo-wiz-why');
+  right.appendChild(why);
+  let go;
   if (id === 'summary') {
     const save = button(T('setup.save'), '', saveSetup);
-    save.disabled = running() || !connected();
-    right.appendChild(save);
+    right.appendChild(go = save);
   } else {
     if (SKIPPABLE.has(id)) right.appendChild(button(T('wizard.skip'), 'plain', () => goStep(SETUP_STEPS[i + 1].id)));
     const next = button(T('wizard.next'), '', () => (id === 'servers' ? nextFromServers(next, SETUP_STEPS[i + 1].id) : goStep(SETUP_STEPS[i + 1].id)));
-    right.appendChild(next);
+    right.appendChild(go = next);
   }
+  wiz.gate = () => {
+    const r = stepBlocked(id);
+    why.textContent = r;
+    why.hidden = !r;
+    go.disabled = !!r || (id === 'summary' && (running() || !connected()));
+  };
+  wiz.gate();
   foot.append(left, where, right);
   if (wiz.dlg.fit) wiz.dlg.fit();          // a new step: the dialog inside the window again
   focusBack(spot);
@@ -1673,7 +1683,8 @@ function stepBody(id) {
 /** The people of all connected servers, each once */
 const everyone = () => [...new Set(form.instances.flatMap((inst) => (inst.users || []).map((u) => u.id)))];
 /** The way back and reading from the array as they come (EmbyCache's defaults) */
-const MORE_DEFAULTS = { return_to_origin: true, array_source: 'user0', create_share_root: false };
+// (create_share_root has no field any more, 2026-10-14: saving writes it on as his settings have it — EmbyCache's default false)
+const MORE_DEFAULTS = { return_to_origin: true, array_source: 'user0' };
 
 /** A step that needs a connected server, before one is: one line saying so */
 function notYet() {
@@ -1701,11 +1712,25 @@ function focusBack(spot) {
 // chosen libraries' shares (shareCachePool, the array as secondary). EmbyCache has ONE cache_path: shares on several
 // pools → the user picks the pool in step 3, the folders on the others are left out; a share without a pool as its
 // primary (array only, a pool as secondary) can't be cached and is left out.
-/** A share EmbyCache can cache: «yes», a pool as primary, the array as secondary */
-function cacheable(share) {
+// (2026-10-14, the owner: either the share is set up right, or the user fixes it in Unraid — the office says what and how)
+/**
+ * How a share is set up for him, from its cfg (shareUseCache, shareCachePool, shareCachePool2): 'ok' = a pool as primary,
+ * the array as secondary, the mover from the pool to the array («yes»); else what is wrong — 'unknown' (no such share),
+ * 'no_pool' (the array as primary), 'no_array' (another pool as secondary), 'wrong_way' (the mover from the array to the
+ * pool: «prefer»), 'pool_only' (a pool without a secondary: «only»)
+ */
+function shareCase(share) {
   const info = state.share_info[share];
-  return !!info && String(info.use || '').toLowerCase() === 'yes' && !info.secondary && state.pools.includes('/mnt/' + info.primary);
+  if (!info) return 'unknown';
+  const use = String(info.use || '').toLowerCase();
+  if (!['yes', 'prefer', 'only'].includes(use) || !state.pools.includes('/mnt/' + info.primary)) return 'no_pool';
+  if (info.secondary) return 'no_array';
+  if (use === 'prefer') return 'wrong_way';
+  if (use === 'only') return 'pool_only';
+  return 'ok';
 }
+/** A share EmbyCache can cache: set up right (shareCase) */
+const cacheable = (share) => shareCase(share) === 'ok';
 /** The chosen libraries' folders that are ticked: [{lib, i, p, share}] */
 function chosenFolders() {
   return libraryList().filter((l) => form.chosenLibs.has(l.name))
@@ -1886,6 +1911,7 @@ function setupUsers() {
         const n = Number(b.value);
         if (b.value.trim() === '' || !(n > 0)) delete form.budgets[u.id]; else form.budgets[u.id] = `${n}G`;
         if (line) line.replaceWith(line = budgetLine());
+        if (wiz && wiz.gate) wiz.gate();          // «Next ›» blocked or free again, with its reason
       };
       wrap.appendChild(field(T('setup.user_budget_gb'), b));
     }
@@ -1898,24 +1924,51 @@ function setupUsers() {
   return s3;
 }
 
+/** By budget every chosen person can get at least this much (2026-10-14, the owner): a fixed budget, and the even share of the rest */
+const MIN_PERSON_GB = 20;
 /**
  * How the budget splits (pure): fixed budgets of the chosen people first, the rest evenly on the others — what someone
- * doesn't need flows to the others (EmbyCache's apply_budget); over: the fixed ones exceed the whole budget.
- * total: GB; fixed: [GB …] of the people with one; others: how many go without one.
+ * doesn't need flows to the others (EmbyCache's apply_budget). total: GB; fixed: [GB …] of the people with one; others: how
+ * many go without one. Red (bad) when the fixed ones exceed the whole (over), a fixed one is under MIN_PERSON_GB (low: how
+ * many), or the rest gives the others under MIN_PERSON_GB each (short; each = their even share).
  */
 function budgetSplit(total, fixed, others) {
   const sumFixed = fixed.reduce((a, b) => a + b, 0);
-  return { total, fixed: sumFixed, rest: Math.max(0, total - sumFixed), others, over: sumFixed > total };
+  const rest = Math.max(0, total - sumFixed);
+  const each = others > 0 ? rest / others : 0;
+  const over = sumFixed > total;
+  const low = fixed.filter((x) => x < MIN_PERSON_GB).length;
+  const short = others > 0 && each < MIN_PERSON_GB;
+  return { total, fixed: sumFixed, rest, others, over, each, low, short, bad: over || low > 0 || short };
 }
-/** The people chosen (none: everyone) with their fixed budgets — the live line under the people by budget */
-function budgetLine() {
-  const v = form.values;
+/** The split of the form now (by budget; null by count): the chosen people (none: everyone), their fixed budgets, the low ones' names */
+function budgetState() {
+  if (!form || !form.values.budget_mode) return null;
   const chosen = form.chosenUsers.size ? everyone().filter((id) => form.chosenUsers.has(id)) : everyone();
-  const fixed = chosen.map((id) => budgetGb(form.budgets[id])).filter((x) => x > 0);
-  const sp = budgetSplit(budgetGb(v.cache_budget), fixed, chosen.length - fixed.length);
-  const size = (gb) => fmt.size(gb * 1024 * 1024 * 1024);
-  if (sp.over) return el('p', 'callout warn jo-slice', T('setup.users_budget_over', { fixed: size(sp.fixed), total: size(sp.total) }));
-  return el('p', 'callout jo-slice', T('setup.users_budget_split', { fixed: size(sp.fixed), rest: size(sp.rest), n: sp.others }));
+  const own = chosen.filter((id) => budgetGb(form.budgets[id]) > 0);
+  const sp = budgetSplit(budgetGb(form.values.cache_budget), own.map((id) => budgetGb(form.budgets[id])), chosen.length - own.length);
+  const names = new Map(form.instances.flatMap((inst) => (inst.users || []).map((u) => [u.id, u.name])));
+  sp.lowNames = own.filter((id) => budgetGb(form.budgets[id]) < MIN_PERSON_GB).map((id) => names.get(id) || id);
+  return sp;
+}
+/** Why «Next ›» (the people) or «Save» (the summary) can't go on now, '' when they can: by budget a person would get under MIN_PERSON_GB */
+function stepBlocked(id) {
+  if (!['users', 'summary'].includes(id) || !connected()) return '';
+  const sp = budgetState();
+  return sp && sp.bad ? T('setup.users_budget_block', { step: T('wizard.title.users'), min: gbSize(MIN_PERSON_GB) }) : '';
+}
+const gbSize = (gb) => fmt.size(gb * 1024 * 1024 * 1024);
+/** The people's line by budget, live: red with the reason and what to do while someone would get too little, else the split */
+function budgetLine() {
+  const sp = budgetState();
+  const box = el('div', 'jo-budget');
+  const red = (text) => box.appendChild(el('p', 'callout warn jo-slice', text));
+  const min = gbSize(MIN_PERSON_GB);
+  if (sp.over) red(T('setup.users_budget_over', { fixed: gbSize(sp.fixed), total: gbSize(sp.total) }));
+  if (sp.low) red(T('setup.users_budget_low', { names: sp.lowNames.join(', '), min }));
+  if (sp.short && !sp.over) red(T('setup.users_budget_short', { n: sp.others, rest: gbSize(sp.rest), min, need: gbSize(MIN_PERSON_GB * sp.others) }));
+  if (!sp.bad) box.appendChild(el('p', 'callout jo-slice', T('setup.users_budget_split', { fixed: gbSize(sp.fixed), rest: gbSize(sp.rest), n: sp.others })));
+  return box;
 }
 
 /** 2. the libraries and their folders on the pool — each share with its primary pool (read only, Unraid's share settings) */
@@ -1936,32 +1989,44 @@ function setupLibraries() {
     if (form.chosenLibs.has(lib.name)) {
       lib.at.forEach(([i, p]) => {
         const inst = form.instances[i];
-        const on = !inst.skip.has(p);
+        const share = shareOf(inst.mappings[p]);
+        const fit = share ? shareCase(share) : 'ok';            // no share yet: the path field says what's missing
+        const on = !inst.skip.has(p) && fit === 'ok';
         const label = form.instances.length > 1 ? T('setup.map_on', { server: inst.servername, path: p }) : T('setup.map', { path: p });
-        if (lib.at.length > 1 || !on) {
+        if (fit !== 'ok') {
+          // a share that isn't set up right can't be cached: unticked and greyed, why below — fixed in Unraid, not here
+          const c = check(T('setup.cache_folder', { path: p }), false, () => {}, T(fit === 'unknown' ? 'setup.cache_folder_noshare' : 'setup.cache_folder_unfit', { share }));
+          c.querySelector('input').disabled = true;
+          c.classList.add('jo-folder', 'jo-muted');
+          main.appendChild(c);
+        } else if (lib.at.length > 1 || !on) {
           const c = check(T('setup.cache_folder', { path: p }), on, (x) => { if (x) inst.skip.delete(p); else inst.skip.add(p); renderSetup(); },
             on ? '' : T('setup.cache_folder_off'));
           c.classList.add('jo-folder');
           main.appendChild(c);
         }
-        if (!on) return;
+        if (!on && fit === 'ok') return;
         const inp = input(inst.mappings[p] || '', (x) => { inst.mappings[p] = x.trim(); });
         inp.classList.add('mono');
         inp.addEventListener('change', () => renderSetup());       // a new share: its pool anew
         const f = field(label, inp);
-        const share = shareOf(inst.mappings[p]);
         if (share) {
           const info = state.share_info[share] || {};
           const meta = el('div', 'row-meta');
-          if (!cacheable(share)) meta.appendChild(chip(T('wizard.no_pool_share'), 'danger', T('fit_tip.' + shareFit(info, info.primary), { share, pool: info.primary || '–', primary: info.primary || '–', secondary: info.secondary || T('array') })));
-          else {
+          if (fit !== 'ok') {
+            const params = { share, pool: info.primary || '–', secondary: info.secondary || '–' };
+            meta.appendChild(chip(T('wizard.share.' + fit), 'danger', T('wizard.share_tip')));
+            f.appendChild(meta);
+            f.appendChild(el('p', 'role jo-fix', T('wizard.fix.' + fit, params)));
+          } else {
             const other = cache && '/mnt/' + info.primary !== cache;
-            meta.appendChild(chip(T('wizard.pool_chip', { pool: info.primary }), other ? 'warn' : 'ok', other ? T('wizard.pool_other', { pool: cache.replace('/mnt/', '') }) : ''));
+            meta.appendChild(chip(T('wizard.pool_chip', { pool: info.primary }), other ? 'warn' : 'ok', other ? T('wizard.pool_other', { pool: cache.replace('/mnt/', '') }) : T('wizard.share_ok_tip', { share, pool: info.primary })));
+            // the share is right, its folder isn't on the pool right now: made at the first laying out (later), no fault
             if (!other && !(state.pool_dirs['/mnt/' + info.primary] || []).includes(share)) {
-              meta.appendChild(chip(T('root_missing', { pool: '/mnt/' + info.primary }), form.values.create_share_root ? 'warn' : 'danger', T('root_missing_tip', { share, pool: '/mnt/' + info.primary })));
+              meta.appendChild(chip(T('wizard.share_dir_later'), 'accent', T('wizard.share_dir_later_tip', { share, pool: '/mnt/' + info.primary })));
             }
+            f.appendChild(meta);
           }
-          f.appendChild(meta);
         }
         main.appendChild(f);
       });
@@ -2137,14 +2202,6 @@ function advancedPart() {
   f5.appendChild(el('p', 'role', T('setup.more_sub')));
   f5.appendChild(check(T('setup.origin'), v.return_to_origin, (x) => { v.return_to_origin = x; }, T('setup.origin_hint')));
   f5.appendChild(field(T('setup.array_source'), select(v, 'array_source', [['user0', T('setup.source_user0')], ['disk', T('setup.source_disk')]]), T('setup.array_source_hint')));
-  // only needed when a chosen share has no folder on the pool yet
-  const cache = derivedPool();
-  const shares = [...new Set(chosenFolders().map((x) => x.share).filter(Boolean))].sort();
-  const missing = cache ? shares.filter((sh) => cacheable(sh) && '/mnt/' + state.share_info[sh].primary === cache && !(state.pool_dirs[cache] || []).includes(sh)) : [];
-  const rootOpt = check(T('setup.create_root'), v.create_share_root, (x) => { v.create_share_root = x; renderSetup(); },
-    missing.length ? T('setup.create_root_missing', { shares: missing.join(', '), pool: cache }) : T('setup.create_root_fine', { shares: shares.join(', ') || '–', pool: cache || '–' }));
-  if (!missing.length && !v.create_share_root) { rootOpt.querySelector('input').disabled = true; rootOpt.classList.add('jo-muted'); }
-  f5.appendChild(rootOpt);
   f5.appendChild(el('p', 'role', T('setup.fixed_paths')));
   det.appendChild(f5);
   return det;
@@ -2158,7 +2215,7 @@ function setupSimulator() {
       measure: async () => {
         const j = await Office.api.post(`${ID}.pool_measure`, { pool: form && connected() ? derivedPool() : '' });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return null; }
-        if (!j.level) { Office.toast(T('sim.unmeasured'), true); return null; }
+        if (!j.level) { Office.toast(T('sim.unmeasured'), true); return false; }      // measured, but no number: asleep or no ZFS
         return j.level;
       } });
   }
@@ -2491,6 +2548,7 @@ async function saveSetup() {
     }
   }
   if (v.budget_mode && !/^\d+(\.\d+)?\s*[KMGTP]?B?$/i.test(v.cache_budget)) { Office.toast(T('setup.budget_missing'), true); return; }
+  if (stepBlocked('summary')) { Office.toast(stepBlocked('summary'), true); goStep('users'); return; }
   const settings = {
     instances,
     libraries: libs.map((l) => l.name),
@@ -2807,7 +2865,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, herRules, sharePart, simBase, needsConnect, connectInst, nextFromServers, resetDialog, summaryCard, introCard, budgetGb, budgetSplit,
+    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, herRules, sharePart, simBase, needsConnect, connectInst, nextFromServers, resetDialog, summaryCard, introCard, budgetGb, budgetSplit, budgetState, budgetLine, stepBlocked, MIN_PERSON_GB, shareCase, setupLibraries, setupUsers, drawWizard, goStep, saveSetup,
     stepOf, startStep, openWizard, cancelWizard, wiz: () => wiz, formKey, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,

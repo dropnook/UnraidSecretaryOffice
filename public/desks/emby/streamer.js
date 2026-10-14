@@ -698,11 +698,11 @@ if (typeof Office === 'undefined') return;
 /*
  * Office.streamerSim.view(h) → the simulator's section for his wizard (desk.js setupSimulator()). h: {T, el, fmt, nOf,
  * button, section, base() (the settings to start from: his form's N days, Ms. Moverelli's X/offset/k/age, his pool as
- * measured — or null), measure() (the explicit «Measure now»: the agent measures the pool now, may wake it)}. The
+ * measured — or null), measure() (the explicit «Measure now»: the agent measures the pool now, may wake it; the level, false when it measured nothing, null on an error)}. The
  * simulation lives here across the wizard's drawings (V); a control redraws only the simulator's body, in place.
  */
 const GIB = 1024 * 1024 * 1024;
-const V = { src: null, cfg: null, seed: 162, sim: null, results: null, playing: false, paused: false, timer: 0, speed: 3000, stopNote: null, shown: '', measured: null, busy: false };
+const V = { src: null, cfg: null, seed: 162, sim: null, results: null, playing: false, paused: false, timer: 0, speed: 3000, stopNote: null, shown: '', measured: null, failed: false, busy: false };
 // [key, min, max, step, unit] — unit: gb | pct | n | days. NM, what the others hold, X and Y are set in the bar (its handles);
 // the pool's size stays a slider, the rest folds into «More values»
 const POOL_SLIDER = ['pool', 128, 4096, 32, 'gb'];
@@ -844,13 +844,14 @@ function draw(h, body) {
   if (lv) {
     facts.appendChild(el('p', 'role', T('sim.measured', { pool: lv.pool || '–', when: fmt.relative(lv.at), size: fmt.size(lv.size), used: fmt.size(lv.used),
       nm: fmt.size(lv.nm), jack: fmt.size(lv.jack), others: fmt.size(lv.others) })));
-  } else facts.appendChild(el('p', 'role', T('sim.unmeasured')));
+  // no number yet (not set up, or never measured): say how to get one; «asleep or no ZFS» only after a measuring that failed
+  } else facts.appendChild(el('p', 'role', V.failed ? T('sim.unmeasured') : T('sim.not_yet', { button: T('sim.measure') })));
   const mbar = el('div', 'toolbar');
   const mb = h.button(T('sim.measure'), 'small plain', async () => {
     mb.disabled = true;
     const got = await h.measure();
     mb.disabled = false;
-    if (got) { V.measured = got; V.src = 'real'; V.cfg = baseCfg(h, 'real'); restart(h); redraw(h, body); }
+    if (got) { V.measured = got; V.failed = false; V.src = 'real'; V.cfg = baseCfg(h, 'real'); restart(h); redraw(h, body); } else if (got === false && !lv) { V.failed = true; redraw(h, body); }
   });
   mbar.append(mb, el('span', 'role', T('sim.measure_hint')));
   facts.appendChild(mbar);

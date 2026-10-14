@@ -30787,7 +30787,8 @@ JS);
             same('streamer wizard: an array-only share can\'t be cached — the pool from the others', [false, '/mnt/cache'], $r['arrayOnly']);
             same('streamer wizard: his budget («500G», «1.5T» …) in GB for the simulator, 0 when unreadable', [500, 1536, 800, 2, 0, 0], $r['budgetGb']);
             same('streamer wizard: by budget the people\'s line — fixed first, the rest evenly on the others; the fixed ones over the whole: said',
-                [['total' => 1000, 'fixed' => 500, 'rest' => 500, 'others' => 3, 'over' => false], ['total' => 400, 'fixed' => 500, 'rest' => 0, 'others' => 1, 'over' => true]], $r['split']);
+                [['total' => 1000, 'fixed' => 500, 'rest' => 500, 'others' => 3, 'over' => false, 'each' => 500 / 3, 'low' => 0, 'short' => false, 'bad' => false],
+                 ['total' => 400, 'fixed' => 500, 'rest' => 0, 'others' => 1, 'over' => true, 'each' => 0, 'low' => 0, 'short' => true, 'bad' => true]], $r['split']);
             same('streamer wizard: … and in the summary beside the name', 'Anna (322122547200 B), Ben', $r['peopleBudget']);
             same('streamer wizard: the people in words — names when known, else how many, none = everyone; never an id',
                 ['Anna, Ben', 'count.people {"n":2}', 'count.people {"n":1}', 'setup.tile.everyone'], $r['people']);
@@ -30943,6 +30944,164 @@ JS);
         ['reset.title', ['common.cancel', 'reset.go'], ['reset.text {"n":' . $cache['files'] . ',"size":"' . $cache['bytes'] . ' B"}', 'reset.text_night']], $r['confirm']);
     same('reset: then emby.reset, and the wizard opens at step 1', [true, [['emby.reset'], true, 'servers']], [$r['went'], $r['after']]);
     same('reset: afterwards the intro card has only «Start the setup» (no way back)', ['wizard.start'], $r['intro']);
+}
+
+
+/**
+ * Jack Streamer's wizard, step 2 and step 4 (2026-10-14, the owner): either a share is set up right (a pool as primary,
+ * the array as secondary, the mover from the pool to the array: shareUseCache «yes»), or the user fixes it in Unraid —
+ * each wrong case its own red chip and a one-line fix, its folder unticked and greyed (not cached); a right share whose
+ * folder is missing on the pool gets an info chip (made at the first laying out, later). The option «create the missing
+ * share folder» is gone; saving writes create_share_root on as his settings have it. By budget every chosen person gets at
+ * least MIN_PERSON_GB (20): red with the reason and what to do, «Next ›» and «Save» blocked with the reason beside them.
+ * The simulator says «not measured yet — press Measure now» until a number is there, «asleep or no ZFS» only after a
+ * measuring that failed. The demo state tests/ui/demo/emby-shares.json (+ post/emby.connect-shares.json) has every case.
+ */
+function testStreamerShares(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/streamer.js');
+    $gone = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = langFile(OFFICE_WEB . "/desks/emby/lang/$l.json");
+        foreach (['setup.create_root', 'setup.create_root_fine', 'setup.create_root_missing', 'wizard.no_pool_share'] as $k) {
+            if (isset($lang[$k])) {
+                $gone[] = "$l:$k";
+            }
+        }
+    }
+    same('streamer shares: «create the missing share folder» is gone — its words in no language', [], $gone);
+    check('streamer shares: … no field, not among the «Advanced» defaults; saving writes create_share_root on as his settings have it',
+        !str_contains($js, 'create_root') && !preg_match("/MORE_DEFAULTS = \{[^}]*create_share_root/", $js)
+        && str_contains($js, "create_share_root: !!set.create_share_root,") && str_contains($js, "    create_share_root: v.create_share_root,\n"));
+    check('streamer shares: the simulator says «not measured yet» until a number is there; «asleep or no ZFS» only after a failed measuring',
+        str_contains($sim, "V.failed ? T('sim.unmeasured') : T('sim.not_yet', { button: T('sim.measure') })")
+        && str_contains($sim, "else if (got === false && !lv) { V.failed = true;") && str_contains($js, "if (!j.level) { Office.toast(T('sim.unmeasured'), true); return false; }"));
+    check('streamer shares: 20 GB per person is one constant', substr_count($js, 'const MIN_PERSON_GB = 20;') === 1 && !preg_match('/\b20 \* 1024|\b< 20\b/', $js));
+    $node = testsNode();
+    if ($node === '') {
+        check('streamer shares: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('streamer-shares');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [emFile, stateFile, connectFile, setFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, hidden: false,
+  classList: { add(...c) { n.className += ' ' + c.join(' '); } }, appendChild(c) { n.children.push(c); return c; }, append(...c) { n.children.push(...c); },
+  replaceChildren() { n.children = []; }, closest: () => null, setAttribute() {}, addEventListener() {}, querySelectorAll: () => [],
+  querySelector: (q) => (q === 'input' ? n.children.find((c) => c.tag === 'input') || null : null), focus() {}, options: [] }; return n; };
+const all = (n, out = []) => { out.push(n); (n.children || []).forEach((c) => all(c, out)); return out; };
+const posts = [];
+const toasts = [];
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => Math.round(b / 1073741824) + ' GB', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, toast: (t, bad) => toasts.push([t, !!bad]),
+  api: { post: async (a, d) => { posts.push([a, d]); return { ok: true }; } }, errorText: (e) => e && e.key,
+  dialog: (o) => { const d = { o, closed: false, setTitle() {}, close() { d.closed = true; } }; return d; } };
+(0, eval)(fs.readFileSync(emFile, 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+const con = JSON.parse(fs.readFileSync(connectFile, 'utf8'));
+const out = {};
+e.setState(st);
+out.cases = Object.fromEntries(['Familienvideos', 'Familienserien', 'Konzerte', 'Kinderfilme', 'Dokus', 'Sport', 'Schulfilme'].map((s) => [s, e.shareCase(s)]));
+out.cacheable = ['Familienvideos', 'Familienserien', 'Dokus', 'Sport'].map(e.cacheable);
+// a «yes» share whose pool isn't one: no pool
+e.setState({ ...st, share_info: { ...st.share_info, X: { use: 'yes', primary: 'gone', secondary: '' } } });
+out.gonePool = e.shareCase('X');
+e.setState(st);
+e.initForm();
+const f = e.form();
+Object.assign(f.instances[0], { url: 'http://x', server: con.server, libraries: con.libraries, users: con.users });
+con.libraries.forEach((l) => { f.chosenLibs.add(l.name); l.locations.forEach((p) => { f.instances[0].mappings[p] = st.emby[0].mounts[p] || '/mnt/user' + p; }); });
+const lib = all(e.setupLibraries());
+const text = (n) => n.textContent;
+out.chips = lib.filter((n) => /\bchip\b/.test(n.className)).map((n) => [n.textContent.replace(/ \{.*$/, ''), n.className.replace('chip ', '')]);
+out.fixes = lib.filter((n) => /jo-fix/.test(n.className)).map((n) => text(n).replace(/ \{.*$/, ''));
+out.off = lib.filter((n) => /jo-folder/.test(n.className)).map((n) => { const i = n.children.find((c) => c.tag === 'input'); return [/jo-muted/.test(n.className), i.checked, !!i.disabled]; });
+out.pool = e.derivedPool();
+// the budget: the owner's screen — 300 GB, fixed 100 + 200, 9 more people: red, «Next» and «Save» blocked
+f.values.budget_mode = true;
+f.values.cache_budget = '300G';
+con.users.forEach((u) => f.chosenUsers.add(u.id));
+f.budgets = { 'u-anna': '100G', 'u-ben': '200G' };
+const red = e.budgetState();
+out.red = [red.short, red.each, red.others, red.bad];
+out.line = all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => [n.className, n.textContent.replace(/ \{.*$/, '')]);
+out.blocked = [!!e.stepBlocked('users'), !!e.stepBlocked('summary'), e.stepBlocked('settings'), e.stepBlocked('libraries')];
+f.budgets = { 'u-anna': '10G' };
+out.low = [e.budgetState().low, e.budgetState().lowNames, e.budgetState().short];
+f.budgets = { 'u-anna': '400G' };
+out.over = [e.budgetState().over, all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => n.textContent.replace(/ \{.*$/, ''))];
+f.budgets = { 'u-anna': '100G' };
+out.fine = [e.budgetState().bad, e.budgetState().each, e.stepBlocked('users')];
+f.values.cache_budget = '160G';         // 60 GB on 10: 6 each
+out.thin = [e.budgetState().short, !!e.stepBlocked('summary')];
+f.values.budget_mode = false;
+out.byCount = [e.budgetState(), e.stepBlocked('users')];
+// the wizard's foot: «Next ›» on the people blocked with the reason beside it, free again once fine
+f.values.budget_mode = true;
+e.openWizard('users');
+const foot = () => { const w = e.wiz(); const right = w.footBox.children.find((c) => /jo-wiz-right/.test(c.className)); return right.children; };
+const why = () => foot().find((c) => /jo-wiz-why/.test(c.className));
+const go = () => foot().at(-1);
+out.footRed = [why().hidden, why().textContent.replace(/ \{.*$/, ''), !!go().disabled, go().textContent];
+f.values.cache_budget = '1000G';
+e.wiz().gate();
+out.footFine = [why().hidden, !!go().disabled];
+// saving: create_share_root as his settings have it, never asked — with every right and wrong share
+(async () => {
+  const set = JSON.parse(fs.readFileSync(setFile, 'utf8')).settings;
+  for (const flag of [true, false]) {
+    e.setState({ ...st, configured: true, settings: { ...set, create_share_root: flag, cache_budget: '' } });
+    e.initForm();
+    const g = e.form();
+    Object.assign(g.instances[0], { url: 'http://x', server: con.server, libraries: con.libraries, users: con.users });
+    con.libraries.forEach((l) => { g.chosenLibs.add(l.name); l.locations.forEach((p) => { g.instances[0].mappings[p] = '/mnt/user/' + ({ '/familienvideos': 'Familienvideos', '/familienserien': 'Familienserien' }[p] || p.slice(1)); }); });
+    posts.length = 0;
+    await e.saveSetup();
+    const s = (posts.find((p) => p[0] === 'emby.save') || [])[1];
+    out['save_' + flag] = s ? [s.settings.create_share_root, s.settings.instances[0].path_mappings] : toasts.at(-1);
+  }
+  console.log(JSON.stringify(out));
+})();
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby-shares.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/emby.connect-shares.json') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('streamer shares: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    same('streamer shares: each share\'s case from its cfg — right; right, folder missing; array primary; pool → pool; prefer; only; no such share',
+        ['Familienvideos' => 'ok', 'Familienserien' => 'ok', 'Konzerte' => 'no_pool', 'Kinderfilme' => 'no_array', 'Dokus' => 'wrong_way', 'Sport' => 'pool_only', 'Schulfilme' => 'unknown'], $r['cases']);
+    same('streamer shares: only a right share is cached; a «yes» share on a pool that isn\'t one has no pool', [[true, true, false, false], 'no_pool'], [$r['cacheable'], $r['gonePool']]);
+    same('streamer shares: step 2 — the pool chip, the info chip for the missing folder (not red), a red chip per wrong case (the music library\'s share is missing too)',
+        [['wizard.pool_chip', 'ok'], ['wizard.pool_chip', 'ok'], ['wizard.share_dir_later', 'accent'], ['wizard.share.no_pool', 'danger'], ['wizard.share.no_array', 'danger'],
+         ['wizard.share.wrong_way', 'danger'], ['wizard.share.pool_only', 'danger'], ['wizard.share.unknown', 'danger'], ['wizard.share.unknown', 'danger']], $r['chips']);
+    same('streamer shares: … and under each red chip the fix in Unraid, one line', ['wizard.fix.no_pool', 'wizard.fix.no_array', 'wizard.fix.wrong_way', 'wizard.fix.pool_only',
+        'wizard.fix.unknown', 'wizard.fix.unknown'], $r['fixes']);
+    same('streamer shares: … each wrong share\'s folder unticked, greyed and not to be ticked', array_fill(0, 6, [true, false, true]), $r['off']);
+    same('streamer shares: the pool from the right shares', '/mnt/cache', $r['pool']);
+    same('streamer shares: by budget, the owner\'s screen (300 GB, fixed 100 + 200, 9 more): short — 0 each for 9, red', [true, 0, 9, true], $r['red']);
+    same('streamer shares: … one red line with the reason and what to do (no neutral split line)', [['callout warn jo-slice', 'setup.users_budget_short']], $r['line']);
+    same('streamer shares: … «Next ›» on the people and «Save» blocked, the other steps not', [true, true, '', ''], $r['blocked']);
+    same('streamer shares: a fixed budget under 20 GB is red, named', [1, ['Anna'], false], $r['low']);
+    same('streamer shares: fixed budgets over the whole: red, said once (not also as «too little for the others»)', [true, ['setup.users_budget_over']], $r['over']);
+    same('streamer shares: fine — 200 GB for 10, 20 each: not blocked', [false, 20, ''], $r['fine']);
+    same('streamer shares: 60 GB for 10 people: under 20 each — blocked', [true, true], $r['thin']);
+    same('streamer shares: by count: no budget rule', [null, ''], $r['byCount']);
+    same('streamer shares: the foot — «Next ›» disabled with the reason beside it, free again once the budget suffices',
+        [[false, 'setup.users_budget_block', true, 'wizard.next'], [true, false]], [$r['footRed'], $r['footFine']]);
+    same('streamer shares: saving writes create_share_root as his settings have it (true stays true, false false); wrong shares\' folders not cached',
+        [[true, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']],
+         [false, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']]],
+        [$r['save_true'] ?? null, $r['save_false'] ?? null]);
 }
 
 /**
@@ -34803,7 +34962,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testStreamerFix3', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
