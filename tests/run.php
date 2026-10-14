@@ -6388,6 +6388,13 @@ SH);
     unlink("$tmp/data/partner/ended.json");
     [$got, $msgs] = $carried();
     same('setup plan 2.45: no address, no host key in common - nothing carried, partner_gone as before', [[], [['partner_gone', ['partner' => 'vault']]]], [$got, $msgs]);
+    // 2.47 (a re-pairing on the test servers): no address, no host key in common, but the one pair of the ended one's name - carried over
+    file_put_contents("$tmp/data/partner/pairs.json", json_encode(['v' => 1, 'pairs' => [
+        ['id' => $new, 'name' => 'VAULT', 'address' => '10.0.0.88', 'port' => 22, 'host_keys' => ['SHA256:new'], 'my_key' => 'SHA256:y', 'their_key' => null,
+         'send' => ['rate_mbit' => 0], 'receive' => null, 'trust' => 'mine', 'paired' => 1, 'last_heard' => null, 'last_answer' => null]]]));
+    [$got, $msgs] = $carried();
+    same('setup plan 2.47: another address and host key, the one pair of the ended one\'s name (case aside) - carried over (partner_anew)',
+        [$olds, [['partner_anew', ['partner' => 'vault', 'new' => 'VAULT', 'n' => (string) count($olds)]]]], [$got, $msgs]);
     $anewPair('10.0.0.9', ['SHA256:other']);
     [, , $p2] = $carried();
     // a draft from before the plan still naming the ended id on a unit (the page's decisions): the setup carries it over too
@@ -21647,6 +21654,15 @@ function testPartnerEnded(): void
         ['5e6f7a8b|', '|'], [$match('0f1e2d3c', '10.9.9.9'), $match('5e6f7a8b', '10.9.9.9')]);
     $writePairs([$pair('5e6f7a8b', 'Tower', '192.168.1.50', [$fp('a')], false)]);
     same('partner ended: engine — … a pair this office doesn\'t send to gets nothing', '|', $match('0f1e2d3c', '192.168.1.50'));
+    // 2.47: neither address nor host key — the one pair of the same name (case aside); two of that name: none
+    @unlink("$tmp/partner/ended.json");
+    $named = fn (string $old, string $addr, string $name) => $sh('echo "$(partner_anew_match ' . escapeshellarg($old) . ' ' . escapeshellarg($addr) . ' ' . escapeshellarg($name) . ')|"');
+    $writePairs([$pair('c3553dcc', 'USOPartner', '10.7.7.7', [$fp('n')])]);
+    same('partner ended: engine 2.47 — by its name alone (case aside), not without a name, not another name', ['c3553dcc|', '|', '|'],
+        [$named('2ec7accd', '10.9.9.9', 'usopartner'), $named('2ec7accd', '10.9.9.9', ''), $named('2ec7accd', '10.9.9.9', 'Other')]);
+    $writePairs([$pair('c3553dcc', 'USOPartner', '10.7.7.7', [$fp('n')]), $pair('d4664edd', 'USOPartner', '10.7.7.8', [$fp('o')])]);
+    same('partner ended: engine 2.47 — two pairs of that name: none (an address still decides)', ['|', 'd4664edd|'],
+        [$named('2ec7accd', '10.9.9.9', 'USOPartner'), $named('2ec7accd', '10.7.7.8', 'USOPartner')]);
     $engine = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     check('partner ended: engine — the run asks partner_ended before the key (why ended), no_key stays for a pair there',
         (bool) preg_match('/if partner_ended "\$id"; then\s+why="ended".*\n\s+elif .*\n.*\n\s+why="no_key"/', $engine), 'partner_phase');
@@ -21674,6 +21690,10 @@ function testPartnerEnded(): void
     same('partner ended: partnerAnew — by address, by host key, none', ['5e6f7a8b', '5e6f7a8b', null],
         [partnerAnew('0f1e2d3c', '192.168.1.50', [], [$tower])['id'] ?? null, partnerAnew('0f1e2d3c', '10.0.0.5', [$fp('a')], [$tower])['id'] ?? null,
          partnerAnew('0f1e2d3c', '10.0.0.5', [$fp('x')], [$tower])['id'] ?? null]);
+    $twin = partnerPairUpgrade($pair('6f7a8b9c', 'Tower', '10.6.6.6', [$fp('t')]));
+    same('partner ended: partnerAnew 2.47 — by its name alone (case aside), none for two of that name, none without a name', ['5e6f7a8b', null, null],
+        [partnerAnew('0f1e2d3c', '10.0.0.5', [$fp('x')], [$tower], 'TOWER')['id'] ?? null, partnerAnew('0f1e2d3c', '10.0.0.5', [], [$tower, $twin], 'Tower')['id'] ?? null,
+         partnerAnew('0f1e2d3c', '10.0.0.5', [], [$tower])['id'] ?? null]);
     file_put_contents("$tmp/settings.ini", "[general]\npartner_place = 0f1e2d3c\n[partner \"0f1e2d3c\"]\nname = Backup2\naddress = 192.168.1.50\nport = 22\n"
         . "[partner \"dddd4444\"]\nname = gone\naddress = 10.4.4.4\nport = 22\n"
         . "[share \"appdata\"]\nmode = snapshot\npartner = 0f1e2d3c\npartner = dddd4444\n[vm \"Windows11\"]\nmode = snapshot\npartner = 0f1e2d3c\n");
@@ -21695,6 +21715,14 @@ function testPartnerEnded(): void
     $set2 = backupReadSettings("$tmp/settings2.ini");
     $rows2 = array_column(backupPartners($set2, [], null, partnerApplyPending($set2, [$tower], [])), null, 'id');
     same('partner ended: applied — nothing waits, no apply line', [[], false], [partnerApplyPending($set2, [$tower], [])['ended'], $rows2['5e6f7a8b']['apply'] ?? null]);
+    // 1.63.0 (re-paired on the test servers): settings.ini still sends to the old id, the pair made anew of the same name elsewhere
+    file_put_contents("$tmp/settings3.ini", "[general]\npartner_place = 2ec7accd\n[partner \"2ec7accd\"]\nname = USOPartner\naddress = 10.0.0.1\nport = 22\n"
+        . "[share \"domains\"]\nmode = snapshot\npartner = 2ec7accd\n");
+    $uso = partnerPairUpgrade($pair('c3553dcc', 'USOPartner', '10.0.0.2', [$fp('u')]));
+    $wait3 = partnerApplyPending(backupReadSettings("$tmp/settings3.ini"), [$uso], []);
+    same('partner ended: what waits — the old id paired anew by its name: its 2 units go to the new pair (the Team Lead\'s «units wait»)',
+        [[['2ec7accd', ['id' => 'c3553dcc', 'name' => 'USOPartner'], 2]], [['c3553dcc', [['name' => 'USOPartner', 'n' => 2]]]]],
+        [array_map(fn ($e) => [$e['id'], $e['anew'], count($e['units'])], $wait3['ended']), array_map(fn ($e) => [$e['id'], $e['from']], $wait3['empty'])]);
 
     // ---- the texts: the engine's why, the rows, the setup's hint, the Team Lead's card — every language
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
@@ -26238,6 +26266,118 @@ function testBackupReplan(): void
     check('backup replan: the page no longer sniffs the plan\'s shape', !str_contains($js, 'restale') && !str_contains($js, 'c.binds === undefined'));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/backup/lang/en.json'), true) ?: [];
     check('backup replan: the office has its words', str_contains((string) ($en['setup.msg.replanned'] ?? ''), '{from}') && str_contains((string) ($en['setup.msg.replanned'] ?? ''), '{to}'));
+}
+
+/**
+ * 1.63.0 (the monthly reinstall test: a partnership ended and paired anew, Tower ↔ USOPartner, a new id): the setup's plan
+ * was made before the re-pairing — it named the old id like settings.ini, the page showed «local + USOPartner», no
+ * change, no Apply, while the Team Lead said units wait. backupSetupPairsReplan(): a plan whose partners aren't the pairs
+ * this office sends to is made anew on the next look (once per set of pairs); the plan made then hands the old pair's
+ * units to the new one (setup.sh, testBackupPartnerPhase «2.45»/«2.47») and the page proposes exactly that.
+ */
+function testBackupPairsReplan(): void
+{
+    $state = ['found' => true, 'compatible' => true, 'running' => false, 'version' => '2.47'];
+    $stale = ['version' => '2.47', 'time' => 100, 'partners' => [['id' => '2ec7accd', 'name' => 'USOPartner', 'source' => 'pairs']]];
+    $r = backupSetupPairsReplan($stale, $state, ['c3553dcc'], null, true, 1000);
+    same('pairs replan: the plan names the ended id, the Team Lead pairs another — planned anew, the note first', [true, ['pairs' => 'c3553dcc', 'at' => 1000]], [$r['start'], $r['note']]);
+    same('pairs replan: … once for these pairs (the plan failed: not at every look)', false, backupSetupPairsReplan($stale, $state, ['c3553dcc'], $r['note'], true, 1060)['start']);
+    same('pairs replan: … the pairs changed again — planned anew again', true, backupSetupPairsReplan($stale, $state, ['d4664edd'], $r['note'], true, 1100)['start']);
+    $fresh = ['partners' => [['id' => 'c3553dcc'], ['id' => 'aaaa1111']]] + $stale;
+    same('pairs replan: the plan has the pairs (any order) — nothing', false, backupSetupPairsReplan($fresh, $state, ['aaaa1111', 'c3553dcc'], null, true, 1000)['start']);
+    same('pairs replan: a partnership ended without a new one (the plan still names it) — planned anew (its units go)', true,
+        backupSetupPairsReplan($stale, $state, [], null, true, 1000)['start']);
+    same('pairs replan: paired for the first time since the plan — planned anew', true,
+        backupSetupPairsReplan(['partners' => []] + $stale, $state, ['c3553dcc'], null, true, 1000)['start']);
+    foreach ([['running' => true], ['compatible' => false], ['found' => false]] as $odd) {
+        same('pairs replan: not now — ' . json_encode($odd), false, backupSetupPairsReplan($stale, $odd + $state, ['c3553dcc'], null, true, 1000)['start']);
+    }
+    same('pairs replan: not while something holds the lock; no plan; a plan without partners (an engine before 2.27)', [false, false, false],
+        [backupSetupPairsReplan($stale, $state, ['c3553dcc'], null, false, 1000)['start'], backupSetupPairsReplan(null, $state, ['c3553dcc'], null, true, 1000)['start'],
+         backupSetupPairsReplan(['time' => 5], $state, ['c3553dcc'], null, true, 1000)['start']]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    $get = preg_match('/^function backupSetupGet\(\): array\n\{\n(.*?)^\}/ms', $src, $m) ? $m[1] : '';
+    $at = strpos($get, 'backupSetupPairsReplan(');
+    check('pairs replan: setup_get asks after the engine\'s replan, only with a pairs.json, the pairs this office sends to; the note before setup.sh, no plan meanwhile',
+        $at !== false && $at > strpos($get, 'backupSetupReplan(') && str_contains($get, "if (!\$replan['start'] && function_exists('partnerPairs') && @lstat(partnerDir() . '/pairs.json') !== false)")
+        && str_contains($get, "fn (\$p) => \$p['my_key'] !== null") && strpos($get, 'writeAtomic($pairsFile', $at) < strpos($get, "'--plan'", $at)
+        && strpos($get, "\$replan['plan'] = null;", $at) !== false);
+
+    // the page: the stale plan shows no partner change (the bug), the plan made anew proposes the new id — Apply sends it
+    $node = testsNode();
+    if ($node === '') {
+        check('pairs replan: page — node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('pairs-replan');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [bkFile, coreFile, planFile, stateFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t, time: (t) => 'H' + t, number: (n) => String(n) },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => null, has: () => false, store: () => null,
+  storeJson: () => null, agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }), withGreeting: (id, s) => s,
+  sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; }, done() { return bar; }, tile() { return bar; } }; return bar; } };
+const core = fs.readFileSync(coreFile, 'utf8');
+new Function('Office', core.slice(core.indexOf('const fold = '), core.indexOf('/** Text or a node')))(globalThis.Office);
+(0, eval)(fs.readFileSync(bkFile, 'utf8'));
+const b = OFFICE_DESK_TESTS.backup;
+const S = b.setup;
+const demo = JSON.parse(fs.readFileSync(planFile, 'utf8')).plan;
+b.setState(JSON.parse(fs.readFileSync(stateFile, 'utf8')));
+const OLD = '2ec7accd', NEW = 'c3553dcc';
+const partnerKeys = (o) => Object.keys(o).filter((k) => /partner/.test(k)).sort();
+const look = () => {
+  b.setupDraftFromPlan();
+  const items = b.setupChangeItems().items.filter((x) => /partner/.test(x.id));
+  const spec = b.setupBarSpec();
+  const dec = b.setupDecisions();
+  return { bar: spec && spec.title, items: items.map((x) => [x.id, x.kind]),
+    sent: Object.fromEntries(Object.entries(dec).filter(([k]) => /\|partner(_place)?$/.test(k)).sort()), lines: b.partnerApplyLines() };
+};
+const out = {};
+// the plan from before the re-pairing: P and O name the old id — nothing to apply
+let plan = JSON.parse(JSON.stringify(demo));
+plan.migrated = {}; plan.declined = {};
+S.plan = plan; S.choice = null;
+out.stale = look();
+// the plan made anew: setup.sh gave the old pair's units to the new id (partner_anew), O still the old
+plan = JSON.parse(JSON.stringify(demo));
+plan.migrated = {}; plan.declined = {};
+const swap = (v) => (Array.isArray(v) ? v.map((x) => (x === OLD ? NEW : x)) : v);
+plan.P = Object.fromEntries(Object.entries(plan.P).map(([k, v]) => [k.replace(`partner|${OLD}|`, `partner|${NEW}|`), swap(v)]));
+plan.P[`partner|${NEW}|address`] = '100.84.12.9';
+plan.partners = [{ ...plan.partners[0], id: NEW, address: '100.84.12.9' }];
+plan.messages = [...(plan.messages || []), { level: 'hint', step: 'partners', code: 'partner_anew', params: { partner: 'Grosseltern', new: 'Grosseltern', n: '4' } }];
+S.plan = plan; S.choice = null;
+out.anew = look();
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/backup.setup_get.json') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/backup.json') . ' 2>&1');
+    $r = json_decode($raw, true);
+    hardeningRm($tmp);
+    if (!is_array($r)) {
+        check('pairs replan: page ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    same('pairs replan: page — the plan from before the re-pairing: no partner change (why the page offered no Apply)', [], $r['stale']['items'] ?? null);
+    $new = 'c3553dcc';
+    same('pairs replan: page — the plan made anew: the old partnership goes, the new comes, every unit to it — proposals, the bar is there',
+        [['general|partner_place', 'unit'], ['partner|2ec7accd|', 'partner'], ['partner|c3553dcc|', 'partner'], ['share|Dokumente|partner', 'unit'],
+         ['share|Familienfotos|partner', 'unit'], ['vm|Home-Assistant|partner', 'unit']], $r['anew']['items'] ?? null);
+    check('pairs replan: page — … the bar counts them as proposals of mine', str_starts_with((string) ($r['anew']['bar'] ?? ''), 'setup.bar_proposals'), (string) json_encode($r['anew']['bar'] ?? null));
+    same('pairs replan: page — Apply sends the new id for every unit, never the old',
+        ['general|partner_place' => [$new], 'share|Dokumente|partner' => [$new], 'share|Familienfotos|partner' => [$new], 'vm|Home-Assistant|partner' => [$new]],
+        $r['anew']['sent'] ?? null);
+    $line = (string) ($r['anew']['lines'][0][1] ?? '');
+    check('pairs replan: page — the dialog\'s «To Grosseltern» says each unit is taken over from the old partnership',
+        substr_count($line, 'partner.apply_from {"name":"Grosseltern"}') === 4 && !str_contains($line, 'partner.apply_new'), $line);
 }
 
 /**
@@ -35017,7 +35157,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];

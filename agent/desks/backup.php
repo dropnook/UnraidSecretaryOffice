@@ -2384,6 +2384,25 @@ function backupSetupGet(): array
             $replan['plan'] = $plan;        // the old one then, as before
         }
     }
+    // 1.63.0: a partnership ended and paired anew at the Team Lead since the plan — the plan names the old pair, the page
+    // shows no change while settings.ini still sends to the gone one: made anew too (backupSetupPairsReplan())
+    if (!$replan['start'] && function_exists('partnerPairs') && @lstat(partnerDir() . '/pairs.json') !== false) {
+        $pairsFile = "$data/state/" . BACKUP_REPLAN_PAIRS_FILE;
+        $pairsNote = readJson($pairsFile);
+        $sending = array_column(array_filter(partnerPairs(), fn ($p) => $p['my_key'] !== null), 'id');
+        $again = backupSetupPairsReplan($replan['plan'], $state, $sending, $pairsNote, $holder === null && !backupSetupStatus()['running'], time());
+        if ($again['start']) {
+            try {
+                writeAtomic($pairsFile, jsonEncode($again['note']), 0600, 0, 0);
+                backupLaunch([BACKUP_SCRIPT_DIR . '/setup.sh', '--plan'], ['UB_SIZE_TIMEOUT' => 0]);
+                logLine('Backup: the partnerships changed at the Team Lead since the plan (' . implode(', ', $sending) . ') — setup.sh --plan started via at (once)');
+                backupSetupWait();
+                $replan['plan'] = null;
+            } catch (Throwable $e) {
+                logLine('Backup: the plan anew after the partnerships changed could not start: ' . $e->getMessage() . ' (not again for these pairs)');
+            }
+        }
+    }
     $plan = $replan['plan'];
     if (is_array($plan['shares'] ?? null)) {
         $asleep = sleepingDisks();
@@ -2573,6 +2592,42 @@ function backupSetupReplan(?array $plan, array $state, ?array $note, bool $free,
         ]]);
     }
     return ['plan' => $plan, 'start' => false, 'note' => $note];
+}
+
+const BACKUP_REPLAN_PAIRS_FILE = 'setup-replan-pairs.json';   // in the engine's state/: the pairs the office last planned anew for
+
+/**
+ * 1.63.0 (a re-pairing on the test servers): the setup's plan names the partners as the Team Lead paired them when it was
+ * made (plan.partners). A partnership ended and paired anew since — the plan still has the old id, the draft equals
+ * settings.ini, the page shows no change and offers no Apply, while the Team Lead says units wait. When the pairs this
+ * office sends to ($sending, ids) aren't the plan's, the plan is made anew on the next look — its setup.sh hands the old
+ * pair's units to the new one (hint partner_anew) and the page proposes it. Once per set of pairs, whatever comes of it:
+ * the note {pairs, at} is written before setup.sh starts (a failing plan is not tried again at every look). Only for a
+ * plan of an engine that names its partners (2.27+), found, compatible, nothing running, the lock free.
+ * Pure: $plan as read, $state the desk's, $note the last one.
+ *
+ * @return array{start: bool, note: ?array}
+ */
+function backupSetupPairsReplan(?array $plan, array $state, array $sending, ?array $note, bool $free, int $now): array
+{
+    if (!$plan || !is_array($plan['partners'] ?? null) || empty($state['found']) || empty($state['compatible']) || !empty($state['running']) || !$free) {
+        return ['start' => false, 'note' => $note];
+    }
+    $planned = [];
+    foreach ($plan['partners'] as $p) {
+        if (is_string($p['id'] ?? null) && preg_match('/^[0-9a-f]{8}$/D', $p['id'])) {
+            $planned[] = $p['id'];
+        }
+    }
+    $planned = array_values(array_unique($planned));
+    $paired = array_values(array_unique(array_filter($sending, fn ($id) => is_string($id) && preg_match('/^[0-9a-f]{8}$/D', $id))));
+    sort($planned);
+    sort($paired);
+    $fp = implode(',', $paired);
+    if ($planned === $paired || (is_array($note) && ($note['pairs'] ?? null) === $fp)) {
+        return ['start' => false, 'note' => $note];
+    }
+    return ['start' => true, 'note' => ['pairs' => $fp, 'at' => $now]];
 }
 
 /**

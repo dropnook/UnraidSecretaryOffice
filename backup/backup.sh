@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.46 - 2026-10-12
+# unraid-backup - backup.sh                       Version 2.47 - 2026-10-14
+#   2.47 No change here (the engine's version: setup.sh finds a partner paired anew by its name too)
 #   2.46 A partner that got nothing or not all of a run is said in that run (no nights of grace): unreachable, its array
 #        stopped, a refusal (an older door's refused_asleep, refused_window, not_agreed), a failed transfer - one coded
 #        warning per partner (warning_items partner_missed, partner + why) unless another coded one named it; the

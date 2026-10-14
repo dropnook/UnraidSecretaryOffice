@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.46 - 2026-10-12
+# unraid-backup - setup.sh                        Version 2.47 - 2026-10-14
+#   2.47 A gone partner paired anew is also found by its name when neither its address nor a host key matches (exactly
+#        one current pair of that name - a partner office reinstalled under a new address); hint partner_anew as before
 #   2.46 No change here (the engine's version: backup.sh says the partner's warnings at once)
 #   2.45 Apps whose folder is a dataset of its own take a partner level ([app] partner = <id>, kept only for such an
 #        app - partner_cannot_app / partner_off_app otherwise; the [app] section written for it, folder listed).
@@ -1729,10 +1731,11 @@ step_partners() {
             pset "partner|$id|port" "$port"; pset "partner|$id|rate_mbit" "$rate"
         done
         # 2.45: a gone partner paired anew (the same address, or one of the host keys the ended pair had - partner/ended.json,
-        # written when a partnership is ended at the Team Lead): its units go to the new pair (ANEW), said once below
+        # written when a partnership is ended at the Team Lead; 2.47: else the one pair of its name): its units go to the new
+        # pair (ANEW), said once below
         while IFS= read -r id; do
             [[ -n "$id" && -z "${pair[$id]:-}" ]] || continue
-            n="$(partner_anew_match "$id" "$(old "partner|$id|address")")"
+            n="$(partner_anew_match "$id" "$(old "partner|$id|address")" "$(old "partner|$id|name")")"
             if [[ -n "$n" ]]; then ANEW[$id]="$n"; ANEW_N[$id]=0
             else hint_as partner_gone "Partner '$(old "partner|$id|name" "$id")' ($id) is no longer paired at the Team Lead - its section and its units go" partner "$(old "partner|$id|name" "$id")"; fi
         done < <(old_names partner)

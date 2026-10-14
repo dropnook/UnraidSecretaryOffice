@@ -17,8 +17,9 @@ declare(strict_types=1);
  *   data/partner/wishes/<id>.json the units an older partner (up to 1.59) named at the door with its `offer`: {pair, units,
  *                                 time} — one file per pair, overwritten; the door takes them whole (status says so)
  *   data/partner/ended.json       the partnerships ended here ({v, pairs: {id: {name, address, port, host_keys, time}}}, the
- *                                 newest PARTNER_ENDED_KEEP) — a pair made anew with the same address or a host key of
- *                                 these gets the ended one's units at Mr. Backupsy's next Apply (engine 2.45, partnerAnew())
+ *                                 newest PARTNER_ENDED_KEEP) — a pair made anew with the same address, a host key of these
+ *                                 or (the only one) the same name gets the ended one's units at Mr. Backupsy's next Apply
+ *                                 (engine 2.45/2.47, partnerAnew())
  *   data/partner/migrated.json    the units the pairs sent up to 1.59 ({v, pairs: {id: [unit…]}, time}, the migration step
  *                                 partner-simple) — Mr. Backupsy's setup proposes them at «local + partner» until applied
  *   /boot/config/plugins/unraid-secretary-office/partners/<id>.key (.pub)   my key for a pair (ssh-keygen ed25519)
@@ -2119,10 +2120,11 @@ function partnerEndedRecord(array $pair, ?string $dir = null): void
 
 /**
  * The pair a partnership ended here was made anew as (engine 2.45 setup.sh partner_anew_match(), the same rule): a pair
- * this office sends to (my_key) with the same address (case aside), else one with a host key the ended pair had. Null:
- * none — its units then go at the next Apply.
+ * this office sends to (my_key) with the same address (case aside), else one with a host key the ended pair had, else
+ * (engine 2.47) the one pair of the same name (case aside; two of that name: none). Null: none — its units then go at
+ * the next Apply.
  */
-function partnerAnew(string $oldId, string $address, array $hostKeys, array $pairs): ?array
+function partnerAnew(string $oldId, string $address, array $hostKeys, array $pairs, string $name = ''): ?array
 {
     $mine = array_values(array_filter($pairs, fn ($p) => $p['my_key'] !== null && $p['id'] !== $oldId));
     foreach ($mine as $p) {
@@ -2135,7 +2137,8 @@ function partnerAnew(string $oldId, string $address, array $hostKeys, array $pai
             return $p;
         }
     }
-    return null;
+    $named = $name === '' ? [] : array_values(array_filter($mine, fn ($p) => strtolower($p['name']) === strtolower($name)));
+    return count($named) === 1 ? $named[0] : null;
 }
 
 /**
@@ -2169,7 +2172,8 @@ function partnerApplyPending(?array $settings = null, ?array $pairs = null, ?arr
             continue;
         }
         $e = $ended[$n['id']] ?? null;
-        $new = partnerAnew($n['id'], $n['address'] !== '' ? $n['address'] : (string) ($e['address'] ?? ''), $e['host_keys'] ?? [], $pairs);
+        $new = partnerAnew($n['id'], $n['address'] !== '' ? $n['address'] : (string) ($e['address'] ?? ''), $e['host_keys'] ?? [], $pairs,
+            $n['name'] !== $n['id'] ? $n['name'] : (string) ($e['name'] ?? ''));
         $out['ended'][] = ['id' => $n['id'], 'name' => $n['name'], 'units' => $n['units'], 'anew' => $new ? ['id' => $new['id'], 'name' => $new['name']] : null];
         if ($new && $n['units']) {
             $out['from'][$new['id']][] = ['name' => $n['name'], 'n' => count($n['units'])];
