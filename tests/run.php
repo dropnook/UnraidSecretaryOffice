@@ -30654,10 +30654,17 @@ function testStreamerWizard(): void
         && str_contains($js, "const SKIPPABLE = new Set(['users', 'settings', 'simulator']);"));
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
     check('streamer wizard: the office\'s dialog has a modal kind — a click outside does nothing, Escape calls onEscape, everything outside inert until it closes',
-        str_contains($core, "backdrop.onclick = (e) => { if (e.target === backdrop && !modal) close(); };")
+        str_contains($core, "me.onclick = (e) => { if (e.target === backdrop && !modal) close(); };")
         && str_contains($core, "if (e.key === 'Escape' && modal) { e.preventDefault(); if (onEscape) onEscape(); return; }")
         && str_contains($core, "if (sib !== n && !sib.inert && !['SCRIPT', 'STYLE', 'LINK'].includes(sib.tagName)) { sib.inert = true; inerted.push(sib); }")
         && str_contains($core, "inerted.forEach((x) => { x.inert = false; });"));
+    check('streamer wizard: a dialog opened over a modal one stacks — the modal one waits as it was (content, foot, classes, keys, click outside, focus) and comes back when the top one closes; Escape, buttons and a click outside act on the top one only (tools/ui-clicks.mjs «dialog stack» clicks it)',
+        str_contains($core, "dialogParked.push({ me: dialogTop, body: [...box.childNodes], foot: [...foot.childNodes], dlgCls: dlg.className, backCls: backdrop.className,")
+        && str_contains($core, "const below = dialogTop === me ? dialogParked.pop() : null;") && str_contains($core, "document.addEventListener('keydown', below.me.onKey);")
+        && str_contains($core, "while (dialogTop && dialogTop !== me && closeDialog) closeDialog();")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/tools/ui-clicks.mjs'), 'async function dialogStack(browser, harness)'));
+    check('streamer wizard: the import taken over from inside the wizard goes back to it with what came over (nothing to discard)',
+        str_contains($js, "if (wiz) { initForm(); wiz.snap = formKey(); }") && str_contains($js, "onClose: () => { if (wiz) drawWizard(); else Office.go(`#/\${ID}`); } });"));
     check('streamer wizard: #/emby/setup/<step> opens the wizard there, closing it is #/emby/setup again; «Change» on a row opens it at that step',
         str_contains($js, "if (want) openWizard(want);") && str_contains($js, "if (view && page === 'setup') Office.subroute('setup');")
         && str_contains($js, "() => (wiz ? goStep(d.id) : openWizard(d.id))"));
