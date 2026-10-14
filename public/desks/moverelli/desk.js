@@ -530,6 +530,7 @@ function runSummary(r) {
   else notes.push(T('run_summary', { moved: s.moved || 0, files: s.files || 0, size: fmt.size(s.bytes || 0), left: nOf('left', s.left) }));
   if (s.errors) notes.push(nOf('errors', s.errors));
   if (r.waited) notes.push(T('waited', { min: Math.round(r.waited / 60) }));
+  if (r.jack_out) notes.push(jackOutText(r.jack_out));
   return notes.join(' · ');
 }
 
@@ -814,6 +815,15 @@ function tonightShort(p, age = null) {
   return T('night.tile', { what: parts.join(' · ') });
 }
 
+/**
+ * Jack Streamer not in a night (his step refused — not set up, «Consolidate folders» first …; night.json / her record
+ * `jack_out`, his refusal's code), pure: «Jack Streamer wasn't in it: run «Consolidate folders» once first» — '' when he was
+ */
+function jackOutText(why) {
+  if (!why) return '';
+  const k = why === 'jack_gather_first' ? 'night.jack_why_gather' : why === 'jack_not_configured' ? 'night.jack_why_setup' : 'night.jack_why_other';
+  return T('night.jack_out', { why: T(k) });
+}
 /** The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused), its rounds */
 function lastNightText(l) {
   if (!l || !l.started) return '';
@@ -821,8 +831,8 @@ function lastNightText(l) {
   const how = l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
     : l.result === 'stopped' ? T('night.last_stopped', { phase: T('rc.phase.' + (l.stopped_in || 'free')) })
     : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
-  return T(l.jack === false ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
-    + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '');
+  return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
+    + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '');
 }
 /** «Shares»: how many move, the rules for all as its line — alert while Jack Emby's list isn't kept out for a share of his */
 function sharesTile(a) {
@@ -846,6 +856,7 @@ function lastRunTile(a) {
   } else if (last && last.finished) {
     value = fmt.relative(last.finished);
     sub.push(`${T('mode.' + last.mode)} · ${T('result.' + (last.result || 'failed'))}`);
+    if (last.jack_out) sub.push(jackOutText(last.jack_out));
     alert = !!((last.status && last.status.errors) || !['ok', 'stopped'].includes(last.result));
   }
   return Office.stat({ label: T('last_run'), value, sub, tip: sub.join('\n'), alert, ...a });
@@ -877,6 +888,8 @@ function scheduleSection() {
     pm.appendChild(el('div', 'row-name', tonightText(n.plan, !!n.jack)));
     const last = lastNightText(n.last);
     pm.appendChild(el('div', 'row-meta', T(n.jack ? 'night.steps' : 'night.steps_mine') + (last ? ' · ' + last : '')));
+    // Jack Streamer not in the last night: to his page, where he says what to do
+    if (n.last && n.last.jack_out) pm.appendChild(el('div', 'row-meta')).appendChild(link(T('night.jack_open'), () => Office.go(n.last.jack_out === 'jack_gather_first' ? '#/jack/gather' : '#/jack')));
     const dry = button(T('night.dry'), 'small plain', async () => { dry.disabled = true; await act('start_run', { mode: 'dry' }, T(n.jack ? 'night.dry_started' : 'night.dry_started_mine')); });
     dry.disabled = !Office.agent.running || running() || nightGoing();
     plan.append(pm, dry);
@@ -1077,10 +1090,12 @@ async function chooseRun() {
     title: T('start_title'),
     body: box,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('start_go'), kind: '', act: async () => {
+      const before = runKeys();
       const j = await Office.api.post(`${ID}.start_run`, { mode });
       if (!j.ok) { showError(err, j.error); return false; }
       if (j.state) state = j.state;
       if (view && page === 'main') render();     // no log dialog: a real run shows its card (as Mr. Backupsy's)
+      followRun(mode, { before });
       return true;
     } }],
   });
@@ -1088,8 +1103,43 @@ async function chooseRun() {
 
 async function startRun(mode) {
   // no dialog (as Mr. Backupsy's and Mr. Restori's runs): a real run shows its card, the others their result under the tiles
+  const before = runKeys();
   const j = await act('start_run', { mode });
-  if (j) render();
+  if (j) { render(); followRun(mode, { before }); }
+}
+
+/**
+ * After a click on «Show shares» or «Start…» (live 2026-10-14: the list ran, nothing showed): the section where its result
+ * lands is shown at once — the shares for the list, her runs otherwise — and the page follows the run (her state every
+ * POLL) until it ended: refused or skipped → said right there (a toast with why), done → a toast; a real run hands over
+ * to its card. A refusal at the start itself is act()'s toast already.
+ */
+let followTimer = null;
+function followRun(mode, opts) {
+  const o = opts || {};
+  clearTimeout(followTimer);
+  const before = o.before || new Set();
+  const first = o.tries == null;
+  const tries = first ? 40 : o.tries;
+  if (first && sw && view && page === 'main') sw.pick(mode === 'list' ? 'shares' : 'runs', 'run');
+  const ended = runEnded(mode, before);
+  if (first && !ended && mode !== 'list' && !realRun()) Office.toast(T('run_started', { mode: T('mode.' + mode), tile: T('last_run') }));
+  if (ended) {
+    if (['refused', 'skipped'].includes(ended.result)) Office.toast(runSummary(ended), true);
+    else Office.toast(T(mode === 'list' ? 'list_done' : 'run_done', { mode: T('mode.' + mode), tile: T(mode === 'list' ? 'shares' : 'last_run') }));
+    return ended;
+  }
+  if (realRun() || tries <= 0 || !view || page !== 'main') return null;       // a real run: its card follows it from here
+  followTimer = setTimeout(async () => { await load(true); followRun(mode, { before, tries: tries - 1 }); }, POLL);
+  return null;
+}
+/** Her records as keys (a refusal counted again is a new one) — taken before a click, so its run is the one not among them */
+const runKey = (r) => `${r.mode}|${r.started}|${r.times || 1}`;
+const runKeys = () => new Set(((state && state.history) || []).map(runKey));
+/** The run a click started, once it ended, pure: her newest record of that mode not there before the click (the night's own too) — null while it goes */
+function runEnded(mode, before) {
+  if (running() || (night().last && night().last.running)) return null;
+  return ((state && state.history) || []).find((r) => r.mode === mode && !before.has(runKey(r))) || null;
 }
 
 /** The output of her last run, following it while it runs */
@@ -2033,7 +2083,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

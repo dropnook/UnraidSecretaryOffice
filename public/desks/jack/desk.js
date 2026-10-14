@@ -582,7 +582,18 @@ function plansSection() {
   s.appendChild(plansList());
   // the night run with Ms. Moverelli: tonight's plan — one quiet line
   if (night() && night().jack) s.appendChild(el('p', 'role', tonightText(night().plan)));
+  const out = nightOutLine();
+  if (out) s.appendChild(out);
   return s;
+}
+/**
+ * I wasn't in the last night run (my step refused: not set up, folders not consolidated yet …): Ms. Moverelli did her part
+ * alone — a callout with my reason (my refusal's text), null when I was in it
+ */
+function nightOutLine() {
+  const l = night() && night().last;
+  if (!l || !l.jack_out || !l.started) return null;
+  return el('p', 'callout warn', T('night_out', { when: fmt.relative(l.finished || l.started), why: Office.errorText({ key: l.jack_out, params: {} }, ID) }));
 }
 function plansList() {
   const box = el('div', 'box jo-plans');
@@ -1555,7 +1566,7 @@ function setupStep(id) {
   const s = SETUP_HEADS[id]();
   s.dataset.section = id;                // focusSpot()/focusBack() find the control again inside it
   s.appendChild(id === 'servers' ? setupServers() : id === 'libraries' ? setupLibraries() : id === 'scope' ? setupScope()
-    : id === 'users' ? setupUsers() : id === 'more' ? setupMore() : importPart());
+    : id === 'users' ? setupUsers() : id === 'more' ? setupMore() : importSection());
   return s;
 }
 
@@ -2023,8 +2034,14 @@ function setupScope() {
     box.appendChild(f);
     s4.appendChild(box);
   };
+  // the films share counts over all chosen libraries together, by kind (every film a film, every episode series —
+  // EmbyCache's select()); only one kind chosen: the field greyed, the whole room goes to that kind
+  const both = chosenTypes.has('movies') && chosenTypes.has('tvshows');
+  const share = number(v, 'movie_share_percent', 0, 100);
+  share.disabled = !both;
   part(T('type.movies'), 'movies',
-    field(T('setup.movie_share'), number(v, 'movie_share_percent', 0, 100), T('setup.movie_share_hint')),
+    field(T('setup.movie_share'), share, both || !chosenTypes.size ? T('setup.movie_share_hint')
+      : T(chosenTypes.has('movies') ? 'setup.movie_share_only_movies' : 'setup.movie_share_only_series')),
     field(T('setup.resume_movies'), number(v, 'max_resume_movies', 0, 999), T('setup.resume_movies_hint')),
     el('p', 'role', T('setup.movies_folder')));
   part(T('type.tvshows'), 'tvshows',
@@ -2151,8 +2168,11 @@ function resetDialog() {
   ] });
 }
 
-/** Taking over an earlier install, as a part of its own (once he is set up; before, the server's part offers it) */
-function importPart() {
+/**
+ * Taking over an earlier install, as a part of its own (once he is set up; before, the server's part offers it) — never
+ * named importPart: that one (the preview's box per tool) won the hoisting and drew «undefined» here (live 2026-10-14)
+ */
+function importSection() {
   const s = el('div', 'jo-part-body');
   s.append(el('p', 'role', T('import.sub')), button(T('import.open'), 'small', importDialog));
   return s;
@@ -2740,7 +2760,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
+    renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
     setupServers, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,

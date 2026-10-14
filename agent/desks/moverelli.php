@@ -1181,6 +1181,10 @@ function moverelliJob(array $args, ?array $h = null): int
         }
     }
     $solo = $by === 'night' && in_array('--solo', $args, true);      // the night without Jack Streamer: the record says so
+    $jackOut = null;                                                  // … and why, when he refused tonight (his refusal's code)
+    foreach ($solo ? $args : [] as $a) {
+        $jackOut = preg_match('/^--jack-out=([a-z][a-z0-9_]{0,63})$/D', $a, $m) ? $m[1] : $jackOut;
+    }
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     // let go (or never hired): a schedule line left in the office's cron file moves nothing — said in the log only
@@ -1293,7 +1297,7 @@ function moverelliJob(array $args, ?array $h = null): int
         $note['stop_file'] = (string) ($status['stop_file'] ?? '');
     }
     moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(), 'exit' => $exit, 'result' => $result,
-                       'status' => moverelliStatusShort($status)] + ($solo ? ['jack' => false] : []) + $note, $dir);
+                       'status' => moverelliStatusShort($status)] + ($solo ? ['jack' => false] : []) + ($jackOut !== null ? ['jack_out' => $jackOut] : []) + $note, $dir);
     logLine("Ms. Moverelli: Smart Mover ($mode) $result" . ($mode === 'run' ? ' — ' . (int) ($status['moved'] ?? 0) . ' moved, '
         . (int) ($status['left'] ?? 0) . ' left' : '') . (isset($note['why']) ? " (stopped: {$note['why']})" : ''));
     try {
@@ -1479,7 +1483,7 @@ function moverelliNight(array $h, ?array $settings): array
 function moverelliNightShort(array $n): array
 {
     return array_intersect_key($n, array_flip(['mode', 'by', 'started', 'finished', 'phase', 'round', 'who', 'jack', 'pool', 'plan', 'steps',
-        'result', 'stopped_in', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture']));
+        'result', 'stopped_in', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture', 'jack_out']));
 }
 
 /**

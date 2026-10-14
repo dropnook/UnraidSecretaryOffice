@@ -201,6 +201,8 @@ function nightHost(?array $h = null): array
 {
     $h ??= moverelliHost();
     $n = $GLOBALS['nightHost'] ?? [];
+    // Jack Emby's records (his refusal's reason) — moverelliHost() carries them too: the night's own stand-in first
+    $h = (isset($n['jack_runs']) ? ['jack_runs' => $n['jack_runs']] : []) + $h;
     return $h + [
         // Jack Emby takes part: hired and set up
         'jack_on'     => $n['jack_on'] ?? fn (): bool => function_exists('jackReadSettings') && ($h['jack_desk'])() !== null && (!function_exists('jackConfigured') || jackConfigured(jackReadSettings())) && jackReadSettings() !== null,
@@ -434,7 +436,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             $last = ($h['jack_runs'])()[0] ?? [];
             $recent = (($h['jack_live'])())['recent'] ?? [];
         } else {
-            $exit = ($h['her_job'])(array_merge([$mode, '--night'], $jack ? [] : ['--solo'], $extra), $h);
+            // without Jack Emby (not taking part, or his step refused tonight): her part alone, her record says why
+            $out = isset($n['jack_out']) ? ['--solo', '--jack-out=' . $n['jack_out']] : ['--solo'];
+            $exit = ($h['her_job'])(array_merge([$mode, '--night'], $jack && !isset($n['jack_out']) ? [] : $out, $extra), $h);
             $last = moverelliHistory($dir)[0] ?? [];
             $recent = (readJson("$dir/status.json") ?? [])['recent'] ?? [];
         }
@@ -447,6 +451,15 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             $n['result'] = 'stopped';
             $n['stopped_in'] = $phase;
             return false;
+        }
+        if ($who === 'jack' && in_array($result, ['refused', 'skipped'], true)) {
+            // Jack Emby refused (not set up, «consolidate folders» first, someone watching …): the night goes on with her part
+            // alone — said on both pages with his reason (his record's code), never the whole night refused
+            $why = (string) ($last['why'] ?? '');
+            $n['jack_out'] = preg_match('/^[a-z][a-z0-9_]{0,63}$/D', $why) ? $why : 'jack_refused';
+            logLine("Night run: Jack Emby not in it tonight ({$n['jack_out']}) — Ms. Moverelli's part alone");
+            nightWrite($dir, $n);
+            return true;
         }
         if (in_array($result, ['refused', 'skipped'], true)) {
             $n['result'] = 'refused';
@@ -468,6 +481,13 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     } else {
         // free: Jack Emby gives back what was watched, then she moves the others' oldest down so his fetch ends at X
         $go = $step('jack', 'free');
+    }
+    if ($jack && $plan['measured'] && $go && isset($n['jack_out'])) {
+        // Jack Emby refused his first step: her part alone (the age rule, from X the oldest until below X), no room kept for him
+        $alone = nightPlan($level, 0);
+        $n['plan'] = nightWords($alone) + ['used_pct' => $alone['used_pct'], 'x' => $alone['x']];
+        $go = $step('her', 'free');
+    } elseif ($jack && $plan['measured']) {
         $back = $go ? nightJackBack($h, $real) : 0;
         // a real run measures the pool anew (his give-back is in it, kept as a number); a dry run reckons it from his dry answer,
         // what his dry step would fetch standing for what waits
@@ -513,12 +533,13 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         $phase('done', nightPlan($end, 0, 0));
     }
     $n['result'] ??= 'ok';
+    $with = $jack && !isset($n['jack_out']);
     // over X (Jack Emby fills up to X exactly — at X is no miss)
-    if ($go && $jack && $end !== null && $end['x'] > 0 && $end['need'] > 0) {
+    if ($go && $with && $end !== null && $end['x'] > 0 && $end['need'] > 0) {
         $n['result'] = 'missed';
         $n['why'] = $end['never'] ? 'never' : ($end['jack_over'] ? 'jack' : null);
         nightMissedTell($end, $h);
-    } elseif ($go && $jack && $end !== null && in_array($roomWhy, ['full', 'crowded'], true)) {
+    } elseif ($go && $with && $end !== null && in_array($roomWhy, ['full', 'crowded'], true)) {
         // at X, but Jack Emby's GB crowd the others out (or what never moves and what he keeps leave him nothing new): told
         $n['why'] = $roomWhy;
         nightRoomTell($roomWhy, $end, $h);
@@ -527,7 +548,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     $n['who'] = null;
     $n['finished'] = time();
     nightWrite($dir, $n);
-    logLine("Night run ($mode): {$n['result']}" . (isset($n['stopped_in']) ? " (in {$n['stopped_in']})" : '') . ($n['round'] > 1 ? ", {$n['round']} rounds" : ''));
+    logLine("Night run ($mode): {$n['result']}" . (isset($n['jack_out']) ? " (without Jack Emby: {$n['jack_out']})" : '') . (isset($n['stopped_in']) ? " (in {$n['stopped_in']})" : '') . ($n['round'] > 1 ? ", {$n['round']} rounds" : ''));
     return match ($n['result']) { 'stopped' => 3, 'refused' => 1, default => 0 };
 }
 

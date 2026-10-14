@@ -30663,9 +30663,16 @@ function testStreamerTab(): void
   e.setState(st); e.initForm();
   out.setTiles = e.setupTileData().map((d) => d.id);
   out.offerSet = all(e.setupServers()).some((n) => n.textContent === 'import.open');
+  // its own tile's part after «Save» (live 2026-10-14: a box with «undefined» — the preview's importPart won the hoisting)
+  const imp = all(e.setupStep('import')).map((n) => n.textContent || '');
+  out.importPart = [imp.includes('import.open'), imp.includes('import.sub'), imp.some((t) => /undefined/.test(t))];
   let f = connect();
   out.form = [f.values.cache_budget, f.values.max_episodes_per_series, 'budget_mode' in f.values, 'number_episodes' in f.values, 'give_back_unwatched_days' in f.values, 'create_share_root' in f.values];
   const scope = texts(e.setupScope());
+  // the films share over all chosen libraries by kind; only one kind chosen: greyed, the whole room to it
+  const kinds = (keep) => { const was = new Set(f.chosenLibs); con.libraries.filter((l) => !keep.includes(l.type)).forEach((l) => f.chosenLibs.delete(l.name));
+    const t = texts(e.setupScope()).filter((x) => x.startsWith('setup.movie_share_')); f.chosenLibs = was; return t; };
+  out.shareKinds = [scope.filter((x) => x.startsWith('setup.movie_share_')), kinds(['movies']), kinds(['tvshows'])];
   out.scope = [scope.includes('setup.budget_gb'), scope.some((t) => t.startsWith('setup.mode')), scope.filter((t) => t.startsWith('setup.rule') || t.startsWith('room.none')).map((t) => t.replace(/ \{.*$/, ''))];
   out.rule = [e.ruleTexts(300), e.ruleTexts(0)];
   const share = texts(e.sharePart());
@@ -30724,6 +30731,22 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     same('streamer tab: the wizard\'s routes lead to the tile holding that part now (summary: the whole page)', ['scope', 'scope', '', 'users', 'scope', 'import'], $r['routes']);
     same('streamer tab: before he is set up no import tile — the server\'s part offers it', [['servers', 'libraries', 'scope', 'users', 'more'], true], [$r['freshTiles'], $r['offer']]);
     same('streamer tab: … once set up its own tile, the offer gone from the server\'s part', [['servers', 'libraries', 'scope', 'users', 'more', 'import'], false], [$r['setTiles'], $r['offerSet']]);
+    same('streamer tab: … its part: the offer and its line, never «undefined»', [true, true, false], $r['importPart'] ?? null);
+    same('streamer tab: the films share — both kinds: the plain rule; only films / only series chosen: greyed with the whole room to that kind',
+        [['setup.movie_share_hint'], ['setup.movie_share_only_movies'], ['setup.movie_share_only_series']], $r['shareKinds'] ?? null);
+    // one name, one function: a second top-level declaration in a desk's script silently replaces the first (hoisting)
+    $dups = [];
+    foreach (array_merge(glob(OFFICE_WEB . '/desks/*/desk.js') ?: [], [OFFICE_WEB . '/assets/core.js']) as $f) {
+        // Ms. Dustdevil's script holds two scopes at the margin (her page and `const Where = (() => {…})()`) — names repeat there on purpose
+        if (basename(dirname($f)) === 'cleanup') {
+            continue;
+        }
+        preg_match_all('/^(?:async )?function\*? ?([A-Za-z_$][\w$]*)\s*\(/m', (string) file_get_contents($f), $m);
+        foreach (array_count_values($m[1]) as $fn => $c) {
+            if ($c > 1) $dups[] = basename(dirname($f)) . ":$fn";
+        }
+    }
+    same('desk scripts: no top-level function declared twice', [], $dups);
     same('streamer tab: Emby works, Plex and Jellyfin greyed «coming soon» (not choosable)', [['Emby', 'false', false], ['Plex', 'true', true], ['Jellyfin', 'true', true]], $r['cards']);
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
@@ -32721,7 +32744,8 @@ function testNightRun(): void
                 $p['j'] += $fetch;
                 $p['wait'] -= $fetch;
             }
-            array_unshift($runs, ['tool' => 'embycache', 'result' => $exit === 3 ? 'stopped' : 'ok']);
+            array_unshift($runs, ['tool' => 'embycache', 'result' => $exit === 3 ? 'stopped' : ($exit === 1 ? 'refused' : 'ok')]
+                + ($exit === 1 ? ['why' => $p['jack_why'] ?? 'jack_gather_first'] : []));
             if (($p['stop_ask'] ?? false) && nightStopAsk()) {
                 $p['stop_ask'] = false;
             }
@@ -32824,6 +32848,24 @@ function testNightRun(): void
     same('night run stop asked: the tool at work got its stop file, the night ended after its step, its stop file gone afterwards',
         [true, 1, 'stopped', false, false], [is_file("$tmp/jack-stop.json"), count($calls), $night()['result'] ?? null, is_file("$dir/night-stop.json"), nightStopAsk()]);
 
+    // Jack Emby refuses his first step (live 2026-10-14: «consolidate folders» never ran): the night goes on with her part alone
+    // (no room kept for him, no fetch), done — her record and night.json say why
+    $calls = [];
+    $p = $fresh(['j' => 0, 'd' => 400, 'age' => 20, 'jack_exit' => [1]]);
+    $exit = nightRun(['run']);
+    $n = $night();
+    same('night run, Jack Emby refused (gather first): her part alone ran (solo, with his reason), no fetch, done — exit 0, the reason in night.json',
+        [0, ['jack run --night --nofill', 'her run --night --solo --jack-out=jack_gather_first'], 'ok', 'jack_gather_first', 'done', 380],
+        [$exit, $calls, $n['result'] ?? null, $n['jack_out'] ?? null, $n['phase'] ?? null, $p['d']]);
+    same('night run, Jack Emby refused: the page\'s night carries the reason', 'jack_gather_first', moverelliNightShort($n)['jack_out'] ?? null);
+    // … any refusal (here: not set up) — also when it comes at his fill at the end: her part ran already, the night is done
+    $calls = [];
+    $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'jack_exit' => [0, 1], 'jack_why' => 'jack_not_configured']);
+    $exit = nightRun(['run']);
+    $n = $night();
+    same('night run, Jack Emby refused his fill: her part ran before, done with the reason', [0, 'jack run --night', 'ok', 'jack_not_configured'],
+        [$exit, end($calls), $n['result'] ?? null, $n['jack_out'] ?? null]);
+
     // (5) only she (Jack Emby not taking part): her part alone
     $calls = [];
     $GLOBALS['nightHost']['jack_on'] = fn () => false;
@@ -32865,6 +32907,12 @@ function testNightRun(): void
     unset($GLOBALS['nightHost']);
     $exit = moverelliJob(['run', '--night'], $h);
     same('night her part: ran, «by night»', [0, 'night'], [$exit, moverelliHistory($dir)[0]['by'] ?? null]);
+    // without Jack Emby because he refused tonight: her record says so and why (a code in exactly its shape, else nothing)
+    moverelliJob(['run', '--night', '--solo', '--jack-out=jack_gather_first'], $h);
+    $r0 = moverelliHistory($dir)[0] ?? [];
+    moverelliJob(['run', '--night', '--solo', '--jack-out=../x'], $h);
+    same('night her part without Jack Emby (refused): jack false + jack_out in her record; a strange code never', [false, 'jack_gather_first', false],
+        [$r0['jack'] ?? null, $r0['jack_out'] ?? null, array_key_exists('jack_out', moverelliHistory($dir)[0] ?? [])]);
     check('night her part: no fill cap from the office (only X); Jack Emby\'s room as CUSTOMMOVER_FILL_UNTIL_BYTES/_POOL, only inside the night', !str_contains($src, 'CUSTOMMOVER_FILL_MAX')
         && !str_contains($src, '--fill-max') && str_contains($src, "['CUSTOMMOVER_FILL_UNTIL_BYTES' => \$room, 'CUSTOMMOVER_FILL_UNTIL_POOL' => \$roomPool]") && str_contains($src, "foreach (\$by === 'night' ? \$args : [] as \$a)"));
     $nsrc = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
@@ -32996,6 +33044,30 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   out.plans = texts(e.plansSection());
   out.tile = e.plansTile({}).value;
   out.jtonight = e.tonightText(plan);
+  // Jack Emby refused tonight (night.json jack_out): her last night «mine» with his reason, her way to his page; his callout
+  const lout = { mode: 'run', started: 100, finished: 200, result: 'ok', round: 1, jack: true, jack_out: 'jack_gather_first' };
+  out.outLast = [m.lastNightText(lout), m.jackOutText('jack_not_configured'), m.jackOutText('jack_watching'), m.jackOutText(undefined)];
+  m.setState({ ...base, night: { jack: true, plan, last: lout } });
+  out.outSection = texts(m.scheduleSection());
+  e.setState({ schedules: { embycache: { enabled: false }, gather: { enabled: false } }, night: { schedule: { enabled: true, frequency: 'custom', custom: '15 1 * * *', next: 0 }, jack: true, plan, last: lout } });
+  out.outPlans = texts(e.plansSection());
+  // her head buttons (live 2026-10-14: «Show shares» ran, nothing showed): the result's section picked at once, the run
+  // followed until it ended — done or refused said right there
+  const picks = [];
+  const toasts = [];
+  Office.toast = (t, bad) => toasts.push([t, !!bad]);
+  m.setSw({ pick: (id, how) => picks.push([id, how]) });
+  m.setView(mk('div'), 'main');
+  const old = { mode: 'list', started: 50, result: 'ok' };
+  m.setState({ ...base, history: [old] });
+  const before = m.runKeys();
+  m.setState({ ...base, history: [{ mode: 'list', started: 300, result: 'ok' }, old] });
+  out.followList = [!!m.followRun('list', { before }), picks.pop(), toasts.pop()];
+  m.setState({ ...base, history: [{ mode: 'dry', started: 300, result: 'refused', why: 'moverelli_jack_running' }, old] });
+  out.followRefused = [!!m.followRun('dry', { before }), picks.pop(), toasts.pop()];
+  m.setState({ ...base, job: { running: true, mode: 'dry' }, history: [old] });
+  out.followGoing = [m.followRun('dry', { before, tries: 0 }), picks.length, toasts.length];
+  m.setView(null);
   console.log(JSON.stringify(out));
 })();
 JS);
@@ -33038,6 +33110,16 @@ JS);
         in_array('plans.night_name', $j['plans'] ?? [], true) && in_array('plans.night {"when":"C15 1 * * *"}', $j['plans'] ?? [], true)
         && in_array('plans.night_open', $j['plans'] ?? [], true) && in_array($j['jtonight'] ?? '-', $j['plans'] ?? [], true) && str_starts_with((string) ($j['tile'] ?? ''), 'plans.on'),
         json_encode([$j['plans'] ?? null, $j['tile'] ?? null]));
+    same('her head buttons: «Show shares» → the shares shown, the list done said; a refused dry run → her runs, why as a warning toast; still going → nothing yet',
+        [[true, ['shares', 'run'], ['list_done {"mode":"mode.list","tile":"shares"}', false]],
+         [true, ['runs', 'run'], ['refused {"why":"err:moverelli_jack_running"}', true]], [null, 0, 0]],
+        [$j['followList'] ?? null, $j['followRefused'] ?? null, $j['followGoing'] ?? null]);
+    same('night page, Jack Emby refused: her last night is «mine» with his reason; not set up / any other / none',
+        ['night.last_mine {"when":"R200","how":"night.last_ok"} · night.jack_out {"why":"night.jack_why_gather"}', 'night.jack_out {"why":"night.jack_why_setup"}',
+         'night.jack_out {"why":"night.jack_why_other"}', ''], $j['outLast'] ?? null);
+    check('night page, Jack Emby refused: her schedule section links to his page; his schedules carry his callout with his own reason',
+        in_array('night.jack_open', $j['outSection'] ?? [], true) && in_array('night_out {"when":"R200","why":"err:jack_gather_first"}', $j['outPlans'] ?? [], true)
+        && !preg_grep('/undefined/', array_merge($j['outSection'] ?? [], $j['outPlans'] ?? [])), json_encode([$j['outSection'] ?? null, $j['outPlans'] ?? null]));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
         check("night lang $l: the words there, «after Jack Emby» gone", isset($lang['night.tonight'], $lang['rc.phase.recheck'], $lang['notify.night_missed'], $lang['check.night_schedule'])
