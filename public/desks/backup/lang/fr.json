@@ -244,6 +244,8 @@
   },
   "check.setup": "La sauvegarde est configurée (settings.ini)",
   "check.setup_how": "Monsieur Backupsi → « Configurer… » : il lit le serveur et propose tout. (Dans un terminal : {path})",
+  "check.engine_trust": "Le dossier des sauvegardes et ses réglages appartiennent à root seul",
+  "check.engine_trust_how": "Ce n’est pas le cas pour {path} : le moteur de sauvegarde refuse de tourner tant que ce n’est pas réglé — il travaille en root et ne lit rien que d’autres auraient pu écrire. Dans un terminal sur le serveur : {cmd}",
   "check.schedule": "Une sauvegarde est planifiée",
   "check.schedule_how": "Monsieur Backupsi → Planification : choisis une heure.",
   "check.kopia": "Conteneur Kopia (copie hors site)",

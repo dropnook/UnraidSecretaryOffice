@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.48"
+UB_VERSION="2.49"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -139,6 +139,35 @@ ub_data_dirs() {
     mkdir -p "$UB_STATE" "$UB_LOGS" || return 1      # dumps: in their own backup share (dumps_share), never here
     chmod 700 "$UB_DATA" 2>/dev/null
     return 0
+}
+
+# 2.49 (review 2026-10-15): the engine runs as root and takes what it does from UB_DATA (settings.ini, the notes of an
+# interrupted run, its logs): only from a real folder of root's that nobody else can write, settings.ini a plain file of
+# root's likewise. A folder someone else made or can write (the office's data folder replaced by a writer as nobody, an
+# appdata «New Permissions») is refused before anything is read or written there - its logs could be links.
+# ub_data_trusted -> 0, or 1 with UB_UNTRUSTED (data|settings) and UB_UNTRUSTED_PATH; ub_untrusted_refuse says so
+# (stderr, syslog, an alert - never into that folder) and ends with exit 4
+ub_root_only() { # <path> - root's, not writable by group or others (the path itself, never what a link points at)
+    local s
+    s="$(stat -c '%u %a' -- "$1" 2>/dev/null)" || return 1
+    [[ "${s%% *}" == "0" ]] && (( (8#${s##* } & 8#022) == 0 ))
+}
+ub_data_trusted() {
+    UB_UNTRUSTED=""; UB_UNTRUSTED_PATH=""
+    if [[ -L "$UB_DATA" ]] || { [[ -e "$UB_DATA" ]] && { [[ ! -d "$UB_DATA" ]] || ! ub_root_only "$UB_DATA"; }; }; then
+        UB_UNTRUSTED="data"; UB_UNTRUSTED_PATH="$UB_DATA"; return 1
+    fi
+    if [[ -L "$UB_SETTINGS" ]] || { [[ -e "$UB_SETTINGS" ]] && { [[ ! -f "$UB_SETTINGS" ]] || ! ub_root_only "$UB_SETTINGS"; }; }; then
+        UB_UNTRUSTED="settings"; UB_UNTRUSTED_PATH="$UB_SETTINGS"; return 1
+    fi
+    return 0
+}
+ub_untrusted_refuse() {
+    local t="$UB_UNTRUSTED_PATH is not root's own (owner $(stat -c '%U:%G %a' -- "$UB_UNTRUSTED_PATH" 2>/dev/null || echo '?')) - the engine reads nothing from a folder others can write or replace. Check it, then: chown root:root and chmod go-w (the office's Team Lead shows the command)"
+    echo "REFUSED: $t" >&2
+    logger -t "$UB_NAME" "refused: $t" 2>/dev/null
+    ub_notify "Backup REFUSED" "The backup folder is not root's own: $UB_UNTRUSTED_PATH" "alert" "$t"
+    exit 4
 }
 
 # Unraid names a notification <event>-<second> - the second its notify script reads the clock, somewhere in our call - and

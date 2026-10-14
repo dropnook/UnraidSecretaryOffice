@@ -241,6 +241,8 @@
   },
   "check.setup": "The backup is set up (settings.ini)",
   "check.setup_how": "Mr. Backupsy → «Set up…»: he reads the server and proposes everything. (In a terminal: {path})",
+  "check.engine_trust": "The backup folder and its settings belong to root alone",
+  "check.engine_trust_how": "Not so for {path}: the backup engine refuses to run until it is — it works as root and reads nothing others could have written. In a terminal on the server: {cmd}",
   "check.schedule": "A backup is scheduled",
   "check.schedule_how": "Mr. Backupsy → Schedule: pick a time.",
   "check.kopia": "Kopia container (offsite copy)",

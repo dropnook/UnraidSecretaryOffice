@@ -467,11 +467,11 @@ function makeDataDir(): bool
         return false;
     }
     $appdata = dirname(DATA_DIR, 2);         // <appdata>/UnraidSecretaryOffice/data
+    // root's, both it and the folder above it (review 2026-10-15: a folder above of nobody's let anyone writing as nobody
+    // put a data folder of their own in its place); the files in it stay nobody:users
     if (!is_dir($appdata) || !@mkdir(DATA_DIR, 0755, true)) {
         return false;
     }
-    @lchown(dirname(DATA_DIR), FILE_UID);
-    @lchgrp(dirname(DATA_DIR), FILE_GID);
     logLine('Created the data folder ' . DATA_DIR);
     return true;
 }

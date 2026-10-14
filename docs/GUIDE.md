@@ -206,6 +206,12 @@ makes it larger — both in your browser only.
   password variables, never their values.
 - A partner office gets a door, not a login: a key that can only hand over its copies, fetch them back and ask how
   the office is — no shell, no path, nothing deleted.
+- Bringing something back from a partner's copy trusts that partner like your own backup: what comes back is what the
+  partner kept. Mr. Restori checks a VM's configuration from a copy (nothing of this server outside the VM's own folder,
+  no passed-through devices) and starts nothing — look at templates and stacks from a copy before you start them.
+- The office's data folder and the folder above it belong to root: whoever else could write there could put a folder of
+  their own in its place. The Team Lead says so when it isn't, with the command to fix it; the backup engine refuses to
+  run from a folder that isn't root's alone.
 
 What was checked and what is still open: [HARDENING.md](../HARDENING.md).
 

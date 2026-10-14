@@ -572,6 +572,9 @@ function caretakerChecks(): array
     $out[] = finding('office_update', 'recommended', $office['newer'] ? false : true,
         ['version' => AGENT_VERSION, 'latest' => (string) ($office['latest'] ?? '')], '#/caretaker/office');
 
+    // the data folder and the one above it: root's alone (review 2026-10-15) - the command shown, never run
+    $trust = officeDataTrust(DATA_DIR);
+    $out[] = finding('data_trust', 'recommended', $trust['ok'], ['paths' => implode(', ', $trust['paths']), 'cmd' => $trust['cmd']]);
     $out[] = finding('community_apps', 'recommended', housePlugin('community.applications'), [], 'plugins');
     if (!in_array('advisor', staffHired(), true)) {      // once hired, the consultant looks after them
         $out[] = finding('fix_common_problems', 'recommended', housePlugin('fix.common.problems'), [], 'apps');

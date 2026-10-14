@@ -46,6 +46,9 @@ const JACK_MIN_PERSON_BYTES = 20 << 30;
 // both ways always rsync (2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
 // path for standalone users, Jack never selects it — not in his setup, not from an old settings file, not in what he hands it
 const JACK_TOOLS_RSYNC = ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'];
+// rsync's options are the office's too (EmbyCache's defaults): never what a settings file names - rsync runs as root, and
+// an option like --log-file writes wherever it says (review 2026-10-15)
+const JACK_RSYNC_ARGS  = '-aAX --numeric-ids';
 const GATHER_LOCK   = '/var/run/consolidate_master.lock';     // the gather's own lock (consolidate_master.sh)
 const JACK_HISTORY  = 40;
 const JACK_IGNORED  = '#^/(config|metadata|transcoding-temp|cache|logs|var|boot|tmp)#';   // Emby's own folders, never media
@@ -562,11 +565,13 @@ function jackMeasureShares(?array $settings = null, ?array $all = null): array
 }
 
 /** The measurement's own ini (the gather's consolidate.ini stays as it is): the libraries' shares, their pools and EmbyCache's */
-function jackWriteMeasureIni(array $shares, array $emby, string $gatherDir = GATHER_DATA, string $jackDir = JACK_DATA): void
+function jackWriteMeasureIni(array $shares, array $emby, string $gatherDir = GATHER_DATA, string $jackDir = JACK_DATA): string
 {
     $g = jackGatherSettings() ?? [];
     $set = ['shares' => $shares, 'min_free_gb' => (int) ($g['min_free_gb'] ?? 256), 'dup_check' => 'size', 'move_cache' => false];   // measuring moves nothing
-    writeAtomic("$gatherDir/measure.ini", jackGatherIni($set, jackGatherPools($shares, $emby), "$gatherDir/consolidate.log", "$jackDir/embycache_exclude.txt"), 0600, 0, 0);
+    $ini = jackGatherIni($set, jackGatherPools($shares, $emby), "$gatherDir/consolidate.log", "$jackDir/embycache_exclude.txt");
+    writeAtomic("$gatherDir/measure.ini", $ini, 0600, 0, 0);
+    return $ini;
 }
 
 // ===================================================================== what's on the pool
@@ -1152,7 +1157,8 @@ function runEnv(array $command, array $env, int $timeout = 60): array
 function jackPyEnv(): array
 {
     return ['EMBYCACHE_DIR' => JACK_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
-            'EMBYCACHE_FILL_TOOL' => JACK_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => JACK_TOOLS_RSYNC['cleanup_tool'], 'EMBYCACHE_GIVE_BACK_FREE' => '1'];
+            'EMBYCACHE_FILL_TOOL' => JACK_TOOLS_RSYNC['fill_tool'], 'EMBYCACHE_CLEANUP_TOOL' => JACK_TOOLS_RSYNC['cleanup_tool'], 'EMBYCACHE_GIVE_BACK_FREE' => '1',
+            'EMBYCACHE_RSYNC_ARGS' => JACK_RSYNC_ARGS];
 }
 
 // ===================================================================== the gather's settings
@@ -1225,10 +1231,28 @@ function jackGatherPools(array $shares, array $emby, ?callable $shareCfg = null)
 }
 
 /** consolidate.ini from Jack's settings (written again before every run, so it follows the pool) */
-function jackWriteGatherIni(array $gather, array $emby, string $gatherDir = GATHER_DATA, string $jackDir = JACK_DATA): void
+function jackWriteGatherIni(array $gather, array $emby, string $gatherDir = GATHER_DATA, string $jackDir = JACK_DATA): string
 {
     $ini = jackGatherIni($gather, jackGatherPools($gather['shares'], $emby), "$gatherDir/consolidate.log", "$jackDir/embycache_exclude.txt");
     writeAtomic("$gatherDir/consolidate.ini", $ini, 0600, 0, 0);
+    return $ini;
+}
+
+/**
+ * The ini the gather's script reads — and `source`s, as root: a 0600 copy in RAM (RUN_DIR, root's 0700 folder), never
+ * the one in the data folder on the pool, which a writer as nobody could replace between its writing and its reading
+ * (review 2026-10-15). Null: RAM can't take it (the run is refused).
+ */
+function jackGatherIniRam(string $text, string $mode): ?string
+{
+    if (!is_dir(RUN_DIR) && !@mkdir(RUN_DIR, 0700, true)) {
+        return null;
+    }
+    $st = @lstat(RUN_DIR);
+    if (!$st || ($st['mode'] & 0170000) !== 0040000 || $st['uid'] !== posix_geteuid() || ($st['mode'] & 0077)) {
+        return null;
+    }
+    return writeNewFile(RUN_DIR . "/gather-$mode.ini", $text, 0600);
 }
 
 /**
@@ -2617,13 +2641,12 @@ function jackJob(string $tool, array $args): int
 
     $progress = null;                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
-        if ($mode === 'measure') {
-            jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? []);
-        } else {
-            jackWriteGatherIni(jackGatherSettings() ?? [], jackReadSettings() ?? []);
-        }
-        $cmd = array_merge(['bash', GATHER_APP . '/consolidate_master.sh'], GATHER_MODES[$mode]);
-        $env = ['CONSOLIDATE_CONFIG' => $mode === 'measure' ? "$dir/measure.ini" : "$dir/consolidate.ini", 'CONSOLIDATE_STATUS' => "$dir/status.json"]
+        $text = $mode === 'measure' ? jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? [])
+            : jackWriteGatherIni(jackGatherSettings() ?? [], jackReadSettings() ?? []);
+        $ramIni = jackGatherIniRam($text, $mode);
+        // no ini in RAM: no run (never the script with its own defaults) - it ends failed, said like any other failure
+        $cmd = $ramIni !== null ? array_merge(['bash', GATHER_APP . '/consolidate_master.sh'], GATHER_MODES[$mode]) : null;
+        $env = ['CONSOLIDATE_CONFIG' => (string) $ramIni, 'CONSOLIDATE_STATUS' => "$dir/status.json"]
              + ($mode === 'run' ? ['CONSOLIDATE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = '/';
     } else {
@@ -2641,7 +2664,10 @@ function jackJob(string $tool, array $args): int
     }
     $out = fopen("$dir/office-output.txt", 'w');
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'HOME' => '/root', 'LANG' => 'C.UTF-8'] + $env;
-    $proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env);
+    if ($cmd === null) {
+        fwrite($out, "The gather's settings could not be put in RAM (" . RUN_DIR . ") - nothing done.\n");
+    }
+    $proc = $cmd !== null ? proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env) : false;
     $stoppedFor = $stoppedWhy = null;
     if (!is_resource($proc)) {
         $exit = 127;
@@ -2654,6 +2680,9 @@ function jackJob(string $tool, array $args): int
     }
     fclose($out);
     @unlink("$dir/office-stop.json");
+    if (isset($ramIni)) {
+        @unlink($ramIni);
+    }
     if ($progress !== null) {
         jackProgressClear($progress);   // the panel goes with the run
     }

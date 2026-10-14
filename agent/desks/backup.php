@@ -2163,6 +2163,28 @@ function backupLog(string $name): array
 // ===================================================================== checks (for the caretaker)
 
 /** What Mr. Backup needs from the server, and what the user still has to do */
+/**
+ * As the engine's ub_data_trusted() (backup/lib/common.sh, 2.49) sees its folder: a real folder of root's that nobody
+ * else can write, settings.ini a plain root-owned file likewise — else it refuses to run. ok null: no folder yet.
+ *
+ * @return array{ok: ?bool, path: string, cmd: string}
+ */
+function backupEngineTrust(string $data): array
+{
+    clearstatcache();
+    $mine = fn (array|false $st, int $type): bool => $st !== false && ($st['mode'] & 0170000) === $type && $st['uid'] === 0 && !($st['mode'] & 0022);
+    $dir = @lstat($data);
+    if ($dir === false) {
+        return ['ok' => null, 'path' => '', 'cmd' => ''];
+    }
+    $bad = !$mine($dir, 0040000) ? $data : null;
+    if ($bad === null && ($ini = @lstat("$data/settings.ini")) !== false && !$mine($ini, 0100000)) {
+        $bad = "$data/settings.ini";
+    }
+    $q = $bad !== null ? escapeshellarg($bad) : '';
+    return ['ok' => $bad === null, 'path' => (string) $bad, 'cmd' => $bad !== null ? "chown root:root $q && chmod go-w $q" : ''];
+}
+
 function backupChecks(): array
 {
     $data = BACKUP_DATA_DIR;
@@ -2172,6 +2194,9 @@ function backupChecks(): array
     $kopiaOn = $summary['kopia_enabled'];
 
     $out[] = finding('setup', 'required', is_file("$data/settings.ini"), ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
+    // the engine (2.49) refuses a folder or settings.ini that isn't root's alone (ub_data_trusted) - said here, the command shown
+    $trust = backupEngineTrust($data);
+    $out[] = finding('engine_trust', 'required', $trust['ok'], ['path' => $trust['path'], 'cmd' => $trust['cmd']]);
     $schedule = backupSchedule();
     if ($schedule['script']) {
         $out[] = finding('schedule', 'required', $schedule['enabled'], [], '#/backup/schedule');
