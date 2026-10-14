@@ -593,7 +593,7 @@ fill_capped() {  # pool
 
 # USO «oldest first across the pool»: process_share registers a share with a trigger here; the fill runs after every
 # share's age step, one pool at a time (fill_pool)
-declare -A FS_SRC=() FS_DEST=() FS_POOL=() FS_THR=() FS_TGT=() FS_EXC=() AGED_ALL=() POOL_AGED_B=()
+declare -A FS_SRC=() FS_DEST=() FS_POOL=() FS_THR=() FS_TGT=() FS_EXC=() AGED_ALL=() POOL_AGED_B=() POOL_AGE_MOVED=()
 FILL_SHARES=(); FILL_POOLS=()
 fill_register() {  # name src dest pool threshold target excludes(comma list)
     FILL_SHARES+=("$1"); FS_SRC[$1]="$2"; FS_DEST[$1]="$3"; FS_POOL[$1]="$4"; FS_THR[$1]="$5"; FS_TGT[$1]="$6"; FS_EXC[$1]="$7"
@@ -654,6 +654,9 @@ fill_pool() {  # pool
     local -a mine=() go=()
     local -A F_N=() F_B=() F_MOVED=() F_LEFT=() F_GONE=()
     for name in "${FILL_SHARES[@]}"; do [[ "${FS_POOL[$name]}" == "$pool" ]] && mine+=("$name"); done
+    # USO «moved enough»: the age step moved files off this pool moments ago — one txg before the reading (ZFS shows freed
+    # space late), else the fill would count them as still there and move as much again
+    if [[ "$DRY_RUN" == false && -n "${POOL_AGE_MOVED[$pool]:-}" ]] && (( SETTLE_S > 0 )); then sleep $(( SETTLE_S < 6 ? SETTLE_S : 6 )); fi
     pool_used_pct "$pool"
     used=$POOL_USED; used_b=$POOL_USED_B; size_b=$POOL_SIZE_B
     if [[ "$DRY_RUN" == true && -n "$used_b" && -n "$size_b" ]]; then
@@ -909,6 +912,7 @@ process_share() {  # name mode pool pool2
     if (( count > 0 )); then
         log INFO "  moving $count files ($(human "$bytes")) via $MOVER_BIN"
         move_batch "$name" "$src" "$dest"
+        [[ "$mode" == "yes" ]] && (( SH_MOVED > 0 )) && POOL_AGE_MOVED[$pool]=1
     fi
     (( count == 0 )) && SH_STATE=none
     (( SH_RC != 0 )) && SH_STATE=error

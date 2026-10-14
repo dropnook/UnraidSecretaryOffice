@@ -30537,7 +30537,7 @@ function testMoverelliFill(): void
         file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/excl.txt\n$ini\n");
         $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
                 'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_DF' => "$t/bin/df",
-                'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size];
+                'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size, 'CUSTOMMOVER_SETTLE' => '0'];
         return [$t, $env];
     };
     $run = function (array $env, bool $real) {
