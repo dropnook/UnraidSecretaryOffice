@@ -1820,8 +1820,8 @@ function testJackLetGo(): void
     @unlink("$tmp/notified");
     jackReleaseRefusedTell('jack_release_watching');
     $sent = (string) @file_get_contents("$tmp/notified");
-    check('release: refused in the job — told as a warning, what Jack Emby laid out stays', str_contains($sent, "-i\nwarning") && str_contains($sent, 'not started')
-        && str_contains($sent, 'What Jack Emby laid out stays on the pool.'), $sent);
+    check('release: refused in the job — told as a warning, what Jack Streamer laid out stays', str_contains($sent, "-i\nwarning") && str_contains($sent, 'not started')
+        && str_contains($sent, 'What Jack Streamer laid out stays on the pool.'), $sent);
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
 
@@ -12458,7 +12458,7 @@ function testNotify(): void
     same('notify: back and a second one — one notification', 2, count($c));
     same('notify: both in it (English)', 'Unraid Secretary Office: 2 new things to do', $c[1]['-s'] ?? null);
     check('notify: both listed', str_contains($c[1]['-d'] ?? '', 'Mr. Backupsy — A backup is scheduled')
-        && str_contains($c[1]['-d'] ?? '', 'Jack Emby — Python 3'), $c[1]['-d'] ?? '');
+        && str_contains($c[1]['-d'] ?? '', 'Jack Streamer — Python 3'), $c[1]['-d'] ?? '');
     $data = readJson($file) ?? [];
     $data['on'] = false;
     file_put_contents($file, json_encode($data));
@@ -20048,7 +20048,7 @@ JS);
     check('search items: «Databases» — the tile and the section first, then the items', str_starts_with($f['Databases'][0] ?? '', 'restore:') && !str_contains($f['Databases'][0] ?? '', ':item:'),
         json_encode($f['Databases']));
     $one = $r['first'] ?? [];
-    same('search items: a result says where (the desk › its line), its kind, and goes there', ['jack', 'item', 'Wohnzimmer', "Jack Emby › {$strings['jack.overview']} · Emby", '#/jack', 'overview', true],
+    same('search items: a result says where (the desk › its line), its kind, and goes there', ['jack', 'item', 'Wohnzimmer', "Jack Streamer › {$strings['jack.overview']} · Emby", '#/jack', 'overview', true],
         [$one['desk'] ?? null, $one['kind'] ?? null, $one['label'] ?? null, $one['crumb'] ?? null, $one['route'] ?? null, $one['anchor'] ?? null, $one['hired'] ?? null]);
     same('search items: a desk let go — what it held is not found', [], $r['letGo']);
     same('search items: searching asks the server nothing', 0, $r['searchCalls']);
@@ -32733,7 +32733,7 @@ function testNightRun(): void
     same('night run unwatched: Jack Emby keeps his 520 (nothing watched), she moves all the others\' 100, nothing more to move — «missed» (jack), told once',
         [520, 0, ['jack run --night --nofill', 'her run --night --fill-until=800G --fill-pool=cache', 'jack run --night'], 'missed', 'jack', true, 1, 82],
         [$p['j'], $p['d'], $calls, $n['result'] ?? null, $n['why'] ?? null, $n['missed'] ?? null, count($notified), $n['end_pct'] ?? null]);
-    check('night run unwatched: … the warning says only Jack Emby\'s unwatched is over it (his budget too big)', str_contains($notified[0] ?? '', "Only what Jack Emby hasn't watched yet is over it"),
+    check('night run unwatched: … the warning says only Jack Emby\'s unwatched is over it (his budget too big)', str_contains($notified[0] ?? '', "Only what Jack Streamer hasn't watched yet is over it"),
         json_encode($notified));
 
     // (3) his budget crowds the others out: 600 used, 300 wait — the others' 100 all pushed under X, he fetches 300 up to X: told
@@ -32752,7 +32752,7 @@ function testNightRun(): void
     nightRun(['run']);
     same('night run full: what never moves (500) is never pushed for him — he fetches nothing (100 wait), the others (50) go, told «nothing new»',
         [500, 300, 100, 0, 'full', 1], [$p['nm'], $p['j'], $p['wait'], $p['d'], $night()['why'] ?? null, count($notified)]);
-    check('night run full: … the warning says appdata & co. fill the pool', str_contains($notified[0] ?? '', "appdata & co. and what Jack Emby keeps fill the pool cache up to 80 %"), json_encode($notified));
+    check('night run full: … the warning says appdata & co. fill the pool', str_contains($notified[0] ?? '', "appdata & co. and what Jack Streamer keeps fill the pool cache up to 80 %"), json_encode($notified));
 
     // (4) stopped in «free»: Jack Emby's first pass ends with 3 — nothing after it, stopped
     $calls = [];
@@ -32772,7 +32772,7 @@ function testNightRun(): void
     $calls = [];
     $GLOBALS['nightHost']['jack_on'] = fn () => false;
     nightRun(['run']);
-    same('night run without Jack Emby: her part alone', ['her run --night'], $calls);
+    same('night run without Jack Emby: her part alone', ['her run --night --solo'], $calls);
     $n = $night();
     same('night run without Jack Emby: the pool measured all the same (her picture on every night) — the plan with numbers, her part only (nothing fetched)',
         [false, 'cache', true, 0, ['check', 'done']], [$n['jack'] ?? null, $n['picture']['pool'] ?? null, $n['plan']['measured'] ?? null, $n['plan']['fill'] ?? null,
@@ -32958,12 +32958,15 @@ JS);
     $en = readJson(OFFICE_WEB . '/desks/moverelli/lang/en.json') ?? [];
     check('night texts: Unraid\'s mover starting stops her after the file she is on (never «at once» since 1.61); her rule is the one run with Jack Emby',
         str_contains($en['mover.ok'] ?? '', "I stop after the file I'm on") && !str_contains($en['mover.ok'] ?? '', 'at once')
-        && str_contains($en['setup.level_rule_jack'] ?? '', 'leave Jack Emby the room for his budget') && str_contains($en['setup.level_rule_jack'] ?? '', 'enough air up to 100 %'));
+        && str_contains($en['setup.level_rule_jack'] ?? '', 'leave Jack Streamer the room for his budget') && str_contains($en['setup.level_rule_jack'] ?? '', 'enough air up to 100 %'));
     same('night page without Jack Emby (not set up): her part only — tonight with her numbers, her own «not measured», her last run (not «joint»)',
         ['night.tonight {"what":"night.goes {\\"size\\":\\"50 GiB\\"}"}', 'night.unmeasured_mine', 'night.last_mine {"when":"R200","how":"night.last_ok"}'], $j['mine'] ?? null);
     check('night page without Jack Emby: her schedule section shows tonight and her steps (no step of his), the dry run',
         in_array('sched.mine', $j['mineSection'] ?? [], true) && in_array($j['mine'][0] ?? '-', $j['mineSection'] ?? [], true) && in_array('night.steps_mine', $j['mineSection'] ?? [], true)
         && !in_array('night.steps', $j['mineSection'] ?? [], true) && in_array('night.dry', $j['mineSection'] ?? [], true), json_encode($j['mineSection'] ?? null));
+    check('night run history: «by.night_solo» for a night without Jack Streamer (record "jack": false) in all five languages, «by.night» stays the joint one',
+        count(array_filter(['en', 'de', 'it', 'fr', 'es'], fn ($l) => isset((json_decode(file_get_contents(OFFICE_WEB . "/desks/moverelli/lang/$l.json"), true) ?: [])['by.night_solo']))) === 5
+        && str_contains(file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "r.by === 'night' && r.jack === false"));
     same('night page: the last night — missed at 81 %, two passes', 'night.last {"when":"R200","how":"night.last_missed {\"pct\":81}"} · night.rounds {"n":2}', $j['last'] ?? null);
     check('night page: her schedule section — «Night run with Jack Emby», tonight, the steps and the dry run', in_array('sched.night', $j['section'] ?? [], true)
         && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
