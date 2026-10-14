@@ -37,6 +37,8 @@ const MOVERELLI_SHARE     = '/^[\w.\- ]{1,64}$/uD';     // a share name she writ
 // which date counts (2026-10-14): always the younger of created (birth, else ctime) and modified — Smart Mover's office
 // value age_stat=newest, written by the office for all, never a setting
 const MOVERELLI_AGE_STAT  = 'newest';
+// Unraid's move binary, where Smart Mover looks for it (custommover_run.sh): the office hands it over, an ini never names it
+const MOVERELLI_MOVE_BINS = ['/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];
 const MOVERELLI_DEFAULTS  = ['min_age' => 0, 'move_when_used_above' => 0, 'move_prefer_shares' => true,
                              'mover_debug' => 0, 'max_list' => 50];     // Smart Mover's own defaults (its README)
 // what each number may be: [min, max]
@@ -611,6 +613,17 @@ function moverelliIniText(array $set, string $dir): string
 }
 
 /** Her data folder: settings, lists and logs name files of the shares — root only */
+/** Unraid's move binary (Smart Mover's own candidates, in its order); a path that isn't there when none is - a real run then says so */
+function moverelliMoveBin(): string
+{
+    foreach (MOVERELLI_MOVE_BINS as $bin) {
+        if (is_file($bin) && is_executable($bin)) {
+            return $bin;
+        }
+    }
+    return MOVERELLI_MOVE_BINS[0];
+}
+
 function moverelliDataDir(string $dir): void
 {
     @mkdir($dir, 0700, true);
@@ -1268,7 +1281,9 @@ function moverelliJob(array $args, ?array $h = null): int
          + ($real ? ['CUSTOMMOVER_EXCLUDES_REQUIRED' => '1', 'CUSTOMMOVER_DISKS_INI' => disksIniFile()] : [])
          // the night run: Jack Emby's GB first — her fill makes room for his fetch below X (only on his pool)
          + ($room !== null && $roomPool !== null ? ['CUSTOMMOVER_FILL_UNTIL_BYTES' => $room, 'CUSTOMMOVER_FILL_UNTIL_POOL' => $roomPool] : [])
-         + $h['env'];
+         + $h['env']
+         // the move binary is Unraid's, never what an ini names (review 2026-10-15: the script runs mover_bin as root)
+         + ['CUSTOMMOVER_MOVER_BIN' => moverelliMoveBin()];
     $out = fopen("$dir/office-output.txt", 'w');
     $proc = proc_open(array_merge(['bash', "$h[app]/custommover_run.sh"], MOVERELLI_MODES[$mode]), [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, '/', $env);
     $why = null;
