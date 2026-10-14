@@ -412,6 +412,7 @@ function nightPicture(n) {
     dot.innerHTML = picFlyer(f.who === 'jack');
     say(f, true);
     const at = (p) => `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
+    dot.getAnimations().forEach((x) => x.cancel());       // the last flight's (kept at its end) — one at a time on it
     return dot.animate([{ transform: at(from), opacity: 0 }, { transform: at(from), opacity: 1, offset: 0.12 },
       { transform: at(to), opacity: 1, offset: 0.88 }, { transform: at(to), opacity: 0 }], { duration: 5000, easing: 'ease-in-out', fill: 'forwards' })
       .finished.catch(() => {});
@@ -447,10 +448,10 @@ function livePicture(nn) {
 function picFlyer(reel) {
   const wing = 'M0 0C-3-6-9-8-14-6C-11-4-9-2-8 0C-10 1-12 2-13 4C-8 5-3 3 0 0Z';
   const body = reel
-    ? '<g class="mo-fly-reel"><circle cx="20" cy="11" r="7" fill="currentColor"/><circle cx="20" cy="11" r="1.6" class="mo-fly-hole"/>'
+    ? '<g class="mo-fly-reel"><circle cx="20" cy="11" r="7" fill="currentColor" class="mo-fly-body"/><circle cx="20" cy="11" r="1.6" class="mo-fly-hole"/>'
       + [0, 72, 144, 216, 288].map((a) => `<circle cx="${(20 + 4 * Math.sin(a * Math.PI / 180)).toFixed(2)}" cy="${(11 - 4 * Math.cos(a * Math.PI / 180)).toFixed(2)}" r="1.5" class="mo-fly-hole"/>`).join('')
       + '</g>'
-    : '<rect x="14" y="5" width="12" height="12" rx="2.5" fill="currentColor"/>';
+    : '<rect x="14" y="5" width="12" height="12" rx="2.5" fill="currentColor" class="mo-fly-body"/>';
   return '<svg viewBox="0 0 40 22" width="40" height="22" focusable="false">'
     + `<g transform="translate(14 9)"><path class="mo-wing mo-wing-l" d="${wing}"/></g>`
     + `<g transform="translate(26 9) scale(-1 1)"><path class="mo-wing mo-wing-r" d="${wing}"/></g>` + body + '</svg>';
