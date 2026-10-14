@@ -22559,7 +22559,7 @@ function testRestorePartner(): void
         [array_values(array_filter($calls, fn ($c) => $c[0] === 'ssh'))[0][count(array_values(array_filter($calls, fn ($c) => $c[0] === 'ssh'))[0]) - 1] ?? null,
          array_values(array_filter($calls, fn ($c) => $c[0] === 'ssh'))[0][2] ?? null]);
     same('restore partner: … the properties kept, then mounted read-only', [[['zfs', 'set', 'canmount=noauto', $ds], ['zfs', 'set', 'mountpoint=legacy', $ds]],
-        [['mount', '-t', 'zfs', '-o', 'ro,noatime', $ds, "$tmp/A/restored/homeserver-share-appdata-$stamp"]]],
+        [['mount', '-t', 'zfs', '-o', 'ro,noatime,nosuid,nodev,noexec', $ds, "$tmp/A/restored/homeserver-share-appdata-$stamp"]]],
         [$zc('set'), array_values(array_filter($calls, fn ($c) => $c[0] === 'mount'))]);
     check('restore partner: the original untouched — nothing renamed, destroyed, set or received into it', !array_filter($calls, fn ($c) => $c[0] === 'zfs'
         && (in_array($c[1] ?? '', ['rename', 'destroy'], true) || (in_array($c[1] ?? '', ['recv', 'set', 'create'], true) && (in_array('tank/appdata', $c, true) || in_array('tank/appdata@uso-backup-20261007-0200', $c, true))))));
@@ -22780,7 +22780,7 @@ function testPartnerStart(): void
         && isset($zfsB()['snaps']["$pd/vm-Debian_VM@uso-backup-20261007-0200"]), json_encode($calls));
     check('partner start: … nothing through the door, nothing to the sender', !array_filter($calls, fn ($c) => $c[0] === 'ssh'));
     same('partner start: the copy is a dataset of this office, mounted read-only, recorded as pulled (a moment for his files restores, mounted again at the agent\'s start)',
-        [true, [['mount', '-t', 'zfs', '-o', 'ro,noatime', $ds, $mnt]], [$ds], true, "$user/domains/Debian_VM"],
+        [true, [['mount', '-t', 'zfs', '-o', 'ro,noatime,nosuid,nodev,noexec', $ds, $mnt]], [$ds], true, "$user/domains/Debian_VM"],
         [isset($zfsB()['ds'][$ds]), array_values(array_filter($calls, fn ($c) => $c[0] === 'mount')), array_column($j['pulled'] ?? [], 'dataset'), $j['pulled'][0]['local'] ?? null, $j['pulled'][0]['path'] ?? null]);
     same('partner start: … rspPulled() lists it like a pull', [$ds], array_column(array_filter($as('return rspPulled();'), fn ($x) => $x['journal'] === $run['id']), 'dataset'));
     same('partner start: the files are in domains/<vm> — the disk and the copy\'s .uso-backup', [true, true], [is_file("$user/domains/Debian_VM/vdisk1.img"), is_file("$user/domains/Debian_VM/" . RSP_INSIDE . '/manifest.json')]);

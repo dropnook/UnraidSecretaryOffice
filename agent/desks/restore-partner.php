@@ -37,6 +37,8 @@ const RSP_PARENT       = 'UnraidSecretaryOffice-restored';   // on a new server:
 const RSP_NAME_RE      = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/D';
 const RSP_DS_RE        = '/^[A-Za-z][A-Za-z0-9_.:-]{0,63}(?:\/[A-Za-z0-9_.: -]{1,200}){1,8}$/D';
 const RSP_OWN_RE       = '/\.restored-\d{8}-\d{6}$/D';
+// what is pulled from a partner is only read from: nothing in it runs, no device, no setuid (review 2026-10-15)
+const RSP_MOUNT_OPTIONS = 'ro,noatime,nosuid,nodev,noexec';
 
 // ===================================================================== places (tests point them elsewhere)
 
@@ -823,7 +825,7 @@ function rspMount(?array $j, string $ds, string $path): bool
     if (is_link($path) || (file_exists($path) && !is_dir($path)) || (!is_dir($path) && !@mkdir($path, 0755, true))) {
         return false;
     }
-    $cmd = [partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', 'ro,noatime', $ds, $path];
+    $cmd = [partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', RSP_MOUNT_OPTIONS, $ds, $path];
     return ($j !== null ? rsRun($j, $cmd, 60) : run($cmd, 60))[0] === 0;
 }
 
@@ -1100,7 +1102,7 @@ function rspPeek(string $snapshot): array
         return [];
     }
     $out = [];
-    if (run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', 'ro,noatime', $snapshot, $dir], 60)[0] === 0) {
+    if (run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', RSP_MOUNT_OPTIONS, $snapshot, $dir], 60)[0] === 0) {
         foreach (array_merge([$dir], glob("$dir/*", GLOB_ONLYDIR) ?: []) as $f) {
             $m = is_file("$f/" . RSP_INSIDE . '/manifest.json') && !is_link($f) ? readJson("$f/" . RSP_INSIDE . '/manifest.json') : null;
             if (is_array($m) && in_array($m['kind'] ?? '', ['app', 'vm'], true)) {
