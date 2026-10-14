@@ -28,7 +28,11 @@ declare(strict_types=1);
  *   {pool, x, dest: {to: "array"|<pool>, size, used},                                (the array's from disks.ini, nothing woken)
  *    phases: {check|free|recheck|fill|done: {before: B, forecast: B, planned: P}},   (each phase as it began)
  *    files: [{name, bytes, from, to, who: "jack"|"her"}, …]}                         (the last NIGHT_FILES_MAX done)
- *   B = {size, fixed (pool-only shares + snapshots + overhead), others (the other caching shares), jack, free}
+ *   B = {size, fixed (pool-only shares + snapshots + overhead), others (the other caching shares), jack, free,
+ *        jack_watched (of jack what was watched — goes back in this run; null: not known yet)}
+ *   The check's jack_watched (and its planned jack_back) come from his free step: live from EmbyCache's plan
+ *   (progress `back.bytes`, RAM — nightPictureWatched() in moverelliProgressState()) while it works, kept in night.json once
+ *   it is done; Emby is never asked for the picture.
  *   P = {jack_back (null until his free step: what was watched), others_back, jack_fetch, until (bytes the pool may use
  *        before his fetch: X − jack_fetch)}
  * moverelliProgressState() adds the files of the tool at work (its live status) while a step runs.
@@ -65,14 +69,36 @@ function nightState(string $dir): ?array
     return $n;
 }
 
-/** The pool in the picture's shape (bytes): {size, fixed, others, jack, free} — null: not measured */
-function nightPicture(?array $level): ?array
+/** The pool in the picture's shape (bytes): {size, fixed, others, jack, free, jack_watched (null: not known)} — null: not measured */
+function nightPicture(?array $level, ?int $watched = null): ?array
 {
     if ($level === null) {
         return null;
     }
     return ['size' => (int) $level['size'], 'fixed' => (int) $level['nm'], 'others' => (int) $level['others'], 'jack' => (int) $level['jack'],
-            'free' => max(0, (int) $level['size'] - (int) $level['used'])];
+            'free' => max(0, (int) $level['size'] - (int) $level['used']),
+            'jack_watched' => $watched === null ? null : min(max(0, (int) $level['jack']), max(0, $watched))];
+}
+
+/**
+ * The picture with what was watched known (his free step's plan, or its result): the check's pool gets its jack_watched,
+ * its forecast none left (it all goes back), its planned jack_back — where it isn't known yet; the picture as it was else
+ */
+function nightPictureWatched(array $picture, int $watched): array
+{
+    $check = $picture['phases']['check'] ?? null;
+    if (!is_array($check) || !is_array($check['before'] ?? null) || ($check['before']['jack_watched'] ?? null) !== null) {
+        return $picture;
+    }
+    $watched = min(max(0, (int) ($check['before']['jack'] ?? 0)), max(0, $watched));
+    $picture['phases']['check']['before']['jack_watched'] = $watched;
+    if (is_array($check['forecast'] ?? null)) {
+        $picture['phases']['check']['forecast']['jack_watched'] = 0;
+    }
+    if (is_array($check['planned'] ?? null) && ($check['planned']['jack_back'] ?? null) === null) {
+        $picture['phases']['check']['planned']['jack_back'] = $watched;
+    }
+    return $picture;
 }
 
 /**
@@ -114,8 +140,10 @@ function nightPlan(?array $level, int $waiting = 0, ?int $jackBack = null): arra
         $room <= 0 && $fetch > 0 && $others > 0 => 'crowded',
         default                                 => null,
     };
-    $before = nightPicture($level);
-    $forecast = ['size' => $size, 'fixed' => $fixed, 'others' => $others - $othersBack, 'jack' => $kept + $fetch, 'free' => max(0, $size - $after)];
+    $before = nightPicture($level, $jackBack === null ? null : $back);
+    // after the run nothing watched is left on the pool (all of it goes back) — once that is known
+    $forecast = ['size' => $size, 'fixed' => $fixed, 'others' => $others - $othersBack, 'jack' => $kept + $fetch, 'free' => max(0, $size - $after),
+                 'jack_watched' => $jackBack === null ? null : 0];
     return ['measured' => true, 'x' => (int) $level['x'], 'size' => $size, 'used_pct' => (float) $level['used_pct'], 'need' => (int) $level['need'],
             'jack_back' => $jackBack === null ? null : $back, 'others_back' => $othersBack, 'jack_fetch' => $fetch, 'wait' => $waiting - $fetch,
             'until' => $xb > 0 ? $xb - $fetch : null, 'need_room' => $xb > 0 ? max(0, (int) $level['used'] - ($xb - $fetch)) : 0, 'others_room' => $room, 'over' => $over, 'why' => $why, 'never' => (bool) $level['never'],
@@ -489,6 +517,10 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         $go = $step('her', 'free');
     } elseif ($jack && $plan['measured']) {
         $back = $go ? nightJackBack($h, $real) : 0;
+        if ($go) {
+            // what was watched, now known: the check's pool split (the picture's «before»)
+            $n['picture'] = nightPictureWatched($n['picture'], $back);
+        }
         // a real run measures the pool anew (his give-back is in it, kept as a number); a dry run reckons it from his dry answer,
         // what his dry step would fetch standing for what waits
         $plan = $real ? ['jack_back' => $back] + nightPlan(($h['level'])($g, $h, true), nightWaiting($h), 0) : nightPlan($level, nightDryFetch($h), $back);

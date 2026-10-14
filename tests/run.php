@@ -32816,8 +32816,9 @@ function testNightPlan(): void
          $gib($p['need_room']), $gib($p['others_room']), $p['over'], $p['why']]);
     $p = nightPlan($lv(850, 400, 550), 60 * $G, 70 * $G);
     same('night plan: Jack Emby gave back 70 watched — he still gets his 60, the others give only 40', [70.0, 60.0, 40.0], [$gib($p['jack_back']), $gib($p['jack_fetch']), $gib($p['others_back'])]);
-    same('night plan: the picture — before {size, fixed, others, jack, free} and the forecast after the moves (at X)', [
-        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 400.0, 'free' => 150.0], ['size' => 1000.0, 'fixed' => 300.0, 'others' => 110.0, 'jack' => 390.0, 'free' => 200.0]],
+    same('night plan: the picture — before {size, fixed, others, jack, free, jack_watched} and the forecast after the moves (at X, nothing watched left)', [
+        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 400.0, 'free' => 150.0, 'jack_watched' => 70.0],
+        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 110.0, 'jack' => 390.0, 'free' => 200.0, 'jack_watched' => 0.0]],
         [array_map($gib, $p['before']), array_map($gib, $p['forecast'])]);
     $p = nightPlan($lv(600, 200, 300), 300 * $G, 0);
     same('night plan: his budget crowds the others out — 300 fetched, the others (100) all pushed under X: crowded', [300.0, 100.0, 500.0, 'crowded', false],
@@ -32938,12 +32939,49 @@ function testNightRun(): void
     $pic = $n['picture'] ?? [];
     same('night run 1: the picture — X, where she moves to (the array\'s data disks from disks.ini), each phase as it began (before, forecast, planned), the files done by both',
         [80, ['to' => 'array', 'size' => 8000000000 * 1024, 'used' => 2000000000 * 1024], ['check', 'free', 'recheck', 'fill', 'done'], ['before', 'forecast', 'planned'],
-         ['jack_back' => 50 * $G, 'others_back' => 60 * $G, 'jack_fetch' => 60 * $G, 'until' => 740 * $G], ['size', 'fixed', 'others', 'jack', 'free'],
+         ['jack_back' => 50 * $G, 'others_back' => 60 * $G, 'jack_fetch' => 60 * $G, 'until' => 740 * $G], ['size', 'fixed', 'others', 'jack', 'free', 'jack_watched'],
          [['Film/a.mkv', 'jack'], ['Docs/old.iso', 'her']]],
         [$pic['x'] ?? null, $pic['dest'] ?? null, array_keys($pic['phases'] ?? []), array_keys($pic['phases']['free'] ?? []), $pic['phases']['free']['planned'] ?? null,
          array_keys($pic['phases']['check']['before'] ?? []), array_slice(array_map(fn ($f) => [$f['name'], $f['who']], $pic['files'] ?? []), 0, 2)]);
     same('night run 1: the check\'s picture — 850 used: fixed 300, others 150, Jack Emby 400, free 150', [300 * $G, 150 * $G, 400 * $G, 150 * $G],
         array_values(array_intersect_key($pic['phases']['check']['before'] ?? [], array_flip(['fixed', 'others', 'jack', 'free']))));
+    // Jack Streamer's part in two (2026-10-15): what was watched known once his free step planned it — the check's pool split
+    // (before), none of it left after (forecast), the free phase's pool without any (it went back)
+    same('night run 1: what was watched in the picture — the check\'s pool 50 of his 400 watched, none in its forecast, its planned give-back 50; the free phase\'s pool none',
+        [50 * $G, 0, 50 * $G, 0, 0], [$pic['phases']['check']['before']['jack_watched'] ?? 'x', $pic['phases']['check']['forecast']['jack_watched'] ?? 'x',
+         $pic['phases']['check']['planned']['jack_back'] ?? 'x', $pic['phases']['free']['before']['jack_watched'] ?? 'x', $pic['phases']['done']['before']['jack_watched'] ?? 'x']);
+    $lv = ['size' => 1000 * $G, 'used' => 850 * $G, 'nm' => 300 * $G, 'others' => 150 * $G, 'jack' => 400 * $G, 'x' => 80, 'used_pct' => 85.0, 'need' => 50 * $G, 'never' => false];
+    $unknown = nightPlan($lv, 60 * $G);
+    $known = nightPlan($lv, 60 * $G, 500 * $G);
+    $pw = ['phases' => ['check' => nightPhasePicture($unknown)]];
+    same('night picture: watched unknown — null (no split), the forecast null too; known — never more than his part; set into a picture once, never over a known value',
+        [null, null, 400 * $G, 0, 70 * $G, 0, 70 * $G, 70 * $G, ['x' => 1]],
+        [$unknown['before']['jack_watched'], $unknown['forecast']['jack_watched'], $known['before']['jack_watched'], $known['forecast']['jack_watched'],
+         nightPictureWatched($pw, 70 * $G)['phases']['check']['before']['jack_watched'], nightPictureWatched($pw, 70 * $G)['phases']['check']['forecast']['jack_watched'],
+         nightPictureWatched($pw, 70 * $G)['phases']['check']['planned']['jack_back'], nightPictureWatched(nightPictureWatched($pw, 70 * $G), 5 * $G)['phases']['check']['before']['jack_watched'],
+         nightPictureWatched(['x' => 1], 5)]);
+    // while his free step works: the page's poll splits the check's pool from EmbyCache's plan (its progress in RAM) — only
+    // this night's (an older run's file never), only in his free step
+    $nj = $night();
+    $nj['finished'] = null;
+    $nj['phase'] = 'free';
+    $nj['who'] = 'jack';
+    $nj['started'] = time() - 60;
+    $nj['picture'] = ['phases' => ['check' => nightPhasePicture($unknown)], 'files' => []];
+    nightWrite($dir, $nj);
+    $hold = fopen("$dir/night.lock", 'c');
+    flock($hold, LOCK_EX);
+    $live = [];
+    $liveWas = $GLOBALS['nightHost']['jack_live'];
+    $GLOBALS['nightHost']['jack_live'] = function () use (&$live) { return $live; };
+    $polled = function (array $l) use (&$live, $h) { $live = $l; $b = moverelliProgressState($h)['night']['picture']['phases']['check']['before'] ?? [];
+        return array_key_exists('jack_watched', $b) ? $b['jack_watched'] : 'x'; };
+    same('night picture live: his plan of this night — split at once; an older run\'s progress, none, a junk value — not split',
+        [30 * $G, null, null, null], [$polled(['started' => time(), 'back' => ['bytes' => 30 * $G], 'recent' => []]), $polled(['started' => time() - 3600, 'back' => ['bytes' => 30 * $G]]),
+         $polled([]), $polled(['started' => time(), 'back' => ['bytes' => 'x']])]);
+    flock($hold, LOCK_UN);
+    fclose($hold);
+    $GLOBALS['nightHost']['jack_live'] = $liveWas;
     same('night picture: the array without a word of its size (stopped, no file, junk) — not measured', [[null, null], [null, null]],
         [nightArrayLevel("$tmp/none.ini"), (function () use ($tmp) { file_put_contents("$tmp/junk.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsSize=\"\"\nfsUsed=\"x\"\n");
             return nightArrayLevel("$tmp/junk.ini"); })()]);
@@ -33376,15 +33414,29 @@ out.run = [d.measured, d.x, d.forecast, d.before.segs.map((s) => s.bytes / G), d
   Math.round(sum(d.after) * 1e9) / 1e9, d.dest];
 // a small part on a narrow bar keeps its 10 px; the free part is what the size leaves (never a stale «free»)
 const tiny = m.pictureBars({ ...pic, phases: { check: { before: { ...B(300, 1, 400, 999), others: 0.5 * G } } } }, 375, false);
-out.tiny = [tiny.before.segs[1].w >= 10 / 375 - 1e-12, tiny.before.segs[3].bytes / G, Math.round(sum(tiny.before) * 1e9) / 1e9, tiny.after];
+out.tiny = [tiny.before.segs[1].w >= 10 / 375 - 1e-12, tiny.before.segs[4].bytes / G, Math.round(sum(tiny.before) * 1e9) / 1e9, tiny.after];
 // every part with something in it keeps 10 px, only a real 0 goes: a tiny Jack Emby and a tiny free part beside a big one;
 // the target's used part too (tiny, and nothing used)
 const big = m.pictureBars({ ...pic, phases: { check: { before: { size: 1000 * G, fixed: 999 * G, others: 0, jack: 0.3 * G, free: 0 } } },
   dest: { to: 'array', size: 8000 * G, used: 1 * G } }, 375, false, 160);
 const bw = big.before.segs.map((s) => s.w);
 const empty = m.pictureBars({ ...pic, dest: { to: 'array', size: 8000 * G, used: 0 } }, 800, false, 160);
-out.min = [bw[0] < 1, bw[1], bw[2] >= 10 / 375 - 1e-12, bw[3] >= 10 / 375 - 1e-12, Math.round(bw.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
-  big.dest.w >= 10 / 160 - 1e-12, empty.dest.w];
+out.min = [bw[0] < 1, bw[1], bw[2] >= 10 / 375 - 1e-12, bw[4] >= 10 / 375 - 1e-12, Math.round(bw.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
+  big.dest.w >= 10 / 160 - 1e-12, empty.dest.w, bw[3]];
+// Jack Streamer's part in two (2026-10-15): not yet watched / watched, each part with something in it ≥ 10 px on a phone's
+// bar (a tiny watched part too), the sum still 1; watched null → no split (all his, the watched part 0); never more than his
+const W = (b, w) => ({ ...b, jack_watched: w });
+const split = m.pictureBars({ ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 50 * G), forecast: W(B(300, 90, 410, 200), 0) } } }, 800, false);
+const thin = m.pictureBars({ ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 0.2 * G) } } }, 375, false);
+const thinW = thin.before.segs.map((s) => s.w);
+const over = m.pictureBars({ ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 900 * G) } } }, 800, false);
+const junk = m.pictureBars({ ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 'x') } } }, 800, false);
+out.split = [split.before.segs.map((s) => s.k), split.before.segs.map((s) => s.bytes / G), split.before.watched / G, split.before.jack / G, split.after.segs.map((s) => s.bytes / G),
+  thinW[2] >= 10 / 375 - 1e-12, thinW[3] >= 10 / 375 - 1e-12, Math.round(thinW.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
+  over.before.segs.map((s) => s.bytes / G), d.before.watched, d.before.segs[3].w, junk.before.watched];
+const splitBox = texts(m.nightPicture({ running: true, started: 11, picture: { ...pic, phases: { check: { before: W(B(300, 150, 400, 150), 50 * G), forecast: W(B(300, 90, 410, 200), 0) } } } }));
+out.splitLegend = [splitBox.filter((t) => /^pic\.(watched|seg\.jack )/.test(t)), texts(m.nightPicture({ running: true, started: 12, picture: pic })).filter((t) => /^pic\.watched/.test(t))];
+out.flyer = [m.picFlyer(true), m.picFlyer(false)].map((h) => [(h.match(/class="mo-wing /g) || []).length, h.includes('mo-fly-reel'), /<script|on\w+=/.test(h)]);
 const done = m.pictureBars({ ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } }, 800, true);
 out.done = [done.forecast, done.after.segs.map((s) => s.bytes / G)];
 // nothing measured: no pool numbers (the check's before null), the target without size; no limit: no X
@@ -33422,12 +33474,18 @@ JS);
     check('night picture: it runs', $j !== [], $out . $err);
     same('night picture: widths — sum 1, a small part at least 10 px, nothing stays nothing, order kept', [1, true, 0, true], $j['seg'] ?? null);
     same('night picture: while it runs — X at 80 %, before = the check\'s pool, after = the latest forecast (free\'s), each bar sums to 1, the array measured',
-        [true, 0.8, true, [300, 150, 400, 150], [300, 80, 410, 210], 1, 1, ['to' => 'array', 'size' => 8000 * (1 << 30), 'used' => 2000 * (1 << 30), 'measured' => true, 'w' => 0.25]],
+        [true, 0.8, true, [300, 150, 400, 0, 150], [300, 80, 410, 0, 210], 1, 1, ['to' => 'array', 'size' => 8000 * (1 << 30), 'used' => 2000 * (1 << 30), 'measured' => true, 'w' => 0.25]],
         $j['run'] ?? null);
     same('night picture: a tiny part keeps 10 px on a phone\'s bar, free = what the size leaves, still 1; no forecast — no after bar', [true, 299.5, 1, null], $j['tiny'] ?? null);
     same('night picture: 10 px for every part with something in it — a tiny Jack Emby and the free 0.7 GB beside 999 GB, the array\'s 1 GB used; a real 0 goes',
-        [true, 0, true, true, 1, true, 0], $j['min'] ?? null);
-    same('night picture: once done — the pool as measured at the end, no forecast', [false, [300, 90, 410, 200]], $j['done'] ?? null);
+        [true, 0, true, true, 1, true, 0, 0], $j['min'] ?? null);
+    same('night picture: Jack Streamer\'s part in two — not yet watched 350, watched 50 (its own part beside his), the forecast without any; a tiny watched part and his keep 10 px on a phone, still 1; never more than his; watched unknown or junk — no split',
+        [['fixed', 'others', 'jack', 'watched', 'free'], [300, 150, 350, 50, 150], 50, 400, [300, 90, 410, 0, 200], true, true, 1, [300, 150, 0, 400, 150], null, 0, null],
+        $j['split'] ?? null);
+    same('night picture: the legend — his part as a whole (before → after), «of which watched 50 GiB» in green once known; unknown — no such line',
+        [['pic.seg.jack pic.change {"before":"400 GiB","after":"410 GiB"}', 'pic.watched {"size":"50 GiB"}'], []], $j['splitLegend'] ?? null);
+    same('night picture: what flies — two wings each, a film reel for Jack Streamer\'s, a block for hers; nothing that runs', [[2, true, false], [2, false, false]], $j['flyer'] ?? null);
+    same('night picture: once done — the pool as measured at the end, no forecast', [false, [300, 90, 410, 0, 200]], $j['done'] ?? null);
     same('night picture: nothing measured — no bars, no X, the target «not measured»', [false, null, ['to' => 'array', 'size' => null, 'used' => null, 'measured' => false, 'w' => null]],
         $j['none'] ?? null);
     same('night picture: the files\' way — Jack Emby from the array onto the pool, his watched off it, hers off it, hers back for a «prefer» share', [true, false, false, true],
@@ -33441,7 +33499,7 @@ JS);
         && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $box, true), json_encode($box));
     same('night picture without Jack Emby in the night: his part gone from the legend (not «0 B»); with him in it shown even at 0', [false, true],
         array_map(fn ($t) => (bool) preg_grep('/^pic\.seg\.jack /', (array) $t), $j['alone'] ?? [[], []]));
-    same('night picture: X on both bars, four parts each and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 9], [$j['x'] ?? null, count($j['segs'] ?? [])]);
+    same('night picture: X on both bars, five parts each (his watched one too) and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 11], [$j['x'] ?? null, count($j['segs'] ?? [])]);
     check('night picture: nothing measured — said, the array «not measured», no bar', in_array('pic.pool_unmeasured', $j['boxNone'] ?? [], true)
         && in_array('pic.unmeasured', $j['boxNone'] ?? [], true) && !in_array('pic.before', $j['boxNone'] ?? [], true), json_encode($j['boxNone'] ?? null));
     same('night picture: no picture in night.json (an older agent) — none; the live one fed anew for the same run, a new one for the next', [null, [true, true]],
