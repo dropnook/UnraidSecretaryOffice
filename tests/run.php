@@ -26318,7 +26318,8 @@ const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
   appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
 globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', duration: (s) => s + ' s', date: (t) => 'D' + t, time: (t) => 'H' + t, number: (n) => String(n) },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => null, has: () => false, store: () => null,
+  desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {}, selbar: () => null, has: () => false,
+  store: (k) => (k === 'backup.proposals_dismissed' ? globalThis.dismissed : null),
   storeJson: () => null, agent: { running: true }, place: (k, n) => n, stat: (o) => ({ stat: o }), withGreeting: (id, s) => s,
   sections: () => ({ el: el('div'), grid: el('div'), body: el('div'), active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
   filterBar: () => { const bar = { el: {}, read: () => ({ words: [], only: false, pick: '', tile: '' }), set() { return bar; }, reset() { return bar; }, done() { return bar; }, tile() { return bar; } }; return bar; } };
@@ -26355,6 +26356,9 @@ plan.partners = [{ ...plan.partners[0], id: NEW, address: '100.84.12.9' }];
 plan.messages = [...(plan.messages || []), { level: 'hint', step: 'partners', code: 'partner_anew', params: { partner: 'Grosseltern', new: 'Grosseltern', n: '4' } }];
 S.plan = plan; S.choice = null;
 out.anew = look();
+// «Discard» clicked on this plan before: a changed partnership still keeps the bar (1.63.0, live on the test server)
+globalThis.dismissed = String(plan.time || '');
+out.dismissed = (b.setupBarSpec() || {}).title || null;
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
@@ -26372,6 +26376,10 @@ JS);
         [['general|partner_place', 'unit'], ['partner|2ec7accd|', 'partner'], ['partner|c3553dcc|', 'partner'], ['share|Dokumente|partner', 'unit'],
          ['share|Familienfotos|partner', 'unit'], ['vm|Home-Assistant|partner', 'unit']], $r['anew']['items'] ?? null);
     check('pairs replan: page — … the bar counts them as proposals of mine', str_starts_with((string) ($r['anew']['bar'] ?? ''), 'setup.bar_proposals'), (string) json_encode($r['anew']['bar'] ?? null));
+    check('pairs replan: page — … an earlier «Discard» on this plan never hides a changed partnership', str_starts_with((string) ($r['dismissed'] ?? ''), 'setup.bar_proposals'),
+        (string) json_encode($r['dismissed'] ?? null));
+    $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('pairs replan: page — … only that: other proposals set aside stay set aside', str_contains($bk, "=== String(setup.plan.time || '')\n    && !split.mine.some((id) => id.startsWith('partner|'));"));
     same('pairs replan: page — Apply sends the new id for every unit, never the old',
         ['general|partner_place' => [$new], 'share|Dokumente|partner' => [$new], 'share|Familienfotos|partner' => [$new], 'vm|Home-Assistant|partner' => [$new]],
         $r['anew']['sent'] ?? null);
