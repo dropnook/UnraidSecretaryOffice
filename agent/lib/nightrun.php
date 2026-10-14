@@ -127,7 +127,13 @@ function nightPlan(?array $level, int $waiting = 0, ?int $jackBack = null): arra
     $kept = max(0, (int) $level['jack'] - max(0, (int) ($jackBack ?? 0)));
     $back = (int) $level['jack'] - $kept;
     $others = (int) $level['others'];
-    $fetch = $xb > 0 ? min($waiting, max(0, $xb - $fixed - $kept)) : $waiting;
+    // what waits is counted in file sizes; on the pool his files take their allocated bytes (compression): converted by
+    // the ratio of what he keeps there (2026-10-15; nothing of his there yet, or no logical count: 1)
+    $logical = (int) ($level['jack_logical'] ?? 0);
+    $ratio = $logical > 0 && (int) $level['jack'] > 0 ? max(0.1, min(1.0, (int) $level['jack'] / $logical)) : 1.0;
+    $needPool = (int) ceil($waiting * $ratio);
+    $fetch = $xb > 0 ? min($needPool, max(0, $xb - $fixed - $kept)) : $needPool;
+    $waitLeft = $needPool > 0 ? $waiting - min($waiting, (int) floor($fetch / $ratio)) : 0;
     $room = $xb > 0 ? $xb - $fixed - $kept - $fetch : null;
     $othersBack = $xb > 0 ? max(0, $others - max(0, $room)) : 0;
     $after = $fixed + $kept + $others - $othersBack + $fetch;
@@ -145,7 +151,7 @@ function nightPlan(?array $level, int $waiting = 0, ?int $jackBack = null): arra
     $forecast = ['size' => $size, 'fixed' => $fixed, 'others' => $others - $othersBack, 'jack' => $kept + $fetch, 'free' => max(0, $size - $after),
                  'jack_watched' => $jackBack === null ? null : 0];
     return ['measured' => true, 'x' => (int) $level['x'], 'size' => $size, 'used_pct' => (float) $level['used_pct'], 'need' => (int) $level['need'],
-            'jack_back' => $jackBack === null ? null : $back, 'others_back' => $othersBack, 'jack_fetch' => $fetch, 'wait' => $waiting - $fetch,
+            'jack_back' => $jackBack === null ? null : $back, 'others_back' => $othersBack, 'jack_fetch' => $fetch, 'wait' => $waitLeft,
             'until' => $xb > 0 ? $xb - $fetch : null, 'need_room' => $xb > 0 ? max(0, (int) $level['used'] - ($xb - $fetch)) : 0, 'others_room' => $room, 'over' => $over, 'why' => $why, 'never' => (bool) $level['never'],
             'before' => $before, 'forecast' => $forecast];
 }

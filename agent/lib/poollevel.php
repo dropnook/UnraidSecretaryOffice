@@ -9,7 +9,8 @@ declare(strict_types=1);
  *   size, used = zfs list -Hp used,avail <pool>          (the whole pool, as Smart Mover's pool_used_pct())
  *   M          = Σ refer of the movable shares' datasets (shareUseCache yes|prefer, primary = this pool)
  *   fixed      = used − M                                (never moves: pool-only shares, snapshots, overhead)
- *   jack       = Σ size of the entries of EmbyCache's list on this pool
+ *   jack       = Σ allocated bytes of the entries of EmbyCache's list on this pool (after compression, like refer;
+ *                2026-10-15 — the sizes as jack_logical)
  *   others     = M − jack                                (the other caching shares: downloads …)
  *   need       = max(0, used − X%·size)                  (what must go tonight)
  *
@@ -127,30 +128,41 @@ function poolLevelLook(string $pool, array $shares, string $zfs = 'zfs'): ?array
     return ['size' => $rows[$pool]['used'] + $rows[$pool]['avail'], 'used' => $rows[$pool]['used'], 'movable' => $m, 'snapshots' => $snap];
 }
 
-/** J: the sizes of the entries of EmbyCache's list that lie on this pool (a file that is gone: 0) */
-function poolLevelJackBytes(?string $list, string $pool, string $mnt = '/mnt'): int
+/**
+ * J: what the entries of EmbyCache's list that lie on this pool take there (a file that is gone: 0) — in the pool's own
+ * bytes (2026-10-15: allocated, st_blocks — ZFS counts them after compression, like `refer`; never above the size), and
+ * their sizes (logical): [physical, logical]. The ratio converts what waits on the array into pool bytes (nightPlan()).
+ */
+function poolLevelJackBytes(?string $list, string $pool, string $mnt = '/mnt'): array
 {
     if ($list === null || !is_file($list)) {
-        return 0;
+        return [0, 0];
     }
     $fh = @fopen($list, 'r');
     if (!$fh) {
-        return 0;
+        return [0, 0];
     }
     $pre = rtrim($mnt, '/') . "/$pool/";
-    $sum = 0;
+    $sum = $logical = 0;
     for ($i = 0; $i < POOL_LIST_MAX && ($line = fgets($fh)) !== false; $i++) {
         $p = rtrim($line, "\r\n");
         if (str_starts_with($p, $pre) && !str_contains($p, '/../')) {
             clearstatcache(true, $p);
             $st = @lstat($p);
             if ($st !== false && ($st['mode'] & 0170000) === 0100000) {
-                $sum += (int) $st['size'];
+                $logical += (int) $st['size'];
+                $sum += poolLevelFileBytes((int) $st['size'], (int) $st['blocks']);
             }
         }
     }
     fclose($fh);
-    return $sum;
+    return [$sum, $logical];
+}
+
+/** A file's bytes on its pool: its allocated blocks (512 each; ZFS after compression), never more than its size */
+function poolLevelFileBytes(int $size, int $blocks): int
+{
+    return $blocks >= 0 ? min(max(0, $size), $blocks * 512) : max(0, $size);
 }
 
 /**
@@ -168,8 +180,8 @@ function poolLevel(string $pool, array $o): ?array
     if ($look === null) {
         return null;
     }
-    $jack = poolLevelJackBytes($o['jack_list'] ?? null, $pool, $o['mnt'] ?? '/mnt');
-    return ['pool' => $pool, 'shares' => $shares, 'snapshots' => $look['snapshots'],
+    [$jack, $jackLogical] = poolLevelJackBytes($o['jack_list'] ?? null, $pool, $o['mnt'] ?? '/mnt');
+    return ['pool' => $pool, 'shares' => $shares, 'snapshots' => $look['snapshots'], 'jack_logical' => $jackLogical,
             'snap_pct' => $look['size'] > 0 ? round($look['snapshots'] * 100 / $look['size'], 1) : 0.0]
          + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jack);
 }

@@ -602,9 +602,11 @@ fill_register() {  # name src dest pool threshold target excludes(comma list)
 }
 
 # The candidates of a pool's triggered shares in one list, oldest first by the younger of birth (else ctime) and mtime,
-# ties by name -> FILL_FILES, FILL_SIZES, FILL_OWNER (the share); never an excluded file, never one of the age step
+# ties by name -> FILL_FILES, FILL_SIZES, FILL_PHYS, FILL_OWNER (the share); never an excluded file, never one of the age step.
+# USO «pool bytes» (2026-10-15): FILL_PHYS = what the file takes on the pool — its allocated bytes (st_blocks; ZFS counts
+# them after compression), never more than its size (a small file's block, a file not yet synced)
 fill_pool_candidates() {  # share...
-    local name f rec key sz rest b c m
+    local name f rec key sz rest b c m nb bs ph
     local list
     list=$(mktemp)
     for name in "$@"; do
@@ -618,39 +620,54 @@ fill_pool_candidates() {  # share...
         (( ${#mine[@]} > 0 )) || continue
         while IFS= read -r -d '' rec; do
             b=${rec%%$'\t'*}; rest=${rec#*$'\t'}; c=${rest%%$'\t'*}; rest=${rest#*$'\t'}; m=${rest%%$'\t'*}; rest=${rest#*$'\t'}
-            sz=${rest%%$'\t'*}; f=${rest#*$'\t'}
+            sz=${rest%%$'\t'*}; rest=${rest#*$'\t'}; nb=${rest%%$'\t'*}; rest=${rest#*$'\t'}; bs=${rest%%$'\t'*}; f=${rest#*$'\t'}
             is_int "$b" && (( b > 0 )) || b=$c                 # no birth time on this filesystem: ctime
             key=$b; is_int "$m" && (( m > key )) && key=$m      # touched lately: counts as new
-            printf '%s\t%s\t%s\t%s\0' "$key" "$sz" "$name" "$f" >> "$list"
-        done < <(printf '%s\0' "${mine[@]}" | xargs -0 -r stat --printf '%W\t%Z\t%Y\t%s\t%n\0' 2>/dev/null)
+            ph=$sz; is_int "$nb" && is_int "$bs" && (( nb * bs < sz )) && ph=$(( nb * bs ))
+            printf '%s\t%s\t%s\t%s\t%s\0' "$key" "$sz" "$ph" "$name" "$f" >> "$list"
+        done < <(printf '%s\0' "${mine[@]}" | xargs -0 -r stat --printf '%W\t%Z\t%Y\t%s\t%b\t%B\t%n\0' 2>/dev/null)
     done
-    FILL_FILES=(); FILL_SIZES=(); FILL_OWNER=()
+    FILL_FILES=(); FILL_SIZES=(); FILL_PHYS=(); FILL_OWNER=()
     while IFS= read -r -d '' rec; do
-        rec=${rec#*$'\t'}; FILL_SIZES+=("${rec%%$'\t'*}"); rec=${rec#*$'\t'}; FILL_OWNER+=("${rec%%$'\t'*}"); FILL_FILES+=("${rec#*$'\t'}")
-    done < <(sort -z -t $'\t' -k1,1n -k4 "$list")
+        rec=${rec#*$'\t'}; FILL_SIZES+=("${rec%%$'\t'*}"); rec=${rec#*$'\t'}; FILL_PHYS+=("${rec%%$'\t'*}"); rec=${rec#*$'\t'}
+        FILL_OWNER+=("${rec%%$'\t'*}"); FILL_FILES+=("${rec#*$'\t'}")
+    done < <(sort -z -t $'\t' -k1,1n -k5 "$list")
     rm -f "$list"
 }
 
 # USO «moved enough»: the fill moved what the pool was over (fill_pool's locals): the pool re-read for up to SETTLE_S
-# seconds until its reading is at the target; still above → FILL_ENOUGH (said once, no further file)
+# seconds until its reading is at the target — 0: there; 1: still above (fill_more decides)
 fill_settle() {
     local waited
     for (( waited = 0; ; waited += 2 )); do
         if [[ "$room" == true ]]; then (( used_b <= ub )) && return 0; else (( pct < min )) && return 0; fi
-        (( waited >= SETTLE_S )) && break
+        (( waited >= SETTLE_S )) && return 1
         sleep 2
         pool_used_pct "$pool"
         [[ -n "$POOL_USED" ]] && pct=$POOL_USED
         [[ -n "$POOL_USED_B" ]] && used_b=$POOL_USED_B
     done
+}
+
+# USO «pool bytes»: after a stretch that moved what the pool was over (fill_pool's locals) and fill_settle said «still
+# above»: did the pool get freer by at least a quarter of what moved (compression the sizes didn't show, a btrfs commit
+# later)? Then a new stretch for what is still over (0). If not, snapshots keep what moved: FILL_ENOUGH, said once (1).
+fill_more() {
+    if (( (seg_used - used_b) * 4 >= freed && freed > 0 )); then
+        seg_used=$used_b; freed=0
+        if [[ "$room" == true ]]; then need0=$(( used_b - ub )); else need0=$(( used_b - (min - 1) * size_b / 100 )); fi
+        (( need0 > 0 )) || need0=1
+        return 0
+    fi
     FILL_ENOUGH=true; FILL_HELD=true
     log WARN "  fill: $(human "$freed") moved – as much as pool $pool was over – but it still uses $(human "$used_b") after ${SETTLE_S} s (snapshots keep what moved until their retention, or the pool still frees it): no further file"
+    return 1
 }
 
 # One pool's fill (a real run moves, a dry run estimates): its shares whose trigger the pool reaches, oldest first across
 # them, a share's file only while the pool is at/above its target; the pool re-read after each file (dry: the sizes)
 fill_pool() {  # pool
-    local pool="$1" name used used_b size_b pct i f sz own min=101 n=0 b2=0 cap=false room=false ub="" need0="" freed=0
+    local pool="$1" name used used_b size_b pct i f sz ph own min=101 n=0 b2=0 cap=false room=false ub="" need0="" freed=0 seg_used=0
     local -a mine=() go=()
     local -A F_N=() F_B=() F_MOVED=() F_LEFT=() F_GONE=()
     for name in "${FILL_SHARES[@]}"; do [[ "${FS_POOL[$name]}" == "$pool" ]] && mine+=("$name"); done
@@ -687,14 +704,15 @@ fill_pool() {  # pool
     if [[ "$DRY_RUN" == false && -n "$used_b" && -n "$size_b" ]]; then
         if [[ "$room" == true ]]; then need0=$(( used_b - ub )); else need0=$(( used_b - (min - 1) * size_b / 100 )); fi
         (( need0 <= 0 )) && need0=""
+        seg_used=$used_b
     fi
     fill_pool_candidates "${go[@]}"
     if (( ${#FILL_FILES[@]} == 0 )); then log INFO "  fill: no further files (everything else is excluded)"; fi
     PHASE=share; FILL_CAPPED=false; FILL_ENOUGH=false
     pct=$used
     for (( i = 0; i < ${#FILL_FILES[@]}; i++ )); do
-        f=${FILL_FILES[i]}; sz=${FILL_SIZES[i]}; own=${FILL_OWNER[i]}
-        if [[ -n "$need0" ]] && (( freed >= need0 )); then fill_settle; break; fi
+        f=${FILL_FILES[i]}; sz=${FILL_SIZES[i]}; ph=${FILL_PHYS[i]}; own=${FILL_OWNER[i]}
+        if [[ -n "$need0" ]] && (( freed >= need0 )); then fill_settle && break; fill_more || break; fi
         if [[ "$room" == true ]]; then
             (( used_b <= ub )) && break
         else
@@ -703,7 +721,7 @@ fill_pool() {  # pool
         fi
         if [[ "$cap" == true ]] && (( sz > FILL_LEFT_B )); then FILL_CAPPED=true; break; fi
         if [[ "$DRY_RUN" == true ]]; then
-            (( used_b -= sz, used_b < 0 )) && used_b=0
+            (( used_b -= ph, used_b < 0 )) && used_b=0
             pct=$(( (used_b * 100 + size_b - 1) / size_b ))
         else
             if [[ -n "$STOP_FILE" && -e "$STOP_FILE" ]]; then
@@ -720,7 +738,7 @@ fill_pool() {  # pool
                 (( F_LEFT[$own]++ )) || true
                 log WARN "  still on the source side (in use, or already present at the destination): $f"
             else
-                (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz, freed += sz )) || true
+                (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz, freed += ph )) || true
                 F_GONE[$own]+="$f"$'\n'
                 recent_add "$own/${f#"${FS_SRC[$own]}/"}" "$sz" "$pool" "${FS_DEST[$own]}"
             fi
@@ -734,7 +752,7 @@ fill_pool() {  # pool
     done
     CUR_FILE=""
     # the last file moved enough: the same wait before the pool's reading is judged
-    [[ -n "$need0" && "$FILL_ENOUGH" == false && "$STOPPED" == false ]] && (( freed > 0 && freed >= need0 )) && fill_settle
+    [[ -n "$need0" && "$FILL_ENOUGH" == false && "$STOPPED" == false ]] && (( freed > 0 && freed >= need0 )) && { fill_settle || fill_more || true; }
     (( TOTAL_FILES += n, TOTAL_BYTES += b2 )) || true
     for name in "${mine[@]}"; do
         sh_load "$name"
@@ -894,7 +912,10 @@ process_share() {  # name mode pool pool2
         SH_STATE=dry
         (( count > 0 )) && log INFO "  [DRY-RUN] would move $count files ($(human "$bytes"))"
         dry_list
-        [[ "$fill" == true ]] && (( POOL_AGED_B[$pool] += bytes )) || true
+        # USO «pool bytes»: what the aged files take on the pool (allocated, never above their size) for the fill's estimate
+        if [[ "$fill" == true ]] && (( count > 0 )); then
+            (( POOL_AGED_B[$pool] += $(printf '%s\0' "${FILES[@]}" | xargs -0 stat -c '%s %b %B' 2>/dev/null | awk '{p=$2*$3; s+=(p<$1?p:$1)} END {printf "%d", s+0}') )) || true
+        fi
         (( SH_FILES == 0 )) && SH_STATE=none
         return 0
     fi

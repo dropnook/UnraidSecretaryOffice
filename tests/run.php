@@ -31554,6 +31554,64 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     same('fix3 amount: «not set up» only without her ini', 1, $r['none']);
 }
 
+/**
+ * Pool bytes (R2-7/R2-8, 2026-10-15): what decides «how much must still go» counts in the pool's own bytes — a file's
+ * allocated blocks (ZFS after compression), never more than its size; Jack Streamer's list as [physical, logical]; what
+ * waits converted by his ratio; Smart Mover's fill reaches X in one run when the pool frees less than the sizes say
+ */
+function testPoolBytes(): void
+{
+    same('pool bytes: a file\'s bytes — its blocks when fewer (compressed, sparse), never more than its size',
+        [512, 100, 0, 7], [poolLevelFileBytes(4096, 1), poolLevelFileBytes(100, 8), poolLevelFileBytes(1 << 20, 0), poolLevelFileBytes(7, -1)]);
+    $t = hardeningTmp('pool-bytes');
+    @mkdir("$t/mnt/cache/Filme", 0700, true);
+    file_put_contents("$t/mnt/cache/Filme/full.mkv", str_repeat('x', 100));
+    $fh = fopen("$t/mnt/cache/Filme/sparse.mkv", 'w');
+    ftruncate($fh, 1 << 20);                 // 1 MiB in size, nothing allocated (as a 2× compressed file is half)
+    fclose($fh);
+    file_put_contents("$t/list.txt", "$t/mnt/cache/Filme/full.mkv\n$t/mnt/cache/Filme/sparse.mkv\n$t/mnt/cache/Filme/gone.mkv\n");
+    $blocks = (int) stat("$t/mnt/cache/Filme/sparse.mkv")['blocks'] * 512;
+    same('pool bytes: Jack Streamer\'s list — [what it takes on the pool, its sizes]', [100 + min(1 << 20, $blocks), 100 + (1 << 20)],
+        poolLevelJackBytes("$t/list.txt", 'cache', "$t/mnt"));
+    // nightPlan: 1000 G pool, X 80; what never moves 300, his 100 G on the pool are 200 G of files (2×), others 100;
+    // 300 G of files wait — on the pool 150 G: room for all of it below X (800 − 300 − 100 − 150 = 250 for the others)
+    $G = 1 << 30;
+    $lv = poolLevelMath(1000 * $G, 500 * $G, 200 * $G, 80, 100 * $G) + ['pool' => 'cache', 'jack_logical' => 200 * $G];
+    $p = nightPlan($lv, 300 * $G, 0);
+    same('pool bytes: what waits converted by his ratio — 300 G of files take 150 G, all fetched, nothing waits, until = 650 G',
+        [150 * $G, 0, 650 * $G, 0], [$p['jack_fetch'], $p['wait'], $p['until'], $p['others_back']]);
+    $p = nightPlan(['jack_logical' => 0] + $lv, 300 * $G, 0);
+    same('pool bytes: no logical count — ratio 1 (as before): 300 fetched, until 500, the others 0 room', [300 * $G, 500 * $G], [$p['jack_fetch'], $p['until']]);
+    $p = nightPlan(poolLevelMath(1000 * $G, 800 * $G, 450 * $G, 80, 400 * $G) + ['pool' => 'cache', 'jack_logical' => 800 * $G], 200 * $G, 0);
+    same('pool bytes: only 50 G of room below X — 100 G of files fit, 100 G of files still wait', [50 * $G, 100 * $G], [$p['jack_fetch'], $p['wait']]);
+
+    // Smart Mover: the pool frees half of what the sizes say (lz4 on a work share) — 10 files of 100 bytes read as 500 of 1000
+    // (50 %), X 30: five must go; the old cap stopped after the sizes said «enough» (3) and called the pool «held»
+    $m = "$t/sm";
+    foreach (['mnt/cache/Docs', 'mnt/user/Docs', 'mnt/disk1', 'bin', 'shares'] as $d) {
+        @mkdir("$m/$d", 0700, true);
+    }
+    file_put_contents("$m/shares/Docs.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    foreach (range(0, 9) as $i) {
+        file_put_contents("$m/mnt/cache/Docs/f$i", str_repeat('x', 100));
+        touch("$m/mnt/cache/Docs/f$i", time() - (20 - $i) * 86400);
+    }
+    $count = '$(find "$ZROOT" -type f -printf \'%s\n\' | awk \'{s+=$1} END {print int(s/2)}\')';
+    file_put_contents("$m/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\nu=$count; echo \"\$u \$(( 1000 - u ))\"\n");
+    file_put_contents("$m/bin/move", "#!/bin/bash\nwhile IFS= read -r f; do r=\${f#\"\$ZROOT\"/}; mkdir -p \"\$(dirname \"\$DISK/\$r\")\"; mv \"\$f\" \"\$DISK/\$r\"; done\n");
+    chmod("$m/bin/zfs", 0755);
+    chmod("$m/bin/move", 0755);
+    file_put_contents("$m/ini", "[GLOBAL]\nmin_age=365\nage_stat=mtime\nmove_when_used_above=30\n");
+    $env = ['CUSTOMMOVER_INI' => "$m/ini", 'CUSTOMMOVER_SHARES_DIR' => "$m/shares", 'CUSTOMMOVER_MNT' => "$m/mnt", 'CUSTOMMOVER_LOG' => "$m/log",
+            'CUSTOMMOVER_LOCK' => "$m/lock", 'CUSTOMMOVER_STATUS' => "$m/st.json", 'CUSTOMMOVER_ZFS' => "$m/bin/zfs", 'CUSTOMMOVER_MOVER_BIN' => "$m/bin/move",
+            'CUSTOMMOVER_STOP' => "$m/stop", 'CUSTOMMOVER_SETTLE' => '0', 'ZROOT' => "$m/mnt/cache", 'DISK' => "$m/mnt/disk1"];
+    runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--run'], $env, 60);
+    $st = readJson("$m/st.json") ?? [];
+    same('pool bytes: Smart Mover on a pool that frees half — the five oldest in ONE run, X reached (25 %), not «held»',
+        [['f0', 'f1', 'f2', 'f3', 'f4'], true, false, '25'], [array_map('basename', glob("$m/mnt/disk1/Docs/*") ?: []), $st['shares'][0]['reached'] ?? null,
+         $st['fill_held'] ?? null, $st['shares'][0]['pool_now'] ?? null]);
+}
+
 function testPoolLevel(): void
 {
     $G = 1 << 30;
@@ -35656,7 +35714,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
