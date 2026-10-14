@@ -255,6 +255,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   Emby», never just «Jack»**; what he prepares is never just «films» — «what Jack Emby laid out (from his libraries)» / «was
   Jack Emby bereitgelegt hat (aus seinen Bibliotheken)». Chatty bubbles may carry character, **warnings and errors stay plain**.
   Reception button via lang key `visit`, else «Visit {name}». Titles small in it/es running text, capitalised in fr.
+* **Jack the Skipper** (2026-10-14): German texts say «Jack the Skipper», always in full (never «Jack», never a genitive
+  «Skippers» — «die Liste von Jack the Skipper»); his and Ms. Moverelli's bubbles (`bubble.*`, `greet.*`) and en/it/fr/es keep
+  «Jack Emby» until the release renames them. Ids, routes, files, env vars, EmbyCache stay.
 
 ## Words
 
