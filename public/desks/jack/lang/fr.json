@@ -645,6 +645,7 @@
   "night.her_check": "Madame Moverelli mesure le pool.",
   "night.jack_soon": "C'est bientôt le tour de Jack Streamer.",
   "night.her_open": "Aller chez Madame Moverelli",
+  "night_out": "Je n'étais pas dans la dernière exécution de nuit ({when}) — Madame Moverelli a fait sa part seule. Raison : {why}",
   "night.dry_both": "L'essai à blanc pour les deux — Madame Moverelli et Jack Streamer ensemble — se trouve sur la ligne de sa planification.",
   "night.dry_both_open": "Vers sa planification",
   "count.days": {"one": "{n} jour", "other": "{n} jours"},

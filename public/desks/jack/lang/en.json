@@ -645,6 +645,7 @@
   "night.her_check": "Ms. Moverelli is measuring the pool.",
   "night.jack_soon": "Jack Streamer's turn comes in a moment.",
   "night.her_open": "Open Ms. Moverelli",
+  "night_out": "I wasn't in the last night run ({when}) — Ms. Moverelli did her part alone. Why: {why}",
   "night.dry_both": "The dry run for both — Ms. Moverelli and Jack Streamer together — is on her schedule's row.",
   "night.dry_both_open": "To her schedule",
   "count.days": {"one": "{n} day", "other": "{n} days"},

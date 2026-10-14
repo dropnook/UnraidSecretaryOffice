@@ -645,6 +645,7 @@
   "night.her_check": "La señora Moverelli mide el pool.",
   "night.jack_soon": "Enseguida le toca a Jack Streamer.",
   "night.her_open": "Ir con la señora Moverelli",
+  "night_out": "No participé en la última ejecución nocturna ({when}) — la señora Moverelli hizo su parte sola. Motivo: {why}",
   "night.dry_both": "La simulación para ambos — la señora Moverelli y Jack Streamer juntos — está en la fila de su programación.",
   "night.dry_both_open": "A su programación",
   "count.days": {"one": "{n} día", "other": "{n} días"},

@@ -645,6 +645,7 @@
   "night.her_check": "Frau Moverelli misst den Pool.",
   "night.jack_soon": "Jack Streamer ist gleich dran.",
   "night.her_open": "Zu Frau Moverelli",
+  "night_out": "Beim letzten Nachtlauf ({when}) war ich nicht dabei — Frau Moverelli hat ihren Teil allein gemacht. Grund: {why}",
   "night.dry_both": "Den Probelauf für beide — Frau Moverelli und Jack Streamer zusammen — gibt es auf ihrer Zeitplan-Zeile.",
   "night.dry_both_open": "Zu ihrem Zeitplan",
   "count.days": {"one": "{n} Tag", "other": "{n} Tage"},

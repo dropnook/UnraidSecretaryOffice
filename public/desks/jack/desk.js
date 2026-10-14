@@ -582,7 +582,18 @@ function plansSection() {
   s.appendChild(plansList());
   // the night run with Ms. Moverelli: tonight's plan — one quiet line
   if (night() && night().jack) s.appendChild(el('p', 'role', tonightText(night().plan)));
+  const out = nightOutLine();
+  if (out) s.appendChild(out);
   return s;
+}
+/**
+ * I wasn't in the last night run (my step refused: not set up, folders not consolidated yet …): Ms. Moverelli did her part
+ * alone — a callout with my reason (my refusal's text), null when I was in it
+ */
+function nightOutLine() {
+  const l = night() && night().last;
+  if (!l || !l.jack_out || !l.started) return null;
+  return el('p', 'callout warn', T('night_out', { when: fmt.relative(l.finished || l.started), why: Office.errorText({ key: l.jack_out, params: {} }, ID) }));
 }
 function plansList() {
   const box = el('div', 'box jo-plans');
