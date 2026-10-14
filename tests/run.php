@@ -30484,6 +30484,10 @@ out.same = JSON.stringify(a) === JSON.stringify(b);
 out.other = JSON.stringify(S.summary(S.runScenario('normal', {}, 8))) !== JSON.stringify(a);
 out.sc = Object.fromEntries(S.SCENARIOS.map((sc) => [sc.id, S.summary(S.runScenario(sc.id, {}, 162))]));
 const tiny = S.runScenario('tiny', { others0: 282, jack0: 28 }, 162);
+const real = S.newSim({ pool: 4000, nm: 500, others0: 200, jack0: 926 }, 162);
+const held = S.measure(real.w, real.sides.new).files;
+out.real = { j: real.sides.new.hist[0].jack, old: real.sides.v162.hist[0].jack, biggest: Math.max(...held.map((e) => e.size)),
+  want: S.wanted(real.w, real.sides.new).reduce((a, e) => a + e.size, 0), people: new Set(held.map((e) => e.uid)).size, n: real.w.people.length };
 out.tinyStart = tiny.sides.new.hist[0].others + tiny.sides.new.hist[0].nm <= tiny.w.cfg.pool;
 console.log(JSON.stringify(out));
 JS);
@@ -30524,6 +30528,10 @@ JS);
     check('skipper sim: download spike, 1.62.1 — unwatched files go back and come again within 7 days (ping-pong)',
         $sc['spike']['v162']['pingpong'] > 0 && $sc['spike']['v162']['forced'] > 0 && $sc['spike']['v162']['inv']['pingpong'] !== null, json_encode($sc['spike']['v162']));
     check('skipper sim: … the new rules on the same spike: none', $sc['spike']['new']['pingpong'] === 0);
+    $re = $r['real'];
+    check('skipper sim: real data — day 0 holds what Jack the Skipper really holds (926 GB, within one file), under both rule sets',
+        $re['j'] >= 926 && $re['j'] < 926 + $re['biggest'] + 0.1 && abs($re['old'] - $re['j']) < 0.01, json_encode($re));
+    check('skipper sim: … what he wants is at least that much, unwatched, spread over every person', $re['want'] >= 926 && $re['people'] === $re['n'], json_encode($re));
     check('skipper sim: a scenario with a pool of its own never starts with the server\'s contents (282 GB of downloads in a 256 GB pool)', $r['tinyStart'] === true);
 }
 
@@ -30629,6 +30637,9 @@ f.values.cache_path = '/mnt/fast';
 out.picked = e.derivedPool();
 e.setState({ ...st, share_info: { ...st.share_info, Familienserien: { use: 'no', primary: '', secondary: '' } } });
 out.arrayOnly = [e.cacheable('Familienserien'), e.derivedPool()];
+const names = new Map([['a1', 'Anna'], ['b2', 'Ben']]);
+const hex = '0123456789abcdef0123456789abcdef';
+out.people = [e.peopleWords(['a1', 'b2'], names), e.peopleWords([hex, 'b2'], names), e.peopleWords([hex], new Map()), e.peopleWords([], names)];
 console.log(JSON.stringify(out));
 JS);
         $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
@@ -30647,6 +30658,8 @@ JS);
             same('skipper wizard: shares on two pools — none until the user picks one (EmbyCache has one cache_path)', [2, ''], $r['many']);
             same('skipper wizard: … the picked one', '/mnt/fast', $r['picked']);
             same('skipper wizard: an array-only share can\'t be cached — the pool from the others', [false, '/mnt/cache'], $r['arrayOnly']);
+            same('skipper wizard: the people in words — names when known, else how many, none = everyone; never an id',
+                ['Anna, Ben', 'count.people {"n":2}', 'count.people {"n":1}', 'setup.tile.everyone'], $r['people']);
         }
     }
 }

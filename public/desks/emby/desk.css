@@ -148,8 +148,8 @@
 .jo-sim-seg{display:block; height:100%}
 .jo-sim-seg.nm{background:var(--data)}
 .jo-sim-seg.others{background:var(--ink2)}
-.jo-sim-seg.unw{background:var(--accent)}
-.jo-sim-seg.wat{background:var(--accent-soft)}
+.jo-sim-seg.unw{background:var(--danger)}
+.jo-sim-seg.wat{background:var(--good)}
 .jo-sim-seg.free{background:var(--surface); border:1px solid var(--line2)}
 .jo-sim-mark{position:absolute; top:-18px; bottom:-2px; border-left:2px solid var(--ink)}
 .jo-sim-mark > span{position:absolute; top:0; left:3px; font-size:11px; line-height:1; white-space:nowrap; color:var(--ink)}

@@ -125,6 +125,16 @@ function addEp(w, s, day) {
   w.eps.push({ id: w.nextId++, sid: s.id, uid: s.uid, idx: s.n++, size: r1(size), watched: false, added: day });
 }
 
+/**
+ * Real data: Jack the Skipper already holds `gb` on the pool — the invented world grows (a new series per person in turn,
+ * watched lately, unwatched episodes) until what he wants is at least that much, so day 0 can hold it
+ */
+function growFor(w, gb) {
+  if (!(gb > 0)) return;
+  const want = () => sum(wanted(w, { rules: 'new' }).map((e) => e.size));
+  for (let u = 0; want() < gb * 1.05 && w.series.length < 2000; u = (u + 1) % w.people.length) addSeries(w, u, -Math.floor(w.rnd() * 10), w.cfg.episodes + 2);
+}
+
 /** A rule set's own side of the world: what lies on the pool, the downloads, what it gave back, its totals and log */
 function newSide(rules, w) {
   // the downloads already there: the server's as three blocks of the last days (real data), else two days' writes
@@ -469,15 +479,24 @@ function invariants(w, side, before) {
 function newSim(cfg, seed) {
   const w = newWorld({ unwatchedDays: 30, ...cfg }, seed == null ? 162 : seed);
   w.nightWrites = 0;
+  growFor(w, w.cfg.jack0 || 0);
   const sim = { w, sides: { new: newSide('new', w), v162: newSide('v162', w) } };
   for (const side of Object.values(sim.sides)) {      // the first night fills him (day 0)
-    // what he holds already (real data): his queue's first files up to that size
+    // what he holds already (real data): his queue's files up to that size, a person at a time in turn — day 0 holds
+    // the measured amount (within one file)
     if (w.cfg.jack0 > 0) {
+      const per = w.people.map((_, u) => wanted(w, side).filter((e) => e.uid === u).sort((x, y) => rank(w, x) - rank(w, y) || x.idx - y.idx));
       let held = 0;
-      for (const e of wanted(w, side)) { if (held >= w.cfg.jack0) break; side.pool.add(e.id); held += e.size; }
+      for (let turn = 0; held < w.cfg.jack0 && per.some((l) => l.length); turn++) {
+        const l = per[turn % per.length];
+        if (!l.length) continue;
+        const e = l.shift();
+        side.pool.add(e.id);
+        held += e.size;
+      }
     }
-    const L = logger(w, side);
-    (side.rules === 'new' ? skipperNight : v162Night)(w, side, L);
+    // own test values: the first night fills him; the server's: day 0 is the pool as measured (no night before it)
+    if (!(w.cfg.jack0 > 0)) (side.rules === 'new' ? skipperNight : v162Night)(w, side, logger(w, side));
     record(w, side, { spilled: 0, forced: 0, pingpong: 0, told: 0 }, false);
   }
   return sim;
