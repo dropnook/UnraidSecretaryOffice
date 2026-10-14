@@ -3244,6 +3244,56 @@ function testJackForeign(): void
 }
 
 /** The plugin's cron file against a copy: only the job's own line changes, the order stays */
+/**
+ * The office's cron lines in root's crontab (caretakerWatchCron()): a fresh `plugin install` registers the plugin only
+ * after its install script, so update_cron skipped the office's files then — the caretaker looks every minute and runs
+ * update_cron once a line is missing and the plugin is registered, at most every CARETAKER_CRON_RETRY.
+ */
+function testCaretakerCronLook(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-cronlook-' . getmypid();
+    @mkdir($tmp, 0700, true);
+    $watch = "$tmp/agent-watch.cron";
+    $sched = "$tmp/office.cron";
+    $tab = "$tmp/root";
+    $plg = "$tmp/office.plg";
+    file_put_contents($watch, "# the look\n*/5 * * * * bash /x/scripts/job.sh watch > /dev/null 2>&1\n");
+    file_put_contents($sched, "# schedules\n0 3 * * * bash /x/scripts/job.sh backup > /dev/null 2>&1\n");
+    file_put_contents($tab, "# Generated mover schedule:\n40 3 * * * /usr/local/sbin/mover start\n");
+    $ran = 0;
+    $h = ['files' => [$watch, $sched], 'crontab' => $tab, 'plg' => $plg, 'apply' => function () use (&$ran, $tab, $watch, $sched) {
+        $ran++;
+        file_put_contents($tab, file_get_contents($watch) . file_get_contents($sched));
+    }];
+    $keep = $GLOBALS['ctCronApplied'] ?? null;
+    $GLOBALS['ctCronApplied'] = 0;
+    $now = 2_000_000_000;
+
+    same('cron look: the plugin not registered yet (install script still running) — nothing run', [false, 0], [caretakerWatchCron($now, $h), $ran]);
+    touch($plg);
+    same('cron look: registered a minute later, lines missing — update_cron once', [true, 1], [caretakerWatchCron($now + 60, $h), $ran]);
+    same('cron look: all lines there — nothing run', [false, 1], [caretakerWatchCron($now + 1300, $h), $ran]);
+    file_put_contents($tab, file_get_contents($watch));
+    same('cron look: a schedule line missing (schedules back after a reinstall) — update_cron again', [true, 2], [caretakerWatchCron($now + 1400, $h), $ran]);
+    $h['apply'] = function () use (&$ran) { $ran++; };
+    file_put_contents($tab, '');
+    same('cron look: still missing within CARETAKER_CRON_RETRY — not again', [false, 2], [caretakerWatchCron($now + 1400 + 60, $h), $ran]);
+    same('cron look: after CARETAKER_CRON_RETRY — once more', [true, 3], [caretakerWatchCron($now + 1400 + CARETAKER_CRON_RETRY, $h), $ran]);
+    $h['apply'] = function () { throw new Problem('command_failed', ['detail' => 'update_cron']); };
+    same('cron look: update_cron failing never breaks the tick', true, caretakerWatchCron($now + 1400 + 2 * CARETAKER_CRON_RETRY, $h));
+    unlink($sched);
+    file_put_contents($tab, file_get_contents($watch));
+    same('cron look: no schedules file — only the look counts', false, caretakerWatchCron($now + 1400 + 3 * CARETAKER_CRON_RETRY, $h));
+
+    if ($keep === null) {
+        unset($GLOBALS['ctCronApplied']);
+    } else {
+        $GLOBALS['ctCronApplied'] = $keep;
+    }
+    array_map('unlink', glob("$tmp/*") ?: []);
+    @rmdir($tmp);
+}
+
 function testOfficeCron(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-cron-' . getmypid();
@@ -21075,6 +21125,12 @@ function testPartnerPairing(): void
     same('pairing: the line gone — «door closed»', 'closed', partnerTestAs($B, 'return partnerPublic();')['pairs'][0]['door'] ?? null);
     file_put_contents($B['keys'], $keysB);
 
+    // my key gone from the flash (a plugin remove takes partners/, the data folder stays): said at once, not the last «answers»
+    same('pairing: A\'s card — the key in place', false, $cardA['key_missing'] ?? null);
+    rename("$A[flash]/$id.key", "$A[flash]/$id.key.aside");
+    same('pairing: A\'s key gone — «key missing» at once', true, partnerTestAs($A, 'return partnerPublic();')['pairs'][0]['key_missing'] ?? null);
+    rename("$A[flash]/$id.key.aside", "$A[flash]/$id.key");
+
     // a host key that changed: never trusted
     file_put_contents($B['host'], partnerTestKey('root@new') . "\n");
     same('pairing: B reinstalled (another host key) — A refuses it', ['reachable' => false, 'why' => 'host_key', 'array' => null],
@@ -34958,7 +35014,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
