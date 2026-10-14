@@ -711,15 +711,16 @@ function picture(h, side) {
   seg('others', m.others, 'sim.bar.others');
   seg('unw', m.jack - m.watched, 'sim.bar.unw');
   seg('wat', m.watched, 'sim.bar.wat');
-  const mark = (gb, text, below) => {
-    const k = el('span', 'jo-sim-mark' + (below ? ' below' : '') + (gb / w.cfg.pool > 0.8 ? ' flip' : ''));
+  // Y and H with their label to the left of the line, X and the fill limit to the right (to the left near the bar's end)
+  const mark = (gb, text, below, left) => {
+    const k = el('span', 'jo-sim-mark' + (below ? ' below' : '') + (left || gb / w.cfg.pool > 0.9 ? ' flip' : ''));
     k.style.left = pct(gb);
     k.appendChild(el('span', '', text));
     bar.appendChild(k);
   };
   mark(m.xb, `X ${w.cfg.x} %`);
-  mark(m.yb, `Y ${Math.max(0, w.cfg.x - w.cfg.offset)} %`);
-  mark(m.nm + m.others + m.half, 'H', true);
+  mark(m.yb, `Y ${Math.max(0, w.cfg.x - w.cfg.offset)} %`, false, true);
+  mark(m.nm + m.others + m.half, 'H', true, true);
   mark(m.nm + m.others + m.jackLimit, T('sim.mark.limit'), true);
   box.appendChild(bar);
   const legend = el('div', 'jo-sim-legend');
@@ -780,7 +781,7 @@ function dayTable(h, side) {
   const box = el('div', 'jo-sim-scroll jo-sim-days');
   const t = el('table', 'jo-sim-table');
   const head = el('tr');
-  ['day', 'pool', 'jack', 'others', 'up', 'down', 'moved', 'checks'].forEach((c) => head.appendChild(el('th', '', T('sim.col.' + c))));
+  ['day', 'pool', 'jack', 'others', 'up', 'down', 'moved', 'checks'].forEach((c) => head.appendChild(el('th', c === 'checks' ? '' : 'num', T('sim.col.' + c))));
   t.appendChild(head);
   const gb = (v) => fmt.size(v * GIB);
   side.hist.slice(-14).reverse().forEach((r) => {

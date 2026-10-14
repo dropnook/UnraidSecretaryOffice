@@ -100,6 +100,8 @@
 .jo-media-card.on{border-color:var(--accent)}
 .jo-media-card.off{opacity:.5}
 .jo-share-kv, .jo-sum{grid-column:1 / -1; margin:4px 0 6px}
+/* the wizard's step chips: all eight in one row on a desktop */
+.stats.jo-setup-tiles{grid-template-columns:repeat(auto-fill, minmax(min(100%, 160px), 1fr))}
 /* the pool simulator (skipper.js) */
 .jo-sim-body{display:flex; flex-direction:column; gap:12px; min-width:0}
 .jo-sim-src{display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px}
@@ -116,8 +118,8 @@
 .jo-sim-pic{margin:20px 0 0}
 .jo-sim-bar{position:relative; display:flex; height:30px; border:1px solid var(--line2); border-radius:6px; background:var(--surface); margin:0 0 22px}
 .jo-sim-seg{display:block; height:100%}
-.jo-sim-seg.nm{background:var(--muted)}
-.jo-sim-seg.others{background:var(--warn)}
+.jo-sim-seg.nm{background:var(--data)}
+.jo-sim-seg.others{background:var(--ink2)}
 .jo-sim-seg.unw{background:var(--accent)}
 .jo-sim-seg.wat{background:var(--accent-soft)}
 .jo-sim-seg.free{background:var(--surface); border:1px solid var(--line2)}
@@ -135,7 +137,7 @@
 .jo-sim-table{width:100%; border-collapse:collapse; font-size:12.5px}
 .jo-sim-table th, .jo-sim-table td{padding:4px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top}
 .jo-sim-table th{color:var(--muted); font-weight:600}
-.jo-sim-table td.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+.jo-sim-table th.num, .jo-sim-table td.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
 .jo-sim-cellnote{display:block; margin-top:2px; font-size:11.5px}
 .jo-sim-kv{margin:0}
 .jo-sim-log{font:12px/1.5 var(--mono); background:var(--surface2); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:260px; overflow:auto; overflow-wrap:anywhere}

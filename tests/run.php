@@ -7834,16 +7834,18 @@ JS);
     $notes = isset($plan['notes']) ? array_sum(array_map(fn ($g) => count($g['items'] ?? []), $plan['notes'])) : count($plan['messages'] ?? []);
     same('setup tiles: «What the setup checked» — its messages counted', (string) $notes, $r['fig']['messages'][0]);
     same('setup tiles: a new share — its tile counts it and carries the chip «new»', [(string) (count($plan['shares']) + 1), $r['fig']['shares'][3] + 1], [$r['newShare']['value'], $r['newShare']['fresh']]);
-    same('setup tiles: Jack — servers, libraries, people, pool and amount, the way back, the import (once set up), each with its section and place',
+    same('setup tiles: Jack — the wizard: servers, libraries, people, pool and sharing, the simulator, the way back, the import (once set up), the summary, each with its section and place',
         [['servers', 'function', 'setup.tile.servers'], ['libraries', 'function', 'setup.tile.libraries'], ['users', 'function', 'setup.tile.users'],
-         ['scope', 'function', 'setup.tile.scope'], ['more', 'function', 'setup.tile.more'], ['import', 'function', 'setup.tile.import']], $r['embyList']);
+         ['scope', 'function', 'setup.tile.scope'], ['simulator', 'function', 'setup.tile.simulator'], ['more', 'function', 'setup.tile.more'],
+         ['import', 'function', 'setup.tile.import'], ['summary', 'function', 'setup.tile.summary']], $r['embyList']);
     $set = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/emby.json'), true)['settings'];
     same('setup tiles: Jack before a server is connected — one server, none connected, the libraries and people as saved, the pool',
         [['servers', 'setup.server', '1', ['setup.tile.connected {"n":0}']], ['libraries', 'setup.libraries', (string) count($set['libraries']), ['setup.tile.saved']],
          ['users', 'setup.users', 'setup.tile.everyone', ['setup.tile.saved']],
          ['scope', 'setup.scope', str_replace('/mnt/', '', $set['cache_path']), ['setup.tile.count_line {"n":' . $set['number_episodes'] . '}']],
-         ['more', 'setup.more', 'setup.tile.default', []], ['import', 'import.title', 'setup.tile.optional', []]], $r['emby']);
-    same('setup tiles: Jack not set up yet — no import tile (it stands over the row)', ['servers', 'libraries', 'users', 'scope', 'more'], $r['embyNew']);
+         ['simulator', 'sim.title', 'setup.tile.optional', ['count.days {"n":' . ($set['give_back_unwatched_days'] ?? 30) . '}']],
+         ['more', 'setup.more', 'setup.tile.default', []], ['import', 'import.title', 'setup.tile.optional', []], ['summary', 'wizard.summary', 'setup.save', ['setup.tile.saved']]], $r['emby']);
+    same('setup tiles: Jack not set up yet — no import tile (it stands over the row)', ['servers', 'libraries', 'users', 'scope', 'simulator', 'more', 'summary'], $r['embyNew']);
 }
 
 /**
@@ -30478,6 +30480,141 @@ JS);
  * pool_snapshots, night_schedule); a fill that missed its target told at once; Smart Mover without the cake's
  * hooks; the migration step `pool-simple`; her setup's sentence, the next night, «Advanced» and Jack's words under node.
  */
+/**
+ * Jack the Skipper's pool simulator (public/desks/emby/skipper.js, 2026-10-14 — a mockup; the real night run is untouched).
+ * Under node: skipperPoolMath() on the 1-TB example (A, H, the halves, both fill limits with the cushion), v162Math()
+ * against PHP's poolLevelMath() (the same back/goes/half), the same seed giving the same month, and the seven scenarios
+ * with the defaults: under the new rules nothing unwatched goes back early, no ping-pong, Jack keeps his half and his
+ * limit, the pool ends ≤ X — the others' cushion holds in normal, spike and tiny (the four where it doesn't: Jack's
+ * borrowed unwatched files may not go back — the owner's question, see the report); 1.62.1's rules give back unwatched
+ * files and play ping-pong in the download spike.
+ */
+function testSkipperSim(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('skipper sim: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('skipper-sim');
+    $cases = [[1000, 770, 470, 80, 70, 50, 320], [1000, 760, 460, 80, 70, 50, 230], [1000, 900, 600, 80, 70, 50, 100], [1000, 500, 100, 80, 70, 30, 90], [1000, 750, 50, 80, 70, 50, 40]];
+    file_put_contents("$tmp/t.js", <<<'JS'
+const S = require(process.argv[2]);
+const cases = JSON.parse(process.argv[3]);
+const out = {};
+out.tb = S.skipperPoolMath({ size: 1000, nm: 300, jack: 100, others: 50, x: 80, offset: 10, k: 50, want: 300 });
+out.tbBoth = S.skipperPoolMath({ size: 1000, nm: 300, jack: 250, others: 260, x: 80, offset: 10, k: 50, want: 400 });
+out.never = S.skipperPoolMath({ size: 1000, nm: 750, jack: 0, others: 0, x: 80, offset: 10, k: 50 }).never;
+out.v162 = cases.map(([size, used, movable, x, y, k, jack]) => { const m = S.v162Math({ size, nm: used - movable, jack, others: movable - jack, x, offset: x - y, k });
+  return [Math.round(m.half), Math.round(m.back), Math.round(m.goes), Math.round(m.need)]; });
+const a = S.summary(S.runScenario('normal', {}, 7));
+const b = S.summary(S.runScenario('normal', {}, 7));
+out.same = JSON.stringify(a) === JSON.stringify(b);
+out.other = JSON.stringify(S.summary(S.runScenario('normal', {}, 8))) !== JSON.stringify(a);
+out.sc = Object.fromEntries(S.SCENARIOS.map((sc) => [sc.id, S.summary(S.runScenario(sc.id, {}, 162))]));
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/skipper.js') . ' '
+        . escapeshellarg(json_encode($cases)) . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('skipper sim: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    $tb = $r['tb'];
+    same('skipper sim: 1 TB, 300 never move, X 80, offset 10 — Y 700, A 400, H 200 each, the air 100',
+        [700, 400, 200, 200, 100], array_map(fn ($v) => (int) round($v), [$tb['yb'], $tb['room'], $tb['half'], $tb['halfD'], $tb['air']]));
+    same('skipper sim: … the others use 50 of their 200: Jack may borrow half of the 150 (limit 275); he wants 300 — they borrow nothing of his half',
+        [275, 200], [(int) round($tb['jackLimit']), (int) round($tb['othersLimit'])]);
+    same('skipper sim: … both over their half: each limit is its half (nobody borrows)', [200, 200], [(int) round($r['tbBoth']['jackLimit']), (int) round($r['tbBoth']['othersLimit'])]);
+    check('skipper sim: what never moves reaches Y — nothing to share', $r['never'] === true);
+    $php = array_map(function ($c) {
+        [$size, $used, $mov, $x, $y, $k, $jack] = $c;
+        $m = poolLevelMath($size, $used, $mov, $x, $y, $k, $jack);
+        return [$m['half'], $m['back'], $m['goes'], $m['need']];
+    }, $cases);
+    same('skipper sim: 1.62.1\'s numbers in the simulator are poolLevelMath()\'s (half, back, goes, need)', $php, $r['v162']);
+    check('skipper sim: the same seed gives the same month, another seed another', $r['same'] === true && $r['other'] === true);
+    $sc = $r['sc'];
+    same('skipper sim: all seven scenarios ran', ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'], array_keys($sc));
+    foreach ($sc as $id => $x) {
+        same("skipper sim: $id, new rules — Jack keeps his half and limit, nothing unwatched back early, no ping-pong, the pool ≤ X",
+            [null, null, null, null, 0, 0, 0], [$x['new']['inv']['jack'], $x['new']['inv']['unwatched'], $x['new']['inv']['pingpong'], $x['new']['inv']['limit'],
+            $x['new']['pingpong'], $x['new']['forced'], $x['new']['spilled']]);
+    }
+    foreach (['normal', 'spike', 'tiny'] as $id) {
+        check("skipper sim: $id, new rules — every check green", $sc[$id]['new']['ok'] === true, json_encode($sc[$id]['new']));
+    }
+    foreach (['nobody', 'binge', 'appdata', 'films'] as $id) {
+        check("skipper sim: $id, new rules — the others' cushion falls short only by what Jack may not give back (owner's question)",
+            $sc[$id]['new']['inv']['others'] !== null && $sc[$id]['new']['short'] > 0 && $sc[$id]['new']['short'] < $sc[$id]['v162']['short']);
+    }
+    check('skipper sim: download spike, 1.62.1 — unwatched files go back and come again within 7 days (ping-pong)',
+        $sc['spike']['v162']['pingpong'] > 0 && $sc['spike']['v162']['forced'] > 0 && $sc['spike']['v162']['inv']['pingpong'] !== null, json_encode($sc['spike']['v162']));
+    check('skipper sim: … the new rules on the same spike: none', $sc['spike']['new']['pingpong'] === 0);
+}
+
+/**
+ * Jack the Skipper's setup wizard (2026-10-14): the simulator's file speaks only through lang keys (all in en), the save
+ * carries give_back_unwatched_days checked as a whole number 1–365 (agent: emby_bad_number, never cast), the pool is
+ * measured only on «Measure now» (pool_measure wakes it — the page never asks on its own), the level read pure.
+ */
+function testSkipperWizard(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/skipper.js');
+    $en = langFile(OFFICE_WEB . '/desks/emby/lang/en.json');
+    preg_match_all("/(?<![.\w])T\(\s*'([a-z0-9_.]+)'\s*[,)]/", $sim, $m);
+    same('skipper wizard: every text skipper.js asks for is in his lang files', [], array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($en[$k]))));
+    $families = ['sim.f.' => ['pool', 'nm', 'writes', 'watch', 'newEps', 'people', 'x', 'offset', 'k', 'unwatchedDays', 'age'],
+        'sim.ev.' => ['spike', 'appdata', 'binge', 'nobody', 'abandon'], 'sim.sc.' => ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'],
+        'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
+        'sim.log.' => ['day', 'spill', 'plan', 'back_watched', 'back_stale', 'back_borrowed', 'age', 'goes_x', 'goes_over', 'fetch', 'skip_limit', 'skip_y',
+            'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event'], 'sim.who.' => ['jack', 'her']];
+    $miss = [];
+    foreach ($families as $pre => $ids) {
+        foreach ($ids as $id) {
+            if (!isset($en[$pre . $id])) {
+                $miss[] = $pre . $id;
+            }
+        }
+    }
+    same('skipper wizard: … and the keys it builds (sliders, events, scenarios, checks, log lines)', [], $miss);
+    preg_match_all("/L\('([a-z_]+)'/", $sim, $m2);
+    same('skipper wizard: every log line the night writes has its words', [], array_values(array_diff(array_unique($m2[1]), $families['sim.log.'])));
+    check('skipper wizard: the save sends «not watched for N days» as a whole number, checked before', str_contains($js, "give_back_unwatched_days: Math.round(Number(v.give_back_unwatched_days)),")
+        && str_contains($js, "settings.give_back_unwatched_days < 1 || settings.give_back_unwatched_days > 365"));
+    check('skipper wizard: the pool is measured only from «Measure now» (never on a load or a poll)', substr_count($js, '.pool_measure`') === 1
+        && str_contains($sim, "const mb = h.button(T('sim.measure')"));
+    check('skipper wizard: «Save» stands in the summary, the steps carry «Back» / «Next»', str_contains($js, "const save = button(T('setup.save'), '', saveSetup);")
+        && substr_count($js, "button(T('setup.save')") === 1 && str_contains($js, "section: () => wizardNav(d.id, setupStep(d.id))"));
+    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('skipper wizard: the agent measures the pool on the page\'s ask only, waking it (pool_measure)',
+        str_contains($emby, "'pool_measure'   => fn (array \$r) => ['ok' => true, 'level' => embySkipperLevel(embyPoolLook(embyReadSettings(), true))],"));
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return 'ok';
+        } catch (Problem $e) {
+            return $e->key;
+        }
+    };
+    $base = ['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789', 'servername' => 'Emby']], 'libraries' => [], 'library_types' => [],
+        'valid_users' => [], 'user_budgets' => []];
+    same('skipper wizard: the agent refuses N days that aren\'t a whole number from 1 to 365', array_fill(0, 5, 'emby_bad_number'), array_map(
+        fn ($d) => $refused(fn () => embySave($base + ['give_back_unwatched_days' => $d])), ['30', 0, 366, 30.5, [30]]));
+    same('skipper wizard: the level for the simulator, pure (bytes; null when not measured)', [null, ['size' => 1000, 'used' => 700, 'nm' => 300, 'jack' => 150,
+        'others' => 250, 'shares' => ['downloads'], 'pool' => 'cache', 'x' => 80, 'y' => 70, 'k' => 50]], [embySkipperLevel(null),
+        array_diff_key((array) embySkipperLevel(['level' => ['size' => 1000, 'used' => 700, 'nm' => 300, 'jack' => 150, 'downloads' => 250, 'shares' => ['downloads'],
+        'pool' => 'cache', 'x' => 80, 'y' => 70, 'k' => 50]]), ['at' => 1])]);
+    $tmp = hardeningTmp('skipper-age');
+    file_put_contents("$tmp/a.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=14\n[Downloads]\nmin_age=2\n");
+    file_put_contents("$tmp/b.ini", "[Downloads]\nmin_age=2\n");
+    same('skipper wizard: her age rule from her ini\'s [GLOBAL] only (none: null)', [14, null, null], [embySkipperAge("$tmp/a.ini"), embySkipperAge("$tmp/b.ini"), embySkipperAge("$tmp/none.ini")]);
+    hardeningRm($tmp);
+}
+
 function testPoolLevel(): void
 {
     $G = 1 << 30;
@@ -34207,7 +34344,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testSkipperSim', 'testSkipperWizard', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

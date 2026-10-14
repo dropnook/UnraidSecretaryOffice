@@ -46,7 +46,7 @@ let nightNow = null;          // the night run with Ms. Moverelli going for real
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
 // the setup's pool simulator lives in skipper.js beside this file (loaded once, when its step is first drawn — like Mr.
 // Restori's drill.js); it says when it is there (Office.skipperLoaded)
-const SELF = document.currentScript && document.currentScript.src;
+const SELF = typeof document !== 'undefined' && document.currentScript ? document.currentScript.src : null;
 
 // ------------------------------------------------------------------ loading
 /** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
@@ -1837,7 +1837,7 @@ function shareWords() {
   const v = form.values;
   const pool = state.pool || {};
   const mo = pool.moverelli;
-  const out = [T('share.rule_back', { days: nOf('days', v.give_back_unwatched_days) })];
+  const out = [T('share.rule_back', { n: Number(v.give_back_unwatched_days) || 0 })];
   if (!mo || !(mo.x > 0)) return out;
   const lv = pool.level;
   const m = lv && Office.skipperMath ? Office.skipperMath.skipperPoolMath({ size: lv.size, nm: lv.nm, jack: lv.jack, others: lv.others,
