@@ -33028,6 +33028,23 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   out.outSection = texts(m.scheduleSection());
   e.setState({ schedules: { embycache: { enabled: false }, gather: { enabled: false } }, night: { schedule: { enabled: true, frequency: 'custom', custom: '15 1 * * *', next: 0 }, jack: true, plan, last: lout } });
   out.outPlans = texts(e.plansSection());
+  // her head buttons (live 2026-10-14: «Show shares» ran, nothing showed): the result's section picked at once, the run
+  // followed until it ended — done or refused said right there
+  const picks = [];
+  const toasts = [];
+  Office.toast = (t, bad) => toasts.push([t, !!bad]);
+  m.setSw({ pick: (id, how) => picks.push([id, how]) });
+  m.setView(mk('div'), 'main');
+  const old = { mode: 'list', started: 50, result: 'ok' };
+  m.setState({ ...base, history: [old] });
+  const before = m.runKeys();
+  m.setState({ ...base, history: [{ mode: 'list', started: 300, result: 'ok' }, old] });
+  out.followList = [!!m.followRun('list', { before }), picks.pop(), toasts.pop()];
+  m.setState({ ...base, history: [{ mode: 'dry', started: 300, result: 'refused', why: 'moverelli_jack_running' }, old] });
+  out.followRefused = [!!m.followRun('dry', { before }), picks.pop(), toasts.pop()];
+  m.setState({ ...base, job: { running: true, mode: 'dry' }, history: [old] });
+  out.followGoing = [m.followRun('dry', { before, tries: 0 }), picks.length, toasts.length];
+  m.setView(null);
   console.log(JSON.stringify(out));
 })();
 JS);
@@ -33070,6 +33087,10 @@ JS);
         in_array('plans.night_name', $j['plans'] ?? [], true) && in_array('plans.night {"when":"C15 1 * * *"}', $j['plans'] ?? [], true)
         && in_array('plans.night_open', $j['plans'] ?? [], true) && in_array($j['jtonight'] ?? '-', $j['plans'] ?? [], true) && str_starts_with((string) ($j['tile'] ?? ''), 'plans.on'),
         json_encode([$j['plans'] ?? null, $j['tile'] ?? null]));
+    same('her head buttons: «Show shares» → the shares shown, the list done said; a refused dry run → her runs, why as a warning toast; still going → nothing yet',
+        [[true, ['shares', 'run'], ['list_done {"mode":"mode.list","tile":"shares"}', false]],
+         [true, ['runs', 'run'], ['refused {"why":"err:moverelli_jack_running"}', true]], [null, 0, 0]],
+        [$j['followList'] ?? null, $j['followRefused'] ?? null, $j['followGoing'] ?? null]);
     same('night page, Jack Emby refused: her last night is «mine» with his reason; not set up / any other / none',
         ['night.last_mine {"when":"R200","how":"night.last_ok"} · night.jack_out {"why":"night.jack_why_gather"}', 'night.jack_out {"why":"night.jack_why_setup"}',
          'night.jack_out {"why":"night.jack_why_other"}', ''], $j['outLast'] ?? null);

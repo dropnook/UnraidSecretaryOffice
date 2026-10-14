@@ -1090,10 +1090,12 @@ async function chooseRun() {
     title: T('start_title'),
     body: box,
     buttons: [{ text: Office.t('common.cancel') }, { text: T('start_go'), kind: '', act: async () => {
+      const before = runKeys();
       const j = await Office.api.post(`${ID}.start_run`, { mode });
       if (!j.ok) { showError(err, j.error); return false; }
       if (j.state) state = j.state;
       if (view && page === 'main') render();     // no log dialog: a real run shows its card (as Mr. Backupsy's)
+      followRun(mode, { before });
       return true;
     } }],
   });
@@ -1101,8 +1103,43 @@ async function chooseRun() {
 
 async function startRun(mode) {
   // no dialog (as Mr. Backupsy's and Mr. Restori's runs): a real run shows its card, the others their result under the tiles
+  const before = runKeys();
   const j = await act('start_run', { mode });
-  if (j) render();
+  if (j) { render(); followRun(mode, { before }); }
+}
+
+/**
+ * After a click on «Show shares» or «Start…» (live 2026-10-14: the list ran, nothing showed): the section where its result
+ * lands is shown at once — the shares for the list, her runs otherwise — and the page follows the run (her state every
+ * POLL) until it ended: refused or skipped → said right there (a toast with why), done → a toast; a real run hands over
+ * to its card. A refusal at the start itself is act()'s toast already.
+ */
+let followTimer = null;
+function followRun(mode, opts) {
+  const o = opts || {};
+  clearTimeout(followTimer);
+  const before = o.before || new Set();
+  const first = o.tries == null;
+  const tries = first ? 40 : o.tries;
+  if (first && sw && view && page === 'main') sw.pick(mode === 'list' ? 'shares' : 'runs', 'run');
+  const ended = runEnded(mode, before);
+  if (first && !ended && mode !== 'list' && !realRun()) Office.toast(T('run_started', { mode: T('mode.' + mode), tile: T('last_run') }));
+  if (ended) {
+    if (['refused', 'skipped'].includes(ended.result)) Office.toast(runSummary(ended), true);
+    else Office.toast(T(mode === 'list' ? 'list_done' : 'run_done', { mode: T('mode.' + mode), tile: T(mode === 'list' ? 'shares' : 'last_run') }));
+    return ended;
+  }
+  if (realRun() || tries <= 0 || !view || page !== 'main') return null;       // a real run: its card follows it from here
+  followTimer = setTimeout(async () => { await load(true); followRun(mode, { before, tries: tries - 1 }); }, POLL);
+  return null;
+}
+/** Her records as keys (a refusal counted again is a new one) — taken before a click, so its run is the one not among them */
+const runKey = (r) => `${r.mode}|${r.started}|${r.times || 1}`;
+const runKeys = () => new Set(((state && state.history) || []).map(runKey));
+/** The run a click started, once it ended, pure: her newest record of that mode not there before the click (the night's own too) — null while it goes */
+function runEnded(mode, before) {
+  if (running() || (night().last && night().last.running)) return null;
+  return ((state && state.history) || []).find((r) => r.mode === mode && !before.has(runKey(r))) || null;
 }
 
 /** The output of her last run, following it while it runs */
@@ -2046,7 +2083,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
