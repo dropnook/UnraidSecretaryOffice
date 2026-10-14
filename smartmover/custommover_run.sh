@@ -52,6 +52,8 @@
 #   CUSTOMMOVER_FILL_UNTIL_BYTES  USO (2026-10-14, the office's night run): on that pool (CUSTOMMOVER_FILL_UNTIL_POOL, empty:
 #                             every pool) the fill goes — all its shares with a trigger, oldest first — while the pool uses
 #                             more than this many bytes (below X: the room Jack Emby fetches into afterwards), not by percent
+#   CUSTOMMOVER_SETTLE        USO (2026-10-15): seconds a real fill waits for the pool's reading to catch up once the bytes
+#                             it moved cover what the pool was over (default 30; tests 0) — see «moved enough» in fill_pool
 # Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
 #   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
 #   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
@@ -119,6 +121,8 @@ FILL_LEFT_B="${FILL_MAX_B:-0}"                     # what the cap still allows
 FILL_UNTIL_B="${CUSTOMMOVER_FILL_UNTIL_BYTES:-}"   # USO: the night's room for Jack Emby — fill until the pool uses at most this (bytes)
 [[ -z "$FILL_UNTIL_B" || "$FILL_UNTIL_B" =~ ^[0-9]+$ ]] || FILL_UNTIL_B=""
 FILL_UNTIL_POOL="${CUSTOMMOVER_FILL_UNTIL_POOL:-}"
+SETTLE_S="${CUSTOMMOVER_SETTLE:-30}"              # USO: the fill's wait for the pool's reading (seconds)
+[[ "$SETTLE_S" =~ ^[0-9]{1,4}$ ]] || SETTLE_S=30
 
 usage() {  # prints the header comment block above
     awk 'NR > 2 && /^# =====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"
@@ -625,10 +629,26 @@ fill_pool_candidates() {  # share...
     rm -f "$list"
 }
 
+# USO «moved enough»: the fill moved what the pool was over (fill_pool's locals): the pool re-read for up to SETTLE_S
+# seconds until its reading is at the target; still above → FILL_ENOUGH (said once, no further file)
+fill_settle() {
+    local waited
+    for (( waited = 0; ; waited += 2 )); do
+        if [[ "$room" == true ]]; then (( used_b <= ub )) && return 0; else (( pct < min )) && return 0; fi
+        (( waited >= SETTLE_S )) && break
+        sleep 2
+        pool_used_pct "$pool"
+        [[ -n "$POOL_USED" ]] && pct=$POOL_USED
+        [[ -n "$POOL_USED_B" ]] && used_b=$POOL_USED_B
+    done
+    FILL_ENOUGH=true
+    log WARN "  fill: $(human "$freed") moved – as much as pool $pool was over – but it still uses $(human "$used_b") after ${SETTLE_S} s (snapshots keep what moved until their retention, or the pool still frees it): no further file"
+}
+
 # One pool's fill (a real run moves, a dry run estimates): its shares whose trigger the pool reaches, oldest first across
 # them, a share's file only while the pool is at/above its target; the pool re-read after each file (dry: the sizes)
 fill_pool() {  # pool
-    local pool="$1" name used used_b size_b pct i f sz own min=101 n=0 b2=0 cap=false room=false ub=""
+    local pool="$1" name used used_b size_b pct i f sz own min=101 n=0 b2=0 cap=false room=false ub="" need0="" freed=0
     local -a mine=() go=()
     local -A F_N=() F_B=() F_MOVED=() F_LEFT=() F_GONE=()
     for name in "${FILL_SHARES[@]}"; do [[ "${FS_POOL[$name]}" == "$pool" ]] && mine+=("$name"); done
@@ -656,12 +676,20 @@ fill_pool() {  # pool
     else
         log INFO "[fill] pool $pool ${used}% ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until below ${min}%"
     fi
+    # USO «moved enough» (2026-10-15): a real fill never moves more than the pool was over at its start — ZFS (and btrfs)
+    # report freed space only seconds later (a txg; a large file freed in the background), and a snapshot keeps what was
+    # moved until its retention: re-reading the pool alone moved every candidate (seen on a test pool: 8 of 8 for 4)
+    if [[ "$DRY_RUN" == false && -n "$used_b" && -n "$size_b" ]]; then
+        if [[ "$room" == true ]]; then need0=$(( used_b - ub )); else need0=$(( used_b - (min - 1) * size_b / 100 )); fi
+        (( need0 <= 0 )) && need0=""
+    fi
     fill_pool_candidates "${go[@]}"
     if (( ${#FILL_FILES[@]} == 0 )); then log INFO "  fill: no further files (everything else is excluded)"; fi
-    PHASE=share; FILL_CAPPED=false
+    PHASE=share; FILL_CAPPED=false; FILL_ENOUGH=false
     pct=$used
     for (( i = 0; i < ${#FILL_FILES[@]}; i++ )); do
         f=${FILL_FILES[i]}; sz=${FILL_SIZES[i]}; own=${FILL_OWNER[i]}
+        if [[ -n "$need0" ]] && (( freed >= need0 )); then fill_settle; break; fi
         if [[ "$room" == true ]]; then
             (( used_b <= ub )) && break
         else
@@ -687,7 +715,7 @@ fill_pool() {  # pool
                 (( F_LEFT[$own]++ )) || true
                 log WARN "  still on the source side (in use, or already present at the destination): $f"
             else
-                (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz )) || true
+                (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz, freed += sz )) || true
                 F_GONE[$own]+="$f"$'\n'
                 recent_add "$own/${f#"${FS_SRC[$own]}/"}" "$sz" "$pool" "${FS_DEST[$own]}"
             fi
@@ -700,6 +728,8 @@ fill_pool() {  # pool
         [[ "$DRY_RUN" == true ]] && { (( F_N[$own] <= MAX_LIST )) && printf '     %s\n' "$f"; printf '[DRY-RUN]     %s\n' "$f" >> "$LOG_FILE"; }
     done
     CUR_FILE=""
+    # the last file moved enough: the same wait before the pool's reading is judged
+    [[ -n "$need0" && "$FILL_ENOUGH" == false && "$STOPPED" == false ]] && (( freed > 0 && freed >= need0 )) && fill_settle
     (( TOTAL_FILES += n, TOTAL_BYTES += b2 )) || true
     for name in "${mine[@]}"; do
         sh_load "$name"
@@ -727,8 +757,8 @@ fill_pool() {  # pool
         log INFO "  ${tag}fill: $n files ($(human "$b2")) oldest first – room reached: pool $pool uses $(human "$used_b") (at most $(human "$ub")), the rest stays"
     elif [[ "$room" == false ]] && (( pct < min )); then
         log INFO "  ${tag}fill: $n files ($(human "$b2")) oldest first – target reached: pool $pool at about ${pct}% (< ${min}%), the rest stays"
-    elif [[ "$FILL_CAPPED" == true ]]; then
-        log INFO "  ${tag}fill: its cap reached (at most $(human "$FILL_MAX_B") in this run) – pool $pool at ${pct}%, the rest stays"
+    elif [[ "$FILL_CAPPED" == true || "$FILL_ENOUGH" == true ]]; then
+        [[ "$FILL_CAPPED" == true ]] && log INFO "  ${tag}fill: its cap reached (at most $(human "$FILL_MAX_B") in this run) – pool $pool at ${pct}%, the rest stays"
     elif [[ "$STOPPED" == false ]]; then
         log WARN "  ${tag}target not reached: pool $pool at ${pct}% after all $n further files"
     fi

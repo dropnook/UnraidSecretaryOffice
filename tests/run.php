@@ -30643,6 +30643,28 @@ function testMoverelliFill(): void
     $run($env, true);
     same('age mtime (upstream): the same file goes', ['old'], $on($t, 'disk1'));
 
+    // 11. «moved enough» (R2, 2026-10-15): ZFS reports freed space late (a txg) and a snapshot keeps what moved — a pool whose
+    // reading never drops (400 of 500) must not lose every candidate: the fill stops once what it moved covers what was over
+    $still = function (string $t): void {
+        file_put_contents("$t/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\necho '400 100'\n");
+    };
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $still($t);
+    $st = $run($env + ['CUSTOMMOVER_SETTLE' => '0', 'CUSTOMMOVER_STOP' => "$t/stop"], true);
+    $log = (string) file_get_contents("$t/log");
+    same('fill enough: the reading stays at 80 % — only z (100 bytes, as much as the pool was over) moves, not all four; not reached',
+        [['z'], ['w', 'x', 'y'], false], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['reached'] ?? null]);
+    check('fill enough: … said in the log (moved as much as it was over, snapshots or still freeing), no «target not reached» for all files',
+        str_contains($log, 'as much as pool cache was over') && !str_contains($log, 'after all'), $log);
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $still($t);
+    $run($env + ['CUSTOMMOVER_SETTLE' => '0', 'CUSTOMMOVER_FILL_UNTIL_BYTES' => '250', 'CUSTOMMOVER_FILL_UNTIL_POOL' => 'cache'], true);
+    same('fill enough, the night\'s room (until 250 of 400): z, y (150 bytes over) — never x and w', [['y', 'z'], ['w', 'x']], [$on($t, 'disk1'), $on($t, 'cache')]);
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $still($t);
+    $run($env + ['CUSTOMMOVER_SETTLE' => '0'], false);
+    check('fill enough: a dry run reckons by the sizes as before (z only)', $dryList($t) === ['z'], json_encode($dryList($t)));
+
     // her setup's check and her ini: only X — an older page's Y and «Jack guaranteed» are not read, never written
     $dir = "$base/her";
     @mkdir($dir, 0700, true);
