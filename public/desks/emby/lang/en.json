@@ -867,7 +867,7 @@
   "wizard.no_pool_share": "no pool as primary storage — set it in Unraid's share settings",
   "wizard.pool_other": "On another pool than {pool}: left out",
   "wizard.pools_many": "EmbyCache uses exactly one pool, and these shares lie on {n} pools. Choose the pool — the shares on the others are left out.",
-  "wizard.pools_pick": "Choose which pool EmbyCache uses (step 3).",
+  "wizard.pools_pick": "Choose which pool EmbyCache uses (step 2).",
   "wizard.pool_of": "{pool} — {shares}",
   "wizard.pool_none": "No pool yet: none of the chosen shares has a pool as its primary storage.",
   "wizard.pool_from": "{pool} — from Unraid's share settings of {shares}",
@@ -900,5 +900,10 @@
   "sim.sc.budget_small": "Budget smaller than his half",
   "sim.sc.budget_big": "Budget bigger than his fill limit",
   "setup.mode_help_count": {"one": "«{n} episode per series, however big». Films in 4K can take a lot of space.", "other": "«{n} episodes per series, however big». Films in 4K can take a lot of space."},
-  "setup.mode_help_budget": "«this much space, shared out in turn». With small episodes that is many, with big ones few."
+  "setup.mode_help_budget": "«this much space, shared out in turn». With small episodes that is many, with big ones few.",
+  "setup.users_count_all": {"one": "By count, the numbers of step 3 apply to everyone ({n} episode ahead per series) — EmbyCache has no numbers per person.", "other": "By count, the numbers of step 3 apply to everyone ({n} episodes ahead per series) — EmbyCache has no numbers per person."},
+  "setup.users_budget_split": {"one": "Fixed {fixed}, the rest ({rest}) is shared evenly on {n} person; what someone doesn't need flows to the others.", "other": "Fixed {fixed}, the rest ({rest}) is shared evenly on {n} people; what someone doesn't need flows to the others."},
+  "setup.users_budget_over": "The fixed budgets ({fixed}) exceed the whole budget ({total}) — EmbyCache gives the others nothing then and logs a warning.",
+  "setup.user_budget_gb": "Own budget (GB, optional)",
+  "setup.user_budget_gb_hint": "e.g. 300 — empty: a fair share"
 }

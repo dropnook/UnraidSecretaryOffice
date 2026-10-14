@@ -867,7 +867,7 @@
   "wizard.no_pool_share": "ningún pool como almacenamiento principal — ajústalo en los ajustes de recursos de Unraid",
   "wizard.pool_other": "En otro pool distinto de {pool}: queda fuera",
   "wizard.pools_many": "EmbyCache usa exactamente un pool, y estos recursos están en {n} pools. Elige el pool — los recursos de los otros quedan fuera.",
-  "wizard.pools_pick": "Elige qué pool usa EmbyCache (paso 3).",
+  "wizard.pools_pick": "Elige qué pool usa EmbyCache (paso 2).",
   "wizard.pool_of": "{pool} — {shares}",
   "wizard.pool_none": "Aún no hay pool: ninguno de los recursos elegidos tiene un pool como almacenamiento principal.",
   "wizard.pool_from": "{pool} — de los ajustes de Unraid de los recursos {shares}",
@@ -900,5 +900,10 @@
   "sim.sc.budget_small": "Presupuesto menor que su mitad",
   "sim.sc.budget_big": "Presupuesto mayor que su límite",
   "setup.mode_help_count": {"one": "«{n} episodio por serie, sea cual sea su tamaño». Las películas en 4K pueden ocupar mucho espacio.", "other": "«{n} episodios por serie, sea cual sea su tamaño». Las películas en 4K pueden ocupar mucho espacio."},
-  "setup.mode_help_budget": "«tanto espacio, repartido por turnos». Con episodios pequeños son muchos, con grandes pocos."
+  "setup.mode_help_budget": "«tanto espacio, repartido por turnos». Con episodios pequeños son muchos, con grandes pocos.",
+  "setup.users_count_all": {"one": "Por número, los valores del paso 3 valen para todos ({n} episodio por delante por serie) — EmbyCache no tiene valores por persona.", "other": "Por número, los valores del paso 3 valen para todos ({n} episodios por delante por serie) — EmbyCache no tiene valores por persona."},
+  "setup.users_budget_split": {"one": "Asignado fijo {fixed}, el resto ({rest}) se reparte por igual entre {n} persona; lo que alguien no necesita pasa a los demás.", "other": "Asignado fijo {fixed}, el resto ({rest}) se reparte por igual entre {n} personas; lo que alguien no necesita pasa a los demás."},
+  "setup.users_budget_over": "Los presupuestos fijos ({fixed}) superan el presupuesto entero ({total}) — EmbyCache no da nada a los demás y escribe un aviso en el registro.",
+  "setup.user_budget_gb": "Presupuesto propio (GB, opcional)",
+  "setup.user_budget_gb_hint": "p. ej. 300 — vacío: una parte justa"
 }

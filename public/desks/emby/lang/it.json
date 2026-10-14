@@ -867,7 +867,7 @@
   "wizard.no_pool_share": "nessun pool come archiviazione primaria — impostalo nelle impostazioni delle condivisioni di Unraid",
   "wizard.pool_other": "Su un altro pool rispetto a {pool}: escluso",
   "wizard.pools_many": "EmbyCache usa esattamente un pool, e queste condivisioni stanno su {n} pool. Scegli il pool — le condivisioni sugli altri restano escluse.",
-  "wizard.pools_pick": "Scegli quale pool usa EmbyCache (passo 3).",
+  "wizard.pools_pick": "Scegli quale pool usa EmbyCache (passo 2).",
   "wizard.pool_of": "{pool} — {shares}",
   "wizard.pool_none": "Ancora nessun pool: nessuna delle condivisioni scelte ha un pool come archiviazione primaria.",
   "wizard.pool_from": "{pool} — dalle impostazioni di Unraid delle condivisioni {shares}",
@@ -900,5 +900,10 @@
   "sim.sc.budget_small": "Budget più piccolo della sua metà",
   "sim.sc.budget_big": "Budget più grande del suo limite",
   "setup.mode_help_count": {"one": "«{n} episodio per serie, comunque grande». I film in 4K possono occupare molto spazio.", "other": "«{n} episodi per serie, comunque grandi». I film in 4K possono occupare molto spazio."},
-  "setup.mode_help_budget": "«tanto spazio, distribuito a turno». Con episodi piccoli sono tanti, con quelli grandi pochi."
+  "setup.mode_help_budget": "«tanto spazio, distribuito a turno». Con episodi piccoli sono tanti, con quelli grandi pochi.",
+  "setup.users_count_all": {"one": "Per numero, i valori del passo 3 valgono per tutti ({n} episodio avanti per serie) — EmbyCache non ha valori per persona.", "other": "Per numero, i valori del passo 3 valgono per tutti ({n} episodi avanti per serie) — EmbyCache non ha valori per persona."},
+  "setup.users_budget_split": {"one": "Assegnati fissi {fixed}, il resto ({rest}) è diviso in parti uguali su {n} persona; ciò che a qualcuno non serve va agli altri.", "other": "Assegnati fissi {fixed}, il resto ({rest}) è diviso in parti uguali su {n} persone; ciò che a qualcuno non serve va agli altri."},
+  "setup.users_budget_over": "I budget fissi ({fixed}) superano il budget intero ({total}) — EmbyCache allora non dà nulla agli altri e scrive un avviso nel log.",
+  "setup.user_budget_gb": "Budget proprio (GB, facoltativo)",
+  "setup.user_budget_gb_hint": "p. es. 300 — vuoto: una quota equa"
 }

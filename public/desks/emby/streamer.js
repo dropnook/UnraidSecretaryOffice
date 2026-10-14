@@ -138,24 +138,43 @@ function wanted(w) {
   const budget = budgetOf(w.cfg);
   const all = candidates(w);
   if (budget == null) return all;
-  // by budget (EmbyCache's budget_mode / cache_budget — the most he WANTS, reserving nothing): per person in turn, the
-  // next first, while it fits the budget
+  // by budget (EmbyCache's budget_mode / cache_budget — the most he WANTS, reserving nothing), split as its
+  // apply_budget() does: a person's fixed budget first (cfg.userBudgets[person], GB), the rest evenly on the others —
+  // what someone doesn't need flows to the others; then each person's next files while they fit his or her part
   const per = w.people.map((_, u) => all.filter((e) => e.uid === u)
     .sort((a, b) => rank(w, a) - rank(w, b) || w.series[b.sid].lastSeen - w.series[a.sid].lastSeen || a.idx - b.idx));
+  const caps = budgetCaps(budget, per.map((l) => sum(l.map((e) => e.size))), w.cfg.userBudgets || []);
   const out = [];
-  let total = 0;
-  for (let progress = true; progress;) {
-    progress = false;
-    for (const l of per) {
-      while (l.length && total + l[0].size > budget + TOL) l.shift();     // that one won't fit: the next of this person may
-      if (!l.length) continue;
-      const e = l.shift();
+  per.forEach((l, u) => {
+    let total = 0;
+    for (const e of l) {
+      if (total + e.size > caps[u] + TOL) continue;          // that one won't fit: a smaller one further on may
       out.push(e);
       total += e.size;
-      progress = true;
     }
-  }
+  });
   return out;
+}
+/**
+ * A budget split per person (pure — EmbyCache's apply_budget): fixed[u] (GB, > 0) for whoever has one; the rest of the
+ * budget water-filled over the others by what they want (demand[u]): whoever wants less than an even share keeps what
+ * they want, the rest is shared anew. The fixed ones beyond the budget: the others get nothing.
+ */
+function budgetCaps(budget, demand, fixed) {
+  const caps = demand.map((_, u) => (fixed[u] > 0 ? fixed[u] : null));
+  let pool = Math.max(0, budget - sum(caps.filter((x) => x != null)));
+  let open = demand.map((_, u) => u).filter((u) => caps[u] == null);
+  for (let changed = true; changed && open.length;) {
+    changed = false;
+    const share = pool / open.length;
+    for (const u of open) {
+      if (demand[u] < share) { caps[u] = demand[u]; pool -= demand[u]; changed = true; }
+    }
+    open = open.filter((u) => caps[u] == null);
+  }
+  const share = open.length ? pool / open.length : 0;
+  open.forEach((u) => { caps[u] = share; });
+  return caps;
 }
 /** The budget in GB when he goes by budget (cfg.budget > 0), else null (by count: N episodes ahead) */
 const budgetOf = (c) => (c.budget > 0 ? c.budget : null);
@@ -664,7 +683,7 @@ function segWidths(values, min) {
   return out;
 }
 
-const math = { streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
+const math = { budgetCaps, streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
   INVARIANTS, EVENTS: Object.keys(EVENTS), rng, PINGPONG_DAYS };
 if (typeof module !== 'undefined' && module.exports) module.exports = math;       // tests/run.php under node
 if (typeof Office === 'undefined') return;
@@ -716,6 +735,7 @@ function baseCfg(h, src) {
   if (b.x > 0) Object.assign(cfg, { x: b.x, offset: Math.max(0, b.x - b.y), k: b.k == null ? 50 : b.k });
   if (b.age != null) cfg.age = b.age;
   if (b.budget > 0) cfg.budget = b.budget;       // his «amount» in the wizard: by budget (GB)
+  if (b.budget > 0 && b.userBudgets) Object.assign(cfg, { userBudgets: b.userBudgets, people: Math.max(1, Math.min(8, b.userBudgets.length)) });
   const lv = V.measured || b.level;
   if (src === 'real') {
     if (!lv) return null;

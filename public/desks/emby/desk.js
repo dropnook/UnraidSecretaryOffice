@@ -1374,9 +1374,9 @@ async function scheduleDialog(job) {
  * Everything EmbyCache's own setup asks (embycache_setup.py), plus the
  * choices it leaves to its settings file — as a wizard (2026-10-14, Jack Streamer): step chips (the row of tiles),
  * «Back» / «Next» under each step, saving in the summary:
- *   1 server (the media server, then one or more Emby instances)   2 libraries and their folders
- *   3 people (and their own budgets)   4 pool and sharing (amount; Ms. Moverelli's limits; «not watched for N days»)
- *   5 the pool simulator (streamer.js)   6 more (way back, tools, sources)   7 import (once set up)   8 summary and «Save»
+ *   1 server (the media server, then one or more Emby instances)   2 libraries and their folders (the shares' pool)
+ *   3 settings (amount; pool and sharing; «not watched for N days»; Advanced)   4 people (by budget: their own budgets)
+ *   5 the pool simulator (streamer.js)   6 summary and «Save» (the import: offered in step 1 before he is set up)
  * Saving writes the same settings as before, plus give_back_unwatched_days (read by nothing yet).
  * The gather has its own small settings (gatherSettingsDialog).
  */
@@ -1495,8 +1495,9 @@ function renderSetup() {
 // drawing (form): a click in a step draws the card anew from it — the typed values stay, the focus comes back to the
 // control clicked (focusSpot()/focusBack()). No row of tiles here: the card is the page (its main page keeps its tiles).
 /** The steps in the wizard's order: {id, place (the lang key of its title — its place for the search)} */
-const SETUP_STEPS = [{ id: 'servers', place: 'wizard.title.servers' }, { id: 'users', place: 'wizard.title.users' },
-  { id: 'libraries', place: 'wizard.title.libraries' }, { id: 'settings', place: 'wizard.title.settings' },
+// (2026-10-14, the owner: the people after the settings — what is set per person depends on the amount's mode)
+const SETUP_STEPS = [{ id: 'servers', place: 'wizard.title.servers' }, { id: 'libraries', place: 'wizard.title.libraries' },
+  { id: 'settings', place: 'wizard.title.settings' }, { id: 'users', place: 'wizard.title.users' },
   { id: 'simulator', place: 'sim.title' }, { id: 'summary', place: 'wizard.summary' }];
 /** Steps one may skip (what they hold stays as it is) */
 const SKIPPABLE = new Set(['users', 'settings', 'simulator']);
@@ -1712,7 +1713,7 @@ function mediaChoice() {
   return box;
 }
 
-/** 2. people */
+/** 4. people — by count only who (the numbers of step 3 apply to everyone), by budget also a fixed budget per person */
 function setupUsers() {
   if (!connected()) return notYet();
   const v = form.values;
@@ -1727,24 +1728,59 @@ function setupUsers() {
   s3.appendChild(el('p', 'role', T('setup.users_sub')));
   const f3 = el('div', 'jo-users');
   const seen = new Set();
+  let line = null;
   form.instances.forEach((inst) => (inst.users || []).forEach((u) => {
     if (seen.has(u.id)) return;
     seen.add(u.id);
     const wrap = el('div');
     const extra = [u.admin ? T('setup.admin') : '', form.instances.length > 1 ? inst.servername : ''].filter(Boolean).join(' · ');
     wrap.appendChild(check(u.name, form.chosenUsers.has(u.id), (on) => { if (on) form.chosenUsers.add(u.id); else form.chosenUsers.delete(u.id); renderSetup(); }, extra));
+    // by budget: an optional fixed budget per chosen person in GB (EmbyCache's valid_users {id: {budget: "300G"}})
     if (v.budget_mode && form.chosenUsers.has(u.id)) {
-      const b = input(form.budgets[u.id] || '', (x) => { form.budgets[u.id] = x.trim(); });
-      b.placeholder = T('setup.user_budget_placeholder');
-      wrap.appendChild(field(T('setup.user_budget'), b));
+      const b = el('input', 'input');
+      b.type = 'number';
+      b.min = 0;
+      b.step = 1;
+      const now = budgetGb(form.budgets[u.id]);
+      b.value = now > 0 ? String(now) : '';
+      b.placeholder = T('setup.user_budget_gb_hint');
+      b.oninput = () => {
+        const n = Number(b.value);
+        if (b.value.trim() === '' || !(n > 0)) delete form.budgets[u.id]; else form.budgets[u.id] = `${n}G`;
+        if (line) line.replaceWith(line = budgetLine());
+      };
+      wrap.appendChild(field(T('setup.user_budget_gb'), b));
     }
     f3.appendChild(wrap);
   }));
   s3.appendChild(f3);
+  // by count the numbers of step 3 apply to everyone (EmbyCache has none per person); by budget the split, live
+  if (!v.budget_mode) s3.appendChild(el('p', 'callout jo-slice', T('setup.users_count_all', { n: Number(v.number_episodes) || 0 })));
+  else s3.appendChild(line = budgetLine());
   return s3;
 }
 
-/** 3. the libraries and their folders on the pool — each share with its primary pool (read only, Unraid's share settings) */
+/**
+ * How the budget splits (pure): fixed budgets of the chosen people first, the rest evenly on the others — what someone
+ * doesn't need flows to the others (EmbyCache's apply_budget); over: the fixed ones exceed the whole budget.
+ * total: GB; fixed: [GB …] of the people with one; others: how many go without one.
+ */
+function budgetSplit(total, fixed, others) {
+  const sumFixed = fixed.reduce((a, b) => a + b, 0);
+  return { total, fixed: sumFixed, rest: Math.max(0, total - sumFixed), others, over: sumFixed > total };
+}
+/** The people chosen (none: everyone) with their fixed budgets — the live line under the people by budget */
+function budgetLine() {
+  const v = form.values;
+  const chosen = form.chosenUsers.size ? everyone().filter((id) => form.chosenUsers.has(id)) : everyone();
+  const fixed = chosen.map((id) => budgetGb(form.budgets[id])).filter((x) => x > 0);
+  const sp = budgetSplit(budgetGb(v.cache_budget), fixed, chosen.length - fixed.length);
+  const size = (gb) => fmt.size(gb * 1024 * 1024 * 1024);
+  if (sp.over) return el('p', 'callout warn jo-slice', T('setup.users_budget_over', { fixed: size(sp.fixed), total: size(sp.total) }));
+  return el('p', 'callout jo-slice', T('setup.users_budget_split', { fixed: size(sp.fixed), rest: size(sp.rest), n: sp.others }));
+}
+
+/** 2. the libraries and their folders on the pool — each share with its primary pool (read only, Unraid's share settings) */
 function setupLibraries() {
   if (!connected()) return notYet();
   const s2 = el('div', 'jo-wiz-part');
@@ -1817,7 +1853,7 @@ function setupLibraries() {
 }
 
 /**
- * 4. Settings: the pool (read only — from step 3), the amount (films and series), sharing the pool (Ms. Moverelli's values
+ * 3. Settings: the pool (read only — from step 2), the amount (films and series), sharing the pool (Ms. Moverelli's values
  * read only, «not watched for N days», the rule in words) and, folded, «Advanced» (the way back, reading from the array)
  */
 function setupSettings() {
@@ -1987,8 +2023,10 @@ function simBase() {
   const pool = (state && state.pool) || {};
   const mo = pool.moverelli || {};
   const v = form ? form.values : {};
+  const chosen = form && connected() ? (form.chosenUsers.size ? everyone().filter((id) => form.chosenUsers.has(id)) : everyone()) : [];
+  const userBudgets = v.budget_mode ? chosen.map((id) => budgetGb(form.budgets[id]) || 0) : [];
   return { days: form ? v.give_back_unwatched_days : UNWATCHED_DAYS, x: mo.x || 0, y: mo.y || 0, k: mo.k, age: mo.min_age, level: pool.level || null,
-    budget: v.budget_mode ? budgetGb(v.cache_budget) : 0 };
+    budget: v.budget_mode ? budgetGb(v.cache_budget) : 0, userBudgets: userBudgets.some((x) => x > 0) ? userBudgets : null };
 }
 /** His budget («500G», «1.5T», «800 GB») in GB — 0 when none can be read */
 function budgetGb(text) {
@@ -2019,11 +2057,11 @@ function summaryData() {
   const changed = Object.keys(MORE_DEFAULTS).some((k) => v[k] !== MORE_DEFAULTS[k]);
   return [
     { id: 'servers', key: 'wizard.title.servers', value: form.instances.map((i) => (i.server ? `${i.servername} (${i.server.name})` : i.servername)).join(', ') },
-    { id: 'users', key: 'wizard.title.users', value: peopleWords(on ? people : [...form.chosenUsers], names) },
     { id: 'libraries', key: 'wizard.title.libraries', value: libs.join(', ') },
     { id: 'settings', key: 'wizard.title.settings', value: [cache ? cache.replace('/mnt/', '') : '–',
       v.budget_mode ? `${T('setup.mode_budget')} ${v.cache_budget || '–'}` : T('setup.tile.count_line', { n: Number(v.number_episodes) || 0 }),
       T('wizard.sum_days', { days: nOf('days', v.give_back_unwatched_days) }), T(changed ? 'setup.tile.changed' : 'setup.tile.default')].join(' · ') },
+    { id: 'users', key: 'wizard.title.users', value: peopleWords(on ? people : [...form.chosenUsers], names, v.budget_mode ? form.budgets : null) },
     { id: 'simulator', key: 'sim.title', value: T('setup.tile.optional') },
   ];
 }
@@ -2032,9 +2070,11 @@ function summaryData() {
  * The people chosen, in words — never their ids (Emby's are 32 hex digits): the names when they are known (a server is
  * connected), else how many; none chosen: everyone
  */
-function peopleWords(ids, names) {
+function peopleWords(ids, names, budgets) {
   if (!ids.length) return T('setup.tile.everyone');
-  return ids.every((id) => names.has(id)) ? ids.map((id) => names.get(id)).join(', ') : nOf('people', ids.length);
+  // by budget a fixed budget beside the name (when there is one)
+  const gb = (id) => (budgets && budgetGb(budgets[id]) > 0 ? ` (${fmt.size(budgetGb(budgets[id]) * 1024 * 1024 * 1024)})` : '');
+  return ids.every((id) => names.has(id)) ? ids.map((id) => names.get(id) + gb(id)).join(', ') : nOf('people', ids.length);
 }
 
 /** 6. the summary: a row per step with «Change» (jumps into that step), then «Save» (in the card's foot) */
@@ -2610,7 +2650,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, budgetGb,
+    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, budgetGb, budgetSplit,
     stepOf, currentStep, setStep: (x) => { step = x; }, wizardCard, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,

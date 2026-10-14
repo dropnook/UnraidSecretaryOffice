@@ -30518,6 +30518,7 @@ out.budget = ['budget_small', 'budget_big'].map((id) => {
   return { id, ok: S.summary(sim).new.ok, budget: sim.w.cfg.budget, half: m.half, limit: m.jackLimit, jack: m.jack, want,
     maxHeld: Math.max(...side.hist.map((x) => x.jack)), biggest: Math.max(...S.measure(sim.w, side).files.map((e) => e.size), 0) };
 });
+out.caps = [S.budgetCaps(300, [500, 500, 500], [100, 0, 0]), S.budgetCaps(300, [50, 500, 500], []), S.budgetCaps(100, [500, 500], [150, 0])];
 const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
 out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
   min: v.every((x, i) => x <= 0 || w[i] >= Math.min(min, 1 / v.filter((y) => y > 0).length) - 1e-9),
@@ -30577,6 +30578,8 @@ JS);
     same('streamer sim: dragging X — 1 % steps, Y stays (the offset follows), at most 100, above Y', [85, 15, 100, 71, 1], $d['x']);
     same('streamer sim: dragging Y — the offset = X − Y, X stays, at least 1, Y at least 1', [20, 80, 1, 79], $d['y']);
     same('streamer sim: a setting within the rules (NM ≤ pool, nothing else beyond it, Y < X)', [300, 0, 0, 2, 1], $d['fit']);
+    same('streamer sim: the budget per person as EmbyCache splits it — a fixed one first, the rest evenly; who wants less keeps that and the rest flows on; fixed over the budget: the others nothing',
+        [[100, 100, 100], [50, 125, 125], [150, 0]], $r['caps']);
     [$bs, $bb] = $r['budget'];
     check('streamer sim: by budget smaller than his half — green, he wants the budget (the world fills it) and holds no more than it',
         $bs['ok'] && $bs['budget'] < $bs['half'] && $bs['want'] <= $bs['budget'] + 0.01 && $bs['want'] >= $bs['budget'] - $bs['biggest'] - 15
@@ -30707,6 +30710,8 @@ out.arrayOnly = [e.cacheable('Familienserien'), e.derivedPool()];
 const names = new Map([['a1', 'Anna'], ['b2', 'Ben']]);
 const hex = '0123456789abcdef0123456789abcdef';
 out.budgetGb = ['500G', '1.5T', '800 GB', '2048M', 'lots', ''].map(e.budgetGb);
+out.split = [e.budgetSplit(1000, [300, 200], 3), e.budgetSplit(400, [300, 200], 1)];
+out.peopleBudget = e.peopleWords(['a1', 'b2'], names, { a1: '300G' });
 out.people = [e.peopleWords(['a1', 'b2'], names), e.peopleWords([hex, 'b2'], names), e.peopleWords([hex], new Map()), e.peopleWords([], names)];
 console.log(JSON.stringify(out));
 JS);
@@ -30717,16 +30722,19 @@ JS);
         if (!is_array($r)) {
             check('streamer wizard: ran under node', false, substr($raw, 0, 2000));
         } else {
-            same('streamer wizard: the steps in the owner\'s order — server, people, shares, settings, simulator, summary',
-                ['servers', 'users', 'libraries', 'settings', 'simulator', 'summary'], $r['steps']);
+            same('streamer wizard: the steps in the owner\'s order — server, shares, settings, people (after the settings: by budget a budget each), simulator, summary',
+                ['servers', 'libraries', 'settings', 'users', 'simulator', 'summary'], $r['steps']);
             same('streamer wizard: the old tiles\' routes open the step that holds them now', ['settings', 'settings', 'servers', 'users', ''], $r['old']);
             same('streamer wizard: set up → it opens on the summary; the first time → step 1', ['summary', 'servers'], [$r['startSetUp'], $r['startNew']]);
-            same('streamer wizard: the summary has a row per step before it (each with «Change»)', ['servers', 'users', 'libraries', 'settings', 'simulator'], $r['sum']);
+            same('streamer wizard: the summary has a row per step before it, in their order (each with «Change»)', ['servers', 'libraries', 'settings', 'users', 'simulator'], $r['sum']);
             same('streamer wizard: the pool comes from the shares\' primary storage (Unraid\'s share settings)', '/mnt/cache', $r['pool']);
             same('streamer wizard: shares on two pools — none until the user picks one (EmbyCache has one cache_path)', [2, ''], $r['many']);
             same('streamer wizard: … the picked one', '/mnt/fast', $r['picked']);
             same('streamer wizard: an array-only share can\'t be cached — the pool from the others', [false, '/mnt/cache'], $r['arrayOnly']);
             same('streamer wizard: his budget («500G», «1.5T» …) in GB for the simulator, 0 when unreadable', [500, 1536, 800, 2, 0, 0], $r['budgetGb']);
+            same('streamer wizard: by budget the people\'s line — fixed first, the rest evenly on the others; the fixed ones over the whole: said',
+                [['total' => 1000, 'fixed' => 500, 'rest' => 500, 'others' => 3, 'over' => false], ['total' => 400, 'fixed' => 500, 'rest' => 0, 'others' => 1, 'over' => true]], $r['split']);
+            same('streamer wizard: … and in the summary beside the name', 'Anna (322122547200 B), Ben', $r['peopleBudget']);
             same('streamer wizard: the people in words — names when known, else how many, none = everyone; never an id',
                 ['Anna, Ben', 'count.people {"n":2}', 'count.people {"n":1}', 'setup.tile.everyone'], $r['people']);
         }

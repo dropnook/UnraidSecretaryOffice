@@ -867,7 +867,7 @@
   "wizard.no_pool_share": "pas de pool comme stockage principal — à régler dans les réglages des partages d'Unraid",
   "wizard.pool_other": "Sur un autre pool que {pool} : laissé de côté",
   "wizard.pools_many": "EmbyCache utilise exactement un pool, et ces partages sont sur {n} pools. Choisis le pool — les partages des autres sont laissés de côté.",
-  "wizard.pools_pick": "Choisis le pool qu'utilise EmbyCache (étape 3).",
+  "wizard.pools_pick": "Choisis le pool qu'utilise EmbyCache (étape 2).",
   "wizard.pool_of": "{pool} — {shares}",
   "wizard.pool_none": "Pas encore de pool : aucun des partages choisis n'a de pool comme stockage principal.",
   "wizard.pool_from": "{pool} — d'après les réglages Unraid des partages {shares}",
@@ -900,5 +900,10 @@
   "sim.sc.budget_small": "Budget plus petit que sa moitié",
   "sim.sc.budget_big": "Budget plus grand que sa limite",
   "setup.mode_help_count": {"one": "«{n} épisode par série, quelle que soit sa taille». Les films en 4K peuvent prendre beaucoup de place.", "other": "«{n} épisodes par série, quelle que soit leur taille». Les films en 4K peuvent prendre beaucoup de place."},
-  "setup.mode_help_budget": "«autant de place, répartie à tour de rôle». Avec de petits épisodes, cela en fait beaucoup ; avec de gros, peu."
+  "setup.mode_help_budget": "«autant de place, répartie à tour de rôle». Avec de petits épisodes, cela en fait beaucoup ; avec de gros, peu.",
+  "setup.users_count_all": {"one": "Par nombre, les valeurs de l'étape 3 valent pour tout le monde ({n} épisode d'avance par série) — EmbyCache n'a pas de valeurs par personne.", "other": "Par nombre, les valeurs de l'étape 3 valent pour tout le monde ({n} épisodes d'avance par série) — EmbyCache n'a pas de valeurs par personne."},
+  "setup.users_budget_split": {"one": "Attribué fixe {fixed}, le reste ({rest}) est réparti également sur {n} personne ; ce dont quelqu'un n'a pas besoin va aux autres.", "other": "Attribué fixe {fixed}, le reste ({rest}) est réparti également sur {n} personnes ; ce dont quelqu'un n'a pas besoin va aux autres."},
+  "setup.users_budget_over": "Les budgets fixes ({fixed}) dépassent le budget entier ({total}) — EmbyCache ne donne alors rien aux autres et écrit un avertissement dans le journal.",
+  "setup.user_budget_gb": "Budget propre (Go, facultatif)",
+  "setup.user_budget_gb_hint": "p. ex. 300 — vide : une part équitable"
 }

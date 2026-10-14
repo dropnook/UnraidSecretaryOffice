@@ -867,7 +867,7 @@
   "wizard.no_pool_share": "kein Pool als Primärspeicher – in den Unraid-Share-Einstellungen festlegen",
   "wizard.pool_other": "Auf einem anderen Pool als {pool}: bleibt aussen vor",
   "wizard.pools_many": "EmbyCache nutzt genau einen Pool, diese Shares liegen aber auf {n} Pools. Wähle den Pool — die Shares auf den anderen bleiben aussen vor.",
-  "wizard.pools_pick": "Wähle, welchen Pool EmbyCache nutzt (Schritt 3).",
+  "wizard.pools_pick": "Wähle, welchen Pool EmbyCache nutzt (Schritt 2).",
   "wizard.pool_of": "{pool} — {shares}",
   "wizard.pool_none": "Noch kein Pool: keiner der gewählten Shares hat einen Pool als Primärspeicher.",
   "wizard.pool_from": "{pool} — aus den Unraid-Share-Einstellungen von {shares}",
@@ -900,5 +900,10 @@
   "sim.sc.budget_small": "Budget kleiner als seine Hälfte",
   "sim.sc.budget_big": "Budget grösser als seine Füllgrenze",
   "setup.mode_help_count": {"one": "«{n} Folge pro Serie, egal wie gross». Bei Filmen in 4K kann das viel Platz brauchen.", "other": "«{n} Folgen pro Serie, egal wie gross». Bei Filmen in 4K kann das viel Platz brauchen."},
-  "setup.mode_help_budget": "«so viel Platz, verteilt reihum». Bei kleinen Folgen werden das viele, bei grossen wenige."
+  "setup.mode_help_budget": "«so viel Platz, verteilt reihum». Bei kleinen Folgen werden das viele, bei grossen wenige.",
+  "setup.users_count_all": {"one": "Nach Anzahl gelten die Zahlen aus Schritt 3 für alle ({n} Folge im Voraus pro Serie) — EmbyCache kennt keine Zahlen pro Person.", "other": "Nach Anzahl gelten die Zahlen aus Schritt 3 für alle ({n} Folgen im Voraus pro Serie) — EmbyCache kennt keine Zahlen pro Person."},
+  "setup.users_budget_split": {"one": "Fest vergeben {fixed}, der Rest ({rest}) wird gleichmässig auf {n} Person verteilt; was jemand nicht braucht, fliesst an die anderen.", "other": "Fest vergeben {fixed}, der Rest ({rest}) wird gleichmässig auf {n} Personen verteilt; was jemand nicht braucht, fliesst an die anderen."},
+  "setup.users_budget_over": "Die festen Budgets ({fixed}) übersteigen das ganze Budget ({total}) — EmbyCache gibt den anderen dann nichts und schreibt eine Warnung ins Protokoll.",
+  "setup.user_budget_gb": "Eigenes Budget (GB, freiwillig)",
+  "setup.user_budget_gb_hint": "z. B. 300 — leer: fairer Anteil"
 }
