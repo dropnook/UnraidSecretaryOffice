@@ -920,5 +920,19 @@
   "sim.pause": "⏸ Pause",
   "sim.resume": "▶ Weiter",
   "sim.speed": "Tempo (ein Tag alle …)",
-  "sim.stopped_red": "Angehalten an Tag {day}: {checks} ist rot geworden."
+  "sim.stopped_red": "Angehalten an Tag {day}: {checks} ist rot geworden.",
+  "reset.button": "Von vorn einrichten …",
+  "reset.title": "Von vorn einrichten?",
+  "reset.text_gone": "Alle Einstellungen von Jack Streamer gehen weg: Server-Adresse, API-Schlüssel, Bibliotheken, Personen, Umfang, die N Tage. Eine Kopie davon bleibt — du kannst sie zurückholen, solange er nicht neu eingerichtet ist.",
+  "reset.text_stays": "Was er auf den Pool gelegt hat, bleibt dort, und seine Liste davon auch — Frau Moverelli lässt diese Dateien liegen.",
+  "reset.text_night": "Bis die neue Einrichtung gespeichert ist, läuft sein Teil im Nachtlauf nicht.",
+  "reset.go": "Von vorn beginnen",
+  "reset.restore_button": "Frühere Einstellungen wiederherstellen (vom {date})",
+  "reset.restore_title": "Frühere Einstellungen wiederherstellen?",
+  "reset.restore_text": "Die Einstellungen vom {date} kommen zurück: Server, API-Schlüssel, Bibliotheken, Personen, Umfang. Dann ist er wieder eingerichtet wie vorher.",
+  "reset.restore_go": "Wiederherstellen",
+  "reset.restored": "Frühere Einstellungen wiederhergestellt.",
+  "errors.emby_restore_none": "Es gibt keine Kopie früherer Einstellungen.",
+  "errors.emby_restore_configured": "Er ist eingerichtet — eine Kopie wird nur vor einer neuen Einrichtung zurückgeholt.",
+  "errors.emby_restore_bad": "Die Kopie {file} lässt sich nicht lesen."
 }

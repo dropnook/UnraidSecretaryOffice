@@ -102,6 +102,7 @@
 .jo-wiz-confirm{padding:8px 0 4px}
 .jo-wiz-confirm-q{margin:0 0 6px; font-size:16px; font-weight:650; color:var(--ink)}
 .jo-setup-card .toolbar{margin-top:12px}
+.jo-reset{justify-content:flex-end; border-top:1px solid var(--line); padding-top:10px; margin-top:16px}
 .jo-wiz-head{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px}
 .jo-wiz-title{margin:0; font-size:19px; font-weight:650; color:var(--ink)}
 .jo-wiz-intro{margin:10px 0 16px; padding:6px 12px; border-left:3px solid var(--accent); background:var(--surface2); color:var(--ink2); font-size:13px; line-height:1.5; overflow-wrap:anywhere}

@@ -30788,6 +30788,124 @@ JS);
     }
 }
 
+/**
+ * «Set up from scratch» (2026-10-14): embyReset() puts EmbyCache's settings aside as .bak-<time> (0600, the newest 3
+ * kept) and touches nothing else — his list (embycache_exclude.txt), embycache_origin.json, his runs stay byte for byte;
+ * refused while a run of his goes or when there is nothing to put aside. embyRestore() brings the newest copy back, only
+ * while he isn't set up. The page: the quiet button under the summary, its confirm, then the wizard at step 1; the intro
+ * card offers the newest copy back with its date.
+ */
+function testStreamerReset(): void
+{
+    $dir = hardeningTmp('streamer-reset');
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return 'ok';
+        } catch (Problem $e) {
+            return $e->key;
+        }
+    };
+    $idle = fn (): bool => false;
+    $busy = fn (): bool => true;
+    file_put_contents("$dir/embycache_exclude.txt", "/mnt/cache/Filme/A/a.mkv\n");
+    file_put_contents("$dir/embycache_origin.json", '{"a":"disk1"}');
+    file_put_contents("$dir/office-history.json", '{"runs":[]}');
+    $keep = array_map(fn ($f) => md5_file("$dir/$f"), ['embycache_exclude.txt', 'embycache_origin.json', 'office-history.json']);
+    file_put_contents("$dir/embycache_settings.json", '{"instances":[{"url":"http://e:8096"}],"n":1}');
+    same('reset: refused while a run of his goes — the settings stay', ['emby_running', true], [$refused(fn () => embyReset($dir, $busy)), is_file("$dir/embycache_settings.json")]);
+    same('reset: his settings aside, 0600, nothing else touched', ['ok', false, 1, '0600'], [$refused(fn () => embyReset($dir, $idle)), is_file("$dir/embycache_settings.json"),
+        count(embyResetBackups($dir)), substr(sprintf('%o', fileperms(embyResetBackups($dir)[0]['file'])), -4)]);
+    same('reset: … his list, origin and runs byte for byte', $keep, array_map(fn ($f) => md5_file("$dir/$f"), ['embycache_exclude.txt', 'embycache_origin.json', 'office-history.json']));
+    same('reset: nothing to put aside — said', 'emby_not_configured', $refused(fn () => embyReset($dir, $idle)));
+    for ($i = 2; $i <= 4; $i++) {
+        file_put_contents("$dir/embycache_settings.json", '{"instances":[{"url":"http://e:8096"}],"n":' . $i . '}');
+        embyReset($dir, $idle);
+    }
+    same('reset: the newest 3 copies kept', 3, count(embyResetBackups($dir)));
+    file_put_contents("$dir/embycache_settings.json", '{"instances":[],"n":9}');
+    same('restore: refused while a settings file is there', 'emby_restore_configured', $refused(fn () => embyRestore($dir, $idle)));
+    unlink("$dir/embycache_settings.json");
+    same('restore: refused while a run goes', 'emby_running', $refused(fn () => embyRestore($dir, $busy)));
+    same('restore: the newest copy back (0600), the copies stay', ['ok', 4, '0600', 3], [$refused(fn () => embyRestore($dir, $idle)),
+        json_decode((string) file_get_contents("$dir/embycache_settings.json"), true)['n'] ?? null, substr(sprintf('%o', fileperms("$dir/embycache_settings.json")), -4), count(embyResetBackups($dir))]);
+    foreach (embyResetBackups($dir) as $b) {
+        unlink($b['file']);
+    }
+    unlink("$dir/embycache_settings.json");
+    same('restore: no copy — said', 'emby_restore_none', $refused(fn () => embyRestore($dir, $idle)));
+    same('reset: … and still nothing else touched', $keep, array_map(fn ($f) => md5_file("$dir/$f"), ['embycache_exclude.txt', 'embycache_origin.json', 'office-history.json']));
+    hardeningRm($dir);
+    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('reset: the actions emby.reset and emby.restore, the newest copy\'s time in his state', str_contains($emby, "'reset'          => fn (array \$r) => embyReset(),")
+        && str_contains($emby, "'restore'        => fn (array \$r) => embyRestore(),") && str_contains($emby, "'reset_backup' => (\$b = embyResetBackups()[0] ?? null) ? ['time' => \$b['time']] : null,"));
+    $night = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
+    check('reset: the night run leaves him out while he has no settings (Ms. Moverelli alone; her ini still names his list)',
+        str_contains($night, "embyReadSettings() !== null"));
+    // the page
+    $node = testsNode();
+    if ($node === '') {
+        check('reset: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('streamer-reset-ui');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [emFile, stateFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const all = (n, out = []) => { out.push(n); (n.children || []).forEach((c) => c && typeof c === 'object' && all(c, out)); return out; };
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, replaceChildren() { this.children = []; }, closest: () => null,
+  setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
+const dialogs = [];
+const posts = [];
+let answer = null;
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, toast: () => {}, errorText: (e) => e.key,
+  api: { post: async (a) => { posts.push(a); return answer; } },
+  dialog: (o) => { const d = { o, closed: false, setTitle() {}, close() { if (d.closed) return; d.closed = true; if (o.onClose) o.onClose(); } }; dialogs.push(d); return d; } };
+(0, eval)(fs.readFileSync(emFile, 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+(async () => {
+  const out = {};
+  e.setState(st); e.initForm();
+  const card = e.summaryCard();
+  const btn = all(card).find((n) => n.textContent === 'reset.button');
+  out.button = btn ? btn.className : null;
+  btn.onclick();
+  const d = dialogs.at(-1);
+  out.confirm = [d.o.title, d.o.buttons.map((b) => b.text), all(d.o.body).map((n) => n.textContent).filter(Boolean)];
+  answer = { ok: true, state: { ...st, configured: false, settings: null, reset_backup: { time: 1760000000 } } };
+  out.went = await d.o.buttons[1].act();
+  await new Promise((r) => setTimeout(r, 5));
+  const w = dialogs.at(-1);
+  out.after = [posts, w !== d && w.o.modal === true, e.wiz() && e.wiz().step];
+  e.setState(answer.state);
+  const intro = e.introCard();
+  out.restore = all(intro).map((n) => n.textContent).filter((t) => t.startsWith('reset.restore_button'));
+  e.setState({ ...st, configured: false, reset_backup: null });
+  out.noCopy = all(e.introCard()).map((n) => n.textContent).filter((t) => t.startsWith('reset.restore_button'));
+  console.log(JSON.stringify(out));
+})();
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('reset: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    same('reset: a quiet button under the summary (plain, danger)', 'btn small plain danger', $r['button']);
+    same('reset: its confirm says what goes, what stays, the night — «Start from scratch» / «Cancel»',
+        ['reset.title', ['common.cancel', 'reset.go'], ['reset.text_gone', 'reset.text_stays', 'reset.text_night']], $r['confirm']);
+    same('reset: then emby.reset, and the wizard opens at step 1', [true, [['emby.reset'], true, 'servers']], [$r['went'], $r['after']]);
+    same('reset: the intro card offers the newest copy back with its date — none without one', [['reset.restore_button {"date":"D1760000000"}'], []], [$r['restore'], $r['noCopy']]);
+}
+
 function testPoolLevel(): void
 {
     $G = 1 << 30;
@@ -34518,7 +34636,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

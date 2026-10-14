@@ -920,5 +920,19 @@
   "sim.pause": "⏸ Pause",
   "sim.resume": "▶ Continuer",
   "sim.speed": "Vitesse (un jour toutes les …)",
-  "sim.stopped_red": "Arrêté le jour {day} : {checks} est passé au rouge."
+  "sim.stopped_red": "Arrêté le jour {day} : {checks} est passé au rouge.",
+  "reset.button": "Reconfigurer depuis le début …",
+  "reset.title": "Reconfigurer depuis le début ?",
+  "reset.text_gone": "Tous les réglages de Jack Emby disparaissent : l'adresse du serveur, la clé API, les bibliothèques, les personnes, les quantités, les N jours. Une copie est gardée — tu peux la récupérer tant qu'il n'est pas reconfiguré.",
+  "reset.text_stays": "Ce qu'il a placé sur le pool y reste, sa liste aussi — Madame Moverelli laisse ces fichiers où ils sont.",
+  "reset.text_night": "Tant que la nouvelle configuration n'est pas enregistrée, sa part de l'exécution de nuit ne tourne pas.",
+  "reset.go": "Recommencer depuis le début",
+  "reset.restore_button": "Restaurer les réglages précédents (du {date})",
+  "reset.restore_title": "Restaurer les réglages précédents ?",
+  "reset.restore_text": "Les réglages du {date} reviennent : serveur, clé API, bibliothèques, personnes, quantités. Il est alors configuré comme avant.",
+  "reset.restore_go": "Restaurer",
+  "reset.restored": "Réglages précédents restaurés.",
+  "errors.emby_restore_none": "Il n'y a pas de copie de réglages précédents.",
+  "errors.emby_restore_configured": "Il est configuré — une copie ne se restaure qu'avant une nouvelle configuration.",
+  "errors.emby_restore_bad": "La copie {file} est illisible."
 }

@@ -920,5 +920,19 @@
   "sim.pause": "⏸ Pause",
   "sim.resume": "▶ Continue",
   "sim.speed": "Speed (a day every …)",
-  "sim.stopped_red": "Stopped on day {day}: {checks} turned red."
+  "sim.stopped_red": "Stopped on day {day}: {checks} turned red.",
+  "reset.button": "Set up from scratch …",
+  "reset.title": "Set up from scratch?",
+  "reset.text_gone": "All of Jack Emby's settings go: the server's address, the API key, the libraries, the people, the amounts, the N days. A copy of them is kept — you can bring it back as long as he isn't set up again.",
+  "reset.text_stays": "What he has placed on the pool stays there, and so does his list of it — Ms. Moverelli leaves those files where they are.",
+  "reset.text_night": "Until the new setup is saved, his part of the night run doesn't run.",
+  "reset.go": "Start from scratch",
+  "reset.restore_button": "Restore earlier settings (from {date})",
+  "reset.restore_title": "Restore earlier settings?",
+  "reset.restore_text": "The settings as they were on {date} come back: server, API key, libraries, people, amounts. Then he is set up as before.",
+  "reset.restore_go": "Restore",
+  "reset.restored": "Earlier settings restored.",
+  "errors.emby_restore_none": "There is no copy of earlier settings.",
+  "errors.emby_restore_configured": "He is set up — a copy is restored only before a new setup.",
+  "errors.emby_restore_bad": "The copy {file} can't be read."
 }
