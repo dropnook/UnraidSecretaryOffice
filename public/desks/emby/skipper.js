@@ -524,7 +524,10 @@ const SCENARIOS = [
 function runScenario(id, base, seed) {
   const sc = SCENARIOS.find((s) => s.id === id);
   const b = { ...DEFAULTS, unwatchedDays: 30, ...base };
-  const cfg = { ...b, ...(typeof sc.cfg === 'function' ? sc.cfg(b) : sc.cfg) };
+  const own = typeof sc.cfg === 'function' ? sc.cfg(b) : sc.cfg;
+  const cfg = { ...b, ...own };
+  // a scenario with a pool or NM of its own starts empty: the server's contents (real data) belong to the server's pool
+  if ('pool' in own || 'nm' in own) { delete cfg.others0; delete cfg.jack0; }
   const sim = newSim(cfg, (seed == null ? 162 : seed) + SCENARIOS.indexOf(sc) * 1000);
   sim.w.mods.push(...(sc.mods || []).map((m) => ({ ...m })));
   sim.scenario = id;
@@ -826,6 +829,7 @@ function scenarios(h, body) {
   const bar = el('div', 'toolbar');
   bar.appendChild(h.button(T('sim.run_all'), 'small', () => {
     V.results = SCENARIOS.map((sc) => ({ id: sc.id, days: sc.days, r: summary(runScenario(sc.id, V.cfg, V.seed)) }));
+    V.resultsOn = { ...V.cfg, seed: V.seed, src: V.src };
     redraw(h, body);
   }));
   box.appendChild(bar);
@@ -857,6 +861,11 @@ function scenarios(h, body) {
   const wrap = el('div', 'jo-sim-scroll');
   wrap.appendChild(t);
   box.appendChild(wrap);
+  // what the table ran on (the sliders' values at «Run all» — real data or one's own): results differ with them
+  const c = V.resultsOn || {};
+  box.appendChild(el('p', 'role jo-sim-base', T(c.src === 'real' ? 'sim.base_real' : 'sim.base_test', { pool: h.fmt.size((c.pool || 0) * GIB),
+    nm: h.fmt.size((c.nm || 0) * GIB), writes: h.fmt.size((c.writes || 0) * GIB), x: c.x, offset: c.offset, k: c.k,
+    days: h.nOf('days', c.unwatchedDays || 0), age: h.nOf('days', c.age || 0), seed: c.seed })));
   return box;
 }
 

@@ -849,5 +849,7 @@
   "sim.sc.binge": "Settimana di maratona",
   "sim.sc.appdata": "appdata cresce fin quasi a Y",
   "sim.sc.films": "Grande libreria di film",
-  "sim.sc.tiny": "Pool minuscolo"
+  "sim.sc.tiny": "Pool minuscolo",
+  "sim.base_real": "Calcolato con i valori del server (il contenuto del suo pool all'inizio): pool {pool}, {nm} non si spostano mai, {writes} scritti al giorno, X {x} %, offset {offset} %, k {k} %, N {days}, regola dell'età {age}, seed {seed}.",
+  "sim.base_test": "Calcolato con valori di prova propri: pool {pool}, {nm} non si spostano mai, {writes} scritti al giorno, X {x} %, offset {offset} %, k {k} %, N {days}, regola dell'età {age}, seed {seed}."
 }

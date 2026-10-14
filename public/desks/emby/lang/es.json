@@ -849,5 +849,7 @@
   "sim.sc.binge": "Semana de maratón",
   "sim.sc.appdata": "appdata crece hasta cerca de Y",
   "sim.sc.films": "Gran biblioteca de películas",
-  "sim.sc.tiny": "Pool diminuto"
+  "sim.sc.tiny": "Pool diminuto",
+  "sim.base_real": "Calculado con los valores del servidor (el contenido de su pool al inicio): pool {pool}, {nm} nunca se mueven, {writes} escritos al día, X {x} %, desfase {offset} %, k {k} %, N {days}, regla de antigüedad {age}, semilla {seed}.",
+  "sim.base_test": "Calculado con valores de prueba propios: pool {pool}, {nm} nunca se mueven, {writes} escritos al día, X {x} %, desfase {offset} %, k {k} %, N {days}, regla de antigüedad {age}, semilla {seed}."
 }

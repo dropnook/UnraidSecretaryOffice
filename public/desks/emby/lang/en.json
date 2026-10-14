@@ -849,5 +849,7 @@
   "sim.sc.binge": "Binge week",
   "sim.sc.appdata": "appdata grows to near Y",
   "sim.sc.films": "Big film library",
-  "sim.sc.tiny": "Tiny pool"
+  "sim.sc.tiny": "Tiny pool",
+  "sim.base_real": "Ran on the server's values (its pool's contents at the start): pool {pool}, {nm} never move, {writes} written a day, X {x} %, offset {offset} %, k {k} %, N {days}, age rule {age}, seed {seed}.",
+  "sim.base_test": "Ran on own test values: pool {pool}, {nm} never move, {writes} written a day, X {x} %, offset {offset} %, k {k} %, N {days}, age rule {age}, seed {seed}."
 }

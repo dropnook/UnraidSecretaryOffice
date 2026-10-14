@@ -849,5 +849,7 @@
   "sim.sc.binge": "Binge-Woche",
   "sim.sc.appdata": "appdata wächst bis nahe Y",
   "sim.sc.films": "Grosse Filmbibliothek",
-  "sim.sc.tiny": "Winziger Pool"
+  "sim.sc.tiny": "Winziger Pool",
+  "sim.base_real": "Gerechnet mit den Werten vom Server (sein Pool-Inhalt zu Beginn): Pool {pool}, {nm} zügeln nie, {writes} geschrieben pro Tag, X {x} %, Offset {offset} %, k {k} %, N {days}, Altersregel {age}, Seed {seed}.",
+  "sim.base_test": "Gerechnet mit eigenen Testwerten: Pool {pool}, {nm} zügeln nie, {writes} geschrieben pro Tag, X {x} %, Offset {offset} %, k {k} %, N {days}, Altersregel {age}, Seed {seed}."
 }

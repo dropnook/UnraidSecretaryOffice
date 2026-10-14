@@ -30512,6 +30512,8 @@ const b = S.summary(S.runScenario('normal', {}, 7));
 out.same = JSON.stringify(a) === JSON.stringify(b);
 out.other = JSON.stringify(S.summary(S.runScenario('normal', {}, 8))) !== JSON.stringify(a);
 out.sc = Object.fromEntries(S.SCENARIOS.map((sc) => [sc.id, S.summary(S.runScenario(sc.id, {}, 162))]));
+const tiny = S.runScenario('tiny', { others0: 282, jack0: 28 }, 162);
+out.tinyStart = tiny.sides.new.hist[0].others + tiny.sides.new.hist[0].nm <= tiny.w.cfg.pool;
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/skipper.js') . ' '
@@ -30553,6 +30555,7 @@ JS);
     check('skipper sim: download spike, 1.62.1 — unwatched files go back and come again within 7 days (ping-pong)',
         $sc['spike']['v162']['pingpong'] > 0 && $sc['spike']['v162']['forced'] > 0 && $sc['spike']['v162']['inv']['pingpong'] !== null, json_encode($sc['spike']['v162']));
     check('skipper sim: … the new rules on the same spike: none', $sc['spike']['new']['pingpong'] === 0);
+    check('skipper sim: a scenario with a pool of its own never starts with the server\'s contents (282 GB of downloads in a 256 GB pool)', $r['tinyStart'] === true);
 }
 
 /**
