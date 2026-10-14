@@ -94,6 +94,14 @@
 /* the setup wizard (2026-10-14, Jack Streamer — like Unraid's own welcome setup): one step at a time in a centred card */
 .jo-wiz{width:100%; max-width:880px; margin:18px auto 8px; padding:20px 24px 16px; min-height:0; min-width:0; box-sizing:border-box}
 .jo-wiz-body, .jo-wiz-part, .jo-sim-body > *{min-width:0; max-width:100%}
+/* the wizard as a modal dialog (Office.dialog({modal}), 2026-10-14): wide, its content without the card's frame, the foot
+   always in view at the dialog's bottom; the «Set up» tab keeps the card (summary, or the intro before the first setup) */
+.dialog.jo-wiz-dialog{width:min(1000px,100%)}
+.dialog .jo-wiz{max-width:none; margin:0; padding:0; border:0; background:none; width:auto}
+.dialog .jo-wiz-foot{position:sticky; bottom:-4px; z-index:4; background:var(--surface); padding-bottom:12px; margin-top:14px}
+.jo-wiz-confirm{padding:8px 0 4px}
+.jo-wiz-confirm-q{margin:0 0 6px; font-size:16px; font-weight:650; color:var(--ink)}
+.jo-setup-card .toolbar{margin-top:12px}
 .jo-wiz-head{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px}
 .jo-wiz-title{margin:0; font-size:19px; font-weight:650; color:var(--ink)}
 .jo-wiz-intro{margin:10px 0 16px; padding:6px 12px; border-left:3px solid var(--accent); background:var(--surface2); color:var(--ink2); font-size:13px; line-height:1.5; overflow-wrap:anywhere}
@@ -165,6 +173,8 @@
 .jo-sim-mark > span{position:absolute; top:0; left:3px; font-size:11px; line-height:1; white-space:nowrap; color:var(--ink)}
 .jo-sim-mark.below{top:-2px; bottom:-18px; border-left-style:dashed}
 .jo-sim-mark.below > span{top:auto; bottom:0}
+.jo-sim-mark.below.stagger{bottom:-34px}
+.jo-sim-bar.staggered{margin-bottom:38px}
 .jo-sim-mark.flip > span{left:auto; right:3px}
 .jo-sim-bar{margin-top:30px}
 /* on the bar with handles the X and Y labels start past their knob */
@@ -184,12 +194,20 @@
 .jo-sim-grip:focus-visible{box-shadow:0 0 0 2px var(--accent); border-radius:6px}
 .jo-sim-tip{display:none; position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%); white-space:nowrap; padding:3px 8px; border-radius:4px;
   background:var(--ink); color:var(--bg); font-size:11.5px; pointer-events:none; z-index:3}
+.jo-sim-segtip{top:calc(100% + 6px); bottom:auto}
 .jo-sim-grip.mid .jo-sim-tip{bottom:auto; top:calc(100% + 4px)}
 .jo-sim-grip.dragging .jo-sim-tip, .jo-sim-grip:focus-visible .jo-sim-tip{display:block}
 .jo-sim-dragfoot{margin-top:6px; flex-wrap:wrap; gap:6px 12px}
 .jo-sim-warnmsg{margin:10px 0 6px; overflow-wrap:anywhere}
 .jo-mode-help{display:flex; flex-direction:column; gap:3px}
 .jo-mode-help b{color:var(--ink); font-weight:600}
+/* play: the bars move from day to day (no transition under reduced motion); the check that stopped it marked */
+.jo-sim-pic.playing .jo-sim-seg{transition:width .6s ease}
+.jo-sim-pic.playing .jo-sim-mark, .jo-sim-pic.playing .jo-sim-grip{transition:left .6s ease}
+@media (prefers-reduced-motion: reduce){ .jo-sim-pic.playing .jo-sim-seg, .jo-sim-pic.playing .jo-sim-mark, .jo-sim-pic.playing .jo-sim-grip{transition:none} }
+.jo-sim-table tr.jo-sim-hot td{background:var(--danger-soft)}
+.jo-sim-stopnote{margin:10px 0}
+.jo-sim-speed{width:auto; min-width:70px}
 .jo-sim-dice{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px}
 .jo-sim-more > summary{cursor:pointer; font-size:12.5px; color:var(--ink2); margin:2px 0 8px}
 .jo-sim-legend{display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; color:var(--muted)}

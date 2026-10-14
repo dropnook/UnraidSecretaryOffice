@@ -30519,6 +30519,10 @@ out.budget = ['budget_small', 'budget_big'].map((id) => {
     maxHeld: Math.max(...side.hist.map((x) => x.jack)), biggest: Math.max(...S.measure(sim.w, side).files.map((e) => e.size), 0) };
 });
 out.caps = [S.budgetCaps(300, [500, 500, 500], [100, 0, 0]), S.budgetCaps(300, [50, 500, 500], []), S.budgetCaps(100, [500, 500], [150, 0])];
+// play: one day per tick, the checks that turned red with it (they stop the play)
+const calm = S.newSim({}, 162);
+const flood = S.newSim({ writes: 5000 }, 162);
+out.play = { calm: S.playTick(calm), calmDay: calm.w.day, flood: S.playTick(flood), again: S.playTick(flood) };
 const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
 out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
   min: v.every((x, i) => x <= 0 || w[i] >= Math.min(min, 1 / v.filter((y) => y > 0).length) - 1e-9),
@@ -30586,6 +30590,13 @@ JS);
         && $bs['maxHeld'] <= $bs['budget'] + $bs['biggest'] + 0.01, json_encode($bs));
     check('streamer sim: by budget bigger than his fill limit — green, the fill limit holds him (min(budget, limit)), nothing reserved for the budget',
         $bb['ok'] && $bb['budget'] > $bb['limit'] && $bb['jack'] <= $bb['limit'] + $bb['biggest'] + 0.01 && $bb['want'] > $bb['limit'], json_encode($bb));
+    same('streamer sim: play — a day per tick; a calm day turns nothing red, a flood of writes turns «room» red on that day (it stops the play), only once',
+        [[], 1, ['others'], []], [$r['play']['calm'], $r['play']['calmDay'], $r['play']['flood'], $r['play']['again']]);
+    $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/streamer.js');
+    check('streamer sim: play has one timer — set only by its step, cleared by stopPlay(); a second click never starts a second; a new start, a scenario, a gone simulator (the dialog closed) stop it',
+        substr_count($sim, 'V.timer = setTimeout(') === 2 && str_contains($sim, "function startPlay(h, body) {\n  if (V.playing) return;")
+        && str_contains($sim, "function restart(h) {\n  stopPlay();") && str_contains($sim, "if (!body.isConnected) { stopPlay(); return; }")
+        && str_contains($sim, "stopPlay();\n      V.sim = runScenario(res.id, V.cfg, V.seed);"));
     $ed = $r['edge'];
     same('streamer sim: nothing to share (what never moves above Y), the others all moved, his unwatched files stay — the pool over X: «told at once» (the check says so, not red), the warning, the log says «nothing to share»',
         [true, true, 1, true, true, 1, 0, true], [$ed['never'], $ed['over'], $ed['told'], $ed['warns'] >= 1, $ed['limit']['ok'], $ed['limit']['told'], $ed['others'], $ed['dayTold']]);
@@ -30641,6 +30652,17 @@ function testStreamerWizard(): void
         str_contains($js, "if (i > 0) left.appendChild(button(T('wizard.back')") && str_contains($js, "if (SKIPPABLE.has(id)) right.appendChild(button(T('wizard.skip')")
         && str_contains($js, "if (id === 'summary') {\n    const save = button(T('setup.save'), '', saveSetup);") && substr_count($js, "button(T('setup.save')") === 1
         && str_contains($js, "const SKIPPABLE = new Set(['users', 'settings', 'simulator']);"));
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('streamer wizard: the office\'s dialog has a modal kind — a click outside does nothing, Escape calls onEscape, everything outside inert until it closes',
+        str_contains($core, "backdrop.onclick = (e) => { if (e.target === backdrop && !modal) close(); };")
+        && str_contains($core, "if (e.key === 'Escape' && modal) { e.preventDefault(); if (onEscape) onEscape(); return; }")
+        && str_contains($core, "if (sib !== n && !sib.inert && !['SCRIPT', 'STYLE', 'LINK'].includes(sib.tagName)) { sib.inert = true; inerted.push(sib); }")
+        && str_contains($core, "inerted.forEach((x) => { x.inert = false; });"));
+    check('streamer wizard: #/emby/setup/<step> opens the wizard there, closing it is #/emby/setup again; «Change» on a row opens it at that step',
+        str_contains($js, "if (want) openWizard(want);") && str_contains($js, "if (view && page === 'setup') Office.subroute('setup');")
+        && str_contains($js, "() => (wiz ? goStep(d.id) : openWizard(d.id))"));
+    check('streamer wizard: «Change at Ms. Moverelli» ends the wizard without asking, to her settings — said on her page when it held changes',
+        str_contains($js, "Office.go('#/moverelli/setup/global');\n      if (lost) Office.toast(T('wizard.left_unsaved'));"));
     check('streamer wizard: the pool is never chosen freely — derived from the shares\' primary storage, saved as cache_path', !str_contains($js, 'poolSel')
         && str_contains($js, "    cache_path: cache,\n") && str_contains($js, "const cache = derivedPool();\n  if (!cache) {"));
     $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
@@ -30679,10 +30701,15 @@ const [emFile, stateFile, connectFile] = process.argv.slice(2);
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {}, addEventListener() {}, querySelectorAll: () => [] });
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, replaceChildren() { this.children = []; }, closest: () => null,
+  setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
+const dialogs = [];
+const routes = [];
 globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
-  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}) };
+  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: (r) => routes.push(r),
+  // the office's dialog, as far as the wizard uses it: its options kept, close() runs onClose
+  dialog: (o) => { const d = { o, closed: false, title: '', setTitle(t) { d.title = t; }, close() { if (d.closed) return; d.closed = true; if (o.onClose) o.onClose(); } }; dialogs.push(d); return d; } };
 (0, eval)(fs.readFileSync(emFile, 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
 const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -30690,10 +30717,25 @@ const con = JSON.parse(fs.readFileSync(connectFile, 'utf8'));
 const out = {};
 out.steps = e.SETUP_STEPS.map((x) => x.id);
 out.old = ['scope', 'more', 'import', 'users', 'nope'].map(e.stepOf);
-e.setState(st); e.initForm(); e.setStep(null);
-out.startSetUp = e.currentStep();
+e.setState(st); e.initForm();
+out.startSetUp = e.startStep();
 e.setState({ ...st, configured: false });
-out.startNew = e.currentStep();
+out.startNew = e.startStep();
+// the wizard as a modal: opened at a step (an exclusive dialog, no foot of the office's, Escape = cancel), the address
+// #/emby/setup/<step>; cancel without a change closes it; with one it asks first — keep editing, then discard
+e.setState(st); e.initForm();
+e.openWizard('settings');
+const d1 = dialogs.at(-1);
+out.modal = { modal: d1.o.modal, buttons: d1.o.buttons, esc: d1.o.onEscape === e.cancelWizard, cls: d1.o.cls, step: e.wiz() && e.wiz().step, title: d1.title, route: routes.at(-1) };
+e.cancelWizard();
+out.closedClean = [d1.closed, e.wiz()];
+e.openWizard('settings');
+const d2 = dialogs.at(-1);
+e.form().values.give_back_unwatched_days = 45;
+e.cancelWizard();
+out.asked = [d2.closed, e.wiz() && e.wiz().confirm];
+e.cancelWizard();
+out.discarded = [d2.closed, e.wiz(), e.form() ? e.form().values.give_back_unwatched_days : 'form anew'];
 e.setState(st); e.initForm();
 const f = e.form();
 Object.assign(f.instances[0], { server: con.server, libraries: con.libraries, users: con.users });
@@ -30725,7 +30767,12 @@ JS);
             same('streamer wizard: the steps in the owner\'s order — server, shares, settings, people (after the settings: by budget a budget each), simulator, summary',
                 ['servers', 'libraries', 'settings', 'users', 'simulator', 'summary'], $r['steps']);
             same('streamer wizard: the old tiles\' routes open the step that holds them now', ['settings', 'settings', 'servers', 'users', ''], $r['old']);
-            same('streamer wizard: set up → it opens on the summary; the first time → step 1', ['summary', 'servers'], [$r['startSetUp'], $r['startNew']]);
+            same('streamer wizard: the «Set up» tab — set up: his summary; the first time: the intro card (the wizard then at step 1)', ['summary', 'servers'], [$r['startSetUp'], $r['startNew']]);
+            same('streamer wizard: a modal dialog — exclusive, the foot its own, Escape = «Cancel», wide, at the step asked for, its title, the address #/emby/setup/<step>',
+                ['modal' => true, 'buttons' => [], 'esc' => true, 'cls' => 'jo-wiz-dialog', 'step' => 'settings', 'title' => 'wizard.title.settings', 'route' => 'setup/settings'], $r['modal']);
+            same('streamer wizard: «Cancel» without a change just closes', [true, null], $r['closedClean']);
+            same('streamer wizard: … with a change it asks first, inside the dialog («Discard changes?»)', [false, true], $r['asked']);
+            same('streamer wizard: … «Discard»: closed, the form back to his settings', [true, null, 'form anew'], $r['discarded']);
             same('streamer wizard: the summary has a row per step before it, in their order (each with «Change»)', ['servers', 'libraries', 'settings', 'users', 'simulator'], $r['sum']);
             same('streamer wizard: the pool comes from the shares\' primary storage (Unraid\'s share settings)', '/mnt/cache', $r['pool']);
             same('streamer wizard: shares on two pools — none until the user picks one (EmbyCache has one cache_path)', [2, ''], $r['many']);

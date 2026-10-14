@@ -550,6 +550,12 @@ function simDay(sim) {
   }
   return d;
 }
+/** Play (2026-10-14): one day — and the checks that turned red with it (they stop the play) */
+function playTick(sim) {
+  const before = Object.fromEntries(INVARIANTS.map((k) => [k, sim.sides.new.inv[k].ok]));
+  simDay(sim);
+  return INVARIANTS.filter((k) => before[k] && !sim.sides.new.inv[k].ok);
+}
 /** Days in a row; `untilRed`: stop at the first red check of the new rules (or after `n`) */
 function simDays(sim, n, untilRed) {
   for (let i = 0; i < n; i++) {
@@ -683,7 +689,7 @@ function segWidths(values, min) {
   return out;
 }
 
-const math = { budgetCaps, streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
+const math = { playTick, budgetCaps, streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
   INVARIANTS, EVENTS: Object.keys(EVENTS), rng, PINGPONG_DAYS };
 if (typeof module !== 'undefined' && module.exports) module.exports = math;       // tests/run.php under node
 if (typeof Office === 'undefined') return;
@@ -696,7 +702,7 @@ if (typeof Office === 'undefined') return;
  * simulation lives here across the wizard's drawings (V); a control redraws only the simulator's body, in place.
  */
 const GIB = 1024 * 1024 * 1024;
-const V = { src: null, cfg: null, seed: 162, sim: null, results: null, shown: '', measured: null, busy: false };
+const V = { src: null, cfg: null, seed: 162, sim: null, results: null, playing: false, paused: false, timer: 0, speed: 3000, stopNote: null, shown: '', measured: null, busy: false };
 // [key, min, max, step, unit] — unit: gb | pct | n | days. NM, what the others hold, X and Y are set in the bar (its handles);
 // the pool's size stays a slider, the rest folds into «More values»
 const POOL_SLIDER = ['pool', 128, 4096, 32, 'gb'];
@@ -745,9 +751,57 @@ function baseCfg(h, src) {
   return cfg;
 }
 function restart(h) {
+  stopPlay();                                 // a new start (a drag, a slider, «Start over», a scenario) ends the play
+  V.stopNote = null;
   V.sim = newSim(V.cfg, V.seed);
   V.shown = '';
 }
+
+// ---- play (2026-10-14): «Until a check turns red» plays a day every V.speed ms (1, 3 or 10 s), the bars moving (a
+// transition while playing; none under prefers-reduced-motion); «Pause» / «Continue». It stops by itself on a red check
+// (said, the check marked), on a new start, after a year, or when the simulator is gone (the dialog closed). ONE timer:
+// V.timer, set only by startPlay()'s step and cleared only by stopPlay().
+const PLAY_SPEEDS = [1000, 3000, 10000];
+function stopPlay() {
+  clearTimeout(V.timer);
+  V.timer = 0;
+  V.playing = false;
+}
+function startPlay(h, body) {
+  if (V.playing) return;
+  V.playing = true;
+  V.paused = false;
+  V.stopNote = null;
+  const step = () => {
+    V.timer = 0;
+    if (!V.playing) return;
+    if (!body.isConnected) { stopPlay(); return; }
+    const red = playTick(V.sim);
+    if (red.length) { stopPlay(); V.stopNote = { day: V.sim.w.day, red }; }
+    else if (V.sim.w.day >= 365) stopPlay();
+    playShow(h, body);
+    if (V.playing) V.timer = setTimeout(step, V.speed || 3000);
+  };
+  playShow(h, body);
+  V.timer = setTimeout(step, 50);             // the first day at once, then one every V.speed
+}
+function pausePlay(h, body) {
+  stopPlay();
+  V.paused = true;
+  playShow(h, body);
+}
+/** During the play: the bars in place (they move), the button's words, and below the bars all anew */
+function playShow(h, body) {
+  const pic = body.querySelector('.jo-sim-pic');
+  if (!pic || !pic.update) { redraw(h, body); return; }
+  pic.classList.toggle('playing', !!V.playing);
+  pic.update();
+  const btn = body.querySelector('[data-play]');
+  if (btn) btn.textContent = playWords(h);
+  const tail = body.querySelector('.jo-sim-tail');
+  if (tail) tail.replaceWith(tailOf(h, body));
+}
+const playWords = (h) => h.T(V.playing ? 'sim.pause' : V.paused ? 'sim.resume' : 'sim.until');
 
 function view(h) {
   const { T, el } = h;
@@ -859,8 +913,15 @@ function draw(h, body) {
   const days = el('div', 'toolbar jo-sim-acts');
   const go = (fn) => () => { fn(); redraw(h, body); };
   days.append(h.button(T('sim.run1'), 'small', go(() => simDays(V.sim, 1))), h.button(T('sim.run7'), 'small', go(() => simDays(V.sim, 7))),
-    h.button(T('sim.run30'), 'small', go(() => simDays(V.sim, 30))), h.button(T('sim.until'), 'small', go(() => simDays(V.sim, 365, true))),
-    h.button(T('sim.reset'), 'small plain', go(() => restart(h))));
+    h.button(T('sim.run30'), 'small', go(() => simDays(V.sim, 30))));
+  const playBtn = h.button(playWords(h), 'small', () => (V.playing ? pausePlay(h, body) : startPlay(h, body)));
+  playBtn.dataset.play = '1';
+  const speed = el('select', 'picker jo-sim-speed');
+  speed.setAttribute('aria-label', T('sim.speed'));
+  PLAY_SPEEDS.forEach((ms) => speed.appendChild(new Option(`${ms / 1000} s`, String(ms))));
+  speed.value = String(V.speed || 3000);
+  speed.onchange = () => { V.speed = Number(speed.value); };
+  days.append(playBtn, speed, h.button(T('sim.reset'), 'small plain', go(() => restart(h))));
   body.appendChild(days);
   const ev = el('div', 'toolbar jo-sim-acts');
   ev.appendChild(el('span', 'jo-sim-label', T('sim.events')));
@@ -871,12 +932,22 @@ function draw(h, body) {
   const pick = el('div', 'jo-sim-src');
   pick.appendChild(el('span', 'jo-sim-day', V.shown ? T('sim.day_of', { n: V.sim.w.day, scenario: T('sim.sc.' + V.shown) }) : T('sim.day', { n: V.sim.w.day })));
   body.appendChild(pick);
-  body.appendChild(picture(h, body));
-  body.appendChild(checks(h));
-  body.appendChild(totals(h, V.sim.sides.new));
-  body.appendChild(dayTable(h, V.sim.sides.new));
-  body.appendChild(logBox(h, V.sim.sides.new));
-  body.appendChild(scenarios(h, body));
+  const pic = picture(h, body);
+  pic.classList.toggle('playing', !!V.playing);
+  body.appendChild(pic);
+  body.appendChild(tailOf(h, body));
+}
+
+/** Below the bars: why the play stopped, the checks, the totals, the days, the log, the scenarios (anew at every day) */
+function tailOf(h, body) {
+  const { T, el } = h;
+  const tail = el('div', 'jo-sim-tail');
+  if (V.stopNote) {
+    tail.appendChild(el('p', 'callout danger jo-sim-stopnote', T('sim.stopped_red', { day: V.stopNote.day,
+      checks: V.stopNote.red.map((k) => T('sim.inv.' + k)).join(' · ') })));
+  }
+  tail.append(checks(h), totals(h, V.sim.sides.new), dayTable(h, V.sim.sides.new), logBox(h, V.sim.sides.new), scenarios(h, body));
+  return tail;
 }
 
 /**
@@ -907,6 +978,26 @@ function picture(h, body) {
     const bar = el('div', 'jo-sim-bar' + (handles ? ' grips' : ''));
     const segs = {};
     for (const cls of SEGS) { segs[cls] = el('i', 'jo-sim-seg ' + cls); bar.appendChild(segs[cls]); }
+    // a segment's words (GB and % of the pool): on hover with a mouse, on a tap with a finger (gone after a moment)
+    const segTip = el('span', 'jo-sim-tip jo-sim-segtip');
+    bar.appendChild(segTip);
+    let tipTimer = 0;
+    const showTip = (seg) => {
+      clearTimeout(tipTimer);
+      segTip.textContent = seg.dataset.words || '';
+      const b = bar.getBoundingClientRect();
+      const r = seg.getBoundingClientRect();
+      segTip.style.display = 'block';
+      const tw = segTip.offsetWidth;
+      const mid = r.left - b.left + r.width / 2;
+      segTip.style.left = `${Math.round(Math.max(tw / 2, Math.min(b.width - tw / 2, mid)))}px`;
+    };
+    const hideTip = () => { segTip.style.display = ''; };
+    for (const seg of Object.values(segs)) {
+      seg.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') showTip(seg); });
+      seg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hideTip(); });
+      seg.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') { showTip(seg); tipTimer = setTimeout(hideTip, 2500); } });
+    }
     const marks = {};
     for (const [mid, below, left] of [['x', false, false], ['y', false, true], ['budget', false, true], ['h', true, true], ['limit', true, false]]) {
       const k = el('span', 'jo-sim-mark' + (below ? ' below' : ''));
@@ -937,7 +1028,12 @@ function picture(h, body) {
       const val = { nm: m.nm, others: m.others, unw: m.jack - m.watched, wat: m.watched };
       const wid = segWidths([...SEGS.map((c) => val[c]), Math.max(0, pool - m.used)], MIN_PX / Math.max(200, bar.clientWidth || 800));
       const titles = { nm: 'sim.bar.nm', others: 'sim.bar.others', unw: 'sim.bar.unw', wat: 'sim.bar.wat' };
-      SEGS.forEach((c, i) => { segs[c].style.width = `${(wid[i] * 100).toFixed(3)}%`; segs[c].title = `${T(titles[c])} · ${gbText(val[c])}`; });
+      const ofPool = (gb) => T('sim.of_pool', { pct: fmt.number(Math.max(0, gb) * 100 / pool, 1) });
+      SEGS.forEach((c, i) => {
+        segs[c].style.width = `${(wid[i] * 100).toFixed(3)}%`;
+        segs[c].dataset.words = `${T(titles[c])} · ${gbText(val[c])} · ${ofPool(val[c])}`;
+        segs[c].setAttribute('aria-label', segs[c].dataset.words);
+      });
       bar.setAttribute('role', 'img');
       bar.setAttribute('aria-label', `${T('sim.bar.' + id)}: ${T('sim.bar_label', { pct: r1(m.used * 100 / pool) })}`);
       // H and the fill limit from where his part starts (NM + others) — but he fills only up to Y: a marker past Y stands
@@ -948,8 +1044,9 @@ function picture(h, body) {
       const toY = (word, raw) => (raw > m.yb + 0.05 ? T('sim.mark.to_y', { what: word }) : word);
       const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: toY('H', from + m.half), limit: toY(T('sim.mark.limit'), from + m.jackLimit),
         budget: budget ? toY(T('sim.mark.budget'), from + budget) : '' };
-      // H and the fill limit close together (within 3 % of the bar): one label for both, on the limit's line
-      const close = Math.abs(gbFrac(at.h, pool) - gbFrac(at.limit, pool)) < 0.03;
+      // H and the fill limit on the same spot (within a few pixels): one label for both, on the limit's line — apart, each
+      // its own (sideLabels() staggers them when they would collide)
+      const close = Math.abs(gbFrac(at.h, pool) - gbFrac(at.limit, pool)) * (bar.clientWidth || 800) < 6;
       if (close) { words.limit = toY(`H · ${T('sim.mark.limit')}`, from + Math.max(m.half, m.jackLimit)); words.h = ''; }
       for (const [mid, mk] of Object.entries(marks)) {
         mk.node.style.display = mid === 'budget' && !budget ? 'none' : '';      // the budget's mark only by budget
@@ -972,7 +1069,7 @@ function picture(h, body) {
         const [now, lo, hi] = vals[key];
         const sizeKey = key === 'nm' || key === 'end';
         g.node.style.left = sizeKey ? `${(edge[key] * 100).toFixed(3)}%` : `${now}%`;
-        const text = sizeKey ? gbText(key === 'nm' ? m.nm : m.others) : `${now} %`;
+        const text = sizeKey ? `${gbText(key === 'nm' ? m.nm : m.others)} · ${ofPool(key === 'nm' ? m.nm : m.others)}` : `${now} %`;
         g.node.setAttribute('aria-valuenow', String(r1(now)));
         g.node.setAttribute('aria-valuemin', String(r1(lo)));
         g.node.setAttribute('aria-valuemax', String(r1(hi)));
@@ -1005,6 +1102,18 @@ function picture(h, body) {
       const fitsRight = px + lw + 4 <= width;
       mk.node.classList.toggle('flip', mk.left ? fitsLeft || !fitsRight : !fitsRight && fitsLeft);
     }
+    // H's and the fill limit's labels (both below) would overlap: the limit's one row lower
+    const a = marks.h && marks.h.node.firstChild;
+    const b = marks.limit && marks.limit.node.firstChild;
+    let hit = false;
+    if (width && a && b && a.textContent && b.textContent && marks.h.node.style.display !== 'none') {
+      marks.limit.node.classList.remove('stagger');
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      hit = ra.right + 4 > rb.left && rb.right + 4 > ra.left;
+    }
+    if (marks.limit) marks.limit.node.classList.toggle('stagger', hit);
+    bar.classList.toggle('staggered', hit);
   }
 
   const eve = row('before', true);
@@ -1049,6 +1158,7 @@ function picture(h, body) {
   }
   update();
   requestAnimationFrame(update);       // once the bars have their width: the few pixels a small segment keeps
+  box.update = update;                 // the play moves the bars in place (their widths change: the transition shows it)
 
   /** After a change: everything below the bars anew (the checks, the days), the handle that moved keeps the focus */
   const settle = (key) => {
@@ -1115,7 +1225,7 @@ function checks(h) {
   head.append(el('th', '', T('sim.checks')), el('th', '', ''));
   t.appendChild(head);
   for (const k of INVARIANTS) {
-    const tr = el('tr');
+    const tr = el('tr', V.stopNote && V.stopNote.red.includes(k) ? 'jo-sim-hot' : '');      // the check that stopped the play
     const name = el('td', '', T('sim.inv.' + k));
     name.title = T('sim.inv.' + k + '_tip');
     tr.appendChild(name);
@@ -1222,6 +1332,7 @@ function scenarios(h, body) {
     tr.append(el('td', '', `${T('sim.sc.' + res.id)} · ${h.nOf('days', res.days)}`), cell(res.r.new));
     const td = el('td');
     td.appendChild(h.button(T('sim.show'), 'small plain', () => {
+      stopPlay();
       V.sim = runScenario(res.id, V.cfg, V.seed);
       V.shown = res.id;
       redraw(h, body);
