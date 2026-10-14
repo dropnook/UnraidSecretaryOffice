@@ -481,7 +481,7 @@ function setUp(): void
 {
     // the office's own folder above the data folder: root's (owner 2026-10-15, lib/house.php)
     if (officeHomeIsOwn(DATA_DIR_USER) && ($said = officeHomeOwn(dirname(DATA_DIR))) !== null) {
-        logLine($said);
+        logLine('The office\'s folder: ' . $said);
     }
     dataDirTighten();
     mailboxEnsure();
