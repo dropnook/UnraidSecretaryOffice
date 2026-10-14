@@ -3157,7 +3157,10 @@ function setupBarSpec() {
   if (!edits && !fresh && proposals <= 0) return null;      // nothing to apply: no bar that keeps offering it
   // proposals only, set aside with «Discard» for this plan (2026-10-09: the button was grey — no way to say no);
   // a new plan (another «Look at the server again», an update) offers again; the list of changes still shows them
-  const dismissed = Office.store('backup.proposals_dismissed') === String(setup.plan.time || '');
+  // 1.63.0 (a re-pairing on the test servers: the bar stayed away after an earlier «Discard»): a partnership that changed
+  // at the Team Lead ([partner] sections) is never set aside — until applied, nothing goes to the new partner
+  const dismissed = Office.store('backup.proposals_dismissed') === String(setup.plan.time || '')
+    && !split.mine.some((id) => id.startsWith('partner|'));
   if (!edits && !fresh && dismissed) return null;
   const chosen = presetChosen();               // a start of the user's: what it changes is the user's, not proposals of mine
   return {
