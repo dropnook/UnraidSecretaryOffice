@@ -1727,8 +1727,8 @@ function setupServers() {
   if (!connected()) s1.appendChild(el('p', 'callout', T('setup.connect_first')));
   // someone who ran helmi1987's tools before: the offer (only while he isn't set up — afterwards its own tile)
   if (!state.configured) {
-    const offer = el('div', 'callout jo-offer');
-    offer.append(el('p', '', T('import.sub')), button(T('import.open'), 'small plain', importDialog));
+    const offer = el('div', 'jo-offer');                 // an offer, not a warning: plain text (orange only for warnings)
+    offer.append(el('p', 'role', T('import.sub')), button(T('import.open'), 'small plain', importDialog));
     s1.appendChild(offer);
   }
   return s1;

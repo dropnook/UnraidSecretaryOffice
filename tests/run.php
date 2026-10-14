@@ -30986,7 +30986,7 @@ function testStreamerFix3(): void
         $GLOBALS['jackPool'] = $keep;
     }
     hardeningRm($tmp);
-    same('fix3 her rules: from her ini alone — X 80, Y 70 (offset 10), guaranteed 50, age 7; none without her ini', [['x' => 80, 'y' => 70, 'k' => 50, 'min_age' => 7], null], [$with, $without]);
+    same('fix3 her rules: from her ini alone — only X 80 and age 7 (an old Y and «guaranteed» ignored: y = x, k 0); none without her ini', [['x' => 80, 'y' => 80, 'k' => 0, 'min_age' => 7], null], [$with, $without]);
     $tmp = hardeningTmp('streamer-age');
     file_put_contents("$tmp/a.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=14\n[Downloads]\nmin_age=2\n");
     file_put_contents("$tmp/b.ini", "[Downloads]\nmin_age=2\n");
