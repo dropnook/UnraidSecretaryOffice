@@ -91,17 +91,46 @@
 .jo-night-her{overflow-wrap:anywhere}
 .jo-night-dry{margin:10px 0 0}
 
-/* the setup wizard (2026-10-14, Jack the Skipper): «Back» / «Next» under a step, the media server's cards, the summary */
-.jo-wiz-nav{margin:16px 0 4px; justify-content:flex-end}
+/* the setup wizard (2026-10-14, Jack the Skipper — like Unraid's own welcome setup): one step at a time in a centred card */
+.jo-wiz{width:100%; max-width:880px; margin:18px auto 8px; padding:20px 24px 16px; min-height:0; min-width:0; box-sizing:border-box}
+.jo-wiz-body, .jo-wiz-part, .jo-sim-body > *{min-width:0; max-width:100%}
+.jo-wiz-head{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px}
+.jo-wiz-title{margin:0; font-size:19px; font-weight:650; color:var(--ink)}
+.jo-wiz-time{color:var(--muted)}
+.jo-wiz-intro{margin:10px 0 16px; padding:6px 12px; border-left:3px solid var(--accent); background:var(--surface2); color:var(--ink2); font-size:13px; line-height:1.5; overflow-wrap:anywhere}
+.jo-wiz-body{min-width:0}
+.jo-wiz-foot{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 14px; margin:18px 0 0; padding:12px 0 0; border-top:1px solid var(--line)}
+.jo-wiz-left, .jo-wiz-right{display:flex; gap:8px; flex-wrap:wrap}
+.jo-wiz-left{min-width:90px}
+.jo-wiz-where{display:flex; flex-direction:column; align-items:center; gap:4px; font-size:12px; color:var(--muted)}
+.jo-wiz-dots{display:flex; gap:5px}
+.jo-wiz-dots i{width:7px; height:7px; border-radius:50%; background:var(--line2)}
+.jo-wiz-dots i.done{background:var(--accent-soft)}
+.jo-wiz-dots i.on{background:var(--accent)}
+.jo-wiz-offer{margin:14px 0 0}
+.jo-wiz-offer p{margin:0 0 6px}
+.jo-wiz-pools{margin:12px 0 0}
+.jo-wiz-pools p{margin:0 0 6px}
+.jo-adv{margin-top:12px}
+.jo-adv > summary{cursor:pointer}
+.jo-sum{display:flex; flex-direction:column}
+.jo-sum-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--line)}
+.jo-sum-text{display:flex; flex-direction:column; gap:2px; min-width:0; font-size:13px; color:var(--ink2); overflow-wrap:anywhere}
+.jo-sum-text b{color:var(--ink); font-weight:600}
+@media (max-width:640px){
+  .jo-wiz{padding:14px 12px 12px; margin-top:10px}
+  .jo-wiz-foot{justify-content:center}
+  .jo-wiz-where{order:-1; flex-basis:100%}
+  .jo-wiz-left, .jo-wiz-right{flex:1 1 auto}
+  .jo-wiz-right{justify-content:flex-end}
+}
 .jo-media{margin:4px 0 14px}
 .jo-media-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
 .jo-media-row{display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 180px), 1fr))}
 .jo-media-card{min-height:0; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px}
 .jo-media-card.on{border-color:var(--accent)}
 .jo-media-card.off{opacity:.5}
-.jo-share-kv, .jo-sum{grid-column:1 / -1; margin:4px 0 6px}
-/* the wizard's step chips: all eight in one row on a desktop */
-.stats.jo-setup-tiles{grid-template-columns:repeat(auto-fill, minmax(min(100%, 160px), 1fr))}
+.jo-share-kv{grid-column:1 / -1; margin:4px 0 6px}
 /* the pool simulator (skipper.js) */
 .jo-sim-body{display:flex; flex-direction:column; gap:12px; min-width:0}
 .jo-sim-src{display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px}
