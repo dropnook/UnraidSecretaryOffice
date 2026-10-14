@@ -752,7 +752,7 @@ function scheduleTile(a) {
   const m = mover();
   const n = night();
   const sub = [sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('tile.no_schedule')];
-  const short = state.configured ? tonightShort(n.plan) : null;
+  const short = state.configured ? tonightShort(n.plan, ageRule()) : null;
   if (short) sub.push(short);
   sub.push(`${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`);
   return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || !sc.enabled, ...a });
@@ -774,15 +774,44 @@ function tonightText(p, jack = true) {
   return T('night.tonight', { what: parts.join(' · ') });
 }
 
-/** Tonight's plan short, for the tile, pure: «Tonight: 70 GB back · 60 GB wait» — the long line lives in the section */
-function tonightShort(p) {
+/**
+ * What her age rule moves tonight (owner 2026-10-14: below X the limit moves nothing, but the age rule always does): the
+ * days of the shares that move — their effective min_age from her shares' list, else her ini (a share's own, else the
+ * global); {days} when all agree (0 = everything), {mixed} when not, {none} when no share moves at all
+ */
+function ageRule() {
+  const set = (state && state.settings) || {};
+  const g = Number((set.global || {}).min_age) || 0;
+  const own = set.shares || {};
+  const shares = (state && state.shares) || [];
+  const moving = shares.filter((x) => x.state === 'moves');
+  if (shares.length && !moving.length) return { none: true };
+  const daysOf = (x) => {
+    if (!x) return g;
+    if (x.min_age !== '' && x.min_age != null && Number.isFinite(Number(x.min_age))) return Number(x.min_age);
+    const o = own[x.share];
+    return o && o.min_age != null ? Number(o.min_age) || 0 : g;
+  };
+  const days = [...new Set((moving.length ? moving : [null]).map(daysOf))];
+  return days.length === 1 ? { days: days[0] } : { mixed: true };
+}
+
+/**
+ * Tonight's plan short, for the tile, pure: «Tonight: 70 GB back · 60 GB wait» — the long line lives in the section.
+ * Nothing over X: what the age rule moves (age = ageRule()), never «nothing to move» while it moves something
+ */
+function tonightShort(p, age = null) {
   if (!p || !p.measured) return null;
   const parts = [];
   if (Number(p.back) > 0) parts.push(T('night.tile_back', { size: fmt.size(p.back) }));
   if (Number(p.goes) > 0) parts.push(T('night.tile_goes', { size: fmt.size(p.goes) }));
   if (Number(p.fill) > 0) parts.push(T('night.tile_fill', { size: fmt.size(p.fill) }));
   if (Number(p.wait) > 0) parts.push(T('night.tile_wait', { size: fmt.size(p.wait) }));
-  return T('night.tile', { what: parts.length ? parts.join(' · ') : T('night.tile_none') });
+  if (!parts.length) {
+    parts.push(!age || age.none ? T('night.tile_none') : age.mixed ? T('night.tile_age_mixed')
+      : age.days > 0 ? T('night.tile_age', { n: age.days }) : T('night.tile_age_all'));
+  }
+  return T('night.tile', { what: parts.join(' · ') });
 }
 
 /** The last night in words, pure: when, how it ended (done, target missed, stopped in a phase, refused), its rounds */
@@ -853,8 +882,6 @@ function scheduleSection() {
     plan.append(pm, dry);
     box.appendChild(plan);
   }
-  // after the night run: its picture (the pool before and after, where she moved to, the last file)
-  const lastPic = n.last && !n.last.running ? nightPicture(n.last) : null;
   const m = mover();
   const own = Office.place('sched:unraid', el('div', 'row nocheck'));
   const main2 = el('div', 'row-main');
@@ -866,7 +893,6 @@ function scheduleSection() {
   own.appendChild(main2);
   box.appendChild(own);
   s.appendChild(box);
-  if (lastPic) s.appendChild(lastPic);
   return s;
 }
 
@@ -932,6 +958,11 @@ function fillShares(box) {
 /** «My runs»: the last run's result on top (its shares, the log, its output), then every run with how it went */
 function historySection() {
   const s = section(T('history'), T('history_sub'), { place: 'history' });
+  // after the night run: its picture on top (the pool before and after, where she moved to, the last file) — under the
+  // «Last run» tile, once; while a run goes the live one stands under her run card instead
+  const n = night();
+  const lastPic = n.last && !n.last.running ? nightPicture(n.last) : null;
+  if (lastPic) s.appendChild(lastPic);
   const rb = resultBox();
   if (rb) s.appendChild(rb);
   const bar = el('div', 'toolbar');
@@ -2000,7 +2031,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
