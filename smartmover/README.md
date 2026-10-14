@@ -69,6 +69,10 @@
 > * `CUSTOMMOVER_FILL_UNTIL_BYTES` (+ `CUSTOMMOVER_FILL_UNTIL_POOL`, 2026-10-14, the office's night run: Jack Emby's GB
 >   come first): on that pool the fill goes — every share with a trigger, oldest first across the pool — while the pool
 >   uses more than this many bytes, so Jack Emby's fetch afterwards ends at X. Unset: by percent, as above.
+> * **Moved enough** (2026-10-15, marked «USO «moved enough»»): a real fill never moves more than its pool was over when the
+>   fill began — ZFS (and btrfs) show freed space only seconds later, and a snapshot keeps what moved until its retention;
+>   re-reading the pool alone moved every candidate. Once the bytes moved cover it, the pool is re-read for up to
+>   `CUSTOMMOVER_SETTLE` seconds (default 30); still above: a WARN line, no further file, the status says `fill_held: true`.
 > * Leftovers and counts (2026-10-12/13, seen live): Unraid's move writes `<dest>/<share>/<rel>.partial` and renames it
 >   at the end. Before a real run moves a share's files, a leftover `.partial` (a power cut, a crash) on the share's awake
 >   destinations is removed — only while its source `<src>/<rel>` still exists, only that exact name, never a file under

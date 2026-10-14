@@ -30638,7 +30638,7 @@ function testMoverelliFill(): void
         file_put_contents("$t/ini", "[GLOBAL]\nglobal_excludes=$t/excl.txt\n$ini\n");
         $env = ['CUSTOMMOVER_INI' => "$t/ini", 'CUSTOMMOVER_SHARES_DIR' => "$t/shares", 'CUSTOMMOVER_MNT' => "$t/mnt", 'CUSTOMMOVER_LOG' => "$t/log",
                 'CUSTOMMOVER_LOCK' => "$t/lock", 'CUSTOMMOVER_STATUS' => "$t/st.json", 'CUSTOMMOVER_ZFS' => "$t/bin/zfs", 'CUSTOMMOVER_DF' => "$t/bin/df",
-                'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size];
+                'CUSTOMMOVER_MOVER_BIN' => "$t/bin/move", 'ZROOT' => "$t/mnt/cache", 'DISK' => "$t/mnt/disk1", 'ZSIZE' => (string) $size, 'CUSTOMMOVER_SETTLE' => '0'];
         return [$t, $env];
     };
     $run = function (array $env, bool $real) {
@@ -30743,6 +30743,28 @@ function testMoverelliFill(): void
     [$t, $env] = $tree(['Docs/old' => [40, false]], "min_age=30\nage_stat=mtime\nmove_when_used_above=0", 500);
     $run($env, true);
     same('age mtime (upstream): the same file goes', ['old'], $on($t, 'disk1'));
+
+    // 11. «moved enough» (R2, 2026-10-15): ZFS reports freed space late (a txg) and a snapshot keeps what moved — a pool whose
+    // reading never drops (400 of 500) must not lose every candidate: the fill stops once what it moved covers what was over
+    $still = function (string $t): void {
+        file_put_contents("$t/bin/zfs", "#!/bin/bash\n[[ \"\$*\" == 'list -H -o name '* ]] && { echo tank; exit 0; }\necho '400 100'\n");
+    };
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $still($t);
+    $st = $run($env + ['CUSTOMMOVER_SETTLE' => '0', 'CUSTOMMOVER_STOP' => "$t/stop"], true);
+    $log = (string) file_get_contents("$t/log");
+    same('fill enough: the reading stays at 80 % — only z (100 bytes, as much as the pool was over) moves, not all four; not reached',
+        [['z'], ['w', 'x', 'y'], false], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['reached'] ?? null]);
+    check('fill enough: … said in the log (moved as much as it was over, snapshots or still freeing), no «target not reached» for all files',
+        str_contains($log, 'as much as pool cache was over') && !str_contains($log, 'after all'), $log);
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $still($t);
+    $run($env + ['CUSTOMMOVER_SETTLE' => '0', 'CUSTOMMOVER_FILL_UNTIL_BYTES' => '250', 'CUSTOMMOVER_FILL_UNTIL_POOL' => 'cache'], true);
+    same('fill enough, the night\'s room (until 250 of 400): z, y (150 bytes over) — never x and w', [['y', 'z'], ['w', 'x']], [$on($t, 'disk1'), $on($t, 'cache')]);
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $still($t);
+    $run($env + ['CUSTOMMOVER_SETTLE' => '0'], false);
+    check('fill enough: a dry run reckons by the sizes as before (z only)', $dryList($t) === ['z'], json_encode($dryList($t)));
 
     // her setup's check and her ini: only X — an older page's Y and «Jack guaranteed» are not read, never written
     $dir = "$base/her";
@@ -31882,6 +31904,14 @@ function testMoverelliStop(): void
     foreach (["disk1/Docs/gone.txt.partial", "disk2/Docs/$last.partial", 'disk1/Docs/keep.txt'] as $f) {
         @unlink("$tmp/mnt/$f");
     }
+    // R2 2026-10-15: inside the night a stop asked while her job starts (the job takes her old stop file away) still holds —
+    // the night's stop file asks again: nothing moved, stopped
+    $before = count(glob("$tmp/mnt/cache/Docs/*"));
+    writeAtomic("$dir/night-stop.json", jsonEncode(['time' => time(), 'why' => 'user']), 0600, 0, 0);
+    $exit = moverelliJob(['run', '--night', '--solo'], moverelliHost());
+    @unlink("$dir/night-stop.json");
+    same('night stop at her start: the night\'s stop file holds for her job — stopped (3), nothing of Docs moved', [3, 'stopped', $before],
+        [$exit, (readJson("$dir/status.json") ?? [])['result'] ?? null, count(glob("$tmp/mnt/cache/Docs/*"))]);
     unset($GLOBALS['disksIni']);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('no harder stop (Unraid\'s move catches TERM and finishes its file): no stop_now action, no kill', !str_contains($src, "'stop_now'") && !str_contains($src, 'moverelliKillMove')
@@ -32986,6 +33016,7 @@ function testNightRun(): void
         . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\nfsSize=\"4000000000\"\nfsUsed=\"1000000000\"\n"
         . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsSize=\"7\"\nfsUsed=\"7\"\n");
     $GLOBALS['nightHost'] = [
+        'settle' => 0,
         'disks_ini' => "$tmp/disks.ini",
         'jack_on' => fn () => true,
         'level' => fn (array $g, array $hh, bool $wake) => $level(),
@@ -33033,7 +33064,7 @@ function testNightRun(): void
             }
             $p['d'] += $p['burst'];                         // downloads arrive while she works
             $p['burst'] = 0;
-            writeAtomic("$dir/status.json", jsonEncode(['result' => 'ok', 'recent' => [['name' => 'Docs/old.iso', 'bytes' => 5, 'from' => 'cache', 'to' => 'array']]]), 0600, 0, 0);
+            writeAtomic("$dir/status.json", jsonEncode(['result' => 'ok', 'fill_held' => (bool) ($p['held'] ?? false), 'recent' => [['name' => 'Docs/old.iso', 'bytes' => 5, 'from' => 'cache', 'to' => 'array']]]), 0600, 0, 0);
             moverelliRemember(['mode' => $args[0], 'by' => 'night', 'started' => time(), 'finished' => time(), 'result' => 'ok'], $dir);
             return 0;
         },
@@ -33081,6 +33112,18 @@ function testNightRun(): void
         [$p['j'], $p['d'], $calls, $n['result'] ?? null, $n['why'] ?? null, $n['missed'] ?? null, count($notified), $n['end_pct'] ?? null]);
     check('night run unwatched: … the warning says only Jack Emby\'s unwatched is over it (his budget too big)', str_contains($notified[0] ?? '', "Only what Jack Streamer hasn't watched yet is over it"),
         json_encode($notified));
+
+    // (2b) R2 2026-10-15: snapshots keep what she moves — her fill says `fill_held` (moved what was over, the pool as full):
+    // no second and third round moving as much again for nothing
+    $calls = [];
+    $p = $fresh(['j' => 400, 'd' => 150, 'wait' => 60, 'her_stall' => true, 'held' => true]);
+    $notified = [];
+    nightRun(['run']);
+    $n = $night();
+    same('night run held: her part once (her fill moved what was over, the pool didn\'t get freer) — no further round, missed',
+        [['jack run --night --nofill', 'her run --night --fill-until=740G --fill-pool=cache', 'jack run --night'], true, 1],
+        [$calls, $n['missed'] ?? null, $n['round'] ?? null]);
+    $notified = [];
 
     // (3) his budget crowds the others out: 600 used, 300 wait — the others' 100 all pushed under X, he fetches 300 up to X: told
     $calls = [];
