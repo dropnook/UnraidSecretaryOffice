@@ -8,7 +8,7 @@
    "running": true,
    "url": "http://familienserver.local:8096",
    "mounts": {
-    "/familienvideos": "/mnt/user/Familienvideos",
+    "/familienfilme": "/mnt/user/Familienfilme",
     "/familienserien": "/mnt/user/Familienserien"
    }
   }
@@ -25,7 +25,7 @@
     "url": "http://familienserver.local:8096",
     "has_key": true,
     "path_mappings": {
-     "/familienvideos": "/mnt/user/Familienvideos",
+     "/familienfilme": "/mnt/user/Familienfilme",
      "/familienserien": "/mnt/user/Familienserien"
     }
    }
@@ -61,7 +61,7 @@
  },
  "shares": [
   {
-   "share": "Familienvideos",
+   "share": "Familienfilme",
    "fit": "ok",
    "root": true,
    "use": "yes",
@@ -138,7 +138,7 @@
   "bytes": 30064771071,
   "groups": [
    {
-    "share": "Familienvideos",
+    "share": "Familienfilme",
     "title": "Velotour Bodensee 2019",
     "files": 1,
     "bytes": 3113851290,
@@ -158,7 +158,7 @@
     "since": 1791899850
    },
    {
-    "share": "Familienvideos",
+    "share": "Familienfilme",
     "title": "Geburtstag Grossmutter 80 2015",
     "files": 1,
     "bytes": 2791728742,
@@ -168,7 +168,7 @@
     "since": 1791899810
    },
    {
-    "share": "Familienvideos",
+    "share": "Familienfilme",
     "title": "Ferien Film Island 2023",
     "files": 1,
     "bytes": 4080218931,
@@ -178,7 +178,7 @@
     "since": 1791899780
    },
    {
-    "share": "Familienvideos",
+    "share": "Familienfilme",
     "title": "Zeltferien Toskana 2018",
     "files": 1,
     "bytes": 3328599654,
@@ -221,7 +221,7 @@
  "gather": {
   "settings": {
    "shares": [
-    "Familienvideos",
+    "Familienfilme",
     "Familienserien"
    ],
    "min_free_gb": 50,
@@ -403,7 +403,7 @@
    "primary": "cache",
    "secondary": ""
   },
-  "Familienvideos": {
+  "Familienfilme": {
    "use": "yes",
    "primary": "cache",
    "secondary": ""
@@ -434,7 +434,7 @@
    "appdata",
    "domains",
    "Familienserien",
-   "Familienvideos",
+   "Familienfilme",
    "system"
   ]
  },
@@ -513,7 +513,7 @@
   "speed": 188743680,
   "current": {
    "phase": "fill",
-   "rel": "Familienvideos/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
+   "rel": "Familienfilme/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
    "size": 4724464026,
    "done": 2834678415,
    "source": "resume",

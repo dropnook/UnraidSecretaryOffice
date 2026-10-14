@@ -30832,11 +30832,11 @@ function testStreamerTab(): void
   f.values.cache_budget = '';
   out.noBudget = [e.setupBlocked().replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'scope').alert];
   f.values.cache_budget = '300';
-  f.chosenUsers = new Set(['u-anna', 'u-ben']);
+  f.chosenUsers = new Set(['u-anna', 'u-lena']);
   f.budgets = { 'u-anna': '10G' };
   const bar = e.saveBar();
   out.low = [e.setupBlocked().replace(/ \{.*$/, ''), bar.children[0].disabled, bar.children[1].textContent.replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'users').alert];
-  f.budgets = { 'u-anna': '200G', 'u-ben': '200G' };
+  f.budgets = { 'u-anna': '200G', 'u-lena': '200G' };
   out.over = [!!e.setupBlocked(), e.budgetState().over];
   f.budgets = { 'u-anna': '100G' };
   const bar2 = e.saveBar();
@@ -30849,7 +30849,7 @@ function testStreamerTab(): void
   out.save = s ? [s.settings.cache_budget, s.settings.user_budgets, s.settings.max_episodes_per_series, ['budget_mode', 'number_episodes', 'give_back_unwatched_days', 'create_share_root', 'min_free_percent'].filter((k) => k in s.settings)] : toasts.at(-1);
   // blocked: no post, said, the people's part shown (while another part is shown)
   e.initForm(); f = connect();
-  f.chosenUsers = new Set(['u-anna', 'u-ben']);
+  f.chosenUsers = new Set(['u-anna', 'u-lena']);
   f.budgets = { 'u-anna': '10G' };
   posts.length = 0;
   e.setupSwitcher().pick('scope', 'click');
@@ -31107,8 +31107,8 @@ function testStreamerShares(): void
 (async () => {
 const out = {};
 e.setState(st);
-out.cases = Object.fromEntries(['Familienvideos', 'Familienserien', 'Konzerte', 'Kinderfilme', 'Dokus', 'Sport', 'Schulfilme'].map((s) => [s, e.shareCase(s)]));
-out.cacheable = ['Familienvideos', 'Familienserien', 'Dokus', 'Sport'].map(e.cacheable);
+out.cases = Object.fromEntries(['Familienfilme', 'Familienserien', 'Konzerte', 'Kinderfilme', 'Dokus', 'Sport', 'Schulfilme'].map((s) => [s, e.shareCase(s)]));
+out.cacheable = ['Familienfilme', 'Familienserien', 'Dokus', 'Sport'].map(e.cacheable);
 // a «yes» share whose pool isn't one: no pool
 e.setState({ ...st, share_info: { ...st.share_info, X: { use: 'yes', primary: 'gone', secondary: '' } } });
 out.gonePool = e.shareCase('X');
@@ -31125,7 +31125,7 @@ out.tile = [tile.alert, tile.sub.map((t) => t.replace(/ \{.*$/, ''))];
 // the budget: the owner's screen — 300 GB, fixed 100 + 200, 9 more people: red, «Save» blocked
 f.values.cache_budget = '300';
 con.users.forEach((u) => f.chosenUsers.add(u.id));
-f.budgets = { 'u-anna': '100G', 'u-ben': '200G' };
+f.budgets = { 'u-anna': '100G', 'u-lena': '200G' };
 const red = e.budgetState();
 out.red = [red.short, red.each, red.others, red.bad];
 out.line = all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => [n.className, n.textContent.replace(/ \{.*$/, '')]);
@@ -31159,7 +31159,7 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack-share
         return;
     }
     same('streamer shares: each share\'s case from its cfg — right; right, folder missing; array primary; pool → pool; prefer; only; no such share',
-        ['Familienvideos' => 'ok', 'Familienserien' => 'ok', 'Konzerte' => 'no_pool', 'Kinderfilme' => 'no_array', 'Dokus' => 'wrong_way', 'Sport' => 'pool_only', 'Schulfilme' => 'unknown'], $r['cases']);
+        ['Familienfilme' => 'ok', 'Familienserien' => 'ok', 'Konzerte' => 'no_pool', 'Kinderfilme' => 'no_array', 'Dokus' => 'wrong_way', 'Sport' => 'pool_only', 'Schulfilme' => 'unknown'], $r['cases']);
     same('streamer shares: only a right share is cached; a «yes» share on a pool that isn\'t one has no pool', [[true, true, false, false], 'no_pool'], [$r['cacheable'], $r['gonePool']]);
     same('streamer shares: the pool chip, the info chip for the missing folder (not red), a red chip per wrong case (the music library\'s share is missing too)',
         [['setup.pool_chip', 'ok'], ['setup.pool_chip', 'ok'], ['setup.share_dir_later', 'accent'], ['setup.share.no_pool', 'danger'], ['setup.share.no_array', 'danger'],
@@ -31180,7 +31180,7 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack-share
     same('streamer shares: the save bar — «Save» disabled with the reason beside it, free again once the budget suffices',
         [[true, 'setup.users_budget_block'], [false, 'setup.save_hint']], [$r['barRed'], $r['barFine']]);
     same('streamer shares: saving never sends create_share_root; wrong shares\' folders not cached',
-        [false, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']],
+        [false, ['/familienfilme' => '/mnt/user/Familienfilme', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']],
         $r['save']);
 }
 

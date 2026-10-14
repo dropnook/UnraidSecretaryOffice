@@ -8,7 +8,7 @@
       "name": "Familienfilme",
       "type": "movies",
       "locations": [
-        "/familienvideos"
+        "/familienfilme"
       ]
     },
     {
@@ -68,8 +68,8 @@
       "admin": true
     },
     {
-      "id": "u-ben",
-      "name": "Ben",
+      "id": "u-lena",
+      "name": "Lena",
       "admin": false
     },
     {
