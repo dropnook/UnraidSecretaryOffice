@@ -755,7 +755,7 @@
   "sim.run1": "Ein Tag",
   "sim.run7": "7 Tage",
   "sim.run30": "30 Tage",
-  "sim.until": "Bis eine Prüfung rot wird",
+  "sim.until": "▶ Bis eine Prüfung rot wird",
   "sim.reset": "Neu beginnen",
   "sim.events": "Ereignisse",
   "sim.ev.spike": "Download-Schub",
@@ -916,5 +916,9 @@
   "wizard.start_text": "Ein paar Schritte: der Medienserver, seine Shares, wie viel er bereitlegt, für wen — dann im Simulator ausprobieren und speichern.",
   "wizard.start": "Einrichtung starten",
   "wizard.left_unsaved": "Einrichten von Jack Streamer abgebrochen – nichts gespeichert.",
-  "sim.of_pool": "{pct} % des Pools"
+  "sim.of_pool": "{pct} % des Pools",
+  "sim.pause": "⏸ Pause",
+  "sim.resume": "▶ Weiter",
+  "sim.speed": "Tempo (ein Tag alle …)",
+  "sim.stopped_red": "Angehalten an Tag {day}: {checks} ist rot geworden."
 }

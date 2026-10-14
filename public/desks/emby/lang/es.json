@@ -755,7 +755,7 @@
   "sim.run1": "Un día",
   "sim.run7": "7 días",
   "sim.run30": "30 días",
-  "sim.until": "Hasta que una comprobación se ponga en rojo",
+  "sim.until": "▶ Hasta que una comprobación se ponga en rojo",
   "sim.reset": "Empezar de nuevo",
   "sim.events": "Eventos",
   "sim.ev.spike": "Pico de descargas",
@@ -916,5 +916,9 @@
   "wizard.start_text": "Unos pasos: el servidor multimedia, sus recursos, cuánto prepara, para quién — luego pruébalo en el simulador y guarda.",
   "wizard.start": "Iniciar la configuración",
   "wizard.left_unsaved": "Configuración de Jack Emby cancelada — no se ha guardado nada.",
-  "sim.of_pool": "{pct} % del pool"
+  "sim.of_pool": "{pct} % del pool",
+  "sim.pause": "⏸ Pausa",
+  "sim.resume": "▶ Seguir",
+  "sim.speed": "Velocidad (un día cada …)",
+  "sim.stopped_red": "Parado el día {day}: {checks} se puso en rojo."
 }

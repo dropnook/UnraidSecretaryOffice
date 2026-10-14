@@ -755,7 +755,7 @@
   "sim.run1": "One day",
   "sim.run7": "7 days",
   "sim.run30": "30 days",
-  "sim.until": "Until a check turns red",
+  "sim.until": "▶ Until a check turns red",
   "sim.reset": "Start over",
   "sim.events": "Events",
   "sim.ev.spike": "Download spike",
@@ -916,5 +916,9 @@
   "wizard.start_text": "A few steps: the media server, its shares, how much he lays out, for whom — then try it in the simulator and save.",
   "wizard.start": "Start the setup",
   "wizard.left_unsaved": "Setting up Jack Emby cancelled — nothing saved.",
-  "sim.of_pool": "{pct} % of the pool"
+  "sim.of_pool": "{pct} % of the pool",
+  "sim.pause": "⏸ Pause",
+  "sim.resume": "▶ Continue",
+  "sim.speed": "Speed (a day every …)",
+  "sim.stopped_red": "Stopped on day {day}: {checks} turned red."
 }

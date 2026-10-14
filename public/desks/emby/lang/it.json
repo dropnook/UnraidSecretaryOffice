@@ -755,7 +755,7 @@
   "sim.run1": "Un giorno",
   "sim.run7": "7 giorni",
   "sim.run30": "30 giorni",
-  "sim.until": "Finché un controllo diventa rosso",
+  "sim.until": "▶ Finché un controllo diventa rosso",
   "sim.reset": "Ricomincia",
   "sim.events": "Eventi",
   "sim.ev.spike": "Picco di download",
@@ -916,5 +916,9 @@
   "wizard.start_text": "Pochi passi: il media server, le sue condivisioni, quanto prepara, per chi — poi provalo nel simulatore e salva.",
   "wizard.start": "Avvia la configurazione",
   "wizard.left_unsaved": "Configurazione di Jack Emby annullata — nulla salvato.",
-  "sim.of_pool": "{pct} % del pool"
+  "sim.of_pool": "{pct} % del pool",
+  "sim.pause": "⏸ Pausa",
+  "sim.resume": "▶ Continua",
+  "sim.speed": "Velocità (un giorno ogni …)",
+  "sim.stopped_red": "Fermato al giorno {day}: {checks} è diventato rosso."
 }

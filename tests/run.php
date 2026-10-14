@@ -30519,6 +30519,10 @@ out.budget = ['budget_small', 'budget_big'].map((id) => {
     maxHeld: Math.max(...side.hist.map((x) => x.jack)), biggest: Math.max(...S.measure(sim.w, side).files.map((e) => e.size), 0) };
 });
 out.caps = [S.budgetCaps(300, [500, 500, 500], [100, 0, 0]), S.budgetCaps(300, [50, 500, 500], []), S.budgetCaps(100, [500, 500], [150, 0])];
+// play: one day per tick, the checks that turned red with it (they stop the play)
+const calm = S.newSim({}, 162);
+const flood = S.newSim({ writes: 5000 }, 162);
+out.play = { calm: S.playTick(calm), calmDay: calm.w.day, flood: S.playTick(flood), again: S.playTick(flood) };
 const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
 out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
   min: v.every((x, i) => x <= 0 || w[i] >= Math.min(min, 1 / v.filter((y) => y > 0).length) - 1e-9),
@@ -30586,6 +30590,13 @@ JS);
         && $bs['maxHeld'] <= $bs['budget'] + $bs['biggest'] + 0.01, json_encode($bs));
     check('streamer sim: by budget bigger than his fill limit — green, the fill limit holds him (min(budget, limit)), nothing reserved for the budget',
         $bb['ok'] && $bb['budget'] > $bb['limit'] && $bb['jack'] <= $bb['limit'] + $bb['biggest'] + 0.01 && $bb['want'] > $bb['limit'], json_encode($bb));
+    same('streamer sim: play — a day per tick; a calm day turns nothing red, a flood of writes turns «room» red on that day (it stops the play), only once',
+        [[], 1, ['others'], []], [$r['play']['calm'], $r['play']['calmDay'], $r['play']['flood'], $r['play']['again']]);
+    $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/streamer.js');
+    check('streamer sim: play has one timer — set only by its step, cleared by stopPlay(); a second click never starts a second; a new start, a scenario, a gone simulator (the dialog closed) stop it',
+        substr_count($sim, 'V.timer = setTimeout(') === 2 && str_contains($sim, "function startPlay(h, body) {\n  if (V.playing) return;")
+        && str_contains($sim, "function restart(h) {\n  stopPlay();") && str_contains($sim, "if (!body.isConnected) { stopPlay(); return; }")
+        && str_contains($sim, "stopPlay();\n      V.sim = runScenario(res.id, V.cfg, V.seed);"));
     $ed = $r['edge'];
     same('streamer sim: nothing to share (what never moves above Y), the others all moved, his unwatched files stay — the pool over X: «told at once» (the check says so, not red), the warning, the log says «nothing to share»',
         [true, true, 1, true, true, 1, 0, true], [$ed['never'], $ed['over'], $ed['told'], $ed['warns'] >= 1, $ed['limit']['ok'], $ed['limit']['told'], $ed['others'], $ed['dayTold']]);
