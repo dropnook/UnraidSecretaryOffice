@@ -711,5 +711,7 @@
   "errors.emby_budget_missing": "Serve un budget totale (almeno {min}).",
   "errors.emby_budget_low": "Un budget sotto {min} per persona non va ({value}).",
   "errors.emby_budget_over": "I budget delle persone ({fixed}) superano il budget totale ({total}).",
-  "errors.emby_budget_short": "Quello che lasciano i budget delle persone ({rest}) è meno di {min} per ciascuna delle altre."
+  "errors.emby_budget_short": "Quello che lasciano i budget delle persone ({rest}) è meno di {min} per ciascuna delle altre.",
+  "setup.connecting": "Connessione al server …",
+  "setup.users_budget_even": {"one": "{rest} vanno a {n} persona; nessuno ha un budget proprio.", "other": "{rest} si dividono in parti uguali tra {n} persone; quello che a qualcuno non serve passa agli altri."}
 }

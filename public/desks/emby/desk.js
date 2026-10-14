@@ -1599,9 +1599,32 @@ function setupTileData() {
   return out;
 }
 
-/** A part that needs a connected server, before one is: one line saying so */
+/** A part that needs a connected server, before one is: one line saying so (the wave while a saved one connects) */
 function notYet() {
+  if (form && form.instances.some((i) => i.connecting)) {
+    const p = el('p', 'role jo-not-yet', T('setup.connecting') + ' ');
+    p.appendChild(el('span', 'spin'));
+    return p;
+  }
   return el('p', 'role jo-not-yet', T('setup.after_connect', { where: T('setup.server') }));
+}
+
+/**
+ * Opening «Set up» once he is set up: his saved servers connected by themselves (address and the key kept on the server),
+ * so every part shows what it holds at once — a failure says why in the server's box, as «Connect» would
+ */
+async function connectSaved() {
+  if (!state || !state.configured || !form || !Office.agent.running) return;
+  const f = form;
+  const todo = f.instances.filter((i) => !i.server && i.has_key && needsConnect(i));
+  if (!todo.length) return;
+  const clean = formKey() === formStart;
+  todo.forEach((i) => { i.connecting = true; });
+  renderSetup();
+  await Promise.all(todo.map((i) => connectInst(i).finally(() => { i.connecting = false; })));
+  if (form !== f || !view || page !== 'setup') return;
+  if (clean) formStart = formKey();          // what connecting filled in is no change of the user's
+  renderSetup();
 }
 
 /** The control that has the focus inside a part: its part and its place among the part's controls (the page is drawn anew) */
@@ -1743,11 +1766,11 @@ async function connectInst(inst) {
     return false;
   }
   inst.connectError = '';
-  inst.server = j.server;
-  inst.libraries = j.libraries;
-  inst.users = j.users;
+  inst.server = j.server || { name: '', version: '' };
+  inst.libraries = Array.isArray(j.libraries) ? j.libraries : [];
+  inst.users = Array.isArray(j.users) ? j.users : [];
   inst.connectedAs = connectKey(inst);
-  for (const lib of j.libraries) for (const p of lib.locations) if (!inst.mappings[p]) inst.mappings[p] = suggestMapping(p);
+  for (const lib of inst.libraries) for (const p of lib.locations || []) if (!inst.mappings[p]) inst.mappings[p] = suggestMapping(p);
   if (!state.configured && !form.chosenLibs.size) suggestChoice(inst);
   return true;
 }
@@ -1806,6 +1829,7 @@ function setupUsers() {
         if (b.value.trim() === '' || !(n > 0)) delete form.budgets[u.id]; else form.budgets[u.id] = `${n}G`;
         if (line) line.replaceWith(line = budgetLine());
         if (saveGate) saveGate();          // «Save» blocked or free again, with its reason
+        setupSwitcher().row();             // the people's tile red or not (the row only: the field keeps the focus)
       };
       wrap.appendChild(field(T('setup.user_budget_gb'), b));
     }
@@ -1843,9 +1867,10 @@ function budgetState() {
   sp.lowNames = own.filter((id) => budgetGb(form.budgets[id]) < MIN_PERSON_GB).map((id) => names.get(id) || id);
   return sp;
 }
-/** Why «Save» can't go now, '' when it can: no budget, or a person would get under MIN_PERSON_GB (only once a server is connected) */
+/** Why «Save» can't go now, '' when it can: no server to connect, no budget, or a person would get under MIN_PERSON_GB */
 function setupBlocked() {
-  if (!form || !connected()) return '';
+  if (!form) return '';
+  if (!connected()) return form.instances.some(needsConnect) ? '' : T('setup.connect_first');      // «Save» connects what is typed
   if (!(budgetGb(form.values.cache_budget) > 0)) return T('setup.budget_missing');
   const sp = budgetState();
   return sp && sp.bad ? T('setup.users_budget_block', { step: T('setup.users'), min: gbSize(MIN_PERSON_GB) }) : '';
@@ -1865,7 +1890,8 @@ function budgetLine() {
   // nobody gets more than their own budget, the rest stays unused (2026-10-14)
   if (!sp.bad && !sp.others) box.appendChild(el('p', 'callout jo-slice', sp.rest > 0 ? T('setup.users_budget_all_fixed_rest', { fixed: gbSize(sp.fixed), rest: gbSize(sp.rest) })
     : T('setup.users_budget_all_fixed', { fixed: gbSize(sp.fixed) })));
-  else if (!sp.bad) box.appendChild(el('p', 'callout jo-slice', T('setup.users_budget_split', { fixed: gbSize(sp.fixed), rest: gbSize(sp.rest), n: sp.others })));
+  else if (!sp.bad) box.appendChild(el('p', 'callout jo-slice', sp.fixed > 0 ? T('setup.users_budget_split', { fixed: gbSize(sp.fixed), rest: gbSize(sp.rest), n: sp.others })
+    : T('setup.users_budget_even', { rest: gbSize(sp.rest), n: sp.others })));
   return box;
 }
 
@@ -1978,6 +2004,7 @@ function setupScope() {
     v.cache_budget = b.value.trim();
     if (words) words.replaceWith(words = ruleWords());
     if (saveGate) saveGate();
+    setupSwitcher().row();               // the amount's and the people's tiles say it at once
   };
   f4.appendChild(field(T('setup.budget_gb'), b, T('setup.budget_gb_help')));
   s4.appendChild(f4);
@@ -2631,6 +2658,7 @@ Office.desk({
       // (2026-10-10: 12 episodes ahead became 7)
       form = null;
       renderSetup();
+      connectSaved();
       return;
     }
     bars();

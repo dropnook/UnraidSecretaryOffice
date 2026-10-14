@@ -30477,7 +30477,7 @@ globalThis.Option = function Option(text, value) { this.text = text; this.value 
 globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => Math.round(b / 1073741824) + ' GB', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
   sectionHead: (t, s) => el('div', 'section-head', t), pageHelp: () => el('div'), go: () => {},
-  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {}, active: () => active, pick(id, how) { picks.push([id, how]); active = active === id ? '' : id; } }),
+  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {}, row() {}, active: () => active, pick(id, how) { picks.push([id, how]); active = active === id ? '' : id; } }),
   filterBar: () => ({}), subroute: () => {}, toast: (t, bad) => toasts.push([t, !!bad]), errorText: (e) => 'E:' + (e && e.key),
   api: { post: async (a, d) => { posts.push([a, d]); return globalThis.answers[a] || { ok: true }; } },
   dialog: (o) => { const d = { o, closed: false, setTitle() {}, close() { if (d.closed) return; d.closed = true; if (o.onClose) o.onClose(); } }; dialogs.push(d); return d; } };
