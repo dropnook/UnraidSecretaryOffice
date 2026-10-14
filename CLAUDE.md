@@ -1,8 +1,8 @@
 # Working on Unraid Secretary Office
 
-Read README.md and docs/DEVELOPMENT.md (architecture, adding a desk, tiles and lists, partner offices inside). This file holds
-the **rules** — what holds, not how it came to be. Details: code comments, `tests/run.php` (a test per piece) and
-`backup/README.md`. The full earlier version: `git show v1.62.0:CLAUDE.md` (build notes per helper: `v1.60.0`).
+Read README.md (short), docs/GUIDE.md (each desk) and docs/DEVELOPMENT.md (architecture, adding a desk, tiles and lists,
+partner offices inside). This file holds **rules only** — what holds, not how it came to be; details in code comments,
+`tests/run.php` and `backup/README.md`; earlier versions: `git show v1.62.0:CLAUDE.md` (build notes: `v1.60.0`).
 
 ## Map: how it runs
 
@@ -21,12 +21,12 @@ the **rules** — what holds, not how it came to be. Details: code comments, `te
 agent/agent.php        loop, mailbox + doorbell, heartbeat, desks, self-restart; partner-door.php the partners' forced command
 agent/lib/*.php        shared: util (run, writeAtomic, Problem, request readers), mounts (diskAsleep), house (finding,
                        officeNotify, officeJobSchedule), backupscript (backupProtection), migrate, metrics, partner(look),
-                       where, report, import, watchnet, paritywhy, nightrun.php (the joint night run), poollevel.php (X/Y/H)
+                       where, report, import, watchnet, paritywhy, nightrun.php (the joint night run), poollevel.php (limit X)
 agent/desks/<id>.php   one desk each: desk('<id>', [...]) (+ moverelli-unraid/-import, restore-drill/-partner)
 src/*.php              web side: bootstrap (versions), place (paths, URLs, OFFICE_UNRAID_TESTED), api, staff, page, words
 public/assets/core.js  Office: t(), routing, api, loadState, deskHead, sectionHead, sections, filterBar, places, keepInPlace
 public/lang/ desks/    office strings ×5 (lang/unraid/: Unraid's words); desks/<id>/: desk.json, desk.js, places.json, lang/
-backup/ embycache/ gather/ smartmover/   the engine; Jack Emby's tools; Ms. Moverelli's Smart Mover (data in data/<tool>)
+backup/ embycache/ gather/ smartmover/   the engine; Jack Streamer's tools; Ms. Moverelli's Smart Mover (data in data/<tool>)
 plugin/                .plg template, build.sh, dev-sync.sh, scripts/ (agent.sh, job.sh, partner-door.sh), event/, *.page
 tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release.sh, ui-*.sh — never in the package. monitoring/:
                        grafana-dashboard.json; data/: runtime, not in git. The support page lives in a private repository.
@@ -80,7 +80,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   anything under `/mnt` (cwd `/`).
 * **Never delete right away** what the user may want back (storeroom, set-aside). Backups keep copies on purpose (the office's
   share, anything called «backup», `my-*.xml` in a backup's templates) — never leftovers.
-* **Nothing private public:** demo/screenshot data invented only (never a real server's names, paths, addresses, titles);
+* **Nothing private public:** demo data and every public picture invented — private home videos (Familienfilme/Familienserien),
+  never a commercial title, real names, paths or addresses; public texts (site, README, forum) say what is, never its history;
   reports scrubbed (`reportScrub()`); API keys, passwords, key values never leave the server or land in state/logs.
 
 ### Agent services
@@ -100,8 +101,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
 * **Heartbeat in RAM** (`RUN_DIR/agent.json`, every 20 s); `agentUp()` is the one rule for «at work»; a request waiting while
   the agent is away is answered `agent_away` after 4 s; action buttons disabled while `Office.agent.running` is false.
   `agent-watch.cron` alerts after 10 min of a stale heartbeat with the array started.
-* **Jobs that must outlive the agent** (backup runs, restores, drills, let-gos, Jack Emby's and Ms. Moverelli's runs) go through
-  `atd` (`hostLaunch()`, `backupLaunch()`), never as the agent's child.
+* **Jobs that must outlive the agent** (backup runs, restores, drills, let-gos, Jack Streamer's and Ms. Moverelli's runs) go
+  through `atd` (`hostLaunch()`, `backupLaunch()`), never as the agent's child.
 * **Schedules** only via `officeJobSchedule()`/`officeJobSetSchedule()`: a line in the plugin's cron file calling
   `scripts/job.sh <job>` (runs only with the array started). **Never User Scripts** for the office's jobs (they are the user's).
   Never «fix» root's crontab from the office.
@@ -132,7 +133,7 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   the one place for ssh options, never `zfs send -s`; what a partner didn't get is a warning in that run (`testPartnerAtOnce`).
   Fixtures run on the tests' clock (checklist 3).
 
-### Jack Emby's tools
+### Jack Streamer's tools
 `embycache/` (EmbyCache by helmi1987) and `gather/` ship with the office; our changes kept small and listed at the top of their
 README.md; their data apart (`EMBYCACHE_DIR`, `CONSOLIDATE_CONFIG`); they report through status files, never parsed log lines.
 **EmbyCache MOVES files** — test with report and dry runs. Runs via `php agent.php job embycache|gather <mode>`; a real run
@@ -144,7 +145,8 @@ holds the other tool's lock. The cleaner is left out on purpose. Smart Mover (`s
 is a date (`2026.10.05`, a letter for a second one that day; `strcmp`), chosen by `.github/workflows/plugin.yml`; `build.sh`
 refuses mismatching versions. Release only via `tools/release.sh <version>` from a clean main (runs click test + suite), English
 notes for users; afterwards check the `.plg` got a new version. Tested Unraid = ONE constant `OFFICE_UNRAID_TESTED`
-(src/place.php); .plg `max` = `<major>.99.99` of it, raised only once tested (`testUnraidTested`).
+(src/place.php); .plg `max` = `<major>.99.99` of it, raised only once tested (`testUnraidTested`). Commits carry no
+Co-Authored-By line. README.md stays short; the per-desk detail lives in docs/GUIDE.md.
 
 ### Updates
 Users update through the plugin manager and read no notes: **every version starts on any older version's data folder, and an
@@ -155,7 +157,7 @@ key, file, path, cron command, door path, snapshot prefix, Kopia source path or 
 exact-shape files (pairs.json, the watchman's mirror, the drill's certificate, storeroom manifests) change only with a new
 `v`/`interface`; engine defaults for settings.ini keys don't change. **Tolerant writers:** readers use only entries in exactly
 their shape, writers keep entries they don't know (`testPartnerTolerant`). **Install swaps** (`testPlgInstall`): unpacked
-beside, checked first; update/remove refused while a run, setup, restore, drill or Jack Emby's/Ms. Moverelli's run is active
+beside, checked first; update/remove refused while a run, setup, restore, drill or Jack Streamer's/Ms. Moverelli's run is active
 (one `pgrep -f` pattern, `testPlgGuard`); remove runs `agent.sh release`, puts the cron file aside (`officeCronBack()`), removes
 the office's authorized_keys lines. A new agent version → «Reload» offered, never forced (`testLookPage`).
 
@@ -178,31 +180,32 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   office never makes the share**; place facts warn, never block. Apply sends only what was chosen and lists exactly what
   changes; a plan older than settings.ini is refused; a failed plan shows its errors. **Warns about Kopia autostart, never
   starts Kopia.**
-* **`jack` — Jack Emby (the intern; id `emby` until 2026-10-14).** EmbyCache + «Consolidate folders». Settings via EmbyCache's own `save_config()`; **the
-  API key never leaves the server. Rsync both ways, always** (`JACK_TOOLS_RSYNC`). **He works only under Ms. Moverelli**
+* **`jack` — Jack Streamer (the intern).** EmbyCache + «Consolidate folders». Settings via EmbyCache's own `save_config()`;
+  **the API key never leaves the server. Rsync both ways, always** (`JACK_TOOLS_RSYNC`). **He works only under Ms. Moverelli**
   (desk.json `"needs"`: hired only with/after her, she leaves only after him; real runs only her way, `jackMoverRule()`).
   Unraid's mover schedule is switched off only through Unraid's form via `emcmd` (tests: `OFFICE_EMCMD_BIN`); **he never writes
   into Mover Tuning.** A mover at work stops his run after the current file; never side by side with her. **Never a real gather
   while someone watches Emby** (`jackWatching()`; dry runs never ask). Let go: both his schedules off, Unraid's mover stays off.
   Import: the user types the folder, he never searches, preview without API key, copies aside first. «Last run» from his runs,
-  not status.json. **His setup is the «Set up» tab with tiles, budget mode only** (a GB budget in total = the hard cap, every
-  person ≥ 20 GB, counts are defaults inside it; no wizard, no simulator — the rule in sentences); settings without a budget
-  = «not set up yet» (`jackConfigured()`, no migration).
+  not status.json. **His setup: a normal «Set up» tab with tiles, GB budget only** (the total = the hard cap, ≥ 20 GB a person,
+  counts are defaults inside it; the rule in plain sentences); without a budget «not set up yet» (`jackConfigured()`, no
+  migration) and not in the night run.
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
   Real runs only while no other mover has a schedule of its own (other scripts' mover calls named, never changed); never beside
-  Unraid's mover or Jack Emby's runs. While Jack Emby is hired her ini keeps EmbyCache's list out for his shares; a named list
-  not yet created refuses a real run (scheduled refusals fold into one counted line, never notified); her setup proposes his
-  list for all shares in the form only. Import: a protecting list that can't be read blocks it, never silently disappears. **The
-  night run** (agent/lib/nightrun.php): Jack Emby and she = ONE run on ONE schedule (her cron line → `nightRun()`): check →
-  reckon (`nightPlan()`) → free (Jack Emby's watched, then her oldest) → recheck (≤ 3 rounds) → fill (Jack Emby last, only up
-  to X) → tell; one lock `night.lock`; «Stop after this file» stops the night; both pages show `Office.nightCard()`; night.json
-  `picture` = the live graphic's numbers. **The pool** (agent/lib/poollevel.php, 2026-10-14): **only X** — no Y, offset, halves
-  or borrowing. Jack Emby gives back only what was watched (`EMBYCACHE_WATCHED_ONLY`, never by rank); **his GB come first**:
-  she moves the other caching shares' oldest (across the pool, younger of birth/mtime; never an excluded file, his list never)
-  until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; what never moves is never pushed for him (it and
-  what he keeps reach X → he fetches nothing new, told). His budget crowding the others out, or over X by his unwatched: told.
+  Unraid's mover or Jack Streamer's runs. While he is hired her ini keeps EmbyCache's list out for his shares; a named list not
+  yet created refuses a real run (scheduled refusals: one counted line, never notified); her setup proposes his list for all
+  shares in the form only. Import: an unreadable protecting list blocks it, never silently disappears. **The night run**
+  (agent/lib/nightrun.php): he and she = ONE run on ONE schedule (her cron line → `nightRun()`): check → reckon (`nightPlan()`)
+  → free (his watched, then her oldest) → recheck (≤ 3 rounds) → fill (him last, only up to X) → tell; one lock `night.lock`;
+  «Stop after this file» stops the night; both pages show `Office.nightCard()`; night.json `picture` = the live graphic's
+  numbers; his refusal never stops her part (reason shown). **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
+  else. He gives back only what was watched (`EMBYCACHE_WATCHED_ONLY`, never by rank); **his GB come first**: she moves the
+  other caching shares' files oldest first across the pool (age = the younger of birth/ctime and mtime, `age_stat=newest`; never
+  an excluded file, his list never) until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; pool-only
+  shares and whatever never moves are never pushed (they and what he keeps reach X → he fetches nothing new). Too big a budget
+  or unwatched over X: told.
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
   nothing read until chosen; routers' files only while their disks are awake. **Read only.**
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
@@ -251,18 +254,18 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   kept in RAM; `reportScrub()` over every log line and param (the user's own words never scrubbed); https only; report ID ≠
   supporter ID; the page never gets the private inbox's number or link; pictures redrawn without metadata, tick «nothing private
   on them» required. `testReport*`.
-* **Characters:** Frau Snapshotini (Italian); Herr Backupsi (nervous, checks three times — never «scatterbrained»); Jack Emby
-  (the intern, only under Frau Moverelli's eye, says so with a grin); Frau Protokolli (reads everything, understands nothing);
-  Frau Putzteufel (dust everywhere, never throws away at once, knows every corner); der Teamchef (plain, friendly); Herr Restori
-  (calm, white gloves, «Piano, piano»); der Berater (consultant speak); Frau Moverelli (removals lady, «Jack! Finger weg vom
-  Pool»). Their it/fr/es names are each desk's `name` key (Frau Moverelli: «tu» in it/fr, «tú» in es). **In every text «Jack
-  Emby», never just «Jack»**; what he prepares is never just «films» — «what Jack Emby laid out (from his libraries)» / «was
-  Jack Emby bereitgelegt hat (aus seinen Bibliotheken)». Chatty bubbles may carry character, **warnings and errors stay plain**.
-  Reception button via lang key `visit`, else «Visit {name}». Titles small in it/es running text, capitalised in fr.
-* **Jack Streamer** (2026-10-14, his German name): German texts say «Jack Streamer», always in full (never
-  «Jack»); a normal name, so the genitive where it reads better («Jack Streamers Liste»). His and Ms. Moverelli's bubbles
-  (`bubble.*`, `greet.*`) and en/it/fr/es keep «Jack Emby» until the release renames them. The desk id is `jack` (`#/jack`, `jack*.php`,
-  `JACK_*`; old `#/emby…` addresses lead there, step `jack-id`); EmbyCache, `EMBYCACHE_*` and its data folder stay.
+* **Characters:** Frau Snapshotini (Italian); Herr Backupsi (nervous, checks three times — never «scatterbrained»); Jack
+  Streamer (the intern, only under Frau Moverelli's eye, says so with a grin); Frau Protokolli (reads everything, understands
+  nothing); Frau Putzteufel (dust everywhere, never throws away at once, knows every corner); der Teamchef (plain, friendly);
+  Herr Restori (calm, white gloves, «Piano, piano»); der Berater (consultant speak); Frau Moverelli (removals lady, «Jack!
+  Finger weg vom Pool»). Names per language = each desk's `name` key (Frau Moverelli: «tu» in it/fr, «tú» in es). **Always «Jack
+  Streamer», never just «Jack»** (de genitive «Jack Streamers Liste»); what he prepares is never just «films» — «what Jack
+  Streamer laid out (from his libraries)» / «was Jack Streamer bereitgelegt hat (aus seinen Bibliotheken)». Chatty bubbles may
+  carry character, **warnings and errors stay plain**. Reception button via lang key `visit`, else «Visit {name}». Titles small
+  in it/es running text, capitalised in fr.
+* **Jack Streamer's id** is `jack` (desks/jack*.php, public/desks/jack/, `#/jack`, `JACK_*`; `#/emby…` leads there, step
+  `jack-id`); EmbyCache, gather, Smart Mover and `EMBYCACHE_*` keep their names. **The desks speak for themselves:** their
+  tool names only in the thanks, the import of an earlier install and log titles — never the actor in a UI text.
 
 ## Words
 
@@ -279,7 +282,7 @@ The same thing has the same word on every desk and text; grammar follows the wor
 | the office · search · what it finds · the agent | the office · the search · place · the messenger (only the office's help adds «(agent)») | das Sekretariat (not Büro) · die Suche · der Ort · der Hausbote | la segreteria (not ufficio) · la ricerca · il luogo · il fattorino | le secrétariat (not bureau) · la recherche · l'endroit · le coursier | la secretaría (not oficina) · la búsqueda · el lugar · el mensajero |
 | Mr. Backupsy's setup · `preset_new` · scope | the setup · «Set up…» · Apply · the default · Apply to everything now / Only to what is new — my settings stay | die Einrichtung · «Einrichten…» · Übernehmen · die Vorgabe · Auf alles anwenden / Nur auf Neues — meine Einstellungen bleiben | la configurazione · «Configura…» · Applica · l'impostazione predefinita · Applica a tutto adesso / Solo a ciò che è nuovo — le mie impostazioni restano | la configuration · «Configurer…» · Appliquer · le réglage par défaut · Appliquer à tout maintenant / Seulement à ce qui est nouveau — mes réglages restent | la configuración · «Configurar…» · Aplicar · el ajuste predeterminado · Aplicar a todo ahora / Solo a lo nuevo — mis ajustes se quedan |
 | a restore · drill · button · what a drill writes · what it practises on | restore, bring back · drill · Practise now… · certificate · throwaway (container) | die Rückholung, zurückholen (dump: zurückspielen) · die Übung · Jetzt üben… · das Zeugnis · der Wegwerf-Container | il ripristino · l'esercitazione · Esercitati ora… · il certificato · il contenitore usa e getta | la restauration · l'exercice · S'exercer maintenant… · l'attestation · le conteneur jetable | la restauración · el simulacro · Practicar ahora… · el certificado · el contenedor desechable |
-| Jack Emby's run · Ms. Snapshotini's plan · its run | run · real run · dry run · schedule · run | der Lauf · echter Lauf · Probelauf · der Zeitplan · der Lauf | l'esecuzione · esecuzione vera · prova a secco · la pianificazione · l'esecuzione | l'exécution · exécution réelle · essai à blanc · la planification · l'exécution | la ejecución · ejecución real · simulación · la programación · la ejecución |
+| Jack Streamer's run · Ms. Snapshotini's plan · its run | run · real run · dry run · schedule · run | der Lauf · echter Lauf · Probelauf · der Zeitplan · der Lauf | l'esecuzione · esecuzione vera · prova a secco · la pianificazione · l'esecuzione | l'exécution · exécution réelle · essai à blanc · la planification · l'exécution | la ejecución · ejecución real · simulación · la programación · la ejecución |
 | a ZFS hold | Hold · held · Release hold | Schützen · geschützt · Schutz aufheben | Proteggi · protetto · Togli la protezione | Protéger · protégé · Lever la protection | Proteger · protegida · Quitar la protección |
 | thank-you levels | a coffee for the team · a round for everyone · cake for the whole office · a pay rise and the donations | ein Kaffee fürs Team · eine Runde für alle · Kuchen fürs ganze Büro (deliberately) · Lohnerhöhung und Spenden | un caffè per il team · un giro per tutti · una torta per tutta la segreteria · un aumento e le donazioni | un café pour l'équipe · une tournée pour tout le monde · du gâteau pour tout le secrétariat · une augmentation et les dons | un café para el equipo · una ronda para todos · pastel para toda la secretaría · un aumento de sueldo y las donaciones |
 | share · disk · /boot · Docker template · a log · dataset · Emby's key | share · disk · the flash (a physical stick stays a stick) · template · log · dataset · API key | der Share · die Disk (not Platte) · der Flash · das Template (not Vorlage) · das Protokoll (not Log) · das Dataset · der API-Schlüssel | la condivisione · il disco · l'unità flash · il template · il log (registro = watch book) · il dataset · la chiave API | le partage · le disque · la flash · le modèle · le journal · le dataset · la clé API | el recurso compartido · el disco · el flash · la plantilla · el registro · el dataset · la clave API |
@@ -292,8 +295,8 @@ The same thing has the same word on every desk and text; grammar follows the wor
   «to the partner». Internal keys (`mode = kopia`) stay.
 * **Nights:** a backup can run any time, so «a night» never stands for one run or its snapshot/package. «Night» stays where
   literal or a name: the Night Watchman, «at night», «Every day at» (not «Every night at»), the drill's window (00:00–07:00,
-  «right after a nightly backup»), Immich's nightly dump, Jack Emby's night run; code names (`{nights}`) and engine lines keep
-  theirs. The role says «the backup», the drill never «nightly». German «Lauf» only for Jack Emby's and plan runs; Mr. Restori's
+  «right after a nightly backup»), Immich's nightly dump, Jack Streamer's night run; code names (`{nights}`) and engine lines keep
+  theirs. The role says «the backup», the drill never «nightly». German «Lauf» only for Jack Streamer's and plan runs; Mr. Restori's
   drill is «die Übung», never «Probelauf».
 * **Unraid's own words:** every label of Unraid's UI a text names (menu tabs, tiles, buttons, fields, values, paths like
   `⟦Settings⟧ → ⟦User Utilities⟧ → Fix Common Problems`, «the ⟦Main⟧ page») is a token `⟦English label⟧` exactly as English
@@ -355,8 +358,8 @@ The same thing has the same word on every desk and text; grammar follows the wor
 ## Server facts that bite
 
 * **Which disk a file is on:** `getfattr -n system.LOCATION` (`…LOCATIONS`: all) on a /mnt/user path — no look at other disks.
-  `shareSplitLevel` in `/boot/config/shares/<share>.cfg` (top level only: files follow an existing, even empty folder — Jack
-  Emby keeps them as signposts).
+  `shareSplitLevel` in `/boot/config/shares/<share>.cfg` (top level only: files follow an existing, even empty folder —
+  Jack Streamer keeps them as signposts).
 * **ZFS:** a pool's top folder sees only its own dataset — fullness via `zfs list -Hp -o used,avail <pool>`. Every share and
   each VM folder in `domains` is a dataset: `rename()` can't move them, use `zfs rename`. `written` = since the latest snapshot.
 * **Share storage (cfg):** `shareUseCache` no = array, only = pool `shareCachePool`, yes/prefer = primary `shareCachePool` +
@@ -421,17 +424,16 @@ The same thing has the same word on every desk and text; grammar follows the wor
 ## Several chats at once (workers and coordinator)
 
 One chat is the **coordinator**, the others **workers** — one per task (not per desk), at most two or three, closed when done.
-* **Workers:** a git worktree of their own on a local disk, branch `task/<short-name>` — never the working copy on the server
-  share. They commit and push their branch, run the checks they can (`php -l` via ssh, JS syntax, `php tests/run.php` on a copy)
-  and report what they did and what is untested. **They never merge into `main`, never run `dev-sync.sh`, never release, never
-  start backup runs or apply settings.**
-* **The coordinator** owns `main`, the working copy and the server: reviews, merges, full checklist, `dev-sync.sh`, page check,
-  releases — only the coordinator deploys. **After every deploy the coordinator clicks the real flows on nostromo itself**
-  (first setup, reset/«von vorn», every step to the bottom also at ~1280×720, Abbrechen/Zurück, dialogs inside dialogs) before
-  telling the owner it is done; worker briefs carry that flow list for their demo page. A worker gets replaced by a fresh one
-  after a few rounds (a long chain gets sloppy).
-* **Shared files** (`core.js`, `office.css`, `src/`, `agent/lib/`, `backup/`, CLAUDE.md) are changed by one chat at a time, as
-  the coordinator says; a desk's own folder belongs to the task working on it.
+* **Workers:** a git worktree of their own on a local disk, branch `task/<short-name>` (never the server share's copy); they
+  commit and push their branch, run the checks they can, report what they did and what is untested — **never merge into
+  `main`, run `dev-sync.sh`, release, start backup runs or apply settings** on nostromo. Fresh workers after a few rounds.
+* **The coordinator** owns `main`, the working copy and the server: reviews, merges, full checklist, `dev-sync.sh`, releases —
+  only it deploys, and **after every deploy clicks the real flows on nostromo itself** (first setup, «von vorn», every tab to
+  the bottom also at ~1280×720, cancel/back, dialogs on dialogs) before telling the owner it is done.
+* **Shared files** (`core.js`, `office.css`, `src/`, `agent/lib/`, `backup/`, CLAUDE.md): one chat at a time, as the
+  coordinator says; a desk's own folder belongs to the task working on it.
+* **Test servers** Tower, USOPartner, USOTest3VM are throw-away (anything allowed); only nostromo is real. USOPartner stays on
+  the last release (the canary) — only `tools/release.sh` updates it, never dev-sync.
 * Tests that write (`setup.sh --apply`, runs) touch the real Kopia repository and containers even with another `UB_DATA`: only
   with Kopia off in the test decisions, and only by the coordinator.
 
