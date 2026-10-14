@@ -830,7 +830,7 @@ function dialogFit() {
   }
   const dlg = $('#sso-dialog');
   dlg.style.maxHeight = '';
-  const css = parseFloat(getComputedStyle(dlg).maxHeight);
+  const css = typeof getComputedStyle === 'function' ? parseFloat(getComputedStyle(dlg).maxHeight) : NaN;   // (the tests' DOM has none)
   const room = s.h - dlg.getBoundingClientRect().top / s.k - 16;
   dlg.style.maxHeight = `${Math.max(160, Math.floor(Number.isFinite(css) ? Math.min(css, room) : room))}px`;
 }
