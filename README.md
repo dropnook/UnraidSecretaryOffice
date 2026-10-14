@@ -5,292 +5,77 @@
   </picture>
 </h1>
 
-An office inside your Unraid server's web UI. Each member of staff looks after one part of the server — the
-nightly backup, getting things back, snapshots, security, tidying up, the logs — tells you what they noticed and,
-where it makes sense, lets you act on it. Before anything changes they show you what will happen and ask. Two servers
-with the office can keep each other's backups as partner offices, and the Night Watchman also reads what a UniFi
-or MikroTik router says about the server. It is a plugin: no container, no account, no cloud of ours, nothing locked. Every picture here, bigger and one click each, is on the
-[product page](https://uso.dropnook.app).
+A small office inside Unraid's web UI: backups and restore, snapshots, a media cache for Emby, the mover and a night
+watchman — free, open source, no account. More on the [product page](https://uso.dropnook.app).
 
-<a name="reception-team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/reception-light.png" alt="The reception: the whole team at a glance"></picture></a>
+<a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team of the Unraid Secretary Office: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli and the Consultant — each with one sentence about their work"></picture></a>
 
-## The staff
+A fresh office has only the Team Lead. He looks at your server and suggests whom to hire.
 
-| | Desk | What they do for you |
-|---|---|---|
-| 👥 | **The Team Lead** | Suggests whom to hire for your server and tells you what is left to do — *still to do*, *recommended*, *good to know* — each with a link into Unraid. Pairs partner offices and hands a gone server's copies to a new one. |
-| 💾 | **Mr. Backupsy** | Sets up and runs the nightly backup: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia — per share, app and VM: not backed up, local, or local + offsite. Shows what a run is doing, how the last runs went and which share is protected how. |
-| 📦 | **Mr. Restori** | Brings back databases, folders, whole shares, templates and VM configurations — from the packages, the local snapshots, the offsite copy (Kopia) or a partner office. Puts aside what he replaces, never deletes it, and can undo every restore. Practises restores on his own: the restore drill. |
-| 📸 | **Ms. Snapshotini** | Every ZFS, btrfs and VM snapshot on the server: create, delete with an estimate of the space freed, rename, hold. Schedules with a simple retention that only ever clears away her own. The entries a deleted VM leaves in Unraid's snapshot list — Unraid's VM page can't remove them — she takes out once nothing of them is left on disk (into the storeroom; put back any time). |
-| 🏮 | **The Night Watchman** | Says how securely the server stands, and keeps a watch book of what is different from normal — logins, containers, plugins, the flash, schedules, data flow, vanished snapshots, and what your router reports. Changes nothing himself. |
-| 🧹 | **Ms. Dustdevil** | Knows where everything lies and gives advice on keeping it in order. Clears away what nobody uses — templates, stacks, appdata folders, Docker's leftovers — into a storeroom first, never deleting at once (Docker's volumes are copied in before Docker removes them; only images and the build cache, which can be downloaded again, and volumes mounted from elsewhere go for good). Gives containers without a picture a logo. |
-| 📝 | **Ms. Protocolli** | Reads every log out loud — Unraid's, the office's, every User Script's and container's, the router's. Her tour counts and groups the errors and warnings and watches how full `/var/log` is. |
-| 🍿 | **Jack Streamer** | The intern. Looks after helmi1987's EmbyCache (what you watch next waits on the fast pool, the array disks sleep) and the media gather (one disk per film folder; on request it also fetches the folders' files from the cache — never what EmbyCache keeps there). Never gathers while someone watches. While EmbyCache runs for real, a bar per person shows what is coming for them, how far it is and when their last file will be there (EmbyCache copies everyone's files in one queue), finished parts how long they took; *Stop after this file* ends the run gently — the next run goes on. Shows how much of each library lies on which disk or pool, with the date it was measured. Being an intern, he works only under Ms. Moverelli's supervision: he can be hired only together with her or after her (and she leaves only after him). Runs for real only once she is set up and keeps EmbyCache's list out of her moves, with Unraid's own mover schedule *Disabled* — until then dry runs only. *Move now* by hand stays possible: the mover starting during a run stops it after the current file. Mover Tuning is no way for him any more; while it moves on a schedule of its own, his real runs wait. |
-| 🚚 | **Ms. Moverelli** | Completes Unraid's mover with helmi1987's Smart Mover: one limit X for the pool (on ZFS the whole pool counts): above X she moves the oldest files of the other cache shares (the younger of added and changed counts) to the array or a secondary pool until the pool sits at X — Jack Streamer's GB come first, appdata & co. never move, episodes not yet watched never go back and forth, and she warns when the room is short. Leaves out what exclude lists name and hands the files to Unraid's own move program; she copies nothing herself. The night run: measure, make room, measure again, then Jack Streamer fetches up to X — her page draws it live (the pool before, the forecast after, the array, files on their slow way) and keeps the last run's picture. Shows Unraid's mover schedule, what moves where share by share and what the last run moved and left. List, dry run and real run from her page or on her own schedule. When you save her setup she switches Unraid's own mover schedule off (she asks first: «Unraid's own mover will be switched off — I move from now on»), through Unraid's own form; letting her go puts it back as it was. Mover Tuning must have no schedule of its own; User Scripts and cron lines that call a mover are named, never changed. Never runs beside Unraid's mover or one of Jack Streamer's runs. A missing exclude list on a real run skips that share; EmbyCache's list before EmbyCache's first run holds her real runs back until then (said once). Her log names the sleeping array disks a run wakes. Takes over the settings of an earlier Smart Mover install. Supervises Jack Streamer. Unraid 7.3.2 and newer. |
-| 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, unbalanced, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; shows how the router's log reaches Unraid (UniFi, MikroTik). |
+## Backups that come back
 
-A fresh office has only the Team Lead. He looks at your server and suggests whom to hire (no Emby, no Jack Streamer; no
-ZFS or btrfs, no Ms. Snapshotini). Jack Streamer comes only with Ms. Moverelli — *Hire together with Ms. Moverelli*. Hire whom you need, let them go later — their data and settings stay; Mr. Restori
-asks to come together with Mr. Backupsy, and *Hire together with Mr. Backupsy* hires both. Mr. Backupsy's *Let
-go* offers «Also clear away what he kept here»: his packages go to Ms. Dustdevil's storeroom and his own local
-snapshots are deleted — his settings and the offsite copies (in your storage and at the partners) stay. Letting Jack Streamer go switches off his
-two schedules (a run that is going finishes); «Also bring the prepared films back to the array» moves what EmbyCache
-keeps on the pool back, the way its cleanup does (never while someone watches); Unraid's mover schedule stays off —
-Ms. Moverelli still moves, and letting her go (after him) switches it back on as it was. Hired
-again, his settings are as they were and the schedules stay off until you switch them on. *Change the order* at the
-reception puts the desks in the order you like.
-
-<a name="snapshot-why"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/snapshot-light.png" alt="Ms. Snapshotini: one snapshot in detail, why «used» and «new since» differ"></picture></a>
-
-## What happens, end to end
-
-### The scheduled backup
-
-At the time you chose under Mr. Backupsy's *Schedule…*, the backup engine starts on the server — the office needn't be
-open. VMs you set to shut down go down first; Nextcloud goes into maintenance mode; the apps that write into backed-up
-shares stop briefly while their databases are dumped. Each app and VM gets a fresh **package** in the backup place
-(templates or compose files, the dumps, the VM's configuration). The VMs you chose are frozen or paused for a few
-seconds while ZFS and btrfs **snapshots** freeze the shares, the packages and the VMs' disks; then everything starts
-again. Next the snapshots of what you ticked go to your **partner office**, then the **offsite** copy: Kopia uploads
-from the snapshots, encrypted, to your storage (S3, Backblaze B2, SFTP, WebDAV, a NAS …) — the flash first, then the
-apps, then the shares and VMs, the smallest first. Old snapshots go by your retention. A new folder simply goes with its share — offsite when
-the share goes offsite; only in appdata and domains (the shares Unraid keeps apps and VMs in) it follows the app or VM it
-belongs to (offsite with an offsite app, local with a local one). Something new — an app, a VM, a folder there of no
-app or VM or of a new one — stays local and keeps running until you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. *Stop the run* ends a run
-cleanly, and its card says what it still waits for (apps stopping, a VM, the offsite upload); stopping the array ends
-it cleanly too, and what it had stopped comes back right after the array starts.
-
-The whole run at a glance ([BPMN source](docs/diagrams/backup-run.bpmn), [German](docs/diagrams/backup-run.de.svg)):
-
-<a name="diagram-backup-run"><img src="docs/diagrams/backup-run.svg" alt="A backup run: Mr. Backupsy, apps and VMs, the partner office and the offsite upload as lanes"></a>
-
-What a new folder inherits ([BPMN source](docs/diagrams/new-folder.bpmn), [German](docs/diagrams/new-folder.de.svg)):
-
-<a name="diagram-new-folder"><img src="docs/diagrams/new-folder.svg" alt="A new folder: in a data share it inherits the share&#x27;s level; in appdata or domains the level of its app or VM; with no app or VM it stays local and waits for your decision"></a>
-
-A partner office, from the pairing to the copies — and the receiver starting from them ([BPMN source](docs/diagrams/partner-pairing.bpmn), [German](docs/diagrams/partner-pairing.de.svg)):
-
-<a name="diagram-partner-pairing"><img src="docs/diagrams/partner-pairing.svg" alt="Partner offices: the Team Leads pair, the receiver sets its rules, Mr. Backupsy&#x27;s level says what goes, every backup sends through the door, the partner keeps by its rules, its Mr. Restori can start from the copies"></a>
+Mr. Backupsy backs up on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite. Mr. Restori
+brings back apps, folders and VMs — and rehearses it regularly on throwaway copies. A second Unraid server with the
+office becomes a partner: the two keep each other's backups.
 
 <a name="backup-run"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-light.png" alt="Mr. Backupsy: a run going on — its steps, its offsite sources, how long still"></picture></a>
 
-### Getting something back
+## The pool: fast and tidy
 
-Mr. Restori lists every app and VM with what can come back from where, with dates: its package, the local snapshots of
-its folders, the offsite copy (Kopia), a partner office. Choose a database, a folder, a share, the templates or a VM's
-configuration, and he shows exactly what will happen — the steps, which containers stop and for how long, what goes
-aside where. Only when you confirm does he start, on the server, one restore at a time and never during a backup.
-«Restored» lists every restore with its steps and what went aside where; *Put back* undoes one, also one that failed.
-He never starts or recreates a container — he says what to click. For the rest there are ready-made commands with your
-names and paths, and a guide *onto a new server*.
+Jack Streamer puts on the fast pool what you watch next in Emby — the array disks may sleep. Ms. Moverelli adds
+helmi1987's Smart Mover to Unraid's mover: she moves to the array what hasn't been used on the pool for a while, and
+leaves what is current in the cache. Both in one run a night, live to watch.
 
-### The restore drill
+<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="Ms. Moverelli's night run, live: the pool before and after, the array beside it, a file on its way"></picture></a>
 
-Once a month (or every week in the night you choose, or only when you press *Practise now…*), at night after a backup
-that went well, Mr. Restori proves that what Mr. Backupsy keeps really comes back. He reads every package in full,
-plays the database dumps into throwaway containers without network, checks the media servers' database copies and the
-VMs' disks, and streams a sample back from the offsite copy (as many GB as you allow) to compare with the local
-snapshot — where an app's package goes offsite, one of its dumps is read back from there and played too. Each app and
-VM gets a **certificate**: which level is proven, from which copy, when; a step that failed shows its error. The drill
-wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
-interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
+## The Night Watchman
 
-<a name="restore-drill"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-light.png" alt="Mr. Restori: the drill passed — the level per app, the databases played back"></picture></a>
-
-### The Night Watchman's round
-
-When you hire him he learns what is normal (his *On watch since* tile says until when). From then on he walks his
-round every five minutes, office open or not, and writes down only what is different: a login from an address he
-hasn't seen, a burst of failed logins, a container that got special rights, a new plugin, a change on the flash, a new
-cron line, a share newly open to guests, a client or container sending far more than usual, snapshots gone that nobody
-in the office removed. Each entry names its MITRE ATT&CK technique; the important ones go to Unraid's notifications.
-*I know, thanks* makes it the new normal. While the array is stopped — also while an encrypted array waits for its key
-— his night shift keeps watch from RAM and the flash.
-
-**The router** (UniFi gateways and MikroTik routers with RouterOS 7): it sends its log to Unraid's own syslog
-server — the Consultant shows both sides, for a MikroTik the lines to paste — and he reads it on his round: router and
-VPN logins not seen before, firewall, NAT or port-forwarding changes, intrusion detections at this server, a new device
-on the LAN or one using the server's name or address, the router's log gone silent. A MikroTik also tells him of bursts
-of failed router logins, a port losing its link again and again, the internet away (a short outage is a plain line, a
-long one is told once it is over) and a restart without proper shutdown — at the same time as the server's own start,
-a power loss for both. No router password, never a word to the router; other devices only as new ones, the rest are
-counts.
-
-**Why a parity check runs:** each one gets a plain line with its reason — on schedule, resumed by Parity Check Tuning,
-by hand (when that plugin saw it), a disk rebuild (no check at all), or after an unclean stop: the array didn't stop
-within the *Shutdown time-out* at the last shutdown (what held it up — a busy disk, a VM switched off hard — as far as
-Unraid's diagnostics or its kept syslog show), or the server went off without shutting down. Unraid then checks the
-parity at every start until a stop is clean again; he says so once, and the Team Lead lists which time-out to raise
-(Docker + VMs + a margin) until a later stop is clean. He never starts, pauses or cancels a check.
+A round every five minutes. He only reads and changes nothing. Only what is different from usual goes into his watch
+book: a sign-in from a new address, a new plugin, a new device on the LAN — and, if you like, from your router's log
+too.
 
 <a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The Night Watchman&#x27;s watch book: what was different from normal"></picture></a>
 
-### The search
+Plus Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant; five languages, Unraid's themes, search with
+⌘K, on the phone too. **[The full guide](docs/GUIDE.md)** walks through every desk.
 
-The magnifier at the top right, or ⌘K / Ctrl+K inside the office, finds a desk, a section, a tile, a setting, a step
-of a setup or one of the Consultant's guides — in all five languages at once, forgiving a typo. It also finds what the
-desks know right now: a share, an app, a VM, a database, an open point, an entry of the watch book, a partner office,
-what Ms. Dustdevil would clear away and where it lies. Choose one and the office takes you there, opens it and marks
-the place. It all runs in your browser.
+## Careful by design
+
+- **Behind Unraid's login.** Only whoever is logged in to Unraid gets in; other web pages in your browser can't
+  trigger anything. No account of its own, anywhere.
+- **Looks before it touches.** Before anything changes, it shows you what will happen and asks. What is replaced or
+  tidied up is set aside — nothing is deleted at once.
+- **You're in control.** Copies leave the server only where you send them: to your partner server, or encrypted to a
+  storage of your choice.
+- **Partners stay independent.** A partner server accepts copies, nothing more. If one is taken over, say by
+  ransomware, it can delete or overwrite nothing on the other.
+- **Only what the desks define.** The service on the server can do what root can, but it only offers the actions
+  written in the desks' code.
+- **Open source.** GPL-3.0-or-later — every line is here. What was checked: [HARDENING.md](HARDENING.md).
 
 ## Install
 
-Unraid **7.3.2 or a newer 7.x**; Unraid 8 is not supported yet, the plugin refuses to install there. Snapshots need
-pools or array disks on ZFS or btrfs (shares on XFS are backed up without one); partner offices need ZFS. Before you
-update Unraid itself, look for an office release that names the new version — Unraid switches off a plugin that
-doesn't at its first boot, and the scheduled backups stop with it; the Team Lead reminds you once your Unraid is newer
-than the one the office was tested on.
+Unraid **7.3.2 or a newer 7.x**; snapshots need ZFS or btrfs. In Unraid, go to *Plugins → Install Plugin* and paste:
 
-1. *Plugins → Install Plugin* and paste
-   ```
-   https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
-   ```
-2. Open **Sekretariat** in Unraid's menu bar. The Team Lead welcomes you and suggests whom to hire.
-3. For backups: Mr. Backupsy → *Set up…* (he reads the server and proposes everything with reasons; change what you
-   like — the bar counts his proposals and your changes, *Leave out* declines one of his — then *Apply*), then
-   *Schedule…*. The Team Lead lists what is still missing.
+```
+https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
+```
 
-*⋯ → Entry in Unraid* renames the menu entry or moves it under *Settings → User Utilities* or to a button in Unraid's
-header. A tile on Unraid's Dashboard shows the essentials: the messenger, the Team Lead's open points, the last and
-next backup. The green dot beside *⋯* means the messenger (the office's agent) checked in within the last 70 seconds.
-
-<a name="backup-apply"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/backup-setup-light.png" alt="Mr. Backupsy&#x27;s setup: «Apply the settings?» — 1 proposal of mine · 1 change of yours"></picture></a>
-
-## Updates and removal
-
-**Updating** works like any plugin, under *Plugins*; the Team Lead also says when a new version is out. While a
-backup, a restore or drill, one of Jack Streamer's runs or one of Ms. Moverelli's is going on, the update refuses — try again when it is done. The
-new version is unpacked and checked beside the running one; your data stays and is brought up to date at the first
-start, what is rewritten put aside. A page left open offers to reload; a recommendation you put aside with «I know,
-thanks» comes back once when an update changes what it says.
-
-**Removing** (*Plugins → Remove*, refused like an update while such a run is going on) takes the code away and lets
-go of what the office had mounted. Your schedules are put aside on the flash and come back when you install the office
-again. Partnerships with other offices end — pair again after a new install. Your data in appdata, the share
-`UnraidSecretaryOffice`, the settings on the flash, your snapshots and Ms. Dustdevil's storeroom (the hidden folders
-`.UnraidSecretaryOffice-trash`, before `_UnraidSecretaryOffice-trash`) stay; delete them yourself if you don't want them
-any more.
-
-## What it keeps where
-
-| What | Where |
-|---|---|
-| Settings, state and logs of every desk, the backup engine's settings | the data folder, `appdata/UnraidSecretaryOffice/data` |
-| Mr. Backupsy's packages (templates, compose files, dumps, VM configurations) | the backup place: a share of its own, by default `UnraidSecretaryOffice` (you create it; the setup explains why and where) — their history in its snapshots |
-| The plugin package, where the data folder is, the schedules, partner keys, uploaded container pictures | the flash, `/boot/config/plugins/unraid-secretary-office/` |
-| The code, the messenger's sign of life, the snapshots mounted during a run, the numbers for Prometheus | RAM — nothing of the office lands on the pool every few seconds, so a pool of hard disks can sleep |
-
-Nothing leaves the server unless you set it up: the offsite copy (Kopia) to the storage you chose, partner offices to
-the partner. The office itself only asks GitHub once a day whether a new version is out, checks logo addresses for
-containers without a picture, and sends a report only when you send one yourself (below) — and, when you open the list
-of your reports, asks where they stand. No account, no telemetry. The desks never wake a sleeping disk unless you ask;
-the scheduled backup does, unless you tell it to leave sleeping pools out.
-
-<a name="cleanup-where"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/cleanup-where-light.png" alt="Ms. Dustdevil&#x27;s «Where is what»: the places that matter and how they are protected"></picture></a>
-
-## Languages and themes
-
-The office speaks English, German, Italian, French and Spanish — your browser's language, English where it doesn't
-speak yours; *⋯ → Language* picks another one. Where it tells you what to click in Unraid, Unraid's menus read as
-Unraid shows them, in the language Unraid runs in. It takes Unraid's theme; *Auto · Dark · Light* at the reception
-gives the office's own area the look of Unraid's black or white theme, and a text-size switch *A · A · A* beside it
-makes it larger — both in your browser only.
-
-## Security
-
-- The office is part of Unraid's web UI: only who is logged in to Unraid gets in, and every change carries Unraid's
-  CSRF token. Whoever is logged in to Unraid is root anyway, so there is no PIN of its own — keep Unraid logged in only
-  on devices you trust. What the office adds are previews and confirmations against mistakes.
-- The page only shows. The messenger does the work on the host — only the actions the desks define, each checked
-  against a fresh look at the server, commands without a shell.
-- What is tidied up or replaced is put aside first, never deleted at once: Ms. Dustdevil's storeroom, Mr. Restori's
-  things put aside.
-- Secrets stay put: Kopia's keys reach Kopia through RAM only, the Emby API key never reaches the page, the dumps name
-  password variables, never their values.
-- A partner office gets a door, not a login: a key that can only hand over its copies, fetch them back and ask how
-  the office is — no shell, no path, nothing deleted.
-
-What was checked and what is still open: [HARDENING.md](HARDENING.md).
-
-<a name="cleanup-storeroom"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom-light.png" alt="Ms. Dustdevil&#x27;s storeroom: nothing is thrown away at once"></picture></a>
-
-## Partner offices
-
-Two Unraid servers with the office — yours, a family member's, a friend's — can keep each other's backups. Paired at
-the Team Lead (two blocks to paste, one safety code to compare; the receiver sets its rules once: the pool, a quota, its
-retention), the level **local + partner** per share and VM in Mr. Backupsy's setup says what goes: with every backup
-their ZFS snapshots go to the partner — after the first one only what changed — through SSH; the partner's door takes
-any of them up to the quota, keeps them with its own retention, and you can never delete them there. Mr. Restori's
-*At <partner>* brings them back into a new dataset beside the original.
-When a server is gone, the new one asks at its Team Lead (*Start from a partner's copy…*) and the partner answers with
-a **restore ticket** — a door for seven days that only hands over those copies; Mr. Restori's *Onto a new server*
-pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,
-Kopia is the encrypted way.
-
-<a name="backup-levels"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/levels-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/levels-light.png" alt="Mr. Backupsy&#x27;s setup: a level switch per VM with five fields — off, local, local + partner, local + offsite, local + partner + offsite; the partner fields grey where a VM has no ZFS dataset of its own"></picture></a>
-
-<a name="caretaker-partner"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/partner-light.png" alt="The Team Lead&#x27;s partner card: what this server sends to the partner and what it keeps of the partner, each with its use and retention"></picture></a>
-
-## Notifications
-
-What needs you while the office is closed goes to Unraid's notifications (the bell, and mail or push if you set them up
-under *Settings → Notifications*), as *Unraid Secretary Office*: a backup run that failed or had warnings, a drill
-that couldn't prove a restore, a schedule's problem, a new point on the Team Lead's list after half an hour, the
-Night Watchman's new entries (each kind at most once an hour) and a parity check after an unclean stop, the messenger silent
-for ten minutes. The desks write
-in the language you last used the office in; the backup engine writes English.
-
-## Monitoring
-
-With a Node Exporter, Prometheus and Grafana on the server (the Consultant sets them up with you), the office's own
-numbers go there too, with a ready Grafana dashboard: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#monitoring). For
-developers — how it works inside, adding a desk or a language, tests and releases — the same document.
+Then open **Sekretariat** in Unraid's menu bar; the Team Lead welcomes you.
 
 ## Support
 
-The office is free and complete — nothing is locked, now or later. If it is useful to you, a tip is welcome: the tip
-jar in the office (the Team Lead's *☕ Tips & pay rise*) opens the [tip page](https://tip.uso.dropnook.app/) (PayPal)
-with your anonymous USO ID; after the tip the office fetches your supporter key by itself (the page shows it too, to paste
-under *Enter key…*). A share goes to helmi1987 (see below). The key unlocks nothing — it stops the reminders and shows a
-thank-you on the Team Lead's plate, which only you see, a little office story: ☕ one coffee for the team (any amount),
-☕☕ a round for everyone (from 20), 🍰 a cake for the whole office (from 50), 🥂 the whole team toasting a pay rise and
-the donations (from 100; USD, EUR or CHF). Every key is kept; each picture shows once — never a count. If the tips ever exceed what our work costs, we give the
-rest to animal shelters that urgently need financial support. Questions and bugs:
-[GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues), or without an account from inside the office
-(below).
-
-## Reporting a problem or a wish
-
-No GitHub account needed: *⋯ → Report a problem or a wish…* on any page (or the button at the Team Lead's *The team*).
-Say what it is — a problem, a wish or a question — which desk it is about, a title and a few words. *Show what will be
-sent…* then lists everything that would go, part by part: your words as you typed them, the office's and Unraid's
-versions, the languages, which desks you hired, the desk's last error, and its last lines from the messenger's log —
-cleaned of share, pool, server, partner and user names, paths, addresses, MAC addresses, e-mail addresses and keys
-(you see what was hidden). Untick what you'd rather keep. Up to three pictures can go along — the office redraws them,
-without location or other metadata. Nothing leaves the server before you click *Send*.
-
-It goes to the office's makers, into a private inbox on GitHub — not public; the makers, GitHub and Cloudflare (who
-carries it) can read it. Each office can send 25 reports a day, and *Your reports* keeps the list: where each one
-stands — received, looked at, done — and, once the makers opened a public GitHub issue for it, a link to it
-(«Issue #…»). For that the office asks the inbox when you open the dialog (each report at most once an hour), with
-nothing but the reports' numbers in the inbox and the office's report ID.
-
-<a name="office-report"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/report-light.png" alt="«Your reports»: a wish, built and public as Issue #14"></picture></a>
+Free and complete — nothing is locked; a [tip](https://tip.uso.dropnook.app/) is welcome. Problems and wishes: right in
+the office, no account needed (*⋯ → Report a problem or a wish…*, you see every part before it is sent), or
+[GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues).
 
 ## Special thanks
 
-Jack Streamer's two tools are the work of **[helmi1987](https://github.com/helmi1987)**:
-[EmbyCache](https://github.com/helmi1987/embycache-for-unraid) and
-[media-disk-gather](https://github.com/helmi1987/media-disk-gather-for-unraid) ("Consolidate folders"), both
-GPL-3.0-or-later. They ship with the office in `embycache/` and `gather/`, modified and under the same licence — what
-we changed is listed at the top of their READMEs. Ms. Moverelli runs his
-[Smart Mover](https://github.com/helmi1987/custom-mover-for-unraid), shipped in `smartmover/` with the office's changes
-listed in its README, GPL-3.0-or-later. helmi1987 also tested the office early and sent the reports that made it
-better. Thank you, helmi1987 — a share of the tips goes to him.
-
-<a name="jack-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/jack-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/jack-live-light.png" alt="Jack Streamer live: he gets ready for each person what they watch next"></picture></a>
-
-<a name="moverelli-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/moverelli-live-light.png" alt="Ms. Moverelli's night run, live: the pool before and after (forecast) with her limit X, the array beside it, a file on its way"></picture></a>
+Jack Streamer's tools [EmbyCache](https://github.com/helmi1987/embycache-for-unraid) and
+[media-disk-gather](https://github.com/helmi1987/media-disk-gather-for-unraid) (folder consolidation) and Ms. Moverelli's
+[Smart Mover](https://github.com/helmi1987/custom-mover-for-unraid) are the work of
+**[helmi1987](https://github.com/helmi1987)**, GPL-3.0-or-later; they ship in `embycache/`, `gather/` and `smartmover/`,
+with our changes listed in their READMEs. Thank you — a share of the tips goes to him.
 
 ## License
 
@@ -300,7 +85,8 @@ This program is free software: you can redistribute it and/or modify it under th
 License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later
 version. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE).
 
-**No warranty for your backups either.** Mr. Backupsy and the backup engine do their best, but a backup can be faulty
-or incomplete — a dump that failed, a share left out, a repository that can't be opened any more. You stay responsible
-for your data and your backup strategy: test a restore now and then (Mr. Restori's drill helps), and keep more than
-one copy, for example 3-2-1 (three copies, on two kinds of storage, one of them off site).
+**No warranty for your backups either.** A backup can be faulty or incomplete. You stay responsible for your data:
+test a restore now and then (Mr. Restori's drill helps), and keep more than one copy, for example 3-2-1.
+
+Unraid is a trademark of Lime Technology, Inc. Unraid Secretary Office is an independent project and not affiliated
+with it.
