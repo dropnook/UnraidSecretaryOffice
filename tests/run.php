@@ -18578,7 +18578,7 @@ function testSizeSwitch(): void
     check('core.js: the switch at the reception only while the script is there', str_contains($core, 'if (Office.size) (head.querySelector(\'.deskhead-actions\')'));
     check('core.js: the help line only while the script is there', str_contains($core, "if (Office.size) item('help.size_title', t('help.size_text'));"));
     check('core.js: … and the search\'s place for it', str_contains($core, ".concat(Office.size ? ['size'] : [])"));
-    same('core.js: the menu, the tips and the palette place themselves in the zoomed px (fixedSpace())', 3, substr_count($core, 'const s = fixedSpace();'));
+    same('core.js: the menu, the tips, the palette and the dialog\'s fit place themselves in the zoomed px (fixedSpace())', 4, substr_count($core, 'const s = fixedSpace();'));
 }
 
 /**
@@ -30960,7 +30960,7 @@ function testStreamerFix3(): void
     $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
     check('fix3 layout: the dialog fits the window (a transformed parent made «fixed» its box) — on opening, a dialog back, resize/scroll, a new step',
-        str_contains($core, 'function dialogFit() {') && str_contains($core, "const room = window.innerHeight - dlg.getBoundingClientRect().top - 16;")
+        str_contains($core, 'function dialogFit() {') && str_contains($core, "const room = s.h - dlg.getBoundingClientRect().top / s.k - 16;")
         && str_contains($core, "window.addEventListener('scroll', () => dialogFit(), true);") && str_contains($js, 'if (wiz.dlg.fit) wiz.dlg.fit();'));
     check('fix3 layout: head and foot fixed, only the body scrolls; the wizard\'s foot is the dialog\'s own',
         str_contains($css, '.dialog > h3, .dialog > .dialog-foot{flex:none}') && str_contains($css, '.dialog > .dialog-body{flex:1 1 auto; min-height:0}')
