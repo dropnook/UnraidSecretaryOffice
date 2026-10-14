@@ -1566,7 +1566,7 @@ function setupStep(id) {
   const s = SETUP_HEADS[id]();
   s.dataset.section = id;                // focusSpot()/focusBack() find the control again inside it
   s.appendChild(id === 'servers' ? setupServers() : id === 'libraries' ? setupLibraries() : id === 'scope' ? setupScope()
-    : id === 'users' ? setupUsers() : id === 'more' ? setupMore() : importPart());
+    : id === 'users' ? setupUsers() : id === 'more' ? setupMore() : importSection());
   return s;
 }
 
@@ -2162,8 +2162,11 @@ function resetDialog() {
   ] });
 }
 
-/** Taking over an earlier install, as a part of its own (once he is set up; before, the server's part offers it) */
-function importPart() {
+/**
+ * Taking over an earlier install, as a part of its own (once he is set up; before, the server's part offers it) — never
+ * named importPart: that one (the preview's box per tool) won the hoisting and drew «undefined» here (live 2026-10-14)
+ */
+function importSection() {
   const s = el('div', 'jo-part-body');
   s.append(el('p', 'role', T('import.sub')), button(T('import.open'), 'small', importDialog));
   return s;
@@ -2751,7 +2754,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
+    renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
     setupServers, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,

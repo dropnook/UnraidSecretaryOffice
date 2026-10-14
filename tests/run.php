@@ -30663,6 +30663,9 @@ function testStreamerTab(): void
   e.setState(st); e.initForm();
   out.setTiles = e.setupTileData().map((d) => d.id);
   out.offerSet = all(e.setupServers()).some((n) => n.textContent === 'import.open');
+  // its own tile's part after «Save» (live 2026-10-14: a box with «undefined» — the preview's importPart won the hoisting)
+  const imp = all(e.setupStep('import')).map((n) => n.textContent || '');
+  out.importPart = [imp.includes('import.open'), imp.includes('import.sub'), imp.some((t) => /undefined/.test(t))];
   let f = connect();
   out.form = [f.values.cache_budget, f.values.max_episodes_per_series, 'budget_mode' in f.values, 'number_episodes' in f.values, 'give_back_unwatched_days' in f.values, 'create_share_root' in f.values];
   const scope = texts(e.setupScope());
@@ -30724,6 +30727,20 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     same('streamer tab: the wizard\'s routes lead to the tile holding that part now (summary: the whole page)', ['scope', 'scope', '', 'users', 'scope', 'import'], $r['routes']);
     same('streamer tab: before he is set up no import tile — the server\'s part offers it', [['servers', 'libraries', 'scope', 'users', 'more'], true], [$r['freshTiles'], $r['offer']]);
     same('streamer tab: … once set up its own tile, the offer gone from the server\'s part', [['servers', 'libraries', 'scope', 'users', 'more', 'import'], false], [$r['setTiles'], $r['offerSet']]);
+    same('streamer tab: … its part: the offer and its line, never «undefined»', [true, true, false], $r['importPart'] ?? null);
+    // one name, one function: a second top-level declaration in a desk's script silently replaces the first (hoisting)
+    $dups = [];
+    foreach (array_merge(glob(OFFICE_WEB . '/desks/*/desk.js') ?: [], [OFFICE_WEB . '/assets/core.js']) as $f) {
+        // Ms. Dustdevil's script holds two scopes at the margin (her page and `const Where = (() => {…})()`) — names repeat there on purpose
+        if (basename(dirname($f)) === 'cleanup') {
+            continue;
+        }
+        preg_match_all('/^(?:async )?function\*? ?([A-Za-z_$][\w$]*)\s*\(/m', (string) file_get_contents($f), $m);
+        foreach (array_count_values($m[1]) as $fn => $c) {
+            if ($c > 1) $dups[] = basename(dirname($f)) . ":$fn";
+        }
+    }
+    same('desk scripts: no top-level function declared twice', [], $dups);
     same('streamer tab: Emby works, Plex and Jellyfin greyed «coming soon» (not choosable)', [['Emby', 'false', false], ['Plex', 'true', true], ['Jellyfin', 'true', true]], $r['cards']);
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
