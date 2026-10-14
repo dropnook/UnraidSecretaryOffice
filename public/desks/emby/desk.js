@@ -435,8 +435,6 @@ function render() {
   if (foreign.length) root.appendChild(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
   const back = letGoNotice();
   if (back) root.appendChild(back);
-  const moved = budgetNotice();          // the update moved him to a budget: said once (also on «Set up»)
-  if (moved) root.appendChild(moved);
   const mv = state.configured ? moverNotice() : null;
   if (mv) root.appendChild(mv);
   const wait = (state.waiting || {}).embycache;
@@ -626,8 +624,11 @@ function poolTile(a) {
     sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
 }
 
-/** His rule as saved (ruleTexts() on his settings' budget) — the pool tile's tip and the pool's section */
-const savedRule = () => (state && state.configured ? ruleTexts(budgetGb((state.settings || {}).cache_budget)) : []);
+/** His rule as saved (ruleTexts() on his settings' budget; her «not set up» is roomWords()') — the pool tile's tip and the pool's section */
+function savedRule() {
+  const gb = state && state.configured ? budgetGb((state.settings || {}).cache_budget) : 0;
+  return gb > 0 ? ruleTexts(gb).filter((t) => t !== T('room.none')) : [];
+}
 
 /**
  * What Ms. Moverelli gives him (2026-10-13, the pool simply — agent/lib/poollevel.php): she keeps the pool below X, he may
@@ -1485,8 +1486,6 @@ function renderSetup() {
   saveGate = null;
   if (!state) return;
   if (!form) initForm();
-  const note = budgetNotice();          // the update moved his count-mode settings to a budget: said once
-  if (note) root.appendChild(note);
   // the row of his setup's parts and under it the part chosen (none: every part in order)
   const sw = setupSwitcher();
   root.appendChild(sw.el);
@@ -2046,11 +2045,14 @@ function ruleWords() {
   ruleTexts(budgetGb(form.values.cache_budget)).forEach((t) => box.appendChild(el('p', 'callout jo-slice', t)));
   return box;
 }
-/** [sentence, …]: his rule with the budget (GB; 0: what is missing), and her limit (or that she isn't set up) — pure */
+/** [sentence, …]: his rule with the budget (GB; 0: what is missing), her limit X and his priority (or that she isn't set up) — pure */
 function ruleTexts(total) {
   const mo = herRules();
   const out = [total > 0 ? T('setup.rule', { budget: gbSize(total) }) : T('setup.rule_no_budget')];
-  out.push(mo && mo.x > 0 ? T('setup.rule_x', { x: mo.x }) : T('room.none'));
+  // her limit X in plain words (2026-10-14, the owner): he fills only up to X, the day's downloads land above it and she
+  // clears them at night (so X needs room up to 100 %); his budget comes first — she moves the others' oldest for it
+  if (mo && mo.x > 0) out.push(T('setup.rule_x', { x: mo.x }), T('setup.rule_first', { x: mo.x }));
+  else out.push(T('room.none'));
   return out;
 }
 
@@ -2161,21 +2163,6 @@ function budgetGb(text) {
   if (!m) return 0;
   const f = { K: 1 / (1024 * 1024), M: 1 / 1024, G: 1, T: 1024, P: 1024 * 1024 }[(m[2] || 'G').toUpperCase()];
   return Math.round(Number(m[1]) * f * 10) / 10;
-}
-
-/**
- * The update moved his count-mode settings to a budget (agent/lib/migrate.php, step streamer-budget): said once on his
- * pages — emby.budget_seen as soon as it is shown; it stays for this visit
- */
-let budgetNote = null;
-function budgetNotice() {
-  const n = budgetNote || (state && state.budget_note);
-  if (!n || !(n.gb > 0)) return null;
-  if (!budgetNote && Office.agent.running) {
-    budgetNote = n;
-    Office.api.post(`${ID}.budget_seen`, {}).catch(() => {});
-  }
-  return el('p', 'callout jo-budget-note', T('setup.budget_moved', { budget: gbSize(n.gb), n: Number(n.episodes) || 0, where: T('setup.scope') }));
 }
 
 // ------------------------------------------------------------------ taking over an earlier install
@@ -2676,7 +2663,7 @@ Office.desk({
     if (plan) Office.reveal(`plan:${plan}`);
     await load(false);
   },
-  unmount() { view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; budgetNote = null; },
+  unmount() { view = null; saveGate = null; clearTimeout(outTimer); clearTimeout(progTimer); progTimer = null; progBox = null; startKicks = 0; letGoNote = null; },
   letGo: letGoPart,
   poll() { if (page === 'main') load(false); },
   agentChanged() { if (view) (page === 'setup' ? renderSetup() : render()); },
@@ -2754,7 +2741,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
-    setupServers, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, budgetNotice, formKey, formChanged, derivedPool, poolsOfChoice, cacheable,
+    setupServers, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };

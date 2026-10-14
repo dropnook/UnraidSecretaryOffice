@@ -186,7 +186,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   while someone watches Emby** (`embyWatching()`; dry runs never ask). Let go: both his schedules off, Unraid's mover stays off.
   Import: the user types the folder, he never searches, preview without API key, copies aside first. «Last run» from his runs,
   not status.json. **His setup is the «Set up» tab with tiles, budget mode only** (a GB budget in total = the hard cap, every
-  person ≥ 20 GB, counts are defaults inside it; no wizard, no simulator — the rule in sentences).
+  person ≥ 20 GB, counts are defaults inside it; no wizard, no simulator — the rule in sentences); settings without a budget
+  = «not set up yet» (`embyConfigured()`, no migration).
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**

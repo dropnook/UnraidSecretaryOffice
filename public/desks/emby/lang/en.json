@@ -706,12 +706,12 @@
   "setup.users_budget_first": "Enter the budget in total under «{where}» first — then it says here how it splits among the people.",
   "setup.rule": "For each person I fetch the next episodes and started films — at most {budget} together, and per person at most their budget. What was watched I give back at night; what wasn't watched stays.",
   "setup.rule_no_budget": "For each person I fetch the next episodes and started films — how much in total, the budget says (still empty).",
-  "setup.rule_x": "Ms. Moverelli keeps the pool below {x} %; if not everything fits below it, I fetch less.",
-  "setup.budget_moved": {"one": "With this update my settings went over to a space budget: {budget} in total (what I held, rounded up), {n} episode ahead per series inside it. Have a look under «{where}».", "other": "With this update my settings went over to a space budget: {budget} in total (what I held, rounded up), {n} episodes ahead per series inside it. Have a look under «{where}»."},
+  "setup.rule_x": "I fill the pool only up to Ms. Moverelli's limit X ({x} %). What the other shares write during the day (downloads & co.) lands above it, and she clears it away at night — so above {x} % there must be enough room up to 100 %.",
   "errors.emby_budget_missing": "A budget in total is needed (at least {min}).",
   "errors.emby_budget_low": "A budget under {min} per person doesn't work ({value}).",
   "errors.emby_budget_over": "The people's budgets ({fixed}) exceed the budget in total ({total}).",
   "errors.emby_budget_short": "What the people's budgets leave ({rest}) is less than {min} for each of the others.",
   "setup.connecting": "Connecting to the server …",
-  "setup.users_budget_even": {"one": "{rest} goes to {n} person; nobody has a budget of their own.", "other": "{rest} is shared evenly among {n} people; what someone doesn't need flows to the others."}
+  "setup.users_budget_even": {"one": "{rest} goes to {n} person; nobody has a budget of their own.", "other": "{rest} is shared evenly among {n} people; what someone doesn't need flows to the others."},
+  "setup.rule_first": "My budget comes first: at night Ms. Moverelli moves the oldest other files to the array until the pool sits at {x} % and my room is free. If that leaves the other shares too little, she says so."
 }

@@ -30627,8 +30627,9 @@ JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json'
     same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
     same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
         ['300', 3, false, false, false, false], $r['form']);
-    same('streamer tab: the amount — a budget field in GB, no mode, the rule in sentences with her X', [true, false, ['setup.rule', 'setup.rule_x']], $r['scope']);
-    same('streamer tab: the rule\'s words with the budget, without one', [['setup.rule {"budget":"300 GB"}', 'setup.rule_x {"x":80}'], ['setup.rule_no_budget', 'setup.rule_x {"x":80}']], $r['rule']);
+    same('streamer tab: the amount — a budget field in GB, no mode, the rule in sentences with her X and his priority', [true, false, ['setup.rule', 'setup.rule_x', 'setup.rule_first']], $r['scope']);
+    same('streamer tab: the rule\'s words with the budget, without one — X plainly (he fills only up to X, the day\'s downloads above it need room to 100 %), his budget first',
+        [['setup.rule {"budget":"300 GB"}', 'setup.rule_x {"x":80}', 'setup.rule_first {"x":80}'], ['setup.rule_no_budget', 'setup.rule_x {"x":80}', 'setup.rule_first {"x":80}']], $r['rule']);
     same('streamer tab: … without her: that she isn\'t set up', ['setup.rule {"budget":"300 GB"}', 'room.none'], $r['ruleNone']);
     same('streamer tab: sharing the pool shows her X (no halves, no offset any more) and the link to her setup', [true, false, true], $r['her']);
     same('streamer tab: no budget — «Save» can\'t, the amount\'s tile red', ['setup.budget_missing', true], $r['noBudget']);
@@ -30647,7 +30648,7 @@ JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json'
 /**
  * Budget mode always, the agent's side (2026-10-14): embyBudgetCheck() — a budget in total required (at least 20 GB), a
  * person's own budget at least 20 GB, together never over the total, what they leave at least 20 GB for each of the
- * others; embySave() checks it before anything is written.
+ * others; embySave() checks it before anything is written. Set up = a server and a budget (embyConfigured()).
  */
 function testStreamerBudget(): void
 {
@@ -30669,6 +30670,10 @@ function testStreamerBudget(): void
     same('streamer budget: fine — 20 GB each, everyone a budget up to the whole, 1.5T, everyone (no list)', ['ok', 'ok', 'ok', 'ok'],
         [$refused('60G', ['a' => ['budget' => '20G'], 'b' => $o, 'c' => $o]), $refused('300G', ['a' => ['budget' => '100G'], 'b' => ['budget' => '200G']]),
          $refused('1.5T', ['a' => ['budget' => '1T']]), $refused('20G', [])]);
+    same('streamer budget: set up = a server and a budget — without one (an older count-mode setup) «not set up yet»: no migration, the setup starts',
+        [true, false, false, false, false], [embyConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '300G']), embyConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '']),
+        embyConfigured(['instances' => [['url' => 'x']], 'number_episodes' => 3]), embyConfigured(['instances' => [], 'cache_budget' => '300G']), embyConfigured(null)]);
+    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'), 'embyConfigured(') === 6);
     same('streamer budget: sizes as EmbyCache reads them', [500 << 30, (int) (1.5 * (1 << 40)), 800 << 30, 0, 0], array_map('embySizeBytes', ['500G', '1.5T', '800GB', 'lots', '']));
     $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('streamer budget: embySave() checks before it writes', (bool) preg_match('/embyBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users\);.*?embyWriteSettings\(\$cfg\);/s', $emby));
@@ -30682,64 +30687,6 @@ function testStreamerBudget(): void
         }
     }
     same('streamer budget: every refusal has its words', [], $lang);
-}
-
-/**
- * The update to budget mode (agent/lib/migrate.php step `streamer-budget`): count mode → a budget (what he held at his
- * last look rounded up to the next 50 GB, at least 20 GB per person), number_episodes → max_episodes_per_series, a
- * person's budget under 20 GB raised, give_back_unwatched_days gone — the file before kept beside it (0600: his API key),
- * objects stay objects, a note for his page; run again: nothing; budget mode: only the N days go; not set up: nothing.
- */
-function testStreamerMigrate(): void
-{
-    $dir = hardeningTmp('streamer-migrate');
-    @mkdir("$dir/embycache", 0700, true);
-    $f = "$dir/embycache/embycache_settings.json";
-    file_put_contents($f, '{"instances":[{"servername":"Emby","url":"http://x","api_key":"k","path_mappings":{}}],"path_mappings":{},"cache_budget":"",'
-        . '"number_episodes":4,"max_episodes_per_series":0,"valid_users":["a","b","c"],"give_back_unwatched_days":30}');
-    file_put_contents("$dir/emby.json", json_encode(['cache' => ['bytes' => (int) (123.4 * (1 << 30))]]));
-    $said = officeMigrateStreamerBudget($dir, '1.63.0');
-    $raw = (string) file_get_contents($f);
-    $s = json_decode($raw, true);
-    same('streamer migrate: count mode → 150 GB (123.4 GB held, rounded up to 50), 4 episodes ahead as max_episodes_per_series, N days gone',
-        ['150G', 4, false], [$s['cache_budget'], $s['max_episodes_per_series'], array_key_exists('give_back_unwatched_days', $s)]);
-    check('streamer migrate: … objects stay objects (EmbyCache wants a dict)', str_contains($raw, '"path_mappings": {}'));
-    same('streamer migrate: … the file before kept beside it, only root reads it', [true, '600'], [is_file("$f.before-1.63.0"), decoct(fileperms("$f.before-1.63.0") & 0777)]);
-    same('streamer migrate: … a note for his page', ['gb' => 150, 'episodes' => 4], array_diff_key((array) json_decode((string) file_get_contents("$dir/embycache/office-budget-note.json"), true), ['time' => 1]));
-    check('streamer migrate: … said in the log', str_contains($said, 'count mode → a budget of 150 GB'), $said);
-    same('streamer migrate: run again — nothing', 'nothing to change — already by budget', officeMigrateStreamerBudget($dir, '1.63.0'));
-    // little held, many people: 20 GB each; a person's own budget under 20 GB raised; none held: at least 50
-    file_put_contents($f, json_encode(['cache_budget' => '', 'number_episodes' => 2, 'valid_users' => ['a' => ['budget' => '5G'], 'b' => (object) [], 'c' => (object) [], 'd' => (object) []]]));
-    file_put_contents("$dir/emby.json", json_encode(['cache' => ['bytes' => 1 << 30]]));
-    officeMigrateStreamerBudget($dir, '1.63.0');
-    $s = json_decode((string) file_get_contents($f), true);
-    same('streamer migrate: four people, 1 GB held — 80 GB (20 each); Anna\'s 5G raised to 20G; the others stay objects', ['80G', '20G', []], [$s['cache_budget'], $s['valid_users']['a']['budget'], $s['valid_users']['b']]);
-    file_put_contents($f, json_encode(['cache_budget' => '500G', 'max_episodes_per_series' => 6, 'give_back_unwatched_days' => 30]));
-    @unlink("$dir/embycache/office-budget-note.json");
-    officeMigrateStreamerBudget($dir, '1.63.0');
-    $s = json_decode((string) file_get_contents($f), true);
-    same('streamer migrate: budget mode — only the N days go, no note', [['cache_budget' => '500G', 'max_episodes_per_series' => 6], false], [$s, is_file("$dir/embycache/office-budget-note.json")]);
-    unlink($f);
-    same('streamer migrate: not set up — nothing', 'nothing to change — Jack Streamer is not set up', officeMigrateStreamerBudget($dir, '1.63.0'));
-    hardeningRm($dir);
-    check('streamer migrate: the step is listed (after the others)', in_array('streamer-budget', array_column(officeMigrateSteps(), 'id'), true));
-    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('streamer migrate: his state carries the note, emby.budget_seen removes it, a reset too',
-        str_contains($emby, "'budget_note' => readJson(EMBY_DATA . '/' . EMBY_BUDGET_NOTE),") && str_contains($emby, "'budget_seen'    => fn (array \$r) => embyBudgetSeen(),")
-        && str_contains($emby, "'office-budget-note.json'];"));
-    $r = streamerTabRun('streamer migrate page', <<<'JS'
-const out = {};
-e.setState({ ...st, budget_note: { time: 1, gb: 150, episodes: 4 } }); e.initForm();
-const n = e.budgetNotice();
-out.note = [n && n.textContent, posts.map((p) => p[0])];
-e.budgetNotice();
-out.once = posts.length;
-console.log(JSON.stringify(out));
-JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json']);
-    if ($r !== null) {
-        same('streamer migrate: his page says it once (emby.budget_seen posted once, kept for the visit)',
-            [['setup.budget_moved {"budget":"150 GB","n":4,"where":"setup.scope"}', ['emby.budget_seen']], 1], [$r['note'], $r['once']]);
-    }
 }
 
 /**
@@ -30768,7 +30715,7 @@ function testStreamerReset(): void
     $jobs = [];
     $o = ['dir' => $dir, 'gather' => $gdir, 'running' => fn (): bool => false, 'schedule' => function (string $job) use (&$jobs) { $jobs[] = $job; }];
     $his = ['embycache_settings.json', 'embycache_origin.json', 'office-history.json', 'office-run.json', 'office-output.txt', 'office-stop.json',
-            'emby-progress.json', 'status.json', 'embycache_settings.json.before-import-20261001', 'embycache_settings.json.before-1.63.0', 'office-budget-note.json'];
+            'emby-progress.json', 'status.json', 'embycache_settings.json.before-import-20261001'];
     foreach ($his as $f) {
         file_put_contents("$dir/$f", '{}');
     }
@@ -34749,7 +34696,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerMigrate', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

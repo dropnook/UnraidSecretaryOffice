@@ -706,12 +706,12 @@
   "setup.users_budget_first": "Saisis d'abord le budget total dans «{where}» — ensuite on voit ici comment il se répartit entre les personnes.",
   "setup.rule": "Pour chaque personne je prends les prochains épisodes et les films commencés — au plus {budget} ensemble, et par personne au plus son budget. Ce qui a été regardé, je le rends la nuit ; ce qui ne l'a pas été reste.",
   "setup.rule_no_budget": "Pour chaque personne je prends les prochains épisodes et les films commencés — combien au total, le budget le dit (encore vide).",
-  "setup.rule_x": "Madame Moverelli garde le pool sous {x} % ; si tout ne tient pas en dessous, je prends moins.",
-  "setup.budget_moved": {"one": "Avec cette mise à jour mes réglages passent à un budget d'espace : {budget} au total (ce que je gardais, arrondi), dedans {n} épisode d'avance par série. Jette un œil dans «{where}».", "other": "Avec cette mise à jour mes réglages passent à un budget d'espace : {budget} au total (ce que je gardais, arrondi), dedans {n} épisodes d'avance par série. Jette un œil dans «{where}»."},
+  "setup.rule_x": "Je ne remplis le pool que jusqu'à la limite X de Madame Moverelli ({x} %). Ce que les autres partages écrivent dans la journée (téléchargements & co.) arrive au-dessus, et elle le range la nuit — il faut donc assez de place au-dessus de {x} % jusqu'à 100 %.",
   "errors.emby_budget_missing": "Il faut un budget total (au moins {min}).",
   "errors.emby_budget_low": "Un budget sous {min} par personne ne va pas ({value}).",
   "errors.emby_budget_over": "Les budgets des personnes ({fixed}) dépassent le budget total ({total}).",
   "errors.emby_budget_short": "Ce que laissent les budgets des personnes ({rest}) fait moins de {min} pour chacune des autres.",
   "setup.connecting": "Connexion au serveur …",
-  "setup.users_budget_even": {"one": "{rest} vont à {n} personne ; personne n'a de budget propre.", "other": "{rest} sont partagés à parts égales entre {n} personnes ; ce dont quelqu'un n'a pas besoin va aux autres."}
+  "setup.users_budget_even": {"one": "{rest} vont à {n} personne ; personne n'a de budget propre.", "other": "{rest} sont partagés à parts égales entre {n} personnes ; ce dont quelqu'un n'a pas besoin va aux autres."},
+  "setup.rule_first": "Mon budget passe en premier : la nuit, Madame Moverelli déplace les plus anciens autres fichiers vers l'array jusqu'à ce que le pool soit à {x} % et ma place libre. S'il reste trop peu aux autres partages, elle le signale."
 }

@@ -706,12 +706,12 @@
   "setup.users_budget_first": "Introduce primero el presupuesto total en «{where}» — luego aquí se ve cómo se reparte entre las personas.",
   "setup.rule": "Para cada persona traigo los próximos episodios y las películas empezadas — como mucho {budget} en total, y por persona como mucho su presupuesto. Lo que se ha visto lo devuelvo de noche; lo no visto se queda.",
   "setup.rule_no_budget": "Para cada persona traigo los próximos episodios y las películas empezadas — cuánto en total lo dice el presupuesto (aún vacío).",
-  "setup.rule_x": "La señora Moverelli mantiene el pool por debajo del {x} %; si no cabe todo, traigo menos.",
-  "setup.budget_moved": {"one": "Con esta actualización mis ajustes pasan a un presupuesto de espacio: {budget} en total (lo que tenía, redondeado), dentro {n} episodio por adelantado por serie. Échale un vistazo en «{where}».", "other": "Con esta actualización mis ajustes pasan a un presupuesto de espacio: {budget} en total (lo que tenía, redondeado), dentro {n} episodios por adelantado por serie. Échale un vistazo en «{where}»."},
+  "setup.rule_x": "Lleno el pool solo hasta el límite X de la señora Moverelli ({x} %). Lo que los otros recursos compartidos escriben durante el día (descargas y demás) queda por encima, y ella lo despeja de noche — por eso por encima del {x} % hace falta sitio suficiente hasta el 100 %.",
   "errors.emby_budget_missing": "Hace falta un presupuesto total (al menos {min}).",
   "errors.emby_budget_low": "Un presupuesto por debajo de {min} por persona no vale ({value}).",
   "errors.emby_budget_over": "Los presupuestos de las personas ({fixed}) superan el presupuesto total ({total}).",
   "errors.emby_budget_short": "Lo que dejan los presupuestos de las personas ({rest}) es menos de {min} para cada una de las demás.",
   "setup.connecting": "Conectando con el servidor …",
-  "setup.users_budget_even": {"one": "{rest} van a {n} persona; nadie tiene presupuesto propio.", "other": "{rest} se reparten a partes iguales entre {n} personas; lo que alguien no necesita pasa a los demás."}
+  "setup.users_budget_even": {"one": "{rest} van a {n} persona; nadie tiene presupuesto propio.", "other": "{rest} se reparten a partes iguales entre {n} personas; lo que alguien no necesita pasa a los demás."},
+  "setup.rule_first": "Mi presupuesto tiene prioridad: de noche la señora Moverelli pasa al array los archivos más antiguos de los demás hasta que el pool está al {x} % y mi espacio queda libre. Si a los otros recursos compartidos les queda demasiado poco, lo avisa."
 }

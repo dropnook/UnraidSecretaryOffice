@@ -95,7 +95,6 @@ desk('emby', [
         'letgo_look'     => fn (array $r) => embyLetGoLook(),
         'letgo'          => fn (array $r) => embyLetGo($r),
         'letgo_seen'     => fn (array $r) => embyLetGoSeen(),
-        'budget_seen'    => fn (array $r) => embyBudgetSeen(),
         // «Switch the mover schedule off…» (emby-mover.php): Unraid's own ⟦Mover schedule⟧ «Disabled», as its form sets it
         'mover_off'      => fn (array $r) => embyMoverOff($r) + ['state' => embyScan()],
         // the part «progress» (desk.json): the live panel while EmbyCache runs for real (emby-progress.php) — two RAM files
@@ -163,7 +162,7 @@ function embyScan(): array
         'python'     => embyPython(),
         'emby'       => embyContainers(),
         'versions'   => embyVersions(),
-        'configured' => $settings !== null && !empty($settings['instances']),
+        'configured' => embyConfigured($settings),
         'settings'   => $settings !== null ? embySettingsPublic($settings) : null,
         'shares'     => $settings !== null ? embySharesSized(embyShares($settings)) : [],
         'cache'      => embyCacheStats($settings),
@@ -195,7 +194,6 @@ function embyScan(): array
         'mover'      => embyMoverState(),
         'waiting'    => ['embycache' => embyRunWaiting('embycache'), 'gather' => embyRunWaiting('gather')],
         'letgo'      => embyLetGoNote(),       // hired again: what he switched off when he was let go (said once)
-        'budget_note' => readJson(EMBY_DATA . '/' . EMBY_BUDGET_NOTE),     // the update moved him to a budget (said once)
     ];
     writeAtomic(deskFile('emby'), jsonEncode($state));
     return $state;
@@ -1000,17 +998,14 @@ function embyGb(int $bytes): string
     return ($gb < 10 && fmod($gb, 1.0) !== 0.0 ? number_format($gb, 1) : (string) (int) round($gb)) . ' GB';
 }
 
-/** The note the update leaves when it moved his count-mode settings to a budget (agent/lib/migrate.php, said once) */
-const EMBY_BUDGET_NOTE = 'office-budget-note.json';
-
-/** emby.budget_seen — his page showed the note: it isn't said again */
-function embyBudgetSeen(): array
+/**
+ * Set up = a server and a budget (2026-10-14, the owner: budget mode only, no migration — settings without a budget, such
+ * as an older count-mode setup, count as «not set up yet»: his page shows the setup's start, no run, no schedule)
+ */
+function embyConfigured(?array $settings): bool
 {
-    $f = EMBY_DATA . '/' . EMBY_BUDGET_NOTE;
-    if (is_file($f) && !is_link($f)) {
-        @unlink($f);
-    }
-    return ['ok' => true];
+    return $settings !== null && !empty($settings['instances']) && is_string($settings['cache_budget'] ?? null)
+        && embySizeBytes($settings['cache_budget']) >= EMBY_MIN_PERSON_BYTES;
 }
 
 // ===================================================================== set up from scratch (2026-10-14)
@@ -1026,8 +1021,7 @@ function embyBudgetSeen(): array
  * embycache.log and consolidate.log) and the lock files. Never while a run of his (EmbyCache or the gather) goes.
  */
 const EMBY_RESET_GONE   = ['embycache_settings.json', '.embycache_settings.trial.json', 'embycache_origin.json', 'office-history.json',
-                           'office-run.json', 'office-output.txt', 'office-stop.json', 'emby-progress.json', 'emby-progress-speed.json', 'status.json',
-                           'office-budget-note.json'];
+                           'office-run.json', 'office-output.txt', 'office-stop.json', 'emby-progress.json', 'emby-progress-speed.json', 'status.json'];
 const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
                            'office-run.json', 'office-output.txt', 'office-stop.json'];
 
@@ -2441,7 +2435,7 @@ function embyRunCheck(string $tool, string $mode): void
         if (!isset(EMBY_MODES[$mode])) {
             throw new Problem('unknown_target', ['target' => $mode]);
         }
-        if (!embyReadSettings()) {
+        if (!embyConfigured(embyReadSettings())) {
             throw new Problem('emby_not_configured');
         }
         if ($mode === 'run' && !embyGatherReady()) {
@@ -2943,7 +2937,7 @@ function embySetSchedule(string $job, ?string $cron): array
     }
     // EmbyCache's schedule is the night run's (2026-10-13): one time for Ms. Moverelli and him — her line
     if ($job === 'embycache' && function_exists('moverelliSetSchedule') && moverelliHired()) {
-        if ($cron !== null && !embyReadSettings()) {
+        if ($cron !== null && !embyConfigured(embyReadSettings())) {
             throw new Problem('emby_not_configured');
         }
         $r = moverelliSetSchedule($cron);
@@ -2954,7 +2948,7 @@ function embySetSchedule(string $job, ?string $cron): array
         return ['ok' => true, 'live' => $r['live'], 'state' => embyScan()];
     }
     if ($cron !== null) {
-        if ($job === 'embycache' && !embyReadSettings()) {
+        if ($job === 'embycache' && !embyConfigured(embyReadSettings())) {
             throw new Problem('emby_not_configured');
         }
         if ($job === 'gather' && !(embyGatherSettings()['shares'] ?? [])) {
@@ -3105,7 +3099,7 @@ function embyChecks(): array
     }
     $out[] = finding('python', 'required', embyPython() !== null, [], 'apps');
     $settings = embyReadSettings();
-    $out[] = finding('configured', 'required', $settings !== null && !empty($settings['instances']), [], '#/emby/setup');
+    $out[] = finding('configured', 'required', embyConfigured($settings), [], '#/emby/setup');
     if (!$settings) {
         return $out;
     }
