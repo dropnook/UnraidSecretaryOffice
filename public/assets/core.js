@@ -1058,9 +1058,12 @@ Office.staffInOrder = () => [...Office.desks.values()].filter((d) => d.hired).so
  * (2026-10: Ms. Whereabouts' work is Ms. Dustdevil's «Where is what»). The address as it should be, or null.
  */
 const MOVED_DESKS = { whereabouts: 'cleanup/where' };
+const RENAMED_DESKS = { emby: 'jack' };     // 2026-10-14: Jack Streamer's desk id — the rest of the address stays
 function movedDesk(hash, known) {
-  const id = (hash.replace(/^#\/?/, '') || '').split('/')[0];
-  return Object.prototype.hasOwnProperty.call(MOVED_DESKS, id) && !known(id) ? `#/${MOVED_DESKS[id]}` : null;
+  const [id, ...rest] = (hash.replace(/^#\/?/, '') || '').split('/');
+  if (known(id)) return null;
+  if (Object.prototype.hasOwnProperty.call(RENAMED_DESKS, id)) return `#/${[RENAMED_DESKS[id], ...rest].join('/')}`;
+  return Object.prototype.hasOwnProperty.call(MOVED_DESKS, id) ? `#/${MOVED_DESKS[id]}` : null;
 }
 
 let routeGen = 0;                   // counts the pages drawn: Office.reveal() waits for the one it asked for

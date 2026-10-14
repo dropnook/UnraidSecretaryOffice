@@ -36,12 +36,12 @@ const EXTERNALS = {
   },
   // only where Emby, Jellyfin or Plex runs (the agent leaves it out otherwise)
   streamviewer: {
-    icon: '🎬', open: '/Settings/StreamViewerSettings', install: '/Apps', desk: 'emby',
+    icon: '🎬', open: '/Settings/StreamViewerSettings', install: '/Apps', desk: 'jack',
     copy: { url: 'https://github.com/Lazaros-Chalkidis/unraid-streamviewer/raw/main/streamviewer.plg' },
   },
   // optional (the agent says so): never counted as missing — and the desks it can get in the way of
   unbalanced: {
-    icon: '⚖️', open: '/Settings/unbalanced', install: '/Apps', desk: null, clash: ['backup', 'emby'],
+    icon: '⚖️', open: '/Settings/unbalanced', install: '/Apps', desk: null, clash: ['backup', 'jack'],
     copy: { url: 'https://github.com/jbrodriguez/unbalance/releases/latest/download/unbalanced.plg' },
   },
   // monitoring (the agent's group, optional), in the order it is set up. In what

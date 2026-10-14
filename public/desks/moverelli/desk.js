@@ -132,7 +132,7 @@ function runCard(p, now) {
     card = Office.nightCard(nn, { T, now, stopping, cls: 'mo-run' });
     if (nn.who === 'jack') {
       const line = el('div', 'card-line', T('rc.night_jack') + ' ');
-      line.appendChild(link(T('rc.night_jack_open'), () => Office.go('#/emby')));
+      line.appendChild(link(T('rc.night_jack_open'), () => Office.go('#/jack')));
       card.appendChild(line);
     }
   } else {
@@ -238,7 +238,7 @@ const unraidOk = () => !!(state && state.unraid && state.unraid.ok);
 const mover = () => (state && state.mover) || { off: true, schedule: null, running: false };
 const jack = () => (state && state.jack) || { busy: false, list: null, uncovered: [] };
 /**
- * Jack Emby's shares a setup form doesn't keep EmbyCache's list away from — the agent's rule (embyMoverelliUncovered())
+ * Jack Emby's shares a setup form doesn't keep EmbyCache's list away from — the agent's rule (jackMoverelliUncovered())
  * on the form not yet saved: a share of his is covered when it is left out, or when one form of his list's path stands
  * in the files for all shares or in its own. None while he isn't hired (no list).
  */
@@ -448,7 +448,7 @@ function render() {
     [T('mode.run'), T('help.run')],
     [T('help.rules'), T('help.rules_text')],
     [T('help.unraid'), T('help.unraid_text')],
-    [T('help.emby'), T('help.emby_text')],
+    [T('help.jack'), T('help.jack_text')],
     [T('help.schedule'), T('help.schedule_text')],
   ]));
   if (!state) return;
@@ -474,7 +474,7 @@ function hints() {
   // EmbyCache's list in her rules before EmbyCache's first run: her real runs wait for it (said here, never notified)
   if (j.pending) out.push(el('p', 'callout', T('notice.jack_pending')));
   if ((j.uncovered || []).length) {
-    const p = el('p', 'callout warn', T('notice.emby_list', { shares: j.uncovered.join(', '), file: j.list || '' }) + ' ');
+    const p = el('p', 'callout warn', T('notice.jack_list', { shares: j.uncovered.join(', '), file: j.list || '' }) + ' ');
     p.appendChild(button(T('setup_open'), 'small', () => Office.go(`#/${ID}/setup`)));
     out.push(p);
   }
@@ -789,7 +789,7 @@ async function chooseRun() {
   const covered = !(jack().uncovered || []).length;
   const box = radioList('mo-mode', [
     ['dry', T('mode.dry'), T('mode_hint.dry')],
-    ['run', T('mode.run'), !off ? T('mode_hint.run_mover') : tuning ? T('mode_hint.run_tuning') : !covered ? T('mode_hint.run_emby') : T('mode_hint.run'), !off || tuning || !covered],
+    ['run', T('mode.run'), !off ? T('mode_hint.run_mover') : tuning ? T('mode_hint.run_tuning') : !covered ? T('mode_hint.run_jack') : T('mode_hint.run'), !off || tuning || !covered],
   ], mode, (m) => { mode = m; });
   const err = errorLine();
   box.appendChild(err);
@@ -967,7 +967,7 @@ function jackNotice() {
     return p;
   }
   const open = jackUncoveredIn(form);
-  return open.length ? el('p', 'callout warn', T('errors.moverelli_emby_list', { shares: open.join(', ') })) : null;
+  return open.length ? el('p', 'callout warn', T('errors.moverelli_jack_list', { shares: open.join(', ') })) : null;
 }
 
 function input(value, onchange, cls) {
@@ -1038,7 +1038,7 @@ function excludeFields(obj, scope) {
     field(T('setup.patterns'), textarea(obj.patterns, (v) => { obj.patterns = linesOf(v); }, 4), T('setup.patterns_hint')));
   const list = jack().list;
   if (list && !obj.files.includes(list)) {
-    const b = button(T('setup.add_emby'), 'small plain', () => { obj.files = [...obj.files, list]; files.value = obj.files.join('\n'); b.remove(); setupChanged(); });
+    const b = button(T('setup.add_jack'), 'small plain', () => { obj.files = [...obj.files, list]; files.value = obj.files.join('\n'); b.remove(); setupChanged(); });
     b.title = list;
     b.dataset.scope = scope;
     box.appendChild(b);
@@ -1525,7 +1525,7 @@ function importPreview(p, folder) {
   kv.append(el('dt', '', T('import.folder')), el('dd', 'mono', p.folder));
   box.appendChild(kv);
   (p.blocked || []).forEach((b) => box.appendChild(el('p', 'callout warn', importBlockText(b))));
-  if ((p.jack_uncovered || []).length) box.appendChild(el('p', 'callout warn', T('errors.moverelli_emby_list', { shares: p.jack_uncovered.join(', ') })));
+  if ((p.jack_uncovered || []).length) box.appendChild(el('p', 'callout warn', T('errors.moverelli_jack_list', { shares: p.jack_uncovered.join(', ') })));
   if (p.configured) {
     box.appendChild(el('p', 'callout', T('import.replaces') + (p.gone.length ? ' ' + T('import.gone', { shares: p.gone.join(', ') }) : '')));
   }
@@ -1745,7 +1745,7 @@ Office.places(ID, [
   ...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...[['list', 'help.list'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run']].map(([key, text]) => ({ kind: 'help', key, text })),
-  ...['what', 'rules', 'unraid', 'emby', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['what', 'rules', 'unraid', 'jack', 'schedule'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['setup.global', 'setup.help_global'], ['setup.files', 'setup.help_files'], ['setup.shares', 'setup.help_shares'], ['setup.save', 'setup.help_save'],
     ['import.title', 'import.help']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),

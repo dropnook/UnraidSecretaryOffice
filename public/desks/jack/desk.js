@@ -2,12 +2,12 @@
    tools that ship with the office: EmbyCache (what people are about to watch
    onto the fast pool, back to its disk once watched) and the media gather
    (the files of a film or series folder together on one array disk). He sets
-   them up (#/emby/setup), runs and schedules them and shows what they do.
-   The agent part lives in agent/desks/emby.php. */
+   them up (#/jack/setup), runs and schedules them and shows what they do.
+   The agent part lives in agent/desks/jack.php. */
 (() => {
 'use strict';
 
-const ID = 'emby';
+const ID = 'jack';
 const T = Office.scope(ID);
 /** Ms. Moverelli's texts: the night run's card is hers and reads the same on his page (core.js Office.nightCard) */
 const MT = Office.scope('moverelli');
@@ -26,14 +26,14 @@ let view = null;
 const POOL_PAGE = 30;                                  // rows of «Ready on the pool» shown at first (and per «Show more»)
 let poolShown = POOL_PAGE;
 // the filter bars (core.js Office.filterBar, CLAUDE.md «Tiles»): built once per visit (mount()), held across renders —
-// «Ready on the pool» (words, the library select kept as emby.pool.pick, «only new») and «Recent runs» (words; the tile
+// «Ready on the pool» (words, the library select kept as jack.pool.pick, «only new») and «Recent runs» (words; the tile
 // «Last run» filters it — the switcher's, never kept)
 let poolBar = null;
 let runsBar = null;
 let dom = {};                 // the lists of the last drawing their bars redraw in place (runs, poolBox)
 let page = 'main';            // main | setup
 let outTimer = null;
-// the live panel while EmbyCache runs for real (agent/desks/emby-progress.php): the part «progress», asked every 10 s
+// the live panel while EmbyCache runs for real (agent/desks/jack-progress.php): the part «progress», asked every 10 s
 // while such a run goes (never otherwise); his state carries the same as of its look
 const PROGRESS_POLL = 10000;
 let progress = null;          // the panel's numbers (bars, bracket, the file being copied) — null: still planning
@@ -42,7 +42,7 @@ let stopping = null;          // «Stop after this file» asked (why: user, move
 let progTimer = null;
 let progAsked = 0;            // when the part was last asked for (this browser's clock — never compared with the server's)
 let progBox = null;           // the panel on the page, redrawn in place
-let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: embyNightNow()) — her card's phases on his page
+let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: jackNightNow()) — her card's phases on his page
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
 
 // ------------------------------------------------------------------ loading
@@ -144,7 +144,7 @@ function section(title, sub, ...extra) {
 }
 const running = () => !!(state && (state.jobs.embycache.running || state.jobs.gather.running));
 
-/** How a share suits EmbyCache with this pool (same rules as embyShareFit() in the agent) */
+/** How a share suits EmbyCache with this pool (same rules as jackShareFit() in the agent) */
 function shareFit(info, pool) {
   if (!info) return 'unknown';
   const use = (info.use || '').toLowerCase();
@@ -168,7 +168,7 @@ function schedText(sc) {
 /** The night run with Ms. Moverelli (agent/lib/nightrun.php): one schedule for both — hers; null while she isn't hired */
 const night = () => (state && state.night) || null;
 /** EmbyCache's schedule as it runs: the night run's while Ms. Moverelli is hired, else its own line */
-const embySched = () => (night() ? night().schedule : (state.schedules || {}).embycache) || {};
+const jackSched = () => (night() ? night().schedule : (state.schedules || {}).embycache) || {};
 /** Tonight's plan in his words, pure: what he gives back, what of the downloads goes, what he fetches, what waits */
 function tonightText(p) {
   if (!p || !p.measured) return T('night.unmeasured');
@@ -208,7 +208,7 @@ function errorLine() {
 function showError(box, error) {
   box.innerHTML = '';
   box.appendChild(el('div', '', Office.errorText(error, ID)));
-  if (error && error.key === 'emby_watching') {
+  if (error && error.key === 'jack_watching') {
     box.append(watchList((error.params || {}).who), el('p', '', T('watch.no_override')), el('p', '', endSessionText('watch.end_then_start')));
   }
   box.style.display = '';
@@ -223,7 +223,7 @@ function runSummary(r) {
       + (Number(r.times) > 1 ? ' · ' + T('refused_times', { n: Number(r.times) }) : '');
   }
   if (r.result === 'skipped') {
-    return T(r.why === 'emby_mover_running' ? 'skipped_mover_summary' : 'gather_skipped_summary', { min: Math.round((r.waited || 0) / 60) }) + whoText(r.who);
+    return T(r.why === 'jack_mover_running' ? 'skipped_mover_summary' : 'gather_skipped_summary', { min: Math.round((r.waited || 0) / 60) }) + whoText(r.who);
   }
   if (r.tool === 'gather') {
     if (s.result === 'failed') return s.message || T('result.failed');
@@ -242,9 +242,9 @@ function runSummary(r) {
   if (s.result === 'config') return s.message || T('result.config');
   if (s.mode === 'report' || r.mode === 'report') return s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '';
   const c = s.cleanup || {}; const f = s.fill || {};
-  // stopped after the file it was on: Unraid's mover started (emby-mover.php), or asked on his panel («Stop after this file»)
+  // stopped after the file it was on: Unraid's mover started (jack-mover.php), or asked on his panel («Stop after this file»)
   const stopped = s.result === 'stopped' ? T(r.why === 'user' ? 'stopped_user_summary' : 'stopped_mover_summary') + ' · ' : '';
-  // everything back to the array when he was let go (emby-letgo.php)
+  // everything back to the array when he was let go (jack-letgo.php)
   if ((s.mode || r.mode) === 'release') return stopped + T('release_summary', { back: c.done || 0, planned: c.planned || 0, origin: c.to_origin || 0, left: s.protected || 0 });
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
@@ -252,17 +252,17 @@ function runSummary(r) {
     fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) });
 }
 
-/** Unraid's mover as the agent sees it (emby-mover.php) — an older agent's state has none: nothing refused, nothing said */
+/** Unraid's mover as the agent sees it (jack-mover.php) — an older agent's state has none: nothing refused, nothing said */
 const mover = () => (state && state.mover) || null;
 const moverOk = () => { const m = mover(); return !m || !!m.ok; };
 /** Why real runs don't go now, in words (the agent's refusal) */
 function moverWhy(m) {
-  // Ms. Moverelli's ini without his list: her shares named (emby-mover.php embyMoverelliUncovered())
+  // Ms. Moverelli's ini without his list: her shares named (jack-mover.php jackMoverelliUncovered())
   const mo = m.why === 'moverelli_list' ? (m.moverelli || {}) : null;
   const schedule = m.why === 'tuning_schedule' ? (m.tuning || {}).cron : m.schedule;
   const t = m.tuning || {};
   const name = t.name || 'Mover Tuning';      // the other mover found (an older agent: Mover Tuning)
-  return Office.errorText({ key: 'emby_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '', ...(m.why === 'tuning_schedule' ? { name } : {}) } }, ID);
+  return Office.errorText({ key: 'jack_mover_' + m.why, params: { file: (mo && mo.file) || '', shares: ((mo && mo.uncovered) || []).join(', '), schedule: schedule || '', ...(m.why === 'tuning_schedule' ? { name } : {}) } }, ID);
 }
 
 /**
@@ -303,7 +303,7 @@ function moverNotice() {
 
 /**
  * «Switch the mover schedule off…»: what it does — Unraid's own setting ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ →
- * ⟦Disabled⟧, ⟦Move now⟧ by hand stays possible, a run of his stops when the mover starts — then emby.mover_off
+ * ⟦Disabled⟧, ⟦Move now⟧ by hand stays possible, a run of his stops when the mover starts — then jack.mover_off
  * {confirm: true}; a refusal stays readable in the dialog.
  */
 async function moverOffDialog() {
@@ -357,7 +357,7 @@ function bubbleText() {
   if (!state.gather.ready) return T('bubble.gather_first');
   const c = state.cache;
   const parts = [c.files ? T('bubble.on_pool', { n: c.files, size: fmt.size(c.bytes) }) : T('bubble.nothing_yet')];
-  if (!embySched().enabled) parts.push(T('bubble.no_schedule'));
+  if (!jackSched().enabled) parts.push(T('bubble.no_schedule'));
   return parts.join(' ');
 }
 
@@ -368,13 +368,13 @@ function bubbleText() {
  * chosen, every section in the row's order. The start tile is «Pool» (what one comes to him for: what lies ready).
  * «Last run» is a filter tile: «Recent runs» with only EmbyCache's (never kept). Hints stay above the row at every
  * click (the callouts, the run's callout, the live panel, the line «How I work» with the scope), the tools' versions and
- * the credit under all. Two pages as tabs: «Overview» and «Set up» (#/emby/setup).
+ * the credit under all. Two pages as tabs: «Overview» and «Set up» (#/jack/setup).
  */
 const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
 /** Set up (or not known yet — the search's places): the pool and the shares have tiles only then */
 const configured = () => !state || !!state.configured;
 const sw = Office.sections({
-  id: ID,                          // kept as emby.tile, routes #/emby/<tile>
+  id: ID,                          // kept as jack.tile, routes #/jack/<tile>
   grid: 'stats jo-tiles',
   default: 'pool',
   tiles: () => [
@@ -525,7 +525,7 @@ function resultBox() {
 /**
  * «Last run» from his list of runs (2026-10-11 — never from status.json, which every start removes and a report writes
  * over): the newest real run (run, release) is the value, else the newest of any mode; a newer report or dry run only
- * named in the sub line. Refused and skipped starts didn't run. The agent's embyLastRun() picks the same. Pure (no DOM).
+ * named in the sub line. Refused and skipped starts didn't run. The agent's jackLastRun() picks the same. Pure (no DOM).
  * Returns {main, newer}: null each when there is none.
  */
 function lastRuns(history) {
@@ -566,7 +566,7 @@ function lastRunTile(a) {
 
 /** The two schedules in one tile: «2 active · next 04:30» / «off»; its section: their list */
 function plansTile(a) {
-  const sc = { ...(state.schedules || {}), embycache: embySched() };
+  const sc = { ...(state.schedules || {}), embycache: jackSched() };
   const jobs = ['embycache', 'gather'];
   const on = jobs.filter((j) => sc[j] && sc[j].enabled);
   const nexts = on.map((j) => sc[j].next).filter((n) => typeof n === 'number' && n > 0);
@@ -587,7 +587,7 @@ function plansSection() {
 function plansList() {
   const box = el('div', 'box jo-plans');
   ['embycache', 'gather'].forEach((job) => {
-    const sc = job === 'embycache' ? embySched() : (state.schedules || {})[job] || {};
+    const sc = job === 'embycache' ? jackSched() : (state.schedules || {})[job] || {};
     // EmbyCache runs in the night run with Ms. Moverelli: one time for both, set on her page
     const together = job === 'embycache' && !!night();
     const row = Office.place(`plan:${job}`, el('div', 'row nocheck'));
@@ -682,7 +682,7 @@ function link(text, onclick) {
 }
 
 /**
- * The live panel (agent/desks/emby-progress.php): the bracket over everything (done of planned, speed, time left), under
+ * The live panel (agent/desks/jack-progress.php): the bracket over everything (done of planned, speed, time left), under
  * it «back to the array» (when the run moves files back) and a bar per Emby user with the time their part still takes;
  * the file being copied small under its bar, with its reason. Before the first file: «working out what goes where».
  */
@@ -730,7 +730,7 @@ function livePanel() {
  * The night run with Ms. Moverelli on his page (2026-10-13): her run card's head and phases (core.js Office.nightCard —
  * «Joint run», since when, the phase going), under it what is at work — EmbyCache giving back or fetching: his bars per
  * person; she moving: «Ms. Moverelli is moving downloads — <share>, 5 of 12 files» (her status, no look of its own);
- * between their steps: she measures the pool. «Stop after this file» stops the whole night (emby.stop → nightStopAsk()).
+ * between their steps: she measures the pool. «Stop after this file» stops the whole night (jack.stop → nightStopAsk()).
  */
 function nightPanel(now) {
   const n = nightNow;
@@ -757,7 +757,7 @@ function nightPanel(now) {
   return card;
 }
 
-/** «Stop after this file»: EmbyCache ends after the file it is on (emby.stop — the mover guard's stop request, why user) */
+/** «Stop after this file»: EmbyCache ends after the file it is on (jack.stop — the mover guard's stop request, why user) */
 async function stopAsk(b) {
   b.disabled = true;
   const j = await act('stop');
@@ -915,7 +915,7 @@ function gatherSection() {
     s.appendChild(c);
   } else {
     const lastRun = (state.history || []).find((r) => r.tool === 'gather' && r.mode === 'run');
-    if (lastRun && lastRun.result === 'skipped' && lastRun.why === 'emby_mover_running') {
+    if (lastRun && lastRun.result === 'skipped' && lastRun.why === 'jack_mover_running') {
       s.appendChild(el('div', 'callout', T('skipped_mover', { date: fmt.date(lastRun.started) })));
     } else if (lastRun && lastRun.result === 'skipped') {
       const c = el('div', 'callout');
@@ -1373,15 +1373,15 @@ async function scheduleDialog(job) {
   });
 }
 
-// ------------------------------------------------------------------ setup (#/emby/setup)
+// ------------------------------------------------------------------ setup (#/jack/setup)
 /*
  * Everything EmbyCache's own setup asks (embycache_setup.py), plus the choices it leaves to its settings file — on the
  * «Set up» tab as the office's tiles (2026-10-14, the owner: the wizard and the pool simulator went; back to the standard,
  * clear sentences instead of a simulator): a row with a tile per part — the server, the libraries and their shares, the
  * amount (a budget in GB, the hard cap), the people (a budget each, at least MIN_PERSON_GB), «More» (the way back,
  * reading from the array, «Set up from scratch») and, once he is set up, taking over an earlier install. A click shows
- * that part alone under the row, nothing chosen = every part in order; kept as emby.setup.tile, a part's route
- * #/emby/setup/<tile> (the wizard's step routes lead to the tile that holds them now). «Save» under all: it connects a
+ * that part alone under the row, nothing chosen = every part in order; kept as jack.setup.tile, a part's route
+ * #/jack/setup/<tile> (the wizard's step routes lead to the tile that holds them now). «Save» under all: it connects a
  * server first when its address or key is new, and stays grey with the reason beside it while the budget doesn't hold.
  * Saving always writes budget mode. The form lives across every drawing (form): a click draws the page anew from it —
  * the typed values stay, the focus comes back to the control clicked (focusSpot()/focusBack()).
@@ -1522,8 +1522,8 @@ let setupSw = null;
 function setupSwitcher() {
   if (setupSw) return setupSw;
   setupSw = Office.sections({
-    id: `${ID}/setup`,           // the routes #/emby/setup/<tile>
-    key: 'emby.setup.tile',
+    id: `${ID}/setup`,           // the routes #/jack/setup/<tile>
+    key: 'jack.setup.tile',
     bodyId: 'jo-setup-steps',
     grid: 'stats jo-setup-tiles',
     default: '',                 // the start: every part
@@ -1532,7 +1532,7 @@ function setupSwitcher() {
   });
   return setupSw;
 }
-/** A route's part (#/emby/setup/<part>): a tile's id as it is, a wizard step's id as the tile that holds it now */
+/** A route's part (#/jack/setup/<part>): a tile's id as it is, a wizard step's id as the tile that holds it now */
 const tileOf = (sub) => (Object.prototype.hasOwnProperty.call(OLD_STEPS, sub) ? OLD_STEPS[sub] : sub);
 
 /** The tiles for the switcher: setupTileData() as it stands, each with its part as its section (none before his state) */
@@ -1757,7 +1757,7 @@ const connectKey = (inst) => `${String(inst.url || '').trim()}|${inst.api_key ||
 /** A server to connect before saving: an address and a key (typed, or kept on the server), not connected with them yet */
 const needsConnect = (inst) => !!String(inst.url || '').trim().replace(/^https?:\/\/$/, '') && !!(inst.api_key || inst.has_key)
   && (!inst.server || inst.connectedAs !== connectKey(inst));
-/** Connect one server (agent: emby.connect): its libraries and people in the form — or the error said in its box */
+/** Connect one server (agent: jack.connect): its libraries and people in the form — or the error said in its box */
 async function connectInst(inst) {
   const j = await Office.api.post(`${ID}.connect`, { url: inst.url, api_key: inst.api_key });
   if (!j || !j.ok) {
@@ -2123,7 +2123,7 @@ function setupMore() {
     const foot = el('div', 'toolbar jo-reset');
     const again = button(T('reset.button'), 'small plain danger', resetDialog);
     again.disabled = running();
-    if (running()) foot.appendChild(el('span', 'role', T('errors.emby_running')));        // why it is grey
+    if (running()) foot.appendChild(el('span', 'role', T('errors.jack_running')));        // why it is grey
     foot.appendChild(again);
     s5.appendChild(foot);
   }
@@ -2131,7 +2131,7 @@ function setupMore() {
 }
 /**
  * «Set up from scratch …» (the owner: really zero, no copy): what goes and what becomes of the files he placed on the pool
- * (his list's count and size — ordinary cache for Ms. Moverelli afterwards), then emby.reset and the tab from the start
+ * (his list's count and size — ordinary cache for Ms. Moverelli afterwards), then jack.reset and the tab from the start
  */
 function resetDialog() {
   const c = state.cache || {};
@@ -2308,8 +2308,8 @@ function importPreview(p, folders) {
   box.appendChild(el('p', '', T('import.preview_bubble')));
   if (p.embycache) box.appendChild(importPart('EmbyCache', p.embycache.folder, importEmbyCache(p.embycache)));
   if (p.gather) box.appendChild(importPart(T('gather'), p.gather.folder, importGather(p.gather)));
-  if (p.running) box.appendChild(el('p', 'callout warn', T('errors.emby_running')));
-  else if (!p.ready) box.appendChild(el('p', 'callout warn', T('errors.emby_import_blocked')));
+  if (p.running) box.appendChild(el('p', 'callout warn', T('errors.jack_running')));
+  else if (!p.ready) box.appendChild(el('p', 'callout warn', T('errors.jack_import_blocked')));
   else box.appendChild(el('p', 'role', T('import.backup_note')));
   const err = errorLine();
   box.appendChild(err);
@@ -2464,11 +2464,11 @@ async function saveSetup(e) {
 // ------------------------------------------------------------------ desk
 // ------------------------------------------------------------------ let go
 /**
- * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo; agent/desks/emby-letgo.php). He looks
- * first what letting him go does here (emby.letgo_look): both schedules go off — always, no tick; a run that is going
+ * His part of the let-go dialog (core.js Office.fireDialog → the desk's letGo; agent/desks/jack-letgo.php). He looks
+ * first what letting him go does here (jack.letgo_look): both schedules go off — always, no tick; a run that is going
  * finishes; one tick «Also bring the prepared films back to the array», off by default and only when that can be done
  * now (something on the pool, no run going, nobody watching Emby); without it the films stay on the pool. «Let go» —
- * while he is still hired — sends emby.letgo {confirm, release} once; he is let go whatever came of it, then a dialog
+ * while he is still hired — sends jack.letgo {confirm, release} once; he is let go whatever came of it, then a dialog
  * says what he did.
  */
 function letGoPart(box) {
@@ -2544,12 +2544,12 @@ function letGoView(j) {
   if (j.waiting && sch.gather) lines.push(['role', T('letgo.waiting')]);
   const rel = j.release || {};
   const pool = j.pool || {};
-  const tick = !['emby_not_configured', 'emby_letgo_nothing'].includes(rel.why);
-  if (rel.why === 'emby_letgo_nothing') lines.push(['role', T('letgo.nothing')]);
+  const tick = !['jack_not_configured', 'jack_letgo_nothing'].includes(rel.why);
+  if (rel.why === 'jack_letgo_nothing') lines.push(['role', T('letgo.nothing')]);
   const more = [];
   if (tick) {
-    if (rel.why === 'emby_running') more.push(['callout warn', T('letgo.release_busy')]);
-    else if (rel.why === 'emby_release_watching') more.push(['callout warn', T('letgo.watching')], ['who', (rel.params || {}).who || []], ['role', endSessionText('letgo.watch_then')]);
+    if (rel.why === 'jack_running') more.push(['callout warn', T('letgo.release_busy')]);
+    else if (rel.why === 'jack_release_watching') more.push(['callout warn', T('letgo.watching')], ['who', (rel.params || {}).who || []], ['role', endSessionText('letgo.watch_then')]);
     else if (rel.why) more.push(['callout warn', Office.errorText({ key: rel.why, params: rel.params || {} }, ID)]);
     more.push(['role', T('letgo.tick_off')]);
   }
@@ -2570,7 +2570,7 @@ function letGoDoneLines(r) {
   if (rel && rel.started) out.push(['', T('letgo.done_release', { files: nOf('files', rel.files), size: fmt.size(rel.bytes || 0) })]);
   else if (rel) {
     out.push(['callout warn', T('letgo.done_release_not', { error: Office.errorText(rel.error || { key: 'internal' }, ID) })]);
-    if (rel.error && rel.error.key === 'emby_release_watching') out.push(['who', rel.error.params.who || []]);
+    if (rel.error && rel.error.key === 'jack_release_watching') out.push(['who', rel.error.params.who || []]);
   }
   return out;
 }
@@ -2583,7 +2583,7 @@ function letGoDone(r) {
 }
 
 /**
- * Hired again: what he switched off when he was let go — said once (the agent's note, emby.letgo_seen as soon as it is
+ * Hired again: what he switched off when he was let go — said once (the agent's note, jack.letgo_seen as soon as it is
  * shown; it stays for this visit), until those schedules are on again; a button for each.
  */
 let letGoNote = null;
@@ -2606,24 +2606,24 @@ function letGoNotice() {
 
 /**
  * The two filter bars, built once per visit (CLAUDE.md «Tiles»): the words, «only new» and the tile never kept — a new
- * visit starts with everything; the pool's library is a choice, kept as emby.pool.pick (until 2026-10-11 emby.pool_lib:
+ * visit starts with everything; the pool's library is a choice, kept as jack.pool.pick (until 2026-10-11 jack.pool_lib:
  * taken over once).
  */
 function bars() {
   if (!poolBar) {
-    const old = Office.store('emby.pool_lib');
+    const old = Office.store('jack.pool_lib');
     if (old) {
-      if (!Office.store('emby.pool.pick')) Office.store('emby.pool.pick', old);
-      Office.store('emby.pool_lib', null);
+      if (!Office.store('jack.pool.pick')) Office.store('jack.pool.pick', old);
+      Office.store('jack.pool_lib', null);
     }
-    poolBar = Office.filterBar({ key: 'emby.pool', label: T('pool.filter_label'), only: { text: T('pool.only_new'), hint: T('pool.only_new_hint') },
+    poolBar = Office.filterBar({ key: 'jack.pool', label: T('pool.filter_label'), only: { text: T('pool.only_new'), hint: T('pool.only_new_hint') },
       select: { label: T('pool.lib_label'), all: T('pool.lib_all') },
       onChange: (f, what) => {
         if (what !== 'gone') poolShown = POOL_PAGE;
         if (dom.poolBox && dom.poolBox.isConnected) fillPool(dom.poolBox);
       } });
   }
-  if (!runsBar) runsBar = Office.filterBar({ key: 'emby.runs', label: T('history.filter_label'), onChange: () => { if (dom.runs && dom.runs.isConnected) fillRuns(dom.runs); } });
+  if (!runsBar) runsBar = Office.filterBar({ key: 'jack.runs', label: T('history.filter_label'), onChange: () => { if (dom.runs && dom.runs.isConnected) fillRuns(dom.runs); } });
   poolBar.reset();
   runsBar.reset();
   poolShown = POOL_PAGE;
@@ -2635,8 +2635,8 @@ Office.desk({
     view = root;
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : 'main';
     if (page === 'setup') {
-      // #/emby/setup/<tile> (the search, a part's place; a wizard step's old route: the tile that holds it now) picks that
-      // part exactly like a click, the address keeps its page; else the part chosen last (emby.setup.tile), none = all
+      // #/jack/setup/<tile> (the search, a part's place; a wizard step's old route: the tile that holds it now) picks that
+      // part exactly like a click, the address keeps its page; else the part chosen last (jack.setup.tile), none = all
       if (setupSwitcher().mount(tileOf(String(sub || '').split('/').slice(1).join('/')))) Office.subroute('setup');
       else if (String(sub || '').includes('/')) Office.subroute('setup');
       if (!state) await load(false);
@@ -2650,9 +2650,9 @@ Office.desk({
       return;
     }
     bars();
-    // his tiles as places (CLAUDE.md «Tiles»): #/emby/<tile> (plans, pool, runs, shares, gather) picks it exactly like a
-    // click and the address is his page's again; the Team Lead's findings #/emby/schedule, #/emby/gather-schedule land
-    // in «Schedules» with the row revealed; #/emby/history (the search's runs) shows the whole page — every run
+    // his tiles as places (CLAUDE.md «Tiles»): #/jack/<tile> (plans, pool, runs, shares, gather) picks it exactly like a
+    // click and the address is his page's again; the Team Lead's findings #/jack/schedule, #/jack/gather-schedule land
+    // in «Schedules» with the row revealed; #/jack/history (the search's runs) shows the whole page — every run
     const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];
     if (plan) sw.mount('plans');
     else if (sub === 'history') {
@@ -2697,7 +2697,7 @@ Office.desk({
 });
 
 // what his state holds for the search (core.js «items»): his Emby servers (the line «How I work» names them), the shares
-// of the chosen libraries (#/emby/shares), the runs his history shows (#/emby/history: the whole page, every run)
+// of the chosen libraries (#/jack/shares), the runs his history shows (#/jack/history: the whole page, every run)
 Office.placesFrom(ID, (s, part) => {
   if (part) return [];                       // the part «progress» (the live panel) holds nothing to find
   const out = [];
@@ -2713,20 +2713,20 @@ Office.placesFrom(ID, (s, part) => {
 });
 
 // his places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys): the
-// main page, then the setup's (#/emby/setup)
-const SETUP = { route: '#/emby/setup', crumb: 'setup_open' };
+// main page, then the setup's (#/jack/setup)
+const SETUP = { route: '#/jack/setup', crumb: 'setup_open' };
 // (the line «How I work», the shares and what lies on the pool only once he is set up — core.js shown; not known yet:
 // listed); each section by the route of its tile (a section stands under the row only while its tile is chosen)
 Office.places(ID, [
   { kind: 'section', key: 'overview', shown: configured },
-  { kind: 'section', key: 'shares', route: '#/emby/shares', shown: configured },
-  { kind: 'section', key: 'gather', route: '#/emby/gather' },
-  { kind: 'section', key: 'history', route: '#/emby/history' },
-  { kind: 'section', key: 'on_pool', route: '#/emby/pool', shown: configured },
+  { kind: 'section', key: 'shares', route: '#/jack/shares', shown: configured },
+  { kind: 'section', key: 'gather', route: '#/jack/gather' },
+  { kind: 'section', key: 'history', route: '#/jack/history' },
+  { kind: 'section', key: 'on_pool', route: '#/jack/pool', shown: configured },
   // his tiles (CLAUDE.md «Tiles», the switcher's places): each sets its choice as a click would
   ...sw.places().map((p) => (['tile.pool', 'tile.shares'].includes(p.anchor) ? { ...p, shown: configured } : p)),
   { kind: 'section', key: 'tools' },
-  // his setup's parts by their route (#/emby/setup/<tile> picks it; its section head is the place) and their tiles
+  // his setup's parts by their route (#/jack/setup/<tile> picks it; its section head is the place) and their tiles
   ...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
@@ -2738,7 +2738,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
+  globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
