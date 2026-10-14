@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.49 - 2026-10-15
+# unraid-backup - setup.sh                        Version 2.50 - 2026-10-15
+#   2.50 Refuses to write «0 0 0» local snapshots for what goes to a partner office (cfg_validate, the same as a run)
 #   2.49 UB_DATA and settings.ini must be root's own (ub_data_trusted) - else refused before anything is read or written
 #   2.48 No change here (the engine's version: backup.sh's review fixes)
 #   2.47 A gone partner paired anew is also found by its name when neither its address nor a host key matches (exactly

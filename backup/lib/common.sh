@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.49"
+UB_VERSION="2.50"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -499,6 +499,19 @@ cfg_validate() {
         while IFS= read -r pk; do
             [[ -z "$pk" ]] || partner_id_ok "$pk" || CFG_ERRORS+=( "${k##*|} = '$pk' in $(sec_display "${k%|*}") is invalid (a partner's id: 8 hex digits)" )
         done < <(cfg_list "$k")
+    done
+    # 2.50: what goes to a partner keeps at least one local snapshot - the partner's incremental send needs one snapshot
+    # both sides still have; with «0 0 0» this run's own is gone too and every run would send everything in full
+    local ret d w m
+    for k in "${!CFG[@]}"; do
+        [[ "$k" =~ ^(share\|.+\|partner|vm\|.+\|partner|app\|.+\|partner|general\|partner_place)$ ]] || continue
+        pk=0
+        while IFS= read -r n; do partner_id_ok "$n" && pk=1; done < <(cfg_list "$k")
+        [[ "$pk" == 1 ]] || continue
+        ret="$(unit_retention "$k")"
+        [[ "$ret" =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]] || continue
+        read -r d w m <<<"$ret"
+        (( 10#$d + 10#$w + 10#$m == 0 )) && CFG_ERRORS+=( "retention = '$ret' for $(sec_display "${k%|*}"), which goes to a partner office, is invalid (keep at least one snapshot, e.g. '1 0 0': the partner's incremental send needs one snapshot both sides still have - without it everything would go over in full every time)" )
     done
     unset -f _val
     [[ ${#CFG_ERRORS[@]} -eq 0 ]]
@@ -1290,6 +1303,20 @@ dumps_share_text() { # dumps_share_text <code> <share>
     esac
 }
 share_retention() { cfg "share|$1|retention" "$ZFS_RETENTION"; }
+# unit_retention <a unit's partner key: share|<s>|partner, vm|<v>|partner, app|<a>|partner, general|partner_place>
+#   -> the «d w m» its local snapshots keep (2.50, cfg_validate): a VM's own, else the share it lies in (an app's first
+#   folder's, the backup place's), else [zfs] retention - read from settings.ini, so it works before apply_settings
+unit_retention() {
+    local k="$1" n s="" f
+    case "$k" in
+        "general|partner_place") s="$(cfg "general|dumps_share")" ;;
+        "share|"*) s="${k#share|}"; s="${s%|partner}" ;;
+        "vm|"*) n="${k#vm|}"; n="${n%|partner}"
+                [[ -n "$(cfg "vm|$n|retention")" ]] && { cfg "vm|$n|retention"; return 0; } ;;
+        "app|"*) n="${k#app|}"; n="${n%|partner}"; f="$(cfg_list "app|$n|folder")"; f="${f%%$'\n'*}"; s="${f%%/*}" ;;
+    esac
+    if [[ -n "$s" ]]; then cfg "share|$s|retention" "$(cfg "zfs|retention" "7 4 6")"; else cfg "zfs|retention" "7 4 6"; fi
+}
 share_method()    { # the method that really applies
     local s="$1"
     inv_has_share "$s" || { echo "none"; return; }

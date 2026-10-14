@@ -269,6 +269,7 @@
   "errors.setup_running": "La configuración está ocupada ahora mismo — inténtalo de nuevo en un momento.",
   "errors.setup_bad_decisions": "Estos ajustes no se pueden aplicar ({detail}). Vuelve a leer el servidor e inténtalo de nuevo.",
   "errors.setup_plan_old": "Los ajustes se escribieron después de la última vez que miré el servidor — vuelvo a mirar. Revisa luego la lista y aplica otra vez.",
+  "errors.setup_zero_partner": "{name} va a una secretaría asociada, así que de sus instantáneas locales debe quedar al menos una (por ejemplo «1 0 0» en vez de «0 0 0»): un socio solo recibe lo que cambió desde una instantánea que ambos lados aún tienen — sin ella, todo pasaría entero cada vez.",
   "setup.replan": "Replanificar",
   "setup.measure": "Medir tamaños",
   "setup.measure_hint": "Mide con du los recursos compartidos sin dataset ZFS (hasta 2 min cada uno) — despierta los discos del array en reposo.",

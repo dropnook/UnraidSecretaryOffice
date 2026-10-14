@@ -269,6 +269,7 @@
   "errors.setup_running": "La configurazione è occupata in questo momento — riprova tra un attimo.",
   "errors.setup_bad_decisions": "Queste impostazioni non si possono applicare ({detail}). Rileggi il server e riprova.",
   "errors.setup_plan_old": "Le impostazioni sono state scritte dopo l'ultima volta che ho guardato il server — guardo di nuovo. Poi controlla l'elenco e applica ancora una volta.",
+  "errors.setup_zero_partner": "{name} va a una segreteria partner, quindi dei suoi snapshot locali deve restarne almeno uno (per esempio «1 0 0» invece di «0 0 0»): un partner riceve solo ciò che è cambiato da uno snapshot che entrambe le parti hanno ancora — senza, ogni volta passerebbe tutto per intero.",
   "setup.replan": "Ripianifica",
   "setup.measure": "Misura le dimensioni",
   "setup.measure_hint": "Misura con du le condivisioni senza dataset ZFS (fino a 2 min ciascuna) — sveglia i dischi dell'array in standby.",
