@@ -210,11 +210,12 @@ function segWidths(values, min) {
 
 /**
  * The picture's numbers as the page draws them, pure (tests/run.php under node): pic = night.json's `picture`, px = the
- * bar's width in pixels (for the 10 px minimum), done = the run ended. {measured, pool, x (0…1, null: no limit), before,
+ * bar's width in pixels (for the 10 px minimum), done = the run ended, destPx = the target bar's width (its used part keeps
+ * the 10 px too). {measured, pool, x (0…1, null: no limit), before,
  * after, forecast (the after bar is a forecast), dest {to, size, used, measured, w}}; a bar: {size, used, segs [{k, bytes,
  * w}]} — its free part is what the size leaves (the segments sum to the bar). Not measured (no pool numbers): measured false.
  */
-function pictureBars(pic, px, done) {
+function pictureBars(pic, px, done, destPx) {
   const phases = (pic && typeof pic.phases === 'object' && pic.phases) || {};
   const ok = (b) => !!(b && Number(b.size) > 0);
   const first = ['check', 'free', 'recheck', 'fill', 'done'].map((ph) => phases[ph] && phases[ph].before).find(ok) || null;
@@ -223,9 +224,9 @@ function pictureBars(pic, px, done) {
   const d = pic && pic.dest && typeof pic.dest === 'object' ? pic.dest : null;
   const dm = !!d && d.size != null && d.used != null && Number(d.size) > 0;
   const dest = d ? { to: String(d.to || 'array'), size: dm ? Number(d.size) : null, used: dm ? Number(d.used) : null, measured: dm,
-    w: dm ? Math.max(0, Math.min(1, Number(d.used) / Number(d.size))) : null } : null;
+    w: dm ? segWidths([Math.min(Number(d.used), Number(d.size)), Math.max(0, Number(d.size) - Number(d.used))], PIC_MIN_PX / Math.max(40, Number(destPx) || 200))[0] : null } : null;
   if (!first) return { measured: false, pool: (pic && pic.pool) || '', x: null, before: null, after: null, forecast: false, dest };
-  const min = PIC_MIN_PX / Math.max(200, Number(px) || 800);
+  const min = PIC_MIN_PX / Math.max(40, Number(px) || 800);
   const bar = (b) => {
     const size = Number(b.size);
     const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: Math.max(0, Number(b.jack) || 0) };
@@ -290,7 +291,7 @@ function nightPicture(n) {
   }
   function draw() {
     const width = rowsBox.clientWidth || (typeof window !== 'undefined' ? Math.min(900, window.innerWidth - 60) : 800);
-    data = pictureBars(pic, width, !n.running);
+    data = pictureBars(pic, width, !n.running, side.clientWidth || 200);
     rowsBox.innerHTML = '';
     side.innerHTML = '';
     legend.innerHTML = '';
@@ -314,12 +315,19 @@ function nightPicture(n) {
       side.appendChild(el('div', 'mo-pic-label', d.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: d.to })));
       const dbar = el('div', 'mo-pic-bar mo-pic-target');
       if (d.measured) {
-        const used = el('i', 'mo-pic-seg mo-seg-used');
+        const used = el('i', 'mo-pic-seg mo-seg-dest');
         used.style.width = `${(d.w * 100).toFixed(2)}%`;
         dbar.appendChild(used);
       }
       side.appendChild(dbar);
-      side.appendChild(el('div', 'mo-pic-sub', d.measured ? T('pic.dest_used', { used: fmt.size(d.used), size: fmt.size(d.size) }) : T('pic.unmeasured')));
+      const words = d.measured ? T('pic.dest_used', { used: fmt.size(d.used), size: fmt.size(d.size) }) : T('pic.unmeasured');
+      side.appendChild(el('div', 'mo-pic-sub', words));
+      // in the legend too, in its own colour
+      if (data.measured) {
+        const it = el('span', 'mo-pic-key');
+        it.append(el('i', 'mo-pic-seg mo-seg-dest'), el('span', '', `${d.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: d.to })} ${words}`));
+        legend.appendChild(it);
+      }
     }
     say(lastFile());
   }

@@ -65,7 +65,7 @@
 .mo-seg-others{background:var(--ink2)}
 .mo-seg-jack{background:var(--accent)}
 .mo-seg-free{background:var(--surface)}
-.mo-seg-used{background:var(--muted)}
+.mo-seg-dest{background:var(--good)}     /* the array / second pool: its own colour, apart from the pool's parts */
 .mo-pic-x{position:absolute; top:-3px; bottom:-3px; border-left:2px solid var(--danger)}
 .mo-pic-x > span{position:absolute; top:-15px; left:3px; font-size:11px; line-height:1; white-space:nowrap; color:var(--danger)}
 .mo-pic-x.flip > span{left:auto; right:3px}

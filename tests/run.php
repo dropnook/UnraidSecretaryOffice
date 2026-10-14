@@ -33003,6 +33003,14 @@ out.run = [d.measured, d.x, d.forecast, d.before.segs.map((s) => s.bytes / G), d
 // a small part on a narrow bar keeps its 10 px; the free part is what the size leaves (never a stale «free»)
 const tiny = m.pictureBars({ ...pic, phases: { check: { before: { ...B(300, 1, 400, 999), others: 0.5 * G } } } }, 375, false);
 out.tiny = [tiny.before.segs[1].w >= 10 / 375 - 1e-12, tiny.before.segs[3].bytes / G, Math.round(sum(tiny.before) * 1e9) / 1e9, tiny.after];
+// every part with something in it keeps 10 px, only a real 0 goes: a tiny Jack Emby and a tiny free part beside a big one;
+// the target's used part too (tiny, and nothing used)
+const big = m.pictureBars({ ...pic, phases: { check: { before: { size: 1000 * G, fixed: 999 * G, others: 0, jack: 0.3 * G, free: 0 } } },
+  dest: { to: 'array', size: 8000 * G, used: 1 * G } }, 375, false, 160);
+const bw = big.before.segs.map((s) => s.w);
+const empty = m.pictureBars({ ...pic, dest: { to: 'array', size: 8000 * G, used: 0 } }, 800, false, 160);
+out.min = [bw[0] < 1, bw[1], bw[2] >= 10 / 375 - 1e-12, bw[3] >= 10 / 375 - 1e-12, Math.round(bw.reduce((a, x) => a + x, 0) * 1e9) / 1e9,
+  big.dest.w >= 10 / 160 - 1e-12, empty.dest.w];
 const done = m.pictureBars({ ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } }, 800, true);
 out.done = [done.forecast, done.after.segs.map((s) => s.bytes / G)];
 // nothing measured: no pool numbers (the check's before null), the target without size; no limit: no X
@@ -33035,15 +33043,18 @@ JS);
         [true, 0.8, true, [300, 150, 400, 150], [300, 80, 410, 210], 1, 1, ['to' => 'array', 'size' => 8000 * (1 << 30), 'used' => 2000 * (1 << 30), 'measured' => true, 'w' => 0.25]],
         $j['run'] ?? null);
     same('night picture: a tiny part keeps 10 px on a phone\'s bar, free = what the size leaves, still 1; no forecast — no after bar', [true, 299.5, 1, null], $j['tiny'] ?? null);
+    same('night picture: 10 px for every part with something in it — a tiny Jack Emby and the free 0.7 GB beside 999 GB, the array\'s 1 GB used; a real 0 goes',
+        [true, 0, true, true, 1, true, 0], $j['min'] ?? null);
     same('night picture: once done — the pool as measured at the end, no forecast', [false, [300, 90, 410, 200]], $j['done'] ?? null);
     same('night picture: nothing measured — no bars, no X, the target «not measured»', [false, null, ['to' => 'array', 'size' => null, 'used' => null, 'measured' => false, 'w' => null]],
         $j['none'] ?? null);
     same('night picture: the files\' way — Jack Emby from the array onto the pool, his watched off it, hers off it, hers back for a «prefer» share', [true, false, false, true],
         $j['onto'] ?? null);
     $box = $j['box'] ?? [];
-    check('night picture: the box — its title, «before», «after (forecast)», X, the array with its use, the legend before → after, the last file in words',
+    check('night picture: the box — its title, «before», «after (forecast)», X, the array with its use (in the legend too, its own colour), the legend before → after, the last file in words',
         in_array('pic.title_run', $box, true) && in_array('pic.before', $box, true) && in_array('pic.forecast', $box, true) && in_array('pic.x {"pct":80}', $box, true)
         && in_array('pic.array', $box, true) && in_array('pic.dest_used {"used":"2000 GiB","size":"8000 GiB"}', $box, true)
+        && in_array('pic.array pic.dest_used {"used":"2000 GiB","size":"8000 GiB"}', $box, true)
         && in_array('pic.seg.others pic.change {"before":"150 GiB","after":"80 GiB"}', $box, true)
         && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $box, true), json_encode($box));
     same('night picture: X on both bars, four parts each and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 9], [$j['x'] ?? null, count($j['segs'] ?? [])]);
