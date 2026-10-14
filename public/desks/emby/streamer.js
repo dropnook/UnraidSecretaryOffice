@@ -1,13 +1,12 @@
-/* Jack the Skipper's pool simulator (2026-10-14, the owner's rules — a mockup: the real night run in agent/lib/nightrun.php,
+/* Jack Streamer's pool simulator (2026-10-14, the owner's rules — a mockup: the real night run in agent/lib/nightrun.php,
    agent/lib/poollevel.php, EmbyCache and Smart Mover is NOT changed by this file). A step of his setup wizard (desk.js):
    play the pool's nights through, by hand or in seeded scenarios, and see whether the rules hold — before the real night
    run is changed. Two parts:
-     1. the pure math (no DOM, no Office — runs under node for tests/run.php): skipperPoolMath() (→ poolLevelMath() in
-        agent/lib/poollevel.php), skipperNight() (→ nightRun()/nightPlan() in agent/lib/nightrun.php and EmbyCache's
+     1. the pure math (no DOM, no Office — runs under node for tests/run.php): streamerPoolMath() (→ poolLevelMath() in
+        agent/lib/poollevel.php), streamerNight() (→ nightRun()/nightPlan() in agent/lib/nightrun.php and EmbyCache's
         give_back/fill in embycache/embycache_run.py), the invented world (people, series, films, downloads), the
-        scenarios, the invariants after every night; the rules of 1.62.1 beside them (v162Math(), the night as built),
-        so a scenario shows the difference.
-     2. the step's page (Office.skipperSim.view()), loaded by desk.js like Mr. Restori's drill.js.
+        scenarios, the invariants after every night.
+     2. the step's page (Office.streamerSim.view()), loaded by desk.js like Mr. Restori's drill.js.
    Units: GB (floats) throughout the math — the PHP target works in bytes (ints); a size of 1 GB here is 2^30 bytes there.
    Every text of the page and the log is a lang key (sim.*) of his desk; the log keeps {k, p} and the page words it. */
 (() => {
@@ -44,7 +43,7 @@ const r1 = (v) => Math.round(v * 10) / 10;
  * PHP target: poolLevelMath() gets `jack_limit`, `others_limit` beside `half`/`half_d` (EMBYCACHE_KEEP_BYTES = H stays,
  * a new EMBYCACHE_FILL_MAX_BYTES = jackLimit; Smart Mover CUSTOMMOVER_FILL_MAX_BYTES = max(0, D − othersLimit)).
  */
-function skipperPoolMath(p) {
+function streamerPoolMath(p) {
   const size = Math.max(0, +p.size || 0);
   const nm = Math.max(0, +p.nm || 0);
   const jack = Math.max(0, +p.jack || 0);
@@ -63,24 +62,6 @@ function skipperPoolMath(p) {
   const othersLimit = halfD + Math.max(0, half - use) / 2;
   return { size, nm, jack, others, used, x, y, k, yb, xb, air: xb - yb, room, half, halfD, jackLimit, othersLimit,
     need: Math.max(0, used - yb), over: used >= xb && xb > 0, never: size > 0 && nm >= yb };
-}
-
-/** 1.62.1's numbers, 1:1 poolLevelMath() (agent/lib/poollevel.php) — for the comparison only */
-function v162Math(p) {
-  const size = Math.max(0, +p.size || 0);
-  const nm = Math.max(0, +p.nm || 0);
-  const jack = Math.max(0, +p.jack || 0);
-  const m = jack + Math.max(0, +p.others || 0);
-  const used = nm + m;
-  const x = +p.x || 0;
-  const y = Math.max(0, x - Math.max(0, +p.offset || 0));
-  const yb = y * size / 100;
-  const room = y > 0 ? Math.max(0, yb - nm) : 0;
-  const half = room * Math.max(0, Math.min(100, p.k == null ? 50 : +p.k)) / 100;
-  const need = y > 0 ? Math.max(0, used - yb) : 0;
-  const back = y > 0 && used > yb ? Math.min(Math.max(0, jack - half), need) : 0;
-  const goes = x > 0 && y > 0 && used * 100 >= x * size ? Math.min(Math.max(0, m - jack - (room - half)), need - back) : 0;
-  return { size, nm, used, yb, xb: x * size / 100, room, half, halfD: room - half, need, back, goes, never: size > 0 && nm >= yb };
 }
 
 // ---------------------------------------------------------------------- the world (invented: no real titles, ever)
@@ -126,12 +107,12 @@ function addEp(w, s, day) {
 }
 
 /**
- * Real data: Jack the Skipper already holds `gb` on the pool — the invented world grows (a new series per person in turn,
+ * Real data: Jack Streamer already holds `gb` on the pool — the invented world grows (a new series per person in turn,
  * watched lately, unwatched episodes) until what he wants is at least that much, so day 0 can hold it
  */
 function growFor(w, gb) {
   if (!(gb > 0)) return;
-  const want = () => sum(wanted(w, { rules: 'new' }).map((e) => e.size));
+  const want = () => sum(candidates(w).map((e) => e.size));
   for (let u = 0; want() < gb * 1.05 && w.series.length < 2000; u = (u + 1) % w.people.length) addSeries(w, u, -Math.floor(w.rnd() * 10), w.cfg.episodes + 2);
 }
 
@@ -142,7 +123,7 @@ function newSide(rules, w) {
   const dl = o != null ? [3, 2, 1].map((d) => ({ day: -d, size: r1(o / 3) })).filter((d) => d.size > 0)
     : [{ day: -2, size: w.cfg.writes }, { day: -1, size: w.cfg.writes }];
   return { rules, pool: new Set(), dl, back: new Map(),
-    up: 0, down: 0, moved: 0, spilled: 0, pingpong: 0, revived: 0, short: 0, warns: 0, warnNow: false, told: 0, log: [], hist: [], inv: invNew(), fetchedTonight: 0, forced: 0 };
+    up: 0, down: 0, moved: 0, spilled: 0, pingpong: 0, revived: 0, short: 0, warns: 0, warnNow: false, warnWhy: null, fillStopped: false, told: 0, log: [], hist: [], inv: invNew(), fetchedTonight: 0, forced: 0 };
 }
 
 const stale = (w, s) => w.day - s.lastSeen >= w.cfg.unwatchedDays;
@@ -151,15 +132,60 @@ const nextIdx = (w, sid) => { const e = w.eps.find((x) => x.sid === sid && !x.wa
 
 /**
  * What Jack wants (his queue, EmbyCache's on-deck list): per person, of each series the next `episodes` unwatched ones,
- * of each film the film. New rules: a series nobody watched for N days is no longer wanted (it may go back). 1.62.1: all.
+ * of each film the film. A series nobody watched for N days is no longer wanted (it may go back).
  */
-function wanted(w, side) {
+function wanted(w) {
+  const budget = budgetOf(w.cfg);
+  const all = candidates(w);
+  if (budget == null) return all;
+  // by budget (EmbyCache's budget_mode / cache_budget — the most he WANTS, reserving nothing), split as its
+  // apply_budget() does: a person's fixed budget first (cfg.userBudgets[person], GB), the rest evenly on the others —
+  // what someone doesn't need flows to the others; then each person's next files while they fit his or her part
+  const per = w.people.map((_, u) => all.filter((e) => e.uid === u)
+    .sort((a, b) => rank(w, a) - rank(w, b) || w.series[b.sid].lastSeen - w.series[a.sid].lastSeen || a.idx - b.idx));
+  const caps = budgetCaps(budget, per.map((l) => sum(l.map((e) => e.size))), w.cfg.userBudgets || []);
+  const out = [];
+  per.forEach((l, u) => {
+    let total = 0;
+    for (const e of l) {
+      if (total + e.size > caps[u] + TOL) continue;          // that one won't fit: a smaller one further on may
+      out.push(e);
+      total += e.size;
+    }
+  });
+  return out;
+}
+/**
+ * A budget split per person (pure — EmbyCache's apply_budget): fixed[u] (GB, > 0) for whoever has one; the rest of the
+ * budget water-filled over the others by what they want (demand[u]): whoever wants less than an even share keeps what
+ * they want, the rest is shared anew. The fixed ones beyond the budget: the others get nothing.
+ */
+function budgetCaps(budget, demand, fixed) {
+  const caps = demand.map((_, u) => (fixed[u] > 0 ? fixed[u] : null));
+  let pool = Math.max(0, budget - sum(caps.filter((x) => x != null)));
+  let open = demand.map((_, u) => u).filter((u) => caps[u] == null);
+  for (let changed = true; changed && open.length;) {
+    changed = false;
+    const share = pool / open.length;
+    for (const u of open) {
+      if (demand[u] < share) { caps[u] = demand[u]; pool -= demand[u]; changed = true; }
+    }
+    open = open.filter((u) => caps[u] == null);
+  }
+  const share = open.length ? pool / open.length : 0;
+  open.forEach((u) => { caps[u] = share; });
+  return caps;
+}
+/** The budget in GB when he goes by budget (cfg.budget > 0), else null (by count: N episodes ahead) */
+const budgetOf = (c) => (c.budget > 0 ? c.budget : null);
+/** What he could want: the unwatched of every series watched lately — by count the next N per series, by budget all of them */
+function candidates(w) {
   const c = w.cfg;
   const out = [];
   for (const s of w.series) {
-    if (side.rules === 'new' && stale(w, s)) continue;
-    const list = w.eps.filter((e) => e.sid === s.id && !e.watched).sort((a, b) => a.idx - b.idx).slice(0, s.film ? 1 : c.episodes);
-    out.push(...list);
+    if (stale(w, s)) continue;
+    const list = w.eps.filter((e) => e.sid === s.id && !e.watched).sort((a, b) => a.idx - b.idx);
+    out.push(...(s.film ? list.slice(0, 1) : budgetOf(c) == null ? list.slice(0, c.episodes) : list));
   }
   return out;
 }
@@ -176,10 +202,10 @@ function measure(w, side) {
 /** The numbers of a side now (the rule set's own math; `want` = his queue's size) */
 function mathOf(w, side) {
   const m = measure(w, side);
-  const want = sum(wanted(w, side).map((e) => e.size));
+  const want = sum(wanted(w).map((e) => e.size));
   const c = w.cfg;
   const p = { size: c.pool, nm: m.nm, jack: m.jack, others: m.others, x: c.x, offset: c.offset, k: c.k, want };
-  return { ...skipperPoolMath(p), want, watched: m.watched, v162: side.rules === 'v162' ? v162Math(p) : null };
+  return { ...streamerPoolMath(p), want, watched: m.watched };
 }
 
 // ---------------------------------------------------------------------- the day
@@ -278,7 +304,7 @@ function herOldest(w, side, amount, why, L) {
  * (never episode 5 without 4). cap(e, m) → '' (fits) | why. Returns what came up.
  */
 function fill(w, side, cap, L) {
-  const queue = wanted(w, side).filter((e) => !side.pool.has(e.id));
+  const queue = wanted(w).filter((e) => !side.pool.has(e.id));
   const per = w.people.map((_, u) => queue.filter((e) => e.uid === u)
     .sort((a, b) => rank(w, a) - rank(w, b) || w.series[b.sid].lastSeen - w.series[a.sid].lastSeen || a.idx - b.idx));
   const stopped = new Set();
@@ -318,7 +344,7 @@ function fill(w, side, cap, L) {
  * PHP target: nightPlan()/nightRun() in agent/lib/nightrun.php; Jack's part EmbyCache's give_back (EMBYCACHE_KEEP_BYTES,
  * a new EMBYCACHE_STALE_DAYS) and fill (a new EMBYCACHE_FILL_MAX_BYTES), hers Smart Mover's fill (CUSTOMMOVER_FILL_MAX_BYTES).
  */
-function skipperNight(w, side, L) {
+function streamerNight(w, side, L) {
   const c = w.cfg;
   side.fetchedTonight = 0;
   for (let round = 1; round <= NIGHT_ROUNDS_MAX; round++) {
@@ -340,9 +366,9 @@ function skipperNight(w, side, L) {
     const backStale = staleList;
     jack -= sum(backStale.map((e) => e.size));
     const aged = sum(side.dl.filter((d) => w.day - d.day >= c.age).map((d) => d.size));
-    const after = skipperPoolMath({ size: c.pool, nm: m.nm, jack, others: m.others - aged, x: c.x, offset: c.offset, k: c.k, want: m.want });
-    // hers only from X (as 1.62.1, the owner 2026-10-14): what they borrowed over their limit first, then — the pool still
-    // over Y — out of their own half too; below X they stay (Jack the Skipper is held back by his fill limit instead)
+    const after = streamerPoolMath({ size: c.pool, nm: m.nm, jack, others: m.others - aged, x: c.x, offset: c.offset, k: c.k, want: m.want });
+    // hers only from X (the owner 2026-10-14): what they borrowed over their limit first, then — the pool still
+    // over Y — out of their own half too; below X they stay (Jack Streamer is held back by his fill limit instead)
     let goes = 0;
     if (m.over) {
       goes = Math.max(0, after.others - after.othersLimit);
@@ -357,13 +383,20 @@ function skipperNight(w, side, L) {
     if (round === 1 && c.nightWrites > 0 && w.nightWrites > 0) { L('night_writes', { size: w.nightWrites }, 'skip'); writeDay(w, side, w.nightWrites, L); }
     if (jackFree + goes + aged <= TOL && round > 1) break;
   }
-  // fill: nothing while over his limit; else up to his limit and never over Y
+  // fill: nothing while a warning stands (the owner, 2026-10-14 — he only frees then: watched and N-day files; it
+  // clears once a night ends without its cause) — target: nightRun()'s fill step, skipped while the last night's
+  // warning stands (night.json); nothing while over his limit; else up to his limit and never over Y
   const m = mathOf(w, side);
-  if (m.jack > m.jackLimit + TOL) {
+  side.fillStopped = !!side.warnNow;
+  if (side.warnNow) {
+    L('fill_warn', {}, 'hold');
+  } else if (m.jack > m.jackLimit + TOL) {
     L('fill_over', { held: r1(m.jack), limit: r1(m.jackLimit) }, 'hold');
   } else {
+    const budget = budgetOf(c);
     side.fetchedTonight = fill(w, side, (e, now) => {
       if (now.jack + e.size > m.jackLimit + TOL) return 'skip_limit';
+      if (budget != null && now.jack + e.size > budget + TOL) return 'skip_budget';      // he holds at most min(budget, fill limit)
       if (now.nm + now.jack + now.others + e.size > m.yb + TOL) return 'skip_y';
       return '';
     }, L);
@@ -371,45 +404,9 @@ function skipperNight(w, side, L) {
   tell(w, side, L);
 }
 
-/** The night as 1.62.1 runs it (nightrun.php + poolLevelMath(), the mockup's V1 without its «only free» switch) */
-function v162Night(w, side, L) {
-  const c = w.cfg;
-  side.fetchedTonight = 0;
-  // EmbyCache's cleanup: what was watched goes back first (the mockup measured after it, as here)
-  measure(w, side).files.filter((e) => e.watched).forEach((e) => giveBack(w, side, e, 'back_watched', L));
-  for (let round = 1; round <= NIGHT_ROUNDS_MAX; round++) {
-    const m = mathOf(w, side);
-    const a = m.v162;
-    const aged = sum(side.dl.filter((d) => w.day - d.day >= c.age).map((d) => d.size));
-    if (round > 1 && (a.need <= Math.max(c.pool / 100, 1) || a.back + a.goes === 0)) break;
-    if (round === 1) side.overTonight = m.over;
-    if (round === 1) L('plan', { back: r1(a.back), goes: r1(a.goes), age: r1(aged), first: a.back >= a.goes + aged ? 'jack' : 'her' }, 'skip');
-    else L('round', { round, size: r1(a.need) }, 'skip');
-    const his = () => {
-      // give back above Y, the farthest ahead first, never below H — unwatched too (that is what changes)
-      let freed = 0;
-      let jack = m.jack;
-      const list = measure(w, side).files.filter((e) => !e.watched).sort((x, y) => rank(w, y) - rank(w, x) || x.idx - y.idx);
-      for (const e of list) {
-        if (freed >= a.back - TOL) break;
-        if (jack - e.size < a.half - TOL) continue;
-        giveBack(w, side, e, 'back_borrowed', L);
-        freed += e.size;
-        jack -= e.size;
-      }
-    };
-    const hers = () => { herAge(w, side, L); if (a.goes > TOL) herOldest(w, side, a.goes, 'goes_x', L); };
-    if (a.back >= a.goes + aged) { his(); hers(); } else { hers(); his(); }
-    if (round === 1 && c.nightWrites > 0 && w.nightWrites > 0) { L('night_writes', { size: w.nightWrites }, 'skip'); writeDay(w, side, w.nightWrites, L); }
-  }
-  const yb = mathOf(w, side).yb;
-  side.fetchedTonight = fill(w, side, (e, now) => (now.nm + now.jack + now.others + e.size > yb + TOL ? 'skip_y' : ''), L);
-  tell(w, side, L);
-}
-
 /**
  * The end of the night: still at/over X → «told at once»; and the warning (the owner, 2026-10-14 — a message, not a rule)
- * when the cache for new writes is practically gone because Jack the Skipper can't give back fast enough (appdata growing
+ * when the cache for new writes is practically gone because Jack Streamer can't give back fast enough (appdata growing
  * fast): the room left up to X (their free room under Y plus the air) is less than one day of writes while he holds more
  * than his fill limit, or the others no longer have what they are promised (half of their own half plus the air, what they hold and the room up to X together).
  * Target in the office: nightrun.php's end, beside nightMissedTell() — officeNotify('warning', …) with a new
@@ -422,16 +419,24 @@ function tell(w, side, L) {
   const promised = m.halfD / 2 + m.air;
   // the day's writes don't fit up to X while he holds more than his limit (it is him who can't give back — her X trigger
   // alone leaves the pool between Y and X on purpose: the air belongs to the day), or the others' promise is broken
-  side.warnNow = !m.never && ((left < w.cfg.writes - TOL && m.jack > m.jackLimit + TOL) || m.others + left < promised - TOL);
+  // (also when nothing is left to share — what never moves already reaches Y: then the cache for new writes is gone too)
+  // the causes, each in its own words on the page: what never moves reaches Y; the day's writes don't fit up to X while he
+  // is over his limit; the others' promise is broken
+  const causes = [];
+  if (m.never) causes.push('never');
+  if (left < w.cfg.writes - TOL && m.jack > m.jackLimit + TOL) causes.push('room');
+  if (m.others + left < promised - TOL && !m.never) causes.push('promise');
+  side.warnNow = causes.length > 0;
+  side.warnWhy = side.warnNow ? { causes, nm: r1(m.nm), room: r1(left), writes: w.cfg.writes, promised: r1(promised), have: r1(m.others + left) } : null;
   if (side.warnNow) { side.warns++; L('warn', { room: r1(left), writes: w.cfg.writes, promised: r1(promised) }, 'bad'); }
 }
 
 // ---------------------------------------------------------------------- the invariants (after every night)
 const INVARIANTS = ['jack', 'others', 'unwatched', 'pingpong', 'limit'];
-function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: true, first: null, fails: 0 }])); }
+function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: true, first: null, fails: 0, told: null }])); }
 
 /**
- * The five checks of a night, against the NEW rules' numbers (for 1.62.1 too — that is the comparison):
+ * The five checks of a night:
  *   jack       he holds ≥ min(H, what he wants) (less one file: whole files) — unless held back while the others hold
  *              more than their half (she moves theirs only from X on) — and never more than his fill limit after the night; over it only with files he
  *              may not give back (unwatched, watched lately) and nothing fetched
@@ -440,12 +445,13 @@ function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: tr
  *              writes had to go to the array
  *   unwatched  nothing unwatched went back unless its series/film was unwatched ≥ N days
  *   pingpong   no file given back and fetched again within 7 days
- *   limit      the pool ≤ X after the night — else «told at once» was logged; red only when Jack's part over H made it
+ *   limit      the pool ≤ X after the night — else «told at once» (the owner, 2026-10-14: expected, e.g. when what never
+ *              moves reaches Y and his unwatched files stay; shown as such, not as a failure); red only if not told
  */
 function invariants(w, side, before) {
   const m = mathOf(w, side);
   const files = measure(w, side).files;
-  const want = wanted(w, { rules: 'new' });
+  const want = wanted(w);
   const wantTotal = sum(want.map((e) => e.size));
   const heldWanted = sum(want.filter((e) => side.pool.has(e.id)).map((e) => e.size));
   const biggest = Math.max(0, ...want.filter((e) => !side.pool.has(e.id)).map((e) => e.size));
@@ -454,7 +460,11 @@ function invariants(w, side, before) {
   // he is simply held back while the others hold more than their half (the owner, 2026-10-14: she moves only from X on;
   // writes during the night can leave them over it after her move too) — his half is owed once she has moved theirs
   const heldBack = m.others > m.halfD + TOL;
-  r.jack = (heldWanted >= Math.min(m.half, wantTotal) - biggest - TOL || heldBack) && (m.jack <= m.jackLimit + TOL || overOk);
+  // … and while a warning stands he fetches nothing at all (his half is owed again once it clears)
+  // by budget everything he holds counts against it (files further ahead stay — unwatched never go back)
+  const held = budgetOf(w.cfg) != null ? m.jack : heldWanted;
+  r.jack = (held >= Math.min(m.half, wantTotal) - biggest - TOL || heldBack || side.fillStopped)
+    && (m.jack <= m.jackLimit + TOL || overOk || (side.fillStopped && side.fetchedTonight <= TOL && files.every((e) => !e.watched && !stale(w, w.series[e.sid]))));
   // what is promised (the owner, 2026-10-14): they always keep at least half of their own half, plus the air Y…X — what
   // they hold and what is free up to X together
   const owed = m.halfD / 2 + m.air;
@@ -463,7 +473,9 @@ function invariants(w, side, before) {
   r.others = m.never || ((theirs >= owed - TOL || side.warnNow) && side.spilled <= before.spilled + TOL);
   r.unwatched = side.forced === before.forced;
   r.pingpong = side.pingpong === before.pingpong;
-  r.limit = m.used <= m.xb + TOL || (side.told > before.told && m.nm + m.others + Math.min(m.jack, m.half) > m.xb - TOL);
+  const toldNow = side.told > before.told;
+  r.limit = m.used <= m.xb + TOL || toldNow;
+  if (toldNow && side.inv.limit.told == null) side.inv.limit.told = w.day;
   for (const k of INVARIANTS) {
     if (r[k]) continue;
     const s = side.inv[k];
@@ -479,13 +491,13 @@ function invariants(w, side, before) {
 function newSim(cfg, seed) {
   const w = newWorld({ unwatchedDays: 30, ...cfg }, seed == null ? 162 : seed);
   w.nightWrites = 0;
-  growFor(w, w.cfg.jack0 || 0);
-  const sim = { w, sides: { new: newSide('new', w), v162: newSide('v162', w) } };
+  growFor(w, Math.max(w.cfg.jack0 || 0, budgetOf(w.cfg) || 0));
+  const sim = { w, sides: { new: newSide('new', w) } };
   for (const side of Object.values(sim.sides)) {      // the first night fills him (day 0)
     // what he holds already (real data): his queue's files up to that size, a person at a time in turn — day 0 holds
     // the measured amount (within one file)
     if (w.cfg.jack0 > 0) {
-      const per = w.people.map((_, u) => wanted(w, side).filter((e) => e.uid === u).sort((x, y) => rank(w, x) - rank(w, y) || x.idx - y.idx));
+      const per = w.people.map((_, u) => candidates(w).filter((e) => e.uid === u).sort((x, y) => rank(w, x) - rank(w, y) || x.idx - y.idx));
       let held = 0;
       for (let turn = 0; held < w.cfg.jack0 && per.some((l) => l.length); turn++) {
         const l = per[turn % per.length];
@@ -498,7 +510,7 @@ function newSim(cfg, seed) {
     // own test values: the first night fills him; the server's: day 0 is the pool as measured (no night before it)
     side.eve = mathOf(w, side);                // day 0 «before the run»: the start as set
     side.prevMorn = null;
-    if (!(w.cfg.jack0 > 0)) (side.rules === 'new' ? skipperNight : v162Night)(w, side, logger(w, side));
+    if (!(w.cfg.jack0 > 0)) streamerNight(w, side, logger(w, side));
     side.morn = mathOf(w, side);
     record(w, side, { spilled: 0, forced: 0, pingpong: 0, told: 0 }, false);
   }
@@ -511,7 +523,8 @@ function record(w, side, before, check) {
   const m = mathOf(w, side);
   const r = check ? invariants(w, side, before) : null;
   side.hist.push({ day: w.day, used: r1(m.used), pct: r1(m.used * 100 / w.cfg.pool), jack: r1(m.jack), others: r1(m.others), nm: r1(m.nm),
-    up: r1(side.up - before.up), down: r1(side.down - before.down), moved: r1(side.moved - before.moved), inv: r, warn: !!side.warnNow });
+    up: r1(side.up - before.up), down: r1(side.down - before.down), moved: r1(side.moved - before.moved), inv: r, warn: !!side.warnNow,
+    told: side.told > (before.told || 0) });
   if (side.hist.length > 400) side.hist.shift();
 }
 
@@ -521,6 +534,7 @@ function simDay(sim) {
   w.day++;
   const d = dayDraws(w);
   w.nightWrites = d.nightWrites;
+  growFor(w, budgetOf(w.cfg) || 0);           // by budget: enough unwatched in the world to fill it, every day
   for (const side of Object.values(sim.sides)) {
     const L = logger(w, side);
     const before = { spilled: side.spilled, forced: side.forced, pingpong: side.pingpong, told: side.told, up: side.up, down: side.down, moved: side.moved };
@@ -530,7 +544,7 @@ function simDay(sim) {
     // (after the joint night run)
     side.prevMorn = side.morn;
     side.eve = mathOf(w, side);
-    (side.rules === 'new' ? skipperNight : v162Night)(w, side, L);
+    streamerNight(w, side, L);
     side.morn = mathOf(w, side);
     record(w, side, before, true);
   }
@@ -573,8 +587,13 @@ const SCENARIOS = [
   { id: 'binge', days: 21, cfg: {}, mods: [{ from: 7, to: 13, watch: 4 }] },
   { id: 'appdata', days: 40, cfg: (c) => ({ nmGrow: ((c.x - c.offset) * c.pool / 100 - 20 - c.nm) / 35 }), mods: [{ from: 36, to: 99, nmGrow: 0 }] },
   { id: 'films', days: 30, cfg: { films: 0.6, filmMin: 40, filmMax: 80, watch: 3 } },
+  // by budget (the most he wants, in GB): smaller than his half H, and bigger than his fill limit (H + half the others' unused)
+  { id: 'budget_small', days: 30, cfg: (c) => ({ budget: Math.max(10, Math.round(halfOf(c) * 0.5)) }) },
+  { id: 'budget_big', days: 30, cfg: (c) => ({ budget: Math.round(halfOf(c) * 1.8) }) },
   { id: 'tiny', days: 30, cfg: { pool: 256, nm: 60, writes: 20, epMin: 1, epMax: 4, filmMin: 8, filmMax: 15 } },
 ];
+/** His half H of a setting (GB) — the budget scenarios are sized by it */
+const halfOf = (c) => Math.max(0, (c.x - c.offset) * c.pool / 100 - c.nm) * c.k / 100;
 /** One scenario on a base setting (the sliders') with a seed: the simulation after its days */
 function runScenario(id, base, seed) {
   const sc = SCENARIOS.find((s) => s.id === id);
@@ -664,20 +683,20 @@ function segWidths(values, min) {
   return out;
 }
 
-const math = { skipperPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, v162Math, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
+const math = { budgetCaps, streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
   INVARIANTS, EVENTS: Object.keys(EVENTS), rng, PINGPONG_DAYS };
 if (typeof module !== 'undefined' && module.exports) module.exports = math;       // tests/run.php under node
 if (typeof Office === 'undefined') return;
 
 // ====================================================================== 2. the step's page
 /*
- * Office.skipperSim.view(h) → the simulator's section for his wizard (desk.js setupSimulator()). h: {T, el, fmt, nOf,
+ * Office.streamerSim.view(h) → the simulator's section for his wizard (desk.js setupSimulator()). h: {T, el, fmt, nOf,
  * button, section, base() (the settings to start from: his form's N days, Ms. Moverelli's X/offset/k/age, his pool as
  * measured — or null), measure() (the explicit «Measure now»: the agent measures the pool now, may wake it)}. The
  * simulation lives here across the wizard's drawings (V); a control redraws only the simulator's body, in place.
  */
 const GIB = 1024 * 1024 * 1024;
-const V = { src: null, cfg: null, seed: 162, sim: null, rules: 'new', results: null, shown: '', measured: null, busy: false };
+const V = { src: null, cfg: null, seed: 162, sim: null, results: null, shown: '', measured: null, busy: false };
 // [key, min, max, step, unit] — unit: gb | pct | n | days. NM, what the others hold, X and Y are set in the bar (its handles);
 // the pool's size stays a slider, the rest folds into «More values»
 const POOL_SLIDER = ['pool', 128, 4096, 32, 'gb'];
@@ -703,9 +722,9 @@ function setCfg(h, cfg) {
   V.src = 'test';
   restart(h);
 }
-/** The start as the «before the run» bar shows it now: NM, what the others and Jack the Skipper hold — a handle moves one */
+/** The start as the «before the run» bar shows it now: NM, what the others and Jack Streamer hold — a handle moves one */
 function shownStart() {
-  const m = V.sim.sides[V.rules].eve;
+  const m = V.sim.sides.new.eve;
   return { ...V.cfg, nm: r1(m.nm), others0: r1(m.others), jack0: r1(m.jack), nmGrow: V.cfg.nmGrow };
 }
 
@@ -715,6 +734,8 @@ function baseCfg(h, src) {
   const cfg = { ...DEFAULTS, unwatchedDays: b.days || 30 };
   if (b.x > 0) Object.assign(cfg, { x: b.x, offset: Math.max(0, b.x - b.y), k: b.k == null ? 50 : b.k });
   if (b.age != null) cfg.age = b.age;
+  if (b.budget > 0) cfg.budget = b.budget;       // his «amount» in the wizard: by budget (GB)
+  if (b.budget > 0 && b.userBudgets) Object.assign(cfg, { userBudgets: b.userBudgets, people: Math.max(1, Math.min(8, b.userBudgets.length)) });
   const lv = V.measured || b.level;
   if (src === 'real') {
     if (!lv) return null;
@@ -801,6 +822,18 @@ function draw(h, body) {
   };
   const top = el('div', 'jo-sim-ctl');
   top.appendChild(slider(POOL_SLIDER));
+  // the amount: by count (N episodes ahead) or by budget (the most he wants, in GB — it reserves nothing)
+  const scope = el('label', 'jo-sim-slider');
+  const mode = el('select', 'picker');
+  mode.append(new Option(T('setup.mode_count'), 'count'), new Option(T('setup.mode_budget'), 'budget'));
+  mode.value = V.cfg.budget > 0 ? 'budget' : 'count';
+  mode.onchange = () => {
+    setCfg(h, { ...V.cfg, budget: mode.value === 'budget' ? Math.round(halfOf(V.cfg)) || Math.round(V.cfg.pool / 10) : 0 });
+    redraw(h, body);
+  };
+  scope.append(el('span', 'jo-sim-name', T('setup.mode')), mode);
+  top.appendChild(scope);
+  if (V.cfg.budget > 0) top.appendChild(slider(['budget', 1, Math.ceil(V.cfg.pool), Math.max(1, Math.round(V.cfg.pool / 100)), 'gb']));
   body.appendChild(top);
   const more = keepFold(el('details', 'jo-sim-more'), 'more', false);
   more.appendChild(el('summary', '', T('sim.more')));
@@ -814,6 +847,11 @@ function draw(h, body) {
   seed.onchange = () => { V.seed = Math.max(0, Math.floor(Number(seed.value) || 0)); restart(h); redraw(h, body); };
   seedRow.append(el('span', 'jo-sim-name', T('sim.f.seed')), seed);
   ctl.appendChild(seedRow);
+  // the chance: the same number gives the same course; «roll again» a new one, the simulation anew at day 0
+  const dice = el('div', 'jo-sim-dice');
+  dice.append(h.button(T('sim.reroll'), 'small plain', () => { V.seed = 1 + Math.floor(Math.random() * 99999); restart(h); redraw(h, body); }),
+    el('span', 'role', T('sim.seed_hint')));
+  ctl.appendChild(dice);
   more.appendChild(ctl);
   body.appendChild(more);
 
@@ -829,26 +867,15 @@ function draw(h, body) {
   math.EVENTS.forEach((id) => ev.appendChild(h.button(T('sim.ev.' + id), 'small plain', go(() => simEvent(V.sim, id)))));
   body.appendChild(ev);
 
-  // ---- which rule set the picture shows
+  // ---- the day on display
   const pick = el('div', 'jo-sim-src');
-  pick.appendChild(el('span', 'jo-sim-label', T('sim.rules')));
-  [['new', 'sim.rules_new'], ['v162', 'sim.rules_old']].forEach(([v, key]) => {
-    const l = el('label', 'check');
-    const i = el('input');
-    i.type = 'radio';
-    i.name = 'jo-sim-rules';
-    i.checked = V.rules === v;
-    i.onchange = () => { V.rules = v; redraw(h, body); };
-    l.append(i, el('span', '', T(key)));
-    pick.appendChild(l);
-  });
   pick.appendChild(el('span', 'jo-sim-day', V.shown ? T('sim.day_of', { n: V.sim.w.day, scenario: T('sim.sc.' + V.shown) }) : T('sim.day', { n: V.sim.w.day })));
   body.appendChild(pick);
   body.appendChild(picture(h, body));
   body.appendChild(checks(h));
-  body.appendChild(totals(h, V.sim.sides[V.rules]));
-  body.appendChild(dayTable(h, V.sim.sides[V.rules]));
-  body.appendChild(logBox(h, V.sim.sides[V.rules]));
+  body.appendChild(totals(h, V.sim.sides.new));
+  body.appendChild(dayTable(h, V.sim.sides.new));
+  body.appendChild(logBox(h, V.sim.sides.new));
   body.appendChild(scenarios(h, body));
 }
 
@@ -859,7 +886,7 @@ function draw(h, body) {
  * changed (the evening against the morning before, the morning against the evening). Segments > 0 keep a few pixels
  * (segWidths(), 10 px); the words keep the true values — the one legend says each before → after. Four handles on the «before» bar set the start directly (pointer —
  * mouse and touch —, keys, role=slider): the grey/white edge (NM), the white's end (what the others hold), X and Y (the
- * offset). Jack the Skipper's part is the rules': it follows. A move sets a new start and rebuilds day 0 (cheap), both
+ * offset). Jack Streamer's part is the rules': it follows. A move sets a new start and rebuilds day 0 (cheap), both
  * bars updated in place — H and the fill limit move live; letting go draws the simulator anew. From real data the first
  * move switches to own test values, starting from the real ones.
  */
@@ -881,7 +908,7 @@ function picture(h, body) {
     const segs = {};
     for (const cls of SEGS) { segs[cls] = el('i', 'jo-sim-seg ' + cls); bar.appendChild(segs[cls]); }
     const marks = {};
-    for (const [mid, below, left] of [['x', false, false], ['y', false, true], ['h', true, true], ['limit', true, false]]) {
+    for (const [mid, below, left] of [['x', false, false], ['y', false, true], ['budget', false, true], ['h', true, true], ['limit', true, false]]) {
       const k = el('span', 'jo-sim-mark' + (below ? ' below' : ''));
       k.appendChild(el('span', ''));
       marks[mid] = { node: k, left };
@@ -916,13 +943,16 @@ function picture(h, body) {
       // H and the fill limit from where his part starts (NM + others) — but he fills only up to Y: a marker past Y stands
       // at Y and says so («… (to Y)»), so nobody reads a fill area beyond it
       const from = m.nm + m.others;
-      const at = { x: m.xb, y: m.yb, h: Math.min(from + m.half, m.yb), limit: Math.min(from + m.jackLimit, m.yb) };
+      const budget = w.cfg.budget > 0 ? w.cfg.budget : null;
+      const at = { x: m.xb, y: m.yb, h: Math.min(from + m.half, m.yb), limit: Math.min(from + m.jackLimit, m.yb), budget: Math.min(from + (budget || 0), m.yb) };
       const toY = (word, raw) => (raw > m.yb + 0.05 ? T('sim.mark.to_y', { what: word }) : word);
-      const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: toY('H', from + m.half), limit: toY(T('sim.mark.limit'), from + m.jackLimit) };
+      const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: toY('H', from + m.half), limit: toY(T('sim.mark.limit'), from + m.jackLimit),
+        budget: budget ? toY(T('sim.mark.budget'), from + budget) : '' };
       // H and the fill limit close together (within 3 % of the bar): one label for both, on the limit's line
       const close = Math.abs(gbFrac(at.h, pool) - gbFrac(at.limit, pool)) < 0.03;
       if (close) { words.limit = toY(`H · ${T('sim.mark.limit')}`, from + Math.max(m.half, m.jackLimit)); words.h = ''; }
       for (const [mid, mk] of Object.entries(marks)) {
+        mk.node.style.display = mid === 'budget' && !budget ? 'none' : '';      // the budget's mark only by budget
         mk.node.style.left = `${(gbFrac(at[mid], pool) * 100).toFixed(2)}%`;
         mk.node.firstChild.textContent = words[mid];
         mk.frac = gbFrac(at[mid], pool);
@@ -992,14 +1022,21 @@ function picture(h, body) {
   box.appendChild(legend);
   const numbers = el('p', 'role jo-sim-numbers');
   box.appendChild(numbers);
+  // the warning of the day on display, in plain words (what was sent, and why) — as the office's warnings look
+  const warnMsg = el('p', 'callout warn jo-sim-warnmsg');
+  box.insertBefore(warnMsg, legend);
 
   /** Both bars, their marks, the handles and the words from the simulation as it stands (in place — during a drag too) */
   function update() {
-    const side = V.sim.sides[V.rules];
+    const side = V.sim.sides.new;
     const tag = body.querySelector('.jo-sim-day');       // the day shown (a drag starts over at day 0)
     if (tag && !V.shown) tag.textContent = T('sim.day', { n: V.sim.w.day });
     eve.update(side.eve, side.prevMorn);
     morn.update(side.morn, side.eve);
+    const why = side.warnWhy;
+    warnMsg.style.display = why ? '' : 'none';
+    warnMsg.textContent = !why ? '' : T('sim.warn_msg', { why: why.causes.map((c) => T('sim.warn_why.' + c, { nm: gbText(why.nm), room: gbText(why.room),
+      writes: gbText(why.writes), promised: gbText(why.promised), have: gbText(why.have) })).join('; ') });
     const m = side.morn;
     const of = (x) => ({ nm: x.nm, others: x.others, unw: x.jack - x.watched, wat: x.watched, free: V.sim.w.cfg.pool - x.used });
     const a = of(side.eve);
@@ -1075,19 +1112,19 @@ function checks(h) {
   const { T, el } = h;
   const t = el('table', 'jo-sim-table');
   const head = el('tr');
-  head.append(el('th', '', T('sim.checks')), el('th', '', T('sim.rules_new')), el('th', '', T('sim.rules_old')));
+  head.append(el('th', '', T('sim.checks')), el('th', '', ''));
   t.appendChild(head);
   for (const k of INVARIANTS) {
     const tr = el('tr');
     const name = el('td', '', T('sim.inv.' + k));
     name.title = T('sim.inv.' + k + '_tip');
     tr.appendChild(name);
-    for (const r of ['new', 'v162']) {
-      const s = V.sim.sides[r].inv[k];
-      const td = el('td');
-      td.appendChild(el('span', 'chip ' + (s.ok ? 'ok' : 'danger'), s.ok ? T('sim.green') : T('sim.red_from', { day: s.first })));
-      tr.appendChild(td);
-    }
+    const s = V.sim.sides.new.inv[k];
+    const td = el('td');
+    // «told at once» (the pool over X after a night, reported): expected by the rules — said, not red
+    if (s.ok && s.told != null) td.appendChild(el('span', 'chip warn', T('sim.told_from', { day: s.told })));
+    else td.appendChild(el('span', 'chip ' + (s.ok ? 'ok' : 'danger'), s.ok ? T('sim.green') : T('sim.red_from', { day: s.first })));
+    tr.appendChild(td);
     t.appendChild(tr);
   }
   const wrap = el('div', 'jo-sim-scroll');
@@ -1125,6 +1162,7 @@ function dayTable(h, side) {
     [String(r.day), `${r.pct} %`, gb(r.jack), gb(r.others), gb(r.up), gb(r.down), gb(r.moved)].forEach((v) => tr.appendChild(el('td', 'num', v)));
     const td = el('td');
     td.appendChild(r.inv ? el('span', 'chip ' + (bad.length ? 'danger' : 'ok'), bad.length ? bad.map((k) => T('sim.short.' + k)).join(' · ') : T('sim.green')) : el('span', 'role', '–'));
+    if (r.told) td.appendChild(el('span', 'chip warn', T('sim.told')));
     if (r.warn) td.appendChild(el('span', 'chip warn', T('sim.warn')));
     tr.appendChild(td);
     t.appendChild(tr);
@@ -1169,7 +1207,7 @@ function scenarios(h, body) {
   if (!V.results) return box;
   const t = el('table', 'jo-sim-table');
   const head = el('tr');
-  head.append(el('th', '', T('sim.col.scenario')), el('th', '', T('sim.rules_new')), el('th', '', T('sim.rules_old')), el('th', '', ''));
+  head.append(el('th', '', T('sim.col.scenario')), el('th', '', T('sim.col.result')), el('th', '', ''));
   t.appendChild(head);
   const cell = (x) => {
     const td = el('td');
@@ -1181,7 +1219,7 @@ function scenarios(h, body) {
   };
   V.results.forEach((res) => {
     const tr = el('tr');
-    tr.append(el('td', '', `${T('sim.sc.' + res.id)} · ${h.nOf('days', res.days)}`), cell(res.r.new), cell(res.r.v162));
+    tr.append(el('td', '', `${T('sim.sc.' + res.id)} · ${h.nOf('days', res.days)}`), cell(res.r.new));
     const td = el('td');
     td.appendChild(h.button(T('sim.show'), 'small plain', () => {
       V.sim = runScenario(res.id, V.cfg, V.seed);
@@ -1202,7 +1240,7 @@ function scenarios(h, body) {
   return box;
 }
 
-Office.skipperMath = math;
-Office.skipperSim = { view, math };
-if (typeof Office.skipperLoaded === 'function') Office.skipperLoaded();
+Office.streamerMath = math;
+Office.streamerSim = { view, math };
+if (typeof Office.streamerLoaded === 'function') Office.streamerLoaded();
 })();
