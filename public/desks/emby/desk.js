@@ -1837,7 +1837,18 @@ function setupSettings() {
   mode.append(new Option(T('setup.mode_count'), 'count'), new Option(T('setup.mode_budget'), 'budget'));
   mode.value = v.budget_mode ? 'budget' : 'count';
   mode.onchange = () => { v.budget_mode = mode.value === 'budget'; renderSetup(); };
-  f4.appendChild(field(T('setup.mode'), mode, T(v.budget_mode ? 'setup.mode_budget_hint' : 'setup.mode_count_hint')));
+  // the two ways in the owner's words (2026-10-14), each mode's name bold — also the options' tooltips
+  const ways = [['setup.mode_count', T('setup.mode_help_count', { n: Number(v.number_episodes) || 0 })], ['setup.mode_budget', T('setup.mode_help_budget')]];
+  [...mode.options].forEach((o, i) => { o.title = ways[i][1]; });
+  const modeField = field(T('setup.mode'), mode);
+  const help = el('small', 'jo-mode-help');
+  ways.forEach(([key, text]) => {
+    const line = el('span', 'jo-mode-line');
+    line.append(el('b', '', T(key) + ':'), ' ' + text);
+    help.appendChild(line);
+  });
+  modeField.appendChild(help);
+  f4.appendChild(modeField);
   if (v.budget_mode) f4.appendChild(field(T('setup.budget'), input(v.cache_budget, (x) => { v.cache_budget = x.trim(); }), T('setup.budget_hint')));
   s4.appendChild(f4);
 
@@ -1975,7 +1986,16 @@ function setupSimulator() {
 function simBase() {
   const pool = (state && state.pool) || {};
   const mo = pool.moverelli || {};
-  return { days: form ? form.values.give_back_unwatched_days : UNWATCHED_DAYS, x: mo.x || 0, y: mo.y || 0, k: mo.k, age: mo.min_age, level: pool.level || null };
+  const v = form ? form.values : {};
+  return { days: form ? v.give_back_unwatched_days : UNWATCHED_DAYS, x: mo.x || 0, y: mo.y || 0, k: mo.k, age: mo.min_age, level: pool.level || null,
+    budget: v.budget_mode ? budgetGb(v.cache_budget) : 0 };
+}
+/** His budget («500G», «1.5T», «800 GB») in GB — 0 when none can be read */
+function budgetGb(text) {
+  const m = /^(\d+(?:\.\d+)?)\s*([KMGTP])?B?$/i.exec(String(text || '').trim());
+  if (!m) return 0;
+  const f = { K: 1 / (1024 * 1024), M: 1 / 1024, G: 1, T: 1024, P: 1024 * 1024 }[(m[2] || 'G').toUpperCase()];
+  return Math.round(Number(m[1]) * f * 10) / 10;
 }
 function loadStreamer() {
   if (Office.streamerSim || !SELF || Office.streamerLoaded) return;
@@ -2590,7 +2610,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords,
+    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, budgetGb,
     stepOf, currentStep, setStep: (x) => { step = x; }, wizardCard, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,

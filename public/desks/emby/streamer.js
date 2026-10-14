@@ -112,7 +112,7 @@ function addEp(w, s, day) {
  */
 function growFor(w, gb) {
   if (!(gb > 0)) return;
-  const want = () => sum(wanted(w).map((e) => e.size));
+  const want = () => sum(candidates(w).map((e) => e.size));
   for (let u = 0; want() < gb * 1.05 && w.series.length < 2000; u = (u + 1) % w.people.length) addSeries(w, u, -Math.floor(w.rnd() * 10), w.cfg.episodes + 2);
 }
 
@@ -135,12 +135,38 @@ const nextIdx = (w, sid) => { const e = w.eps.find((x) => x.sid === sid && !x.wa
  * of each film the film. A series nobody watched for N days is no longer wanted (it may go back).
  */
 function wanted(w) {
+  const budget = budgetOf(w.cfg);
+  const all = candidates(w);
+  if (budget == null) return all;
+  // by budget (EmbyCache's budget_mode / cache_budget — the most he WANTS, reserving nothing): per person in turn, the
+  // next first, while it fits the budget
+  const per = w.people.map((_, u) => all.filter((e) => e.uid === u)
+    .sort((a, b) => rank(w, a) - rank(w, b) || w.series[b.sid].lastSeen - w.series[a.sid].lastSeen || a.idx - b.idx));
+  const out = [];
+  let total = 0;
+  for (let progress = true; progress;) {
+    progress = false;
+    for (const l of per) {
+      while (l.length && total + l[0].size > budget + TOL) l.shift();     // that one won't fit: the next of this person may
+      if (!l.length) continue;
+      const e = l.shift();
+      out.push(e);
+      total += e.size;
+      progress = true;
+    }
+  }
+  return out;
+}
+/** The budget in GB when he goes by budget (cfg.budget > 0), else null (by count: N episodes ahead) */
+const budgetOf = (c) => (c.budget > 0 ? c.budget : null);
+/** What he could want: the unwatched of every series watched lately — by count the next N per series, by budget all of them */
+function candidates(w) {
   const c = w.cfg;
   const out = [];
   for (const s of w.series) {
     if (stale(w, s)) continue;
-    const list = w.eps.filter((e) => e.sid === s.id && !e.watched).sort((a, b) => a.idx - b.idx).slice(0, s.film ? 1 : c.episodes);
-    out.push(...list);
+    const list = w.eps.filter((e) => e.sid === s.id && !e.watched).sort((a, b) => a.idx - b.idx);
+    out.push(...(s.film ? list.slice(0, 1) : budgetOf(c) == null ? list.slice(0, c.episodes) : list));
   }
   return out;
 }
@@ -348,8 +374,10 @@ function streamerNight(w, side, L) {
   } else if (m.jack > m.jackLimit + TOL) {
     L('fill_over', { held: r1(m.jack), limit: r1(m.jackLimit) }, 'hold');
   } else {
+    const budget = budgetOf(c);
     side.fetchedTonight = fill(w, side, (e, now) => {
       if (now.jack + e.size > m.jackLimit + TOL) return 'skip_limit';
+      if (budget != null && now.jack + e.size > budget + TOL) return 'skip_budget';      // he holds at most min(budget, fill limit)
       if (now.nm + now.jack + now.others + e.size > m.yb + TOL) return 'skip_y';
       return '';
     }, L);
@@ -414,7 +442,9 @@ function invariants(w, side, before) {
   // writes during the night can leave them over it after her move too) — his half is owed once she has moved theirs
   const heldBack = m.others > m.halfD + TOL;
   // … and while a warning stands he fetches nothing at all (his half is owed again once it clears)
-  r.jack = (heldWanted >= Math.min(m.half, wantTotal) - biggest - TOL || heldBack || side.fillStopped)
+  // by budget everything he holds counts against it (files further ahead stay — unwatched never go back)
+  const held = budgetOf(w.cfg) != null ? m.jack : heldWanted;
+  r.jack = (held >= Math.min(m.half, wantTotal) - biggest - TOL || heldBack || side.fillStopped)
     && (m.jack <= m.jackLimit + TOL || overOk || (side.fillStopped && side.fetchedTonight <= TOL && files.every((e) => !e.watched && !stale(w, w.series[e.sid]))));
   // what is promised (the owner, 2026-10-14): they always keep at least half of their own half, plus the air Y…X — what
   // they hold and what is free up to X together
@@ -442,13 +472,13 @@ function invariants(w, side, before) {
 function newSim(cfg, seed) {
   const w = newWorld({ unwatchedDays: 30, ...cfg }, seed == null ? 162 : seed);
   w.nightWrites = 0;
-  growFor(w, w.cfg.jack0 || 0);
+  growFor(w, Math.max(w.cfg.jack0 || 0, budgetOf(w.cfg) || 0));
   const sim = { w, sides: { new: newSide('new', w) } };
   for (const side of Object.values(sim.sides)) {      // the first night fills him (day 0)
     // what he holds already (real data): his queue's files up to that size, a person at a time in turn — day 0 holds
     // the measured amount (within one file)
     if (w.cfg.jack0 > 0) {
-      const per = w.people.map((_, u) => wanted(w).filter((e) => e.uid === u).sort((x, y) => rank(w, x) - rank(w, y) || x.idx - y.idx));
+      const per = w.people.map((_, u) => candidates(w).filter((e) => e.uid === u).sort((x, y) => rank(w, x) - rank(w, y) || x.idx - y.idx));
       let held = 0;
       for (let turn = 0; held < w.cfg.jack0 && per.some((l) => l.length); turn++) {
         const l = per[turn % per.length];
@@ -485,6 +515,7 @@ function simDay(sim) {
   w.day++;
   const d = dayDraws(w);
   w.nightWrites = d.nightWrites;
+  growFor(w, budgetOf(w.cfg) || 0);           // by budget: enough unwatched in the world to fill it, every day
   for (const side of Object.values(sim.sides)) {
     const L = logger(w, side);
     const before = { spilled: side.spilled, forced: side.forced, pingpong: side.pingpong, told: side.told, up: side.up, down: side.down, moved: side.moved };
@@ -537,8 +568,13 @@ const SCENARIOS = [
   { id: 'binge', days: 21, cfg: {}, mods: [{ from: 7, to: 13, watch: 4 }] },
   { id: 'appdata', days: 40, cfg: (c) => ({ nmGrow: ((c.x - c.offset) * c.pool / 100 - 20 - c.nm) / 35 }), mods: [{ from: 36, to: 99, nmGrow: 0 }] },
   { id: 'films', days: 30, cfg: { films: 0.6, filmMin: 40, filmMax: 80, watch: 3 } },
+  // by budget (the most he wants, in GB): smaller than his half H, and bigger than his fill limit (H + half the others' unused)
+  { id: 'budget_small', days: 30, cfg: (c) => ({ budget: Math.max(10, Math.round(halfOf(c) * 0.5)) }) },
+  { id: 'budget_big', days: 30, cfg: (c) => ({ budget: Math.round(halfOf(c) * 1.8) }) },
   { id: 'tiny', days: 30, cfg: { pool: 256, nm: 60, writes: 20, epMin: 1, epMax: 4, filmMin: 8, filmMax: 15 } },
 ];
+/** His half H of a setting (GB) — the budget scenarios are sized by it */
+const halfOf = (c) => Math.max(0, (c.x - c.offset) * c.pool / 100 - c.nm) * c.k / 100;
 /** One scenario on a base setting (the sliders') with a seed: the simulation after its days */
 function runScenario(id, base, seed) {
   const sc = SCENARIOS.find((s) => s.id === id);
@@ -679,6 +715,7 @@ function baseCfg(h, src) {
   const cfg = { ...DEFAULTS, unwatchedDays: b.days || 30 };
   if (b.x > 0) Object.assign(cfg, { x: b.x, offset: Math.max(0, b.x - b.y), k: b.k == null ? 50 : b.k });
   if (b.age != null) cfg.age = b.age;
+  if (b.budget > 0) cfg.budget = b.budget;       // his «amount» in the wizard: by budget (GB)
   const lv = V.measured || b.level;
   if (src === 'real') {
     if (!lv) return null;
@@ -765,6 +802,18 @@ function draw(h, body) {
   };
   const top = el('div', 'jo-sim-ctl');
   top.appendChild(slider(POOL_SLIDER));
+  // the amount: by count (N episodes ahead) or by budget (the most he wants, in GB — it reserves nothing)
+  const scope = el('label', 'jo-sim-slider');
+  const mode = el('select', 'picker');
+  mode.append(new Option(T('setup.mode_count'), 'count'), new Option(T('setup.mode_budget'), 'budget'));
+  mode.value = V.cfg.budget > 0 ? 'budget' : 'count';
+  mode.onchange = () => {
+    setCfg(h, { ...V.cfg, budget: mode.value === 'budget' ? Math.round(halfOf(V.cfg)) || Math.round(V.cfg.pool / 10) : 0 });
+    redraw(h, body);
+  };
+  scope.append(el('span', 'jo-sim-name', T('setup.mode')), mode);
+  top.appendChild(scope);
+  if (V.cfg.budget > 0) top.appendChild(slider(['budget', 1, Math.ceil(V.cfg.pool), Math.max(1, Math.round(V.cfg.pool / 100)), 'gb']));
   body.appendChild(top);
   const more = keepFold(el('details', 'jo-sim-more'), 'more', false);
   more.appendChild(el('summary', '', T('sim.more')));
@@ -839,7 +888,7 @@ function picture(h, body) {
     const segs = {};
     for (const cls of SEGS) { segs[cls] = el('i', 'jo-sim-seg ' + cls); bar.appendChild(segs[cls]); }
     const marks = {};
-    for (const [mid, below, left] of [['x', false, false], ['y', false, true], ['h', true, true], ['limit', true, false]]) {
+    for (const [mid, below, left] of [['x', false, false], ['y', false, true], ['budget', false, true], ['h', true, true], ['limit', true, false]]) {
       const k = el('span', 'jo-sim-mark' + (below ? ' below' : ''));
       k.appendChild(el('span', ''));
       marks[mid] = { node: k, left };
@@ -874,13 +923,16 @@ function picture(h, body) {
       // H and the fill limit from where his part starts (NM + others) — but he fills only up to Y: a marker past Y stands
       // at Y and says so («… (to Y)»), so nobody reads a fill area beyond it
       const from = m.nm + m.others;
-      const at = { x: m.xb, y: m.yb, h: Math.min(from + m.half, m.yb), limit: Math.min(from + m.jackLimit, m.yb) };
+      const budget = w.cfg.budget > 0 ? w.cfg.budget : null;
+      const at = { x: m.xb, y: m.yb, h: Math.min(from + m.half, m.yb), limit: Math.min(from + m.jackLimit, m.yb), budget: Math.min(from + (budget || 0), m.yb) };
       const toY = (word, raw) => (raw > m.yb + 0.05 ? T('sim.mark.to_y', { what: word }) : word);
-      const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: toY('H', from + m.half), limit: toY(T('sim.mark.limit'), from + m.jackLimit) };
+      const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: toY('H', from + m.half), limit: toY(T('sim.mark.limit'), from + m.jackLimit),
+        budget: budget ? toY(T('sim.mark.budget'), from + budget) : '' };
       // H and the fill limit close together (within 3 % of the bar): one label for both, on the limit's line
       const close = Math.abs(gbFrac(at.h, pool) - gbFrac(at.limit, pool)) < 0.03;
       if (close) { words.limit = toY(`H · ${T('sim.mark.limit')}`, from + Math.max(m.half, m.jackLimit)); words.h = ''; }
       for (const [mid, mk] of Object.entries(marks)) {
+        mk.node.style.display = mid === 'budget' && !budget ? 'none' : '';      // the budget's mark only by budget
         mk.node.style.left = `${(gbFrac(at[mid], pool) * 100).toFixed(2)}%`;
         mk.node.firstChild.textContent = words[mid];
         mk.frac = gbFrac(at[mid], pool);

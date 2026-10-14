@@ -328,8 +328,6 @@
   "setup.mode": "Amount",
   "setup.mode_count": "by number",
   "setup.mode_budget": "by space budget",
-  "setup.mode_count_hint": "Films: each person's started ones. Series: the started ones, with this many episodes ahead. The numbers are below at films and series.",
-  "setup.mode_budget_hint": "Whatever fits a fixed budget — shared fairly between the people watching; films and series split it by share (below at films).",
   "setup.budget": "Budget",
   "setup.budget_hint": "A size like 500G or 1T.",
   "setup.budget_missing": "Enter a budget like 500G or 1T.",
@@ -895,5 +893,12 @@
   "sim.warn_why.never": "what never moves ({nm}) already lies above Y — little room is left for the other shares",
   "sim.warn_why.room": "only {room} are left up to X, less than a day of writes ({writes}), and Jack Emby holds more than his fill limit",
   "sim.warn_why.promise": "the other shares have less than they are promised ({have} instead of {promised})",
-  "sim.col.result": "Result"
+  "sim.col.result": "Result",
+  "sim.f.budget": "Budget",
+  "sim.mark.budget": "Budget",
+  "sim.log.skip_budget": "[SKIP: budget] {title} ({size})",
+  "sim.sc.budget_small": "Budget smaller than his half",
+  "sim.sc.budget_big": "Budget bigger than his fill limit",
+  "setup.mode_help_count": {"one": "«{n} episode per series, however big». Films in 4K can take a lot of space.", "other": "«{n} episodes per series, however big». Films in 4K can take a lot of space."},
+  "setup.mode_help_budget": "«this much space, shared out in turn». With small episodes that is many, with big ones few."
 }

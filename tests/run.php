@@ -30509,6 +30509,15 @@ S.simDays(stand, 2);
 out.clear = { warnNow: ss.warnNow, fetched: ss.log.slice(-60).some((l) => l.k === 'fetch') };
 out.edge = { never: es.log.some((l) => l.k === 'never'), told: es.told, warns: es.warns, limit: es.inv.limit, others: Math.round(S.mathOf(edge.w, es).others),
   over: S.mathOf(edge.w, es).used > S.mathOf(edge.w, es).xb, dayTold: es.hist.at(-1).told };
+// by budget: the most he wants (GB), no block reserved — he holds at most min(budget, fill limit), the world fills it
+out.budget = ['budget_small', 'budget_big'].map((id) => {
+  const sim = S.runScenario(id, {}, 162);
+  const side = sim.sides.new;
+  const m = S.mathOf(sim.w, side);
+  const want = S.wanted(sim.w).reduce((a, e) => a + e.size, 0);
+  return { id, ok: S.summary(sim).new.ok, budget: sim.w.cfg.budget, half: m.half, limit: m.jackLimit, jack: m.jack, want,
+    maxHeld: Math.max(...side.hist.map((x) => x.jack)), biggest: Math.max(...S.measure(sim.w, side).files.map((e) => e.size), 0) };
+});
 const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
 out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
   min: v.every((x, i) => x <= 0 || w[i] >= Math.min(min, 1 / v.filter((y) => y > 0).length) - 1e-9),
@@ -30547,7 +30556,7 @@ JS);
     same('streamer sim: the terms the rules share with poolLevelMath() are its numbers (room A, H, the others\' half, need)', $php, $r['terms']);
     check('streamer sim: the same seed gives the same month, another seed another', $r['same'] === true && $r['other'] === true);
     $sc = $r['sc'];
-    same('streamer sim: all seven scenarios ran', ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'], array_keys($sc));
+    same('streamer sim: all scenarios ran', ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'budget_small', 'budget_big', 'tiny'], array_keys($sc));
     foreach ($sc as $id => $x) {
         same("streamer sim: $id, new rules — Jack keeps his half and limit, nothing unwatched back early, no ping-pong, the pool ≤ X",
             [null, null, null, null, 0, 0, 0], [$x['new']['inv']['jack'], $x['new']['inv']['unwatched'], $x['new']['inv']['pingpong'], $x['new']['inv']['limit'],
@@ -30568,6 +30577,12 @@ JS);
     same('streamer sim: dragging X — 1 % steps, Y stays (the offset follows), at most 100, above Y', [85, 15, 100, 71, 1], $d['x']);
     same('streamer sim: dragging Y — the offset = X − Y, X stays, at least 1, Y at least 1', [20, 80, 1, 79], $d['y']);
     same('streamer sim: a setting within the rules (NM ≤ pool, nothing else beyond it, Y < X)', [300, 0, 0, 2, 1], $d['fit']);
+    [$bs, $bb] = $r['budget'];
+    check('streamer sim: by budget smaller than his half — green, he wants the budget (the world fills it) and holds no more than it',
+        $bs['ok'] && $bs['budget'] < $bs['half'] && $bs['want'] <= $bs['budget'] + 0.01 && $bs['want'] >= $bs['budget'] - $bs['biggest'] - 15
+        && $bs['maxHeld'] <= $bs['budget'] + $bs['biggest'] + 0.01, json_encode($bs));
+    check('streamer sim: by budget bigger than his fill limit — green, the fill limit holds him (min(budget, limit)), nothing reserved for the budget',
+        $bb['ok'] && $bb['budget'] > $bb['limit'] && $bb['jack'] <= $bb['limit'] + $bb['biggest'] + 0.01 && $bb['want'] > $bb['limit'], json_encode($bb));
     $ed = $r['edge'];
     same('streamer sim: nothing to share (what never moves above Y), the others all moved, his unwatched files stay — the pool over X: «told at once» (the check says so, not red), the warning, the log says «nothing to share»',
         [true, true, 1, true, true, 1, 0, true], [$ed['never'], $ed['over'], $ed['told'], $ed['warns'] >= 1, $ed['limit']['ok'], $ed['limit']['told'], $ed['others'], $ed['dayTold']]);
@@ -30599,11 +30614,11 @@ function testStreamerWizard(): void
     $en = langFile(OFFICE_WEB . '/desks/emby/lang/en.json');
     preg_match_all("/(?<![.\w])T\(\s*'([a-z0-9_.]+)'\s*[,)]/", $sim, $m);
     same('streamer wizard: every text streamer.js asks for is in his lang files', [], array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($en[$k]))));
-    $families = ['sim.f.' => ['pool', 'nm', 'writes', 'watch', 'newEps', 'people', 'x', 'offset', 'k', 'unwatchedDays', 'age'],
-        'sim.ev.' => ['spike', 'appdata', 'binge', 'nobody', 'abandon'], 'sim.sc.' => ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'],
+    $families = ['sim.f.' => ['pool', 'nm', 'writes', 'watch', 'newEps', 'people', 'x', 'offset', 'k', 'unwatchedDays', 'age', 'budget'],
+        'sim.ev.' => ['spike', 'appdata', 'binge', 'nobody', 'abandon'], 'sim.sc.' => ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'budget_small', 'budget_big', 'tiny'],
         'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.' => ['told', 'told_from', 'seed_hint', 'reroll', 'warn_msg'], 'sim.warn_why.' => ['never', 'room', 'promise'], 'sim.drag.' => ['nm', 'end', 'x', 'y'], 'sim.bar.' => ['before', 'after', 'same', 'nm', 'others', 'unw', 'wat', 'free'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
         'sim.log.' => ['day', 'spill', 'plan', 'back_watched', 'back_stale', 'age', 'goes_x', 'goes_over', 'fetch', 'skip_limit', 'skip_y',
-            'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event', 'warn', 'fill_warn'], 'sim.who.' => ['jack', 'her']];
+            'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event', 'warn', 'fill_warn', 'skip_budget'], 'sim.who.' => ['jack', 'her']];
     $miss = [];
     foreach ($families as $pre => $ids) {
         foreach ($ids as $id) {
@@ -30691,6 +30706,7 @@ e.setState({ ...st, share_info: { ...st.share_info, Familienserien: { use: 'no',
 out.arrayOnly = [e.cacheable('Familienserien'), e.derivedPool()];
 const names = new Map([['a1', 'Anna'], ['b2', 'Ben']]);
 const hex = '0123456789abcdef0123456789abcdef';
+out.budgetGb = ['500G', '1.5T', '800 GB', '2048M', 'lots', ''].map(e.budgetGb);
 out.people = [e.peopleWords(['a1', 'b2'], names), e.peopleWords([hex, 'b2'], names), e.peopleWords([hex], new Map()), e.peopleWords([], names)];
 console.log(JSON.stringify(out));
 JS);
@@ -30710,6 +30726,7 @@ JS);
             same('streamer wizard: shares on two pools — none until the user picks one (EmbyCache has one cache_path)', [2, ''], $r['many']);
             same('streamer wizard: … the picked one', '/mnt/fast', $r['picked']);
             same('streamer wizard: an array-only share can\'t be cached — the pool from the others', [false, '/mnt/cache'], $r['arrayOnly']);
+            same('streamer wizard: his budget («500G», «1.5T» …) in GB for the simulator, 0 when unreadable', [500, 1536, 800, 2, 0, 0], $r['budgetGb']);
             same('streamer wizard: the people in words — names when known, else how many, none = everyone; never an id',
                 ['Anna, Ben', 'count.people {"n":2}', 'count.people {"n":1}', 'setup.tile.everyone'], $r['people']);
         }

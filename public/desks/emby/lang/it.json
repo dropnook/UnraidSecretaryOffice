@@ -328,8 +328,6 @@
   "setup.mode": "Portata",
   "setup.mode_count": "per numero",
   "setup.mode_budget": "per budget di spazio",
-  "setup.mode_count_hint": "Film: quelli iniziati da ogni persona. Serie: quelle iniziate, con questi episodi in anticipo. I numeri sono più sotto, a film e serie.",
-  "setup.mode_budget_hint": "Tutto ciò che sta in un budget fisso — diviso in modo equo tra le persone che guardano; film e serie se lo spartiscono in quote (più sotto, ai film).",
   "setup.budget": "Budget",
   "setup.budget_hint": "Una dimensione come 500G o 1T.",
   "setup.budget_missing": "Inserisci un budget come 500G o 1T.",
@@ -895,5 +893,12 @@
   "sim.warn_why.never": "ciò che non si sposta mai ({nm}) è già sopra Y — alle altre condivisioni resta poco spazio",
   "sim.warn_why.room": "fino a X restano solo {room}, meno di un giorno di scritture ({writes}), e Jack Emby tiene più del suo limite",
   "sim.warn_why.promise": "alle altre condivisioni resta meno del promesso ({have} invece di {promised})",
-  "sim.col.result": "Risultato"
+  "sim.col.result": "Risultato",
+  "sim.f.budget": "Budget",
+  "sim.mark.budget": "Budget",
+  "sim.log.skip_budget": "[SALTATO: budget] {title} ({size})",
+  "sim.sc.budget_small": "Budget più piccolo della sua metà",
+  "sim.sc.budget_big": "Budget più grande del suo limite",
+  "setup.mode_help_count": {"one": "«{n} episodio per serie, comunque grande». I film in 4K possono occupare molto spazio.", "other": "«{n} episodi per serie, comunque grandi». I film in 4K possono occupare molto spazio."},
+  "setup.mode_help_budget": "«tanto spazio, distribuito a turno». Con episodi piccoli sono tanti, con quelli grandi pochi."
 }

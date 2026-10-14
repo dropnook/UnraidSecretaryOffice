@@ -328,8 +328,6 @@
   "setup.mode": "Umfang",
   "setup.mode_count": "nach Anzahl",
   "setup.mode_budget": "nach Platz-Budget",
-  "setup.mode_count_hint": "Filme: die angefangenen jeder Person. Serien: die angefangenen, mit so vielen Folgen im Voraus. Die Zahlen stehen unten bei Filmen und Serien.",
-  "setup.mode_budget_hint": "Was in ein festes Budget passt — fair verteilt auf die Personen, die schauen; Filme und Serien teilen es nach Anteil (unten bei Filmen).",
   "setup.budget": "Budget",
   "setup.budget_hint": "Eine Grösse wie 500G oder 1T.",
   "setup.budget_missing": "Gib ein Budget wie 500G oder 1T ein.",
@@ -895,5 +893,12 @@
   "sim.warn_why.never": "was nie zügelt ({nm}) liegt schon über Y — für die anderen Shares bleibt kaum Platz",
   "sim.warn_why.room": "bis X bleiben nur {room}, weniger als ein Tag Schreiben ({writes}), und Jack Streamer hält mehr als seine Füllgrenze",
   "sim.warn_why.promise": "den anderen Shares bleibt weniger als versprochen ({have} statt {promised})",
-  "sim.col.result": "Ergebnis"
+  "sim.col.result": "Ergebnis",
+  "sim.f.budget": "Budget",
+  "sim.mark.budget": "Budget",
+  "sim.log.skip_budget": "[ÜBERSPRUNGEN: Budget] {title} ({size})",
+  "sim.sc.budget_small": "Budget kleiner als seine Hälfte",
+  "sim.sc.budget_big": "Budget grösser als seine Füllgrenze",
+  "setup.mode_help_count": {"one": "«{n} Folge pro Serie, egal wie gross». Bei Filmen in 4K kann das viel Platz brauchen.", "other": "«{n} Folgen pro Serie, egal wie gross». Bei Filmen in 4K kann das viel Platz brauchen."},
+  "setup.mode_help_budget": "«so viel Platz, verteilt reihum». Bei kleinen Folgen werden das viele, bei grossen wenige."
 }

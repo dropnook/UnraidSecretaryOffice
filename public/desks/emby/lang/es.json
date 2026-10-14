@@ -328,8 +328,6 @@
   "setup.mode": "Cantidad",
   "setup.mode_count": "por número",
   "setup.mode_budget": "por presupuesto de espacio",
-  "setup.mode_count_hint": "Películas: las empezadas por cada persona. Series: las empezadas, con tantos episodios por delante. Los números están más abajo, en películas y series.",
-  "setup.mode_budget_hint": "Todo lo que quepa en un presupuesto fijo — repartido de forma justa entre las personas que ven; películas y series se lo reparten según una proporción (más abajo, en películas).",
   "setup.budget": "Presupuesto",
   "setup.budget_hint": "Un tamaño como 500G o 1T.",
   "setup.budget_missing": "Introduce un presupuesto como 500G o 1T.",
@@ -895,5 +893,12 @@
   "sim.warn_why.never": "lo que nunca se mueve ({nm}) ya está por encima de Y — a los otros recursos les queda poco espacio",
   "sim.warn_why.room": "hasta X solo quedan {room}, menos que un día de escrituras ({writes}), y Jack Emby tiene más que su límite",
   "sim.warn_why.promise": "a los otros recursos les queda menos de lo prometido ({have} en vez de {promised})",
-  "sim.col.result": "Resultado"
+  "sim.col.result": "Resultado",
+  "sim.f.budget": "Presupuesto",
+  "sim.mark.budget": "Presupuesto",
+  "sim.log.skip_budget": "[OMITIDO: presupuesto] {title} ({size})",
+  "sim.sc.budget_small": "Presupuesto menor que su mitad",
+  "sim.sc.budget_big": "Presupuesto mayor que su límite",
+  "setup.mode_help_count": {"one": "«{n} episodio por serie, sea cual sea su tamaño». Las películas en 4K pueden ocupar mucho espacio.", "other": "«{n} episodios por serie, sea cual sea su tamaño». Las películas en 4K pueden ocupar mucho espacio."},
+  "setup.mode_help_budget": "«tanto espacio, repartido por turnos». Con episodios pequeños son muchos, con grandes pocos."
 }
