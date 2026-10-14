@@ -459,10 +459,8 @@ function nightPicture(n) {
     dot.className = 'mo-pic-dot mo-fly-' + k;
     dot.innerHTML = picFlyer(f.who === 'jack');
     say(f, true);
-    const at = (p) => `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
     dot.getAnimations().forEach((x) => x.cancel());       // the last flight's (kept at its end) — one at a time on it
-    return dot.animate([{ transform: at(from), opacity: 0 }, { transform: at(from), opacity: 1, offset: 0.12 },
-      { transform: at(to), opacity: 1, offset: 0.88 }, { transform: at(to), opacity: 0 }], { duration: 5000, easing: 'ease-in-out', fill: 'forwards' })
+    return dot.animate(picFlight(from, to), { duration: PIC_FLIGHT_MS, easing: 'linear', fill: 'forwards' })
       .finished.catch(() => {});
   }
   draw();
@@ -488,21 +486,60 @@ function livePicture(nn) {
   picLive = nightPicture(nn);
   return picLive;
 }
+/** A whole trip of a file between the bars (the owner, 2026-10-15: slow — the reel readable, its wings seen flapping) */
+const PIC_FLIGHT_MS = 9000;
+const PIC_LIFT = 34;              // px the flyer rises above the higher of its two ends (never above the box's top part)
 /**
- * What flies between the pool and the array / second pool (the owner, 2026-10-15): small wings flapping gently (CSS,
- * still under prefers-reduced-motion), carrying a film reel (Jack Streamer's files) or a block (hers). Inline SVG,
- * colours from the desk's tokens (currentColor = the part's colour), no data inside.
+ * One trip's keyframes, pure (tests/run.php): out of the bar it leaves very small, slowly growing to full size while it
+ * rises, across at full size, then slowly shrinking and sinking into the bar it reaches; {x, y} in the box's pixels.
+ */
+function picFlight(from, to) {
+  const top = Math.max(PIC_LIFT, Math.min(from.y, to.y) - PIC_LIFT);
+  const at = (t, lift, scale) => {
+    const x = from.x + (to.x - from.x) * t;
+    const y = from.y + (to.y - from.y) * t;
+    return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift).toFixed(1)}px) scale(${scale})`;
+  };
+  return [
+    { transform: at(0, 0, 0.12), opacity: 0, offset: 0 },
+    { transform: at(0, 0, 0.15), opacity: 1, offset: 0.05, easing: 'ease-out' },
+    { transform: at(0.12, 1, 1), opacity: 1, offset: 0.3, easing: 'ease-in-out' },
+    { transform: at(0.88, 1, 1), opacity: 1, offset: 0.7, easing: 'ease-in' },
+    { transform: at(1, 0, 0.15), opacity: 1, offset: 0.95 },
+    { transform: at(1, 0, 0.12), opacity: 0, offset: 1 },
+  ];
+}
+
+/** One feathered wing (drawn leftwards from its shoulder at 0,0): layered pointed feathers, each darker at its tip */
+function picWing() {
+  const feathers = [[62, 36, 7], [44, 46, 8], [26, 52, 8.5], [8, 48, 8.5], [-10, 38, 8]];      // [angle up, length, width]
+  return feathers.map(([deg, l, w]) => `<g transform="rotate(${deg})">`
+    + `<path class="mo-feather" d="M0 0Q${-l / 2} ${-w} ${-l} 0Q${-l / 2} ${w} 0 0Z"/>`
+    + `<path class="mo-feather-tip" d="M${(-0.6 * l).toFixed(1)} 0Q${(-0.8 * l).toFixed(1)} ${(-0.8 * w).toFixed(1)} ${-l} 0Q${(-0.8 * l).toFixed(1)} ${(0.8 * w).toFixed(1)} ${(-0.6 * l).toFixed(1)} 0Z"/></g>`).join('');
+}
+
+/**
+ * What flies between the pool and the array / second pool (the owner, 2026-10-15, «winged reel»): on both sides layered
+ * feathered wings flapping (CSS keyframes on the wing groups, still under prefers-reduced-motion), carrying a silver film
+ * reel from the front — six round holes around a hub, a strip of film with sprocket holes curling out below it — for
+ * Jack Streamer's files, a block for hers. Our own drawing, inline SVG, colours from the desk's tokens (the rim and the
+ * block in currentColor = the part's colour), no data inside.
  */
 function picFlyer(reel) {
-  const wing = 'M0 0C-3-6-9-8-14-6C-11-4-9-2-8 0C-10 1-12 2-13 4C-8 5-3 3 0 0Z';
+  const cx = 60;
+  const cy = 34;
+  const around = (r, n, f) => Array.from({ length: n }, (_, i) => f(cx + r * Math.sin(i * 2 * Math.PI / n), cy - r * Math.cos(i * 2 * Math.PI / n))).join('');
+  const film = 'M52 57C49 70 63 79 79 74C90 71 96 74 104 82';
   const body = reel
-    ? '<g class="mo-fly-reel"><circle cx="20" cy="11" r="7" fill="currentColor" class="mo-fly-body"/><circle cx="20" cy="11" r="1.6" class="mo-fly-hole"/>'
-      + [0, 72, 144, 216, 288].map((a) => `<circle cx="${(20 + 4 * Math.sin(a * Math.PI / 180)).toFixed(2)}" cy="${(11 - 4 * Math.cos(a * Math.PI / 180)).toFixed(2)}" r="1.5" class="mo-fly-hole"/>`).join('')
-      + '</g>'
-    : '<rect x="14" y="5" width="12" height="12" rx="2.5" fill="currentColor" class="mo-fly-body"/>';
-  return '<svg viewBox="0 0 40 22" width="40" height="22" focusable="false">'
-    + `<g transform="translate(14 9)"><path class="mo-wing mo-wing-l" d="${wing}"/></g>`
-    + `<g transform="translate(26 9) scale(-1 1)"><path class="mo-wing mo-wing-r" d="${wing}"/></g>` + body + '</svg>';
+    ? `<path class="mo-film-edge" d="${film}"/><path class="mo-film" d="${film}"/><path class="mo-film-holes" d="${film}"/><path class="mo-film-mid" d="${film}"/>`
+      + `<g class="mo-fly-reel"><circle cx="${cx}" cy="${cy}" r="25" class="mo-reel-rim"/><circle cx="${cx}" cy="${cy}" r="21" class="mo-reel-ring"/>`
+      + around(13, 6, (x, y) => `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="5.2" class="mo-reel-hole"/>`)
+      + `<circle cx="${cx}" cy="${cy}" r="5" class="mo-reel-hub"/>`
+      + around(2.6, 3, (x, y) => `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="0.9" class="mo-reel-dot"/>`) + '</g>'
+    : `<rect x="${cx - 15}" y="${cy - 15}" width="30" height="30" rx="5" fill="currentColor" class="mo-fly-body"/>`;
+  return '<svg viewBox="0 0 120 84" width="96" height="67" focusable="false" aria-hidden="true">'
+    + `<g transform="translate(${reel ? 37 : 46} ${cy - 4})"><g class="mo-wing mo-wing-l">${picWing()}</g></g>`
+    + `<g transform="translate(${reel ? 83 : 74} ${cy - 4}) scale(-1 1)"><g class="mo-wing mo-wing-r">${picWing()}</g></g>` + body + '</svg>';
 }
 const reducedMotion = () => !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
@@ -2178,7 +2215,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
