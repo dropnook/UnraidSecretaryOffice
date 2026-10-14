@@ -104,7 +104,7 @@ desk('emby', [
         // «Set up from scratch» (2026-10-14, the owner: really zero — no copy)
         'reset'          => fn (array $r) => embyReset(),
         // the setup's pool simulator, real data: the pool measured now — only on the user's click (it may wake the pool)
-        'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyReadSettings(), true))],
+        'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyMeasurePool($r), true))],
         'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()],
     ],
     'jobs'    => [
@@ -167,6 +167,9 @@ function embyScan(): array
         'shares'     => $settings !== null ? embySharesSized(embyShares($settings)) : [],
         'cache'      => embyCacheStats($settings),
         'pool'       => embyPoolUsage($settings),
+        // Ms. Moverelli's rules on their own (2026-10-14: a fresh Jack Streamer has no pool of his yet — his setup shows
+        // her X, offset, «guaranteed» and age rule all the same): {x, y, k, min_age}, null without her ini
+        'moverelli'  => embyMoverelliRules(),
         'gather'     => [
             'settings' => $gather,
             'ready'    => embyGatherReady(),
@@ -686,6 +689,30 @@ function embyPoolLook(?array $settings, bool $wake = false): ?array
         'mnt' => '/mnt', 'jack_list' => EMBY_DATA . '/embycache_exclude.txt', 'asleep' => null];
     $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
     return poolLevelJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
+}
+
+/** Her rules from her ini, without his settings: {x, y, k, min_age} — null while she isn't set up (no ini) */
+function embyMoverelliRules(): ?array
+{
+    $ini = ($GLOBALS['embyPool']['ini'] ?? null) ?? DATA_DIR . '/moverelli/smart_mover.ini';
+    $rules = poolLevelRules($ini);
+    return $rules === null ? null : $rules + ['min_age' => embyStreamerAge($ini)];
+}
+
+/**
+ * Which pool «Measure now» measures: the one the wizard derived from the shares (step 2) when it sends one of his pools,
+ * else his saved cache_path — as settings for embyPoolLook()
+ */
+function embyMeasurePool(array $r): ?array
+{
+    $want = optText($r, 'pool');
+    if ($want !== '') {
+        if (!in_array($want, embyPools(), true)) {
+            throw new Problem('emby_bad_pool', ['path' => $want]);
+        }
+        return ['cache_path' => $want];
+    }
+    return embyReadSettings();
 }
 
 /**
