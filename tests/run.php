@@ -4490,7 +4490,8 @@ case "$1" in
   dominfo) echo "Autostart:      disable"; exit 0 ;;
   dumpxml) echo "<domain><name>$n</name><uuid>uuid-$n</uuid></domain>"; exit 0 ;;
   domblklist) printf 'Type Device Target Source\n----\nfile disk vdisk1 %s\n' "$MNT/user/domains/$n/vdisk1.img"; exit 0 ;;
-  qemu-agent-command|domfsfreeze) exit 1 ;;
+  qemu-agent-command|domfsfreeze) [[ "$(cat "$V/$n.how" 2>/dev/null)" == freeze* ]] && { ev "virsh freeze $n"; exit 0; }; exit 1 ;;
+  domfsthaw) ev "virsh thaw $n"; [[ "$(cat "$V/$n.how" 2>/dev/null)" == freeze-stuck ]] && exit 1; exit 0 ;;
   shutdown) ev "virsh shutdown $n"; [[ -e "$V/$n.asked" ]] || date +%s >"$V/$n.asked"
             [[ "$(cat "$V/$n.how" 2>/dev/null)" == obey ]] && echo "shut off" >"$V/$n.state"
             i=0; while [[ -e "$V/$n.hold" ]] && (( i++ < 100 )); do sleep 0.1; done; exit 0 ;;
@@ -4676,8 +4677,22 @@ SH);
         same("vm order: stopped $when — aborted, no downtime, nothing noted", ['aborted', 0, false], [$s['result'] ?? null, $s['downtime_s'] ?? null, file_exists("$data/state/vms")]);
     }
 
+    // --- a guest frozen for the snapshot whose thaw fails (2.48, review 2026-10-15): a second try, then an alert - a frozen
+    // guest writes nothing until someone thaws it; one that thaws is a plain line
+    $settings(['vmpause' => 'freeze', 'vmshut' => 'freeze']);
+    $night(['vmpause' => 'freeze-stuck', 'vmshut' => 'freeze']);
+    @unlink("$fake/notify.log");
+    $out = $run('', 'UB_NO_NOTIFY=0');
+    $names = array_column($events(), 1);
+    $note = (string) @file_get_contents("$fake/notify.log");
+    check('vm order: a thaw that fails is tried twice, then an alert names the VM; the one that thaws once',
+        count(array_keys($names, 'virsh thaw vmpause', true)) === 2 && count(array_keys($names, 'virsh thaw vmshut', true)) === 1
+        && str_contains($note, 'VM not thawed') && str_contains($note, '-i alert') && str_contains($note, 'vmpause') && !str_contains($note, "'vmshut' may still"),
+        json_encode($names) . $note . $out);
+
     // --- stopped twice (2.48, review 2026-10-15): the second SIGTERM comes while the run's way out waits for the VM - it
     // never cuts that short: the VM is still started again once it is off, said in the log
+    $settings(['vmslow' => 'shutdown']);
     $night(['vmslow' => 'slow']);
     $t = testsClockRun($clock);
     $runLog = fn () => (string) @file_get_contents("$data/logs/run-" . date('Ymd-Hi', $t) . '.log');

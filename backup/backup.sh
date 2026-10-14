@@ -578,6 +578,8 @@ vm_hold() { # right before the snapshots: freeze, pause - also a VM that wasn't 
             VM_HELD[$n]="frozen"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
             if timeout 60 virsh domfsfreeze "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': file systems frozen"; continue; fi
             warn_code vm_not_frozen "VM '$n': the guest agent did not freeze its file systems - paused instead" name="$n"
+            # 2.48: a freeze that ran into its time may have frozen some of them after all - thawed before the pause
+            timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1
             unset "VM_HELD[$n]"; p="pause"
         fi
         if [[ "$p" == "pause" ]]; then
@@ -598,7 +600,11 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
         if [[ "${1:-}" != "btrfs" ]] && vm_on_btrfs "$n"; then continue; fi
         how="${VM_HELD[$n]}"
         case "$how" in
-            frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" || warn "VM '$n': thawing its file systems failed - check the VM" ;;
+            # 2.48: a guest left frozen writes nothing until someone thaws it - a second try, then an alert like a paused one
+            frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" \
+                          || { sleep 5; timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE"; } \
+                          || { warn "VM '$n': thawing its file systems failed - check the VM"
+                               ub_notify "VM not thawed" "'$n' may still have its file systems frozen after the snapshot: virsh domfsthaw $n" "alert"; } ;;
             paused)   timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE" \
                           || { warn "VM '$n' could NOT be resumed"; ub_notify "VM not resumed" "'$n' is still paused after the snapshot: virsh resume $n" "alert"; } ;;
             shutdown) st="$(vm_domstate "$n")"
