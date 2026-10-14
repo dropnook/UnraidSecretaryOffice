@@ -74,9 +74,25 @@ function officePluginDataDir(): string
     if (is_string($cfg['DATA_DIR'] ?? null) && str_starts_with($cfg['DATA_DIR'], '/mnt/')) {
         return rtrim($cfg['DATA_DIR'], '/');
     }
-    $docker = @parse_ini_file('/boot/config/docker.cfg') ?: [];
+    return officeDefaultDataDir();
+}
+
+/** The default data folder: <appdata>/UnraidSecretaryOffice/data, appdata as Docker's settings name it ($dockerCfg: tests) */
+function officeDefaultDataDir(string $dockerCfg = '/boot/config/docker.cfg'): string
+{
+    $docker = @parse_ini_file($dockerCfg) ?: [];
     $appdata = rtrim((string) ($docker['DOCKER_APP_CONFIG_PATH'] ?? '') ?: '/mnt/user/appdata', '/');
     return "$appdata/UnraidSecretaryOffice/data";
+}
+
+/**
+ * Is the folder above the data folder the office's own — <appdata>/UnraidSecretaryOffice, the data folder at its default
+ * place? Only then the office makes it root's (owner 2026-10-15); a data folder elsewhere has the user's folder above it,
+ * never changed. $dataUser: the data folder as the .cfg names it (before an exclusive share's way to the pool).
+ */
+function officeHomeIsOwn(string $dataUser, ?string $default = null): bool
+{
+    return rtrim($dataUser, '/') === rtrim($default ?? officeDefaultDataDir(), '/');
 }
 
 /**

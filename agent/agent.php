@@ -468,7 +468,8 @@ function makeDataDir(): bool
     }
     $appdata = dirname(DATA_DIR, 2);         // <appdata>/UnraidSecretaryOffice/data
     // root's, both it and the folder above it (review 2026-10-15: a folder above of nobody's let anyone writing as nobody
-    // put a data folder of their own in its place); the files in it stay nobody:users
+    // put a data folder of their own in its place; setUp() keeps the office's own one root:root 0755); the files in it
+    // stay nobody:users
     if (!is_dir($appdata) || !@mkdir(DATA_DIR, 0755, true)) {
         return false;
     }
@@ -478,6 +479,10 @@ function makeDataDir(): bool
 
 function setUp(): void
 {
+    // the office's own folder above the data folder: root's (owner 2026-10-15, lib/house.php)
+    if (officeHomeIsOwn(DATA_DIR_USER) && ($said = officeHomeOwn(dirname(DATA_DIR))) !== null) {
+        logLine($said);
+    }
     dataDirTighten();
     mailboxEnsure();
     foreach (glob(MAILBOX . '/*') ?: [] as $old) {

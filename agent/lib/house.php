@@ -35,14 +35,16 @@ function finding(string $id, string $level, ?bool $ok, array $params = [], ?stri
  *
  * @return array{ok: ?bool, paths: list<string>, cmd: string}
  */
-function officeDataTrust(string $data): array
+function officeDataTrust(string $data, bool $home = true): array
 {
     clearstatcache();
     if (!is_dir($data)) {
         return ['ok' => null, 'paths' => [], 'cmd' => ''];
     }
     $bad = [];
-    foreach ([dirname($data), $data] as $dir) {
+    // the folder above only where it is the office's own (officeHomeIsOwn(); the agent makes it root's at its start,
+    // officeHomeOwn()) - a data folder elsewhere: only its own rules (owner 2026-10-15), the user's folder above is theirs
+    foreach ($home ? [dirname($data), $data] : [$data] as $dir) {
         $st = @lstat($dir);
         if (!$st || ($st['mode'] & 0170000) !== 0040000 || ($st['mode'] & 0022) || !($st['uid'] === 0 || ($st['uid'] === 99 && !($st['mode'] & 0200)))) {
             $bad[] = $dir;
@@ -50,6 +52,31 @@ function officeDataTrust(string $data): array
     }
     $q = implode(' ', array_map('escapeshellarg', $bad));
     return ['ok' => !$bad, 'paths' => $bad, 'cmd' => $bad ? "chown root:root $q && chmod go-w $q" : ''];
+}
+
+/**
+ * Owner 2026-10-15 (review F2): the office's own folder above the data folder, <appdata>/UnraidSecretaryOffice, is
+ * root:root 0755 - set at every agent start (and by the .plg's install), only that one folder, never what is in it (the
+ * data files keep their owner). Only when it is the office's own (officeHomeIsOwn()); never through a link: the folder
+ * is entered and the one entered is checked to be the one looked at (a link or a folder swapped in between is left
+ * alone). What it did, for the log, or null (as it should be already, or nothing to do).
+ */
+function officeHomeOwn(string $home): ?string
+{
+    clearstatcache();
+    $st = @lstat($home);
+    if (!$st || ($st['mode'] & 0170000) !== 0040000 || ($st['uid'] === 0 && $st['gid'] === 0 && ($st['mode'] & 07777) === 0755)) {
+        return null;
+    }
+    $cwd = getcwd() ?: '/';
+    if (!@chdir($home)) {
+        return null;
+    }
+    $here = @lstat('.');
+    $done = $here && $here['dev'] === $st['dev'] && $here['ino'] === $st['ino'] && @chown('.', 0) && @chgrp('.', 0) && @chmod('.', 0755);
+    @chdir($cwd);
+    return $done ? sprintf('%s made root:root 0755 (was %d:%d %o)', $home, $st['uid'], $st['gid'], $st['mode'] & 07777)
+        : "$home could not be made root:root 0755";
 }
 
 /**
