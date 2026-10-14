@@ -106,12 +106,11 @@
 .mo-film{stroke:var(--mo-film); stroke-width:11}
 .mo-film-holes{stroke:var(--mo-silver); stroke-width:8; stroke-dasharray:2.2 2.6}
 .mo-film-mid{stroke:var(--mo-film); stroke-width:4.6}
-/* the feathered wings: light grey feathers, darker at the tips; they flap about the shoulder (their group's 0,0) ~3.5 times a second */
-.mo-feather{fill:color-mix(in srgb, var(--on-fill) 82%, var(--muted)); stroke:var(--mo-steel); stroke-width:.7; stroke-linejoin:round}
-.mo-feather-tip{fill:color-mix(in srgb, var(--black, #000) 40%, var(--muted))}
-.mo-wing{transform-box:view-box; transform-origin:0 0; animation:mo-flap .14s ease-in-out infinite alternate}
-.mo-fly-reel{transform-box:fill-box; transform-origin:50% 50%; animation:mo-reel 4s linear infinite}
-@keyframes mo-flap{from{transform:rotate(-22deg)} to{transform:rotate(26deg)}}
+/* the feathered wings: broad light grey feathers, darker at the tips, a clear outline in both themes; they beat about the
+   shoulder by SMIL (picWing(): the group's own 0,0 — the same in every browser), slowly (~0.55 s a beat) */
+.mo-feather{fill:color-mix(in srgb, var(--on-fill) 84%, var(--muted)); stroke:var(--mo-steel); stroke-width:1.3; stroke-linejoin:round}
+.mo-feather-tip{fill:color-mix(in srgb, var(--black, #000) 45%, var(--muted)); stroke:var(--mo-steel); stroke-width:.8}
+.mo-fly-reel{transform-box:fill-box; transform-origin:50% 50%; animation:mo-reel 6s linear infinite}
 @keyframes mo-reel{to{transform:rotate(360deg)}}
 @media (max-width:640px){ .mo-pic-grid{grid-template-columns:minmax(0, 1fr)} }
 @media (prefers-reduced-motion: reduce){ .mo-pic-dot{display:none} .mo-wing, .mo-fly-reel{animation:none} }
