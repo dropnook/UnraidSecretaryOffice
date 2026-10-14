@@ -1135,7 +1135,13 @@ dump_mariadb() { # dump_mariadb <container>
     [[ -n "$dbs" ]] || { err "MariaDB '$c': no database found"; return 1; }
 
     local rc=0
-    for db in $dbs; do
+    # one name a line (-N -B), never split at a space nor globbed (2.48); a name that can't be a file name or would end the
+    # SQL quote below (/ ' \ - the batch mode writes a tab or newline as \t \n) is said, never dumped
+    while IFS= read -r -u 3 db; do
+        [[ -n "$db" ]] || continue
+        if [[ "$db" == */* || "$db" == *\'* || "$db" == *\\* ]]; then
+            err "Dump $c/$db: a database name with / ' or \\ - not dumped (rename it, or dump it yourself)"; rc=1; continue
+        fi
         out="$DUMP_DIR/mariadb_${c}_${db}.sql.gz"
         log "  MariaDB '$c' / $db ..."
         my_exec "$c" "$dump_bin" "$login" "$pwv" --single-transaction --quick --hex-blob "${extra[@]}" \
@@ -1152,7 +1158,7 @@ dump_mariadb() { # dump_mariadb <container>
         rm -f "$DUMP_DIR/${c}_${db}.stderr"
         dump_done "$c" "$out"
         log "    OK: $(human "$size"), $tbl_dump tables"
-    done
+    done 3<<<"$dbs"
     return $rc
 }
 

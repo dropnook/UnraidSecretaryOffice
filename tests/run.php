@@ -5701,7 +5701,7 @@ case "$1" in
     case "$a" in
       *MARIADB_ROOT_PASSWORD:-*|*"command -v"*) exit 0 ;;
       *mariadb-dump*) printf 'CREATE TABLE t (id int);\n-- Dump completed on 2026-10-12\n' ;;
-      *schema_name*) echo mydb ;;
+      *schema_name*) if [[ -f "$FAKE/schemas" ]]; then cat "$FAKE/schemas"; else echo mydb; fi ;;
       *COUNT*) echo 1 ;;
     esac
     exit 0 ;;
@@ -5801,6 +5801,17 @@ SH);
     check('inside: the folder is no new local folder and no drift (top_dirs leaves .uso-backup out)', !str_contains((string) @file_get_contents("$data/state/drift.txt"), '.uso-backup')
         && !str_contains((string) @file_get_contents("$data/state/new-local.json"), '.uso-backup'));
     check('inside: no second copy of the data (the vdisk isn\'t in the folder)', !file_exists("$vm/vdisk1.img") && !is_dir("$vm/vms"));
+
+    // 2.48 (review 2026-10-15): MariaDB's database names one a line - a space or a * is a name like any other (before: split
+    // into words and globbed, so «my db» failed every night); a / ' or \\ is said and never dumped (a file name, the SQL quote)
+    file_put_contents("$fake/schemas", "mydb\nmy db\n*\n../x\nit's\n");
+    [$rc, $out] = $run();
+    $dbs = array_map('basename', glob("$mnt/user/UnraidSecretaryOffice/backup/apps/c1/db/mariadb_*") ?: []);
+    sort($dbs);
+    same('inside: MariaDB names with a space or a * dumped as they are, / and \' never', ['mariadb_c1_*.sql.gz', 'mariadb_c1_my db.sql.gz', 'mariadb_c1_mydb.sql.gz'], $dbs, $out);
+    check('inside: … said in the log, nothing written beside the package', str_contains($out, "Dump c1/../x: a database name with /") && str_contains($out, "Dump c1/it's: a database name with /")
+        && !glob("$mnt/user/UnraidSecretaryOffice/backup/apps/c1/mariadb_*") && !glob("$tmp/stage/x*"), $out);
+    @unlink("$fake/schemas");
 
     // a run without dumps: the folder is written anew without db/ (no history inside — the snapshots are the history)
     $settings(false);
