@@ -397,6 +397,7 @@
   "notify.target_subject": "Frau Moverelli: Pool {pool}",
   "notify.target_missed": "{pool} ist nach meinem Lauf noch bei {now} % — unter {y} % bin ich nicht gekommen. Bitte Platz schaffen.",
   "by.night": "im gemeinsamen Lauf",
+  "by.night_solo": "im Nachtlauf",
   "sched.night": "Gemeinsamer Lauf mit Jack Streamer",
   "night.with_jack": "Jack Streamer und ich, ein Lauf",
   "night.tonight": "Heute Nacht: {what}",

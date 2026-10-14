@@ -1180,6 +1180,7 @@ function moverelliJob(array $args, ?array $h = null): int
             $roomPool = $m[1];
         }
     }
+    $solo = $by === 'night' && in_array('--solo', $args, true);      // the night without Jack Streamer: the record says so
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     // let go (or never hired): a schedule line left in the office's cron file moves nothing — said in the log only
@@ -1292,7 +1293,7 @@ function moverelliJob(array $args, ?array $h = null): int
         $note['stop_file'] = (string) ($status['stop_file'] ?? '');
     }
     moverelliRemember(['mode' => $mode, 'by' => $by, 'started' => $started, 'finished' => time(), 'exit' => $exit, 'result' => $result,
-                       'status' => moverelliStatusShort($status)] + $note, $dir);
+                       'status' => moverelliStatusShort($status)] + ($solo ? ['jack' => false] : []) + $note, $dir);
     logLine("Ms. Moverelli: Smart Mover ($mode) $result" . ($mode === 'run' ? ' — ' . (int) ($status['moved'] ?? 0) . ' moved, '
         . (int) ($status['left'] ?? 0) . ' left' : '') . (isset($note['why']) ? " (stopped: {$note['why']})" : ''));
     try {

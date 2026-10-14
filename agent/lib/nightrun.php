@@ -308,9 +308,9 @@ function nightRun(array $args, ?array $h = null): int
         fwrite(STDERR, "night: not started (not hired)\n");
         return 1;
     }
-    $refused = function (string $why, array $params = []) use ($mode, $by, $dir): int {
+    $refused = function (string $why, array $params = []) use ($mode, $by, $dir, $h): int {
         moverelliRemember(['mode' => $mode, 'by' => $by, 'night' => true, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $why]
-            + array_intersect_key($params, ['schedule' => 1, 'shares' => 1, 'version' => 1, 'file' => 1]), $dir);
+            + (($h['jack_on'])() ? [] : ['jack' => false]) + array_intersect_key($params, ['schedule' => 1, 'shares' => 1, 'version' => 1, 'file' => 1]), $dir);
         logLine("Night run ($mode) not started ($why)");
         fwrite(STDERR, "night: not started ($why)\n");
         return 1;
@@ -416,7 +416,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         }
     };
     // one step: a tool called with its part; false = the night ends here (stopped, refused)
-    $step = function (string $who, string $phase, array $extra = []) use (&$n, $h, $dir, $mode, $stopped): bool {
+    $step = function (string $who, string $phase, array $extra = []) use (&$n, $h, $dir, $mode, $stopped, $jack): bool {
         if ($stopped()) {
             $n['result'] = 'stopped';
             $n['stopped_in'] = $phase;
@@ -434,7 +434,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             $last = ($h['jack_runs'])()[0] ?? [];
             $recent = (($h['jack_live'])())['recent'] ?? [];
         } else {
-            $exit = ($h['her_job'])(array_merge([$mode, '--night'], $extra), $h);
+            $exit = ($h['her_job'])(array_merge([$mode, '--night'], $jack ? [] : ['--solo'], $extra), $h);
             $last = moverelliHistory($dir)[0] ?? [];
             $recent = (readJson("$dir/status.json") ?? [])['recent'] ?? [];
         }
