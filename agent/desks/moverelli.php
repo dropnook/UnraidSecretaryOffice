@@ -1072,10 +1072,19 @@ function moverelliProgressState(?array $h = null): array
         $prog += moverelliInFlight($prog, $h);
     }
     $short = $nightReal ? moverelliNightShort($night) : null;
+    $jackLive = $short !== null && ($night['who'] ?? null) === 'jack' ? (nightHost($h)['jack_live'])() : [];
     if ($short !== null && is_array($short['picture'] ?? null) && in_array($night['who'] ?? null, ['jack', 'her'], true)) {
         // the picture's files with those of the step at work (its tool's live status; night.json has them once it is done)
-        $live = $night['who'] === 'her' ? ($st['recent'] ?? []) : ((nightHost($h)['jack_live'])()['recent'] ?? []);
+        $live = $night['who'] === 'her' ? ($st['recent'] ?? []) : ($jackLive['recent'] ?? []);
         $short['picture']['files'] = array_slice(array_merge((array) ($short['picture']['files'] ?? []), nightFiles($live, $night['who'])), -NIGHT_FILES_MAX);
+    }
+    if ($short !== null && is_array($short['picture'] ?? null) && ($night['who'] ?? null) === 'jack' && ($night['phase'] ?? null) === 'free') {
+        // his free step at work: what was watched from EmbyCache's plan (its progress in RAM, this night's — never an older
+        // run's file) — the «before» bar split at once
+        $back = $jackLive['back'] ?? null;
+        if (is_array($back) && is_int($back['bytes'] ?? null) && is_int($jackLive['started'] ?? null) && $jackLive['started'] >= (int) ($night['started'] ?? PHP_INT_MAX)) {
+            $short['picture'] = nightPictureWatched($short['picture'], $back['bytes']);
+        }
     }
     return ['time' => time(), 'running' => $job['running'] || $nightReal, 'real' => $real, 'stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null,
             'progress' => $prog, 'night' => $short];

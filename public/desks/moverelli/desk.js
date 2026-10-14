@@ -181,7 +181,8 @@ function runCard(p, now) {
 // The setup simulator's bars live on here, while her night run with Jack Emby works and after it: the pool before the
 // run, the pool after it (forecast while it goes, measured once done), where she moves to (the array or the secondary
 // pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
-const PIC_SEGS = ['fixed', 'others', 'jack', 'free'];
+// Jack Streamer's part in two (the owner, 2026-10-15): not yet watched in his colour, already watched (goes back) in green
+const PIC_SEGS = ['fixed', 'others', 'jack', 'watched', 'free'];
 const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
 const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
 
@@ -212,8 +213,9 @@ function segWidths(values, min) {
  * The picture's numbers as the page draws them, pure (tests/run.php under node): pic = night.json's `picture`, px = the
  * bar's width in pixels (for the 10 px minimum), done = the run ended, destPx = the target bar's width (its used part keeps
  * the 10 px too). {measured, pool, x (0…1, null: no limit), before,
- * after, forecast (the after bar is a forecast), dest {to, size, used, measured, w}}; a bar: {size, used, segs [{k, bytes,
- * w}]} — its free part is what the size leaves (the segments sum to the bar). Not measured (no pool numbers): measured false.
+ * after, forecast (the after bar is a forecast), dest {to, size, used, measured, w}}; a bar: {size, used, jack (all of his),
+ * watched (of it what was watched; null: not known — no split), segs [{k, bytes, w}]} — its free part is what the size leaves
+ * (the segments sum to the bar); `jack` = what isn't watched (all of his while watched isn't known). Not measured: measured false.
  */
 function pictureBars(pic, px, done, destPx) {
   const phases = (pic && typeof pic.phases === 'object' && pic.phases) || {};
@@ -229,11 +231,13 @@ function pictureBars(pic, px, done, destPx) {
   const min = PIC_MIN_PX / Math.max(40, Number(px) || 800);
   const bar = (b) => {
     const size = Number(b.size);
-    const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: Math.max(0, Number(b.jack) || 0) };
-    const used = Math.min(size, val.fixed + val.others + val.jack);
+    const jack = Math.max(0, Number(b.jack) || 0);
+    const watched = b.jack_watched == null || !Number.isFinite(Number(b.jack_watched)) ? null : Math.min(jack, Math.max(0, Number(b.jack_watched)));
+    const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: jack - (watched || 0), watched: watched || 0 };
+    const used = Math.min(size, val.fixed + val.others + jack);
     val.free = Math.max(0, size - used);
     const w = segWidths(PIC_SEGS.map((k) => val[k]), min);
-    return { size, used, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
+    return { size, used, jack, watched, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
   };
   const x = Number(pic.x) > 0 ? Math.min(1, Number(pic.x) / 100) : null;
   const after = end || fc;
@@ -262,9 +266,10 @@ function nightPicture(n) {
   const legend = el('div', 'mo-pic-legend');
   const line = el('div', 'mo-pic-file');
   const dot = el('span', 'mo-pic-dot');
+  dot.setAttribute('aria-hidden', 'true');
   box.append(head, grid, legend, line, dot);
   const pct = (b, size) => fmt.number(size > 0 ? b * 100 / size : 0, 1);
-  const segName = (k) => T('pic.seg.' + k);
+  const segName = (k, b) => T(k === 'jack' && b && b.watched ? 'pic.seg.unwatched' : 'pic.seg.' + k);
   let data = null;
   /** One bar with its title and X; its segments' words on hover (title) */
   function barRow(title, b) {
@@ -276,7 +281,7 @@ function nightPicture(n) {
     for (const s of b.segs) {
       const seg = el('i', 'mo-pic-seg mo-seg-' + s.k);
       seg.style.width = `${(s.w * 100).toFixed(3)}%`;
-      seg.title = T('pic.seg_tip', { what: segName(s.k), size: fmt.size(s.bytes), pct: pct(s.bytes, b.size) });
+      seg.title = T('pic.seg_tip', { what: segName(s.k, b), size: fmt.size(s.bytes), pct: pct(s.bytes, b.size) });
       seg.dataset.k = s.k;
       bar.appendChild(seg);
     }
@@ -301,10 +306,20 @@ function nightPicture(n) {
       rowsBox.appendChild(barRow(T('pic.before'), data.before));
       if (data.after) rowsBox.appendChild(barRow(T(data.forecast ? 'pic.forecast' : 'pic.after'), data.after));
       // the legend: each part before → after (the true values)
+      const part = (bar, k) => (!bar ? null : k === 'jack' ? bar.jack : bar.segs.find((s) => s.k === k).bytes);
       for (const k of PIC_SEGS) {
+        if (k === 'watched') {
+          // «of which watched …»: only once known (his free step's plan) — what goes back in this run
+          const wb = data.before.watched;
+          if (wb == null) continue;
+          const it = el('span', 'mo-pic-key');
+          it.append(el('i', 'mo-pic-seg mo-seg-watched'), el('span', '', T('pic.watched', { size: fmt.size(wb) })));
+          legend.appendChild(it);
+          continue;
+        }
         const it = el('span', 'mo-pic-key');
-        const b = data.before.segs.find((s) => s.k === k).bytes;
-        const a = data.after ? data.after.segs.find((s) => s.k === k).bytes : null;
+        const b = part(data.before, k);
+        const a = part(data.after, k);
         if (k === 'jack' && n.jack === false && !b && !a) continue;      // a night without Jack Emby: his part gone, not «0 B»
         it.append(el('i', 'mo-pic-seg mo-seg-' + k), el('span', '', `${segName(k)} ${a === null ? fmt.size(b) : T('pic.change', { before: fmt.size(b), after: fmt.size(a) })}`));
         legend.appendChild(it);
@@ -374,17 +389,30 @@ function nightPicture(n) {
     const b = box.getBoundingClientRect();
     return { x: r.left - b.left + Math.min(r.width / 2, 40), y: r.top - b.top + r.height / 2 };
   }
+  /** A segment of a bar, the first of the kinds with something in it (Jack Streamer's watched, else his part) */
+  function segOf(bar, kinds) {
+    if (!bar) return null;
+    for (const k of kinds) {
+      const s = bar.querySelector(`.mo-seg-${k}`);
+      if (s && parseFloat(s.style.width) > 0) return s;
+    }
+    return bar.querySelector(`.mo-seg-${kinds[kinds.length - 1]}`);
+  }
   function flyFile(f) {
     const onto = fileOnto(f, pic.pool);
     const rows = box.querySelectorAll('.mo-pic-rowsBox .mo-pic-bar');
-    const k = f.who === 'jack' ? 'jack' : 'others';
+    // Jack Streamer's off the pool: what was watched (green), onto it: his colour; hers: the other shares'
+    const k = f.who === 'jack' ? (onto ? 'jack' : 'watched') : 'others';
+    const kinds = k === 'watched' ? ['watched', 'jack'] : [k];
     const target = spot(box.querySelector('.mo-pic-target'));
-    const from = onto ? target : spot(rows[0] && rows[0].querySelector(`.mo-seg-${k}`));
-    const to = onto ? spot((rows[1] || rows[0]) && (rows[1] || rows[0]).querySelector(`.mo-seg-${k}`)) : target;
+    const from = onto ? target : spot(segOf(rows[0], kinds));
+    const to = onto ? spot(segOf(rows[1] || rows[0], kinds)) : target;
     if (!from || !to || !dot.animate) return Promise.resolve();
-    dot.className = 'mo-pic-dot mo-seg-' + k;
+    dot.className = 'mo-pic-dot mo-fly-' + k;
+    dot.innerHTML = picFlyer(f.who === 'jack');
     say(f, true);
     const at = (p) => `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
+    dot.getAnimations().forEach((x) => x.cancel());       // the last flight's (kept at its end) — one at a time on it
     return dot.animate([{ transform: at(from), opacity: 0 }, { transform: at(from), opacity: 1, offset: 0.12 },
       { transform: at(to), opacity: 1, offset: 0.88 }, { transform: at(to), opacity: 0 }], { duration: 5000, easing: 'ease-in-out', fill: 'forwards' })
       .finished.catch(() => {});
@@ -411,6 +439,22 @@ function livePicture(nn) {
   if (picLive && picLive.started === nn.started) { picLive.update(nn); return picLive; }
   picLive = nightPicture(nn);
   return picLive;
+}
+/**
+ * What flies between the pool and the array / second pool (the owner, 2026-10-15): small wings flapping gently (CSS,
+ * still under prefers-reduced-motion), carrying a film reel (Jack Streamer's files) or a block (hers). Inline SVG,
+ * colours from the desk's tokens (currentColor = the part's colour), no data inside.
+ */
+function picFlyer(reel) {
+  const wing = 'M0 0C-3-6-9-8-14-6C-11-4-9-2-8 0C-10 1-12 2-13 4C-8 5-3 3 0 0Z';
+  const body = reel
+    ? '<g class="mo-fly-reel"><circle cx="20" cy="11" r="7" fill="currentColor" class="mo-fly-body"/><circle cx="20" cy="11" r="1.6" class="mo-fly-hole"/>'
+      + [0, 72, 144, 216, 288].map((a) => `<circle cx="${(20 + 4 * Math.sin(a * Math.PI / 180)).toFixed(2)}" cy="${(11 - 4 * Math.cos(a * Math.PI / 180)).toFixed(2)}" r="1.5" class="mo-fly-hole"/>`).join('')
+      + '</g>'
+    : '<rect x="14" y="5" width="12" height="12" rx="2.5" fill="currentColor" class="mo-fly-body"/>';
+  return '<svg viewBox="0 0 40 22" width="40" height="22" focusable="false">'
+    + `<g transform="translate(14 9)"><path class="mo-wing mo-wing-l" d="${wing}"/></g>`
+    + `<g transform="translate(26 9) scale(-1 1)"><path class="mo-wing mo-wing-r" d="${wing}"/></g>` + body + '</svg>';
 }
 const reducedMotion = () => !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
@@ -2083,7 +2127,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

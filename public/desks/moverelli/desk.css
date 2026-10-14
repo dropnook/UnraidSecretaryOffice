@@ -54,7 +54,7 @@
 .mo-run-foot{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:6px 14px}
 .mo-run-right{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-left:auto}
 /* the night's picture (2026-10-14): the pool before and after the run, where she moves to, a file on its slow way */
-.mo-pic{position:relative; display:block; min-height:0; padding:10px 14px 12px; margin:0 0 12px; overflow:hidden}
+.mo-pic{--mo-dest:color-mix(in srgb, var(--blue-800, #486dba) 80%, var(--text-color)); position:relative; display:block; min-height:0; padding:10px 14px 12px; margin:0 0 12px; overflow:hidden}
 .mo-pic-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
 .mo-pic-grid{display:grid; grid-template-columns:minmax(0, 1fr) minmax(140px, 220px); gap:6px 28px; align-items:end}
 .mo-pic-row{margin:0 0 10px}
@@ -64,8 +64,9 @@
 .mo-seg-fixed{background:var(--data)}
 .mo-seg-others{background:var(--ink2)}
 .mo-seg-jack{background:var(--accent)}
+.mo-seg-watched{background:var(--good)}  /* Jack Streamer's already watched — green means only this (2026-10-15) */
 .mo-seg-free{background:var(--surface)}
-.mo-seg-dest{background:var(--good)}     /* the array / second pool: its own colour, apart from the pool's parts */
+.mo-seg-dest{background:var(--mo-dest)}  /* the array / second pool: its own colour, apart from the pool's parts */
 .mo-pic-x{position:absolute; top:-3px; bottom:-3px; border-left:2px solid var(--danger)}
 .mo-pic-x > span{position:absolute; top:-15px; left:3px; font-size:11px; line-height:1; white-space:nowrap; color:var(--danger)}
 .mo-pic-x.flip > span{left:auto; right:3px}
@@ -77,9 +78,19 @@
 .mo-pic-key{display:inline-flex; align-items:center; gap:6px}
 .mo-pic-key .mo-pic-seg{width:10px; height:10px; border-radius:2px; border:1px solid var(--line2)}
 .mo-pic-file{margin:6px 0 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; min-height:1.4em}
-.mo-pic-dot{position:absolute; top:0; left:0; width:12px; height:12px; margin:-6px 0 0 -6px; border-radius:3px; opacity:0; pointer-events:none;
-  background:var(--ink2); box-shadow:0 0 0 2px var(--surface)}
-.mo-pic-dot.mo-seg-jack{background:var(--accent)}
+/* what flies (2026-10-15): small wings flapping gently, a film reel (Jack Streamer's) or a block (hers) — currentColor */
+.mo-pic-dot{position:absolute; top:0; left:0; width:40px; height:22px; margin:-11px 0 0 -20px; opacity:0; pointer-events:none; color:var(--ink2); line-height:0}
+.mo-pic-dot svg{display:block; overflow:visible}
+.mo-fly-jack{color:var(--accent)}
+.mo-fly-watched{color:var(--good)}
+.mo-fly-others{color:var(--ink2)}
+.mo-fly-hole{fill:var(--surface)}
+.mo-fly-body{stroke:var(--surface); stroke-width:2; paint-order:stroke}   /* a ring: seen over a part of its own colour */
+.mo-wing{fill:var(--bg); stroke:var(--ink2); stroke-width:1.1; stroke-linejoin:round; transform-box:fill-box; transform-origin:100% 50%;
+  animation:mo-flap 1.1s ease-in-out infinite alternate}
+.mo-fly-reel{transform-box:fill-box; transform-origin:50% 50%; animation:mo-reel 6s linear infinite}
+@keyframes mo-flap{from{transform:scaleY(1) rotate(0deg)} to{transform:scaleY(.4) rotate(-8deg)}}
+@keyframes mo-reel{to{transform:rotate(360deg)}}
 @media (max-width:640px){ .mo-pic-grid{grid-template-columns:minmax(0, 1fr)} }
-@media (prefers-reduced-motion: reduce){ .mo-pic-dot{display:none} }
+@media (prefers-reduced-motion: reduce){ .mo-pic-dot{display:none} .mo-wing, .mo-fly-reel{animation:none} }
 }
