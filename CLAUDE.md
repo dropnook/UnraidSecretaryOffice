@@ -197,9 +197,10 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   reckon (`nightPlan()`) → free (Jack Emby's watched, then her oldest) → recheck (≤ 3 rounds) → fill (Jack Emby last, only up
   to X) → tell; one lock `night.lock`; «Stop after this file» stops the night; both pages show `Office.nightCard()`; night.json
   `picture` = the live graphic's numbers. **The pool** (agent/lib/poollevel.php, 2026-10-14): **only X** — no Y, offset, halves
-  or borrowing. Jack Emby gives back only what was watched (`EMBYCACHE_WATCHED_ONLY`, never by rank) and fetches up to X and
-  his budget; she: the age rule always, from X the oldest files across the pool (younger of birth/mtime) down to below X (never
-  an excluded file, per share only its own X), his list never. Over X only by his unwatched → «his budget is too big».
+  or borrowing. Jack Emby gives back only what was watched (`EMBYCACHE_WATCHED_ONLY`, never by rank); **his GB come first**:
+  she moves the other caching shares' oldest (across the pool, younger of birth/mtime; never an excluded file, his list never)
+  until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; what never moves is never pushed for him (it and
+  what he keeps reach X → he fetches nothing new, told). His budget crowding the others out, or over X by his unwatched: told.
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
   nothing read until chosen; routers' files only while their disks are awake. **Read only.**
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,

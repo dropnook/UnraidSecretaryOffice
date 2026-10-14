@@ -63,6 +63,9 @@
 >   fill starts at/above the *target* (the office already decided that something must go, and how much); a file that would
 >   go past the cap is not started. The age rule is untouched; a dry run counts the same. Unset: as before. Since
 >   2026-10-14 the office no longer sets it (kept for anyone who calls the script by hand).
+> * `CUSTOMMOVER_FILL_UNTIL_BYTES` (+ `CUSTOMMOVER_FILL_UNTIL_POOL`, 2026-10-14, the office's night run: Jack Emby's GB
+>   come first): on that pool the fill goes — every share with a trigger, oldest first across the pool — while the pool
+>   uses more than this many bytes, so Jack Emby's fetch afterwards ends at X. Unset: by percent, as above.
 > * Leftovers and counts (2026-10-12/13, seen live): Unraid's move writes `<dest>/<share>/<rel>.partial` and renames it
 >   at the end. Before a real run moves a share's files, a leftover `.partial` (a power cut, a crash) on the share's awake
 >   destinations is removed — only while its source `<src>/<rel>` still exists, only that exact name, never a file under

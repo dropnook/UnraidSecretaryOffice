@@ -1183,6 +1183,15 @@ function moverelliJob(array $args, ?array $h = null): int
     $h ??= moverelliHost();
     $dir = $h['dir'];
     $by = in_array('--night', $args, true) ? 'night' : (in_array('--office', $args, true) ? 'office' : 'schedule');
+    // inside the night run (nightrun.php): the room Jack Emby fetches into — her fill goes until the pool uses at most this
+    $room = $roomPool = null;
+    foreach ($by === 'night' ? $args : [] as $a) {
+        if (preg_match('/^--fill-until=(\d{1,18})$/D', $a, $m)) {
+            $room = $m[1];
+        } elseif (preg_match('/^--fill-pool=([\w.\-]{1,64})$/D', $a, $m)) {
+            $roomPool = $m[1];
+        }
+    }
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     // let go (or never hired): a schedule line left in the office's cron file moves nothing — said in the log only
@@ -1264,6 +1273,8 @@ function moverelliJob(array $args, ?array $h = null): int
             'CUSTOMMOVER_SHARES_DIR' => $h['shares_dir'], 'CUSTOMMOVER_MNT' => $h['mnt'], 'OFFICE_RUN_DIR' => RUN_DIR]
          // a real run: a list that is gone skips its share; a share whose array disks sleep says it wakes them (her log)
          + ($real ? ['CUSTOMMOVER_EXCLUDES_REQUIRED' => '1', 'CUSTOMMOVER_DISKS_INI' => disksIniFile()] : [])
+         // the night run: Jack Emby's GB first — her fill makes room for his fetch below X (only on his pool)
+         + ($room !== null && $roomPool !== null ? ['CUSTOMMOVER_FILL_UNTIL_BYTES' => $room, 'CUSTOMMOVER_FILL_UNTIL_POOL' => $roomPool] : [])
          + $h['env'];
     $out = fopen("$dir/office-output.txt", 'w');
     $proc = proc_open(array_merge(['bash', "$h[app]/custommover_run.sh"], MOVERELLI_MODES[$mode]), [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, '/', $env);

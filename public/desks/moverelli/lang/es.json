@@ -142,7 +142,7 @@
   "age_stat.ctime": "ctime — en el pool desde",
   "age_stat.mtime": "mtime — última modificación",
   "setup.threshold": "Como mucho así de lleno (%) …",
-  "setup.threshold_hint": "A partir de este llenado muevo también los archivos más antiguos primero — en todo el pool, sea cual sea su edad — hasta que vuelva a estar por debajo. 0 = desactivado. En un pool ZFS cuenta el pool entero.",
+  "setup.threshold_hint": "Por encima de esto me llevo los archivos más antiguos — en todo el pool, sea cual sea su edad — hasta que vuelva a estar por debajo. Las descargas del día caen por encima, así que deja hasta el 100 % sitio suficiente para un día de escrituras. 0 = desactivado. En un pool ZFS cuenta el pool entero.",
   "setup.debug": "Detalle del registro del programa de movimiento",
   "setup.debug_hint": "0 = silencioso, 1–3 = más (en el registro).",
   "setup.max_list": "Líneas en la salida de una simulación",
@@ -389,8 +389,8 @@
   "rc.waking": "El disco de destino se está despertando …",
   "setup.min_age_hint_jack": "Lo que tenga más de N días lo muevo siempre — da igual lo lleno que esté el pool, salvo lo que Jack Emby ha dejado preparado. 0 = todo.",
   "setup.level_off": "Sin límite muevo solo por antigüedad.",
-  "setup.level_rule": "Si el pool supera el {x} %, muevo los archivos más antiguos al array hasta que vuelva al {x} %. Lo que es más antiguo que los días de arriba lo muevo de todos modos.",
-  "setup.level_rule_jack": "Si el pool supera el {x} %, muevo los archivos más antiguos al array hasta que vuelva al {x} %. Lo que Jack Emby aún no ha visto se queda. Él solo devuelve lo visto y trae solo hasta el {x} % (y su presupuesto). Lo que es más antiguo que los días de arriba lo muevo de todos modos.",
+  "setup.level_rule": "Si el pool supera el {x} %, muevo los archivos más antiguos al array hasta que vuelva al {x} %. Las descargas del día caen por encima del {x} % y por la noche me las llevo — así que el {x} % tiene que dejar hasta el 100 % sitio suficiente para un día de escrituras. Lo que es más antiguo que los días de arriba lo muevo de todos modos.",
+  "setup.level_rule_jack": "Si el pool supera el {x} %, muevo los archivos más antiguos al array hasta que esté al {x} % — y le dejo a Jack Emby el sitio para su presupuesto. Las descargas del día caen por encima del {x} %; por la noche me las llevo. Por eso el {x} % necesita aire suficiente hasta el 100 %. Lo que es más antiguo que los días de arriba lo muevo de todos modos.",
   "setup.level_unseen": "No he mirado el pool {pool} (duerme o no es ZFS).",
   "setup.level_pool": "Pool {pool}: {used} de {size} ocupados, de ellos {nm} no se mueven nunca (appdata y cía., snapshots).",
   "setup.level_never": "En {pool}, el {nm} % nunca se mueve — ya por encima del {x} %: nunca bajo de ahí. Un límite más alto, o haz sitio.",
@@ -442,5 +442,8 @@
   "setup.err_limit": "El límite tiene que ser un número entero de 0 a 100.",
   "notify.night_missed_jack": "Tras la ejecución conjunta el pool {pool} sigue al {now} % (límite {x} %). Solo lo que Jack Emby aún no ha visto queda por encima — su presupuesto es demasiado grande para este pool. Reduce su presupuesto o sube el límite.",
   "night.back_watched": "Jack Emby devuelve lo visto",
-  "night.last_missed_jack": "el pool sigue al {pct} % — solo lo que Jack Emby no ha visto supera el límite"
+  "night.last_missed_jack": "el pool sigue al {pct} % — solo lo que Jack Emby no ha visto supera el límite",
+  "notify.night_room_subject": "Pool {pool}: poco sitio para los demás",
+  "notify.night_full": "appdata & co. y lo que Jack Emby conserva llenan el pool {pool} hasta el {x} % — Jack Emby no puede traer nada nuevo. Haz sitio o sube el límite.",
+  "notify.night_crowded": "El presupuesto de Jack Emby ({jack} en {pool}) no deja sitio a los otros recursos compartidos por debajo del {x} % — las descargas del día caen todas por encima. Reduce su presupuesto o sube el límite."
 }

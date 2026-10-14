@@ -49,6 +49,9 @@
 #   CUSTOMMOVER_FILL_MAX_BYTES  USO: the fill (below) moves at most this many bytes in this run (0 = no fill; the age rule
 #                             is untouched); with it the fill starts at/above the TARGET (the caller decided it must go)
 #   CUSTOMMOVER_FILL_MAX_POOL USO: the pool that cap is for (empty: every pool shares it; other pools fill as without it)
+#   CUSTOMMOVER_FILL_UNTIL_BYTES  USO (2026-10-14, the office's night run): on that pool (CUSTOMMOVER_FILL_UNTIL_POOL, empty:
+#                             every pool) the fill goes — all its shares with a trigger, oldest first — while the pool uses
+#                             more than this many bytes (below X: the room Jack Emby fetches into afterwards), not by percent
 # Upstream (helmi1987/custom-mover-for-unraid) this copy matches: 3bee448, with
 #   6382fb4  threshold on ZFS: the whole pool from zfs list (used/avail), not df on /mnt/<pool>
 #   3bee448  absolute exclude entries match literally (find_literal; the office's own fix, taken upstream)
@@ -111,6 +114,9 @@ FILL_MAX_B="${CUSTOMMOVER_FILL_MAX_BYTES:-}"       # USO: the fill's cap (empty:
 [[ -z "$FILL_MAX_B" || "$FILL_MAX_B" =~ ^[0-9]+$ ]] || FILL_MAX_B=0
 FILL_MAX_POOL="${CUSTOMMOVER_FILL_MAX_POOL:-}"
 FILL_LEFT_B="${FILL_MAX_B:-0}"                     # what the cap still allows
+FILL_UNTIL_B="${CUSTOMMOVER_FILL_UNTIL_BYTES:-}"   # USO: the night's room for Jack Emby — fill until the pool uses at most this (bytes)
+[[ -z "$FILL_UNTIL_B" || "$FILL_UNTIL_B" =~ ^[0-9]+$ ]] || FILL_UNTIL_B=""
+FILL_UNTIL_POOL="${CUSTOMMOVER_FILL_UNTIL_POOL:-}"
 
 usage() {  # prints the header comment block above
     awk 'NR > 2 && /^# =====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"
@@ -620,7 +626,7 @@ fill_pool_candidates() {  # share...
 # One pool's fill (a real run moves, a dry run estimates): its shares whose trigger the pool reaches, oldest first across
 # them, a share's file only while the pool is at/above its target; the pool re-read after each file (dry: the sizes)
 fill_pool() {  # pool
-    local pool="$1" name used used_b size_b pct i f sz own min=101 n=0 b2=0 cap=false
+    local pool="$1" name used used_b size_b pct i f sz own min=101 n=0 b2=0 cap=false room=false ub=""
     local -a mine=() go=()
     local -A F_N=() F_B=() F_MOVED=() F_LEFT=() F_GONE=()
     for name in "${FILL_SHARES[@]}"; do [[ "${FS_POOL[$name]}" == "$pool" ]] && mine+=("$name"); done
@@ -631,24 +637,35 @@ fill_pool() {  # pool
         used=$(( (used_b * 100 + size_b - 1) / size_b ))
     fi
     fill_capped "$pool" && cap=true
+    # USO: the night's room in bytes (CUSTOMMOVER_FILL_UNTIL_BYTES) — every share with a trigger goes while the pool uses more
+    if [[ -n "$FILL_UNTIL_B" && ( -z "$FILL_UNTIL_POOL" || "$FILL_UNTIL_POOL" == "$pool" ) && -n "$used_b" && -n "$size_b" ]]; then room=true; ub=$FILL_UNTIL_B; fi
     for name in "${mine[@]}"; do
         sh_load "$name"; SH_POOL="$pool"; SH_UNTIL="${FS_TGT[$name]}"; SH_FILL=true; SH_POOL_USED="$used"; SH_POOL_NOW="$used"; sh_save "$name"
         local thr=${FS_THR[$name]}
         [[ "$cap" == true ]] && thr=${FS_TGT[$name]}
-        if [[ -n "$used" ]] && (( used >= thr )); then go+=("$name"); (( FS_TGT[$name] < min )) && min=${FS_TGT[$name]}; fi
+        if [[ "$room" == true ]]; then (( used_b > ub )) && go+=("$name")
+        elif [[ -n "$used" ]] && (( used >= thr )); then go+=("$name"); (( FS_TGT[$name] < min )) && min=${FS_TGT[$name]}; fi
     done
     if [[ -z "$used" ]]; then log WARN "pool $pool: usage unknown – no fill"; return 0; fi
     if (( ${#go[@]} == 0 )); then log INFO "pool $pool at ${used}% ($POOL_USED_SRC) – below the limit of ${mine[*]}: no fill"; return 0; fi
     if [[ "$cap" == true ]] && (( FILL_LEFT_B <= 0 )); then log INFO "pool $pool: no fill in this run (its cap: $(human "$FILL_MAX_B"))"; return 0; fi
-    log INFO "[fill] pool $pool ${used}% ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until below ${min}%"
+    if [[ "$room" == true ]]; then
+        log INFO "[fill] pool $pool $(human "$used_b") used ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until at most $(human "$ub") (room for Jack Emby)"
+    else
+        log INFO "[fill] pool $pool ${used}% ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until below ${min}%"
+    fi
     fill_pool_candidates "${go[@]}"
     if (( ${#FILL_FILES[@]} == 0 )); then log INFO "  fill: no further files (everything else is excluded)"; fi
     PHASE=share; FILL_CAPPED=false
     pct=$used
     for (( i = 0; i < ${#FILL_FILES[@]}; i++ )); do
         f=${FILL_FILES[i]}; sz=${FILL_SIZES[i]}; own=${FILL_OWNER[i]}
-        (( pct < min )) && break
-        (( pct < FS_TGT[$own] )) && continue                  # this share is below its own target already
+        if [[ "$room" == true ]]; then
+            (( used_b <= ub )) && break
+        else
+            (( pct < min )) && break
+            (( pct < FS_TGT[$own] )) && continue              # this share is below its own target already
+        fi
         if [[ "$cap" == true ]] && (( sz > FILL_LEFT_B )); then FILL_CAPPED=true; break; fi
         if [[ "$DRY_RUN" == true ]]; then
             (( used_b -= sz, used_b < 0 )) && used_b=0
@@ -674,6 +691,7 @@ fill_pool() {  # pool
             fi
             pool_used_pct "$pool"
             [[ -n "$POOL_USED" ]] && pct=$POOL_USED
+            [[ -n "$POOL_USED_B" ]] && used_b=$POOL_USED_B
         fi
         (( F_N[$own]++, F_B[$own] += sz, n++, b2 += sz )) || true
         [[ "$cap" == true ]] && { (( FILL_LEFT_B -= sz )) || true; }
@@ -697,12 +715,15 @@ fill_pool() {  # pool
         else
             [[ "$SH_STATE" == none && ${F_N[$name]:-0} -gt 0 ]] && SH_STATE=dry
         fi
-        (( pct < FS_TGT[$name] )) && SH_REACHED=true
+        if [[ "$room" == true ]]; then (( used_b <= ub )) && SH_REACHED=true
+        else (( pct < FS_TGT[$name] )) && SH_REACHED=true; fi
         sh_save "$name"
         [[ "$SH_REACHED" == true ]] && POOL_REACHED[$pool]="$name"
     done
     local tag=""; [[ "$DRY_RUN" == true ]] && tag="[DRY-RUN] "
-    if (( pct < min )); then
+    if [[ "$room" == true ]] && (( used_b <= ub )); then
+        log INFO "  ${tag}fill: $n files ($(human "$b2")) oldest first – room reached: pool $pool uses $(human "$used_b") (at most $(human "$ub")), the rest stays"
+    elif [[ "$room" == false ]] && (( pct < min )); then
         log INFO "  ${tag}fill: $n files ($(human "$b2")) oldest first – target reached: pool $pool at about ${pct}% (< ${min}%), the rest stays"
     elif [[ "$FILL_CAPPED" == true ]]; then
         log INFO "  ${tag}fill: its cap reached (at most $(human "$FILL_MAX_B") in this run) – pool $pool at ${pct}%, the rest stays"

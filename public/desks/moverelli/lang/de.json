@@ -142,7 +142,7 @@
   "age_stat.ctime": "ctime — auf dem Pool seit",
   "age_stat.mtime": "mtime — zuletzt geändert",
   "setup.threshold": "Höchstens so voll (%) …",
-  "setup.threshold_hint": "Ab so voll zügle ich zusätzlich die ältesten Dateien zuerst — über den ganzen Pool, egal wie alt —, bis er wieder darunter ist. 0 = aus. Auf einem ZFS-Pool zählt der ganze Pool.",
+  "setup.threshold_hint": "Darüber zügle ich die ältesten Dateien weg — über den ganzen Pool, egal wie alt —, bis er wieder darunter ist. Die Downloads des Tages landen darüber, also bis 100 % genug Platz für einen Tag lassen. 0 = aus. Auf einem ZFS-Pool zählt der ganze Pool.",
   "setup.debug": "Ausführlichkeit im Log des Verschiebeprogramms",
   "setup.debug_hint": "0 = ruhig, 1–3 = mehr (im Log).",
   "setup.max_list": "Zeilen in der Ausgabe eines Probelaufs",
@@ -389,8 +389,8 @@
   "rc.waking": "Die Zieldisk wird geweckt …",
   "setup.min_age_hint_jack": "Was älter ist als N Tage, verschiebe ich immer — egal wie voll der Pool ist, ausser was Jack Streamer bereitgelegt hat. 0 = alles.",
   "setup.level_off": "Ohne Grenze zügle ich nur nach Alter.",
-  "setup.level_rule": "Liegt der Pool über {x} %, schiebe ich die ältesten Dateien aufs Array, bis er wieder bei {x} % ist. Was älter ist als die Tage oben, zügle ich sowieso.",
-  "setup.level_rule_jack": "Liegt der Pool über {x} %, schiebe ich die ältesten Dateien aufs Array, bis er wieder bei {x} % ist. Ungeschautes von Jack Streamer bleibt. Er gibt nur Geschautes zurück und holt nur bis {x} % (und sein Budget). Was älter ist als die Tage oben, zügle ich sowieso.",
+  "setup.level_rule": "Liegt der Pool über {x} %, schiebe ich die ältesten Dateien aufs Array, bis er wieder bei {x} % ist. Die Downloads des Tages landen über {x} %, in der Nacht zügle ich sie weg — darum muss {x} % bis 100 % genug Platz für einen Tag lassen. Was älter ist als die Tage oben, zügle ich sowieso.",
+  "setup.level_rule_jack": "Liegt der Pool über {x} %, schiebe ich die ältesten Dateien aufs Array, bis er bei {x} % ist — und lasse dabei Jack Streamer den Platz für sein Budget. Die Downloads des Tages landen über {x} %; ich schiebe sie in der Nacht weg. Darum braucht {x} % genug Luft bis 100 %. Was älter ist als die Tage oben, zügle ich sowieso.",
   "setup.level_unseen": "Den Pool {pool} hab ich nicht angeschaut (er schläft oder ist kein ZFS).",
   "setup.level_pool": "Pool {pool}: {used} von {size} belegt, {nm} davon zügeln nie (appdata & Co., Snapshots).",
   "setup.level_never": "Auf {pool} zügeln {nm} % nie — schon über {x} %: Darunter komme ich nie. Grenze höher oder Platz schaffen.",
@@ -442,5 +442,8 @@
   "setup.err_limit": "Die Grenze muss eine ganze Zahl von 0 bis 100 sein.",
   "notify.night_missed_jack": "Nach dem gemeinsamen Lauf steht der Pool {pool} noch bei {now} % (Grenze {x} %). Nur Ungeschautes von Jack Streamer liegt noch drüber — sein Budget ist zu gross für diesen Pool. Sein Budget kleiner oder die Grenze höher setzen.",
   "night.back_watched": "Jack Streamer gibt Geschautes zurück",
-  "night.last_missed_jack": "der Pool steht noch bei {pct} % — nur Ungeschautes von Jack Streamer liegt drüber"
+  "night.last_missed_jack": "der Pool steht noch bei {pct} % — nur Ungeschautes von Jack Streamer liegt drüber",
+  "notify.night_room_subject": "Pool {pool}: wenig Platz für die anderen",
+  "notify.night_full": "appdata & Co. und was Jack Streamer behält, belegen den Pool {pool} bis {x} % — Jack Streamer kann nichts Neues holen. Platz schaffen oder die Grenze höher setzen.",
+  "notify.night_crowded": "Jack Streamers Budget ({jack} auf {pool}) lässt den anderen Shares keinen Platz unter {x} % — die Downloads des Tages landen alle darüber. Sein Budget kleiner oder die Grenze höher setzen."
 }

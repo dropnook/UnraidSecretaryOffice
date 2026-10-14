@@ -30375,6 +30375,18 @@ function testMoverelliFill(): void
         [['y', 'z'], ['e', 'w', 'x'], false], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['reached'] ?? null]);
     check('fill cap: … the log says the cap', str_contains((string) file_get_contents("$t/log"), 'fill: its cap reached'), (string) @file_get_contents("$t/log"));
 
+    // 9. the night's room for Jack Emby (CUSTOMMOVER_FILL_UNTIL_BYTES, 2026-10-14): below X, in bytes — 400 used (80 %), until 250:
+    // the two oldest go though the pool is at X already; another pool named — by percent as always
+    $four = ['Docs/z' => [5, false], 'Docs/y' => [5, false], 'Docs/x' => [5, false], 'Docs/w' => [5, false]];
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $st = $run($env + ['CUSTOMMOVER_FILL_UNTIL_BYTES' => '250', 'CUSTOMMOVER_FILL_UNTIL_POOL' => 'cache'], true);
+    same('fill room: until 250 bytes — z, y (the oldest) go, the pool at 200, reached; said', [['y', 'z'], ['w', 'x'], true],
+        [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['reached'] ?? null]);
+    check('fill room: … the log says the room', str_contains((string) file_get_contents("$t/log"), '(room for Jack Emby)'), (string) @file_get_contents("$t/log"));
+    [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
+    $st = $run($env + ['CUSTOMMOVER_FILL_UNTIL_BYTES' => '250', 'CUSTOMMOVER_FILL_UNTIL_POOL' => 'other'], true);
+    same('fill room: for another pool — this one by percent (80 % ≥ 80: z goes, then 60 %)', ['z'], $on($t, 'disk1'));
+
     // her setup's check and her ini: only X — an older page's Y and «Jack guaranteed» are not read, never written
     $dir = "$base/her";
     @mkdir($dir, 0700, true);
@@ -31441,7 +31453,7 @@ function testPoolLevel(): void
         && str_contains($said, "-i\nwarning") && str_contains($said, 'master is still at 83 % after my run — I couldn\'t get below 70 %.'), json_encode($sent) . $said);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('level run: after a real run she tells a missed target; Smart Mover gets no cake variables and no fill cap from the office (only X, 2026-10-14)',
-        str_contains($src, "moverelliTargetNotify(\$status);") && !str_contains($src, 'CUSTOMMOVER_POOL_OFFSET') && !str_contains($src, 'CUSTOMMOVER_FILL_') && !str_contains($src, '--fill-max'));
+        str_contains($src, "moverelliTargetNotify(\$status);") && !str_contains($src, 'CUSTOMMOVER_POOL_OFFSET') && !str_contains($src, 'CUSTOMMOVER_FILL_MAX') && !str_contains($src, '--fill-max'));
     $sm = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('level: Smart Mover without the cake\'s hooks', !preg_match('/CUSTOMMOVER_(?:POOL_OFFSET|FILL_TARGET|FILL_OFF|FILL_ALL)|cake/i', $sm));
 
@@ -32877,24 +32889,30 @@ function testNightPlan(): void
 {
     $G = 1 << 30;
     $gib = fn (?int $b): ?float => $b === null ? null : round($b / $G, 1);
-    // only X (2026-10-14): 1 TB, X 80 (800), fixed 300
+    // only X, Jack Emby's GB first (2026-10-14): 1 TB, X 80 (800)
     $lv = fn (int $used, int $jack, int $movable, int $x = 80) => poolLevelMath(1000 * $G, $used * $G, $movable * $G, $x, $jack * $G) + ['pool' => 'cache'];
     $p = nightPlan($lv(850, 400, 550), 60 * $G);
-    same('night plan: 50 must go; before Jack Emby looked (his watched unknown) the others give 50; then nothing fits — 60 wait',
-        [50.0, null, 50.0, 0.0, 60.0, false, null], [$gib($p['need']), $p['jack_back'], $gib($p['others_back']), $gib($p['jack_fetch']), $gib($p['wait']), $p['over'], $p['why']]);
+    same('night plan: fixed 300, Jack Emby 400 (his watched unknown yet), 60 wait — he gets them (room under X), the others give 110 so the pool ends at X; until 740',
+        [null, 60.0, 0.0, 110.0, 740.0, 110.0, 40.0, false, null], [$p['jack_back'], $gib($p['jack_fetch']), $gib($p['wait']), $gib($p['others_back']), $gib($p['until']),
+         $gib($p['need_room']), $gib($p['others_room']), $p['over'], $p['why']]);
     $p = nightPlan($lv(850, 400, 550), 60 * $G, 70 * $G);
-    same('night plan: Jack Emby gave back 70 watched — the others give nothing, 20 fit under X, 40 wait', [70.0, 0.0, 20.0, 40.0],
-        [$gib($p['jack_back']), $gib($p['others_back']), $gib($p['jack_fetch']), $gib($p['wait'])]);
-    same('night plan: the picture — before {size, fixed, others, jack, free} and the forecast after the moves', [
-        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 400.0, 'free' => 150.0], ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 350.0, 'free' => 200.0]],
+    same('night plan: Jack Emby gave back 70 watched — he still gets his 60, the others give only 40', [70.0, 60.0, 40.0], [$gib($p['jack_back']), $gib($p['jack_fetch']), $gib($p['others_back'])]);
+    same('night plan: the picture — before {size, fixed, others, jack, free} and the forecast after the moves (at X)', [
+        ['size' => 1000.0, 'fixed' => 300.0, 'others' => 150.0, 'jack' => 400.0, 'free' => 150.0], ['size' => 1000.0, 'fixed' => 300.0, 'others' => 110.0, 'jack' => 390.0, 'free' => 200.0]],
         [array_map($gib, $p['before']), array_map($gib, $p['forecast'])]);
+    $p = nightPlan($lv(600, 200, 300), 300 * $G, 0);
+    same('night plan: his budget crowds the others out — 300 fetched, the others (100) all pushed under X: crowded', [300.0, 100.0, 500.0, 'crowded', false],
+        [$gib($p['jack_fetch']), $gib($p['others_back']), $gib($p['until']), $p['why'], $p['over']]);
+    $p = nightPlan(poolLevelMath(1000 * $G, 850 * $G, 350 * $G, 80, 300 * $G) + ['pool' => 'cache'], 100 * $G, 0);
+    same('night plan: appdata & co. 500 + what Jack Emby keeps 300 reach X — nothing new for him (the fixed never pushed), the others go: full', [0.0, 100.0, 50.0, 'full'],
+        [$gib($p['jack_fetch']), $gib($p['wait']), $gib($p['others_back']), $p['why']]);
     $p = nightPlan($lv(920, 520, 620), 0, 0);
-    same('night plan: the others (100) all go, still over X — only Jack Emby\'s unwatched keeps it there', [100.0, true, 'jack'], [$gib($p['others_back']), $p['over'], $p['why']]);
+    same('night plan: the others (100) all go, still over X — only what Jack Emby keeps', [100.0, true, 'jack'], [$gib($p['others_back']), $p['over'], $p['why']]);
     $p = nightPlan($lv(900, 50, 100), 0, 0);
     same('night plan: what never moves (800) at X — never', [true, 'never'], [$p['never'], $p['why']]);
     $p = nightPlan(null, 5 * $G);
-    same('night plan: not measured — no numbers, what waits stays', [false, 5.0, null], [$p['measured'], $gib($p['wait']), $p['before']]);
-    same('night words: for the pages', ['measured' => true, 'back' => 70 * $G, 'goes' => 0, 'fill' => 20 * $G, 'wait' => 40 * $G, 'over' => false, 'why' => null],
+    same('night plan: not measured — no numbers, what waits stays', [false, 5.0, null, null], [$p['measured'], $gib($p['wait']), $p['before'], $p['until']]);
+    same('night words: for the pages', ['measured' => true, 'back' => 70 * $G, 'goes' => 40 * $G, 'fill' => 60 * $G, 'wait' => 0, 'over' => false, 'why' => null],
         nightWords(nightPlan($lv(850, 400, 550), 60 * $G, 70 * $G)));
 }
 
@@ -32955,12 +32973,18 @@ function testNightRun(): void
             }
             return $exit;
         },
-        'her_job' => function (array $args, array $hh) use (&$p, &$calls, $dir) {
-            $calls[] = 'her ' . implode(' ', $args);
+        'her_job' => function (array $args, array $hh) use (&$p, &$calls, $dir, $G) {
+            $calls[] = 'her ' . implode(' ', array_map(fn ($a) => preg_replace_callback('/^--fill-until=(\d+)$/', fn ($m) => '--fill-until=' . intdiv((int) $m[1], $G) . 'G', $a), $args));
             $p['d'] -= $p['age'] ?? 0;                      // the age rule
             $p['age'] = 0;
             $used = $p['nm'] + $p['j'] + $p['d'];
-            if ($used >= 800 && !$p['her_stall']) {         // the oldest of the others until below X
+            $until = null;
+            foreach ($args as $a) {
+                $until = preg_match('/^--fill-until=(\d+)$/', $a, $m) ? intdiv((int) $m[1], $G) : $until;
+            }
+            if ($until !== null && $used > $until && !$p['her_stall']) {        // Jack Emby's room: the others' oldest until it is there
+                $p['d'] -= min($p['d'], $used - $until);
+            } elseif ($until === null && $used >= 800 && !$p['her_stall']) {   // the oldest of the others until below X
                 $p['d'] -= min($p['d'], $used - 799);
             }
             $p['d'] += $p['burst'];                         // downloads arrive while she works
@@ -32973,21 +32997,22 @@ function testNightRun(): void
     $night = fn () => nightState($dir) ?? [];
     $fresh = fn (array $x) => $x + ['nm' => 300, 'j' => 0, 'w' => 0, 'd' => 0, 'wait' => 0, 'burst' => 0, 'jack_exit' => [], 'her_stall' => false];
 
-    // (1) 850: Jack Emby gives back his 50 watched, she brings it below X — and downloads (40) arrive meanwhile: a recheck round,
-    // her part again; then he fetches only up to X
+    // (1) 850: Jack Emby gives back his 50 watched; his 60 waiting come first — she pushes the others below X (until 740) so his
+    // fetch ends at X; downloads (40) arrive meanwhile: a recheck round, her part again; then he fetches his 60
     $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'burst' => 40]);
     $exit = nightRun(['run', '--office']);
     $n = $night();
-    same('night run 1: Jack Emby frees (watched only, no fill), she moves the oldest, the pool grew: her part again, then he fetches — last',
-        [0, ['jack run --night --nofill', 'her run --night', 'her run --night', 'jack run --night']], [$exit, $calls]);
-    same('night run 1: … the pool at X (800), Jack Emby 350 + 1 fetched, 59 wait, two rounds, done',
-        [800, 351, 59, 2, 'ok', 'done', false, []], [$p['nm'] + $p['j'] + $p['d'], $p['j'], $p['wait'], $n['round'] ?? null, $n['result'] ?? null, $n['phase'] ?? null,
+    $her = 'her run --night --fill-until=740G --fill-pool=cache';
+    same('night run 1: Jack Emby frees (watched only, no fill), she makes his room below X, the pool grew: her part again, then he fetches — last',
+        [0, ['jack run --night --nofill', $her, $her, 'jack run --night']], [$exit, $calls]);
+    same('night run 1: … the pool at X (800), Jack Emby 350 + 60 fetched, nothing waits, two rounds, done, nothing told',
+        [800, 410, 0, 2, 'ok', 'done', false, []], [$p['nm'] + $p['j'] + $p['d'], $p['j'], $p['wait'], $n['round'] ?? null, $n['result'] ?? null, $n['phase'] ?? null,
          $n['running'] ?? null, $notified]);
     same('night run 1: inside the night the runs pass its lock (night held, not «busy» for them)', [true, false, true], $inside[0] ?? null);
     $pic = $n['picture'] ?? [];
     same('night run 1: the picture — X, where she moves to, each phase as it began (before, forecast, planned), the files done by both',
         [80, ['to' => 'array', 'size' => null, 'used' => null], ['check', 'free', 'recheck', 'fill', 'done'], ['before', 'forecast', 'planned'],
-         ['jack_back' => 50 * $G, 'others_back' => 0, 'jack_fetch' => 0], ['size', 'fixed', 'others', 'jack', 'free'],
+         ['jack_back' => 50 * $G, 'others_back' => 60 * $G, 'jack_fetch' => 60 * $G, 'until' => 740 * $G], ['size', 'fixed', 'others', 'jack', 'free'],
          [['Film/a.mkv', 'jack'], ['Docs/old.iso', 'her']]],
         [$pic['x'] ?? null, $pic['dest'] ?? null, array_keys($pic['phases'] ?? []), array_keys($pic['phases']['free'] ?? []), $pic['phases']['free']['planned'] ?? null,
          array_keys($pic['phases']['check']['before'] ?? []), array_slice(array_map(fn ($f) => [$f['name'], $f['who']], $pic['files'] ?? []), 0, 2)]);
@@ -33005,18 +33030,28 @@ function testNightRun(): void
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     $n = $night();
     same('night run unwatched: Jack Emby keeps his 520 (nothing watched), she moves all the others\' 100, nothing more to move — «missed» (jack), told once',
-        [520, 0, ['jack run --night --nofill', 'her run --night', 'jack run --night'], 'missed', 'jack', true, 1, 82],
+        [520, 0, ['jack run --night --nofill', 'her run --night --fill-until=800G --fill-pool=cache', 'jack run --night'], 'missed', 'jack', true, 1, 82],
         [$p['j'], $p['d'], $calls, $n['result'] ?? null, $n['why'] ?? null, $n['missed'] ?? null, count($notified), $n['end_pct'] ?? null]);
     check('night run unwatched: … the warning says only Jack Emby\'s unwatched is over it (his budget too big)', str_contains($notified[0] ?? '', "Only what Jack Emby hasn't watched yet is over it"),
         json_encode($notified));
 
-    // (3) Jack Emby fills only up to X: 600 used, 300 wait — 200 fetched, 100 wait
+    // (3) his budget crowds the others out: 600 used, 300 wait — the others' 100 all pushed under X, he fetches 300 up to X: told
     $calls = [];
     $notified = [];
     $p = $fresh(['j' => 200, 'd' => 100, 'wait' => 300]);
     nightRun(['run']);
-    same('night run fill: nothing to free, he fetches 200 — the pool at X, 100 wait, no warning', [['jack run --night --nofill', 'her run --night', 'jack run --night'], 800, 100, [], 'ok'],
-        [$calls, $p['nm'] + $p['j'] + $p['d'], $p['wait'], $notified, $night()['result'] ?? null]);
+    same('night run crowded: she pushes the others (100) out for his 300, he fetches up to X; at X, but told: no room for the others',
+        [['jack run --night --nofill', 'her run --night --fill-until=500G --fill-pool=cache', 'jack run --night'], 800, 0, 500, 'ok', 'crowded', 1],
+        [$calls, $p['nm'] + $p['j'] + $p['d'], $p['d'], $p['j'], $night()['result'] ?? null, $night()['why'] ?? null, count($notified)]);
+    check('night run crowded: … the warning says his budget leaves the others no room', str_contains($notified[0] ?? '', 'leaves the other shares no room below 80 %'), json_encode($notified));
+    // the fixed shares are the exception: appdata & co. 500 + his 300 reach X — nothing new for him, the others go, told
+    $calls = [];
+    $notified = [];
+    $p = $fresh(['nm' => 500, 'j' => 300, 'd' => 50, 'wait' => 100]);
+    nightRun(['run']);
+    same('night run full: what never moves (500) is never pushed for him — he fetches nothing (100 wait), the others (50) go, told «nothing new»',
+        [500, 300, 100, 0, 'full', 1], [$p['nm'], $p['j'], $p['wait'], $p['d'], $night()['why'] ?? null, count($notified)]);
+    check('night run full: … the warning says appdata & co. fill the pool', str_contains($notified[0] ?? '', "appdata & co. and what Jack Emby keeps fill the pool cache up to 80 %"), json_encode($notified));
 
     // (4) stopped in «free»: Jack Emby's first pass ends with 3 — nothing after it, stopped
     $calls = [];
@@ -33049,8 +33084,8 @@ function testNightRun(): void
     $p = $fresh(['j' => 400, 'w' => 70, 'd' => 150, 'wait' => 60]);
     nightRun(['dry', '--office']);
     $n = $night();
-    same('night dry run: Jack Emby dry, then she dry — no recheck, no fill; the plan: 70 watched back, 20 fetched (from his dry answer)',
-        [['jack dry --night', 'her dry --night'], 70 * $G, 0, 20 * $G], [$calls, $n['plan']['back'] ?? null, $n['plan']['goes'] ?? null, $n['plan']['fill'] ?? null]);
+    same('night dry run: Jack Emby dry, then she dry with his room — no recheck, no fill; the plan: 70 watched back, 20 fetched (from his dry answer)',
+        [['jack dry --night', 'her dry --night --fill-until=780G --fill-pool=cache'], 70 * $G, 0, 20 * $G], [$calls, $n['plan']['back'] ?? null, $n['plan']['goes'] ?? null, $n['plan']['fill'] ?? null]);
     // not hired, a run of hers going: refused
     $v['hired'] = false;
     same('night run: she isn\'t hired — nothing', 1, nightRun(['run']));
@@ -33069,7 +33104,8 @@ function testNightRun(): void
     unset($GLOBALS['nightHost']);
     $exit = moverelliJob(['run', '--night'], $h);
     same('night her part: ran, «by night»', [0, 'night'], [$exit, moverelliHistory($dir)[0]['by'] ?? null]);
-    check('night her part: no fill cap from the office (only X, 2026-10-14)', !str_contains($src, 'CUSTOMMOVER_FILL_MAX') && !str_contains($src, '--fill-max'));
+    check('night her part: no fill cap from the office (only X); Jack Emby\'s room as CUSTOMMOVER_FILL_UNTIL_BYTES/_POOL, only inside the night', !str_contains($src, 'CUSTOMMOVER_FILL_MAX')
+        && !str_contains($src, '--fill-max') && str_contains($src, "['CUSTOMMOVER_FILL_UNTIL_BYTES' => \$room, 'CUSTOMMOVER_FILL_UNTIL_POOL' => \$roomPool]") && str_contains($src, "foreach (\$by === 'night' ? \$args : [] as \$a)"));
     $nsrc = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
     check('night run: never a give-back by rank — no EMBYCACHE_GIVE_BACK_FREE, no cap, no halves in the night', !str_contains($nsrc, "'EMBYCACHE_GIVE_BACK_FREE'")
         && !str_contains($nsrc, 'fill-max') && !str_contains($nsrc, "'half'"));
@@ -33196,7 +33232,7 @@ JS);
     $en = readJson(OFFICE_WEB . '/desks/moverelli/lang/en.json') ?? [];
     check('night texts: Unraid\'s mover starting stops her after the file she is on (never «at once» since 1.61); her rule is the one run with Jack Emby',
         str_contains($en['mover.ok'] ?? '', "I stop after the file I'm on") && !str_contains($en['mover.ok'] ?? '', 'at once')
-        && str_contains($en['setup.level_rule_jack'] ?? '', "What Jack Emby hasn't watched yet stays") && !str_contains($en['setup.level_rule_jack'] ?? '', 'half'));
+        && str_contains($en['setup.level_rule_jack'] ?? '', 'leave Jack Emby the room for his budget') && str_contains($en['setup.level_rule_jack'] ?? '', 'enough air up to 100 %'));
     same('night page: the last night — missed at 81 %, two passes', 'night.last {"when":"R200","how":"night.last_missed {\"pct\":81}"} · night.rounds {"n":2}', $j['last'] ?? null);
     check('night page: her schedule section — «Night run with Jack Emby», tonight, the steps and the dry run', in_array('sched.night', $j['section'] ?? [], true)
         && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
