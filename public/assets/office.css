@@ -597,7 +597,10 @@
 /* a modal dialog (Office.dialog({modal})): near the top, the page behind dimmed and blurred (darker where blur isn't there) */
 .dialog-backdrop.modal{align-items:flex-start; padding-top:min(5vh,40px); background:rgba(6,12,16,.55); -webkit-backdrop-filter:blur(5px); backdrop-filter:blur(5px)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){ .dialog-backdrop.modal{background:rgba(6,12,16,.78)} }
-.dialog-backdrop.modal .dialog{max-height:calc(100vh - min(5vh,40px) - 18px)}
+.dialog-backdrop.modal .dialog{max-height:calc(100vh - min(5vh,40px) - 18px); max-height:calc(100dvh - min(5vh,40px) - 18px)}
+/* head and foot always in view, only the body scrolls (core.js dialogFit() keeps the dialog inside the window) */
+.dialog > h3, .dialog > .dialog-foot{flex:none}
+.dialog > .dialog-body{flex:1 1 auto; min-height:0}
 
 .field{display:flex; flex-direction:column; gap:5px; margin-bottom:15px}
 .field > label, .field-title{font-size:12.5px; font-weight:650; color:var(--ink); display:flex; align-items:center; justify-content:space-between; gap:10px}

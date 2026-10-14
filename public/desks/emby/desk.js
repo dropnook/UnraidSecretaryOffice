@@ -1526,9 +1526,10 @@ function openWizard(id) {
   if (!form) initForm();
   if (wiz) { goStep(id); return; }
   const box = el('div', 'jo-wiz');
-  const me = { step: id, box, snap: formKey(), confirm: false, dlg: null };
+  const footBox = el('div', 'jo-wiz-foot');              // in the dialog's own foot: always in view, the body scrolls
+  const me = { step: id, box, footBox, snap: formKey(), confirm: false, dlg: null };
   wiz = me;
-  me.dlg = Office.dialog({ title: '', body: box, buttons: [], wide: true, modal: true, cls: 'jo-wiz-dialog', onEscape: cancelWizard,
+  me.dlg = Office.dialog({ title: '', body: box, foot: footBox, wide: true, modal: true, cls: 'jo-wiz-dialog', onEscape: cancelWizard,
     onClose: () => { if (wiz === me) wiz = null; if (view && page === 'setup') Office.subroute('setup'); } });
   Office.subroute(`setup/${id}`);
   drawWizard();
@@ -1569,6 +1570,9 @@ function drawWizard() {
   const box = wiz.box;
   box.replaceChildren();
   box.dataset.section = id;                // focusSpot()/focusBack() find the control again inside it
+  const foot = wiz.footBox;
+  foot.replaceChildren();
+  foot.style.display = wiz.confirm ? 'none' : '';
   if (wiz.confirm) {
     const c = el('div', 'jo-wiz-confirm');
     c.append(el('p', 'jo-wiz-confirm-q', T('wizard.discard_q')), el('p', 'role', T('wizard.discard_text')));
@@ -1586,7 +1590,6 @@ function drawWizard() {
   const body = el('div', 'jo-wiz-body');
   body.appendChild(stepBody(id));
   box.appendChild(body);
-  const foot = el('div', 'jo-wiz-foot');
   const left = el('div', 'jo-wiz-left');
   left.appendChild(button(T('wizard.cancel'), 'plain', cancelWizard));
   if (i > 0) left.appendChild(button(T('wizard.back'), 'plain', () => goStep(SETUP_STEPS[i - 1].id)));
@@ -1603,10 +1606,11 @@ function drawWizard() {
     right.appendChild(save);
   } else {
     if (SKIPPABLE.has(id)) right.appendChild(button(T('wizard.skip'), 'plain', () => goStep(SETUP_STEPS[i + 1].id)));
-    right.appendChild(button(T('wizard.next'), '', () => goStep(SETUP_STEPS[i + 1].id)));
+    const next = button(T('wizard.next'), '', () => (id === 'servers' ? nextFromServers(next, SETUP_STEPS[i + 1].id) : goStep(SETUP_STEPS[i + 1].id)));
+    right.appendChild(next);
   }
   foot.append(left, where, right);
-  box.appendChild(foot);
+  if (wiz.dlg.fit) wiz.dlg.fit();          // a new step: the dialog inside the window again
   focusBack(spot);
 }
 
@@ -1744,18 +1748,13 @@ function setupServers() {
     const bar = el('div', 'toolbar');
     const connect = button(T('setup.connect'), inst.server ? 'small plain' : 'small', async () => {
       connect.disabled = true;
-      const j = await Office.api.post(`${ID}.connect`, { url: inst.url, api_key: inst.api_key });
+      await connectInst(inst);
       connect.disabled = false;
-      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
-      inst.server = j.server;
-      inst.libraries = j.libraries;
-      inst.users = j.users;
-      for (const lib of j.libraries) for (const p of lib.locations) if (!inst.mappings[p]) inst.mappings[p] = suggestMapping(p);
-      if (!state.configured && !form.chosenLibs.size) suggestChoice(inst);
       renderSetup();
     });
     bar.appendChild(connect);
     if (inst.server) bar.appendChild(chip(T('setup.connected', { name: inst.server.name, version: inst.server.version }), 'ok'));
+    if (inst.connectError) box.appendChild(el('p', 'callout danger jo-connect-error', inst.connectError));
     if (form.instances.length > 1) bar.appendChild(button(T('setup.remove_server'), 'small plain', () => { form.instances.splice(idx, 1); renderSetup(); }));
     box.appendChild(bar);
     s1.appendChild(box);
@@ -1793,6 +1792,43 @@ function mediaLogo(name) {
   img.src = MEDIA_LOGO_CDN + name.toLowerCase() + '.png';
   box.appendChild(img);
   return box;
+}
+
+/** What a connection was made with (address and key): «Next ›» connects again only when these changed */
+const connectKey = (inst) => `${String(inst.url || '').trim()}|${inst.api_key || ''}`;
+/** A server to connect before going on: an address and a key (typed, or kept on the server), not connected with them yet */
+const needsConnect = (inst) => !!String(inst.url || '').trim().replace(/^https?:\/\/$/, '') && !!(inst.api_key || inst.has_key)
+  && (!inst.server || inst.connectedAs !== connectKey(inst));
+/** Connect one server (agent: emby.connect): its libraries and people in the form — or the error said in its box */
+async function connectInst(inst) {
+  const j = await Office.api.post(`${ID}.connect`, { url: inst.url, api_key: inst.api_key });
+  if (!j || !j.ok) {
+    inst.connectError = Office.errorText(j && j.error, ID);
+    return false;
+  }
+  inst.connectError = '';
+  inst.server = j.server;
+  inst.libraries = j.libraries;
+  inst.users = j.users;
+  inst.connectedAs = connectKey(inst);
+  for (const lib of j.libraries) for (const p of lib.locations) if (!inst.mappings[p]) inst.mappings[p] = suggestMapping(p);
+  if (!state.configured && !form.chosenLibs.size) suggestChoice(inst);
+  return true;
+}
+/**
+ * «Next ›» on step 1: an address and a key filled in but not connected (or changed since) — it connects first, the button
+ * busy; on success on to step 2, on a failure it stays and says why in the server's box
+ */
+async function nextFromServers(btn, nextId) {
+  const todo = form.instances.filter(needsConnect);
+  if (!todo.length) { goStep(nextId); return; }
+  btn.disabled = true;
+  btn.appendChild(el('span', 'spin'));
+  let ok = true;
+  for (const inst of todo) ok = (await connectInst(inst)) && ok;
+  if (!wiz) return;
+  if (ok) goStep(nextId);
+  else drawWizard();
 }
 
 /**
@@ -2030,7 +2066,7 @@ function sharePart() {
   box.appendChild(el('div', 'jo-part-head', T('share.title')));
   const f = el('div', 'jo-form');
   const pool = state.pool || {};
-  const mo = pool.moverelli;
+  const mo = herRules();
   if (mo && mo.x > 0) {
     const kv = el('dl', 'kv jo-share-kv');
     const add = (key, value) => kv.append(el('dt', '', T(key)), el('dd', '', value));
@@ -2059,11 +2095,13 @@ function sharePart() {
   box.appendChild(f);
   return box;
 }
+/** Ms. Moverelli's rules: her own (state.moverelli — there without his settings too), else as his pool reported them */
+const herRules = () => (state && (state.moverelli || (state.pool && state.pool.moverelli))) || null;
 /** The borrowing rule in words: always the rule, and the numbers when the pool is measured and the simulator's math is here */
 function shareWords() {
   const v = form.values;
   const pool = state.pool || {};
-  const mo = pool.moverelli;
+  const mo = herRules();
   const out = [T('share.rule_back', { n: Number(v.give_back_unwatched_days) || 0 })];
   if (!mo || !(mo.x > 0)) return out;
   const lv = pool.level;
@@ -2118,7 +2156,7 @@ function setupSimulator() {
     return Office.streamerSim.view({ T, el, fmt, nOf, button, section: (title, sub) => { const d = el('div', 'jo-wiz-part'); d.appendChild(el('p', 'role', sub)); return d; },
       base: simBase,
       measure: async () => {
-        const j = await Office.api.post(`${ID}.pool_measure`, {});
+        const j = await Office.api.post(`${ID}.pool_measure`, { pool: form && connected() ? derivedPool() : '' });
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return null; }
         if (!j.level) { Office.toast(T('sim.unmeasured'), true); return null; }
         return j.level;
@@ -2132,7 +2170,7 @@ function setupSimulator() {
 /** What the simulator starts from: his form's N days, Ms. Moverelli's limits, the pool as measured (bytes) — or less */
 function simBase() {
   const pool = (state && state.pool) || {};
-  const mo = pool.moverelli || {};
+  const mo = herRules() || {};
   const v = form ? form.values : {};
   const chosen = form && connected() ? (form.chosenUsers.size ? everyone().filter((id) => form.chosenUsers.has(id)) : everyone()) : [];
   const userBudgets = v.budget_mode ? chosen.map((id) => budgetGb(form.budgets[id]) || 0) : [];
@@ -2769,7 +2807,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, resetDialog, summaryCard, introCard, budgetGb, budgetSplit,
+    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, herRules, sharePart, simBase, needsConnect, connectInst, nextFromServers, resetDialog, summaryCard, introCard, budgetGb, budgetSplit,
     stepOf, startStep, openWizard, cancelWizard, wiz: () => wiz, formKey, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,

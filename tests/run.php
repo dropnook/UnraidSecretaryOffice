@@ -30674,7 +30674,7 @@ function testStreamerWizard(): void
         && str_contains($js, "    cache_path: cache,\n") && str_contains($js, "const cache = derivedPool();\n  if (!cache) {"));
     $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('streamer wizard: the agent measures the pool on the page\'s ask only, waking it (pool_measure)',
-        str_contains($emby, "'pool_measure'   => fn (array \$r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyReadSettings(), true))],"));
+        str_contains($emby, "'pool_measure'   => fn (array \$r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyMeasurePool(\$r), true))],"));
     $refused = function (callable $f): string {
         try {
             $f();
@@ -30733,7 +30733,7 @@ out.startNew = e.startStep();
 e.setState(st); e.initForm();
 e.openWizard('settings');
 const d1 = dialogs.at(-1);
-out.modal = { modal: d1.o.modal, buttons: d1.o.buttons, esc: d1.o.onEscape === e.cancelWizard, cls: d1.o.cls, step: e.wiz() && e.wiz().step, title: d1.title, route: routes.at(-1) };
+out.modal = { modal: d1.o.modal, foot: !!d1.o.foot, esc: d1.o.onEscape === e.cancelWizard, cls: d1.o.cls, step: e.wiz() && e.wiz().step, title: d1.title, route: routes.at(-1) };
 e.cancelWizard();
 out.closedClean = [d1.closed, e.wiz()];
 e.openWizard('settings');
@@ -30776,7 +30776,7 @@ JS);
             same('streamer wizard: the old tiles\' routes open the step that holds them now', ['settings', 'settings', 'servers', 'users', ''], $r['old']);
             same('streamer wizard: the «Set up» tab — set up: his summary; the first time: the intro card (the wizard then at step 1)', ['summary', 'servers'], [$r['startSetUp'], $r['startNew']]);
             same('streamer wizard: a modal dialog — exclusive, the foot its own, Escape = «Cancel», wide, at the step asked for, its title, the address #/emby/setup/<step>',
-                ['modal' => true, 'buttons' => [], 'esc' => true, 'cls' => 'jo-wiz-dialog', 'step' => 'settings', 'title' => 'wizard.title.settings', 'route' => 'setup/settings'], $r['modal']);
+                ['modal' => true, 'foot' => true, 'esc' => true, 'cls' => 'jo-wiz-dialog', 'step' => 'settings', 'title' => 'wizard.title.settings', 'route' => 'setup/settings'], $r['modal']);
             same('streamer wizard: «Cancel» without a change just closes', [true, null], $r['closedClean']);
             same('streamer wizard: … with a change it asks first, inside the dialog («Discard changes?»)', [false, true], $r['asked']);
             same('streamer wizard: … «Discard»: closed, the form back to his settings', [true, null, 'form anew'], $r['discarded']);
@@ -30943,6 +30943,134 @@ JS);
         ['reset.title', ['common.cancel', 'reset.go'], ['reset.text {"n":' . $cache['files'] . ',"size":"' . $cache['bytes'] . ' B"}', 'reset.text_night']], $r['confirm']);
     same('reset: then emby.reset, and the wizard opens at step 1', [true, [['emby.reset'], true, 'servers']], [$r['went'], $r['after']]);
     same('reset: afterwards the intro card has only «Start the setup» (no way back)', ['wizard.start'], $r['intro']);
+}
+
+/**
+ * Three from the server (2026-10-14, right after «Set up from scratch»): (1) the wizard's long step fits the window — the
+ * dialog never taller than the window below its top, the body scrolls, head and foot (the wizard's foot is the dialog's
+ * own) stay in view, also when Unraid's page makes a transformed box «fixed» (tools/ui-clicks.mjs measures it in a
+ * browser); (2) «Next ›» on step 1 connects first when an address and a key are there but not connected with them —
+ * on success to step 2, on a failure it stays and says why; (3) Ms. Moverelli's rules without his settings (a fresh
+ * Jack Streamer has no pool yet): her X, offset, «guaranteed» and age rule in step 3, «not set up» only without her ini;
+ * «Measure now» measures the pool step 2 derived (one of his pools only).
+ */
+function testStreamerFix3(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('fix3 layout: the dialog fits the window (a transformed parent made «fixed» its box) — on opening, a dialog back, resize/scroll, a new step',
+        str_contains($core, 'function dialogFit() {') && str_contains($core, "const room = window.innerHeight - dlg.getBoundingClientRect().top - 16;")
+        && str_contains($core, "window.addEventListener('scroll', () => dialogFit(), true);") && str_contains($js, 'if (wiz.dlg.fit) wiz.dlg.fit();'));
+    check('fix3 layout: head and foot fixed, only the body scrolls; the wizard\'s foot is the dialog\'s own',
+        str_contains($css, '.dialog > h3, .dialog > .dialog-foot{flex:none}') && str_contains($css, '.dialog > .dialog-body{flex:1 1 auto; min-height:0}')
+        && str_contains($js, "me.dlg = Office.dialog({ title: '', body: box, foot: footBox,") && str_contains($core, 'if (ownFoot) foot.appendChild(ownFoot);'));
+    check('fix3 layout: the click test measures a long step at 1280×720, 390 px and with the office box transformed and pushed down',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/tools/ui-clicks.mjs'), "for (const [w, hgt, shift] of [[1280, 720, false], [390, 844, false], [1280, 720, true]]) {"));
+    // her rules without his settings
+    $tmp = hardeningTmp('fix3-ini');
+    file_put_contents("$tmp/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=7\nglobal_excludes=/x/embycache_exclude.txt\n");
+    $keep = $GLOBALS['embyPool'] ?? null;
+    $GLOBALS['embyPool'] = ['ini' => "$tmp/smart_mover.ini"];
+    $with = embyMoverelliRules();
+    $GLOBALS['embyPool'] = ['ini' => "$tmp/none.ini"];
+    $without = embyMoverelliRules();
+    if ($keep === null) {
+        unset($GLOBALS['embyPool']);
+    } else {
+        $GLOBALS['embyPool'] = $keep;
+    }
+    hardeningRm($tmp);
+    same('fix3 her rules: from her ini alone — X 80, Y 70 (offset 10), guaranteed 50, age 7; none without her ini', [['x' => 80, 'y' => 70, 'k' => 50, 'min_age' => 7], null], [$with, $without]);
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return 'ok';
+        } catch (Problem $e) {
+            return $e->key;
+        }
+    };
+    same('fix3 measure: only one of his pools — anything else refused', 'emby_bad_pool', $refused(fn () => embyMeasurePool(['pool' => '/mnt/../etc'])));
+    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('fix3: his state carries her rules on their own, «Measure now» measures the pool step 2 derived',
+        str_contains($emby, "'moverelli'  => embyMoverelliRules(),") && str_contains($emby, 'embyStreamerLevel(embyPoolLook(embyMeasurePool($r), true))')
+        && str_contains($js, "Office.api.post(`\${ID}.pool_measure`, { pool: form && connected() ? derivedPool() : '' });"));
+    // the page: auto-connect and her values for an unconfigured Jack
+    $node = testsNode();
+    if ($node === '') {
+        check('fix3: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fix3-ui');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const [emFile, stateFile, connectFile] = process.argv.slice(2);
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const all = (n, out = []) => { out.push(n); (n.children || []).forEach((c) => c && typeof c === 'object' && all(c, out)); return out; };
+const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c.filter((x) => typeof x === 'object')); }, replaceChildren() { this.children = []; },
+  closest: () => null, setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
+let answer = null;
+const posts = [];
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
+  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, toast: () => {}, go: () => {},
+  errorText: (e) => 'E:' + (e && e.key), api: { post: async (a, d) => { posts.push([a, d]); return answer; } },
+  dialog: (o) => ({ o, setTitle() {}, fit() {}, close() { if (o.onClose) o.onClose(); } }) };
+(0, eval)(fs.readFileSync(emFile, 'utf8'));
+const e = OFFICE_DESK_TESTS.emby;
+const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+const con = JSON.parse(fs.readFileSync(connectFile, 'utf8'));
+(async () => {
+  const out = {};
+  // an unconfigured Jack: no settings, no pool of his — her rules on their own
+  const fresh = { ...st, configured: false, settings: null, pool: null, moverelli: { x: 80, y: 70, k: 50, min_age: 7 } };
+  e.setState(fresh); e.initForm();
+  const texts = all(e.sharePart()).map((n) => n.textContent).filter(Boolean);
+  out.her = [texts.includes('80 %'), texts.some((t) => t.startsWith('10 % (Y = 70 %)')), texts.includes('50 %'), texts.some((t) => t.startsWith('room.none')), JSON.stringify(e.herRules())];
+  out.base = e.simBase();
+  e.setState({ ...fresh, moverelli: null }); e.initForm();
+  out.none = all(e.sharePart()).map((n) => n.textContent).filter((t) => t.startsWith('room.none')).length;
+  // auto-connect: an address and a key typed, not connected
+  e.setState(fresh); e.initForm();
+  e.openWizard('servers');
+  const f = e.form();
+  Object.assign(f.instances[0], { url: 'http://emby.local:8096', api_key: 'abcdef0123456789', has_key: false, server: null });
+  out.needs = e.needsConnect(f.instances[0]);
+  answer = { ok: false, error: { key: 'emby_connect' } };
+  const btn = el('button', 'btn');
+  await e.nextFromServers(btn, 'libraries');
+  out.fail = [e.wiz().step, f.instances[0].connectError];
+  answer = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
+  await e.nextFromServers(el('button', 'btn'), 'libraries');
+  out.ok = [e.wiz().step, !!f.instances[0].server, f.instances[0].connectError, e.needsConnect(f.instances[0])];
+  const before = posts.length;
+  e.cancelWizard(); e.cancelWizard();
+  e.openWizard('servers');
+  const g = e.form();
+  Object.assign(g.instances[0], { url: 'http://emby.local:8096', api_key: 'abcdef0123456789', server: con.server, connectedAs: 'http://emby.local:8096|abcdef0123456789' });
+  await e.nextFromServers(el('button', 'btn'), 'libraries');
+  out.already = [e.wiz().step, posts.length - before];
+  console.log(JSON.stringify(out));
+})();
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/emby.connect.json') . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('fix3: ran under node', false, substr($raw, 0, 2000));
+        return;
+    }
+    same('fix3 step 3: an unconfigured Jack shows her X, offset, guaranteed — not «not set up»', [true, true, true, false, '{"x":80,"y":70,"k":50,"min_age":7}'], $r['her']);
+    same('fix3 simulator: real data starts from her rules (not measured yet: «Measure now» measures the derived pool)', [80, 70, 50, 7, null],
+        [$r['base']['x'], $r['base']['y'], $r['base']['k'], $r['base']['age'], $r['base']['level']]);
+    same('fix3 step 3: «not set up» only without her ini', 1, $r['none']);
+    same('fix3 next: address and key there, not connected — it connects first', true, $r['needs']);
+    same('fix3 next: a failure — it stays on step 1 and says why', ['servers', 'E:emby_connect'], $r['fail']);
+    same('fix3 next: on success — on to step 2, connected with these values', ['libraries', true, '', false], $r['ok']);
+    same('fix3 next: already connected with these values — on without asking the server', ['libraries', 0], $r['already']);
 }
 
 function testPoolLevel(): void
@@ -34675,7 +34803,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testStreamerFix3', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

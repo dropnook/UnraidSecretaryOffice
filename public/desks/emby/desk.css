@@ -98,7 +98,12 @@
    always in view at the dialog's bottom; the «Set up» tab keeps the card (summary, or the intro before the first setup) */
 .dialog.jo-wiz-dialog{width:min(1000px,100%)}
 .dialog .jo-wiz{max-width:none; margin:0; padding:0; border:0; background:none; width:auto}
-.dialog .jo-wiz-foot{position:sticky; bottom:-4px; z-index:4; background:var(--surface); padding-bottom:12px; margin-top:14px}
+/* her values and the pool as a compact two-column list inside the dialog too (the dialog's dl is a column by default) */
+.dialog-body dl.jo-share-kv{display:grid; grid-template-columns:auto 1fr; gap:4px 16px; font-size:13px}
+.dialog-body dl.jo-share-kv dt{font-weight:500; color:var(--muted); font-size:13px}
+.dialog-body dl.jo-share-kv dd{margin:0; color:var(--ink); overflow-wrap:anywhere}
+@media (max-width:640px){ .dialog-body dl.jo-share-kv{grid-template-columns:1fr; gap:0} .dialog-body dl.jo-share-kv dd{margin-bottom:6px} }
+.dialog-foot > .jo-wiz-foot{flex:1 1 auto; margin:0; padding:0; border-top:0}
 .jo-wiz-confirm{padding:8px 0 4px}
 .jo-wiz-confirm-q{margin:0 0 6px; font-size:16px; font-weight:650; color:var(--ink)}
 .jo-setup-card .toolbar{margin-top:12px}

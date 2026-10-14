@@ -527,6 +527,27 @@ async function dialogStack(browser, harness) {
     await page.waitForTimeout(200);
     res.tested++;
     if (!(await page.evaluate(() => !!document.querySelector('.dialog .jo-wiz-confirm')))) fail('Escape on the wizard with a change did not ask «Discard changes?»');
+    // a long step fits the window (2026-10-14: in Unraid the end was out of reach): the body scrolls to its end, the head
+    // and the foot stay in view — at 1280×720 and 390 px, and with the office's box transformed and pushed down (as
+    // Unraid's page may do: then «fixed» is that box, not the window)
+    for (const [w, hgt, shift] of [[1280, 720, false], [390, 844, false], [1280, 720, true]]) {
+      await page.setViewportSize({ width: w, height: hgt });
+      await page.goto(`${harness.url}#/emby/setup/simulator`, { waitUntil: 'load' });
+      await page.waitForSelector('.dialog .jo-wiz[data-section="simulator"] .jo-sim-body', { timeout: 15000 });
+      if (shift) {
+        await page.evaluate(() => { const o = document.querySelector('#sso'); o.style.transform = 'translateZ(0)'; o.style.marginTop = '160px'; window.dispatchEvent(new Event('resize')); });
+      }
+      await page.waitForTimeout(300);
+      const fit = await page.evaluate(() => {
+        const d = document.querySelector('#sso-dialog'), b = document.querySelector('#sso-dialog-body'), f = document.querySelector('#sso-dialog-foot'), h = document.querySelector('#sso-dialog-title');
+        b.scrollTop = b.scrollHeight;
+        const rd = d.getBoundingClientRect(), rf = f.getBoundingClientRect(), rh = h.getBoundingClientRect();
+        return { scrolls: b.scrollHeight > b.clientHeight, end: Math.abs(b.scrollTop + b.clientHeight - b.scrollHeight) <= 2,
+          inside: rd.top >= 0 && rd.bottom <= innerHeight + 1, head: rh.top >= 0, foot: rf.top >= 0 && rf.bottom <= innerHeight + 1 && !!f.querySelector('.jo-wiz-foot .btn') };
+      });
+      res.tested++;
+      if (!fit.scrolls || !fit.end || !fit.inside || !fit.head || !fit.foot) fail(`long step at ${w}×${hgt}${shift ? ' (office box transformed, pushed down)' : ''}: ${JSON.stringify(fit)}`);
+    }
   } catch (e) {
     fail(String(e.message || e).split('\n')[0].slice(0, 200));
   }

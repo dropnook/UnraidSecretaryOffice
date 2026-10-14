@@ -695,8 +695,9 @@ const dialogParked = [];              // the modal ones under it: {me, body, foo
     modal: true (2026-10-14, Jack Streamer's setup wizard) — an exclusive dialog: near the top, the page behind dimmed and
     blurred and inert (everything outside the dialog, Unraid's header too), a click outside does nothing and Escape calls
     onEscape() instead of closing; a dialog opened over it stacks (above). cls: a class of the desk's own on the dialog.
-    Answer: {buttons, close, setTitle}. */
-Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, onEscape, cls }) {
+    foot: a node of the desk's own for the foot instead of buttons (it stays in view; the body scrolls).
+    Answer: {buttons, close, setTitle, fit (to the window again, after new content)}. */
+Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, onEscape, cls, foot: ownFoot }) {
   if (dialogTop && !dialogTop.modal && closeDialog) closeDialog();      // a plain dialog gives way (it may uncover a modal one)
   const backdrop = $('#sso-dialog-backdrop');
   const dlg = $('#sso-dialog');
@@ -723,7 +724,8 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, on
 
   foot.innerHTML = '';
   const made = [];
-  (buttons || [{ text: t('common.close') }]).forEach((b) => {
+  if (ownFoot) foot.appendChild(ownFoot);
+  (ownFoot ? [] : buttons || [{ text: t('common.close') }]).forEach((b) => {
     const btn = el('button', 'btn' + (b.kind === undefined ? ' plain' : b.kind ? ' ' + b.kind : ''), b.text);
     btn.type = 'button';
     btn.onclick = async () => {
@@ -741,6 +743,7 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, on
   });
 
   backdrop.hidden = false;
+  dialogFit();
   // modal: everything outside the dialog inert (the office's other parts, Unraid's page around it) until it closes
   const inerted = [];
   if (modal) {
@@ -776,6 +779,7 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, on
       document.addEventListener('keydown', below.me.onKey);
       dialogTop = below.me;
       closeDialog = below.me.close;
+      dialogFit();
       if (below.focus && below.focus.isConnected && below.focus.focus) below.focus.focus({ preventScroll: true });
     } else {
       backdrop.hidden = true;
@@ -799,9 +803,39 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, on
   backdrop.onwheel = dialogWheel;
   dialogTop = me;
   closeDialog = close;
-  return { buttons: made, close,
+  return { buttons: made, close, fit: () => { if (dialogTop === me) dialogFit(); },
     setTitle: (text) => { me.title = text; if (dialogTop === me) titleEl.textContent = text; } };
 };
+
+/**
+ * The dialog fits the window wherever Unraid's page puts the office (2026-10-14: in Unraid the wizard's long step was cut
+ * at the bottom, its foot out of reach): a transformed parent makes «position:fixed» its own box, not the window — the
+ * backdrop is then put over the window by hand; the dialog is never taller than the window below its top (a margin
+ * left), so its body scrolls and its head and foot stay in view. On opening, on a dialog coming back, on resize/scroll.
+ */
+function dialogFit() {
+  const backdrop = $('#sso-dialog-backdrop');
+  if (!backdrop || backdrop.hidden) return;
+  const st = backdrop.style;
+  st.top = st.left = st.width = st.height = st.right = st.bottom = '';
+  const r = backdrop.getBoundingClientRect();
+  if (Math.abs(r.top) > 0.5 || Math.abs(r.left) > 0.5 || Math.abs(r.height - window.innerHeight) > 0.5 || Math.abs(r.width - window.innerWidth) > 0.5) {
+    st.top = `${-r.top}px`;
+    st.left = `${-r.left}px`;
+    st.right = st.bottom = 'auto';
+    st.width = `${window.innerWidth}px`;
+    st.height = `${window.innerHeight}px`;
+  }
+  const dlg = $('#sso-dialog');
+  dlg.style.maxHeight = '';
+  const css = parseFloat(getComputedStyle(dlg).maxHeight);
+  const room = window.innerHeight - dlg.getBoundingClientRect().top - 16;
+  dlg.style.maxHeight = `${Math.max(160, Math.floor(Number.isFinite(css) ? Math.min(css, room) : room))}px`;
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('resize', () => dialogFit());
+  window.addEventListener('scroll', () => dialogFit(), true);
+}
 
 /**
  * The page behind an open dialog never scrolls (2026-10-10: scrolling a log in a dialog scrolled the page once
