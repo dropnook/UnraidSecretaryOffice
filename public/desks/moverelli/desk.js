@@ -212,7 +212,8 @@ function runCard(p, now) {
 // pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
 // Jack Streamer's part in two (the owner, 2026-10-15): not yet watched in his colour, already watched (goes back) in green
 // and his reserved room (owner + helmi1987, 2026-10-15): hatched after his part — his budget's room not yet filled
-const PIC_SEGS = ['fixed', 'others', 'jack', 'watched', 'reserve', 'free'];
+// the snapshots apart in black (owner, 2026-10-15; ZFS only — no figure, no part)
+const PIC_SEGS = ['fixed', 'snaps', 'others', 'jack', 'watched', 'reserve', 'free'];
 const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
 const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
 
@@ -265,14 +266,15 @@ function pictureBars(pic, px, done, destPx) {
     const size = Number(b.size);
     const jack = Math.max(0, Number(b.jack) || 0);
     const watched = b.jack_watched == null || !Number.isFinite(Number(b.jack_watched)) ? null : Math.min(jack, Math.max(0, Number(b.jack_watched)));
-    const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: jack - (watched || 0), watched: watched || 0 };
-    const used = Math.min(size, val.fixed + val.others + jack);
+    const snaps = b.snapshots == null || !Number.isFinite(Number(b.snapshots)) ? null : Math.max(0, Number(b.snapshots));
+    const val = { fixed: Math.max(0, Number(b.fixed) || 0), snaps: snaps || 0, others: Math.max(0, Number(b.others) || 0), jack: jack - (watched || 0), watched: watched || 0 };
+    const used = Math.min(size, val.fixed + val.snaps + val.others + jack);
     const free = Math.max(0, size - used);
     const reserve = b.jack_reserve == null || !Number.isFinite(Number(b.jack_reserve)) ? null : Math.max(0, Number(b.jack_reserve));
     val.reserve = Math.min(free, reserve || 0);
     val.free = free - val.reserve;
     const w = segWidths(PIC_SEGS.map((k) => val[k]), min);
-    return { size, used, jack, watched, reserve, assumed: b.assumed === true, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
+    return { size, used, jack, watched, snaps, reserve, assumed: b.assumed === true, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
   };
   const x = Number(pic.x) > 0 ? Math.min(1, Number(pic.x) / 100) : null;
   const after = end || fc;
@@ -354,6 +356,7 @@ function nightPicture(n) {
           legend.appendChild(it);
           continue;
         }
+        if (k === 'snaps' && data.before.snaps == null && (!data.after || data.after.snaps == null)) continue;     // no figure (not ZFS)
         if (k === 'reserve') {
           // «Jack Streamer reserves … (his budget)»: only with a budget — the true values, before → after
           const rb = data.before.reserve;
@@ -426,7 +429,7 @@ function nightPicture(n) {
       if (!queue.length) queue.push(...files().slice(-6));
       if (!queue.length) break;
       await flyFile(queue.shift());
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, PIC_PAUSE_MS));
     }
     walking = false;
   }
@@ -487,7 +490,10 @@ function livePicture(nn) {
   return picLive;
 }
 /** A whole trip of a file between the bars (the owner, 2026-10-15: slow — the reel readable, its wings seen flapping) */
-const PIC_FLIGHT_MS = 9000;
+const PIC_FLIGHT_MS = 14000;
+const PIC_PAUSE_MS = 3000;       // between two files
+const PIC_BOBS = 10;              // the gentle ups and downs while across
+const PIC_BOB = 4;                // px of each
 const PIC_LIFT = 34;              // px the flyer rises above the higher of its two ends (never above the box's top part)
 const PIC_TILT = 10;              // degrees it leans into its flight (to the right: clockwise) — the direction at a glance
 /**
@@ -498,27 +504,43 @@ const PIC_TILT = 10;              // degrees it leans into its flight (to the ri
 function picFlight(from, to) {
   const top = Math.max(PIC_LIFT, Math.min(from.y, to.y) - PIC_LIFT);
   const tilt = to.x >= from.x ? PIC_TILT : -PIC_TILT;
-  const at = (t, lift, scale) => {
+  const at = (t, lift, scale, bob = 0) => {
     const x = from.x + (to.x - from.x) * t;
     const y = from.y + (to.y - from.y) * t;
-    return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift).toFixed(1)}px) rotate(${scale >= 1 ? tilt : tilt / 2}deg) scale(${scale})`;
+    return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift + bob).toFixed(1)}px) rotate(${scale >= 1 ? tilt : tilt / 2}deg) scale(${scale})`;
   };
+  // 2.5 s growing out of the bar, 8 s across at full size bobbing gently with the beats, 3.5 s shrinking into the other
+  const grow = 2500 / PIC_FLIGHT_MS;
+  const sink = 1 - 3500 / PIC_FLIGHT_MS;
+  const cruise = [];
+  for (let i = 1; i < PIC_BOBS; i++) {
+    cruise.push({ transform: at(0.1 + 0.8 * i / PIC_BOBS, 1, 1, i % 2 ? -PIC_BOB : PIC_BOB), opacity: 1, offset: grow + (sink - grow) * i / PIC_BOBS, easing: 'ease-in-out' });
+  }
   return [
     { transform: at(0, 0, 0.12), opacity: 0, offset: 0 },
-    { transform: at(0, 0, 0.15), opacity: 1, offset: 0.05, easing: 'ease-out' },
-    { transform: at(0.12, 1, 1), opacity: 1, offset: 0.3, easing: 'ease-in-out' },
-    { transform: at(0.88, 1, 1), opacity: 1, offset: 0.7, easing: 'ease-in' },
-    { transform: at(1, 0, 0.15), opacity: 1, offset: 0.95 },
+    { transform: at(0, 0, 0.15), opacity: 1, offset: 0.02, easing: 'ease-out' },
+    { transform: at(0.1, 1, 1), opacity: 1, offset: grow, easing: 'ease-in-out' },
+    ...cruise,
+    { transform: at(0.9, 1, 1), opacity: 1, offset: sink, easing: 'ease-in' },
+    { transform: at(1, 0, 0.15), opacity: 1, offset: 0.98 },
     { transform: at(1, 0, 0.12), opacity: 0, offset: 1 },
   ];
 }
 
-/** One feathered wing (drawn leftwards from its shoulder at 0,0): layered pointed feathers, each darker at its tip */
-function picWing() {
-  const feathers = [[62, 36, 7], [44, 46, 8], [26, 52, 8.5], [8, 48, 8.5], [-10, 38, 8]];      // [angle up, length, width]
-  return feathers.map(([deg, l, w]) => `<g transform="rotate(${deg})">`
-    + `<path class="mo-feather" d="M0 0Q${-l / 2} ${-w} ${-l} 0Q${-l / 2} ${w} 0 0Z"/>`
-    + `<path class="mo-feather-tip" d="M${(-0.6 * l).toFixed(1)} 0Q${(-0.8 * l).toFixed(1)} ${(-0.8 * w).toFixed(1)} ${-l} 0Q${(-0.8 * l).toFixed(1)} ${(0.8 * w).toFixed(1)} ${(-0.6 * l).toFixed(1)} 0Z"/></g>`).join('');
+/** One wing's beat (owner, 2026-10-15: slow and big): ~0.55 s, down fast (40 %), up slower — angles of the feathers up */
+const PIC_BEAT = { dur: '0.55s', values: '34;-26;34', keyTimes: '0;0.4;1', keySplines: '0.4 0 0.6 1;0.4 0 0.6 1' };
+/**
+ * One feathered wing (drawn leftwards from its shoulder at 0,0): four broad pointed feathers, light grey with darker tips
+ * and a clear outline; it beats about the shoulder — SMIL's rotate turns about the group's own 0,0 (Chrome and Firefox
+ * alike); $still: no beat (reduced motion)
+ */
+function picWing(still) {
+  const feathers = [[58, 40, 11], [36, 52, 12.5], [14, 56, 12.5], [-8, 44, 11]];      // [angle up, length, width]
+  const beat = still ? '' : `<animateTransform attributeName="transform" type="rotate" dur="${PIC_BEAT.dur}" values="${PIC_BEAT.values}"`
+    + ` keyTimes="${PIC_BEAT.keyTimes}" calcMode="spline" keySplines="${PIC_BEAT.keySplines}" repeatCount="indefinite"/>`;
+  return `<g class="mo-wing-beat">${beat}` + feathers.map(([deg, l, w]) => `<g transform="rotate(${deg})">`
+    + `<path class="mo-feather" d="M0 0Q${-l * 0.45} ${-w} ${-l} 0Q${-l * 0.45} ${w} 0 0Z"/>`
+    + `<path class="mo-feather-tip" d="M${(-0.62 * l).toFixed(1)} 0Q${(-0.78 * l).toFixed(1)} ${(-0.62 * w).toFixed(1)} ${-l} 0Q${(-0.78 * l).toFixed(1)} ${(0.62 * w).toFixed(1)} ${(-0.62 * l).toFixed(1)} 0Z"/></g>`).join('') + '</g>';
 }
 
 /**
@@ -541,8 +563,8 @@ function picFlyer(reel) {
       + around(2.6, 3, (x, y) => `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="0.9" class="mo-reel-dot"/>`) + '</g>'
     : `<rect x="${cx - 15}" y="${cy - 15}" width="30" height="30" rx="5" fill="currentColor" class="mo-fly-body"/>`;
   return '<svg viewBox="0 0 120 84" width="96" height="67" focusable="false" aria-hidden="true">'
-    + `<g transform="translate(${reel ? 37 : 46} ${cy - 4})"><g class="mo-wing mo-wing-l">${picWing()}</g></g>`
-    + `<g transform="translate(${reel ? 83 : 74} ${cy - 4}) scale(-1 1)"><g class="mo-wing mo-wing-r">${picWing()}</g></g>` + body + '</svg>';
+    + `<g transform="translate(${reel ? 37 : 46} ${cy - 4})"><g class="mo-wing mo-wing-l">${picWing(reducedMotion())}</g></g>`
+    + `<g transform="translate(${reel ? 83 : 74} ${cy - 4}) scale(-1 1)"><g class="mo-wing mo-wing-r">${picWing(reducedMotion())}</g></g>` + body + '</svg>';
 }
 const reducedMotion = () => !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 

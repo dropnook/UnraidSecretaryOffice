@@ -345,21 +345,23 @@
      "check": {
       "before": {
        "size": 2147483648000,
-       "fixed": 450971566080,
+       "fixed": 354334801920,
        "others": 654982512640,
        "jack": 816043786240,
        "free": 225485783040,
        "jack_watched": 150323855360,
-       "jack_reserve": 150323855360
+       "jack_reserve": 150323855360,
+       "snapshots": 96636764160
       },
       "forecast": {
        "size": 2147483648000,
-       "fixed": 450971566080,
+       "fixed": 354334801920,
        "others": 504658657280,
        "jack": 762356695040,
        "free": 429496729600,
        "jack_watched": 0,
-       "jack_reserve": 204010946560
+       "jack_reserve": 204010946560,
+       "snapshots": 96636764160
       },
       "planned": {
        "jack_back": 150323855360,
@@ -371,21 +373,23 @@
      "free": {
       "before": {
        "size": 2147483648000,
-       "fixed": 450971566080,
+       "fixed": 354334801920,
        "others": 654982512640,
        "jack": 665719930880,
        "free": 375809638400,
        "jack_watched": 0,
-       "jack_reserve": 300647710720
+       "jack_reserve": 300647710720,
+       "snapshots": 96636764160
       },
       "forecast": {
        "size": 2147483648000,
-       "fixed": 450971566080,
+       "fixed": 354334801920,
        "others": 504658657280,
        "jack": 762356695040,
        "free": 429496729600,
        "jack_watched": 0,
-       "jack_reserve": 204010946560
+       "jack_reserve": 204010946560,
+       "snapshots": 96636764160
       },
       "planned": {
        "jack_back": 150323855360,
