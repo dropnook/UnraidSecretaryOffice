@@ -29,7 +29,7 @@
 #                 playwright-core or a Chrome it is skipped with a note (≈ 2 min)
 #    7 suite      rsync to <suite_host>:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
 #                 (a red build, click test or suite puts the two version lines back)
-#    8 commit     «Version x.y.z» (+ Co-Authored-By), push main, origin/main is that commit
+#    8 commit     «Version x.y.z» , push main, origin/main is that commit
 #    9 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix)
 #                 --notes-file <notes>; the tag points to the commit
 #   10 action     the Action plugin.yml for v<x.y.z> finished green (polled, at most 10 min)
@@ -61,7 +61,6 @@
 set -u -o pipefail
 
 conf=${USO_RELEASE_CONF:-$HOME/.config/uso-release.conf}
-coauthor='Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>'
 name=unraid-secretary-office
 plugin_dir=/usr/local/emhttp/plugins/$name
 canary_watch=300   # s: the canary's agent log without error/fatal before the next server gets the release
@@ -277,10 +276,10 @@ rm -f "$suite_out"
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 8 commit
-msg=$(printf 'Version %s\n\n%s\n' "$ver" "$coauthor")
+msg="Version $ver"   # no Co-Authored-By line (the owner, 2026-10-14: only dropnook as contributor)
 if (( dry )); then
     echo "   (dry, not run) \$ git add src/bootstrap.php agent/agent.php"
-    echo "   (dry, not run) \$ git commit -m 'Version $ver' -m '$coauthor'"
+    echo "   (dry, not run) \$ git commit -m 'Version $ver'"
     echo "   (dry, not run) \$ git push origin main"
 else
     show git add src/bootstrap.php agent/agent.php
