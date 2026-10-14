@@ -198,11 +198,11 @@ function chip(text, cls, title) {
   return c;
 }
 /**
- * The fill as words (2026-10-12): «from 80 % down to 70 % oldest first» — at/above the trigger the oldest go, whatever
- * their age, until the pool is below the target; off (no trigger): «whatever the fill» (the age rule alone)
+ * The fill as words (2026-10-12; only X since 2026-10-14): «from 80 % the oldest first, until below it» — at/above X the
+ * oldest across the pool go, whatever their age; off (no limit): «whatever the fill» (the age rule alone)
  */
-function fillText(threshold, until) {
-  return Number(threshold) ? T('rule_fill', { pct: threshold, until: Number(until) || threshold }) : T('rule_always');
+function fillText(threshold) {
+  return Number(threshold) ? T('rule_fill', { pct: threshold }) : T('rule_always');
 }
 function section(title, sub, ...extra) {
   const s = el('section', 'section');
@@ -523,7 +523,8 @@ function scheduleTile(a) {
  */
 function tonightText(p) {
   if (!p || !p.measured) return T('night.unmeasured');
-  const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_none'),
+  // what Jack Emby gives back is what was watched — known only once he looked (a dry run's number when there is one)
+  const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_watched'),
     Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none'),
     Number(p.fill) > 0 ? T('night.fill', { size: fmt.size(p.fill) }) : T('night.fill_none')];
   if (Number(p.wait) > 0) parts.push(T('night.wait', { size: fmt.size(p.wait) }));
@@ -545,7 +546,7 @@ function tonightShort(p) {
 function lastNightText(l) {
   if (!l || !l.started) return '';
   const when = fmt.relative(l.finished || l.started);
-  const how = l.result === 'missed' ? T('night.last_missed', { pct: l.end_pct ?? '?' })
+  const how = l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
     : l.result === 'stopped' ? T('night.last_stopped', { phase: T('rc.phase.' + (l.stopped_in || 'free')) })
     : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
   return T('night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
@@ -556,7 +557,7 @@ function sharesTile(a) {
   const shares = state.shares || [];
   const g = (state.settings || {}).global || {};
   const rule = [T('rule_age', { n: g.min_age ?? 0, stat: g.age_stat || 'ctime' }),
-    fillText(g.move_when_used_above, g.move_until_used_below)].join(' · ');
+    fillText(g.move_when_used_above)].join(' · ');
   const sub = [T('shares_moving', { n: shares.filter((x) => x.state === 'moves').length }), rule];
   return Office.stat({ label: T('shares'), value: `${shares.filter((x) => x.state === 'moves').length} / ${shares.length}`, sub, tip: sub.join('\n'),
     alert: !!(jack().uncovered || []).length, ...a });
@@ -670,7 +671,7 @@ function fillShares(box) {
     if (x.state === 'moves') {
       const rules = el('div', 'row-meta');
       rules.appendChild(el('span', '', T('rule_age', { n: x.min_age, stat: x.age_stat })));
-      if (x.threshold) rules.appendChild(el('span', '', fillText(x.threshold, x.until)));
+      if (x.threshold) rules.appendChild(el('span', '', fillText(x.threshold)));
       if (x.excludes) rules.appendChild(el('span', '', nOf('lists', x.excludes)));
       main.appendChild(rules);
     }
@@ -933,10 +934,11 @@ function initForm() {
   (state.shares || []).forEach((x) => {
     const s = set.shares[x.share] || {};
     shares[x.share] = { skip: !!s.skip, min_age: s.min_age ?? null, age_stat: s.age_stat ?? null, move_when_used_above: s.move_when_used_above ?? null,
-      move_until_used_below: s.move_until_used_below ?? null, files: s.files || [], patterns: s.patterns || [] };
+      files: s.files || [], patterns: s.patterns || [] };
   });
-  form = { global: { move_until_used_below: 0, jack_min_percent: 50, ...set.global }, shares };
-  form.global.offset = offsetOf(form.global);
+  // (an older agent's move_until_used_below / jack_min_percent: not carried — only X since 2026-10-14)
+  const { move_until_used_below: _y, jack_min_percent: _k, ...g } = set.global;
+  form = { global: g, shares };
   saved = formSettings(form);
   // Jack Emby hired and his list not kept out for every share of his: proposed in the files for all shares — in the form
   // only, nothing is written before «Save»; what was there stays, «Remove it again» takes exactly this line out
@@ -1102,49 +1104,30 @@ function foundNotice() {
   return p;
 }
 
-// ---- the fill's target (2026-10-13, the pool simply): one number X; Y = X − offset is written, never asked
-/** The offset X − Y as her ini has it (an ini without a target below its limit: 10) */
-function offsetOf(g) {
-  const x = Number(g.move_when_used_above) || 0;
-  const y = Number(g.move_until_used_below) || 0;
-  return x > 0 && y > 0 && y < x ? x - y : 10;
-}
-/** Y for a limit and the form's offset (0: no limit) */
-function untilOf(x, offset) {
-  x = Number(x) || 0;
-  return x > 0 ? x - (Number(offset) || 0) : 0;
-}
-
 // ---- the change bar and the apply dialog (like Mr. Backupsy's setup, 2026-10-12)
 /** The settings as the page sends them (pure): only the shares with something of their own, empty own lines none */
 function formSettings(f) {
   const shares = {};
   Object.entries(f.shares).forEach(([name, sh]) => {
     const patterns = sh.patterns.join('\n').trim() === '' ? [] : sh.patterns;
-    if (sh.skip || sh.min_age !== null || sh.age_stat !== null || sh.move_when_used_above !== null || (sh.move_until_used_below ?? null) !== null
-      || sh.files.length || patterns.length) {
+    if (sh.skip || sh.min_age !== null || sh.age_stat !== null || sh.move_when_used_above !== null || sh.files.length || patterns.length) {
       shares[name] = { ...sh, files: [...sh.files], patterns: [...patterns] };
     }
   });
   const g = f.global;
-  const { offset, ...rest } = g;
-  // Y follows X: for all shares and for a share with a limit of its own (never asked)
-  Object.values(shares).forEach((sh) => { sh.move_until_used_below = sh.move_when_used_above === null ? null : untilOf(sh.move_when_used_above, offset); });
-  return { global: { ...rest, move_until_used_below: untilOf(g.move_when_used_above, offset), files: [...g.files],
+  return { global: { ...g, files: [...g.files],
     patterns: g.patterns.join('\n').trim() === '' ? [] : [...g.patterns] }, shares };
 }
 
-const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below', 'move_prefer_shares', 'mover_debug', 'max_list', 'jack_min_percent'];
-const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below'];
+const SET_KEYS = ['min_age', 'age_stat', 'move_when_used_above', 'move_prefer_shares', 'mover_debug', 'max_list'];
+const SHARE_KEYS = ['skip', 'min_age', 'age_stat', 'move_when_used_above'];
 /** A value as the apply dialog says it (null in a share: as for all shares) */
 function setValue(key, v) {
-  if (key === 'jack_min_percent') return `${Number(v ?? 50)} %`;
   if (v === null || v === undefined || v === '') return T('setup.as_global');
   if (typeof v === 'boolean') return Office.t(v ? 'common.yes' : 'common.no');
   if (key === 'min_age') return T('setup.tile.days', { n: Number(v) || 0 });
   if (key === 'age_stat') return T('age_stat.' + v);
   if (key === 'move_when_used_above') return Number(v) ? `${v} %` : T('setup.fill_off');
-  if (key === 'move_until_used_below') return Number(v) ? `${v} %` : '–';
   return String(v);
 }
 
@@ -1163,10 +1146,8 @@ function setupChangeRows(was, now) {
     own(b.patterns).filter((x) => !own(a.patterns).includes(x)).forEach((x) => rows.push({ mark: 'add', label: pre + T('setup.patterns'), what: x }));
     own(a.patterns).filter((x) => !own(b.patterns).includes(x)).forEach((x) => rows.push({ mark: 'gone', label: pre + T('setup.patterns'), what: x }));
   };
-  // an older state without them: 0 / not set
-  const gv = (o, k) => (k === 'move_until_used_below' ? Number(o[k]) || 0 : k === 'jack_min_percent' ? o[k] ?? 50 : o[k]);
   SET_KEYS.forEach((k) => {
-    if (String(gv(was.global, k)) !== String(gv(now.global, k))) {
+    if (String(was.global[k]) !== String(now.global[k])) {
       rows.push({ mark: null, label: T('setup.row_global', { what: T(IMPORT_LABEL[k]) }), what: `${setValue(k, was.global[k])} → ${setValue(k, now.global[k])}` });
     }
   });
@@ -1189,43 +1170,32 @@ function setupChangeRows(was, now) {
 }
 
 /**
- * What keeps the form from being saved, at once (pure; the same rules as moverelliCheck()): [{scope: '' | share | '~adv',
- * text}] — the offset leaves no target above 0 (for all shares and per share, as it holds for the share), the offset or
- * what Jack keeps for sure out of their bounds (under «Advanced»)
+ * What keeps the form from being saved, at once (pure; the same rules as moverelliCheck()): [{scope: '' | share, text}]
+ * — only X since 2026-10-14: a limit is a whole number from 0 to 100 (the field says it), nothing else can clash
  */
 function setupProblems(f) {
   const out = [];
-  const g = f.global;
-  const whole = (v, lo, hi) => Number.isInteger(Number(v)) && String(v ?? '').trim() !== '' && Number(v) >= lo && Number(v) <= hi;
-  const offOk = whole(g.offset, 1, 99);
-  if (!offOk) out.push({ scope: '~adv', text: T('setup.err_offset') });
-  if (!whole(g.jack_min_percent, 0, 100)) out.push({ scope: '~adv', text: T('setup.err_jack_min') });
-  const limit = (scope, th) => {
-    th = Number(th) || 0;
-    if (offOk && th > 0 && th - Number(g.offset) < 1) out.push({ scope, text: T('setup.err_offset_big', { x: th, offset: Number(g.offset) }) });
-  };
-  limit('', g.move_when_used_above);
-  Object.entries(f.shares).forEach(([name, sv]) => {
-    if ((sv.move_when_used_above ?? null) !== null) limit(name, sv.move_when_used_above);
-  });
+  const bad = (v) => v !== null && v !== undefined && !(Number.isInteger(Number(v)) && String(v).trim() !== '' && Number(v) >= 0 && Number(v) <= 100);
+  if (bad(f.global.move_when_used_above)) out.push({ scope: '', text: T('setup.err_limit') });
+  Object.entries(f.shares).forEach(([name, sv]) => { if (bad(sv.move_when_used_above ?? null)) out.push({ scope: name, text: T('setup.err_limit') }); });
   return out;
 }
-/** The two limit fields per scope ('' = for all shares) as drawn now: [threshold field, until field, error line] */
+/** The limit field per scope ('' = for all shares) as drawn now: [field, error line] */
 const limitFields = new Map();
-function limitPair(scope, thField, unField) {
+function limitPair(scope, thField) {
   const err = el('p', 'mo-field-err');
   err.setAttribute('role', 'alert');
-  unField.appendChild(err);
-  limitFields.set(scope, [thField, unField, err]);
+  thField.appendChild(err);
+  limitFields.set(scope, [thField, err]);
   markLimits();
 }
 /** The fields of every scope with a problem: the error style on both, the reason under «… bis» */
 function markLimits() {
   if (!form) return;
   const probs = setupProblems(form);
-  limitFields.forEach(([th, un, err], scope) => {
+  limitFields.forEach(([th, err], scope) => {
     const p = probs.filter((x) => x.scope === scope);
-    [th, un].forEach((f) => { if (f.classList) f.classList.toggle('mo-bad', p.length > 0); });
+    if (th.classList) th.classList.toggle('mo-bad', p.length > 0);
     err.textContent = p.map((x) => x.text).join(' ');
   });
 }
@@ -1237,7 +1207,7 @@ function setupBarSpec() {
   if (!n && state.configured) return null;
   // a problem in the form: «Apply…» stays off, the bar says why (the fields say it too)
   const p = setupProblems(form)[0];
-  const why = p ? (p.scope && p.scope !== '~adv' ? `${T('setup.row_share', { share: p.scope })} — ${p.text}` : p.text) : null;
+  const why = p ? (p.scope ? `${T('setup.row_share', { share: p.scope })} — ${p.text}` : p.text) : null;
   return {
     title: n ? T('setup.bar_changes', { n }) : T('setup.bar_new'),
     sub: why ? T('setup.bar_blocked', { why }) : T(state.configured ? 'setup.bar_sub' : 'setup.bar_sub_new'),
@@ -1276,7 +1246,7 @@ function setupApply() {
     box.appendChild(ul);
   }
   // what the next night moves with these numbers, per pool
-  levelList().forEach(([pool, c]) => { if (c) box.appendChild(el('p', 'callout', levelNight(pool, levelMath(c, now.global.move_when_used_above, now.global.move_until_used_below, now.global.jack_min_percent)))); });
+  levelList().forEach(([pool, c]) => { if (c) box.appendChild(el('p', 'callout', levelNight(pool, levelMath(c, now.global.move_when_used_above)))); });
   const off = !mover().off;
   if (off) box.appendChild(consentSection());
   box.appendChild(el('p', 'role', T('setup.help_save')));
@@ -1340,11 +1310,11 @@ function setupStep(id) {
 function setupTileData() {
   const g = form.global;
   const own = Object.values(form.shares).filter((s) => s.skip || s.min_age !== null || s.age_stat !== null || s.move_when_used_above !== null
-    || (s.move_until_used_below ?? null) !== null || s.files.length || s.patterns.join('\n').trim() !== '');
+    || s.files.length || s.patterns.join('\n').trim() !== '');
   const lines = g.patterns.filter((x) => x.trim() !== '' && !x.trim().startsWith('#')).length;
   const out = [];
   out.push({ id: 'global', key: 'setup.global', value: T('setup.tile.days', { n: Number(g.min_age) || 0 }),
-    sub: [fillText(g.move_when_used_above, g.move_until_used_below),
+    sub: [fillText(g.move_when_used_above),
       T('setup.tile.stays', { lists: nOf('lists', g.files.length), lines: nOf('lines', lines) })], alert: jackUncoveredIn(form).length > 0 });
   out.push({ id: 'shares', key: 'setup.shares', value: String(own.length),
     sub: [T('setup.tile.own', { n: own.length }), T('setup.tile.skipped', { n: Object.values(form.shares).filter((s) => s.skip).length })], alert: false });
@@ -1368,62 +1338,54 @@ function setupGlobal() {
   // the rule in her words and per pool the numbers: drawn anew at every keystroke
   const levels = levelSection(g);
   s1.addEventListener('input', () => levels.redraw());
-  s1.append(f1, levels, advancedFold(g), excludeFields(g, 'global'));
+  s1.append(f1, levels, excludeFields(g, 'global'));
   return s1;
 }
 
-// ---- the pool, simply (2026-10-13, agent/lib/poollevel.php): one limit X; Y = X − offset; below Y the room that appdata &
-// co. leave is shared half and half (jack_min_percent) between Jack Emby and the downloads — each may borrow what the other
-// doesn't need. In the night run Jack Emby gives back above Y (never below his half), she moves the downloads' borrowed part from X on.
+// ---- the pool, only X (2026-10-14, agent/lib/poollevel.php): one limit X. Above it she moves the oldest files across the
+// pool (never Jack Emby's) until it is below X again; Jack Emby gives back only what was watched and fetches only up to X.
 /** Her pools: [pool, raw | null] — Jack Emby's pool first */
 function levelList() {
   const c = (state && state.levels) || {};
   return Object.entries(c).sort(([a, x], [b, y]) => Number(!!(y && y.mine)) - Number(!!(x && x.mine)) || a.localeCompare(b));
 }
-/** The numbers for the form's X, Y, k (pure; the same rule as poolLevelMath()): bytes; back = Jack the next night, goes = downloads then */
-function levelMath(c, x, y, k) {
+/**
+ * The numbers for the form's X (pure; the same rule as poolLevelMath()): bytes — need: what must go to be at X (her
+ * oldest; Jack Emby's watched counts too, unknown here); never: what never moves reaches X; jackOver: with Jack Emby's
+ * bytes it does
+ */
+function levelMath(c, x) {
   const size = Math.max(0, Number(c.size) || 0);
   const used = Math.min(Math.max(0, Number(c.used) || 0), size);
   const m = Math.min(Math.max(0, Number(c.movable) || 0), used);
   const nm = used - m;
   x = Number(x) || 0;
-  y = Number(y) || 0;
   const jack = c.mine ? Math.min(Math.max(0, Number(c.jack) || 0), m) : 0;
-  const yb = y > 0 ? Math.floor(y * size / 100) : 0;
-  const room = y > 0 ? Math.max(0, yb - nm) : 0;
-  const half = Math.floor(room * Math.min(100, Math.max(0, Number(k ?? 50) || 0)) / 100);
-  // the night run: what must go to stand at Y; Jack Emby only what he borrowed (never below his half), the downloads only
-  // from X on and only what they borrowed over their part (room − half)
-  const need = y > 0 ? Math.max(0, used - yb) : 0;
-  const back = y > 0 && used > yb ? Math.min(Math.max(0, jack - half), need) : 0;
-  const goes = x > 0 && y > 0 && used * 100 >= x * size ? Math.min(Math.max(0, m - jack - (room - half)), need - back) : 0;
-  return { size, used, nm, x, y, room, half, jack, need, back, goes, never: y > 0 && size > 0 && nm >= yb, nmPct: size > 0 ? nm * 100 / size : 0 };
+  const xb = x > 0 ? Math.floor(x * size / 100) : 0;
+  const never = x > 0 && size > 0 && nm >= xb;
+  return { size, used, nm, x, jack, others: m - jack, need: x > 0 ? Math.max(0, used - xb) : 0, never,
+    jackOver: !never && x > 0 && size > 0 && nm + jack >= xb, nmPct: size > 0 ? nm * 100 / size : 0 };
 }
 /** What the next night moves on a pool, in her words */
 function levelNight(pool, m) {
-  if (m.back && m.goes) return T('setup.level_night_both', { pool, back: fmt.size(m.back), goes: fmt.size(m.goes) });
-  if (m.back) return T('setup.level_night_back', { pool, back: fmt.size(m.back) });
-  if (m.goes) return T('setup.level_night_goes', { pool, goes: fmt.size(m.goes) });
-  return T('setup.level_night_none', { pool });
+  return m.need > 0 ? T('setup.level_night_goes', { pool, goes: fmt.size(Math.min(m.need, m.others)) }) : T('setup.level_night_none', { pool });
 }
-/** One pool in words: what it holds and what never moves, the halves (Jack hired) or the downloads' room, the next night */
+/** One pool in words: what it holds and what never moves, the next night — a warning when she can't get below X */
 function levelLines(pool, c, g) {
-  const m = levelMath(c, g.move_when_used_above, untilOf(g.move_when_used_above, g.offset), g.jack_min_percent);
+  const m = levelMath(c, g.move_when_used_above);
   const out = [T('setup.level_pool', { pool, used: fmt.size(m.used), size: fmt.size(m.size), nm: fmt.size(m.nm) })];
-  if (m.never) return { lines: out, warn: T('setup.level_never', { pool, nm: Math.floor(m.nmPct), y: m.y }) };
-  out.push(c.mine && jack().hired ? T('setup.level_half', { y: m.y, h: fmt.size(m.half), d: fmt.size(m.room - m.half) }) : T('setup.level_room', { r: fmt.size(m.room), y: m.y }));
+  if (m.never) return { lines: out, warn: T('setup.level_never', { pool, nm: Math.floor(m.nmPct), x: m.x }) };
   out.push(levelNight(pool, m));
-  return { lines: out, warn: null };
+  return { lines: out, warn: m.jackOver && jack().hired ? T('setup.level_jack_over', { pool, jack: fmt.size(m.jack), x: m.x }) : null };
 }
-/** «Der Pool»: her rule with the numbers put in, per pool a few lines — drawn anew at every keystroke (redraw()) */
+/** «Der Pool»: her rule with the number put in, per pool a few lines — drawn anew at every keystroke (redraw()) */
 function levelSection(g) {
   const box = el('div', 'mo-levels');
   box.redraw = () => {
     box.innerHTML = '';
     const x = Number(g.move_when_used_above) || 0;
     if (!(x > 0)) { box.appendChild(el('p', 'role', T('setup.level_off'))); return; }
-    const y = untilOf(x, g.offset);
-    box.appendChild(el('p', 'mo-level-rule', T(jack().hired ? 'setup.level_rule_jack' : 'setup.level_rule', { x, y })));
+    box.appendChild(el('p', 'mo-level-rule', T(jack().hired ? 'setup.level_rule_jack' : 'setup.level_rule', { x })));
     levelList().forEach(([pool, c]) => {
       if (!c) { box.appendChild(el('p', 'role', T('setup.level_unseen', { pool }))); return; }
       const v = levelLines(pool, c, g);
@@ -1434,23 +1396,11 @@ function levelSection(g) {
   box.redraw();
   return box;
 }
-/** «Advanced»: the offset X − Y and what Jack keeps for sure — checked at once like the limit */
-function advancedFold(g) {
-  const det = keepFold(el('details', 'box mo-share mo-adv'), '~adv', false);
-  det.appendChild(el('summary', '', T('setup.advanced')));
-  const f = el('div', 'mo-form');
-  const off = field(T('setup.offset'), number(g, 'offset', 1, 99), T('setup.offset_hint'));
-  const jk = field(T('setup.jack_min'), number(g, 'jack_min_percent', 0, 100), T('setup.jack_min_hint'));
-  f.append(off, jk);
-  limitPair('~adv', off, jk);
-  det.appendChild(f);
-  return det;
-}
 
-/** «Höchstens so voll» for a scope (its target follows: X − offset), registered for the immediate check (markLimits()) */
+/** «Höchstens so voll» for a scope, registered for the immediate check (markLimits()) */
 function limitsOf(scope, obj, thHint, optional) {
   const th = field(T('setup.threshold'), number(obj, 'move_when_used_above', 0, 100, optional), thHint);
-  limitPair(scope, th, th);
+  limitPair(scope, th);
   return [th];
 }
 
@@ -1476,7 +1426,7 @@ function fillSetupShares(box) {
     if (x.own) sum.appendChild(chip(T('own_rules'), 'quiet'));
     if (x.mode === 'yes') {
       const th = sv.move_when_used_above ?? form.global.move_when_used_above;
-      if (Number(th)) sum.appendChild(chip(fillText(th, sv.move_until_used_below ?? form.global.move_until_used_below), 'quiet'));
+      if (Number(th)) sum.appendChild(chip(fillText(th), 'quiet'));
     }
     det.appendChild(sum);
     if (x.mode === 'none') {
@@ -1506,8 +1456,8 @@ function fillSetupShares(box) {
  */
 let importFolder = '';
 /** The setup's label of a key of the ini */
-const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold', move_until_used_below: 'setup.until',
-  move_prefer_shares: 'setup.prefer', jack_min_percent: 'setup.jack_min',
+const IMPORT_LABEL = { min_age: 'setup.min_age', age_stat: 'setup.age_stat', move_when_used_above: 'setup.threshold',
+  move_prefer_shares: 'setup.prefer',
   mover_debug: 'setup.debug', max_list: 'setup.max_list', skip: 'setup.skip' };
 
 function importSection() {
@@ -1807,8 +1757,8 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, offsetOf, untilOf, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, tonightText, tonightShort, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, tonightText, tonightShort, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
-    setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, advancedFold, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
+    setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }
 })();

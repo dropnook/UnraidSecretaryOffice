@@ -68,6 +68,12 @@
 #      after each one (like the threshold: ZFS whole pool, else df), until the pool is below move_until_used_below=Y %
 #      (Y < X; 0/empty: below X). Several shares on one pool share the target: once below, later shares fill nothing.
 #      A dry run estimates it from the files' sizes. Not with --force/--force-all (they move everything anyway).
+# USO «oldest first across the pool» (2026-10-14): the fill no longer goes share by share — after the age step of every
+#   share, all pool -> array (or secondary pool) shares with a trigger on one pool fill TOGETHER: their files (never an
+#   excluded one) in one list, oldest first, a file's age being the YOUNGER of its birth (stat %W where the filesystem
+#   has it, else ctime) and its mtime — something touched lately counts as new. A share's file goes only while the pool
+#   is at/above that share's target (per share its own X); one file per call, the pool re-read after each. The age rule
+#   stays per share. The status keeps `recent`: the last 50 files done [{name: <share>/<rel>, bytes, from, to}].
 #
 # Exclude files: one entry per line, comments (#) and blank lines ignored, CRLF tolerated.
 #   /abs/path/dir          protects the directory and everything below it
@@ -133,9 +139,16 @@ WARNINGS=0      # office: WARN lines so far (the run card's «N errors, N warnin
 SHARE_JSON=()
 SH_STATE=""; SH_DIRECTION=""; SH_FILES=0; SH_BYTES=0; SH_MOVED=0; SH_LEFT=0
 SH_AGE=""; SH_STAT=""; SH_THRESHOLD=""; SH_EXCLUDES=""
+RECENT=()      # USO: the last 50 files done (JSON objects)
+recent_add() {  # name bytes from to
+    RECENT+=("{\"name\":$(json_str "$1"),\"bytes\":$(json_num "$2"),\"from\":$(json_str "$3"),\"to\":$(json_str "$4")}")
+    (( ${#RECENT[@]} > 50 )) && RECENT=("${RECENT[@]: -50}")
+    return 0
+}
+recent_json() { local IFS=,; printf '"recent":[%s]' "${RECENT[*]}"; }
 # USO «fill»: the pool, its target, its usage when the share started and the last reading, the target reached in it
 SH_POOL=""; SH_UNTIL=""; SH_POOL_USED=""; SH_POOL_NOW=""; SH_FILL=false; SH_REACHED=false; SH_RC=0
-FILL_POOL=""; FILL_TARGET=0; FILL_REACHED=false; FILL_CAP=false; FILL_CAPPED=false
+FILL_CAPPED=false; CUR_FROM=""
 declare -A POOL_REACHED=() POOL_SIM_B=()
 # office: the live progress of a real run (CUSTOMMOVER_STATUS while it runs: result «running»)
 PLAN=(); PHASE=look; CUR_SHARE=""; CUR_FILE=""; LAST_FILE=""; SH_DONE_FILES=0; SH_DONE_BYTES=0; RUN_DONE_FILES=0; RUN_DONE_BYTES=0
@@ -157,7 +170,29 @@ fill_json() {  # USO «fill»: the share's pool and target as JSON members (a le
         "$(json_str "$SH_POOL_USED")" "$(json_str "$SH_POOL_NOW")" "$SH_FILL" "$SH_REACHED"
 }
 
+# USO «oldest first across the pool»: each share's status kept by name (the fill after all shares adds to it), SHARE_JSON
+# rebuilt from it
+declare -A S_REC=() S_MODE=()
+SHARE_ORDER=()
+share_json() {  # name mode — SH_* as one share's JSON
+    printf '%s' "{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}"
+}
+sh_save() {  # name — SH_* into S_REC (unit separator: an empty field stays a field)
+    S_REC[$1]=$(printf '%s\037' "$SH_STATE" "$SH_DIRECTION" "$SH_FILES" "$SH_BYTES" "$SH_MOVED" "$SH_LEFT" "$SH_AGE" "$SH_STAT" "$SH_THRESHOLD" \
+        "$SH_EXCLUDES" "$SH_POOL" "$SH_UNTIL" "$SH_POOL_USED" "$SH_POOL_NOW" "$SH_FILL" "$SH_REACHED" "$SH_RC")
+}
+sh_load() {  # name — S_REC into SH_*
+    IFS=$'\037' read -r SH_STATE SH_DIRECTION SH_FILES SH_BYTES SH_MOVED SH_LEFT SH_AGE SH_STAT SH_THRESHOLD SH_EXCLUDES SH_POOL SH_UNTIL \
+        SH_POOL_USED SH_POOL_NOW SH_FILL SH_REACHED SH_RC _rest <<< "${S_REC[$1]}"
+}
+shares_json_rebuild() {
+    local n
+    SHARE_JSON=()
+    for n in "${SHARE_ORDER[@]}"; do sh_load "$n"; SHARE_JSON+=("$(share_json "$n" "${S_MODE[$n]}")"); done
+}
+
 share_status_add() {  # name mode — what process_share left in SH_*
+    SHARE_ORDER+=("$1"); S_MODE[$1]="$2"; sh_save "$1"
     SHARE_JSON+=("{\"share\":$(json_str "$1"),\"mode\":$(json_str "$2"),\"state\":$(json_str "$SH_STATE"),\"direction\":$(json_str "$SH_DIRECTION"),\"files\":$(json_num "$SH_FILES"),\"bytes\":$(json_num "$SH_BYTES"),\"moved\":$(json_num "$SH_MOVED"),\"left\":$(json_num "$SH_LEFT"),\"min_age\":$(json_str "$SH_AGE"),\"age_stat\":$(json_str "$SH_STAT"),\"threshold\":$(json_str "$SH_THRESHOLD"),\"excludes\":$(json_str "$SH_EXCLUDES")$(fill_json)}")
 }
 
@@ -173,9 +208,9 @@ write_status() {  # exit code
     esac
     if [[ "$LIST_ONLY" == true ]]; then mode=list; elif [[ "$DRY_RUN" == true ]]; then mode=dry; else mode=run; fi
     joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
-    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"stop_file":%s,"message":%s,"shares":[%s]}\n' \
+    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"stop_file":%s,"message":%s,"shares":[%s],%s}\n' \
         "$mode" "$result" "$(json_num "$code")" "$STARTED" "$(date +%s)" "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" \
-        "$(json_num "${TOTAL_MOVED:-0}")" "$(json_num "${TOTAL_LEFT:-0}")" "$(json_num "$ERRORS")" "$(json_str "$STOP_SHARE")" "$(json_str "$LAST_FILE")" "$(json_str "$STATUS_MSG")" "$joined" \
+        "$(json_num "${TOTAL_MOVED:-0}")" "$(json_num "${TOTAL_LEFT:-0}")" "$(json_num "$ERRORS")" "$(json_str "$STOP_SHARE")" "$(json_str "$LAST_FILE")" "$(json_str "$STATUS_MSG")" "$joined" "$(recent_json)" \
         > "$STATUS_FILE.$$.tmp" 2>/dev/null && mv -f "$STATUS_FILE.$$.tmp" "$STATUS_FILE" 2>/dev/null
     rm -f "$STATUS_FILE.$$.tmp" 2>/dev/null
     return 0
@@ -189,10 +224,10 @@ office_progress() {
     local plan joined p
     plan=""; for p in "${PLAN[@]}"; do plan+="${plan:+,}$(json_str "$p")"; done
     joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
-    printf '{"mode":"run","result":"running","errors":%s,"warnings":%s,"started":%s,"time":%s,"plan":[%s],"phase":"%s","share":%s,"file":%s,"share_files":%s,"share_bytes":%s,"share_done_files":%s,"share_done_bytes":%s,"done_files":%s,"done_bytes":%s,"files":%s,"bytes":%s%s,"shares":[%s]}\n' \
+    printf '{"mode":"run","result":"running","errors":%s,"warnings":%s,"started":%s,"time":%s,"plan":[%s],"phase":"%s","share":%s,"file":%s,"share_files":%s,"share_bytes":%s,"share_done_files":%s,"share_done_bytes":%s,"done_files":%s,"done_bytes":%s,"files":%s,"bytes":%s%s,"shares":[%s],%s}\n' \
         "$(json_num "$ERRORS")" "$(json_num "$WARNINGS")" "$STARTED" "$(date +%s)" "$plan" "$PHASE" "$(json_str "$CUR_SHARE")" "$(json_str "$CUR_FILE")" "$(json_num "$SH_FILES")" "$(json_num "$SH_BYTES")" \
         "$(json_num "$SH_DONE_FILES")" "$(json_num "$SH_DONE_BYTES")" "$(json_num "$RUN_DONE_FILES")" "$(json_num "$RUN_DONE_BYTES")" \
-        "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" "$(fill_json)" "$joined" \
+        "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" "$(fill_json)" "$joined" "$(recent_json)" \
         > "$STATUS_FILE.$$.tmp" 2>/dev/null && mv -f "$STATUS_FILE.$$.tmp" "$STATUS_FILE" 2>/dev/null
     rm -f "$STATUS_FILE.$$.tmp" 2>/dev/null
     return 0
@@ -423,11 +458,6 @@ office_move_files() {  # share src dest out
             break
         fi
         size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
-        # USO: the fill's cap (CUSTOMMOVER_FILL_MAX_BYTES) — a file that would go past it is not started
-        if [[ -n "$FILL_POOL" && "$FILL_CAP" == true ]] && (( size > FILL_LEFT_B )); then
-            FILL_CAPPED=true
-            break
-        fi
         CUR_FILE="$f"; office_progress
         (( OFFICE_TRIED++ )) || true
         printf '%s\n' "$f" | "${MOVER_CMD[@]}" >>"$out" 2>&1
@@ -437,16 +467,6 @@ office_move_files() {  # share src dest out
         if [[ ! -e "$f" && ! -L "$f" ]]; then
             (( SH_DONE_FILES++, RUN_DONE_FILES++ )) || true
             (( SH_DONE_BYTES += size, RUN_DONE_BYTES += size )) || true
-            [[ -n "$FILL_POOL" && "$FILL_CAP" == true ]] && { (( FILL_LEFT_B -= size )) || true; }
-        fi
-        # USO «fill»: the pool after this file — below its target, the rest of the share stays
-        if [[ -n "$FILL_POOL" ]]; then
-            pool_used_pct "$FILL_POOL"
-            [[ -n "$POOL_USED" ]] && SH_POOL_NOW=$POOL_USED
-            if [[ -n "$POOL_USED" ]] && (( POOL_USED < FILL_TARGET )); then
-                FILL_REACHED=true
-                break
-            fi
         fi
     done
     CUR_FILE=""
@@ -499,22 +519,24 @@ dry_list() {
     return 0
 }
 
-# FILES to the move binary (one by one with CUSTOMMOVER_STOP or the fill, else at once), then what is still at the
-# source; the counts to SH_MOVED/SH_LEFT and the run's totals, SH_RC the move binary's last failure. With the fill
-# (FILL_POOL) the files not handed over when the target was reached are dropped from FILES (never «left»).
+# FILES to the move binary (one by one with CUSTOMMOVER_STOP, else at once), then what is still at the source; the
+# counts to SH_MOVED/SH_LEFT and the run's totals, SH_RC the move binary's last failure (the fill: fill_pool)
 move_batch() {  # share src dest
-    local name="$1" src="$2" dest="$3" mover_out rc f line
+    local name="$1" src="$2" dest="$3" mover_out rc f line rec
+    # USO: the sizes of the last files (before they go) for `recent`
+    local -A SIZE_OF=()
+    while IFS= read -r -d '' rec; do SIZE_OF[${rec#*$'\t'}]=${rec%%$'\t'*}; done \
+        < <(printf '%s\0' "${FILES[@]:$(( ${#FILES[@]} > 50 ? ${#FILES[@]} - 50 : 0 ))}" | xargs -0 -r stat --printf '%s\t%n\0' 2>/dev/null)
     mover_out=$(mktemp)
-    if [[ -n "$STOP_FILE" || -n "$FILL_POOL" ]]; then
-        # office: one file at a time (see «one file at a time» above); USO «fill»: the pool re-read after each file
+    if [[ -n "$STOP_FILE" ]]; then
+        # office: one file at a time (see «one file at a time» above)
         : > "$mover_out"
         office_move_files "$name" "$src" "$dest" "$mover_out"
         rc=$OFFICE_RC
-        # stopped (or the fill's target reached): only the files handed over are verified — the rest was never started
+        # office: stopped — only the files handed over are verified; the files never started stay and count as left
         OFFICE_NOT_STARTED=0
-        # office: stopped — the files never started stay and count as left (not for the fill: its rest is no candidate)
-        [[ "$STOPPED" == true && -z "$FILL_POOL" ]] && OFFICE_NOT_STARTED=$(( ${#FILES[@]} - OFFICE_TRIED ))
-        [[ "$STOPPED" == true || -n "$FILL_POOL" ]] && FILES=("${FILES[@]:0:OFFICE_TRIED}")
+        [[ "$STOPPED" == true ]] && OFFICE_NOT_STARTED=$(( ${#FILES[@]} - OFFICE_TRIED ))
+        [[ "$STOPPED" == true ]] && FILES=("${FILES[@]:0:OFFICE_TRIED}")
     else
         printf '%s\n' "${FILES[@]}" | "${MOVER_CMD[@]}" >"$mover_out" 2>&1
         rc=$?
@@ -545,73 +567,9 @@ move_batch() {  # share src dest
         for f in "${LEFT[@]}"; do (( i++ )) || true; (( i <= 10 )) && log WARN "     $f"; done
         (( ${#LEFT[@]} > 10 )) && log WARN "     ... $(( ${#LEFT[@]} - 10 )) more"
     fi
+    for f in "${MOVED[@]:$(( ${#MOVED[@]} > 50 ? ${#MOVED[@]} - 50 : 0 ))}"; do recent_add "$name/${f#"$src/"}" "${SIZE_OF[$f]:-0}" "$CUR_FROM" "$dest"; done
     (( ${#MOVED[@]} > 0 )) && remove_empty_parents "$src" "${MOVED[@]}"
     return 0
-}
-
-# USO «fill»: the rest of the share (younger than the age, never an excluded file, never one the age step had) oldest
-# first by age_stat, ties by name -> FILL_FILES, FILL_SIZES
-fill_candidates() {  # src
-    local tf='%Z' rec sz f
-    [[ "$age_stat" == "mtime" ]] && tf='%Y'
-    find_candidates "$1"
-    local -a rest=()
-    for f in "${FOUND_FILES[@]}"; do [[ -z "${AGED[$f]:-}" ]] && rest+=("$f"); done
-    FILL_FILES=(); FILL_SIZES=()
-    (( ${#rest[@]} > 0 )) || return 0
-    while IFS= read -r -d '' rec; do
-        rec=${rec#*$'\t'}; sz=${rec%%$'\t'*}; FILL_FILES+=("${rec#*$'\t'}"); FILL_SIZES+=("$sz")
-    done < <(printf '%s\0' "${rest[@]}" | xargs -0 -r stat --printf "$tf\t%s\t%n\0" 2>/dev/null | sort -z -t $'\t' -k1,1n -k3)
-}
-
-# The fill's start: the pool's usage now -> FILL_GO (true: at/above the trigger); said in the log either way
-fill_reading() {  # share pool threshold target used(empty: unknown)
-    local name="$1" pool="$2" threshold="$3" target="$4" used="$5"
-    FILL_GO=false
-    SH_POOL="$pool"; SH_UNTIL="$target"; SH_FILL=true; SH_POOL_USED="$used"; SH_POOL_NOW="$used"
-    if [[ -z "$used" ]]; then
-        log WARN "  pool $pool: usage unknown – no fill"
-    elif (( used < threshold )); then
-        if [[ -n "${POOL_REACHED[$pool]:-}" ]]; then log INFO "  pool $pool at ${used}% – target below ${target}% already reached with ${POOL_REACHED[$pool]}, nothing more"
-        else log INFO "  pool $pool at ${used}% ($POOL_USED_SRC) < ${threshold}% – no fill"; fi
-    else
-        FILL_GO=true
-        log INFO "  pool $pool ${used}% ($POOL_USED_SRC) >= ${threshold}% -> target below ${target}%: the oldest first ($age_stat), whatever their age"
-    fi
-}
-
-# USO «fill», a real run: after the age step the pool re-read; at/above the trigger the rest goes oldest first, the
-# pool re-read after each file, until it is below the target
-fill_run() {  # share src dest pool threshold target
-    local name="$1" src="$2" dest="$3" pool="$4" threshold="$5" target="$6" n bytes2
-    fill_capped "$pool" && threshold=$target
-    pool_used_pct "$pool"
-    fill_reading "$name" "$pool" "$threshold" "$target" "$POOL_USED"
-    [[ "$FILL_GO" == true ]] || return 0
-    fill_candidates "$src"
-    if (( ${#FILL_FILES[@]} == 0 )); then log INFO "  fill: no further files (everything else is excluded)"; return 0; fi
-    FILES=("${FILL_FILES[@]}")
-    bytes2=0; for n in "${FILL_SIZES[@]}"; do (( bytes2 += n )) || true; done
-    (( SH_FILES += ${#FILES[@]}, SH_BYTES += bytes2 )) || true      # the run card's whole while it fills
-    log INFO "  fill: up to ${#FILES[@]} files ($(human "$bytes2")) oldest first via $MOVER_BIN"
-    FILL_POOL="$pool"; FILL_TARGET=$target; FILL_REACHED=false; FILL_CAPPED=false
-    fill_capped "$pool" && FILL_CAP=true || FILL_CAP=false
-    local all=${#FILES[@]}
-    move_batch "$name" "$src" "$dest"
-    FILL_POOL=""; FILL_CAP=false
-    # only the files handed over count as candidates
-    local kept=0 i
-    for (( i = 0; i < ${#FILES[@]}; i++ )); do (( kept += FILL_SIZES[i] )) || true; done
-    (( SH_FILES -= all - ${#FILES[@]}, SH_BYTES -= bytes2 - kept )) || true
-    (( TOTAL_FILES += ${#FILES[@]}, TOTAL_BYTES += kept )) || true
-    if [[ "$FILL_REACHED" == true ]]; then
-        SH_REACHED=true; POOL_REACHED[$pool]="$name"
-        log INFO "  target reached: pool $pool at ${SH_POOL_NOW}% (< ${target}%) – the rest stays (not handed over: $(( all - ${#FILES[@]} )))"
-    elif [[ "$FILL_CAPPED" == true ]]; then
-        log INFO "  fill: its cap reached (at most $(human "$FILL_MAX_B") in this run) – pool $pool at ${SH_POOL_NOW:-?}%, the rest stays"
-    elif [[ "$STOPPED" == false ]]; then
-        log WARN "  target not reached: pool $pool at ${SH_POOL_NOW:-?}% after all ${#FILES[@]} further files"
-    fi
 }
 
 # USO: does CUSTOMMOVER_FILL_MAX_BYTES hold for this pool? (set, and for it or for every pool)
@@ -619,41 +577,138 @@ fill_capped() {  # pool
     [[ -n "$FILL_MAX_B" ]] && [[ -z "$FILL_MAX_POOL" || "$FILL_MAX_POOL" == "$1" ]]
 }
 
-# USO «fill», a dry run: the pool after the age step estimated from the sizes (and what the shares before on this pool
-# would have freed); at/above the trigger the oldest of the rest listed until the estimate is below the target
-fill_dry() {  # share src pool threshold target aged_bytes
-    local name="$1" src="$2" pool="$3" threshold="$4" target="$5" aged="$6" used_b size_b pct n=0 sz b2=0 cap=false
-    fill_capped "$pool" && { threshold=$target; cap=true; }
+# USO «oldest first across the pool»: process_share registers a share with a trigger here; the fill runs after every
+# share's age step, one pool at a time (fill_pool)
+declare -A FS_SRC=() FS_DEST=() FS_POOL=() FS_THR=() FS_TGT=() FS_EXC=() AGED_ALL=() POOL_AGED_B=()
+FILL_SHARES=(); FILL_POOLS=()
+fill_register() {  # name src dest pool threshold target excludes(comma list)
+    FILL_SHARES+=("$1"); FS_SRC[$1]="$2"; FS_DEST[$1]="$3"; FS_POOL[$1]="$4"; FS_THR[$1]="$5"; FS_TGT[$1]="$6"; FS_EXC[$1]="$7"
+    [[ " ${FILL_POOLS[*]} " == *" $4 "* ]] || FILL_POOLS+=("$4")
+    return 0
+}
+
+# The candidates of a pool's triggered shares in one list, oldest first by the younger of birth (else ctime) and mtime,
+# ties by name -> FILL_FILES, FILL_SIZES, FILL_OWNER (the share); never an excluded file, never one of the age step
+fill_pool_candidates() {  # share...
+    local name f rec key sz rest b c m
+    local list
+    list=$(mktemp)
+    for name in "$@"; do
+        local -a EXCL_FILES=()
+        IFS=',' read -ra EXCL_FILES <<< "${FS_EXC[$name]}"
+        build_excludes "$name" "${FS_SRC[$name]}" "${EXCL_FILES[@]}"
+        [[ -n "${EXCL_MISSING:-}" ]] && continue          # a real run refused this share already
+        find_candidates "${FS_SRC[$name]}"
+        local -a mine=()
+        for f in "${FOUND_FILES[@]}"; do [[ -z "${AGED_ALL[$f]:-}" ]] && mine+=("$f"); done
+        (( ${#mine[@]} > 0 )) || continue
+        while IFS= read -r -d '' rec; do
+            b=${rec%%$'\t'*}; rest=${rec#*$'\t'}; c=${rest%%$'\t'*}; rest=${rest#*$'\t'}; m=${rest%%$'\t'*}; rest=${rest#*$'\t'}
+            sz=${rest%%$'\t'*}; f=${rest#*$'\t'}
+            is_int "$b" && (( b > 0 )) || b=$c                 # no birth time on this filesystem: ctime
+            key=$b; is_int "$m" && (( m > key )) && key=$m      # touched lately: counts as new
+            printf '%s\t%s\t%s\t%s\0' "$key" "$sz" "$name" "$f" >> "$list"
+        done < <(printf '%s\0' "${mine[@]}" | xargs -0 -r stat --printf '%W\t%Z\t%Y\t%s\t%n\0' 2>/dev/null)
+    done
+    FILL_FILES=(); FILL_SIZES=(); FILL_OWNER=()
+    while IFS= read -r -d '' rec; do
+        rec=${rec#*$'\t'}; FILL_SIZES+=("${rec%%$'\t'*}"); rec=${rec#*$'\t'}; FILL_OWNER+=("${rec%%$'\t'*}"); FILL_FILES+=("${rec#*$'\t'}")
+    done < <(sort -z -t $'\t' -k1,1n -k4 "$list")
+    rm -f "$list"
+}
+
+# One pool's fill (a real run moves, a dry run estimates): its shares whose trigger the pool reaches, oldest first across
+# them, a share's file only while the pool is at/above its target; the pool re-read after each file (dry: the sizes)
+fill_pool() {  # pool
+    local pool="$1" name used used_b size_b pct i f sz own min=101 n=0 b2=0 cap=false
+    local -a mine=() go=()
+    local -A F_N=() F_B=() F_MOVED=() F_LEFT=() F_GONE=()
+    for name in "${FILL_SHARES[@]}"; do [[ "${FS_POOL[$name]}" == "$pool" ]] && mine+=("$name"); done
     pool_used_pct "$pool"
-    used_b="${POOL_SIM_B[$pool]:-$POOL_USED_B}"; size_b="$POOL_SIZE_B"
-    if [[ -z "$used_b" || -z "$size_b" ]]; then fill_reading "$name" "$pool" "$threshold" "$target" "$POOL_USED"; FILL_GO=false
-    else
-        (( used_b -= aged, used_b < 0 )) && used_b=0
-        fill_reading "$name" "$pool" "$threshold" "$target" "$(( (used_b * 100 + size_b - 1) / size_b ))"
+    used=$POOL_USED; used_b=$POOL_USED_B; size_b=$POOL_SIZE_B
+    if [[ "$DRY_RUN" == true && -n "$used_b" && -n "$size_b" ]]; then
+        (( used_b -= ${POOL_AGED_B[$pool]:-0}, used_b < 0 )) && used_b=0
+        used=$(( (used_b * 100 + size_b - 1) / size_b ))
     fi
-    if [[ "$FILL_GO" == true ]]; then
-        fill_candidates "$src"
-        for sz in "${FILL_SIZES[@]}"; do
+    fill_capped "$pool" && cap=true
+    for name in "${mine[@]}"; do
+        sh_load "$name"; SH_POOL="$pool"; SH_UNTIL="${FS_TGT[$name]}"; SH_FILL=true; SH_POOL_USED="$used"; SH_POOL_NOW="$used"; sh_save "$name"
+        local thr=${FS_THR[$name]}
+        [[ "$cap" == true ]] && thr=${FS_TGT[$name]}
+        if [[ -n "$used" ]] && (( used >= thr )); then go+=("$name"); (( FS_TGT[$name] < min )) && min=${FS_TGT[$name]}; fi
+    done
+    if [[ -z "$used" ]]; then log WARN "pool $pool: usage unknown – no fill"; return 0; fi
+    if (( ${#go[@]} == 0 )); then log INFO "pool $pool at ${used}% ($POOL_USED_SRC) – below the limit of ${mine[*]}: no fill"; return 0; fi
+    if [[ "$cap" == true ]] && (( FILL_LEFT_B <= 0 )); then log INFO "pool $pool: no fill in this run (its cap: $(human "$FILL_MAX_B"))"; return 0; fi
+    log INFO "[fill] pool $pool ${used}% ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until below ${min}%"
+    fill_pool_candidates "${go[@]}"
+    if (( ${#FILL_FILES[@]} == 0 )); then log INFO "  fill: no further files (everything else is excluded)"; fi
+    PHASE=share; FILL_CAPPED=false
+    pct=$used
+    for (( i = 0; i < ${#FILL_FILES[@]}; i++ )); do
+        f=${FILL_FILES[i]}; sz=${FILL_SIZES[i]}; own=${FILL_OWNER[i]}
+        (( pct < min )) && break
+        (( pct < FS_TGT[$own] )) && continue                  # this share is below its own target already
+        if [[ "$cap" == true ]] && (( sz > FILL_LEFT_B )); then FILL_CAPPED=true; break; fi
+        if [[ "$DRY_RUN" == true ]]; then
+            (( used_b -= sz, used_b < 0 )) && used_b=0
             pct=$(( (used_b * 100 + size_b - 1) / size_b ))
-            (( pct < target )) && break
-            [[ "$cap" == true ]] && (( sz > FILL_LEFT_B )) && break      # USO: the fill's cap
-            (( used_b -= sz, b2 += sz, n++ )) || true
-            [[ "$cap" == true ]] && { (( FILL_LEFT_B -= sz )) || true; }
-        done
-        (( used_b < 0 )) && used_b=0
-        pct=$(( (used_b * 100 + size_b - 1) / size_b ))
-        SH_POOL_NOW=$pct
-        FILES=("${FILL_FILES[@]:0:n}")
-        (( SH_FILES += n, SH_BYTES += b2, TOTAL_FILES += n, TOTAL_BYTES += b2 )) || true
-        if (( pct < target )); then
-            SH_REACHED=true; POOL_REACHED[$pool]="$name"
-            log INFO "  [DRY-RUN] fill: would move $n further files ($(human "$b2")) oldest first – target reached at about ${pct}%, the rest stays"
         else
-            log INFO "  [DRY-RUN] fill: would move all $n further files ($(human "$b2")) – about ${pct}%, target not reached"
+            if [[ -n "$STOP_FILE" && -e "$STOP_FILE" ]]; then
+                STOPPED=true; STOP_SHARE="$own"
+                log WARN "stop requested ($STOP_FILE) – stopped after ${LAST_FILE:-the files before}; the rest of the fill is left for the next run"
+                break
+            fi
+            CUR_SHARE="$own"; CUR_FILE="$f"; office_progress
+            printf '%s\n' "$f" | "${FILL_MOVER[@]}" >> "$FILL_OUT" 2>&1
+            local r=$?
+            if (( r != 0 )); then (( ERRORS++ )) || true; S_RC_FILL[$own]=$r; log ERROR "  move binary exited with code $r for $f"; fi
+            LAST_FILE="$f"
+            if [[ -e "$f" || -L "$f" ]]; then
+                (( F_LEFT[$own]++ )) || true
+                log WARN "  still on the source side (in use, or already present at the destination): $f"
+            else
+                (( F_MOVED[$own]++, RUN_DONE_FILES++, RUN_DONE_BYTES += sz )) || true
+                F_GONE[$own]+="$f"$'\n'
+                recent_add "$own/${f#"${FS_SRC[$own]}/"}" "$sz" "$pool" "${FS_DEST[$own]}"
+            fi
+            pool_used_pct "$pool"
+            [[ -n "$POOL_USED" ]] && pct=$POOL_USED
         fi
-        dry_list
+        (( F_N[$own]++, F_B[$own] += sz, n++, b2 += sz )) || true
+        [[ "$cap" == true ]] && { (( FILL_LEFT_B -= sz )) || true; }
+        [[ "$DRY_RUN" == true ]] && { (( F_N[$own] <= MAX_LIST )) && printf '     %s\n' "$f"; printf '[DRY-RUN]     %s\n' "$f" >> "$LOG_FILE"; }
+    done
+    CUR_FILE=""
+    (( TOTAL_FILES += n, TOTAL_BYTES += b2 )) || true
+    for name in "${mine[@]}"; do
+        sh_load "$name"
+        SH_POOL_NOW=$pct
+        (( SH_FILES += ${F_N[$name]:-0}, SH_BYTES += ${F_B[$name]:-0} )) || true
+        if [[ "$DRY_RUN" == false ]]; then
+            (( SH_MOVED += ${F_MOVED[$name]:-0}, SH_LEFT += ${F_LEFT[$name]:-0}, TOTAL_MOVED += ${F_MOVED[$name]:-0}, TOTAL_LEFT += ${F_LEFT[$name]:-0} )) || true
+            [[ -n "${S_RC_FILL[$name]:-}" ]] && { SH_RC=${S_RC_FILL[$name]}; SH_STATE=error; }
+            if [[ -n "${F_GONE[$name]:-}" ]]; then
+                local -a gone=()
+                mapfile -t gone <<< "${F_GONE[$name]%$'\n'}"
+                remove_empty_parents "${FS_SRC[$name]}" "${gone[@]}"
+            fi
+            [[ "$SH_STATE" == none && ${F_N[$name]:-0} -gt 0 ]] && SH_STATE=moved
+        else
+            [[ "$SH_STATE" == none && ${F_N[$name]:-0} -gt 0 ]] && SH_STATE=dry
+        fi
+        (( pct < FS_TGT[$name] )) && SH_REACHED=true
+        sh_save "$name"
+        [[ "$SH_REACHED" == true ]] && POOL_REACHED[$pool]="$name"
+    done
+    local tag=""; [[ "$DRY_RUN" == true ]] && tag="[DRY-RUN] "
+    if (( pct < min )); then
+        log INFO "  ${tag}fill: $n files ($(human "$b2")) oldest first – target reached: pool $pool at about ${pct}% (< ${min}%), the rest stays"
+    elif [[ "$FILL_CAPPED" == true ]]; then
+        log INFO "  ${tag}fill: its cap reached (at most $(human "$FILL_MAX_B") in this run) – pool $pool at ${pct}%, the rest stays"
+    elif [[ "$STOPPED" == false ]]; then
+        log WARN "  ${tag}target not reached: pool $pool at ${pct}% after all $n further files"
     fi
-    [[ -n "$used_b" ]] && POOL_SIM_B[$pool]=$used_b
     return 0
 }
 
@@ -723,6 +778,7 @@ process_share() {  # name mode pool pool2
             log INFO "  fill: none in this run (its cap: $(human "$FILL_MAX_B"))"
         fi
     fi
+    # USO «oldest first across the pool»: the fill comes after every share's age step (fill_pool)
     # Age filter (always: the fill comes on top)
     local -a AGE_ARGS=()
     if [[ "$FORCE_AGE" == true ]]; then
@@ -760,14 +816,16 @@ process_share() {  # name mode pool pool2
     office_progress      # office: the share's counts on the card at once, before the first file (its disk may still wake)
     if (( count == 0 )) && [[ "$fill" == false ]]; then SH_STATE=none; log INFO "  no files match"; return 0; fi
     (( count == 0 )) && log INFO "  no files older than the age"
-    local -A AGED=()
-    for f in "${FILES[@]}"; do AGED[$f]=1; done
+    for f in "${FILES[@]}"; do AGED_ALL[$f]=1; done
+    local fdest
+    if [[ "$mode" == "yes" ]]; then fdest="${pool2:-array}"; else fdest="$pool"; fi
+    [[ "$fill" == true ]] && fill_register "$name" "$src" "$fdest" "$pool" "$threshold" "$target" "$GLOBAL_EXC,$excludes"
 
     if [[ "$DRY_RUN" == true ]]; then
         SH_STATE=dry
         (( count > 0 )) && log INFO "  [DRY-RUN] would move $count files ($(human "$bytes"))"
         dry_list
-        [[ "$fill" == true ]] && fill_dry "$name" "$src" "$pool" "$threshold" "$target" "$bytes"
+        [[ "$fill" == true ]] && (( POOL_AGED_B[$pool] += bytes )) || true
         (( SH_FILES == 0 )) && SH_STATE=none
         return 0
     fi
@@ -780,12 +838,13 @@ process_share() {  # name mode pool pool2
     local dest
     if [[ "$mode" == "yes" ]]; then dest="${pool2:-array}"; else dest="$pool"; fi
     SH_STATE=moved; SH_DONE_FILES=0; SH_DONE_BYTES=0
+    if [[ "$mode" == "yes" ]]; then CUR_FROM="$pool"; else CUR_FROM="${pool2:-array}"; fi
     [[ -n "$STOP_FILE" ]] && office_partial_leftovers "$name" "$src" "$dest"
     if (( count > 0 )); then
         log INFO "  moving $count files ($(human "$bytes")) via $MOVER_BIN"
         move_batch "$name" "$src" "$dest"
     fi
-    [[ "$fill" == true && "$STOPPED" == false ]] && fill_run "$name" "$src" "$dest" "$pool" "$threshold" "$target"
+    (( count == 0 )) && SH_STATE=none
     (( SH_RC != 0 )) && SH_STATE=error
     return 0
 }
@@ -843,6 +902,19 @@ for cfg in "$SHARES_DIR"/*.cfg; do
     share_status_add "$SHARE_NAME" "$MODE"
 done
 shopt -u nullglob
+# USO «oldest first across the pool»: the fill, one pool at a time, after every share's age step
+if [[ "$LIST_ONLY" == false && "$STOPPED" == false && ${#FILL_POOLS[@]} -gt 0 ]]; then
+    FILL_MOVER=("$MOVER_BIN"); (( MOVER_DEBUG > 0 )) && FILL_MOVER+=(-d "$MOVER_DEBUG")
+    declare -A S_RC_FILL=()
+    FILL_OUT=$(mktemp)
+    for FP in "${FILL_POOLS[@]}"; do
+        [[ "$STOPPED" == true ]] && break
+        fill_pool "$FP"
+    done
+    while IFS= read -r line; do log DEBUG "  mover: $line"; done < "$FILL_OUT"
+    rm -f "$FILL_OUT"
+    shares_json_rebuild
+fi
 PHASE=tidy; CUR_SHARE=""; office_progress
 
 if [[ "$LIST_ONLY" == true ]]; then

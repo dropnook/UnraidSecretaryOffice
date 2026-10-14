@@ -30257,8 +30257,9 @@ function testMoverelliFill(): void
 {
     $base = hardeningTmp('moverelli-fill');
     $n = 0;
-    // a tree of its own per case: files [share/name => [days old (mtime), excluded?]], 100 bytes each, the pool $size bytes
-    $tree = function (array $files, string $ini, int $size, bool $zfs = true, array $shares = ['Docs']) use ($base, &$n): array {
+    // a tree of its own per case: files [share/name => [days old (mtime), excluded?]], 100 bytes each, the pool $size bytes;
+    // $paced: the files made one after the other (1.1 s apart) — their birth (else ctime) in this order, the fill's age
+    $tree = function (array $files, string $ini, int $size, bool $zfs = true, array $shares = ['Docs'], bool $paced = false) use ($base, &$n): array {
         $t = "$base/" . ++$n;
         foreach (['mnt/cache', 'mnt/disk1', 'bin', 'shares'] as $d) {
             @mkdir("$t/$d", 0700, true);
@@ -30270,6 +30271,9 @@ function testMoverelliFill(): void
         }
         $excl = '';
         foreach ($files as $rel => [$days, $ex]) {
+            if ($paced) {
+                usleep(1100000);
+            }
             file_put_contents("$t/mnt/cache/$rel", str_repeat('x', 100));
             touch("$t/mnt/cache/$rel", time() - $days * 86400);
             if ($ex) {
@@ -30300,108 +30304,87 @@ function testMoverelliFill(): void
     $on = fn (string $t, string $where) => array_map('basename', glob("$t/mnt/$where/*/*") ?: []);
     $sh = fn (array $st, int $i = 0) => array_intersect_key($st['shares'][$i] ?? [], array_flip(['state', 'files', 'moved', 'pool', 'until', 'pool_used', 'pool_now', 'fill', 'reached']));
     $files = ['Docs/z' => [40, false], 'Docs/y' => [20, false], 'Docs/x' => [10, false], 'Docs/w' => [1, false], 'Docs/e' => [50, true]];
-    $ini = "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=60";
+    $ini = "min_age=30\nage_stat=mtime\nmove_when_used_above=80";
 
-    // 1. the age first (z), then oldest first whatever their age (y, x) until below 60 %; w stays, the excluded e never
-    [$t, $env] = $tree($files, $ini, 500);
+    // 1. only X (2026-10-14): the age first (z), then the oldest of the rest (y) until below X; x, w stay, the excluded e never
+    [$t, $env] = $tree($files, $ini, 500, true, ['Docs'], true);
     $st = $run($env, false);
-    same('fill dry: the age step (z), then the oldest of the rest (y, x — not by name) until the estimate is below the target',
-        [['z', 'y', 'x'], ['state' => 'dry', 'files' => 3, 'moved' => 0, 'pool' => 'cache', 'until' => '60', 'pool_used' => '80', 'pool_now' => '40', 'fill' => true, 'reached' => true]],
+    same('fill dry: the age step (z), then the oldest of the rest (y) until the estimate is below X (80 %)',
+        [['z', 'y'], ['state' => 'dry', 'files' => 2, 'moved' => 0, 'pool' => 'cache', 'until' => '80', 'pool_used' => '80', 'pool_now' => '60', 'fill' => true, 'reached' => true]],
         [$dryList($t), $sh($st)]);
     $st = $run($env, true);
     $log = (string) file_get_contents("$t/log");
-    same('fill run: the same three move, the pool re-read after each file; w (1 day) and the excluded e stay',
-        [['x', 'y', 'z'], ['e', 'w'], ['state' => 'moved', 'files' => 3, 'moved' => 3, 'pool' => 'cache', 'until' => '60', 'pool_used' => '80', 'pool_now' => '40', 'fill' => true, 'reached' => true]],
+    same('fill run: the same two move, the pool re-read after each file; x, w and the excluded e stay',
+        [['y', 'z'], ['e', 'w', 'x'], ['state' => 'moved', 'files' => 2, 'moved' => 2, 'pool' => 'cache', 'until' => '80', 'pool_used' => '80', 'pool_now' => '60', 'fill' => true, 'reached' => true]],
         [$on($t, 'disk1'), $on($t, 'cache'), $sh($st)]);
-    check('fill run: … said in the log (trigger, target, reached, the rest stays)', str_contains($log, 'pool cache 80% (zfs) >= 80% -> target below 60%')
-        && str_contains($log, 'target reached: pool cache at 40% (< 60%) – the rest stays (not handed over: 1)'), $log);
+    check('fill run: … said in the log (the pool, the oldest across it, reached, the rest stays)', str_contains($log, '[fill] pool cache 80% (zfs) – the oldest first across Docs')
+        && str_contains($log, 'target reached: pool cache at about 60% (< 80%), the rest stays'), $log);
+    $recent = $st['recent'] ?? null;
+    same('fill run: the status names the files done (recent) — the age step\'s and the fill\'s, from the pool to the array',
+        [['Docs/z', 100, 'cache', 'array'], ['Docs/y', 100, 'cache', 'array']], array_map(fn ($r) => [$r['name'] ?? null, $r['bytes'] ?? null, $r['from'] ?? null, $r['to'] ?? null], (array) $recent));
 
-    // 2. age_stat ctime counts (not mtime), and a file younger than min_age moves when needed
-    [$t, $env] = $tree([], "min_age=30\nage_stat=ctime\nmove_when_used_above=70\nmove_until_used_below=60", 400);
-    foreach (['q' => 1, 'p' => 9, 'r' => 30] as $f => $mdays) {        // created q, p, r (ctime) — their mtimes say r, p, q
-        file_put_contents("$t/mnt/cache/Docs/$f", str_repeat('x', 100));
-        touch("$t/mnt/cache/Docs/$f", time() - $mdays * 86400 + 60);
-        usleep(1100000);
-    }
-    $st = $run($env, true);
-    same('fill ctime: none older than 30 days, the pool at 75 % ≥ 70 %: the oldest by ctime (q, a day old by mtime) goes — then 50 % < 60 %',
-        [['q'], ['p', 'r'], 1, true], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['moved'] ?? null, $st['shares'][0]['reached'] ?? null]);
-
-    // 3. the target out of reach: everything not excluded goes, the excluded file never
-    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=10", 500);
-    $st = $run($env, true);
-    check('fill: target out of reach — all but the excluded e moved, not reached, said', $on($t, 'cache') === ['e'] && ($st['shares'][0]['reached'] ?? null) === false
-        && str_contains((string) file_get_contents("$t/log"), 'target not reached: pool cache at 20% after all 3 further files'), json_encode([$on($t, 'cache'), $st]));
-
-    // 4. below the trigger: the age alone
-    [$t, $env] = $tree($files, $ini, 1000);
-    $st = $run($env, true);
-    same('fill: the pool below its trigger (50 %) — the age alone moves (z), nothing younger; no fill, said', [['z'], 40, false],
-        [$on($t, 'disk1'), (int) ($st['shares'][0]['pool_used'] ?? 0), $st['shares'][0]['reached'] ?? null]);
-    check('fill: … «no fill» in the log', str_contains((string) file_get_contents("$t/log"), 'pool cache at 40% (zfs) < 80% – no fill'));
-
-    // 5. two shares on one pool share the target: Docs reaches it, Filme's age step still moves, its fill nothing
-    [$t, $env] = $tree(['Docs/y' => [20, false], 'Filme/f1' => [50, false], 'Filme/f2' => [2, false], 'Docs/k' => [3, true]],
-        "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=70", 500, true, ['Docs', 'Filme']);
+    // 2. oldest first ACROSS the pool, by the younger of birth (else ctime) and mtime: made a, b, c, d (Filme, Docs mixed),
+    // a written again last (touched lately = new) — b, c go, d and a stay; per share it would have been Docs first
+    [$t, $env] = $tree(['Filme/a' => [60, false], 'Docs/b' => [60, false], 'Filme/c' => [60, false], 'Docs/d' => [60, false]],
+        "min_age=365\nage_stat=mtime\nmove_when_used_above=50", 500, true, ['Docs', 'Filme'], true);
+    usleep(1100000);
+    file_put_contents("$t/mnt/cache/Filme/a", str_repeat('y', 100));
     $dry = $run($env, false);
     $dryFiles = $dryList($t);
     $st = $run($env, true);
-    same('fill: shared target — Docs\' fill brings the pool to 60 %; Filme: its age step (f1) moves, its fill nothing (f2 stays); the dry run says the same',
-        [['y', 'f1'], ['k', 'f2'], ['y', 'f1'], [true, false]], [$on($t, 'disk1'), $on($t, 'cache'), $dryFiles, [$st['shares'][0]['reached'] ?? null, $st['shares'][1]['reached'] ?? null]]);
-    check('fill: … Filme says the target was reached with Docs', str_contains((string) file_get_contents("$t/log"), 'target below 70% already reached with Docs, nothing more'));
+    same('fill across the pool: b (Docs), c (Filme) — the oldest of both shares together; a (touched lately) and d stay; the dry run the same',
+        [['b', 'c'], ['d', 'a'], ['b', 'c'], [[1, true], [1, true]]], [$on($t, 'disk1'), $on($t, 'cache'), $dryFiles,
+         [[$st['shares'][0]['moved'] ?? null, $st['shares'][0]['reached'] ?? null], [$st['shares'][1]['moved'] ?? null, $st['shares'][1]['reached'] ?? null]]]);
+
+    // 3. X out of reach: everything not excluded goes, the excluded file never
+    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=10", 500);
+    $st = $run($env, true);
+    check('fill: X out of reach — all but the excluded e moved, not reached, said', $on($t, 'cache') === ['e'] && ($st['shares'][0]['reached'] ?? null) === false
+        && str_contains((string) file_get_contents("$t/log"), 'target not reached: pool cache at 20% after all 3 further files'), json_encode([$on($t, 'cache'), $st]));
+
+    // 4. below X: the age alone
+    [$t, $env] = $tree($files, $ini, 1000);
+    $st = $run($env, true);
+    same('fill: the pool below X (50 %) — the age alone moves (z), nothing younger; no fill, said', [['z'], 40, false],
+        [$on($t, 'disk1'), (int) ($st['shares'][0]['pool_used'] ?? 0), $st['shares'][0]['reached'] ?? null]);
+    check('fill: … «no fill» in the log', str_contains((string) file_get_contents("$t/log"), 'pool cache at 40% (zfs) – below the limit of Docs: no fill'));
+
+    // 5. a share's own X: Filme's own 90 — the pool at 80 % reaches only Docs' 70: only Docs' files go
+    [$t, $env] = $tree(['Filme/f' => [5, false], 'Docs/g' => [5, false], 'Docs/h' => [5, false], 'Filme/i' => [5, false]],
+        "min_age=365\nage_stat=mtime\nmove_when_used_above=70\n[Filme]\nmove_when_used_above=90", 500, true, ['Docs', 'Filme'], true);
+    $st = $run($env, true);
+    same('fill: per share its own X — Filme (90) not reached, the oldest of Docs (g) goes; Filme\'s older f stays', [['g'], ['h', 'f', 'i']],
+        [$on($t, 'disk1'), $on($t, 'cache')]);
 
     // 6. df (not ZFS): the same reading
-    [$t, $env] = $tree($files, $ini, 500, false);
+    [$t, $env] = $tree($files, $ini, 500, false, ['Docs'], true);
     $st = $run($env, true);
-    check('fill df: no ZFS — df counts the pool, the same three move', $on($t, 'disk1') === ['x', 'y', 'z'] && ($st['shares'][0]['pool_now'] ?? '') === '40'
-        && str_contains((string) file_get_contents("$t/log"), 'pool cache 80% (df) >= 80%'), (string) @file_get_contents("$t/log"));
+    check('fill df: no ZFS — df counts the pool, the same two move', $on($t, 'disk1') === ['y', 'z'] && ($st['shares'][0]['pool_now'] ?? '') === '60'
+        && str_contains((string) file_get_contents("$t/log"), 'pool cache 80% (df)'), (string) @file_get_contents("$t/log"));
 
-    // 7. the target must lie below its trigger (Smart Mover)
+    // 7. an ini by hand with a target (Smart Mover still reads one): it must lie below its trigger
     [$t, $env] = $tree($files, "$ini\n[Docs]\nmove_until_used_below=80", 500);
     $st = $run($env, true);
     check('fill: a target not below its trigger skips the share with an error, nothing moved', ($st['shares'][0]['state'] ?? '') === 'error' && $on($t, 'disk1') === []
         && str_contains((string) file_get_contents("$t/log"), 'move_until_used_below 80% must be below move_when_used_above 80%'));
 
-    // 8. the night run's cap (CUSTOMMOVER_FILL_MAX_BYTES, 2026-10-13): the age rule in full, the fill at most n bytes — and,
-    // with the cap, from the target on (the office decided); 0 = no fill; another pool than CUSTOMMOVER_FILL_MAX_POOL: as without
-    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=30", 500);
+    // 8. CUSTOMMOVER_FILL_MAX_BYTES (kept for calls by hand; the office no longer sets it): the age rule in full, the fill at most n bytes
+    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=30", 500, true, ['Docs'], true);
     $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '150', 'CUSTOMMOVER_FILL_MAX_POOL' => 'cache'], true);
     same('fill cap: the age (z) in full, the fill only 150 bytes — y (100) goes, x (would reach 200) never starts; said',
         [['y', 'z'], ['e', 'w', 'x'], false], [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['reached'] ?? null]);
     check('fill cap: … the log says the cap', str_contains((string) file_get_contents("$t/log"), 'fill: its cap reached'), (string) @file_get_contents("$t/log"));
-    [$t, $env] = $tree($files, "min_age=30\nage_stat=mtime\nmove_when_used_above=80\nmove_until_used_below=60", 500);
-    $dry = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '100'], false);
-    same('fill cap dry: the same count — z by age, then only y', ['z', 'y'], $dryList($t));
-    [$t, $env] = $tree($files, $ini, 500);
-    $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '0'], true);
-    check('fill cap 0: the age alone (z), no fill — said', $on($t, 'disk1') === ['z'] && str_contains((string) file_get_contents("$t/log"), 'fill: none in this run'),
-        (string) @file_get_contents("$t/log"));
-    [$t, $env] = $tree($files, $ini, 500);
-    $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '0', 'CUSTOMMOVER_FILL_MAX_POOL' => 'other'], true);
-    same('fill cap: for another pool — this one fills as without it', ['x', 'y', 'z'], $on($t, 'disk1'));
-    // with the cap the fill starts from the target, not the trigger: the pool at 70 % (below X 80, above Y 60), 100 allowed
-    [$t, $env] = $tree($files, $ini, 650);
-    $st = $run($env + ['CUSTOMMOVER_FILL_MAX_BYTES' => '100'], true);
-    same('fill cap: below X but above Y — with the cap the fill goes (the office decided it), one file', ['y', 'z'], $on($t, 'disk1'));
 
-    // her setup's check and her ini
+    // her setup's check and her ini: only X — an older page's Y and «Jack guaranteed» are not read, never written
     $dir = "$base/her";
     @mkdir($dir, 0700, true);
-    $err = function (array $in) use ($dir): string { try { moverelliCheck($in, ['Filme'], $dir); return 'ok'; } catch (Problem $p) { return $p->key . ':' . json_encode($p->params); } };
-    $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'move_until_used_below' => null, 'files' => [], 'patterns' => []]];
-    same('fill setup: a trigger needs its target below it — none, not below, a share\'s own trigger under the target for all; fine', [
-        'moverelli_until:{"until":0,"threshold":80,"max":79}', 'moverelli_until:{"until":80,"threshold":80,"max":79}',
-        'moverelli_until_share:{"until":70,"threshold":60,"max":59,"share":"Filme"}', 'ok', 'ok'],
-        [$err(moverelliTestSettings(['move_when_used_above' => 80])), $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 80])),
-         $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70], $share(['move_when_used_above' => 60]))),
-         $err(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70], $share(['move_when_used_above' => 60, 'move_until_used_below' => 50]))),
-         $err(moverelliTestSettings())]);
-    $text = moverelliIniText(moverelliCheck(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70],
+    $share = fn (array $x) => ['Filme' => $x + ['skip' => false, 'min_age' => null, 'age_stat' => null, 'move_when_used_above' => null, 'files' => [], 'patterns' => []]];
+    $text = moverelliIniText(moverelliCheck(moverelliTestSettings(['move_when_used_above' => 80, 'move_until_used_below' => 70, 'jack_min_percent' => 30],
         $share(['move_when_used_above' => 60, 'move_until_used_below' => 50])), ['Filme'], $dir), $dir);
-    check('fill setup: her ini — the target for all and the share\'s own', str_contains($text, "move_when_used_above=80\nmove_until_used_below=70\n")
-        && str_contains($text, "[Filme]\nmove_when_used_above=60\nmove_until_used_below=50\n"), $text);
+    check('fill setup: her ini — X for all and the share\'s own, no target, no «Jack guaranteed»', str_contains($text, "move_when_used_above=80\n")
+        && str_contains($text, "[Filme]\nmove_when_used_above=60\n") && !str_contains($text, 'move_until_used_below') && !str_contains($text, 'jack_min_percent'), $text);
 
-    // her page under node: the words, the run card's line, the proposal for an install from before the fill
+    // her page under node: the words, the run card's line, the form sends only X
     $node = testsNode();
     if ($node === '') {
         check('fill page: node is missing here - skipped', true);
@@ -30418,28 +30401,25 @@ globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B'
   placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, runRate: () => null, runSteps: () => mk('div', 'steps'), runBar: () => mk('div', 'bar') };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const m = OFFICE_DESK_TESTS.moverelli;
-const f = { global: { move_when_used_above: 80, move_until_used_below: 0, min_age: 5, age_stat: 'ctime', move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [] },
-  shares: { Filme: { skip: false, min_age: null, age_stat: null, move_when_used_above: 60, move_until_used_below: null, files: [], patterns: [] },
-    Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, move_until_used_below: null, files: [], patterns: [] } } };
-f.global.offset = m.offsetOf(f.global);
+const f = { global: { move_when_used_above: 80, min_age: 5, age_stat: 'ctime', move_prefer_shares: true, mover_debug: 0, max_list: 50, files: [], patterns: [] },
+  shares: { Filme: { skip: false, min_age: null, age_stat: null, move_when_used_above: 60, files: [], patterns: [] },
+    Docs: { skip: false, min_age: null, age_stat: null, move_when_used_above: null, files: [], patterns: [] } } };
 const was = m.formSettings(f);
-const prop = [f.global.offset, was.global.move_until_used_below, was.shares.Filme.move_until_used_below, was.shares.Docs ? 'Docs sent' : null, 'offset' in was.global];
-f.global.offset = 15;
+const sent = [Object.keys(was.global).filter((k) => /until|jack|offset/.test(k)), Object.keys(was.shares.Filme).filter((k) => /until/.test(k)), was.shares.Docs ? 'Docs sent' : null];
+f.shares.Filme.move_when_used_above = 65;
 const rows = m.setupChangeRows(was, m.formSettings(f)).map((r) => [r.label, r.what]);
-const p = { plan: ['Docs'], phase: 'share', share: 'Docs', started: 1, shares: [], fill: true, pool: 'master', pool_used: '82', until: '60', pool_now: '75', reached: false };
-console.log(JSON.stringify([m.fillText(80, 70), m.fillText(0, 0), m.fillLine(p), m.fillLine({ ...p, reached: true, pool_now: '59' }), m.fillLine({ ...p, fill: false }),
-  m.runCardData(p, 10).fill, prop, m.offsetOf({ move_when_used_above: 70, move_until_used_below: 60 }), rows]));
+const p = { plan: ['Docs'], phase: 'share', share: 'Docs', started: 1, shares: [], fill: true, pool: 'master', pool_used: '82', until: '80', pool_now: '81', reached: false };
+console.log(JSON.stringify([m.fillText(80), m.fillText(0), m.fillLine(p), m.fillLine({ ...p, reached: true, pool_now: '79' }), m.fillLine({ ...p, fill: false }),
+  m.runCardData(p, 10).fill, sent, rows, m.setupProblems({ global: { move_when_used_above: 101 }, shares: {} }).length]));
 JS);
     [, $out] = run([$node, "$base/t.js", OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
     $j = json_decode(trim((string) $out), true);
-    same('fill page: the words — «from 80 % down to 70 % oldest first», off: «whatever the fill»', ['rule_fill {"pct":80,"until":70}', 'rule_always'], [$j[0] ?? null, $j[1] ?? null]);
-    same('fill page: the run card — «Pool master 82 % → target below 60 % · now 75 %», reached: «Target reached at 59 % — the rest stays», none without the fill',
-        ['rc.fill {"pool":"master","used":"82","until":"60"} · rc.fill_now {"pct":"75"}', 'rc.fill_reached {"pct":"59"}', null, 'rc.fill {"pool":"master","used":"82","until":"60"} · rc.fill_now {"pct":"75"}'],
+    same('fill page: the words — «from 80 % the oldest first, until below it», off: «whatever the fill»', ['rule_fill {"pct":80}', 'rule_always'], [$j[0] ?? null, $j[1] ?? null], (string) $out);
+    same('fill page: the run card — «Pool master 82 % → target below 80 % · now 81 %», reached: «Target reached at 79 % — the rest stays», none without the fill',
+        ['rc.fill {"pool":"master","used":"82","until":"80"} · rc.fill_now {"pct":"81"}', 'rc.fill_reached {"pct":"79"}', null, 'rc.fill {"pool":"master","used":"82","until":"80"} · rc.fill_now {"pct":"81"}'],
         array_slice((array) $j, 2, 4));
-    same('fill page: the target follows the limit (2026-10-13) — no target in the ini: offset 10, written 70 for all and 50 for Filme\'s own 60 %, none for Docs, the offset never sent; '
-        . 'an ini with 70/60: offset 10; offset 15: both targets 5 lower, listed in the apply dialog',
-        [[10, 70, 50, null, false], 10, [['setup.row_global {"what":"setup.until"}', '70 % → 65 %'], ['setup.row_share {"share":"Filme"} — setup.until', '50 % → 45 %']]],
-        [$j[6] ?? null, $j[7] ?? null, $j[8] ?? null]);
+    same('fill page: only X is sent (no target, no offset, no «Jack guaranteed»), Docs without own rules not sent; a share\'s X changed — one row; 101 % — a problem',
+        [[[], [], null], [['setup.row_share {"share":"Filme"} — setup.threshold', '60 % → 65 %']], 1], [$j[6] ?? null, $j[7] ?? null, $j[8] ?? null]);
 }
 
 /**

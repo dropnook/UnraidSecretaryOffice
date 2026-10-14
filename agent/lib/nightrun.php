@@ -2,28 +2,37 @@
 declare(strict_types=1);
 
 /*
- * The night run (2026-10-13, the owner's decision): Jack Emby and Ms. Moverelli work hand in hand as ONE run on ONE
- * schedule (the job `moverelli`, her cron line), serially:
+ * The night run (2026-10-13; the plan 2026-10-14: only X): Jack Emby and Ms. Moverelli work hand in hand as ONE run on
+ * ONE schedule (the job `moverelli`, her cron line), serially:
  *
- *   check     the pool as it stands (poolLevel(): used, what never moves, Jack Emby's bytes J, the downloads D, H)
- *             and what waits with Jack Emby (his last status)
- *   reckon    nightPlan(): need = used − Y; Jack Emby gives back only what he borrowed (over Y, never below H);
- *             Ms. Moverelli moves the age rule always and, from X on, only what the downloads borrowed over their half
- *   free      who must free more goes first, then the other — each only their part, one tool call each
- *             (EmbyCache with EMBYCACHE_NO_FILL=1; Smart Mover with CUSTOMMOVER_FILL_MAX_BYTES = her part)
- *   recheck   the pool measured anew (downloads, appdata may have grown meanwhile): still more than «nearly» over Y →
- *             reckon and free again, only the difference — at most NIGHT_ROUNDS_MAX rounds, never ping-pong
- *   fill      Jack Emby fetches what waits, round-robin per person, up to Y (always last)
- *   tell      the pool still at/above X: «target missed» at once
+ *   check     the pool as it stands (poolLevel(): used, what never moves, Jack Emby's bytes, the others') and what
+ *             waits with Jack Emby (his last status); nightPlan(): what must go to be below X
+ *   free      Jack Emby first: he gives back only what was watched (EmbyCache, EMBYCACHE_NO_FILL=1 and
+ *             EMBYCACHE_WATCHED_ONLY=1 — never by rank, no ping-pong); then Ms. Moverelli: the age rule always, then
+ *             the oldest files across the pool (never one on Jack Emby's list) until the pool is below X
+ *   recheck   the pool measured anew (downloads, appdata may have grown meanwhile): still at/above X → her part again,
+ *             at most NIGHT_ROUNDS_MAX rounds; nothing of the others' left → stop (only Jack Emby's unwatched is over X)
+ *   fill      Jack Emby fetches what waits, by his list, only up to X (EMBYCACHE_MIN_FREE_PERCENT = 100 − X) and his
+ *             GB budget (always last)
+ *   tell      the pool still at/above X: «target missed» at once — with why (what never moves, or Jack Emby's
+ *             unwatched alone keeps it over X: his budget is too big for this pool)
  *
  * Helmi's tools are called unchanged otherwise; each keeps its own status, history and live panel. One lock: the
  * night's (night.lock in her data folder) — while it is held neither desk starts a run of its own; the runs inside
- * the night pass (nightInside()). Only she hired (Jack Emby not there): her part alone, as 1.61. No limit (X = 0):
- * her part, then Jack Emby's whole run with his own minimum free space. State: night.json (the last night).
+ * the night pass (nightInside()). Only she hired (Jack Emby not there): her part alone. No limit (X = 0): her part,
+ * then Jack Emby's whole run with his own minimum free space. State: night.json (the last night).
+ *
+ * night.json's `picture` — the numbers for the live graphic (bytes; null where not measured):
+ *   {pool, x, dest: {to: "array"|<pool>, size, used},
+ *    phases: {check|free|recheck|fill|done: {before: B, forecast: B, planned: P}},   (each phase as it began)
+ *    files: [{name, bytes, from, to, who: "jack"|"her"}, …]}                         (the last NIGHT_FILES_MAX done)
+ *   B = {size, fixed (pool-only shares + snapshots + overhead), others (the other caching shares), jack, free}
+ *   P = {jack_back (null until his free step: what was watched), others_back, jack_fetch}
+ * moverelliProgressState() adds the files of the tool at work (its live status) while a step runs.
  */
 
-const NIGHT_ROUNDS_MAX = 3;          // free + at most two more rounds after a recheck
-const NIGHT_NEAR_MIN   = 1 << 30;    // «nearly reached»: at most 1 % of the pool, at least 1 GiB over Y
+const NIGHT_ROUNDS_MAX = 3;          // her part + at most two more rounds after a recheck
+const NIGHT_FILES_MAX  = 50;         // files kept in the picture
 const NIGHT_PHASES     = ['check', 'free', 'recheck', 'fill', 'done'];
 
 /** Inside a night run (this process holds the night): the runs it starts pass the night's lock */
@@ -53,48 +62,97 @@ function nightState(string $dir): ?array
     return $n;
 }
 
-/** «Nearly reached»: what may stay over Y after a round — 1 % of the pool, at least 1 GiB */
-function nightNear(int $size): int
+/** The pool in the picture's shape (bytes): {size, fixed, others, jack, free} — null: not measured */
+function nightPicture(?array $level): ?array
 {
-    return max(intdiv(max(0, $size), 100), NIGHT_NEAR_MIN);
+    if ($level === null) {
+        return null;
+    }
+    return ['size' => (int) $level['size'], 'fixed' => (int) $level['nm'], 'others' => (int) $level['others'], 'jack' => (int) $level['jack'],
+            'free' => max(0, (int) $level['size'] - (int) $level['used'])];
 }
 
 /**
  * The plan of a night (pure). $level: poolLevel() of Jack Emby's pool (null: not measured — then only her part, no
- * numbers); $waiting: what waits with Jack Emby (his last status, bytes); $age: what her age rule moves (bytes, 0:
- * unknown). {measured, need, back, goes, age, fill, wait, order: ['jack','her'] | ['her','jack'], near, done (need ≤
- * near), never, x, y, used_pct, half, half_d}
+ * numbers); $waiting: what waits with Jack Emby (his last status, bytes); $jackBack: what he gives back (what was
+ * watched — known after his free step, null before: counted as 0). Jack Emby's give-back first, then the others'
+ * oldest down to below X, then Jack Emby fetches up to X. {measured, x, size, used_pct, need, jack_back, others_back,
+ * jack_fetch, wait, over (still at/above X after the plan), why (never | jack | null), never, before, forecast}
  */
-function nightPlan(?array $level, int $waiting = 0, int $age = 0): array
+function nightPlan(?array $level, int $waiting = 0, ?int $jackBack = null): array
 {
     $waiting = max(0, $waiting);
-    $age = max(0, $age);
     if ($level === null) {
-        return ['measured' => false, 'need' => 0, 'back' => 0, 'goes' => 0, 'age' => $age, 'fill' => 0, 'wait' => $waiting,
-                'order' => ['her', 'jack'], 'near' => 0, 'done' => true, 'never' => false, 'x' => 0, 'y' => 0, 'used_pct' => 0.0,
-                'half' => 0, 'half_d' => 0, 'size' => 0];
+        return ['measured' => false, 'x' => 0, 'size' => 0, 'used_pct' => 0.0, 'need' => 0, 'jack_back' => $jackBack, 'others_back' => 0,
+                'jack_fetch' => 0, 'wait' => $waiting, 'over' => false, 'why' => null, 'never' => false, 'before' => null, 'forecast' => null];
     }
     $size = (int) $level['size'];
-    $yb = (int) $level['y'] > 0 ? intdiv((int) $level['y'] * $size, 100) : 0;
-    $need = (int) ($level['need'] ?? 0);
-    $back = (int) $level['back'];
-    $goes = (int) $level['goes'];
-    // who must free more goes first; the age rule counts on her side
-    $order = $back >= $goes + $age ? ['jack', 'her'] : ['her', 'jack'];
-    $after = max(0, (int) $level['used'] - $back - $goes - $age);
-    $fill = $yb > 0 ? min($waiting, max(0, $yb - $after)) : $waiting;
-    $near = nightNear($size);
-    return ['measured' => true, 'need' => $need, 'back' => $back, 'goes' => $goes, 'age' => $age, 'fill' => $fill,
-            'wait' => $waiting - $fill, 'order' => $order, 'near' => $near, 'done' => $need <= $near, 'never' => (bool) $level['never'],
-            'x' => (int) $level['x'], 'y' => (int) $level['y'], 'used_pct' => (float) $level['used_pct'],
-            'half' => (int) $level['half'], 'half_d' => (int) ($level['half_d'] ?? $level['half']), 'size' => $size];
+    $used = (int) $level['used'];
+    $xb = (int) $level['x'] > 0 ? intdiv((int) $level['x'] * $size, 100) : 0;
+    $back = max(0, min((int) ($jackBack ?? 0), (int) $level['jack']));
+    $after = $used - $back;
+    $others = $xb > 0 ? min((int) $level['others'], max(0, $after - $xb)) : 0;
+    $after -= $others;
+    $fetch = $xb > 0 ? min($waiting, max(0, $xb - $after)) : $waiting;
+    $over = $xb > 0 && $after >= $xb;
+    $before = nightPicture($level);
+    $forecast = ['size' => $size, 'fixed' => $before['fixed'], 'others' => $before['others'] - $others, 'jack' => $before['jack'] - $back + $fetch,
+                 'free' => max(0, $size - $after - $fetch)];
+    return ['measured' => true, 'x' => (int) $level['x'], 'size' => $size, 'used_pct' => (float) $level['used_pct'], 'need' => (int) $level['need'],
+            'jack_back' => $jackBack, 'others_back' => $others, 'jack_fetch' => $fetch, 'wait' => $waiting - $fetch, 'over' => $over,
+            'why' => !$over ? null : ((bool) $level['never'] ? 'never' : 'jack'), 'never' => (bool) $level['never'], 'before' => $before, 'forecast' => $forecast];
 }
 
-/** The «Tonight: …» line's params for the pages (state, not texts): what each gives back, moves, fetches, what waits */
+/** The «Tonight: …» line's params for the pages (state, not texts): what the others give, what Jack Emby fetches, what waits */
 function nightWords(array $plan): array
 {
-    return ['measured' => (bool) $plan['measured'], 'back' => (int) $plan['back'], 'goes' => (int) $plan['goes'], 'age' => (int) $plan['age'],
-            'fill' => (int) $plan['fill'], 'wait' => (int) $plan['wait'], 'first' => $plan['order'][0] ?? 'her'];
+    return ['measured' => (bool) $plan['measured'], 'back' => $plan['jack_back'], 'goes' => (int) $plan['others_back'],
+            'fill' => (int) $plan['jack_fetch'], 'wait' => (int) $plan['wait'], 'over' => (bool) $plan['over'], 'why' => $plan['why']];
+}
+
+/** One phase of the picture: the pool now, the plan's forecast and its planned bytes */
+function nightPhasePicture(array $plan): array
+{
+    return ['before' => $plan['before'], 'forecast' => $plan['forecast'],
+            'planned' => ['jack_back' => $plan['jack_back'], 'others_back' => (int) $plan['others_back'], 'jack_fetch' => (int) $plan['jack_fetch']]];
+}
+
+/**
+ * The files a tool's status names as done (EmbyCache's progress `recent`, Smart Mover's status `recent`) in the
+ * picture's shape: [{name, bytes, from, to, who}] — only entries in exactly their shape
+ */
+function nightFiles(mixed $recent, string $who): array
+{
+    $out = [];
+    foreach (is_array($recent) ? array_slice(array_values($recent), -NIGHT_FILES_MAX) : [] as $f) {
+        if (is_array($f) && is_string($f['name'] ?? null) && is_int($f['bytes'] ?? null) && is_string($f['from'] ?? null) && is_string($f['to'] ?? null)) {
+            $out[] = ['name' => mb_substr($f['name'], 0, 300), 'bytes' => max(0, $f['bytes']), 'from' => mb_substr($f['from'], 0, 64),
+                      'to' => mb_substr($f['to'], 0, 64), 'who' => $who];
+        }
+    }
+    return $out;
+}
+
+/** Where her moves go from Jack Emby's pool: the secondary pool of its caching shares, else the array — with size/used when measured */
+function nightDest(?string $pool, array $h): ?array
+{
+    if ($pool === null) {
+        return null;
+    }
+    $to = 'array';
+    foreach (moverelliShareNames($h['shares_dir'], $h) as $share) {
+        $cfg = readCfg("$h[shares_dir]/$share.cfg");
+        if (($cfg['shareUseCache'] ?? '') === 'yes' && (($cfg['shareCachePool'] ?? '') ?: 'cache') === $pool && ($cfg['shareCachePool2'] ?? '') !== '') {
+            $to = (string) $cfg['shareCachePool2'];
+            break;
+        }
+    }
+    $size = $used = null;
+    if ($to !== 'array' && preg_match('/^[\w.\-]{1,64}$/D', $to) && !poolsBySleep([$to], $h['asleep'])['asleep']) {
+        $look = poolLevelLook($to, [], $h['zfs']);
+        [$size, $used] = $look !== null ? [$look['size'], $look['used']] : [null, null];
+    }
+    return ['to' => $to, 'size' => $size, 'used' => $used];
 }
 
 /**
@@ -112,6 +170,8 @@ function nightHost(?array $h = null): array
         'emby_status' => $n['emby_status'] ?? fn (): array => (array) (readJson(EMBY_DATA . '/status.json') ?? []),
         'emby_runs'   => $n['emby_runs'] ?? $h['emby_runs'],
         'emby_stop'   => $n['emby_stop'] ?? (defined('EMBY_DATA') ? EMBY_DATA . '/office-stop.json' : ''),
+        // EmbyCache's live progress (RAM): the files his step did (`recent`) for the picture
+        'emby_live'   => $n['emby_live'] ?? fn (): array => function_exists('embyProgressPaths') ? (array) (readJson(embyProgressPaths()['file']) ?? []) : [],
         'notify'      => $n['notify'] ?? fn (string $subject, string $body): bool => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli')),
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
         // Jack Emby's pool measured for her rules (the tests: a pool of their own)
@@ -119,15 +179,14 @@ function nightHost(?array $h = null): array
     ];
 }
 
-/** Jack Emby's pool measured for her rules (null: no limit, no pool of his, not ZFS, asleep and not to be woken) */
+/** Jack Emby's pool measured for her rule (null: no limit, no pool of his, not ZFS, asleep and not to be woken) */
 function nightLevel(array $g, array $h, bool $wake): ?array
 {
     $pool = moverelliJackPool($h);
     if ($pool === null || (int) $g['move_when_used_above'] <= 0) {
         return null;
     }
-    return poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'y' => (int) ($g['move_until_used_below'] ?? 0),
-        'k' => (int) ($g['jack_min_percent'] ?? POOL_JACK_DEFAULT), 'shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h),
+    return poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h),
         'zfs' => $h['zfs'], 'mnt' => $h['mnt'], 'jack_list' => $h['jack_list_file'], 'asleep' => $h['asleep'], 'wake' => $wake]);
 }
 
@@ -249,6 +308,19 @@ function nightRun(array $args, ?array $h = null): int
     }
 }
 
+/** What Jack Emby's free step gave back (his status: what was watched — done in a real run, planned in a dry one) */
+function nightJackBack(array $h, bool $real): int
+{
+    $c = (array) ((($h['emby_status'])())['cleanup'] ?? []);
+    return max(0, (int) ($c[$real ? 'bytes_done' : 'bytes_planned'] ?? 0));
+}
+
+/** What Jack Emby's dry step would fetch (his status) */
+function nightDryFetch(array $h): int
+{
+    return max(0, (int) (((array) ((($h['emby_status'])())['fill'] ?? []))['bytes_planned'] ?? 0));
+}
+
 /** The steps of a night (inside its lock) — see nightRun() */
 function nightSteps(string $mode, string $by, int $waited, array $h): int
 {
@@ -260,16 +332,24 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     $plan = nightPlan($level, $jack ? nightWaiting($h) : 0);
     $pool = $level['pool'] ?? ($jack ? moverelliJackPool($h) : null);
     $n = ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => time(), 'phase' => 'check', 'round' => 1, 'who' => null,
-          'jack' => $jack, 'pool' => $pool, 'plan' => nightWords($plan) + ['used_pct' => $plan['used_pct'], 'x' => $plan['x'], 'y' => $plan['y']],
+          'jack' => $jack, 'pool' => $pool, 'plan' => nightWords($plan) + ['used_pct' => $plan['used_pct'], 'x' => $plan['x']],
+          'picture' => ['pool' => $pool, 'x' => $plan['x'], 'dest' => $plan['measured'] ? nightDest($pool, $h) : null,
+                        'phases' => ['check' => nightPhasePicture($plan)], 'files' => []],
           'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []);
     nightWrite($dir, $n);
     logLine("Night run ($mode): " . ($jack ? 'Jack Emby and Ms. Moverelli' : 'Ms. Moverelli alone') . ($plan['measured']
-        ? " — pool $pool at {$plan['used_pct']} %, Y {$plan['y']} %: Jack Emby gives back " . poolLevelSize($plan['back'])
-          . ', the downloads ' . poolLevelSize($plan['goes']) . ' (and the age rule), Jack Emby fetches up to ' . poolLevelSize($plan['fill'])
+        ? " — pool $pool at {$plan['used_pct']} %, X {$plan['x']} %: Jack Emby gives back what was watched, the others about "
+          . poolLevelSize($plan['others_back']) . ' (and the age rule), Jack Emby fetches up to ' . poolLevelSize($plan['jack_fetch'])
         : ''));
     $stopped = fn (): bool => is_file("$dir/night-stop.json");
+    // the picture: a phase as it begins (the pool measured anew where the step needs it)
+    $phase = function (string $ph, array $p) use (&$n): void {
+        if ($p['measured']) {
+            $n['picture']['phases'][$ph] = nightPhasePicture($p);
+        }
+    };
     // one step: a tool called with its part; false = the night ends here (stopped, refused)
-    $step = function (string $who, string $phase, array $p) use (&$n, $h, $dir, $mode, $pool, $stopped): bool {
+    $step = function (string $who, string $phase) use (&$n, $h, $dir, $mode, $stopped): bool {
         if ($stopped()) {
             $n['result'] = 'stopped';
             $n['stopped_in'] = $phase;
@@ -285,17 +365,13 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             }
             $exit = ($h['emby_job'])($args);
             $last = ($h['emby_runs'])()[0] ?? [];
+            $recent = (($h['emby_live'])())['recent'] ?? [];
         } else {
-            $args = [$mode, '--night'];
-            if ($p !== []) {
-                $args[] = '--fill-max=' . max(0, (int) $p['goes']);
-                if ($pool !== null) {
-                    $args[] = '--fill-pool=' . $pool;
-                }
-            }
-            $exit = ($h['her_job'])($args, $h);
+            $exit = ($h['her_job'])([$mode, '--night'], $h);
             $last = moverelliHistory($dir)[0] ?? [];
+            $recent = (readJson("$dir/status.json") ?? [])['recent'] ?? [];
         }
+        $n['picture']['files'] = array_slice(array_merge($n['picture']['files'], nightFiles($recent, $who)), -NIGHT_FILES_MAX);
         $result = (string) ($last['result'] ?? ($exit === 0 ? 'ok' : 'failed'));
         $n['steps'][] = ['who' => $who, 'phase' => $phase, 'round' => $n['round'], 'exit' => $exit, 'result' => $result];
         $n['who'] = null;
@@ -314,58 +390,59 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     };
     $go = true;
     if (!$jack) {
-        // only she: her part as 1.61 (the age rule, from X the oldest until below Y)
-        $go = $step('her', 'free', []);
-    } elseif (!$real) {
-        // the dry run: both tools dry with the same values — what each would do tonight
-        $go = $step('jack', 'free', []) && $step('her', 'free', $plan['measured'] ? $plan : []);
+        // only she: her part (the age rule, from X the oldest until below X)
+        $go = $step('her', 'free');
     } elseif (!$plan['measured']) {
         // no limit (or the pool not measured): her part, then Jack Emby's whole run with his own minimum free space
-        $go = $step('her', 'free', []) && $step('jack', 'fill', []);
+        $go = $step('her', 'free') && ($real ? $step('jack', 'fill') : $step('jack', 'free'));
     } else {
-        foreach ($plan['order'] as $who) {
-            if (!($go = $step($who, 'free', $who === 'her' ? $plan : []))) {
-                break;
-            }
-        }
-        // recheck: downloads or appdata may have grown while they freed — reckon and free again, only the difference
-        for ($round = 2; $go && $round <= (int) $h['rounds']; $round++) {
+        // free: Jack Emby gives back what was watched, then she moves the others' oldest down to below X
+        $go = $step('jack', 'free');
+        $back = $go ? nightJackBack($h, $real) : 0;
+        // a dry run: what his dry step would fetch stands for what waits
+        $plan = nightPlan($real ? ($h['level'])($g, $h, true) : $level, $real ? nightWaiting($h) : nightDryFetch($h), $back);
+        $phase('free', $plan);
+        $n['plan'] = nightWords($plan) + ['used_pct' => $plan['used_pct'], 'x' => $plan['x']];
+        $go = $go && $step('her', 'free');
+        // recheck: downloads may have come in while they moved — her part again while the pool is at/above X
+        for ($round = 2; $go && $real && $round <= (int) $h['rounds']; $round++) {
             $n['phase'] = 'recheck';
             nightWrite($dir, $n);
-            $level = ($h['level'])($g, $h, true);
-            $again = nightPlan($level, nightWaiting($h));
-            if (!$again['measured'] || $again['done']) {
+            $again = nightPlan(($h['level'])($g, $h, true), nightWaiting($h), 0);
+            if (!$again['measured'] || $again['need'] <= 0) {
+                $plan = $again['measured'] ? $again : $plan;
                 break;
             }
-            if ($again['back'] + $again['goes'] <= 0) {
-                $n['missed'] = true;      // nobody has anything borrowed left to give: the pool stays over Y
-                logLine('Night run: the pool stays over Y — neither Jack Emby nor the downloads have anything borrowed left');
+            $phase('recheck', $again);
+            $plan = $again;
+            if ($again['others_back'] <= 0) {
+                $n['missed'] = true;      // nothing of the others' left to move: what never moves and Jack Emby's unwatched keep it over X
+                logLine('Night run: the pool stays at/above X — nothing of the others\' left to move' . ($again['why'] === 'jack' ? ' (only Jack Emby\'s unwatched)' : ''));
                 break;
             }
             $n['round'] = $round;
-            logLine("Night run: round $round — the pool grew meanwhile (" . poolLevelSize($again['need']) . ' over Y)');
-            foreach ($again['order'] as $who) {
-                if (($who === 'jack' ? $again['back'] : $again['goes']) <= 0) {
-                    continue;
-                }
-                if (!($go = $step($who, 'free', $who === 'her' ? $again : []))) {
-                    break;
-                }
-            }
+            logLine("Night run: round $round — the pool grew meanwhile (" . poolLevelSize($again['need']) . ' over X)');
+            $go = $step('her', 'free');
         }
-        // fill: Jack Emby fetches what waits, always last
+        // fill: Jack Emby fetches what waits, only up to X — always last
         if ($go) {
-            $go = $step('jack', 'fill', []);
+            if ($real) {
+                $plan = nightPlan(($h['level'])($g, $h, true), nightWaiting($h), 0);
+            }
+            $phase('fill', $plan);
+            $go = $real ? $step('jack', 'fill') : true;     // a dry run: his dry free step showed his fetch already
         }
     }
     // tell: the pool still at/above X after the night (a real one that ran through)
     $end = $jack && $real ? ($h['level'])($g, $h, false) : null;
     if ($end !== null) {
         $n['end_pct'] = $end['used_pct'];
+        $phase('done', nightPlan($end, 0, 0));
     }
     $n['result'] ??= 'ok';
     if ($go && $end !== null && $end['x'] > 0 && $end['used'] * 100 >= $end['x'] * $end['size']) {
         $n['result'] = 'missed';
+        $n['why'] = $end['never'] ? 'never' : ($end['jack_over'] ? 'jack' : null);
         nightMissedTell($end, $h);
     }
     $n['phase'] = 'done';
@@ -376,12 +453,17 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     return match ($n['result']) { 'stopped' => 3, 'refused' => 1, default => 0 };
 }
 
-/** The pool still at/above X after a night: to Unraid's notifications at once (a warning) */
+/**
+ * The pool still at/above X after a night: to Unraid's notifications at once (a warning) — with why when it is
+ * Jack Emby's unwatched alone (his budget is too big for this pool)
+ */
 function nightMissedTell(array $end, array $h): bool
 {
     $lang = officeNotifyLang();
     $p = ['pool' => (string) $end['pool'], 'now' => (int) floor($end['used_pct']), 'x' => (int) $end['x'], 'nm' => (int) floor($end['nm_pct'])];
-    $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_subject', $p, $lang), officeNotifyText('moverelli', 'notify.night_missed', $p, $lang));
-    logLine("Night run: pool {$p['pool']} still at {$p['now']} % (limit {$p['x']} %)" . ($ok ? " — told Unraid's notifications" : ''));
+    $key = !$end['never'] && $end['jack_over'] ? 'notify.night_missed_jack' : 'notify.night_missed';
+    $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_subject', $p, $lang), officeNotifyText('moverelli', $key, $p, $lang));
+    logLine("Night run: pool {$p['pool']} still at {$p['now']} % (limit {$p['x']} %)" . ($key === 'notify.night_missed_jack' ? ' — only Jack Emby\'s unwatched is over it' : '')
+        . ($ok ? " — told Unraid's notifications" : ''));
     return $ok;
 }

@@ -48,12 +48,21 @@
 >   rule can budget excluded bytes), until it is below the new key `move_until_used_below=Y` (Y < X; empty/0: below X;
 >   Y ≥ X skips the share with an ERROR). Shares on the same pool share the target: once below, later shares fill
 >   nothing (said in the log). A dry run estimates the step from the files' sizes. Not with `--force`/`--force-all`.
->   `CUSTOMMOVER_DF` points `df` at a stand-in for the tests (like `CUSTOMMOVER_ZFS`). The office's setup requires Y
->   once X is set; an old ini with X and no Y gets Y = X − 10 proposed (her setup) or set (her import).
+>   `CUSTOMMOVER_DF` points `df` at a stand-in for the tests (like `CUSTOMMOVER_ZFS`). Since 2026-10-14 the office
+>   writes no Y any more (empty: below X); the script still reads one.
+> * **Oldest first across the pool** (2026-10-14, the owner's decision; marked «USO «oldest first across the pool»»):
+>   the fill no longer goes share by share. After every share's age step, all `yes` shares with a trigger on one pool
+>   fill **together** — their files in one list, oldest first, a file's age being the **younger** of its birth time
+>   (`stat %W` where the filesystem has it, else ctime) and its mtime: something touched lately counts as new. A
+>   share's file goes only while the pool is at/above that share's own target; excluded files never; one file per
+>   call, the pool re-read after each; a dry run estimates the same from the sizes. The age rule itself stays per
+>   share (`age_stat`). The status (and the live status) carry `recent`: the last 50 files done
+>   `[{name: <share>/<rel>, bytes, from: <pool>, to: array|<pool>}]` (the office's night picture).
 > * `CUSTOMMOVER_FILL_MAX_BYTES` (+ optional `CUSTOMMOVER_FILL_MAX_POOL`, 2026-10-13, the office's night run with Jack Emby):
 >   the fill moves at most this many bytes in this run, on that pool (empty: every pool); `0` = no fill there. With it the
 >   fill starts at/above the *target* (the office already decided that something must go, and how much); a file that would
->   go past the cap is not started. The age rule is untouched; a dry run counts the same. Unset: as before.
+>   go past the cap is not started. The age rule is untouched; a dry run counts the same. Unset: as before. Since
+>   2026-10-14 the office no longer sets it (kept for anyone who calls the script by hand).
 > * Leftovers and counts (2026-10-12/13, seen live): Unraid's move writes `<dest>/<share>/<rel>.partial` and renames it
 >   at the end. Before a real run moves a share's files, a leftover `.partial` (a power cut, a crash) on the share's awake
 >   destinations is removed — only while its source `<src>/<rel>` still exists, only that exact name, never a file under

@@ -48,6 +48,9 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
                               es wieder reicht; sonst hört das Befüllen dort nur auf (wie bisher)
   EMBYCACHE_NO_FILL           USO: "1" (das Office, die gemeinsame Nacht mit Frau Moverelli) – der Lauf gibt nur frei
                               (Rückgabe + Cleanup) und holt nichts; was auf dem Array wartet, wird gezählt (waiting)
+  EMBYCACHE_WATCHED_ONLY      USO: "1" (das Office, seit 2026-10-14: nur Frau Moverellis Grenze X) – zurück geht nur, was
+                              geschaut ist (der Cleanup), nie nach Rang; EMBYCACHE_GIVE_BACK_FREE gilt dann nicht.
+                              Was er hält und was wartet, steht trotzdem im Status (pool)
   EMBYCACHE_KEEP_BYTES        USO: der Boden dieser Rückgabe in Bytes (das Office: Jacks Hälfte) – was auf dem Cache
                               liegt, geht nie darunter zurück; leer: kein Boden
   EMBYCACHE_MOVER_DEBUG       0–3, Parameter -d für das move-Binary (überschreibt mover_debug_level)
@@ -76,6 +79,7 @@ from pathlib import Path
 
 STOP_FILE = os.environ.get("EMBYCACHE_STOP") or ""
 NO_FILL = os.environ.get("EMBYCACHE_NO_FILL") == "1"     # USO: nur freigeben, nichts holen (das Office)
+WATCHED_ONLY = os.environ.get("EMBYCACHE_WATCHED_ONLY") == "1"   # USO: zurück nur, was geschaut ist (das Office, nur X)
 
 
 def stop_requested():
@@ -143,12 +147,13 @@ class Progress:
     (kopiert oder ausgelassen) – so weiss ein Programm, wann jeder Benutzer fertig ist. Mehr als QUEUE_MAX: keine queue."""
 
     QUEUE_MAX = 5000
+    RECENT_MAX = 50
 
     def __init__(self, mode, on):
         self.on = on
         now = int(time.time())
         self.data = {"v": 1, "mode": mode, "phase": "plan", "started": now, "updated": now,
-                     "back": None, "users": [], "current": None, "queue": None, "pos": 0}
+                     "back": None, "users": [], "current": None, "queue": None, "pos": 0, "recent": []}
         self.users = {}   # UserPlan.key -> Eintrag in data["users"]
         self.qidx = {}    # id(OnDeckFile) -> ihre Stelle in der queue
         self.write()
@@ -217,6 +222,11 @@ class Progress:
         if entry is not None:
             entry["done_files"] += 1
             entry["done_bytes"] += int(size)
+        cur = self.data["current"]
+        if cur is not None:       # USO: die letzten RECENT_MAX erledigten Dateien (das Office: das Bild der Nacht)
+            back = cur.get("phase") == "back"
+            self.data["recent"] = (self.data["recent"] + [{"name": cur["rel"], "bytes": int(size),
+                                   "from": "cache" if back else "array", "to": "array" if back else "cache"}])[-self.RECENT_MAX:]
         if f is not None:
             self._passed(f, entry)
         self.data["current"] = None
@@ -710,7 +720,10 @@ class Runner:
         self.back_why, self.back_rank, self.given_back_list = {}, {}, []
         # USO: im Office (EMBYCACHE_GIVE_BACK_FREE=1) ist auch der Freiplatz eine Grenze – unter min_free_percent gibt der
         # Lauf zurück (0: keine Grenze); eigenständig hört das Befüllen dort nur auf, wie bisher
-        self.give_back_free = os.environ.get("EMBYCACHE_GIVE_BACK_FREE") == "1" and float(cfg["min_free_percent"]) > 0
+        # USO (2026-10-14): mit EMBYCACHE_WATCHED_ONLY nie nach Rang – nur der Cleanup bringt Geschautes zurück
+        self.give_back_free = (os.environ.get("EMBYCACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY
+                               and float(cfg["min_free_percent"]) > 0)
+        self.office_pool = self.give_back_free or WATCHED_ONLY   # USO: was er hält und was wartet, in den Status
 
     def halt(self):
         """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
@@ -1303,7 +1316,7 @@ class Runner:
         loc = Locations(cfg, cfg["instances"][0]["_mappings"])
         current = {str(loc.on_cache(f.rel)) for f in files}
         protected = set()
-        if self.give_back_free:
+        if self.office_pool:          # USO: ohne Rückgabe nach Rang zählt give_back() nur, was er hält
             self.give_back(loc, files, current, sessions, planner, not (planner.errors or not sessions_ok))
         try:
             if planner.errors or not sessions_ok:
@@ -1346,7 +1359,7 @@ class Runner:
                                "bytes_planned": self.to_cache, "bytes_done": self.copied_bytes}
         self.status["protected"] = len(protected)
         self.status["incomplete"] = bool(planner.errors or not sessions_ok)
-        if self.give_back_free:           # USO: was er hält, sein Boden, was zurückging (in Worten fürs Office), was wartet
+        if self.office_pool:              # USO: was er hält, sein Boden, was zurückging (in Worten fürs Office), was wartet
             self.status["pool"] = {"keep": self.keep, "held": self.held, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
             self.status["give_back"] = {"files": self.given_back, "bytes": self.given_back_bytes, "items": self.given_back_list}
         if self.stopped:

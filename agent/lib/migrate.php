@@ -67,6 +67,9 @@ function officeMigrateSteps(): array
         // the night run (agent/lib/nightrun.php): Jack Emby and Ms. Moverelli on ONE schedule — her line (job moverelli);
         // his EmbyCache line goes into it, «right after Jack Emby» goes away
         ['id' => 'night-run', 'version' => '1.62.0', 'run' => fn (string $dir, string $to): string => officeMigrateNightRun($dir)],
+        // only X (2026-10-14, replaces the halves): her ini loses move_until_used_below (global and per share),
+        // jack_min_percent and an offset line — the copy before kept beside it
+        ['id' => 'pool-x', 'version' => '1.63.0', 'run' => fn (string $dir, string $to): string => officeMigratePoolX($dir, $to)],
     ];
 }
 
@@ -493,4 +496,37 @@ function officeMigrateNightRun(string $dir, string $cron = OFFICE_CRON, bool $ap
         $done[] = '«right after Jack Emby» removed';
     }
     return $done ? implode(', ', $done) : 'nothing to change';
+}
+
+/**
+ * Step `pool-x` (1.63.0): Ms. Moverelli keeps only her limit X — in her smart_mover.ini every move_until_used_below
+ * (in [GLOBAL] and in a share's section), jack_min_percent and offset line goes (Smart Mover then fills down to below
+ * X); the whole ini kept beside it first (<name>.before-<version>). Every other byte stays. Idempotent: an ini without
+ * those lines is left alone. Jack Emby's own settings are his step's.
+ */
+function officeMigratePoolX(string $dir, string $to): string
+{
+    $ini = "$dir/moverelli/smart_mover.ini";
+    clearstatcache(true, $ini);
+    $st = @lstat($ini);
+    if ($st === false || ($st['mode'] & 0170000) !== 0100000) {
+        return 'nothing to change — Ms. Moverelli is not set up';
+    }
+    $text = (string) @file_get_contents($ini, false, null, 0, 4 << 20);
+    $out = [];
+    $gone = [];
+    foreach (preg_split('/(?<=\n)/', $text) as $line) {
+        if (preg_match('/^\s*(move_until_used_below|jack_min_percent|offset)\s*=/', $line, $m)) {
+            $gone[$m[1]] = ($gone[$m[1]] ?? 0) + 1;
+            continue;
+        }
+        $out[] = $line;
+    }
+    if (!$gone) {
+        return 'nothing to change';
+    }
+    $kept = officeMigrateKeep($ini, $text, $to);
+    writeAtomic($ini, implode('', $out), 0600, 0, 0);
+    return 'only her limit X stays — removed: ' . implode(', ', array_map(fn ($k, $n) => $n > 1 ? "$k (×$n)" : $k, array_keys($gone), $gone))
+        . ' (the ini before: ' . basename($kept) . ')';
 }

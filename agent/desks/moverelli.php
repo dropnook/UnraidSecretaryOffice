@@ -33,12 +33,11 @@ const MOVERELLI_LOG_TAIL  = 512 * 1024;
 const MOVERELLI_FILES_MAX = 20;             // exclude files per scope (global, a share)
 const MOVERELLI_LINES_MAX = 2000;           // lines of one of her own exclude lists
 const MOVERELLI_SHARE     = '/^[\w.\- ]{1,64}$/uD';     // a share name she writes as an INI section and a file name
-const MOVERELLI_DEFAULTS  = ['min_age' => 0, 'age_stat' => 'ctime', 'move_when_used_above' => 0, 'move_until_used_below' => 0, 'move_prefer_shares' => true,
-                             'mover_debug' => 0, 'max_list' => 50,     // Smart Mover's own defaults (its README)
-                             'jack_min_percent' => 50];               // the office's: what of the room below Y Jack keeps for sure (agent/lib/poollevel.php)
+// (2026-10-14: only X — move_until_used_below, the offset and jack_min_percent are gone; officeMigratePoolX() takes them out)
+const MOVERELLI_DEFAULTS  = ['min_age' => 0, 'age_stat' => 'ctime', 'move_when_used_above' => 0, 'move_prefer_shares' => true,
+                             'mover_debug' => 0, 'max_list' => 50];     // Smart Mover's own defaults (its README)
 // what each number may be: [min, max]
-const MOVERELLI_RANGES    = ['min_age' => [0, 3650], 'move_when_used_above' => [0, 100], 'move_until_used_below' => [0, 99], 'mover_debug' => [0, 3], 'max_list' => [1, 100000],
-                             'jack_min_percent' => [0, 100]];
+const MOVERELLI_RANGES    = ['min_age' => [0, 3650], 'move_when_used_above' => [0, 100], 'mover_debug' => [0, 3], 'max_list' => [1, 100000]];
 
 // what calls a mover in a User Script or a cron line (officeForeignCalls()): Unraid's mover script or Mover Tuning's
 // (`mover`, `age_mover`, `mover.php` — as a command: at the start, after a cron line's time, after ; & | ( ` or a wrapper such as
@@ -384,11 +383,11 @@ function moverelliIniInt(?string $v, string $key): ?int
 
 /**
  * Her settings as the page sees them, from her smart_mover.ini and her own lists: {global: {min_age, age_stat,
- * move_when_used_above, move_until_used_below, move_prefer_shares, mover_debug, max_list, files, patterns}, shares: {share:
- * {skip, min_age, age_stat, move_when_used_above, move_until_used_below (null: as global), files, patterns}}}. The fill
- * (2026-10-12): the age rule always moves; is the pool still at/above move_when_used_above (0: off), the oldest of the
- * rest go, whatever their age, until it is below move_until_used_below (required then, below the trigger) — Smart
- * Mover's «fill» (smartmover/custommover_run.sh). `files` are the other exclude files the ini
+ * move_when_used_above, move_prefer_shares, mover_debug, max_list, files, patterns}, shares: {share:
+ * {skip, min_age, age_stat, move_when_used_above (null: as global), files, patterns}}}. The fill (2026-10-12; only X
+ * since 2026-10-14): the age rule always moves; is the pool at/above move_when_used_above X (0: off), the oldest files
+ * across the pool go, whatever their age, until it is below X — Smart Mover's «fill»
+ * (smartmover/custommover_run.sh). `files` are the other exclude files the ini
  * names, `patterns` the lines of her own list. null: no ini yet.
  */
 function moverelliSettings(string $dir): ?array
@@ -414,11 +413,9 @@ function moverelliSettings(string $dir): ?array
         'min_age'              => moverelliIniInt($g['min_age'] ?? null, 'min_age') ?? MOVERELLI_DEFAULTS['min_age'],
         'age_stat'             => in_array($g['age_stat'] ?? '', ['ctime', 'mtime'], true) ? $g['age_stat'] : MOVERELLI_DEFAULTS['age_stat'],
         'move_when_used_above' => moverelliIniInt($g['move_when_used_above'] ?? null, 'move_when_used_above') ?? MOVERELLI_DEFAULTS['move_when_used_above'],
-        'move_until_used_below' => moverelliIniInt($g['move_until_used_below'] ?? null, 'move_until_used_below') ?? MOVERELLI_DEFAULTS['move_until_used_below'],
         'move_prefer_shares'   => ($g['move_prefer_shares'] ?? 'yes') === 'yes',
         'mover_debug'          => moverelliIniInt($g['mover_debug'] ?? null, 'mover_debug') ?? MOVERELLI_DEFAULTS['mover_debug'],
         'max_list'             => moverelliIniInt($g['max_list'] ?? null, 'max_list') ?? MOVERELLI_DEFAULTS['max_list'],
-        'jack_min_percent'     => moverelliIniInt($g['jack_min_percent'] ?? null, 'jack_min_percent') ?? MOVERELLI_DEFAULTS['jack_min_percent'],
         'files'                => $files,
         'patterns'             => $patterns,
     ], 'shares' => []];
@@ -432,7 +429,6 @@ function moverelliSettings(string $dir): ?array
             'min_age'              => moverelliIniInt($v['min_age'] ?? null, 'min_age'),
             'age_stat'             => in_array($v['age_stat'] ?? '', ['ctime', 'mtime'], true) ? $v['age_stat'] : null,
             'move_when_used_above' => moverelliIniInt($v['move_when_used_above'] ?? null, 'move_when_used_above'),
-            'move_until_used_below' => moverelliIniInt($v['move_until_used_below'] ?? null, 'move_until_used_below'),
             'files'                => $files,
             'patterns'             => $patterns,
         ];
@@ -554,22 +550,13 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
         'min_age'              => $int($g, 'min_age', 'min_age', false),
         'age_stat'             => $stat($g, 'age_stat', false),
         'move_when_used_above' => $int($g, 'move_when_used_above', 'move_when_used_above', false),
-        'move_until_used_below' => $int($g + ['move_until_used_below' => 0], 'move_until_used_below', 'move_until_used_below', false),     // an older page: none
         'move_prefer_shares'   => $g['move_prefer_shares'],
         'mover_debug'          => $int($g, 'mover_debug', 'mover_debug', false),
         'max_list'             => $int($g, 'max_list', 'max_list', false),
-        'jack_min_percent'     => $int($g + ['jack_min_percent' => MOVERELLI_DEFAULTS['jack_min_percent']], 'jack_min_percent', 'jack_min_percent', false),
         'files'                => $files,
         'patterns'             => $patterns,
     ], 'shares' => []];
-    // the fill (2026-10-12): a trigger (move_when_used_above) needs its target below it (move_until_used_below)
-    $until = function (int $until, int $threshold, ?string $share): void {
-        if ($threshold > 0 && ($until <= 0 || $until >= $threshold)) {
-            throw new Problem($share === null ? 'moverelli_until' : 'moverelli_until_share', ['until' => $until, 'threshold' => $threshold,
-                'max' => max(1, $threshold - 1)] + ($share !== null ? ['share' => $share] : []));
-        }
-    };
-    $until($out['global']['move_until_used_below'], $out['global']['move_when_used_above'], null);
+    // (an older page's move_until_used_below / jack_min_percent: not read — only X since 2026-10-14)
     foreach ($in['shares'] as $share => $s) {
         $share = (string) $share;            // JSON's «"2024": {…}» arrives as an int key
         if (!preg_match(MOVERELLI_SHARE, $share) || !in_array($share, $shares, true)) {
@@ -584,15 +571,11 @@ function moverelliCheck(mixed $in, array $shares, string $dir): array
             'min_age'              => $int($s, 'min_age', "$share.min_age", true),
             'age_stat'             => $stat($s, "$share.age_stat", true),
             'move_when_used_above' => $int($s, 'move_when_used_above', "$share.move_when_used_above", true),
-            'move_until_used_below' => $int($s, 'move_until_used_below', "$share.move_until_used_below", true),
             'files'                => $files,
             'patterns'             => $patterns,
         ];
         // a share without anything of its own needs no section
-        // the fill's target below its threshold (both as they hold for the share)
-        $until($row['move_until_used_below'] ?? $out['global']['move_until_used_below'], $row['move_when_used_above'] ?? $out['global']['move_when_used_above'], $share);
-        if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null
-            || $row['move_until_used_below'] !== null || $files || $patterns) {
+        if ($row['skip'] || $row['min_age'] !== null || $row['age_stat'] !== null || $row['move_when_used_above'] !== null || $files || $patterns) {
             if ($share === 'GLOBAL') {       // its section would be a second [GLOBAL]: Smart Mover reads the first for both
                 throw new Problem('moverelli_global_share', ['share' => $share]);
             }
@@ -616,10 +599,7 @@ function moverelliIniText(array $set, string $dir): string
     $text = "# Ms. Moverelli (Unraid Secretary Office) - written by the office; change it on her setup page\n[GLOBAL]\n"
           . 'log_file=' . dataPathUser("$dir/smart_mover.log") . "\n"
           . "min_age={$g['min_age']}\nage_stat={$g['age_stat']}\nmove_when_used_above={$g['move_when_used_above']}\n"
-          . ($g['move_until_used_below'] ? "move_until_used_below={$g['move_until_used_below']}\n" : '')
-          . 'move_prefer_shares=' . ($g['move_prefer_shares'] ? 'yes' : 'no') . "\nmover_debug={$g['mover_debug']}\nmax_list={$g['max_list']}\n"
-          // what Jack Emby keeps for sure: only when not the default (an ini without it reads 50)
-          . ((int) ($g['jack_min_percent'] ?? MOVERELLI_DEFAULTS['jack_min_percent']) !== MOVERELLI_DEFAULTS['jack_min_percent'] ? "jack_min_percent={$g['jack_min_percent']}\n" : '');
+          . 'move_prefer_shares=' . ($g['move_prefer_shares'] ? 'yes' : 'no') . "\nmover_debug={$g['mover_debug']}\nmax_list={$g['max_list']}\n";
     if (($l = $list($g['files'], null, $g['patterns'])) !== '') {
         $text .= "global_excludes=$l\n";
     }
@@ -629,7 +609,7 @@ function moverelliIniText(array $set, string $dir): string
         if ($s['skip']) {
             $text .= "skip=yes\n";
         }
-        foreach (['min_age', 'age_stat', 'move_when_used_above', 'move_until_used_below'] as $k) {
+        foreach (['min_age', 'age_stat', 'move_when_used_above'] as $k) {
             if (($s[$k] ?? null) !== null) {
                 $text .= "$k={$s[$k]}\n";
             }
@@ -692,10 +672,6 @@ function moverelliSave(mixed $in, ?array $h = null, ?callable $before = null, bo
         throw new Problem('moverelli_running');
     }
     $set = moverelliCheck($in, moverelliShareNames($h['shares_dir'], $h), $h['dir']);
-    // what Jack Emby keeps for sure: a page that doesn't know it (an older one) keeps what is saved
-    if (!array_key_exists('jack_min_percent', $in['global'])) {
-        $set['global']['jack_min_percent'] = moverelliSettings($h['dir'])['global']['jack_min_percent'] ?? MOVERELLI_DEFAULTS['jack_min_percent'];
-    }
     // Unraid's own mover goes off with her setup — asked on the page; refused without the consent, nothing written
     $unraid = moverelliUnraidOffForSave($moverOff, $h);
     // her run's lock held while writing: a run can't start meanwhile, and one that holds it refuses the save
@@ -851,7 +827,6 @@ function moverelliShares(array $set, string $sharesDir, ?array $h = null): array
         $row['min_age'] = $own['min_age'] ?? ($use === 'prefer' ? 0 : $g['min_age']);
         $row['age_stat'] = $own['age_stat'] ?? $g['age_stat'];
         $row['threshold'] = $use === 'yes' ? ($own['move_when_used_above'] ?? $g['move_when_used_above']) : null;
-        $row['until'] = $row['threshold'] ? (($own['move_until_used_below'] ?? $g['move_until_used_below'] ?? 0) ?: null) : null;     // null: below the threshold
         $row['excludes'] = count($g['files']) + ($g['patterns'] ? 1 : 0) + count($own['files'] ?? []) + (($own['patterns'] ?? []) ? 1 : 0);
         $out[] = $row;
     }
@@ -869,8 +844,8 @@ function moverelliJackPool(array $h): ?string
 }
 
 /**
- * Every pool her movable shares live on (yes|prefer, the primary) measured for her rules $g (move_when_used_above X,
- * move_until_used_below Y, jack_min_percent): {pool: level + {mine: Jack Emby's pool} | null} (null: not looked at — no
+ * Every pool her movable shares live on (yes|prefer, the primary) measured for her rule $g (move_when_used_above X):
+ * {pool: level + {mine: Jack Emby's pool} | null} (null: not looked at — no
  * ZFS pool, or asleep). Jack's bytes count only on his pool.
  */
 function moverelliLevels(array $g, array $h): array
@@ -890,8 +865,7 @@ function moverelliLevels(array $g, array $h): array
     foreach (array_keys($pools) as $pool) {
         $pool = (string) $pool;
         $mine = $pool === $jack;
-        $level = poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'y' => (int) ($g['move_until_used_below'] ?? 0),
-            'k' => (int) ($g['jack_min_percent'] ?? POOL_JACK_DEFAULT), 'shares_dir' => $h['shares_dir'], 'names' => $names, 'zfs' => $h['zfs'],
+        $level = poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'shares_dir' => $h['shares_dir'], 'names' => $names, 'zfs' => $h['zfs'],
             'mnt' => $h['mnt'], 'jack_list' => $mine ? $h['jack_list_file'] : null, 'asleep' => $h['asleep']]);
         $out[$pool] = $level === null ? null : $level + ['mine' => $mine];
     }
@@ -1096,8 +1070,14 @@ function moverelliProgressState(?array $h = null): array
     if ($prog !== null) {
         $prog += moverelliInFlight($prog, $h);
     }
+    $short = $nightReal ? moverelliNightShort($night) : null;
+    if ($short !== null && is_array($short['picture'] ?? null) && in_array($night['who'] ?? null, ['jack', 'her'], true)) {
+        // the picture's files with those of the step at work (its tool's live status; night.json has them once it is done)
+        $live = $night['who'] === 'her' ? ($st['recent'] ?? []) : ((nightHost($h)['emby_live'])()['recent'] ?? []);
+        $short['picture']['files'] = array_slice(array_merge((array) ($short['picture']['files'] ?? []), nightFiles($live, $night['who'])), -NIGHT_FILES_MAX);
+    }
     return ['time' => time(), 'running' => $job['running'] || $nightReal, 'real' => $real, 'stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null,
-            'progress' => $prog, 'night' => $nightReal ? moverelliNightShort($night) : null];
+            'progress' => $prog, 'night' => $short];
 }
 
 /**
@@ -1203,15 +1183,6 @@ function moverelliJob(array $args, ?array $h = null): int
     $h ??= moverelliHost();
     $dir = $h['dir'];
     $by = in_array('--night', $args, true) ? 'night' : (in_array('--office', $args, true) ? 'office' : 'schedule');
-    // inside the night run (nightrun.php): her fill's cap (what the downloads give tonight) and its pool
-    $cap = $capPool = null;
-    foreach ($args as $a) {
-        if (preg_match('/^--fill-max=(\d{1,18})$/D', $a, $m)) {
-            $cap = $m[1];
-        } elseif (preg_match('/^--fill-pool=([\w.\-]{1,64})$/D', $a, $m)) {
-            $capPool = $m[1];
-        }
-    }
     $args = array_values(array_filter($args, fn ($a) => !str_starts_with($a, '--')));
     $mode = $args[0] ?? 'run';
     // let go (or never hired): a schedule line left in the office's cron file moves nothing — said in the log only
@@ -1293,8 +1264,6 @@ function moverelliJob(array $args, ?array $h = null): int
             'CUSTOMMOVER_SHARES_DIR' => $h['shares_dir'], 'CUSTOMMOVER_MNT' => $h['mnt'], 'OFFICE_RUN_DIR' => RUN_DIR]
          // a real run: a list that is gone skips its share; a share whose array disks sleep says it wakes them (her log)
          + ($real ? ['CUSTOMMOVER_EXCLUDES_REQUIRED' => '1', 'CUSTOMMOVER_DISKS_INI' => disksIniFile()] : [])
-         // the night run: the fill moves at most what the downloads give tonight (their borrowed part over their half)
-         + ($cap !== null ? ['CUSTOMMOVER_FILL_MAX_BYTES' => $cap] + ($capPool !== null ? ['CUSTOMMOVER_FILL_MAX_POOL' => $capPool] : []) : [])
          + $h['env'];
     $out = fopen("$dir/office-output.txt", 'w');
     $proc = proc_open(array_merge(['bash', "$h[app]/custommover_run.sh"], MOVERELLI_MODES[$mode]), [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, '/', $env);
@@ -1509,7 +1478,7 @@ function moverelliNight(array $h, ?array $settings): array
 function moverelliNightShort(array $n): array
 {
     return array_intersect_key($n, array_flip(['mode', 'by', 'started', 'finished', 'phase', 'round', 'who', 'jack', 'pool', 'plan', 'steps',
-        'result', 'stopped_in', 'missed', 'end_pct', 'running', 'waited']));
+        'result', 'stopped_in', 'missed', 'end_pct', 'running', 'waited', 'why', 'picture']));
 }
 
 /**
@@ -1568,7 +1537,7 @@ function moverelliChecks(?array $h = null): array
         $out[] = finding('emby_list', 'required', !moverelliJackUncovered($emby, $h['dir']),
             ['shares' => implode(', ', moverelliJackUncovered($emby, $h['dir'])), 'file' => (string) ($emby['lists'][0] ?? '')], '#/moverelli/setup');
     }
-    // per pool (a sleeping pool: not looked at, ok null): what never moves reaches Y — nothing to share, she never
+    // per pool (a sleeping pool: not looked at, ok null): what never moves reaches X — she never
     // reaches her target; much of the pool in the movable shares' snapshots (what she moves is freed only with the retention)
     $g = moverelliSettings($h['dir'])['global'] ?? null;
     if ($g !== null && (int) $g['move_when_used_above'] > 0) {
@@ -1582,7 +1551,7 @@ function moverelliChecks(?array $h = null): array
                 $id === 'pool_snapshots' ? '#/moverelli' : '#/moverelli/setup');
         };
         $one('pool_never_moves', 'recommended', fn ($c) => $c['never'],
-            fn ($c) => ['nm' => (int) floor($c['nm_pct']), 'size' => poolLevelSize($c['size']), 'y' => $c['y']]);
+            fn ($c) => ['nm' => (int) floor($c['nm_pct']), 'size' => poolLevelSize($c['size']), 'x' => $c['x']]);
         $one('pool_snapshots', 'hint', fn ($c) => $c['snap_pct'] > POOL_SNAP_HINT, fn ($c) => ['size' => poolLevelSize($c['snapshots'])]);
     }
     return $out;

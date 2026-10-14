@@ -2,55 +2,51 @@
 declare(strict_types=1);
 
 /*
- * The pool, simply (2026-10-13, the owner's rule — replaces the cake) — shared by Ms. Moverelli and Jack Emby (desks know
- * each other only through libs). One number the user sets: X, her limit (move_when_used_above). Y = X − offset (the
- * offset, default 10, under «Advanced»; written into her ini as move_until_used_below, never asked as a number of its own).
+ * The pool, only X (2026-10-14, the owner's rule — replaces the halves, borrowing, Y and the offset of 1.62) — shared by
+ * Ms. Moverelli and Jack Emby (desks know each other only through libs). One number the user sets: X, her limit
+ * (move_when_used_above, % of the whole pool).
  *
  *   size, used = zfs list -Hp used,avail <pool>          (the whole pool, as Smart Mover's pool_used_pct())
  *   M          = Σ refer of the movable shares' datasets (shareUseCache yes|prefer, primary = this pool)
- *   NM         = used − M                                (never moves: pool-only shares, snapshots, overhead)
- *   R          = max(0, Y%·size − NM)                    (the room below Y the movable shares share)
- *   H          = R · k / 100                             (k = jack_min_percent, default 50: half each — Jack's floor)
- *   J          = Σ size of the entries of EmbyCache's list on this pool
+ *   fixed      = used − M                                (never moves: pool-only shares, snapshots, overhead)
+ *   jack       = Σ size of the entries of EmbyCache's list on this pool
+ *   others     = M − jack                                (the other caching shares: downloads …)
+ *   need       = max(0, used − X%·size)                  (what must go tonight)
  *
- * Jack Emby fills up to Y (EMBYCACHE_MIN_FREE_PERCENT = 100 − Y — borrowing what the downloads don't need) and
- * gives back above Y, the farthest ahead first, but never below H (EMBYCACHE_KEEP_BYTES = H). Ms. Moverelli: the age rule
- * always, at/above X the oldest downloads down to their half. Both in ONE night run (nightrun.php): check, reckon, free
- * (who must free more first), recheck, fill (Jack Emby last). NM ≥ Y: nothing to share (pool_never_moves).
+ * Above X Ms. Moverelli moves the oldest files (across the pool, never one on Jack Emby's list) to the array or the
+ * secondary pool until it is back below X; the age rule always. Jack Emby gives back only what was watched and fetches
+ * only up to X (EMBYCACHE_MIN_FREE_PERCENT = 100 − X) and his GB budget. Both in ONE night run (nightrun.php). fixed ≥ X:
+ * she can never get below it (pool_never_moves); fixed + jack ≥ X: only Jack Emby's unwatched keeps it over X.
  * Only ZFS pools are measured here (refer per dataset); a sleeping pool is not looked at (null) unless a run wakes it.
  */
 
-const POOL_SNAP_HINT      = 2;      // % of the pool in the movable shares' snapshots: the Team Lead's hint
-const POOL_LIST_MAX       = 200000; // lines of EmbyCache's list read
-const POOL_OFFSET_DEFAULT = 10;     // X − Y when her ini has no Y yet
-const POOL_JACK_DEFAULT   = 50;     // jack_min_percent: Jack's guaranteed share of R
+const POOL_SNAP_HINT = 2;      // % of the pool in the movable shares' snapshots: the Team Lead's hint
+const POOL_LIST_MAX  = 200000; // lines of EmbyCache's list read
 
 /**
- * The numbers (pure). x, y: % of the whole pool (0: no limit); k: Jack's guaranteed % of R; jack: J. `back`: what Jack
- * gives back the next night (over Y, never below H); `goes`: what of the downloads goes then because the pool is
- * at/above X (only what they borrowed over their half, at most what is still needed to reach Y); `need`: used − Y; `never`: what never moves reaches Y — nothing to share.
+ * The numbers (pure). x: % of the whole pool (0: no limit); jack: Jack Emby's bytes on the pool. `need`: what must go
+ * to be at X; `never`: what never moves reaches X; `jack_over`: what never moves and Jack Emby's bytes reach X together.
+ * The keys after `free` are only for readers from before 2026-10-14 (agent/desks/emby.php until its rewrite): y = x,
+ * no half, nothing borrowed.
  */
-function poolLevelMath(int $size, int $used, int $movable, int $x, int $y, int $k, int $jack): array
+function poolLevelMath(int $size, int $used, int $movable, int $x, int $jack): array
 {
     $size = max(0, $size);
     $used = max(0, min($used, $size));
     $m = max(0, min($movable, $used));
     $nm = $used - $m;
     $jack = max(0, min($jack, $m));
-    $yb = $y > 0 ? intdiv($y * $size, 100) : 0;
-    $room = $y > 0 ? max(0, $yb - $nm) : 0;
-    $half = intdiv($room * max(0, min(100, $k)), 100);
-    // the night run (agent/lib/nightrun.php): what must go so the pool stands at Y; Jack Emby gives back only what he
-    // borrowed (over Y, never below H); the downloads give only what they borrowed over their half, and only from X on —
-    // the air Y…X belongs to the day's downloads
-    $need = $y > 0 ? max(0, $used - $yb) : 0;
-    $back = $y > 0 && $used > $yb ? min(max(0, $jack - $half), $need) : 0;
-    $goes = $x > 0 && $y > 0 && $used * 100 >= $x * $size ? min(max(0, $m - $jack - ($room - $half)), $need - $back) : 0;
+    $xb = $x > 0 ? intdiv($x * $size, 100) : 0;
+    $need = $x > 0 ? max(0, $used - $xb) : 0;
     $pct = fn (int $b): float => $size > 0 ? round($b * 100 / $size, 1) : 0.0;
+    $never = $x > 0 && $size > 0 && $nm >= $xb;
     return [
-        'size' => $size, 'used' => $used, 'movable' => $m, 'nm' => $nm, 'x' => $x, 'y' => $y, 'k' => $k,
-        'room' => $room, 'half' => $half, 'half_d' => $room - $half, 'jack' => $jack, 'downloads' => $m - $jack, 'need' => $need, 'back' => $back, 'goes' => $goes,
-        'used_pct' => $pct($used), 'nm_pct' => $pct($nm), 'never' => $y > 0 && $size > 0 && $nm >= $yb,
+        'size' => $size, 'used' => $used, 'movable' => $m, 'nm' => $nm, 'x' => $x, 'xb' => $xb, 'jack' => $jack, 'others' => $m - $jack,
+        'need' => $need, 'used_pct' => $pct($used), 'nm_pct' => $pct($nm), 'never' => $never,
+        'jack_over' => !$never && $x > 0 && $size > 0 && $nm + $jack >= $xb, 'free' => $size - $used,
+        // older readers (see above)
+        'y' => $x, 'k' => 0, 'room' => $x > 0 ? max(0, $xb - $nm) : 0, 'half' => 0, 'half_d' => $x > 0 ? max(0, $xb - $nm) : 0,
+        'back' => 0, 'goes' => $need, 'downloads' => $m - $jack,
     ];
 }
 
@@ -67,30 +63,25 @@ function poolLevelSize(int $bytes): string
     return number_format($v, $i === 0 ? 0 : ($v < 10 ? 1 : 0), '.', '') . ' ' . $units[$i];
 }
 
-/** Her rules from smart_mover.ini [GLOBAL]: {x, y, k}; Y missing under a limit: X − 10; null without an ini */
+/** Her rule from smart_mover.ini [GLOBAL]: {x} (+ y = x, k = 0 for older readers); null without an ini */
 function poolLevelRules(string $ini): ?array
 {
     if (!is_file($ini)) {
         return null;
     }
     // her ini's [GLOBAL] read line by line (never parse_ini_file: a path in it may hold what PHP's ini reads as syntax)
-    $g = [];
+    $x = null;
     $in = false;
     foreach (preg_split('/\R/', (string) @file_get_contents($ini, false, null, 0, 1 << 20)) as $line) {
         $line = trim($line);
         if (preg_match('/^\[(.*)\]$/', $line, $m)) {
             $in = trim($m[1]) === 'GLOBAL';
-        } elseif ($in && preg_match('/^(\w+)\s*=\s*(.*)$/', $line, $m)) {
-            $g[$m[1]] ??= $m[2];
+        } elseif ($in && $x === null && preg_match('/^move_when_used_above\s*=\s*(.*)$/', $line, $m)) {
+            $x = preg_match('/^\d{1,3}$/D', trim($m[1])) && (int) $m[1] <= 100 ? (int) $m[1] : 0;
         }
     }
-    $int = fn (string $k, int $max): ?int => isset($g[$k]) && preg_match('/^\d{1,3}$/D', trim((string) $g[$k])) && (int) $g[$k] <= $max ? (int) $g[$k] : null;
-    $x = $int('move_when_used_above', 100) ?? 0;
-    $y = $int('move_until_used_below', 99) ?? 0;
-    if ($x > 0 && ($y <= 0 || $y >= $x)) {
-        $y = max(1, $x - POOL_OFFSET_DEFAULT);
-    }
-    return ['x' => $x, 'y' => $x > 0 ? $y : 0, 'k' => $int('jack_min_percent', 100) ?? POOL_JACK_DEFAULT];
+    $x ??= 0;
+    return ['x' => $x, 'y' => $x, 'k' => 0];
 }
 
 /** The movable shares of a pool (pure on the cfgs): shareUseCache yes|prefer with this pool as their primary */
@@ -164,7 +155,7 @@ function poolLevelJackBytes(?string $list, string $pool, string $mnt = '/mnt'): 
 
 /**
  * One pool as it stands: poolLevelMath() with its movable shares and snapshots — or null (no ZFS pool, the pool asleep
- * and not to be woken). $o: x, y, k, shares_dir, names (the shares that exist), zfs, mnt, jack_list (EmbyCache's list,
+ * and not to be woken). $o: x, shares_dir, names (the shares that exist), zfs, mnt, jack_list (EmbyCache's list,
  * null: none), asleep (sleepingDisks()' map, null: asked now), wake (a run is about to wake it anyway).
  */
 function poolLevel(string $pool, array $o): ?array
@@ -180,14 +171,15 @@ function poolLevel(string $pool, array $o): ?array
     $jack = poolLevelJackBytes($o['jack_list'] ?? null, $pool, $o['mnt'] ?? '/mnt');
     return ['pool' => $pool, 'shares' => $shares, 'snapshots' => $look['snapshots'],
             'snap_pct' => $look['size'] > 0 ? round($look['snapshots'] * 100 / $look['size'], 1) : 0.0]
-         + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], (int) $o['y'], (int) ($o['k'] ?? POOL_JACK_DEFAULT), $jack);
+         + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jack);
 }
 
 /**
- * Jack Emby's view (his launch and his page): her rules from her ini, his pool (cache_path /mnt/<pool>) and what
+ * Jack Emby's view (his launch and his page): her rule from her ini, his pool (cache_path /mnt/<pool>) and what
  * EmbyCache is told — {rules, level (null: not measured), env}. env while she has a limit: EMBYCACHE_MIN_FREE_PERCENT =
- * 100 − Y (he fills up to Y and gives back above it) and, once his pool is measured, EMBYCACHE_KEEP_BYTES = H (never
- * below his half). null: she isn't set up (no ini). $o: ini, cache_path, jack_list, shares_dir, names, zfs, mnt, asleep, wake.
+ * 100 − X (he fetches only up to X) and EMBYCACHE_WATCHED_ONLY = 1 (he gives back only what was watched — never by
+ * rank, whatever the pool: no ping-pong with Ms. Moverelli). null: she isn't set up (no ini). $o: ini, cache_path,
+ * jack_list, shares_dir, names, zfs, mnt, asleep, wake.
  */
 function poolLevelJack(array $o): ?array
 {
@@ -198,14 +190,11 @@ function poolLevelJack(array $o): ?array
     $env = [];
     $level = null;
     if ($rules['x'] > 0) {
-        $env['EMBYCACHE_MIN_FREE_PERCENT'] = (string) (100 - $rules['y']);
+        $env = ['EMBYCACHE_MIN_FREE_PERCENT' => (string) (100 - $rules['x']), 'EMBYCACHE_WATCHED_ONLY' => '1'];
         $mnt = rtrim($o['mnt'] ?? '/mnt', '/');
         $pool = preg_match('#^' . preg_quote($mnt, '#') . '/([\w.\-]{1,64})/?$#D', (string) ($o['cache_path'] ?? ''), $m) ? $m[1] : null;
         if ($pool !== null && $pool !== 'user' && $pool !== 'user0') {
-            $level = poolLevel($pool, $rules + $o);
-        }
-        if ($level !== null) {
-            $env['EMBYCACHE_KEEP_BYTES'] = (string) $level['half'];
+            $level = poolLevel($pool, ['x' => $rules['x']] + $o);
         }
     }
     return ['rules' => $rules, 'level' => $level, 'env' => $env];
