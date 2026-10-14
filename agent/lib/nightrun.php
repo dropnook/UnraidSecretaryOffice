@@ -25,7 +25,7 @@ declare(strict_types=1);
  * then Jack Emby's whole run with his own minimum free space. State: night.json (the last night).
  *
  * night.json's `picture` — the numbers for the live graphic (bytes; null where not measured):
- *   {pool, x, dest: {to: "array"|<pool>, size, used},
+ *   {pool, x, dest: {to: "array"|<pool>, size, used},                                (the array's from disks.ini, nothing woken)
  *    phases: {check|free|recheck|fill|done: {before: B, forecast: B, planned: P}},   (each phase as it began)
  *    files: [{name, bytes, from, to, who: "jack"|"her"}, …]}                         (the last NIGHT_FILES_MAX done)
  *   B = {size, fixed (pool-only shares + snapshots + overhead), others (the other caching shares), jack, free}
@@ -168,11 +168,30 @@ function nightDest(?string $pool, array $h): ?array
         }
     }
     $size = $used = null;
-    if ($to !== 'array' && preg_match('/^[\w.\-]{1,64}$/D', $to) && !poolsBySleep([$to], $h['asleep'])['asleep']) {
+    if ($to === 'array') {
+        [$size, $used] = nightArrayLevel((string) ($h['disks_ini'] ?? disksIniFile()));
+    } elseif (preg_match('/^[\w.\-]{1,64}$/D', $to) && !poolsBySleep([$to], $h['asleep'])['asleep']) {
         $look = poolLevelLook($to, [], $h['zfs']);
         [$size, $used] = $look !== null ? [$look['size'], $look['used']] : [null, null];
     }
     return ['to' => $to, 'size' => $size, 'used' => $used];
+}
+
+/**
+ * The array's size and use in bytes from Unraid's bookkeeping (disks.ini: the data disks' fsSize/fsUsed in KB, kept by
+ * emhttp — no disk asked, none woken); [null, null] when no data disk says it (array stopped, an older disks.ini)
+ */
+function nightArrayLevel(string $file): array
+{
+    $size = $used = 0;
+    foreach (is_file($file) ? readCfg($file, true) : [] as $section => $d) {
+        if (is_array($d) && ($d['type'] ?? '') === 'Data' && preg_match('/^disk\d+$/D', (string) ($d['name'] ?? $section))
+            && ctype_digit((string) ($d['fsSize'] ?? '')) && ctype_digit((string) ($d['fsUsed'] ?? '')) && (int) $d['fsSize'] > 0) {
+            $size += (int) $d['fsSize'] * 1024;
+            $used += min((int) $d['fsUsed'], (int) $d['fsSize']) * 1024;
+        }
+    }
+    return $size > 0 ? [$size, $used] : [null, null];
 }
 
 /**
@@ -196,6 +215,8 @@ function nightHost(?array $h = null): array
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
         // Jack Emby's pool measured for her rules (the tests: a pool of their own)
         'level'       => $n['level'] ?? fn (array $g, array $hh, bool $wake): ?array => nightLevel($g, $hh, $wake),
+        // Unraid's bookkeeping of the disks: the array's size and use for the picture (the tests: a file of their own)
+        'disks_ini'   => $n['disks_ini'] ?? disksIniFile(),
     ];
 }
 

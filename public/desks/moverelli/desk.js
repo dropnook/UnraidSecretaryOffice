@@ -62,6 +62,7 @@ function tookProgress(j) {
   nightNow = p.night || null;
   stopping = p.stopping || null;
   redrawCard();
+  if (picLive && picLive.isConnected && nightNow) picLive.update(nightNow);
   scheduleProgress();
 }
 function redrawCard() {
@@ -175,6 +176,242 @@ function runCard(p, now) {
   card.appendChild(foot);
   return card;
 }
+
+// ------------------------------------------------------------------ the night's picture (2026-10-14, the owner)
+// The setup simulator's bars live on here, while her night run with Jack Emby works and after it: the pool before the
+// run, the pool after it (forecast while it goes, measured once done), where she moves to (the array or the secondary
+// pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
+const PIC_SEGS = ['fixed', 'others', 'jack', 'free'];
+const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
+const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
+
+/**
+ * The widths of a bar's segments (fractions, summing to 1, in order), pure: each value > 0 at least `min` (a fraction —
+ * a few pixels: always visible), the others shrunk in proportion to make room; 0 stays 0. The words keep the true values.
+ */
+function segWidths(values, min) {
+  const v = values.map((x) => Math.max(0, Number(x) || 0));
+  const total = v.reduce((a, x) => a + x, 0);
+  if (total <= 0) return v.map(() => 0);
+  const live = v.filter((x) => x > 0).length;
+  const m = Math.max(0, Math.min(min || 0, 1 / live));
+  const out = v.map((x) => x / total);
+  const fixed = new Set();
+  for (let round = 0; round < v.length; round++) {
+    const small = out.map((f, i) => (v[i] > 0 && !fixed.has(i) && f < m ? i : -1)).filter((i) => i >= 0);
+    if (!small.length) break;
+    small.forEach((i) => { fixed.add(i); out[i] = m; });
+    const rest = 1 - fixed.size * m;
+    const free = out.reduce((a, f, i) => a + (fixed.has(i) ? 0 : f), 0);
+    out.forEach((f, i) => { if (!fixed.has(i) && free > 0) out[i] = f * rest / free; });
+  }
+  return out;
+}
+
+/**
+ * The picture's numbers as the page draws them, pure (tests/run.php under node): pic = night.json's `picture`, px = the
+ * bar's width in pixels (for the 10 px minimum), done = the run ended, destPx = the target bar's width (its used part keeps
+ * the 10 px too). {measured, pool, x (0…1, null: no limit), before,
+ * after, forecast (the after bar is a forecast), dest {to, size, used, measured, w}}; a bar: {size, used, segs [{k, bytes,
+ * w}]} — its free part is what the size leaves (the segments sum to the bar). Not measured (no pool numbers): measured false.
+ */
+function pictureBars(pic, px, done, destPx) {
+  const phases = (pic && typeof pic.phases === 'object' && pic.phases) || {};
+  const ok = (b) => !!(b && Number(b.size) > 0);
+  const first = ['check', 'free', 'recheck', 'fill', 'done'].map((ph) => phases[ph] && phases[ph].before).find(ok) || null;
+  const end = done && phases.done && ok(phases.done.before) ? phases.done.before : null;
+  const fc = end ? null : PIC_ORDER.map((ph) => phases[ph] && phases[ph].forecast).find(ok) || null;
+  const d = pic && pic.dest && typeof pic.dest === 'object' ? pic.dest : null;
+  const dm = !!d && d.size != null && d.used != null && Number(d.size) > 0;
+  const dest = d ? { to: String(d.to || 'array'), size: dm ? Number(d.size) : null, used: dm ? Number(d.used) : null, measured: dm,
+    w: dm ? segWidths([Math.min(Number(d.used), Number(d.size)), Math.max(0, Number(d.size) - Number(d.used))], PIC_MIN_PX / Math.max(40, Number(destPx) || 200))[0] : null } : null;
+  if (!first) return { measured: false, pool: (pic && pic.pool) || '', x: null, before: null, after: null, forecast: false, dest };
+  const min = PIC_MIN_PX / Math.max(40, Number(px) || 800);
+  const bar = (b) => {
+    const size = Number(b.size);
+    const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: Math.max(0, Number(b.jack) || 0) };
+    const used = Math.min(size, val.fixed + val.others + val.jack);
+    val.free = Math.max(0, size - used);
+    const w = segWidths(PIC_SEGS.map((k) => val[k]), min);
+    return { size, used, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
+  };
+  const x = Number(pic.x) > 0 ? Math.min(1, Number(pic.x) / 100) : null;
+  const after = end || fc;
+  return { measured: true, pool: pic.pool || '', x, before: bar(first), after: after ? bar(after) : null, forecast: !end, dest };
+}
+
+/**
+ * Which way a file went, pure: onto the pool (Jack Emby fetching from the array; hers only for a share that moves back)
+ * or off it — EmbyCache says «array»/«cache», Smart Mover the pool's name and where it moved to
+ */
+function fileOnto(f, pool) {
+  return f.who === 'jack' ? f.from === 'array' : f.to === pool;
+}
+
+let picLive = null;               // the picture on the page: its node and update() (the progress part feeds it)
+/** The picture's box: two bars, where she moves to, a legend, the file on the way; null without a picture */
+function nightPicture(n) {
+  let pic = n && n.picture;
+  if (!pic || typeof pic !== 'object') return null;
+  const box = el('div', 'box mo-pic');
+  const head = el('div', 'mo-pic-head', T(n.running ? 'pic.title_run' : 'pic.title_last'));
+  const grid = el('div', 'mo-pic-grid');
+  const rowsBox = el('div', 'mo-pic-rowsBox');
+  const side = el('div', 'mo-pic-dest');
+  grid.append(rowsBox, side);
+  const legend = el('div', 'mo-pic-legend');
+  const line = el('div', 'mo-pic-file');
+  const dot = el('span', 'mo-pic-dot');
+  box.append(head, grid, legend, line, dot);
+  const pct = (b, size) => fmt.number(size > 0 ? b * 100 / size : 0, 1);
+  const segName = (k) => T('pic.seg.' + k);
+  let data = null;
+  /** One bar with its title and X; its segments' words on hover (title) */
+  function barRow(title, b) {
+    const row = el('div', 'mo-pic-row');
+    row.appendChild(el('div', 'mo-pic-label', title));
+    const bar = el('div', 'mo-pic-bar');
+    bar.setAttribute('role', 'img');
+    bar.setAttribute('aria-label', `${title}: ${T('pic.bar_label', { pct: pct(b.used, b.size) })}`);
+    for (const s of b.segs) {
+      const seg = el('i', 'mo-pic-seg mo-seg-' + s.k);
+      seg.style.width = `${(s.w * 100).toFixed(3)}%`;
+      seg.title = T('pic.seg_tip', { what: segName(s.k), size: fmt.size(s.bytes), pct: pct(s.bytes, b.size) });
+      seg.dataset.k = s.k;
+      bar.appendChild(seg);
+    }
+    if (data.x !== null) {
+      const mark = el('span', 'mo-pic-x' + (data.x > 0.85 ? ' flip' : ''));
+      mark.style.left = `${(data.x * 100).toFixed(2)}%`;
+      mark.appendChild(el('span', '', T('pic.x', { pct: Math.round(data.x * 100) })));
+      bar.appendChild(mark);
+    }
+    row.appendChild(bar);
+    return row;
+  }
+  function draw() {
+    const width = rowsBox.clientWidth || (typeof window !== 'undefined' ? Math.min(900, window.innerWidth - 60) : 800);
+    data = pictureBars(pic, width, !n.running, side.clientWidth || 200);
+    rowsBox.innerHTML = '';
+    side.innerHTML = '';
+    legend.innerHTML = '';
+    if (!data.measured) {
+      rowsBox.appendChild(el('p', 'mo-pic-none', T('pic.pool_unmeasured')));
+    } else {
+      rowsBox.appendChild(barRow(T('pic.before'), data.before));
+      if (data.after) rowsBox.appendChild(barRow(T(data.forecast ? 'pic.forecast' : 'pic.after'), data.after));
+      // the legend: each part before → after (the true values)
+      for (const k of PIC_SEGS) {
+        const it = el('span', 'mo-pic-key');
+        const b = data.before.segs.find((s) => s.k === k).bytes;
+        const a = data.after ? data.after.segs.find((s) => s.k === k).bytes : null;
+        it.append(el('i', 'mo-pic-seg mo-seg-' + k), el('span', '', `${segName(k)} ${a === null ? fmt.size(b) : T('pic.change', { before: fmt.size(b), after: fmt.size(a) })}`));
+        legend.appendChild(it);
+      }
+    }
+    // where she moves to: the array or the secondary pool — its use when measured, never a disk woken for it
+    const d = data.dest;
+    if (d) {
+      side.appendChild(el('div', 'mo-pic-label', d.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: d.to })));
+      const dbar = el('div', 'mo-pic-bar mo-pic-target');
+      if (d.measured) {
+        const used = el('i', 'mo-pic-seg mo-seg-dest');
+        used.style.width = `${(d.w * 100).toFixed(2)}%`;
+        dbar.appendChild(used);
+      }
+      side.appendChild(dbar);
+      const words = d.measured ? T('pic.dest_used', { used: fmt.size(d.used), size: fmt.size(d.size) }) : T('pic.unmeasured');
+      side.appendChild(el('div', 'mo-pic-sub', words));
+      // in the legend too, in its own colour
+      if (data.measured) {
+        const it = el('span', 'mo-pic-key');
+        it.append(el('i', 'mo-pic-seg mo-seg-dest'), el('span', '', `${d.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: d.to })} ${words}`));
+        legend.appendChild(it);
+      }
+    }
+    say(lastFile());
+  }
+  const files = () => (Array.isArray(pic.files) ? pic.files.filter((f) => f && typeof f.name === 'string') : []);
+  const lastFile = () => files().slice(-1)[0] || null;
+  const short = (name) => { const b = String(name).split('/').pop(); return b.length > 48 ? b.slice(0, 46) + '…' : b; };
+  /** Where a file was and went in words: Jack Emby's between the pool and the array, hers between the pool and her target */
+  function ends(f) {
+    const pool = T('pic.pool_name', { pool: pic.pool || '' });
+    const to = f.who === 'jack' || !data || !data.dest || data.dest.to === 'array' ? T('pic.array') : T('pic.pool_name', { pool: data.dest.to });
+    return fileOnto(f, pic.pool) ? [to, pool] : [pool, to];
+  }
+  function say(f, moving) {
+    line.textContent = '';
+    if (!f) return;
+    const [from, to] = ends(f);
+    line.textContent = T(moving ? 'pic.moving' : 'pic.last_file', { file: short(f.name), size: fmt.size(Number(f.bytes) || 0), from, to });
+  }
+  // the slow walk: one real file at a time from where it was to where it went (her files and Jack Emby's watched ones
+  // off the pool, his new ones onto it); the newest as they come, the latest few again while nothing new comes — calm
+  const seen = new Set();
+  const queue = [];
+  const key = (f) => `${f.who}|${f.name}|${f.bytes}`;
+  function feed() {
+    for (const f of files()) if (!seen.has(key(f))) { seen.add(key(f)); queue.push(f); }
+  }
+  let walking = false;
+  async function walk() {
+    if (walking) return;
+    walking = true;
+    while (box.isConnected && n.running && data && data.measured && !reducedMotion()) {
+      if (!queue.length) queue.push(...files().slice(-6));
+      if (!queue.length) break;
+      await flyFile(queue.shift());
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    walking = false;
+  }
+  /** The middle of a part of the picture, in the box's own pixels (a bar segment: near its start) */
+  function spot(node) {
+    if (!node) return null;
+    const r = node.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    return { x: r.left - b.left + Math.min(r.width / 2, 40), y: r.top - b.top + r.height / 2 };
+  }
+  function flyFile(f) {
+    const onto = fileOnto(f, pic.pool);
+    const rows = box.querySelectorAll('.mo-pic-rowsBox .mo-pic-bar');
+    const k = f.who === 'jack' ? 'jack' : 'others';
+    const target = spot(box.querySelector('.mo-pic-target'));
+    const from = onto ? target : spot(rows[0] && rows[0].querySelector(`.mo-seg-${k}`));
+    const to = onto ? spot((rows[1] || rows[0]) && (rows[1] || rows[0]).querySelector(`.mo-seg-${k}`)) : target;
+    if (!from || !to || !dot.animate) return Promise.resolve();
+    dot.className = 'mo-pic-dot mo-seg-' + k;
+    say(f, true);
+    const at = (p) => `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
+    return dot.animate([{ transform: at(from), opacity: 0 }, { transform: at(from), opacity: 1, offset: 0.12 },
+      { transform: at(to), opacity: 1, offset: 0.88 }, { transform: at(to), opacity: 0 }], { duration: 5000, easing: 'ease-in-out', fill: 'forwards' })
+      .finished.catch(() => {});
+  }
+  draw();
+  feed();
+  box.update = (nn) => {
+    if (!nn || !nn.picture) return;
+    n = nn;
+    pic = nn.picture;
+    head.textContent = T(n.running ? 'pic.title_run' : 'pic.title_last');
+    draw();
+    feed();
+    walk();
+  };
+  box.started = n.started;
+  if (typeof window !== 'undefined') setTimeout(walk, 600);
+  return box;
+}
+
+/** The picture while the night run goes: the one on the page fed anew (its walk goes on), else a new one */
+function livePicture(nn) {
+  if (!nn || !nn.picture) return null;
+  if (picLive && picLive.started === nn.started) { picLive.update(nn); return picLive; }
+  picLive = nightPicture(nn);
+  return picLive;
+}
+const reducedMotion = () => !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 async function act(action, data, okText) {
   const j = await Office.api.post(`${ID}.${action}`, data || {});
@@ -485,6 +722,9 @@ function hints() {
   }
   if (realRun()) {
     out.push(runCard(progress, Date.now() / 1000));
+    // under the card: the night's picture — the pool before, the forecast after, where she moves to, files on the way
+    const pic = livePicture(nightNow || (nightGoing() ? night().last : null));
+    if (pic) out.push(pic);
   } else if (running()) {
     const p = el('p', 'callout', T('notice.running', { mode: T('mode.' + state.job.mode) }) + ' ');
     p.appendChild(button(T('rc.show_log'), 'small plain', () => showOutput(true))).disabled = !Office.agent.running;
@@ -609,6 +849,8 @@ function scheduleSection() {
     plan.append(pm, dry);
     box.appendChild(plan);
   }
+  // after the night run: its picture (the pool before and after, where she moved to, the last file)
+  const lastPic = n.jack && n.last && !n.last.running ? nightPicture(n.last) : null;
   const m = mover();
   const own = Office.place('sched:unraid', el('div', 'row nocheck'));
   const main2 = el('div', 'row-main');
@@ -620,6 +862,7 @@ function scheduleSection() {
   own.appendChild(main2);
   box.appendChild(own);
   s.appendChild(box);
+  if (lastPic) s.appendChild(lastPic);
   return s;
 }
 
@@ -1753,7 +1996,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, tonightText, tonightShort, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, fileOnto, nightPicture, livePicture, tonightText, tonightShort, lastNightText, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

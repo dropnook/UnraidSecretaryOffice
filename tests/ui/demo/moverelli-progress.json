@@ -63,6 +63,133 @@
    }
   ],
   "result": null,
-  "running": true
+  "running": true,
+  "picture": {
+   "pool": "cache",
+   "x": 80,
+   "dest": {
+    "to": "array",
+    "size": 25769803776000,
+    "used": 16320875724800
+   },
+   "phases": {
+    "check": {
+     "before": {
+      "size": 2147483648000,
+      "fixed": 450971566080,
+      "others": 654982512640,
+      "jack": 816043786240,
+      "free": 225485783040
+     },
+     "forecast": {
+      "size": 2147483648000,
+      "fixed": 450971566080,
+      "others": 504658657280,
+      "jack": 762356695040,
+      "free": 429496729600
+     },
+     "planned": {
+      "jack_back": null,
+      "others_back": 150323855360,
+      "jack_fetch": 96636764160,
+      "until": 1621350154240
+     }
+    },
+    "free": {
+     "before": {
+      "size": 2147483648000,
+      "fixed": 450971566080,
+      "others": 654982512640,
+      "jack": 665719930880,
+      "free": 375809638400
+     },
+     "forecast": {
+      "size": 2147483648000,
+      "fixed": 450971566080,
+      "others": 504658657280,
+      "jack": 762356695040,
+      "free": 429496729600
+     },
+     "planned": {
+      "jack_back": 150323855360,
+      "others_back": 150323855360,
+      "jack_fetch": 96636764160,
+      "until": 1621350154240
+     }
+    }
+   },
+   "files": [
+    {
+     "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 01.mkv",
+     "bytes": 1825361100,
+     "from": "cache",
+     "to": "array",
+     "who": "jack"
+    },
+    {
+     "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 02.mkv",
+     "bytes": 2147483648,
+     "from": "cache",
+     "to": "array",
+     "who": "jack"
+    },
+    {
+     "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 03.mkv",
+     "bytes": 2469606195,
+     "from": "cache",
+     "to": "array",
+     "who": "jack"
+    },
+    {
+     "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 04.mkv",
+     "bytes": 2791728742,
+     "from": "cache",
+     "to": "array",
+     "who": "jack"
+    },
+    {
+     "name": "Fotos-Import/2023/Herbstferien/IMG_4101.mov",
+     "bytes": 858993459,
+     "from": "cache",
+     "to": "/mnt/disk2",
+     "who": "her"
+    },
+    {
+     "name": "Fotos-Import/2023/Herbstferien/IMG_4102.mov",
+     "bytes": 1073741824,
+     "from": "cache",
+     "to": "/mnt/disk2",
+     "who": "her"
+    },
+    {
+     "name": "Fotos-Import/2023/Herbstferien/IMG_4103.mov",
+     "bytes": 1288490188,
+     "from": "cache",
+     "to": "/mnt/disk2",
+     "who": "her"
+    },
+    {
+     "name": "Fotos-Import/2023/Herbstferien/IMG_4104.mov",
+     "bytes": 1503238553,
+     "from": "cache",
+     "to": "/mnt/disk2",
+     "who": "her"
+    },
+    {
+     "name": "Fotos-Import/2023/Herbstferien/IMG_4105.mov",
+     "bytes": 1717986918,
+     "from": "cache",
+     "to": "/mnt/disk2",
+     "who": "her"
+    },
+    {
+     "name": "Downloads/Schule/Lernvideos-Mathe.zip",
+     "bytes": 8804682956,
+     "from": "cache",
+     "to": "/mnt/disk1",
+     "who": "her"
+    }
+   ]
+  }
  }
 }
