@@ -733,7 +733,7 @@
   "share.unmeasured": "The pool is not measured (asleep, or not ZFS) — the numbers come with the next look, or with «Measure now» in the simulator.",
   "sim.title": "Pool simulator",
   "sim.sub": "Plays the nights through, by hand or in scenarios — nothing on the server changes. The same number of chance gives the same course.",
-  "sim.help": "A mockup: it plays the new rules for the pool (and those of today, side by side) with invented series and downloads. After every night five checks say whether the rules hold; the real night run stays as it is.",
+  "sim.help": "A mockup: it plays the new rules for the pool with invented series and downloads. After every night five checks say whether the rules hold; the real night run stays as it is.",
   "sim.source": "Data",
   "sim.src_real": "Real values from the server",
   "sim.src_test": "Own test values",
@@ -765,9 +765,6 @@
   "sim.ev.binge": "Binge week",
   "sim.ev.nobody": "Nobody watches (14 days)",
   "sim.ev.abandon": "Someone drops a series",
-  "sim.rules": "Picture",
-  "sim.rules_new": "New rules",
-  "sim.rules_old": "Rules of 1.62.1",
   "sim.day": "Day {n}",
   "sim.day_of": "Day {n} · {scenario}",
   "sim.bar_label": "The pool, {pct} % used",
@@ -823,7 +820,6 @@
   "sim.log.plan": "Reckoned: Jack Emby frees {back}, Ms. Moverelli moves {goes} + {age} (age rule) — {first} first",
   "sim.log.back_watched": "[BACK: watched] {title} ({size})",
   "sim.log.back_stale": "[BACK: nobody watched for N days] {title} ({size}), {ahead} ahead",
-  "sim.log.back_borrowed": "[BACK: borrowed, unwatched] {title} ({size}), {ahead} ahead",
   "sim.log.age": "[MOVERELLI: age] {size} older than {days} to the array",
   "sim.log.goes_x": "[MOVERELLI: at X] {size} of the oldest to the array",
   "sim.log.goes_over": "[MOVERELLI: over their limit] {size} of the oldest to the array",
@@ -839,7 +835,7 @@
   "sim.log.night_writes": "During the night {size} more were written",
   "sim.log.event": "Event: {what}",
   "sim.scenarios": "Scenarios",
-  "sim.scenarios_sub": "Each runs its days with the sliders' values and a fixed number of chance — under the new rules and under those of 1.62.1.",
+  "sim.scenarios_sub": "Each runs its days with the sliders' values and a fixed number of chance.",
   "sim.run_all": "Run all",
   "sim.show": "Show",
   "sim.sc.normal": "Normal month",
@@ -898,5 +894,6 @@
   "sim.warn_msg": "A warning has just gone out to you: {why}. Jack Emby may not give back his unwatched episodes and fetches no new ones until the warning is gone.",
   "sim.warn_why.never": "what never moves ({nm}) already lies above Y — little room is left for the other shares",
   "sim.warn_why.room": "only {room} are left up to X, less than a day of writes ({writes}), and Jack Emby holds more than his fill limit",
-  "sim.warn_why.promise": "the other shares have less than they are promised ({have} instead of {promised})"
+  "sim.warn_why.promise": "the other shares have less than they are promised ({have} instead of {promised})",
+  "sim.col.result": "Result"
 }

@@ -30454,11 +30454,11 @@ JS);
  */
 /**
  * Jack Streamer's pool simulator (public/desks/emby/streamer.js, 2026-10-14 — a mockup; the real night run is untouched).
- * Under node: streamerPoolMath() on the 1-TB example (A, H, the halves, both fill limits with the cushion), v162Math()
- * against PHP's poolLevelMath() (the same back/goes/half), the same seed giving the same month, and the seven scenarios
+ * Under node: streamerPoolMath() on the 1-TB example (A, H, the halves, both fill limits with the cushion), its room, H,
+ * the others' half and need against PHP's poolLevelMath() (the same terms), the same seed giving the same month, the scenarios
  * with the defaults: under the new rules (the owner's decisions 2026-10-14: unwatched never back except after N days, she
  * moves only from X on, the others keep half of their half plus the air — or the night warns) every check green, appdata
- * growing with warnings; 1.62.1's rules give back unwatched files and play ping-pong in the download spike.
+ * growing with warnings.
  */
 function testStreamerSim(): void
 {
@@ -30476,8 +30476,8 @@ const out = {};
 out.tb = S.streamerPoolMath({ size: 1000, nm: 300, jack: 100, others: 50, x: 80, offset: 10, k: 50, want: 300 });
 out.tbBoth = S.streamerPoolMath({ size: 1000, nm: 300, jack: 250, others: 260, x: 80, offset: 10, k: 50, want: 400 });
 out.never = S.streamerPoolMath({ size: 1000, nm: 750, jack: 0, others: 0, x: 80, offset: 10, k: 50 }).never;
-out.v162 = cases.map(([size, used, movable, x, y, k, jack]) => { const m = S.v162Math({ size, nm: used - movable, jack, others: movable - jack, x, offset: x - y, k });
-  return [Math.round(m.half), Math.round(m.back), Math.round(m.goes), Math.round(m.need)]; });
+out.terms = cases.map(([size, used, movable, x, y, k, jack]) => { const m = S.streamerPoolMath({ size, nm: used - movable, jack, others: movable - jack, x, offset: x - y, k });
+  return [Math.round(m.room), Math.round(m.half), Math.round(m.halfD), Math.round(m.need)]; });
 const a = S.summary(S.runScenario('normal', {}, 7));
 const b = S.summary(S.runScenario('normal', {}, 7));
 out.same = JSON.stringify(a) === JSON.stringify(b);
@@ -30519,7 +30519,7 @@ S.simDay(day);
 out.eve = { start0: e0.jack === 0 && e0.others > 0, prev: day.sides.new.prevMorn !== null, writes: day.sides.new.eve.others > day.sides.new.prevMorn.others,
   morn: day.sides.new.morn.used === S.mathOf(day.w, day.sides.new).used };
 const held = S.measure(real.w, real.sides.new).files;
-out.real = { j: real.sides.new.hist[0].jack, old: real.sides.v162.hist[0].jack, biggest: Math.max(...held.map((e) => e.size)),
+out.real = { j: real.sides.new.hist[0].jack, biggest: Math.max(...held.map((e) => e.size)),
   want: S.wanted(real.w, real.sides.new).reduce((a, e) => a + e.size, 0), people: new Set(held.map((e) => e.uid)).size, n: real.w.people.length };
 out.tinyStart = tiny.sides.new.hist[0].others + tiny.sides.new.hist[0].nm <= tiny.w.cfg.pool;
 console.log(JSON.stringify(out));
@@ -30542,9 +30542,9 @@ JS);
     $php = array_map(function ($c) {
         [$size, $used, $mov, $x, $y, $k, $jack] = $c;
         $m = poolLevelMath($size, $used, $mov, $x, $y, $k, $jack);
-        return [$m['half'], $m['back'], $m['goes'], $m['need']];
+        return [$m['room'], $m['half'], $m['half_d'], $m['need']];
     }, $cases);
-    same('streamer sim: 1.62.1\'s numbers in the simulator are poolLevelMath()\'s (half, back, goes, need)', $php, $r['v162']);
+    same('streamer sim: the terms the rules share with poolLevelMath() are its numbers (room A, H, the others\' half, need)', $php, $r['terms']);
     check('streamer sim: the same seed gives the same month, another seed another', $r['same'] === true && $r['other'] === true);
     $sc = $r['sc'];
     same('streamer sim: all seven scenarios ran', ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'], array_keys($sc));
@@ -30558,9 +30558,7 @@ JS);
     }
     check('streamer sim: appdata growing to near Y — green with warnings (little room left for new writes), a normal month without',
         $sc['appdata']['new']['warns'] > 0 && $sc['normal']['new']['warns'] === 0, json_encode([$sc['appdata']['new']['warns'], $sc['normal']['new']['warns']]));
-    check('streamer sim: download spike, 1.62.1 — unwatched files go back and come again within 7 days (ping-pong)',
-        $sc['spike']['v162']['pingpong'] > 0 && $sc['spike']['v162']['forced'] > 0 && $sc['spike']['v162']['inv']['pingpong'] !== null, json_encode($sc['spike']['v162']));
-    check('streamer sim: … the new rules on the same spike: none', $sc['spike']['new']['pingpong'] === 0);
+    check('streamer sim: the download spike without ping-pong', $sc['spike']['new']['pingpong'] === 0);
     $d = $r['drag'];
     same('streamer sim: the bar\'s place ↔ GB (clamped to the bar)', [256, 0, 1024, 0.25, 1, 0], $d['map']);
     same('streamer sim: dragging NM — snapped to ~1 % of the pool, the white\'s end stays (others shrink), never past it, never below 0',
@@ -30583,8 +30581,8 @@ JS);
     same('streamer sim: the day\'s two bars — day 0 «before» is the start (test values: Jack empty, the first night fills him), then the evening has the day\'s writes, the morning is the state after the night',
         ['start0' => true, 'prev' => true, 'writes' => true, 'morn' => true], $r['eve']);
     $re = $r['real'];
-    check('streamer sim: real data — day 0 holds what Jack Streamer really holds (926 GB, within one file), under both rule sets',
-        $re['j'] >= 926 && $re['j'] < 926 + $re['biggest'] + 0.1 && abs($re['old'] - $re['j']) < 0.01, json_encode($re));
+    check('streamer sim: real data — day 0 holds what Jack Streamer really holds (926 GB, within one file)',
+        $re['j'] >= 926 && $re['j'] < 926 + $re['biggest'] + 0.1, json_encode($re));
     check('streamer sim: … what he wants is at least that much, unwatched, spread over every person', $re['want'] >= 926 && $re['people'] === $re['n'], json_encode($re));
     check('streamer sim: a scenario with a pool of its own never starts with the server\'s contents (282 GB of downloads in a 256 GB pool)', $r['tinyStart'] === true);
 }
@@ -30604,7 +30602,7 @@ function testStreamerWizard(): void
     $families = ['sim.f.' => ['pool', 'nm', 'writes', 'watch', 'newEps', 'people', 'x', 'offset', 'k', 'unwatchedDays', 'age'],
         'sim.ev.' => ['spike', 'appdata', 'binge', 'nobody', 'abandon'], 'sim.sc.' => ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'],
         'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.' => ['told', 'told_from', 'seed_hint', 'reroll', 'warn_msg'], 'sim.warn_why.' => ['never', 'room', 'promise'], 'sim.drag.' => ['nm', 'end', 'x', 'y'], 'sim.bar.' => ['before', 'after', 'same', 'nm', 'others', 'unw', 'wat', 'free'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
-        'sim.log.' => ['day', 'spill', 'plan', 'back_watched', 'back_stale', 'back_borrowed', 'age', 'goes_x', 'goes_over', 'fetch', 'skip_limit', 'skip_y',
+        'sim.log.' => ['day', 'spill', 'plan', 'back_watched', 'back_stale', 'age', 'goes_x', 'goes_over', 'fetch', 'skip_limit', 'skip_y',
             'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event', 'warn', 'fill_warn'], 'sim.who.' => ['jack', 'her']];
     $miss = [];
     foreach ($families as $pre => $ids) {

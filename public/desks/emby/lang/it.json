@@ -733,7 +733,7 @@
   "share.unmeasured": "Il pool non è misurato (dorme, o non è ZFS) — i numeri arrivano con il prossimo controllo o con «Misura ora» nel simulatore.",
   "sim.title": "Simulatore del pool",
   "sim.sub": "Simula le notti, a mano o in scenari — sul server non cambia nulla. Lo stesso numero dà lo stesso andamento.",
-  "sim.help": "Un modello: simula le nuove regole del pool (e accanto quelle di oggi) con serie e download inventati. Dopo ogni notte cinque controlli dicono se le regole reggono; la vera esecuzione notturna resta com'è.",
+  "sim.help": "Un modello: simula le nuove regole del pool con serie e download inventati. Dopo ogni notte cinque controlli dicono se le regole reggono; la vera esecuzione notturna resta com'è.",
   "sim.source": "Dati",
   "sim.src_real": "Valori reali dal server",
   "sim.src_test": "Valori di prova propri",
@@ -765,9 +765,6 @@
   "sim.ev.binge": "Settimana di maratona",
   "sim.ev.nobody": "Nessuno guarda (14 giorni)",
   "sim.ev.abandon": "Qualcuno abbandona una serie",
-  "sim.rules": "Immagine",
-  "sim.rules_new": "Nuove regole",
-  "sim.rules_old": "Regole della 1.62.1",
   "sim.day": "Giorno {n}",
   "sim.day_of": "Giorno {n} · {scenario}",
   "sim.bar_label": "Il pool, {pct} % occupato",
@@ -823,7 +820,6 @@
   "sim.log.plan": "Calcolato: Jack Emby libera {back}, la signora Moverelli sposta {goes} + {age} (regola dell'età) — prima {first}",
   "sim.log.back_watched": "[INDIETRO: visto] {title} ({size})",
   "sim.log.back_stale": "[INDIETRO: non visto da N giorni] {title} ({size}), {ahead} avanti",
-  "sim.log.back_borrowed": "[INDIETRO: in prestito, non visto] {title} ({size}), {ahead} avanti",
   "sim.log.age": "[MOVERELLI: età] {size} più vecchi di {days} sull'array",
   "sim.log.goes_x": "[MOVERELLI: da X] {size} dei più vecchi sull'array",
   "sim.log.goes_over": "[MOVERELLI: oltre il loro limite] {size} dei più vecchi sull'array",
@@ -839,7 +835,7 @@
   "sim.log.night_writes": "Durante la notte sono arrivati altri {size}",
   "sim.log.event": "Evento: {what}",
   "sim.scenarios": "Scenari",
-  "sim.scenarios_sub": "Ognuno corre i suoi giorni con i valori dei cursori e un numero casuale fisso — con le nuove regole e con quelle della 1.62.1.",
+  "sim.scenarios_sub": "Ognuno corre i suoi giorni con i valori dei cursori e un numero casuale fisso.",
   "sim.run_all": "Esegui tutti",
   "sim.show": "Mostra",
   "sim.sc.normal": "Mese normale",
@@ -898,5 +894,6 @@
   "sim.warn_msg": "Ti è appena arrivato un avviso: {why}. Jack Emby non può restituire i suoi episodi non visti e non ne prende di nuovi finché l'avviso c'è.",
   "sim.warn_why.never": "ciò che non si sposta mai ({nm}) è già sopra Y — alle altre condivisioni resta poco spazio",
   "sim.warn_why.room": "fino a X restano solo {room}, meno di un giorno di scritture ({writes}), e Jack Emby tiene più del suo limite",
-  "sim.warn_why.promise": "alle altre condivisioni resta meno del promesso ({have} invece di {promised})"
+  "sim.warn_why.promise": "alle altre condivisioni resta meno del promesso ({have} invece di {promised})",
+  "sim.col.result": "Risultato"
 }

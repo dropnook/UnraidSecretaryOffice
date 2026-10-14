@@ -733,7 +733,7 @@
   "share.unmeasured": "Der Pool ist nicht gemessen (er schläft, oder er ist kein ZFS) — die Zahlen kommen mit dem nächsten Blick oder mit «Jetzt messen» im Simulator.",
   "sim.title": "Pool-Simulator",
   "sim.sub": "Spielt die Nächte durch, von Hand oder in Szenarien — auf dem Server ändert sich nichts. Dieselbe Zufallszahl gibt denselben Ablauf.",
-  "sim.help": "Ein Mockup: Er spielt die neuen Regeln für den Pool (und daneben die heutigen) mit erfundenen Serien und Downloads durch. Nach jeder Nacht sagen fünf Prüfungen, ob die Regeln halten; der echte Nachtlauf bleibt, wie er ist.",
+  "sim.help": "Ein Mockup: Er spielt die neuen Regeln für den Pool mit erfundenen Serien und Downloads durch. Nach jeder Nacht sagen fünf Prüfungen, ob die Regeln halten; der echte Nachtlauf bleibt, wie er ist.",
   "sim.source": "Daten",
   "sim.src_real": "Echte Werte vom Server",
   "sim.src_test": "Eigene Testwerte",
@@ -765,9 +765,6 @@
   "sim.ev.binge": "Binge-Woche",
   "sim.ev.nobody": "Niemand schaut (14 Tage)",
   "sim.ev.abandon": "Jemand bricht eine Serie ab",
-  "sim.rules": "Bild",
-  "sim.rules_new": "Neue Regeln",
-  "sim.rules_old": "Regeln von 1.62.1",
   "sim.day": "Tag {n}",
   "sim.day_of": "Tag {n} · {scenario}",
   "sim.bar_label": "Der Pool, {pct} % belegt",
@@ -823,7 +820,6 @@
   "sim.log.plan": "Gerechnet: Jack Streamer gibt {back} frei, Frau Moverelli zügelt {goes} + {age} (Altersregel) — zuerst {first}",
   "sim.log.back_watched": "[ZURÜCK: gesehen] {title} ({size})",
   "sim.log.back_stale": "[ZURÜCK: seit N Tagen nicht geschaut] {title} ({size}), {ahead} voraus",
-  "sim.log.back_borrowed": "[ZURÜCK: geliehen, ungesehen] {title} ({size}), {ahead} voraus",
   "sim.log.age": "[MOVERELLI: Alter] {size} älter als {days} aufs Array",
   "sim.log.goes_x": "[MOVERELLI: ab X] {size} der ältesten aufs Array",
   "sim.log.goes_over": "[MOVERELLI: über ihrer Grenze] {size} der ältesten aufs Array",
@@ -839,7 +835,7 @@
   "sim.log.night_writes": "In der Nacht kamen {size} dazu",
   "sim.log.event": "Ereignis: {what}",
   "sim.scenarios": "Szenarien",
-  "sim.scenarios_sub": "Jedes läuft seine Tage mit den Werten der Schieber und einer festen Zufallszahl — mit den neuen Regeln und mit denen von 1.62.1.",
+  "sim.scenarios_sub": "Jedes läuft seine Tage mit den Werten der Schieber und einer festen Zufallszahl.",
   "sim.run_all": "Alle durchspielen",
   "sim.show": "Zeigen",
   "sim.sc.normal": "Normaler Monat",
@@ -898,5 +894,6 @@
   "sim.warn_msg": "Jetzt ist eine Warnung an dich rausgegangen: {why}. Jack Streamer darf seine ungesehenen Folgen nicht zurückgeben und holt keine neuen, bis die Warnung weg ist.",
   "sim.warn_why.never": "was nie zügelt ({nm}) liegt schon über Y — für die anderen Shares bleibt kaum Platz",
   "sim.warn_why.room": "bis X bleiben nur {room}, weniger als ein Tag Schreiben ({writes}), und Jack Streamer hält mehr als seine Füllgrenze",
-  "sim.warn_why.promise": "den anderen Shares bleibt weniger als versprochen ({have} statt {promised})"
+  "sim.warn_why.promise": "den anderen Shares bleibt weniger als versprochen ({have} statt {promised})",
+  "sim.col.result": "Ergebnis"
 }

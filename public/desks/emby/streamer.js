@@ -5,8 +5,7 @@
      1. the pure math (no DOM, no Office — runs under node for tests/run.php): streamerPoolMath() (→ poolLevelMath() in
         agent/lib/poollevel.php), streamerNight() (→ nightRun()/nightPlan() in agent/lib/nightrun.php and EmbyCache's
         give_back/fill in embycache/embycache_run.py), the invented world (people, series, films, downloads), the
-        scenarios, the invariants after every night; the rules of 1.62.1 beside them (v162Math(), the night as built),
-        so a scenario shows the difference.
+        scenarios, the invariants after every night.
      2. the step's page (Office.streamerSim.view()), loaded by desk.js like Mr. Restori's drill.js.
    Units: GB (floats) throughout the math — the PHP target works in bytes (ints); a size of 1 GB here is 2^30 bytes there.
    Every text of the page and the log is a lang key (sim.*) of his desk; the log keeps {k, p} and the page words it. */
@@ -65,24 +64,6 @@ function streamerPoolMath(p) {
     need: Math.max(0, used - yb), over: used >= xb && xb > 0, never: size > 0 && nm >= yb };
 }
 
-/** 1.62.1's numbers, 1:1 poolLevelMath() (agent/lib/poollevel.php) — for the comparison only */
-function v162Math(p) {
-  const size = Math.max(0, +p.size || 0);
-  const nm = Math.max(0, +p.nm || 0);
-  const jack = Math.max(0, +p.jack || 0);
-  const m = jack + Math.max(0, +p.others || 0);
-  const used = nm + m;
-  const x = +p.x || 0;
-  const y = Math.max(0, x - Math.max(0, +p.offset || 0));
-  const yb = y * size / 100;
-  const room = y > 0 ? Math.max(0, yb - nm) : 0;
-  const half = room * Math.max(0, Math.min(100, p.k == null ? 50 : +p.k)) / 100;
-  const need = y > 0 ? Math.max(0, used - yb) : 0;
-  const back = y > 0 && used > yb ? Math.min(Math.max(0, jack - half), need) : 0;
-  const goes = x > 0 && y > 0 && used * 100 >= x * size ? Math.min(Math.max(0, m - jack - (room - half)), need - back) : 0;
-  return { size, nm, used, yb, xb: x * size / 100, room, half, halfD: room - half, need, back, goes, never: size > 0 && nm >= yb };
-}
-
 // ---------------------------------------------------------------------- the world (invented: no real titles, ever)
 const PEOPLE = ['Anna', 'Ben', 'Carla', 'Dario', 'Elif', 'Finn', 'Greta', 'Hugo'];
 const SERIES = ['Orion', 'Lumen', 'Atlas', 'Kestrel', 'Juniper', 'Delta', 'Nimbus', 'Sable', 'Quartz', 'Vela', 'Tundra', 'Ember',
@@ -131,7 +112,7 @@ function addEp(w, s, day) {
  */
 function growFor(w, gb) {
   if (!(gb > 0)) return;
-  const want = () => sum(wanted(w, { rules: 'new' }).map((e) => e.size));
+  const want = () => sum(wanted(w).map((e) => e.size));
   for (let u = 0; want() < gb * 1.05 && w.series.length < 2000; u = (u + 1) % w.people.length) addSeries(w, u, -Math.floor(w.rnd() * 10), w.cfg.episodes + 2);
 }
 
@@ -151,13 +132,13 @@ const nextIdx = (w, sid) => { const e = w.eps.find((x) => x.sid === sid && !x.wa
 
 /**
  * What Jack wants (his queue, EmbyCache's on-deck list): per person, of each series the next `episodes` unwatched ones,
- * of each film the film. New rules: a series nobody watched for N days is no longer wanted (it may go back). 1.62.1: all.
+ * of each film the film. A series nobody watched for N days is no longer wanted (it may go back).
  */
-function wanted(w, side) {
+function wanted(w) {
   const c = w.cfg;
   const out = [];
   for (const s of w.series) {
-    if (side.rules === 'new' && stale(w, s)) continue;
+    if (stale(w, s)) continue;
     const list = w.eps.filter((e) => e.sid === s.id && !e.watched).sort((a, b) => a.idx - b.idx).slice(0, s.film ? 1 : c.episodes);
     out.push(...list);
   }
@@ -176,10 +157,10 @@ function measure(w, side) {
 /** The numbers of a side now (the rule set's own math; `want` = his queue's size) */
 function mathOf(w, side) {
   const m = measure(w, side);
-  const want = sum(wanted(w, side).map((e) => e.size));
+  const want = sum(wanted(w).map((e) => e.size));
   const c = w.cfg;
   const p = { size: c.pool, nm: m.nm, jack: m.jack, others: m.others, x: c.x, offset: c.offset, k: c.k, want };
-  return { ...streamerPoolMath(p), want, watched: m.watched, v162: side.rules === 'v162' ? v162Math(p) : null };
+  return { ...streamerPoolMath(p), want, watched: m.watched };
 }
 
 // ---------------------------------------------------------------------- the day
@@ -278,7 +259,7 @@ function herOldest(w, side, amount, why, L) {
  * (never episode 5 without 4). cap(e, m) → '' (fits) | why. Returns what came up.
  */
 function fill(w, side, cap, L) {
-  const queue = wanted(w, side).filter((e) => !side.pool.has(e.id));
+  const queue = wanted(w).filter((e) => !side.pool.has(e.id));
   const per = w.people.map((_, u) => queue.filter((e) => e.uid === u)
     .sort((a, b) => rank(w, a) - rank(w, b) || w.series[b.sid].lastSeen - w.series[a.sid].lastSeen || a.idx - b.idx));
   const stopped = new Set();
@@ -341,7 +322,7 @@ function streamerNight(w, side, L) {
     jack -= sum(backStale.map((e) => e.size));
     const aged = sum(side.dl.filter((d) => w.day - d.day >= c.age).map((d) => d.size));
     const after = streamerPoolMath({ size: c.pool, nm: m.nm, jack, others: m.others - aged, x: c.x, offset: c.offset, k: c.k, want: m.want });
-    // hers only from X (as 1.62.1, the owner 2026-10-14): what they borrowed over their limit first, then — the pool still
+    // hers only from X (the owner 2026-10-14): what they borrowed over their limit first, then — the pool still
     // over Y — out of their own half too; below X they stay (Jack Streamer is held back by his fill limit instead)
     let goes = 0;
     if (m.over) {
@@ -373,42 +354,6 @@ function streamerNight(w, side, L) {
       return '';
     }, L);
   }
-  tell(w, side, L);
-}
-
-/** The night as 1.62.1 runs it (nightrun.php + poolLevelMath(), the mockup's V1 without its «only free» switch) */
-function v162Night(w, side, L) {
-  const c = w.cfg;
-  side.fetchedTonight = 0;
-  // EmbyCache's cleanup: what was watched goes back first (the mockup measured after it, as here)
-  measure(w, side).files.filter((e) => e.watched).forEach((e) => giveBack(w, side, e, 'back_watched', L));
-  for (let round = 1; round <= NIGHT_ROUNDS_MAX; round++) {
-    const m = mathOf(w, side);
-    const a = m.v162;
-    const aged = sum(side.dl.filter((d) => w.day - d.day >= c.age).map((d) => d.size));
-    if (round > 1 && (a.need <= Math.max(c.pool / 100, 1) || a.back + a.goes === 0)) break;
-    if (round === 1) side.overTonight = m.over;
-    if (round === 1) L('plan', { back: r1(a.back), goes: r1(a.goes), age: r1(aged), first: a.back >= a.goes + aged ? 'jack' : 'her' }, 'skip');
-    else L('round', { round, size: r1(a.need) }, 'skip');
-    const his = () => {
-      // give back above Y, the farthest ahead first, never below H — unwatched too (that is what changes)
-      let freed = 0;
-      let jack = m.jack;
-      const list = measure(w, side).files.filter((e) => !e.watched).sort((x, y) => rank(w, y) - rank(w, x) || x.idx - y.idx);
-      for (const e of list) {
-        if (freed >= a.back - TOL) break;
-        if (jack - e.size < a.half - TOL) continue;
-        giveBack(w, side, e, 'back_borrowed', L);
-        freed += e.size;
-        jack -= e.size;
-      }
-    };
-    const hers = () => { herAge(w, side, L); if (a.goes > TOL) herOldest(w, side, a.goes, 'goes_x', L); };
-    if (a.back >= a.goes + aged) { his(); hers(); } else { hers(); his(); }
-    if (round === 1 && c.nightWrites > 0 && w.nightWrites > 0) { L('night_writes', { size: w.nightWrites }, 'skip'); writeDay(w, side, w.nightWrites, L); }
-  }
-  const yb = mathOf(w, side).yb;
-  side.fetchedTonight = fill(w, side, (e, now) => (now.nm + now.jack + now.others + e.size > yb + TOL ? 'skip_y' : ''), L);
   tell(w, side, L);
 }
 
@@ -444,7 +389,7 @@ const INVARIANTS = ['jack', 'others', 'unwatched', 'pingpong', 'limit'];
 function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: true, first: null, fails: 0, told: null }])); }
 
 /**
- * The five checks of a night, against the NEW rules' numbers (for 1.62.1 too — that is the comparison):
+ * The five checks of a night:
  *   jack       he holds ≥ min(H, what he wants) (less one file: whole files) — unless held back while the others hold
  *              more than their half (she moves theirs only from X on) — and never more than his fill limit after the night; over it only with files he
  *              may not give back (unwatched, watched lately) and nothing fetched
@@ -459,7 +404,7 @@ function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: tr
 function invariants(w, side, before) {
   const m = mathOf(w, side);
   const files = measure(w, side).files;
-  const want = wanted(w, { rules: 'new' });
+  const want = wanted(w);
   const wantTotal = sum(want.map((e) => e.size));
   const heldWanted = sum(want.filter((e) => side.pool.has(e.id)).map((e) => e.size));
   const biggest = Math.max(0, ...want.filter((e) => !side.pool.has(e.id)).map((e) => e.size));
@@ -498,12 +443,12 @@ function newSim(cfg, seed) {
   const w = newWorld({ unwatchedDays: 30, ...cfg }, seed == null ? 162 : seed);
   w.nightWrites = 0;
   growFor(w, w.cfg.jack0 || 0);
-  const sim = { w, sides: { new: newSide('new', w), v162: newSide('v162', w) } };
+  const sim = { w, sides: { new: newSide('new', w) } };
   for (const side of Object.values(sim.sides)) {      // the first night fills him (day 0)
     // what he holds already (real data): his queue's files up to that size, a person at a time in turn — day 0 holds
     // the measured amount (within one file)
     if (w.cfg.jack0 > 0) {
-      const per = w.people.map((_, u) => wanted(w, side).filter((e) => e.uid === u).sort((x, y) => rank(w, x) - rank(w, y) || x.idx - y.idx));
+      const per = w.people.map((_, u) => wanted(w).filter((e) => e.uid === u).sort((x, y) => rank(w, x) - rank(w, y) || x.idx - y.idx));
       let held = 0;
       for (let turn = 0; held < w.cfg.jack0 && per.some((l) => l.length); turn++) {
         const l = per[turn % per.length];
@@ -516,7 +461,7 @@ function newSim(cfg, seed) {
     // own test values: the first night fills him; the server's: day 0 is the pool as measured (no night before it)
     side.eve = mathOf(w, side);                // day 0 «before the run»: the start as set
     side.prevMorn = null;
-    if (!(w.cfg.jack0 > 0)) (side.rules === 'new' ? streamerNight : v162Night)(w, side, logger(w, side));
+    if (!(w.cfg.jack0 > 0)) streamerNight(w, side, logger(w, side));
     side.morn = mathOf(w, side);
     record(w, side, { spilled: 0, forced: 0, pingpong: 0, told: 0 }, false);
   }
@@ -549,7 +494,7 @@ function simDay(sim) {
     // (after the joint night run)
     side.prevMorn = side.morn;
     side.eve = mathOf(w, side);
-    (side.rules === 'new' ? streamerNight : v162Night)(w, side, L);
+    streamerNight(w, side, L);
     side.morn = mathOf(w, side);
     record(w, side, before, true);
   }
@@ -683,7 +628,7 @@ function segWidths(values, min) {
   return out;
 }
 
-const math = { streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, v162Math, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
+const math = { streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
   INVARIANTS, EVENTS: Object.keys(EVENTS), rng, PINGPONG_DAYS };
 if (typeof module !== 'undefined' && module.exports) module.exports = math;       // tests/run.php under node
 if (typeof Office === 'undefined') return;
@@ -696,7 +641,7 @@ if (typeof Office === 'undefined') return;
  * simulation lives here across the wizard's drawings (V); a control redraws only the simulator's body, in place.
  */
 const GIB = 1024 * 1024 * 1024;
-const V = { src: null, cfg: null, seed: 162, sim: null, rules: 'new', results: null, shown: '', measured: null, busy: false };
+const V = { src: null, cfg: null, seed: 162, sim: null, results: null, shown: '', measured: null, busy: false };
 // [key, min, max, step, unit] — unit: gb | pct | n | days. NM, what the others hold, X and Y are set in the bar (its handles);
 // the pool's size stays a slider, the rest folds into «More values»
 const POOL_SLIDER = ['pool', 128, 4096, 32, 'gb'];
@@ -724,7 +669,7 @@ function setCfg(h, cfg) {
 }
 /** The start as the «before the run» bar shows it now: NM, what the others and Jack Streamer hold — a handle moves one */
 function shownStart() {
-  const m = V.sim.sides[V.rules].eve;
+  const m = V.sim.sides.new.eve;
   return { ...V.cfg, nm: r1(m.nm), others0: r1(m.others), jack0: r1(m.jack), nmGrow: V.cfg.nmGrow };
 }
 
@@ -853,26 +798,15 @@ function draw(h, body) {
   math.EVENTS.forEach((id) => ev.appendChild(h.button(T('sim.ev.' + id), 'small plain', go(() => simEvent(V.sim, id)))));
   body.appendChild(ev);
 
-  // ---- which rule set the picture shows
+  // ---- the day on display
   const pick = el('div', 'jo-sim-src');
-  pick.appendChild(el('span', 'jo-sim-label', T('sim.rules')));
-  [['new', 'sim.rules_new'], ['v162', 'sim.rules_old']].forEach(([v, key]) => {
-    const l = el('label', 'check');
-    const i = el('input');
-    i.type = 'radio';
-    i.name = 'jo-sim-rules';
-    i.checked = V.rules === v;
-    i.onchange = () => { V.rules = v; redraw(h, body); };
-    l.append(i, el('span', '', T(key)));
-    pick.appendChild(l);
-  });
   pick.appendChild(el('span', 'jo-sim-day', V.shown ? T('sim.day_of', { n: V.sim.w.day, scenario: T('sim.sc.' + V.shown) }) : T('sim.day', { n: V.sim.w.day })));
   body.appendChild(pick);
   body.appendChild(picture(h, body));
   body.appendChild(checks(h));
-  body.appendChild(totals(h, V.sim.sides[V.rules]));
-  body.appendChild(dayTable(h, V.sim.sides[V.rules]));
-  body.appendChild(logBox(h, V.sim.sides[V.rules]));
+  body.appendChild(totals(h, V.sim.sides.new));
+  body.appendChild(dayTable(h, V.sim.sides.new));
+  body.appendChild(logBox(h, V.sim.sides.new));
   body.appendChild(scenarios(h, body));
 }
 
@@ -1022,7 +956,7 @@ function picture(h, body) {
 
   /** Both bars, their marks, the handles and the words from the simulation as it stands (in place — during a drag too) */
   function update() {
-    const side = V.sim.sides[V.rules];
+    const side = V.sim.sides.new;
     const tag = body.querySelector('.jo-sim-day');       // the day shown (a drag starts over at day 0)
     if (tag && !V.shown) tag.textContent = T('sim.day', { n: V.sim.w.day });
     eve.update(side.eve, side.prevMorn);
@@ -1106,21 +1040,19 @@ function checks(h) {
   const { T, el } = h;
   const t = el('table', 'jo-sim-table');
   const head = el('tr');
-  head.append(el('th', '', T('sim.checks')), el('th', '', T('sim.rules_new')), el('th', '', T('sim.rules_old')));
+  head.append(el('th', '', T('sim.checks')), el('th', '', ''));
   t.appendChild(head);
   for (const k of INVARIANTS) {
     const tr = el('tr');
     const name = el('td', '', T('sim.inv.' + k));
     name.title = T('sim.inv.' + k + '_tip');
     tr.appendChild(name);
-    for (const r of ['new', 'v162']) {
-      const s = V.sim.sides[r].inv[k];
-      const td = el('td');
-      // «told at once» (the pool over X after a night, reported): expected by the rules — said, not red
-      if (s.ok && s.told != null) td.appendChild(el('span', 'chip warn', T('sim.told_from', { day: s.told })));
-      else td.appendChild(el('span', 'chip ' + (s.ok ? 'ok' : 'danger'), s.ok ? T('sim.green') : T('sim.red_from', { day: s.first })));
-      tr.appendChild(td);
-    }
+    const s = V.sim.sides.new.inv[k];
+    const td = el('td');
+    // «told at once» (the pool over X after a night, reported): expected by the rules — said, not red
+    if (s.ok && s.told != null) td.appendChild(el('span', 'chip warn', T('sim.told_from', { day: s.told })));
+    else td.appendChild(el('span', 'chip ' + (s.ok ? 'ok' : 'danger'), s.ok ? T('sim.green') : T('sim.red_from', { day: s.first })));
+    tr.appendChild(td);
     t.appendChild(tr);
   }
   const wrap = el('div', 'jo-sim-scroll');
@@ -1203,7 +1135,7 @@ function scenarios(h, body) {
   if (!V.results) return box;
   const t = el('table', 'jo-sim-table');
   const head = el('tr');
-  head.append(el('th', '', T('sim.col.scenario')), el('th', '', T('sim.rules_new')), el('th', '', T('sim.rules_old')), el('th', '', ''));
+  head.append(el('th', '', T('sim.col.scenario')), el('th', '', T('sim.col.result')), el('th', '', ''));
   t.appendChild(head);
   const cell = (x) => {
     const td = el('td');
@@ -1215,7 +1147,7 @@ function scenarios(h, body) {
   };
   V.results.forEach((res) => {
     const tr = el('tr');
-    tr.append(el('td', '', `${T('sim.sc.' + res.id)} · ${h.nOf('days', res.days)}`), cell(res.r.new), cell(res.r.v162));
+    tr.append(el('td', '', `${T('sim.sc.' + res.id)} · ${h.nOf('days', res.days)}`), cell(res.r.new));
     const td = el('td');
     td.appendChild(h.button(T('sim.show'), 'small plain', () => {
       V.sim = runScenario(res.id, V.cfg, V.seed);
