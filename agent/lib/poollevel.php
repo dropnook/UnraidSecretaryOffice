@@ -26,7 +26,7 @@ const POOL_LIST_MAX  = 200000; // lines of EmbyCache's list read
 /**
  * The numbers (pure). x: % of the whole pool (0: no limit); jack: Jack Emby's bytes on the pool. `need`: what must go
  * to be at X; `never`: what never moves reaches X; `jack_over`: what never moves and Jack Emby's bytes reach X together.
- * The keys after `free` are only for readers from before 2026-10-14 (agent/desks/emby.php until its rewrite): y = x,
+ * The keys after `free` are only for readers from before 2026-10-14 (agent/desks/jack.php until its rewrite): y = x,
  * no half, nothing borrowed.
  */
 function poolLevelMath(int $size, int $used, int $movable, int $x, int $jack): array

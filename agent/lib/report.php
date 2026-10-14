@@ -96,7 +96,7 @@ const REPORT_LOG_LABELS = [
     'snapshot'  => ['Ms. Snapshotini: ', 'Snapshot schedules: ', 'Snapshot scan', 'Deleted: ', 'Released: ', 'Renamed: ', 'Held: '],
     'backup'    => ['Backup: ', 'Mr. Backup: '],
     'restore'   => ['Mr. Restori'],
-    'emby'      => ['Jack Emby: '],
+    'jack'      => ['Jack Emby: '],
     'moverelli' => ['Ms. Moverelli: '],
     'logs'      => ['Ms. Protocolli: '],
     'cleanup'   => ['Dustdevil', 'cleanup: ', 'Measured '],
@@ -197,7 +197,7 @@ function reportKnow(array $ctx = []): array
     foreach ((array) ($supporter['codes'] ?? []) as $c) {                              // the claim codes (one-time)
         $secrets[] = is_array($c) && is_string($c['code'] ?? null) ? $c['code'] : '';
     }
-    foreach ((array) ((readJson($ctx['emby_settings'] ?? DATA_DIR . '/embycache/embycache_settings.json') ?? [])['instances'] ?? []) as $i) {
+    foreach ((array) ((readJson($ctx['jack_settings'] ?? DATA_DIR . '/embycache/embycache_settings.json') ?? [])['instances'] ?? []) as $i) {
         $secrets[] = is_array($i) && is_string($i['api_key'] ?? null) ? $i['api_key'] : '';
     }
 
