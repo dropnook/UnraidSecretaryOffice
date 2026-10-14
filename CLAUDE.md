@@ -194,11 +194,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   not yet created refuses a real run (scheduled refusals fold into one counted line, never notified); her setup proposes his
   list for all shares in the form only. Import: a protecting list that can't be read blocks it, never silently disappears. **The
   night run** (agent/lib/nightrun.php): Jack Emby and she = ONE run on ONE schedule (her cron line → `nightRun()`): check →
-  reckon (`nightPlan()`) → free → recheck (≤ 3 rounds) → fill (Jack Emby last) → tell; one lock `night.lock`; «Stop after this
-  file» stops the night; both pages show `Office.nightCard()`. **The pool** (agent/lib/poollevel.php): one number X; Y = X −
-  offset (default 10, never asked as a field); Jack Emby's guaranteed half H; he gives back only what he borrowed over Y, never
-  below H; she: the age rule always, from X the oldest down to below Y (never an excluded file, per share only its own X), his
-  list never. No slider, no refusals.
+  reckon (`nightPlan()`) → free (Jack Emby's watched, then her oldest) → recheck (≤ 3 rounds) → fill (Jack Emby last, only up
+  to X) → tell; one lock `night.lock`; «Stop after this file» stops the night; both pages show `Office.nightCard()`; night.json
+  `picture` = the live graphic's numbers. **The pool** (agent/lib/poollevel.php, 2026-10-14): **only X** — no Y, offset, halves
+  or borrowing. Jack Emby gives back only what was watched (`EMBYCACHE_WATCHED_ONLY`, never by rank) and fetches up to X and
+  his budget; she: the age rule always, from X the oldest files across the pool (younger of birth/mtime) down to below X (never
+  an excluded file, per share only its own X), his list never. Over X only by his unwatched → «his budget is too big».
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
   nothing read until chosen; routers' files only while their disks are awake. **Read only.**
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
