@@ -211,7 +211,8 @@ function runCard(p, now) {
 // run, the pool after it (forecast while it goes, measured once done), where she moves to (the array or the secondary
 // pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
 // Jack Streamer's part in two (the owner, 2026-10-15): not yet watched in his colour, already watched (goes back) in green
-const PIC_SEGS = ['fixed', 'others', 'jack', 'watched', 'free'];
+// and his reserved room (owner + helmi1987, 2026-10-15): hatched after his part — his budget's room not yet filled
+const PIC_SEGS = ['fixed', 'others', 'jack', 'watched', 'reserve', 'free'];
 const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
 const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
 
@@ -243,8 +244,10 @@ function segWidths(values, min) {
  * bar's width in pixels (for the 10 px minimum), done = the run ended, destPx = the target bar's width (its used part keeps
  * the 10 px too). {measured, pool, x (0…1, null: no limit), before,
  * after, forecast (the after bar is a forecast), dest {to, size, used, measured, w}}; a bar: {size, used, jack (all of his),
- * watched (of it what was watched; null: not known — no split), segs [{k, bytes, w}]} — its free part is what the size leaves
- * (the segments sum to the bar); `jack` = what isn't watched (all of his while watched isn't known). Not measured: measured false.
+ * watched (of it what was watched; null: not known — no split), reserve (his reserved room, true value; null: no budget),
+ * assumed (forecast: what waits with him not known — he fills his reserve), segs [{k, bytes, w}]} — its free part is what the
+ * size leaves (the segments sum to the bar); `jack` = what isn't watched (all of his while watched isn't known); the reserve
+ * is drawn out of the free part (never more than it). Not measured: measured false.
  */
 function pictureBars(pic, px, done, destPx) {
   const phases = (pic && typeof pic.phases === 'object' && pic.phases) || {};
@@ -264,9 +267,12 @@ function pictureBars(pic, px, done, destPx) {
     const watched = b.jack_watched == null || !Number.isFinite(Number(b.jack_watched)) ? null : Math.min(jack, Math.max(0, Number(b.jack_watched)));
     const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: jack - (watched || 0), watched: watched || 0 };
     const used = Math.min(size, val.fixed + val.others + jack);
-    val.free = Math.max(0, size - used);
+    const free = Math.max(0, size - used);
+    const reserve = b.jack_reserve == null || !Number.isFinite(Number(b.jack_reserve)) ? null : Math.max(0, Number(b.jack_reserve));
+    val.reserve = Math.min(free, reserve || 0);
+    val.free = free - val.reserve;
     const w = segWidths(PIC_SEGS.map((k) => val[k]), min);
-    return { size, used, jack, watched, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
+    return { size, used, jack, watched, reserve, assumed: b.assumed === true, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
   };
   const x = Number(pic.x) > 0 ? Math.min(1, Number(pic.x) / 100) : null;
   const after = end || fc;
@@ -301,9 +307,11 @@ function nightPicture(n) {
   const segName = (k, b) => T(k === 'jack' && b && b.watched ? 'pic.seg.unwatched' : 'pic.seg.' + k);
   let data = null;
   /** One bar with its title and X; its segments' words on hover (title) */
-  function barRow(title, b) {
+  function barRow(title, b, note) {
     const row = el('div', 'mo-pic-row');
-    row.appendChild(el('div', 'mo-pic-label', title));
+    const label = el('div', 'mo-pic-label', title);
+    if (note) label.appendChild(el('span', 'mo-pic-note', note));
+    row.appendChild(label);
     const bar = el('div', 'mo-pic-bar');
     bar.setAttribute('role', 'img');
     bar.setAttribute('aria-label', `${title}: ${T('pic.bar_label', { pct: pct(b.used, b.size) })}`);
@@ -333,7 +341,7 @@ function nightPicture(n) {
       rowsBox.appendChild(el('p', 'mo-pic-none', T('pic.pool_unmeasured')));
     } else {
       rowsBox.appendChild(barRow(T('pic.before'), data.before));
-      if (data.after) rowsBox.appendChild(barRow(T(data.forecast ? 'pic.forecast' : 'pic.after'), data.after));
+      if (data.after) rowsBox.appendChild(barRow(T(data.forecast ? 'pic.forecast' : 'pic.after'), data.after, data.forecast && data.after.assumed ? T('pic.assumed') : ''));
       // the legend: each part before → after (the true values)
       const part = (bar, k) => (!bar ? null : k === 'jack' ? bar.jack : bar.segs.find((s) => s.k === k).bytes);
       for (const k of PIC_SEGS) {
@@ -343,6 +351,17 @@ function nightPicture(n) {
           if (wb == null) continue;
           const it = el('span', 'mo-pic-key');
           it.append(el('i', 'mo-pic-seg mo-seg-watched'), el('span', '', T('pic.watched', { size: fmt.size(wb) })));
+          legend.appendChild(it);
+          continue;
+        }
+        if (k === 'reserve') {
+          // «Jack Streamer reserves … (his budget)»: only with a budget — the true values, before → after
+          const rb = data.before.reserve;
+          const ra = data.after ? data.after.reserve : null;
+          if (rb == null && ra == null) continue;
+          const size = ra == null || rb == null || ra === rb ? fmt.size(rb ?? ra) : T('pic.change', { before: fmt.size(rb), after: fmt.size(ra) });
+          const it = el('span', 'mo-pic-key');
+          it.append(el('i', 'mo-pic-seg mo-seg-reserve'), el('span', '', T('pic.reserve', { size })));
           legend.appendChild(it);
           continue;
         }

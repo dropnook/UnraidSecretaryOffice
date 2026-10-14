@@ -67,6 +67,9 @@
 .mo-seg-others{background:var(--ink2)}
 .mo-seg-jack{background:var(--accent)}
 .mo-seg-watched{background:var(--good)}  /* Jack Streamer's already watched — green means only this (2026-10-15) */
+/* Jack Streamer's reserved room (his budget not yet filled): his colour hatched over the free part */
+.mo-seg-reserve{background:repeating-linear-gradient(135deg, var(--accent) 0 2px, transparent 2px 6px)}
+.mo-pic-note{margin:0 0 0 8px; font-size:11.5px; color:var(--muted)}
 .mo-seg-free{background:var(--surface)}
 .mo-seg-dest{background:var(--mo-dest)}  /* the array / second pool: its own colour, apart from the pool's parts */
 .mo-pic-x{position:absolute; top:-3px; bottom:-3px; border-left:2px solid var(--danger)}
