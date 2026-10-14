@@ -818,18 +818,20 @@ function dialogFit() {
   if (!backdrop || backdrop.hidden) return;
   const st = backdrop.style;
   st.top = st.left = st.width = st.height = st.right = st.bottom = '';
+  const s = fixedSpace();       // the office's own px (the text-size switch's zoom)
   const r = backdrop.getBoundingClientRect();
-  if (Math.abs(r.top) > 0.5 || Math.abs(r.left) > 0.5 || Math.abs(r.height - window.innerHeight) > 0.5 || Math.abs(r.width - window.innerWidth) > 0.5) {
-    st.top = `${-r.top}px`;
-    st.left = `${-r.left}px`;
+  const top = r.top / s.k, left = r.left / s.k, height = r.height / s.k, width = r.width / s.k;
+  if (Math.abs(top) > 0.5 || Math.abs(left) > 0.5 || Math.abs(height - s.h) > 0.5 || Math.abs(width - s.w) > 0.5) {
+    st.top = `${-top}px`;
+    st.left = `${-left}px`;
     st.right = st.bottom = 'auto';
-    st.width = `${window.innerWidth}px`;
-    st.height = `${window.innerHeight}px`;
+    st.width = `${s.w}px`;
+    st.height = `${s.h}px`;
   }
   const dlg = $('#sso-dialog');
   dlg.style.maxHeight = '';
   const css = parseFloat(getComputedStyle(dlg).maxHeight);
-  const room = window.innerHeight - dlg.getBoundingClientRect().top - 16;
+  const room = s.h - dlg.getBoundingClientRect().top / s.k - 16;
   dlg.style.maxHeight = `${Math.max(160, Math.floor(Number.isFinite(css) ? Math.min(css, room) : room))}px`;
 }
 if (typeof window !== 'undefined' && window.addEventListener) {

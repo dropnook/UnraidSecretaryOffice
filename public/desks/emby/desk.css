@@ -139,8 +139,8 @@
 }
 .jo-media{margin:4px 0 14px}
 .jo-media-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
-.jo-media-row{display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 180px), 1fr))}
-.jo-media-card{min-height:0; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px}
+.jo-media-row{display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 230px), 1fr))}
+.jo-media-card{min-height:0; padding:10px 14px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px}
 .jo-media-card.on{border-color:var(--accent)}
 .jo-media-name{display:inline-flex; align-items:center; gap:10px; min-width:0}
 /* the logo (loaded from the icon set) over a round monogram in the brand's colour (Unraid's palette) — the monogram shows
