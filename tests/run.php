@@ -30519,6 +30519,9 @@ function testStreamerTab(): void
     check('streamer tab: the wizard and the simulator are gone — no modal, no streamer.js, no step dialog',
         !is_file(OFFICE_WEB . '/desks/emby/streamer.js') && !str_contains($js, 'openWizard') && !str_contains($js, 'streamer.js') && !str_contains($js, 'modal: true')
         && !str_contains($js, 'pool_measure'));
+    check('streamer tab: the rule\'s sentences are plain help text, not orange callouts (the page and the pool\'s section)',
+        str_contains($js, "ruleTexts(budgetGb(form.values.cache_budget)).forEach((t) => box.appendChild(el('p', 'role jo-slice', t)));")
+        && str_contains($js, "savedRule().forEach((line) => s.appendChild(el('p', 'role jo-slice', line)));"));
     $gone = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         foreach (array_keys(langFile(OFFICE_WEB . "/desks/emby/lang/$l.json")) as $k) {

@@ -2038,11 +2038,12 @@ function setupScope() {
 
 /**
  * The rule in plain sentences (2026-10-14, the owner: instead of the simulator) — what he fetches, the budget as the cap,
- * what goes back, Ms. Moverelli's limit X. Pure but for the DOM node; the words: ruleTexts().
+ * what goes back, Ms. Moverelli's limit X. Explanations, not warnings: plain help text (orange is for warnings only).
+ * The words: ruleTexts().
  */
 function ruleWords() {
   const box = el('div', 'jo-rule');
-  ruleTexts(budgetGb(form.values.cache_budget)).forEach((t) => box.appendChild(el('p', 'callout jo-slice', t)));
+  ruleTexts(budgetGb(form.values.cache_budget)).forEach((t) => box.appendChild(el('p', 'role jo-slice', t)));
   return box;
 }
 /** [sentence, …]: his rule with the budget (GB; 0: what is missing), her limit X and his priority (or that she isn't set up) — pure */
