@@ -37,6 +37,7 @@ function took(j) {
 // ------------------------------------------------------------------ her run card (2026-10-12, like Mr. Restori's)
 let progress = null;          // Smart Mover's live status while a real run goes (the part «progress»)
 let nightNow = null;          // the night run's short state while it goes (the part «progress»: phase, round, who works)
+let jackLive = null;          // his step at work in the night (free, fill): his live panel's {real, progress} (the part «progress»)
 let stopping = null;          // the stop file's why while she stops (user | now | mover)
 let progressAt = 0;
 let progTimer = null;
@@ -57,9 +58,10 @@ function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
   progressAt = p.time;
-  if (!p.real) { progress = null; stopping = null; nightNow = null; load(true); return; }     // the run ended: her state anew — the card goes
+  if (!p.real) { progress = null; stopping = null; nightNow = null; jackLive = null; load(true); return; }     // the run ended: her state anew — the card goes
   progress = p.progress || null;
   nightNow = p.night || null;
+  jackLive = p.jack || null;
   stopping = p.stopping || null;
   redrawCard();
   if (picLive && picLive.isConnected && nightNow) picLive.update(nightNow);
@@ -67,7 +69,34 @@ function tookProgress(j) {
 }
 function redrawCard() {
   const old = view && view.querySelector ? view.querySelector('.mo-run') : null;
-  if (old && old.replaceWith) old.replaceWith(runCard(progress, Date.now() / 1000));
+  if (!old || !old.replaceWith) return;
+  const card = runCard(progress, Date.now() / 1000);
+  old.replaceWith(card);
+  // Jack Streamer's panel under it: drawn anew, comes with his step, goes with it
+  const was = view.querySelector('.mo-jack');
+  const panel = jackPanel(nightNow);
+  if (was) { if (panel) was.replaceWith(panel); else was.remove(); } else if (panel && card.after) card.after(panel);
+}
+
+/** His step of the night at work (free = give back, fill = fetch) and his live view here: the panel shows */
+const jackAtWork = (nn) => !!(nn && nn.who === 'jack' && ['free', 'fill'].includes(nn.phase) && jackLive && jackLive.real && Office.jackRows);
+
+/**
+ * Jack Streamer's live panel under her night card while his step runs — his page's bars (core.js Office.jackRows, lent by
+ * his desk.js): the bracket, «back to the array», one per person, the file in flight; «Jack Streamer at work» (her page),
+ * a link to his. «Stop after this file» stays her card's (the whole night). null otherwise.
+ */
+function jackPanel(nn) {
+  if (!jackAtWork(nn)) return null;
+  const box = el('div', 'box jo-prog running mo-jack');
+  const head = el('div', 'jo-prog-head');
+  head.append(el('span', 'spin'), el('span', '', T('rc.jack_title')));
+  const open = link(T('rc.night_jack_open'), () => Office.go('#/jack'));
+  open.className = 'mo-link mo-jack-open';
+  head.appendChild(open);
+  box.appendChild(head);
+  Office.jackRows(box, jackLive.progress);
+  return box;
 }
 
 /**
@@ -131,7 +160,7 @@ function runCard(p, now) {
   let top;
   if (nn) {
     card = Office.nightCard(nn, { T, now, stopping, cls: 'mo-run' });
-    if (nn.who === 'jack') {
+    if (nn.who === 'jack' && !jackAtWork(nn)) {
       const line = el('div', 'card-line', T('rc.night_jack') + ' ');
       line.appendChild(link(T('rc.night_jack_open'), () => Office.go('#/jack')));
       card.appendChild(line);
@@ -768,6 +797,9 @@ function hints() {
   }
   if (realRun()) {
     out.push(runCard(progress, Date.now() / 1000));
+    // right under it, while Jack Streamer's step runs: his live panel (the same as on his page)
+    const jp = jackPanel(nightNow || (nightGoing() ? night().last : null));
+    if (jp) out.push(jp);
     // under the card: the night's picture — the pool before, the forecast after, where she moves to, files on the way
     const pic = livePicture(nightNow || (nightGoing() ? night().last : null));
     if (pic) out.push(pic);
@@ -2127,7 +2159,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

@@ -241,6 +241,8 @@ function nightHost(?array $h = null): array
         'jack_stop'   => $n['jack_stop'] ?? (defined('JACK_DATA') ? JACK_DATA . '/office-stop.json' : ''),
         // EmbyCache's live progress (RAM): the files his step did (`recent`) for the picture
         'jack_live'   => $n['jack_live'] ?? fn (): array => function_exists('jackProgressPaths') ? (array) (readJson(jackProgressPaths()['file']) ?? []) : [],
+        // his live panel's state (jack-progress.php: {real, progress}) — her card shows it while his step runs
+        'jack_progress' => $n['jack_progress'] ?? fn (): array => function_exists('jackProgressState') ? jackProgressState() : [],
         'notify'      => $n['notify'] ?? fn (string $subject, string $body): bool => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli')),
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
         // seconds the pool gets after Jack Emby's give-back before it is measured (ZFS shows freed space a txg later)

@@ -52,6 +52,8 @@
 .mo-field-err:empty{display:none}
 /* the run card's foot: the counts left, «Log» and «Stop after this file» right (Jack Emby's live panel) */
 .mo-run-foot{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:6px 14px}
+/* Jack Streamer's live panel under her night card while his step runs (his look: jack/desk.css .jo-prog) */
+.mo-jack-open{margin-left:auto; font-weight:400}
 .mo-run-right{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-left:auto}
 /* the night's picture (2026-10-14): the pool before and after the run, where she moves to, a file on its slow way */
 .mo-pic{--mo-dest:color-mix(in srgb, var(--blue-800, #486dba) 80%, var(--text-color)); position:relative; display:block; min-height:0; padding:10px 14px 12px; margin:0 0 12px; overflow:hidden}

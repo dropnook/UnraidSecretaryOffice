@@ -33867,6 +33867,123 @@ JS);
 }
 
 /**
+ * Jack Streamer's live panel on Ms. Moverelli's page (owner 2026-10-15: every part of the night visible on her page):
+ * while his step runs (free = give back, fill = fetch) her part «progress» carries his live view and his panel stands right
+ * under her card — his page's bars (core.js Office.jackRows, lent by his desk.js), «Jack Streamer at work»; absent in her
+ * steps, between them, without his view; «Stop after this file» only on her card; never «undefined».
+ */
+function testNightJackInHerCard(): void
+{
+    $tmp = hardeningTmp('night-jack-her');
+    $v = [];
+    $hostWas = $GLOBALS['moverelliHost'] ?? null;
+    $nightWas = $GLOBALS['nightHost'] ?? null;
+    moverelliFixture($tmp, $v);
+    $h = moverelliHost();
+    $dir = $h['dir'];
+    $view = ['real' => true, 'progress' => ['phase' => 'fill', 'total' => ['files' => 2, 'bytes' => 9, 'done_files' => 1, 'done_bytes' => 4]]];
+    $GLOBALS['nightHost'] = ['jack_live' => fn () => [], 'jack_progress' => function () use (&$view) { return $view; }, 'jack_runs' => fn () => []] + ($nightWas ?? []);
+    $night = ['v' => 1, 'mode' => 'run', 'by' => 'schedule', 'started' => time() - 60, 'phase' => 'fill', 'round' => 1, 'who' => 'jack', 'jack' => true, 'result' => null];
+    $lock = fopen("$dir/night.lock", 'c');
+    flock($lock, LOCK_EX);
+    $poll = function (array $n) use ($dir, $h) { file_put_contents("$dir/night.json", json_encode($n + ['v' => 1])); $st = moverelliProgressState($h); return array_key_exists('jack', $st) ? $st['jack'] : 'missing'; };
+    same('jack in her card (agent): his fill and free step — his view in her poll; her step, between steps, the check — none',
+        [$view, $view, null, null, null],
+        [$poll($night), $poll(['phase' => 'free'] + $night), $poll(['who' => 'her', 'phase' => 'free'] + $night), $poll(['who' => null, 'phase' => 'recheck'] + $night), $poll(['phase' => 'check'] + $night)]);
+    $view = ['real' => false, 'progress' => null];
+    same('jack in her card (agent): his job not yet running — not real, no numbers', ['real' => false, 'progress' => null], $poll($night));
+    flock($lock, LOCK_UN);
+    fclose($lock);
+    same('jack in her card (agent): no night going — nothing of his', null, $poll($night));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
+    check('jack in her card (agent): his view read from his own part (jackProgressState, RAM only)', str_contains($src, "function_exists('jackProgressState') ? jackProgressState() : []"));
+    if ($hostWas === null) unset($GLOBALS['moverelliHost']); else $GLOBALS['moverelliHost'] = $hostWas;
+    if ($nightWas === null) unset($GLOBALS['nightHost']); else $GLOBALS['nightHost'] = $nightWas;
+
+    $node = testsNode();
+    if ($node === '') {
+        check('jack in her card (page): node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, className: cls, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {}, attrs: {},
+  set innerHTML(v) { this.children = []; }, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; },
+  setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, querySelectorAll: () => [], scrollIntoView() {} });
+const went = [];
+globalThis.document = { createTextNode: (t) => t, hidden: false };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: (d) => (k, p) => d + ':' + T(k, p), t: T, el: mk, fmt: { size: (b) => b + ' B', number: (n) => String(n), relative: (t) => 'R' + t, cron: (c) => c, time: (t) => 'T' + t, duration: (s) => s + 's', date: (t) => 'D' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: (r) => went.push(r), sectionHead: () => mk('h'),
+  runSteps: (steps, at) => ({ ...mk('div', 'steps'), steps, at }), runBar: () => mk('div', 'bar'), runRate: () => null, jackRows: null };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const find = (n, f) => (typeof n === 'string' ? null : f(n) ? n : n.children.map((c) => find(c, f)).find(Boolean) || null);
+const view = { real: true, progress: { phase: 'fill', speed: 10, current: { phase: 'fill', rel: 'Familienfilme/Sommer/a.mkv', size: 400, done: 150, source: 'resume', title: 'Sommer' },
+  users: [{ name: 'Mutter', server: 'Emby', files: 2, bytes: 600, done_files: 1, done_bytes: 300, eta: 1500, here: true }],
+  total: { files: 2, bytes: 600, done_files: 1, done_bytes: 300, eta: 1500, running: 30 } } };
+const n0 = { mode: 'run', started: 1000, phase: 'fill', round: 1, who: 'jack', jack: true, running: true };
+const out = {};
+m.setJackLive(view);
+const p = m.jackPanel(n0);
+out.fill = p ? texts(p) : null;
+out.cls = p ? p.cls : null;
+out.free = !!m.jackPanel({ ...n0, phase: 'free' });
+out.her = m.jackPanel({ ...n0, who: 'her', phase: 'free' });
+out.between = m.jackPanel({ ...n0, who: null, phase: 'recheck' });
+out.check = m.jackPanel({ ...n0, phase: 'check' });
+out.none = m.jackPanel(null);
+m.setJackLive({ real: false, progress: null });
+out.notReal = m.jackPanel(n0);
+m.setJackLive({ real: true, progress: null });
+out.planning = texts(m.jackPanel(n0));
+find(m.jackPanel(n0), (x) => x.textContent === 'moverelli:rc.night_jack_open').onclick();
+out.went = went.slice();
+// her card meanwhile: no link line while his panel shows (the panel carries it), one stop for the whole night; his panel gone: the line again
+m.setNight(n0);
+m.setJackLive(view);
+const card = m.runCard(null, 1600);
+out.card = texts(card);
+m.setJackLive(null);
+out.cardNoPanel = texts(m.runCard(null, 1600));
+// without his desk loaded (his desk.js not there): no panel, the line
+const rows = Office.jackRows;
+Office.jackRows = null;
+m.setJackLive(view);
+out.noDesk = m.jackPanel(n0);
+Office.jackRows = rows;
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/jack/desk.js', OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('jack in her card (page): it runs', $j !== [], $out . $err);
+    $fill = $j['fill'] ?? [];
+    check('jack in her card (page): his fill — «Jack Streamer at work», his bars (total, per person), the file in flight, the way to his page; no stop of its own',
+        in_array('moverelli:rc.jack_title', $fill, true) && in_array('jack:progress.total', $fill, true) && in_array('Mutter', $fill, true)
+        && in_array('Familienfilme/Sommer/a.mkv', $fill, true) && in_array('moverelli:rc.night_jack_open', $fill, true)
+        && !in_array('jack:progress.stop', $fill, true) && !in_array('jack:progress.title', $fill, true), json_encode($fill));
+    same('jack in her card (page): his look (jo-prog), present in his free step; absent in hers, between steps, the check, no night, his job not running, his desk not loaded',
+        ['box jo-prog running mo-jack', true, null, null, null, null, null, null],
+        array_map(fn ($k) => array_key_exists($k, $j) ? $j[$k] : 'x', ['cls', 'free', 'her', 'between', 'check', 'none', 'notReal', 'noDesk']));
+    check('jack in her card (page): before his first file — «working out what goes where»; the link opens his page',
+        in_array('jack:progress.plan', $j['planning'] ?? [], true) && ($j['went'] ?? null) === ['#/jack'], json_encode([$j['planning'] ?? null, $j['went'] ?? null]));
+    $card = $j['card'] ?? [];
+    check('jack in her card (page): her card while his panel shows — no «each file on his page» line, one «Stop after this file»; without the panel the line again',
+        !in_array('moverelli:rc.night_jack ', $card, true) && count(array_filter($card, fn ($x) => $x === 'moverelli:stop')) === 1
+        && in_array('moverelli:rc.night_jack ', $j['cardNoPanel'] ?? [], true), json_encode([$card, $j['cardNoPanel'] ?? null]));
+    check('jack in her card (page): no «undefined» anywhere', !str_contains(json_encode($j), 'undefined'), (string) $out);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = (string) ((readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [])['rc.jack_title'] ?? '');
+        check("jack in her card lang $l: «Jack Streamer» in the panel's title", str_contains($t, 'Jack Streamer'), $t);
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * The night run on Jack Emby's page (2026-10-13): the same card as hers (core.js Office.nightCard — «Joint run», since,
  * the phases), under it his bars while EmbyCache works, her share while she moves, «Stop after this file» for the
  * whole night; his dry-run dialog points to her schedule's row. Without Ms. Moverelli: his live panel as before.
@@ -35656,7 +35773,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

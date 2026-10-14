@@ -460,6 +460,7 @@
   "rc.phase.fill": "Jack Streamer holt",
   "rc.night_jack": "Gerade arbeitet Jack Streamer — jede Datei auf seiner Seite.",
   "rc.night_jack_open": "Zu Jack Streamer",
+  "rc.jack_title": "Jack Streamer bei der Arbeit",
   "check.night_schedule": "Jack Streamer läuft nur im gemeinsamen Lauf mit Frau Moverelli",
   "check.night_schedule_how": "Jack Streamer hat noch einen eigenen Zeitplan und läuft ausserhalb des gemeinsamen Laufs: Stell die Zeit auf der Seite von Frau Moverelli ein (Zeitplan) — das schaltet ihn aus.",
   "notify.night_subject": "Pool {pool} noch über der Grenze",

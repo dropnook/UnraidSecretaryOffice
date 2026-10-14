@@ -1018,6 +1018,11 @@ Office.nightCard = function nightCard(n, o) {
   card.appendChild(Office.runSteps(steps, steps.findIndex((x) => x.state === 'running'), `night|${n.started}`));
   return card;
 };
+/**
+ * Jack Streamer's live panel's bars (his desk.js lends them: progressRows(box, view)) — Ms. Moverelli's page draws them
+ * under her night card while his step runs, the same look and numbers as on his page; null while his desk isn't loaded
+ */
+Office.jackRows = null;
 // ---- end run card helpers
 
 /**

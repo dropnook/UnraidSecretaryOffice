@@ -460,6 +460,7 @@
   "rc.phase.fill": "Jack Streamer fetches",
   "rc.night_jack": "Jack Streamer is at work right now — each file on his page.",
   "rc.night_jack_open": "Open Jack Streamer",
+  "rc.jack_title": "Jack Streamer at work",
   "check.night_schedule": "Jack Streamer runs only in the night run with Ms. Moverelli",
   "check.night_schedule_how": "Jack Streamer still has a schedule of his own and runs outside the night run: set the time on Ms. Moverelli's page (Schedule) — that switches it off.",
   "notify.night_subject": "Pool {pool} still over the limit",

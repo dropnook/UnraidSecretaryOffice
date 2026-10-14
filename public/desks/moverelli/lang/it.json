@@ -460,6 +460,7 @@
   "rc.phase.fill": "Jack Streamer prende",
   "rc.night_jack": "Adesso lavora Jack Streamer — ogni file sulla sua pagina.",
   "rc.night_jack_open": "Vai da Jack Streamer",
+  "rc.jack_title": "Jack Streamer al lavoro",
   "check.night_schedule": "Jack Streamer gira solo nell'esecuzione comune con la signora Moverelli",
   "check.night_schedule_how": "Jack Streamer ha ancora una pianificazione propria e gira fuori dall'esecuzione comune: imposta l'orario sulla pagina della signora Moverelli (Pianificazione) — così si spegne.",
   "notify.night_subject": "Pool {pool} ancora sopra il limite",

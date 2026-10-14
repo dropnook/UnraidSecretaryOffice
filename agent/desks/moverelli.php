@@ -1086,8 +1086,15 @@ function moverelliProgressState(?array $h = null): array
             $short['picture'] = nightPictureWatched($short['picture'], $back['bytes']);
         }
     }
+    // his step at work (free = give back, fill = fetch): his live panel's numbers under her card, as his own page has them
+    // (jack-progress.php, two RAM reads) — {real, progress}, null in her steps and between them
+    $jack = null;
+    if ($short !== null && ($night['who'] ?? null) === 'jack' && in_array($night['phase'] ?? null, ['free', 'fill'], true)) {
+        $jl = (nightHost($h)['jack_progress'])();
+        $jack = is_array($jl) ? ['real' => !empty($jl['real']), 'progress' => is_array($jl['progress'] ?? null) ? $jl['progress'] : null] : null;
+    }
     return ['time' => time(), 'running' => $job['running'] || $nightReal, 'real' => $real, 'stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null,
-            'progress' => $prog, 'night' => $short];
+            'progress' => $prog, 'night' => $short, 'jack' => $jack];
 }
 
 /**
