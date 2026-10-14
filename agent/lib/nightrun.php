@@ -507,6 +507,13 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             }
             $phase('recheck', $again);
             $plan = $again;
+            if (((readJson("$dir/status.json") ?? [])['fill_held'] ?? false) === true) {
+                // her fill moved what the pool was over, yet the pool didn't get freer (snapshots keep what moved): another
+                // round would move as much again for nothing (R2, 2026-10-15)
+                $n['missed'] = true;
+                logLine('Night run: her part moved what the pool was over, but it stays as full (snapshots keep what moved) — no further round');
+                break;
+            }
             if ($again['others_back'] <= 0) {
                 $n['missed'] = $again['need'] > 0;      // nothing of the others' left to move
                 logLine('Night run: nothing of the others\' left to move' . ($again['why'] !== null ? " ({$again['why']})" : ''));

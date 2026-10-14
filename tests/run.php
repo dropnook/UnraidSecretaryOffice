@@ -32937,7 +32937,7 @@ function testNightRun(): void
             }
             $p['d'] += $p['burst'];                         // downloads arrive while she works
             $p['burst'] = 0;
-            writeAtomic("$dir/status.json", jsonEncode(['result' => 'ok', 'recent' => [['name' => 'Docs/old.iso', 'bytes' => 5, 'from' => 'cache', 'to' => 'array']]]), 0600, 0, 0);
+            writeAtomic("$dir/status.json", jsonEncode(['result' => 'ok', 'fill_held' => (bool) ($p['held'] ?? false), 'recent' => [['name' => 'Docs/old.iso', 'bytes' => 5, 'from' => 'cache', 'to' => 'array']]]), 0600, 0, 0);
             moverelliRemember(['mode' => $args[0], 'by' => 'night', 'started' => time(), 'finished' => time(), 'result' => 'ok'], $dir);
             return 0;
         },
@@ -32985,6 +32985,18 @@ function testNightRun(): void
         [$p['j'], $p['d'], $calls, $n['result'] ?? null, $n['why'] ?? null, $n['missed'] ?? null, count($notified), $n['end_pct'] ?? null]);
     check('night run unwatched: … the warning says only Jack Emby\'s unwatched is over it (his budget too big)', str_contains($notified[0] ?? '', "Only what Jack Streamer hasn't watched yet is over it"),
         json_encode($notified));
+
+    // (2b) R2 2026-10-15: snapshots keep what she moves — her fill says `fill_held` (moved what was over, the pool as full):
+    // no second and third round moving as much again for nothing
+    $calls = [];
+    $p = $fresh(['j' => 400, 'd' => 150, 'wait' => 60, 'her_stall' => true, 'held' => true]);
+    $notified = [];
+    nightRun(['run']);
+    $n = $night();
+    same('night run held: her part once (her fill moved what was over, the pool didn\'t get freer) — no further round, missed',
+        [['jack run --night --nofill', 'her run --night --fill-until=740G --fill-pool=cache', 'jack run --night'], true, 1],
+        [$calls, $n['missed'] ?? null, $n['round'] ?? null]);
+    $notified = [];
 
     // (3) his budget crowds the others out: 600 used, 300 wait — the others' 100 all pushed under X, he fetches 300 up to X: told
     $calls = [];

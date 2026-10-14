@@ -161,6 +161,7 @@ recent_json() { local IFS=,; printf '"recent":[%s]' "${RECENT[*]}"; }
 # USO «fill»: the pool, its target, its usage when the share started and the last reading, the target reached in it
 SH_POOL=""; SH_UNTIL=""; SH_POOL_USED=""; SH_POOL_NOW=""; SH_FILL=false; SH_REACHED=false; SH_RC=0
 FILL_CAPPED=false; CUR_FROM=""
+FILL_HELD=false   # USO: a fill moved what its pool was over, but the pool's reading stayed above (status `fill_held`)
 declare -A POOL_REACHED=() POOL_SIM_B=()
 # office: the live progress of a real run (CUSTOMMOVER_STATUS while it runs: result «running»)
 PLAN=(); PHASE=look; CUR_SHARE=""; CUR_FILE=""; LAST_FILE=""; SH_DONE_FILES=0; SH_DONE_BYTES=0; RUN_DONE_FILES=0; RUN_DONE_BYTES=0
@@ -220,9 +221,10 @@ write_status() {  # exit code
     esac
     if [[ "$LIST_ONLY" == true ]]; then mode=list; elif [[ "$DRY_RUN" == true ]]; then mode=dry; else mode=run; fi
     joined=$(IFS=,; printf '%s' "${SHARE_JSON[*]}")
-    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"stop_file":%s,"message":%s,"shares":[%s],%s}\n' \
+    printf '{"mode":"%s","result":"%s","exit":%s,"started":%s,"finished":%s,"files":%s,"bytes":%s,"moved":%s,"left":%s,"errors":%s,"stop_share":%s,"stop_file":%s,"message":%s,"fill_held":%s,"shares":[%s],%s}\n' \
         "$mode" "$result" "$(json_num "$code")" "$STARTED" "$(date +%s)" "$(json_num "${TOTAL_FILES:-0}")" "$(json_num "${TOTAL_BYTES:-0}")" \
-        "$(json_num "${TOTAL_MOVED:-0}")" "$(json_num "${TOTAL_LEFT:-0}")" "$(json_num "$ERRORS")" "$(json_str "$STOP_SHARE")" "$(json_str "$LAST_FILE")" "$(json_str "$STATUS_MSG")" "$joined" "$(recent_json)" \
+        "$(json_num "${TOTAL_MOVED:-0}")" "$(json_num "${TOTAL_LEFT:-0}")" "$(json_num "$ERRORS")" "$(json_str "$STOP_SHARE")" "$(json_str "$LAST_FILE")" "$(json_str "$STATUS_MSG")" \
+        "$([[ "$FILL_HELD" == true ]] && echo true || echo false)" "$joined" "$(recent_json)" \
         > "$STATUS_FILE.$$.tmp" 2>/dev/null && mv -f "$STATUS_FILE.$$.tmp" "$STATUS_FILE" 2>/dev/null
     rm -f "$STATUS_FILE.$$.tmp" 2>/dev/null
     return 0
@@ -641,7 +643,7 @@ fill_settle() {
         [[ -n "$POOL_USED" ]] && pct=$POOL_USED
         [[ -n "$POOL_USED_B" ]] && used_b=$POOL_USED_B
     done
-    FILL_ENOUGH=true
+    FILL_ENOUGH=true; FILL_HELD=true
     log WARN "  fill: $(human "$freed") moved – as much as pool $pool was over – but it still uses $(human "$used_b") after ${SETTLE_S} s (snapshots keep what moved until their retention, or the pool still frees it): no further file"
 }
 
