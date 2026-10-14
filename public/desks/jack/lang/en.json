@@ -604,7 +604,7 @@
   "letgo.mover_stays": "Unraid's mover schedule stays off — Ms. Moverelli is still here and does the moving; she switches it back on when she is let go.",
   "check.mover": "Unraid's mover schedule is ⟦Disabled⟧ (else only dry runs)",
   "check.mover_how": "Ms. Moverelli → «Set up»: when her settings are saved she switches Unraid's mover schedule off — or set ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ to ⟦Disabled⟧ yourself.",
-  "errors.jack_moverelli_running": "Ms. Moverelli's Smart Mover is running right now — her runs and mine never go at the same time. Wait until she is done.",
+  "errors.jack_moverelli_running": "Ms. Moverelli is at work right now — her runs and mine never go at the same time. Wait until she is done.",
   "errors.jack_mover_moverelli_list": "Real runs only once Ms. Moverelli keeps my list out of her runs for {shares}: on her setup page add my list ({file}) to the files to leave alone — for all shares or for these.",
   "mover.ok.moverelli": "Ms. Moverelli keeps my list out of her runs — what I put on the pool stays there.",
   "check.mover_moverelli": "Ms. Moverelli leaves Jack Streamer's files on the pool",

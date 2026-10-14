@@ -604,7 +604,7 @@
   "letgo.mover_stays": "La programación del mover de Unraid sigue apagada — la Señora Moverelli sigue aquí y mueve ella; la vuelve a encender cuando la despidas.",
   "check.mover": "La programación del mover de Unraid está en ⟦Disabled⟧ (si no, solo simulaciones)",
   "check.mover_how": "Señora Moverelli → «Configurar»: al guardar sus ajustes apaga la programación del mover de Unraid — o pon tú mismo ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ en ⟦Disabled⟧.",
-  "errors.jack_moverelli_running": "El Smart Mover de la Señora Moverelli está en marcha — sus ejecuciones y las mías nunca van a la vez. Espera a que termine.",
+  "errors.jack_moverelli_running": "La Señora Moverelli está trabajando ahora mismo — sus ejecuciones y las mías nunca van a la vez. Espera a que termine.",
   "errors.jack_mover_moverelli_list": "Ejecuciones reales solo cuando la Señora Moverelli mantenga mi lista fuera de sus ejecuciones para {shares}: en su página de configuración añade mi lista ({file}) a los archivos que deja en paz — para todos los recursos compartidos o para estos.",
   "mover.ok.moverelli": "La Señora Moverelli mantiene mi lista fuera de sus ejecuciones — lo que pongo en el pool se queda allí.",
   "check.mover_moverelli": "La Señora Moverelli deja los archivos de Jack Streamer en el pool",

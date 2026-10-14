@@ -604,7 +604,7 @@
   "letgo.mover_stays": "Unraids Mover-Zeitplan bleibt aus — Frau Moverelli ist ja noch da und verschiebt; sie schaltet ihn wieder ein, wenn du sie entlässt.",
   "check.mover": "Unraids Mover-Zeitplan steht auf ⟦Disabled⟧ (sonst nur Probeläufe)",
   "check.mover_how": "Frau Moverelli → «Einrichten»: Beim Speichern schaltet sie Unraids Mover-Zeitplan aus — oder stell ⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover schedule⟧ selbst auf ⟦Disabled⟧.",
-  "errors.jack_moverelli_running": "Gerade läuft Frau Moverellis Smart Mover — ihre Läufe und meine gehen nie gleichzeitig. Warte, bis sie fertig ist.",
+  "errors.jack_moverelli_running": "Frau Moverelli arbeitet gerade — ihre Läufe und meine gehen nie gleichzeitig. Warte, bis sie fertig ist.",
   "errors.jack_mover_moverelli_list": "Echte Läufe erst, wenn Frau Moverelli meine Liste für {shares} aus ihren Läufen heraushält: Auf ihrer Einrichtungsseite meine Liste ({file}) zu den Dateien geben, die sie liegen lässt — für alle Shares oder für diese.",
   "mover.ok.moverelli": "Frau Moverelli hält meine Liste aus ihren Läufen heraus — was ich auf den Pool lege, bleibt dort.",
   "check.mover_moverelli": "Frau Moverelli lässt Jack Streamers Dateien auf dem Pool",
