@@ -73,6 +73,11 @@
 >   fill began — ZFS (and btrfs) show freed space only seconds later, and a snapshot keeps what moved until its retention;
 >   re-reading the pool alone moved every candidate. Once the bytes moved cover it, the pool is re-read for up to
 >   `CUSTOMMOVER_SETTLE` seconds (default 30); still above: a WARN line, no further file, the status says `fill_held: true`.
+> * **Pool bytes** (2026-10-15, marked «USO «pool bytes»»): what the fill counts is what a file takes on the pool — its
+>   allocated blocks (`stat %b × %B`; ZFS after compression), never more than its size — for the cap above and the dry run's
+>   estimate. When the pool got freer by at least a quarter of what moved but is still above (compression the sizes don't
+>   show, a btrfs commit later), a new stretch starts for what is still over; only a pool that doesn't get freer is «held».
+>   On a lz4 work share (≈2×) the fill reaches X in one run (Tower: 6 of 10 files, 46 % → 19 %; before: 3, «held» at 32 %).
 > * Leftovers and counts (2026-10-12/13, seen live): Unraid's move writes `<dest>/<share>/<rel>.partial` and renames it
 >   at the end. Before a real run moves a share's files, a leftover `.partial` (a power cut, a crash) on the share's awake
 >   destinations is removed — only while its source `<src>/<rel>` still exists, only that exact name, never a file under
