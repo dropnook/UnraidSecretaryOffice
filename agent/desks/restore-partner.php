@@ -1660,6 +1660,113 @@ function rspAdaptXml(string $xml, array $host, ?callable $exists = null): array
     return [$changes ? (string) $doc->saveXML($doc->documentElement) : $xml, $changes, null];
 }
 
+/** The emulators a VM's XML may name here (Unraid's own); anything else becomes the first */
+const RSP_XML_EMULATORS = ['/usr/local/sbin/qemu', '/usr/bin/qemu-system-x86_64'];
+/** Places of this server a VM's XML from a partner's copy may name besides the VM's own folder: firmware, UEFI variables, libvirt's sockets */
+const RSP_XML_PREFIXES  = ['/usr/share/qemu/', '/etc/libvirt/qemu/nvram/', '/var/lib/libvirt/qemu/'];
+const RSP_XML_EXACT     = ['/dev/urandom', '/dev/random'];
+const RSP_XML_QEMU_NS   = 'http://libvirt.org/schemas/domain/qemu/1.0';
+
+/**
+ * A VM's XML from a partner's copy (a partner, or a gone server's copy through a ticket) before `virsh define` here
+ * (review 2026-10-15, R1): the copy is the partner's word, and libvirt runs the <emulator> it names as root already
+ * at the definition (it asks the binary what it can). So:
+ *   removed, said in the step (sa.<code>): QEMU command-line additions (qemu: namespace), shared host folders
+ *     (<filesystem>, virtiofsd runs as root), network scripts (<script>, <downscript>), passed-through host devices
+ *     (<hostdev>, an interface of type hostdev, <smartcard>, evdev/passthrough <input>); an emulator that isn't
+ *     Unraid's → Unraid's
+ *   refused (nothing defined, the files stay): another VM's name than the package's (it would replace that VM's
+ *     definition), a disk of a kind that reaches this server's storage (volume, nvme, vhost-user), and any path of this
+ *     server outside $roots (the VM's own folder), RSP_XML_PREFIXES and RSP_XML_EXACT — an ISO (a cdrom's *.iso under
+ *     /mnt) excepted. A path is any value beginning with '/' (outside <title>, <description>, <metadata>) and every
+ *     file/dev/dir/path/socket of a <source> and the text of <loader>, <nvram>, <kernel>, <initrd>, <dtb>: absolute,
+ *     without . or .. parts.
+ * Returns [xml, changes, refuse|null] — refuse: {note, params} (sn.<note>).
+ *
+ * @param list<string> $roots
+ */
+function rspXmlForeign(string $xml, string $name, array $roots): array
+{
+    $no = fn (string $note, array $params = []): array => [$xml, [], ['note' => $note, 'params' => $params]];
+    $doc = new DOMDocument();
+    if (trim($xml) === '' || !@$doc->loadXML($xml, LIBXML_NONET) || $doc->documentElement?->localName !== 'domain') {
+        return $no('vm_foreign_path', ['path' => '?']);
+    }
+    $x = new DOMXPath($doc);
+    $x->registerNamespace('q', RSP_XML_QEMU_NS);
+    $named = trim((string) $x->query('/domain/name')->item(0)?->textContent);
+    if ($named !== $name) {
+        return $no('vm_foreign_name', ['other' => mb_substr($named, 0, 64)]);
+    }
+    $changes = [];
+    $drop = function (string $query, string $code) use ($x, &$changes): void {
+        $n = 0;
+        foreach (iterator_to_array($x->query($query)) as $node) {
+            $node->parentNode?->removeChild($node);
+            $n++;
+        }
+        if ($n) {
+            $changes[] = ['code' => $code, 'params' => ['n' => (string) $n]];
+        }
+    };
+    $drop('//q:*[not(ancestor::q:*)]', 'qemu');
+    $drop('/domain/devices/filesystem', 'filesystem');
+    $drop('/domain/devices/interface/script | /domain/devices/interface/downscript', 'net_script');
+    $drop('/domain/devices/hostdev | /domain/devices/interface[@type="hostdev"] | /domain/devices/smartcard'
+        . ' | /domain/devices/input[@type="evdev" or @type="passthrough"]', 'passthrough');
+    foreach (iterator_to_array($x->query('/domain/devices/emulator')) as $e) {
+        if (!in_array(trim($e->textContent), RSP_XML_EMULATORS, true)) {
+            $changes[] = ['code' => 'emulator', 'params' => ['path' => mb_substr(trim($e->textContent), 0, 200)]];
+            $e->textContent = RSP_XML_EMULATORS[0];
+        }
+    }
+    foreach ($x->query('/domain/devices/disk') as $d) {
+        if (!in_array($d->getAttribute('type'), ['', 'file', 'block', 'dir', 'network'], true)) {
+            return $no('vm_foreign_path', ['path' => $d->getAttribute('type')]);
+        }
+    }
+    $ok = function (string $p, DOMNode $at) use ($roots): bool {
+        if ($p === '' || $p[0] !== '/' || preg_match('#(^|/)\.\.?(/|$)#', $p)) {
+            return false;
+        }
+        foreach ($roots as $r) {
+            if ($r !== '' && str_starts_with($p, rtrim($r, '/') . '/')) {
+                return true;
+            }
+        }
+        foreach (RSP_XML_PREFIXES as $r) {
+            if (str_starts_with($p, $r)) {
+                return true;
+            }
+        }
+        if (in_array($p, RSP_XML_EXACT, true) || in_array($p, RSP_XML_EMULATORS, true)) {
+            return true;
+        }
+        $disk = $at->parentNode?->parentNode;           // the attribute → its <source> → its <disk>
+        return preg_match('#^/mnt/[^/]+/.+\.iso$#iD', $p) === 1 && $disk instanceof DOMElement && $disk->localName === 'disk'
+            && $disk->getAttribute('device') === 'cdrom';
+    };
+    foreach ($x->query("//@*[not(ancestor::*[self::title or self::description or self::metadata][parent::domain])]") as $a) {
+        $v = trim($a->nodeValue);
+        $must = $a->parentNode?->localName === 'source' && in_array($a->localName, ['file', 'dev', 'dir', 'path', 'socket'], true)
+            || ($a->parentNode?->localName === 'nvram' && $a->localName === 'template');
+        if (($must || str_starts_with($v, '/')) && !$ok($v, $a)) {
+            return $no('vm_foreign_path', ['path' => mb_substr($v, 0, 200)]);
+        }
+    }
+    foreach ($x->query('//text()[normalize-space()]') as $t) {
+        if ($x->query('ancestor::*[self::title or self::description or self::metadata][parent::domain]', $t)->length) {
+            continue;
+        }
+        $v = trim($t->nodeValue);
+        $must = in_array($t->parentNode?->localName, ['loader', 'nvram', 'kernel', 'initrd', 'dtb', 'emulator'], true);
+        if (($must || str_starts_with($v, '/')) && !$ok($v, $t)) {
+            return $no('vm_foreign_path', ['path' => mb_substr($v, 0, 200)]);
+        }
+    }
+    return [$changes ? (string) $doc->saveXML($doc->documentElement) : $xml, $changes, null];
+}
+
 /** A small file of the copy into its place - only where nothing is: through a new file beside and a rename */
 function rspPutFile(string $from, string $to): bool
 {
@@ -1705,6 +1812,27 @@ function rspStartVm(array &$j, int $i, array $m, string $folder, string $lv, ?ar
     if ($pkg['xml'] === '') {
         return ['state' => 'failed', 'note' => 'restore_file_gone', 'params' => ['path' => "$dir/<vm>.xml"], 'name' => $name];
     }
+    $original = (string) @file_get_contents("$dir/{$pkg['xml']}", false, null, 0, 1 << 22);
+    [$xml, $rewritten] = rspRewriteXml($original, $folder);
+    // 1.60.1: from another server - fitted to this host (what changed said in the step), the original kept beside it
+    $host = rspHostFacts();
+    $adapted = [];
+    if (strtolower(rsStr($m['host'] ?? '')) !== ($host['host'] ?? '')) {
+        [$xml, $adapted, $refuse] = rspAdaptXml($xml, $host);
+        if ($refuse !== null) {
+            return ['state' => 'failed', 'note' => 'start_vm_disk_missing', 'params' => ['name' => $name, 'path' => $refuse['path']], 'name' => $name];
+        }
+    }
+    // the copy is the partner's word: nothing of this server but the VM's own folder, before anything is put in place
+    [$xml, $safe, $refuse] = rspXmlForeign($xml, $name, [$folder]);
+    if ($refuse !== null) {
+        return ['state' => 'failed', 'note' => $refuse['note'], 'params' => ['name' => $name] + $refuse['params'], 'name' => $name];
+    }
+    $adapted = array_merge($adapted, $safe);
+    $keep = "$dir/$name.xml.original";
+    if ($adapted && !file_exists($keep) && !is_link($keep)) {
+        @file_put_contents($keep, $original);
+    }
     $back = "$lv/" . RS_LIBVIRT_ASIDE . "/{T}/$name";
     $put = $skipped = [];
     foreach ($pkg['nvram'] as $n) {
@@ -1732,21 +1860,6 @@ function rspStartVm(array &$j, int $i, array $m, string $folder, string $lv, ?ar
         } else {
             $undo[] = ['do' => 'aside', 'path' => $to, 'to' => "$back/tpm/{$pkg['uuid']}", 'optional' => true];
             $tpm = 'put';
-        }
-    }
-    $original = (string) @file_get_contents("$dir/{$pkg['xml']}", false, null, 0, 1 << 22);
-    [$xml, $rewritten] = rspRewriteXml($original, $folder);
-    // 1.60.1: from another server - fitted to this host (what changed said in the step), the original kept beside it
-    $host = rspHostFacts();
-    $adapted = [];
-    if (strtolower(rsStr($m['host'] ?? '')) !== ($host['host'] ?? '')) {
-        [$xml, $adapted, $refuse] = rspAdaptXml($xml, $host);
-        if ($refuse !== null) {
-            return ['state' => 'failed', 'note' => 'start_vm_disk_missing', 'params' => ['name' => $name, 'path' => $refuse['path']], 'name' => $name];
-        }
-        $keep = "$dir/$name.xml.original";
-        if ($adapted && !file_exists($keep) && !is_link($keep)) {
-            @file_put_contents($keep, $original);
         }
     }
     $file = rsDir($j['id']) . "/start-$i-" . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name) . '.xml';

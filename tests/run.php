@@ -9083,6 +9083,73 @@ function testRestoreVmFit(): void
 }
 
 /**
+ * Review 2026-10-15 (R1): a VM's XML from a partner's copy is the partner's word — and `virsh define` alone runs its
+ * <emulator> as root (libvirt asks the binary what it can; tried on a test server). rspXmlForeign(): what would run
+ * or reach this server goes (said in the step), a path of this server outside the VM's own folder refuses the
+ * definition; both define paths (start from a copy, a VM restored from a pulled backup place) go through it.
+ */
+function testRestoreVmForeign(): void
+{
+    $dir = '/mnt/user/domains/W';
+    $ok = "<domain type='kvm'><name>W</name><title>/etc/x in prose</title><metadata><vmtemplate xmlns='unraid' icon='/boot/x.png'/></metadata>"
+        . "<os><type>hvm</type><loader readonly='yes' type='pflash'>/usr/share/qemu/ovmf-x64/OVMF_CODE-pure-efi.fd</loader>"
+        . "<nvram>/etc/libvirt/qemu/nvram/1234_VARS-pure-efi.fd</nvram></os><devices><emulator>/usr/local/sbin/qemu</emulator>"
+        . "<disk type='file' device='disk'><source file='$dir/vdisk1.img'/><target dev='hdc'/></disk>"
+        . "<disk type='file' device='cdrom'><source file='/mnt/user/isos/virtio.iso'/><target dev='hda'/></disk>"
+        . "<interface type='bridge'><source bridge='br0'/><target dev='vnet0'/></interface>"
+        . "<rng model='virtio'><backend model='random'>/dev/urandom</backend></rng></devices></domain>";
+    [$out, $ch, $refuse] = rspXmlForeign($ok, 'W', [$dir]);
+    same('vm foreign: an ordinary Unraid VM - as it was, nothing said, nothing refused', [$ok, [], null], [$out, $ch, $refuse]);
+    $bad = "<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'><name>W</name><devices>"
+        . "<emulator>$dir/qemu</emulator><disk type='file' device='disk'><source file='$dir/vdisk1.img'/><target dev='hdc'/></disk>"
+        . "<filesystem type='mount'><driver type='virtiofs'/><binary path='/usr/libexec/virtiofsd'/><source dir='/'/><target dir='root'/></filesystem>"
+        . "<interface type='ethernet'><script path='$dir/up.sh'/><downscript path='$dir/down.sh'/></interface>"
+        . "<hostdev mode='subsystem' type='pci'><source><address bus='0x01'/></source></hostdev><input type='evdev'><source dev='/dev/input/event0'/></input>"
+        . "</devices><qemu:commandline><qemu:arg value='-netdev'/><qemu:arg value='tap,script=/tmp/x'/></qemu:commandline></domain>";
+    [$out, $ch, $refuse] = rspXmlForeign($bad, 'W', [$dir]);
+    same('vm foreign: what would run here or reach this server - removed and said, the emulator Unraid\'s',
+        [['qemu', 'filesystem', 'net_script', 'passthrough', 'emulator'], ['1', '1', '2', '2'], null, false, false, false, false, true],
+        [array_column($ch, 'code'), array_map(fn ($c) => $c['params']['n'] ?? null, array_slice($ch, 0, 4)), $refuse,
+         str_contains($out, 'commandline'), str_contains($out, '<filesystem'), str_contains($out, 'script'), str_contains($out, 'hostdev'),
+         str_contains($out, '<emulator>/usr/local/sbin/qemu</emulator>')]);
+    $refused = [];
+    foreach ([
+        'a disk of the flash'            => "<disk type='file' device='disk'><source file='/boot/config/go'/></disk>",
+        'a host disk'                    => "<disk type='block' device='disk'><source dev='/dev/sda'/></disk>",
+        'another VM\'s disk'             => "<disk type='file' device='disk'><source file='/mnt/user/domains/Other/vdisk1.img'/></disk>",
+        'a way out of its folder'        => "<disk type='file' device='disk'><source file='$dir/../Other/vdisk1.img'/></disk>",
+        'a relative path'                => "<disk type='file' device='disk'><source file='boot/config/go'/></disk>",
+        'a host file as cdrom'           => "<disk type='file' device='cdrom'><source file='/etc/shadow'/></disk>",
+        'a storage pool\'s volume'       => "<disk type='volume' device='disk'><source pool='default' volume='v'/></disk>",
+        'a serial port into a host file' => "<serial type='file'><source path='/boot/config/go'/></serial>",
+        'a host file as fw_cfg'          => "<sysinfo type='fwcfg'><entry name='opt/x' file='/root/.ssh/id_rsa'/></sysinfo>",
+    ] as $what => $dev) {
+        [, , $r] = rspXmlForeign("<domain type='kvm'><name>W</name><devices>$dev</devices></domain>", 'W', [$dir]);
+        if (($r['note'] ?? '') !== 'vm_foreign_path') {
+            $refused[] = $what;
+        }
+    }
+    same('vm foreign: a path of this server outside the VM\'s folder (or an odd disk) refuses the definition', [], $refused);
+    [, , $r] = rspXmlForeign("<domain type='kvm'><name>Windows11</name></domain>", 'W', [$dir]);
+    same('vm foreign: another VM\'s name (its definition would be replaced) - refused', ['note' => 'vm_foreign_name', 'params' => ['other' => 'Windows11']], $r);
+    [, , $r] = rspXmlForeign("<domain type='kvm'><name>W</name><os><kernel>/boot/bzimage</kernel></os></domain>", 'W', [$dir]);
+    same('vm foreign: a kernel of this server - refused', 'vm_foreign_path', $r['note'] ?? null);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
+    $rs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    $start = substr($src, (int) strpos($src, 'function rspStartVm('), 6000);
+    check('vm foreign: «start from a copy» checks the XML before anything is put in place, the original kept when changed',
+        str_contains($start, 'rspXmlForeign($xml, $name, [$folder])') && strpos($start, 'rspXmlForeign(') < strpos($start, "foreach (\$pkg['nvram']")
+        && strpos($start, 'rspXmlForeign(') < strpos($start, "'define', \$file"));
+    check('vm foreign: a VM restored from a pulled backup place too (its XML under the restored mounts)',
+        (bool) preg_match('/function rsDoDefine\(.*?str_starts_with\(\$xml, rspMountRoot\(\) \. \'\/\'\).*?rspXmlForeign\(/s', $rs));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("vm foreign: $l - its words", [], array_values(array_filter(['sa.qemu', 'sa.filesystem', 'sa.net_script', 'sa.passthrough', 'sa.emulator',
+            'sn.vm_foreign_path', 'sn.vm_foreign_name'], fn ($k) => !isset($lj[$k]))));
+    }
+}
+
+/**
  * 1.60.1 (a user's stack «dropnook» onto another server): a Compose stack from another server's copy made in the
  * Compose Manager here - same folder name, never over one, never without the Compose Manager, its paths fitted, not started.
  */
@@ -35246,7 +35313,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

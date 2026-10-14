@@ -4254,8 +4254,28 @@ function rsDoDumpXml(array &$j, array $s): array
 /** virsh define: «Put back» defines the one put aside again, or removes the definition when there was none */
 function rsDoDefine(array &$j, array $s): array
 {
-    $res = rsDoVirsh($j, ['define', (string) $s['xml']]);
     $name = (string) $s['name'];
+    $xml = (string) $s['xml'];
+    $adapted = [];
+    if (str_starts_with($xml, rspMountRoot() . '/')) {
+        // a package of a backup place pulled from a partner: its XML is the partner's word (rspXmlForeign())
+        $text = (string) @file_get_contents($xml, false, null, 0, 1 << 22);
+        $share = basename(rtrim((string) (readCfg('/boot/config/domain.cfg')['DOMAINDIR'] ?? '/mnt/user/domains'), '/')) ?: 'domains';
+        // its disks in the VM's own folder of the domains share, through /mnt/user or a disk or pool (names only: no disk woken)
+        $roots = array_map(fn ($m) => "/mnt/$m/$share/$name", array_diff(@scandir('/mnt') ?: [], ['.', '..']));
+        [$text, $adapted, $refuse] = rspXmlForeign($text, $name, $roots);
+        if ($refuse !== null) {
+            return rsFail($refuse['note'], ['name' => $name] + $refuse['params']);
+        }
+        $xml = rsDir($j['id']) . '/define-' . preg_replace('/[^A-Za-z0-9_.-]/', '_', $name) . '.xml';
+        if (!@file_put_contents($xml, $text)) {
+            return rsFail('copy_failed', ['path' => $xml]);
+        }
+    }
+    $res = rsDoVirsh($j, ['define', $xml]);
+    if ($adapted && $res['state'] === 'ok') {
+        $res['params'] = ['name' => $name, 'adapted' => $adapted];
+    }
     $res['undo'] = isset($j['xml_aside'][$name]) ? [['do' => 'define', 'xml' => $j['xml_aside'][$name], 'name' => $name]] : [['do' => 'undefine', 'name' => $name]];
     return $res;
 }
