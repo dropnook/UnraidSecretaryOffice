@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.46"
+UB_VERSION="2.47"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3641,20 +3641,23 @@ partner_ended() {
     return 0
 }
 
-# partner_anew_match <gone id> <its address>  (2.45, setup.sh)  -> the id of a current pair (pairs.json, one this office sends to) with the
-# same address, else one with a host key the ended pair had (partner/ended.json beside pairs.json: {v: 1, pairs: {id:
-# {name, address, port, host_keys, time}}} - the Team Lead writes it when a partnership is ended); nothing without a match
+# partner_anew_match <gone id> <its address> [<its name>]  (2.45, setup.sh)  -> the id of a current pair (pairs.json, one this office
+# sends to) with the same address, else one with a host key the ended pair had (partner/ended.json beside pairs.json: {v: 1,
+# pairs: {id: {name, address, port, host_keys, time}}} - the Team Lead writes it when a partnership is ended), else (2.47) the
+# one pair of the same name (ignoring case; two of that name: none); nothing without a match
 partner_anew_match() {
     local f="$UB_PARTNER_PAIRS" e
     e="$(dirname "$UB_PARTNER_PAIRS")/ended.json"
     [[ -f "$f" && ! -L "$f" ]] || return 0
     [[ -f "$e" && ! -L "$e" ]] || e=/dev/null
-    jq -rn --arg old "$1" --arg addr "${2,,}" --slurpfile p "$f" --slurpfile e "$e" '
+    jq -rn --arg old "$1" --arg addr "${2,,}" --arg name "${3:-}" --slurpfile p "$f" --slurpfile e "$e" '
         ($p[0].pairs // []) | map(select(type == "object" and (.id | type) == "string" and (.id | test("^[0-9a-f]{8}$"))
                                           and .id != $old and (.my_key | type) == "string")) as $pairs
         | (($e[0].pairs // {})[$old].host_keys // []) as $hk
         | ([$pairs[] | select($addr != "" and ((.address // "") | ascii_downcase) == $addr) | .id]
-           + [$pairs[] | select(($hk | length) > 0 and any((.host_keys // [])[]; . as $k | ($hk | any(.[]; . == $k)))) | .id])
+           + [$pairs[] | select(($hk | length) > 0 and any((.host_keys // [])[]; . as $k | ($hk | any(.[]; . == $k)))) | .id]
+           + ([$pairs[] | select($name != "" and ((.name // "") | ascii_downcase) == ($name | ascii_downcase)) | .id]
+              | if length == 1 then . else [] end))
         | first // empty' 2>/dev/null
     return 0
 }
