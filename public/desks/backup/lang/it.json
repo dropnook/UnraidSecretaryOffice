@@ -244,6 +244,8 @@
   },
   "check.setup": "Il backup è configurato (settings.ini)",
   "check.setup_how": "Signor Backupsi → «Configura…»: legge il server e propone tutto. (In un terminale: {path})",
+  "check.engine_trust": "La cartella dei backup e le sue impostazioni appartengono solo a root",
+  "check.engine_trust_how": "Per {path} non è così: il motore di backup non parte finché non lo è — lavora come root e non legge niente che altri potrebbero aver scritto. In un terminale sul server: {cmd}",
   "check.schedule": "È pianificato un backup",
   "check.schedule_how": "Signor Backupsi → Pianificazione: scegli un orario.",
   "check.kopia": "Contenitore Kopia (copia fuori sede)",

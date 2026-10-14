@@ -241,6 +241,8 @@
   },
   "check.setup": "Das Backup ist eingerichtet (settings.ini)",
   "check.setup_how": "Herr Backupsi → «Einrichten…»: er liest den Server ein und schlägt alles vor. (Im Terminal ginge auch: {path})",
+  "check.engine_trust": "Der Backup-Ordner und seine Einstellungen gehören allein root",
+  "check.engine_trust_how": "Für {path} ist das nicht so: die Backup-Engine läuft nicht, bis es so ist — sie arbeitet als root und liest nichts, was andere geschrieben haben könnten. Im Terminal auf dem Server: {cmd}",
   "check.schedule": "Ein Backup ist geplant",
   "check.schedule_how": "Herr Backupsi → Zeitplan: eine Uhrzeit wählen.",
   "check.kopia": "Kopia-Container (Kopie ausser Haus)",

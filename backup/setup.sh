@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.48 - 2026-10-15
+# unraid-backup - setup.sh                        Version 2.49 - 2026-10-15
+#   2.49 UB_DATA and settings.ini must be root's own (ub_data_trusted) - else refused before anything is read or written
 #   2.48 No change here (the engine's version: backup.sh's review fixes)
 #   2.47 A gone partner paired anew is also found by its name when neither its address nor a host key matches (exactly
 #        one current pair of that name - a partner office reinstalled under a new address); hint partner_anew as before
@@ -235,6 +236,7 @@ if [[ "$YES" != "1" && ( "$MODE" == "interactive" || "$MODE" == "kopia" || "$MOD
     exit 2
 fi
 [[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
+ub_data_trusted || ub_untrusted_refuse     # 2.49: nothing read or written in a folder others can write or replace
 ub_data_dirs || { echo "Cannot create folders in $UB_DATA"; exit 1; }
 TS="$(date +%Y%m%d-%H%M)"
 LOG_FILE="$UB_LOGS/setup-$(date +%Y%m%d-%H%M%S).log"     # 2.45: a plan and an apply in the same minute: two logs

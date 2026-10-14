@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.48 - 2026-10-15
+# unraid-backup - backup.sh                       Version 2.49 - 2026-10-15
+#   2.49 Review: UB_DATA a real folder of root's that nobody else can write, settings.ini a plain root-owned file -
+#        else refused before anything is read or written there (ub_data_trusted, exit 4, an alert)
 #   2.48 Review: the ZFS retention never thins a partner office's copies here (<pool>/UnraidSecretaryOffice-partners/...,
 #        the door's retention keeps them) nor a dataset in the storeroom; a second stop during the cleanup never cuts it
 #        short; MariaDB names one a line (a space, a * - never split or globbed; / ' \ said, not dumped); a failed thaw
@@ -333,6 +335,7 @@ case "$UB_MODE" in backup|check|unmount|recover) ;; *) echo "UB_MODE=$UB_MODE is
 [[ $EUID -eq 0 ]] || { echo "Please run as root."; exit 1; }
 # --recover (2.25): no note of an interrupted run - nothing to do, nothing written; the array being
 # stopped - not now (the notes stay for after the array start), exit 3 like a run the stop ends
+ub_data_trusted || ub_untrusted_refuse     # 2.49: nothing read or written in a folder others can write or replace
 if [[ "$UB_MODE" == "recover" ]]; then
     recover_notes || exit 0
     array_stopping && { echo "The array is being stopped - nothing is started now; the notes stay for after the array start."; exit 3; }

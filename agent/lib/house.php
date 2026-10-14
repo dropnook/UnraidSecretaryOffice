@@ -28,6 +28,31 @@ function finding(string $id, string $level, ?bool $ok, array $params = [], ?stri
 }
 
 /**
+ * Review 2026-10-15: the office's root code reads from the data folder, so it and the folder above it must be root's and
+ * writable by root alone — whoever else can write in the folder above (nobody, the owner appdata gives its folders) can
+ * put a folder of their own in the data folder's place. The files in it keep their nobody:users. Never changed here:
+ * the Team Lead shows the command. ok null: no data folder (the array stopped).
+ *
+ * @return array{ok: ?bool, paths: list<string>, cmd: string}
+ */
+function officeDataTrust(string $data): array
+{
+    clearstatcache();
+    if (!is_dir($data)) {
+        return ['ok' => null, 'paths' => [], 'cmd' => ''];
+    }
+    $bad = [];
+    foreach ([dirname($data), $data] as $dir) {
+        $st = @lstat($dir);
+        if (!$st || ($st['mode'] & 0170000) !== 0040000 || ($st['mode'] & 0022) || !($st['uid'] === 0 || ($st['uid'] === 99 && !($st['mode'] & 0200)))) {
+            $bad[] = $dir;
+        }
+    }
+    $q = implode(' ', array_map('escapeshellarg', $bad));
+    return ['ok' => !$bad, 'paths' => $bad, 'cmd' => $bad ? "chown root:root $q && chmod go-w $q" : ''];
+}
+
+/**
  * @return array<string, array{name:string, author:?string, version:?string}> installed plugins by .plg name
  * $fresh: never the cache — a look that must see a plugin registered a moment ago (the Consultant's scan, 2026-10-11:
  * his fresh look right after a plugin job read a list another caller had cached seconds before the registration)

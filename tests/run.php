@@ -1183,7 +1183,7 @@ function testJackSizes(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('measure: asked about Emby\'s watchers from the page and again in the job, holding EmbyCache\'s lock, its own ini',
         str_contains($src, "in_array(\$mode, ['run', 'measure'], true)) {      // a measurement") && str_contains($src, "if (\$tool === 'gather' && \$mode === 'measure') {\n        \$look = jackWatching();")
-        && str_contains($src, "if (in_array(\$mode, ['run', 'measure', 'release'], true)) {") && str_contains($src, '"$dir/measure.ini"'));
+        && str_contains($src, "if (in_array(\$mode, ['run', 'measure', 'release'], true)) {") && str_contains($src, 'writeAtomic("$gatherDir/measure.ini"') && str_contains($src, 'jackGatherIniRam($text, $mode)'));
 
     // his page under node (stand-ins for the office): the numbers, the date, ZFS's chip, an older state, the button
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -4189,7 +4189,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.48'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.49'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -5604,6 +5604,108 @@ SH);
  * (a value there already is never added twice) say the same; nothing on stderr. Then the same with SIGPIPE ignored
  * (PHP's way): no «printf: write error: Broken pipe», which made testBackupNewLocal flaky.
  */
+/**
+ * Review 2026-10-15 (R1 F2 / R3-7): the office's data folder lies in appdata, where a writer as nobody could put a folder
+ * of its own in its place — and root code read it. Now: the engine (2.49) refuses a folder or settings.ini that isn't
+ * root's alone before it reads or writes anything there; the gather `source`s its ini from RAM; Smart Mover and
+ * EmbyCache get their binary and rsync options from the office; the Team Lead and Mr. Backupsy say what isn't root's,
+ * with the command (never run); a new data folder's parent stays root's.
+ */
+function testDataTrust(): void
+{
+    $tmp = hardeningTmp('datatrust');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $lib = OFFICE_DIR . '/backup/lib/common.sh';
+    $trusted = function (string $data) use ($lib): string {
+        [$exit, $out] = runEnv(['bash', '-c', 'source "$1" >/dev/null 2>&1; ub_data_trusted; echo "$? $UB_UNTRUSTED"', 'sh', $lib], ['UB_DATA' => $data], 20);
+        return trim($out);
+    };
+    $mk = function (string $name, int $mode, int $uid = 0, ?int $iniUid = null, int $iniMode = 0600) use ($tmp): string {
+        $d = "$tmp/$name";
+        @mkdir($d, 0700);
+        chmod($d, $mode);
+        chown($d, $uid);
+        if ($iniUid !== null) {
+            file_put_contents("$d/settings.ini", "[general]\n");
+            chmod("$d/settings.ini", $iniMode);
+            chown("$d/settings.ini", $iniUid);
+        }
+        return $d;
+    };
+    symlink($mk('real', 0700, 0, 0), "$tmp/link");
+    $mk('nobody', 0700, 99, 0);
+    $mk('open', 0777, 0, 0);
+    $mk('iniNobody', 0700, 0, 99);
+    $mk('iniOpen', 0700, 0, 0, 0666);
+    $mk('iniLink', 0700);
+    symlink("$tmp/real/settings.ini", "$tmp/iniLink/settings.ini");
+    same('data trust: the engine takes only a folder of root\'s alone and a settings.ini of root\'s alone (missing: a fresh start)',
+        ['0', '0', '1 data', '1 data', '1 data', '1 settings', '1 settings', '1 settings'],
+        array_map($trusted, ["$tmp/real", "$tmp/none", "$tmp/link", "$tmp/nobody", "$tmp/open", "$tmp/iniNobody", "$tmp/iniOpen", "$tmp/iniLink"]));
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$*\" >> $tmp/notified\n");
+    chmod("$tmp/notify", 0755);
+    $env = ['UB_DATA' => "$tmp/nobody", 'UB_NOTIFY_BIN' => "$tmp/notify", 'UB_NOTIFY_STAMP' => "$tmp/stamp"];
+    [$e1, , $err1] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env, 30);
+    [$e2, , $err2] = runEnv(['bash', OFFICE_DIR . '/backup/setup.sh', '--plan'], $env, 30);
+    same('data trust: backup.sh and setup.sh refuse a folder of nobody\'s - exit 4, said on stderr and as an alert, nothing written there',
+        [4, 4, true, true, ['settings.ini'], true],
+        [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
+         array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
+    $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
+    same('data trust: the engine\'s version 2.49 everywhere it is named', ['2.49', '2.49', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.49"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.49** –')]);
+    // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
+    same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
+        array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
+    same('data trust: … its command', "chown root:root '$tmp/nobody' && chmod go-w '$tmp/nobody'", backupEngineTrust("$tmp/nobody")['cmd']);
+    @mkdir("$tmp/appdata/UnraidSecretaryOffice/data", 0755, true);
+    $office = "$tmp/appdata/UnraidSecretaryOffice";
+    chmod($office, 0755);
+    $ok = officeDataTrust("$office/data");
+    chown($office, 99);
+    $parent = officeDataTrust("$office/data");
+    chmod("$office/data", 0775);
+    $both = officeDataTrust("$office/data");
+    chown($office, 0);
+    chmod("$office/data", 0755);
+    same('data trust: the Team Lead - root\'s folders fine; a folder above of nobody\'s (appdata\'s way), a group-writable data folder said',
+        [true, false, ["$office"], ["$office", "$office/data"], null],
+        [$ok['ok'], $parent['ok'], $parent['paths'], $both['paths'], officeDataTrust("$tmp/gone")['ok']]);
+    same('data trust: … the command, never run', "chown root:root '$office' && chmod go-w '$office'", $parent['cmd']);
+    $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/$f");
+    check('data trust: the findings are registered (Team Lead recommended, Mr. Backupsy required)',
+        str_contains($src('agent/desks/caretaker.php'), "finding('data_trust', 'recommended', \$trust['ok']")
+        && str_contains($src('agent/desks/backup.php'), "finding('engine_trust', 'required', \$trust['ok']"));
+    check('data trust: a new data folder\'s parent is no longer handed to nobody', !preg_match('/function makeDataDir\(.*?lchown\(dirname\(DATA_DIR\)/s', $src('agent/agent.php')));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $ct = json_decode($src("public/desks/caretaker/lang/$l.json"), true) ?: [];
+        $bk = json_decode($src("public/desks/backup/lang/$l.json"), true) ?: [];
+        same("data trust: $l - the findings' words with their command", [true, true, true, true],
+            [isset($ct['check.data_trust']), str_contains($ct['check.data_trust_how'] ?? '', '{cmd}'), isset($bk['check.engine_trust']), str_contains($bk['check.engine_trust_how'] ?? '', '{cmd}')]);
+    }
+    // the gather: its ini from RAM, never sourced from the pool
+    $jack = $src('agent/desks/jack.php');
+    $ram = jackGatherIniRam("SHARES=('x')\n", 'dry');
+    $st = $ram !== null ? stat($ram) : null;
+    same('data trust: the gather\'s ini a 0600 file of root\'s in RAM, the script pointed there', [true, 0600, 0, true, false],
+        [$ram !== null && str_starts_with($ram, RUN_DIR . '/gather-dry.ini.'), $st ? $st['mode'] & 0777 : null, $st['uid'] ?? null,
+         str_contains($jack, "\$env = ['CONSOLIDATE_CONFIG' => (string) \$ramIni"), str_contains($jack, "'CONSOLIDATE_CONFIG' => \$mode === 'measure' ? \"\$dir/measure.ini\"")]);
+    if ($ram !== null) {
+        @unlink($ram);
+    }
+    // EmbyCache: rsync's options the office's, whatever its settings file says
+    @mkdir("$tmp/emby", 0700);
+    file_put_contents("$tmp/emby/embycache_settings.json", json_encode(['cache_path' => $tmp, 'array_path' => $tmp, 'rsync_args' => ['-a', '--log-file=/boot/config/go'],
+        'instances' => [['servername' => 'E', 'url' => 'http://192.0.2.1:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Media']]]]));
+    [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
+        ['EMBYCACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
+    same('data trust: EmbyCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'], json_decode(trim($out), true));
+    check('data trust: the .plg says «Jack Streamer», never «Jack Emby»', !str_contains($src('plugin/unraid-secretary-office.plg'), 'Jack Emby'));
+    check('data trust: the guide says a partner\'s copy is trusted like your own backup', str_contains($src('docs/GUIDE.md'), "trusts that partner like your own backup"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupEpipe(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-epipe-' . getmypid();
@@ -6387,7 +6489,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.48', [1, '2.48'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.49', [1, '2.49'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -6995,7 +7097,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.48', [1, '2.48'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.49', [1, '2.49'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -35555,7 +35657,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
