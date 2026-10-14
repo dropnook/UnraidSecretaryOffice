@@ -304,7 +304,7 @@
   "setup.pool": "Pool",
   "setup.budget_missing": "Saisis un budget comme 500G ou 1T.",
   "setup.movie_share": "Part pour les films (%)",
-  "setup.movie_share_hint": "Souple : si un type est vide, l'autre reçoit le reste.",
+  "setup.movie_share_hint": "Cette part du budget de chaque personne est prévue pour les films, le reste pour les séries. S'il y a moins de films à préparer pour quelqu'un, les séries prennent la place libre — et inversement.",
   "setup.max_per_series": "Épisodes par série, au plus",
   "setup.zero_budget": "0 = seul le budget compte",
   "setup.favorites": "Séries favorites : au plus",

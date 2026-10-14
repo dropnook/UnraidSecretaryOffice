@@ -304,7 +304,7 @@
   "setup.pool": "Pool",
   "setup.budget_missing": "Enter the budget in total in GB (e.g. 500).",
   "setup.movie_share": "Share for films (%)",
-  "setup.movie_share_hint": "Soft: if one kind is empty, the other gets the rest.",
+  "setup.movie_share_hint": "This much of each person's budget is meant for films, the rest for series. If there are fewer films to lay out for someone, the series get the free room — and the other way round.",
   "setup.max_per_series": "At most episodes per series",
   "setup.zero_budget": "0 = only the budget counts",
   "setup.favorites": "Favourite series: at most",
