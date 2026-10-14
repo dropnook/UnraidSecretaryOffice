@@ -713,9 +713,12 @@ function progressPanel() {
   return box;
 }
 
-/** The panel's bars into $box: the bracket, «back to the array», one per person, the file being copied */
-function progressRows(box) {
-  const p = progress;
+/**
+ * The panel's bars into $box: the bracket, «back to the array», one per person, the file being copied — from $p (his live
+ * view, jack-progress.php; default: the one on his page). Lent to Ms. Moverelli's page (core.js Office.jackRows): her
+ * night card shows the same while his step runs.
+ */
+function progressRows(box, p = progress) {
   if (!p || p.phase === 'plan') {
     box.appendChild(el('div', 'jo-prog-line', T('progress.plan')));
   } else if (!p.total || !p.total.files) {
@@ -731,6 +734,8 @@ function progressRows(box) {
     if (p.current && !placed) box.appendChild(progFile(p.current));
   }
 }
+
+Office.jackRows = (box, p) => progressRows(box, p || null);
 
 /** What follows live over his row: the night run's card while it goes, else EmbyCache's panel */
 function livePanel() {

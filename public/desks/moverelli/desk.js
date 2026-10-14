@@ -37,6 +37,7 @@ function took(j) {
 // ------------------------------------------------------------------ her run card (2026-10-12, like Mr. Restori's)
 let progress = null;          // Smart Mover's live status while a real run goes (the part «progress»)
 let nightNow = null;          // the night run's short state while it goes (the part «progress»: phase, round, who works)
+let jackLive = null;          // his step at work in the night (free, fill): his live panel's {real, progress} (the part «progress»)
 let stopping = null;          // the stop file's why while she stops (user | now | mover)
 let progressAt = 0;
 let progTimer = null;
@@ -57,9 +58,10 @@ function tookProgress(j) {
   const p = j && j.ok ? j.part : null;
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
   progressAt = p.time;
-  if (!p.real) { progress = null; stopping = null; nightNow = null; load(true); return; }     // the run ended: her state anew — the card goes
+  if (!p.real) { progress = null; stopping = null; nightNow = null; jackLive = null; load(true); return; }     // the run ended: her state anew — the card goes
   progress = p.progress || null;
   nightNow = p.night || null;
+  jackLive = p.jack || null;
   stopping = p.stopping || null;
   redrawCard();
   if (picLive && picLive.isConnected && nightNow) picLive.update(nightNow);
@@ -67,7 +69,34 @@ function tookProgress(j) {
 }
 function redrawCard() {
   const old = view && view.querySelector ? view.querySelector('.mo-run') : null;
-  if (old && old.replaceWith) old.replaceWith(runCard(progress, Date.now() / 1000));
+  if (!old || !old.replaceWith) return;
+  const card = runCard(progress, Date.now() / 1000);
+  old.replaceWith(card);
+  // Jack Streamer's panel under it: drawn anew, comes with his step, goes with it
+  const was = view.querySelector('.mo-jack');
+  const panel = jackPanel(nightNow);
+  if (was) { if (panel) was.replaceWith(panel); else was.remove(); } else if (panel && card.after) card.after(panel);
+}
+
+/** His step of the night at work (free = give back, fill = fetch) and his live view here: the panel shows */
+const jackAtWork = (nn) => !!(nn && nn.who === 'jack' && ['free', 'fill'].includes(nn.phase) && jackLive && jackLive.real && Office.jackRows);
+
+/**
+ * Jack Streamer's live panel under her night card while his step runs — his page's bars (core.js Office.jackRows, lent by
+ * his desk.js): the bracket, «back to the array», one per person, the file in flight; «Jack Streamer at work» (her page),
+ * a link to his. «Stop after this file» stays her card's (the whole night). null otherwise.
+ */
+function jackPanel(nn) {
+  if (!jackAtWork(nn)) return null;
+  const box = el('div', 'box jo-prog running mo-jack');
+  const head = el('div', 'jo-prog-head');
+  head.append(el('span', 'spin'), el('span', '', T('rc.jack_title')));
+  const open = link(T('rc.night_jack_open'), () => Office.go('#/jack'));
+  open.className = 'mo-link mo-jack-open';
+  head.appendChild(open);
+  box.appendChild(head);
+  Office.jackRows(box, jackLive.progress);
+  return box;
 }
 
 /**
@@ -131,7 +160,7 @@ function runCard(p, now) {
   let top;
   if (nn) {
     card = Office.nightCard(nn, { T, now, stopping, cls: 'mo-run' });
-    if (nn.who === 'jack') {
+    if (nn.who === 'jack' && !jackAtWork(nn)) {
       const line = el('div', 'card-line', T('rc.night_jack') + ' ');
       line.appendChild(link(T('rc.night_jack_open'), () => Office.go('#/jack')));
       card.appendChild(line);
@@ -182,7 +211,8 @@ function runCard(p, now) {
 // run, the pool after it (forecast while it goes, measured once done), where she moves to (the array or the secondary
 // pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
 // Jack Streamer's part in two (the owner, 2026-10-15): not yet watched in his colour, already watched (goes back) in green
-const PIC_SEGS = ['fixed', 'others', 'jack', 'watched', 'free'];
+// and his reserved room (owner + helmi1987, 2026-10-15): hatched after his part — his budget's room not yet filled
+const PIC_SEGS = ['fixed', 'others', 'jack', 'watched', 'reserve', 'free'];
 const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
 const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
 
@@ -214,8 +244,10 @@ function segWidths(values, min) {
  * bar's width in pixels (for the 10 px minimum), done = the run ended, destPx = the target bar's width (its used part keeps
  * the 10 px too). {measured, pool, x (0…1, null: no limit), before,
  * after, forecast (the after bar is a forecast), dest {to, size, used, measured, w}}; a bar: {size, used, jack (all of his),
- * watched (of it what was watched; null: not known — no split), segs [{k, bytes, w}]} — its free part is what the size leaves
- * (the segments sum to the bar); `jack` = what isn't watched (all of his while watched isn't known). Not measured: measured false.
+ * watched (of it what was watched; null: not known — no split), reserve (his reserved room, true value; null: no budget),
+ * assumed (forecast: what waits with him not known — he fills his reserve), segs [{k, bytes, w}]} — its free part is what the
+ * size leaves (the segments sum to the bar); `jack` = what isn't watched (all of his while watched isn't known); the reserve
+ * is drawn out of the free part (never more than it). Not measured: measured false.
  */
 function pictureBars(pic, px, done, destPx) {
   const phases = (pic && typeof pic.phases === 'object' && pic.phases) || {};
@@ -235,9 +267,12 @@ function pictureBars(pic, px, done, destPx) {
     const watched = b.jack_watched == null || !Number.isFinite(Number(b.jack_watched)) ? null : Math.min(jack, Math.max(0, Number(b.jack_watched)));
     const val = { fixed: Math.max(0, Number(b.fixed) || 0), others: Math.max(0, Number(b.others) || 0), jack: jack - (watched || 0), watched: watched || 0 };
     const used = Math.min(size, val.fixed + val.others + jack);
-    val.free = Math.max(0, size - used);
+    const free = Math.max(0, size - used);
+    const reserve = b.jack_reserve == null || !Number.isFinite(Number(b.jack_reserve)) ? null : Math.max(0, Number(b.jack_reserve));
+    val.reserve = Math.min(free, reserve || 0);
+    val.free = free - val.reserve;
     const w = segWidths(PIC_SEGS.map((k) => val[k]), min);
-    return { size, used, jack, watched, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
+    return { size, used, jack, watched, reserve, assumed: b.assumed === true, segs: PIC_SEGS.map((k, i) => ({ k, bytes: val[k], w: w[i] })) };
   };
   const x = Number(pic.x) > 0 ? Math.min(1, Number(pic.x) / 100) : null;
   const after = end || fc;
@@ -272,9 +307,11 @@ function nightPicture(n) {
   const segName = (k, b) => T(k === 'jack' && b && b.watched ? 'pic.seg.unwatched' : 'pic.seg.' + k);
   let data = null;
   /** One bar with its title and X; its segments' words on hover (title) */
-  function barRow(title, b) {
+  function barRow(title, b, note) {
     const row = el('div', 'mo-pic-row');
-    row.appendChild(el('div', 'mo-pic-label', title));
+    const label = el('div', 'mo-pic-label', title);
+    if (note) label.appendChild(el('span', 'mo-pic-note', note));
+    row.appendChild(label);
     const bar = el('div', 'mo-pic-bar');
     bar.setAttribute('role', 'img');
     bar.setAttribute('aria-label', `${title}: ${T('pic.bar_label', { pct: pct(b.used, b.size) })}`);
@@ -304,7 +341,7 @@ function nightPicture(n) {
       rowsBox.appendChild(el('p', 'mo-pic-none', T('pic.pool_unmeasured')));
     } else {
       rowsBox.appendChild(barRow(T('pic.before'), data.before));
-      if (data.after) rowsBox.appendChild(barRow(T(data.forecast ? 'pic.forecast' : 'pic.after'), data.after));
+      if (data.after) rowsBox.appendChild(barRow(T(data.forecast ? 'pic.forecast' : 'pic.after'), data.after, data.forecast && data.after.assumed ? T('pic.assumed') : ''));
       // the legend: each part before → after (the true values)
       const part = (bar, k) => (!bar ? null : k === 'jack' ? bar.jack : bar.segs.find((s) => s.k === k).bytes);
       for (const k of PIC_SEGS) {
@@ -314,6 +351,17 @@ function nightPicture(n) {
           if (wb == null) continue;
           const it = el('span', 'mo-pic-key');
           it.append(el('i', 'mo-pic-seg mo-seg-watched'), el('span', '', T('pic.watched', { size: fmt.size(wb) })));
+          legend.appendChild(it);
+          continue;
+        }
+        if (k === 'reserve') {
+          // «Jack Streamer reserves … (his budget)»: only with a budget — the true values, before → after
+          const rb = data.before.reserve;
+          const ra = data.after ? data.after.reserve : null;
+          if (rb == null && ra == null) continue;
+          const size = ra == null || rb == null || ra === rb ? fmt.size(rb ?? ra) : T('pic.change', { before: fmt.size(rb), after: fmt.size(ra) });
+          const it = el('span', 'mo-pic-key');
+          it.append(el('i', 'mo-pic-seg mo-seg-reserve'), el('span', '', T('pic.reserve', { size })));
           legend.appendChild(it);
           continue;
         }
@@ -411,10 +459,8 @@ function nightPicture(n) {
     dot.className = 'mo-pic-dot mo-fly-' + k;
     dot.innerHTML = picFlyer(f.who === 'jack');
     say(f, true);
-    const at = (p) => `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
     dot.getAnimations().forEach((x) => x.cancel());       // the last flight's (kept at its end) — one at a time on it
-    return dot.animate([{ transform: at(from), opacity: 0 }, { transform: at(from), opacity: 1, offset: 0.12 },
-      { transform: at(to), opacity: 1, offset: 0.88 }, { transform: at(to), opacity: 0 }], { duration: 5000, easing: 'ease-in-out', fill: 'forwards' })
+    return dot.animate(picFlight(from, to), { duration: PIC_FLIGHT_MS, easing: 'linear', fill: 'forwards' })
       .finished.catch(() => {});
   }
   draw();
@@ -440,21 +486,63 @@ function livePicture(nn) {
   picLive = nightPicture(nn);
   return picLive;
 }
+/** A whole trip of a file between the bars (the owner, 2026-10-15: slow — the reel readable, its wings seen flapping) */
+const PIC_FLIGHT_MS = 9000;
+const PIC_LIFT = 34;              // px the flyer rises above the higher of its two ends (never above the box's top part)
+const PIC_TILT = 10;              // degrees it leans into its flight (to the right: clockwise) — the direction at a glance
 /**
- * What flies between the pool and the array / second pool (the owner, 2026-10-15): small wings flapping gently (CSS,
- * still under prefers-reduced-motion), carrying a film reel (Jack Streamer's files) or a block (hers). Inline SVG,
- * colours from the desk's tokens (currentColor = the part's colour), no data inside.
+ * One trip's keyframes, pure (tests/run.php): out of the bar it leaves very small, slowly growing to full size while it
+ * rises, across at full size leaning into its way, then slowly shrinking and sinking into the bar it reaches (his fetch:
+ * out of the array into the pool, his give-back and hers the other way — fileOnto()); {x, y} in the box's pixels.
+ */
+function picFlight(from, to) {
+  const top = Math.max(PIC_LIFT, Math.min(from.y, to.y) - PIC_LIFT);
+  const tilt = to.x >= from.x ? PIC_TILT : -PIC_TILT;
+  const at = (t, lift, scale) => {
+    const x = from.x + (to.x - from.x) * t;
+    const y = from.y + (to.y - from.y) * t;
+    return `translate(${x.toFixed(1)}px, ${(y + (top - y) * lift).toFixed(1)}px) rotate(${scale >= 1 ? tilt : tilt / 2}deg) scale(${scale})`;
+  };
+  return [
+    { transform: at(0, 0, 0.12), opacity: 0, offset: 0 },
+    { transform: at(0, 0, 0.15), opacity: 1, offset: 0.05, easing: 'ease-out' },
+    { transform: at(0.12, 1, 1), opacity: 1, offset: 0.3, easing: 'ease-in-out' },
+    { transform: at(0.88, 1, 1), opacity: 1, offset: 0.7, easing: 'ease-in' },
+    { transform: at(1, 0, 0.15), opacity: 1, offset: 0.95 },
+    { transform: at(1, 0, 0.12), opacity: 0, offset: 1 },
+  ];
+}
+
+/** One feathered wing (drawn leftwards from its shoulder at 0,0): layered pointed feathers, each darker at its tip */
+function picWing() {
+  const feathers = [[62, 36, 7], [44, 46, 8], [26, 52, 8.5], [8, 48, 8.5], [-10, 38, 8]];      // [angle up, length, width]
+  return feathers.map(([deg, l, w]) => `<g transform="rotate(${deg})">`
+    + `<path class="mo-feather" d="M0 0Q${-l / 2} ${-w} ${-l} 0Q${-l / 2} ${w} 0 0Z"/>`
+    + `<path class="mo-feather-tip" d="M${(-0.6 * l).toFixed(1)} 0Q${(-0.8 * l).toFixed(1)} ${(-0.8 * w).toFixed(1)} ${-l} 0Q${(-0.8 * l).toFixed(1)} ${(0.8 * w).toFixed(1)} ${(-0.6 * l).toFixed(1)} 0Z"/></g>`).join('');
+}
+
+/**
+ * What flies between the pool and the array / second pool (the owner, 2026-10-15, «winged reel»): on both sides layered
+ * feathered wings flapping (CSS keyframes on the wing groups, still under prefers-reduced-motion), carrying a silver film
+ * reel from the front — six round holes around a hub, a strip of film with sprocket holes curling out below it — for
+ * Jack Streamer's files, a block for hers. Our own drawing, inline SVG, colours from the desk's tokens (the rim and the
+ * block in currentColor = the part's colour), no data inside.
  */
 function picFlyer(reel) {
-  const wing = 'M0 0C-3-6-9-8-14-6C-11-4-9-2-8 0C-10 1-12 2-13 4C-8 5-3 3 0 0Z';
+  const cx = 60;
+  const cy = 34;
+  const around = (r, n, f) => Array.from({ length: n }, (_, i) => f(cx + r * Math.sin(i * 2 * Math.PI / n), cy - r * Math.cos(i * 2 * Math.PI / n))).join('');
+  const film = 'M52 57C49 70 63 79 79 74C90 71 96 74 104 82';
   const body = reel
-    ? '<g class="mo-fly-reel"><circle cx="20" cy="11" r="7" fill="currentColor" class="mo-fly-body"/><circle cx="20" cy="11" r="1.6" class="mo-fly-hole"/>'
-      + [0, 72, 144, 216, 288].map((a) => `<circle cx="${(20 + 4 * Math.sin(a * Math.PI / 180)).toFixed(2)}" cy="${(11 - 4 * Math.cos(a * Math.PI / 180)).toFixed(2)}" r="1.5" class="mo-fly-hole"/>`).join('')
-      + '</g>'
-    : '<rect x="14" y="5" width="12" height="12" rx="2.5" fill="currentColor" class="mo-fly-body"/>';
-  return '<svg viewBox="0 0 40 22" width="40" height="22" focusable="false">'
-    + `<g transform="translate(14 9)"><path class="mo-wing mo-wing-l" d="${wing}"/></g>`
-    + `<g transform="translate(26 9) scale(-1 1)"><path class="mo-wing mo-wing-r" d="${wing}"/></g>` + body + '</svg>';
+    ? `<path class="mo-film-edge" d="${film}"/><path class="mo-film" d="${film}"/><path class="mo-film-holes" d="${film}"/><path class="mo-film-mid" d="${film}"/>`
+      + `<g class="mo-fly-reel"><circle cx="${cx}" cy="${cy}" r="25" class="mo-reel-rim"/><circle cx="${cx}" cy="${cy}" r="21" class="mo-reel-ring"/>`
+      + around(13, 6, (x, y) => `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="5.2" class="mo-reel-hole"/>`)
+      + `<circle cx="${cx}" cy="${cy}" r="5" class="mo-reel-hub"/>`
+      + around(2.6, 3, (x, y) => `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="0.9" class="mo-reel-dot"/>`) + '</g>'
+    : `<rect x="${cx - 15}" y="${cy - 15}" width="30" height="30" rx="5" fill="currentColor" class="mo-fly-body"/>`;
+  return '<svg viewBox="0 0 120 84" width="96" height="67" focusable="false" aria-hidden="true">'
+    + `<g transform="translate(${reel ? 37 : 46} ${cy - 4})"><g class="mo-wing mo-wing-l">${picWing()}</g></g>`
+    + `<g transform="translate(${reel ? 83 : 74} ${cy - 4}) scale(-1 1)"><g class="mo-wing mo-wing-r">${picWing()}</g></g>` + body + '</svg>';
 }
 const reducedMotion = () => !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
@@ -768,6 +856,9 @@ function hints() {
   }
   if (realRun()) {
     out.push(runCard(progress, Date.now() / 1000));
+    // right under it, while Jack Streamer's step runs: his live panel (the same as on his page)
+    const jp = jackPanel(nightNow || (nightGoing() ? night().last : null));
+    if (jp) out.push(jp);
     // under the card: the night's picture — the pool before, the forecast after, where she moves to, files on the way
     const pic = livePicture(nightNow || (nightGoing() ? night().last : null));
     if (pic) out.push(pic);
@@ -2127,7 +2218,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, setupProblems, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

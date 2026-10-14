@@ -29,7 +29,9 @@ declare(strict_types=1);
  *    phases: {check|free|recheck|fill|done: {before: B, forecast: B, planned: P}},   (each phase as it began)
  *    files: [{name, bytes, from, to, who: "jack"|"her"}, …]}                         (the last NIGHT_FILES_MAX done)
  *   B = {size, fixed (pool-only shares + snapshots + overhead), others (the other caching shares), jack, free,
- *        jack_watched (of jack what was watched — goes back in this run; null: not known yet)}
+ *        jack_watched (of jack what was watched — goes back in this run; null: not known yet),
+ *        jack_reserve (his room not yet filled: min(his GB budget, X − fixed) − jack; null: no budget — nightPictureReserve()),
+ *        assumed (forecast only, true: what waits with him isn't known — no run of his yet — so he fills his reserve)}
  *   The check's jack_watched (and its planned jack_back) come from his free step: live from EmbyCache's plan
  *   (progress `back.bytes`, RAM — nightPictureWatched() in moverelliProgressState()) while it works, kept in night.json once
  *   it is done; Emby is never asked for the picture.
@@ -157,6 +159,39 @@ function nightWords(array $plan): array
             'fill' => (int) $plan['jack_fetch'], 'wait' => (int) $plan['wait'], 'over' => (bool) $plan['over'], 'why' => $plan['why']];
 }
 
+/**
+ * His reserved room in a plan's bars (pure; owner + helmi1987, 2026-10-15: his GB come first, so the picture shows his
+ * whole place, not only what he holds): jack_reserve = min($budget, X − fixed — the whole pool without X) − his part,
+ * never below 0; no budget → null (no reserve). $waitKnown false (no run of his yet, nothing known to wait): the forecast
+ * assumes he fills his reserve up to his budget — the others making room as the plan would — marked `assumed`. Only the
+ * picture: the plan's own numbers (her fill's target) stay as reckoned.
+ */
+function nightPictureReserve(array $plan, ?int $budget, bool $waitKnown = true): array
+{
+    $b = $plan['before'] ?? null;
+    if (!is_array($b) || !is_array($plan['forecast'] ?? null)) {
+        return $plan;
+    }
+    $size = (int) $b['size'];
+    $fixed = (int) $b['fixed'];
+    $xb = (int) ($plan['x'] ?? 0) > 0 ? intdiv((int) $plan['x'] * $size, 100) : 0;
+    $cap = $budget === null || $budget <= 0 ? null : min($budget, max(0, ($xb > 0 ? $xb : $size) - $fixed));
+    $reserve = fn (int $held): ?int => $cap === null ? null : max(0, $cap - $held);
+    $f = $plan['forecast'];
+    if (!$waitKnown && $cap !== null) {
+        // he fills his reserve: what he keeps plus his fetch up to his cap — the others moved down as far as X needs
+        $kept = max(0, (int) $b['jack'] - max(0, (int) ($plan['jack_back'] ?? 0)));
+        $fetch = max(0, $cap - $kept);
+        $room = $xb > 0 ? $xb - $fixed - $kept - $fetch : null;
+        $others = (int) $b['others'] - ($xb > 0 ? max(0, (int) $b['others'] - max(0, $room)) : 0);
+        $f = ['jack' => $kept + $fetch, 'others' => $others, 'free' => max(0, $size - ($fixed + $kept + $fetch + $others)), 'assumed' => true] + $f;
+    }
+    $plan['before']['jack_reserve'] = $reserve((int) $b['jack']);
+    $f['jack_reserve'] = $reserve((int) $f['jack']);
+    $plan['forecast'] = $f;
+    return $plan;
+}
+
 /** One phase of the picture: the pool now, the plan's forecast and its planned bytes */
 function nightPhasePicture(array $plan): array
 {
@@ -241,6 +276,11 @@ function nightHost(?array $h = null): array
         'jack_stop'   => $n['jack_stop'] ?? (defined('JACK_DATA') ? JACK_DATA . '/office-stop.json' : ''),
         // EmbyCache's live progress (RAM): the files his step did (`recent`) for the picture
         'jack_live'   => $n['jack_live'] ?? fn (): array => function_exists('jackProgressPaths') ? (array) (readJson(jackProgressPaths()['file']) ?? []) : [],
+        // his GB budget in bytes (his settings' cache_budget: his reserved room in her picture) — null: none
+        'jack_budget' => $n['jack_budget'] ?? fn (): ?int => function_exists('jackReadSettings') && function_exists('jackSizeBytes')
+            && is_string((jackReadSettings() ?? [])['cache_budget'] ?? null) && ($b = jackSizeBytes((string) jackReadSettings()['cache_budget'])) > 0 ? $b : null,
+        // his live panel's state (jack-progress.php: {real, progress}) — her card shows it while his step runs
+        'jack_progress' => $n['jack_progress'] ?? fn (): array => function_exists('jackProgressState') ? jackProgressState() : [],
         'notify'      => $n['notify'] ?? fn (string $subject, string $body): bool => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli')),
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
         // seconds the pool gets after Jack Emby's give-back before it is measured (ZFS shows freed space a txg later)
@@ -293,6 +333,13 @@ function nightWaiting(array $h): int
 {
     $p = (array) (($h['jack_status'])()['pool'] ?? []);
     return max(0, (int) ($p['waiting_bytes'] ?? 0));
+}
+
+/** Is what waits with Jack Emby known (his last status has it — false before his first run)? */
+function nightWaitKnown(array $h): bool
+{
+    $p = (($h['jack_status'])()['pool'] ?? null);
+    return is_array($p) && is_int($p['waiting_bytes'] ?? null);
 }
 
 /** The night's state file, written anew at every step */
@@ -430,10 +477,13 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     $level = ($h['level'])($g, $h, $real && $jack);
     $plan = nightPlan($level, $jack ? nightWaiting($h) : 0);
     $pool = $level['pool'] ?? ($jack ? moverelliJackPool($h) : null);
+    // his GB budget (his reserved room in the picture) — only while he takes part
+    $budget = $jack ? ($h['jack_budget'])() : null;
+    $pic = fn (array $p, bool $end = false): array => nightPhasePicture(nightPictureReserve($p, $budget, $end || !$jack || nightWaitKnown($h)));
     $n = ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => time(), 'phase' => 'check', 'round' => 1, 'who' => null,
           'jack' => $jack, 'pool' => $pool, 'plan' => nightWords($plan) + ['used_pct' => $plan['used_pct'], 'x' => $plan['x']],
           'picture' => ['pool' => $pool, 'x' => $plan['x'], 'dest' => $plan['measured'] ? nightDest($pool, $h) : null,
-                        'phases' => ['check' => nightPhasePicture($plan)], 'files' => []],
+                        'phases' => ['check' => $pic($plan)], 'files' => []],
           'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []);
     nightWrite($dir, $n);
     logLine("Night run ($mode): " . ($jack ? 'Jack Emby and Ms. Moverelli' : 'Ms. Moverelli alone') . ($plan['measured']
@@ -442,9 +492,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         : ''));
     $stopped = fn (): bool => is_file("$dir/night-stop.json");
     // the picture: a phase as it begins (the pool measured anew where the step needs it)
-    $phase = function (string $ph, array $p) use (&$n): void {
+    $phase = function (string $ph, array $p) use (&$n, $pic): void {
         if ($p['measured']) {
-            $n['picture']['phases'][$ph] = nightPhasePicture($p);
+            $n['picture']['phases'][$ph] = $pic($p, $ph === 'done');
         }
     };
     // one step: a tool called with its part; false = the night ends here (stopped, refused)
