@@ -47,7 +47,7 @@ const REPO = path.resolve(HERE, '..');
 const require = createRequire(import.meta.url);
 
 // ------------------------------------------------------------------ the call
-const ROUTES = ['caretaker', 'backup', 'backup/setup', 'restore', 'snapshot', 'cleanup/tidy', 'cleanup/where', 'logs', 'watchman', 'advisor', 'emby', 'emby/setup', 'moverelli', 'moverelli/setup'];
+const ROUTES = ['caretaker', 'backup', 'backup/setup', 'restore', 'snapshot', 'cleanup/tidy', 'cleanup/where', 'logs', 'watchman', 'advisor', 'jack', 'jack/setup', 'moverelli', 'moverelli/setup'];
 const opt = { only: null, themes: ['dark', 'light'], widths: [1440, 375], jobs: 6, verbose: false, perGroup: 5, perPage: 60 };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
@@ -438,7 +438,7 @@ async function runPage(browser, harness, route, theme, width) {
   }
   // a log dialog (status line + a long log) fits the window at every text size: title and «Close» in sight
   // (1.55.0 pushed «Close» below a short window - 2026-10-10); once per theme and width, on one page
-  if (route === 'emby') {
+  if (route === 'jack') {
     try {
       await page.setViewportSize({ width, height: 650 });
       for (const size of ['', 'medium', 'large']) {
@@ -509,7 +509,7 @@ async function dialogStack(browser, harness) {
     Office.dialog({ title: 'outer', body: box, modal: true, wide: true, onEscape: () => {}, buttons: [{ text: 'Close' }] });
   }, long ? 120 : 0);
   try {
-    await page.goto(`${harness.url}#/emby/setup/servers`, { waitUntil: 'load' });
+    await page.goto(`${harness.url}#/jack/setup/servers`, { waitUntil: 'load' });
     await page.waitForSelector('#sso-desk .jo-instance input', { timeout: 15000 });
     await outer(false);
     const name = page.locator('.dialog .uso-stack-field');
@@ -536,7 +536,7 @@ async function dialogStack(browser, harness) {
     }
     for (const [w, hgt, shift] of [[1280, 720, false], [390, 844, false], [1280, 720, true]]) {
       await page.setViewportSize({ width: w, height: hgt });
-      await page.goto(`${harness.url}#/emby/setup/servers`, { waitUntil: 'load' });
+      await page.goto(`${harness.url}#/jack/setup/servers`, { waitUntil: 'load' });
       await page.waitForSelector('#sso-desk .jo-instance input', { timeout: 15000 });
       if (shift) {
         await page.evaluate(() => { const o = document.querySelector('#sso'); o.style.transform = 'translateZ(0)'; o.style.marginTop = '160px'; window.dispatchEvent(new Event('resize')); });
@@ -560,7 +560,7 @@ async function dialogStack(browser, harness) {
   await ctx.close();
   return res;
 }
-if (!opt.only || routes.includes('emby/setup')) results.push(await dialogStack(browser, harness));
+if (!opt.only || routes.includes('jack/setup')) results.push(await dialogStack(browser, harness));
 await browser.close();
 await harness.close();
 

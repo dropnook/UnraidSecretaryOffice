@@ -286,5 +286,5 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const demo = process.argv.includes('--demo');
   const port = Number(process.argv.slice(2).find((a) => /^\d+$/.test(a))) || 8099;
-  startHarness({ port, demo }).then((h) => console.log(`harness: ${h.url}${demo ? '#/emby' : '#/advisor'}  (?theme=white for Unraid's white theme)`));
+  startHarness({ port, demo }).then((h) => console.log(`harness: ${h.url}${demo ? '#/jack' : '#/advisor'}  (?theme=white for Unraid's white theme)`));
 }
