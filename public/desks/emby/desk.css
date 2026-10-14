@@ -90,4 +90,95 @@
 .jo-night-prog{margin:2px 0 0; padding:0}
 .jo-night-her{overflow-wrap:anywhere}
 .jo-night-dry{margin:10px 0 0}
+
+/* the setup wizard (2026-10-14, Jack the Skipper — like Unraid's own welcome setup): one step at a time in a centred card */
+.jo-wiz{width:100%; max-width:880px; margin:18px auto 8px; padding:20px 24px 16px; min-height:0; min-width:0; box-sizing:border-box}
+.jo-wiz-body, .jo-wiz-part, .jo-sim-body > *{min-width:0; max-width:100%}
+.jo-wiz-head{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px}
+.jo-wiz-title{margin:0; font-size:19px; font-weight:650; color:var(--ink)}
+.jo-wiz-intro{margin:10px 0 16px; padding:6px 12px; border-left:3px solid var(--accent); background:var(--surface2); color:var(--ink2); font-size:13px; line-height:1.5; overflow-wrap:anywhere}
+.jo-wiz-body{min-width:0}
+.jo-wiz-foot{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 14px; margin:18px 0 0; padding:12px 0 0; border-top:1px solid var(--line)}
+.jo-wiz-left, .jo-wiz-right{display:flex; gap:8px; flex-wrap:wrap}
+.jo-wiz-left{min-width:90px}
+.jo-wiz-where{display:flex; flex-direction:column; align-items:center; gap:4px; font-size:12px; color:var(--muted)}
+.jo-wiz-dots{display:flex; gap:5px}
+.jo-wiz-dots i{width:7px; height:7px; border-radius:50%; background:var(--line2)}
+.jo-wiz-dots i.done{background:var(--accent-soft)}
+.jo-wiz-dots i.on{background:var(--accent)}
+.jo-wiz-offer{margin:14px 0 0}
+.jo-wiz-offer p{margin:0 0 6px}
+.jo-wiz-pools{margin:12px 0 0}
+.jo-wiz-pools p{margin:0 0 6px}
+.jo-adv{margin-top:12px}
+.jo-adv > summary{cursor:pointer}
+.jo-sum{display:flex; flex-direction:column}
+.jo-sum-row{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--line)}
+.jo-sum-text{display:flex; flex-direction:column; gap:2px; min-width:0; font-size:13px; color:var(--ink2); overflow-wrap:anywhere}
+.jo-sum-text b{color:var(--ink); font-weight:600}
+@media (max-width:640px){
+  .jo-wiz{padding:14px 12px 12px; margin-top:10px}
+  .jo-wiz-foot{justify-content:center}
+  .jo-wiz-where{order:-1; flex-basis:100%}
+  .jo-wiz-left, .jo-wiz-right{flex:1 1 auto}
+  .jo-wiz-right{justify-content:flex-end}
+}
+.jo-media{margin:4px 0 14px}
+.jo-media-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
+.jo-media-row{display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 180px), 1fr))}
+.jo-media-card{min-height:0; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px}
+.jo-media-card.on{border-color:var(--accent)}
+.jo-media-card.off{opacity:.5}
+.jo-share-kv{grid-column:1 / -1; margin:4px 0 6px}
+/* the pool simulator (skipper.js) */
+.jo-sim-body{display:flex; flex-direction:column; gap:12px; min-width:0}
+.jo-sim-src{display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px}
+.jo-sim-src .check{margin:0}
+.jo-sim-label{font-size:11px; font-weight:650; letter-spacing:.06em; text-transform:uppercase; color:var(--muted)}
+.jo-sim-day{margin-left:auto; font-size:12.5px; color:var(--ink2)}
+.jo-sim-facts p{margin:0 0 4px; overflow-wrap:anywhere}
+.jo-sim-ctl{display:grid; gap:4px 22px; grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr))}
+.jo-sim-slider{display:grid; grid-template-columns:minmax(0, 1fr) minmax(90px, 140px) 76px; align-items:center; gap:8px; font-size:12.5px; color:var(--ink2)}
+.jo-sim-slider input[type=range]{width:100%; accent-color:var(--accent)}
+.jo-sim-out{text-align:right; font-variant-numeric:tabular-nums; color:var(--ink)}
+.jo-sim-seed{width:100%}
+.jo-sim-acts{flex-wrap:wrap; gap:6px}
+.jo-sim-pic{margin:20px 0 0}
+.jo-sim-bar{position:relative; display:flex; height:30px; border:1px solid var(--line2); border-radius:6px; background:var(--surface); margin:0 0 22px}
+.jo-sim-seg{display:block; height:100%}
+.jo-sim-seg.nm{background:var(--data)}
+.jo-sim-seg.others{background:var(--ink2)}
+.jo-sim-seg.unw{background:var(--accent)}
+.jo-sim-seg.wat{background:var(--accent-soft)}
+.jo-sim-seg.free{background:var(--surface); border:1px solid var(--line2)}
+.jo-sim-mark{position:absolute; top:-18px; bottom:-2px; border-left:2px solid var(--ink)}
+.jo-sim-mark > span{position:absolute; top:0; left:3px; font-size:11px; line-height:1; white-space:nowrap; color:var(--ink)}
+.jo-sim-mark.below{top:-2px; bottom:-18px; border-left-style:dashed}
+.jo-sim-mark.below > span{top:auto; bottom:0}
+.jo-sim-mark.flip > span{left:auto; right:3px}
+.jo-sim-legend{display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; color:var(--muted)}
+.jo-sim-key{display:inline-flex; align-items:center; gap:5px}
+.jo-sim-key .jo-sim-seg{width:10px; height:10px; border-radius:2px}
+.jo-sim-numbers{margin:6px 0 0; overflow-wrap:anywhere}
+.jo-sim-scroll{overflow-x:auto; min-width:0}
+.jo-sim-days{max-height:260px; overflow-y:auto}
+.jo-sim-table{width:100%; border-collapse:collapse; font-size:12.5px}
+.jo-sim-table th, .jo-sim-table td{padding:4px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top}
+.jo-sim-table th{color:var(--muted); font-weight:600}
+.jo-sim-table th.num, .jo-sim-table td.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+.jo-sim-cellnote{display:block; margin-top:2px; font-size:11.5px}
+.jo-sim-kv{margin:0}
+.jo-sim-log{font:12px/1.5 var(--mono); background:var(--surface2); border:1px solid var(--line); border-radius:6px; padding:8px 10px; max-height:260px; overflow:auto; overflow-wrap:anywhere}
+.jo-sim-line.day{color:var(--ink); font-weight:600; margin-top:4px}
+.jo-sim-line.back, .jo-sim-line.mov{color:var(--warn)}
+.jo-sim-line.fill{color:var(--good)}
+.jo-sim-line.skip, .jo-sim-line.hold{color:var(--muted)}
+.jo-sim-line.bad{color:var(--danger)}
+.jo-sim-sc{border:1px solid var(--line); border-radius:var(--radius); padding:0 0 8px}
+.jo-sim-sc > p, .jo-sim-sc > .toolbar, .jo-sim-sc > .jo-sim-scroll{margin:8px 12px}
+@media (max-width:640px){
+  .jo-sim-slider{grid-template-columns:minmax(0, 1fr) 76px}
+  .jo-sim-slider input[type=range]{grid-column:1 / -1; grid-row:2}
+  .jo-sim-day{margin-left:0}
+}
 }
