@@ -864,7 +864,7 @@
   "wizard.intro.simulator": "Probier die Regeln aus, bevor sie gelten: Nächte durchgespielt, auf dem Server ändert sich nichts.",
   "wizard.intro.summary": "Was das Speichern schreibt. «Ändern» führt zu diesem Schritt.",
   "wizard.pool_chip": "Pool {pool}",
-  "wizard.no_pool_share": "kein Pool als Primärspeicher – in den Unraid-Share-Einstellungen festlegen",
+  "wizard.no_pool_share": "kein Pool als Primärspeicher, darum bleibt dieser Ordner auf dem Array – Pool in den Unraid-Share-Einstellungen festlegen",
   "wizard.pool_other": "Auf einem anderen Pool als {pool}: bleibt aussen vor",
   "wizard.pools_many": "EmbyCache nutzt genau einen Pool, diese Shares liegen aber auf {n} Pools. Wähle den Pool — die Shares auf den anderen bleiben aussen vor.",
   "wizard.pools_pick": "Wähle, welchen Pool EmbyCache nutzt (Schritt 2).",

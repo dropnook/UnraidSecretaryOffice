@@ -864,7 +864,7 @@
   "wizard.intro.simulator": "Essaie les règles avant qu'elles comptent : des nuits jouées, rien ne change sur le serveur.",
   "wizard.intro.summary": "Ce que l'enregistrement écrit. «Modifier» mène à cette étape.",
   "wizard.pool_chip": "Pool {pool}",
-  "wizard.no_pool_share": "pas de pool comme stockage principal — à régler dans les réglages des partages d'Unraid",
+  "wizard.no_pool_share": "pas de pool comme stockage principal, ce dossier reste donc sur l'array — régler un pool dans les réglages des partages d'Unraid",
   "wizard.pool_other": "Sur un autre pool que {pool} : laissé de côté",
   "wizard.pools_many": "EmbyCache utilise exactement un pool, et ces partages sont sur {n} pools. Choisis le pool — les partages des autres sont laissés de côté.",
   "wizard.pools_pick": "Choisis le pool qu'utilise EmbyCache (étape 2).",

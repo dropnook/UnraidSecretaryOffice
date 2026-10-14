@@ -864,7 +864,7 @@
   "wizard.intro.simulator": "Prova le regole prima che valgano: notti simulate, sul server non cambia nulla.",
   "wizard.intro.summary": "Ciò che il salvataggio scrive. «Modifica» porta a quel passo.",
   "wizard.pool_chip": "Pool {pool}",
-  "wizard.no_pool_share": "nessun pool come archiviazione primaria — impostalo nelle impostazioni delle condivisioni di Unraid",
+  "wizard.no_pool_share": "nessun pool come archiviazione primaria, quindi questa cartella resta sull'array — imposta un pool nelle impostazioni delle condivisioni di Unraid",
   "wizard.pool_other": "Su un altro pool rispetto a {pool}: escluso",
   "wizard.pools_many": "EmbyCache usa esattamente un pool, e queste condivisioni stanno su {n} pool. Scegli il pool — le condivisioni sugli altri restano escluse.",
   "wizard.pools_pick": "Scegli quale pool usa EmbyCache (passo 2).",
