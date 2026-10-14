@@ -129,8 +129,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   things stay local until the user decides** (`preset_new`; only Apply makes a default so). **VMs**: `prepare =
   shutdown|freeze|pause|none`, never forced off, a late VM paused (warning). **Array stop ends a run at once** (`aborted`, exit
   3, shown as stopped, never failed); `--recover` at the next start. **Sleeping pools** `wake|skip` (skip = left out and said,
-  never failed; backup place and data folder pools always woken). **Partner phase:** one dataset per unit, `partner_ssh_cmd()`
-  the one place for ssh options, never `zfs send -s`; what a partner didn't get is a warning in that run (`testPartnerAtOnce`).
+  never failed; backup place and data folder pools always woken). **The retention never thins a partner's copies or the
+  storeroom** (`ub_prune_own`). **Partner phase:** one dataset per unit, `partner_ssh_cmd()` the one place for ssh options, never `zfs send -s`; what a partner didn't get is a warning in that run (`testPartnerAtOnce`).
   Fixtures run on the tests' clock (checklist 3).
 
 ### Jack Streamer's tools
