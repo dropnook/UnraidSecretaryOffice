@@ -30494,6 +30494,21 @@ out.drag = {
   y: [S.dragSet(c, 'y', 60).offset, S.dragSet(c, 'y', 60).x, S.dragSet(c, 'y', 95).offset, S.dragSet(c, 'y', -3).offset],
   fit: (({ nm, others0, jack0, x, offset }) => [nm, others0, jack0, x, offset])(S.fitCfg({ ...c, pool: 300, nm: 400, x: 1, offset: 0 })),
 };
+// the owner's screenshot (own test values): what never moves above Y, the others gone, his unwatched files stay → over X
+const edge = S.newSim(S.fitCfg({ ...S.DEFAULTS, unwatchedDays: 30, pool: 4403, nm: 2662, others0: 1003, jack0: 630, x: 70, offset: 10 }), 162);
+S.simDay(edge);
+const es = edge.sides.new;
+S.simDays(edge, 0);
+const stand = S.newSim(S.fitCfg({ ...S.DEFAULTS, unwatchedDays: 30, pool: 4403, nm: 2662, others0: 1003, jack0: 630, x: 70, offset: 10 }), 162);
+S.simDays(stand, 3);
+const ss = stand.sides.new;
+out.stand = { why: ss.warnWhy && ss.warnWhy.causes, stopped: ss.log.filter((l) => l.k === 'fill_warn').length, fetchedAfterWarn: ss.log.some((l, i) => l.k === 'fetch' && ss.log.slice(0, i).some((x) => x.k === 'warn')) };
+// … and it clears: what never moves made small again (the same world, a night later) — he fetches again
+stand.w.nm = 100;
+S.simDays(stand, 2);
+out.clear = { warnNow: ss.warnNow, fetched: ss.log.slice(-60).some((l) => l.k === 'fetch') };
+out.edge = { never: es.log.some((l) => l.k === 'never'), told: es.told, warns: es.warns, limit: es.inv.limit, others: Math.round(S.mathOf(edge.w, es).others),
+  over: S.mathOf(edge.w, es).used > S.mathOf(edge.w, es).xb, dayTold: es.hist.at(-1).told };
 const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
 out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
   min: v.every((x, i) => x <= 0 || w[i] >= Math.min(min, 1 / v.filter((y) => y > 0).length) - 1e-9),
@@ -30555,6 +30570,12 @@ JS);
     same('streamer sim: dragging X — 1 % steps, Y stays (the offset follows), at most 100, above Y', [85, 15, 100, 71, 1], $d['x']);
     same('streamer sim: dragging Y — the offset = X − Y, X stays, at least 1, Y at least 1', [20, 80, 1, 79], $d['y']);
     same('streamer sim: a setting within the rules (NM ≤ pool, nothing else beyond it, Y < X)', [300, 0, 0, 2, 1], $d['fit']);
+    $ed = $r['edge'];
+    same('streamer sim: nothing to share (what never moves above Y), the others all moved, his unwatched files stay — the pool over X: «told at once» (the check says so, not red), the warning, the log says «nothing to share»',
+        [true, true, 1, true, true, 1, 0, true], [$ed['never'], $ed['over'], $ed['told'], $ed['warns'] >= 1, $ed['limit']['ok'], $ed['limit']['told'], $ed['others'], $ed['dayTold']]);
+    same('streamer sim: while the warning stands he fetches nothing at all (the log: «only freeing»), it names its causes — target nightRun()\'s fill step',
+        [['never', 'room'], true, false], [$r['stand']['why'], $r['stand']['stopped'] >= 2, $r['stand']['fetchedAfterWarn']]);
+    same('streamer sim: … once a night ends without its cause the warning is gone and he fetches again', [false, true], [$r['clear']['warnNow'], $r['clear']['fetched']]);
     foreach ($r['seg'] as $i => $x) {
         check("streamer sim: segment widths case $i — sum 100 % (or nothing), every value > 0 at least the minimum, 0 stays 0, a bigger value never narrower",
             (abs($x['sum'] - 1) < 1e-9 || $x['sum'] == 0) && $x['zeroes'] && $x['min'] && $x['order'], json_encode($x));
@@ -30582,9 +30603,9 @@ function testStreamerWizard(): void
     same('streamer wizard: every text streamer.js asks for is in his lang files', [], array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($en[$k]))));
     $families = ['sim.f.' => ['pool', 'nm', 'writes', 'watch', 'newEps', 'people', 'x', 'offset', 'k', 'unwatchedDays', 'age'],
         'sim.ev.' => ['spike', 'appdata', 'binge', 'nobody', 'abandon'], 'sim.sc.' => ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'],
-        'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.drag.' => ['nm', 'end', 'x', 'y'], 'sim.bar.' => ['before', 'after', 'same', 'nm', 'others', 'unw', 'wat', 'free'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
+        'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.' => ['told', 'told_from', 'seed_hint', 'reroll', 'warn_msg'], 'sim.warn_why.' => ['never', 'room', 'promise'], 'sim.drag.' => ['nm', 'end', 'x', 'y'], 'sim.bar.' => ['before', 'after', 'same', 'nm', 'others', 'unw', 'wat', 'free'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
         'sim.log.' => ['day', 'spill', 'plan', 'back_watched', 'back_stale', 'back_borrowed', 'age', 'goes_x', 'goes_over', 'fetch', 'skip_limit', 'skip_y',
-            'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event', 'warn'], 'sim.who.' => ['jack', 'her']];
+            'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event', 'warn', 'fill_warn'], 'sim.who.' => ['jack', 'her']];
     $miss = [];
     foreach ($families as $pre => $ids) {
         foreach ($ids as $id) {

@@ -1674,6 +1674,24 @@ function setupServers() {
   return s1;
 }
 
+/** Where the media servers' logos come from: the same icon set as Ms. Dustdevil's container pictures (agent/desks/cleanup.php
+ * CL_ICON_CDN, homarr-labs/dashboard-icons) — loaded by the browser at runtime, never shipped with the office */
+const MEDIA_LOGO_CDN = 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/';
+/** A media server's logo, its round monogram underneath (it shows when the picture can't load — offline) */
+function mediaLogo(name) {
+  const box = el('span', 'jo-media-logo m-' + name.toLowerCase(), name.charAt(0));
+  box.setAttribute('aria-hidden', 'true');
+  const img = el('img');
+  img.alt = '';
+  img.decoding = 'async';
+  img.referrerPolicy = 'no-referrer';
+  img.onload = () => box.classList.add('has-img');
+  img.onerror = () => img.remove();
+  img.src = MEDIA_LOGO_CDN + name.toLowerCase() + '.png';
+  box.appendChild(img);
+  return box;
+}
+
 /**
  * The media server: Emby (what he works with), Plex and Jellyfin coming soon (greyed, not choosable). The names are the
  * products' own (not translated).
@@ -1685,7 +1703,9 @@ function mediaChoice() {
   [['Emby', true], ['Plex', false], ['Jellyfin', false]].forEach(([name, works]) => {
     const card = el('div', 'box jo-media-card' + (works ? ' on' : ' off'));
     card.setAttribute('aria-disabled', works ? 'false' : 'true');
-    card.append(el('b', '', name), chip(T(works ? 'wizard.media_ok' : 'wizard.soon'), works ? 'ok' : ''));
+    const who = el('span', 'jo-media-name');
+    who.append(mediaLogo(name), el('b', '', name));
+    card.append(who, chip(T(works ? 'wizard.media_ok' : 'wizard.soon'), works ? 'ok' : ''));
     row.appendChild(card);
   });
   box.append(row, el('p', 'role', T('wizard.media_sub')));

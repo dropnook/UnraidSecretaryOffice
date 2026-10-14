@@ -142,7 +142,7 @@ function newSide(rules, w) {
   const dl = o != null ? [3, 2, 1].map((d) => ({ day: -d, size: r1(o / 3) })).filter((d) => d.size > 0)
     : [{ day: -2, size: w.cfg.writes }, { day: -1, size: w.cfg.writes }];
   return { rules, pool: new Set(), dl, back: new Map(),
-    up: 0, down: 0, moved: 0, spilled: 0, pingpong: 0, revived: 0, short: 0, warns: 0, warnNow: false, told: 0, log: [], hist: [], inv: invNew(), fetchedTonight: 0, forced: 0 };
+    up: 0, down: 0, moved: 0, spilled: 0, pingpong: 0, revived: 0, short: 0, warns: 0, warnNow: false, warnWhy: null, fillStopped: false, told: 0, log: [], hist: [], inv: invNew(), fetchedTonight: 0, forced: 0 };
 }
 
 const stale = (w, s) => w.day - s.lastSeen >= w.cfg.unwatchedDays;
@@ -357,9 +357,14 @@ function streamerNight(w, side, L) {
     if (round === 1 && c.nightWrites > 0 && w.nightWrites > 0) { L('night_writes', { size: w.nightWrites }, 'skip'); writeDay(w, side, w.nightWrites, L); }
     if (jackFree + goes + aged <= TOL && round > 1) break;
   }
-  // fill: nothing while over his limit; else up to his limit and never over Y
+  // fill: nothing while a warning stands (the owner, 2026-10-14 — he only frees then: watched and N-day files; it
+  // clears once a night ends without its cause) — target: nightRun()'s fill step, skipped while the last night's
+  // warning stands (night.json); nothing while over his limit; else up to his limit and never over Y
   const m = mathOf(w, side);
-  if (m.jack > m.jackLimit + TOL) {
+  side.fillStopped = !!side.warnNow;
+  if (side.warnNow) {
+    L('fill_warn', {}, 'hold');
+  } else if (m.jack > m.jackLimit + TOL) {
     L('fill_over', { held: r1(m.jack), limit: r1(m.jackLimit) }, 'hold');
   } else {
     side.fetchedTonight = fill(w, side, (e, now) => {
@@ -422,13 +427,21 @@ function tell(w, side, L) {
   const promised = m.halfD / 2 + m.air;
   // the day's writes don't fit up to X while he holds more than his limit (it is him who can't give back — her X trigger
   // alone leaves the pool between Y and X on purpose: the air belongs to the day), or the others' promise is broken
-  side.warnNow = !m.never && ((left < w.cfg.writes - TOL && m.jack > m.jackLimit + TOL) || m.others + left < promised - TOL);
+  // (also when nothing is left to share — what never moves already reaches Y: then the cache for new writes is gone too)
+  // the causes, each in its own words on the page: what never moves reaches Y; the day's writes don't fit up to X while he
+  // is over his limit; the others' promise is broken
+  const causes = [];
+  if (m.never) causes.push('never');
+  if (left < w.cfg.writes - TOL && m.jack > m.jackLimit + TOL) causes.push('room');
+  if (m.others + left < promised - TOL && !m.never) causes.push('promise');
+  side.warnNow = causes.length > 0;
+  side.warnWhy = side.warnNow ? { causes, nm: r1(m.nm), room: r1(left), writes: w.cfg.writes, promised: r1(promised), have: r1(m.others + left) } : null;
   if (side.warnNow) { side.warns++; L('warn', { room: r1(left), writes: w.cfg.writes, promised: r1(promised) }, 'bad'); }
 }
 
 // ---------------------------------------------------------------------- the invariants (after every night)
 const INVARIANTS = ['jack', 'others', 'unwatched', 'pingpong', 'limit'];
-function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: true, first: null, fails: 0 }])); }
+function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: true, first: null, fails: 0, told: null }])); }
 
 /**
  * The five checks of a night, against the NEW rules' numbers (for 1.62.1 too — that is the comparison):
@@ -440,7 +453,8 @@ function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: tr
  *              writes had to go to the array
  *   unwatched  nothing unwatched went back unless its series/film was unwatched ≥ N days
  *   pingpong   no file given back and fetched again within 7 days
- *   limit      the pool ≤ X after the night — else «told at once» was logged; red only when Jack's part over H made it
+ *   limit      the pool ≤ X after the night — else «told at once» (the owner, 2026-10-14: expected, e.g. when what never
+ *              moves reaches Y and his unwatched files stay; shown as such, not as a failure); red only if not told
  */
 function invariants(w, side, before) {
   const m = mathOf(w, side);
@@ -454,7 +468,9 @@ function invariants(w, side, before) {
   // he is simply held back while the others hold more than their half (the owner, 2026-10-14: she moves only from X on;
   // writes during the night can leave them over it after her move too) — his half is owed once she has moved theirs
   const heldBack = m.others > m.halfD + TOL;
-  r.jack = (heldWanted >= Math.min(m.half, wantTotal) - biggest - TOL || heldBack) && (m.jack <= m.jackLimit + TOL || overOk);
+  // … and while a warning stands he fetches nothing at all (his half is owed again once it clears)
+  r.jack = (heldWanted >= Math.min(m.half, wantTotal) - biggest - TOL || heldBack || side.fillStopped)
+    && (m.jack <= m.jackLimit + TOL || overOk || (side.fillStopped && side.fetchedTonight <= TOL && files.every((e) => !e.watched && !stale(w, w.series[e.sid]))));
   // what is promised (the owner, 2026-10-14): they always keep at least half of their own half, plus the air Y…X — what
   // they hold and what is free up to X together
   const owed = m.halfD / 2 + m.air;
@@ -463,7 +479,9 @@ function invariants(w, side, before) {
   r.others = m.never || ((theirs >= owed - TOL || side.warnNow) && side.spilled <= before.spilled + TOL);
   r.unwatched = side.forced === before.forced;
   r.pingpong = side.pingpong === before.pingpong;
-  r.limit = m.used <= m.xb + TOL || (side.told > before.told && m.nm + m.others + Math.min(m.jack, m.half) > m.xb - TOL);
+  const toldNow = side.told > before.told;
+  r.limit = m.used <= m.xb + TOL || toldNow;
+  if (toldNow && side.inv.limit.told == null) side.inv.limit.told = w.day;
   for (const k of INVARIANTS) {
     if (r[k]) continue;
     const s = side.inv[k];
@@ -511,7 +529,8 @@ function record(w, side, before, check) {
   const m = mathOf(w, side);
   const r = check ? invariants(w, side, before) : null;
   side.hist.push({ day: w.day, used: r1(m.used), pct: r1(m.used * 100 / w.cfg.pool), jack: r1(m.jack), others: r1(m.others), nm: r1(m.nm),
-    up: r1(side.up - before.up), down: r1(side.down - before.down), moved: r1(side.moved - before.moved), inv: r, warn: !!side.warnNow });
+    up: r1(side.up - before.up), down: r1(side.down - before.down), moved: r1(side.moved - before.moved), inv: r, warn: !!side.warnNow,
+    told: side.told > (before.told || 0) });
   if (side.hist.length > 400) side.hist.shift();
 }
 
@@ -814,6 +833,11 @@ function draw(h, body) {
   seed.onchange = () => { V.seed = Math.max(0, Math.floor(Number(seed.value) || 0)); restart(h); redraw(h, body); };
   seedRow.append(el('span', 'jo-sim-name', T('sim.f.seed')), seed);
   ctl.appendChild(seedRow);
+  // the chance: the same number gives the same course; «roll again» a new one, the simulation anew at day 0
+  const dice = el('div', 'jo-sim-dice');
+  dice.append(h.button(T('sim.reroll'), 'small plain', () => { V.seed = 1 + Math.floor(Math.random() * 99999); restart(h); redraw(h, body); }),
+    el('span', 'role', T('sim.seed_hint')));
+  ctl.appendChild(dice);
   more.appendChild(ctl);
   body.appendChild(more);
 
@@ -992,6 +1016,9 @@ function picture(h, body) {
   box.appendChild(legend);
   const numbers = el('p', 'role jo-sim-numbers');
   box.appendChild(numbers);
+  // the warning of the day on display, in plain words (what was sent, and why) — as the office's warnings look
+  const warnMsg = el('p', 'callout warn jo-sim-warnmsg');
+  box.insertBefore(warnMsg, legend);
 
   /** Both bars, their marks, the handles and the words from the simulation as it stands (in place — during a drag too) */
   function update() {
@@ -1000,6 +1027,10 @@ function picture(h, body) {
     if (tag && !V.shown) tag.textContent = T('sim.day', { n: V.sim.w.day });
     eve.update(side.eve, side.prevMorn);
     morn.update(side.morn, side.eve);
+    const why = side.warnWhy;
+    warnMsg.style.display = why ? '' : 'none';
+    warnMsg.textContent = !why ? '' : T('sim.warn_msg', { why: why.causes.map((c) => T('sim.warn_why.' + c, { nm: gbText(why.nm), room: gbText(why.room),
+      writes: gbText(why.writes), promised: gbText(why.promised), have: gbText(why.have) })).join('; ') });
     const m = side.morn;
     const of = (x) => ({ nm: x.nm, others: x.others, unw: x.jack - x.watched, wat: x.watched, free: V.sim.w.cfg.pool - x.used });
     const a = of(side.eve);
@@ -1085,7 +1116,9 @@ function checks(h) {
     for (const r of ['new', 'v162']) {
       const s = V.sim.sides[r].inv[k];
       const td = el('td');
-      td.appendChild(el('span', 'chip ' + (s.ok ? 'ok' : 'danger'), s.ok ? T('sim.green') : T('sim.red_from', { day: s.first })));
+      // «told at once» (the pool over X after a night, reported): expected by the rules — said, not red
+      if (s.ok && s.told != null) td.appendChild(el('span', 'chip warn', T('sim.told_from', { day: s.told })));
+      else td.appendChild(el('span', 'chip ' + (s.ok ? 'ok' : 'danger'), s.ok ? T('sim.green') : T('sim.red_from', { day: s.first })));
       tr.appendChild(td);
     }
     t.appendChild(tr);
@@ -1125,6 +1158,7 @@ function dayTable(h, side) {
     [String(r.day), `${r.pct} %`, gb(r.jack), gb(r.others), gb(r.up), gb(r.down), gb(r.moved)].forEach((v) => tr.appendChild(el('td', 'num', v)));
     const td = el('td');
     td.appendChild(r.inv ? el('span', 'chip ' + (bad.length ? 'danger' : 'ok'), bad.length ? bad.map((k) => T('sim.short.' + k)).join(' · ') : T('sim.green')) : el('span', 'role', '–'));
+    if (r.told) td.appendChild(el('span', 'chip warn', T('sim.told')));
     if (r.warn) td.appendChild(el('span', 'chip warn', T('sim.warn')));
     tr.appendChild(td);
     t.appendChild(tr);
