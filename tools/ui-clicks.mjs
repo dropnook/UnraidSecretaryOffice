@@ -488,9 +488,10 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
   }
 }));
 // ------------------------------------------------------------------ the dialog stack (2026-10-14)
-// A dialog opened over a modal one (Jack Streamer's wizard → «Take over an earlier install») stacks: Escape, a click outside
-// and its buttons close only it; the wizard comes back as it was — its step, the typed value, the focus, still modal (the
-// page inert); Escape on the wizard then asks (it holds a change) instead of closing.
+// A dialog opened over a modal one stacks: Escape, a click outside and its «Cancel» close only it; the one below comes back
+// as it was — the typed value, the focus, still modal (the page inert). A long dialog fits the window: its body scrolls to
+// its end, the head and the foot stay in view — at 1280×720 and 390 px, and with the office's box transformed and pushed
+// down (as Unraid's page may do: then «fixed» is that box, not the window). On Jack Streamer's «Set up» tab.
 async function dialogStack(browser, harness) {
   const res = { route: 'dialog stack', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
   const fail = (what) => res.fails.push(what);
@@ -498,55 +499,59 @@ async function dialogStack(browser, harness) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+  // a modal dialog with a field (and, long: many lines) over the page
+  const outer = (long) => page.evaluate((lines) => {
+    const box = document.createElement('div');
+    const i = document.createElement('input');
+    i.className = 'input uso-stack-field';
+    box.appendChild(i);
+    for (let n = 0; n < lines; n++) { const p = document.createElement('p'); p.textContent = `line ${n + 1}`; box.appendChild(p); }
+    Office.dialog({ title: 'outer', body: box, modal: true, wide: true, onEscape: () => {}, buttons: [{ text: 'Close' }] });
+  }, long ? 120 : 0);
   try {
     await page.goto(`${harness.url}#/emby/setup/servers`, { waitUntil: 'load' });
-    await page.waitForSelector('.dialog .jo-wiz[data-section="servers"] .jo-instance input', { timeout: 15000 });
-    const name = page.locator('.dialog .jo-instance input').first();
+    await page.waitForSelector('#sso-desk .jo-instance input', { timeout: 15000 });
+    await outer(false);
+    const name = page.locator('.dialog .uso-stack-field');
     await name.fill('Stacked');
-    const look = () => page.evaluate(() => ({ wiz: !!document.querySelector('.dialog .jo-wiz[data-section="servers"]'),
-      value: (document.querySelector('.dialog .jo-instance input') || {}).value, inert: document.querySelector('#sso-desk').inert,
+    const look = () => page.evaluate(() => ({ outer: document.querySelector('#sso-dialog-title').textContent === 'outer',
+      value: (document.querySelector('.dialog .uso-stack-field') || {}).value, inert: document.querySelector('#sso-desk').inert,
       open: !document.querySelector('#sso-dialog-backdrop').hidden, modal: document.querySelector('#sso-dialog-backdrop').classList.contains('modal'),
-      title: document.querySelector('#sso-dialog-title').textContent, focus: document.activeElement && document.activeElement.matches('.dialog .jo-instance input') }));
-    const inner = () => page.evaluate(() => { Office.dialog({ title: 'inner', body: 'over the wizard', buttons: [{ text: 'Cancel' }] }); });
-    for (const [how, end] of [['Escape', () => page.keyboard.press('Escape')], ['its button', () => page.click('#sso-dialog-foot .btn')],
+      title: document.querySelector('#sso-dialog-title').textContent, focus: !!(document.activeElement && document.activeElement.matches('.dialog .uso-stack-field')) }));
+    const inner = () => page.evaluate(() => { Office.dialog({ title: 'inner', body: 'over the outer one', buttons: [{ text: 'Cancel' }] }); });
+    for (const [how, end] of [['Escape', () => page.keyboard.press('Escape')], ['its «Cancel»', () => page.click('#sso-dialog-foot .btn')],
       ['a click outside', () => page.mouse.click(5, 890)]]) {
       await name.focus();
       await inner();
       await page.waitForTimeout(150);
       const over = await look();
       res.tested++;
-      if (over.wiz || over.title !== 'inner' || !over.inert) fail(`${how}: the inner dialog over the wizard is not shown on top (${JSON.stringify(over)})`);
+      if (over.outer || over.title !== 'inner' || !over.inert) fail(`${how}: the inner dialog is not shown on top (${JSON.stringify(over)})`);
       await end();
       await page.waitForTimeout(200);
       const back = await look();
-      if (!back.open || !back.wiz || back.value !== 'Stacked' || !back.modal || !back.inert || !back.focus) {
-        fail(`${how} closed more than the inner dialog, or the wizard did not come back as it was (${JSON.stringify(back)})`);
+      if (!back.open || !back.outer || back.value !== 'Stacked' || !back.modal || !back.inert || !back.focus) {
+        fail(`${how} closed more than the inner dialog, or the outer one did not come back as it was (${JSON.stringify(back)})`);
       }
     }
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(200);
-    res.tested++;
-    if (!(await page.evaluate(() => !!document.querySelector('.dialog .jo-wiz-confirm')))) fail('Escape on the wizard with a change did not ask «Discard changes?»');
-    // a long step fits the window (2026-10-14: in Unraid the end was out of reach): the body scrolls to its end, the head
-    // and the foot stay in view — at 1280×720 and 390 px, and with the office's box transformed and pushed down (as
-    // Unraid's page may do: then «fixed» is that box, not the window)
     for (const [w, hgt, shift] of [[1280, 720, false], [390, 844, false], [1280, 720, true]]) {
       await page.setViewportSize({ width: w, height: hgt });
-      await page.goto(`${harness.url}#/emby/setup/simulator`, { waitUntil: 'load' });
-      await page.waitForSelector('.dialog .jo-wiz[data-section="simulator"] .jo-sim-body', { timeout: 15000 });
+      await page.goto(`${harness.url}#/emby/setup/servers`, { waitUntil: 'load' });
+      await page.waitForSelector('#sso-desk .jo-instance input', { timeout: 15000 });
       if (shift) {
         await page.evaluate(() => { const o = document.querySelector('#sso'); o.style.transform = 'translateZ(0)'; o.style.marginTop = '160px'; window.dispatchEvent(new Event('resize')); });
       }
+      await outer(true);
       await page.waitForTimeout(300);
       const fit = await page.evaluate(() => {
         const d = document.querySelector('#sso-dialog'), b = document.querySelector('#sso-dialog-body'), f = document.querySelector('#sso-dialog-foot'), h = document.querySelector('#sso-dialog-title');
         b.scrollTop = b.scrollHeight;
         const rd = d.getBoundingClientRect(), rf = f.getBoundingClientRect(), rh = h.getBoundingClientRect();
         return { scrolls: b.scrollHeight > b.clientHeight, end: Math.abs(b.scrollTop + b.clientHeight - b.scrollHeight) <= 2,
-          inside: rd.top >= 0 && rd.bottom <= innerHeight + 1, head: rh.top >= 0, foot: rf.top >= 0 && rf.bottom <= innerHeight + 1 && !!f.querySelector('.jo-wiz-foot .btn') };
+          inside: rd.top >= 0 && rd.bottom <= innerHeight + 1, head: rh.top >= 0, foot: rf.top >= 0 && rf.bottom <= innerHeight + 1 && !!f.querySelector('.btn') };
       });
       res.tested++;
-      if (!fit.scrolls || !fit.end || !fit.inside || !fit.head || !fit.foot) fail(`long step at ${w}×${hgt}${shift ? ' (office box transformed, pushed down)' : ''}: ${JSON.stringify(fit)}`);
+      if (!fit.scrolls || !fit.end || !fit.inside || !fit.head || !fit.foot) fail(`long dialog at ${w}×${hgt}${shift ? ' (office box transformed, pushed down)' : ''}: ${JSON.stringify(fit)}`);
     }
   } catch (e) {
     fail(String(e.message || e).split('\n')[0].slice(0, 200));

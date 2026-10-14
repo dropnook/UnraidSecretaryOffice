@@ -7727,9 +7727,9 @@ function testSetupTiles(): void
         str_contains($bk, "const tile = target ? STEP_TILE[target.part] : '';") && str_contains($bk, "if (tile) sw.pick(tile, 'route'); else if (first && setupNoPlace()) setupPlaceStart(sw); else sw.render();"));
     check('setup tiles: the steps\' and settings\' places go by their tile\'s route (a step stands under the row only while its tile is chosen)',
         str_contains($bk, "route: setupRoute(STEP_TILE[key]) } : {})") && str_contains($bk, "route: setupRoute(STEP_TILE[PART[key] || 'setup.general'])")
-        && str_contains($em, "...SETUP_STEPS.map((x) => ({ kind: 'step', key: x.place, ...SETUP, route: `#/\${ID}/setup/\${x.id}` })),"));
-    check('setup tiles: Jack\'s wizard keeps the focus through a drawing (the control clicked gets it back)',
-        str_contains($em, "const spot = focusSpot();") && str_contains($em, "focusBack(spot);\n  return card;\n}"));
+        && str_contains($em, "...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/\${ID}/setup/\${id}` })),"));
+    check('setup tiles: Jack\'s setup keeps the focus through a drawing (the control clicked gets it back)',
+        str_contains($em, "const spot = focusSpot();") && str_contains($em, "  root.appendChild(saveBar());\n  focusBack(spot);\n}"));
     foreach (['backup' => ['setup.tile.local', 'setup.tile.offsite', 'setup.tile.no_place', 'setup.tile.on', 'setup.tile.new', 'setup.tile.u_d', 'setup.tile.u_w',
         'setup.tile.u_m', 'setup.tile.u_y', 'setup.tile.ret_offsite', 'setup.tile.changed', 'setup.tile.unchanged', 'setup.tile.settings']] as $desk => $want) {
         foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
@@ -30443,350 +30443,240 @@ JS);
  * sentence, the next night and the warnings under node.
  */
 /**
- * Jack Streamer's pool simulator (public/desks/emby/streamer.js, 2026-10-14 — a mockup; the real night run is untouched).
- * Under node: streamerPoolMath() on the 1-TB example (A, H, the halves, both fill limits with the cushion), its room, H,
- * the others' half and need against PHP's poolLevelMath() (the same terms), the same seed giving the same month, the scenarios
- * with the defaults: under the new rules (the owner's decisions 2026-10-14: unwatched never back except after N days, she
- * moves only from X on, the others keep half of their half plus the air — or the night warns) every check green, appdata
- * growing with warnings.
+ * The node stand-in for his setup's page (tests of Jack Streamer's «Set up» tab): Office as far as desk.js uses it — the
+ * section switcher records its picks, dialogs and posts are kept, an answer per action (globalThis.answers).
  */
-function testStreamerSim(): void
+function streamerTabHarness(): string
 {
-    $node = testsNode();
-    if ($node === '') {
-        check('streamer sim: node is missing here - skipped', true);
-        return;
-    }
-    $tmp = hardeningTmp('streamer-sim');
-    $cases = [[1000, 770, 470, 80, 70, 50, 320], [1000, 760, 460, 80, 70, 50, 230], [1000, 900, 600, 80, 70, 50, 100], [1000, 500, 100, 80, 70, 30, 90], [1000, 750, 50, 80, 70, 50, 40]];
-    file_put_contents("$tmp/t.js", <<<'JS'
-const S = require(process.argv[2]);
-const cases = JSON.parse(process.argv[3]);
-const out = {};
-out.tb = S.streamerPoolMath({ size: 1000, nm: 300, jack: 100, others: 50, x: 80, offset: 10, k: 50, want: 300 });
-out.tbBoth = S.streamerPoolMath({ size: 1000, nm: 300, jack: 250, others: 260, x: 80, offset: 10, k: 50, want: 400 });
-out.never = S.streamerPoolMath({ size: 1000, nm: 750, jack: 0, others: 0, x: 80, offset: 10, k: 50 }).never;
-out.terms = cases.map(([size, used, movable, x, y, k, jack]) => { const m = S.streamerPoolMath({ size, nm: used - movable, jack, others: movable - jack, x, offset: x - y, k });
-  return [Math.round(m.room), Math.round(m.half), Math.round(m.halfD), Math.round(m.need)]; });
-const a = S.summary(S.runScenario('normal', {}, 7));
-const b = S.summary(S.runScenario('normal', {}, 7));
-out.same = JSON.stringify(a) === JSON.stringify(b);
-out.other = JSON.stringify(S.summary(S.runScenario('normal', {}, 8))) !== JSON.stringify(a);
-out.sc = Object.fromEntries(S.SCENARIOS.map((sc) => [sc.id, S.summary(S.runScenario(sc.id, {}, 162))]));
-const tiny = S.runScenario('tiny', { others0: 282, jack0: 28 }, 162);
-const real = S.newSim({ pool: 4000, nm: 500, others0: 200, jack0: 926 }, 162);
-const c = S.fitCfg({ ...S.DEFAULTS, unwatchedDays: 30, nm: 150, others0: 300, jack0: 200 });
-out.drag = {
-  map: [S.barGb(0.25, 1024), S.barGb(-1, 1024), S.barGb(2, 1024), S.gbFrac(256, 1024), S.gbFrac(5000, 1024), S.gbFrac(5, 0)],
-  nm: [S.dragSet(c, 'nm', 203).nm, S.dragSet(c, 'nm', 203).others0, S.dragSet(c, 'nm', 999).nm, S.dragSet(c, 'nm', 999).others0, S.dragSet(c, 'nm', -50).nm],
-  end: [S.dragSet(c, 'end', 604).others0, S.dragSet(c, 'end', 9999).others0, S.dragSet(c, 'end', 10).others0, S.dragSet(c, 'end', 9999).jack0],
-  x: [S.dragSet(c, 'x', 85.4).x, S.dragSet(c, 'x', 85.4).offset, S.dragSet(c, 'x', 120).x, S.dragSet(c, 'x', 10).x, S.dragSet(c, 'x', 10).offset],
-  y: [S.dragSet(c, 'y', 60).offset, S.dragSet(c, 'y', 60).x, S.dragSet(c, 'y', 95).offset, S.dragSet(c, 'y', -3).offset],
-  fit: (({ nm, others0, jack0, x, offset }) => [nm, others0, jack0, x, offset])(S.fitCfg({ ...c, pool: 300, nm: 400, x: 1, offset: 0 })),
-};
-// the owner's screenshot (own test values): what never moves above Y, the others gone, his unwatched files stay → over X
-const edge = S.newSim(S.fitCfg({ ...S.DEFAULTS, unwatchedDays: 30, pool: 4403, nm: 2662, others0: 1003, jack0: 630, x: 70, offset: 10 }), 162);
-S.simDay(edge);
-const es = edge.sides.new;
-S.simDays(edge, 0);
-const stand = S.newSim(S.fitCfg({ ...S.DEFAULTS, unwatchedDays: 30, pool: 4403, nm: 2662, others0: 1003, jack0: 630, x: 70, offset: 10 }), 162);
-S.simDays(stand, 3);
-const ss = stand.sides.new;
-out.stand = { why: ss.warnWhy && ss.warnWhy.causes, stopped: ss.log.filter((l) => l.k === 'fill_warn').length, fetchedAfterWarn: ss.log.some((l, i) => l.k === 'fetch' && ss.log.slice(0, i).some((x) => x.k === 'warn')) };
-// … and it clears: what never moves made small again (the same world, a night later) — he fetches again
-stand.w.nm = 100;
-S.simDays(stand, 2);
-out.clear = { warnNow: ss.warnNow, fetched: ss.log.slice(-60).some((l) => l.k === 'fetch') };
-out.edge = { never: es.log.some((l) => l.k === 'never'), told: es.told, warns: es.warns, limit: es.inv.limit, others: Math.round(S.mathOf(edge.w, es).others),
-  over: S.mathOf(edge.w, es).used > S.mathOf(edge.w, es).xb, dayTold: es.hist.at(-1).told };
-// by budget: the most he wants (GB), no block reserved — he holds at most min(budget, fill limit), the world fills it
-out.budget = ['budget_small', 'budget_big'].map((id) => {
-  const sim = S.runScenario(id, {}, 162);
-  const side = sim.sides.new;
-  const m = S.mathOf(sim.w, side);
-  const want = S.wanted(sim.w).reduce((a, e) => a + e.size, 0);
-  return { id, ok: S.summary(sim).new.ok, budget: sim.w.cfg.budget, half: m.half, limit: m.jackLimit, jack: m.jack, want,
-    maxHeld: Math.max(...side.hist.map((x) => x.jack)), biggest: Math.max(...S.measure(sim.w, side).files.map((e) => e.size), 0) };
-});
-out.caps = [S.budgetCaps(300, [500, 500, 500], [100, 0, 0]), S.budgetCaps(300, [50, 500, 500], []), S.budgetCaps(100, [500, 500], [150, 0])];
-// play: one day per tick, the checks that turned red with it (they stop the play)
-const calm = S.newSim({}, 162);
-// the flood while he has borrowed beyond his half (the others wrote little): their writes don't fit — their room taken
-// (2026-10-14: a flood the others make on their own, with him inside his half, is their own overflow, not red)
-const flood = S.newSim({ writes: 10 }, 162);
-flood.w.cfg.writes = 5000;
-out.play = { calm: S.playTick(calm), calmDay: calm.w.day, flood: S.playTick(flood), again: S.playTick(flood) };
-const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
-out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
-  min: v.every((x, i) => x <= 0 || w[i] >= Math.min(min, 1 / v.filter((y) => y > 0).length) - 1e-9),
-  order: v.every((x, i) => v.every((y, j) => !(x > y) || w[i] >= w[j] - 1e-9)), w }; });
-const day = S.newSim({}, 162);
-const e0 = day.sides.new.eve;
-S.simDay(day);
-out.eve = { start0: e0.jack === 0 && e0.others > 0, prev: day.sides.new.prevMorn !== null, writes: day.sides.new.eve.others > day.sides.new.prevMorn.others,
-  morn: day.sides.new.morn.used === S.mathOf(day.w, day.sides.new).used };
-const held = S.measure(real.w, real.sides.new).files;
-out.real = { j: real.sides.new.hist[0].jack, biggest: Math.max(...held.map((e) => e.size)),
-  want: S.wanted(real.w, real.sides.new).reduce((a, e) => a + e.size, 0), people: new Set(held.map((e) => e.uid)).size, n: real.w.people.length };
-out.tinyStart = tiny.sides.new.hist[0].others + tiny.sides.new.hist[0].nm <= tiny.w.cfg.pool;
-console.log(JSON.stringify(out));
-JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/streamer.js') . ' '
-        . escapeshellarg(json_encode($cases)) . ' 2>&1');
-    hardeningRm($tmp);
-    $r = json_decode($raw, true);
-    if (!is_array($r)) {
-        check('streamer sim: ran under node', false, substr($raw, 0, 2000));
-        return;
-    }
-    $tb = $r['tb'];
-    same('streamer sim: 1 TB, 300 never move, X 80, offset 10 — Y 700, A 400, H 200 each, the air 100',
-        [700, 400, 200, 200, 100], array_map(fn ($v) => (int) round($v), [$tb['yb'], $tb['room'], $tb['half'], $tb['halfD'], $tb['air']]));
-    same('streamer sim: … the others use 50 of their 200: Jack may borrow half of the 150 (limit 275); he wants 300 — they borrow nothing of his half',
-        [275, 200], [(int) round($tb['jackLimit']), (int) round($tb['othersLimit'])]);
-    same('streamer sim: … both over their half: each limit is its half (nobody borrows)', [200, 200], [(int) round($r['tbBoth']['jackLimit']), (int) round($r['tbBoth']['othersLimit'])]);
-    check('streamer sim: what never moves reaches Y — nothing to share', $r['never'] === true);
-    $php = array_map(function ($c) {
-        [$size, $used, $mov, $x, $y, $k, $jack] = $c;
-        $m = poolLevelMath($size, $used, $mov, $x, $y, $k, $jack);
-        return [$m['room'], $m['half'], $m['half_d'], $m['need']];
-    }, $cases);
-    same('streamer sim: the terms the rules share with poolLevelMath() are its numbers (room A, H, the others\' half, need)', $php, $r['terms']);
-    check('streamer sim: the same seed gives the same month, another seed another', $r['same'] === true && $r['other'] === true);
-    $sc = $r['sc'];
-    same('streamer sim: all scenarios ran', ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'budget_small', 'budget_big', 'both', 'tiny'], array_keys($sc));
-    foreach ($sc as $id => $x) {
-        same("streamer sim: $id, new rules — Jack keeps his half and limit, nothing unwatched back early, no ping-pong, the pool ≤ X",
-            [null, null, null, null, 0, 0, 0], [$x['new']['inv']['jack'], $x['new']['inv']['unwatched'], $x['new']['inv']['pingpong'], $x['new']['inv']['limit'],
-            $x['new']['pingpong'], $x['new']['forced'], $x['new']['spilled']]);
-    }
-    foreach ($sc as $id => $x) {
-        check("streamer sim: $id, new rules — every check green", $x['new']['ok'] === true, json_encode($x['new']));
-    }
-    check('streamer sim: appdata growing to near Y — green with warnings (little room left for new writes), a normal month without',
-        $sc['appdata']['new']['warns'] > 0 && $sc['normal']['new']['warns'] === 0, json_encode([$sc['appdata']['new']['warns'], $sc['normal']['new']['warns']]));
-    check('streamer sim: the download spike without ping-pong', $sc['spike']['new']['pingpong'] === 0);
-    $d = $r['drag'];
-    same('streamer sim: the bar\'s place ↔ GB (clamped to the bar)', [256, 0, 1024, 0.25, 1, 0], $d['map']);
-    same('streamer sim: dragging NM — snapped to ~1 % of the pool, the white\'s end stays (others shrink), never past it, never below 0',
-        [200, 250, 450, 0, 0], $d['nm']);
-    same('streamer sim: dragging the white\'s end — what the others hold, snapped, NM + others ≤ pool, never below NM; what Jack starts with fits behind',
-        [450, 874, 0, 0], $d['end']);
-    same('streamer sim: dragging X — 1 % steps, Y stays (the offset follows), at most 100, above Y', [85, 15, 100, 71, 1], $d['x']);
-    same('streamer sim: dragging Y — the offset = X − Y, X stays, at least 1, Y at least 1', [20, 80, 1, 79], $d['y']);
-    same('streamer sim: a setting within the rules (NM ≤ pool, nothing else beyond it, Y < X)', [300, 0, 0, 2, 1], $d['fit']);
-    same('streamer sim: the budget per person as EmbyCache splits it — a fixed one first, the rest evenly; who wants less keeps that and the rest flows on; fixed over the budget: the others nothing',
-        [[100, 100, 100], [50, 125, 125], [150, 0]], $r['caps']);
-    [$bs, $bb] = $r['budget'];
-    check('streamer sim: by budget smaller than his half — green, he wants the budget (the world fills it) and holds no more than it',
-        $bs['ok'] && $bs['budget'] < $bs['half'] && $bs['want'] <= $bs['budget'] + 0.01 && $bs['want'] >= $bs['budget'] - $bs['biggest'] - 15
-        && $bs['maxHeld'] <= $bs['budget'] + $bs['biggest'] + 0.01, json_encode($bs));
-    check('streamer sim: by budget bigger than his fill limit — green, the fill limit holds him (min(budget, limit)), nothing reserved for the budget',
-        $bb['ok'] && $bb['budget'] > $bb['limit'] && $bb['jack'] <= $bb['limit'] + $bb['biggest'] + 0.01 && $bb['want'] > $bb['limit'], json_encode($bb));
-    same('streamer sim: play — a day per tick; a calm day turns nothing red, a flood of writes while he has borrowed beyond his half turns «room» red on that day (it stops the play), only once',
-        [[], 1, ['others'], []], [$r['play']['calm'], $r['play']['calmDay'], $r['play']['flood'], $r['play']['again']]);
-    $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/streamer.js');
-    check('streamer sim: play has one timer — set only by its step, cleared by stopPlay(); a second click never starts a second; a new start, a scenario, a gone simulator (the dialog closed) stop it',
-        substr_count($sim, 'V.timer = setTimeout(') === 2 && str_contains($sim, "function startPlay(h, body) {\n  if (V.playing) return;")
-        && str_contains($sim, "function restart(h) {\n  stopPlay();") && str_contains($sim, "if (!body.isConnected) { stopPlay(); return; }")
-        && str_contains($sim, "stopPlay();\n      V.sim = runScenario(res.id, V.cfg, V.seed);"));
-    $ed = $r['edge'];
-    same('streamer sim: nothing to share (what never moves above Y), the others all moved, his unwatched files stay — the pool over X: «told at once» (the check says so, not red), the warning, the log says «nothing to share»',
-        [true, true, 1, true, true, 1, 0, true], [$ed['never'], $ed['over'], $ed['told'], $ed['warns'] >= 1, $ed['limit']['ok'], $ed['limit']['told'], $ed['others'], $ed['dayTold']]);
-    same('streamer sim: while the warning stands he fetches nothing at all (the log: «only freeing»), it names its causes — target nightRun()\'s fill step',
-        [['never', 'room'], true, false], [$r['stand']['why'], $r['stand']['stopped'] >= 2, $r['stand']['fetchedAfterWarn']]);
-    same('streamer sim: … once a night ends without its cause the warning is gone and he fetches again', [false, true], [$r['clear']['warnNow'], $r['clear']['fetched']]);
-    foreach ($r['seg'] as $i => $x) {
-        check("streamer sim: segment widths case $i — sum 100 % (or nothing), every value > 0 at least the minimum, 0 stays 0, a bigger value never narrower",
-            (abs($x['sum'] - 1) < 1e-9 || $x['sum'] == 0) && $x['zeroes'] && $x['min'] && $x['order'], json_encode($x));
-    }
-    same('streamer sim: the day\'s two bars — day 0 «before» is the start (test values: Jack empty, the first night fills him), then the evening has the day\'s writes, the morning is the state after the night',
-        ['start0' => true, 'prev' => true, 'writes' => true, 'morn' => true], $r['eve']);
-    $re = $r['real'];
-    check('streamer sim: real data — day 0 holds what Jack Streamer really holds (926 GB, within one file)',
-        $re['j'] >= 926 && $re['j'] < 926 + $re['biggest'] + 0.1, json_encode($re));
-    check('streamer sim: … what he wants is at least that much, unwatched, spread over every person', $re['want'] >= 926 && $re['people'] === $re['n'], json_encode($re));
-    check('streamer sim: a scenario with a pool of its own never starts with the server\'s contents (282 GB of downloads in a 256 GB pool)', $r['tinyStart'] === true);
-}
-
-/**
- * Jack Streamer's setup wizard (2026-10-14): the simulator's file speaks only through lang keys (all in en), the save
- * carries give_back_unwatched_days checked as a whole number 1–365 (agent: emby_bad_number, never cast), the pool is
- * measured only on «Measure now» (pool_measure wakes it — the page never asks on its own), the level read pure.
- */
-function testStreamerWizard(): void
-{
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/streamer.js');
-    $en = langFile(OFFICE_WEB . '/desks/emby/lang/en.json');
-    preg_match_all("/(?<![.\w])T\(\s*'([a-z0-9_.]+)'\s*[,)]/", $sim, $m);
-    same('streamer wizard: every text streamer.js asks for is in his lang files', [], array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($en[$k]))));
-    $families = ['sim.f.' => ['pool', 'nm', 'writes', 'watch', 'newEps', 'people', 'x', 'offset', 'k', 'unwatchedDays', 'age', 'budget'],
-        'sim.ev.' => ['spike', 'appdata', 'binge', 'nobody', 'abandon'], 'sim.sc.' => ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'budget_small', 'budget_big', 'tiny'],
-        'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.' => ['told', 'told_from', 'seed_hint', 'reroll', 'warn_msg'], 'sim.warn_why.' => ['never', 'room', 'promise'], 'sim.drag.' => ['nm', 'end', 'x', 'y'], 'sim.bar.' => ['before', 'after', 'same', 'nm', 'others', 'unw', 'wat', 'free'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
-        'sim.log.' => ['day', 'spill', 'plan', 'back_watched', 'back_stale', 'age', 'goes_x', 'goes_over', 'fetch', 'skip_limit', 'skip_y',
-            'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event', 'warn', 'fill_warn', 'skip_budget'], 'sim.who.' => ['jack', 'her']];
-    $miss = [];
-    foreach ($families as $pre => $ids) {
-        foreach ($ids as $id) {
-            if (!isset($en[$pre . $id])) {
-                $miss[] = $pre . $id;
-            }
-        }
-    }
-    same('streamer wizard: … and the keys it builds (sliders, events, scenarios, checks, log lines)', [], $miss);
-    preg_match_all("/L\('([a-z_]+)'/", $sim, $m2);
-    same('streamer wizard: every log line the night writes has its words', [], array_values(array_diff(array_unique($m2[1]), $families['sim.log.'])));
-    check('streamer wizard: the save sends «not watched for N days» as a whole number, checked before', str_contains($js, "give_back_unwatched_days: Math.round(Number(v.give_back_unwatched_days)),")
-        && str_contains($js, "settings.give_back_unwatched_days < 1 || settings.give_back_unwatched_days > 365"));
-    check('streamer wizard: the pool is measured only from «Measure now» (never on a load or a poll)', substr_count($js, '.pool_measure`') === 1
-        && str_contains($sim, "const mb = h.button(T('sim.measure')"));
-    check('streamer wizard: one card per step — «Back» left, «Skip» where it makes sense, «Next ›» right, «Save» only in the summary',
-        str_contains($js, "if (i > 0) left.appendChild(button(T('wizard.back')") && str_contains($js, "if (SKIPPABLE.has(id)) right.appendChild(button(T('wizard.skip')")
-        && str_contains($js, "if (id === 'summary') {\n    const save = button(T('setup.save'), '', saveSetup);") && substr_count($js, "button(T('setup.save')") === 1
-        && str_contains($js, "const SKIPPABLE = new Set(['users', 'settings', 'simulator']);"));
-    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
-    check('streamer wizard: the office\'s dialog has a modal kind — a click outside does nothing, Escape calls onEscape, everything outside inert until it closes',
-        str_contains($core, "me.onclick = (e) => { if (e.target === backdrop && !modal) close(); };")
-        && str_contains($core, "if (e.key === 'Escape' && modal) { e.preventDefault(); if (onEscape) onEscape(); return; }")
-        && str_contains($core, "if (sib !== n && !sib.inert && !['SCRIPT', 'STYLE', 'LINK'].includes(sib.tagName)) { sib.inert = true; inerted.push(sib); }")
-        && str_contains($core, "inerted.forEach((x) => { x.inert = false; });"));
-    check('streamer wizard: a dialog opened over a modal one stacks — the modal one waits as it was (content, foot, classes, keys, click outside, focus) and comes back when the top one closes; Escape, buttons and a click outside act on the top one only (tools/ui-clicks.mjs «dialog stack» clicks it)',
-        str_contains($core, "dialogParked.push({ me: dialogTop, body: [...box.childNodes], foot: [...foot.childNodes], dlgCls: dlg.className, backCls: backdrop.className,")
-        && str_contains($core, "const below = dialogTop === me ? dialogParked.pop() : null;") && str_contains($core, "document.addEventListener('keydown', below.me.onKey);")
-        && str_contains($core, "while (dialogTop && dialogTop !== me && closeDialog) closeDialog();")
-        && str_contains((string) file_get_contents(OFFICE_DIR . '/tools/ui-clicks.mjs'), 'async function dialogStack(browser, harness)'));
-    check('streamer wizard: the import taken over from inside the wizard goes back to it with what came over (nothing to discard)',
-        str_contains($js, "if (wiz) { initForm(); wiz.snap = formKey(); }") && str_contains($js, "onClose: () => { if (wiz) drawWizard(); else Office.go(`#/\${ID}`); } });"));
-    check('streamer wizard: #/emby/setup/<step> opens the wizard there, closing it is #/emby/setup again; «Change» on a row opens it at that step',
-        str_contains($js, "if (want) openWizard(want);") && str_contains($js, "if (view && page === 'setup') Office.subroute('setup');")
-        && str_contains($js, "() => (wiz ? goStep(d.id) : openWizard(d.id))"));
-    check('streamer wizard: «Change at Ms. Moverelli» ends the wizard without asking, to her settings — said on her page when it held changes',
-        str_contains($js, "Office.go('#/moverelli/setup/global');\n      if (lost) Office.toast(T('wizard.left_unsaved'));"));
-    check('streamer wizard: the pool is never chosen freely — derived from the shares\' primary storage, saved as cache_path', !str_contains($js, 'poolSel')
-        && str_contains($js, "    cache_path: cache,\n") && str_contains($js, "const cache = derivedPool();\n  if (!cache) {"));
-    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('streamer wizard: the agent measures the pool on the page\'s ask only, waking it (pool_measure)',
-        str_contains($emby, "'pool_measure'   => fn (array \$r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyMeasurePool(\$r), true))],"));
-    $refused = function (callable $f): string {
-        try {
-            $f();
-            return 'ok';
-        } catch (Problem $e) {
-            return $e->key;
-        }
-    };
-    $base = ['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789', 'servername' => 'Emby']], 'libraries' => [], 'library_types' => [],
-        'valid_users' => [], 'user_budgets' => []];
-    same('streamer wizard: the agent refuses N days that aren\'t a whole number from 1 to 365', array_fill(0, 5, 'emby_bad_number'), array_map(
-        fn ($d) => $refused(fn () => embySave($base + ['give_back_unwatched_days' => $d])), ['30', 0, 366, 30.5, [30]]));
-    same('streamer wizard: the level for the simulator, pure (bytes; null when not measured)', [null, ['size' => 1000, 'used' => 700, 'nm' => 300, 'jack' => 150,
-        'others' => 250, 'shares' => ['downloads'], 'pool' => 'cache', 'x' => 80, 'y' => 70, 'k' => 50]], [embyStreamerLevel(null),
-        array_diff_key((array) embyStreamerLevel(['level' => ['size' => 1000, 'used' => 700, 'nm' => 300, 'jack' => 150, 'downloads' => 250, 'shares' => ['downloads'],
-        'pool' => 'cache', 'x' => 80, 'y' => 70, 'k' => 50]]), ['at' => 1])]);
-    $tmp = hardeningTmp('streamer-age');
-    file_put_contents("$tmp/a.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=14\n[Downloads]\nmin_age=2\n");
-    file_put_contents("$tmp/b.ini", "[Downloads]\nmin_age=2\n");
-    same('streamer wizard: her age rule from her ini\'s [GLOBAL] only (none: null)', [14, null, null], [embyStreamerAge("$tmp/a.ini"), embyStreamerAge("$tmp/b.ini"), embyStreamerAge("$tmp/none.ini")]);
-    hardeningRm($tmp);
-    // the wizard under node: the steps, old routes, the start, the summary, the pool from Unraid's share settings
-    $node = testsNode();
-    if ($node === '') {
-        check('streamer wizard: node is missing here - skipped', true);
-    } else {
-        $tmp = hardeningTmp('streamer-wizard');
-        file_put_contents("$tmp/t.js", <<<'JS'
+    return <<<'JS'
 const fs = require('fs');
-const [emFile, stateFile, connectFile] = process.argv.slice(2);
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, replaceChildren() { this.children = []; }, closest: () => null,
-  setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
+const all = (n, out = []) => { out.push(n); (n.children || []).forEach((c) => c && typeof c === 'object' && all(c, out)); return out; };
+const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, hidden: false, attrs: {},
+  classList: { add(...c) { n.className += ' ' + c.join(' '); }, toggle() {} }, appendChild(c) { n.children.push(c); return c; }, append(...c) { n.children.push(...c.filter((x) => typeof x === 'object')); },
+  replaceChildren() { n.children = []; }, replaceWith() {}, closest: () => null, setAttribute(k, v) { n.attrs[k] = v; }, addEventListener() {}, querySelectorAll: () => [],
+  querySelector: (q) => (q === 'input' ? n.children.find((c) => c.tag === 'input') || null : null), focus() {}, options: [] }; return n; };
+const posts = [];
+const toasts = [];
 const dialogs = [];
-const routes = [];
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
+const picks = [];
+let active = '';
+globalThis.answers = {};
+globalThis.Option = function Option(text, value) { this.text = text; this.value = value; };
+globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => Math.round(b / 1073741824) + ' GB', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
-  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: (r) => routes.push(r),
-  // the office's dialog, as far as the wizard uses it: its options kept, close() runs onClose
-  dialog: (o) => { const d = { o, closed: false, title: '', setTitle(t) { d.title = t; }, close() { if (d.closed) return; d.closed = true; if (o.onClose) o.onClose(); } }; dialogs.push(d); return d; } };
+  sectionHead: (t, s) => el('div', 'section-head', t), pageHelp: () => el('div'), go: () => {},
+  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {}, row() {}, active: () => active, pick(id, how) { picks.push([id, how]); active = active === id ? '' : id; } }),
+  filterBar: () => ({}), subroute: () => {}, toast: (t, bad) => toasts.push([t, !!bad]), errorText: (e) => 'E:' + (e && e.key),
+  api: { post: async (a, d) => { posts.push([a, d]); return globalThis.answers[a] || { ok: true }; } },
+  dialog: (o) => { const d = { o, closed: false, setTitle() {}, close() { if (d.closed) return; d.closed = true; if (o.onClose) o.onClose(); } }; dialogs.push(d); return d; } };
+const [emFile, stateFile, connectFile] = process.argv.slice(2);
 (0, eval)(fs.readFileSync(emFile, 'utf8'));
 const e = OFFICE_DESK_TESTS.emby;
 const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-const con = JSON.parse(fs.readFileSync(connectFile, 'utf8'));
-const out = {};
-out.steps = e.SETUP_STEPS.map((x) => x.id);
-out.old = ['scope', 'more', 'import', 'users', 'nope'].map(e.stepOf);
-e.setState(st); e.initForm();
-out.startSetUp = e.startStep();
-e.setState({ ...st, configured: false });
-out.startNew = e.startStep();
-// the wizard as a modal: opened at a step (an exclusive dialog, no foot of the office's, Escape = cancel), the address
-// #/emby/setup/<step>; cancel without a change closes it; with one it asks first — keep editing, then discard
-e.setState(st); e.initForm();
-e.openWizard('settings');
-const d1 = dialogs.at(-1);
-out.modal = { modal: d1.o.modal, foot: !!d1.o.foot, esc: d1.o.onEscape === e.cancelWizard, cls: d1.o.cls, step: e.wiz() && e.wiz().step, title: d1.title, route: routes.at(-1) };
-e.cancelWizard();
-out.closedClean = [d1.closed, e.wiz()];
-e.openWizard('settings');
-const d2 = dialogs.at(-1);
-e.form().values.give_back_unwatched_days = 45;
-e.cancelWizard();
-out.asked = [d2.closed, e.wiz() && e.wiz().confirm];
-e.cancelWizard();
-out.discarded = [d2.closed, e.wiz(), e.form() ? e.form().values.give_back_unwatched_days : 'form anew'];
-e.setState(st); e.initForm();
-const f = e.form();
-Object.assign(f.instances[0], { server: con.server, libraries: con.libraries, users: con.users });
-out.sum = e.summaryData().map((d) => d.id);
-out.pool = e.derivedPool();
-// a share on a second pool: EmbyCache has one — the user picks; an array-only share can't be cached
-const two = { ...st, pools: ['/mnt/cache', '/mnt/fast'], share_info: { ...st.share_info, Familienserien: { use: 'yes', primary: 'fast', secondary: '' } } };
-e.setState(two); f.values.cache_path = '/mnt/nope';
-out.many = [e.poolsOfChoice().size, e.derivedPool()];
-f.values.cache_path = '/mnt/fast';
-out.picked = e.derivedPool();
-e.setState({ ...st, share_info: { ...st.share_info, Familienserien: { use: 'no', primary: '', secondary: '' } } });
-out.arrayOnly = [e.cacheable('Familienserien'), e.derivedPool()];
-const names = new Map([['a1', 'Anna'], ['b2', 'Ben']]);
-const hex = '0123456789abcdef0123456789abcdef';
-out.budgetGb = ['500G', '1.5T', '800 GB', '2048M', 'lots', ''].map(e.budgetGb);
-out.split = [e.budgetSplit(1000, [300, 200], 3), e.budgetSplit(400, [300, 200], 1)];
-out.peopleBudget = e.peopleWords(['a1', 'b2'], names, { a1: '300G' });
-out.people = [e.peopleWords(['a1', 'b2'], names), e.peopleWords([hex, 'b2'], names), e.peopleWords([hex], new Map()), e.peopleWords([], names)];
-console.log(JSON.stringify(out));
-JS);
-        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
-            . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/emby.connect.json') . ' 2>&1');
-        hardeningRm($tmp);
-        $r = json_decode($raw, true);
-        if (!is_array($r)) {
-            check('streamer wizard: ran under node', false, substr($raw, 0, 2000));
-        } else {
-            same('streamer wizard: the steps in the owner\'s order — server, shares, settings, people (after the settings: by budget a budget each), simulator, summary',
-                ['servers', 'libraries', 'settings', 'users', 'simulator', 'summary'], $r['steps']);
-            same('streamer wizard: the old tiles\' routes open the step that holds them now', ['settings', 'settings', 'servers', 'users', ''], $r['old']);
-            same('streamer wizard: the «Set up» tab — set up: his summary; the first time: the intro card (the wizard then at step 1)', ['summary', 'servers'], [$r['startSetUp'], $r['startNew']]);
-            same('streamer wizard: a modal dialog — exclusive, the foot its own, Escape = «Cancel», wide, at the step asked for, its title, the address #/emby/setup/<step>',
-                ['modal' => true, 'foot' => true, 'esc' => true, 'cls' => 'jo-wiz-dialog', 'step' => 'settings', 'title' => 'wizard.title.settings', 'route' => 'setup/settings'], $r['modal']);
-            same('streamer wizard: «Cancel» without a change just closes', [true, null], $r['closedClean']);
-            same('streamer wizard: … with a change it asks first, inside the dialog («Discard changes?»)', [false, true], $r['asked']);
-            same('streamer wizard: … «Discard»: closed, the form back to his settings', [true, null, 'form anew'], $r['discarded']);
-            same('streamer wizard: the summary has a row per step before it, in their order (each with «Change»)', ['servers', 'libraries', 'settings', 'users', 'simulator'], $r['sum']);
-            same('streamer wizard: the pool comes from the shares\' primary storage (Unraid\'s share settings)', '/mnt/cache', $r['pool']);
-            same('streamer wizard: shares on two pools — none until the user picks one (EmbyCache has one cache_path)', [2, ''], $r['many']);
-            same('streamer wizard: … the picked one', '/mnt/fast', $r['picked']);
-            same('streamer wizard: an array-only share can\'t be cached — the pool from the others', [false, '/mnt/cache'], $r['arrayOnly']);
-            same('streamer wizard: his budget («500G», «1.5T» …) in GB for the simulator, 0 when unreadable', [500, 1536, 800, 2, 0, 0], $r['budgetGb']);
-            same('streamer wizard: by budget the people\'s line — fixed first, the rest evenly on the others; the fixed ones over the whole: said',
-                [['total' => 1000, 'fixed' => 500, 'rest' => 500, 'others' => 3, 'over' => false, 'each' => 500 / 3, 'low' => 0, 'short' => false, 'bad' => false],
-                 ['total' => 400, 'fixed' => 500, 'rest' => 0, 'others' => 1, 'over' => true, 'each' => 0, 'low' => 0, 'short' => true, 'bad' => true]], $r['split']);
-            same('streamer wizard: … and in the summary beside the name', 'Anna (322122547200 B), Ben', $r['peopleBudget']);
-            same('streamer wizard: the people in words — names when known, else how many, none = everyone; never an id',
-                ['Anna, Ben', 'count.people {"n":2}', 'count.people {"n":1}', 'setup.tile.everyone'], $r['people']);
+Object.values(st.jobs || {}).forEach((j) => { j.running = false; });      // no run going (the demo shows one)
+const con = connectFile ? JSON.parse(fs.readFileSync(connectFile, 'utf8')) : null;
+const texts = (n) => all(n).map((x) => x.textContent).filter(Boolean);
+/** the form connected to the canned server, every library chosen, its folders mapped as the container has them */
+const connect = () => { const f = e.form(); Object.assign(f.instances[0], { url: 'http://x', server: con.server, libraries: con.libraries, users: con.users, connectedAs: 'http://x|' });
+  con.libraries.forEach((l) => { f.chosenLibs.add(l.name); l.locations.forEach((p) => { f.instances[0].mappings[p] = (st.emby[0].mounts || {})[p] || '/mnt/user' + p; }); }); return f; };
+JS;
+}
+
+/** Run a streamerTabHarness() script under node: its JSON answer, or null with the output in a failed check */
+function streamerTabRun(string $name, string $script, array $args): ?array
+{
+    $node = testsNode();
+    if ($node === '') {
+        check("$name: node is missing here - skipped", true);
+        return null;
+    }
+    $tmp = hardeningTmp('streamer-tab');
+    file_put_contents("$tmp/t.js", streamerTabHarness() . "\n" . $script);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . implode(' ', array_map('escapeshellarg', $args)) . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check("$name: ran under node", false, substr($raw, 0, 2000));
+        return null;
+    }
+    return $r;
+}
+
+/**
+ * Jack Streamer's «Set up» tab (2026-10-14, the owner: the modal wizard and the pool simulator went — back to the office's
+ * standard tab with tiles, budget mode only, clear sentences instead of a simulator). The parts as tiles in order (server,
+ * libraries and shares, amount, people, more, and — once set up — the import); the wizard's step routes lead to the tile
+ * that holds them now; Plex and Jellyfin greyed «coming soon»; the import offered in the server's part before he is set
+ * up; the amount: a budget in GB (required), no mode, the rule in sentences with Ms. Moverelli's X; «Save» connects a
+ * server first when its address or key is new (a failure: no save, the server's part shown); saving writes budget mode
+ * only — nothing of the wizard (N days, create_share_root, number_episodes).
+ */
+function testStreamerTab(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    check('streamer tab: the wizard and the simulator are gone — no modal, no streamer.js, no step dialog',
+        !is_file(OFFICE_WEB . '/desks/emby/streamer.js') && !str_contains($js, 'openWizard') && !str_contains($js, 'streamer.js') && !str_contains($js, 'modal: true')
+        && !str_contains($js, 'pool_measure'));
+    $gone = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        foreach (array_keys(langFile(OFFICE_WEB . "/desks/emby/lang/$l.json")) as $k) {
+            if (str_starts_with($k, 'wizard.') || str_starts_with($k, 'sim.') || str_starts_with($k, 'setup.mode') || $k === 'share.days') {
+                $gone[] = "$l $k";
+            }
         }
     }
+    same('streamer tab: the wizard\'s, the simulator\'s and the count mode\'s words in no language', [], $gone);
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.css');
+    check('streamer tab: … nor their styles', !str_contains($css, 'jo-wiz') && !str_contains($css, 'jo-sim'));
+    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('streamer tab: the agent measures no pool for a page any more (pool_measure gone), N days not a setting',
+        !str_contains($emby, "'pool_measure'") && !str_contains($emby, 'embyMeasurePool') && !str_contains($emby, "'give_back_unwatched_days'];")
+        && str_contains($emby, "unset(\$cfg['give_back_unwatched_days']);"));
+    $places = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/emby/places.json'), true);
+    check('streamer tab: the search lists his parts\' titles (places.json), none of the wizard\'s',
+        !array_filter($places['keys'], fn ($k) => str_starts_with($k, 'wizard.') || str_starts_with($k, 'sim.'))
+        && !array_diff(['setup.server', 'setup.shares', 'setup.scope', 'setup.users', 'setup.more', 'import.title'], $places['keys']));
+    $r = streamerTabRun('streamer tab', <<<'JS'
+(async () => {
+  const out = {};
+  out.tiles = e.SETUP_TILES.map(([id]) => id);
+  out.routes = ['settings', 'simulator', 'summary', 'users', 'scope', 'import'].map(e.tileOf);
+  e.setState({ ...st, configured: false, settings: null }); e.initForm();
+  out.freshTiles = e.setupTileData().map((d) => d.id);
+  const srv = all(e.setupServers());
+  out.cards = srv.filter((n) => /jo-media-card/.test(n.className)).map((n) => [all(n).find((x) => x.tag === 'b').textContent, n.attrs['aria-disabled'], /\boff\b/.test(n.className)]);
+  out.offer = srv.some((n) => n.textContent === 'import.open');
+  out.notYet = texts(e.setupScope()).map((t) => t.replace(/ \{.*$/, ''));
+  e.setState(st); e.initForm();
+  out.setTiles = e.setupTileData().map((d) => d.id);
+  out.offerSet = all(e.setupServers()).some((n) => n.textContent === 'import.open');
+  let f = connect();
+  out.form = [f.values.cache_budget, f.values.max_episodes_per_series, 'budget_mode' in f.values, 'number_episodes' in f.values, 'give_back_unwatched_days' in f.values, 'create_share_root' in f.values];
+  const scope = texts(e.setupScope());
+  out.scope = [scope.includes('setup.budget_gb'), scope.some((t) => t.startsWith('setup.mode')), scope.filter((t) => t.startsWith('setup.rule') || t.startsWith('room.none')).map((t) => t.replace(/ \{.*$/, ''))];
+  out.rule = [e.ruleTexts(300), e.ruleTexts(0)];
+  const share = texts(e.sharePart());
+  out.her = [share.includes('80 %'), share.some((t) => t.startsWith('share.offset') || t.startsWith('share.k')), share.includes('share.her_link')];
+  e.setState({ ...st, moverelli: null, pool: { ...st.pool, moverelli: null } });
+  out.ruleNone = e.ruleTexts(300);
+  e.setState(st);
+  // the budget: missing, a person under 20 GB, over the whole — «Save» grey with the reason; fine — free
+  f.values.cache_budget = '';
+  out.noBudget = [e.setupBlocked().replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'scope').alert];
+  f.values.cache_budget = '300';
+  f.chosenUsers = new Set(['u-anna', 'u-ben']);
+  f.budgets = { 'u-anna': '10G' };
+  const bar = e.saveBar();
+  out.low = [e.setupBlocked().replace(/ \{.*$/, ''), bar.children[0].disabled, bar.children[1].textContent.replace(/ \{.*$/, ''), e.setupTileData().find((d) => d.id === 'users').alert];
+  f.budgets = { 'u-anna': '200G', 'u-ben': '200G' };
+  out.over = [!!e.setupBlocked(), e.budgetState().over];
+  f.budgets = { 'u-anna': '100G' };
+  const bar2 = e.saveBar();
+  out.fine = [e.setupBlocked(), bar2.children[0].disabled];
+  // saving: budget mode only, the people's budgets of the chosen ones in GB
+  f.budgets = { 'u-anna': '100', 'u-carla': '50G' };
+  posts.length = 0;
+  await e.saveSetup();
+  const s = (posts.find((p) => p[0] === 'emby.save') || [])[1];
+  out.save = s ? [s.settings.cache_budget, s.settings.user_budgets, s.settings.max_episodes_per_series, ['budget_mode', 'number_episodes', 'give_back_unwatched_days', 'create_share_root', 'min_free_percent'].filter((k) => k in s.settings)] : toasts.at(-1);
+  // blocked: no post, said, the people's part shown (while another part is shown)
+  e.initForm(); f = connect();
+  f.chosenUsers = new Set(['u-anna', 'u-ben']);
+  f.budgets = { 'u-anna': '10G' };
+  posts.length = 0;
+  e.setupSwitcher().pick('scope', 'click');
+  await e.saveSetup();
+  out.blocked = [posts.length, toasts.at(-1)[0].replace(/ \{.*$/, ''), picks.at(-1)];
+  // «Save» connects first when the address or the key is new: a failure — no save, the error in the server's box, its part shown
+  f.budgets = {};
+  const g = e.form();
+  g.instances[0].api_key = 'abcdef0123456789';
+  out.needs = e.needsConnect(g.instances[0]);
+  answers['emby.connect'] = { ok: false, error: { key: 'emby_connect' } };
+  posts.length = 0;
+  globalThis.document = { activeElement: null };
+  await e.saveSetup();
+  out.connectFail = [posts.map((p) => p[0]), g.instances[0].connectError, picks.at(-1)];
+  answers['emby.connect'] = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
+  posts.length = 0;
+  await e.saveSetup();
+  out.connectOk = posts.map((p) => p[0]);
+  console.log(JSON.stringify(out));
+})();
+JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json', OFFICE_DIR . '/tests/ui/demo/post/emby.connect.json']);
+    if ($r === null) {
+        return;
+    }
+    same('streamer tab: the tiles in the owner\'s order — server, libraries and shares, amount, people, more, the import', ['servers', 'libraries', 'scope', 'users', 'more', 'import'], $r['tiles']);
+    same('streamer tab: the wizard\'s routes lead to the tile holding that part now (summary: the whole page)', ['scope', 'scope', '', 'users', 'scope', 'import'], $r['routes']);
+    same('streamer tab: before he is set up no import tile — the server\'s part offers it', [['servers', 'libraries', 'scope', 'users', 'more'], true], [$r['freshTiles'], $r['offer']]);
+    same('streamer tab: … once set up its own tile, the offer gone from the server\'s part', [['servers', 'libraries', 'scope', 'users', 'more', 'import'], false], [$r['setTiles'], $r['offerSet']]);
+    same('streamer tab: Emby works, Plex and Jellyfin greyed «coming soon» (not choosable)', [['Emby', 'false', false], ['Plex', 'true', true], ['Jellyfin', 'true', true]], $r['cards']);
+    same('streamer tab: the amount needs a connected server first', ['setup.after_connect'], $r['notYet']);
+    same('streamer tab: the form is budget mode only — the saved budget in GB, episodes per series inside it, nothing of count mode or the wizard',
+        ['300', 3, false, false, false, false], $r['form']);
+    same('streamer tab: the amount — a budget field in GB, no mode, the rule in sentences with her X and his priority', [true, false, ['setup.rule', 'setup.rule_x', 'setup.rule_first']], $r['scope']);
+    same('streamer tab: the rule\'s words with the budget, without one — X plainly (he fills only up to X, the day\'s downloads above it need room to 100 %), his budget first',
+        [['setup.rule {"budget":"300 GB"}', 'setup.rule_x {"x":80}', 'setup.rule_first {"x":80}'], ['setup.rule_no_budget', 'setup.rule_x {"x":80}', 'setup.rule_first {"x":80}']], $r['rule']);
+    same('streamer tab: … without her: that she isn\'t set up', ['setup.rule {"budget":"300 GB"}', 'room.none'], $r['ruleNone']);
+    same('streamer tab: sharing the pool shows her X (no halves, no offset any more) and the link to her setup', [true, false, true], $r['her']);
+    same('streamer tab: no budget — «Save» can\'t, the amount\'s tile red', ['setup.budget_missing', true], $r['noBudget']);
+    same('streamer tab: a person\'s budget under 20 GB — red, «Save» grey with the reason beside it, the people\'s tile red',
+        ['setup.users_budget_block', true, 'setup.users_budget_block', true], $r['low']);
+    same('streamer tab: the people\'s budgets over the whole — blocked', [true, true], $r['over']);
+    same('streamer tab: fine — free', ['', false], $r['fine']);
+    same('streamer tab: saving writes budget mode — «300G», the chosen people\'s budgets in GB, episodes per series; never a mode, N days, create_share_root or number_episodes',
+        ['300G', ['u-anna' => '100G'], 3, []], $r['save']);
+    same('streamer tab: blocked — nothing sent, the reason said, the people\'s part shown', [0, 'setup.users_budget_block', ['users', 'click']], $r['blocked']);
+    same('streamer tab: «Save» with a new key connects first', true, $r['needs']);
+    same('streamer tab: … a failure — no save, the error in the server\'s box, the server\'s part shown', [['emby.connect'], 'E:emby_connect', ['servers', 'click']], $r['connectFail']);
+    same('streamer tab: … connected — then saved', ['emby.connect', 'emby.save'], $r['connectOk']);
+}
+
+/**
+ * Budget mode always, the agent's side (2026-10-14): embyBudgetCheck() — a budget in total required (at least 20 GB), a
+ * person's own budget at least 20 GB, together never over the total, what they leave at least 20 GB for each of the
+ * others; embySave() checks it before anything is written. Set up = a server and a budget (embyConfigured()).
+ */
+function testStreamerBudget(): void
+{
+    $refused = function (string $budget, array $users): string {
+        try {
+            embyBudgetCheck($budget, $users);
+            return 'ok';
+        } catch (Problem $e) {
+            return $e->key . ' ' . json_encode($e->params);
+        }
+    };
+    $o = (object) [];
+    same('streamer budget: required — none, unreadable or under 20 GB refused', ['emby_budget_missing {"min":"20 GB"}', 'emby_budget_missing {"min":"20 GB"}', 'emby_budget_missing {"min":"20 GB"}'],
+        [$refused('', []), $refused('LOTS', []), $refused('19G', [])]);
+    same('streamer budget: a person under 20 GB refused, named by the value', 'emby_budget_low {"min":"20 GB","value":"10G"}', $refused('300G', ['a' => ['budget' => '10G'], 'b' => $o]));
+    same('streamer budget: the people\'s budgets over the whole refused', 'emby_budget_over {"fixed":"400 GB","total":"300 GB"}', $refused('300G', ['a' => ['budget' => '200G'], 'b' => ['budget' => '200G']]));
+    same('streamer budget: what they leave under 20 GB each for the others refused', 'emby_budget_short {"rest":"30 GB","min":"20 GB"}',
+        $refused('300G', ['a' => ['budget' => '270G'], 'b' => $o, 'c' => $o]));
+    same('streamer budget: fine — 20 GB each, everyone a budget up to the whole, 1.5T, everyone (no list)', ['ok', 'ok', 'ok', 'ok'],
+        [$refused('60G', ['a' => ['budget' => '20G'], 'b' => $o, 'c' => $o]), $refused('300G', ['a' => ['budget' => '100G'], 'b' => ['budget' => '200G']]),
+         $refused('1.5T', ['a' => ['budget' => '1T']]), $refused('20G', [])]);
+    same('streamer budget: set up = a server and a budget — without one (an older count-mode setup) «not set up yet»: no migration, the setup starts',
+        [true, false, false, false, false], [embyConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '300G']), embyConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '']),
+        embyConfigured(['instances' => [['url' => 'x']], 'number_episodes' => 3]), embyConfigured(['instances' => [], 'cache_budget' => '300G']), embyConfigured(null)]);
+    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'), 'embyConfigured(') === 6);
+    same('streamer budget: sizes as EmbyCache reads them', [500 << 30, (int) (1.5 * (1 << 40)), 800 << 30, 0, 0], array_map('embySizeBytes', ['500G', '1.5T', '800GB', 'lots', '']));
+    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('streamer budget: embySave() checks before it writes', (bool) preg_match('/embyBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users\);.*?embyWriteSettings\(\$cfg\);/s', $emby));
+    $lang = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $words = langFile(OFFICE_WEB . "/desks/emby/lang/$l.json");
+        foreach (['missing', 'low', 'over', 'short'] as $k) {
+            if (!isset($words["errors.emby_budget_$k"])) {
+                $lang[] = "$l $k";
+            }
+        }
+    }
+    same('streamer budget: every refusal has its words', [], $lang);
 }
 
 /**
@@ -30795,7 +30685,7 @@ JS);
  * stays: her ini names it) — logs stay; refused while a run of his goes. The consequence: his files on the pool are
  * ordinary cache — Smart Mover with his list listed protects them, after the reset it moves them by her age rule, and a
  * real run that requires its lists raises no error for the empty one; her «list pending» guard stays quiet. The page: the
- * quiet button under the summary, the confirm with his list's count and size, then the wizard at step 1.
+ * quiet button at the bottom of «More», the confirm with his list's count and size, then the server's part.
  */
 function testStreamerReset(): void
 {
@@ -30877,127 +30767,62 @@ function testStreamerReset(): void
     $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
     check('reset: the action emby.reset — no restore, no copy', str_contains($emby, "'reset'          => fn (array \$r) => embyReset(),")
         && !str_contains($emby, 'embyRestore') && !str_contains($emby, '.bak-'));
-    // the page
-    $node = testsNode();
-    if ($node === '') {
-        check('reset: node is missing here - skipped', true);
-        return;
-    }
-    $tmp = hardeningTmp('streamer-reset-ui');
-    file_put_contents("$tmp/t.js", <<<'JS'
-const fs = require('fs');
-const [emFile, stateFile] = process.argv.slice(2);
-globalThis.OFFICE_DESK_TESTS = {};
-const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-const all = (n, out = []) => { out.push(n); (n.children || []).forEach((c) => c && typeof c === 'object' && all(c, out)); return out; };
-const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, replaceChildren() { this.children = []; }, closest: () => null,
-  setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
-const dialogs = [];
-const posts = [];
-let answer = null;
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
-  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, toast: () => {}, errorText: (e) => e.key,
-  api: { post: async (a) => { posts.push(a); return answer; } },
-  dialog: (o) => { const d = { o, closed: false, setTitle() {}, close() { if (d.closed) return; d.closed = true; if (o.onClose) o.onClose(); } }; dialogs.push(d); return d; } };
-(0, eval)(fs.readFileSync(emFile, 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
-const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    // the page: the quiet button at the bottom of «More» (once set up), its confirm, then emby.reset and the server's part
+    $r = streamerTabRun('reset', <<<'JS'
 (async () => {
   const out = {};
   e.setState(st); e.initForm();
-  const card = e.summaryCard();
-  const btn = all(card).find((n) => n.textContent === 'reset.button');
+  const btn = all(e.setupMore()).find((n) => n.textContent === 'reset.button');
   out.button = btn ? btn.className : null;
   btn.onclick();
   const d = dialogs.at(-1);
   out.confirm = [d.o.title, d.o.buttons.map((b) => b.text), all(d.o.body).map((n) => n.textContent).filter(Boolean)];
-  answer = { ok: true, state: { ...st, configured: false, settings: null } };
+  answers['emby.reset'] = { ok: true, state: { ...st, configured: false, settings: null } };
   out.went = await d.o.buttons[1].act();
-  await new Promise((r) => setTimeout(r, 5));
-  const w = dialogs.at(-1);
-  out.after = [posts, w !== d && w.o.modal === true, e.wiz() && e.wiz().step];
-  e.setState(answer.state);
-  out.intro = all(e.introCard()).filter((n) => n.tag === 'button' || /btn/.test(n.className)).map((n) => n.textContent);
+  out.after = [posts.map((p) => p[0]), picks.at(-1), e.form()];
+  e.setState({ ...st, configured: false, settings: null }); e.initForm();
+  out.fresh = all(e.setupMore()).some((n) => n.textContent === 'reset.button');
   console.log(JSON.stringify(out));
 })();
-JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
-        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' 2>&1');
-    hardeningRm($tmp);
-    $r = json_decode($raw, true);
-    if (!is_array($r)) {
-        check('reset: ran under node', false, substr($raw, 0, 2000));
+JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json']);
+    if ($r === null) {
         return;
     }
-    same('reset: a quiet button under the summary (plain, danger)', 'btn small plain danger', $r['button']);
+    same('reset: a quiet button at the bottom of «More» (plain, danger)', 'btn small plain danger', $r['button']);
     $cache = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/emby.json'), true)['cache'];
     same('reset: its confirm — deleted without a copy, his list emptied with its count and size (ordinary cache afterwards), the gather and schedules; «Cancel» / «Delete everything …»',
-        ['reset.title', ['common.cancel', 'reset.go'], ['reset.text {"n":' . $cache['files'] . ',"size":"' . $cache['bytes'] . ' B"}', 'reset.text_night']], $r['confirm']);
-    same('reset: then emby.reset, and the wizard opens at step 1', [true, [['emby.reset'], true, 'servers']], [$r['went'], $r['after']]);
-    same('reset: afterwards the intro card has only «Start the setup» (no way back)', ['wizard.start'], $r['intro']);
+        ['reset.title', ['common.cancel', 'reset.go'], ['reset.text {"n":' . $cache['files'] . ',"size":"' . round($cache['bytes'] / 1073741824) . ' GB"}', 'reset.text_night']], $r['confirm']);
+    same('reset: then emby.reset, the form anew, the server\'s part shown', [true, [['emby.reset'], ['servers', 'click'], null]], [$r['went'], $r['after']]);
+    same('reset: not set up — no «Set up from scratch» (nothing to delete)', false, $r['fresh']);
 }
 
 
 /**
- * Jack Streamer's wizard, step 2 and step 4 (2026-10-14, the owner): either a share is set up right (a pool as primary,
- * the array as secondary, the mover from the pool to the array: shareUseCache «yes»), or the user fixes it in Unraid —
- * each wrong case its own red chip and a one-line fix, its folder unticked and greyed (not cached); a right share whose
- * folder is missing on the pool gets an info chip (made at the first laying out, later). The option «create the missing
- * share folder» is gone; saving writes create_share_root on as his settings have it. By budget every chosen person gets at
- * least MIN_PERSON_GB (20): red with the reason and what to do, «Next ›» and «Save» blocked with the reason beside them.
- * The simulator says «not measured yet — press Measure now» until a number is there, «asleep or no ZFS» only after a
- * measuring that failed. The demo state tests/ui/demo/emby-shares.json (+ post/emby.connect-shares.json) has every case.
+ * Jack Streamer's shares and people (2026-10-14, the owner): either a share is set up right (a pool as primary, the array
+ * as secondary, the mover from the pool to the array: shareUseCache «yes»), or the user fixes it in Unraid — each wrong
+ * case its own red chip and a one-line fix, its folder unticked and greyed (not cached); a right share whose folder is
+ * missing on the pool gets an info chip (made at the first laying out, later). The option «create the missing share
+ * folder» is gone; saving never sends create_share_root (his settings keep theirs). Every chosen person gets at least
+ * MIN_PERSON_GB (20): red with the reason and what to do, «Save» blocked with the reason beside it. The demo state
+ * tests/ui/demo/emby-shares.json (+ post/emby.connect-shares.json) has every case.
  */
 function testStreamerShares(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    $sim = (string) file_get_contents(OFFICE_WEB . '/desks/emby/streamer.js');
     $gone = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = langFile(OFFICE_WEB . "/desks/emby/lang/$l.json");
         foreach (['setup.create_root', 'setup.create_root_fine', 'setup.create_root_missing', 'wizard.no_pool_share'] as $k) {
             if (isset($lang[$k])) {
-                $gone[] = "$l:$k";
+                $gone[] = "$l $k";
             }
         }
     }
     same('streamer shares: «create the missing share folder» is gone — its words in no language', [], $gone);
-    check('streamer shares: … no field, not among the «Advanced» defaults; saving writes create_share_root on as his settings have it',
-        !str_contains($js, 'create_root') && !preg_match("/MORE_DEFAULTS = \{[^}]*create_share_root/", $js)
-        && str_contains($js, "create_share_root: !!set.create_share_root,") && str_contains($js, "    create_share_root: v.create_share_root,\n"));
-    check('streamer shares: the simulator says «not measured yet» until a number is there; «asleep or no ZFS» only after a failed measuring',
-        str_contains($sim, "V.failed ? T('sim.unmeasured') : T('sim.not_yet', { button: T('sim.measure') })")
-        && str_contains($sim, "else if (got === false && !lv) { V.failed = true;") && str_contains($js, "if (!j.level) { Office.toast(T('sim.unmeasured'), true); return false; }"));
+    check('streamer shares: … no field, not among «More»\'s defaults, never sent', !str_contains($js, 'create_root') && !str_contains($js, 'create_share_root'));
     check('streamer shares: 20 GB per person is one constant', substr_count($js, 'const MIN_PERSON_GB = 20;') === 1 && !preg_match('/\b20 \* 1024|\b< 20\b/', $js));
-    $node = testsNode();
-    if ($node === '') {
-        check('streamer shares: node is missing here - skipped', true);
-        return;
-    }
-    $tmp = hardeningTmp('streamer-shares');
-    file_put_contents("$tmp/t.js", <<<'JS'
-const fs = require('fs');
-const [emFile, stateFile, connectFile, setFile] = process.argv.slice(2);
-globalThis.OFFICE_DESK_TESTS = {};
-const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-const el = (tag, cls, text) => { const n = { tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, hidden: false,
-  classList: { add(...c) { n.className += ' ' + c.join(' '); } }, appendChild(c) { n.children.push(c); return c; }, append(...c) { n.children.push(...c); },
-  replaceChildren() { n.children = []; }, closest: () => null, setAttribute() {}, addEventListener() {}, querySelectorAll: () => [],
-  querySelector: (q) => (q === 'input' ? n.children.find((c) => c.tag === 'input') || null : null), focus() {}, options: [] }; return n; };
-const all = (n, out = []) => { out.push(n); (n.children || []).forEach((c) => all(c, out)); return out; };
-const posts = [];
-const toasts = [];
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => Math.round(b / 1073741824) + ' GB', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
-  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, toast: (t, bad) => toasts.push([t, !!bad]),
-  api: { post: async (a, d) => { posts.push([a, d]); return { ok: true }; } }, errorText: (e) => e && e.key,
-  dialog: (o) => { const d = { o, closed: false, setTitle() {}, close() { d.closed = true; } }; return d; } };
-(0, eval)(fs.readFileSync(emFile, 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
-const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-const con = JSON.parse(fs.readFileSync(connectFile, 'utf8'));
+    $r = streamerTabRun('streamer shares', <<<'JS'
+(async () => {
 const out = {};
 e.setState(st);
 out.cases = Object.fromEntries(['Familienvideos', 'Familienserien', 'Konzerte', 'Kinderfilme', 'Dokus', 'Sport', 'Schulfilme'].map((s) => [s, e.shareCase(s)]));
@@ -31007,213 +30832,91 @@ e.setState({ ...st, share_info: { ...st.share_info, X: { use: 'yes', primary: 'g
 out.gonePool = e.shareCase('X');
 e.setState(st);
 e.initForm();
-const f = e.form();
-Object.assign(f.instances[0], { url: 'http://x', server: con.server, libraries: con.libraries, users: con.users });
-con.libraries.forEach((l) => { f.chosenLibs.add(l.name); l.locations.forEach((p) => { f.instances[0].mappings[p] = st.emby[0].mounts[p] || '/mnt/user' + p; }); });
+const f = connect();
 const lib = all(e.setupLibraries());
-const text = (n) => n.textContent;
 out.chips = lib.filter((n) => /\bchip\b/.test(n.className)).map((n) => [n.textContent.replace(/ \{.*$/, ''), n.className.replace('chip ', '')]);
-out.fixes = lib.filter((n) => /jo-fix/.test(n.className)).map((n) => text(n).replace(/ \{.*$/, ''));
+out.fixes = lib.filter((n) => /jo-fix/.test(n.className)).map((n) => n.textContent.replace(/ \{.*$/, ''));
 out.off = lib.filter((n) => /jo-folder/.test(n.className)).map((n) => { const i = n.children.find((c) => c.tag === 'input'); return [/jo-muted/.test(n.className), i.checked, !!i.disabled]; });
 out.pool = e.derivedPool();
-// the budget: the owner's screen — 300 GB, fixed 100 + 200, 9 more people: red, «Next» and «Save» blocked
-f.values.budget_mode = true;
-f.values.cache_budget = '300G';
+const tile = e.setupTileData().find((d) => d.id === 'libraries');
+out.tile = [tile.alert, tile.sub.map((t) => t.replace(/ \{.*$/, ''))];
+// the budget: the owner's screen — 300 GB, fixed 100 + 200, 9 more people: red, «Save» blocked
+f.values.cache_budget = '300';
 con.users.forEach((u) => f.chosenUsers.add(u.id));
 f.budgets = { 'u-anna': '100G', 'u-ben': '200G' };
 const red = e.budgetState();
 out.red = [red.short, red.each, red.others, red.bad];
 out.line = all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => [n.className, n.textContent.replace(/ \{.*$/, '')]);
-out.blocked = [!!e.stepBlocked('users'), !!e.stepBlocked('summary'), e.stepBlocked('settings'), e.stepBlocked('libraries')];
+out.blocked = e.setupBlocked().replace(/ \{.*$/, '');
 f.budgets = { 'u-anna': '10G' };
 out.low = [e.budgetState().low, e.budgetState().lowNames, e.budgetState().short];
 f.budgets = { 'u-anna': '400G' };
 out.over = [e.budgetState().over, all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => n.textContent.replace(/ \{.*$/, ''))];
 f.budgets = { 'u-anna': '100G' };
-out.fine = [e.budgetState().bad, e.budgetState().each, e.stepBlocked('users')];
+out.fine = [e.budgetState().bad, e.budgetState().each, e.setupBlocked()];
 f.values.cache_budget = '160G';         // 60 GB on 10: 6 each
-out.thin = [e.budgetState().short, !!e.stepBlocked('summary')];
-f.values.budget_mode = false;
-out.byCount = [e.budgetState(), e.stepBlocked('users')];
-// the wizard's foot: «Next ›» on the people blocked with the reason beside it, free again once fine
-f.values.budget_mode = true;
-e.openWizard('users');
-const foot = () => { const w = e.wiz(); const right = w.footBox.children.find((c) => /jo-wiz-right/.test(c.className)); return right.children; };
-const why = () => foot().find((c) => /jo-wiz-why/.test(c.className));
-const go = () => foot().at(-1);
-out.footRed = [why().hidden, why().textContent.replace(/ \{.*$/, ''), !!go().disabled, go().textContent];
+out.thin = [e.budgetState().short, !!e.setupBlocked()];
+f.values.cache_budget = '';
+out.first = all(e.budgetLine()).filter((n) => n.tag === 'p').map((n) => n.textContent.replace(/ \{.*$/, ''));
+// the save bar: «Save» disabled with the reason beside it
+f.values.cache_budget = '160G';
+const bar = e.saveBar();
+out.barRed = [bar.children[0].disabled, bar.children[1].textContent.replace(/ \{.*$/, '')];
 f.values.cache_budget = '1000G';
-e.wiz().gate();
-out.footFine = [why().hidden, !!go().disabled];
-// saving: create_share_root as his settings have it, never asked — with every right and wrong share
-(async () => {
-  const set = JSON.parse(fs.readFileSync(setFile, 'utf8')).settings;
-  for (const flag of [true, false]) {
-    e.setState({ ...st, configured: true, settings: { ...set, create_share_root: flag, cache_budget: '' } });
-    e.initForm();
-    const g = e.form();
-    Object.assign(g.instances[0], { url: 'http://x', server: con.server, libraries: con.libraries, users: con.users });
-    con.libraries.forEach((l) => { g.chosenLibs.add(l.name); l.locations.forEach((p) => { g.instances[0].mappings[p] = '/mnt/user/' + ({ '/familienvideos': 'Familienvideos', '/familienserien': 'Familienserien' }[p] || p.slice(1)); }); });
-    posts.length = 0;
-    await e.saveSetup();
-    const s = (posts.find((p) => p[0] === 'emby.save') || [])[1];
-    out['save_' + flag] = s ? [s.settings.create_share_root, s.settings.instances[0].path_mappings] : toasts.at(-1);
-  }
-  console.log(JSON.stringify(out));
+const bar2 = e.saveBar();
+out.barFine = [bar2.children[0].disabled, bar2.children[1].textContent];
+// saving with every right and wrong share: the wrong shares' folders not cached, create_share_root never sent
+posts.length = 0;
+await e.saveSetup();
+const s = (posts.find((p) => p[0] === 'emby.save') || [])[1];
+out.save = s ? ['create_share_root' in s.settings, s.settings.instances[0].path_mappings] : toasts.at(-1);
+console.log(JSON.stringify(out));
 })();
-JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
-        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby-shares.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/emby.connect-shares.json') . ' '
-        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' 2>&1');
-    hardeningRm($tmp);
-    $r = json_decode($raw, true);
-    if (!is_array($r)) {
-        check('streamer shares: ran under node', false, substr($raw, 0, 2000));
+JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby-shares.json', OFFICE_DIR . '/tests/ui/demo/post/emby.connect-shares.json']);
+    if ($r === null) {
         return;
     }
     same('streamer shares: each share\'s case from its cfg — right; right, folder missing; array primary; pool → pool; prefer; only; no such share',
         ['Familienvideos' => 'ok', 'Familienserien' => 'ok', 'Konzerte' => 'no_pool', 'Kinderfilme' => 'no_array', 'Dokus' => 'wrong_way', 'Sport' => 'pool_only', 'Schulfilme' => 'unknown'], $r['cases']);
     same('streamer shares: only a right share is cached; a «yes» share on a pool that isn\'t one has no pool', [[true, true, false, false], 'no_pool'], [$r['cacheable'], $r['gonePool']]);
-    same('streamer shares: step 2 — the pool chip, the info chip for the missing folder (not red), a red chip per wrong case (the music library\'s share is missing too)',
-        [['wizard.pool_chip', 'ok'], ['wizard.pool_chip', 'ok'], ['wizard.share_dir_later', 'accent'], ['wizard.share.no_pool', 'danger'], ['wizard.share.no_array', 'danger'],
-         ['wizard.share.wrong_way', 'danger'], ['wizard.share.pool_only', 'danger'], ['wizard.share.unknown', 'danger'], ['wizard.share.unknown', 'danger']], $r['chips']);
-    same('streamer shares: … and under each red chip the fix in Unraid, one line', ['wizard.fix.no_pool', 'wizard.fix.no_array', 'wizard.fix.wrong_way', 'wizard.fix.pool_only',
-        'wizard.fix.unknown', 'wizard.fix.unknown'], $r['fixes']);
+    same('streamer shares: the pool chip, the info chip for the missing folder (not red), a red chip per wrong case (the music library\'s share is missing too)',
+        [['setup.pool_chip', 'ok'], ['setup.pool_chip', 'ok'], ['setup.share_dir_later', 'accent'], ['setup.share.no_pool', 'danger'], ['setup.share.no_array', 'danger'],
+         ['setup.share.wrong_way', 'danger'], ['setup.share.pool_only', 'danger'], ['setup.share.unknown', 'danger'], ['setup.share.unknown', 'danger']], $r['chips']);
+    same('streamer shares: … and under each red chip the fix in Unraid, one line', ['setup.fix.no_pool', 'setup.fix.no_array', 'setup.fix.wrong_way', 'setup.fix.pool_only',
+        'setup.fix.unknown', 'setup.fix.unknown'], $r['fixes']);
     same('streamer shares: … each wrong share\'s folder unticked, greyed and not to be ticked', array_fill(0, 6, [true, false, true]), $r['off']);
     same('streamer shares: the pool from the right shares', '/mnt/cache', $r['pool']);
-    same('streamer shares: by budget, the owner\'s screen (300 GB, fixed 100 + 200, 9 more): short — 0 each for 9, red', [true, 0, 9, true], $r['red']);
+    same('streamer shares: the tile is red and says how many shares to fix in Unraid', [true, ['setup.tile.folders', 'setup.tile.wrong']], $r['tile']);
+    same('streamer shares: the owner\'s screen (300 GB, fixed 100 + 200, 9 more): short — 0 each for 9, red', [true, 0, 9, true], $r['red']);
     same('streamer shares: … one red line with the reason and what to do (no neutral split line)', [['callout warn jo-slice', 'setup.users_budget_short']], $r['line']);
-    same('streamer shares: … «Next ›» on the people and «Save» blocked, the other steps not', [true, true, '', ''], $r['blocked']);
+    same('streamer shares: … «Save» blocked', 'setup.users_budget_block', $r['blocked']);
     same('streamer shares: a fixed budget under 20 GB is red, named', [1, ['Anna'], false], $r['low']);
     same('streamer shares: fixed budgets over the whole: red, said once (not also as «too little for the others»)', [true, ['setup.users_budget_over']], $r['over']);
     same('streamer shares: fine — 200 GB for 10, 20 each: not blocked', [false, 20, ''], $r['fine']);
     same('streamer shares: 60 GB for 10 people: under 20 each — blocked', [true, true], $r['thin']);
-    same('streamer shares: by count: no budget rule', [null, ''], $r['byCount']);
-    same('streamer shares: the foot — «Next ›» disabled with the reason beside it, free again once the budget suffices',
-        [[false, 'setup.users_budget_block', true, 'wizard.next'], [true, false]], [$r['footRed'], $r['footFine']]);
-    same('streamer shares: saving writes create_share_root as his settings have it (true stays true, false false); wrong shares\' folders not cached',
-        [[true, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']],
-         [false, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']]],
-        [$r['save_true'] ?? null, $r['save_false'] ?? null]);
+    same('streamer shares: no budget yet — the people\'s part says to enter it first', ['setup.users_budget_first'], $r['first']);
+    same('streamer shares: the save bar — «Save» disabled with the reason beside it, free again once the budget suffices',
+        [[true, 'setup.users_budget_block'], [false, 'setup.save_hint']], [$r['barRed'], $r['barFine']]);
+    same('streamer shares: saving never sends create_share_root; wrong shares\' folders not cached',
+        [false, ['/familienvideos' => '/mnt/user/Familienvideos', '/familienserien' => '/mnt/user/Familienserien', '/konzerte' => '', '/kinderfilme' => '', '/dokus' => '', '/sport' => '', '/schulfilme' => '', '/hoerspiele' => '']],
+        $r['save']);
 }
 
 /**
- * The halves are floors (2026-10-14, the owner, from his server: pool 1 TB, NM 150 GB, Y 60 %, X 70 %, the others holding
- * 455 GB, Jack Streamer wanting 19 GB got 4.6 GB — the pool sat between Y and X and Ms. Moverelli moved theirs only from X
- * on). Now she also moves the others' oldest below X when he needs room inside his half (halfRoom(): min(want, H) − what he
- * holds − the free room up to Y, never the others below their half plus what he doesn't want); both wanting more than their
- * half → 50/50 (the check «halves», the scenario «both»). The «others» check is red for a spill only while he held more
- * than his half (their own overflow is theirs). Step 4: everyone chosen with a budget of their own — the rest unused, said.
- */
-function testStreamerHalves(): void
-{
-    $node = testsNode();
-    if ($node === '') {
-        check('streamer halves: node is missing here - skipped', true);
-        return;
-    }
-    $tmp = hardeningTmp('streamer-halves');
-    file_put_contents("$tmp/t.js", <<<'JS'
-const fs = require('fs');
-const [simFile, emFile] = process.argv.slice(2);
-const S = require(simFile);
-const out = {};
-const r1 = (v) => Math.round(v * 10) / 10;
-// pure: her amount for his half on the owner's server's numbers
-const at = (others, jack) => S.streamerPoolMath({ size: 1024, nm: 150, jack: jack || 0, others, x: 70, offset: 10, k: 50 });
-out.room = [r1(S.halfRoom(at(455), 0, 19)), r1(S.halfRoom(at(455), 0, 500)), S.halfRoom(at(455, 232.2), 232.2, 500), S.halfRoom(at(232.2), 0, 500),
-  r1(S.halfRoom(at(455), 0, 19, 5)), r1(S.halfRoom(at(480), 0, 19))];
-// the owner\'s month: he gets what he wants every morning (less one file), her moves for him said in the log
-const cfg = { pool: 1024, nm: 150, x: 70, offset: 10, k: 50, others0: 455, people: 1, episodes: 1, writes: 20, age: 30 };
-const sim = S.newSim(cfg, 162);
-const side = sim.sides.new;
-let short = [];
-for (let d = 1; d <= 20; d++) {
-  S.simDay(sim);
-  const m = S.mathOf(sim.w, side);
-  if (m.jack < Math.min(m.want, m.half) - 10 - 0.01) short.push([d, r1(m.jack), r1(m.want)]);
-}
-out.real = { short, ok: S.summary(sim).new.ok, forJack: side.log.filter((l) => l.k === 'goes_jack').length > 0, used: r1(S.mathOf(sim.w, side).used * 100 / 1024) };
-// both want a lot: 50/50 of the room under Y
-const both = S.runScenario('both', {}, 162);
-const bm = S.mathOf(both.w, both.sides.new);
-out.both = { ok: S.summary(both).new.ok, halves: both.sides.new.inv.halves.ok, jack: r1(bm.jack), half: r1(bm.half), others: r1(bm.others), halfD: r1(bm.halfD), want: bm.want > bm.half };
-const both2 = S.runScenario('both', { pool: 1024, nm: 150, x: 70, offset: 10, others0: 455 }, 162);
-const bm2 = S.mathOf(both2.w, both2.sides.new);
-out.both2 = { ok: S.summary(both2).new.ok, jack: r1(bm2.jack), half: r1(bm2.half), others: r1(bm2.others), halfD: r1(bm2.halfD) };
-// their own overflow: the day's writes spill while he holds less than his half — not red
-const heavy = S.newSim({ pool: 1024, nm: 150, x: 70, offset: 10, others0: 455, writes: 400, age: 3, people: 2 }, 162);
-S.simDays(heavy, 20);
-out.heavy = { spilled: heavy.sides.new.spilled > 0, taken: heavy.sides.new.spilledTaken, others: heavy.sides.new.inv.others.ok };
-out.inv = S.INVARIANTS;
-// step 4's line when everyone chosen has a budget of their own
-globalThis.OFFICE_DESK_TESTS = {};
-const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, replaceChildren() { this.children = []; }, closest: () => null,
-  setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => Math.round(b / 1073741824) + ' GB', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
-  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, dialog: () => ({ setTitle() {}, close() {} }) };
-(0, eval)(fs.readFileSync(emFile, 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
-e.setForm({ instances: [{ users: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], server: {} }], chosenUsers: new Set(['a', 'b']), budgets: { a: '100G', b: '50G' }, values: { budget_mode: true, cache_budget: '300G' } });
-const words = () => e.budgetLine().children.map((c) => [c.className, c.textContent]);
-out.allFixed = words();
-e.form().values.cache_budget = '150G';
-out.allFixedExact = words();
-e.form().budgets = { a: '100G' };
-e.form().values.cache_budget = '300G';
-out.oneOpen = words().map((x) => x[1].replace(/ \{.*$/, ''));
-console.log(JSON.stringify(out));
-JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/streamer.js') . ' '
-        . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
-    hardeningRm($tmp);
-    $r = json_decode($raw, true);
-    if (!is_array($r)) {
-        check('streamer halves: ran under node', false, substr($raw, 0, 2000));
-        return;
-    }
-    same('streamer halves: her amount for his half (his server: Y 614.4, H = the others\' half = 232.2) — he wants 19: 19 − the 9.4 free up to Y; both want more: 222.8 (then 50/50); he holds his half: 0; the others at their half: 0; with 5 moved from X already: 4.6; over Y by 25: also that',
-        [9.6, 222.8, 0, 0, 4.6, 34.6], $r['room']);
-    same('streamer halves: the owner\'s month — every morning he holds what he wants (less one file), every check green, her moves for him in the log, the pool at Y',
-        ['short' => [], 'ok' => true, 'forJack' => true, 'atY' => true], ['short' => $r['real']['short'], 'ok' => $r['real']['ok'], 'forJack' => $r['real']['forJack'], 'atY' => $r['real']['used'] <= 60.05]);
-    $b = $r['both'];
-    check('streamer halves: «both want a lot» — each its half under Y (he ± one file: films up to 80 GB), every check green incl. «halves»',
-        $b['ok'] && $b['halves'] && $b['want'] && abs($b['jack'] - $b['half']) <= 80 && $b['others'] >= $b['halfD'] - 0.1 && $b['others'] <= $b['halfD'] + 1, json_encode($b));
-    $b2 = $r['both2'];
-    check('streamer halves: … on the owner\'s server\'s numbers too', $b2['ok'] && abs($b2['jack'] - $b2['half']) <= 80 && abs($b2['others'] - $b2['halfD']) <= 1, json_encode($b2));
-    same('streamer halves: the others overflowing on their own (400 GB a day, he under his half): spilled, but no promise broken — the check stays green',
-        ['spilled' => true, 'taken' => 0, 'others' => true], $r['heavy']);
-    same('streamer halves: six checks, «halves» after «others»', ['jack', 'others', 'halves', 'unwatched', 'pingpong', 'limit'], $r['inv']);
-    same('streamer halves: step 4 — everyone chosen with a budget of their own: the rest unused, said (EmbyCache\'s apply_budget shares it only among people without one)',
-        [[['callout jo-slice', 'setup.users_budget_all_fixed_rest {"fixed":"150 GB","rest":"150 GB"}']], [['callout jo-slice', 'setup.users_budget_all_fixed {"fixed":"150 GB"}']], ['setup.users_budget_split']],
-        [$r['allFixed'], $r['allFixedExact'], $r['oneOpen']]);
-}
-
-/**
- * Three from the server (2026-10-14, right after «Set up from scratch»): (1) the wizard's long step fits the window — the
- * dialog never taller than the window below its top, the body scrolls, head and foot (the wizard's foot is the dialog's
- * own) stay in view, also when Unraid's page makes a transformed box «fixed» (tools/ui-clicks.mjs measures it in a
- * browser); (2) «Next ›» on step 1 connects first when an address and a key are there but not connected with them —
- * on success to step 2, on a failure it stays and says why; (3) Ms. Moverelli's rules without his settings (a fresh
- * Jack Streamer has no pool yet): her X, offset, «guaranteed» and age rule in step 3, «not set up» only without her ini;
- * «Measure now» measures the pool step 2 derived (one of his pools only).
+ * From the server (2026-10-14): the office's dialog fits the window (core.js — the wizard is gone, every dialog keeps it):
+ * never taller than the window below its top, the body scrolls, head and foot stay in view, also when Unraid's page makes
+ * a transformed box «fixed». Ms. Moverelli's rules without his settings (a fresh Jack Streamer has no pool yet): her X and
+ * age rule on «Amount», «not set up» only without her ini.
  */
 function testStreamerFix3(): void
 {
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
     $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    check('fix3 layout: the dialog fits the window (a transformed parent made «fixed» its box) — on opening, a dialog back, resize/scroll, a new step',
+    check('fix3 layout: the dialog fits the window (a transformed parent made «fixed» its box) — on opening, a dialog back, resize/scroll',
         str_contains($core, 'function dialogFit() {') && str_contains($core, "const room = s.h - dlg.getBoundingClientRect().top / s.k - 16;")
-        && str_contains($core, "window.addEventListener('scroll', () => dialogFit(), true);") && str_contains($js, 'if (wiz.dlg.fit) wiz.dlg.fit();'));
-    check('fix3 layout: head and foot fixed, only the body scrolls; the wizard\'s foot is the dialog\'s own',
-        str_contains($css, '.dialog > h3, .dialog > .dialog-foot{flex:none}') && str_contains($css, '.dialog > .dialog-body{flex:1 1 auto; min-height:0}')
-        && str_contains($js, "me.dlg = Office.dialog({ title: '', body: box, foot: footBox,") && str_contains($core, 'if (ownFoot) foot.appendChild(ownFoot);'));
-    check('fix3 layout: the click test measures a long step at 1280×720, 390 px and with the office box transformed and pushed down',
-        str_contains((string) file_get_contents(OFFICE_DIR . '/tools/ui-clicks.mjs'), "for (const [w, hgt, shift] of [[1280, 720, false], [390, 844, false], [1280, 720, true]]) {"));
+        && str_contains($core, "window.addEventListener('scroll', () => dialogFit(), true);"));
+    check('fix3 layout: head and foot fixed, only the body scrolls', str_contains($css, '.dialog > h3, .dialog > .dialog-foot{flex:none}')
+        && str_contains($css, '.dialog > .dialog-body{flex:1 1 auto; min-height:0}') && str_contains($core, 'if (ownFoot) foot.appendChild(ownFoot);'));
     // her rules without his settings
     $tmp = hardeningTmp('fix3-ini');
     file_put_contents("$tmp/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=7\nglobal_excludes=/x/embycache_exclude.txt\n");
@@ -31229,95 +30932,29 @@ function testStreamerFix3(): void
     }
     hardeningRm($tmp);
     same('fix3 her rules: from her ini alone — X 80, Y 70 (offset 10), guaranteed 50, age 7; none without her ini', [['x' => 80, 'y' => 70, 'k' => 50, 'min_age' => 7], null], [$with, $without]);
-    $refused = function (callable $f): string {
-        try {
-            $f();
-            return 'ok';
-        } catch (Problem $e) {
-            return $e->key;
-        }
-    };
-    same('fix3 measure: only one of his pools — anything else refused', 'emby_bad_pool', $refused(fn () => embyMeasurePool(['pool' => '/mnt/../etc'])));
-    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('fix3: his state carries her rules on their own, «Measure now» measures the pool step 2 derived',
-        str_contains($emby, "'moverelli'  => embyMoverelliRules(),") && str_contains($emby, 'embyStreamerLevel(embyPoolLook(embyMeasurePool($r), true))')
-        && str_contains($js, "Office.api.post(`\${ID}.pool_measure`, { pool: form && connected() ? derivedPool() : '' });"));
-    // the page: auto-connect and her values for an unconfigured Jack
-    $node = testsNode();
-    if ($node === '') {
-        check('fix3: node is missing here - skipped', true);
-        return;
-    }
-    $tmp = hardeningTmp('fix3-ui');
-    file_put_contents("$tmp/t.js", <<<'JS'
-const fs = require('fs');
-const [emFile, stateFile, connectFile] = process.argv.slice(2);
-globalThis.OFFICE_DESK_TESTS = {};
-const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
-const all = (n, out = []) => { out.push(n); (n.children || []).forEach((c) => c && typeof c === 'object' && all(c, out)); return out; };
-const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {}, classList: { add() {} },
-  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c.filter((x) => typeof x === 'object')); }, replaceChildren() { this.children = []; },
-  closest: () => null, setAttribute() {}, addEventListener() {}, querySelectorAll: () => [], querySelector: () => null, focus() {}, options: [] });
-let answer = null;
-const posts = [];
-globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => b + ' B', relative: () => 'now', date: (t) => 'D' + t, number: (n) => String(n) },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: () => {}, stat: (o) => ({ stat: o }),
-  sections: () => ({ el: el('div'), places: () => [], mount: () => false, render() {} }), filterBar: () => ({}), subroute: () => {}, toast: () => {}, go: () => {},
-  errorText: (e) => 'E:' + (e && e.key), api: { post: async (a, d) => { posts.push([a, d]); return answer; } },
-  dialog: (o) => ({ o, setTitle() {}, fit() {}, close() { if (o.onClose) o.onClose(); } }) };
-(0, eval)(fs.readFileSync(emFile, 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
-const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-const con = JSON.parse(fs.readFileSync(connectFile, 'utf8'));
-(async () => {
-  const out = {};
-  // an unconfigured Jack: no settings, no pool of his — her rules on their own
-  const fresh = { ...st, configured: false, settings: null, pool: null, moverelli: { x: 80, y: 70, k: 50, min_age: 7 } };
-  e.setState(fresh); e.initForm();
-  const texts = all(e.sharePart()).map((n) => n.textContent).filter(Boolean);
-  out.her = [texts.includes('80 %'), texts.some((t) => t.startsWith('10 % (Y = 70 %)')), texts.includes('50 %'), texts.some((t) => t.startsWith('room.none')), JSON.stringify(e.herRules())];
-  out.base = e.simBase();
-  e.setState({ ...fresh, moverelli: null }); e.initForm();
-  out.none = all(e.sharePart()).map((n) => n.textContent).filter((t) => t.startsWith('room.none')).length;
-  // auto-connect: an address and a key typed, not connected
-  e.setState(fresh); e.initForm();
-  e.openWizard('servers');
-  const f = e.form();
-  Object.assign(f.instances[0], { url: 'http://emby.local:8096', api_key: 'abcdef0123456789', has_key: false, server: null });
-  out.needs = e.needsConnect(f.instances[0]);
-  answer = { ok: false, error: { key: 'emby_connect' } };
-  const btn = el('button', 'btn');
-  await e.nextFromServers(btn, 'libraries');
-  out.fail = [e.wiz().step, f.instances[0].connectError];
-  answer = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
-  await e.nextFromServers(el('button', 'btn'), 'libraries');
-  out.ok = [e.wiz().step, !!f.instances[0].server, f.instances[0].connectError, e.needsConnect(f.instances[0])];
-  const before = posts.length;
-  e.cancelWizard(); e.cancelWizard();
-  e.openWizard('servers');
-  const g = e.form();
-  Object.assign(g.instances[0], { url: 'http://emby.local:8096', api_key: 'abcdef0123456789', server: con.server, connectedAs: 'http://emby.local:8096|abcdef0123456789' });
-  await e.nextFromServers(el('button', 'btn'), 'libraries');
-  out.already = [e.wiz().step, posts.length - before];
-  console.log(JSON.stringify(out));
-})();
-JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' '
-        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/emby.connect.json') . ' 2>&1');
+    $tmp = hardeningTmp('streamer-age');
+    file_put_contents("$tmp/a.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=14\n[Downloads]\nmin_age=2\n");
+    file_put_contents("$tmp/b.ini", "[Downloads]\nmin_age=2\n");
+    same('fix3 her age rule: from her ini\'s [GLOBAL] only (none: null)', [14, null, null], [embyStreamerAge("$tmp/a.ini"), embyStreamerAge("$tmp/b.ini"), embyStreamerAge("$tmp/none.ini")]);
     hardeningRm($tmp);
-    $r = json_decode($raw, true);
-    if (!is_array($r)) {
-        check('fix3: ran under node', false, substr($raw, 0, 2000));
+    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    check('fix3: his state carries her rules on their own', str_contains($emby, "'moverelli'  => embyMoverelliRules(),"));
+    $r = streamerTabRun('fix3', <<<'JS'
+const out = {};
+// an unconfigured Jack: no settings, no pool of his — her rules on their own
+const fresh = { ...st, configured: false, settings: null, pool: null, moverelli: { x: 80, y: 70, k: 50, min_age: 7 } };
+e.setState(fresh); e.initForm();
+const t = texts(e.sharePart());
+out.her = [t.includes('80 %'), t.some((x) => x.startsWith('count.days')), t.some((x) => x.startsWith('room.none')), JSON.stringify(e.herRules())];
+e.setState({ ...fresh, moverelli: null }); e.initForm();
+out.none = texts(e.sharePart()).filter((x) => x.startsWith('room.none')).length;
+console.log(JSON.stringify(out));
+JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json']);
+    if ($r === null) {
         return;
     }
-    same('fix3 step 3: an unconfigured Jack shows her X, offset, guaranteed — not «not set up»', [true, true, true, false, '{"x":80,"y":70,"k":50,"min_age":7}'], $r['her']);
-    same('fix3 simulator: real data starts from her rules (not measured yet: «Measure now» measures the derived pool)', [80, 70, 50, 7, null],
-        [$r['base']['x'], $r['base']['y'], $r['base']['k'], $r['base']['age'], $r['base']['level']]);
-    same('fix3 step 3: «not set up» only without her ini', 1, $r['none']);
-    same('fix3 next: address and key there, not connected — it connects first', true, $r['needs']);
-    same('fix3 next: a failure — it stays on step 1 and says why', ['servers', 'E:emby_connect'], $r['fail']);
-    same('fix3 next: on success — on to step 2, connected with these values', ['libraries', true, '', false], $r['ok']);
-    same('fix3 next: already connected with these values — on without asking the server', ['libraries', 0], $r['already']);
+    same('fix3 amount: an unconfigured Jack shows her X and age rule — not «not set up»', [true, true, false, '{"x":80,"y":70,"k":50,"min_age":7}'], $r['her']);
+    same('fix3 amount: «not set up» only without her ini', 1, $r['none']);
 }
 
 function testPoolLevel(): void
@@ -34104,8 +33741,7 @@ function testTilesMediaPages(): void
     check('pages: the old open/closed keys are gone (emby.plans_open, emby.pool_open, snapshot.plans_open)', !preg_match('/plans_open|pool_open/', $emby . $snap));
     check('pages: no role="button" on a tile (her group heads fold — the only one)', !str_contains($emby, "'role', 'button'") && substr_count($snap, "'role', 'button'") === 1
         && str_contains($snap, "const head = el('div', 'group-head');\n  head.tabIndex = 0;\n  head.setAttribute('role', 'button');"));
-    check('pages: no scrollIntoView for a tile (Jack\'s: a dialog\'s error line, and his wizard\'s card when its head is out of view)', !str_contains($snap, 'scrollIntoView') && substr_count($emby, 'scrollIntoView') === 2
-        && str_contains($emby, "card.scrollIntoView({ block: 'start' }); /* reveal */")
+    check('pages: no scrollIntoView for a tile (Jack\'s: a dialog\'s error line)', !str_contains($snap, 'scrollIntoView') && substr_count($emby, 'scrollIntoView') === 1
         && str_contains($emby, "box.style.display = '';\n  box.scrollIntoView({ block: 'nearest' });"));
     check('pages: nothing hidden — no section, list or tile switched off with hidden', !preg_match('/\b(s|section|plans|pool|dom\.\w+)\.hidden\s*=/', $emby . $snap));
     // Jack Emby
@@ -34126,10 +33762,10 @@ function testTilesMediaPages(): void
         && !str_contains($emby, "T('tools_sub')") && !str_contains($emby, "T('tools.python_missing')") && str_contains($emby, "T('notice.no_python')"));
     check('emby page: «Consolidate folders» — its two facts as rows, no tiles inside a section', str_contains($emby, "const facts = el('div', 'box jo-facts');")
         && !str_contains($emby, "el('div', 'stats')"));
-    check('emby page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup is the wizard\'s card (its head, its intro)',
+    check('emby page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup is the office\'s tab with tiles (no wizard)',
         str_contains($emby, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && substr_count($emby, 'root.appendChild(deskHead());') === 2
         && !str_contains($emby, "T('back')") && !str_contains($emby, "actions.push(button(T('setup_open')")
-        && str_contains($emby, "card.append(head, el('p', 'jo-wiz-intro', T('wizard.intro.' + id)));"));
+        && str_contains($emby, "const sw = setupSwitcher();\n  root.appendChild(sw.el);\n  sw.render();") && !str_contains($emby, 'jo-wiz'));
     check('emby page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/emby/history the whole page',
         str_contains($emby, "if (plan) sw.mount('plans');") && str_contains($emby, "} else sw.mount(sub);") && str_contains($emby, "Office.reveal(`plan:\${plan}`)")
         && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.place(`plan:\${job}`")
@@ -35047,7 +34683,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerSim', 'testStreamerWizard', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testStreamerHalves', 'testEmbyYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testEmbyYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

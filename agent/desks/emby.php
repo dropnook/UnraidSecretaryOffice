@@ -38,10 +38,11 @@ const EMBY_POOL_GROUPS  = 5000;    // what lies on the pool, by film/series fold
 const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'return_to_origin', 'array_source', 'array_path', 'user_path',
-                       'array_disks_glob', 'create_share_root', 'mover_debug_level', 'give_back_unwatched_days'];
-// Jack Streamer's wizard (2026-10-14): a series or film nobody watched for this many days may go back unwatched — saved in
-// his settings file, read by nothing yet (the pool simulator plays it through; the night run stays as it is)
-const EMBY_UNWATCHED_DAYS = [1, 365, 30];        // min, max, default
+                       'array_disks_glob', 'mover_debug_level'];
+// (2026-10-14, his setup back on tiles: create_share_root has no field — it stays as his settings have it, EmbyCache's
+// default false; the wizard's give_back_unwatched_days, read by nothing, goes at the next save and with the update)
+// budget mode always (2026-10-14, the owner): the budget in total is the hard cap, every person at least this much
+const EMBY_MIN_PERSON_BYTES = 20 << 30;
 // both ways always rsync (2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
 // path for standalone users, Jack never selects it — not in his setup, not from an old settings file, not in what he hands it
 const EMBY_TOOLS_RSYNC = ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'];
@@ -104,7 +105,6 @@ desk('emby', [
         // «Set up from scratch» (2026-10-14, the owner: really zero — no copy)
         'reset'          => fn (array $r) => embyReset(),
         // the setup's pool simulator, real data: the pool measured now — only on the user's click (it may wake the pool)
-        'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyMeasurePool($r), true))],
         'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()],
     ],
     'jobs'    => [
@@ -162,7 +162,7 @@ function embyScan(): array
         'python'     => embyPython(),
         'emby'       => embyContainers(),
         'versions'   => embyVersions(),
-        'configured' => $settings !== null && !empty($settings['instances']),
+        'configured' => embyConfigured($settings),
         'settings'   => $settings !== null ? embySettingsPublic($settings) : null,
         'shares'     => $settings !== null ? embySharesSized(embyShares($settings)) : [],
         'cache'      => embyCacheStats($settings),
@@ -649,7 +649,6 @@ function embyPoolUsage(?array $settings): ?array
     if ($look !== null) {
         $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y'], 'k' => $look['rules']['k'],
                              'min_age' => embyStreamerAge(DATA_DIR . '/moverelli/smart_mover.ini')];
-        $out['level'] = embyStreamerLevel($look);         // the setup's pool simulator: the numbers as measured (null: not measured)
         if ($look['rules']['x'] > 0) {
             $out['min_free'] = 100 - $look['rules']['y'];
         }
@@ -699,38 +698,7 @@ function embyMoverelliRules(): ?array
     return $rules === null ? null : $rules + ['min_age' => embyStreamerAge($ini)];
 }
 
-/**
- * Which pool «Measure now» measures: the one the wizard derived from the shares (step 2) when it sends one of his pools,
- * else his saved cache_path — as settings for embyPoolLook()
- */
-function embyMeasurePool(array $r): ?array
-{
-    $want = optText($r, 'pool');
-    if ($want !== '') {
-        if (!in_array($want, embyPools(), true)) {
-            throw new Problem('emby_bad_pool', ['path' => $want]);
-        }
-        return ['cache_path' => $want];
-    }
-    return embyReadSettings();
-}
-
-/**
- * The pool as the setup's simulator needs it (bytes; pure on poolLevelJack()'s answer): size, used, NM, what Jack holds,
- * the other caching shares (downloads …), their names and when — null when not measured (no ZFS pool, asleep, no limit).
- */
-function embyStreamerLevel(?array $look): ?array
-{
-    $l = $look['level'] ?? null;
-    if (!is_array($l)) {
-        return null;
-    }
-    return ['size' => (int) $l['size'], 'used' => (int) $l['used'], 'nm' => (int) $l['nm'], 'jack' => (int) $l['jack'],
-            'others' => (int) $l['downloads'], 'shares' => array_values((array) ($l['shares'] ?? [])), 'pool' => (string) ($l['pool'] ?? ''),
-            'x' => (int) $l['x'], 'y' => (int) $l['y'], 'k' => (int) $l['k'], 'at' => time()];
-}
-
-/** Ms. Moverelli's age rule (smart_mover.ini [GLOBAL] min_age, days) for the simulator's defaults — null: none set */
+/** Ms. Moverelli's age rule (smart_mover.ini [GLOBAL] min_age, days) — shown in his setup; null: none set */
 function embyStreamerAge(string $ini): ?int
 {
     if (!is_file($ini)) {
@@ -960,15 +928,10 @@ function embySave(mixed $in): array
             $cfg[$k] = $in[$k];
         }
     }
-    // the wizard's «not watched for … days»: a whole number in its range, never cast
-    if (array_key_exists('give_back_unwatched_days', $in)) {
-        $d = $in['give_back_unwatched_days'];
-        if (!is_int($d) || $d < EMBY_UNWATCHED_DAYS[0] || $d > EMBY_UNWATCHED_DAYS[1]) {
-            throw new Problem('emby_bad_number', ['field' => 'give_back_unwatched_days']);
-        }
-    }
     $cfg = embyToolsRsync($cfg);                       // a fill_tool/cleanup_tool the request carries is ignored: always rsync
-    $cfg['cache_budget'] = strtoupper(str_replace(' ', '', (string) ($cfg['cache_budget'] ?? '')));
+    unset($cfg['give_back_unwatched_days']);           // the wizard's, read by nothing (create_share_root: as it was)
+    $cfg['cache_budget'] = strtoupper(str_replace(' ', '', is_string($cfg['cache_budget'] ?? null) ? $cfg['cache_budget'] : ''));
+    embyBudgetCheck($cfg['cache_budget'], $users);
     if (!in_array($cfg['cache_path'] ?? '', embyPools(), true)) {
         throw new Problem('emby_bad_pool', ['path' => (string) ($cfg['cache_path'] ?? '')]);
     }
@@ -985,10 +948,70 @@ function embySave(mixed $in): array
     return ['ok' => true, 'state' => embyScan()];
 }
 
+/**
+ * Budget mode always (2026-10-14, the owner): a budget in total is required and is the hard cap; every person with a
+ * budget of their own at least EMBY_MIN_PERSON_BYTES, together never more than the total; what they leave gives the
+ * chosen people without one at least as much each. $users: id => ['budget' => …] | (object) [] (as embySave() built them).
+ */
+function embyBudgetCheck(string $budget, array $users): void
+{
+    $min = EMBY_MIN_PERSON_BYTES;
+    $total = embySizeBytes($budget);
+    if ($total < $min) {
+        throw new Problem('emby_budget_missing', ['min' => embyGb($min)]);
+    }
+    $fixed = 0;
+    $others = 0;
+    foreach ($users as $u) {
+        if (!is_array($u)) {
+            $others++;
+            continue;
+        }
+        $b = embySizeBytes((string) $u['budget']);
+        if ($b < $min) {
+            throw new Problem('emby_budget_low', ['min' => embyGb($min), 'value' => (string) $u['budget']]);
+        }
+        $fixed += $b;
+    }
+    if ($fixed > $total) {
+        throw new Problem('emby_budget_over', ['fixed' => embyGb($fixed), 'total' => embyGb($total)]);
+    }
+    if ($others > 0 && $fixed > 0 && ($total - $fixed) / $others < $min) {
+        throw new Problem('emby_budget_short', ['rest' => embyGb($total - $fixed), 'min' => embyGb($min)]);
+    }
+}
+
+/** «500G», «1.5T», «800GB» in bytes (EmbyCache's parse_size: K/M/G/T/P by 1024, none = bytes) — 0 when it isn't a size */
+function embySizeBytes(string $text): int
+{
+    if (!preg_match('/^(\d+(?:\.\d+)?)\s*([KMGTP])?B?$/iD', trim($text), $m)) {
+        return 0;
+    }
+    $f = ['' => 1, 'K' => 1 << 10, 'M' => 1 << 20, 'G' => 1 << 30, 'T' => 1 << 40, 'P' => 1 << 50][strtoupper($m[2] ?? '')];
+    return (int) round((float) $m[1] * $f);
+}
+
+/** Bytes as «20 GB» for an error's words (whole GB, one decimal below 10) */
+function embyGb(int $bytes): string
+{
+    $gb = $bytes / (1 << 30);
+    return ($gb < 10 && fmod($gb, 1.0) !== 0.0 ? number_format($gb, 1) : (string) (int) round($gb)) . ' GB';
+}
+
+/**
+ * Set up = a server and a budget (2026-10-14, the owner: budget mode only, no migration — settings without a budget, such
+ * as an older count-mode setup, count as «not set up yet»: his page shows the setup's start, no run, no schedule)
+ */
+function embyConfigured(?array $settings): bool
+{
+    return $settings !== null && !empty($settings['instances']) && is_string($settings['cache_budget'] ?? null)
+        && embySizeBytes($settings['cache_budget']) >= EMBY_MIN_PERSON_BYTES;
+}
+
 // ===================================================================== set up from scratch (2026-10-14)
 /*
  * «Set up from scratch» — really zero (the owner): no copy, no way back. Gone: EmbyCache's settings (server, API key,
- * libraries, people, amounts, N days), the import's copies (*.before-import-*), his origin (embycache_origin.json),
+ * libraries, people, amounts, N days), the import's and the updates' copies (*.before-*), his origin (embycache_origin.json),
  * his runs' state and history (office-run/-history/-output/-stop, the progress, status.json); the gather's settings
  * and state (gather.json, its ini files, last-real, sizes, status, its office-* files); his own schedules (EmbyCache's,
  * the gather's — Ms. Moverelli's night run is hers and stays; it leaves him out while he has no settings). His list is
@@ -1022,7 +1045,7 @@ function embyReset(array $o = []): array
     foreach (EMBY_RESET_GONE as $f) {
         $drop("$dir/$f");
     }
-    foreach (glob("$dir/*.before-import-*") ?: [] as $f) {
+    foreach (glob("$dir/*.before-*") ?: [] as $f) {           // the import's copies and the updates' (before-<version>)
         $drop($f);
     }
     foreach (GATHER_RESET_GONE as $f) {
@@ -2412,7 +2435,7 @@ function embyRunCheck(string $tool, string $mode): void
         if (!isset(EMBY_MODES[$mode])) {
             throw new Problem('unknown_target', ['target' => $mode]);
         }
-        if (!embyReadSettings()) {
+        if (!embyConfigured(embyReadSettings())) {
             throw new Problem('emby_not_configured');
         }
         if ($mode === 'run' && !embyGatherReady()) {
@@ -2914,7 +2937,7 @@ function embySetSchedule(string $job, ?string $cron): array
     }
     // EmbyCache's schedule is the night run's (2026-10-13): one time for Ms. Moverelli and him — her line
     if ($job === 'embycache' && function_exists('moverelliSetSchedule') && moverelliHired()) {
-        if ($cron !== null && !embyReadSettings()) {
+        if ($cron !== null && !embyConfigured(embyReadSettings())) {
             throw new Problem('emby_not_configured');
         }
         $r = moverelliSetSchedule($cron);
@@ -2925,7 +2948,7 @@ function embySetSchedule(string $job, ?string $cron): array
         return ['ok' => true, 'live' => $r['live'], 'state' => embyScan()];
     }
     if ($cron !== null) {
-        if ($job === 'embycache' && !embyReadSettings()) {
+        if ($job === 'embycache' && !embyConfigured(embyReadSettings())) {
             throw new Problem('emby_not_configured');
         }
         if ($job === 'gather' && !(embyGatherSettings()['shares'] ?? [])) {
@@ -3076,7 +3099,7 @@ function embyChecks(): array
     }
     $out[] = finding('python', 'required', embyPython() !== null, [], 'apps');
     $settings = embyReadSettings();
-    $out[] = finding('configured', 'required', $settings !== null && !empty($settings['instances']), [], '#/emby/setup');
+    $out[] = finding('configured', 'required', embyConfigured($settings), [], '#/emby/setup');
     if (!$settings) {
         return $out;
     }

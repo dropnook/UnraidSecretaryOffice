@@ -25,17 +25,13 @@
     "setup.more",
     "setup.save",
     "setup.scope",
+    "setup.server",
+    "setup.shares",
     "setup.users",
     "share.title",
     "shares",
-    "sim.title",
     "tile.pool",
-    "tools",
-    "wizard.summary",
-    "wizard.title.libraries",
-    "wizard.title.servers",
-    "wizard.title.settings",
-    "wizard.title.users"
+    "tools"
   ],
   "texts": [
     "help.dry",
@@ -59,7 +55,6 @@
     "setup.help_save",
     "setup.help_scope",
     "setup.help_users",
-    "share.help",
-    "sim.help"
+    "share.help"
   ]
 }
