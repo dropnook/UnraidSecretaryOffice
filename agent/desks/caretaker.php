@@ -26,6 +26,7 @@ const CARETAKER_UNRAID_MIN    = '6.12';
 const CARETAKER_TOUR_EVERY    = 1800;      // without a browser (it asks every 5 minutes while open): a tour every 30 minutes …
 const CARETAKER_TOUR_AFTER    = 600;       // … but not in the first 10 minutes after the agent started (the array settles)
 const CARETAKER_NOTIFY_SETTLE = 1800;      // something new to do is told once it has stayed red this long (not a passing state)
+const CARETAKER_CRON_RETRY    = 600;       // a missing cron line: update_cron at most every 10 minutes
 const CARETAKER_WATCH_CRON    = '/boot/config/plugins/' . OFFICE_PLUGIN . '/agent-watch.cron';   // written by scripts/agent.sh
 const CARETAKER_ACK_SIG       = '/^[a-z0-9_-]{1,40}:[a-z0-9_]{1,60}:[0-9a-f]{16}$/';   // desk:id:hash, see caretakerAckSig()
 const CARETAKER_ACK_DRIFT     = ['days', 'size'];    // params that change by themselves (an age, a size) — not a new situation
@@ -148,10 +149,7 @@ function caretakerTick(): void
         return;
     }
     $GLOBALS['ctNextLook'] = $now + 60;
-    if ($now - (int) ($GLOBALS['ctWatchLook'] ?? 0) >= CARETAKER_TOUR_EVERY) {
-        $GLOBALS['ctWatchLook'] = $now;
-        caretakerWatchCron();
-    }
+    caretakerWatchCron($now);
     caretakerPartnerTick($now);
     if ($now - (int) ($GLOBALS['started'] ?? 0) >= CARETAKER_TOUR_AFTER && $now - (int) ($GLOBALS['ctLastScan'] ?? 0) >= CARETAKER_TOUR_EVERY) {
         $GLOBALS['ctLastScan'] = $now;          // a tour that fails isn't tried again every minute
@@ -160,19 +158,53 @@ function caretakerTick(): void
 }
 
 /**
- * The look at the agent (scripts/agent.sh writes agent-watch.cron,
- * every 5 minutes job.sh watch) is in root's crontab. Unraid reads plugins'
- * cron files only when someone runs update_cron — not right after a fresh
- * install, so the caretaker sees to it.
+ * The office's cron lines — the look at the agent (agent-watch.cron, written
+ * by scripts/agent.sh: every 5 minutes job.sh watch) and the schedules
+ * (OFFICE_CRON) — are in root's crontab. Unraid copies plugins' cron files
+ * into /etc/cron.d/root only when someone runs update_cron, and only for
+ * plugins listed in /var/log/plugins/*.plg — during a fresh `plugin install`
+ * that link appears only after the install script (which starts the agent)
+ * ended, so agent.sh's update_cron and officeCronBack()'s skip the office's
+ * files then. A plugin update or a boot (plugins registered before the array
+ * starts) are not affected. So the caretaker looks every minute (two small
+ * files, both in RAM: the flash's page cache and /etc) and runs update_cron
+ * once a line is missing and the plugin is registered — at most every
+ * CARETAKER_CRON_RETRY, should a line stay missing for another reason.
+ *
+ * @param array{files?:list<string>, crontab?:string, plg?:string, apply?:callable} $h  stand-ins (tests)
+ * @return bool  whether update_cron ran
  */
-function caretakerWatchCron(): void
+function caretakerWatchCron(int $now, array $h = []): bool
 {
-    if (!is_file(CARETAKER_WATCH_CRON) || !is_link('/var/log/plugins/' . OFFICE_PLUGIN . '.plg')
-        || str_contains((string) @file_get_contents('/etc/cron.d/root'), '/scripts/job.sh watch')) {
-        return;
+    $plg = $h['plg'] ?? '/var/log/plugins/' . OFFICE_PLUGIN . '.plg';
+    if ($now - (int) ($GLOBALS['ctCronApplied'] ?? 0) < CARETAKER_CRON_RETRY || !is_link($plg) && !is_file($plg)) {
+        return false;
     }
-    run(['/bin/bash', '/usr/local/sbin/update_cron'], 30);     // its first line is no shebang
-    logLine('Caretaker: the look at the agent is in the crontab again');
+    $have = (string) @file_get_contents($h['crontab'] ?? '/etc/cron.d/root');
+    $missing = false;
+    foreach ($h['files'] ?? [CARETAKER_WATCH_CRON, OFFICE_CRON] as $file) {
+        if (is_link($file) || !is_file($file)) {
+            continue;
+        }
+        foreach (preg_split('/\R/', (string) @file_get_contents($file)) as $line) {
+            $line = trim($line);
+            if ($line !== '' && $line[0] !== '#' && !str_contains($have, $line)) {
+                $missing = true;
+                break 2;
+            }
+        }
+    }
+    if (!$missing) {
+        return false;
+    }
+    $GLOBALS['ctCronApplied'] = $now;
+    try {
+        ($h['apply'] ?? fn () => run(['/bin/bash', '/usr/local/sbin/update_cron'], 30))();   // its first line is no shebang
+        logLine('Caretaker: the office\'s cron lines are in the crontab again');
+    } catch (Throwable $e) {
+        logLine('Caretaker: update_cron failed: ' . $e->getMessage());
+    }
+    return true;
 }
 
 // ===================================================================== reports to Unraid
