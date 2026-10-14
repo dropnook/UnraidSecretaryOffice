@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.47"
+UB_VERSION="2.48"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -47,6 +47,20 @@ UB_DESK_DIR="backup"
 UB_STOREROOM=".$UB_OFFICE_SHARE-trash"
 UB_STOREROOM_OLD="_$UB_OFFICE_SHARE-trash"
 ub_storeroom() { [[ "$1" == "$UB_STOREROOM"* || "$1" == "$UB_STOREROOM_OLD"* ]]; }
+# A partner office's copies on this server: <pool>/UnraidSecretaryOffice-partners/<pair id>/<unit> (agent/lib/partner.php
+# PARTNER_PARENT) - the door's retention (the pair's «d w m») keeps them, never this engine's
+UB_PARTNER_PARENT="$UB_OFFICE_SHARE-partners"
+# ub_prune_own <dataset>  -> 0 when the engine's ZFS retention may thin that dataset's snapshots (2.48): never a partner's
+# copy here (its snapshots carry the engine's names too, uso-backup-*) and never anything in Ms. Dustdevil's storeroom
+# (a dataset put away keeps the snapshots it had - she gives it back as it was)
+ub_prune_own() {
+    local ds="$1" c
+    local -a parts=()
+    [[ "${ds#*/}" == "$UB_PARTNER_PARENT" || "${ds#*/}" == "$UB_PARTNER_PARENT"/* ]] && return 1
+    IFS='/' read -r -a parts <<<"$ds"
+    for c in "${parts[@]:1}"; do ub_storeroom "$c" && return 1; done
+    return 0
+}
 # A unit's copy is whole (2.43): a VM's or an app's package is also written inside its own dataset, in this hidden folder
 # at the dataset's top - so every snapshot of it, and a partner office's copy of it, carries the configuration (the
 # receiver's Mr. Restori starts from it). Small files, overwritten by every run; never a new folder to the drift check

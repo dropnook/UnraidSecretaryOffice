@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.47 - 2026-10-14
+# unraid-backup - backup.sh                       Version 2.48 - 2026-10-15
+#   2.48 Review: the ZFS retention never thins a partner office's copies here (<pool>/UnraidSecretaryOffice-partners/...,
+#        the door's retention keeps them) nor a dataset in the storeroom; a second stop during the cleanup never cuts it
+#        short; MariaDB names one a line (a space, a * - never split or globbed; / ' \ said, not dumped); a failed thaw
+#        tried twice, then an alert, a failed freeze thawed before the pause; keep_logs = 0 keeps the run's own log
 #   2.47 No change here (the engine's version: setup.sh finds a partner paired anew by its name too)
 #   2.46 A partner that got nothing or not all of a run is said in that run (no nights of grace): unreachable, its array
 #        stopped, a refusal (an older door's refused_asleep, refused_window, not_agreed), a failed transfer - one coded
@@ -578,6 +582,8 @@ vm_hold() { # right before the snapshots: freeze, pause - also a VM that wasn't 
             VM_HELD[$n]="frozen"; VM_HELD_AT[$n]="$(date +%s)"; save_restore_state
             if timeout 60 virsh domfsfreeze "$n" >/dev/null 2>>"$LOG_FILE"; then log "  VM '$n': file systems frozen"; continue; fi
             warn_code vm_not_frozen "VM '$n': the guest agent did not freeze its file systems - paused instead" name="$n"
+            # 2.48: a freeze that ran into its time may have frozen some of them after all - thawed before the pause
+            timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1
             unset "VM_HELD[$n]"; p="pause"
         fi
         if [[ "$p" == "pause" ]]; then
@@ -598,7 +604,11 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
         if [[ "${1:-}" != "btrfs" ]] && vm_on_btrfs "$n"; then continue; fi
         how="${VM_HELD[$n]}"
         case "$how" in
-            frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" || warn "VM '$n': thawing its file systems failed - check the VM" ;;
+            # 2.48: a guest left frozen writes nothing until someone thaws it - a second try, then an alert like a paused one
+            frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" \
+                          || { sleep 5; timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE"; } \
+                          || { warn "VM '$n': thawing its file systems failed - check the VM"
+                               ub_notify "VM not thawed" "'$n' may still have its file systems frozen after the snapshot: virsh domfsthaw $n" "alert"; } ;;
             paused)   timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE" \
                           || { warn "VM '$n' could NOT be resumed"; ub_notify "VM not resumed" "'$n' is still paused after the snapshot: virsh resume $n" "alert"; } ;;
             shutdown) st="$(vm_domstate "$n")"
@@ -1135,7 +1145,13 @@ dump_mariadb() { # dump_mariadb <container>
     [[ -n "$dbs" ]] || { err "MariaDB '$c': no database found"; return 1; }
 
     local rc=0
-    for db in $dbs; do
+    # one name a line (-N -B), never split at a space nor globbed (2.48); a name that can't be a file name or would end the
+    # SQL quote below (/ ' \ - the batch mode writes a tab or newline as \t \n) is said, never dumped
+    while IFS= read -r -u 3 db; do
+        [[ -n "$db" ]] || continue
+        if [[ "$db" == */* || "$db" == *\'* || "$db" == *\\* ]]; then
+            err "Dump $c/$db: a database name with / ' or \\ - not dumped (rename it, or dump it yourself)"; rc=1; continue
+        fi
         out="$DUMP_DIR/mariadb_${c}_${db}.sql.gz"
         log "  MariaDB '$c' / $db ..."
         my_exec "$c" "$dump_bin" "$login" "$pwv" --single-transaction --quick --hex-blob "${extra[@]}" \
@@ -1152,7 +1168,7 @@ dump_mariadb() { # dump_mariadb <container>
         rm -f "$DUMP_DIR/${c}_${db}.stderr"
         dump_done "$c" "$out"
         log "    OK: $(human "$size"), $tbl_dump tables"
-    done
+    done 3<<<"$dbs"
     return $rc
 }
 
@@ -2288,6 +2304,7 @@ pkg_old_runs() { # pkg_old_runs list|count|remove
 prune_zfs() { # prune_zfs <dataset> <"d w m">  - only the engine's snapshots (zfs_prune_select, lib/common.sh)
     local ds="$1" s
     local -a doomed
+    ub_prune_own "$ds" || return 0                       # a partner's copy, the storeroom (2.48)
     mapfile -t doomed < <(zfs list -H -t snapshot -o name -s creation -d 1 "$ds" 2>/dev/null | zfs_prune_select "$2")
     [[ ${#doomed[@]} -eq 0 ]] && return 0
     mounts_load
@@ -2365,7 +2382,9 @@ prune_files() {
         (( PKG_OLD_RUNS > 0 )) || PKG_OLD_ACTION=""
         pkg_status yes
     fi
-    ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | LC_ALL=C sort -t- -k2 | head -n -"$KEEP_LOGS" \
+    # the newest keep_logs - this run's own log always one of them (2.48: keep_logs = 0 removed it while it was written)
+    ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | grep -vxF -- "$LOG_FILE" | LC_ALL=C sort -t- -k2 \
+        | awk -v k="$(( KEEP_LOGS > 1 ? KEEP_LOGS - 1 : 0 ))" '{ l[NR] = $0 } END { for (i = 1; i <= NR - k; i++) print l[i] }' \
         | while read -r d; do rm -f "$d"; done
     for d in unmount recover; do
         if [[ -f "$UB_LOGS/$d.log" && $(stat -c %s "$UB_LOGS/$d.log") -gt 1048576 ]]; then
@@ -2674,7 +2693,15 @@ cleanup() {
     ub_holder_clear
     exit "$rc"
 }
-on_signal() { ST_ABORTED="yes"; exit 143; }
+# 2.48: a second stop while the run is already on its way out (a second click, a second SIGTERM) never cuts the cleanup
+# short - the containers, the maintenance mode and the VMs it is bringing back would otherwise wait for the next run
+on_signal() {
+    if [[ "$CLEANUP_DONE" == "yes" ]]; then
+        log "  Stop asked again - the run is already ending: what it stopped comes back first"
+        return 0
+    fi
+    ST_ABORTED="yes"; exit 143
+}
 
 # The lock is busy: this run does not happen, and nobody may miss that. It touches nothing the run
 # going on uses - not status.json (that describes the run going on), not latest.log, no settings, no
@@ -3801,6 +3828,8 @@ if command -v zfs >/dev/null 2>&1; then
         mapfile -t OWNERS < <(zfs list -H -t snapshot -o name 2>/dev/null | snap_filter | sed 's/@.*//' | sort -u)
     fi
     for ds in "${OWNERS[@]}"; do
+        # 2.48: a partner's copy here (the door's retention keeps it) and the storeroom are never thinned by this one
+        ub_prune_own "$ds" || continue
         array_stop_check "while pruning"
         prune_zfs "$ds" "${PLAN_ZFS_RET[$ds]:-$ZFS_RETENTION}"
     done
@@ -3872,11 +3901,15 @@ run_report() {
     for i in "${!dl[@]}"; do lines+=( "$(printf '  %-*s   %*s' "$w1" "${dl[$i]}" "$w2" "${ds[$i]}")" ); done
     local -A sq=()
     local k
-    for k in $(printf '%s\n' "${!SQ_STATE[@]}" | LC_ALL=C sort); do
+    # a database file's name may hold spaces or * ? [ ] (2.48: read line by line, never split or globbed)
+    while IFS= read -r k; do
+        [[ -n "$k" ]] || continue
         ct="${k%%|*}"; f="${k#*|}"; f="${f#sqlite_"$ct"_}"; f="${f%.db}"
         sq[$ct|${SQ_STATE[$k]}]+="${sq[$ct|${SQ_STATE[$k]}]:+, }$f"
-    done
-    for k in $(printf '%s\n' "${!sq[@]}" | LC_ALL=C sort); do lines+=( "  ${k%%|*}: ${sq[$k]}   ${k#*|}" ); done
+    done < <(printf '%s\n' "${!SQ_STATE[@]}" | LC_ALL=C sort)
+    while IFS= read -r k; do
+        [[ -n "$k" ]] && lines+=( "  ${k%%|*}: ${sq[$k]}   ${k#*|}" )
+    done < <(printf '%s\n' "${!sq[@]}" | LC_ALL=C sort)
     if (( ${#lines[@]} )); then echo; echo "DATABASES"; printf '%s\n' "${lines[@]}"; fi
     # PACKAGES
     echo; echo "PACKAGES"
