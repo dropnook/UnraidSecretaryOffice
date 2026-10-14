@@ -76,7 +76,7 @@
   "bytes": 41200000000,
   "groups": [
    {
-    "name": "Serien/The Expanse (2015)",
+    "name": "Serien/Velotour Bodensee 2019",
     "library": "Serien",
     "share": "media",
     "files": 8,
@@ -87,7 +87,7 @@
     ]
    },
    {
-    "name": "Filme/Alien (1979)",
+    "name": "Filme/Hochzeit Eltern 1989",
     "library": "Filme",
     "share": "media",
     "files": 4,
@@ -306,7 +306,7 @@
   },
   "users": [
    {
-    "name": "Benj",
+    "name": "Felix",
     "server": "HomeServer",
     "files": 4,
     "bytes": 12400000000,
@@ -350,11 +350,11 @@
   "speed": 2100000,
   "current": {
    "phase": "fill",
-   "rel": "Serien/The Expanse (2015)/Season 02/The Expanse - S02E05 - Home.mkv",
+   "rel": "Serien/Velotour Bodensee 2019/Season 01/Velotour Bodensee 2019 - S01E05 - Etappe Konstanz.mkv",
    "size": 2600000000,
    "done": 1150000000,
    "source": "next_episode",
-   "title": "The Expanse – S02E05 Home"
+   "title": "Velotour Bodensee 2019 – S01E05 Etappe Konstanz"
   }
  },
  "stopping": null,

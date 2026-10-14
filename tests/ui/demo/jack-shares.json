@@ -8,7 +8,7 @@
       "running": true,
       "url": "http://familienserver.local:8096",
       "mounts": {
-        "/familienvideos": "/mnt/user/Familienvideos",
+        "/familienfilme": "/mnt/user/Familienfilme",
         "/familienserien": "/mnt/user/Familienserien",
         "/konzerte": "/mnt/user/Konzerte",
         "/kinderfilme": "/mnt/user/Kinderfilme",
@@ -51,7 +51,7 @@
   "gather": {
     "settings": {
       "shares": [
-        "Familienvideos",
+        "Familienfilme",
         "Familienserien"
       ],
       "min_free_gb": 50,
@@ -125,7 +125,7 @@
       "primary": "cache",
       "secondary": ""
     },
-    "Familienvideos": {
+    "Familienfilme": {
       "use": "yes",
       "primary": "cache",
       "secondary": ""
@@ -160,7 +160,7 @@
     "/mnt/cache": [
       "appdata",
       "domains",
-      "Familienvideos",
+      "Familienfilme",
       "Dokus",
       "Sport",
       "system"
