@@ -877,5 +877,6 @@
   "wizard.pool_of": "{pool} — {shares}",
   "wizard.pool_none": "Noch kein Pool: keiner der gewählten Shares hat einen Pool als Primärspeicher.",
   "wizard.pool_from": "{pool} — aus den Unraid-Share-Einstellungen von {shares}",
-  "wizard.sum_days": "{days} nicht geschaut: darf zurück"
+  "wizard.sum_days": "{days} nicht geschaut: darf zurück",
+  "count.people": {"one": "{n} Person", "other": "{n} Personen"}
 }

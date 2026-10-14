@@ -1979,14 +1979,22 @@ function summaryData() {
   const changed = Object.keys(MORE_DEFAULTS).some((k) => v[k] !== MORE_DEFAULTS[k]);
   return [
     { id: 'servers', key: 'wizard.title.servers', value: form.instances.map((i) => (i.server ? `${i.servername} (${i.server.name})` : i.servername)).join(', ') },
-    { id: 'users', key: 'wizard.title.users', value: people.length ? people.map((id) => names.get(id) || id).join(', ')
-      : (!on && form.chosenUsers.size ? [...form.chosenUsers].join(', ') : T('setup.tile.everyone')) },
+    { id: 'users', key: 'wizard.title.users', value: peopleWords(on ? people : [...form.chosenUsers], names) },
     { id: 'libraries', key: 'wizard.title.libraries', value: libs.join(', ') },
     { id: 'settings', key: 'wizard.title.settings', value: [cache ? cache.replace('/mnt/', '') : '–',
       v.budget_mode ? `${T('setup.mode_budget')} ${v.cache_budget || '–'}` : T('setup.tile.count_line', { n: Number(v.number_episodes) || 0 }),
       T('wizard.sum_days', { days: nOf('days', v.give_back_unwatched_days) }), T(changed ? 'setup.tile.changed' : 'setup.tile.default')].join(' · ') },
     { id: 'simulator', key: 'sim.title', value: T('setup.tile.optional') },
   ];
+}
+
+/**
+ * The people chosen, in words — never their ids (Emby's are 32 hex digits): the names when they are known (a server is
+ * connected), else how many; none chosen: everyone
+ */
+function peopleWords(ids, names) {
+  if (!ids.length) return T('setup.tile.everyone');
+  return ids.every((id) => names.has(id)) ? ids.map((id) => names.get(id)).join(', ') : nOf('people', ids.length);
 }
 
 /** 6. the summary: a row per step with «Change» (jumps into that step), then «Save» (in the card's foot) */
@@ -2562,7 +2570,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData,
+    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords,
     stepOf, currentStep, setStep: (x) => { step = x; }, wizardCard, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,

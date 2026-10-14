@@ -877,5 +877,6 @@
   "wizard.pool_of": "{pool} — {shares}",
   "wizard.pool_none": "No pool yet: none of the chosen shares has a pool as its primary storage.",
   "wizard.pool_from": "{pool} — from Unraid's share settings of {shares}",
-  "wizard.sum_days": "unwatched for {days}: may go back"
+  "wizard.sum_days": "unwatched for {days}: may go back",
+  "count.people": {"one": "{n} person", "other": "{n} people"}
 }
