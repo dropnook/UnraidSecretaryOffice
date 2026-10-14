@@ -10,7 +10,7 @@
 // desk's first paint and the element; a console error or a missing element fails the shot (exit 1, the PNG still
 // written when there is one).
 //
-//   node tools/ui-shots.mjs [--routes jack] [--themes black,white] [--langs de,en] [--widths 1440,390]
+//   node tools/ui-shots.mjs [--alias desk=file] [--routes jack] [--themes black,white] [--langs de,en] [--widths 1440,390]
 //                           [--shot until:.jo-prog --shot clip:.jo-prog …] [--out <folder>] [-v]
 //   default folder: $USO_SHOTS/<yyyy-mm-dd>/, without USO_SHOTS ~/uso-shots/<yyyy-mm-dd>/
 //   names: <route>-<shot>-<theme>-<lang>-<width>.png  (the route's / as -, the shot's name: full, top, panel, or n)
@@ -66,6 +66,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--widths') opt.widths = list().map(Number);
   else if (a === '--shot') opt.shots.push(val());
   else if (a === '--out') { opt.out = path.resolve(val()); opt.outGiven = true; }
+  else if (a === '--alias') opt.alias = Object.fromEntries(list().map((x) => x.split('=')));    // a desk's demo state from another file (moverelli=moverelli-alone)
   else if (a === '-v' || a === '--verbose') opt.verbose = true;
   else if (a === '--moments') opt.moments = i + 1 < args.length && /^\d+(,\d+)*$/.test(args[i + 1]) ? list().map(Number) : [];
   else if (a === '-h' || a === '--help') usage(0);
@@ -429,7 +430,7 @@ if (opt.moments) await runMoments();
 const started = Date.now();
 fs.mkdirSync(opt.out, { recursive: true });
 const harnesses = {};
-for (const lang of opt.langs) harnesses[lang] = await startHarness({ demo: true, names: namesFor(lang) });
+for (const lang of opt.langs) harnesses[lang] = await startHarness({ demo: true, alias: opt.alias, names: namesFor(lang) });
 const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check', '--font-render-hinting=none'] });
 const jobs = [];
 for (const route of opt.routes) for (const theme of opt.themes) for (const lang of opt.langs) for (const width of opt.widths) jobs.push({ route, theme, lang, width });

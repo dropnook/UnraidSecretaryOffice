@@ -305,6 +305,7 @@ function nightPicture(n) {
         const it = el('span', 'mo-pic-key');
         const b = data.before.segs.find((s) => s.k === k).bytes;
         const a = data.after ? data.after.segs.find((s) => s.k === k).bytes : null;
+        if (k === 'jack' && n.jack === false && !b && !a) continue;      // a night without Jack Emby: his part gone, not «0 B»
         it.append(el('i', 'mo-pic-seg mo-seg-' + k), el('span', '', `${segName(k)} ${a === null ? fmt.size(b) : T('pic.change', { before: fmt.size(b), after: fmt.size(a) })}`));
         legend.appendChild(it);
       }

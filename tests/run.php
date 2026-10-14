@@ -33096,6 +33096,9 @@ out.x = all(box).filter((n) => n.cls === 'mo-pic-x').map((n) => n.style.left);
 out.segs = all(box).filter((n) => /mo-seg-/.test(n.cls || '') && n.style.width).map((n) => n.cls.replace('mo-pic-seg ', ''));
 const boxNone = m.nightPicture({ running: false, started: 5, picture: { pool: 'cache', x: 80, dest: { to: 'array', size: null, used: null }, phases: { check: { before: null } }, files: [] } });
 out.boxNone = texts(boxNone);
+const zero = (b) => (b ? { ...b, others: b.others + b.jack, jack: 0 } : b);
+const alone = { ...pic, phases: Object.fromEntries(Object.entries(pic.phases).map(([k, v]) => [k, { ...v, before: zero(v.before), forecast: zero(v.forecast) }])) };
+out.alone = [texts(m.nightPicture({ running: false, started: 6, jack: false, picture: alone })), texts(m.nightPicture({ running: false, started: 7, jack: true, picture: alone }))];
 out.noPic = m.nightPicture({ running: true });
 const live = m.livePicture({ running: true, started: 9, picture: pic });
 out.live = [live === m.livePicture({ running: true, started: 9, picture: pic }), live !== m.livePicture({ running: true, started: 10, picture: pic })];
@@ -33128,6 +33131,8 @@ JS);
         && in_array('pic.array pic.dest_used {"used":"2000 GiB","size":"8000 GiB"}', $box, true)
         && in_array('pic.seg.others pic.change {"before":"150 GiB","after":"80 GiB"}', $box, true)
         && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $box, true), json_encode($box));
+    same('night picture without Jack Emby in the night: his part gone from the legend (not «0 B»); with him in it shown even at 0', [false, true],
+        array_map(fn ($t) => (bool) preg_grep('/^pic\.seg\.jack /', (array) $t), $j['alone'] ?? [[], []]));
     same('night picture: X on both bars, four parts each and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 9], [$j['x'] ?? null, count($j['segs'] ?? [])]);
     check('night picture: nothing measured — said, the array «not measured», no bar', in_array('pic.pool_unmeasured', $j['boxNone'] ?? [], true)
         && in_array('pic.unmeasured', $j['boxNone'] ?? [], true) && !in_array('pic.before', $j['boxNone'] ?? [], true), json_encode($j['boxNone'] ?? null));
