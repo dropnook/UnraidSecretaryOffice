@@ -26,7 +26,8 @@ declare(strict_types=1);
 
 // desks that went into another one: old id => the desk that does their work now
 // (the agent's STAFF_MERGED in agent/lib/house.php is the same, until its migration step rewrote the list)
-const OFFICE_DESKS_MERGED = ['whereabouts' => 'cleanup'];     // 2026-10: Ms. Whereabouts' work is Ms. Dustdevil's
+const OFFICE_DESKS_MERGED = ['whereabouts' => 'cleanup', 'emby' => 'jack'];     // 2026-10: Ms. Whereabouts' work is Ms. Dustdevil's;
+                                                                                 // 2026-10-14: Jack Streamer's desk id emby → jack
 
 function officeStaffFile(): string
 {

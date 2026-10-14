@@ -404,7 +404,7 @@
    "why": "yes",
    "params": []
   },
-  "emby": {
+  "jack": {
    "hired": true,
    "ok": true,
    "why": "yes",
@@ -467,7 +467,7 @@
   "backup",
   "restore",
   "caretaker",
-  "emby"
+  "jack"
  ],
  "notify": {
   "on": true,

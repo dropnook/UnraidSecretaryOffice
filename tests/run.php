@@ -78,7 +78,7 @@ define('TESTS_RUN_DIR', sys_get_temp_dir() . '/office-tests-run-' . getmypid());
 @mkdir(TESTS_RUN_DIR, 0700, true);
 putenv('OFFICE_RUN_DIR=' . TESTS_RUN_DIR);
 // Unraid's emcmd (it sends emhttpd a form — Jack Emby's «Switch the mover schedule off…») is never run by a test: any call
-// that names no stand-in of its own finds nothing here and is refused (emby-mover.php)
+// that names no stand-in of its own finds nothing here and is refused (jack-mover.php)
 putenv('OFFICE_EMCMD_BIN=' . TESTS_RUN_DIR . '/no-emcmd');
 require dirname(__DIR__) . '/agent/agent.php';
 date_default_timezone_set('Europe/Zurich');
@@ -805,14 +805,14 @@ function testSnapshotIds(): void
     same('snapshot ids: a good id goes on to the name\'s check (rename)', 'invalid_name', $ask('rename', ['id' => 'zfs:cache/a@x', 'name' => '../y']));
 }
 
-function testEmby(): void
+function testJack(): void
 {
     foreach (['emby/embyserver:latest', 'emby/embyserver_arm64v8:4.8', 'linuxserver/emby', 'lscr.io/linuxserver/emby:latest',
               'ghcr.io/linuxserver/emby@sha256:abc', 'binhex/arch-emby:latest', 'registry:5000/emby-server:beta'] as $i) {
-        check("emby server image: $i", embyIsServerImage($i));
+        check("emby server image: $i", jackIsServerImage($i));
     }
     foreach (['uping/embystat', 'helmi/embycache', 'jellyfin/jellyfin', 'lscr.io/linuxserver/jellyfin', 'kopia/kopia'] as $i) {
-        check("not an emby server: $i", !embyIsServerImage($i));
+        check("not an emby server: $i", !jackIsServerImage($i));
     }
 
     // does a share suit EmbyCache with the pool "maple"?
@@ -822,18 +822,18 @@ function testEmby(): void
               ['array_only', ['shareUseCache' => 'no']],
               ['pool_only', ['shareUseCache' => 'prefer', 'shareCachePool' => 'maple']],
               ['pool_only', ['shareUseCache' => 'only', 'shareCachePool' => 'maple']]] as [$want, $cfg]) {
-        same('emby share fit: ' . json_encode($cfg), $want, embyShareFit($cfg, 'maple'));
+        same('jack share fit: ' . json_encode($cfg), $want, jackShareFit($cfg, 'maple'));
     }
 
     // the gather's consolidate.ini: bash sources it, so every value is quoted and checked
-    $ini = embyGatherIni(['shares' => ['Filme', 'Meine Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'],
+    $ini = jackGatherIni(['shares' => ['Filme', 'Meine Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'],
         ['/mnt/maple', '/mnt/disk1', '/mnt/user0', '/mnt/bad pool'], "/x/it's/consolidate.log", '/x/embycache_exclude.txt');
     check('gather ini: shares quoted', str_contains($ini, "BASE_DIRS=('/mnt/user/Filme' '/mnt/user/Meine Filme')\n"));
     same('gather ini: only real pools as cache', 1, preg_match("/^CACHE_PATTERN='\\/mnt\\/maple'$/m", $ini));
     check('gather ini: the cache left alone (a gather.json from before #14), always dry by default',
         str_contains($ini, "MOVE_CACHE=false\n") && str_contains($ini, "CACHE_ONLY_TARGET='skip'\n") && str_contains($ini, "DRYRUN=true\n"), $ini);
     $base = ['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size'];
-    $cacheIni = fn (array $more) => embyGatherIni($base + $more, ['/mnt/maple'], '/l', '/e');
+    $cacheIni = fn (array $more) => jackGatherIni($base + $more, ['/mnt/maple'], '/l', '/e');
     same('gather ini: the cache switch (#14) — off/skip, on/skip, on/most-free',
         [["MOVE_CACHE=false", "CACHE_ONLY_TARGET='skip'"], ["MOVE_CACHE=true", "CACHE_ONLY_TARGET='skip'"], ["MOVE_CACHE=true", "CACHE_ONLY_TARGET='most-free'"]],
         array_map(fn ($m) => array_values(preg_grep('/^(MOVE_CACHE|CACHE_ONLY_TARGET)=/', explode("\n", $cacheIni($m)))),
@@ -847,15 +847,15 @@ function testEmby(): void
     same('gather ini: bash reads the cache switch back', 'true|most-free', trim((string) shell_exec('bash ' . escapeshellarg($tmp))));
     unlink($tmp);
     try {
-        embyGatherIni(['shares' => ['a$(reboot)'], 'min_free_gb' => 1, 'dup_check' => 'size'], [], '/l', '/e');
+        jackGatherIni(['shares' => ['a$(reboot)'], 'min_free_gb' => 1, 'dup_check' => 'size'], [], '/l', '/e');
         check('gather ini refuses a strange share name', false);
     } catch (Problem $p) {
-        same('gather ini refuses a strange share name', 'emby_bad_share', $p->key);
+        same('gather ini refuses a strange share name', 'jack_bad_share', $p->key);
     }
 
     // run output for the page: progress lines collapsed, colour codes gone
-    same('emby output: progress collapsed', "📂 Scanne: /mnt/user/Filme\n   🚚 [disk2 -> disk1] a.srt\nfertig",
-        embyPlainOutput("   [1/2] 50% - A \e[K\r\r\e[K📂 Scanne: /mnt/user/Filme\n   [2/2] 100% - B \e[K\r   [2/2] 100% - B \e[K\r\n\r\e[K   🚚 [disk2 -> disk1] a.srt\n"
+    same('jack output: progress collapsed', "📂 Scanne: /mnt/user/Filme\n   🚚 [disk2 -> disk1] a.srt\nfertig",
+        jackPlainOutput("   [1/2] 50% - A \e[K\r\r\e[K📂 Scanne: /mnt/user/Filme\n   [2/2] 100% - B \e[K\r   [2/2] 100% - B \e[K\r\n\r\e[K   🚚 [disk2 -> disk1] a.srt\n"
             . "2026-10-04 18:00:00,123 | INFO | fertig"));
 }
 
@@ -867,7 +867,7 @@ function testEmby(): void
  * watch during a run (stop request → exit 3); the gather stopping between two folders (dry run on a
  * fixture tree, a stand-in df writes the stop request while the first folder is planned).
  */
-function testEmbyWatch(): void
+function testJackWatch(): void
 {
     $key = 'Abcdef0123456789abcdef0123456789';
     $sessions = json_encode([
@@ -882,7 +882,7 @@ function testEmbyWatch(): void
     ]);
     $idle = json_encode([['PlayState' => ['IsPaused' => false], 'UserName' => 'Ralf', 'DeviceName' => 'TV']]);
     $ok = fn (string $body) => ['status' => 200, 'body' => $body, 'errno' => 0, 'error' => ''];
-    $w = embyWatchJudge($ok($sessions));
+    $w = jackWatchJudge($ok($sessions));
     same('watch: two watching (paused counts)', ['watching', 2], [$w['state'], count($w['who'] ?? [])]);
     same('watch: who, what, where, when Emby last heard from it (Emby\'s seven digits of a second)', ['user' => 'anna', 'title' => '9-1-1: Notruf L.A. – S04E03 Willkommen in der Zukunft', 'device' => 'iPad',
         'client' => 'Emby for iOS', 'paused' => true, 'seen' => gmmktime(21, 37, 12, 10, 6, 2026)], $w['who'][0] ?? null);
@@ -892,21 +892,21 @@ function testEmbyWatch(): void
     $now = gmmktime(8, 0, 0, 10, 7, 2026);
     same('watch: last activity — zones, fractions, none, odd ones', [gmmktime(21, 37, 12, 10, 6, 2026), gmmktime(21, 37, 12, 10, 6, 2026),
         gmmktime(21, 37, 12, 10, 6, 2026), null, null, null, null, null, $now],
-        [embyWatchSeen('2026-10-06T21:37:12Z', $now), embyWatchSeen('2026-10-06T23:37:12.123+02:00', $now), embyWatchSeen('2026-10-06T21:37:12.123456789Z', $now),
-         embyWatchSeen('0001-01-01T00:00:00.0000000Z', $now), embyWatchSeen('2026-10-06T21:37:12', $now), embyWatchSeen('2026-10-06 21:37:12Z', $now),
-         embyWatchSeen("2026-10-06T21:37:12Z\n", $now), embyWatchSeen(1791322632, $now), embyWatchSeen('2026-10-07T09:00:00Z', $now)]);
-    check('watch: the last activity stays out of the office\'s log line', !str_contains(embyWatchersLine($w['who']), '2026') && !str_contains(embyWatchersLine($w['who']), (string) gmmktime(21, 37, 12, 10, 6, 2026)));
-    same('watch: nobody', 'free', embyWatchJudge($ok($idle))['state']);
-    same('watch: no sessions at all', 'free', embyWatchJudge($ok('[]'))['state']);
+        [jackWatchSeen('2026-10-06T21:37:12Z', $now), jackWatchSeen('2026-10-06T23:37:12.123+02:00', $now), jackWatchSeen('2026-10-06T21:37:12.123456789Z', $now),
+         jackWatchSeen('0001-01-01T00:00:00.0000000Z', $now), jackWatchSeen('2026-10-06T21:37:12', $now), jackWatchSeen('2026-10-06 21:37:12Z', $now),
+         jackWatchSeen("2026-10-06T21:37:12Z\n", $now), jackWatchSeen(1791322632, $now), jackWatchSeen('2026-10-07T09:00:00Z', $now)]);
+    check('watch: the last activity stays out of the office\'s log line', !str_contains(jackWatchersLine($w['who']), '2026') && !str_contains(jackWatchersLine($w['who']), (string) gmmktime(21, 37, 12, 10, 6, 2026)));
+    same('watch: nobody', 'free', jackWatchJudge($ok($idle))['state']);
+    same('watch: no sessions at all', 'free', jackWatchJudge($ok('[]'))['state']);
     foreach ([7 => 'refused', 28 => 'timeout', 6 => 'no such name'] as $errno => $what) {
-        same("watch: Emby down ($what) — the run may go", 'down', embyWatchJudge(['status' => 0, 'body' => '', 'errno' => $errno, 'error' => $what])['state']);
+        same("watch: Emby down ($what) — the run may go", 'down', jackWatchJudge(['status' => 0, 'body' => '', 'errno' => $errno, 'error' => $what])['state']);
     }
-    foreach (['401' => [401, '', 'emby_watch_key'], '403' => [403, '', 'emby_watch_key'], '500' => [500, '', 'emby_watch_answer'],
-              'bad JSON' => [200, '<html>', 'emby_watch_answer'], 'an object' => [200, '{"a":1}', 'emby_watch_answer']] as $what => [$st, $body, $why]) {
-        $j = embyWatchJudge(['status' => $st, 'body' => $body, 'errno' => 0, 'error' => '']);
+    foreach (['401' => [401, '', 'jack_watch_key'], '403' => [403, '', 'jack_watch_key'], '500' => [500, '', 'jack_watch_answer'],
+              'bad JSON' => [200, '<html>', 'jack_watch_answer'], 'an object' => [200, '{"a":1}', 'jack_watch_answer']] as $what => [$st, $body, $why]) {
+        $j = jackWatchJudge(['status' => $st, 'body' => $body, 'errno' => 0, 'error' => '']);
         same("watch: answered but unusable ($what) — don't start", ['error', $why], [$j['state'], $j['why'] ?? null]);
     }
-    same('watch: a TLS failure is no «down»', 'error', embyWatchJudge(['status' => 0, 'body' => '', 'errno' => 60, 'error' => 'SSL certificate problem'])['state']);
+    same('watch: a TLS failure is no «down»', 'error', jackWatchJudge(['status' => 0, 'body' => '', 'errno' => 60, 'error' => 'SSL certificate problem'])['state']);
 
     // over every server of EmbyCache's settings; the key goes only to the fetch, never into the answer
     $two = ['instances' => [['url' => 'http://a:8096', 'api_key' => $key], ['url' => 'http://b:8096/', 'api_key' => $key]]];
@@ -923,24 +923,24 @@ function testEmbyWatch(): void
     ];
     foreach ($cases as $what => [$a, $want]) {
         $answers = $a;
-        $got = embyWatching($two, $fetch);
+        $got = jackWatching($two, $fetch);
         same("watching over two servers: $what", $want, $got['state']);
         check("watching over two servers: $what — no key in the answer", !str_contains(json_encode($got), $key));
     }
     same('watching: the key reaches the fetch', $key, $keys[0] ?? null);
-    same('watching: no server with a key — unknown', 'unknown', embyWatching(['instances' => [['url' => 'http://a:8096', 'api_key' => '']]], $fetch)['state']);
-    same('watching: no settings — unknown', 'unknown', embyWatching([], $fetch)['state']);
+    same('watching: no server with a key — unknown', 'unknown', jackWatching(['instances' => [['url' => 'http://a:8096', 'api_key' => '']]], $fetch)['state']);
+    same('watching: no settings — unknown', 'unknown', jackWatching([], $fetch)['state']);
     $answers = ['http://a:8096' => ['status' => 401, 'body' => '', 'errno' => 0, 'error' => ''], 'http://b:8096' => $down];
-    $p = embyWatchProblem(embyWatching($two, $fetch));
-    same('watching: a refusal from the page says why', ['emby_watch_key', 'http://a:8096'], [$p?->key, $p?->params['url'] ?? null]);
+    $p = jackWatchProblem(jackWatching($two, $fetch));
+    same('watching: a refusal from the page says why', ['jack_watch_key', 'http://a:8096'], [$p?->key, $p?->params['url'] ?? null]);
     $answers = ['http://a:8096' => $ok($sessions), 'http://b:8096' => $down];
-    $p = embyWatchProblem(embyWatching($two, $fetch));
-    same('watching: a refusal from the page names who watches what', ['emby_watching', 'anna', 'iPad'],
+    $p = jackWatchProblem(jackWatching($two, $fetch));
+    same('watching: a refusal from the page names who watches what', ['jack_watching', 'anna', 'iPad'],
         [$p?->key, $p?->params['who'][0]['user'] ?? null, $p?->params['who'][0]['device'] ?? null]);
-    same('watching: free or down stop nothing', [null, null], [embyWatchProblem(['state' => 'free', 'who' => []]), embyWatchProblem(['state' => 'down', 'who' => []])]);
+    same('watching: free or down stop nothing', [null, null], [jackWatchProblem(['state' => 'free', 'who' => []]), jackWatchProblem(['state' => 'down', 'who' => []])]);
 
     // the gate before a real gather, with a fake clock
-    $tmp = hardeningTmp('embywatch');
+    $tmp = hardeningTmp('jackwatch');
     $dir = "$tmp/gather";
     $W = ['state' => 'watching', 'who' => [['user' => 'anna', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
     $F = ['state' => 'free', 'who' => []];
@@ -948,37 +948,37 @@ function testEmbyWatch(): void
         $t = 1000000;
         $slept = [];
         $n = 0;
-        $r = embyGatherGate($by, ['dir' => $dir, 'waitdir' => "$dir/run", 'array' => fn () => !file_exists("$dir/array-stopped"),
+        $r = jackGatherGate($by, ['dir' => $dir, 'waitdir' => "$dir/run", 'array' => fn () => !file_exists("$dir/array-stopped"),
             'scheduled' => fn () => !file_exists("$dir/schedule-off"), 'now' => function () use (&$t) { return $t; },
             'sleep' => function (int $s) use (&$t, &$slept, $during, $dir) { $slept[] = $s; $t += $s; if ($during) { $during($t, $dir); } },
             'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }, 'mover' => fn () => false]);
         return $r + ['slept' => $slept, 'looks' => $n];
     };
     $r = $gate('office', [$W]);
-    same('gate from the page: someone watches — refused, no waiting', [false, 'refused', 'emby_watching', [], null], [$r['go'], $r['result'], $r['why'], $r['slept'], $r['lock']]);
+    same('gate from the page: someone watches — refused, no waiting', [false, 'refused', 'jack_watching', [], null], [$r['go'], $r['result'], $r['why'], $r['slept'], $r['lock']]);
     $r = $gate('office', [$F]);
     same('gate from the page: nobody watches — go', [true, 0, null], [$r['go'], $r['waited'], $r['lock']]);
     $r = $gate('schedule', [['state' => 'down', 'who' => [], 'detail' => 'refused']]);
     same('gate on schedule: Emby down — go, nothing waited', [true, 'down', []], [$r['go'], $r['look']['state'], $r['slept']]);
-    $r = $gate('schedule', [['state' => 'error', 'who' => [], 'why' => 'emby_watch_key']]);
-    same('gate on schedule: a bad key — refused, said why', [false, 'refused', 'emby_watch_key'], [$r['go'], $r['result'], $r['why']]);
+    $r = $gate('schedule', [['state' => 'error', 'who' => [], 'why' => 'jack_watch_key']]);
+    same('gate on schedule: a bad key — refused, said why', [false, 'refused', 'jack_watch_key'], [$r['go'], $r['result'], $r['why']]);
     $seen = null;
-    $r = $gate('schedule', [$W, $W, $F], function () use (&$seen, $dir) { $seen ??= embyGatherWaiting("$dir/run"); });
+    $r = $gate('schedule', [$W, $W, $F], function () use (&$seen, $dir) { $seen ??= jackGatherWaiting("$dir/run"); });
     same('gate on schedule: waits 15 min at a time until nobody watches', [true, [900, 900], 1800, 3], [$r['go'], $r['slept'], $r['waited'], $r['looks']]);
-    check('gate on schedule: holds its wait lock (in RAM, not the pool) until the run shows as running', is_resource($r['lock']) && flockHeld("$dir/run/emby-gather-wait.lock"));
+    check('gate on schedule: holds its wait lock (in RAM, not the pool) until the run shows as running', is_resource($r['lock']) && flockHeld("$dir/run/jack-gather-wait.lock"));
     same('gate on schedule: the page sees the wait — who, next look, until when',
         [1000000, 1000000 + 7200, 1000000 + 900, 'anna'], [$seen['since'] ?? null, $seen['until'] ?? null, $seen['next'] ?? null, $seen['who'][0]['user'] ?? null]);
     check('gate on schedule: never the gather\'s or EmbyCache\'s lock while waiting', !flockHeld(GATHER_LOCK) || true);
-    embyWaitEnd($r['lock'], "$dir/run");
-    check('gate: the wait\'s file and lock go when it ends', !file_exists("$dir/run/emby-gather-wait.json") && !flockHeld("$dir/run/emby-gather-wait.lock") && embyGatherWaiting("$dir/run") === null);
+    jackWaitEnd($r['lock'], "$dir/run");
+    check('gate: the wait\'s file and lock go when it ends', !file_exists("$dir/run/jack-gather-wait.json") && !flockHeld("$dir/run/jack-gather-wait.lock") && jackGatherWaiting("$dir/run") === null);
     $r = $gate('schedule', [$W]);
-    same('gate on schedule: watched for 2 h — skipped tonight', [false, 'skipped', 'emby_watching', 7200, 9, array_fill(0, 8, 900)],
+    same('gate on schedule: watched for 2 h — skipped tonight', [false, 'skipped', 'jack_watching', 7200, 9, array_fill(0, 8, 900)],
         [$r['go'], $r['result'], $r['why'] ?? null, $r['waited'], $r['looks'], $r['slept']]);
-    check('gate on schedule: a skip lets go of its lock and file', !flockHeld("$dir/run/emby-gather-wait.lock") && !file_exists("$dir/run/emby-gather-wait.json"));
-    $r = $gate('schedule', [$W, ['state' => 'error', 'who' => [], 'why' => 'emby_watch_answer', 'detail' => 'HTTP 500']]);
-    same('gate on schedule: Emby answers badly while waiting — refused', [false, 'refused', 'emby_watch_answer', null], [$r['go'], $r['result'], $r['why'], $r['lock']]);
-    check('gate on schedule: … and lets go of its lock', !flockHeld("$dir/run/emby-gather-wait.lock"));
-    $other = fopen("$dir/run/emby-gather-wait.lock", 'c');
+    check('gate on schedule: a skip lets go of its lock and file', !flockHeld("$dir/run/jack-gather-wait.lock") && !file_exists("$dir/run/jack-gather-wait.json"));
+    $r = $gate('schedule', [$W, ['state' => 'error', 'who' => [], 'why' => 'jack_watch_answer', 'detail' => 'HTTP 500']]);
+    same('gate on schedule: Emby answers badly while waiting — refused', [false, 'refused', 'jack_watch_answer', null], [$r['go'], $r['result'], $r['why'], $r['lock']]);
+    check('gate on schedule: … and lets go of its lock', !flockHeld("$dir/run/jack-gather-wait.lock"));
+    $other = fopen("$dir/run/jack-gather-wait.lock", 'c');
     flock($other, LOCK_EX);
     $r = $gate('schedule', [$W]);
     same('gate on schedule: a second start while one waits — nothing new', [false, 'already', [], 1], [$r['go'], $r['result'], $r['slept'], $r['looks']]);
@@ -989,30 +989,30 @@ function testEmbyWatch(): void
     @unlink("$dir/office-run.json");
     $r = $gate('schedule', [$W, $F], function (int $t, string $dir) { writeAtomic("$dir/office-run.json", jsonEncode(['mode' => 'dry', 'started' => $t]), 0600, 0, 0); });
     same('gate on schedule: a dry run meanwhile doesn\'t', [true, 900], [$r['go'], $r['waited']]);
-    embyWaitEnd($r['lock'], "$dir/run");
+    jackWaitEnd($r['lock'], "$dir/run");
     @unlink("$dir/office-run.json");
     $r = $gate('schedule', [$W], function (int $t, string $dir) { touch("$dir/array-stopped"); });
     same('gate on schedule: the array stopped while waiting — the wait ends', [false, 'array', [900]], [$r['go'], $r['result'], $r['slept']]);
-    check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/emby-gather-wait.lock") && !file_exists("$dir/run/emby-gather-wait.json"));
+    check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/jack-gather-wait.lock") && !file_exists("$dir/run/jack-gather-wait.json"));
     @unlink("$dir/array-stopped");
     // Jack let go while a scheduled gather waits: its schedule is off — it gives up at its next look (never starts later)
     $r = $gate('schedule', [$W, $F], function (int $t, string $dir) { touch("$dir/schedule-off"); });
     same('gate on schedule: its schedule switched off while waiting (Jack let go) — the wait ends, no gather', [false, 'off', [900], 1, null],
         [$r['go'], $r['result'], $r['slept'], $r['looks'], $r['lock']]);
-    check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/emby-gather-wait.lock") && !file_exists("$dir/run/emby-gather-wait.json"));
+    check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/jack-gather-wait.lock") && !file_exists("$dir/run/jack-gather-wait.json"));
     @unlink("$dir/schedule-off");
 
     // during a real run: someone starts watching → the stop request, the run ends after its folder
     $stop = "$tmp/stop.json";
     $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
     $proc = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', $stop], $null, $pipes);
-    $r = embyGatherWatch($proc, $stop, fn () => $W, 0, fn () => false);
+    $r = jackGatherWatch($proc, $stop, fn () => $W, 0, fn () => false);
     same('watch during a run: asked to stop, the run\'s own exit', [3, 'anna', 'watching'], [$r['exit'], $r['stopped_for'][0]['user'] ?? null, $r['stopped_why']]);
     same('watch during a run: the stop request names who', 'Alien', json_decode((string) @file_get_contents($stop), true)['who'][0]['title'] ?? null);
     @unlink($stop);
     $looked = 0;
     $proc = proc_open(['bash', '-c', 'sleep 0.3; exit 0'], $null, $pipes);
-    $r = embyGatherWatch($proc, $stop, function () use (&$looked) { $looked++; return ['state' => 'down', 'who' => []]; }, 0, fn () => false);
+    $r = jackGatherWatch($proc, $stop, function () use (&$looked) { $looked++; return ['state' => 'down', 'who' => []]; }, 0, fn () => false);
     same('watch during a run: Emby down changes nothing', [0, null, false], [$r['exit'], $r['stopped_for'], file_exists($stop)]);
     check('watch during a run: Emby was asked', $looked > 0);
 
@@ -1045,17 +1045,17 @@ function testEmbyWatch(): void
     same('gather: a stop request while a folder is planned — stops after that folder', [3, 'stopped', 2, 1, 1],
         [$exit, $st['result'] ?? null, $st['folders'] ?? null, $st['folders_done'] ?? null, $st['moved'] ?? null]);
     check('gather stopped: no deep clean', !str_contains($out, 'PHASE 3') && str_contains($out, 'Angehalten'), $out);
-    same('gather stopped: Jack tells nobody (no failure)', null, embyNotifyOutcome('run', 'stopped', ['errors' => 0]));
-    same('gather stopped with errors: those are told', 'errors', embyNotifyOutcome('run', 'stopped', ['errors' => 2]));
+    same('gather stopped: Jack tells nobody (no failure)', null, jackNotifyOutcome('run', 'stopped', ['errors' => 0]));
+    same('gather stopped with errors: those are told', 'errors', jackNotifyOutcome('run', 'stopped', ['errors' => 2]));
     // the last real run for Prometheus: a night skipped for a watcher is no run
     file_put_contents("$tmp/history.json", json_encode(['runs' => [
         ['tool' => 'gather', 'mode' => 'run', 'result' => 'skipped', 'finished' => 300],
         ['tool' => 'gather', 'mode' => 'run', 'result' => 'refused', 'finished' => 200],
         ['tool' => 'gather', 'mode' => 'run', 'result' => 'stopped', 'finished' => 100]]]));
-    $fam = array_column(embyMetrics("$tmp/none.json", "$tmp/history.json"), null, 'name');
+    $fam = array_column(jackMetrics("$tmp/none.json", "$tmp/history.json"), null, 'name');
     $sample = fn (string $name) => array_values(array_filter($fam[$name]['samples'] ?? [], fn ($x) => ($x[0]['tool'] ?? '') === 'gather'))[0][1] ?? null;
     same('metrics: skipped and refused nights are no runs, a stopped one went well', [true, 100],
-        [$sample('uso_emby_last_run_ok'), $sample('uso_emby_last_run_end_timestamp_seconds')]);
+        [$sample('uso_jack_last_run_ok'), $sample('uso_jack_last_run_end_timestamp_seconds')]);
     hardeningRm($tmp);
 }
 
@@ -1067,9 +1067,9 @@ function testEmbyWatch(): void
  * ZFS pools, and his page (under node, stand-ins for the office): the numbers biggest first with
  * the date, ZFS's chip, «not measured yet» for an older state, the button «Measure sizes…».
  */
-function testEmbySizes(): void
+function testJackSizes(): void
 {
-    $tmp = hardeningTmp('embysizes');
+    $tmp = hardeningTmp('jacksizes');
     foreach (['mnt/disk1/Filme/A', 'mnt/disk2/Filme/A', 'mnt/disk1/Filme/B', 'mnt/disk2/Filme/B', 'mnt/cache/Filme/C', 'mnt/disk2/Se rien/X',
               'user/Filme', 'user/Se rien', 'user/Leer', 'bin', 'g'] as $d) {
         @mkdir("$tmp/$d", 0700, true);
@@ -1127,39 +1127,39 @@ function testEmbySizes(): void
 
     // Jack keeps them per share: a later run over one share leaves the other with its numbers and date
     $at = $dry['sizes_at'];
-    $kept = embyGatherSizes(null, $dry, 'measure');
+    $kept = jackGatherSizes(null, $dry, 'measure');
     same('sizes kept: every share the run indexed, with its time and mode', [['Filme', 'Se rien'], $at, 'measure', ['bytes' => 100, 'files' => 1]],
         [array_keys($kept['shares']), $kept['shares']['Filme']['at'] ?? null, $kept['shares']['Filme']['mode'] ?? null, $kept['shares']['Filme']['roots']['cache'] ?? null]);
     $later = ['mode' => 'run', 'sizes_at' => $at + 100, 'sizes' => ['Filme' => ['disk1' => ['bytes' => 9, 'files' => 1]]]];
-    $m = embyGatherSizes($kept, $later);
+    $m = jackGatherSizes($kept, $later);
     same('sizes kept: a later run over Filme only — Filme new, Se rien keeps its numbers and date',
         [['disk1' => ['bytes' => 9, 'files' => 1]], $at + 100, 'run', $kept['shares']['Se rien']],
         [$m['shares']['Filme']['roots'], $m['shares']['Filme']['at'], $m['shares']['Filme']['mode'], $m['shares']['Se rien'] ?? null]);
-    same('sizes kept: an older status changes nothing — nor the same one again (its mode stays)', [$m, $kept], [embyGatherSizes($m, $dry), embyGatherSizes($kept, $dry)]);
+    same('sizes kept: an older status changes nothing — nor the same one again (its mode stays)', [$m, $kept], [jackGatherSizes($m, $dry), jackGatherSizes($kept, $dry)]);
     same('sizes kept: an old status without sizes — as kept; nothing kept — none', [$m, ['v' => 1, 'shares' => []]],
-        [embyGatherSizes($m, ['result' => 'ok', 'finished' => $at + 500]), embyGatherSizes(null, ['result' => 'ok'])]);
+        [jackGatherSizes($m, ['result' => 'ok', 'finished' => $at + 500]), jackGatherSizes(null, ['result' => 'ok'])]);
     $bad = ['sizes_at' => $at + 200, 'sizes' => ['Bad' => ['disk1' => ['bytes' => '9', 'files' => 1]], 'Neg' => ['disk1' => ['bytes' => -1, 'files' => 1]],
         '../x' => ['disk1' => ['bytes' => 1, 'files' => 1]], 'Odd' => ['dis k' => ['bytes' => 1, 'files' => 1]], 'Ok' => []]];
     same('sizes kept: only exactly its shape (a string, a negative, a strange share or disk name left out; a share measured empty kept)',
-        ['Filme', 'Ok', 'Se rien'], array_keys(embyGatherSizes($m, $bad)['shares']));
-    same('sizes kept: a file of another shape is not read', [], embyGatherSizes(['v' => 2, 'shares' => $m['shares']], null)['shares']);
-    embyGatherSizesKeep(['result' => 'ok'], 'dry', "$tmp/g");
+        ['Filme', 'Ok', 'Se rien'], array_keys(jackGatherSizes($m, $bad)['shares']));
+    same('sizes kept: a file of another shape is not read', [], jackGatherSizes(['v' => 2, 'shares' => $m['shares']], null)['shares']);
+    jackGatherSizesKeep(['result' => 'ok'], 'dry', "$tmp/g");
     check('sizes kept: a status without sizes writes nothing', !file_exists("$tmp/g/sizes.json"));
-    embyGatherSizesKeep($dry, 'measure', "$tmp/g");
-    embyGatherSizesKeep($later, 'run', "$tmp/g");
+    jackGatherSizesKeep($dry, 'measure', "$tmp/g");
+    jackGatherSizesKeep($later, 'run', "$tmp/g");
     $file = readJson("$tmp/g/sizes.json");
     same('sizes kept: sizes.json after two runs (root only)', [1, ['Filme', 'Se rien'], 'run', 'measure', '600'],
         [$file['v'] ?? null, array_keys($file['shares'] ?? []), $file['shares']['Filme']['mode'] ?? null, $file['shares']['Se rien']['mode'] ?? null,
          substr(sprintf('%o', fileperms("$tmp/g/sizes.json")), -3)]);
     same('sizes: the list of runs keeps only how many shares were measured', ['result' => 'ok', 'measured' => 2],
-        embyStatusShort(['result' => 'ok', 'sizes' => $dry['sizes'], 'sizes_at' => 5]));
+        jackStatusShort(['result' => 'ok', 'sizes' => $dry['sizes'], 'sizes_at' => 5]));
 
     // one share for the page: the places holding files, the biggest first
     same('sizes for the page: biggest first, empty places left out, never measured = null', [
         ['at' => $at, 'mode' => 'measure', 'roots' => [['name' => 'disk1', 'bytes' => 7000, 'files' => 2], ['name' => 'disk2', 'bytes' => 3003, 'files' => 2], ['name' => 'cache', 'bytes' => 100, 'files' => 1]]],
         ['at' => $at + 100, 'mode' => 'run', 'roots' => []], null],
-        [embyShareSized($kept, 'Filme'), embyShareSized(embyGatherSizes(null, ['sizes_at' => $at + 100, 'mode' => 'run', 'sizes' => ['Filme' => ['disk2' => ['bytes' => 0, 'files' => 0]]]]), 'Filme'),
-         embyShareSized($kept, 'Musik')]);
+        [jackShareSized($kept, 'Filme'), jackShareSized(jackGatherSizes(null, ['sizes_at' => $at + 100, 'mode' => 'run', 'sizes' => ['Filme' => ['disk2' => ['bytes' => 0, 'files' => 0]]]]), 'Filme'),
+         jackShareSized($kept, 'Musik')]);
 
     // ZFS's live count: one zfs list per awake ZFS pool of the shares; never a sleeping pool, never btrfs, never an array-only share
     $asked = [];
@@ -1169,20 +1169,20 @@ function testEmbySizes(): void
     $rows = [['share' => 'Filme', 'use' => 'yes', 'primary' => 'maple', 'secondary' => ''], ['share' => 'Serien', 'use' => 'yes', 'primary' => 'maple', 'secondary' => 'hazel'],
              ['share' => 'Musik', 'use' => 'no', 'primary' => 'maple', 'secondary' => ''], ['share' => 'Doku', 'use' => 'prefer', 'primary' => 'bt', 'secondary' => '']];
     same('sizes live: ZFS used of <pool>/<share> on awake pools — one look per pool', [['Filme' => [['pool' => 'maple', 'used' => 5000]]], ['maple']],
-        [embyShareLive($rows, $mounts, ['hazel1' => true, 'maple1' => false], $zfs), $asked]);
+        [jackShareLive($rows, $mounts, ['hazel1' => true, 'maple1' => false], $zfs), $asked]);
     $asked = [];
-    same('sizes live: a pool asleep — not asked (the other pool of a share is)', [[], ['hazel']], [embyShareLive($rows, $mounts, ['maple1' => true], $zfs), $asked]);
-    $sized = embySharesSized([['share' => 'Filme'], ['share' => 'Musik']], $kept, ['Filme' => [['pool' => 'maple', 'used' => 5000]]]);
+    same('sizes live: a pool asleep — not asked (the other pool of a share is)', [[], ['hazel']], [jackShareLive($rows, $mounts, ['maple1' => true], $zfs), $asked]);
+    $sized = jackSharesSized([['share' => 'Filme'], ['share' => 'Musik']], $kept, ['Filme' => [['pool' => 'maple', 'used' => 5000]]]);
     same('sizes on the share rows', [3, 5000, null, []], [count($sized[0]['sizes']['roots'] ?? []), $sized[0]['live'][0]['used'] ?? null, $sized[1]['sizes'], $sized[1]['live']]);
 
     // the measurement: a dry run over the libraries' shares (those that exist), its own ini — consolidate.ini stays
     same('measure: the shares behind the chosen libraries that exist', ['Filme', 'Serien'],
-        embyMeasureShares(['instances' => [['path_mappings' => ['/data/a' => '/mnt/user/Filme/x', '/data/b' => '/mnt/user/Serien', '/data/c' => '/mnt/user/Weg/y']]]],
+        jackMeasureShares(['instances' => [['path_mappings' => ['/data/a' => '/mnt/user/Filme/x', '/data/b' => '/mnt/user/Serien', '/data/c' => '/mnt/user/Weg/y']]]],
             ['Filme', 'Musik', 'Serien']));
     same('measure: a dry run, asked like a real gather', ['--dryrun'], GATHER_MODES['measure']);
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('measure: asked about Emby\'s watchers from the page and again in the job, holding EmbyCache\'s lock, its own ini',
-        str_contains($src, "in_array(\$mode, ['run', 'measure'], true)) {      // a measurement") && str_contains($src, "if (\$tool === 'gather' && \$mode === 'measure') {\n        \$look = embyWatching();")
+        str_contains($src, "in_array(\$mode, ['run', 'measure'], true)) {      // a measurement") && str_contains($src, "if (\$tool === 'gather' && \$mode === 'measure') {\n        \$look = jackWatching();")
         && str_contains($src, "if (in_array(\$mode, ['run', 'measure', 'release'], true)) {") && str_contains($src, '"$dir/measure.ini"'));
 
     // his page under node (stand-ins for the office): the numbers, the date, ZFS's chip, an older state, the button
@@ -1211,7 +1211,7 @@ globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', not
   placesTook: () => {}, store: () => null, storeJson: () => null, agent: { running: true }, place: (k, n) => { n.dataset.place = k; return n; },
   sectionHead: (title, sub, ...x) => { const h = el('div', 'section-head', title); x.filter((y) => y && y.tag).forEach((y) => h.appendChild(y)); return h; } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...(n.title ? ['@' + n.title] : []), ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
@@ -1228,7 +1228,7 @@ const btn2 = all(e.shareSection()).find((n) => n.tag === 'button' && n.textConte
 out.busy = btn2 ? btn2.disabled : null;
 console.log(JSON.stringify(out));
 JS);
-    $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1';
+    $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js', "$tmp/state.json"])) . ' 2>&1';
     $raw = (string) shell_exec($cmd);
     $r = json_decode($raw, true);
     same('sizes on his page: biggest first with the date, ZFS\'s chip; measured empty; an older state: «not measured yet»', [
@@ -1247,9 +1247,9 @@ JS);
  * the library select's counts, the filter words (name, library, disk; accents folded), newest first else by name, the
  * first 30 rows then «Show n more»; the library kept per browser, the words never.
  */
-function testEmbyPool(): void
+function testJackPool(): void
 {
-    $tmp = hardeningTmp('embypool');
+    $tmp = hardeningTmp('jackpool');
     @mkdir("$tmp/data", 0700, true);
     $list = [];
     $origin = [];
@@ -1268,7 +1268,7 @@ function testEmbyPool(): void
     }
     file_put_contents("$tmp/data/embycache_exclude.txt", implode("\n", $list) . "\n");
     file_put_contents("$tmp/data/embycache_origin.json", json_encode($origin));
-    $c = embyCacheStats(['cache_path' => "$tmp/pool"], "$tmp/data");
+    $c = jackCacheStats(['cache_path' => "$tmp/pool"], "$tmp/data");
     $first = $c['groups'][0] ?? [];
     same('pool list: every folder — nothing cut (251, the old cut was 200)', [252, 251], [$c['files'], count($c['groups'])]);
     same('pool list: newest first, a folder\'s files and bytes, the disk it goes back to', ['Serien', 'Die.Serie', 2, 3000, ['disk3']],
@@ -1276,10 +1276,10 @@ function testEmbyPool(): void
     check('pool list: since = when its newest file came onto the pool (ctime)', ($first['since'] ?? 0) === filectime("$tmp/pool/Serien/Die.Serie/e2.mkv")
         && ($c['groups'][1]['since'] ?? PHP_INT_MAX) < $first['since']);
     same('pool list: the same time — by name', ['Film.001', 'Film.002'], [$c['groups'][1]['title'] ?? null, $c['groups'][2]['title'] ?? null]);
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    check('pool page: the bar is Office.filterBar — the library kept per browser (emby.pool.pick; emby.pool_lib taken over once), words and «only new» never',
-        str_contains($js, "Office.filterBar({ key: 'emby.pool'") && str_contains($js, "Office.store('emby.pool.pick', old)") && str_contains($js, "Office.store('emby.pool_lib', null)")
-        && !preg_match("/Office\\.store(Json)?\\('emby\\.pool(_words|\\.words|\\.only)/", $js));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('pool page: the bar is Office.filterBar — the library kept per browser (jack.pool.pick; jack.pool_lib taken over once), words and «only new» never',
+        str_contains($js, "Office.filterBar({ key: 'jack.pool'") && str_contains($js, "Office.store('jack.pool.pick', old)") && str_contains($js, "Office.store('jack.pool_lib', null)")
+        && !preg_match("/Office\\.store(Json)?\\('jack\\.pool(_words|\\.words|\\.only)/", $js));
 
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
@@ -1320,7 +1320,7 @@ globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', not
     bars.push(b); return b; } };
 globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const g = state.cache.groups;
 const W = (s) => Office.filterWords(s);
@@ -1336,11 +1336,11 @@ out.shown = [e.poolView(g, { lib: '', words: [], shown: 60 }).shown, e.poolView(
 out.since = names(e.poolView(g, { lib: '', words: [], since: 1035, shown: 30 }));
 // the section: the library of the old key taken over once; 30 rows, «Show 13 more», the select's options; then the
 // words, the library, «only new» (from the last real run's start), more
-stored['emby.pool_lib'] = 'Filme';
+stored['jack.pool_lib'] = 'Filme';
 e.setState(state);
 e.bars();
-const bar = bars.find((b) => b.o.key === 'emby.pool');
-out.migrated = [stored['emby.pool.pick'], stored['emby.pool_lib'], bar.pick];
+const bar = bars.find((b) => b.o.key === 'jack.pool');
+out.migrated = [stored['jack.pool.pick'], stored['jack.pool_lib'], bar.pick];
 bar.pick = '';
 const all = (n) => (typeof n === 'string' ? [] : [n, ...n.children.flatMap(all)]);
 const sec = e.poolSection();
@@ -1372,10 +1372,10 @@ state.history = [state.history[0]];               // a report only: no real run 
 e.setState(state);
 e.poolSection();
 out.noReal = bar.doneArgs[2];
-out.keys = Object.keys(stored).filter((k) => k.startsWith('emby.')).sort();
+out.keys = Object.keys(stored).filter((k) => k.startsWith('jack.')).sort();
 console.log(JSON.stringify(out));
 JS);
-    $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1';
+    $cmd = implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js', "$tmp/state.json"])) . ' 2>&1';
     $raw = (string) shell_exec($cmd);
     $r = json_decode($raw, true);
     same('pool view: the libraries with counts, newest first, those without a time by name at the end, 30 shown', [[['Filme', 3], ['Serien', 40]], 43, 30,
@@ -1397,7 +1397,7 @@ JS);
     same('pool page: «only new» — what the last real run brought (from its start on, a later report doesn\'t count)', [11, 'Serie 40', 'Serie 30'], $r['only'] ?? null, $raw);
     same('pool page: nothing fits', ['pool.empty_filter'], $r['empty'] ?? null, $raw);
     same('pool page: no real run — «only new» goes (onlyAvail false)', false, $r['noReal'] ?? null, $raw);
-    same('pool page: only the choices are kept (the pool section open or not, the library) — never words or «only new»', ['emby.pool.pick', 'emby.pool_lib'], $r['keys'] ?? null, $raw);
+    same('pool page: only the choices are kept (the pool section open or not, the library) — never words or «only new»', ['jack.pool.pick', 'jack.pool_lib'], $r['keys'] ?? null, $raw);
     hardeningRm($tmp);
 }
 
@@ -1407,9 +1407,9 @@ JS);
  * "..", outside, asleep), unknown and new keys, the API key never in an answer to the page, the
  * list and origins merged with Jack's own, bad lines left out, the copies made, the gather's ini.
  */
-function testEmbyImport(): void
+function testJackImport(): void
 {
-    $tmp = hardeningTmp('embyimport');
+    $tmp = hardeningTmp('jackimport');
     $fs = "$tmp/fs";                      // the fake server: /mnt and /boot below it
     $pool = "$tmp/pool";                  // EmbyCache's pool (load_config() wants a real folder)
     $key = 'FakeKey0123456789abcdefFAKEKEY99';
@@ -1427,7 +1427,7 @@ function testEmbyImport(): void
     @mkdir("$fs/mnt/user/system/scripts/hardlink", 0700);
     link("$fs/mnt/user/system/scripts/notes.txt", "$fs/mnt/user/system/scripts/hardlink/consolidate.ini");
     $jack = "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data";
-    $ctx = ['emby_dir' => "$jack/embycache", 'gather_dir' => "$jack/gather", 'tmp' => "$tmp/run", 'fs' => $fs,
+    $ctx = ['jack_dir' => "$jack/embycache", 'gather_dir' => "$jack/gather", 'tmp' => "$tmp/run", 'fs' => $fs,
             'pools' => ['/mnt/cache', '/mnt/hazel', $pool], 'shares' => ['Filme', 'Serien', 'system', 'appdata', 'Sleepy'],
             'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false, 'hazel' => true],
             'share_cfg' => fn (string $s): array => ['Filme' => ['shareUseCache' => 'yes', 'shareCachePool' => 'cache', 'shareInclude' => 'disk1'],
@@ -1448,25 +1448,25 @@ function testEmbyImport(): void
 
     // the folder: absolute, no "..", in the allowed places, awake, real folders only
     $old = '/mnt/user/system/scripts/embycache';
-    same('import folder: a share folder', "$fs$old", embyImportFolder("$old/", $ctx));
-    same('import folder: through an exclusive share\'s link to its pool', "$fs/mnt/cache/appdata/old", embyImportFolder('/mnt/user/appdata/old', $ctx));
+    same('import folder: a share folder', "$fs$old", jackImportFolder("$old/", $ctx));
+    same('import folder: through an exclusive share\'s link to its pool', "$fs/mnt/cache/appdata/old", jackImportFolder('/mnt/user/appdata/old', $ctx));
     same('import folder: User Scripts on the flash', "$fs/boot/config/plugins/user.scripts/scripts/old-embycache",
-        embyImportFolder('/boot/config/plugins/user.scripts/scripts/old-embycache', $ctx));
-    foreach (['relative/embycache' => 'emby_import_folder', '/mnt/user/system/../system/scripts/embycache' => 'emby_import_folder',
-              '/mnt/user/system/./scripts' => 'emby_import_folder', "/mnt/user/sys\ntem" => 'emby_import_folder',
-              '/etc' => 'emby_import_where', '/mnt/user0/system' => 'emby_import_where', '/mnt/disks/usb' => 'emby_import_where',
-              '/mnt/user' => 'emby_import_where', '/boot/config/plugins/user.scripts/scripts' => 'emby_import_where', '/tmp/x' => 'emby_import_where',
-              '/mnt/user/linked' => 'emby_import_link', '/mnt/user/linked/x' => 'emby_import_link', '/mnt/user/system/scripts/lnk' => 'emby_import_link',
-              '/mnt/user/Sleepy/old' => 'emby_import_asleep', '/mnt/hazel/x' => 'emby_import_asleep', '/mnt/disk2/scripts' => 'emby_import_asleep',
-              '/mnt/user/system/nothing' => 'emby_import_missing', '/mnt/user/system/scripts/badfile/embycache_settings.json' => 'emby_import_link',
-              '/mnt/user/Nocfg/old' => 'emby_import_asleep', '/mnt/user/system/scripts/notes.txt' => 'emby_import_missing',
-              '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache' => 'emby_import_own'] as $path => $want) {
-        same('import folder refused: ' . json_encode($path), $want, $err(fn () => embyImportFolder($path, $ctx)));
+        jackImportFolder('/boot/config/plugins/user.scripts/scripts/old-embycache', $ctx));
+    foreach (['relative/embycache' => 'jack_import_folder', '/mnt/user/system/../system/scripts/embycache' => 'jack_import_folder',
+              '/mnt/user/system/./scripts' => 'jack_import_folder', "/mnt/user/sys\ntem" => 'jack_import_folder',
+              '/etc' => 'jack_import_where', '/mnt/user0/system' => 'jack_import_where', '/mnt/disks/usb' => 'jack_import_where',
+              '/mnt/user' => 'jack_import_where', '/boot/config/plugins/user.scripts/scripts' => 'jack_import_where', '/tmp/x' => 'jack_import_where',
+              '/mnt/user/linked' => 'jack_import_link', '/mnt/user/linked/x' => 'jack_import_link', '/mnt/user/system/scripts/lnk' => 'jack_import_link',
+              '/mnt/user/Sleepy/old' => 'jack_import_asleep', '/mnt/hazel/x' => 'jack_import_asleep', '/mnt/disk2/scripts' => 'jack_import_asleep',
+              '/mnt/user/system/nothing' => 'jack_import_missing', '/mnt/user/system/scripts/badfile/embycache_settings.json' => 'jack_import_link',
+              '/mnt/user/Nocfg/old' => 'jack_import_asleep', '/mnt/user/system/scripts/notes.txt' => 'jack_import_missing',
+              '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache' => 'jack_import_own'] as $path => $want) {
+        same('import folder refused: ' . json_encode($path), $want, $err(fn () => jackImportFolder($path, $ctx)));
     }
-    same('import: a file that is a link is refused', 'emby_import_file', $err(fn () => embyImportPlan('/mnt/user/system/scripts/badfile', '', $ctx)));
-    same('import: a file with a second hard link is refused', 'emby_import_file', $err(fn () => embyImportPlan('', '/mnt/user/system/scripts/hardlink', $ctx)));
-    same('import: an empty folder has nothing', 'emby_import_none', $err(fn () => embyImportPlan('/mnt/user/Filme', '', $ctx)));
-    same('import: no folder typed', 'emby_import_nothing', $err(fn () => embyImportFolders(['embycache' => ' ', 'gather' => ''])));
+    same('import: a file that is a link is refused', 'jack_import_file', $err(fn () => jackImportPlan('/mnt/user/system/scripts/badfile', '', $ctx)));
+    same('import: a file with a second hard link is refused', 'jack_import_file', $err(fn () => jackImportPlan('', '/mnt/user/system/scripts/hardlink', $ctx)));
+    same('import: an empty folder has nothing', 'jack_import_none', $err(fn () => jackImportPlan('/mnt/user/Filme', '', $ctx)));
+    same('import: no folder typed', 'jack_import_nothing', $err(fn () => jackImportFolders(['embycache' => ' ', 'gather' => ''])));
 
     // the old install: EmbyCache 7.2.1's settings (every key of its DEFAULTS), its list, our origins
     $settings = ['cache_path' => "$pool/", 'array_path' => '/mnt/user0/', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*',
@@ -1507,7 +1507,7 @@ function testEmbyImport(): void
     file_put_contents("$jack/embycache/embycache_origin.json", json_encode(["$pool/Filme/Jack Own/j.mkv" => 'disk3', "$pool/Filme/Alien (1979)/Alien.mkv" => 'disk4'], JSON_UNESCAPED_SLASHES));
     file_put_contents("$jack/gather/gather.json", json_encode(['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size']));
 
-    $plan = embyImportPlan("$old/", '/mnt/user/system/scripts/consolidate', $ctx);
+    $plan = jackImportPlan("$old/", '/mnt/user/system/scripts/consolidate', $ctx);
     $p = $plan['preview'];
     $e = $p['embycache'];
     $json = json_encode($p, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -1552,15 +1552,15 @@ function testEmbyImport(): void
     same('import preview: own exclusions of the old gather said', ['gather_exclude'], array_column($g['warnings'], 'key'));
 
     // the import: something changed since the preview → refused; then done, with copies of Jack's files
-    $again = embyImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
+    $again = jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
     same('import: the same look gives the same token', $p['token'], $again['preview']['token']);
     file_put_contents("$jack/embycache/embycache_exclude.txt", "$pool/Filme/Jack Own/j.mkv\n$pool/Filme/Alien (1979)/Alien.mkv\n$pool/Filme/New/n.mkv\n");
-    check('import: Jack\'s list changed meanwhile — another token', embyImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx)['preview']['token'] !== $p['token']);
-    $plan = embyImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
+    check('import: Jack\'s list changed meanwhile — another token', jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx)['preview']['token'] !== $p['token']);
+    $plan = jackImportPlan($old, '/mnt/user/system/scripts/consolidate', $ctx);
     $before = ['settings' => file_get_contents("$jack/embycache/embycache_settings.json"), 'exclude' => file_get_contents("$jack/embycache/embycache_exclude.txt"),
                'origin' => file_get_contents("$jack/embycache/embycache_origin.json"), 'gather' => file_get_contents("$jack/gather/gather.json")];
-    $done = embyImportApply($plan['do'], $ctx);
-    check('import done: the API key never in the answer', !str_contains(json_encode(embyImportScrub($done, $plan['secrets'])), $key));
+    $done = jackImportApply($plan['do'], $ctx);
+    check('import done: the API key never in the answer', !str_contains(json_encode(jackImportScrub($done, $plan['secrets'])), $key));
     $copies = array_map(fn ($f) => basename($f), $done['backups']);
     same('import done: copies of Jack\'s files', array_map(fn ($n) => "$n.before-import-{$done['stamp']}",
         ['embycache_settings.json', 'embycache_exclude.txt', 'embycache_origin.json', 'gather.json', 'consolidate.ini'])[0], $copies[0] ?? null);
@@ -1597,7 +1597,7 @@ function testEmbyImport(): void
     $keep = (string) file_get_contents($oldIni);
     $cachePv = function (string $move, string $target) use ($oldIni, $ctx): array {
         file_put_contents($oldIni, "BASE_DIRS=('/mnt/user/Filme')\nMIN_FREE_GB=300\nDUP_CHECK='cmp'\nMOVE_CACHE=$move\nCACHE_ONLY_TARGET='$target'\n");
-        $plan = embyImportPlan('', '/mnt/user/system/scripts/consolidate', $ctx);
+        $plan = jackImportPlan('', '/mnt/user/system/scripts/consolidate', $ctx);
         return [array_map(fn ($c) => [$c['key'], $c['old'], $c['new']], $plan['preview']['gather']['changes']),
                 array_map(fn ($c) => [$c['key'], $c['old'], $c['new']], $plan['preview']['gather']['jack']),
                 array_intersect_key($plan['do']['gather'] ?? [], ['move_cache' => 1, 'cache_only_target' => 1])];
@@ -1613,21 +1613,21 @@ function testEmbyImport(): void
     $older = $settings;
     unset($older['cleanup_tool'], $older['mover_debug_level']);
     file_put_contents("$dir/embycache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
-    $withJack = ['emby_dir' => "$tmp/jack2/embycache", 'gather_dir' => "$tmp/jack2/gather"] + $ctx;
+    $withJack = ['jack_dir' => "$tmp/jack2/embycache", 'gather_dir' => "$tmp/jack2/gather"] + $ctx;
     @mkdir("$tmp/jack2/embycache", 0700, true);
     file_put_contents("$tmp/jack2/embycache/embycache_settings.json", json_encode(['cache_path' => $pool, 'cleanup_tool' => 'rsync', 'mover_debug_level' => 1,
         'max_resume_series' => 4, 'max_resume_movies' => null, 'mover_bin' => '/mnt/user/x.sh', 'array_path' => '/mnt/elsewhere'], JSON_UNESCAPED_SLASHES));
-    $d = array_column(embyImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
+    $d = array_column(jackImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
     same('import, older install: Jack\'s own choices stay (the way back is always rsync — his, not a choice kept)',
         [['cleanup_tool', false, 'rsync'], ['mover_debug_level', true, 1], ['max_resume_series', true, 4]],
         array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level', 'max_resume_series']));
     same('import, older install: a null of Jack\'s is no value — his default', [false, 8], [$d['max_resume_movies']['kept'] ?? null, $d['max_resume_movies']['value'] ?? null]);
-    $d = array_column(embyImportPlan($old, '', ['emby_dir' => "$tmp/nojack/embycache", 'gather_dir' => "$tmp/nojack/gather"] + $ctx)['preview']['embycache']['defaults'], null, 'key');
+    $d = array_column(jackImportPlan($old, '', ['jack_dir' => "$tmp/nojack/embycache", 'gather_dir' => "$tmp/nojack/gather"] + $ctx)['preview']['embycache']['defaults'], null, 'key');
     same('import, older install, Jack without settings: his defaults, not the original\'s mover', [['cleanup_tool', false, 'rsync'], ['mover_debug_level', false, 0]],
         array_map(fn ($k) => [$k, $d[$k]['kept'] ?? null, $d[$k]['value'] ?? null], ['cleanup_tool', 'mover_debug_level']));
     unset($older['mover_bin'], $older['array_path']);
     file_put_contents("$dir/embycache_settings.json", json_encode($older, JSON_UNESCAPED_SLASHES));
-    $d = array_column(embyImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
+    $d = array_column(jackImportPlan($old, '', $withJack)['preview']['embycache']['defaults'], null, 'key');
     same('import, older install: a strange mover_bin or Unraid path of Jack\'s never stays', [[false, ''], [false, '/mnt/user0']],
         [[$d['mover_bin']['kept'] ?? null, $d['mover_bin']['value'] ?? null], [$d['array_path']['kept'] ?? null, $d['array_path']['value'] ?? null]]);
 
@@ -1637,7 +1637,7 @@ function testEmbyImport(): void
     $bad['instances'][0]['api_key'] = 'short';
     $bad['instances'][0]['url'] = 'http://elsewhere:8096';
     file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
-    $b = embyImportPlan($old, '', $ctx)['preview'];
+    $b = jackImportPlan($old, '', $ctx)['preview'];
     same('import blocked: a strange pool, no key', ['pool', 'no_key'], array_column($b['embycache']['blockers'], 'key'));
     check('import blocked: not ready', $b['ready'] === false);
     check('import blocked: the strange key never in the preview', !str_contains(json_encode($b), 'short'));
@@ -1646,38 +1646,38 @@ function testEmbyImport(): void
     $bad['movie_mode'] = 'chaos';
     $bad['max_resume_items'] = 'many';                                         // EmbyCache's own check refuses it
     file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
-    $b = embyImportPlan($old, '', $ctx)['preview'];
+    $b = jackImportPlan($old, '', $ctx)['preview'];
     same('import: no key in the old file — Jack keeps his own', 'jack', $b['embycache']['instances'][0]['key']);
     same('import: a choice EmbyCache doesn\'t know is Jack\'s', 'folder', array_column($b['embycache']['jack'], 'new', 'key')['movie_mode'] ?? null);
     check('import: Jack\'s key never in the preview either', !str_contains(json_encode($b), $jackKey));
     $bad['instances'][0]['path_mappings'] = ['/media/Musik' => ''];            // nothing cached at all: EmbyCache's load_config() says no
     $bad['path_mappings'] = [];
     file_put_contents("$dir/embycache_settings.json", json_encode($bad, JSON_UNESCAPED_SLASHES));
-    $b = embyImportPlan($old, '', $ctx)['preview'];
+    $b = jackImportPlan($old, '', $ctx)['preview'];
     same('import blocked: EmbyCache\'s own check says no', ['config'], array_column($b['embycache']['blockers'], 'key'));
     check('import blocked: its reason told', str_contains((string) ($b['embycache']['blockers'][0]['params']['detail'] ?? ''), 'path_mappings'));
     file_put_contents("$dir/embycache_settings.json", '[1, 2]');
-    same('import blocked: settings that aren\'t an object', ['bad_json'], array_column(embyImportPlan($old, '', $ctx)['preview']['embycache']['blockers'], 'key'));
+    same('import blocked: settings that aren\'t an object', ['bad_json'], array_column(jackImportPlan($old, '', $ctx)['preview']['embycache']['blockers'], 'key'));
 
     // the ini is read, never run
-    [$vars, $strange] = embyImportIni("A='it'\\''s' # c\nB=\"x \\\"y\\\"\"\nC=( 'a b'\n# a comment\n c )\nD=(a *)\nE=plain\nF=\nG=a b\nH=\"\$HOME\"\nI=( ~/x )\nJ=#x\n");
+    [$vars, $strange] = jackImportIni("A='it'\\''s' # c\nB=\"x \\\"y\\\"\"\nC=( 'a b'\n# a comment\n c )\nD=(a *)\nE=plain\nF=\nG=a b\nH=\"\$HOME\"\nI=( ~/x )\nJ=#x\n");
     same('import ini: values as bash sees them, nothing expanded', ['A' => "it's", 'B' => 'x "y"', 'C' => ['a b', 'c'], 'E' => 'plain', 'F' => '', 'J' => '#x'], $vars);
     same('import ini: globs, commands, variables refused', 4, $strange);
     hardeningRm($tmp);
 }
 
 /**
- * Letting Jack Emby go (2026-10-09; agent/desks/emby-letgo.php): both schedules off — always, no tick — his lines
+ * Letting Jack Emby go (2026-10-09; agent/desks/jack-letgo.php): both schedules off — always, no tick — his lines
  * only (Mr. Backupsy's stays); the look (what is on the pool, a run going, someone watching — read only; Mover Tuning is
- * never his business any more, 2026-10-12); emby.letgo needs `confirm` and `release` said, is refused for an unhired Jack (the hired gate) and changes
+ * never his business any more, 2026-10-12); jack.letgo needs `confirm` and `release` said, is refused for an unhired Jack (the hired gate) and changes
  * nothing then; the tick's release handed to atd as `job embycache release --letgo` — refused while a run is going or
  * someone watches (his list of runs says so); the note for his page when hired again, said once; EmbyCache's own
  * `--release` on a fixture tree (everything on the list back the cleanup's way, a duplicate stays and stays listed,
  * nothing filled); the release's notifications; his dialog part, the done dialog and the page's note under node.
  */
-function testEmbyLetGo(): void
+function testJackLetGo(): void
 {
-    $tmp = hardeningTmp('embyletgo');
+    $tmp = hardeningTmp('jackletgo');
     $dir = "$tmp/emby";
     $pool = "$tmp/pool";
     foreach (["$dir", "$pool/Filme/A", "$pool/Filme/B"] as $d) {
@@ -1695,7 +1695,7 @@ function testEmbyLetGo(): void
     $running = null;
     $look = ['state' => 'free', 'who' => []];
     $launched = [];
-    $GLOBALS['embyLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir,
+    $GLOBALS['jackLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir,
         'settings' => function () use (&$settings) { return $settings; }, 'running' => function () use (&$running) { return $running; },
         'waiting' => fn () => false, 'look' => function () use (&$look) { return $look; }, 'python' => fn () => true,
         'launch' => function (string $job, array $args) use (&$launched) { $launched[] = [$job, $args]; },
@@ -1703,27 +1703,27 @@ function testEmbyLetGo(): void
     $moverOff = true;
 
     // the look: his two schedules, what lies on the pool (only what is there, under the pool); nothing of Mover Tuning
-    $l = embyLetGoLook();
+    $l = jackLetGoLook();
     same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, no Mover Tuning',
         [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []], false],
         [$l['schedules'], $l['running'], $l['pool'], $l['release'], array_key_exists('mover_tuning', $l)]);
     $moverOff = false;
     same('let Jack go: the look says whether Unraid\'s mover schedule is off (it stays so — the dialog says where to switch it on)', [true, false],
-        [$l['mover_off'], embyLetGoLook()['mover_off']]);
+        [$l['mover_off'], jackLetGoLook()['mover_off']]);
     $moverOff = true;
     $running = 'gather';
-    same('let Jack go: a run going — no release now (it finishes; nothing stops it)', 'emby_running', embyLetGoLook()['release']['why']);
+    same('let Jack go: a run going — no release now (it finishes; nothing stops it)', 'jack_running', jackLetGoLook()['release']['why']);
     $running = null;
     $look = $W;
-    $r = embyLetGoLook()['release'];
-    same('let Jack go: someone watches — no release now, who is named', [false, 'emby_release_watching', 'anna'], [$r['ok'], $r['why'], $r['params']['who'][0]['user'] ?? null]);
-    $look = ['state' => 'error', 'who' => [], 'why' => 'emby_watch_key', 'url' => 'http://emby:8096'];
-    same('let Jack go: Emby answers but not usably — no release (like a real gather)', 'emby_watch_key', embyLetGoLook()['release']['why']);
+    $r = jackLetGoLook()['release'];
+    same('let Jack go: someone watches — no release now, who is named', [false, 'jack_release_watching', 'anna'], [$r['ok'], $r['why'], $r['params']['who'][0]['user'] ?? null]);
+    $look = ['state' => 'error', 'who' => [], 'why' => 'jack_watch_key', 'url' => 'http://emby:8096'];
+    same('let Jack go: Emby answers but not usably — no release (like a real gather)', 'jack_watch_key', jackLetGoLook()['release']['why']);
     $look = ['state' => 'down', 'who' => []];
-    same('let Jack go: Emby down — nobody can watch, the release may go', true, embyLetGoLook()['release']['ok']);
+    same('let Jack go: Emby down — nobody can watch, the release may go', true, jackLetGoLook()['release']['ok']);
     $look = ['state' => 'free', 'who' => []];
     $settings = null;
-    same('let Jack go: never set up — nothing to bring back', ['emby_not_configured', 0], [embyLetGoLook()['release']['why'], embyLetGoLook()['pool']['files']]);
+    same('let Jack go: never set up — nothing to bring back', ['jack_not_configured', 0], [jackLetGoLook()['release']['why'], jackLetGoLook()['pool']['files']]);
     $settings = ['cache_path' => $pool, 'instances' => [['url' => 'http://emby:8096', 'api_key' => 'k']]];
 
     // through the agent's dispatch: the hired gate, then the request's shape — and nothing changed by a refusal
@@ -1732,93 +1732,93 @@ function testEmbyLetGo(): void
     file_put_contents("$tmp/staff.json", json_encode(['hired' => ['backup' => 1]]));
     $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
     same('let Jack go: unhired — his look and his let-go refused (the hired gate), his refresh answered', ['not_hired', 'not_hired', 'not_hired', true],
-        [$ask(['action' => 'emby.letgo_look']), $ask(['action' => 'emby.letgo', 'confirm' => true, 'release' => false]), $ask(['action' => 'emby.letgo_seen']),
-         agentDeskMayAct('emby', 'refresh', "$tmp/staff.json")]);
-    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['emby' => 1]]));
+        [$ask(['action' => 'jack.letgo_look']), $ask(['action' => 'jack.letgo', 'confirm' => true, 'release' => false]), $ask(['action' => 'jack.letgo_seen']),
+         agentDeskMayAct('jack', 'refresh', "$tmp/staff.json")]);
+    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['jack' => 1]]));
     same('let Jack go: hired — without confirm, confirm not true, release not said or not a bool: refused',
         ['bad_request', 'bad_request', 'bad_request', 'bad_request'],
-        [$ask(['action' => 'emby.letgo', 'release' => false]), $ask(['action' => 'emby.letgo', 'confirm' => 1, 'release' => false]),
-         $ask(['action' => 'emby.letgo', 'confirm' => true]), $ask(['action' => 'emby.letgo', 'confirm' => true, 'release' => 'yes'])]);
-    same('let Jack go: … nothing switched off by those', ['15 * * * *', '0 3 * * 0'], array_values(embyLetGoSchedules($cron)));
-    same('let Jack go: his look through the dispatch while hired', 'ok', $ask(['action' => 'emby.letgo_look']));
-    check('let Jack go: his jobs run without the hired gate (the release runs after he is let go)', isset(desks()['emby']['jobs']['embycache'])
+        [$ask(['action' => 'jack.letgo', 'release' => false]), $ask(['action' => 'jack.letgo', 'confirm' => 1, 'release' => false]),
+         $ask(['action' => 'jack.letgo', 'confirm' => true]), $ask(['action' => 'jack.letgo', 'confirm' => true, 'release' => 'yes'])]);
+    same('let Jack go: … nothing switched off by those', ['15 * * * *', '0 3 * * 0'], array_values(jackLetGoSchedules($cron)));
+    same('let Jack go: his look through the dispatch while hired', 'ok', $ask(['action' => 'jack.letgo_look']));
+    check('let Jack go: his jobs run without the hired gate (the release runs after he is let go)', isset(desks()['jack']['jobs']['embycache'])
         && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), "agentDeskMayAct(\$deskId, 'job')"));
 
     // without the tick: both schedules off, Mr. Backupsy's line stays, nothing launched, the films stay
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false]));
+    $r = handle(json_encode(['action' => 'jack.letgo', 'confirm' => true, 'release' => false]));
     same('let Jack go: both schedules off, what they were, nothing left, no release',
         [true, ['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], ['embycache', 'gather'], [], null, null],
         [$r['ok'] ?? null, $r['was'] ?? null, $r['off'] ?? null, $r['left'] ?? null, array_key_exists('failed', $r) ? $r['failed'] : 'x', array_key_exists('release', $r) ? $r['release'] : 'x']);
     same('let Jack go: the cron file keeps only Mr. Backupsy\'s line', ['backup' => '0 2 * * *'], officeCronLines($cron));
     check('let Jack go: without the tick nothing is launched and the films stay on the pool', !$launched && is_file("$pool/Filme/A/a.mkv") && is_file("$pool/Filme/B/b.mkv"));
     same('let Jack go: the note for his page — what he switched off', ['off' => ['embycache', 'gather'], 'was' => ['embycache' => '15 * * * *', 'gather' => '0 3 * * 0']],
-        array_intersect_key(embyLetGoNote($dir) ?? [], ['off' => 1, 'was' => 1]));
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => false]));
+        array_intersect_key(jackLetGoNote($dir) ?? [], ['off' => 1, 'was' => 1]));
+    $r = handle(json_encode(['action' => 'jack.letgo', 'confirm' => true, 'release' => false]));
     same('let Jack go again with nothing on: nothing to switch off, the earlier note not yet shown stays', [[], ['embycache', 'gather']],
-        [$r['off'] ?? null, embyLetGoNote($dir)['off'] ?? null]);
-    same('let Jack go: hired again, his page said it — said once', [['ok' => true], null], [embyLetGoSeen($dir), embyLetGoNote($dir)]);
+        [$r['off'] ?? null, jackLetGoNote($dir)['off'] ?? null]);
+    same('let Jack go: hired again, his page said it — said once', [['ok' => true], null], [jackLetGoSeen($dir), jackLetGoNote($dir)]);
     same('let Jack go: the answer says nothing of Mover Tuning', false, array_key_exists('unlist', $r));
-    check('let Jack go: a schedule switched on again also ends the note', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'),
-        "if (\$cron !== null) {\n        embyLetGoSeen();"));
+    check('let Jack go: a schedule switched on again also ends the note', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'),
+        "if (\$cron !== null) {\n        jackLetGoSeen();"));
 
     // with the tick: the release handed to atd as its own job, schedules off all the same
     officeJobSetSchedule('embycache', '15 * * * *', $cron, false);
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
+    $r = handle(json_encode(['action' => 'jack.letgo', 'confirm' => true, 'release' => true]));
     same('let Jack go with the tick: EmbyCache\'s schedule off, the release started — job embycache release --letgo via atd',
-        [['embycache'], ['started' => true, 'files' => 2, 'bytes' => 8000], [['emby-embycache', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'embycache', 'release', '--letgo']]]],
+        [['embycache'], ['started' => true, 'files' => 2, 'bytes' => 8000], [['jack-embycache', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'embycache', 'release', '--letgo']]]],
         [$r['off'] ?? null, $r['release'] ?? null, $launched]);
     same('let Jack go: the note says the release started', ['started' => true, 'why' => null], readJson("$dir/office-letgo.json")['release'] ?? null);
     $launched = [];
     officeJobSetSchedule('gather', '0 3 * * 0', $cron, false);
     $look = $W;
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
+    $r = handle(json_encode(['action' => 'jack.letgo', 'confirm' => true, 'release' => true]));
     same('let Jack go with the tick while someone watches: schedules off all the same, the release refused with who, nothing launched',
-        [['gather'], false, 'emby_release_watching', 'anna', []],
+        [['gather'], false, 'jack_release_watching', 'anna', []],
         [$r['off'] ?? null, $r['release']['started'] ?? null, $r['release']['error']['key'] ?? null, $r['release']['error']['params']['who'][0]['user'] ?? null, $launched]);
-    $h = embyHistory($dir)[0] ?? [];
-    same('let Jack go: the refusal in his list of runs', ['embycache', 'release', 'letgo', 'refused', 'emby_release_watching', 'anna'],
+    $h = jackHistory($dir)[0] ?? [];
+    same('let Jack go: the refusal in his list of runs', ['embycache', 'release', 'letgo', 'refused', 'jack_release_watching', 'anna'],
         [$h['tool'] ?? null, $h['mode'] ?? null, $h['by'] ?? null, $h['result'] ?? null, $h['why'] ?? null, $h['who'][0]['user'] ?? null]);
     $look = ['state' => 'free', 'who' => []];
     $running = 'embycache';
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
-    same('let Jack go with the tick while a run is going: it finishes, the release refused, said which run', ['embycache', false, 'emby_running', []],
+    $r = handle(json_encode(['action' => 'jack.letgo', 'confirm' => true, 'release' => true]));
+    same('let Jack go with the tick while a run is going: it finishes, the release refused, said which run', ['embycache', false, 'jack_running', []],
         [$r['running'] ?? null, $r['release']['started'] ?? null, $r['release']['error']['key'] ?? null, $launched]);
     $running = null;
     file_put_contents("$dir/embycache_exclude.txt", "$pool/Filme/gone.mkv\n");
-    $r = handle(json_encode(['action' => 'emby.letgo', 'confirm' => true, 'release' => true]));
-    same('let Jack go with the tick, nothing on the pool: nothing to bring back, nothing launched', ['emby_letgo_nothing', []], [$r['release']['error']['key'] ?? null, $launched]);
+    $r = handle(json_encode(['action' => 'jack.letgo', 'confirm' => true, 'release' => true]));
+    same('let Jack go with the tick, nothing on the pool: nothing to bring back, nothing launched', ['jack_letgo_nothing', []], [$r['release']['error']['key'] ?? null, $launched]);
     $GLOBALS['agentStaffFile'] = $staffBefore;
-    unset($GLOBALS['embyLetGoHost']);
+    unset($GLOBALS['jackLetGoHost']);
 
     // the job: release is EmbyCache's own mode, never from the page's «Start»; asked about watchers again, under the locks
-    same('release: EmbyCache --release, its own mode', ['--release'], EMBY_MODES['release'] ?? null);
+    same('release: EmbyCache --release, its own mode', ['--release'], JACK_MODES['release'] ?? null);
     try {
-        embyStart('embycache', 'release');
+        jackStart('embycache', 'release');
         check('release: never started from the page', false);
     } catch (Problem $p) {
         same('release: never started from the page', 'unknown_target', $p->key);
     }
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('release: the job asks Emby again, fully, before any lock, and holds the gather\'s lock like a real run',
-        str_contains($src, "if (\$tool === 'embycache' && \$mode === 'release') {\n        \$look = embyWatching();")
-        && strpos($src, "if (\$tool === 'embycache' && \$mode === 'release') {\n        \$look = embyWatching();") < strpos($src, "if (in_array(\$mode, ['run', 'measure', 'release'], true)) {")
+        str_contains($src, "if (\$tool === 'embycache' && \$mode === 'release') {\n        \$look = jackWatching();")
+        && strpos($src, "if (\$tool === 'embycache' && \$mode === 'release') {\n        \$look = jackWatching();") < strpos($src, "if (in_array(\$mode, ['run', 'measure', 'release'], true)) {")
         && str_contains($src, "in_array('--letgo', \$args, true) ? 'letgo'"));
     same('release: what Unraid hears — a good end too (he is gone), problems, failures; a real run as before',
         ['ok', 'errors', 'busy', 'failed', null, 'errors'],
-        [embyNotifyOutcome('release', 'ok', ['errors' => 0]), embyNotifyOutcome('release', 'ok', ['errors' => 2]), embyNotifyOutcome('release', 'busy', []),
-         embyNotifyOutcome('release', 'failed', []), embyNotifyOutcome('run', 'ok', ['errors' => 0]), embyNotifyOutcome('run', 'ok', ['errors' => 1])]);
+        [jackNotifyOutcome('release', 'ok', ['errors' => 0]), jackNotifyOutcome('release', 'ok', ['errors' => 2]), jackNotifyOutcome('release', 'busy', []),
+         jackNotifyOutcome('release', 'failed', []), jackNotifyOutcome('run', 'ok', ['errors' => 0]), jackNotifyOutcome('run', 'ok', ['errors' => 1])]);
     $bin = "$tmp/notify";
     file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
     chmod($bin, 0755);
     $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
     putenv("OFFICE_NOTIFY_BIN=$bin");
     putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
-    embyNotify('embycache', 'release', 'ok', ['cleanup' => ['done' => 2, 'planned' => 3], 'protected' => 1, 'errors' => 0], 0);
+    jackNotify('embycache', 'release', 'ok', ['cleanup' => ['done' => 2, 'planned' => 3], 'protected' => 1, 'errors' => 0], 0);
     $sent = (string) @file_get_contents("$tmp/notified");
     check('release: a good end told as normal — how many came back, how many stay', str_contains($sent, "-i\nnormal") && str_contains($sent, '2 files are back on the array.')
         && str_contains($sent, '1 file stays on the pool'), $sent);
     @unlink("$tmp/notified");
-    embyReleaseRefusedTell('emby_release_watching');
+    jackReleaseRefusedTell('jack_release_watching');
     $sent = (string) @file_get_contents("$tmp/notified");
     check('release: refused in the job — told as a warning, what Jack Emby laid out stays', str_contains($sent, "-i\nwarning") && str_contains($sent, 'not started')
         && str_contains($sent, 'What Jack Emby laid out stays on the pool.'), $sent);
@@ -1881,19 +1881,19 @@ globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', not
   errorText: (e, d) => 'err:' + (d || '') + ':' + e.key, dialog: (o) => dialogs.push(o),
   api: { post: async (a, body) => { posts.push([a, body]); return answer(a, body); } } };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
 (async () => {
   const out = {};
   const look = { ok: true, schedules: { embycache: '15 * * * *', gather: null }, running: null, waiting: false, pool: { files: 2, bytes: 8000, pool: '/mnt/maple' },
     release: { ok: true, why: null, params: {} } };
   out.view = e.letGoView(look);
-  out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
-  out.watching = e.letGoView({ ...look, release: { ok: false, why: 'emby_release_watching', params: { who: [{ user: 'anna', title: 'Alien', device: 'iPad' }] } } });
-  out.nothing = e.letGoView({ ...look, schedules: { embycache: null, gather: null }, pool: { files: 0, bytes: 0 }, release: { ok: false, why: 'emby_letgo_nothing', params: {} } });
+  out.busy = e.letGoView({ ...look, running: 'gather', release: { ok: false, why: 'jack_running', params: {} } });
+  out.watching = e.letGoView({ ...look, release: { ok: false, why: 'jack_release_watching', params: { who: [{ user: 'anna', title: 'Alien', device: 'iPad' }] } } });
+  out.nothing = e.letGoView({ ...look, schedules: { embycache: null, gather: null }, pool: { files: 0, bytes: 0 }, release: { ok: false, why: 'jack_letgo_nothing', params: {} } });
   out.mover_off = e.letGoView({ ...look, mover_off: true }).more;
   // the part: looks at once; the tick off by default; ticked — «Let go and bring back»; before() once, with confirm and release
-  answer = (a) => (a === 'emby.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
+  answer = (a) => (a === 'jack.letgo_look' ? look : { ok: true, was: { embycache: '15 * * * *', gather: null }, off: ['embycache'], left: [], failed: null, running: null,
     release: { started: true, files: 2, bytes: 8000 } });
   const box = mk('div');
   const part = e.letGoPart(box);
@@ -1919,7 +1919,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   // no second tick any more (Mover Tuning is never his): the part has the lines, the tick and what is below it
   out.parts = box.children[0].children.length;
   // busy: the tick there but can't be ticked; «Let go» stays «Let go»
-  answer = () => ({ ...look, running: 'gather', release: { ok: false, why: 'emby_running', params: {} } });
+  answer = () => ({ ...look, running: 'gather', release: { ok: false, why: 'jack_running', params: {} } });
   const box3 = mk('div');
   const p3 = e.letGoPart(box3);
   const b3 = mk('button');
@@ -1937,7 +1937,7 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   out.done = e.letGoDoneLines({ ok: true, was: { embycache: '15 * * * *', gather: '0 3 * * 0' }, off: ['embycache', 'gather'], left: [], failed: null, running: 'embycache',
     release: { started: true, files: 2, bytes: 8000 } });
   out.doneRefused = e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null,
-    release: { started: false, error: { key: 'emby_release_watching', params: { who: [{ user: 'anna' }] } } } });
+    release: { started: false, error: { key: 'jack_release_watching', params: { who: [{ user: 'anna' }] } } } });
   out.doneLeft = e.letGoDoneLines({ ok: true, was: { embycache: '15 * * * *', gather: null }, off: [], left: ['embycache'], failed: { key: 'command_failed' }, running: null, release: null });
   out.doneNone = e.letGoDoneLines({ ok: true, was: { embycache: null, gather: null }, off: [], left: [], failed: null, running: null, release: null });
   out.doneErr = e.letGoDoneLines({ ok: false, error: { key: 'agent_away' } });
@@ -1957,11 +1957,11 @@ const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatM
   out.noteGone = e.letGoNotice();
   // his list of runs: a release
   out.summary = [e.runSummary({ tool: 'embycache', mode: 'release', result: 'ok', status: { mode: 'release', result: 'ok', cleanup: { planned: 3, done: 2, to_origin: 1 }, protected: 1 } }),
-    e.runSummary({ tool: 'embycache', mode: 'release', result: 'refused', why: 'emby_release_watching', who: [] })];
+    e.runSummary({ tool: 'embycache', mode: 'release', result: 'refused', why: 'jack_release_watching', who: [] })];
   console.log(JSON.stringify(out));
 })().catch((err) => { console.log(JSON.stringify({ error: String(err && err.stack || err) })); });
 JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/jack/desk.js') . ' 2>&1');
     $o = json_decode($raw, true);
     if (!is_array($o) || isset($o['error'])) {
         check('let Jack go: dialog ran under node', false, $raw);
@@ -1981,40 +1981,40 @@ JS);
         [$o['nothing']['lines'], $o['nothing']['tick'], $o['nothing']['hint'], $o['nothing']['more']]);
     same('let Jack go: Unraid\'s mover schedule off — one line: it stays off, Ms. Moverelli moves and brings it back', [['role', 'letgo.tick_off'], ['role', 'letgo.stays'], ['role', 'letgo.mover_stays']],
         $o['mover_off'] ?? null);
-    same('let Jack go: the part looks at once; the tick shown, off by default, «Let go» as always', [false, false, false, 'office.fire', ['emby.letgo_look'], true,
+    same('let Jack go: the part looks at once; the tick shown, off by default, «Let go» as always', [false, false, false, 'office.fire', ['jack.letgo_look'], true,
         ['letgo.tick', 'letgo.tick_hint {"files":"count.files {\"n\":2}","size":"8000 B"}']], $o['start']);
     same('let Jack go: ticked — «Let go and bring back»', 'letgo.button', $o['ticked']);
     same('let Jack go: before() once — schedules off and the release, with confirm',
-        [[['emby.letgo', ['confirm' => true, 'release' => true]]], true, true], $o['sent']);
-    same('let Jack go: unticked — schedules off only', ['emby.letgo', ['confirm' => true, 'release' => false]], $o['untickedSent']);
+        [[['jack.letgo', ['confirm' => true, 'release' => true]]], true, true], $o['sent']);
+    same('let Jack go: unticked — schedules off only', ['jack.letgo', ['confirm' => true, 'release' => false]], $o['untickedSent']);
     same('let Jack go: no second tick — the lines, the tick, what is below it', 3, $o['parts']);
     same('let Jack go: a run going — the tick can\'t be ticked, «Let go» stays', [false, true, 'office.fire'], $o['busyPart']);
     same('let Jack go: the agent away — no look, said that the schedules can\'t be switched off', [0, ['letgo.agent_away']], $o['away']);
     same('let Jack go: done — what went off, the run that finishes, the release started', [
         ['', 'letgo.done_off {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"}'],
         ['role', 'letgo.running.embycache'], ['', 'letgo.done_release {"files":"count.files {\"n\":2}","size":"8000 B"}']], $o['done']);
-    same('let Jack go: done — the release refused, who watches', [['callout warn', 'letgo.done_release_not {"error":"err:emby:emby_release_watching"}'], ['who', [['user' => 'anna']]]], $o['doneRefused']);
-    same('let Jack go: done — a schedule that couldn\'t be switched off is named, with what to do', [['callout warn', 'letgo.done_error {"error":"err:emby:command_failed"}'],
+    same('let Jack go: done — the release refused, who watches', [['callout warn', 'letgo.done_release_not {"error":"err:jack:jack_release_watching"}'], ['who', [['user' => 'anna']]]], $o['doneRefused']);
+    same('let Jack go: done — a schedule that couldn\'t be switched off is named, with what to do', [['callout warn', 'letgo.done_error {"error":"err:jack:command_failed"}'],
         ['callout warn', 'letgo.done_still {"list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}"}'], ['role', 'letgo.done_hire']], $o['doneLeft']);
-    same('let Jack go: done — nothing on, nothing asked: no dialog; the request failed: said, still running', [[], [['callout warn', 'letgo.done_error {"error":"err:emby:agent_away"}'], ['role', 'letgo.done_hire']]],
+    same('let Jack go: done — nothing on, nothing asked: no dialog; the request failed: said, still running', [[], [['callout warn', 'letgo.done_error {"error":"err:jack:agent_away"}'], ['role', 'letgo.done_hire']]],
         [$o['doneNone'], $o['doneErr']]);
     same('let Jack go: hired again — the note once (seen posted once), kept this visit, a button per schedule still off; gone when they are on',
         ['letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
          ['schedule_title.embycache', 'schedule_title.gather'], 'letgo.note {"date":"D100","list":"letgo.sched_item {\"tool\":\"tool.embycache\",\"when\":\"C(15 * * * *)\"}, letgo.sched_item {\"tool\":\"tool.gather\",\"when\":\"C(0 3 * * 0)\"}"} ',
-         ['emby.letgo_seen'], ['schedule_title.gather'], null],
+         ['jack.letgo_seen'], ['schedule_title.gather'], null],
         [...$o['note'], $o['noteOn'], $o['noteGone']]);
-    same('let Jack go: the release in his list of runs', ['release_summary {"back":2,"planned":3,"origin":1,"left":1}', 'refused {"why":"err:emby:emby_release_watching"}'], $o['summary']);
+    same('let Jack go: the release in his list of runs', ['release_summary {"back":2,"planned":3,"origin":1,"left":1}', 'refused {"why":"err:jack:jack_release_watching"}'], $o['summary']);
     hardeningRm($tmp);
 }
 
 /**
  * Jack Emby's «Ready to watch» (2026-10-12): EmbyCache's files on the pool split per share over the whole list (the
- * groups stop at EMBY_POOL_GROUPS), each share row says its part next to «<pool> now …»; the tile's value never breaks
+ * groups stop at JACK_POOL_GROUPS), each share row says its part next to «<pool> now …»; the tile's value never breaks
  * between a number and its unit.
  */
-function testEmbyReadyShares(): void
+function testJackReadyShares(): void
 {
-    $tmp = hardeningTmp('emby-ready');
+    $tmp = hardeningTmp('jack-ready');
     $pool = "$tmp/pool";
     foreach (["$tmp/data", "$pool/Filme/A", "$pool/Filme/B", "$pool/Serien/S/Season 1"] as $d) {
         mkdir($d, 0700, true);
@@ -2024,11 +2024,11 @@ function testEmbyReadyShares(): void
         file_put_contents($f, str_repeat('x', $n));
     }
     file_put_contents("$tmp/data/embycache_exclude.txt", implode("\n", array_keys($files)) . "\n");
-    $c = embyCacheStats(['cache_path' => $pool], "$tmp/data");
+    $c = jackCacheStats(['cache_path' => $pool], "$tmp/data");
     same('ready: per share over the whole list — files and bytes', ['Filme' => ['files' => 2, 'bytes' => 150], 'Serien' => ['files' => 2, 'bytes' => 50]],
         json_decode(json_encode($c['shares']), true));
     same('ready: … the sum is the tile\'s', [4, 200], [$c['files'], $c['bytes']]);
-    same('ready: nothing on the list — an empty object (never a list for the page)', '{}', json_encode(embyCacheStats(['cache_path' => $pool], "$tmp/none")['shares']));
+    same('ready: nothing on the list — an empty object (never a list for the page)', '{}', json_encode(jackCacheStats(['cache_path' => $pool], "$tmp/none")['shares']));
     $node = testsNode();
     if ($node === '') {
         check('ready: page - node is missing here - skipped', true);
@@ -2046,7 +2046,7 @@ globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false
   fmt: { size: (b) => b + ' GB', date: (t) => 'D' + t, relative: (t) => 'R' + t, number: (n) => String(n) }, desk: () => {}, places: () => {}, placesFrom: () => {},
   store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, stat: (o) => o };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
 e.setState({ cache: { files: 4, bytes: 671, groups: [], shares: { Filme: { files: 2, bytes: 150 } } } });
@@ -2057,7 +2057,7 @@ e.setState({ cache: { files: 3, bytes: 5, groups: [{ share: 'Filme', files: 2, b
 out.old = e.readyOf('Filme');
 console.log(JSON.stringify(out));
 JS);
-    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1'), true);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/jack/desk.js') . ' 2>&1'), true);
     check('ready: page ran under node', is_array($o), json_encode($o));
     $o = is_array($o) ? $o : [];
     same('ready: a share row — «master now …» and, of that, EmbyCache\'s part', ['sizes_never', 'sizes_live {"pool":"master","size":"900 GB"}', 'sizes_ready {"files":"count.files {\"n\":2}","size":"150 GB"}'],
@@ -2069,7 +2069,7 @@ JS);
 }
 
 /**
- * Jack Emby and Unraid's mover (agent/desks/emby-mover.php; 2026-10-12: an intern, only under Ms. Moverelli): real runs
+ * Jack Emby and Unraid's mover (agent/desks/jack-mover.php; 2026-10-12: an intern, only under Ms. Moverelli): real runs
  * only while Unraid's mover schedule is «Disabled» (share.cfg empty, no mover.cron line), Ms. Moverelli is set up and
  * her ini keeps his list out, and Mover Tuning has no schedule of its own — never a Mover Tuning way any more; the
  * refusals' words; the switch-off notes the schedule it had (for her let-go); the mover at work (pid file, processes —
@@ -2077,9 +2077,9 @@ JS);
  * file it is on, fixture tree, an rsync stand-in that starts «the mover» after the first file); the notification; a
  * scheduled refusal counted, not repeated; his page under node.
  */
-function testEmbyMover(): void
+function testJackMover(): void
 {
-    $tmp = hardeningTmp('embymover');
+    $tmp = hardeningTmp('jackmover');
     foreach (["$tmp/data", "$tmp/tuning", "$tmp/dynamix", "$tmp/proc"] as $d) {
         mkdir($d, 0700, true);
     }
@@ -2092,7 +2092,7 @@ function testEmbyMover(): void
     $look = ['global' => [$list], 'shares' => []];
     $tuning = null;
     $notes = [];
-    $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'tuning_dir' => "$tmp/tuning",
+    $GLOBALS['jackMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'tuning_dir' => "$tmp/tuning",
         'installed' => function () use (&$installed) { return $installed; },
         'lists' => fn () => [$list, "$tmp/data/embycache_exclude.txt"], 'dir' => "$tmp/data", 'shares' => function () use (&$shares) { return $shares; },
         'hired' => function () use (&$hired) { return $hired; }, 'pid' => "$tmp/mover.pid", 'proc' => "$tmp/proc",
@@ -2105,70 +2105,70 @@ function testEmbyMover(): void
     // way 1: Unraid's own schedule — as Unraid 7.3.3 writes it (a test server: «Daily» writes mover.cron, «Disabled» empties the key, deletes the file)
     file_put_contents("$tmp/share.cfg", "# Generated settings:\nshareMoverSchedule=\"40 3 * * *\"\nshareMoverLogging=\"no\"\n");
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
-    $r = embyMoverRule();
+    $r = jackMoverRule();
     same('mover: Unraid\'s schedule daily, no Mover Tuning — no real runs, why, its time', [false, null, 'schedule', '40 3 * * *'], [$r['ok'], $r['way'], $r['why'], $r['schedule']]);
-    $p = embyMoverProblem($r);
-    same('mover: … the refusal\'s key', 'emby_mover_schedule', $p?->key);
+    $p = jackMoverProblem($r);
+    same('mover: … the refusal\'s key', 'jack_mover_schedule', $p?->key);
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
     @unlink("$tmp/dynamix/mover.cron");
-    $r = embyMoverRule();
-    same('mover: «Disabled», Ms. Moverelli keeping his list out — real runs go her way', [true, 'moverelli', null, null], [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)]);
+    $r = jackMoverRule();
+    same('mover: «Disabled», Ms. Moverelli keeping his list out — real runs go her way', [true, 'moverelli', null, null], [$r['ok'], $r['way'], $r['why'], jackMoverProblem($r)]);
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
-    same('mover: the key empty but the cron line still there — it runs: no', [false, 'schedule'], [embyMoverRule()['ok'], embyMoverRule()['why']]);
+    same('mover: the key empty but the cron line still there — it runs: no', [false, 'schedule'], [jackMoverRule()['ok'], jackMoverRule()['why']]);
     file_put_contents("$tmp/dynamix/mover.cron", "# Generated mover schedule:\n# 40 3 * * * /usr/local/sbin/mover start\n");
-    same('mover: a commented line doesn\'t run', true, embyMoverRule()['ok']);
+    same('mover: a commented line doesn\'t run', true, jackMoverRule()['ok']);
     @unlink("$tmp/dynamix/mover.cron");
 
     // Mover Tuning is no way for him any more (2026-10-12): only a schedule of its own counts — it would carry his films back
     $tuning = ['file' => 'mover.tuning.cron', 'cron' => '0 5 * * 0'];
-    $r = embyMoverRule();
-    same('mover: Mover Tuning with a schedule of its own — no, why, its time (refusal)', [false, null, 'tuning_schedule', 'emby_mover_tuning_schedule', ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning']],
-        [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)?->key, embyMoverProblem($r)?->params]);
+    $r = jackMoverRule();
+    same('mover: Mover Tuning with a schedule of its own — no, why, its time (refusal)', [false, null, 'tuning_schedule', 'jack_mover_tuning_schedule', ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning']],
+        [$r['ok'], $r['way'], $r['why'], jackMoverProblem($r)?->key, jackMoverProblem($r)?->params]);
     // another mover found (2026-10-12): his refusal and the Team Lead's point name it, not Mover Tuning
     $tuning = ['file' => 'User Scripts: nightly', 'cron' => '0 4 * * *', 'name' => 'User Scripts: nightly'];
-    $r = embyMoverRule();
+    $r = jackMoverRule();
     same('mover: another scheduled mover — the refusal and the point name it', [['schedule' => '0 4 * * *', 'name' => 'User Scripts: nightly'], ['schedule' => '0 4 * * *', 'name' => 'User Scripts: nightly']],
-        [embyMoverProblem($r)?->params, embyMoverFinding($r)['params']]);
+        [jackMoverProblem($r)?->params, jackMoverFinding($r)['params']]);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
-        $lang = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/emby/lang/$l.json"), true);
-        check("mover: … its words ($l) say {name}, never Mover Tuning by name", str_contains($lang['errors.emby_mover_tuning_schedule'], '{name}')
-            && !str_contains($lang['errors.emby_mover_tuning_schedule'] . $lang['check.mover_tuning_schedule'] . $lang['check.mover_tuning_schedule_how'], 'Mover Tuning')
+        $lang = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/jack/lang/$l.json"), true);
+        check("mover: … its words ($l) say {name}, never Mover Tuning by name", str_contains($lang['errors.jack_mover_tuning_schedule'], '{name}')
+            && !str_contains($lang['errors.jack_mover_tuning_schedule'] . $lang['check.mover_tuning_schedule'] . $lang['check.mover_tuning_schedule_how'], 'Mover Tuning')
             && str_contains($lang['check.mover_tuning_schedule'], '{name}') && str_contains($lang['check.mover_tuning_schedule_how'], '{name}'));
     }
     $tuning = null;
     check('mover: no Mover Tuning way left in his code (no list entered, no override, no forced-move look)',
-        !preg_match('/embyTuning(Look|Write|Set|Overrides)|filelistv|tuning_list|tuning_force|tuning_override/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby-mover.php')
-            . file_get_contents(OFFICE_DIR . '/agent/desks/emby-letgo.php') . file_get_contents(OFFICE_DIR . '/agent/desks/emby.php')));
+        !preg_match('/jackTuning(Look|Write|Set|Overrides)|filelistv|tuning_list|tuning_force|tuning_override/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-mover.php')
+            . file_get_contents(OFFICE_DIR . '/agent/desks/jack-letgo.php') . file_get_contents(OFFICE_DIR . '/agent/desks/jack.php')));
 
     // the Team Lead's point, the page's state
     $ids = [];
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
-    $ids[] = embyMoverFinding(embyMoverRule());
+    $ids[] = jackMoverFinding(jackMoverRule());
     @unlink("$tmp/dynamix/mover.cron");
     $tuning = ['file' => 'mover.tuning.cron', 'cron' => '0 5 * * 0'];
-    $ids[] = embyMoverFinding(embyMoverRule());
+    $ids[] = jackMoverFinding(jackMoverRule());
     $tuning = null;
     $look = null;
-    $ids[] = embyMoverFinding(embyMoverRule());
+    $ids[] = jackMoverFinding(jackMoverRule());
     $look = ['global' => [$list], 'shares' => []];
-    $ids[] = embyMoverFinding(embyMoverRule());
+    $ids[] = jackMoverFinding(jackMoverRule());
     same('mover: the Team Lead\'s point — what is missing (Unraid\'s schedule, Mover Tuning\'s, Ms. Moverelli not set up), required, whose page',
-        [['mover', false, [], '#/emby'], ['mover_tuning_schedule', false, ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning'], '#/emby'], ['mover_moverelli_setup', false, [], '#/moverelli/setup'],
-         ['mover', true, [], '#/emby']],
+        [['mover', false, [], '#/jack'], ['mover_tuning_schedule', false, ['schedule' => '0 5 * * 0', 'name' => 'Mover Tuning'], '#/jack'], ['mover_moverelli_setup', false, [], '#/moverelli/setup'],
+         ['mover', true, [], '#/jack']],
         array_map(fn ($f) => [$f['id'], $f['ok'], $f['params'], $f['link']], $ids));
     check('mover: … required', !array_filter($ids, fn ($f) => $f['level'] !== 'required'));
     $look = null;
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
-    $st = embyMoverState(embyMoverRule());
+    $st = jackMoverState(jackMoverRule());
     same('mover: his page\'s state — Unraid\'s schedule on, Ms. Moverelli not set up, no Mover Tuning', ['ok' => false, 'way' => null, 'why' => 'schedule', 'schedule' => '0 */4 * * *', 'running' => false], $st);
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
-    $r = embyMoverRule();
-    same('mover: Ms. Moverelli not hired or not set up — no real run, the refusal says she supervises him', [false, null, 'moverelli', 'emby_mover_moverelli', false],
-        [$r['ok'], $r['way'], $r['why'], embyMoverProblem($r)?->key, array_key_exists('moverelli', embyMoverState($r))]);
+    $r = jackMoverRule();
+    same('mover: Ms. Moverelli not hired or not set up — no real run, the refusal says she supervises him', [false, null, 'moverelli', 'jack_mover_moverelli', false],
+        [$r['ok'], $r['way'], $r['why'], jackMoverProblem($r)?->key, array_key_exists('moverelli', jackMoverState($r))]);
     $look = ['global' => [$list], 'shares' => []];
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
 
-    // «Switch the mover schedule off…» (emby.mover_off): exactly Unraid's form — a stand-in for emcmd notes its argument and
+    // «Switch the mover schedule off…» (jack.mover_off): exactly Unraid's form — a stand-in for emcmd notes its argument and
     // does what emhttpd does with it («Disabled»: the key emptied, mover.cron deleted); Unraid's own is never run here
     $emcmdCalls = "$tmp/emcmd.calls";
     $emcmd = function (string $does) use ($tmp, $emcmdCalls) {
@@ -2186,55 +2186,55 @@ function testEmbyMover(): void
         file_put_contents("$tmp/share.cfg", "# Generated settings:\nshareMoverSchedule=\"40 3 * * *\"\nshareMoverLogging=\"yes\"\nshareMoverProgress=\"no\"\n");
         file_put_contents("$tmp/dynamix/mover.cron", $daily);
     };
-    $offErr = function (array $r) { try { embyMoverOff($r); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
+    $offErr = function (array $r) { try { jackMoverOff($r); return 'ok'; } catch (Problem $p) { return [$p->key, $p->params]; } };
     $emcmd($asUnraid);
     $daily2();
     file_put_contents("$tmp/var.ini", "shareMoverSchedule=\"40 3 * * *\"\nshareMoverLogging=\"yes\"\nshareMoverProgress=\"no\"\n");
     same('mover off: without confirm, confirm not true — refused, emcmd not run, the schedule as it was',
-        [['bad_request', []], ['bad_request', []], [], '40 3 * * *'], [$offErr([]), $offErr(['confirm' => 1]), $calls(), embyMoverOwn(embyMoverHost())['cron']]);
+        [['bad_request', []], ['bad_request', []], [], '40 3 * * *'], [$offErr([]), $offErr(['confirm' => 1]), $calls(), jackMoverOwn(jackMoverHost())['cron']]);
     $waited = [];
     $notes = [];
-    $r = embyMoverOff(['confirm' => true]);
+    $r = jackMoverOff(['confirm' => true]);
     same('mover off: emcmd once with exactly the form\'s fields — «Disabled», ⟦Mover logging⟧ kept (yes), ⟦Apply⟧', ['1:shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], $calls());
     same('mover off: … the schedule it had noted first (Ms. Moverelli\'s let-go brings it back)', [['40 3 * * *', 'yes']], $notes);
     same('mover off: … looked at afterwards: share.cfg says "", mover.cron gone, the rest of share.cfg kept; what it was; no waiting needed',
         [['ok' => true, 'already' => false, 'was' => '40 3 * * *'], ['set' => '', 'cron' => null], "# Generated settings:\nshareMoverSchedule=\"\"\nshareMoverLogging=\"yes\"\nshareMoverProgress=\"no\"\n", []],
-        [$r, embyMoverOwn(embyMoverHost()), file_get_contents("$tmp/share.cfg"), $waited]);
-    same('mover off: … now real runs go', [true, null], [embyMoverRule()['ok'], embyMoverRule()['why']]);
-    same('mover off: already off — nothing sent', [['ok' => true, 'already' => true, 'was' => null], []], [embyMoverOff(['confirm' => true]), $calls()]);
+        [$r, jackMoverOwn(jackMoverHost()), file_get_contents("$tmp/share.cfg"), $waited]);
+    same('mover off: … now real runs go', [true, null], [jackMoverRule()['ok'], jackMoverRule()['why']]);
+    same('mover off: already off — nothing sent', [['ok' => true, 'already' => true, 'was' => null], []], [jackMoverOff(['confirm' => true]), $calls()]);
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
     same('mover off: the key empty but mover.cron still there — sent (emhttpd deletes it), logging from var.ini', [true, ['1:shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], false],
-        [embyMoverOff(['confirm' => true])['ok'], $calls(), file_exists("$tmp/dynamix/mover.cron")]);
+        [jackMoverOff(['confirm' => true])['ok'], $calls(), file_exists("$tmp/dynamix/mover.cron")]);
     $daily2();
     file_put_contents("$tmp/var.ini", "shareMoverLogging=\"no\"\n");
-    embyMoverOff(['confirm' => true]);
+    jackMoverOff(['confirm' => true]);
     same('mover off: ⟦Mover logging⟧ as emhttpd has it now (var.ini «no», share.cfg «yes») — the form\'s value', ['1:shareMoverSchedule=&shareMoverLogging=no&changeMover=Apply'], $calls());
     $daily2();
     @unlink("$tmp/var.ini");
-    embyMoverOff(['confirm' => true]);
+    jackMoverOff(['confirm' => true]);
     same('mover off: no var.ini — share.cfg\'s value', ['1:shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], $calls());
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\n");
-    embyMoverOff(['confirm' => true]);
+    jackMoverOff(['confirm' => true]);
     same('mover off: neither says it — «no», Unraid\'s default', ['1:shareMoverSchedule=&shareMoverLogging=no&changeMover=Apply'], $calls());
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */4 * * *\"\nshareMoverLogging=\"yes&changeMover=x\"\n");
     $e = $offErr(['confirm' => true]);
-    same('mover off: a logging value the form doesn\'t know — refused, nothing sent, nothing changed', ['emby_mover_off_failed', [], '0 */4 * * *'],
-        [$e[0] ?? null, $calls(), embyMoverOwn(embyMoverHost())['set']]);
+    same('mover off: a logging value the form doesn\'t know — refused, nothing sent, nothing changed', ['jack_mover_off_failed', [], '0 */4 * * *'],
+        [$e[0] ?? null, $calls(), jackMoverOwn(jackMoverHost())['set']]);
     $daily2();
     $emcmd('exit 0');
     $waited = [];
     $e = $offErr(['confirm' => true]);
-    same('mover off: emhttpd changed nothing — looked again up to 3 s, refused with what is still there', ['emby_mover_off_failed', 'share.cfg still says shareMoverSchedule="40 3 * * *"', 10, 3000, 1],
+    same('mover off: emhttpd changed nothing — looked again up to 3 s, refused with what is still there', ['jack_mover_off_failed', 'share.cfg still says shareMoverSchedule="40 3 * * *"', 10, 3000, 1],
         [$e[0] ?? null, $e[1]['detail'] ?? null, count($waited), array_sum($waited), count($calls())]);
     $emcmd("sed -i 's/^shareMoverSchedule=.*/shareMoverSchedule=\"\"/' " . escapeshellarg("$tmp/share.cfg") . "; echo 'csrf mismatch'; exit 1");
     $e = $offErr(['confirm' => true]);
-    same('mover off: the key emptied but mover.cron left, emcmd failing — refused, what runs and what emcmd said', ['emby_mover_off_failed', 'mover.cron still runs «40 3 * * *» — csrf mismatch'],
+    same('mover off: the key emptied but mover.cron left, emcmd failing — refused, what runs and what emcmd said', ['jack_mover_off_failed', 'mover.cron still runs «40 3 * * *» — csrf mismatch'],
         [$e[0] ?? null, $e[1]['detail'] ?? null]);
     $calls();
     $daily2();
     @unlink("$tmp/emcmd");
     $e = $offErr(['confirm' => true]);
-    same('mover off: no emcmd — refused, nothing changed', ['emby_mover_off_failed', "$tmp/emcmd not found", '40 3 * * *'], [$e[0] ?? null, $e[1]['detail'] ?? null, embyMoverOwn(embyMoverHost())['cron']]);
+    same('mover off: no emcmd — refused, nothing changed', ['jack_mover_off_failed', "$tmp/emcmd not found", '40 3 * * *'], [$e[0] ?? null, $e[1]['detail'] ?? null, jackMoverOwn(jackMoverHost())['cron']]);
     check('mover off: the suite\'s own emcmd guard — never Unraid\'s (OFFICE_EMCMD_BIN)', str_starts_with((string) getenv('OFFICE_EMCMD_BIN'), TESTS_RUN_DIR . '/'));
     // through the agent's dispatch: the hired gate first, then the confirm — nothing sent either way
     $emcmd($asUnraid);
@@ -2242,11 +2242,11 @@ function testEmbyMover(): void
     $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
     $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
     file_put_contents("$tmp/staff.json", json_encode(['hired' => ['backup' => 1]]));
-    $a1 = $ask(['action' => 'emby.mover_off', 'confirm' => true]);
-    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['emby' => 1]]));
-    $a2 = $ask(['action' => 'emby.mover_off']);
+    $a1 = $ask(['action' => 'jack.mover_off', 'confirm' => true]);
+    file_put_contents("$tmp/staff.json", json_encode(['hired' => ['jack' => 1]]));
+    $a2 = $ask(['action' => 'jack.mover_off']);
     same('mover off: unhired — refused (the hired gate); hired without confirm — refused; emcmd never run, the schedule as it was',
-        ['not_hired', 'bad_request', [], '40 3 * * *'], [$a1, $a2, $calls(), embyMoverOwn(embyMoverHost())['cron']]);
+        ['not_hired', 'bad_request', [], '40 3 * * *'], [$a1, $a2, $calls(), jackMoverOwn(jackMoverHost())['cron']]);
     $GLOBALS['agentStaffFile'] = $staffBefore;
     if ($staffBefore === null) {
         unset($GLOBALS['agentStaffFile']);
@@ -2264,21 +2264,21 @@ function testEmbyMover(): void
     $proc(100, 'php', 1, "php\0agent.php\0job\0embycache\0run");
     $proc(150, 'python3', 100);
     $proc(200, 'bash', 1);
-    same('mover at work: nothing', false, embyMoverRunning());
+    same('mover at work: nothing', false, jackMoverRunning());
     file_put_contents("$tmp/mover.pid", "200\n");
-    same('mover at work: a pid file naming a process that isn\'t a mover (reused pid) — no', false, embyMoverRunning());
+    same('mover at work: a pid file naming a process that isn\'t a mover (reused pid) — no', false, jackMoverRunning());
     file_put_contents("$tmp/mover.pid", "4242\n");
-    same('mover at work: a pid file of a gone process — no', false, embyMoverRunning());
+    same('mover at work: a pid file of a gone process — no', false, jackMoverRunning());
     $proc(4242, 'mover', 1, "/bin/bash\0/usr/local/sbin/mover\0start");
-    same('mover at work: Unraid\'s mover by its pid file — yes', true, embyMoverRunning());
+    same('mover at work: Unraid\'s mover by its pid file — yes', true, jackMoverRunning());
     @unlink("$tmp/mover.pid");
-    same('mover at work: … its process alone — yes', true, embyMoverRunning());
+    same('mover at work: … its process alone — yes', true, jackMoverRunning());
     exec('rm -rf ' . escapeshellarg("$tmp/proc/4242"));
     $proc(300, 'move', 150);
     same('mover at work: the move binary under his own run (EmbyCache\'s cleanup_tool) — not the mover; asked without himself — yes', [false, true],
-        [embyMoverRunning(null, 100), embyMoverRunning()]);
+        [jackMoverRunning(null, 100), jackMoverRunning()]);
     $proc(400, 'age_mover', 1);
-    same('mover at work: Mover Tuning\'s age_mover — yes', true, embyMoverRunning(null, 100));
+    same('mover at work: Mover Tuning\'s age_mover — yes', true, jackMoverRunning(null, 100));
     exec('rm -rf ' . escapeshellarg("$tmp/proc") . '/*');
 
     // the gate: the mover at work refuses a real run from the page (and the let-go), a scheduled one waits 5 min at a time
@@ -2289,130 +2289,130 @@ function testEmbyMover(): void
         $slept = [];
         $m = $n = 0;
         $seen = null;
-        $r = embyRunGate($tool, $by, ['dir' => $gdir, 'waitdir' => "$gdir/run", 'array' => fn () => true, 'scheduled' => fn () => true, 'max' => $max,
+        $r = jackRunGate($tool, $by, ['dir' => $gdir, 'waitdir' => "$gdir/run", 'array' => fn () => true, 'scheduled' => fn () => true, 'max' => $max,
             'now' => function () use (&$t) { return $t; },
-            'sleep' => function (int $s) use (&$t, &$slept, &$seen, $tool, $gdir) { $slept[] = $s; $t += $s; $seen ??= embyRunWaiting($tool, "$gdir/run"); },
+            'sleep' => function (int $s) use (&$t, &$slept, &$seen, $tool, $gdir) { $slept[] = $s; $t += $s; $seen ??= jackRunWaiting($tool, "$gdir/run"); },
             'mover' => function () use (&$m, $movers) { return $movers[min($m++, count($movers) - 1)]; },
             'look' => function () use (&$n, $looks) { return $looks[min($n++, count($looks) - 1)]; }]);
-        embyWaitEnd($r['lock'], "$gdir/run", $tool);
+        jackWaitEnd($r['lock'], "$gdir/run", $tool);
         return $r + ['slept' => $slept, 'seen' => $seen];
     };
     $r = $gate('embycache', 'office', [true]);
-    same('gate: the mover at work, from the page — refused at once, why', [false, 'refused', 'emby_mover_running', []], [$r['go'], $r['result'], $r['why'], $r['slept']]);
+    same('gate: the mover at work, from the page — refused at once, why', [false, 'refused', 'jack_mover_running', []], [$r['go'], $r['result'], $r['why'], $r['slept']]);
     $r = $gate('embycache', 'letgo', [true]);
-    same('gate: … the let-go\'s release too', [false, 'refused', 'emby_mover_running'], [$r['go'], $r['result'], $r['why']]);
+    same('gate: … the let-go\'s release too', [false, 'refused', 'jack_mover_running'], [$r['go'], $r['result'], $r['why']]);
     $r = $gate('embycache', 'schedule', [true, true, false]);
     same('gate: on schedule — waits 5 min at a time until the mover is done, its wait says why', [true, [300, 300], 600, 'mover'],
         [$r['go'], $r['slept'], $r['waited'], $r['seen']['why'] ?? null]);
     $r = $gate('embycache', 'schedule', [true], [], 900);
-    same('gate: on schedule, the mover at work the whole time — skipped, why', [false, 'skipped', 'emby_mover_running', 900], [$r['go'], $r['result'], $r['why'], $r['waited']]);
+    same('gate: on schedule, the mover at work the whole time — skipped, why', [false, 'skipped', 'jack_mover_running', 900], [$r['go'], $r['result'], $r['why'], $r['waited']]);
     $W = ['state' => 'watching', 'who' => [['user' => 'anna', 'title' => 'Alien', 'device' => 'iPad', 'client' => 'x', 'paused' => false]]];
     $r = $gate('gather', 'schedule', [true, false, false], [$W, ['state' => 'free', 'who' => []]]);
     same('gate: a real gather — the mover first (5 min), then someone watching (15 min), then go', [true, [300, 900], 'mover'],
         [$r['go'], $r['slept'], $r['seen']['why'] ?? null]);
     $r = $gate('embycache', 'schedule', [false], [$W]);
     same('gate: EmbyCache never asks Emby\'s watchers', [true, []], [$r['go'], $r['slept']]);
-    check('gate: nothing left behind', !file_exists("$gdir/run/emby-embycache-wait.json") && !flockHeld("$gdir/run/emby-embycache-wait.lock"));
+    check('gate: nothing left behind', !file_exists("$gdir/run/jack-embycache-wait.json") && !flockHeld("$gdir/run/jack-embycache-wait.lock"));
 
     // during a run: the mover starts → the stop request with why, the run's own exit
     $stop = "$tmp/stop.json";
     $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
     $p = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', $stop], $null, $pipes);
     $asked = 0;
-    $r = embyRunWatch($p, $stop, false, function () use (&$asked) { $asked++; return ['state' => 'free', 'who' => []]; }, fn () => true, 0, 0);
+    $r = jackRunWatch($p, $stop, false, function () use (&$asked) { $asked++; return ['state' => 'free', 'who' => []]; }, fn () => true, 0, 0);
     same('watch: the mover starts during EmbyCache\'s run — asked to stop, why mover, Emby never asked', [3, 'mover', null, 'mover', 0],
         [$r['exit'], $r['stopped_why'], $r['stopped_for'], json_decode((string) file_get_contents($stop), true)['why'] ?? null, $asked]);
     @unlink($stop);
     $p = proc_open(['bash', '-c', 'sleep 0.3; exit 0'], $null, $pipes);
-    $r = embyRunWatch($p, $stop, false, null, fn () => false, 0, 0);
+    $r = jackRunWatch($p, $stop, false, null, fn () => false, 0, 0);
     same('watch: no mover — the run goes to its end', [0, null, false], [$r['exit'], $r['stopped_why'], file_exists($stop)]);
 
     // the job's words: the result in his list of runs, Unraid's notification (normal), a scheduled refusal counted
     same('mover stop: Unraid hears it — normal, not a failure (a run and the let-go\'s release; a gather stopped for a watcher stays quiet)',
-        ['stopped_mover', 'stopped_mover', null], [embyNotifyOutcome('run', 'stopped', [], 'mover'), embyNotifyOutcome('release', 'stopped', [], 'mover'),
-         embyNotifyOutcome('run', 'stopped', ['errors' => 0], 'watching')]);
+        ['stopped_mover', 'stopped_mover', null], [jackNotifyOutcome('run', 'stopped', [], 'mover'), jackNotifyOutcome('release', 'stopped', [], 'mover'),
+         jackNotifyOutcome('run', 'stopped', ['errors' => 0], 'watching')]);
     $bin = "$tmp/notify";
     file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
     chmod($bin, 0755);
     $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
     putenv("OFFICE_NOTIFY_BIN=$bin");
     putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
-    embyNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 2], 'errors' => 0], 3, 'mover');
+    jackNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 2], 'errors' => 0], 3, 'mover');
     $sent = (string) @file_get_contents("$tmp/notified");
     check('mover stop: the notification — normal, «stopped (the mover started)», how many moved by then', str_contains($sent, "-i\nnormal")
         && str_contains($sent, 'stopped (the mover started)') && str_contains($sent, "Unraid's mover started (3 files moved by then)"), $sent);
     @unlink("$tmp/notified");
-    embyNotify('gather', 'run', 'stopped', ['result' => 'stopped', 'folders_done' => 4, 'folders' => 9], 3, 'mover');
+    jackNotify('gather', 'run', 'stopped', ['result' => 'stopped', 'folders_done' => 4, 'folders' => 9], 3, 'mover');
     check('mover stop: … the gather\'s', str_contains((string) @file_get_contents("$tmp/notified"), 'Stopped after 4 of 9 folders'), (string) @file_get_contents("$tmp/notified"));
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
     $hdir = "$tmp/hist";
     foreach ([100, 3700, 7300] as $t) {
-        embyRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => $t, 'finished' => $t, 'result' => 'refused', 'why' => 'emby_mover_schedule'], $hdir);
+        jackRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => $t, 'finished' => $t, 'result' => 'refused', 'why' => 'jack_mover_schedule'], $hdir);
     }
-    embyRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'office', 'started' => 8000, 'finished' => 8000, 'result' => 'refused', 'why' => 'emby_mover_schedule'], $hdir);
-    $h = embyHistory($hdir);
+    jackRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'office', 'started' => 8000, 'finished' => 8000, 'result' => 'refused', 'why' => 'jack_mover_schedule'], $hdir);
+    $h = jackHistory($hdir);
     same('mover: refused on schedule every hour for the same reason — one line, counted; one from the page stays apart',
         [2, 'office', 'schedule', 3, 100, 7300], [count($h), $h[0]['by'] ?? null, $h[1]['by'] ?? null, $h[1]['times'] ?? null, $h[1]['first'] ?? null, $h[1]['started'] ?? null]);
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('mover: real runs ask the rule (embyRunCheck: run only), the page and the job refuse while the mover works, EmbyCache gets its stop file',
-        str_contains($src, "if (\$mode === 'run' && (\$p = embyMoverProblem(embyMoverRule()))) {")
-        && str_contains($src, "if (\$mode === 'run' && embyMoverRunning()) {")
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('mover: real runs ask the rule (jackRunCheck: run only), the page and the job refuse while the mover works, EmbyCache gets its stop file',
+        str_contains($src, "if (\$mode === 'run' && (\$p = jackMoverProblem(jackMoverRule()))) {")
+        && str_contains($src, "if (\$mode === 'run' && jackMoverRunning()) {")
         && str_contains($src, "(\$real ? ['EMBYCACHE_STOP' => \"\$dir/office-stop.json\"] : [])")
         && str_contains($src, "\$real = (\$tool === 'gather' && \$mode === 'run') || (\$tool === 'embycache' && in_array(\$mode, ['run', 'release'], true));"));
 
     // Ms. Moverelli (agent/desks/moverelli.php): her smart_mover.ini must keep his list out for his shares — the
     // global_excludes or the share's excludes= name it, or the share is skip=yes — else real runs are refused; kept: way «moverelli»
     $look = null;
-    $r = embyMoverRule();
+    $r = jackMoverRule();
     same('mover moverelli: not hired (or not set up) — no real run, nothing said of her ini', [false, null, 'moverelli', null, false],
-        [$r['ok'], $r['way'], $r['why'], $r['moverelli'], array_key_exists('moverelli', embyMoverState($r))]);
+        [$r['ok'], $r['way'], $r['why'], $r['moverelli'], array_key_exists('moverelli', jackMoverState($r))]);
     $look = ['global' => [], 'shares' => []];
-    $r = embyMoverRule();
+    $r = jackMoverRule();
     same('mover moverelli: her ini without his list — no, his shares and EmbyCache\'s list named (refusal, the Team Lead\'s point linking her setup, his page\'s state)',
-        [false, null, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['file' => $list, 'shares' => 'Filme, Serien'], ['mover_moverelli', false, ['shares' => 'Filme, Serien'], '#/moverelli/setup'],
+        [false, null, 'moverelli_list', ['Filme', 'Serien'], 'jack_mover_moverelli_list', ['file' => $list, 'shares' => 'Filme, Serien'], ['mover_moverelli', false, ['shares' => 'Filme, Serien'], '#/moverelli/setup'],
          ['uncovered' => ['Filme', 'Serien'], 'file' => $list]],
-        [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'], embyMoverProblem($r)?->key, array_intersect_key(embyMoverProblem($r)?->params ?? [], ['shares' => 1, 'file' => 1]),
-         [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok'], embyMoverFinding($r)['params'], embyMoverFinding($r)['link']], embyMoverState($r)['moverelli'] ?? null]);
+        [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'], jackMoverProblem($r)?->key, array_intersect_key(jackMoverProblem($r)?->params ?? [], ['shares' => 1, 'file' => 1]),
+         [jackMoverFinding($r)['id'], jackMoverFinding($r)['ok'], jackMoverFinding($r)['params'], jackMoverFinding($r)['link']], jackMoverState($r)['moverelli'] ?? null]);
     $look = ['global' => ['/mnt/user/system/keep.txt', $list], 'shares' => []];
-    $r = embyMoverRule();
+    $r = jackMoverRule();
     same('mover moverelli: his list in her global_excludes — real runs go her way', [true, 'moverelli', null, []], [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered']]);
     $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ["$tmp/data/embycache_exclude.txt"]], 'Serien' => ['skip' => true, 'excludes' => []]]];
-    same('mover moverelli: … per share (the list by its other path), a share left out — fine', [true, 'moverelli'], [embyMoverRule()['ok'], embyMoverRule()['way']]);
+    same('mover moverelli: … per share (the list by its other path), a share left out — fine', [true, 'moverelli'], [jackMoverRule()['ok'], jackMoverRule()['way']]);
     $look = ['global' => [], 'shares' => ['Filme' => ['skip' => false, 'excludes' => ['/mnt/user/system/keep.txt']], 'Musik' => ['skip' => false, 'excludes' => [$list]]]];
     same('mover moverelli: another list for Filme, his list only for a share that isn\'t his — no', ['moverelli_list', ['Filme', 'Serien']],
-        [embyMoverRule()['why'], embyMoverRule()['moverelli']['uncovered']]);
+        [jackMoverRule()['why'], jackMoverRule()['moverelli']['uncovered']]);
     file_put_contents("$tmp/dynamix/mover.cron", $daily);
-    same('mover moverelli: Unraid\'s own schedule on as well — that is said first', 'schedule', embyMoverRule()['why']);
+    same('mover moverelli: Unraid\'s own schedule on as well — that is said first', 'schedule', jackMoverRule()['why']);
     @unlink("$tmp/dynamix/mover.cron");
     // through her own moverelliExcludeLook(): hired but no smart_mover.ini — she isn't set up: refused; then an ini
     // without his list, then one with it; not hired — her ini doesn't count
     $mo = "$tmp/moverelli";
     mkdir($mo, 0700, true);
-    $GLOBALS['embyMoverHost']['moverelli'] = fn () => moverelliExcludeLook($mo, true);
-    $r = embyMoverRule();
-    same('mover moverelli: hired, no smart_mover.ini — refused (moverelli), the Team Lead\'s point links her setup', [false, 'moverelli', 'emby_mover_moverelli', 'mover_moverelli_setup', '#/moverelli/setup'],
-        [$r['ok'], $r['why'], embyMoverProblem($r)?->key, embyMoverFinding($r)['id'], embyMoverFinding($r)['link']]);
+    $GLOBALS['jackMoverHost']['moverelli'] = fn () => moverelliExcludeLook($mo, true);
+    $r = jackMoverRule();
+    same('mover moverelli: hired, no smart_mover.ini — refused (moverelli), the Team Lead\'s point links her setup', [false, 'moverelli', 'jack_mover_moverelli', 'mover_moverelli_setup', '#/moverelli/setup'],
+        [$r['ok'], $r['why'], jackMoverProblem($r)?->key, jackMoverFinding($r)['id'], jackMoverFinding($r)['link']]);
     file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt\n\n[Filme]\nexcludes = \n");
-    $r = embyMoverRule();
-    same('mover moverelli: … her ini there, his list not in it — refused (moverelli_list), his shares named, his finding', [false, 'moverelli_list', ['Filme', 'Serien'], 'emby_mover_moverelli_list', ['mover_moverelli', false]],
-        [$r['ok'], $r['why'], $r['moverelli']['uncovered'] ?? null, embyMoverProblem($r)?->key, [embyMoverFinding($r)['id'], embyMoverFinding($r)['ok']]]);
+    $r = jackMoverRule();
+    same('mover moverelli: … her ini there, his list not in it — refused (moverelli_list), his shares named, his finding', [false, 'moverelli_list', ['Filme', 'Serien'], 'jack_mover_moverelli_list', ['mover_moverelli', false]],
+        [$r['ok'], $r['why'], $r['moverelli']['uncovered'] ?? null, jackMoverProblem($r)?->key, [jackMoverFinding($r)['id'], jackMoverFinding($r)['ok']]]);
     file_put_contents("$mo/smart_mover.ini", "[GLOBAL]\nglobal_excludes = /mnt/user/system/keep.txt,$list\n");
-    $r = embyMoverRule();
+    $r = jackMoverRule();
     same('mover moverelli: … her ini keeps his list out — real runs go her way', [true, 'moverelli', null, []],
         [$r['ok'], $r['way'], $r['why'], $r['moverelli']['uncovered'] ?? null]);
     same('mover moverelli: … not hired — her ini doesn\'t count', null, moverelliExcludeLook($mo, false));
-    $GLOBALS['embyMoverHost']['moverelli'] = function () use (&$look) { return $look; };
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('mover moverelli: his runs never beside one of hers (embyRunCheck asks moverelliBusy())',
-        str_contains($src, "if (function_exists('moverelliBusy') && moverelliBusy()) {\n        throw new Problem('emby_moverelli_running');"));
+    $GLOBALS['jackMoverHost']['moverelli'] = function () use (&$look) { return $look; };
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('mover moverelli: his runs never beside one of hers (jackRunCheck asks moverelliBusy())',
+        str_contains($src, "if (function_exists('moverelliBusy') && moverelliBusy()) {\n        throw new Problem('jack_moverelli_running');"));
     // the start lock they share: his check «none of hers» and his marker inside it
     $at = fn (string $x) => strpos($src, $x);
     check('mover moverelli: his job — the shared start lock, «none of hers», his office-run.json, then the lock let go',
-        $at('$movers = embyMoversLock();') !== false && $at('$movers = embyMoversLock();') < $at("if (\$movers === null || (function_exists('moverelliBusy') && moverelliBusy())) {")
+        $at('$movers = jackMoversLock();') !== false && $at('$movers = jackMoversLock();') < $at("if (\$movers === null || (function_exists('moverelliBusy') && moverelliBusy())) {")
         && $at("if (\$movers === null || (function_exists('moverelliBusy') && moverelliBusy())) {") < $at('writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);')
-        && $at('writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);') < $at('embyMoversUnlock($movers);
-    embyWaitEnd($wait, RUN_DIR, $tool);          // the run shows'));
+        && $at('writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);') < $at('jackMoversUnlock($movers);
+    jackWaitEnd($wait, RUN_DIR, $tool);          // the run shows'));
 
     // EmbyCache stops after the file it is on (--release on a fixture tree; an rsync stand-in «starts the mover» after its first file)
     [$exit] = run(['python3', '--version'], 10);
@@ -2449,7 +2449,7 @@ function testEmbyMover(): void
         same('mover stop: without the stop file the next run goes on to the end', [0, 'ok', 0], [$exit, readJson("$py/data/status.json")['result'] ?? null,
             count(file("$py/data/embycache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
     }
-    unset($GLOBALS['embyMoverHost']);
+    unset($GLOBALS['jackMoverHost']);
 
     // his page under node: the notice (why, the two ways; which way holds), the real run not offered, the run list's words
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -2468,7 +2468,7 @@ globalThis.document = { createTextNode: (t) => t };
 globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
   placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key + ':' + JSON.stringify(e.params || {}) };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
 const base = { configured: true, schedules: {}, jobs: { embycache: {}, gather: {} } };
@@ -2489,12 +2489,12 @@ out.tuning = [texts(n), n.children.length];
 e.setState({ ...base });
 out.old = [e.moverNotice(), e.moverOk()];
 out.runs = [
-  e.runSummary({ tool: 'embycache', mode: 'run', result: 'refused', why: 'emby_mover_schedule', times: 3 }),
-  e.runSummary({ tool: 'gather', mode: 'run', result: 'skipped', why: 'emby_mover_running', waited: 7200 }),
+  e.runSummary({ tool: 'embycache', mode: 'run', result: 'refused', why: 'jack_mover_schedule', times: 3 }),
+  e.runSummary({ tool: 'gather', mode: 'run', result: 'skipped', why: 'jack_mover_running', waited: 7200 }),
   e.runSummary({ tool: 'gather', mode: 'run', result: 'stopped', why: 'mover', status: { result: 'stopped', folders_done: 4, folders: 9 } }),
   e.runSummary({ tool: 'embycache', mode: 'run', result: 'stopped', why: 'mover', status: { mode: 'run', result: 'stopped', cleanup: { done: 1, planned: 3 }, fill: { done: 0, planned: 2, bytes_planned: 5 } } }),
 ];
-// «Switch the mover schedule off…»: a fresh look, the dialog (what it does), «Switch off» → emby.mover_off {confirm: true}
+// «Switch the mover schedule off…»: a fresh look, the dialog (what it does), «Switch off» → jack.mover_off {confirm: true}
 (async () => {
   const posted = [];
   const toasts = [];
@@ -2509,7 +2509,7 @@ out.runs = [
   const ok = await dlg.buttons[1].act();
   out.dialog = [dlg.title, texts(dlg.body).slice(0, 3), dlg.buttons.map((b) => b.text), ok, posted, toasts];
   posted.length = 0;
-  answer = { ok: false, error: { key: 'emby_mover_off_failed', params: { detail: 'x' } } };
+  answer = { ok: false, error: { key: 'jack_mover_off_failed', params: { detail: 'x' } } };
   await e.moverOffDialog();
   const bad = await dlg.buttons[1].act();
   out.dialog_bad = [bad, texts(dlg.body).slice(3), posted.length];
@@ -2520,7 +2520,7 @@ out.runs = [
   console.log(JSON.stringify(out));
 })();
 JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/jack/desk.js') . ' 2>&1');
     $o = json_decode($raw, true);
     if (!is_array($o)) {
         check('mover: page ran under node', false, $raw);
@@ -2528,22 +2528,22 @@ JS);
         return;
     }
     same('mover page: Unraid\'s schedule on — a warning with why, «Switch the mover schedule off…» and «Set it yourself» (Unraid\'s Mover Settings); no real run',
-        ['callout warn jo-mover', ['err:emby_mover_schedule:{"file":"","shares":"","schedule":"40 3 * * *"}', 'mover.off', 'mover.self'],
+        ['callout warn jo-mover', ['err:jack_mover_schedule:{"file":"","shares":"","schedule":"40 3 * * *"}', 'mover.off', 'mover.self'],
          [['button', null], ['a', '/Settings/MoverSettings']], false], $o['schedule']);
     same('mover page: Ms. Moverelli not set up — why, a link to her setup; the mover at work said',
-        [['err:emby_mover_moverelli:{"file":"","shares":"","schedule":""}', 'mover.to_moverelli', 'mover.running'], [['a', '#/moverelli/setup']], 3], $o['supervise']);
+        [['err:jack_mover_moverelli:{"file":"","shares":"","schedule":""}', 'mover.to_moverelli', 'mover.running'], [['a', '#/moverelli/setup']], 3], $o['supervise']);
     same('mover page: her ini without his list — why with his shares and the list, the link to her setup',
-        ['err:emby_mover_moverelli_list:{"file":"/x/l.txt","shares":"Filme","schedule":""}', 'mover.to_moverelli'], $o['list']);
+        ['err:jack_mover_moverelli_list:{"file":"/x/l.txt","shares":"Filme","schedule":""}', 'mover.to_moverelli'], $o['list']);
     same('mover page: real runs go her way — quiet lines', ['jo-mover', ['mover.ok.disabled', 'mover.ok.moverelli'], true], $o['ok']);
-    same('mover page: Mover Tuning with a schedule of its own — why with its time, no button', [['err:emby_mover_tuning_schedule:{"file":"","shares":"","schedule":"0 5 * * 0","name":"Mover Tuning"}'], 1], $o['tuning']);
+    same('mover page: Mover Tuning with a schedule of its own — why with its time, no button', [['err:jack_mover_tuning_schedule:{"file":"","shares":"","schedule":"0 5 * * 0","name":"Mover Tuning"}'], 1], $o['tuning']);
     same('mover page: «Switch the mover schedule off…» — the dialog says what it does, «Switch off» sends confirm, a toast, closes',
         ['mover.off_title', ['mover.off_text', 'mover.off_move_now', 'mover.off_back'], ['common.cancel', 'mover.off_go'], true,
-         [['emby.mover_off', ['confirm' => true]]], [['mover.off_done', false]]], $o['dialog'] ?? null);
-    same('mover page: … refused — the dialog stays open with the reason', [false, ['err:emby_mover_off_failed:{"detail":"x"}'], 1], $o['dialog_bad'] ?? null);
+         [['jack.mover_off', ['confirm' => true]]], [['mover.off_done', false]]], $o['dialog'] ?? null);
+    same('mover page: … refused — the dialog stays open with the reason', [false, ['err:jack_mover_off_failed:{"detail":"x"}'], 1], $o['dialog_bad'] ?? null);
     same('mover page: … off meanwhile (the fresh look) — no dialog', null, array_key_exists('dialog_off', $o) ? $o['dialog_off'] : 'x');
     same('mover page: an older agent\'s state — nothing said, nothing refused', [null, true], $o['old']);
     same('mover page: his list of runs — refused (counted), skipped, the gather and EmbyCache stopped by the mover', [
-        'refused {"why":"err:emby_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\"}"} · refused_times {"n":3}',
+        'refused {"why":"err:jack_mover_schedule:{\"detail\":\"\",\"shares\":\"\",\"file\":\"\"}"} · refused_times {"n":3}',
         'skipped_mover_summary {"min":120}',
         'gather_stopped_mover {"done":4,"total":9} · gather_summary {"moved":"count.moved {\"n\":0}","dups":"count.dups {\"n\":0}","conflicts":"count.conflicts {\"n\":0}","dirs":"count.empty_dirs {\"n\":0}","kept":"count.kept {\"n\":0}"}',
         'stopped_mover_summary · run_summary {"back":1,"back_planned":3,"origin":0,"fill":0,"fill_planned":2,"fill_size":"5 B"}'], $o['runs']);
@@ -2561,45 +2561,45 @@ JS);
  * rsync and is written so at the next save, whatever a request or an import carries; what Jack hands EmbyCache (its
  * environment over any settings file) is rsync — EmbyCache's own load_config() says so; his setup page has no choice.
  */
-function testEmbyRsync(): void
+function testJackRsync(): void
 {
-    $tmp = hardeningTmp('embyrsync');
+    $tmp = hardeningTmp('jackrsync');
     same('rsync: an old «mover» reads as rsync, the rest kept', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple'],
-        embyToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple']));
-    same('rsync: none set (EmbyCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'], embyToolsRsync([]));
+        jackToolsRsync(['fill_tool' => 'mover', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple']));
+    same('rsync: none set (EmbyCache\'s own default would be the mover) — rsync', ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'], jackToolsRsync([]));
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
     file_put_contents("$tmp/emby/embycache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
         'instances' => $inst], JSON_UNESCAPED_SLASHES));
-    $read = embyReadSettings("$tmp/emby");
+    $read = jackReadSettings("$tmp/emby");
     same('rsync: an old settings file with «mover» reads as rsync (migrated on read)', ['rsync', 'rsync', "$tmp/pool"],
         [$read['fill_tool'] ?? null, $read['cleanup_tool'] ?? null, $read['cache_path'] ?? null]);
     same('rsync: the file itself untouched until the next save', 'mover', json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true)['cleanup_tool']);
-    check('rsync: the setup\'s save no longer takes the two keys from the page', !in_array('fill_tool', EMBY_SETTINGS, true) && !in_array('cleanup_tool', EMBY_SETTINGS, true));
-    $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('rsync: the save lays rsync over the request', (bool) preg_match('/\$cfg\[\$k\] = \$in\[\$k\];\s*\}\s*\}\s*\$cfg = embyToolsRsync\(\$cfg\);/', $code));
+    check('rsync: the setup\'s save no longer takes the two keys from the page', !in_array('fill_tool', JACK_SETTINGS, true) && !in_array('cleanup_tool', JACK_SETTINGS, true));
+    $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('rsync: the save lays rsync over the request', (bool) preg_match('/\$cfg\[\$k\] = \$in\[\$k\];\s*\}\s*\}\s*\$cfg = jackToolsRsync\(\$cfg\);/', $code));
     // the save's writer (also the import's): a request with «mover» is written as rsync
     $cfg = $read;
     $cfg['fill_tool'] = $cfg['cleanup_tool'] = 'mover';
     @mkdir("$tmp/run", 0700, true);
-    embyWriteSettings($cfg, "$tmp/emby", "$tmp/run");
+    jackWriteSettings($cfg, "$tmp/emby", "$tmp/run");
     $saved = json_decode((string) file_get_contents("$tmp/emby/embycache_settings.json"), true);
     same('rsync: a save that carries «mover» writes rsync (refused as a choice)', ['rsync', 'rsync'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
     // what Jack hands EmbyCache: its environment wins over any settings file — EmbyCache's own load_config() says so
     file_put_contents("$tmp/emby/old.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'fill_tool' => 'mover', 'cleanup_tool' => 'mover',
         'instances' => $inst], JSON_UNESCAPED_SLASHES));
-    $env = embyPyEnv();
+    $env = jackPyEnv();
     same('rsync: Jack\'s environment for EmbyCache says rsync both ways', ['rsync', 'rsync'], [$env['EMBYCACHE_FILL_TOOL'] ?? null, $env['EMBYCACHE_CLEANUP_TOOL'] ?? null]);
     $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import embycache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"])';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, EMBY_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + $env + ['EMBYCACHE_CONFIG' => "$tmp/emby/old.json"], 30);
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + $env + ['EMBYCACHE_CONFIG' => "$tmp/emby/old.json"], 30);
     same('rsync: EmbyCache run with Jack\'s environment on an old «mover» file — rsync both ways', [0, 'rsync|rsync'], [$exit, trim($out) ?: trim($err)]);
-    // the import: an old «mover» is Jack's rsync (tested with the whole import in testEmbyImport); never accepted as a value
-    same('rsync: «mover» is no valid value for the two keys', [false, true, false], [embyImportValueOk('cleanup_tool', 'mover', 'mover'),
-        embyImportValueOk('fill_tool', 'rsync', 'rsync'), embyImportValueOk('fill_tool', 'mover', 'rsync')]);
-    same('rsync: the import sets both itself', ['rsync', 'rsync'], [EMBY_IMPORT_FIXED['fill_tool'] ?? null, EMBY_IMPORT_FIXED['cleanup_tool'] ?? null]);
+    // the import: an old «mover» is Jack's rsync (tested with the whole import in testJackImport); never accepted as a value
+    same('rsync: «mover» is no valid value for the two keys', [false, true, false], [jackImportValueOk('cleanup_tool', 'mover', 'mover'),
+        jackImportValueOk('fill_tool', 'rsync', 'rsync'), jackImportValueOk('fill_tool', 'mover', 'rsync')]);
+    same('rsync: the import sets both itself', ['rsync', 'rsync'], [JACK_IMPORT_FIXED['fill_tool'] ?? null, JACK_IMPORT_FIXED['cleanup_tool'] ?? null]);
     // his setup page: no choice of the tool left, nothing sent
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('rsync: the setup page has no tool select and sends none', !str_contains($js, 'cleanup_tool') && !str_contains($js, 'fill_tool'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
@@ -2609,9 +2609,9 @@ function testEmbyRsync(): void
  * traceback), from the file or the environment; fixed per-user budgets found by the user's id also when the server's
  * name has a «:» (the key is «server:id»); the cleanup tool Jack hands it still rsync.
  */
-function testEmbyUpstream(): void
+function testJackUpstream(): void
 {
-    $tmp = hardeningTmp('embyupstream');
+    $tmp = hardeningTmp('jackupstream');
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby: Home', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
@@ -2623,7 +2623,7 @@ except l.ConfigError as e:
     print("config", e)';
     $run = function (array $settings, array $env = []) use ($tmp, $cfg, $load): string {
         file_put_contents("$tmp/emby/embycache_settings.json", $cfg($settings));
-        [$exit, $out, $err] = runEnv(['python3', '-c', $load, EMBY_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + embyPyEnv() + $env, 30);
+        [$exit, $out, $err] = runEnv(['python3', '-c', $load, JACK_APP], ['EMBYCACHE_DIR' => "$tmp/emby"] + jackPyEnv() + $env, 30);
         return $exit . ' ' . (trim($out) ?: trim($err));
     };
     same('emby upstream 9d14374: numbers read as numbers, rsync both ways', '0 ok 20.0 0 rsync', $run([]));
@@ -2641,36 +2641,36 @@ def select(u, cap, share):
 p.select = select
 p.apply_budget()
 print(" ".join(str(int(p.users[k].budget // 2**30)) for k in ("Emby: Home:u1", "Emby: Home:u2")))';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $plan, EMBY_APP], ['EMBYCACHE_DIR' => "$tmp/emby"], 30);
+    [$exit, $out, $err] = runEnv(['python3', '-c', $plan, JACK_APP], ['EMBYCACHE_DIR' => "$tmp/emby"], 30);
     same('emby upstream 9d14374: a fixed budget found by the user id on a server whose name has «:» (u1 5 GB, u2 the other 95)', [0, '5 95'], [$exit, preg_replace('/^.*\n/s', '', trim($out)) ?: trim($err)]);
-    check('emby upstream: the README names 9d14374 and why 6974247 stays out', str_contains($readme = (string) file_get_contents(EMBY_APP . '/README.md'), '`9d14374`')
+    check('emby upstream: the README names 9d14374 and why 6974247 stays out', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`9d14374`')
         && str_contains($readme, '`6974247`'));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 /**
- * The live panel while EmbyCache runs for real (emby-progress.php): its progress file read only in its shape, the part
+ * The live panel while EmbyCache runs for real (jack-progress.php): its progress file read only in its shape, the part
  * of the file being copied (rsync's temporary file next to the target), the job's samples every 10 s and the speed as
  * their median (the first after two samples, a stall or a failed copy never negative), the ETAs (per user: their
  * remaining bytes / the speed), the part «progress» only for a real run; EmbyCache itself on a fixture tree with a
  * stand-in Emby (two users, a file going back, three coming): whose file, why, where to, at every file boundary — and
  * nothing in a dry run; his page's panel under node.
  */
-function testEmbyProgress(): void
+function testJackProgress(): void
 {
-    $tmp = hardeningTmp('embyprogress');
+    $tmp = hardeningTmp('jackprogress');
     // the speed: the median of the rates between consecutive samples of the last 10 minutes
     $mb = 1000000;
-    same('progress speed: none before two samples', [null, null], [embyProgressSpeed([], 1000), embyProgressSpeed([[990, 0, 'a', 0]], 1000)]);
-    same('progress speed: the first after one step of 10 s', 2.0 * $mb, embyProgressSpeed([[990, 0, 'a', 0], [1000, 20 * $mb, 'a', 0]], 1000));
-    same('progress speed: the median — a stall and a burst don\'t swing it', 2.0 * $mb, embyProgressSpeed([[960, 0, 'a', 0], [970, 20 * $mb, 'a', 0],
+    same('progress speed: none before two samples', [null, null], [jackProgressSpeed([], 1000), jackProgressSpeed([[990, 0, 'a', 0]], 1000)]);
+    same('progress speed: the first after one step of 10 s', 2.0 * $mb, jackProgressSpeed([[990, 0, 'a', 0], [1000, 20 * $mb, 'a', 0]], 1000));
+    same('progress speed: the median — a stall and a burst don\'t swing it', 2.0 * $mb, jackProgressSpeed([[960, 0, 'a', 0], [970, 20 * $mb, 'a', 0],
         [980, 20 * $mb, 'a', 0], [990, 100 * $mb, 'a', 0], [1000, 120 * $mb, 'b', 0]], 1000));
-    same('progress speed: a failed copy\'s part gone counts as 0, never negative', 0.0, embyProgressSpeed([[990, 50, 'a', 0], [1000, 10, 'a', 0]], 1000));
-    same('progress speed: only the last 10 minutes', 1.0 * $mb, embyProgressSpeed([[0, 0, 'a', 0], [10, 900 * $mb, 'a', 0], [990, 900 * $mb, 'a', 0],
+    same('progress speed: a failed copy\'s part gone counts as 0, never negative', 0.0, jackProgressSpeed([[990, 50, 'a', 0], [1000, 10, 'a', 0]], 1000));
+    same('progress speed: only the last 10 minutes', 1.0 * $mb, jackProgressSpeed([[0, 0, 'a', 0], [10, 900 * $mb, 'a', 0], [990, 900 * $mb, 'a', 0],
         [1000, 910 * $mb, 'a', 0]], 1000));
 
     // EmbyCache's file, only in its shape
-    $paths = embyProgressPaths("$tmp/run");
+    $paths = jackProgressPaths("$tmp/run");
     @mkdir("$tmp/run", 0700, true);
     @mkdir("$tmp/mnt/pool/Filme/A", 0700, true);
     $target = "$tmp/mnt/pool/Filme/A/a.mkv";
@@ -2681,66 +2681,66 @@ function testEmbyProgress(): void
              'current' => ['phase' => 'fill', 'rel' => 'Filme/A/a.mkv', 'size' => 400 * $mb, 'target' => $target, 'user' => 'Emby:u1',
                            'source' => 'resume', 'title' => 'A', 'since' => 1005]];
     file_put_contents($paths['file'], json_encode($prog));
-    $p = embyProgressRead($paths['file']);
+    $p = jackProgressRead($paths['file']);
     same('progress file: read in its shape (a name\'s control characters gone)', ['fill', 2, 'Ki ds', 'Filme/A/a.mkv', 'resume', $target],
         [$p['phase'] ?? null, count($p['users'] ?? []), $p['users'][1]['name'] ?? null, $p['current']['rel'] ?? null, $p['current']['source'] ?? null, $p['current']['target'] ?? null]);
     foreach (['another v' => ['v' => 2] + $prog, 'another phase' => ['phase' => 'copy'] + $prog] as $what => $bad) {
         file_put_contents("$tmp/bad.json", json_encode(array_replace($prog, $bad)));
-        same("progress file: $what — not taken", null, embyProgressRead("$tmp/bad.json"));
+        same("progress file: $what — not taken", null, jackProgressRead("$tmp/bad.json"));
     }
     file_put_contents("$tmp/bad.json", json_encode(array_replace($prog, ['current' => ['source' => 'rm -rf'] + $prog['current']])));
-    same('progress file: a reason it doesn\'t know — none', null, embyProgressRead("$tmp/bad.json")['current']['source'] ?? null);
+    same('progress file: a reason it doesn\'t know — none', null, jackProgressRead("$tmp/bad.json")['current']['source'] ?? null);
     // the fill's queue (2026-10-10): [[user index, bytes], …] and pos, only in that shape; started/ended of back and users
     same('progress file: no queue — none, pos 0; no times — null', [null, 0, null, null], [$p['queue'], $p['pos'], $p['back']['started'], $p['users'][0]['ended']]);
     $q = ['queue' => [[0, 200 * $mb], [1, 100 * $mb], [7, 5], [-1, 9]], 'pos' => 1,
           'back' => ['started' => 900, 'ended' => 950] + $prog['back'], 'users' => [['started' => 960, 'ended' => 'x'] + $prog['users'][0], 'junk', $prog['users'][1]]];
     file_put_contents("$tmp/q.json", json_encode(array_replace($prog, $q)));
-    $r = embyProgressRead("$tmp/q.json");
+    $r = jackProgressRead("$tmp/q.json");
     same('progress file: the queue — indexes onto the users taken (one left out: the next one\'s index moves), unknown ones nobody\'s; times',
         [[[0, 200 * $mb], [-1, 100 * $mb], [-1, 5], [-1, 9]], 1, 2, [900, 950], [960, null]],
         [$r['queue'], $r['pos'], count($r['users']), [$r['back']['started'], $r['back']['ended']], [$r['users'][0]['started'], $r['users'][0]['ended']]]);
     file_put_contents("$tmp/q.json", json_encode(array_replace($prog, ['queue' => [[0, 200 * $mb], [2, 100 * $mb]], 'pos' => 1, 'users' => $prog['users']])));
-    same('progress file: … an index beyond the users — nobody\'s', [[0, 200 * $mb], [-1, 100 * $mb]], embyProgressRead("$tmp/q.json")['queue']);
+    same('progress file: … an index beyond the users — nobody\'s', [[0, 200 * $mb], [-1, 100 * $mb]], jackProgressRead("$tmp/q.json")['queue']);
     foreach (['pos beyond it' => ['queue' => [[0, 1]], 'pos' => 2], 'no pos' => ['queue' => [[0, 1]]], 'a negative size' => ['queue' => [[0, -1]], 'pos' => 0],
               'three in an entry' => ['queue' => [[0, 1, 2]], 'pos' => 0], 'a string' => ['queue' => [['0', 1]], 'pos' => 0],
-              'more than 5000' => ['queue' => array_fill(0, EMBY_PROGRESS_QUEUE + 1, [0, 1]), 'pos' => 0]] as $what => $bad) {
+              'more than 5000' => ['queue' => array_fill(0, JACK_PROGRESS_QUEUE + 1, [0, 1]), 'pos' => 0]] as $what => $bad) {
         file_put_contents("$tmp/bad.json", json_encode(array_replace($prog, $bad)));
-        $r = embyProgressRead("$tmp/bad.json") ?? ['queue' => 'x', 'pos' => 'x'];
+        $r = jackProgressRead("$tmp/bad.json") ?? ['queue' => 'x', 'pos' => 'x'];
         same("progress file: a queue with $what — none (each user's own estimate)", [null, 0], [$r['queue'], $r['pos']]);
     }
 
     // the part of the current file: rsync's .<name>.XXXXXX next to the target (one listing, one lstat), else the target itself
     $root = "$tmp/mnt/";
     $cur = $p['current'];
-    same('progress part: no temporary file, no target — 0', 0, embyProgressPartial($cur, $root));
+    same('progress part: no temporary file, no target — 0', 0, jackProgressPartial($cur, $root));
     file_put_contents("$tmp/mnt/pool/Filme/A/.a.mkv.Xy3kQ9", str_repeat('x', 5000));
     file_put_contents("$tmp/mnt/pool/Filme/A/.a.mkv.toolong", str_repeat('x', 9000));
     file_put_contents("$tmp/mnt/pool/Filme/A/.b.mkv.Xy3kQ9", str_repeat('x', 9000));
     symlink('/etc/passwd', "$tmp/mnt/pool/Filme/A/.a.mkv.Lnk123");
-    same('progress part: rsync\'s temporary file (other names, a link left out)', 5000, embyProgressPartial($cur, $root));
-    same('progress part: never more than the file', 4000, embyProgressPartial(['size' => 4000] + $cur, $root));
-    same('progress part: a target outside the root or with «..» — 0', [0, 0], [embyProgressPartial($cur, "$tmp/elsewhere/"),
-        embyProgressPartial(['target' => "$tmp/mnt/pool/Filme/../Filme/A/a.mkv"] + $cur, $root)]);
+    same('progress part: rsync\'s temporary file (other names, a link left out)', 5000, jackProgressPartial($cur, $root));
+    same('progress part: never more than the file', 4000, jackProgressPartial(['size' => 4000] + $cur, $root));
+    same('progress part: a target outside the root or with «..» — 0', [0, 0], [jackProgressPartial($cur, "$tmp/elsewhere/"),
+        jackProgressPartial(['target' => "$tmp/mnt/pool/Filme/../Filme/A/a.mkv"] + $cur, $root)]);
     array_map('unlink', glob("$tmp/mnt/pool/Filme/A/.*.*") ?: []);
     @unlink("$tmp/mnt/pool/Filme/A/.a.mkv.Lnk123");
     file_put_contents($target, str_repeat('y', 7000));
-    same('progress part: --inplace (or just renamed) — the target itself', 7000, embyProgressPartial($cur, $root));
+    same('progress part: --inplace (or just renamed) — the target itself', 7000, jackProgressPartial($cur, $root));
     unlink($target);
 
     // the job's samples every 10 s (a stand-in for the part), the view: bars, bracket, ETAs, the file under its user
     $part = 0;
     $stand = function () use (&$part) { return $part; };
     file_put_contents($paths['file'], json_encode(['phase' => 'plan', 'users' => [], 'back' => null, 'current' => null] + $prog));
-    same('progress samples: none while EmbyCache plans', false, embyProgressSample($paths, 1010, $stand));
+    same('progress samples: none while EmbyCache plans', false, jackProgressSample($paths, 1010, $stand));
     file_put_contents($paths['file'], json_encode($prog));
     $part = 50 * $mb;
-    check('progress samples: the first once it copies', embyProgressSample($paths, 1010, $stand));
-    $v = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1010);
+    check('progress samples: the first once it copies', jackProgressSample($paths, 1010, $stand));
+    $v = jackProgressView(jackProgressRead($paths['file']), jackProgressSamples($paths['samples'], 1000), 1010);
     same('progress view: after one sample — the time left follows (no speed), the part of the current file shown',
         [null, null, 50 * $mb, 250 * $mb, true, false], [$v['speed'], $v['total']['eta'], $v['current']['done'], $v['users'][0]['done_bytes'], $v['users'][0]['here'], $v['users'][1]['here']]);
     $part = 150 * $mb;
-    embyProgressSample($paths, 1020, $stand);
-    $v = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1020);
+    jackProgressSample($paths, 1020, $stand);
+    $v = jackProgressView(jackProgressRead($paths['file']), jackProgressSamples($paths['samples'], 1000), 1020);
     same('progress view: after 10 s — 10 MB/s, each user\'s time left from their remaining bytes, the total\'s from everything left',
         [10 * $mb, 25, 10, 35, 650 * $mb, 1000 * $mb, true, 0],
         [$v['speed'], $v['users'][0]['eta'], $v['users'][1]['eta'], $v['total']['eta'], $v['total']['done_bytes'], $v['total']['bytes'], $v['back']['ended'], $v['back']['eta']]);
@@ -2748,14 +2748,14 @@ function testEmbyProgress(): void
     same('progress view: the bracket — how long the run has been going; nothing finished took a time yet, back without times none',
         [20, null, null], [$v['total']['running'], $v['users'][0]['took'], $v['back']['took']]);
     // asked to stop (2026-10-10): only the file it is on still counts — its bar and the total end with it, the rest is halted
-    $vs = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1020, true);
+    $vs = jackProgressView(jackProgressRead($paths['file']), jackProgressSamples($paths['samples'], 1000), 1020, true);
     $curLeft = (int) ceil(max(0, $vs['current']['size'] - $vs['current']['done']) / (10 * $mb));
     same('progress view: asked to stop — the total and the current user\'s bar: the rest of the current file; the other user halted',
         [$curLeft, $curLeft, null, true], [$vs['total']['eta'], $vs['users'][0]['eta'], $vs['users'][1]['eta'], $vs['users'][1]['halted'] ?? null]);
     // the queue (2026-10-10: «2 min» for 12 GB nothing of which had started while another's 49 GB file copied):
     // EmbyCache copies in path order, everyone mixed — a user is done when their LAST file is
-    $smp = embyProgressSamples($paths['samples'], 1000);
-    $view = fn (array $over) => embyProgressView(embyProgressRead((function () use ($paths, $prog, $over) {
+    $smp = jackProgressSamples($paths['samples'], 1000);
+    $view = fn (array $over) => jackProgressView(jackProgressRead((function () use ($paths, $prog, $over) {
         file_put_contents($paths['file'], json_encode(array_replace($prog, $over)));
         return $paths['file'];
     })()), $smp, 1020);
@@ -2767,7 +2767,7 @@ function testEmbyProgress(): void
                           ['key' => 'E:g', 'name' => 'Grandma', 'server' => 'E', 'files' => 1, 'bytes' => 49000 * $mb, 'done_files' => 0, 'done_bytes' => 0]],
               'current' => ['phase' => 'fill', 'rel' => 'Filme/G/g.mkv', 'size' => 49000 * $mb, 'target' => $target, 'user' => 'E:g', 'source' => 'resume', 'title' => 'G', 'since' => 1005],
               'queue' => [[1, 49000 * $mb], [0, 4000 * $mb], [0, 4000 * $mb], [0, 4000 * $mb]], 'pos' => 0];
-    $v = embyProgressView(embyProgressRead((function () use ($paths, $grandma) { file_put_contents($paths['file'], json_encode($grandma)); return $paths['file']; })()),
+    $v = jackProgressView(jackProgressRead((function () use ($paths, $grandma) { file_put_contents($paths['file'], json_encode($grandma)); return $paths['file']; })()),
         [[1000, 0, 'Filme/G/g.mkv', 0], [1010, 1000 * $mb, 'Filme/G/g.mkv', 1000 * $mb]], 1010);
     same('progress view, queue: Grandma\'s 49 GB copying (1 GB there, 100 MB/s) — Grandma first (480 s), Mom after all of it (600 s, not 120)',
         [['Grandma', 480, true], ['Mom', 600, false]], array_map(fn ($u) => [$u['name'], $u['eta'], $u['here']], $v['users']));
@@ -2793,86 +2793,86 @@ function testEmbyProgress(): void
     file_put_contents($paths['file'], json_encode($prog));
     // EmbyCache moved on to the next file after the sample: its part isn't the old file's
     file_put_contents($paths['file'], json_encode(array_replace($prog, ['updated' => 1025, 'current' => ['rel' => 'Filme/B/b.mkv'] + $prog['current']])));
-    $v = embyProgressView(embyProgressRead($paths['file']), embyProgressSamples($paths['samples'], 1000), 1026);
+    $v = jackProgressView(jackProgressRead($paths['file']), jackProgressSamples($paths['samples'], 1000), 1026);
     same('progress view: a newer file than the last sample — its part 0 until the next sample', 0, $v['current']['done']);
     $old = json_decode((string) file_get_contents($paths['samples']), true);
     file_put_contents($paths['file'], json_encode(array_replace($prog, ['started' => 2000])));
-    same('progress samples: another run\'s samples are not this run\'s', [], embyProgressSamples($paths['samples'], 2000));
+    same('progress samples: another run\'s samples are not this run\'s', [], jackProgressSamples($paths['samples'], 2000));
     same('progress samples: kept per run', 1000, $old['run']);
 
     // the ticker: a sample at once when copying starts, then every 10 s; while planning it looks again after 2 s
     $clock = 3000;
-    $tick = embyProgressTicker($paths, function () use (&$clock) { return $clock; });
+    $tick = jackProgressTicker($paths, function () use (&$clock) { return $clock; });
     file_put_contents($paths['file'], json_encode(array_replace($prog, ['started' => 3000, 'phase' => 'plan', 'current' => null])));
     $tick();
     file_put_contents($paths['file'], json_encode(array_replace($prog, ['started' => 3000])));
     $clock = 3001;
     $tick();
-    $n0 = count(embyProgressSamples($paths['samples'], 3000));
+    $n0 = count(jackProgressSamples($paths['samples'], 3000));
     $clock = 3002;
     $tick();
-    $n1 = count(embyProgressSamples($paths['samples'], 3000));
+    $n1 = count(jackProgressSamples($paths['samples'], 3000));
     $clock = 3012;
     $tick();
-    same('progress ticker: planning — looks again after 2 s; then a sample, the next after 10 s', [0, 1, 2], [$n0, $n1, count(embyProgressSamples($paths['samples'], 3000))]);
+    same('progress ticker: planning — looks again after 2 s; then a sample, the next after 10 s', [0, 1, 2], [$n0, $n1, count(jackProgressSamples($paths['samples'], 3000))]);
 
     // the part «progress»: only a real EmbyCache run has a panel
-    $state = fn (array $job) => embyProgressState($job, $paths, 3020);
+    $state = fn (array $job) => jackProgressState($job, $paths, 3020);
     same('progress part: nothing runs — no panel', [false, false, null], array_values(array_intersect_key($state(['running' => false, 'mode' => 'run']), ['running' => 1, 'real' => 1, 'progress' => 1])));
     same('progress part: a dry run — no panel', [true, false, null], array_values(array_intersect_key($state(['running' => true, 'mode' => 'dry']), ['running' => 1, 'real' => 1, 'progress' => 1])));
-    $r = embyProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json");
+    $r = jackProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json");
     same('progress part: a real run — the panel, not asked to stop', [true, true, 'fill', 2, null], [$r['running'], $r['real'], $r['progress']['phase'] ?? null, count($r['progress']['users'] ?? []), $r['stopping']]);
 
-    // «Stop after this file» (emby.stop): only while a real EmbyCache run goes; the mover guard's stop request with why user, once
+    // «Stop after this file» (jack.stop): only while a real EmbyCache run goes; the mover guard's stop request with why user, once
     foreach (['nothing runs' => ['running' => false, 'mode' => 'run'], 'a dry run' => ['running' => true, 'mode' => 'dry']] as $what => $job) {
         $e = null;
         try {
-            embyStopAsk($job, "$tmp/stop.json");
+            jackStopAsk($job, "$tmp/stop.json");
         } catch (Problem $x) {
             $e = $x->key;
         }
-        same("stop: $what — refused, nothing written", ['emby_stop_none', false], [$e, file_exists("$tmp/stop.json")]);
+        same("stop: $what — refused, nothing written", ['jack_stop_none', false], [$e, file_exists("$tmp/stop.json")]);
     }
     same('stop: a real run — the stop request with why user, written once', [true, 'user', false],
-        [embyStopAsk(['running' => true, 'mode' => 'run'], "$tmp/stop.json"), json_decode((string) file_get_contents("$tmp/stop.json"), true)['why'] ?? null,
-         embyStopAsk(['running' => true, 'mode' => 'release'], "$tmp/stop.json")]);
+        [jackStopAsk(['running' => true, 'mode' => 'run'], "$tmp/stop.json"), json_decode((string) file_get_contents("$tmp/stop.json"), true)['why'] ?? null,
+         jackStopAsk(['running' => true, 'mode' => 'release'], "$tmp/stop.json")]);
     same('stop: the part says it was asked (why); the mover\'s stop too; no panel, no word', ['user', 'mover', null],
-        [embyProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json")['stopping'],
-         (function () use ($tmp, $paths) { file_put_contents("$tmp/stop2.json", '{"why":"mover"}'); return embyProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop2.json")['stopping']; })(),
-         embyProgressState(['running' => false, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json")['stopping']]);
+        [jackProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json")['stopping'],
+         (function () use ($tmp, $paths) { file_put_contents("$tmp/stop2.json", '{"why":"mover"}'); return jackProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop2.json")['stopping']; })(),
+         jackProgressState(['running' => false, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json")['stopping']]);
     // the job's watch notices a stop request it didn't write and takes its why — the result `stopped`, why user
     $null = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
     $proc = proc_open(['bash', '-c', 'while [ ! -e "$1" ]; do sleep 0.1; done; exit 3', 'x', "$tmp/stop.json"], $null, $pipes);
-    $w = embyRunWatch($proc, "$tmp/stop.json", false, null, fn () => false, 0, 0);
+    $w = jackRunWatch($proc, "$tmp/stop.json", false, null, fn () => false, 0, 0);
     same('stop: the watch takes the why of a stop request it didn\'t write', [3, 'user', null, 'user'],
         [$w['exit'], $w['stopped_why'], $w['stopped_for'], json_decode((string) file_get_contents("$tmp/stop.json"), true)['why'] ?? null]);
     same('stop: Unraid doesn\'t hear it — the user asked, he knows (2026-10-10); only a stopped run\'s errors are told',
         [null, null, null, 'errors', 'stopped_mover'],
-        [embyNotifyOutcome('run', 'stopped', [], 'user'), embyNotifyOutcome('release', 'stopped', [], 'user'), embyNotifyOutcome('run', 'stopped', ['errors' => 0], 'user'),
-         embyNotifyOutcome('run', 'stopped', ['errors' => 2], 'user'), embyNotifyOutcome('run', 'stopped', [], 'mover')]);
+        [jackNotifyOutcome('run', 'stopped', [], 'user'), jackNotifyOutcome('release', 'stopped', [], 'user'), jackNotifyOutcome('run', 'stopped', ['errors' => 0], 'user'),
+         jackNotifyOutcome('run', 'stopped', ['errors' => 2], 'user'), jackNotifyOutcome('run', 'stopped', [], 'mover')]);
     $bin = "$tmp/notify";
     file_put_contents($bin, "#!/bin/bash\nprintf '%s\\n' \"\$@\" >> " . escapeshellarg("$tmp/notified") . "\n");
     chmod($bin, 0755);
     $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP')];
     putenv("OFFICE_NOTIFY_BIN=$bin");
     putenv("OFFICE_NOTIFY_STAMP=$tmp/stamp");
-    $told = embyNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 1], 'errors' => 0], 3, 'user');
+    $told = jackNotify('embycache', 'run', 'stopped', ['result' => 'stopped', 'cleanup' => ['done' => 1], 'fill' => ['done' => 1], 'errors' => 0], 3, 'user');
     same('stop: no notification for a stop the user asked for', [false, ''], [$told, (string) @file_get_contents("$tmp/notified")]);
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('stop: the action asks embyStopAsk() (the whole night while one goes: nightStopAsk()); the job notes why user', str_contains($src, "'stop'           => fn (array \$r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()]")
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('stop: the action asks jackStopAsk() (the whole night while one goes: nightStopAsk()); the job notes why user', str_contains($src, "'stop'           => fn (array \$r) => ['ok' => true, 'asked' => jackNightNow() !== null ? nightStopAsk() : jackStopAsk(), 'state' => jackScan()]")
         && str_contains($src, "\$note['why'] = in_array(\$stoppedWhy, ['mover', 'user'], true) ? \$stoppedWhy : 'watching';"));
-    embyProgressClear($paths);
+    jackProgressClear($paths);
     same('progress part: the run ended — its files gone, no panel', [false, false, null], [is_file($paths['file']), is_file($paths['samples']), $state(['running' => true, 'mode' => 'run'])['progress']]);
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('progress: Jack\'s job sets EMBYCACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
-        (bool) preg_match('/if \(\$real\) \{[^}]*embyProgressClear\(\$progress\);\s*\$env\[\'EMBYCACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
-        && str_contains($src, 'tick: $progress !== null ? embyProgressTicker($progress) : null')
-        && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => embyProgressState() + ['night' => embyNightNow()]]"));
+        (bool) preg_match('/if \(\$real\) \{[^}]*jackProgressClear\(\$progress\);\s*\$env\[\'EMBYCACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
+        && str_contains($src, 'tick: $progress !== null ? jackProgressTicker($progress) : null')
+        && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => jackProgressState() + ['night' => jackNightNow()]]"));
     require_once OFFICE_DIR . '/src/desks.php';
     same('progress: his desk.json asks the part «progress» from the agent', ['refresh_after' => 5, 'action' => 'progress'],
-        officeDeskParts(json_decode((string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.json'), true)['parts'] ?? null)['progress'] ?? null);
+        officeDeskParts(json_decode((string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.json'), true)['parts'] ?? null)['progress'] ?? null);
 
     // EmbyCache itself: a stand-in Emby (Benj resumes «Alien», Kids «Brazil»), one old file going back, a stand-in rsync
     // that notes the progress file before each copy
@@ -2960,7 +2960,7 @@ PY);
          is_int($seen[1]['back']['ended'] ?? null), is_int($seen[2]['users'][0]['started'] ?? null), array_key_exists('ended', $seen[2]['users'][0] ?? []) && $seen[2]['users'][0]['ended'] === null]);
     same('progress, EmbyCache: Brazil\'s turn — Benj done, back done', [[2, 3010], [1, 1500]],
         [[$seen[3]['users'][0]['done_files'] ?? null, $seen[3]['users'][0]['done_bytes'] ?? null], [$seen[3]['back']['done_files'] ?? null, $seen[3]['back']['done_bytes'] ?? null]]);
-    $end = embyProgressRead("$py/run/progress.json");
+    $end = jackProgressRead("$py/run/progress.json");
     same('progress, EmbyCache: at the end — done, everything done, no file in work; Jack reads it in its shape',
         ['done', null, [[1, 1], [2, 2], [1, 1]]], [$end['phase'] ?? null, $end === null ? 'x' : $end['current'],
         array_map(fn ($c) => [$c['files'], $c['done_files']], array_merge([$end['back'] ?? []], $end['users'] ?? []))]);
@@ -2984,7 +2984,7 @@ globalThis.document = { createTextNode: (t) => t };
 globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
 e.setProgress(null);
@@ -3020,7 +3020,7 @@ out.summary = [e.runSummary({ tool: 'embycache', mode: 'run', result: 'stopped',
   e.runSummary({ tool: 'gather', mode: 'run', result: 'stopped', why: 'user', status: { result: 'stopped', folders_done: 2, folders: 5 } })].map((t) => t.split(' · ')[0]);
 process.stdout.write(JSON.stringify(out));
 JS);
-    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1'), true);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/jack/desk.js') . ' 2>&1'), true);
     same('progress page: before the first file — working out what goes where; «Stop after this file» beside «Raw output»',
         [['progress.title', 'progress.plan', 'progress.raw', 'progress.stop'], false], [$o['plan'] ?? null, $o['stop_on'] ?? null]);
     same('progress page: asked to stop — «Stopping after this file …», the button grey', [['progress.stopping', 'progress.raw', 'progress.stop'], true], $o['stopping'] ?? null);
@@ -3051,9 +3051,9 @@ JS);
  * on: the folders' files come to their disk, EmbyCache's list stays («ignored»), folders only on the cache stay or go to
  * the disk with most free space, the free-space rule holds; the settings dialog and the run dialog under node.
  */
-function testEmbyGatherCache(): void
+function testJackGatherCache(): void
 {
-    $tmp = hardeningTmp('embygathercache');
+    $tmp = hardeningTmp('jackgathercache');
     $make = function () use ($tmp): void {
         exec('rm -rf ' . escapeshellarg("$tmp/mnt"));
         foreach (['mnt/disk1/Filme/A', 'mnt/disk2/Filme', 'mnt/cache/Filme/A', 'mnt/cache/Filme/C', 'user/Filme', 'bin'] as $d) {
@@ -3070,7 +3070,7 @@ function testEmbyGatherCache(): void
     chmod("$tmp/bin/df", 0755);
     file_put_contents("$tmp/exclude.txt", "$tmp/mnt/cache/Filme/A/a.nfo\n");
     $gather = function (string $mode, array $set) use ($tmp): array {
-        $ini = embyGatherIni(['shares' => ['Filme'], 'dup_check' => 'size'] + $set, ['/mnt/cache'], "$tmp/consolidate.log", "$tmp/exclude.txt");
+        $ini = jackGatherIni(['shares' => ['Filme'], 'dup_check' => 'size'] + $set, ['/mnt/cache'], "$tmp/consolidate.log", "$tmp/exclude.txt");
         $ini = str_replace(["'/mnt/user/", "'/mnt/"], ["'$tmp/user/", "'$tmp/mnt/"], $ini);     // Jack's ini, on the fixture tree
         file_put_contents("$tmp/consolidate.ini", $ini);
         @unlink("$tmp/status.json");
@@ -3096,7 +3096,7 @@ function testEmbyGatherCache(): void
          file_exists("$tmp/mnt/cache/Filme/C/c.mkv"), is_file("$tmp/mnt/cache/Filme/A/a.nfo")]);
     // measuring never moves anything: its ini has the cache off whatever the gather's settings say
     @mkdir("$tmp/g", 0700, true);
-    embyWriteMeasureIni(['Filme'], [], "$tmp/g", "$tmp/e");
+    jackWriteMeasureIni(['Filme'], [], "$tmp/g", "$tmp/e");
     $mini = (string) @file_get_contents("$tmp/g/measure.ini");
     check('gather cache: measure.ini always has the cache off', str_contains($mini, "MOVE_CACHE=false\n") && str_contains($mini, "DRYRUN=true\n"), $mini);
 
@@ -3117,7 +3117,7 @@ globalThis.Option = function (text, value) { this.text = text; this.value = valu
 globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', time: (t) => 'T' + t, date: (t) => 'D' + t }, desk: () => {}, places: () => {},
   placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e, d) => 'err:' + e.key };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
 (async () => {
@@ -3164,7 +3164,7 @@ const out = {};
   console.log(JSON.stringify(out));
 })();
 JS);
-    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' 2>&1');
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/jack/desk.js') . ' 2>&1');
     $o = json_decode($raw, true);
     if (!is_array($o)) {
         check('gather cache: page ran under node', false, $raw);
@@ -3174,7 +3174,7 @@ JS);
     same('gather cache dialog: a gather.json from before — the switch off with its hint, the choice hidden', [['gather_cfg_cache', 'gather_cfg_cache_hint'], false, true,
         ['gather_cfg_cache_only', 'gather_cfg_cache_only.skip', 'gather_cfg_cache_only.most_free']], $o['off']);
     same('gather cache dialog: switched on — the choice shows; off again — it hides', [false, true], [$o['shown'], $o['hidden']]);
-    $g = fn (bool $on, string $to) => ['emby.gather_save', ['gather' => ['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size', 'move_cache' => $on, 'cache_only_target' => $to]]];
+    $g = fn (bool $on, string $to) => ['jack.gather_save', ['gather' => ['shares' => ['Filme'], 'min_free_gb' => 256, 'dup_check' => 'size', 'move_cache' => $on, 'cache_only_target' => $to]]];
     same('gather cache dialog: saved — both always sent (off/«leave them», then on/«most free space»)', [$g(false, 'skip'), $g(true, 'most-free')], $o['posted']);
     same('gather cache dialog: saved on — opens on, the choice shown and set', [true, false, [false, true]], $o['on']);
     same('gather cache: the shares tile\'s words', ['', ' · gather_cache_on.skip', ' · gather_cache_on.most_free', ''], $o['words']);
@@ -3183,9 +3183,9 @@ JS);
     hardeningRm($tmp);
 }
 
-function testEmbyForeign(): void
+function testJackForeign(): void
 {
-    $tmp = hardeningTmp('embyforeign');
+    $tmp = hardeningTmp('jackforeign');
     $us = "$tmp/user.scripts";
     $call = 'python3 /usr/local/emhttp/plugins/unraid-secretary-office/embycache/embycache_run.py --mode run';
     $scripts = [
@@ -3217,13 +3217,13 @@ function testEmbyForeign(): void
     file_put_contents("$tmp/plugins/other/other.cron", "# */5 * * * * $call\n   #0 4 * * 0 bash /x/consolidate_master.sh\n0 4 * * 0 bash /x/consolidate_master.sh > /dev/null\n"
         . "*/10 * * * * /usr/local/emhttp/plugins/user.scripts/startCustom.php $us/scripts/Active/script embycache_run.py\n");
     file_put_contents("$tmp/plugins/office/office.cron", "0 3 * * * $call\n");
-    $found = embyForeignSchedules($us, "$tmp/plugins/*/*.cron", "$tmp/plugins/office/office.cron");
+    $found = jackForeignSchedules($us, "$tmp/plugins/*/*.cron", "$tmp/plugins/office/office.cron");
     $by = [];
     foreach ($found as $f) {
         $by[$f['where']] = [$f['tool'], $f['enabled']];
     }
     ksort($by);
-    same('emby foreign: only lines that run count, a schedule that is off is listed but not on', [
+    same('jack foreign: only lines that run count, a schedule that is off is listed but not on', [
         "$tmp/plugins/other/other.cron" => ['gather', true],
         'User Scripts: Active'          => ['embycache', true],
         'User Scripts: AtStart'         => ['embycache', true],
@@ -3232,14 +3232,14 @@ function testEmbyForeign(): void
         'User Scripts: Off'             => ['embycache', false],
         'User Scripts: Unplanned'       => ['embycache', false],
     ], $by);
-    same('emby foreign: the warning and the caretaker name only the enabled ones', ['User Scripts: Active', 'User Scripts: AtStart', 'User Scripts: HeredocOpen', "$tmp/plugins/other/other.cron"],
+    same('jack foreign: the warning and the caretaker name only the enabled ones', ['User Scripts: Active', 'User Scripts: AtStart', 'User Scripts: HeredocOpen', "$tmp/plugins/other/other.cron"],
         array_column(array_filter($found, fn ($f) => $f['enabled']), 'where'));
     // the user comments the line out (the report): the next look says nothing more
     file_put_contents("$us/scripts/Active/script", "#!/bin/bash\n# description=EmbyCache every 15 minutes\n# $call\n");
-    check('emby foreign: commented out, gone at the next look', !in_array('User Scripts: Active', array_column(embyForeignSchedules($us, "$tmp/none/*.cron"), 'where'), true));
-    same('emby active text: comments and a `: <<` block left out, a # later in a line kept', "a # b\nc",
-        embyActiveText("#!/bin/sh\n  # x\na # b\n: <<-\"STOP\"\nhidden\n\tSTOP\nc\n"));
-    same('emby active text: an unclosed block hides the rest (bash does the same)', 'a', embyActiveText("a\n: <<EOF\nb\n"));
+    check('jack foreign: commented out, gone at the next look', !in_array('User Scripts: Active', array_column(jackForeignSchedules($us, "$tmp/none/*.cron"), 'where'), true));
+    same('jack active text: comments and a `: <<` block left out, a # later in a line kept', "a # b\nc",
+        jackActiveText("#!/bin/sh\n  # x\na # b\n: <<-\"STOP\"\nhidden\n\tSTOP\nc\n"));
+    same('jack active text: an unclosed block hides the rest (bash does the same)', 'a', jackActiveText("a\n: <<EOF\nb\n"));
     hardeningRm($tmp);
 }
 
@@ -3326,10 +3326,10 @@ function testWhereArrayZfs(): void
 }
 
 /** Jack's setup form is made anew on every visit (a form left without «Save» kept stale values, a later save wrote them) */
-function testEmbySetupFresh(): void
+function testJackSetupFresh(): void
 {
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
-    check('emby setup: the form is made anew from his settings on every visit to «Set up»',
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('jack setup: the form is made anew from his settings on every visit to «Set up»',
         (bool) preg_match("/page === 'setup'\) \{.*?Office\.freshState\(ID\);.*?form = null;\s*renderSetup\(\);/s", $js));
 }
 
@@ -7710,7 +7710,7 @@ JS;
 
 /**
  * The setup pages' tiles (tiles v2, 2026-10-12 — CLAUDE.md «Tiles»: Mr. Backupsy's and Jack Emby's setup steps on a switcher
- * of their own). Read in the code: the switchers (kept as backup.setup.tile / emby.setup.tile, no start tile, the routes
+ * of their own). Read in the code: the switchers (kept as backup.setup.tile / jack.setup.tile, no start tile, the routes
  * #/<desk>/setup/<tile> taken in mount()), the steps' and settings' places by their tile's route. Under node, with the demo
  * plan (tests/ui/demo/post/backup.setup_get.json) and Jack's demo state: every tile names a section, in the steps' order,
  * the figures as the plan says (VMs, apps, shares, the backup place, the retention, the messages), the chip «new»; Jack's
@@ -7719,7 +7719,7 @@ JS;
 function testSetupTiles(): void
 {
     $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
-    $em = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $em = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('setup tiles: Mr. Backupsy\'s steps on a switcher of their own — backup.setup.tile, no start tile, #/backup/setup/<tile>',
         str_contains($bk, "id: `\${ID}/setup`,") && str_contains($bk, "key: 'backup.setup.tile',") && str_contains($bk, "tiles: () => setupTileList(),")
         && str_contains($bk, "if (setupSwitcher().mount(String(sub || '').split('/').slice(1).join('/'))) Office.subroute('setup');"));
@@ -7745,7 +7745,7 @@ function testSetupTiles(): void
     $tmp = hardeningTmp('setup-tiles');
     file_put_contents("$tmp/t.js", <<<'JS'
 const fs = require('fs');
-const [bkFile, emFile, coreFile, planFile, embyFile] = process.argv.slice(2);
+const [bkFile, emFile, coreFile, planFile, jackFile] = process.argv.slice(2);
 globalThis.OFFICE_DESK_TESTS = {};
 const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
 const el = (tag, cls, text) => ({ tag, className: cls || '', textContent: text == null ? '' : String(text), children: [], dataset: {}, style: {},
@@ -7788,8 +7788,8 @@ out.noPlace = b.setupTileData(S.plan)[0];
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
-        . escapeshellarg(OFFICE_WEB . '/desks/emby/desk.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
-        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/backup.setup_get.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/emby.json') . ' 2>&1');
+        . escapeshellarg(OFFICE_WEB . '/desks/jack/desk.js') . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/post/backup.setup_get.json') . ' ' . escapeshellarg(OFFICE_DIR . '/tests/ui/demo/jack.json') . ' 2>&1');
     $r = json_decode($raw, true);
     hardeningRm($tmp);
     if (!is_array($r)) {
@@ -12405,8 +12405,8 @@ function testNotify(): void
     $f = fn (string $id, string $level, ?bool $ok, array $p = []) => finding($id, $level, $ok, $p);
     $red = caretakerRed(['backup' => [$f('setup', 'required', true), $f('schedule', 'required', false), $f('kopia_repo', 'required', null),
                                       $f('drift', 'recommended', false), $f('kopia_running', 'required', false, ['name' => 'kopia'])],
-                         'emby'   => [$f('python', 'required', false)]]);
-    same('notify: red findings', ['backup:schedule:', 'backup:kopia_running:kopia', 'emby:python:'], array_keys($red));
+                         'jack'   => [$f('python', 'required', false)]]);
+    same('notify: red findings', ['backup:schedule:', 'backup:kopia_running:kopia', 'jack:python:'], array_keys($red));
 
     // the steps by themselves
     $t0 = 1_800_000_000;
@@ -12432,7 +12432,7 @@ function testNotify(): void
 
     // the whole way, with the state file and the stand-in notify
     $file = "$tmp/caretaker/notify.json";
-    $checks = ['backup' => [$f('schedule', 'required', false)], 'emby' => [$f('python', 'required', true)]];
+    $checks = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('python', 'required', true)]];
     caretakerNotifyEvaluate($checks, $file, $t0, 'de');
     same('notify: a new red finding waits', 0, count($calls()));
     check('notify: state written', is_file($file));
@@ -12451,7 +12451,7 @@ function testNotify(): void
     same('notify: same finding — quiet', 1, count($calls()));
     caretakerNotifyEvaluate(['backup' => [$f('schedule', 'required', true)]], $file, $t0 + 6000, 'de');
     same('notify: solved — no all clear', 1, count($calls()));
-    $two = ['backup' => [$f('schedule', 'required', false)], 'emby' => [$f('python', 'required', false)]];
+    $two = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('python', 'required', false)]];
     caretakerNotifyEvaluate($two, $file, $t0 + 6100, 'en');
     caretakerNotifyEvaluate($two, $file, $t0 + 7900, 'en');
     $c = $calls();
@@ -12482,7 +12482,7 @@ function testNotify(): void
     foreach ([['run', 'failed', [], 'failed'], ['run', 'aborted', [], 'aborted'], ['run', 'config', [], 'config'],
               ['run', 'errors', [], 'errors'], ['run', 'ok', ['errors' => 2], 'errors'], ['run', 'ok', ['errors' => 0], null],
               ['run', 'busy', [], null], ['run', 'refused', [], null], ['dry', 'failed', [], null], ['report', 'failed', [], null]] as [$mode, $result, $status, $want]) {
-        same("emby notify: $mode $result " . json_encode($status), $want, embyNotifyOutcome($mode, $result, $status));
+        same("jack notify: $mode $result " . json_encode($status), $want, jackNotifyOutcome($mode, $result, $status));
     }
 
     // every notification text the code asks for by name exists in English
@@ -12653,7 +12653,7 @@ function testNotifyLayout(): void
     caretakerNotifySend([$f('schedule'), $f('drift')], 'en');
     $m = $calls()[0]['-m'] ?? '';
     check('layout: team lead - each thing on its own line, its «how» under it, a blank line between', preg_match('/^• Mr\. Backupsy — [^\\\\]+\\\\n  [^•]+\\\\n\\\\n• Mr\. Backupsy — /u', $m) === 1, $m);
-    caretakerNotifySend(array_map(fn ($i) => ['desk' => 'emby', 'id' => "x$i", 'params' => []], range(1, 12)), 'en');
+    caretakerNotifySend(array_map(fn ($i) => ['desk' => 'jack', 'id' => "x$i", 'params' => []], range(1, 12)), 'en');
     $m = $calls()[0]['-m'] ?? '';
     check('layout: team lead - twelve things: ten listed, «… and 2 more», then the footer', substr_count($m, '• ') === 10 && str_contains($m, '\n… and 2 more\n\n'), $m);
 
@@ -12704,34 +12704,34 @@ function testCaretakerAcks(): void
 
     // the marks: a noted recommendation or note counts no more; a must or something in place is never marked
     $t0 = 1_800_000_000;
-    $checks = ['emby'      => [$f('schedule', 'recommended', false), $f('python', 'required', false)],
+    $checks = ['jack'      => [$f('schedule', 'recommended', false), $f('python', 'required', false)],
                'caretaker' => [$f('other_backup_container', 'hint', null, ['name' => 'duplicati', 'image' => 'x']), $f('community_apps', 'recommended', true)]];
     $s = fn (string $desk, int $i) => caretakerAckSig($desk, $checks[$desk][$i]);
     $note = fn (string $desk, string $id) => ['desk' => $desk, 'id' => $id, 'time' => $t0, 'seen' => $t0];
-    $acks = [$s('emby', 0) => $note('emby', 'schedule'), $s('caretaker', 0) => $note('caretaker', 'other_backup_container'),
-             $s('emby', 1) => $note('emby', 'python'), $s('caretaker', 1) => $note('caretaker', 'community_apps')];   // the last two can't be noted
+    $acks = [$s('jack', 0) => $note('jack', 'schedule'), $s('caretaker', 0) => $note('caretaker', 'other_backup_container'),
+             $s('jack', 1) => $note('jack', 'python'), $s('caretaker', 1) => $note('caretaker', 'community_apps')];   // the last two can't be noted
     [$marked, $kept] = caretakerAckStep($checks, $acks, $t0 + 60);
     same('ack mark: every finding has its sig', [true, true, true, true],
-        array_map(fn ($x) => preg_match(CARETAKER_ACK_SIG, (string) ($x['sig'] ?? '')) === 1, [...$marked['emby'], ...$marked['caretaker']]));
-    same('ack mark: the noted recommendation and note', [true, true], [$marked['emby'][0]['acked'] ?? false, $marked['caretaker'][0]['acked'] ?? false]);
-    same('ack mark: never a must', false, $marked['emby'][1]['acked'] ?? false);
+        array_map(fn ($x) => preg_match(CARETAKER_ACK_SIG, (string) ($x['sig'] ?? '')) === 1, [...$marked['jack'], ...$marked['caretaker']]));
+    same('ack mark: the noted recommendation and note', [true, true], [$marked['jack'][0]['acked'] ?? false, $marked['caretaker'][0]['acked'] ?? false]);
+    same('ack mark: never a must', false, $marked['jack'][1]['acked'] ?? false);
     same('ack mark: nothing in place', false, $marked['caretaker'][1]['acked'] ?? false);
     same("ack mark: the reports to Unraid don't change", caretakerRed($checks), caretakerRed($marked));
 
     // tidy: still there → seen once a day; in place → forgotten (back again, shown again); not seen for a month → forgotten
-    same('ack tidy: seen not rewritten within a day', $t0, $kept[$s('emby', 0)]['seen']);
+    same('ack tidy: seen not rewritten within a day', $t0, $kept[$s('jack', 0)]['seen']);
     [, $kept] = caretakerAckStep($checks, $acks, $t0 + 86400);
-    same('ack tidy: seen once a day', $t0 + 86400, $kept[$s('emby', 0)]['seen']);
+    same('ack tidy: seen once a day', $t0 + 86400, $kept[$s('jack', 0)]['seen']);
     check('ack tidy: something in place — its note forgotten', !isset($kept[$s('caretaker', 1)]));
     $solved = $checks;
-    $solved['emby'][0]['ok'] = true;
+    $solved['jack'][0]['ok'] = true;
     [, $kept] = caretakerAckStep($solved, $acks, $t0 + 60);
-    check('ack tidy: sorted out — forgotten', !isset($kept[$s('emby', 0)]));
+    check('ack tidy: sorted out — forgotten', !isset($kept[$s('jack', 0)]));
     [$back] = caretakerAckStep($checks, $kept, $t0 + 120);
-    same('ack tidy: turns up again — shown again', false, $back['emby'][0]['acked'] ?? false);
-    $gone = ['emby' => [], 'caretaker' => []];
+    same('ack tidy: turns up again — shown again', false, $back['jack'][0]['acked'] ?? false);
+    $gone = ['jack' => [], 'caretaker' => []];
     [, $kept] = caretakerAckStep($gone, $acks, $t0 + 29 * 86400);
-    check('ack tidy: not seen for a while (desk let go) — kept', isset($kept[$s('emby', 0)]));
+    check('ack tidy: not seen for a while (desk let go) — kept', isset($kept[$s('jack', 0)]));
     [, $kept] = caretakerAckStep($gone, $acks, $t0 + 31 * 86400);
     same('ack tidy: not seen for a month — forgotten', [], $kept);
 
@@ -12740,10 +12740,10 @@ function testCaretakerAcks(): void
     $file = "$tmp/caretaker/acks.json";
     caretakerAckApply($checks, $file, $t0);
     check('ack file: nothing noted — no file written', !is_file($file));
-    caretakerWrite($file, ['acks' => [$s('emby', 0) => $note('emby', 'schedule'), '../x' => $note('emby', 'x'), $s('caretaker', 0) => 'odd']]);
-    same('ack file: odd entries left out', [$s('emby', 0)], array_keys(caretakerAckRead($file)));
+    caretakerWrite($file, ['acks' => [$s('jack', 0) => $note('jack', 'schedule'), '../x' => $note('jack', 'x'), $s('caretaker', 0) => 'odd']]);
+    same('ack file: odd entries left out', [$s('jack', 0)], array_keys(caretakerAckRead($file)));
     $marked = caretakerAckApply($checks, $file, $t0 + 60);
-    same('ack file: marked from the file', true, $marked['emby'][0]['acked'] ?? false);
+    same('ack file: marked from the file', true, $marked['jack'][0]['acked'] ?? false);
     caretakerAckApply($solved, $file, $t0 + 120);
     same('ack file: sorted out — gone from the file', [], caretakerAckRead($file));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -12751,11 +12751,11 @@ function testCaretakerAcks(): void
     // the Dashboard tile (src/dashboard.php): only open points of desks that work here
     require_once OFFICE_DIR . '/src/dashboard.php';
     [$marked] = caretakerAckStep($checks, $acks, $t0);
-    $all = ['emby' => 1, 'caretaker' => 1];
+    $all = ['jack' => 1, 'caretaker' => 1];
     same('dashboard: without notes — to do and recommended', [1, 1], officeDashCareCounts(['checks' => $checks], $all));
     same('dashboard: the noted recommendation counts no more', [1, 0], officeDashCareCounts(['checks' => $marked], $all));
     $forged = $checks;
-    $forged['emby'][1]['acked'] = true;
+    $forged['jack'][1]['acked'] = true;
     same('dashboard: a must always counts', [1, 1], officeDashCareCounts(['checks' => $forged], $all));
     same("dashboard: desks that don't work here don't count", [0, 0], officeDashCareCounts(['checks' => $checks], ['caretaker' => 1]));
     same('dashboard: no state', [0, 0], officeDashCareCounts([], $all));
@@ -14079,14 +14079,14 @@ function testTrashManifest(): void
 }
 
 /** Jack Emby's path mappings and EmbyCache's paths never lead out of the shares */
-function testEmbyPaths(): void
+function testJackPaths(): void
 {
     foreach ([['/media/movies', '/mnt/user/Filme'], ['/media/tv/', '/mnt/user/Serien/TV'], ['/media/skip', '']] as [$from, $to]) {
-        check("mapping accepted: $from => $to", embyMappingOk($from, $to));
+        check("mapping accepted: $from => $to", jackMappingOk($from, $to));
     }
     foreach ([['/media', '/mnt/user/../../boot'], ['/media', '/mnt/user/Filme/../../../etc'], ['media', '/mnt/user/Filme'],
               ['/media/../x', '/mnt/user/Filme'], ['/media', '/mnt/cache/Filme'], ['/media', "/mnt/user/Filme\n"], ['/media', '/mnt/user/']] as [$from, $to]) {
-        check('mapping refused: ' . json_encode([$from, $to]), !embyMappingOk($from, $to));
+        check('mapping refused: ' . json_encode([$from, $to]), !jackMappingOk($from, $to));
     }
     [$exit] = run(['python3', '--version'], 10);
     if ($exit !== 0) {
@@ -17260,7 +17260,7 @@ function testStaffOrder(): void
     same('staff order: a fresh office — the team lead, then Ms. Dustdevil (where Ms. Whereabouts was, order 20)',
         [['caretaker', 'cleanup'], 20], [array_slice($default, 0, 2), $meta['cleanup']['order'] ?? null]);
     same('staff order: Ms. Moverelli right before Jack Emby, Ms. Protocolli last (2026-10-13)',
-        [true, 'logs'], [array_search('moverelli', $default) + 1 === array_search('emby', $default), end($default)]);
+        [true, 'logs'], [array_search('moverelli', $default) + 1 === array_search('jack', $default), end($default)]);
     check('staff order: no desk.json places a desk differently at the reception any more',
         !array_filter($meta, fn ($m) => array_key_exists('reception_order', $m)));
 
@@ -17371,7 +17371,7 @@ function testStaffOrder(): void
         ['office.staff_order', ['order' => ['backup', 7]]],
         ['office.staff_order', ['order' => array_fill(0, OFFICE_ORDER_MAX + 1, 'backup')]],
         ['office.staff_order', []],
-        ['office.hire', ['desks' => ['emby']]],
+        ['office.hire', ['desks' => ['jack']]],
         ['office.fire', ['desk' => 'logs']],
         ['page', []],
         ['office.staff_order', ['order' => []]],
@@ -17429,7 +17429,7 @@ function testHireWith(): void
         . ' officeStaffAction("office.hire", ["desks" => ["backup", "restore"]]),'
         . ' array_keys(json_decode((string) file_get_contents(OFFICE_DATA . "/office/staff.json"), true)["hired"] ?? [])]);');
     same('hire with: Mr. Restori names Mr. Backupsy (desk.json "with"), Jack Emby Ms. Moverelli (his "needs" is his with), nobody else names anyone',
-        ['restore' => 'backup', 'emby' => 'moverelli'], is_array($out) ? array_filter($out[0]) : $raw);
+        ['restore' => 'backup', 'jack' => 'moverelli'], is_array($out) ? array_filter($out[0]) : $raw);
     same('hire with: both hired in one go, the colleague first', ['backup', 'restore'], $out[2] ?? $raw);
     // only another desk that exists
     $fake = "$tmp/desks";
@@ -17547,15 +17547,15 @@ function testHireNeeds(): void
         proc_close($p);
         return [json_decode($raw, true), $raw];
     };
-    [$o, $raw] = $web('$out = [officeDesks()["emby"]["needs"], officeDesks()["emby"]["with"], officeDesks()["moverelli"]["needs"]];'
-        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
-        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby", "moverelli"]])); $out[] = $hired();'
+    [$o, $raw] = $web('$out = [officeDesks()["jack"]["needs"], officeDesks()["jack"]["with"], officeDesks()["moverelli"]["needs"]];'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["jack"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["jack", "moverelli"]])); $out[] = $hired();'
         . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "moverelli"])); $out[] = $hired();'
-        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "emby"]));'
+        . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "jack"]));'
         . ' $out[] = $try(fn () => officeStaffAction("office.fire", ["desk" => "moverelli"]));'
-        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["jack"]])); $out[] = $hired();'
         . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["moverelli"]]));'
-        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["emby"]])); $out[] = $hired();'
+        . ' $out[] = $try(fn () => officeStaffAction("office.hire", ["desks" => ["jack"]])); $out[] = $hired();'
         . ' echo json_encode($out);');
     if (!is_array($o)) {
         check('hire needs: the web side ran', false, $raw);
@@ -17563,11 +17563,11 @@ function testHireNeeds(): void
         return;
     }
     same('hire needs: Jack Emby needs Ms. Moverelli (his with too), she needs nobody', ['moverelli', 'moverelli', null], array_slice($o, 0, 3));
-    same('hire needs: Jack alone — refused (409, both named), nothing written', [['needs_colleague', 409, ['desk' => 'emby', 'with' => 'moverelli']], []], array_slice($o, 3, 2));
-    same('hire needs: both in one request (in any order) — hired', ['ok', ['emby', 'moverelli']], array_slice($o, 5, 2));
-    same('hire needs: letting her go while he is here — refused, he is named, both stay', [['needed_by', 409, ['desk' => 'moverelli', 'by' => 'emby']], ['emby', 'moverelli']], array_slice($o, 7, 2));
+    same('hire needs: Jack alone — refused (409, both named), nothing written', [['needs_colleague', 409, ['desk' => 'jack', 'with' => 'moverelli']], []], array_slice($o, 3, 2));
+    same('hire needs: both in one request (in any order) — hired', ['ok', ['jack', 'moverelli']], array_slice($o, 5, 2));
+    same('hire needs: letting her go while he is here — refused, he is named, both stay', [['needed_by', 409, ['desk' => 'moverelli', 'by' => 'jack']], ['jack', 'moverelli']], array_slice($o, 7, 2));
     same('hire needs: him first, then her — both go; him alone again — refused; her, then him — hired',
-        ['ok', 'ok', ['needs_colleague', 409, ['desk' => 'emby', 'with' => 'moverelli']], [], 'ok', 'ok', ['moverelli', 'emby']], array_slice($o, 9, 7));
+        ['ok', 'ok', ['needs_colleague', 409, ['desk' => 'jack', 'with' => 'moverelli']], [], 'ok', 'ok', ['moverelli', 'jack']], array_slice($o, 9, 7));
     // an unknown or own "needs" is none
     $fake = "$tmp/desks";
     foreach (['a' => 'b', 'b' => 'b', 'c' => 'ghost'] as $id => $need) {
@@ -17596,7 +17596,7 @@ function testHireNeeds(): void
     }
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
     check('hire needs: the refusals name the desks by their names (core.js errorText)', str_contains($core, "['in_training', 'needs_colleague', 'needed_by'].includes(error.key)"));
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('hire needs: Jack\'s fit — Ms. Moverelli can\'t work here (Unraid too old), so he can\'t either',
         str_contains($src, "return fit(false, 'no_moverelli', ['name' => \$emby[0]['name']]);"));
     $mu = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli-unraid.php');
@@ -17631,10 +17631,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const out = {};
   const run = async (name, mo) => {
     desks.clear();
-    desks.set('emby', { id: 'emby', order: 50, hired: false, with: 'moverelli', needs: 'moverelli' });
+    desks.set('jack', { id: 'jack', order: 50, hired: false, with: 'moverelli', needs: 'moverelli' });
     desks.set('moverelli', { id: 'moverelli', order: 48, hired: mo.hired });
-    c.setState({ staff: { emby: { hired: false, ok: true, why: 'yes' }, moverelli: mo } });
-    const x = c.staff().find((s) => s.id === 'emby');
+    c.setState({ staff: { jack: { hired: false, ok: true, why: 'yes' }, moverelli: mo } });
+    const x = c.staff().find((s) => s.id === 'jack');
     const row = c.teamRow(x);
     const b = walk(row).find((n) => n.tag === 'button');
     const lines = walk(row).filter((n) => n.className === 'row-detail').map((n) => n.textContent);
@@ -17655,13 +17655,51 @@ JS);
         hardeningRm($tmp);
         return;
     }
-    same('hire needs: she isn\'t here and would come — his button hires both, her first', ['hire_with {"name":"moverelli.name_with"}', ['moverelli', 'emby']],
+    same('hire needs: she isn\'t here and would come — his button hires both, her first', ['hire_with {"name":"moverelli.name_with"}', ['moverelli', 'jack']],
         [$r['both']['text'] ?? null, $r['both']['hires'] ?? null]);
-    same('hire needs: she is here — plain «Hire», him alone', ['hire', ['emby']], [$r['she_is_here']['text'] ?? null, $r['she_is_here']['hires'] ?? null]);
+    same('hire needs: she is here — plain «Hire», him alone', ['hire', ['jack']], [$r['she_is_here']['text'] ?? null, $r['she_is_here']['hires'] ?? null]);
     same('hire needs: she can\'t come — no button, the row says why', [null, null, true],
-        [array_key_exists('text', $r['she_cant'] ?? []) ? $r['she_cant']['text'] : 'x', array_key_exists('hires', $r['she_cant'] ?? []) ? $r['she_cant']['hires'] : 'x', in_array('needs_away {"name":"emby.name","with":"moverelli.name_with"}', $r['she_cant']['lines'] ?? [], true)]);
+        [array_key_exists('text', $r['she_cant'] ?? []) ? $r['she_cant']['text'] : 'x', array_key_exists('hires', $r['she_cant'] ?? []) ? $r['she_cant']['hires'] : 'x', in_array('needs_away {"name":"jack.name","with":"moverelli.name_with"}', $r['she_cant']['lines'] ?? [], true)]);
     $ct = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
     check('hire needs: «Hire all» leaves out who can\'t come without his colleague', str_contains($ct, 'const open = all.filter((s) => !s.hired && s.ok && !needsAway(s));'));
+    hardeningRm($tmp);
+}
+
+/**
+ * Jack Streamer's desk id `emby` → `jack` (2026-10-14, agent/lib/migrate.php officeMigrateJackId()): staff.json,
+ * his state file, the Team Lead's notes — the copies before kept beside them, the second run changes nothing.
+ */
+function testMigrateJackId(): void
+{
+    require_once OFFICE_DIR . '/src/staff.php';
+    same('jack id: the agent and the web side read emby as jack', ['jack', 'jack'], [STAFF_MERGED['emby'] ?? null, OFFICE_DESKS_MERGED['emby'] ?? null]);
+    check('jack id: a step of the agent\'s migrations, after pool-x', ($ids = array_column(officeMigrateSteps(), 'id')) && array_search('jack-id', $ids, true) > array_search('pool-x', $ids, true));
+    $tmp = hardeningTmp('jack-id');
+    mkdir("$tmp/office", 0700);
+    mkdir("$tmp/caretaker", 0700);
+    file_put_contents("$tmp/office/staff.json", json_encode(['hired' => ['caretaker' => 1, 'moverelli' => 4, 'emby' => 5], 'order' => ['emby', 'moverelli']]));
+    file_put_contents("$tmp/emby.json", '{"configured":true}');
+    $acks = ['acks' => ['emby:emby_container:0123456789abcdef' => ['desk' => 'emby', 'id' => 'emby_container', 'time' => 1, 'seen' => 2, 'v' => 2],
+        'moverelli:emby_list:aaaaaaaaaaaaaaaa' => ['desk' => 'moverelli', 'id' => 'emby_list', 'time' => 1, 'seen' => 2, 'v' => 2],
+        'backup:schedule:bbbbbbbbbbbbbbbb' => ['desk' => 'backup', 'id' => 'schedule', 'time' => 1, 'seen' => 2, 'v' => 2]], 'other' => 'kept'];
+    file_put_contents("$tmp/caretaker/acks.json", json_encode($acks));
+    $said = officeMigrateJackId($tmp, '1.63.0');
+    $staff = json_decode((string) file_get_contents("$tmp/office/staff.json"), true);
+    same('jack id: staff.json — hired and the order as jack, the rest as it was', [['caretaker' => 1, 'moverelli' => 4, 'jack' => 5], ['jack', 'moverelli']],
+        [$staff['hired'] ?? null, $staff['order'] ?? null]);
+    same('jack id: his state file under the new name, the old one put aside', ['{"configured":true}', false, true],
+        [@file_get_contents("$tmp/jack.json"), file_exists("$tmp/emby.json"), is_file("$tmp/emby.json.before-1.63.0")]);
+    $now = json_decode((string) file_get_contents("$tmp/caretaker/acks.json"), true);
+    same('jack id: the Team Lead\'s notes under jack, the hash kept, the others untouched',
+        [['jack:jack_container:0123456789abcdef', 'moverelli:jack_list:aaaaaaaaaaaaaaaa', 'backup:schedule:bbbbbbbbbbbbbbbb'], 'jack', 'jack_container', 'jack_list', 'kept'],
+        [array_keys($now['acks'] ?? []), $now['acks']['jack:jack_container:0123456789abcdef']['desk'] ?? null, $now['acks']['jack:jack_container:0123456789abcdef']['id'] ?? null,
+         $now['acks']['moverelli:jack_list:aaaaaaaaaaaaaaaa']['id'] ?? null, $now['other'] ?? null]);
+    check('jack id: … every copy before kept, said in the log', is_file("$tmp/office/staff.json.before-1.63.0") && is_file("$tmp/caretaker/acks.json.before-1.63.0")
+        && str_contains($said, 'emby → jack') && str_contains($said, 'emby.json → jack.json') && str_contains($said, '2 note(s)'), $said);
+    same('jack id: the second time changes nothing', 'nothing to change', officeMigrateJackId($tmp, '1.63.0'));
+    file_put_contents("$tmp/emby.json", '{"old":1}');
+    officeMigrateJackId($tmp, '1.63.0');
+    same('jack id: never over a jack.json there — the old one only put aside', ['{"configured":true}', true], [@file_get_contents("$tmp/jack.json"), is_file("$tmp/emby.json.before-1.63.0-2") || count(glob("$tmp/emby.json.before-*")) === 2]);
     hardeningRm($tmp);
 }
 
@@ -17675,7 +17713,7 @@ function testMovedDesk(): void
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     check('moved desk: core.js knows Ms. Whereabouts\' old address', (bool) preg_match("/const MOVED_DESKS = \\{ whereabouts: 'cleanup\\/where' \\};/", $core));
     foreach (OFFICE_DESKS_MERGED as $old => $new) {
-        check("moved desk: $old leads to $new's page", str_contains($core, "$old: '$new/"));
+        check("moved desk: $old leads to $new's page", str_contains($core, "$old: '$new/") || str_contains($core, "$old: '$new' }"));
     }
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
@@ -17689,10 +17727,13 @@ function testMovedDesk(): void
     $tmp = hardeningTmp('moved-desk');
     file_put_contents("$tmp/t.js", $m[0] . "\nconst known = (id) => ['cleanup', 'backup'].includes(id);\n"
         . "console.log(JSON.stringify(['#/whereabouts', '#/whereabouts/x/y', '#whereabouts', '#/cleanup', '#/backup/setup', '#/', '', '#/constructor', '#/toString']"
-        . ".map((h) => movedDesk(h, known)).concat([movedDesk('#/whereabouts', () => true)])));\n");
+        . ".map((h) => movedDesk(h, known)).concat([movedDesk('#/whereabouts', () => true)])"
+        . ".concat(['#/emby', '#/emby/setup/servers', '#emby/history'].map((h) => movedDesk(h, known)), [movedDesk('#/emby/setup', () => true)])));\n");
     $out = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' 2>&1'), true);
     same('moved desk: old addresses lead to «Where is what», the rest stays, not while the old desk is there',
-        ['#/cleanup/where', '#/cleanup/where', '#/cleanup/where', null, null, null, null, null, null, null], $out);
+        ['#/cleanup/where', '#/cleanup/where', '#/cleanup/where', null, null, null, null, null, null, null], array_slice((array) $out, 0, 10));
+    same('moved desk: Jack Streamer\'s old id (#/emby…) leads to #/jack with the rest of the address', ['#/jack', '#/jack/setup/servers', '#/jack/history', null],
+        array_slice((array) $out, 10));
     hardeningRm($tmp);
 }
 
@@ -19399,7 +19440,7 @@ function testSearchPlaces(): void
     }
     file_put_contents("$tmp/words.json", json_encode(['ok' => true, 'langs' => $codes, 'words' => $words]));
     file_put_contents("$tmp/strings.json", json_encode($strings));
-    file_put_contents("$tmp/config.json", json_encode(['desks' => array_map(fn ($d) => ['id' => $d, 'hired' => $d !== 'emby', 'order' => 1], $desks),
+    file_put_contents("$tmp/config.json", json_encode(['desks' => array_map(fn ($d) => ['id' => $d, 'hired' => $d !== 'jack', 'order' => 1], $desks),
         'languages' => array_map(fn ($c) => ['code' => $c], $codes), 'base' => '', 'staff_order' => [], 'stamp' => 1, 'version' => 'test']));
     file_put_contents("$tmp/t.js", <<<'JS'
 // core.js and the desks under node: a stand-in page (enough for the registry, pageHelp() and the palette) and fetch
@@ -19486,7 +19527,7 @@ const out = { registry: {}, marks: {} };
   O.current = { id: 'advisor' };
   out.advisorShown = brief(O.search.find('kopia'));
   O.current = null;
-  out.unhired = O.search.find('emby').map((r) => [r.desk, r.hired]);
+  out.unhired = O.search.find('jack').map((r) => [r.desk, r.hired]);
   out.full = O.search.find('partn').slice(0, 1);
   // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
   process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
@@ -19618,8 +19659,8 @@ JS);
         && !in_array('caretaker:team', $r['after']['tem'], true), json_encode([$r['after']['Tean'], $r['after']['tem']]));
     same('search page: the desk shown comes first', ['restore', 'advisor'], [explode(':', $r['restoreShown'][0] ?? '')[0], explode(':', $r['advisorShown'][0] ?? '')[0]]);
     $u = $r['unhired'];
-    check('search page: a desk not hired comes after the others, marked', $u !== [] && in_array(['emby', false], $u, true)
-        && array_search(['emby', false], $u, true) >= count(array_filter($u, fn ($x) => $x[1])), json_encode($u));
+    check('search page: a desk not hired comes after the others, marked', $u !== [] && in_array(['jack', false], $u, true)
+        && array_search(['jack', false], $u, true) >= count(array_filter($u, fn ($x) => $x[1])), json_encode($u));
     $f = $r['full'][0] ?? [];
     same('search page: a result says where (the desk, its page help), its kind, and goes there', ['caretaker', 'section', '#/caretaker/partner', 'partner.title', 'Partner-Sekretariate', true],
         [$f['desk'] ?? null, $f['kind'] ?? null, $f['route'] ?? null, $f['anchor'] ?? null, $f['label'] ?? null, $f['hired'] ?? null]);
@@ -19697,7 +19738,7 @@ function testSearchItems(): void
                          ['id' => 'schedule', 'level' => 'recommended', 'ok' => true, 'sig' => 'backup:schedule:1111111111111111']],
             'snapshot' => [['id' => 'plan_target_gone', 'level' => 'recommended', 'ok' => false, 'params' => ['plan' => 'hourly', 'target' => 'cache/drop'], 'sig' => 'snapshot:plan_target_gone:2222222222222222'],
                            ['id' => 'other_snapshot_tool', 'level' => 'hint', 'ok' => false, 'acked' => true, 'params' => ['name' => 'Sanoid'], 'sig' => 'snapshot:other_snapshot_tool:3333333333333333']]],
-            'staff' => ['backup' => ['ok' => true, 'why' => 'yes'], 'emby' => ['ok' => true, 'why' => 'yes']],
+            'staff' => ['backup' => ['ok' => true, 'why' => 'yes'], 'jack' => ['ok' => true, 'why' => 'yes']],
             'partners' => ['pairs' => [['id' => 'a1b2c3d4', 'name' => 'Vault', 'address' => '10.0.0.9', 'port' => 22, 'trust' => 'mine', 'key' => $key],
                 // a server's two pairs with one partner (one each way): told apart by the way the copies go
                 ['id' => 'e5f6a7b8', 'name' => 'PartnerNAS', 'address' => '10.0.0.7', 'port' => 22, 'trust' => 'friend', 'sends' => true, 'send_units' => ['place'], 'receive' => null],
@@ -19751,7 +19792,7 @@ function testSearchItems(): void
         'advisor' => ['time' => 1000, 'externals' => ['kopia' => ['there' => true, 'kind' => 'container', 'running' => true], 'fcp' => ['there' => false],
             'grafana' => ['there' => false, 'optional' => true, 'group' => 'monitoring'], 'syslogserver' => ['there' => false, 'kind' => 'setting', 'group' => 'network'],
             'bogus' => ['there' => true]]],
-        'emby' => ['time' => 1000, 'configured' => true, 'emby' => [[]], 'python' => '3.12', 'foreign' => [],
+        'jack' => ['time' => 1000, 'configured' => true, 'jack' => [[]], 'python' => '3.12', 'foreign' => [],
             'settings' => ['instances' => [['servername' => 'Wohnzimmer', 'url' => 'http://192.168.1.2:8096', 'api_key' => '0123456789abcdef0123456789abcdef']]],
             'shares' => [['share' => 'movies', 'fit' => 'ok']], 'history' => [['tool' => 'embycache', 'mode' => 'run', 'started' => 900, 'result' => 'ok', 'by' => 'schedule']]],
         'moverelli' => ['time' => 1000, 'configured' => true, 'shares' => [['share' => 'media', 'state' => 'moves', 'mode' => 'yes', 'from' => 'cache', 'to' => 'array']],
@@ -19853,9 +19894,9 @@ const out = {};
     out.find[q] = brief(O.search.find(q));
   out.first = O.search.find('Wohnzimmer')[0] || null;
   if (out.first) delete out.first.act;
-  O.desks.get('emby').hired = false;
+  O.desks.get('jack').hired = false;
   out.letGo = brief(O.search.find('Wohnzimmer'));
-  O.desks.get('emby').hired = true;
+  O.desks.get('jack').hired = true;
   out.searchCalls = calls.length - asked;
   // his page: a new look (one point in place, another open), then a later one (his partners gone), then an older answer
   O.current = { id: 'caretaker' };
@@ -19950,7 +19991,7 @@ JS);
     $labels = fn (string $d) => array_column($r['items'][$d] ?? [], 'label');
     same('search items caretaker: the points still open (in his words), not those in place or noted; the team; the partners and tickets',
         ['finding:backup:kopia_running:0123456789abcdef', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'partner:c9d0e1f2', 'partner:e5f6a7b8',
-         'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1'],
+         'staff:backup', 'staff:jack', 'ticket:r9', 'ticket:t1'],
         (function ($a) { sort($a); return $a; })($anchors('caretaker')));
     $pairs = array_column(array_filter($r['items']['caretaker'] ?? [], fn ($e) => $e['label'] === 'PartnerNAS'), 'sub', 'anchor');
     same('search items caretaker: two pairs with one partner told apart by the way the copies go (the card\'s words)',
@@ -19985,7 +20026,7 @@ JS);
     same('search items logs: every log by its name, each into her reader', [['Syslog', '#/logs/read/syslog'], ['Container plex', '#/logs/read/container%3Aplex'],
         ['Mr. Backupsy: latest run', '#/logs/read/backup%3Alatest']], array_map(fn ($e) => [$e['label'], $e['route']], $r['items']['logs'] ?? []));
     same('search items advisor: each external he knows as he finds it now (one he doesn\'t know: none)', ['ext.kopia', 'ext.fcp', 'ext.grafana', 'ext.syslogserver'], $anchors('advisor'));
-    same('search items emby: his servers, the shares, the runs', ['overview', 'share:movies', 'run:embycache:900'], $anchors('emby'));
+    same('search items emby: his servers, the shares, the runs', ['overview', 'share:movies', 'run:embycache:900'], $anchors('jack'));
     $slow = array_filter($r['ms'], fn ($ms) => $ms > 2);
     check('search items: ≤ 2 ms a state (warm) ' . json_encode(array_map(fn ($ms) => round($ms, 2), $r['ms'])), $slow === [], json_encode($slow));
 
@@ -20007,7 +20048,7 @@ JS);
     check('search items: «Databases» — the tile and the section first, then the items', str_starts_with($f['Databases'][0] ?? '', 'restore:') && !str_contains($f['Databases'][0] ?? '', ':item:'),
         json_encode($f['Databases']));
     $one = $r['first'] ?? [];
-    same('search items: a result says where (the desk › its line), its kind, and goes there', ['emby', 'item', 'Wohnzimmer', "Jack Emby › {$strings['emby.overview']} · Emby", '#/emby', 'overview', true],
+    same('search items: a result says where (the desk › its line), its kind, and goes there', ['jack', 'item', 'Wohnzimmer', "Jack Emby › {$strings['jack.overview']} · Emby", '#/jack', 'overview', true],
         [$one['desk'] ?? null, $one['kind'] ?? null, $one['label'] ?? null, $one['crumb'] ?? null, $one['route'] ?? null, $one['anchor'] ?? null, $one['hired'] ?? null]);
     same('search items: a desk let go — what it held is not found', [], $r['letGo']);
     same('search items: searching asks the server nothing', 0, $r['searchCalls']);
@@ -20016,9 +20057,9 @@ JS);
     $sorted = function (array $a): array { sort($a); return $a; };
     same('search items: his new look replaces what was found (the point in place gone, the other one there)',
         $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'partner:c9d0e1f2', 'partner:e5f6a7b8',
-            'staff:backup', 'staff:emby', 'ticket:r9', 'ticket:t1']), $sorted($r['after']));
+            'staff:backup', 'staff:jack', 'ticket:r9', 'ticket:t1']), $sorted($r['after']));
     same('search items: … and the look that followed it (his partners gone)',
-        $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'staff:backup', 'staff:emby']), $sorted($r['later']));
+        $sorted(['finding:backup:schedule:1111111111111111', 'finding:snapshot:plan_target_gone:2222222222222222', 'staff:backup', 'staff:jack']), $sorted($r['later']));
     same('search items: … an older answer changes nothing', $sorted($r['later']), $sorted($r['older']));
     same('search items: a provider\'s slip costs its own items only', [0, true], $r['slip']);
     same('search items cleanup: a hit through the search (#/cleanup/tidy/<room>, #/cleanup/where/<corner>) clears her filter, her parts keep it',
@@ -26834,8 +26875,8 @@ function testStrictSettings(): void
     same('strict: backup.schedule without cron', 'bad_request', $act('backup', 'schedule', []));
     same('strict: backup.schedule with cron of the wrong type', ['bad_request', 'bad_request', 'bad_request', 'bad_request'],
         [$act('backup', 'schedule', ['cron' => [1]]), $act('backup', 'schedule', ['cron' => 5]), $act('backup', 'schedule', ['cron' => true]), $act('backup', 'schedule', ['cron' => ['0 3 * * *']])]);
-    same('strict: emby.schedule without cron', 'bad_request', $act('emby', 'schedule', ['job' => 'gather']));
-    same('strict: emby.schedule with an array', 'bad_request', $act('emby', 'schedule', ['job' => 'gather', 'cron' => ['x']]));
+    same('strict: jack.schedule without cron', 'bad_request', $act('jack', 'schedule', ['job' => 'gather']));
+    same('strict: jack.schedule with an array', 'bad_request', $act('jack', 'schedule', ['job' => 'gather', 'cron' => ['x']]));
     same('strict: «off» said', [null, null, null, null], [cronField(['cron' => null]), cronField(['cron' => false]), cronField(['cron' => '']), cronField(['cron' => '  '])]);
     same('strict: a line, trimmed', '0 3 * * *', cronField(['cron' => ' 0 3 * * * ']));
     same('strict: snapshot.plan_toggle without enabled — never «paused»', ['bad_request', 'bad_request'],
@@ -26845,18 +26886,18 @@ function testStrictSettings(): void
     same('strict: caretaker.menu_name without its place — never back to the menu bar', ['missing_field', 'missing_field'],
         [$act('caretaker', 'menu_name', ['name' => 'Office']), $act('caretaker', 'menu_name', ['name' => 'Office', 'place' => ['menu']])]);
     same('strict: caretaker.menu_name with a name of the wrong type', 'menu_name_bad', $act('caretaker', 'menu_name', ['name' => ['x'], 'place' => 'menu']));
-    same('strict: the gather\'s settings — both said', ['emby_bad_number', 'bad_request', 'emby_bad_number', 'bad_request'],
-        [$refused(fn () => embyGatherCheck(['shares' => ['media'], 'dup_check' => 'size'], ['media'])), $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 5], ['media'])),
-         $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => [5], 'dup_check' => 'size'], ['media'])),
-         $refused(fn () => embyGatherCheck(['shares' => ['media'], 'min_free_gb' => 5, 'dup_check' => 'other'], ['media']))]);
+    same('strict: the gather\'s settings — both said', ['jack_bad_number', 'bad_request', 'jack_bad_number', 'bad_request'],
+        [$refused(fn () => jackGatherCheck(['shares' => ['media'], 'dup_check' => 'size'], ['media'])), $refused(fn () => jackGatherCheck(['shares' => ['media'], 'min_free_gb' => 5], ['media'])),
+         $refused(fn () => jackGatherCheck(['shares' => ['media'], 'min_free_gb' => [5], 'dup_check' => 'size'], ['media'])),
+         $refused(fn () => jackGatherCheck(['shares' => ['media'], 'min_free_gb' => 5, 'dup_check' => 'other'], ['media']))]);
     $gc = ['shares' => ['media'], 'min_free_gb' => 300, 'dup_check' => 'cmp', 'move_cache' => true, 'cache_only_target' => 'most-free'];
-    same('strict: the gather\'s settings as the page sends them', $gc, embyGatherCheck($gc, ['media']));
+    same('strict: the gather\'s settings as the page sends them', $gc, jackGatherCheck($gc, ['media']));
     same('strict: the gather\'s cache switch and its target — said, a real switch, a known target (#14)', array_fill(0, 5, 'bad_request'), array_map(
-        fn ($x) => $refused(fn () => embyGatherCheck($x, ['media'])), [array_diff_key($gc, ['move_cache' => 1]), array_diff_key($gc, ['cache_only_target' => 1]),
+        fn ($x) => $refused(fn () => jackGatherCheck($x, ['media'])), [array_diff_key($gc, ['move_cache' => 1]), array_diff_key($gc, ['cache_only_target' => 1]),
         ['move_cache' => 'true'] + $gc, ['move_cache' => 1] + $gc, ['cache_only_target' => 'disk1'] + $gc]));
     $inst = ['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789', 'servername' => 'Emby']]];
-    same('strict: Jack Emby\'s settings without their lists', 'bad_request', $refused(fn () => embySave($inst)));
-    same('strict: … one list missing', 'bad_request', $refused(fn () => embySave($inst + ['libraries' => [], 'library_types' => [], 'valid_users' => []])));
+    same('strict: Jack Emby\'s settings without their lists', 'bad_request', $refused(fn () => jackSave($inst)));
+    same('strict: … one list missing', 'bad_request', $refused(fn () => jackSave($inst + ['libraries' => [], 'library_types' => [], 'valid_users' => []])));
     $plans = (string) file_get_contents(OFFICE_DIR . '/agent/lib/snapshotplans.php');
     check('strict: Ms. Snapshotini\'s plan — its switches said, keep and max_days numbers', str_contains($plans, "\$recursive = boolField(\$in, 'recursive');")
         && str_contains($plans, "\$skipAsleep = boolField(\$in, 'skip_asleep');") && str_contains($plans, '!is_int($keep) || !is_int($days)'));
@@ -26866,7 +26907,7 @@ function testStrictSettings(): void
  * Requests of the wrong type are refused, never cast (QA 2026-10-08, findings 6 and 14): Unraid's php.ini hides
  * warnings (error_reporting 22517), so «Array to string conversion» never reached the agent's log. The agent reports
  * everything now (error_reporting(E_ALL) in serve(), agentPhpError(): `@` still silences, the same one once an hour);
- * the malformed requests qa1 sent — arrays where strings belong in partner_*, emby.output tool "../x", office.fire
+ * the malformed requests qa1 sent — arrays where strings belong in partner_*, jack.output tool "../x", office.fire
  * {"desk":["x"]}, ?a=state&desk[]=y — answer bad_request (or unknown_target) and raise no warning.
  */
 function testRequestTypes(): void
@@ -26895,7 +26936,7 @@ function testRequestTypes(): void
     $level = error_reporting(E_ALL);
     $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
     $staff = TESTS_RUN_DIR . '/types-staff.json';          // the desks asked here work here (testAgentHired: when they don't)
-    file_put_contents($staff, json_encode(['hired' => ['emby' => 1, 'restore' => 1]]));
+    file_put_contents($staff, json_encode(['hired' => ['jack' => 1, 'restore' => 1]]));
     $GLOBALS['agentStaffFile'] = $staff;
     $answers = [];
     foreach (['partner_add', 'partner_ticket_start'] as $a) {
@@ -26907,8 +26948,8 @@ function testRequestTypes(): void
     }
     $answers[] = $ask(['action' => 'caretaker.partner_ticket_make', 'pair' => ['x']]);
     same('types: partner_* with arrays where strings belong — bad_request', array_fill(0, 8, 'bad_request'), $answers);
-    same('types: emby.output / emby.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
-        [$ask(['action' => 'emby.output', 'tool' => '../x']), $ask(['action' => 'emby.log', 'tool' => '../x'])]);
+    same('types: jack.output / jack.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
+        [$ask(['action' => 'jack.output', 'tool' => '../x']), $ask(['action' => 'jack.log', 'tool' => '../x'])]);
     same('types: restore.drill_set with nothing it knows — refused, not an ok that changed nothing', 'bad_request', $ask(['action' => 'restore.drill_set', 'x' => 1]));
     unset($GLOBALS['agentStaffFile']);
     @unlink($staff);
@@ -26943,7 +26984,7 @@ function testAgentHired(): void
     $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
     $writes = [['action' => 'watchman.syslog_set', 'on' => 'x'], ['action' => 'watchman.net_lan_set', 'on' => 'x'],
                ['action' => 'watchman.notify_set', 'on' => 'x'], ['action' => 'watchman.posture_ack', 'id' => ['x']],
-               ['action' => 'watchman.round'], ['action' => 'backup.schedule', 'cron' => [1]], ['action' => 'emby.schedule', 'job' => 'gather'],
+               ['action' => 'watchman.round'], ['action' => 'backup.schedule', 'cron' => [1]], ['action' => 'jack.schedule', 'job' => 'gather'],
                ['action' => 'snapshot.plan_toggle', 'id' => 'nosuch'], ['action' => 'snapshot.estimate', 'ids' => ['../x']],
                ['action' => 'restore.drill_set', 'x' => 1], ['action' => 'cleanup.measure', 'ids' => []]];
     $refusedThere = ['bad_request', 'bad_request', 'bad_request', 'bad_request', 'not_hired', 'bad_request', 'bad_request', 'bad_request',
@@ -26960,7 +27001,7 @@ function testAgentHired(): void
             [agentDeskMayAct('watchman', 'refresh'), agentDeskMayAct('snapshot', 'refresh'), agentDeskMayAct('caretaker', 'menu_name'),
              $ask(['action' => 'caretaker.menu_name', 'name' => 'Office'])]);
     }
-    file_put_contents($staff, json_encode(['hired' => ['watchman' => 1, 'backup' => 2, 'emby' => 3, 'snapshot' => 4, 'restore' => 5, 'whereabouts' => 6]]));
+    file_put_contents($staff, json_encode(['hired' => ['watchman' => 1, 'backup' => 2, 'jack' => 3, 'snapshot' => 4, 'restore' => 5, 'whereabouts' => 6]]));
     $GLOBALS['agentStaffFile'] = $staff;
     $answers = array_map($ask, $writes);
     // watchman.round: hired in the list here, but his own check reads the live list — refused there, not at the dispatch
@@ -27014,7 +27055,7 @@ function testReport(): void
     file_put_contents("$tmp/emby.json", json_encode(['instances' => [['url' => 'http://10.0.0.5:8096', 'api_key' => 'abcdef0123456789abcdef']]]));
     file_put_contents("$tmp/supporter.json", json_encode(['key' => 'USO1.eyJ2IjoxfQ.MEUCIQD-sig']));
     $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/ident.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => ['/mnt/disk1', '/mnt/user', '/mnt/hazel'],
-            'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/partner", 'emby_settings' => "$tmp/emby.json", 'supporter' => "$tmp/supporter.json",
+            'passwd' => "$tmp/passwd", 'partner_dir' => "$tmp/partner", 'jack_settings' => "$tmp/emby.json", 'supporter' => "$tmp/supporter.json",
             'report_id_file' => "$tmp/office/report-id", 'hostname' => 'homeserver', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
             'hired' => ['caretaker', 'snapshot', 'backup'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log",
             'url' => ''];       // no inbox: «Your reports» asks nobody where they stand here (testReportStatus does)
@@ -27702,7 +27743,7 @@ function testReportImages(): void
     file_put_contents("$tmp/var.ini", "regGUID=\"0781-5583-3311-A1B2C3D4E5F6\"\n");
     file_put_contents("$tmp/unraid-version", "version=\"7.3.3\"\n");
     $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/none.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => [],
-            'passwd' => "$tmp/none", 'partner_dir' => "$tmp/partner", 'emby_settings' => "$tmp/none.json", 'supporter' => "$tmp/none.json",
+            'passwd' => "$tmp/none", 'partner_dir' => "$tmp/partner", 'jack_settings' => "$tmp/none.json", 'supporter' => "$tmp/none.json",
             'report_id_file' => "$tmp/office/report-id", 'hostname' => 'tower', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
             'hired' => ['caretaker'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log", 'inbox' => "$tmp/inbox"];
     $types = reportImageTypes();
@@ -29924,7 +29965,7 @@ SH);
     foreach (['move', 'zfs', 'notify'] as $b) {
         chmod("$tmp/bin/$b", 0755);
     }
-    $v += ['version' => '7.3.2', 'own' => ['set' => '', 'cron' => null], 'mover' => false, 'mover_self' => false, 'busy' => false, 'emby' => null,
+    $v += ['version' => '7.3.2', 'own' => ['set' => '', 'cron' => null], 'mover' => false, 'mover_self' => false, 'busy' => false, 'jack_desk' => null,
            'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => [], 'jack_ran' => true];
     $GLOBALS['moverelliHost'] = [
         'dir' => "$tmp/data", 'shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'var_ini' => "$tmp/var.ini",
@@ -29934,8 +29975,8 @@ SH);
         'unraid' => function () use (&$v) { return $v['own']; },
         'mover_running' => function (?int $self = null) use (&$v) { return $self === null ? $v['mover'] : $v['mover_self']; },
         'jack_busy' => function () use (&$v) { return $v['busy']; },
-        'emby' => function () use (&$v) { return $v['emby']; },
-        'scheduled' => fn () => true, 'lock_wait' => 1, 'next_run' => fn () => null, 'emby_next' => fn () => null,
+        'jack_desk' => function () use (&$v) { return $v['jack_desk']; },
+        'scheduled' => fn () => true, 'lock_wait' => 1, 'next_run' => fn () => null, 'jack_next' => fn () => null,
         'hired' => function () use (&$v) { return $v['hired']; },
         'tuning' => function () use (&$v) { return $v['tuning']; },
         'tuning_dir' => "$tmp/tuning", 'us_dir' => "$tmp/us", 'cron_glob' => "$tmp/plugins/*/*.cron", 'unraid_cron' => "$tmp/plugins/dynamix/mover.cron",
@@ -29966,7 +30007,7 @@ function testMoverelliUnraid(): void
     $dir = "$tmp/data";
     @mkdir("$tmp/dynamix", 0700, true);
     $waited = [];
-    $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'var_ini' => "$tmp/ui-var.ini", 'emcmd' => "$tmp/emcmd",
+    $GLOBALS['jackMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/dynamix/mover.cron", 'var_ini' => "$tmp/ui-var.ini", 'emcmd' => "$tmp/emcmd",
         'wait' => function (int $ms) use (&$waited) { $waited[] = $ms; }, 'tuning' => fn () => null, 'moverelli' => fn () => null,
         'note' => fn (string $was, string $logging) => moverelliUnraidNoteKeep($was, $logging, $dir)];
     $calls = function () use ($tmp): array { $c = file_exists("$tmp/emcmd.calls") ? file("$tmp/emcmd.calls", FILE_IGNORE_NEW_LINES) : []; @unlink("$tmp/emcmd.calls"); return $c; };
@@ -30004,7 +30045,7 @@ function testMoverelliUnraid(): void
     $r = moverelliSave($set, $h, null, true);
     same('unraid mover: with the consent — Unraid\'s form «Disabled» once (logging kept), then her settings written; said so',
         [['shareMoverSchedule=&shareMoverLogging=yes&changeMover=Apply'], true, true, ['set' => '', 'cron' => null]],
-        [$calls(), file_exists("$dir/smart_mover.ini"), $r['mover_off'] ?? null, embyMoverOwn(embyMoverHost())]);
+        [$calls(), file_exists("$dir/smart_mover.ini"), $r['mover_off'] ?? null, jackMoverOwn(jackMoverHost())]);
     same('unraid mover: … what it was noted for her let-go', ['40 3 * * *', 'yes'], [moverelliUnraidNote($dir)['was'] ?? null, moverelliUnraidNote($dir)['logging'] ?? null]);
     $v['own'] = ['set' => '', 'cron' => null];
     same('unraid mover: off already — saved without asking, nothing sent', [false, []], [moverelliSave($set, $h)['mover_off'] ?? null, $calls()]);
@@ -30027,28 +30068,28 @@ function testMoverelliUnraid(): void
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\nshareMoverLogging=\"yes\"\n");
     @unlink("$tmp/dynamix/mover.cron");
     $v['own'] = ['set' => '', 'cron' => null];
-    $v['emby'] = ['lists' => ['/x/l.txt'], 'shares' => ['Filme']];
+    $v['jack_desk'] = ['lists' => ['/x/l.txt'], 'shares' => ['Filme']];
     $l = moverelliLetGoLook($h);
     same('unraid mover: her let-go look with Jack hired — he is named, her schedule, Unraid\'s comes back', [true, '0 4 * * *', ['off' => true, 'back' => '40 3 * * *']],
         [$l['jack'], $l['schedule'], $l['unraid']]);
     same('unraid mover: her let-go with Jack hired — refused, her schedule stays, Unraid\'s stays off, nothing sent', [['moverelli_jack_hired', []], '0 4 * * *', '', []],
-        [$err(fn () => moverelliLetGo(['confirm' => true], $h)), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'], embyMoverOwn(embyMoverHost())['set'], $calls()]);
-    $v['emby'] = null;
+        [$err(fn () => moverelliLetGo(['confirm' => true], $h)), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'], jackMoverOwn(jackMoverHost())['set'], $calls()]);
+    $v['jack_desk'] = null;
     same('unraid mover: without confirm — refused', ['bad_request', []], $err(fn () => moverelliLetGo([], $h)));
     $r = moverelliLetGo(['confirm' => true], $h);
     same('unraid mover: her let-go — her schedule off, Unraid\'s back through its form (the value URL-encoded), looked at, the note gone',
         [true, ['back' => true, 'was' => '40 3 * * *'], ['shareMoverSchedule=40%203%20%2A%20%2A%20%2A&shareMoverLogging=yes&changeMover=Apply'], null, ['set' => '40 3 * * *', 'cron' => '40 3 * * *'], null],
-        [$r['schedule_off'], $r['unraid'], $calls(), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'] ?? null, embyMoverOwn(embyMoverHost()), moverelliUnraidNote($dir)]);
+        [$r['schedule_off'], $r['unraid'], $calls(), officeJobSchedule('moverelli', "$tmp/office.cron")['custom'] ?? null, jackMoverOwn(jackMoverHost()), moverelliUnraidNote($dir)]);
     same('unraid mover: let go again — nothing noted, nothing sent', [false, ['none' => true], []], [moverelliLetGo(['confirm' => true], $h)['schedule_off'], moverelliLetGo(['confirm' => true], $h)['unraid'], $calls()]);
     moverelliUnraidNoteKeep('40 3 * * *', 'yes', $dir);
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"0 */6 * * *\"\n");
     file_put_contents("$tmp/dynamix/mover.cron", "0 */6 * * * /usr/local/sbin/mover start > /dev/null\n");
     same('unraid mover: a schedule set by hand meanwhile — kept, the note gone, nothing sent', [['kept' => true, 'schedule' => '0 */6 * * *'], null, []],
-        [moverelliUnraidBack(embyMoverHost(), $dir), moverelliUnraidNote($dir), $calls()]);
+        [moverelliUnraidBack(jackMoverHost(), $dir), moverelliUnraidNote($dir), $calls()]);
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"\"\n");
     @unlink("$tmp/dynamix/mover.cron");
     file_put_contents("$dir/" . MOVERELLI_UNRAID_NOTE, json_encode(['v' => 1, 'was' => '40 3 * * *&cmdStartMover=1', 'logging' => 'no', 'at' => 1]));
-    $e = $err(fn () => moverelliUnraidBack(embyMoverHost(), $dir));
+    $e = $err(fn () => moverelliUnraidBack(jackMoverHost(), $dir));
     same('unraid mover: a noted value of a shape Unraid\'s form never makes — refused, nothing sent', ['moverelli_unraid_back_failed', []], [$e[0] ?? null, $calls()]);
     foreach (['40 3 * * *', '0 */4 * * *', '5 2 * * 0', '0 1 15 * *'] as $ok) {
         check("unraid mover: the form's shape «{$ok}» is sent", (bool) preg_match(MOVERELLI_UNRAID_CRON, $ok));
@@ -30061,7 +30102,7 @@ function testMoverelliUnraid(): void
         [$r['unraid']['error']['key'] ?? null, count($waited), moverelliUnraidNote($dir)['was'] ?? null]);
     $calls();
     @unlink("$dir/" . MOVERELLI_UNRAID_NOTE);
-    unset($GLOBALS['embyMoverHost']);
+    unset($GLOBALS['jackMoverHost']);
 
     // D1: EmbyCache's list in her ini before EmbyCache's first run — no real run (said once, never notified), a Team Lead hint
     $list = "$tmp/emby/embycache_exclude.txt";
@@ -30074,7 +30115,7 @@ function testMoverelliUnraid(): void
     same('jack list: named, not there, EmbyCache never ran — a real run refused with the file; a dry run not (it only warns)',
         [['moverelli_jack_list_pending', ['file' => $list]], 'ok', $list], [$why('run'), $why('dry'), moverelliJackListPending($h)]);
     $f = array_column(moverelliChecks($h), null, 'id')['jack_list_pending'] ?? null;
-    same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/emby'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
+    same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/jack'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
     $v['jack_ran'] = true;
     same('jack list: EmbyCache ran (the list existed) and it is gone — no refusal here: Smart Mover\'s ERROR skips the share', ['ok', null], [$why('run'), moverelliJackListPending($h)]);
     $v['jack_ran'] = false;
@@ -30484,7 +30525,7 @@ globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => Math.round(b
   dialog: (o) => { const d = { o, closed: false, setTitle() {}, close() { if (d.closed) return; d.closed = true; if (o.onClose) o.onClose(); } }; dialogs.push(d); return d; } };
 const [emFile, stateFile, connectFile] = process.argv.slice(2);
 (0, eval)(fs.readFileSync(emFile, 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
 Object.values(st.jobs || {}).forEach((j) => { j.running = false; });      // no run going (the demo shows one)
 const con = connectFile ? JSON.parse(fs.readFileSync(connectFile, 'utf8')) : null;
@@ -30526,29 +30567,29 @@ function streamerTabRun(string $name, string $script, array $args): ?array
  */
 function testStreamerTab(): void
 {
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('streamer tab: the wizard and the simulator are gone — no modal, no streamer.js, no step dialog',
-        !is_file(OFFICE_WEB . '/desks/emby/streamer.js') && !str_contains($js, 'openWizard') && !str_contains($js, 'streamer.js') && !str_contains($js, 'modal: true')
+        !is_file(OFFICE_WEB . '/desks/jack/streamer.js') && !str_contains($js, 'openWizard') && !str_contains($js, 'streamer.js') && !str_contains($js, 'modal: true')
         && !str_contains($js, 'pool_measure'));
     check('streamer tab: the rule\'s sentences are plain help text, not orange callouts (the page and the pool\'s section)',
         str_contains($js, "ruleTexts(budgetGb(form.values.cache_budget)).forEach((t) => box.appendChild(el('p', 'role jo-slice', t)));")
         && str_contains($js, "savedRule().forEach((line) => s.appendChild(el('p', 'role jo-slice', line)));"));
     $gone = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
-        foreach (array_keys(langFile(OFFICE_WEB . "/desks/emby/lang/$l.json")) as $k) {
+        foreach (array_keys(langFile(OFFICE_WEB . "/desks/jack/lang/$l.json")) as $k) {
             if (str_starts_with($k, 'wizard.') || str_starts_with($k, 'sim.') || str_starts_with($k, 'setup.mode') || $k === 'share.days') {
                 $gone[] = "$l $k";
             }
         }
     }
     same('streamer tab: the wizard\'s, the simulator\'s and the count mode\'s words in no language', [], $gone);
-    $css = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.css');
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.css');
     check('streamer tab: … nor their styles', !str_contains($css, 'jo-wiz') && !str_contains($css, 'jo-sim'));
-    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $jackSrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('streamer tab: the agent measures no pool for a page any more (pool_measure gone), N days not a setting',
-        !str_contains($emby, "'pool_measure'") && !str_contains($emby, 'embyMeasurePool') && !str_contains($emby, "'give_back_unwatched_days'];")
-        && str_contains($emby, "unset(\$cfg['give_back_unwatched_days']);"));
-    $places = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/emby/places.json'), true);
+        !str_contains($jackSrc, "'pool_measure'") && !str_contains($jackSrc, 'jackMeasurePool') && !str_contains($jackSrc, "'give_back_unwatched_days'];")
+        && str_contains($jackSrc, "unset(\$cfg['give_back_unwatched_days']);"));
+    $places = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/jack/places.json'), true);
     check('streamer tab: the search lists his parts\' titles (places.json), none of the wizard\'s',
         !array_filter($places['keys'], fn ($k) => str_starts_with($k, 'wizard.') || str_starts_with($k, 'sim.'))
         && !array_diff(['setup.server', 'setup.shares', 'setup.scope', 'setup.users', 'setup.more', 'import.title'], $places['keys']));
@@ -30593,7 +30634,7 @@ function testStreamerTab(): void
   f.budgets = { 'u-anna': '100', 'u-carla': '50G' };
   posts.length = 0;
   await e.saveSetup();
-  const s = (posts.find((p) => p[0] === 'emby.save') || [])[1];
+  const s = (posts.find((p) => p[0] === 'jack.save') || [])[1];
   out.save = s ? [s.settings.cache_budget, s.settings.user_budgets, s.settings.max_episodes_per_series, ['budget_mode', 'number_episodes', 'give_back_unwatched_days', 'create_share_root', 'min_free_percent'].filter((k) => k in s.settings)] : toasts.at(-1);
   // blocked: no post, said, the people's part shown (while another part is shown)
   e.initForm(); f = connect();
@@ -30608,18 +30649,18 @@ function testStreamerTab(): void
   const g = e.form();
   g.instances[0].api_key = 'abcdef0123456789';
   out.needs = e.needsConnect(g.instances[0]);
-  answers['emby.connect'] = { ok: false, error: { key: 'emby_connect' } };
+  answers['jack.connect'] = { ok: false, error: { key: 'jack_connect' } };
   posts.length = 0;
   globalThis.document = { activeElement: null };
   await e.saveSetup();
   out.connectFail = [posts.map((p) => p[0]), g.instances[0].connectError, picks.at(-1)];
-  answers['emby.connect'] = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
+  answers['jack.connect'] = { ok: true, server: con.server, libraries: con.libraries, users: con.users };
   posts.length = 0;
   await e.saveSetup();
   out.connectOk = posts.map((p) => p[0]);
   console.log(JSON.stringify(out));
 })();
-JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json', OFFICE_DIR . '/tests/ui/demo/post/emby.connect.json']);
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json', OFFICE_DIR . '/tests/ui/demo/post/jack.connect.json']);
     if ($r === null) {
         return;
     }
@@ -30645,47 +30686,47 @@ JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json'
         ['300G', ['u-anna' => '100G'], 3, []], $r['save']);
     same('streamer tab: blocked — nothing sent, the reason said, the people\'s part shown', [0, 'setup.users_budget_block', ['users', 'click']], $r['blocked']);
     same('streamer tab: «Save» with a new key connects first', true, $r['needs']);
-    same('streamer tab: … a failure — no save, the error in the server\'s box, the server\'s part shown', [['emby.connect'], 'E:emby_connect', ['servers', 'click']], $r['connectFail']);
-    same('streamer tab: … connected — then saved', ['emby.connect', 'emby.save'], $r['connectOk']);
+    same('streamer tab: … a failure — no save, the error in the server\'s box, the server\'s part shown', [['jack.connect'], 'E:jack_connect', ['servers', 'click']], $r['connectFail']);
+    same('streamer tab: … connected — then saved', ['jack.connect', 'jack.save'], $r['connectOk']);
 }
 
 /**
- * Budget mode always, the agent's side (2026-10-14): embyBudgetCheck() — a budget in total required (at least 20 GB), a
+ * Budget mode always, the agent's side (2026-10-14): jackBudgetCheck() — a budget in total required (at least 20 GB), a
  * person's own budget at least 20 GB, together never over the total, what they leave at least 20 GB for each of the
- * others; embySave() checks it before anything is written. Set up = a server and a budget (embyConfigured()).
+ * others; jackSave() checks it before anything is written. Set up = a server and a budget (jackConfigured()).
  */
 function testStreamerBudget(): void
 {
     $refused = function (string $budget, array $users): string {
         try {
-            embyBudgetCheck($budget, $users);
+            jackBudgetCheck($budget, $users);
             return 'ok';
         } catch (Problem $e) {
             return $e->key . ' ' . json_encode($e->params);
         }
     };
     $o = (object) [];
-    same('streamer budget: required — none, unreadable or under 20 GB refused', ['emby_budget_missing {"min":"20 GB"}', 'emby_budget_missing {"min":"20 GB"}', 'emby_budget_missing {"min":"20 GB"}'],
+    same('streamer budget: required — none, unreadable or under 20 GB refused', ['jack_budget_missing {"min":"20 GB"}', 'jack_budget_missing {"min":"20 GB"}', 'jack_budget_missing {"min":"20 GB"}'],
         [$refused('', []), $refused('LOTS', []), $refused('19G', [])]);
-    same('streamer budget: a person under 20 GB refused, named by the value', 'emby_budget_low {"min":"20 GB","value":"10G"}', $refused('300G', ['a' => ['budget' => '10G'], 'b' => $o]));
-    same('streamer budget: the people\'s budgets over the whole refused', 'emby_budget_over {"fixed":"400 GB","total":"300 GB"}', $refused('300G', ['a' => ['budget' => '200G'], 'b' => ['budget' => '200G']]));
-    same('streamer budget: what they leave under 20 GB each for the others refused', 'emby_budget_short {"rest":"30 GB","min":"20 GB"}',
+    same('streamer budget: a person under 20 GB refused, named by the value', 'jack_budget_low {"min":"20 GB","value":"10G"}', $refused('300G', ['a' => ['budget' => '10G'], 'b' => $o]));
+    same('streamer budget: the people\'s budgets over the whole refused', 'jack_budget_over {"fixed":"400 GB","total":"300 GB"}', $refused('300G', ['a' => ['budget' => '200G'], 'b' => ['budget' => '200G']]));
+    same('streamer budget: what they leave under 20 GB each for the others refused', 'jack_budget_short {"rest":"30 GB","min":"20 GB"}',
         $refused('300G', ['a' => ['budget' => '270G'], 'b' => $o, 'c' => $o]));
     same('streamer budget: fine — 20 GB each, everyone a budget up to the whole, 1.5T, everyone (no list)', ['ok', 'ok', 'ok', 'ok'],
         [$refused('60G', ['a' => ['budget' => '20G'], 'b' => $o, 'c' => $o]), $refused('300G', ['a' => ['budget' => '100G'], 'b' => ['budget' => '200G']]),
          $refused('1.5T', ['a' => ['budget' => '1T']]), $refused('20G', [])]);
     same('streamer budget: set up = a server and a budget — without one (an older count-mode setup) «not set up yet»: no migration, the setup starts',
-        [true, false, false, false, false], [embyConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '300G']), embyConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '']),
-        embyConfigured(['instances' => [['url' => 'x']], 'number_episodes' => 3]), embyConfigured(['instances' => [], 'cache_budget' => '300G']), embyConfigured(null)]);
-    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php'), 'embyConfigured(') === 6);
-    same('streamer budget: sizes as EmbyCache reads them', [500 << 30, (int) (1.5 * (1 << 40)), 800 << 30, 0, 0], array_map('embySizeBytes', ['500G', '1.5T', '800GB', 'lots', '']));
-    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('streamer budget: embySave() checks before it writes', (bool) preg_match('/embyBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users\);.*?embyWriteSettings\(\$cfg\);/s', $emby));
+        [true, false, false, false, false], [jackConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '300G']), jackConfigured(['instances' => [['url' => 'x']], 'cache_budget' => '']),
+        jackConfigured(['instances' => [['url' => 'x']], 'number_episodes' => 3]), jackConfigured(['instances' => [], 'cache_budget' => '300G']), jackConfigured(null)]);
+    check('streamer budget: his state, his checks, runs and his schedule go by it', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'jackConfigured(') === 6);
+    same('streamer budget: sizes as EmbyCache reads them', [500 << 30, (int) (1.5 * (1 << 40)), 800 << 30, 0, 0], array_map('jackSizeBytes', ['500G', '1.5T', '800GB', 'lots', '']));
+    $jackSrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('streamer budget: jackSave() checks before it writes', (bool) preg_match('/jackBudgetCheck\(\$cfg\[\'cache_budget\'\], \$users\);.*?jackWriteSettings\(\$cfg\);/s', $jackSrc));
     $lang = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
-        $words = langFile(OFFICE_WEB . "/desks/emby/lang/$l.json");
+        $words = langFile(OFFICE_WEB . "/desks/jack/lang/$l.json");
         foreach (['missing', 'low', 'over', 'short'] as $k) {
-            if (!isset($words["errors.emby_budget_$k"])) {
+            if (!isset($words["errors.jack_budget_$k"])) {
                 $lang[] = "$l $k";
             }
         }
@@ -30694,7 +30735,7 @@ function testStreamerBudget(): void
 }
 
 /**
- * «Set up from scratch» (2026-10-14, the owner: really zero): embyReset() deletes his settings, the gather's settings and
+ * «Set up from scratch» (2026-10-14, the owner: really zero): jackReset() deletes his settings, the gather's settings and
  * state, his origin, runs and import copies, switches his and the gather's schedules off and EMPTIES his list (the file
  * stays: her ini names it) — logs stay; refused while a run of his goes. The consequence: his files on the pool are
  * ordinary cache — Smart Mover with his list listed protects them, after the reset it moves them by her age rule, and a
@@ -30719,7 +30760,7 @@ function testStreamerReset(): void
     $jobs = [];
     $o = ['dir' => $dir, 'gather' => $gdir, 'running' => fn (): bool => false, 'schedule' => function (string $job) use (&$jobs) { $jobs[] = $job; }];
     $his = ['embycache_settings.json', 'embycache_origin.json', 'office-history.json', 'office-run.json', 'office-output.txt', 'office-stop.json',
-            'emby-progress.json', 'status.json', 'embycache_settings.json.before-import-20261001'];
+            'jack-progress.json', 'status.json', 'embycache_settings.json.before-import-20261001'];
     foreach ($his as $f) {
         file_put_contents("$dir/$f", '{}');
     }
@@ -30729,9 +30770,9 @@ function testStreamerReset(): void
         file_put_contents("$gdir/$f", '{}');
     }
     file_put_contents("$gdir/consolidate.log", "a line\n");
-    same('reset: refused while a run of his goes — nothing touched', ['emby_running', true, 25],
-        [$refused(fn () => embyReset(['running' => fn (): bool => true] + $o)), is_file("$dir/embycache_settings.json"), filesize("$dir/embycache_exclude.txt")]);
-    same('reset: done', 'ok', $refused(fn () => embyReset($o)));
+    same('reset: refused while a run of his goes — nothing touched', ['jack_running', true, 25],
+        [$refused(fn () => jackReset(['running' => fn (): bool => true] + $o)), is_file("$dir/embycache_settings.json"), filesize("$dir/embycache_exclude.txt")]);
+    same('reset: done', 'ok', $refused(fn () => jackReset($o)));
     same('reset: his settings, origin, runs, progress, status and import copies gone — no copy', [], array_values(array_filter($his, fn ($f) => file_exists("$dir/$f"))));
     same('reset: … no .bak of anything', [], glob("$dir/*bak*") ?: []);
     same('reset: his list emptied, the file kept (her ini names it)', [true, 0], [is_file("$dir/embycache_exclude.txt"), filesize("$dir/embycache_exclude.txt")]);
@@ -30767,7 +30808,7 @@ function testStreamerReset(): void
         return array_values(array_filter(explode("\n", (string) @file_get_contents("$t/log")), fn ($l) => str_starts_with($l, '[DRY-RUN]')));
     };
     same('reset → mover: while listed his film stays (her dry run hands over nothing)', 0, count(array_filter($dry(), fn ($l) => str_contains($l, 'film.mkv'))));
-    embyReset(['dir' => "$t/embycache", 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $j) => null]);
+    jackReset(['dir' => "$t/embycache", 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $j) => null]);
     same('reset → mover: after the reset it is ordinary cache — her age rule hands it over', 1, count(array_filter($dry(), fn ($l) => str_contains($l, 'film.mkv'))));
     @unlink("$t/log");
     runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--run'], $env, 60);
@@ -30778,10 +30819,10 @@ function testStreamerReset(): void
     $mo = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('reset → mover: her «list pending» guard stays quiet while the (empty) list file is there',
         str_contains($mo, "foreach (\$lists as \$f) {\n        clearstatcache(true, \$f);\n        if (is_file(\$f)) {\n            return null;"));
-    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('reset: the action emby.reset — no restore, no copy', str_contains($emby, "'reset'          => fn (array \$r) => embyReset(),")
-        && !str_contains($emby, 'embyRestore') && !str_contains($emby, '.bak-'));
-    // the page: the quiet button at the bottom of «More» (once set up), its confirm, then emby.reset and the server's part
+    $jackSrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('reset: the action jack.reset — no restore, no copy', str_contains($jackSrc, "'reset'          => fn (array \$r) => jackReset(),")
+        && !str_contains($jackSrc, 'jackRestore') && !str_contains($jackSrc, '.bak-'));
+    // the page: the quiet button at the bottom of «More» (once set up), its confirm, then jack.reset and the server's part
     $r = streamerTabRun('reset', <<<'JS'
 (async () => {
   const out = {};
@@ -30791,22 +30832,22 @@ function testStreamerReset(): void
   btn.onclick();
   const d = dialogs.at(-1);
   out.confirm = [d.o.title, d.o.buttons.map((b) => b.text), all(d.o.body).map((n) => n.textContent).filter(Boolean)];
-  answers['emby.reset'] = { ok: true, state: { ...st, configured: false, settings: null } };
+  answers['jack.reset'] = { ok: true, state: { ...st, configured: false, settings: null } };
   out.went = await d.o.buttons[1].act();
   out.after = [posts.map((p) => p[0]), picks.at(-1), e.form()];
   e.setState({ ...st, configured: false, settings: null }); e.initForm();
   out.fresh = all(e.setupMore()).some((n) => n.textContent === 'reset.button');
   console.log(JSON.stringify(out));
 })();
-JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json']);
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json']);
     if ($r === null) {
         return;
     }
     same('reset: a quiet button at the bottom of «More» (plain, danger)', 'btn small plain danger', $r['button']);
-    $cache = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/emby.json'), true)['cache'];
+    $cache = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/jack.json'), true)['cache'];
     same('reset: its confirm — deleted without a copy, his list emptied with its count and size (ordinary cache afterwards), the gather and schedules; «Cancel» / «Delete everything …»',
         ['reset.title', ['common.cancel', 'reset.go'], ['reset.text {"n":' . $cache['files'] . ',"size":"' . round($cache['bytes'] / 1073741824) . ' GB"}', 'reset.text_night']], $r['confirm']);
-    same('reset: then emby.reset, the form anew, the server\'s part shown', [true, [['emby.reset'], ['servers', 'click'], null]], [$r['went'], $r['after']]);
+    same('reset: then jack.reset, the form anew, the server\'s part shown', [true, [['jack.reset'], ['servers', 'click'], null]], [$r['went'], $r['after']]);
     same('reset: not set up — no «Set up from scratch» (nothing to delete)', false, $r['fresh']);
 }
 
@@ -30818,14 +30859,14 @@ JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json'
  * missing on the pool gets an info chip (made at the first laying out, later). The option «create the missing share
  * folder» is gone; saving never sends create_share_root (his settings keep theirs). Every chosen person gets at least
  * MIN_PERSON_GB (20): red with the reason and what to do, «Save» blocked with the reason beside it. The demo state
- * tests/ui/demo/emby-shares.json (+ post/emby.connect-shares.json) has every case.
+ * tests/ui/demo/jack-shares.json (+ post/jack.connect-shares.json) has every case.
  */
 function testStreamerShares(): void
 {
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     $gone = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
-        $lang = langFile(OFFICE_WEB . "/desks/emby/lang/$l.json");
+        $lang = langFile(OFFICE_WEB . "/desks/jack/lang/$l.json");
         foreach (['setup.create_root', 'setup.create_root_fine', 'setup.create_root_missing', 'wizard.no_pool_share'] as $k) {
             if (isset($lang[$k])) {
                 $gone[] = "$l $k";
@@ -30882,11 +30923,11 @@ out.barFine = [bar2.children[0].disabled, bar2.children[1].textContent];
 // saving with every right and wrong share: the wrong shares' folders not cached, create_share_root never sent
 posts.length = 0;
 await e.saveSetup();
-const s = (posts.find((p) => p[0] === 'emby.save') || [])[1];
+const s = (posts.find((p) => p[0] === 'jack.save') || [])[1];
 out.save = s ? ['create_share_root' in s.settings, s.settings.instances[0].path_mappings] : toasts.at(-1);
 console.log(JSON.stringify(out));
 })();
-JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby-shares.json', OFFICE_DIR . '/tests/ui/demo/post/emby.connect-shares.json']);
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack-shares.json', OFFICE_DIR . '/tests/ui/demo/post/jack.connect-shares.json']);
     if ($r === null) {
         return;
     }
@@ -30934,25 +30975,25 @@ function testStreamerFix3(): void
     // her rules without his settings
     $tmp = hardeningTmp('fix3-ini');
     file_put_contents("$tmp/smart_mover.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=7\nglobal_excludes=/x/embycache_exclude.txt\n");
-    $keep = $GLOBALS['embyPool'] ?? null;
-    $GLOBALS['embyPool'] = ['ini' => "$tmp/smart_mover.ini"];
-    $with = embyMoverelliRules();
-    $GLOBALS['embyPool'] = ['ini' => "$tmp/none.ini"];
-    $without = embyMoverelliRules();
+    $keep = $GLOBALS['jackPool'] ?? null;
+    $GLOBALS['jackPool'] = ['ini' => "$tmp/smart_mover.ini"];
+    $with = jackMoverelliRules();
+    $GLOBALS['jackPool'] = ['ini' => "$tmp/none.ini"];
+    $without = jackMoverelliRules();
     if ($keep === null) {
-        unset($GLOBALS['embyPool']);
+        unset($GLOBALS['jackPool']);
     } else {
-        $GLOBALS['embyPool'] = $keep;
+        $GLOBALS['jackPool'] = $keep;
     }
     hardeningRm($tmp);
-    same('fix3 her rules: from her ini alone — X 80, Y 70 (offset 10), guaranteed 50, age 7; none without her ini', [['x' => 80, 'y' => 70, 'k' => 50, 'min_age' => 7], null], [$with, $without]);
+    same('fix3 her rules: from her ini alone — only X 80 and age 7 (an old Y and «guaranteed» ignored: y = x, k 0); none without her ini', [['x' => 80, 'y' => 80, 'k' => 0, 'min_age' => 7], null], [$with, $without]);
     $tmp = hardeningTmp('streamer-age');
     file_put_contents("$tmp/a.ini", "[GLOBAL]\nmove_when_used_above=80\nmin_age=14\n[Downloads]\nmin_age=2\n");
     file_put_contents("$tmp/b.ini", "[Downloads]\nmin_age=2\n");
-    same('fix3 her age rule: from her ini\'s [GLOBAL] only (none: null)', [14, null, null], [embyStreamerAge("$tmp/a.ini"), embyStreamerAge("$tmp/b.ini"), embyStreamerAge("$tmp/none.ini")]);
+    same('fix3 her age rule: from her ini\'s [GLOBAL] only (none: null)', [14, null, null], [jackStreamerAge("$tmp/a.ini"), jackStreamerAge("$tmp/b.ini"), jackStreamerAge("$tmp/none.ini")]);
     hardeningRm($tmp);
-    $emby = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    check('fix3: his state carries her rules on their own', str_contains($emby, "'moverelli'  => embyMoverelliRules(),"));
+    $jackSrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('fix3: his state carries her rules on their own', str_contains($jackSrc, "'moverelli'  => jackMoverelliRules(),"));
     $r = streamerTabRun('fix3', <<<'JS'
 const out = {};
 // an unconfigured Jack: no settings, no pool of his — her rules on their own
@@ -30963,7 +31004,7 @@ out.her = [t.includes('80 %'), t.some((x) => x.startsWith('count.days')), t.some
 e.setState({ ...fresh, moverelli: null }); e.initForm();
 out.none = texts(e.sharePart()).filter((x) => x.startsWith('room.none')).length;
 console.log(JSON.stringify(out));
-JS, [OFFICE_WEB . '/desks/emby/desk.js', OFFICE_DIR . '/tests/ui/demo/emby.json']);
+JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json']);
     if ($r === null) {
         return;
     }
@@ -31027,11 +31068,11 @@ function testPoolLevel(): void
     $want = ['EMBYCACHE_MIN_FREE_PERCENT' => '20', 'EMBYCACHE_WATCHED_ONLY' => '1'];
     same('level jack: 100 − X free and only what was watched (an old Y and «guaranteed» ignored); a pool not measured — the same; no limit — nothing; she isn\'t set up — null',
         [$want, $want, [], null], [...$e, poolLevelJack(['ini' => "$tmp/none"] + $jo)]);
-    $GLOBALS['embyPool'] = ['ini' => "$tmp/ini", 'shares_dir' => "$tmp/shares", 'names' => $o['names'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
+    $GLOBALS['jackPool'] = ['ini' => "$tmp/ini", 'shares_dir' => "$tmp/shares", 'names' => $o['names'], 'zfs' => "$tmp/bin/zfs", 'mnt' => "$tmp/mnt",
         'jack_list' => "$tmp/list.txt", 'asleep' => []];
     file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\n");
-    same('level jack: his launch hands it to EmbyCache (embyPoolEnv) — the same', $want, embyPoolEnv(['cache_path' => "$tmp/mnt/master"]));
-    unset($GLOBALS['embyPool']);
+    same('level jack: his launch hands it to EmbyCache (jackPoolEnv) — the same', $want, jackPoolEnv(['cache_path' => "$tmp/mnt/master"]));
+    unset($GLOBALS['jackPool']);
     $py = (string) file_get_contents(OFFICE_DIR . '/embycache/embycache_run.py');
     check('level jack: EmbyCache with EMBYCACHE_WATCHED_ONLY never gives back by rank (EMBYCACHE_GIVE_BACK_FREE then off) and still writes its pool status',
         str_contains($py, 'os.environ.get("EMBYCACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY') && str_contains($py, 'self.office_pool = self.give_back_free or WATCHED_ONLY'));
@@ -31076,16 +31117,16 @@ function testPoolLevel(): void
         [$finds()['pool_never_moves'] ?? 'x', $finds()['pool_snapshots'] ?? 'x']);
     $GLOBALS['moverelliHost']['asleep'] = [];
     // one schedule for both (the night run): Jack Emby's EmbyCache on a line of its own — the Team Lead says so; no «before Jack» any more
-    $v['emby'] = ['lists' => [], 'shares' => []];
+    $v['jack_desk'] = ['lists' => [], 'shares' => []];
     $own = function (bool $line): ?bool {
-        $GLOBALS['moverelliHost']['emby_scheduled'] = fn () => $line;
+        $GLOBALS['moverelliHost']['jack_scheduled'] = fn () => $line;
         $f = array_values(array_filter(moverelliChecks(), fn ($f) => $f['id'] === 'night_schedule'));
         return $f ? $f[0]['ok'] : null;
     };
     same('level night schedule: his own EmbyCache line — open; none — fine; Jack not hired — no finding; «before Jack» gone',
-        [false, true, null, false], [$own(true), $own(false), ($v['emby'] = null) ?? $own(true),
+        [false, true, null, false], [$own(true), $own(false), ($v['jack_desk'] = null) ?? $own(true),
          in_array('moverelli_before_jack', array_column(moverelliChecks(), 'id'), true)]);
-    unset($GLOBALS['moverelliHost']['emby_scheduled']);
+    unset($GLOBALS['moverelliHost']['jack_scheduled']);
 
     // a real run's fill that ended above its target: told at once (a warning per pool), never after a stop
     $bin = "$tmp/notify";
@@ -31205,14 +31246,14 @@ JS);
  * last, what plays never — never below his half; under Y nothing; what was watched first; standalone as before; the
  * words in the log, the status, the live panel and his page.
  */
-function testEmbyYield(): void
+function testJackYield(): void
 {
     [$exit] = run(['python3', '--version'], 10);
     if ($exit !== 0) {
         check('emby yield: python3 is missing here - skipped', true);
         return;
     }
-    $tmp = hardeningTmp('emby-zfs');
+    $tmp = hardeningTmp('jack-zfs');
     // ZFS: the pool master 7000 + 3000, the share's dataset sees refer 500 + the pool's avail; a quota'd dataset 100 avail
     @mkdir("$tmp/z/pool/Filme", 0700, true);
     @mkdir("$tmp/z/plain", 0700, true);
@@ -31230,7 +31271,7 @@ function testEmbyYield(): void
 
     hardeningRm($tmp);
 
-    $tmp = hardeningTmp('emby-rank');
+    $tmp = hardeningTmp('jack-rank');
     $p = "$tmp/py";
     foreach (["$p/data", "$p/pool", "$p/user0/Filme/Brazil", "$p/user0/Serien/Serie", "$p/user/Filme", "$p/user/Serien", "$p/shares"] as $d) {
         @mkdir($d, 0700, true);
@@ -31384,17 +31425,17 @@ PY);
     proc_terminate($emby);
     proc_close($emby);
 
-    same('emby yield: the office launches EmbyCache with the free-% give-back on', '1', embyPyEnv()['EMBYCACHE_GIVE_BACK_FREE'] ?? null);
+    same('emby yield: the office launches EmbyCache with the free-% give-back on', '1', jackPyEnv()['EMBYCACHE_GIVE_BACK_FREE'] ?? null);
     // the live panel's file going back and his page's words — in their shape
     file_put_contents("$tmp/progress.json", json_encode(['v' => 1, 'phase' => 'back', 'started' => 1, 'updated' => 2, 'back' => ['files' => 1, 'bytes' => 9],
         'users' => [], 'current' => ['phase' => 'back', 'rel' => 'Serien/S/E10.mkv', 'size' => 9, 'target' => '/x', 'since' => 2,
         'why' => ['title' => "S – S01E10\x01", 'ahead' => 10, 'who' => 'Mutter']]]));
-    $pr = embyProgressRead("$tmp/progress.json");
+    $pr = jackProgressRead("$tmp/progress.json");
     same('emby yield: the progress file — why it goes back, in its shape', ['title' => 'S – S01E10 ', 'ahead' => 10, 'who' => 'Mutter'], $pr['current']['why'] ?? null);
     same('emby yield: … the view passes it on; nonsense is none', [10, null, null],
-        [embyProgressView($pr, [], 3)['current']['why']['ahead'] ?? null, embyGiveBackWhy(['title' => 'x', 'ahead' => -1]), embyGiveBackWhy(['ahead' => 2])]);
+        [jackProgressView($pr, [], 3)['current']['why']['ahead'] ?? null, jackGiveBackWhy(['title' => 'x', 'ahead' => -1]), jackGiveBackWhy(['ahead' => 2])]);
     same('emby yield: the status list for his page', ['files' => 4, 'items' => [['title' => 'A', 'ahead' => 0, 'who' => '']]],
-        embyGiveBackList(['give_back' => ['files' => 4, 'items' => [['title' => 'A', 'ahead' => 0], 'junk']]]));
+        jackGiveBackList(['give_back' => ['files' => 4, 'items' => [['title' => 'A', 'ahead' => 0], 'junk']]]));
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
     if ($node === '') {
         check('emby yield: page - node is missing here - skipped', true);
@@ -31411,7 +31452,7 @@ globalThis.document = { createTextNode: (t) => t };
 globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }), scope: () => T, t: T, el: mk, fmt: { size: (b) => b + ' B', duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t, number: (n) => String(n) },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const out = {};
 out.items = [{ title: 'S – E10', ahead: 10, who: 'Mutter' }, { title: 'S – E2', ahead: 1, who: 'Vater' }, { title: 'Brazil', ahead: 0, who: '' }].map(e.rankItem);
@@ -31423,7 +31464,7 @@ e.setState({ pool: { keep: 100, held: 50, waiting: 0, back: 0, moverelli: { x: 8
 out.one = e.roomWords();
 console.log(JSON.stringify(out));
 JS);
-    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js'], 30);
     $j = json_decode(trim((string) $out), true) ?? [];
     same('emby yield: the words — n ahead, next up, started (no one named: just that)', [
         'rank.item {"title":"S – E10","why":"rank.who {\"what\":\"rank.ahead {\\\\\"n\\\\\":10}\",\"who\":\"Mutter\"}"}',
@@ -31433,7 +31474,7 @@ JS);
     check('emby yield: his page — the last run\'s give-back, three named and «and 1 more»; one alone', str_starts_with(end($j['more']) ?: '', 'room.gave_back_more')
         && str_ends_with(end($j['more']), '"n":1}') && str_starts_with(end($j['one']) ?: '', 'room.gave_back {'), json_encode($j));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
-        $lang = readJson(OFFICE_WEB . "/desks/emby/lang/$l.json") ?? [];
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
         check("emby yield: lang $l has the words", count(array_intersect_key($lang, array_flip(['progress.giveback', 'rank.started', 'rank.next', 'rank.ahead', 'rank.who', 'rank.item', 'room.gave_back', 'room.gave_back_more']))) === 8);
     }
     hardeningRm($tmp);
@@ -31545,7 +31586,7 @@ function testMoverelliStop(): void
             [$r['exit'], $r['why'], $r['by'], isset((readJson($stop) ?? [])['now']), (readJson($stop) ?? [])['by'] ?? null]);
     }
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
-    check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => embyMoverScheduleOff((\$h['unraid'])()));"));
+    check('mover started: «by hand» = Unraid\'s own schedule off', str_contains($src, "(int) \$h['look_every'],\n            fn (): bool => jackMoverScheduleOff((\$h['unraid'])()));"));
     $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('smart mover: one file at a time only with CUSTOMMOVER_STOP (the office); without it the share\'s list at once, as upstream',
         str_contains($sh, "if [[ -n \"\$STOP_FILE\" ]]; then\n        # office: one file at a time") && str_contains($sh, "printf '%s\\n' \"\${FILES[@]}\" | \"\${MOVER_CMD[@]}\" >\"\$mover_out\" 2>&1"));
@@ -32027,18 +32068,18 @@ function testMoverelliGates(): void
     $v['tuning'] = false;
     same('moverelli gate: … Mover Tuning not installed — its old files don\'t count', false, moverelliForeign($h)['tuning']['active']);
 
-    // the start lock shared with Jack Emby (embyMoversLock()): held by another start — hers waits, then refused
-    $movers = fopen(RUN_DIR . '/' . EMBY_MOVERS_LOCK, 'c');
+    // the start lock shared with Jack Emby (jackMoversLock()): held by another start — hers waits, then refused
+    $movers = fopen(RUN_DIR . '/' . JACK_MOVERS_LOCK, 'c');
     flock($movers, LOCK_EX);
     $t0 = microtime(true);
     $runWas = @file_get_contents("$dir/office-run.json");
-    same('moverelli gate: the start lock held by one of Jack\'s starts — waited (1 s here), refused, her marker untouched', [1, 'moverelli_emby_running', true, $runWas],
+    same('moverelli gate: the start lock held by one of Jack\'s starts — waited (1 s here), refused, her marker untouched', [1, 'moverelli_jack_running', true, $runWas],
         [moverelliJob(['dry', '--office'], $h), $last(), microtime(true) - $t0 >= 1, @file_get_contents("$dir/office-run.json")]);
     flock($movers, LOCK_UN);
     fclose($movers);
     same('moverelli gate: … let go — hers goes', 0, moverelliJob(['dry', '--office'], $h));
     $v['busy'] = true;
-    same('moverelli gate: one of Jack Emby\'s runs going — refused', [1, 'moverelli_emby_running'], [moverelliJob(['dry', '--office'], $h), $last()]);
+    same('moverelli gate: one of Jack Emby\'s runs going — refused', [1, 'moverelli_jack_running'], [moverelliJob(['dry', '--office'], $h), $last()]);
     $v['busy'] = false;
     $v['version'] = '7.3.1';
     same('moverelli gate: Unraid 7.3.1 — refused', [1, 'moverelli_unraid_old'], [moverelliJob(['dry', '--office'], $h), $last()]);
@@ -32049,25 +32090,25 @@ function testMoverelliGates(): void
         [moverelliJob(['dry', '--office'], $h), $last(), moverelliBusy($dir)]);
     flock($lock, LOCK_UN);
     fclose($lock);
-    $v['emby'] = ['lists' => ['/mnt/user/appdata/x/embycache_exclude.txt', "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    $v['jack_desk'] = ['lists' => ['/mnt/user/appdata/x/embycache_exclude.txt', "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
     // not set up yet (no smart_mover.ini): refused as not configured, she doesn't count for Jack — no «his list», no point
     rename("$dir/smart_mover.ini", "$dir/smart_mover.ini.aside");
     $okNow = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return $p->key; } };
     same('moverelli gate: Jack Emby hired, she has no ini — refused as not configured, his list not asked for (page, Team Lead), not for his rule',
         ['moverelli_not_configured', [], [], null, ['configured']],
-        [$okNow(), moverelliScan($h)['jack']['uncovered'], moverelliJackUncovered($v['emby'], $dir), moverelliExcludeLook($dir, true),
+        [$okNow(), moverelliScan($h)['jack']['uncovered'], moverelliJackUncovered($v['jack_desk'], $dir), moverelliExcludeLook($dir, true),
          array_values(array_map(fn ($f) => $f['id'], moverelliChecks($h)))]);
     rename("$dir/smart_mover.ini.aside", "$dir/smart_mover.ini");
     same('moverelli gate: … her ini back — his rule reads it while she is hired, not otherwise', [true, null],
         [is_array(moverelliExcludeLook($dir, true)), moverelliExcludeLook($dir, false)]);
-    same('moverelli gate: Jack Emby hired, his list not kept out — a real run refused, his shares named', [1, 'moverelli_emby_list', 'Docs, Filme'],
+    same('moverelli gate: Jack Emby hired, his list not kept out — a real run refused, his shares named', [1, 'moverelli_jack_list', 'Docs, Filme'],
         [moverelliJob(['run', '--office'], $h), $last(), moverelliHistory($dir)[0]['shares'] ?? null]);
     same('moverelli gate: … the page and the Team Lead say so', [['Docs', 'Filme'], false],
-        [moverelliScan($h)['jack']['uncovered'], array_values(array_filter(moverelliChecks($h), fn ($f) => $f['id'] === 'emby_list'))[0]['ok'] ?? null]);
+        [moverelliScan($h)['jack']['uncovered'], array_values(array_filter(moverelliChecks($h), fn ($f) => $f['id'] === 'jack_list'))[0]['ok'] ?? null]);
     moverelliSave(moverelliTestSettings(['files' => ['/mnt/user/appdata/x/embycache_exclude.txt']]), $h);
     $ok = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return $p->key; } };
     same('moverelli gate: … his list in her settings — fine', 'ok', $ok());
-    $v['emby'] = null;
+    $v['jack_desk'] = null;
 
     // Unraid's mover at work: from the page refused at once; on schedule it waits (5 min at a time), then skipped
     $v['mover'] = true;
@@ -32081,8 +32122,8 @@ function testMoverelliGates(): void
     unset($GLOBALS['moverelliHost']['gate']);
     $v['mover'] = false;
     same('moverelli gate: nothing moved by any of these', $before, glob("$tmp/mnt/cache/*/*") ?: []);
-    // «Switch Unraid's mover schedule off…»: Jack's embyMoverOff() — exactly Unraid's form through emcmd (a stand-in here), her words
-    $GLOBALS['embyMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/plugins/dynamix/mover.cron", 'var_ini' => "$tmp/var.ini",
+    // «Switch Unraid's mover schedule off…»: Jack's jackMoverOff() — exactly Unraid's form through emcmd (a stand-in here), her words
+    $GLOBALS['jackMoverHost'] = ['share_cfg' => "$tmp/share.cfg", 'mover_cron' => "$tmp/plugins/dynamix/mover.cron", 'var_ini' => "$tmp/var.ini",
                                  'emcmd' => "$tmp/bin/emcmd", 'wait' => fn (int $ms) => null];
     file_put_contents("$tmp/share.cfg", "shareMoverSchedule=\"40 3 * * *\"\nshareMoverLogging=\"no\"\n");
     file_put_contents("$tmp/plugins/dynamix/mover.cron", "40 3 * * * /usr/local/sbin/mover start > /dev/null\n");
@@ -32094,7 +32135,7 @@ function testMoverelliGates(): void
         [$off(['confirm' => true]), file("$tmp/emcmd.calls", FILE_IGNORE_NEW_LINES)]);
     file_put_contents("$tmp/bin/emcmd", "#!/bin/bash\nsed -i 's/^shareMoverSchedule=.*/shareMoverSchedule=\"\"/' " . escapeshellarg("$tmp/share.cfg") . "; rm -f " . escapeshellarg("$tmp/plugins/dynamix/mover.cron") . "\n");
     same('moverelli mover off: as Unraid\'s form does it — off, what it was', ['ok' => true, 'already' => false, 'was' => '40 3 * * *'], $off(['confirm' => true]));
-    unset($GLOBALS['embyMoverHost']);
+    unset($GLOBALS['jackMoverHost']);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('moverelli gate: from the page — the check, Unraid\'s mover, then atd', (bool) preg_match('/moverelliRunCheck\(\$mode, \$h\);\s+if \(\$mode === \'run\' && \(\$h\[\'mover_running\'\]\)\(\)\) \{.*?hostLaunch\(\'moverelli\'/s', $src));
     unset($GLOBALS['moverelliHost']);
@@ -32152,7 +32193,7 @@ function testMoverelliForeign(): void
     $v['tuning'] = false;      // Mover Tuning out of the way: the others still refuse a real run
     $err = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $p) { return [$p->key, array_keys($p->params)]; } };
     same('moverelli foreign: a real run refused while one is active — its name and schedule', ['moverelli_foreign_mover', ['name', 'when']], $err());
-    same('moverelli foreign: Jack\'s own detection unchanged by the shared reader', [], embyForeignSchedules($us, "$tmp/plugins/*/*.cron", OFFICE_CRON));
+    same('moverelli foreign: Jack\'s own detection unchanged by the shared reader', [], jackForeignSchedules($us, "$tmp/plugins/*/*.cron", OFFICE_CRON));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -32280,7 +32321,7 @@ function testMoverelliImport(): void
     }
     $GLOBALS['moverelliHost']['dir'] = $dir;
     $GLOBALS['moverelliHost']['import'] = ['fs' => $fs, 'pools' => ['/mnt/cache'], 'asleep' => ['disk1' => false, 'disk2' => true, 'cache' => false],
-                                           'own_below' => [$root], 'emby_dirs' => ["$root/embycache"]];
+                                           'own_below' => [$root], 'jack_dirs' => ["$root/embycache"]];
     $jackList = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
     $h = moverelliHost();
     $err = function (callable $f): string {
@@ -32432,7 +32473,7 @@ function testMoverelliImport(): void
         $err(fn () => moverelliImportDo(['folder' => $old, 'token' => $token], $h)));
 
     // Jack Emby hired: EmbyCache's list not copied — his own list named for that scope
-    $v['emby'] = ['lists' => [$jackList, "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"], 'shares' => ['Filme']];
+    $v['jack_desk'] = ['lists' => [$jackList, "$fs/mnt/cache/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"], 'shares' => ['Filme']];
     $p = moverelliImportPreview(['folder' => $old], $h)['preview'];
     $filme = array_column($p['lists'], null, 'scope')['Filme'];
     same('moverelli import: Jack hired — his list named, not copied; the other list copied', [true, 1, 2, [['jack', $jackList], ['copied', null]]],
@@ -32440,17 +32481,17 @@ function testMoverelliImport(): void
     $jd = moverelliImportPreview(['folder' => $jackOld], $h)['preview'];
     same('moverelli import: … his own list in the office\'s data folder named too, never read', [true, [['jack', $jackList]]],
         [$jd['ready'], array_map(fn ($f) => [$f['how'], $f['to'] ?? null], $jd['lists'][0]['files'] ?? [])]);
-    $v['emby']['shares'] = ['Filme', 'Docs'];
+    $v['jack_desk']['shares'] = ['Filme', 'Docs'];
     same('moverelli import: … a share of his the import leaves uncovered — a warning, no block', [['Docs'], true],
         [moverelliImportPreview(['folder' => $old], $h)['preview']['jack_uncovered'], moverelliImportPreview(['folder' => $old], $h)['preview']['ready']]);
-    $v['emby']['shares'] = ['Filme'];
+    $v['jack_desk']['shares'] = ['Filme'];
     same('moverelli import: … all of his covered — no warning', [], $p['jack_uncovered']);
     moverelliImportDo(['folder' => $old, 'token' => $p['token']], $h);
     $ini = (string) file_get_contents("$dir/smart_mover.ini");
     same('moverelli import: … Filme keeps his list in her ini, her own list only the rest — his shares covered', [true, "*.nfo\n/mnt/user/Filme/Extras\n", []],
         [str_contains($ini, "[Filme]\nmin_age=14\nexcludes=$jackList,$dir/excludes/share-Filme.txt"), file_get_contents("$dir/excludes/share-Filme.txt"),
-         moverelliJackUncovered($v['emby'], $dir)]);
-    $v['emby'] = null;
+         moverelliJackUncovered($v['jack_desk'], $dir)]);
+    $v['jack_desk'] = null;
 
     // a list longer than her own lists take: the import is blocked, the preview shows a few entries only
     file_put_contents("$fs/mnt/user/system/excludes/global.txt", implode("\n", array_map(fn ($i) => "/mnt/user/Filme/keep-$i", range(1, MOVERELLI_LINES_MAX + 5))) . "\n");
@@ -32521,7 +32562,7 @@ JS);
          $has($mb, 'import.block.not_read.binary {"scope":"import.scope_global","file":"/mnt/user/system/excludes/binary.lst"}'),
          $has($mb, 'import.block.bad_lines {"scope":"import.scope_global","n":2}'), $has($mb, 'import.how.not_read.binary'), $o[4]['buttons'] ?? null]);
     same('moverelli import page: Jack\'s shares left uncovered — her own warning, «Take over» still offered', [true, ['common.cancel', 'import.go']],
-        [$has($o[5]['body'] ?? [], 'errors.moverelli_emby_list {"shares":"Docs"}'), $o[5]['buttons'] ?? null]);
+        [$has($o[5]['body'] ?? [], 'errors.moverelli_jack_list {"shares":"Docs"}'), $o[5]['buttons'] ?? null]);
     $end = $o[3]['body'] ?? [];
     same('moverelli import page: the end — switch the old script off (named while on), a dry run first, her copies', [true, true, true, true],
         [$has($end, 'import.done_switch_off import.done_still {"where":"User Scripts: smartmover"}'), $has($end, 'import.done_dry'),
@@ -32580,7 +32621,7 @@ function testNightRun(): void
     $tmp = hardeningTmp('night-run');
     $v = [];
     moverelliFixture($tmp, $v);
-    $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false, 'emby_scheduled' => fn () => (officeCronLines("$tmp/office.cron")['embycache'] ?? null) !== null];
+    $GLOBALS['moverelliHost'] += ['cron_file' => "$tmp/office.cron", 'cron_apply' => false, 'jack_scheduled' => fn () => (officeCronLines("$tmp/office.cron")['embycache'] ?? null) !== null];
     $h = moverelliHost();
     $dir = "$tmp/data";
     moverelliSave(moverelliTestSettings(['move_when_used_above' => 80]), $h);
@@ -32597,15 +32638,15 @@ function testNightRun(): void
     $GLOBALS['nightHost'] = [
         'jack_on' => fn () => true,
         'level' => fn (array $g, array $hh, bool $wake) => $level(),
-        'emby_status' => function () use (&$p, $G) {
+        'jack_status' => function () use (&$p, $G) {
             return ['pool' => ['waiting_bytes' => $p['wait'] * $G], 'cleanup' => ['bytes_done' => ($p['gave'] ?? 0) * $G, 'bytes_planned' => $p['w'] * $G],
                     'fill' => ['bytes_planned' => min($p['wait'], max(0, 800 - $p['nm'] - $p['j'] + $p['w'] - $p['d'])) * $G]];
         },
-        'emby_live' => fn () => ['recent' => [['name' => 'Film/a.mkv', 'bytes' => 7, 'from' => 'cache', 'to' => 'array'], ['name' => 1, 'bytes' => 'x']]],
-        'emby_runs' => function () use (&$runs) { return $runs; },
-        'emby_stop' => "$tmp/emby-stop.json",
+        'jack_live' => fn () => ['recent' => [['name' => 'Film/a.mkv', 'bytes' => 7, 'from' => 'cache', 'to' => 'array'], ['name' => 1, 'bytes' => 'x']]],
+        'jack_runs' => function () use (&$runs) { return $runs; },
+        'jack_stop' => "$tmp/jack-stop.json",
         'notify' => function (string $s, string $b) use (&$notified) { $notified[] = $b; return true; },
-        'emby_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir) {
+        'jack_job' => function (array $args) use (&$p, &$calls, &$runs, &$inside, $dir) {
             $calls[] = 'jack ' . implode(' ', $args);
             $inside[] = [nightRunning($dir), moverelliBusy($dir), nightInside()];
             $exit = array_shift($p['jack_exit']) ?? 0;
@@ -32713,10 +32754,10 @@ function testNightRun(): void
     // «Stop after this file» from a page while Jack Emby works: his stop file and the night's — the night ends after his step
     $calls = [];
     $p = $fresh(['j' => 400, 'w' => 50, 'd' => 150, 'wait' => 60, 'stop_ask' => true]);
-    @unlink("$tmp/emby-stop.json");
+    @unlink("$tmp/jack-stop.json");
     nightRun(['run']);
     same('night run stop asked: the tool at work got its stop file, the night ended after its step, its stop file gone afterwards',
-        [true, 1, 'stopped', false, false], [is_file("$tmp/emby-stop.json"), count($calls), $night()['result'] ?? null, is_file("$dir/night-stop.json"), nightStopAsk()]);
+        [true, 1, 'stopped', false, false], [is_file("$tmp/jack-stop.json"), count($calls), $night()['result'] ?? null, is_file("$dir/night-stop.json"), nightStopAsk()]);
 
     // (5) only she (Jack Emby not taking part): her part alone
     $calls = [];
@@ -32743,7 +32784,7 @@ function testNightRun(): void
     $v['hired'] = true;
     $v['busy'] = true;
     $exit = nightRun(['run']);
-    same('night run: one of Jack Emby\'s own runs going — refused, in her list «night»', [1, 'refused', 'moverelli_emby_running', true],
+    same('night run: one of Jack Emby\'s own runs going — refused, in her list «night»', [1, 'refused', 'moverelli_jack_running', true],
         [$exit, moverelliHistory($dir)[0]['result'] ?? null, moverelliHistory($dir)[0]['why'] ?? null, moverelliHistory($dir)[0]['night'] ?? null]);
     $v['busy'] = false;
 
@@ -32760,15 +32801,15 @@ function testNightRun(): void
     $nsrc = (string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php');
     check('night run: never a give-back by rank — no EMBYCACHE_GIVE_BACK_FREE, no cap, no halves in the night', !str_contains($nsrc, "'EMBYCACHE_GIVE_BACK_FREE'")
         && !str_contains($nsrc, 'fill-max') && !str_contains($nsrc, "'half'"));
-    $esrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $esrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('night Jack Emby\'s part: --night, --nofill → EMBYCACHE_NO_FILL=1; no «after Jack Emby» hand-over any more',
         str_contains($esrc, "\$noFill = in_array('--nofill', \$args, true);") && str_contains($esrc, "+ (\$noFill ? ['EMBYCACHE_NO_FILL' => '1'] : [])")
-        && !str_contains($esrc, 'embyRunAfter') && !str_contains($src, 'moverelliAfterEmby'));
+        && !str_contains($esrc, 'jackRunAfter') && !str_contains($src, 'moverelliAfterJack'));
     check('night Jack Emby\'s «Run now» (real) starts the whole night run', str_contains($esrc, "hostLaunch('moverelli', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--office']);"));
 
     // (8) one schedule: hers; Jack Emby's own line goes with it; the Team Lead's night_schedule
     officeJobSetSchedule('embycache', '0 1 * * *', "$tmp/office.cron", false);
-    $v['emby'] = ['lists' => [], 'shares' => []];
+    $v['jack_desk'] = ['lists' => [], 'shares' => []];
     $ids = fn (): array => array_column(array_map(fn ($f) => ['id' => $f['id'], 'ok' => $f['ok']], moverelliChecks($h)), 'ok', 'id');
     $c = $ids();
     same('night checks: his own line — night_schedule open; no «after Jack» findings', [false, false, false, false],
@@ -32836,7 +32877,7 @@ globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', not
   api: { post: async (a, d) => { posts.push([a, d]); return { ok: true, live: true }; } } };
 for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
 const m = OFFICE_DESK_TESTS.moverelli;
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const radios = (n) => (typeof n === 'string' ? [] : [...(n.tag === 'input' ? [n] : []), ...n.children.flatMap(radios)]);
 const G = 1073741824;
@@ -32871,7 +32912,7 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   console.log(JSON.stringify(out));
 })();
 JS);
-    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js', OFFICE_WEB . '/desks/jack/desk.js'], 30);
     $j = json_decode(trim((string) $out), true) ?? [];
     check('night page: it runs', $j !== [], $out . $err);
     same('night page: tonight in words — Jack Emby gives back, she only by age, he fetches, what waits; not measured',
@@ -32911,7 +32952,7 @@ JS);
  * The night run on Jack Emby's page (2026-10-13): the same card as hers (core.js Office.nightCard — «Joint run», since,
  * the phases), under it his bars while EmbyCache works, her share while she moves, «Stop after this file» for the
  * whole night; his dry-run dialog points to her schedule's row. Without Ms. Moverelli: his live panel as before.
- * Agent side: embyNightNow() — night.json going, her share from her status, the night's stop asked.
+ * Agent side: jackNightNow() — night.json going, her share from her status, the night's stop asked.
  */
 function testNightJackCard(): void
 {
@@ -32919,28 +32960,28 @@ function testNightJackCard(): void
     $dir = "$tmp/mo";
     mkdir($dir, 0700, true);
     // (1) the agent: nothing without her or without a night going; a night going for real with her share and the stop
-    same('night card (agent): not hired / no night.json → nothing', [null, null], [embyNightNow($dir, false), embyNightNow($dir, true)]);
+    same('night card (agent): not hired / no night.json → nothing', [null, null], [jackNightNow($dir, false), jackNightNow($dir, true)]);
     $night = ['v' => 1, 'mode' => 'run', 'by' => 'schedule', 'started' => time() - 600, 'phase' => 'free', 'round' => 1, 'who' => 'her', 'jack' => true,
               'pool' => 'cache', 'plan' => ['measured' => true], 'steps' => [['who' => 'jack', 'phase' => 'free', 'round' => 1, 'exit' => 0, 'result' => 'ok']], 'result' => null];
     file_put_contents("$dir/night.json", json_encode($night));
-    check('night card (agent): night.json without its lock held → nothing (a night that died)', embyNightNow($dir, true) === null);
+    check('night card (agent): night.json without its lock held → nothing (a night that died)', jackNightNow($dir, true) === null);
     $lock = fopen("$dir/night.lock", 'c');
     flock($lock, LOCK_EX);
     file_put_contents("$dir/status.json", json_encode(['result' => 'running', 'phase' => 'share', 'share' => 'Downloads', 'share_files' => 12, 'share_done_files' => 5, 'pid' => 1]));
-    $a = embyNightNow($dir, true);
+    $a = jackNightNow($dir, true);
     same('night card (agent): her phase — her share, 5 of 12, not asked to stop; the night as the pages read it',
         [['share' => 'Downloads', 'done' => 5, 'files' => 12], null, 'free', 'her', true], [$a['her'] ?? '-', array_key_exists('stopping', $a ?? []) ? $a['stopping'] : '-', $a['phase'] ?? null, $a['who'] ?? null, $a['running'] ?? null]);
     file_put_contents("$dir/night-stop.json", json_encode(['time' => time(), 'why' => 'user']));
     file_put_contents("$dir/night.json", json_encode(['who' => 'jack', 'phase' => 'fill'] + $night));
-    $b = embyNightNow($dir, true);
+    $b = jackNightNow($dir, true);
     same('night card (agent): his phase — no share of hers; the night asked to stop', [null, 'user', 'jack'], [array_key_exists('her', $b ?? []) ? $b['her'] : '-', $b['stopping'] ?? null, $b['who'] ?? null]);
     file_put_contents("$dir/night.json", json_encode(['mode' => 'dry'] + $night));
-    check('night card (agent): a dry night has no card', embyNightNow($dir, true) === null);
+    check('night card (agent): a dry night has no card', jackNightNow($dir, true) === null);
     flock($lock, LOCK_UN);
     fclose($lock);
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('night card (agent): his part «progress» carries the night, his stop stops the whole night while it goes',
-        str_contains($src, "embyProgressState() + ['night' => embyNightNow()]") && str_contains($src, 'embyNightNow() !== null ? nightStopAsk() : embyStopAsk()'));
+        str_contains($src, "jackProgressState() + ['night' => jackNightNow()]") && str_contains($src, 'jackNightNow() !== null ? nightStopAsk() : jackStopAsk()'));
 
     // (2) the page under node
     $node = testsNode();
@@ -32966,7 +33007,7 @@ globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', not
   dialog: (o) => { dialogs.push(o); return { close: () => { o.closed = true; } }; }, freshState: async () => true, toast: () => {}, errorText: (e) => 'err:' + e.key,
   loadState: async () => ({}), api: { post: async (a, d) => { posts.push([a, d]); return { ok: true }; } } };
 for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
 const find = (n, f) => (typeof n === 'string' ? null : f(n) ? n : n.children.map((c) => find(c, f)).find(Boolean) || null);
 const G = 1073741824;
@@ -32982,9 +33023,9 @@ const n0 = { mode: 'run', started: 1000, phase: 'free', round: 1, who: 'her', ja
   out.her = texts(c);
   out.herSteps = (find(c, (x) => x.steps) || {}).steps.map((s) => [s.name, s.state]);
   out.herCls = c.cls;
-  find(c, (x) => x.textContent === 'emby:night.her_open').onclick();
+  find(c, (x) => x.textContent === 'jack:night.her_open').onclick();
   out.went = went.slice();
-  const stop = find(c, (x) => x.textContent === 'emby:progress.stop');
+  const stop = find(c, (x) => x.textContent === 'jack:progress.stop');
   await stop.onclick();
   out.posts = posts.slice();
   out.headOff = e.headActions().map((b) => b.disabled);
@@ -32999,17 +33040,17 @@ const n0 = { mode: 'run', started: 1000, phase: 'free', round: 1, who: 'her', ja
   e.setNight({ ...n0, who: 'jack', phase: 'fill', her: null, stopping: 'user' });
   c = e.livePanel();
   out.jack = texts(c);
-  out.jackStop = find(c, (x) => x.textContent === 'emby:progress.stop').disabled;
+  out.jackStop = find(c, (x) => x.textContent === 'jack:progress.stop').disabled;
   // without Ms. Moverelli: no night, his live panel as before
   e.setState(base(true, null));
   e.setNight(null);
   c = e.livePanel();
-  out.plain = [e.nightGoing(), c.cls, texts(c).includes('emby:progress.title')];
+  out.plain = [e.nightGoing(), c.cls, texts(c).includes('jack:progress.title')];
   // his «Start…»: with her the dry run for both is on her schedule's row; without her nothing of it
   e.setState(base(false, { schedule: {}, jack: true }));
   await e.chooseRun();
   out.dlg = texts(dialogs[dialogs.length - 1].body);
-  find(dialogs[dialogs.length - 1].body, (x) => x.textContent === 'emby:night.dry_both_open').onclick();
+  find(dialogs[dialogs.length - 1].body, (x) => x.textContent === 'jack:night.dry_both_open').onclick();
   out.dlgClosed = !!dialogs[dialogs.length - 1].closed;
   out.dlgWent = went[went.length - 1];
   e.setState(base(false, null));
@@ -33018,31 +33059,31 @@ const n0 = { mode: 'run', started: 1000, phase: 'free', round: 1, who: 'her', ja
   console.log(JSON.stringify(out));
 })();
 JS);
-    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/emby/desk.js'], 30);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/jack/desk.js'], 30);
     $j = json_decode(trim((string) $out), true) ?? [];
     check('night card (page): it runs', $j !== [], $out . $err);
     $her = $j['her'] ?? [];
     check('night card (page): she moves — her card\'s «Joint run», since when, her share «Downloads, 5 of 12 files», the way to her page, the stop',
         in_array('moverelli:rc.night_title', $her, true) && in_array('moverelli:rc.since {"time":"T1000","duration":"600s"}', $her, true)
-        && in_array('emby:night.her_moving {"share":"Downloads","done":5,"files":"emby:count.files {\"n\":12}"} ', $her, true)
-        && in_array('emby:night.her_open', $her, true) && in_array('emby:progress.stop', $her, true) && !in_array('emby:progress.raw', $her, true), json_encode($her));
+        && in_array('jack:night.her_moving {"share":"Downloads","done":5,"files":"jack:count.files {\"n\":12}"} ', $her, true)
+        && in_array('jack:night.her_open', $her, true) && in_array('jack:progress.stop', $her, true) && !in_array('jack:progress.raw', $her, true), json_encode($her));
     same('night card (page): her phases in her words — Check done, Free going, Fill waiting; the card is the shared one',
         [[['moverelli:rc.phase.check', 'done'], ['moverelli:rc.phase.free', 'running'], ['moverelli:rc.phase.fill', 'pending']], 'card running night-card jo-night'],
         [$j['herSteps'] ?? null, $j['herCls'] ?? null]);
     same('night card (page): her page opens; «Stop after this file» asks his desk (the agent stops the whole night); his head buttons wait',
-        [['#/moverelli'], [['emby.stop', []]], [true, true]], [$j['went'] ?? null, $j['posts'] ?? null, $j['headOff'] ?? null]);
+        [['#/moverelli'], [['jack.stop', []]], [true, true]], [$j['went'] ?? null, $j['posts'] ?? null, $j['headOff'] ?? null]);
     check('night card (page): between their steps she measures the pool; at work without a share yet: «at work»',
-        in_array('emby:night.her_check ', $j['between'] ?? [], true) && in_array('emby:night.her_busy ', $j['busy'] ?? [], true), json_encode([$j['between'] ?? null, $j['busy'] ?? null]));
+        in_array('jack:night.her_check ', $j['between'] ?? [], true) && in_array('jack:night.her_busy ', $j['busy'] ?? [], true), json_encode([$j['between'] ?? null, $j['busy'] ?? null]));
     $jack = $j['jack'] ?? [];
     check('night card (page): he fetches — the same card with his bars per person inside, the raw output; the night asked to stop: «Stopping …», the button grey',
         in_array('moverelli:rc.night_title', $jack, true) && in_array('moverelli:stopping', $jack, true) && in_array('Mother', $jack, true)
-        && in_array('emby:progress.raw', $jack, true) && !in_array('emby:progress.title', $jack, true) && ($j['jackStop'] ?? false) === true, json_encode($jack));
+        && in_array('jack:progress.raw', $jack, true) && !in_array('jack:progress.title', $jack, true) && ($j['jackStop'] ?? false) === true, json_encode($jack));
     same('night card (page): without Ms. Moverelli — no night, his live panel as before', [false, 'box jo-prog running', true], $j['plain'] ?? null);
     check('night card (page): his «Start…» with her — the dry run for both on her schedule\'s row (the dialog closes, her schedule opens); without her nothing of it',
-        in_array('emby:night.dry_both ', $j['dlg'] ?? [], true) && ($j['dlgClosed'] ?? false) && ($j['dlgWent'] ?? '') === '#/moverelli/schedule' && ($j['dlgPlain'] ?? 1) === 0,
+        in_array('jack:night.dry_both ', $j['dlg'] ?? [], true) && ($j['dlgClosed'] ?? false) && ($j['dlgWent'] ?? '') === '#/moverelli/schedule' && ($j['dlgPlain'] ?? 1) === 0,
         json_encode([$j['dlg'] ?? null, $j['dlgWent'] ?? null, $j['dlgPlain'] ?? null]));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
-        $lang = readJson(OFFICE_WEB . "/desks/emby/lang/$l.json") ?? [];
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
         $words = implode(' ', array_map(fn ($k) => (string) ($lang[$k] ?? ''), ['night.her_moving', 'night.her_busy', 'night.her_check', 'night.jack_soon', 'night.dry_both']));
         check("night card lang $l: her words there, «Jack Emby» / «Jack Streamer» (German, 2026-10-14) never alone as «Jack»",
             isset($lang['night.her_open'], $lang['night.dry_both_open']) && str_contains($lang['night.her_moving'] ?? '', '{share}') && !preg_match('/\bJack\b(?! Emby| Streamer)/u', $words));
@@ -33209,12 +33250,12 @@ function testMoverelliSuggestJack(): void
     $GLOBALS['moverelliHost']['cron_apply'] = false;
     $h = moverelliHost();
     $user = '/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt';
-    $v['emby'] = ['lists' => [$user, "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
+    $v['jack_desk'] = ['lists' => [$user, "$tmp/data/embycache_exclude.txt"], 'shares' => ['Docs', 'Filme']];
     $j = moverelliScan($h)['jack'];
     same('moverelli suggest: her state while Jack is hired — hired, every form of his list\'s path, his shares (not set up: none uncovered yet)',
         [true, $user, [$user, "$tmp/data/embycache_exclude.txt"], ['Docs', 'Filme'], []], [$j['hired'], $j['list'], $j['lists'], $j['shares'], $j['uncovered']]);
     check('moverelli suggest: … nothing written by the look', !is_file("$tmp/data/smart_mover.ini"));
-    $v['emby'] = null;
+    $v['jack_desk'] = null;
     $j = moverelliScan($h)['jack'];
     same('moverelli suggest: Jack not hired — no list, no shares', [false, null, [], []], [$j['hired'], $j['list'], $j['lists'], $j['shares']]);
     unset($GLOBALS['moverelliHost']);
@@ -33297,7 +33338,7 @@ JS);
     same('moverelli suggest page: not covered — his list added at the end of the files for all (in the form), the note with «Remove it again», covered now, the tile calm',
         [['/mnt/user/system/keep.txt', $u], $u, ['setup.jack_added {"file":"' . $u . '"} ', 'setup.jack_remove'], [], false], $o['added'] ?? null);
     same('moverelli suggest page: «Remove it again» — exactly that line out, the warning naming his shares, the tile an alert',
-        [['/mnt/user/system/keep.txt'], null, [['errors.moverelli_emby_list {"shares":"Filme, Serien"}']], true], $o['removed'] ?? null);
+        [['/mnt/user/system/keep.txt'], null, [['errors.moverelli_jack_list {"shares":"Filme, Serien"}']], true], $o['removed'] ?? null);
     same('moverelli suggest page: … drawn anew it isn\'t added again', ['/mnt/user/system/keep.txt'], $o['again'] ?? null);
     same('moverelli suggest page: covered already (the other form of the path in a share\'s own files, the other share left out) — nothing added, no note',
         [[], null, null], $o['covered'] ?? null);
@@ -33503,36 +33544,36 @@ function testBackupTiles(): void
 
 /**
  * Jack's «Last run» while EmbyCache runs (the tiles rebuild, 2026-10-11): every start removed status.json and the tile
- * read it — «never» while a run went, a report shown as the last run. Now embyLastRun() and the page's lastRuns() read
+ * read it — «never» while a run went, a report shown as the last run. Now jackLastRun() and the page's lastRuns() read
  * his list of runs: the newest real run (run, release) is it, else the newest of any mode; refused and skipped starts
  * didn't run; status.json only for the result box (last_status). Under node (stand-ins for the office): the tiles of
  * «How I work» — «Last run» with how long it took and a newer report under it, «running since» while one goes, a div
  * when nothing ran; «Schedules» (2 active · next, off), «Ready on the pool»; the «Emby» tile gone; a click on «Last run»
  * filters «Recent runs» to EmbyCache's (the bar's note line names it), a second shows all.
  */
-function testEmbyLastRunDuringRun(): void
+function testJackLastRunDuringRun(): void
 {
-    $tmp = hardeningTmp('embylast');
+    $tmp = hardeningTmp('jacklast');
     exec('rm -rf ' . escapeshellarg($tmp) . '/*');
     $real = ['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => 1000, 'finished' => 1720, 'exit' => 0, 'result' => 'ok',
              'status' => ['errors' => 0, 'warnings' => 1]];
-    embyRemember($real, $tmp);
-    embyRemember(['tool' => 'gather', 'mode' => 'run', 'by' => 'schedule', 'started' => 1800, 'finished' => 1900, 'exit' => 0, 'result' => 'ok'], $tmp);
-    embyRemember(['tool' => 'embycache', 'mode' => 'report', 'by' => 'office', 'started' => 2000, 'finished' => 2010, 'exit' => 0, 'result' => 'ok'], $tmp);
-    embyRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => 2100, 'finished' => 2100, 'result' => 'refused', 'why' => 'emby_mover_schedule'], $tmp);
-    check('last run: no status.json (a run just started) — his list still knows the last run', !is_file("$tmp/status.json") && embyLastRun(embyHistory($tmp)) !== null);
+    jackRemember($real, $tmp);
+    jackRemember(['tool' => 'gather', 'mode' => 'run', 'by' => 'schedule', 'started' => 1800, 'finished' => 1900, 'exit' => 0, 'result' => 'ok'], $tmp);
+    jackRemember(['tool' => 'embycache', 'mode' => 'report', 'by' => 'office', 'started' => 2000, 'finished' => 2010, 'exit' => 0, 'result' => 'ok'], $tmp);
+    jackRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'schedule', 'started' => 2100, 'finished' => 2100, 'result' => 'refused', 'why' => 'jack_mover_schedule'], $tmp);
+    check('last run: no status.json (a run just started) — his list still knows the last run', !is_file("$tmp/status.json") && jackLastRun(jackHistory($tmp)) !== null);
     same('last run: a report and a refused start after a real run — the real run is it', [1000, 'run'],
-        [embyLastRun(embyHistory($tmp))['started'] ?? null, embyLastRun(embyHistory($tmp))['mode'] ?? null]);
+        [jackLastRun(jackHistory($tmp))['started'] ?? null, jackLastRun(jackHistory($tmp))['mode'] ?? null]);
     same('last run: only a dry run — that one; only refused and skipped starts, or none — null', [1500, null, null], [
-        embyLastRun([['tool' => 'gather', 'mode' => 'run', 'started' => 1600, 'result' => 'ok'], ['tool' => 'embycache', 'mode' => 'dry', 'started' => 1500, 'result' => 'ok']])['started'] ?? null,
-        embyLastRun([['tool' => 'embycache', 'mode' => 'run', 'started' => 1, 'result' => 'refused'], ['tool' => 'embycache', 'mode' => 'run', 'started' => 2, 'result' => 'skipped']]),
-        embyLastRun([])]);
-    same('last run: a release (his let-go) counts as real', 'release', embyLastRun([['tool' => 'embycache', 'mode' => 'dry', 'started' => 9, 'result' => 'ok'],
+        jackLastRun([['tool' => 'gather', 'mode' => 'run', 'started' => 1600, 'result' => 'ok'], ['tool' => 'embycache', 'mode' => 'dry', 'started' => 1500, 'result' => 'ok']])['started'] ?? null,
+        jackLastRun([['tool' => 'embycache', 'mode' => 'run', 'started' => 1, 'result' => 'refused'], ['tool' => 'embycache', 'mode' => 'run', 'started' => 2, 'result' => 'skipped']]),
+        jackLastRun([])]);
+    same('last run: a release (his let-go) counts as real', 'release', jackLastRun([['tool' => 'embycache', 'mode' => 'dry', 'started' => 9, 'result' => 'ok'],
         ['tool' => 'embycache', 'mode' => 'release', 'started' => 5, 'result' => 'ok']])['mode'] ?? null);
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/emby.php');
-    $fn = substr($src, (int) strpos($src, 'function embyLastRun('), 900);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    $fn = substr($src, (int) strpos($src, 'function jackLastRun('), 900);
     check('last run: his state takes it from his list; status.json only for the result box (last_status)',
-        str_contains($src, "'last'       => embyLastRun(\$history = embyHistory())") && str_contains($src, "'last_status' => readJson(EMBY_DATA . '/status.json')")
+        str_contains($src, "'last'       => jackLastRun(\$history = jackHistory())") && str_contains($src, "'last_status' => readJson(JACK_DATA . '/status.json')")
         && str_contains($src, "'history'    => array_slice(\$history, 0, 20)") && !str_contains(substr($fn, 0, (int) strpos($fn, "\n}\n")), 'status.json'));
 
     $node = testsNode();
@@ -33548,7 +33589,7 @@ function testEmbyLastRunDuringRun(): void
         'gather' => ['ready' => true, 'last' => ['finished' => 1600, 'moved' => 14, 'conflicts' => 0, 'errors' => 0, 'full' => 0, 'duplicates' => 2, 'dirs_deleted' => 6, 'dirs_kept' => 0]],
         'schedules' => ['embycache' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '30 4 * * *', 'next' => 4000],
                         'gather' => ['enabled' => true, 'frequency' => 'custom', 'custom' => '0 3 * * 0', 'next' => 5000]],
-        'history' => embyHistory($tmp)];
+        'history' => jackHistory($tmp)];
     file_put_contents("$tmp/state.json", json_encode($state));
     file_put_contents("$tmp/t.js", <<<'JS'
 const fs = require('fs');
@@ -33575,10 +33616,10 @@ globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, dat
     done(n, t, d) { this.doneArgs = [n, t, (d && d.tile) || '']; this.clear = d && d.clear; return this; }, options() { return this; }, reset() { return this; } }; bars.push(b); return b; } };
 globalThis.Office.store = function (k, v) { if (arguments.length > 1) stored[k] = v; return stored[k]; };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
-const e = OFFICE_DESK_TESTS.emby;
+const e = OFFICE_DESK_TESTS.jack;
 const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const out = {};
-const a = (id) => ({ on: () => `clicked ${id}`, pressed: active === id, active: active === id, controls: 'emby-sections', place: `tile.${id}` });
+const a = (id) => ({ on: () => `clicked ${id}`, pressed: active === id, active: active === id, controls: 'jack-sections', place: `tile.${id}` });
 const tile = (id) => { const x = list().find((t) => t.id === id); const n = x.tile(a(id)); return { ...n.o, clicks: n.o.on && n.o.on() }; };
 e.setState(state);
 e.bars();
@@ -33593,7 +33634,7 @@ out.shares = (() => { const p = tile('shares'); return [p.value, p.sub, p.alert]
 out.gather = (() => { const p = tile('gather'); return [p.value, p.sub, p.alert]; })();
 // «Recent runs»: all of them; the tile «Last run» active: only EmbyCache's, the note line names it; cleared: all
 const rows = (sec) => sec.children.find((c) => c.className === 'box').children.filter((c) => c.className === 'row nocheck').length;
-const runsBar = bars.find((b) => b.o.key === 'emby.runs');
+const runsBar = bars.find((b) => b.o.key === 'jack.runs');
 let sec = e.historySection();
 out.runs = [sec.id, rows(sec), runsBar.doneArgs];
 active = 'runs';
@@ -33628,10 +33669,10 @@ e.setState(state);
 out.unset = list().map((x) => x.id);
 console.log(JSON.stringify(out));
 JS);
-    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/emby/desk.js', "$tmp/state.json"])) . ' 2>&1');
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js', "$tmp/state.json"])) . ' 2>&1');
     $r = json_decode($raw, true);
-    same('his page: the switcher — kept as emby.tile, start «Pool»; the row Last run (a filter tile: «Recent runs» with EmbyCache\'s), Schedules, Pool, Shares, Consolidate folders; «Recent runs» shared',
-        ['emby', 'pool', [['runs', 'last_run', 'tile.runs', 'runs', 'tool.embycache'], ['plans', 'schedules', 'tile.plans', 'own', ''], ['pool', 'tile.pool', 'tile.pool', 'own', ''],
+    same('his page: the switcher — kept as jack.tile, start «Pool»; the row Last run (a filter tile: «Recent runs» with EmbyCache\'s), Schedules, Pool, Shares, Consolidate folders; «Recent runs» shared',
+        ['jack', 'pool', [['runs', 'last_run', 'tile.runs', 'runs', 'tool.embycache'], ['plans', 'schedules', 'tile.plans', 'own', ''], ['pool', 'tile.pool', 'tile.pool', 'own', ''],
             ['shares', 'shares', 'tile.shares', 'own', ''], ['gather', 'gather', 'tile.gather', 'own', '']], ['runs']], $r['spec'] ?? null, $raw);
     same('last run on his page: the same pick as the agent — the real run, the newer report beside it', [1000, 'report'], $r['pick'] ?? null, $raw);
     same('last run on his page: when it ended, «Real run · took 12 min · 0 errors · 1 warning», the newer report under it; the switcher\'s click and place spread in', [
@@ -33737,7 +33778,7 @@ function testSnapArrayDisks(): void
  */
 function testTilesMediaPages(): void
 {
-    $emby = (string) file_get_contents(OFFICE_WEB . '/desks/emby/desk.js');
+    $jackSrc = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
     $keys = function (string $js): array {
         preg_match_all("/Office\\.store(?:Json)?\\(\\s*'([^']+)'/", $js, $m);
@@ -33747,43 +33788,43 @@ function testTilesMediaPages(): void
         sort($k);
         return $k;
     };
-    same('emby page: kept per browser only the choices — the pool\'s library (its old key taken over); the tile is the switcher\'s (emby.tile), the runs\' bar has no select',
-        ['emby.pool.pick', 'emby.pool_lib', 'emby.runs.pick'], $keys($emby));
-    check('emby page: the runs\' bar has no select (its <key>.pick never written)', !preg_match("/key:\\s*'emby\\.runs',[^}]*select:/", $emby));
+    same('jack page: kept per browser only the choices — the pool\'s library (its old key taken over); the tile is the switcher\'s (jack.tile), the runs\' bar has no select',
+        ['jack.pool.pick', 'jack.pool_lib', 'jack.runs.pick'], $keys($jackSrc));
+    check('jack page: the runs\' bar has no select (its <key>.pick never written)', !preg_match("/key:\\s*'jack\\.runs',[^}]*select:/", $jackSrc));
     same('snapshot page: kept per browser only the choices — grouping, folds, the three switches, the pool, the source (the tile is the switcher\'s: snapshot.tile)',
         ['snapshot.', 'snapshot.docker', 'snapshot.folded', 'snapshot.grouping', 'snapshot.list.pick', 'snapshot.pool'], $keys($snap));
-    check('pages: the old open/closed keys are gone (emby.plans_open, emby.pool_open, snapshot.plans_open)', !preg_match('/plans_open|pool_open/', $emby . $snap));
-    check('pages: no role="button" on a tile (her group heads fold — the only one)', !str_contains($emby, "'role', 'button'") && substr_count($snap, "'role', 'button'") === 1
+    check('pages: the old open/closed keys are gone (jack.plans_open, jack.pool_open, snapshot.plans_open)', !preg_match('/plans_open|pool_open/', $jackSrc . $snap));
+    check('pages: no role="button" on a tile (her group heads fold — the only one)', !str_contains($jackSrc, "'role', 'button'") && substr_count($snap, "'role', 'button'") === 1
         && str_contains($snap, "const head = el('div', 'group-head');\n  head.tabIndex = 0;\n  head.setAttribute('role', 'button');"));
-    check('pages: no scrollIntoView for a tile (Jack\'s: a dialog\'s error line)', !str_contains($snap, 'scrollIntoView') && substr_count($emby, 'scrollIntoView') === 1
-        && str_contains($emby, "box.style.display = '';\n  box.scrollIntoView({ block: 'nearest' });"));
-    check('pages: nothing hidden — no section, list or tile switched off with hidden', !preg_match('/\b(s|section|plans|pool|dom\.\w+)\.hidden\s*=/', $emby . $snap));
+    check('pages: no scrollIntoView for a tile (Jack\'s: a dialog\'s error line)', !str_contains($snap, 'scrollIntoView') && substr_count($jackSrc, 'scrollIntoView') === 1
+        && str_contains($jackSrc, "box.style.display = '';\n  box.scrollIntoView({ block: 'nearest' });"));
+    check('pages: nothing hidden — no section, list or tile switched off with hidden', !preg_match('/\b(s|section|plans|pool|dom\.\w+)\.hidden\s*=/', $jackSrc . $snap));
     // Jack Emby
-    check('emby page: the switcher — start «Pool»; Last run (a filter tile on «Recent runs»), Schedules, Pool, Shares, Consolidate folders',
-        str_contains($emby, "const sw = Office.sections({") && str_contains($emby, "default: 'pool',")
-        && str_contains($emby, "{ id: 'runs', key: 'last_run', place: 'tile.runs', section: 'runs', filters: T('tool.embycache'),")
-        && str_contains($emby, "{ id: 'plans', key: 'schedules', place: 'tile.plans', section: () => plansSection(),")
-        && str_contains($emby, "{ id: 'pool', key: 'tile.pool', place: 'tile.pool', section: () => poolSection(),")
-        && str_contains($emby, "{ id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(),")
-        && str_contains($emby, "{ id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(),")
-        && str_contains($emby, "sections: { runs: () => historySection() },"));
-    check('emby page: «Recent runs» filtered by the switcher (sw.active(), the note line from sw.note), the result box its first row',
-        str_contains($emby, "const only = sw.active() === 'runs' ? 'embycache' : '';") && str_contains($emby, "runsBar.done(fit.length, runs.length, sw.note('runs'));")
-        && str_contains($emby, "s.id = 'jo-runs';\n  const rb = resultBox();\n  if (rb) s.appendChild(rb);"));
-    check('emby page: «Amount» is the line «How I work» over the row, the tools a footer under it, the live panel over the row; Python missing a callout',
-        str_contains($emby, "if (progBox) root.appendChild(progBox);\n  if (state.configured) root.appendChild(scopeLine());\n  root.appendChild(sw.el);\n  sw.render();\n  root.appendChild(footer());")
-        && str_contains($emby, "Office.place('overview', el('div', 'jo-scope'))") && str_contains($emby, "Office.place('tools', el('div', 'jo-foot'))")
-        && !str_contains($emby, "T('tools_sub')") && !str_contains($emby, "T('tools.python_missing')") && str_contains($emby, "T('notice.no_python')"));
-    check('emby page: «Consolidate folders» — its two facts as rows, no tiles inside a section', str_contains($emby, "const facts = el('div', 'box jo-facts');")
-        && !str_contains($emby, "el('div', 'stats')"));
-    check('emby page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup is the office\'s tab with tiles (no wizard)',
-        str_contains($emby, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && substr_count($emby, 'root.appendChild(deskHead());') === 2
-        && !str_contains($emby, "T('back')") && !str_contains($emby, "actions.push(button(T('setup_open')")
-        && str_contains($emby, "const sw = setupSwitcher();\n  root.appendChild(sw.el);\n  sw.render();") && !str_contains($emby, 'jo-wiz'));
-    check('emby page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/emby/history the whole page',
-        str_contains($emby, "if (plan) sw.mount('plans');") && str_contains($emby, "} else sw.mount(sub);") && str_contains($emby, "Office.reveal(`plan:\${plan}`)")
-        && str_contains($emby, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($emby, "Office.place(`plan:\${job}`")
-        && str_contains($emby, "...sw.places().map(") && str_contains($emby, "route: `#/\${ID}/history`"));
+    check('jack page: the switcher — start «Pool»; Last run (a filter tile on «Recent runs»), Schedules, Pool, Shares, Consolidate folders',
+        str_contains($jackSrc, "const sw = Office.sections({") && str_contains($jackSrc, "default: 'pool',")
+        && str_contains($jackSrc, "{ id: 'runs', key: 'last_run', place: 'tile.runs', section: 'runs', filters: T('tool.embycache'),")
+        && str_contains($jackSrc, "{ id: 'plans', key: 'schedules', place: 'tile.plans', section: () => plansSection(),")
+        && str_contains($jackSrc, "{ id: 'pool', key: 'tile.pool', place: 'tile.pool', section: () => poolSection(),")
+        && str_contains($jackSrc, "{ id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(),")
+        && str_contains($jackSrc, "{ id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(),")
+        && str_contains($jackSrc, "sections: { runs: () => historySection() },"));
+    check('jack page: «Recent runs» filtered by the switcher (sw.active(), the note line from sw.note), the result box its first row',
+        str_contains($jackSrc, "const only = sw.active() === 'runs' ? 'embycache' : '';") && str_contains($jackSrc, "runsBar.done(fit.length, runs.length, sw.note('runs'));")
+        && str_contains($jackSrc, "s.id = 'jo-runs';\n  const rb = resultBox();\n  if (rb) s.appendChild(rb);"));
+    check('jack page: «Amount» is the line «How I work» over the row, the tools a footer under it, the live panel over the row; Python missing a callout',
+        str_contains($jackSrc, "if (progBox) root.appendChild(progBox);\n  if (state.configured) root.appendChild(scopeLine());\n  root.appendChild(sw.el);\n  sw.render();\n  root.appendChild(footer());")
+        && str_contains($jackSrc, "Office.place('overview', el('div', 'jo-scope'))") && str_contains($jackSrc, "Office.place('tools', el('div', 'jo-foot'))")
+        && !str_contains($jackSrc, "T('tools_sub')") && !str_contains($jackSrc, "T('tools.python_missing')") && str_contains($jackSrc, "T('notice.no_python')"));
+    check('jack page: «Consolidate folders» — its two facts as rows, no tiles inside a section', str_contains($jackSrc, "const facts = el('div', 'box jo-facts');")
+        && !str_contains($jackSrc, "el('div', 'stats')"));
+    check('jack page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup is the office\'s tab with tiles (no wizard)',
+        str_contains($jackSrc, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && substr_count($jackSrc, 'root.appendChild(deskHead());') === 2
+        && !str_contains($jackSrc, "T('back')") && !str_contains($jackSrc, "actions.push(button(T('setup_open')")
+        && str_contains($jackSrc, "const sw = setupSwitcher();\n  root.appendChild(sw.el);\n  sw.render();") && !str_contains($jackSrc, 'jo-wiz'));
+    check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page',
+        str_contains($jackSrc, "if (plan) sw.mount('plans');") && str_contains($jackSrc, "} else sw.mount(sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
+        && str_contains($jackSrc, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($jackSrc, "Office.place(`plan:\${job}`")
+        && str_contains($jackSrc, "...sw.places().map(") && str_contains($jackSrc, "route: `#/\${ID}/history`"));
     // Ms. Snapshotini
     check('snapshot page: the switcher — no start tile; pool cards, the array disks\' rows (btrfs and ZFS), the VMs filter «Snapshots»; «Schedules» and «Snapshots» section tiles',
         str_contains($snap, "const sw = Office.sections({") && str_contains($snap, "default: '',")
@@ -34494,7 +34535,7 @@ const SECTIONS_DESKS = [
     // like Jack Emby's) and the setup's start cards over its row of steps (a new server: where to start — 2026-10-12, his
     // setup's steps on a switcher of their own)
     'backup' => ['runningCard', 'presetSection'],
-    'emby' => [],                       // his setup is a wizard card (no section heads); his main page keeps the switcher
+    'jack' => [],                       // his setup is a wizard card (no section heads); his main page keeps the switcher
     'snapshot' => [],
     'caretaker' => [],
     'moverelli' => [],
@@ -34696,12 +34737,12 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testEmby', 'testEmbyWatch', 'testEmbySizes', 'testEmbyPool', 'testEmbyImport', 'testEmbyForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testEmbyLetGo', 'testEmbyMover', 'testEmbyGatherCache', 'testEmbyRsync', 'testEmbyUpstream', 'testEmbyProgress', 'testEmbyReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testEmbyYield',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testEmbySetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testEmbyLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testEmbyPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

@@ -6,13 +6,13 @@ declare(strict_types=1);
  * put on the pool back to the array). EmbyCache and the gather run for real only while Unraid's own mover schedule is
  * «Disabled» (⟦Settings⟧ → ⟦Scheduler⟧ → ⟦Mover Settings⟧) — always, one way (decision, 2026-10-09 evening);
  * otherwise only their dry runs go, and real ones (from the page and on schedule) are refused with the reason
- * (embyRunCheck() → embyMoverProblem()). Unraid 7.3.3 keeps «Disabled» as `shareMoverSchedule=""` in
+ * (jackRunCheck() → jackMoverProblem()). Unraid 7.3.3 keeps «Disabled» as `shareMoverSchedule=""` in
  * /boot/config/share.cfg and removes /boot/config/plugins/dynamix/mover.cron (verified on a test server: «Daily» writes the file
  * with «… /usr/local/sbin/mover start …», «Disabled» deletes it; emhttpd deletes it again at every array start while the
  * key is empty, so «Disabled» lasts). Mover Tuning is no way around it: from Unraid 7.2.1 on Unraid's own schedule and
  * ⟦Move now⟧ run /usr/local/sbin/mover, which knows no list.
  *
- * Switching it off: his page offers «Switch the mover schedule off…» (emby.mover_off, embyMoverOff()) — after a confirm,
+ * Switching it off: his page offers «Switch the mover schedule off…» (jack.mover_off, jackMoverOff()) — after a confirm,
  * the agent does what Unraid's form does with «Disabled» + ⟦Apply⟧: `emcmd "shareMoverSchedule=&shareMoverLogging=<as it
  * is>&changeMover=Apply"`, then looks that share.cfg says "" and no mover.cron line is left. Or the user sets it himself.
  *
@@ -23,52 +23,52 @@ declare(strict_types=1);
  * way for him any more (up to 1.60 he entered his list there): while it is installed with an active schedule of its
  * own (moverelliTuning(), her own refusal `moverelli_tuning_schedule`) it would move his films back — `tuning_schedule`,
  * switched off by the user in Mover Tuning, never by him. Her runs and his never run at the same time
- * (embyRunCheck(), moverelliRunCheck()); their starts take one lock (embyMoversLock()), so two cron jobs of the same
+ * (jackRunCheck(), moverelliRunCheck()); their starts take one lock (jackMoversLock()), so two cron jobs of the same
  * minute can't both pass the check.
  * ⟦Move now⟧ in ⟦Mover Settings⟧ and on the Main page start Unraid's mover by hand — a hand's doing: the guards below
  * stop his run, his page says so.
  *
  * Guards while running: Unraid's mover at work (/var/run/mover.pid alive — Unraid's mover and Mover Tuning's age_mover
  * write it —, or a `mover`, `age_mover` or `move` process that isn't his own run's) → no real run starts; on schedule it
- * waits and looks again (embyRunGate(), like the wait for Emby's watchers); the mover starting during a run → the stop
+ * waits and looks again (jackRunGate(), like the wait for Emby's watchers); the mover starting during a run → the stop
  * file (EMBYCACHE_STOP, CONSOLIDATE_STOP): EmbyCache stops after the file it is on, the gather after its folder
- * (embyRunWatch()).
+ * (jackRunWatch()).
  *
- * The tests put stand-ins into $GLOBALS['embyMoverHost'] (embyMoverHost()) — emcmd always a stand-in (and
+ * The tests put stand-ins into $GLOBALS['jackMoverHost'] (jackMoverHost()) — emcmd always a stand-in (and
  * OFFICE_EMCMD_BIN for the whole suite): Unraid's own is never run by a test.
  */
 
-const EMBY_MOVER_SHARE_CFG = '/boot/config/share.cfg';
-const EMBY_MOVER_CRON      = '/boot/config/plugins/dynamix/mover.cron';
-const EMBY_MOVER_PID       = '/var/run/mover.pid';
-const EMBY_MOVER_PROCS     = ['mover', 'age_mover', 'move'];      // Unraid's mover script, Mover Tuning's, Unraid's move binary
-const EMBY_TUNING_NAME     = 'ca.mover.tuning';                  // Mover Tuning: only looked at (Ms. Moverelli's moverelliTuning())
-const EMBY_TUNING_DIR      = '/boot/config/plugins/ca.mover.tuning';
-const EMBY_MOVER_EVERY     = 300;      // a scheduled run that finds the mover at work looks again every 5 min …
-const EMBY_MOVER_MAX       = 7200;     // … for up to 2 h, then that run is skipped
-const EMBY_MOVER_LOOK      = 5;        // during a real run: is the mover at work? every 5 s
-const EMBY_MOVER_VAR       = '/var/local/emhttp/var.ini';        // emhttpd's live settings (what ⟦Mover Settings⟧ shows)
-const EMBY_EMCMD           = '/usr/local/sbin/emcmd';            // Unraid's way to send emhttpd a form, as its pages do
-const EMBY_MOVERS_LOCK     = 'movers-start.lock';                 // in RUN_DIR: his and Ms. Moverelli's run starts, one at a time
+const JACK_MOVER_SHARE_CFG = '/boot/config/share.cfg';
+const JACK_MOVER_CRON      = '/boot/config/plugins/dynamix/mover.cron';
+const JACK_MOVER_PID       = '/var/run/mover.pid';
+const JACK_MOVER_PROCS     = ['mover', 'age_mover', 'move'];      // Unraid's mover script, Mover Tuning's, Unraid's move binary
+const JACK_TUNING_NAME     = 'ca.mover.tuning';                  // Mover Tuning: only looked at (Ms. Moverelli's moverelliTuning())
+const JACK_TUNING_DIR      = '/boot/config/plugins/ca.mover.tuning';
+const JACK_MOVER_EVERY     = 300;      // a scheduled run that finds the mover at work looks again every 5 min …
+const JACK_MOVER_MAX       = 7200;     // … for up to 2 h, then that run is skipped
+const JACK_MOVER_LOOK      = 5;        // during a real run: is the mover at work? every 5 s
+const JACK_MOVER_VAR       = '/var/local/emhttp/var.ini';        // emhttpd's live settings (what ⟦Mover Settings⟧ shows)
+const JACK_EMCMD           = '/usr/local/sbin/emcmd';            // Unraid's way to send emhttpd a form, as its pages do
+const JACK_MOVERS_LOCK     = 'movers-start.lock';                 // in RUN_DIR: his and Ms. Moverelli's run starts, one at a time
 
-/** Where the rule reads and writes — the tests' stand-ins in $GLOBALS['embyMoverHost'] */
-function embyMoverHost(): array
+/** Where the rule reads and writes — the tests' stand-ins in $GLOBALS['jackMoverHost'] */
+function jackMoverHost(): array
 {
-    $h = $GLOBALS['embyMoverHost'] ?? [];
+    $h = $GLOBALS['jackMoverHost'] ?? [];
     return [
-        'share_cfg'  => $h['share_cfg'] ?? EMBY_MOVER_SHARE_CFG,
-        'mover_cron' => $h['mover_cron'] ?? EMBY_MOVER_CRON,
-        'tuning_dir' => $h['tuning_dir'] ?? EMBY_TUNING_DIR,
-        'installed'  => $h['installed'] ?? fn (): bool => is_file('/var/log/plugins/' . EMBY_TUNING_NAME . '.plg'),
+        'share_cfg'  => $h['share_cfg'] ?? JACK_MOVER_SHARE_CFG,
+        'mover_cron' => $h['mover_cron'] ?? JACK_MOVER_CRON,
+        'tuning_dir' => $h['tuning_dir'] ?? JACK_TUNING_DIR,
+        'installed'  => $h['installed'] ?? fn (): bool => is_file('/var/log/plugins/' . JACK_TUNING_NAME . '.plg'),
         // his list as other programs get it (the path as set), and the forms that count as his
-        'lists'      => $h['lists'] ?? fn (): array => array_values(array_unique([dataPathUser(EMBY_DATA . '/embycache_exclude.txt'), EMBY_DATA . '/embycache_exclude.txt'])),
-        'dir'        => $h['dir'] ?? EMBY_DATA,
-        'shares'     => $h['shares'] ?? fn (): array => ($s = embyReadSettings()) ? array_column(embyShares($s), 'share') : [],
-        'hired'      => $h['hired'] ?? fn (): bool => in_array('emby', staffHired($GLOBALS['agentStaffFile'] ?? null), true),
-        'pid'        => $h['pid'] ?? EMBY_MOVER_PID,
+        'lists'      => $h['lists'] ?? fn (): array => array_values(array_unique([dataPathUser(JACK_DATA . '/embycache_exclude.txt'), JACK_DATA . '/embycache_exclude.txt'])),
+        'dir'        => $h['dir'] ?? JACK_DATA,
+        'shares'     => $h['shares'] ?? fn (): array => ($s = jackReadSettings()) ? array_column(jackShares($s), 'share') : [],
+        'hired'      => $h['hired'] ?? fn (): bool => in_array('jack', staffHired($GLOBALS['agentStaffFile'] ?? null), true),
+        'pid'        => $h['pid'] ?? JACK_MOVER_PID,
         'proc'       => $h['proc'] ?? '/proc',
-        'var_ini'    => $h['var_ini'] ?? EMBY_MOVER_VAR,
-        'emcmd'      => $h['emcmd'] ?? (getenv('OFFICE_EMCMD_BIN') ?: EMBY_EMCMD),
+        'var_ini'    => $h['var_ini'] ?? JACK_MOVER_VAR,
+        'emcmd'      => $h['emcmd'] ?? (getenv('OFFICE_EMCMD_BIN') ?: JACK_EMCMD),
         'wait'       => $h['wait'] ?? fn (int $ms) => usleep($ms * 1000),
         // what the schedule was before it is switched off — noted once for Ms. Moverelli's let-go (moverelli-unraid.php)
         'note'       => $h['note'] ?? fn (string $was, string $logging) => moverelliUnraidNoteKeep($was, $logging),
@@ -94,10 +94,10 @@ function embyMoverHost(): array
  * The start lock Jack's and Ms. Moverelli's runs share: held only from the check «nothing of the other going» until the
  * run's own marker (office-run.json, its lock) is written — waited for up to $wait s; null when it couldn't be had.
  */
-function embyMoversLock(int $wait = 30, string $dir = RUN_DIR): mixed
+function jackMoversLock(int $wait = 30, string $dir = RUN_DIR): mixed
 {
     @mkdir($dir, 0700, true);
-    $f = @fopen("$dir/" . EMBY_MOVERS_LOCK, 'c');
+    $f = @fopen("$dir/" . JACK_MOVERS_LOCK, 'c');
     if (!$f) {
         return null;
     }
@@ -112,7 +112,7 @@ function embyMoversLock(int $wait = 30, string $dir = RUN_DIR): mixed
     return null;
 }
 
-function embyMoversUnlock(mixed $f): void
+function jackMoversUnlock(mixed $f): void
 {
     if (is_resource($f)) {
         flock($f, LOCK_UN);
@@ -121,7 +121,7 @@ function embyMoversUnlock(mixed $f): void
 }
 
 /** The first active line of a cron file matching $pattern (no comment lines), its five time fields; or null */
-function embyMoverCronLine(string $text, string $pattern): ?string
+function jackMoverCronLine(string $text, string $pattern): ?string
 {
     foreach (preg_split('/\r?\n/', $text) ?: [] as $line) {
         $line = trim($line);
@@ -133,15 +133,15 @@ function embyMoverCronLine(string $text, string $pattern): ?string
 }
 
 /** Unraid's own mover schedule: as set (share.cfg, '' = «Disabled») and as it runs (mover.cron's line, or null) */
-function embyMoverOwn(array $h): array
+function jackMoverOwn(array $h): array
 {
     $set = trim((string) (readCfg($h['share_cfg'])['shareMoverSchedule'] ?? ''), " \t\"");
-    $cron = embyMoverCronLine((string) @file_get_contents($h['mover_cron'], false, null, 0, 65536), '#/usr/local/sbin/mover(\.old)?\s+start\b|(^|\s)mover\s+start\b#');
+    $cron = jackMoverCronLine((string) @file_get_contents($h['mover_cron'], false, null, 0, 65536), '#/usr/local/sbin/mover(\.old)?\s+start\b|(^|\s)mover\s+start\b#');
     return ['set' => $set, 'cron' => $cron];
 }
 
 /** Is Unraid's own schedule «Disabled» — the key empty and no `mover start` line that runs? */
-function embyMoverScheduleOff(array $own): bool
+function jackMoverScheduleOff(array $own): bool
 {
     return $own['set'] === '' && $own['cron'] === null;
 }
@@ -151,7 +151,7 @@ function embyMoverScheduleOff(array $own): bool
  * `global_excludes` names one of $lists, and the share isn't `skip=yes`. $look: moverelliExcludeLook()'s
  * {global: [files], shares: {share: {skip, excludes: [files]}}}.
  */
-function embyMoverelliUncovered(array $look, array $lists, array $shares): array
+function jackMoverelliUncovered(array $look, array $lists, array $shares): array
 {
     $out = [];
     $global = array_values(array_filter((array) ($look['global'] ?? []), 'is_string'));
@@ -175,16 +175,16 @@ function embyMoverelliUncovered(array $look, array $lists, array $shares): array
  * schedule {file, cron} or null}. Unraid's own schedule «Disabled», Ms. Moverelli supervising with his list kept out,
  * and no schedule of Mover Tuning's own.
  */
-function embyMoverRule(?array $h = null): array
+function jackMoverRule(?array $h = null): array
 {
-    $h ??= embyMoverHost();
-    $own = embyMoverOwn($h);
+    $h ??= jackMoverHost();
+    $own = jackMoverOwn($h);
     $m = ($h['moverelli'])();
     $lists = ($h['lists'])();
-    $uncovered = $m === null ? [] : embyMoverelliUncovered($m, $lists, ($h['shares'])());
+    $uncovered = $m === null ? [] : jackMoverelliUncovered($m, $lists, ($h['shares'])());
     $tuning = ($h['tuning'])();
     $why = match (true) {
-        !embyMoverScheduleOff($own) => 'schedule',
+        !jackMoverScheduleOff($own) => 'schedule',
         $m === null                 => 'moverelli',
         (bool) $uncovered           => 'moverelli_list',
         $tuning !== null            => 'tuning_schedule',
@@ -196,36 +196,36 @@ function embyMoverRule(?array $h = null): array
 }
 
 /** The other mover's name as his refusal says it (an older finding without one: Mover Tuning) */
-function embyMoverName(?array $tuning): string
+function jackMoverName(?array $tuning): string
 {
     return ($tuning['name'] ?? '') !== '' ? (string) $tuning['name'] : 'Mover Tuning';
 }
 
 /** The rule as a refusal of a real run, or null */
-function embyMoverProblem(array $rule): ?Problem
+function jackMoverProblem(array $rule): ?Problem
 {
     if ($rule['ok']) {
         return null;
     }
     $key = match ($rule['why']) {
-        'moverelli'       => 'emby_mover_moverelli',
-        'moverelli_list'  => 'emby_mover_moverelli_list',
-        'tuning_schedule' => 'emby_mover_tuning_schedule',
-        default           => 'emby_mover_schedule',
+        'moverelli'       => 'jack_mover_moverelli',
+        'moverelli_list'  => 'jack_mover_moverelli_list',
+        'tuning_schedule' => 'jack_mover_tuning_schedule',
+        default           => 'jack_mover_schedule',
     };
     return new Problem($key, array_filter([
         'schedule' => $rule['why'] === 'tuning_schedule' ? ($rule['tuning']['cron'] ?? null) : ($rule['schedule'] ?? null),
-        'name'     => $rule['why'] === 'tuning_schedule' ? embyMoverName($rule['tuning']) : null,
+        'name'     => $rule['why'] === 'tuning_schedule' ? jackMoverName($rule['tuning']) : null,
         'file'     => $rule['why'] === 'moverelli_list' ? ($rule['moverelli']['file'] ?? null) : null,
         'shares'   => $rule['why'] === 'moverelli_list' ? implode(', ', $rule['moverelli']['uncovered'] ?? []) : null,
     ], fn ($v) => $v !== null));
 }
 
 /** For his page and the Team Lead: the rule and whether the mover is at work */
-function embyMoverState(?array $rule = null): array
+function jackMoverState(?array $rule = null): array
 {
-    $rule ??= embyMoverRule();
-    return ['ok' => $rule['ok'], 'way' => $rule['way'], 'why' => $rule['why'], 'schedule' => $rule['schedule'], 'running' => embyMoverRunning()]
+    $rule ??= jackMoverRule();
+    return ['ok' => $rule['ok'], 'way' => $rule['way'], 'why' => $rule['why'], 'schedule' => $rule['schedule'], 'running' => jackMoverRunning()]
          + ($rule['tuning'] !== null ? ['tuning' => $rule['tuning']] : [])
          + (($rule['moverelli'] ?? null) !== null ? ['moverelli' => $rule['moverelli']] : []);     // only while Ms. Moverelli is hired and set up
 }
@@ -234,7 +234,7 @@ function embyMoverState(?array $rule = null): array
  * ⟦Mover logging⟧ as it stands — what Unraid's form sends along when it applies the schedule (its select shows emhttpd's
  * live value, var.ini; share.cfg keeps it): yes | no. Neither says it: «no», Unraid's default. Anything else: null.
  */
-function embyMoverLogging(array $h): ?string
+function jackMoverLogging(array $h): ?string
 {
     foreach ([$h['var_ini'], $h['share_cfg']] as $file) {
         $v = readCfg($file)['shareMoverLogging'] ?? null;
@@ -247,45 +247,45 @@ function embyMoverLogging(array $h): ?string
 }
 
 /**
- * emby.mover_off {confirm: true} — switches Unraid's own mover schedule off, exactly as ⟦Mover Settings⟧ does with
+ * jack.mover_off {confirm: true} — switches Unraid's own mover schedule off, exactly as ⟦Mover Settings⟧ does with
  * ⟦Mover schedule⟧ «Disabled» + ⟦Apply⟧: `emcmd "shareMoverSchedule=&shareMoverLogging=<as it is>&changeMover=Apply"`
  * (the form's fields — its logging kept; emhttpd empties the key in share.cfg and deletes mover.cron). Looked at
  * afterwards (emhttpd answers when it is done; up to 3 s more): share.cfg says "" and no mover.cron line runs — else
- * refused with what is still there (`emby_mover_off_failed`). Already off: nothing is sent. Logged. Only while he is
+ * refused with what is still there (`jack_mover_off_failed`). Already off: nothing is sent. Logged. Only while he is
  * hired (the agent's gate, agentDeskMayAct()). ⟦Move now⟧ by hand stays possible — his guards stop a run then.
  * Ms. Moverelli's «Switch Unraid's mover schedule off…» is the same (moverelliMoverOff(); $log writes her name in the log).
  * {ok, already, was: the schedule it had, or null}
  */
-function embyMoverOff(array $r, ?array $h = null, ?callable $log = null): array
+function jackMoverOff(array $r, ?array $h = null, ?callable $log = null): array
 {
     $log ??= fn (string $text) => logLine("Jack Emby: $text");
     if (($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }
-    $h ??= embyMoverHost();
-    $own = embyMoverOwn($h);
-    if (embyMoverScheduleOff($own)) {
+    $h ??= jackMoverHost();
+    $own = jackMoverOwn($h);
+    if (jackMoverScheduleOff($own)) {
         return ['ok' => true, 'already' => true, 'was' => null];
     }
     $was = $own['cron'] ?? $own['set'];
-    $logging = embyMoverLogging($h);
+    $logging = jackMoverLogging($h);
     if ($logging === null) {
-        throw new Problem('emby_mover_off_failed', ['detail' => 'shareMoverLogging has a value Unraid\'s form doesn\'t know']);
+        throw new Problem('jack_mover_off_failed', ['detail' => 'shareMoverLogging has a value Unraid\'s form doesn\'t know']);
     }
     $bin = $h['emcmd'];
     if (!is_file($bin) || !is_executable($bin)) {
-        throw new Problem('emby_mover_off_failed', ['detail' => "$bin not found"]);
+        throw new Problem('jack_mover_off_failed', ['detail' => "$bin not found"]);
     }
     ($h['note'])($own['set'], $logging);      // the first schedule switched off is the one Ms. Moverelli's let-go brings back
     [$exit, $out, $err] = run([$bin, "shareMoverSchedule=&shareMoverLogging=$logging&changeMover=Apply"], 30);
-    for ($i = 0; $i < 10 && !embyMoverScheduleOff($own = embyMoverOwn($h)); $i++) {
+    for ($i = 0; $i < 10 && !jackMoverScheduleOff($own = jackMoverOwn($h)); $i++) {
         ($h['wait'])(300);
     }
     $said = mb_substr(trim($out . ' ' . $err), 0, 300);
-    if (!embyMoverScheduleOff($own)) {
+    if (!jackMoverScheduleOff($own)) {
         $left = $own['set'] !== '' ? "share.cfg still says shareMoverSchedule=\"{$own['set']}\"" : "mover.cron still runs «{$own['cron']}»";
         $log("could not switch Unraid's mover schedule off — $left" . ($exit !== 0 ? " (emcmd: exit $exit $said)" : ''));
-        throw new Problem('emby_mover_off_failed', ['detail' => $left . ($exit !== 0 && $said !== '' ? " — $said" : '')]);
+        throw new Problem('jack_mover_off_failed', ['detail' => $left . ($exit !== 0 && $said !== '' ? " — $said" : '')]);
     }
     $log("switched Unraid's mover schedule off (Mover Settings → Disabled; it was «{$was}», mover logging kept: $logging)"
         . ($exit !== 0 ? " — emcmd said: exit $exit $said" : ''));
@@ -296,16 +296,16 @@ function embyMoverOff(array $r, ?array $h = null, ?callable $log = null): array
  * Is Unraid's mover at work? /var/run/mover.pid naming a living mover (Unraid's script and Mover Tuning's age_mover write
  * it), or a `mover`, `age_mover` or `move` process — not one below $self (EmbyCache's own use of the move binary).
  */
-function embyMoverRunning(?array $h = null, ?int $self = null): bool
+function jackMoverRunning(?array $h = null, ?int $self = null): bool
 {
-    $h ??= embyMoverHost();
+    $h ??= jackMoverHost();
     $pid = (int) trim((string) @file_get_contents($h['pid'], false, null, 0, 32));
     if ($pid > 1 && str_contains((string) @file_get_contents("{$h['proc']}/$pid/cmdline", false, null, 0, 4096), 'mover')) {
         return true;
     }
     foreach (glob("{$h['proc']}/[0-9]*", GLOB_ONLYDIR | GLOB_NOSORT) ?: [] as $d) {
-        if (in_array(trim((string) @file_get_contents("$d/comm", false, null, 0, 64)), EMBY_MOVER_PROCS, true)
-            && ($self === null || !embyProcUnder((int) basename($d), $self, $h['proc']))) {
+        if (in_array(trim((string) @file_get_contents("$d/comm", false, null, 0, 64)), JACK_MOVER_PROCS, true)
+            && ($self === null || !jackProcUnder((int) basename($d), $self, $h['proc']))) {
             return true;
         }
     }
@@ -313,7 +313,7 @@ function embyMoverRunning(?array $h = null, ?int $self = null): bool
 }
 
 /** Is $pid $self or one of its descendants? (the parents from /proc/<pid>/stat, at most 64 steps) */
-function embyProcUnder(int $pid, int $self, string $proc = '/proc'): bool
+function jackProcUnder(int $pid, int $self, string $proc = '/proc'): bool
 {
     for ($i = 0; $i < 64 && $pid > 1; $i++) {
         if ($pid === $self) {

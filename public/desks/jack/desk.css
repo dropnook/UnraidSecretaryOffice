@@ -16,7 +16,7 @@
 .jo-pagehead-title{font-size:17px; font-weight:650; color:var(--ink)}
 .jo-pagehead-sub{margin:4px 0 0; max-width:980px; font-size:13px; line-height:1.5; color:var(--ink2)}
 .jo-more{margin:8px 12px}
-/* Unraid's mover and EmbyCache's files (emby-mover.php): why only dry runs and the switch — or that the schedule is off */
+/* Unraid's mover and EmbyCache's files (jack-mover.php): why only dry runs and the switch — or that the schedule is off */
 .jo-mover{margin:0 0 12px}
 .jo-mover > p{margin:0 0 4px; overflow-wrap:anywhere}   /* the list's long path */
 .jo-mover .toolbar{margin-top:6px}
@@ -94,7 +94,7 @@
 .jo-night-her{overflow-wrap:anywhere}
 .jo-night-dry{margin:10px 0 0}
 
-/* his setup (#/emby/setup, 2026-10-14: tiles again — the wizard went): a part's body, the offer, the pools, the save bar */
+/* his setup (#/jack/setup, 2026-10-14: tiles again — the wizard went): a part's body, the offer, the pools, the save bar */
 .jo-part-body{min-width:0; max-width:100%}
 .jo-reset{justify-content:flex-end; border-top:1px solid var(--line); padding-top:10px; margin-top:16px}
 .jo-offer{margin:14px 0 0}

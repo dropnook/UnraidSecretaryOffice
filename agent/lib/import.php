@@ -11,7 +11,7 @@ declare(strict_types=1);
  * file of its own, a copy stays next to it (importBackup(): <file>.before-import-<time>).
  *
  * The refusals are Problems named after the desk: "<prefix>_folder|where|asleep|missing|link|own|file|big" — each desk
- * has the texts in its lang files (Jack: emby_import, Ms. Moverelli: moverelli_import).
+ * has the texts in its lang files (Jack: jack_import, Ms. Moverelli: moverelli_import).
  *
  * $ctx: pools (["/mnt/<pool>", …]), asleep (sleepingDisks()), share_cfg (fn(share): its cfg as key => value), fs (a
  * prefix for the tests' fake tree, '' on the server), own (the desk's folders that are never read from), own_below

@@ -10,7 +10,7 @@
 // desk's first paint and the element; a console error or a missing element fails the shot (exit 1, the PNG still
 // written when there is one).
 //
-//   node tools/ui-shots.mjs [--routes emby] [--themes black,white] [--langs de,en] [--widths 1440,390]
+//   node tools/ui-shots.mjs [--routes jack] [--themes black,white] [--langs de,en] [--widths 1440,390]
 //                           [--shot until:.jo-prog --shot clip:.jo-prog …] [--out <folder>] [-v]
 //   default folder: $USO_SHOTS/<yyyy-mm-dd>/, without USO_SHOTS ~/uso-shots/<yyyy-mm-dd>/
 //   names: <route>-<shot>-<theme>-<lang>-<width>.png  (the route's / as -, the shot's name: full, top, panel, or n)
@@ -46,14 +46,14 @@ const require = createRequire(import.meta.url);
 // each route's own shots, named: what the forum and the product page want of it
 const SHOTS = {
   // the joint run's card with Ms. Moverelli (the demo's night) — or, without her, EmbyCache's live panel
-  emby: [{ name: 'top', until: '.jo-night, .jo-prog' }, { name: 'panel', clip: '.jo-night, .jo-prog' }],
+  jack: [{ name: 'top', until: '.jo-night, .jo-prog' }, { name: 'panel', clip: '.jo-night, .jo-prog' }],
 };
 const LOCALES = { de: 'de-CH', en: 'en-US', fr: 'fr-CH', it: 'it-CH', es: 'es-ES' };
 
 // ------------------------------------------------------------------ the call
 const today = new Date();
 const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-const opt = { routes: ['emby'], themes: ['black', 'white'], langs: ['de', 'en'], widths: [1440, 390], shots: [], verbose: false, moments: null,
+const opt = { routes: ['jack'], themes: ['black', 'white'], langs: ['de', 'en'], widths: [1440, 390], shots: [], verbose: false, moments: null,
   out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), day) };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
@@ -72,7 +72,7 @@ for (let i = 0; i < args.length; i++) {
   else usage();
 }
 function usage(code = 2) {
-  console.error('usage: node tools/ui-shots.mjs [--routes emby] [--themes black,white] [--langs de,en] [--widths 1440,390]');
+  console.error('usage: node tools/ui-shots.mjs [--routes jack] [--themes black,white] [--langs de,en] [--widths 1440,390]');
   console.error('                               [--shot full|until:<css>|clip:<css>]… [--out <folder>] [-v]');
   console.error('       node tools/ui-shots.mjs --moments [1,3,…] [--themes black,white] [--langs de,en] [--out <folder>] [-v]');
   process.exit(code);

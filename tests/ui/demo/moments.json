@@ -11,22 +11,22 @@
  },
  {
   "nr": 2,
-  "desk": "emby",
+  "desk": "jack",
   "moment": "live",
   "title": "Jack Emby - live: EmbyCache legt für jede Person bereit, was sie als Nächstes schaut",
-  "route": "emby",
+  "route": "jack",
   "clip": ".jo-prog",
   "states": {
-   "emby": "emby-live",
-   "emby-progress": "emby-progress-live"
+   "jack": "jack-live",
+   "jack-progress": "jack-progress-live"
   }
  },
  {
   "nr": 2,
-  "desk": "emby",
+  "desk": "jack",
   "moment": "shares",
   "title": "Jack Emby - die Shares der Bibliotheken: wie viel auf welcher Disk und welchem Pool liegt",
-  "route": "emby",
+  "route": "jack",
   "clip": [
    ".jo-tiles",
    "section:has(> [data-place=\"shares\"])"
@@ -317,7 +317,7 @@
   "desk": "office",
   "moment": "report",
   "title": "Problem oder Wunsch mitteilen - «Deine Rückmeldungen»: ein Wunsch, gebaut und öffentlich nachzulesen (Issue #14)",
-  "route": "emby",
+  "route": "jack",
   "prepare": [
    {
     "click": "#sso-more",

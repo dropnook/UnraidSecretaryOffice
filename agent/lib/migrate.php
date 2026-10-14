@@ -70,6 +70,9 @@ function officeMigrateSteps(): array
         // only X (2026-10-14, replaces the halves): her ini loses move_until_used_below (global and per share),
         // jack_min_percent and an offset line — the copy before kept beside it
         ['id' => 'pool-x', 'version' => '1.63.0', 'run' => fn (string $dir, string $to): string => officeMigratePoolX($dir, $to)],
+        // Jack Streamer's desk id `emby` → `jack` (2026-10-14): staff.json (STAFF_MERGED), his state file, the Team Lead's
+        // notes under the old id — each copy before kept beside it
+        ['id' => 'jack-id', 'version' => '1.63.0', 'run' => fn (string $dir, string $to): string => officeMigrateJackId($dir, $to)],
     ];
 }
 
@@ -539,4 +542,58 @@ function officeMigratePoolX(string $dir, string $to): string
     writeAtomic($ini, implode('', $out), 0600, 0, 0);
     return 'only her limit X stays — removed: ' . implode(', ', array_map(fn ($k, $n) => $n > 1 ? "$k (×$n)" : $k, array_keys($gone), $gone))
         . ' (the ini before: ' . basename($kept) . ')';
+}
+
+/**
+ * Step `jack-id` (1.63.0): Jack Streamer's desk id was `emby` (EmbyCache and «Emby» the media server keep theirs).
+ * staff.json: hired and the order as `jack` (officeMigrateStaff(), STAFF_MERGED); the desk's state file emby.json →
+ * jack.json (the old one put aside, never over a jack.json there); the Team Lead's notes (caretaker/acks.json): a sig
+ * `emby:<id>:<hash>` → `jack:…`, a finding id `emby_<x>` (his and Ms. Moverelli's) → `jack_<x>` — the hash stays (it
+ * is over the texts, not their keys). Run twice it finds nothing left to change.
+ */
+function officeMigrateJackId(string $dir, string $to): string
+{
+    $done = [];
+    $staff = officeMigrateStaff($dir, $to);
+    if (!str_starts_with($staff, 'nothing') && !str_contains($staff, 'left alone')) {
+        $done[] = $staff;
+    }
+    $old = "$dir/emby.json";
+    $new = "$dir/jack.json";
+    clearstatcache();
+    $st = @lstat($old);
+    if ($st !== false && ($st['mode'] & 0170000) === 0100000) {
+        if (@lstat($new) === false) {
+            writeAtomic($new, (string) @file_get_contents($old), 0644, 0, 0);
+        }
+        $done[] = 'emby.json → jack.json (the old one put aside as ' . basename((string) officeMigrateAside($old, $to)) . ')';
+    }
+    $file = "$dir/caretaker/acks.json";
+    $st = @lstat($file);
+    $raw = $st !== false && ($st['mode'] & 0170000) === 0100000 ? (string) @file_get_contents($file) : '';
+    $data = $raw !== '' ? json_decode($raw, true) : null;
+    if (is_array($data) && is_array($data['acks'] ?? null)) {
+        $acks = [];
+        $n = 0;
+        foreach ($data['acks'] as $sig => $a) {
+            $to2 = preg_replace(['/^emby:/', '/^([a-z][a-z0-9_-]*):emby_/'], ['jack:', '$1:jack_'], (string) $sig);
+            if (is_array($a)) {
+                if (($a['desk'] ?? null) === 'emby') {
+                    $a['desk'] = 'jack';
+                }
+                if (is_string($a['id'] ?? null) && str_starts_with($a['id'], 'emby_')) {
+                    $a['id'] = 'jack_' . substr($a['id'], 5);
+                }
+            }
+            $n += $to2 !== (string) $sig ? 1 : 0;
+            $acks[$to2] = $a;
+        }
+        if ($n > 0) {
+            $kept = officeMigrateKeep($file, $raw, $to);
+            $data['acks'] = $acks;
+            writeAtomic($file, jsonEncode($data), 0644, 0, 0);
+            $done[] = "caretaker/acks.json: $n note(s) under jack (the file before kept as " . basename($kept) . ')';
+        }
+    }
+    return implode('; ', $done) ?: 'nothing to change';
 }

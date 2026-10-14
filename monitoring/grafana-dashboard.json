@@ -2887,7 +2887,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "refId": "A",
-          "expr": "max(uso_emby_cache_bytes{instance=~\"$instance\"})",
+          "expr": "max(uso_jack_cache_bytes{instance=~\"$instance\"})",
           "legendFormat": "__auto",
           "range": true,
           "instant": false
@@ -2952,7 +2952,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "refId": "A",
-          "expr": "max by (tool) (uso_emby_last_run_ok{instance=~\"$instance\"})",
+          "expr": "max by (tool) (uso_jack_last_run_ok{instance=~\"$instance\"})",
           "legendFormat": "{{tool}}",
           "range": true,
           "instant": false

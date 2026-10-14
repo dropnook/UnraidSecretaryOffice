@@ -403,8 +403,8 @@ const BACKUP_PARTNER_RATE_EVERY  = 10;                            // the engine 
 /**
  * The rate of the transfer going on (engine 2.42: status.json partner.current.bytes every 10 s, current.estimate from
  * zfs send -nP before the send): every look keeps a sample [time, bytes] of the current unit in RAM, the speed is the
- * median of the rates between the samples of the last 10 minutes (Jack Emby's way, agent/desks/emby-progress.php
- * embyProgressSpeed()), the time left what is left of the estimate at that speed. Gives the current back with `rate`
+ * median of the rates between the samples of the last 10 minutes (Jack Emby's way, agent/desks/jack-progress.php
+ * jackProgressSpeed()), the time left what is left of the estimate at that speed. Gives the current back with `rate`
  * (bytes/s, null before the second sample), `eta` (seconds, null without an estimate or a rate).
  */
 function backupPartnerRate(array $cur, string $id): array

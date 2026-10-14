@@ -1,6 +1,6 @@
 {
   "keys": [
-    "help.emby",
+    "help.jack",
     "help.rules",
     "help.schedule",
     "help.unraid",
@@ -21,7 +21,7 @@
   ],
   "texts": [
     "help.dry",
-    "help.emby_text",
+    "help.jack_text",
     "help.list",
     "help.rules_text",
     "help.run",

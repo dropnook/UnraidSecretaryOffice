@@ -288,7 +288,7 @@ we changed is listed at the top of their READMEs. Ms. Moverelli runs his
 listed in its README, GPL-3.0-or-later. helmi1987 also tested the office early and sent the reports that made it
 better. Thank you, helmi1987 — a share of the tips goes to him.
 
-<a name="emby-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/emby-live-light.png" alt="Jack Emby live: EmbyCache gets ready for each person what they watch next"></picture></a>
+<a name="jack-live"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/jack-live-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/jack-live-light.png" alt="Jack Emby live: EmbyCache gets ready for each person what they watch next"></picture></a>
 
 ## License
 

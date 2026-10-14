@@ -184,14 +184,14 @@ function nightHost(?array $h = null): array
     $n = $GLOBALS['nightHost'] ?? [];
     return $h + [
         // Jack Emby takes part: hired and set up
-        'jack_on'     => $n['jack_on'] ?? fn (): bool => function_exists('embyReadSettings') && ($h['emby'])() !== null && (!function_exists('embyConfigured') || embyConfigured(embyReadSettings())) && embyReadSettings() !== null,
-        'emby_job'    => $n['emby_job'] ?? fn (array $args): int => embyJob('embycache', $args),
+        'jack_on'     => $n['jack_on'] ?? fn (): bool => function_exists('jackReadSettings') && ($h['jack_desk'])() !== null && (!function_exists('jackConfigured') || jackConfigured(jackReadSettings())) && jackReadSettings() !== null,
+        'jack_job'    => $n['jack_job'] ?? fn (array $args): int => jackJob('embycache', $args),
         'her_job'     => $n['her_job'] ?? fn (array $args, array $hh): int => moverelliJob($args, $hh),
-        'emby_status' => $n['emby_status'] ?? fn (): array => (array) (readJson(EMBY_DATA . '/status.json') ?? []),
-        'emby_runs'   => $n['emby_runs'] ?? $h['emby_runs'],
-        'emby_stop'   => $n['emby_stop'] ?? (defined('EMBY_DATA') ? EMBY_DATA . '/office-stop.json' : ''),
+        'jack_status' => $n['jack_status'] ?? fn (): array => (array) (readJson(JACK_DATA . '/status.json') ?? []),
+        'jack_runs'   => $n['jack_runs'] ?? $h['jack_runs'],
+        'jack_stop'   => $n['jack_stop'] ?? (defined('JACK_DATA') ? JACK_DATA . '/office-stop.json' : ''),
         // EmbyCache's live progress (RAM): the files his step did (`recent`) for the picture
-        'emby_live'   => $n['emby_live'] ?? fn (): array => function_exists('embyProgressPaths') ? (array) (readJson(embyProgressPaths()['file']) ?? []) : [],
+        'jack_live'   => $n['jack_live'] ?? fn (): array => function_exists('jackProgressPaths') ? (array) (readJson(jackProgressPaths()['file']) ?? []) : [],
         'notify'      => $n['notify'] ?? fn (string $subject, string $body): bool => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli')),
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
         // Jack Emby's pool measured for her rules (the tests: a pool of their own)
@@ -213,7 +213,7 @@ function nightLevel(array $g, array $h, bool $wake): ?array
 /** What waits with Jack Emby (his last run's status, bytes) */
 function nightWaiting(array $h): int
 {
-    $p = (array) (($h['emby_status'])()['pool'] ?? []);
+    $p = (array) (($h['jack_status'])()['pool'] ?? []);
     return max(0, (int) ($p['waiting_bytes'] ?? 0));
 }
 
@@ -237,7 +237,7 @@ function nightStopAsk(?array $h = null): bool
     }
     $stop = jsonEncode(['time' => time(), 'why' => 'user']);
     writeAtomic("$dir/night-stop.json", $stop, 0600, 0, 0);
-    $tool = ($n['who'] ?? '') === 'jack' ? (string) $h['emby_stop'] : "$dir/office-stop.json";
+    $tool = ($n['who'] ?? '') === 'jack' ? (string) $h['jack_stop'] : "$dir/office-stop.json";
     if ($tool !== '' && ($n['who'] ?? '') !== '') {
         writeAtomic($tool, $stop, 0600, 0, 0);
     }
@@ -285,7 +285,7 @@ function nightRun(array $args, ?array $h = null): int
     $waited = 0;
     if ($mode === 'run') {
         // a scheduled night waits for Unraid's mover (as her scheduled runs always did); from a page: refused at once
-        $gate = embyRunGate('moverelli', $by, ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],
+        $gate = jackRunGate('moverelli', $by, ['watch' => false, 'dir' => $dir, 'waitdir' => $h['waitdir'],
             'mover' => fn (): bool => ($h['mover_running'])(), 'scheduled' => $h['scheduled']] + $h['gate']);
         if (!$gate['go']) {
             if (in_array($gate['result'], ['refused', 'skipped'], true)) {
@@ -302,7 +302,7 @@ function nightRun(array $args, ?array $h = null): int
     }
     moverelliDataDir($dir);
     // the start lock both desks share: none of theirs going, then the night's lock — one at a time
-    $movers = embyMoversLock((int) $h['lock_wait']);
+    $movers = jackMoversLock((int) $h['lock_wait']);
     $hold = null;
     if ($movers !== null && !($h['jack_busy'])() && !moverelliBusy($dir)) {
         $hold = @fopen("$dir/night.lock", 'c');
@@ -311,10 +311,10 @@ function nightRun(array $args, ?array $h = null): int
             $hold = null;
         }
     }
-    embyMoversUnlock($movers);
-    embyWaitEnd($wait, $h['waitdir'], 'moverelli');
+    jackMoversUnlock($movers);
+    jackWaitEnd($wait, $h['waitdir'], 'moverelli');
     if ($hold === null) {
-        return $refused($movers === null || ($h['jack_busy'])() ? 'moverelli_emby_running' : 'moverelli_running');
+        return $refused($movers === null || ($h['jack_busy'])() ? 'moverelli_jack_running' : 'moverelli_running');
     }
     nightInside(true);
     @unlink("$dir/night-stop.json");
@@ -331,14 +331,14 @@ function nightRun(array $args, ?array $h = null): int
 /** What Jack Emby's free step gave back (his status: what was watched — done in a real run, planned in a dry one) */
 function nightJackBack(array $h, bool $real): int
 {
-    $c = (array) ((($h['emby_status'])())['cleanup'] ?? []);
+    $c = (array) ((($h['jack_status'])())['cleanup'] ?? []);
     return max(0, (int) ($c[$real ? 'bytes_done' : 'bytes_planned'] ?? 0));
 }
 
 /** What Jack Emby's dry step would fetch (his status) */
 function nightDryFetch(array $h): int
 {
-    return max(0, (int) (((array) ((($h['emby_status'])())['fill'] ?? []))['bytes_planned'] ?? 0));
+    return max(0, (int) (((array) ((($h['jack_status'])())['fill'] ?? []))['bytes_planned'] ?? 0));
 }
 
 /** The steps of a night (inside its lock) — see nightRun() */
@@ -383,9 +383,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             if ($phase !== 'fill' && $mode === 'run') {
                 $args[] = '--nofill';
             }
-            $exit = ($h['emby_job'])($args);
-            $last = ($h['emby_runs'])()[0] ?? [];
-            $recent = (($h['emby_live'])())['recent'] ?? [];
+            $exit = ($h['jack_job'])($args);
+            $last = ($h['jack_runs'])()[0] ?? [];
+            $recent = (($h['jack_live'])())['recent'] ?? [];
         } else {
             $exit = ($h['her_job'])(array_merge([$mode, '--night'], $extra), $h);
             $last = moverelliHistory($dir)[0] ?? [];
