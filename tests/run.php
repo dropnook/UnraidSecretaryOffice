@@ -30669,6 +30669,10 @@ function testStreamerTab(): void
   let f = connect();
   out.form = [f.values.cache_budget, f.values.max_episodes_per_series, 'budget_mode' in f.values, 'number_episodes' in f.values, 'give_back_unwatched_days' in f.values, 'create_share_root' in f.values];
   const scope = texts(e.setupScope());
+  // the films share over all chosen libraries by kind; only one kind chosen: greyed, the whole room to it
+  const kinds = (keep) => { const was = new Set(f.chosenLibs); con.libraries.filter((l) => !keep.includes(l.type)).forEach((l) => f.chosenLibs.delete(l.name));
+    const t = texts(e.setupScope()).filter((x) => x.startsWith('setup.movie_share_')); f.chosenLibs = was; return t; };
+  out.shareKinds = [scope.filter((x) => x.startsWith('setup.movie_share_')), kinds(['movies']), kinds(['tvshows'])];
   out.scope = [scope.includes('setup.budget_gb'), scope.some((t) => t.startsWith('setup.mode')), scope.filter((t) => t.startsWith('setup.rule') || t.startsWith('room.none')).map((t) => t.replace(/ \{.*$/, ''))];
   out.rule = [e.ruleTexts(300), e.ruleTexts(0)];
   const share = texts(e.sharePart());
@@ -30728,6 +30732,8 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     same('streamer tab: before he is set up no import tile — the server\'s part offers it', [['servers', 'libraries', 'scope', 'users', 'more'], true], [$r['freshTiles'], $r['offer']]);
     same('streamer tab: … once set up its own tile, the offer gone from the server\'s part', [['servers', 'libraries', 'scope', 'users', 'more', 'import'], false], [$r['setTiles'], $r['offerSet']]);
     same('streamer tab: … its part: the offer and its line, never «undefined»', [true, true, false], $r['importPart'] ?? null);
+    same('streamer tab: the films share — both kinds: the plain rule; only films / only series chosen: greyed with the whole room to that kind',
+        [['setup.movie_share_hint'], ['setup.movie_share_only_movies'], ['setup.movie_share_only_series']], $r['shareKinds'] ?? null);
     // one name, one function: a second top-level declaration in a desk's script silently replaces the first (hoisting)
     $dups = [];
     foreach (array_merge(glob(OFFICE_WEB . '/desks/*/desk.js') ?: [], [OFFICE_WEB . '/assets/core.js']) as $f) {

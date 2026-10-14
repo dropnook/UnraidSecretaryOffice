@@ -2034,8 +2034,14 @@ function setupScope() {
     box.appendChild(f);
     s4.appendChild(box);
   };
+  // the films share counts over all chosen libraries together, by kind (every film a film, every episode series —
+  // EmbyCache's select()); only one kind chosen: the field greyed, the whole room goes to that kind
+  const both = chosenTypes.has('movies') && chosenTypes.has('tvshows');
+  const share = number(v, 'movie_share_percent', 0, 100);
+  share.disabled = !both;
   part(T('type.movies'), 'movies',
-    field(T('setup.movie_share'), number(v, 'movie_share_percent', 0, 100), T('setup.movie_share_hint')),
+    field(T('setup.movie_share'), share, both || !chosenTypes.size ? T('setup.movie_share_hint')
+      : T(chosenTypes.has('movies') ? 'setup.movie_share_only_movies' : 'setup.movie_share_only_series')),
     field(T('setup.resume_movies'), number(v, 'max_resume_movies', 0, 999), T('setup.resume_movies_hint')),
     el('p', 'role', T('setup.movies_folder')));
   part(T('type.tvshows'), 'tvshows',
