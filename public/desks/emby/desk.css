@@ -59,6 +59,9 @@
 @media (max-width:600px){ .jo-bar{width:60px} .jo-lib .field, .jo-users .field{margin-left:0} }
 .jo-lib .jo-folder{margin:8px 0 0 25px}
 @media (max-width:600px){ .jo-lib .jo-folder{margin-left:0} }
+/* step 2: a share's chips may be long (they wrap on a phone), the fix in Unraid right under them */
+.jo-lib .row-meta .chip{white-space:normal}
+.jo-lib .field .jo-fix{margin:4px 0 0}
 .jo-part{min-height:0; margin-top:12px}
 .jo-part-head{background:var(--surface2); padding:8px 12px; font-weight:600; font-size:13px; color:var(--ink)}
 .jo-part > .jo-form{padding:10px 14px 4px 26px}
@@ -115,6 +118,9 @@
 .jo-wiz-foot{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 14px; margin:18px 0 0; padding:12px 0 0; border-top:1px solid var(--line)}
 .jo-wiz-left, .jo-wiz-right{display:flex; gap:8px; flex-wrap:wrap}
 .jo-wiz-left{min-width:90px}
+/* why the step can't go on (the people by budget), next to its button */
+.jo-wiz-why{color:var(--danger); max-width:340px; text-align:right; align-self:center}
+.jo-wiz-why[hidden]{display:none}
 .jo-wiz-where{display:flex; flex-direction:column; align-items:center; gap:4px; font-size:12px; color:var(--muted)}
 .jo-wiz-dots{display:flex; gap:5px}
 .jo-wiz-dots i{width:7px; height:7px; border-radius:50%; background:var(--line2)}
@@ -136,6 +142,7 @@
   .jo-wiz-where{order:-1; flex-basis:100%}
   .jo-wiz-left, .jo-wiz-right{flex:1 1 auto}
   .jo-wiz-right{justify-content:flex-end}
+  .jo-wiz-why{flex-basis:100%; max-width:none}
 }
 .jo-media{margin:4px 0 14px}
 .jo-media-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}

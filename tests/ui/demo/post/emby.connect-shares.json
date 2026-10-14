@@ -1,0 +1,121 @@
+{
+  "server": {
+    "name": "FamilienServer",
+    "version": "4.9.1.80"
+  },
+  "libraries": [
+    {
+      "name": "Familienfilme",
+      "type": "movies",
+      "locations": [
+        "/familienvideos"
+      ]
+    },
+    {
+      "name": "Familienserien",
+      "type": "tvshows",
+      "locations": [
+        "/familienserien"
+      ]
+    },
+    {
+      "name": "Konzerte",
+      "type": "movies",
+      "locations": [
+        "/konzerte"
+      ]
+    },
+    {
+      "name": "Kinderfilme",
+      "type": "movies",
+      "locations": [
+        "/kinderfilme"
+      ]
+    },
+    {
+      "name": "Dokumentationen",
+      "type": "movies",
+      "locations": [
+        "/dokus"
+      ]
+    },
+    {
+      "name": "Sport",
+      "type": "tvshows",
+      "locations": [
+        "/sport"
+      ]
+    },
+    {
+      "name": "Schulaufführungen",
+      "type": "movies",
+      "locations": [
+        "/schulfilme"
+      ]
+    },
+    {
+      "name": "Hörspiele",
+      "type": "music",
+      "locations": [
+        "/hoerspiele"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "u-anna",
+      "name": "Anna",
+      "admin": true
+    },
+    {
+      "id": "u-ben",
+      "name": "Ben",
+      "admin": false
+    },
+    {
+      "id": "u-carla",
+      "name": "Carla",
+      "admin": false
+    },
+    {
+      "id": "u-david",
+      "name": "David",
+      "admin": false
+    },
+    {
+      "id": "u-emma",
+      "name": "Emma",
+      "admin": false
+    },
+    {
+      "id": "u-felix",
+      "name": "Felix",
+      "admin": false
+    },
+    {
+      "id": "u-greta",
+      "name": "Greta",
+      "admin": false
+    },
+    {
+      "id": "u-hugo",
+      "name": "Hugo",
+      "admin": false
+    },
+    {
+      "id": "u-ida",
+      "name": "Ida",
+      "admin": false
+    },
+    {
+      "id": "u-jonas",
+      "name": "Jonas",
+      "admin": false
+    },
+    {
+      "id": "u-klara",
+      "name": "Klara",
+      "admin": false
+    }
+  ]
+}

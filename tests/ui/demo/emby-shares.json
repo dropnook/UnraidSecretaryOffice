@@ -1,0 +1,190 @@
+{
+  "time": 1791900000,
+  "python": "3.11.15",
+  "emby": [
+    {
+      "name": "Emby",
+      "image": "emby/embyserver:latest",
+      "running": true,
+      "url": "http://familienserver.local:8096",
+      "mounts": {
+        "/familienvideos": "/mnt/user/Familienvideos",
+        "/familienserien": "/mnt/user/Familienserien",
+        "/konzerte": "/mnt/user/Konzerte",
+        "/kinderfilme": "/mnt/user/Kinderfilme",
+        "/dokus": "/mnt/user/Dokus",
+        "/sport": "/mnt/user/Sport",
+        "/schulfilme": "/mnt/user/Schulfilme"
+      }
+    }
+  ],
+  "versions": {
+    "embycache": "7.3.0 (2026-10-04)",
+    "gather": "V11.4"
+  },
+  "configured": false,
+  "settings": null,
+  "shares": [],
+  "cache": {
+    "files": 0,
+    "bytes": 0,
+    "groups": []
+  },
+  "pool": {
+    "path": "/mnt/cache",
+    "free_percent": 40.4,
+    "free": 444529115136,
+    "min_free": 30,
+    "moverelli": {
+      "x": 80,
+      "y": 70,
+      "k": 50,
+      "min_age": 7
+    },
+    "level": null,
+    "keep": 223767796121,
+    "held": 30064771071,
+    "back": 0,
+    "never": false,
+    "waiting": 2
+  },
+  "gather": {
+    "settings": {
+      "shares": [
+        "Familienvideos",
+        "Familienserien"
+      ],
+      "min_free_gb": 50,
+      "dup_check": "size",
+      "move_cache": false
+    },
+    "ready": true,
+    "last": {
+      "finished": 1791633400,
+      "moved": 14,
+      "duplicates": 2,
+      "conflicts": 0,
+      "dirs_deleted": 6,
+      "dirs_kept": 0,
+      "errors": 0,
+      "full": 0
+    },
+    "waiting": null
+  },
+  "jobs": {
+    "embycache": {
+      "running": false,
+      "size": 0,
+      "updated": null
+    },
+    "gather": {
+      "running": false,
+      "size": 0,
+      "updated": null
+    }
+  },
+  "last": null,
+  "history": [],
+  "schedules": {
+    "embycache": {
+      "script": true,
+      "frequency": "disabled",
+      "custom": null,
+      "enabled": false
+    },
+    "gather": {
+      "script": true,
+      "frequency": "custom",
+      "custom": "0 3 * * 0",
+      "enabled": true
+    }
+  },
+  "foreign": [],
+  "pools": [
+    "/mnt/cache",
+    "/mnt/fast"
+  ],
+  "share_info": {
+    "appdata": {
+      "use": "only",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "Dokus": {
+      "use": "prefer",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "domains": {
+      "use": "only",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "Familienserien": {
+      "use": "yes",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "Familienvideos": {
+      "use": "yes",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "isos": {
+      "use": "no",
+      "primary": "",
+      "secondary": ""
+    },
+    "Kinderfilme": {
+      "use": "yes",
+      "primary": "cache",
+      "secondary": "fast"
+    },
+    "Konzerte": {
+      "use": "no",
+      "primary": "",
+      "secondary": ""
+    },
+    "Sport": {
+      "use": "only",
+      "primary": "cache",
+      "secondary": ""
+    },
+    "system": {
+      "use": "only",
+      "primary": "cache",
+      "secondary": ""
+    }
+  },
+  "pool_dirs": {
+    "/mnt/cache": [
+      "appdata",
+      "domains",
+      "Familienvideos",
+      "Dokus",
+      "Sport",
+      "system"
+    ],
+    "/mnt/fast": [
+      "Kinderfilme"
+    ]
+  },
+  "old_clone": false,
+  "mover": {
+    "ok": true,
+    "way": null,
+    "why": null,
+    "schedule": "",
+    "running": false,
+    "tuning": {
+      "installed": false
+    }
+  },
+  "waiting": {
+    "embycache": null,
+    "gather": null
+  },
+  "progress": null,
+  "stopping": null,
+  "night": null
+}
