@@ -305,6 +305,7 @@ function nightPicture(n) {
         const it = el('span', 'mo-pic-key');
         const b = data.before.segs.find((s) => s.k === k).bytes;
         const a = data.after ? data.after.segs.find((s) => s.k === k).bytes : null;
+        if (k === 'jack' && n.jack === false && !b && !a) continue;      // a night without Jack Emby: his part gone, not «0 B»
         it.append(el('i', 'mo-pic-seg mo-seg-' + k), el('span', '', `${segName(k)} ${a === null ? fmt.size(b) : T('pic.change', { before: fmt.size(b), after: fmt.size(a) })}`));
         legend.appendChild(it);
       }
@@ -751,7 +752,7 @@ function scheduleTile(a) {
   const m = mover();
   const n = night();
   const sub = [sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('tile.no_schedule')];
-  const short = n.jack ? tonightShort(n.plan) : null;
+  const short = state.configured ? tonightShort(n.plan) : null;
   if (short) sub.push(short);
   sub.push(`${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`);
   return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || !sc.enabled, ...a });
@@ -759,10 +760,12 @@ function scheduleTile(a) {
 
 /**
  * Tonight's plan in words, pure (tests/run.php under node): «Tonight: Jack Emby gives back 70 GB · Ms. Moverelli moves
- * 20 GB of downloads · Jack Emby fetches 20 GB (40 GB wait)» — from the pool as it stands and his last status
+ * 20 GB of downloads · Jack Emby fetches 20 GB (40 GB wait)» — from the pool as it stands and his last status; without
+ * him (not taking part: jack false) her part only
  */
-function tonightText(p) {
-  if (!p || !p.measured) return T('night.unmeasured');
+function tonightText(p, jack = true) {
+  if (!p || !p.measured) return T(jack ? 'night.unmeasured' : 'night.unmeasured_mine');
+  if (!jack) return T('night.tonight', { what: Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none') });
   // what Jack Emby gives back is what was watched — known only once he looked (a dry run's number when there is one)
   const parts = [Number(p.back) > 0 ? T('night.back', { size: fmt.size(p.back) }) : T('night.back_watched'),
     Number(p.goes) > 0 ? T('night.goes', { size: fmt.size(p.goes) }) : T('night.goes_none'),
@@ -789,7 +792,7 @@ function lastNightText(l) {
   const how = l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
     : l.result === 'stopped' ? T('night.last_stopped', { phase: T('rc.phase.' + (l.stopped_in || 'free')) })
     : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
-  return T('night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
+  return T(l.jack === false ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '');
 }
 /** «Shares»: how many move, the rules for all as its line — alert while Jack Emby's list isn't kept out for a share of his */
@@ -837,20 +840,21 @@ function scheduleSection() {
   change.disabled = !Office.agent.running;
   mine.append(main, change);
   box.appendChild(mine);
-  // the night run with Jack Emby: tonight's plan (no Emby asked — what waits from his last run), the last night, a dry run
-  if (n.jack && state.configured) {
+  // the night run (with Jack Emby while he takes part): tonight's plan (no Emby asked — what waits from his last run), the
+  // last night, a dry run
+  if (state.configured) {
     const plan = Office.place('sched:night', el('div', 'row nocheck'));
     const pm = el('div', 'row-main');
-    pm.appendChild(el('div', 'row-name', tonightText(n.plan)));
+    pm.appendChild(el('div', 'row-name', tonightText(n.plan, !!n.jack)));
     const last = lastNightText(n.last);
-    pm.appendChild(el('div', 'row-meta', T('night.steps') + (last ? ' · ' + last : '')));
-    const dry = button(T('night.dry'), 'small plain', async () => { dry.disabled = true; await act('start_run', { mode: 'dry' }, T('night.dry_started')); });
+    pm.appendChild(el('div', 'row-meta', T(n.jack ? 'night.steps' : 'night.steps_mine') + (last ? ' · ' + last : '')));
+    const dry = button(T('night.dry'), 'small plain', async () => { dry.disabled = true; await act('start_run', { mode: 'dry' }, T(n.jack ? 'night.dry_started' : 'night.dry_started_mine')); });
     dry.disabled = !Office.agent.running || running() || nightGoing();
     plan.append(pm, dry);
     box.appendChild(plan);
   }
   // after the night run: its picture (the pool before and after, where she moved to, the last file)
-  const lastPic = n.jack && n.last && !n.last.running ? nightPicture(n.last) : null;
+  const lastPic = n.last && !n.last.running ? nightPicture(n.last) : null;
   const m = mover();
   const own = Office.place('sched:unraid', el('div', 'row nocheck'));
   const main2 = el('div', 'row-main');

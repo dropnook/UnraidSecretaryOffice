@@ -220,15 +220,40 @@ function nightHost(?array $h = null): array
     ];
 }
 
-/** Jack Emby's pool measured for her rule (null: no limit, no pool of his, not ZFS, asleep and not to be woken) */
+/**
+ * The pool measured for her rule (null: no limit, no pool measured): Jack Emby's pool while he takes part (woken when $wake);
+ * without him — or without a pool of his — the pool of her movable shares (nightHerPool(): never woken)
+ */
 function nightLevel(array $g, array $h, bool $wake): ?array
 {
-    $pool = moverelliJackPool($h);
-    if ($pool === null || (int) $g['move_when_used_above'] <= 0) {
+    if ((int) $g['move_when_used_above'] <= 0) {
         return null;
+    }
+    $jack = !isset($h['jack_on']) || (bool) ($h['jack_on'])();
+    $pool = $jack ? moverelliJackPool($h) : null;
+    if ($pool === null) {
+        return nightHerPool($g, $h, $jack);
     }
     return poolLevel($pool, ['x' => (int) $g['move_when_used_above'], 'shares_dir' => $h['shares_dir'], 'names' => moverelliShareNames($h['shares_dir'], $h),
         'zfs' => $h['zfs'], 'mnt' => $h['mnt'], 'jack_list' => $h['jack_list_file'], 'asleep' => $h['asleep'], 'wake' => $wake]);
+}
+
+/**
+ * Her pool when Jack Emby's isn't the night's (moverelliLevels(), as her setup measures — a sleeping pool not looked at):
+ * the one with the most used % over X, else the largest measured; null: none measured. Jack Emby's bytes only while he
+ * takes part.
+ */
+function nightHerPool(array $g, array $h, bool $jack): ?array
+{
+    $levels = array_filter(moverelliLevels($g, $jack ? $h : ['jack_cache' => fn () => null] + $h));
+    if (!$levels) {
+        return null;
+    }
+    uasort($levels, fn (array $a, array $b): int => [$b['used_pct'] > $b['x'] ? $b['used_pct'] - $b['x'] : -1, $b['size']]
+        <=> [$a['used_pct'] > $a['x'] ? $a['used_pct'] - $a['x'] : -1, $a['size']]);
+    $level = reset($levels);
+    unset($level['mine']);
+    return $level;
 }
 
 /** What waits with Jack Emby (his last run's status, bytes) */
@@ -369,7 +394,8 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     $real = $mode === 'run';
     $g = (moverelliSettings($dir) ?? moverelliDefaults())['global'];
     $jack = (bool) ($h['jack_on'])();
-    $level = $jack ? ($h['level'])($g, $h, $real) : null;
+    // the pool measured: Jack Emby's while he takes part, else the pool of her shares (her picture on every night)
+    $level = ($h['level'])($g, $h, $real && $jack);
     $plan = nightPlan($level, $jack ? nightWaiting($h) : 0);
     $pool = $level['pool'] ?? ($jack ? moverelliJackPool($h) : null);
     $n = ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => time(), 'phase' => 'check', 'round' => 1, 'who' => null,
@@ -379,8 +405,8 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
           'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []);
     nightWrite($dir, $n);
     logLine("Night run ($mode): " . ($jack ? 'Jack Emby and Ms. Moverelli' : 'Ms. Moverelli alone') . ($plan['measured']
-        ? " — pool $pool at {$plan['used_pct']} %, X {$plan['x']} %: Jack Emby gives back what was watched, the others about "
-          . poolLevelSize($plan['others_back']) . ' (and the age rule), Jack Emby fetches up to ' . poolLevelSize($plan['jack_fetch'])
+        ? " — pool $pool at {$plan['used_pct']} %, X {$plan['x']} %: " . ($jack ? 'Jack Emby gives back what was watched, the others about ' : 'about ')
+          . poolLevelSize($plan['others_back']) . ' (and the age rule)' . ($jack ? ', Jack Emby fetches up to ' . poolLevelSize($plan['jack_fetch']) : '')
         : ''));
     $stopped = fn (): bool => is_file("$dir/night-stop.json");
     // the picture: a phase as it begins (the pool measured anew where the step needs it)
@@ -479,19 +505,20 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             $go = $real ? $step('jack', 'fill') : true;     // a dry run: his dry free step showed his fetch already
         }
     }
-    // tell: the pool still over X after the night (a real one that ran through)
-    $end = $jack && $real ? ($h['level'])($g, $h, false) : null;
+    // the pool after a real night (her picture's «after», with Jack Emby or without); told: still over X (only the joint
+    // night — her own part alone tells through her fill's notification)
+    $end = $real ? ($h['level'])($g, $h, false) : null;
     if ($end !== null) {
         $n['end_pct'] = $end['used_pct'];
         $phase('done', nightPlan($end, 0, 0));
     }
     $n['result'] ??= 'ok';
     // over X (Jack Emby fills up to X exactly — at X is no miss)
-    if ($go && $end !== null && $end['x'] > 0 && $end['need'] > 0) {
+    if ($go && $jack && $end !== null && $end['x'] > 0 && $end['need'] > 0) {
         $n['result'] = 'missed';
         $n['why'] = $end['never'] ? 'never' : ($end['jack_over'] ? 'jack' : null);
         nightMissedTell($end, $h);
-    } elseif ($go && $end !== null && in_array($roomWhy, ['full', 'crowded'], true)) {
+    } elseif ($go && $jack && $end !== null && in_array($roomWhy, ['full', 'crowded'], true)) {
         // at X, but Jack Emby's GB crowd the others out (or what never moves and what he keeps leave him nothing new): told
         $n['why'] = $roomWhy;
         nightRoomTell($roomWhy, $end, $h);

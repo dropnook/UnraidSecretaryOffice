@@ -1459,13 +1459,14 @@ function moverelliSetSchedule(?string $cron, ?array $h = null): array
 function moverelliNight(array $h, ?array $settings): array
 {
     $n = nightState($h['dir']);
-    $jack = ($h['jack_desk'])() !== null;
+    $nh = nightHost($h);
+    // Jack Emby is in the night only when he takes part (hired and set up) — else her part alone, on the pool of her shares
+    $jack = (bool) ($nh['jack_on'])();
     $plan = null;
-    if ($settings !== null && $jack) {
+    if ($settings !== null) {
         try {
             $g = $settings['global'];
-            $nh = nightHost($h);
-            $plan = nightWords(nightPlan(($nh['level'])($g, $nh, false), nightWaiting($nh)));
+            $plan = nightWords(nightPlan(($nh['level'])($g, $nh, false), $jack ? nightWaiting($nh) : 0));
         } catch (Throwable $e) {
             $plan = null;
         }

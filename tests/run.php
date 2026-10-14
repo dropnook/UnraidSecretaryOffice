@@ -32773,6 +32773,10 @@ function testNightRun(): void
     $GLOBALS['nightHost']['jack_on'] = fn () => false;
     nightRun(['run']);
     same('night run without Jack Emby: her part alone', ['her run --night'], $calls);
+    $n = $night();
+    same('night run without Jack Emby: the pool measured all the same (her picture on every night) — the plan with numbers, her part only (nothing fetched)',
+        [false, 'cache', true, 0, ['check', 'done']], [$n['jack'] ?? null, $n['picture']['pool'] ?? null, $n['plan']['measured'] ?? null, $n['plan']['fill'] ?? null,
+         array_keys($n['picture']['phases'] ?? [])]);
     $GLOBALS['nightHost']['jack_on'] = fn () => true;
     // no limit (the pool not measured): her part, then Jack Emby's whole run (his own minimum free space)
     $calls = [];
@@ -32819,6 +32823,7 @@ function testNightRun(): void
     // (8) one schedule: hers; Jack Emby's own line goes with it; the Team Lead's night_schedule
     officeJobSetSchedule('embycache', '0 1 * * *', "$tmp/office.cron", false);
     $v['jack_desk'] = ['lists' => [], 'shares' => []];
+    $GLOBALS['nightHost'] = ['jack_on' => fn () => true];      // hired and set up: in the night
     $ids = fn (): array => array_column(array_map(fn ($f) => ['id' => $f['id'], 'ok' => $f['ok']], moverelliChecks($h)), 'ok', 'id');
     $c = $ids();
     same('night checks: his own line — night_schedule open; no «after Jack» findings', [false, false, false, false],
@@ -32828,6 +32833,7 @@ function testNightRun(): void
         [officeCronLines("$tmp/office.cron")['moverelli'] ?? null, officeCronLines("$tmp/office.cron")['embycache'] ?? null, $ids()['night_schedule'] ?? null]);
     same('night schedule: her state carries the night (with Jack Emby, the plan, the last night)', [true, true, true],
         [$r['state']['night']['jack'] ?? null, array_key_exists('plan', $r['state']['night'] ?? []), is_array($r['state']['night']['last'] ?? null)]);
+    unset($GLOBALS['nightHost']);
     same('night schedule: «after» is gone from her file', [false, '15 1 * * *'], [array_key_exists('after', readJson("$dir/office-schedule.json") ?? []), readJson("$dir/office-schedule.json")['cron'] ?? null]);
     unset($GLOBALS['moverelliHost']);
 
@@ -32902,6 +32908,11 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   out.short = [m.tonightShort(plan), m.tonightShort({ measured: true, back: 0, goes: 0, fill: 0, wait: 0 }), m.tonightShort({ measured: false })];
   out.last = m.lastNightText(base.night.last);
   out.section = texts(m.scheduleSection());
+  out.mine = [m.tonightText({ measured: true, back: 0, goes: 50 * G, fill: 0, wait: 0 }, false), m.tonightText({ measured: false }, false),
+    m.lastNightText({ mode: 'run', started: 100, finished: 200, result: 'ok', round: 1, jack: false })];
+  m.setState({ ...base, night: { jack: false, plan: { measured: true, back: 0, goes: 50 * G, fill: 0, wait: 0 }, last: null } });
+  out.mineSection = texts(m.scheduleSection());
+  m.setState(base);
   await m.scheduleDialog();
   out.radios = radios(dialogs[0].body).filter((r) => r.type === 'radio').length;
   out.intro = texts(dialogs[0].body)[0];
@@ -32934,6 +32945,11 @@ JS);
     check('night texts: Unraid\'s mover starting stops her after the file she is on (never «at once» since 1.61); her rule is the one run with Jack Emby',
         str_contains($en['mover.ok'] ?? '', "I stop after the file I'm on") && !str_contains($en['mover.ok'] ?? '', 'at once')
         && str_contains($en['setup.level_rule_jack'] ?? '', 'leave Jack Emby the room for his budget') && str_contains($en['setup.level_rule_jack'] ?? '', 'enough air up to 100 %'));
+    same('night page without Jack Emby (not set up): her part only — tonight with her numbers, her own «not measured», her last run (not «joint»)',
+        ['night.tonight {"what":"night.goes {\\"size\\":\\"50 GiB\\"}"}', 'night.unmeasured_mine', 'night.last_mine {"when":"R200","how":"night.last_ok"}'], $j['mine'] ?? null);
+    check('night page without Jack Emby: her schedule section shows tonight and her steps (no step of his), the dry run',
+        in_array('sched.mine', $j['mineSection'] ?? [], true) && in_array($j['mine'][0] ?? '-', $j['mineSection'] ?? [], true) && in_array('night.steps_mine', $j['mineSection'] ?? [], true)
+        && !in_array('night.steps', $j['mineSection'] ?? [], true) && in_array('night.dry', $j['mineSection'] ?? [], true), json_encode($j['mineSection'] ?? null));
     same('night page: the last night — missed at 81 %, two passes', 'night.last {"when":"R200","how":"night.last_missed {\"pct\":81}"} · night.rounds {"n":2}', $j['last'] ?? null);
     check('night page: her schedule section — «Night run with Jack Emby», tonight, the steps and the dry run', in_array('sched.night', $j['section'] ?? [], true)
         && in_array($j['tonight'] ?? '-', $j['section'] ?? [], true) && in_array('night.dry', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
@@ -32954,6 +32970,61 @@ JS);
         check("night lang $l: the words there, «after Jack Emby» gone", isset($lang['night.tonight'], $lang['rc.phase.recheck'], $lang['notify.night_missed'], $lang['check.night_schedule'])
             && !isset($lang['schedule.after'], $lang['check.after_idle'], $lang['check.moverelli_before_jack']));
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * Her night without Jack Emby (2026-10-14: hired but not set up): the pool of her shares measured as her setup does
+ * (moverelliLevels — the one most over X, else the largest; a sleeping pool never), his bytes only while he takes part;
+ * her page's plan with numbers and no step of his; with him set up his pool as before. A dry night alone: her picture.
+ */
+function testNightHerPool(): void
+{
+    $tmp = hardeningTmp('night-her-pool');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    @mkdir("$tmp/mnt/user/Fast", 0700, true);
+    file_put_contents("$tmp/shares/Fast.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"fast\"\n");
+    // ZFS: cache 1000 (used 850, or 500 with the file «low»), fast 4000 (used 1000)
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\ncase \"\${@: -1}\" in\n cache) u=850; [[ -e " . escapeshellarg("$tmp/low")
+        . " ]] && u=500; printf 'cache\\t%s\\t%s\\t0\\t0\\ncache/Filme\\t400\\t0\\t400\\t0\\ncache/Docs\\t100\\t0\\t100\\t0\\n' \$u \$((1000-u)) ;;\n"
+        . " fast) printf 'fast\\t1000\\t3000\\t0\\t0\\nfast/Fast\\t800\\t0\\t800\\t0\\n' ;;\n *) exit 1 ;;\nesac\n");
+    chmod("$tmp/bin/zfs", 0755);
+    file_put_contents("$tmp/list.txt", "$tmp/mnt/cache/Filme/A/a.mkv\n");
+    $GLOBALS['moverelliHost'] += ['zfs' => "$tmp/bin/zfs", 'asleep' => ['cache' => false, 'fast' => false], 'jack_list_file' => "$tmp/list.txt",
+        'jack_cache' => fn () => "$tmp/mnt/cache", 'cron_file' => "$tmp/office.cron", 'cron_apply' => false];
+    $on = false;                                              // … but not set up (no budget)
+    $GLOBALS['nightHost'] = ['jack_on' => function () use (&$on) { return $on; }, 'disks_ini' => "$tmp/none.ini",
+        'jack_status' => fn () => ['pool' => ['waiting_bytes' => 50]],
+        'her_job' => function (array $args) use ($tmp) {
+            moverelliRemember(['mode' => $args[0], 'by' => 'night', 'started' => time(), 'finished' => time(), 'result' => 'ok'], "$tmp/data");
+            return 0;
+        }];
+    $h = moverelliHost();
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80]), $h);
+    $v['jack_desk'] = ['lists' => ["$tmp/list.txt"], 'shares' => []];        // hired …
+    $g = moverelliSettings($h['dir'])['global'];
+    $nh = nightHost($h);
+    $l = nightLevel($g, $nh, false);
+    same('her pool: Jack Emby not set up — the pool of her shares most over X (cache 85 %), his bytes not counted; no «mine» key', ['cache', 85.0, 0, 50, false],
+        [$l['pool'] ?? null, $l['used_pct'] ?? null, $l['jack'] ?? null, $l['need'] ?? null, isset($l['mine'])]);
+    touch("$tmp/low");
+    same('her pool: none over X — the largest measured (fast 4000); asleep — not looked at; none measured — null', ['fast', 'cache', null],
+        [nightLevel($g, $nh, false)['pool'] ?? null, nightLevel($g, ['asleep' => ['fast' => true, 'cache' => false]] + $nh, false)['pool'] ?? null,
+         nightLevel($g, ['asleep' => ['fast' => true, 'cache' => true]] + $nh, true)]);
+    unlink("$tmp/low");
+    $mn = moverelliNight($h, moverelliSettings($h['dir']));
+    same('her page: Jack Emby hired, not set up — not in the night; tonight with numbers, nothing of his (no fetch, nothing waits)', [false, true, 50, 0, 0],
+        [$mn['jack'], $mn['plan']['measured'] ?? null, $mn['plan']['goes'] ?? null, $mn['plan']['fill'] ?? null, $mn['plan']['wait'] ?? null]);
+    same('a dry night alone: her part only, her picture (pool, check before with Jack Emby 0)', [0, false, 'cache', 0, ['her']],
+        [nightRun(['dry']), nightState("$tmp/data")['jack'] ?? null, nightState("$tmp/data")['picture']['pool'] ?? null,
+         nightState("$tmp/data")['picture']['phases']['check']['before']['jack'] ?? null, array_column(nightState("$tmp/data")['steps'] ?? [], 'who')]);
+    $on = true;
+    $l = nightLevel($g, $nh, false);
+    $mn = moverelliNight($h, moverelliSettings($h['dir']));
+    same('with Jack Emby set up: his pool as before (his list counted), in the night, what waits for him', ['cache', 300, true, 50],
+        [$l['pool'] ?? null, $l['jack'] ?? null, $mn['jack'], $mn['plan']['fill'] ?? null]);
+    unset($GLOBALS['nightHost']);
     hardeningRm($tmp);
 }
 
@@ -33025,6 +33096,9 @@ out.x = all(box).filter((n) => n.cls === 'mo-pic-x').map((n) => n.style.left);
 out.segs = all(box).filter((n) => /mo-seg-/.test(n.cls || '') && n.style.width).map((n) => n.cls.replace('mo-pic-seg ', ''));
 const boxNone = m.nightPicture({ running: false, started: 5, picture: { pool: 'cache', x: 80, dest: { to: 'array', size: null, used: null }, phases: { check: { before: null } }, files: [] } });
 out.boxNone = texts(boxNone);
+const zero = (b) => (b ? { ...b, others: b.others + b.jack, jack: 0 } : b);
+const alone = { ...pic, phases: Object.fromEntries(Object.entries(pic.phases).map(([k, v]) => [k, { ...v, before: zero(v.before), forecast: zero(v.forecast) }])) };
+out.alone = [texts(m.nightPicture({ running: false, started: 6, jack: false, picture: alone })), texts(m.nightPicture({ running: false, started: 7, jack: true, picture: alone }))];
 out.noPic = m.nightPicture({ running: true });
 const live = m.livePicture({ running: true, started: 9, picture: pic });
 out.live = [live === m.livePicture({ running: true, started: 9, picture: pic }), live !== m.livePicture({ running: true, started: 10, picture: pic })];
@@ -33057,6 +33131,8 @@ JS);
         && in_array('pic.array pic.dest_used {"used":"2000 GiB","size":"8000 GiB"}', $box, true)
         && in_array('pic.seg.others pic.change {"before":"150 GiB","after":"80 GiB"}', $box, true)
         && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $box, true), json_encode($box));
+    same('night picture without Jack Emby in the night: his part gone from the legend (not «0 B»); with him in it shown even at 0', [false, true],
+        array_map(fn ($t) => (bool) preg_grep('/^pic\.seg\.jack /', (array) $t), $j['alone'] ?? [[], []]));
     same('night picture: X on both bars, four parts each and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 9], [$j['x'] ?? null, count($j['segs'] ?? [])]);
     check('night picture: nothing measured — said, the array «not measured», no bar', in_array('pic.pool_unmeasured', $j['boxNone'] ?? [], true)
         && in_array('pic.unmeasured', $j['boxNone'] ?? [], true) && !in_array('pic.before', $j['boxNone'] ?? [], true), json_encode($j['boxNone'] ?? null));
@@ -34857,7 +34933,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
