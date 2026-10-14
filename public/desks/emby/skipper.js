@@ -496,7 +496,10 @@ function newSim(cfg, seed) {
       }
     }
     // own test values: the first night fills him; the server's: day 0 is the pool as measured (no night before it)
+    side.eve = mathOf(w, side);                // day 0 «before the run»: the start as set
+    side.prevMorn = null;
     if (!(w.cfg.jack0 > 0)) (side.rules === 'new' ? skipperNight : v162Night)(w, side, logger(w, side));
+    side.morn = mathOf(w, side);
     record(w, side, { spilled: 0, forced: 0, pingpong: 0, told: 0 }, false);
   }
   return sim;
@@ -523,7 +526,12 @@ function simDay(sim) {
     const before = { spilled: side.spilled, forced: side.forced, pingpong: side.pingpong, told: side.told, up: side.up, down: side.down, moved: side.moved };
     L('day', { day: w.day, writes: d.writes, watched: d.watched.length, fresh: d.fresh.length }, 'day');
     writeDay(w, side, d.writes, L);
+    // the day on display has two pictures: the evening (after the day's writes, watching, new episodes) and the morning
+    // (after the joint night run)
+    side.prevMorn = side.morn;
+    side.eve = mathOf(w, side);
     (side.rules === 'new' ? skipperNight : v162Night)(w, side, L);
+    side.morn = mathOf(w, side);
     record(w, side, before, true);
   }
   return d;
@@ -591,7 +599,72 @@ function summary(sim) {
   return out;
 }
 
-const math = { skipperPoolMath, v162Math, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
+// ---------------------------------------------------------------------- the bar's handles (pure)
+/** A place on the bar (0…1 of its width) in GB of the pool, and back */
+const barGb = (frac, pool) => Math.max(0, Math.min(1, +frac || 0)) * Math.max(0, +pool || 0);
+const gbFrac = (gb, pool) => (pool > 0 ? Math.max(0, Math.min(1, gb / pool)) : 0);
+/** What the start puts on the pool for the other shares (newSide()'s default: two days of writes) */
+const othersAtStart = (c) => (c.others0 != null ? c.others0 : 2 * c.writes);
+/** A setting within the rules: NM ≥ 0, NM + others ≤ pool, what Jack starts with fits behind them, 1 ≤ offset, Y < X ≤ 100 */
+function fitCfg(cfg) {
+  const c = { ...cfg };
+  c.pool = Math.max(1, +c.pool || 1);
+  c.nm = r1(Math.max(0, Math.min(c.pool, +c.nm || 0)));
+  if (c.others0 != null) c.others0 = r1(Math.max(0, Math.min(c.pool - c.nm, c.others0)));
+  if (c.jack0 != null) c.jack0 = r1(Math.max(0, Math.min(c.pool - c.nm - othersAtStart(c), c.jack0)));
+  c.x = Math.max(2, Math.min(100, Math.round(+c.x || 0)));
+  c.offset = Math.max(1, Math.min(c.x - 1, Math.round(+c.offset || 0)));
+  return c;
+}
+/**
+ * One value dragged in the bar (or stepped with the keys) into the settings, snapped (1 % for X and Y, about 1 % of the
+ * pool for sizes) and within the rules. key: nm (the grey/white edge — the white's end stays), end (the white's end: what
+ * the others hold at the start), x (Y stays), y (X stays: the offset = X − Y); value: GB for nm/end, % for x/y.
+ */
+function dragSet(cfg, key, value) {
+  const c = { ...cfg };
+  const step = Math.max(1, Math.round(c.pool / 100));
+  const snap = (v) => Math.round(v / step) * step;
+  const end = c.nm + othersAtStart(c);
+  if (key === 'nm') {
+    c.nm = Math.max(0, Math.min(end, snap(value)));
+    c.others0 = end - c.nm;
+  } else if (key === 'end') {
+    c.others0 = Math.max(c.nm, Math.min(c.pool, snap(value))) - c.nm;
+  } else if (key === 'x') {
+    const y = c.x - c.offset;
+    c.x = Math.max(y + 1, Math.min(100, Math.round(value)));
+    c.offset = c.x - y;
+  } else if (key === 'y') {
+    c.offset = c.x - Math.max(1, Math.min(c.x - 1, Math.round(value)));
+  }
+  return fitCfg(c);
+}
+
+/**
+ * The widths of a bar's segments (fractions, summing to 1, in order): each value > 0 at least `min` (a few pixels: always
+ * visible), the others shrunk in proportion to make room; 0 stays 0. The words keep the true values.
+ */
+function segWidths(values, min) {
+  const v = values.map((x) => Math.max(0, +x || 0));
+  const total = sum(v);
+  if (total <= 0) return v.map(() => 0);
+  const live = v.filter((x) => x > 0).length;
+  const m = Math.max(0, Math.min(min || 0, 1 / live));
+  const out = v.map((x) => x / total);
+  const fixed = new Set();
+  for (let round = 0; round < values.length; round++) {
+    const small = out.map((f, i) => (v[i] > 0 && !fixed.has(i) && f < m ? i : -1)).filter((i) => i >= 0);
+    if (!small.length) break;
+    small.forEach((i) => { fixed.add(i); out[i] = m; });
+    const rest = 1 - fixed.size * m;
+    const free = out.reduce((a, f, i) => a + (fixed.has(i) ? 0 : f), 0);
+    out.forEach((f, i) => { if (!fixed.has(i) && free > 0) out[i] = f * rest / free; });
+  }
+  return out;
+}
+
+const math = { skipperPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, v162Math, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
   INVARIANTS, EVENTS: Object.keys(EVENTS), rng, PINGPONG_DAYS };
 if (typeof module !== 'undefined' && module.exports) module.exports = math;       // tests/run.php under node
 if (typeof Office === 'undefined') return;
@@ -605,11 +678,36 @@ if (typeof Office === 'undefined') return;
  */
 const GIB = 1024 * 1024 * 1024;
 const V = { src: null, cfg: null, seed: 162, sim: null, rules: 'new', results: null, shown: '', measured: null, busy: false };
-const SLIDERS = [         // [key, min, max, step, unit]  — unit: gb | pct | n | days
-  ['pool', 128, 4096, 32, 'gb'], ['nm', 0, 2048, 10, 'gb'], ['writes', 0, 400, 5, 'gb'], ['watch', 0, 20, 1, 'n'],
-  ['newEps', 0, 20, 1, 'n'], ['people', 1, 8, 1, 'n'], ['x', 20, 95, 1, 'pct'], ['offset', 0, 30, 1, 'pct'], ['k', 0, 100, 5, 'pct'],
+// [key, min, max, step, unit] — unit: gb | pct | n | days. NM, what the others hold, X and Y are set in the bar (its handles);
+// the pool's size stays a slider, the rest folds into «More values»
+const POOL_SLIDER = ['pool', 128, 4096, 32, 'gb'];
+const SLIDERS = [
+  ['writes', 0, 400, 5, 'gb'], ['watch', 0, 20, 1, 'n'], ['newEps', 0, 20, 1, 'n'], ['people', 1, 8, 1, 'n'], ['k', 0, 100, 5, 'pct'],
   ['unwatchedDays', 1, 120, 1, 'days'], ['age', 0, 30, 1, 'days'],
 ];
+/** What the user opened stays open across the simulator's drawings (as desk.js's keepFold) */
+const folds = new Map();
+function keepFold(det, key, open) {
+  det.open = folds.has(key) ? folds.get(key) : open;
+  let shown = det.open;
+  det.addEventListener('toggle', () => {
+    if (det.open === shown) return;
+    shown = det.open;
+    folds.set(key, det.open);
+  });
+  return det;
+}
+/** A changed value (a slider, a handle): own test values from now, the simulation anew at day 0 */
+function setCfg(h, cfg) {
+  V.cfg = fitCfg(cfg);
+  V.src = 'test';
+  restart(h);
+}
+/** The start as the «before the run» bar shows it now: NM, what the others and Jack the Skipper hold — a handle moves one */
+function shownStart() {
+  const m = V.sim.sides[V.rules].eve;
+  return { ...V.cfg, nm: r1(m.nm), others0: r1(m.others), jack0: r1(m.jack), nmGrow: V.cfg.nmGrow };
+}
 
 /** The settings from a source: the real pool (GB) and the rules, or the sliders' own; null when the real one isn't measured */
 function baseCfg(h, src) {
@@ -684,10 +782,10 @@ function draw(h, body) {
   if (V.src === 'real' && lv) facts.appendChild(el('p', 'role', T('sim.real_note')));
   body.appendChild(facts);
 
-  // ---- the sliders (a change starts the simulation over with them)
-  const ctl = el('div', 'jo-sim-ctl');
+  // ---- the sliders (a change starts the simulation over with them, as a handle does): the pool's size, then folded
+  // the values the bar can't show
   const unit = (u, v) => (u === 'gb' ? size(v) : u === 'pct' ? `${v} %` : u === 'days' ? h.nOf('days', v) : String(v));
-  for (const [k, min, max, step, u] of SLIDERS) {
+  const slider = ([k, min, max, step, u]) => {
     const row = el('label', 'jo-sim-slider');
     const inp = el('input');
     inp.type = 'range';
@@ -697,10 +795,17 @@ function draw(h, body) {
     inp.value = V.cfg[k];
     const out = el('output', 'jo-sim-out', unit(u, V.cfg[k]));
     inp.oninput = () => { out.textContent = unit(u, Number(inp.value)); };
-    inp.onchange = () => { V.cfg = { ...V.cfg, [k]: Number(inp.value) }; delete V.cfg.others0; delete V.cfg.jack0; V.src = 'test'; restart(h); redraw(h, body); };
+    inp.onchange = () => { setCfg(h, { ...V.cfg, [k]: Number(inp.value) }); redraw(h, body); };
     row.append(el('span', 'jo-sim-name', T('sim.f.' + k)), inp, out);
-    ctl.appendChild(row);
-  }
+    return row;
+  };
+  const top = el('div', 'jo-sim-ctl');
+  top.appendChild(slider(POOL_SLIDER));
+  body.appendChild(top);
+  const more = keepFold(el('details', 'jo-sim-more'), 'more', false);
+  more.appendChild(el('summary', '', T('sim.more')));
+  const ctl = el('div', 'jo-sim-ctl');
+  SLIDERS.forEach((x) => ctl.appendChild(slider(x)));
   const seedRow = el('label', 'jo-sim-slider');
   const seed = el('input', 'input jo-sim-seed');
   seed.type = 'number';
@@ -709,7 +814,8 @@ function draw(h, body) {
   seed.onchange = () => { V.seed = Math.max(0, Math.floor(Number(seed.value) || 0)); restart(h); redraw(h, body); };
   seedRow.append(el('span', 'jo-sim-name', T('sim.f.seed')), seed);
   ctl.appendChild(seedRow);
-  body.appendChild(ctl);
+  more.appendChild(ctl);
+  body.appendChild(more);
 
   // ---- days and events
   const days = el('div', 'toolbar jo-sim-acts');
@@ -738,7 +844,7 @@ function draw(h, body) {
   });
   pick.appendChild(el('span', 'jo-sim-day', V.shown ? T('sim.day_of', { n: V.sim.w.day, scenario: T('sim.sc.' + V.shown) }) : T('sim.day', { n: V.sim.w.day })));
   body.appendChild(pick);
-  body.appendChild(picture(h, V.sim.sides[V.rules]));
+  body.appendChild(picture(h, body));
   body.appendChild(checks(h));
   body.appendChild(totals(h, V.sim.sides[V.rules]));
   body.appendChild(dayTable(h, V.sim.sides[V.rules]));
@@ -746,43 +852,192 @@ function draw(h, body) {
   body.appendChild(scenarios(h, body));
 }
 
-/** The pool bar: never moves · others · Jack unwatched · Jack watched · free — X, Y above, H and the fill limit below */
-function picture(h, side) {
+/**
+ * The day on display as two pool bars on one scale (the owner, 2026-10-14): «before the run» — the evening, after the day's
+ * writes, watching and new episodes (day 0: the start) — and «after the run» — the morning, after the joint night run.
+ * Each: never moves · others · Jack unwatched · Jack watched · free, X and Y above, H and the fill limit below, and what
+ * changed (the evening against the morning before, the morning against the evening). Segments > 0 keep a few pixels
+ * (segWidths(), 10 px); the words keep the true values — the one legend says each before → after. Four handles on the «before» bar set the start directly (pointer —
+ * mouse and touch —, keys, role=slider): the grey/white edge (NM), the white's end (what the others hold), X and Y (the
+ * offset). Jack the Skipper's part is the rules': it follows. A move sets a new start and rebuilds day 0 (cheap), both
+ * bars updated in place — H and the fill limit move live; letting go draws the simulator anew. From real data the first
+ * move switches to own test values, starting from the real ones.
+ */
+const MIN_PX = 10;                // a segment with something in it is never thinner than this (the owner, 2026-10-14)
+const SEGS = ['nm', 'others', 'unw', 'wat'];
+function picture(h, body) {
   const { T, el, fmt } = h;
-  const w = V.sim.w;
-  const m = mathOf(w, side);
-  const pct = (gb) => `${Math.max(0, Math.min(100, gb * 100 / w.cfg.pool)).toFixed(2)}%`;
   const box = el('div', 'jo-sim-pic');
-  const bar = el('div', 'jo-sim-bar');
-  bar.setAttribute('role', 'img');
-  bar.setAttribute('aria-label', T('sim.bar_label', { pct: r1(m.used * 100 / w.cfg.pool) }));
-  const seg = (cls, gb, key) => { const s = el('i', 'jo-sim-seg ' + cls); s.style.width = pct(gb); s.title = `${T(key)} · ${fmt.size(gb * GIB)}`; bar.appendChild(s); };
-  seg('nm', m.nm, 'sim.bar.nm');
-  seg('others', m.others, 'sim.bar.others');
-  seg('unw', m.jack - m.watched, 'sim.bar.unw');
-  seg('wat', m.watched, 'sim.bar.wat');
-  // Y and H with their label to the left of the line, X and the fill limit to the right (to the left near the bar's end)
-  const mark = (gb, text, below, left) => {
-    const k = el('span', 'jo-sim-mark' + (below ? ' below' : '') + (left || gb / w.cfg.pool > 0.9 ? ' flip' : ''));
-    k.style.left = pct(gb);
-    k.appendChild(el('span', '', text));
-    bar.appendChild(k);
-  };
-  mark(m.xb, `X ${w.cfg.x} %`);
-  mark(m.yb, `Y ${Math.max(0, w.cfg.x - w.cfg.offset)} %`, false, true);
-  mark(m.nm + m.others + m.half, 'H', true, true);
-  mark(m.nm + m.others + m.jackLimit, T('sim.mark.limit'), true);
-  box.appendChild(bar);
+  const gbText = (gb) => fmt.size(Math.max(0, gb) * GIB);
+  const signed = (d) => `${d > 0 ? '+' : '−'}${gbText(Math.abs(d))}`;
+
+  /** One bar with its title, its marks and its line of changes; handles: the «before» bar's */
+  function row(id, handles) {
+    const r = el('div', 'jo-sim-row');
+    const head = el('div', 'jo-sim-rowhead');
+    const changes = el('span', 'jo-sim-changes');
+    head.append(el('b', '', T('sim.bar.' + id)), changes);
+    const bar = el('div', 'jo-sim-bar' + (handles ? ' grips' : ''));
+    const segs = {};
+    for (const cls of SEGS) { segs[cls] = el('i', 'jo-sim-seg ' + cls); bar.appendChild(segs[cls]); }
+    const marks = {};
+    for (const [mid, below, left] of [['x', false, false], ['y', false, true], ['h', true, true], ['limit', true, false]]) {
+      const k = el('span', 'jo-sim-mark' + (below ? ' below' : ''));
+      k.appendChild(el('span', ''));
+      marks[mid] = { node: k, left };
+      bar.appendChild(k);
+    }
+    const grips = {};
+    if (handles) {
+      for (const key of ['nm', 'end', 'x', 'y']) {
+        const g = el('span', 'jo-sim-grip ' + (key === 'x' || key === 'y' ? 'top' : 'mid'));
+        g.dataset.drag = key;
+        g.tabIndex = 0;
+        g.setAttribute('role', 'slider');
+        g.setAttribute('aria-label', T('sim.drag.' + key));
+        const tip = el('span', 'jo-sim-tip');
+        g.appendChild(tip);
+        grips[key] = { node: g, tip };
+        bar.appendChild(g);
+      }
+    }
+    r.append(head, bar);
+    /** m: this bar's numbers; prev: what it is compared with (null: nothing — day 0's start) */
+    r.update = (m, prev) => {
+      const w = V.sim.w;
+      const pool = w.cfg.pool;
+      const y = Math.max(0, w.cfg.x - w.cfg.offset);
+      const val = { nm: m.nm, others: m.others, unw: m.jack - m.watched, wat: m.watched };
+      const wid = segWidths([...SEGS.map((c) => val[c]), Math.max(0, pool - m.used)], MIN_PX / Math.max(200, bar.clientWidth || 800));
+      const titles = { nm: 'sim.bar.nm', others: 'sim.bar.others', unw: 'sim.bar.unw', wat: 'sim.bar.wat' };
+      SEGS.forEach((c, i) => { segs[c].style.width = `${(wid[i] * 100).toFixed(3)}%`; segs[c].title = `${T(titles[c])} · ${gbText(val[c])}`; });
+      bar.setAttribute('role', 'img');
+      bar.setAttribute('aria-label', `${T('sim.bar.' + id)}: ${T('sim.bar_label', { pct: r1(m.used * 100 / pool) })}`);
+      const at = { x: m.xb, y: m.yb, h: m.nm + m.others + m.half, limit: m.nm + m.others + m.jackLimit };
+      const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: 'H', limit: T('sim.mark.limit') };
+      // H and the fill limit close together (within 3 % of the bar): one label for both, on the limit's line
+      const close = Math.abs(gbFrac(at.h, pool) - gbFrac(at.limit, pool)) < 0.03;
+      if (close) { words.h = ''; words.limit = `H · ${words.limit}`; }
+      for (const [mid, mk] of Object.entries(marks)) {
+        mk.node.style.left = `${(gbFrac(at[mid], pool) * 100).toFixed(2)}%`;
+        mk.node.classList.toggle('flip', mk.left || gbFrac(at[mid], pool) > 0.9);
+        mk.node.firstChild.textContent = words[mid];
+      }
+      // what changed against the bar before it (the true values)
+      if (!prev) changes.textContent = '';
+      else {
+        const pv = { nm: prev.nm, others: prev.others, unw: prev.jack - prev.watched, wat: prev.watched };
+        const list = SEGS.filter((c) => Math.abs(val[c] - pv[c]) >= 0.05).map((c) => `${T(titles[c])} ${signed(val[c] - pv[c])}`);
+        changes.textContent = list.length ? list.join(' · ') : T('sim.bar.same');
+      }
+      // the handles on the segments' edges as drawn
+      const edge = { nm: wid[0], end: wid[0] + wid[1] };
+      const vals = { nm: [m.nm, 0, m.nm + m.others], end: [m.nm + m.others, m.nm, pool], x: [w.cfg.x, y + 1, 100], y: [y, 1, w.cfg.x - 1] };
+      for (const [key, g] of Object.entries(grips)) {
+        const [now, lo, hi] = vals[key];
+        const sizeKey = key === 'nm' || key === 'end';
+        g.node.style.left = sizeKey ? `${(edge[key] * 100).toFixed(3)}%` : `${now}%`;
+        const text = sizeKey ? gbText(key === 'nm' ? m.nm : m.others) : `${now} %`;
+        g.node.setAttribute('aria-valuenow', String(r1(now)));
+        g.node.setAttribute('aria-valuemin', String(r1(lo)));
+        g.node.setAttribute('aria-valuemax', String(r1(hi)));
+        g.node.setAttribute('aria-valuetext', `${T('sim.drag.' + key)}: ${text}`);
+        g.tip.textContent = `${T('sim.drag.' + key)}: ${text}`;
+      }
+    };
+    r.bar = bar;
+    r.grips = grips;
+    return r;
+  }
+
+  const eve = row('before', true);
+  const morn = row('after', false);
+  box.append(eve, morn);
   const legend = el('div', 'jo-sim-legend');
-  [['nm', 'sim.bar.nm', m.nm], ['others', 'sim.bar.others', m.others], ['unw', 'sim.bar.unw', m.jack - m.watched], ['wat', 'sim.bar.wat', m.watched],
-    ['free', 'sim.bar.free', w.cfg.pool - m.used]].forEach(([cls, key, gb]) => {
+  const keys = {};
+  for (const [cls, key] of [['nm', 'sim.bar.nm'], ['others', 'sim.bar.others'], ['unw', 'sim.bar.unw'], ['wat', 'sim.bar.wat'], ['free', 'sim.bar.free']]) {
     const it = el('span', 'jo-sim-key');
-    it.append(el('i', 'jo-sim-seg ' + cls), el('span', '', `${T(key)} ${fmt.size(Math.max(0, gb) * GIB)}`));
+    const text = el('span', '');
+    it.append(el('i', 'jo-sim-seg ' + cls), text);
+    keys[cls] = [text, key];
     legend.appendChild(it);
-  });
+  }
   box.appendChild(legend);
-  box.appendChild(el('p', 'role jo-sim-numbers', T('sim.numbers', { room: fmt.size(m.room * GIB), h: fmt.size(m.half * GIB), d: fmt.size(m.halfD * GIB),
-    limit: fmt.size(m.jackLimit * GIB), olimit: fmt.size(m.othersLimit * GIB), want: fmt.size(m.want * GIB) })));
+  const numbers = el('p', 'role jo-sim-numbers');
+  box.appendChild(numbers);
+
+  /** Both bars, their marks, the handles and the words from the simulation as it stands (in place — during a drag too) */
+  function update() {
+    const side = V.sim.sides[V.rules];
+    eve.update(side.eve, side.prevMorn);
+    morn.update(side.morn, side.eve);
+    const m = side.morn;
+    const of = (x) => ({ nm: x.nm, others: x.others, unw: x.jack - x.watched, wat: x.watched, free: V.sim.w.cfg.pool - x.used });
+    const a = of(side.eve);
+    const b = of(m);
+    for (const [cls, [text, key]] of Object.entries(keys)) {
+      text.textContent = Math.abs(a[cls] - b[cls]) < 0.05 ? `${T(key)} ${gbText(b[cls])}` : `${T(key)} ${gbText(a[cls])} → ${gbText(b[cls])}`;
+    }
+    numbers.textContent = T('sim.numbers', { room: gbText(m.room), h: gbText(m.half), d: gbText(m.halfD),
+      limit: gbText(m.jackLimit), olimit: gbText(m.othersLimit), want: gbText(m.want) });
+  }
+  update();
+  requestAnimationFrame(update);       // once the bars have their width: the few pixels a small segment keeps
+
+  /** After a change: everything below the bars anew (the checks, the days), the handle that moved keeps the focus */
+  const settle = (key) => {
+    redraw(h, body);
+    const g = body.querySelector(`[data-drag="${key}"]`);
+    if (g) g.focus({ preventScroll: true });
+  };
+  for (const [key, { node: g }] of Object.entries(eve.grips)) {
+    // pointer: from what the «before» bar shows now, a new start at every move (one per frame), both bars in place
+    g.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== undefined && ev.button !== 0) return;
+      ev.preventDefault();
+      const rect = eve.bar.getBoundingClientRect();
+      const base = shownStart();
+      let frame = 0;
+      let last = ev.clientX;
+      g.setPointerCapture(ev.pointerId);
+      g.classList.add('dragging');
+      const apply = () => {
+        frame = 0;
+        const frac = (last - rect.left) / Math.max(1, rect.width);
+        const value = key === 'x' || key === 'y' ? frac * 100 : barGb(frac, base.pool);
+        setCfg(h, dragSet(base, key, value));
+        update();
+      };
+      g.onpointermove = (e) => { last = e.clientX; if (!frame) frame = requestAnimationFrame(apply); };
+      g.onpointerup = g.onpointercancel = () => {
+        if (frame) { cancelAnimationFrame(frame); apply(); }
+        g.onpointermove = g.onpointerup = g.onpointercancel = null;
+        g.classList.remove('dragging');
+        settle(key);
+      };
+    });
+    // keys: arrows a step (1 % or about 1 % of the pool), Page Up/Down ten, Home/End the ends
+    g.addEventListener('keydown', (ev) => {
+      const sizeKey = key === 'nm' || key === 'end';
+      const base = shownStart();
+      const step = sizeKey ? Math.max(1, Math.round(base.pool / 100)) : 1;
+      const now = { nm: base.nm, end: base.nm + base.others0, x: base.x, y: base.x - base.offset }[key];
+      const to = { ArrowLeft: now - step, ArrowDown: now - step, ArrowRight: now + step, ArrowUp: now + step, PageDown: now - 10 * step,
+        PageUp: now + 10 * step, Home: -1e9, End: 1e9 }[ev.key];
+      if (to === undefined) return;
+      ev.preventDefault();
+      setCfg(h, dragSet(base, key, to));
+      settle(key);
+    });
+  }
+  // the hint, and back to the server's values once a handle (or a slider) left them
+  const foot = el('div', 'toolbar jo-sim-dragfoot');
+  foot.appendChild(el('span', 'role', T('sim.drag_hint')));
+  const lv = V.measured || (h.base() || {}).level;
+  if (lv && V.src === 'test') {
+    foot.appendChild(h.button(T('sim.back_real'), 'small plain', () => { V.src = 'real'; V.cfg = baseCfg(h, 'real'); restart(h); redraw(h, body); }));
+  }
+  box.appendChild(foot);
   return box;
 }
 

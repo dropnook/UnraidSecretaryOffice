@@ -878,5 +878,15 @@
   "wizard.pool_none": "Pas encore de pool : aucun des partages choisis n'a de pool comme stockage principal.",
   "wizard.pool_from": "{pool} — d'après les réglages Unraid des partages {shares}",
   "wizard.sum_days": "non regardé depuis {days} : peut repartir",
-  "count.people": {"one": "{n} personne", "other": "{n} personnes"}
+  "count.people": {"one": "{n} personne", "other": "{n} personnes"},
+  "sim.more": "Autres valeurs",
+  "sim.drag.nm": "Ne bouge jamais",
+  "sim.drag.end": "Autres partages avec cache au départ",
+  "sim.drag.x": "Limite X",
+  "sim.drag.y": "Y (X − décalage)",
+  "sim.drag_hint": "Fais glisser les poignées dans la barre (ou utilise les flèches) : ne bouge jamais, ce que tiennent les autres partages, X et Y. La part de Jack Emby suit les règles. Seulement dans le simulateur — rien n'est enregistré.",
+  "sim.back_real": "Revenir aux valeurs réelles",
+  "sim.bar.before": "Avant l'exécution",
+  "sim.bar.after": "Après l'exécution",
+  "sim.bar.same": "inchangé"
 }

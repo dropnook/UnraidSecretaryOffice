@@ -878,5 +878,15 @@
   "wizard.pool_none": "No pool yet: none of the chosen shares has a pool as its primary storage.",
   "wizard.pool_from": "{pool} — from Unraid's share settings of {shares}",
   "wizard.sum_days": "unwatched for {days}: may go back",
-  "count.people": {"one": "{n} person", "other": "{n} people"}
+  "count.people": {"one": "{n} person", "other": "{n} people"},
+  "sim.more": "More values",
+  "sim.drag.nm": "Never moves",
+  "sim.drag.end": "Other caching shares at the start",
+  "sim.drag.x": "Limit X",
+  "sim.drag.y": "Y (X − offset)",
+  "sim.drag_hint": "Drag the handles in the bar (or use the arrow keys): never moves, what the other shares hold, X and Y. Jack Emby's part follows the rules. Simulator only — nothing is saved.",
+  "sim.back_real": "Back to the real values",
+  "sim.bar.before": "Before the run",
+  "sim.bar.after": "After the run",
+  "sim.bar.same": "unchanged"
 }
