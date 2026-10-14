@@ -2378,7 +2378,9 @@ prune_files() {
         (( PKG_OLD_RUNS > 0 )) || PKG_OLD_ACTION=""
         pkg_status yes
     fi
-    ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | LC_ALL=C sort -t- -k2 | head -n -"$KEEP_LOGS" \
+    # the newest keep_logs - this run's own log always one of them (2.48: keep_logs = 0 removed it while it was written)
+    ls -1 "$UB_LOGS"/run-*.log "$UB_LOGS"/check-*.log "$UB_LOGS"/dryrun-*.log 2>/dev/null | grep -vxF -- "$LOG_FILE" | LC_ALL=C sort -t- -k2 \
+        | awk -v k="$(( KEEP_LOGS > 1 ? KEEP_LOGS - 1 : 0 ))" '{ l[NR] = $0 } END { for (i = 1; i <= NR - k; i++) print l[i] }' \
         | while read -r d; do rm -f "$d"; done
     for d in unmount recover; do
         if [[ -f "$UB_LOGS/$d.log" && $(stat -c %s "$UB_LOGS/$d.log") -gt 1048576 ]]; then

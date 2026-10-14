@@ -5834,6 +5834,13 @@ SH);
     [$rc, $out] = $run();
     same('inside: a run without dumps writes no dump, and the folder is overwritten whole', [0, true, false, false],
         [$rc, is_file("$app/my-c1.xml"), file_exists("$app/db"), file_exists("$app/stale.txt")], $out);
+
+    // 2.48 (review 2026-10-15): keep_logs = 0 never removes the log of the run that is writing it - only the earlier ones go
+    file_put_contents("$data/settings.ini", "[general]\nkeep_logs = 0\n", FILE_APPEND);
+    [$rc, $out] = $run();
+    $logs = array_map('basename', glob("$data/logs/run-*.log") ?: []);
+    same('inside: keep_logs = 0 — only this run\'s own log stays, latest.log points at it', [0, 1, true],
+        [$rc, count($logs), is_file("$data/logs/latest.log") && str_contains((string) file_get_contents("$data/logs/latest.log"), 'Cleaning up')], json_encode($logs) . $out);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
