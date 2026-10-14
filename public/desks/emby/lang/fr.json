@@ -888,5 +888,6 @@
   "sim.back_real": "Revenir aux valeurs réelles",
   "sim.bar.before": "Avant l'exécution",
   "sim.bar.after": "Après l'exécution",
-  "sim.bar.same": "inchangé"
+  "sim.bar.same": "inchangé",
+  "sim.mark.to_y": "{what} (jusqu'à Y)"
 }

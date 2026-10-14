@@ -913,16 +913,21 @@ function picture(h, body) {
       SEGS.forEach((c, i) => { segs[c].style.width = `${(wid[i] * 100).toFixed(3)}%`; segs[c].title = `${T(titles[c])} · ${gbText(val[c])}`; });
       bar.setAttribute('role', 'img');
       bar.setAttribute('aria-label', `${T('sim.bar.' + id)}: ${T('sim.bar_label', { pct: r1(m.used * 100 / pool) })}`);
-      const at = { x: m.xb, y: m.yb, h: m.nm + m.others + m.half, limit: m.nm + m.others + m.jackLimit };
-      const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: 'H', limit: T('sim.mark.limit') };
+      // H and the fill limit from where his part starts (NM + others) — but he fills only up to Y: a marker past Y stands
+      // at Y and says so («… (to Y)»), so nobody reads a fill area beyond it
+      const from = m.nm + m.others;
+      const at = { x: m.xb, y: m.yb, h: Math.min(from + m.half, m.yb), limit: Math.min(from + m.jackLimit, m.yb) };
+      const toY = (word, raw) => (raw > m.yb + 0.05 ? T('sim.mark.to_y', { what: word }) : word);
+      const words = { x: `X ${w.cfg.x} %`, y: `Y ${y} %`, h: toY('H', from + m.half), limit: toY(T('sim.mark.limit'), from + m.jackLimit) };
       // H and the fill limit close together (within 3 % of the bar): one label for both, on the limit's line
       const close = Math.abs(gbFrac(at.h, pool) - gbFrac(at.limit, pool)) < 0.03;
-      if (close) { words.h = ''; words.limit = `H · ${words.limit}`; }
+      if (close) { words.limit = toY(`H · ${T('sim.mark.limit')}`, from + Math.max(m.half, m.jackLimit)); words.h = ''; }
       for (const [mid, mk] of Object.entries(marks)) {
         mk.node.style.left = `${(gbFrac(at[mid], pool) * 100).toFixed(2)}%`;
-        mk.node.classList.toggle('flip', mk.left || gbFrac(at[mid], pool) > 0.9);
         mk.node.firstChild.textContent = words[mid];
+        mk.frac = gbFrac(at[mid], pool);
       }
+      sideLabels(bar, marks);
       // what changed against the bar before it (the true values)
       if (!prev) changes.textContent = '';
       else {
@@ -943,11 +948,33 @@ function picture(h, body) {
         g.node.setAttribute('aria-valuemax', String(r1(hi)));
         g.node.setAttribute('aria-valuetext', `${T('sim.drag.' + key)}: ${text}`);
         g.tip.textContent = `${T('sim.drag.' + key)}: ${text}`;
+        // the value's tip stays inside the bar (shown while dragging or focused: then it has a width)
+        const tw = g.tip.offsetWidth;
+        const px = (sizeKey ? edge[key] : now / 100) * (bar.clientWidth || 0);
+        const shift = !tw ? 0 : Math.min(0, (bar.clientWidth || 0) - px - tw / 2) + Math.max(0, tw / 2 - px);
+        g.tip.style.transform = `translateX(calc(-50% + ${Math.round(shift)}px))`;
       }
     };
     r.bar = bar;
     r.grips = grips;
     return r;
+  }
+
+  /**
+   * Each mark's label on its own side of the line (Y and H to the left, X and the fill limit to the right) — unless it
+   * would be cut off at the bar's end: then the other side. Measured once laid out; before that, by the 90 % rule.
+   */
+  function sideLabels(bar, marks) {
+    const width = bar.clientWidth;
+    for (const mk of Object.values(marks)) {
+      const label = mk.node.firstChild;
+      const lw = label.offsetWidth;
+      if (!width || !lw) { mk.node.classList.toggle('flip', mk.left || mk.frac > 0.9); continue; }
+      const px = mk.frac * width;
+      const fitsLeft = px - lw - 4 >= 0;
+      const fitsRight = px + lw + 4 <= width;
+      mk.node.classList.toggle('flip', mk.left ? fitsLeft || !fitsRight : !fitsRight && fitsLeft);
+    }
   }
 
   const eve = row('before', true);
@@ -969,6 +996,8 @@ function picture(h, body) {
   /** Both bars, their marks, the handles and the words from the simulation as it stands (in place — during a drag too) */
   function update() {
     const side = V.sim.sides[V.rules];
+    const tag = body.querySelector('.jo-sim-day');       // the day shown (a drag starts over at day 0)
+    if (tag && !V.shown) tag.textContent = T('sim.day', { n: V.sim.w.day });
     eve.update(side.eve, side.prevMorn);
     morn.update(side.morn, side.eve);
     const m = side.morn;
