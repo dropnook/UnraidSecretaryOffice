@@ -184,7 +184,7 @@ function nightHost(?array $h = null): array
     $n = $GLOBALS['nightHost'] ?? [];
     return $h + [
         // Jack Emby takes part: hired and set up
-        'jack_on'     => $n['jack_on'] ?? fn (): bool => function_exists('embyReadSettings') && ($h['emby'])() !== null && embyReadSettings() !== null,
+        'jack_on'     => $n['jack_on'] ?? fn (): bool => function_exists('embyReadSettings') && ($h['emby'])() !== null && (!function_exists('embyConfigured') || embyConfigured(embyReadSettings())) && embyReadSettings() !== null,
         'emby_job'    => $n['emby_job'] ?? fn (array $args): int => embyJob('embycache', $args),
         'her_job'     => $n['her_job'] ?? fn (array $args, array $hh): int => moverelliJob($args, $hh),
         'emby_status' => $n['emby_status'] ?? fn (): array => (array) (readJson(EMBY_DATA . '/status.json') ?? []),
