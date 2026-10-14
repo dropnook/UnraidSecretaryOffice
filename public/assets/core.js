@@ -680,28 +680,47 @@ Office.copy = function copy(text) {
 // ------------------------------------------------------------------ dialog
 let closeDialog = null;
 Office.dialogOpen = () => !!closeDialog;
+/**
+ * The dialogs on top of each other (2026-10-14, Jack Streamer's wizard opens «Take over an earlier install» over itself):
+ * a dialog opened while a MODAL one is shown stacks on it — the modal one waits underneath as it is (its content, foot,
+ * classes, keys, its click outside, the control that had the focus) and comes back when the one over it closes. A plain
+ * dialog gives way to the next as always. Escape, the buttons and a click outside act on the top dialog only.
+ */
+let dialogTop = null;                 // the dialog shown: {modal, title, onKey, onclick, close}
+const dialogParked = [];              // the modal ones under it: {me, body, foot, dlgCls, backCls, focus}
 
 /** buttons: [{text, kind, act}] — when act() returns false the dialog stays open; [] = no foot (the body brings its own).
     wide: true = 760 px; 'log' = as wide and tall as the window allows (logs with long lines, 2026-10-10).
     onClose() runs however the dialog ends (button, Escape, click outside, another dialog).
     modal: true (2026-10-14, Jack Streamer's setup wizard) — an exclusive dialog: near the top, the page behind dimmed and
     blurred and inert (everything outside the dialog, Unraid's header too), a click outside does nothing and Escape calls
-    onEscape() instead of closing. cls: a class of the desk's own on the dialog. Answer: {buttons, close, setTitle}. */
+    onEscape() instead of closing; a dialog opened over it stacks (above). cls: a class of the desk's own on the dialog.
+    Answer: {buttons, close, setTitle}. */
 Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, onEscape, cls }) {
-  if (closeDialog) closeDialog();
+  if (dialogTop && !dialogTop.modal && closeDialog) closeDialog();      // a plain dialog gives way (it may uncover a modal one)
   const backdrop = $('#sso-dialog-backdrop');
-  $('#sso-dialog').classList.toggle('wide', !!wide);
-  $('#sso-dialog').classList.toggle('log', wide === 'log');
-  const own = cls ? String(cls).split(/\s+/).filter(Boolean) : [];
-  own.forEach((c) => $('#sso-dialog').classList.add(c));
-  backdrop.classList.toggle('modal', !!modal);
-  $('#sso-dialog-title').textContent = title;
+  const dlg = $('#sso-dialog');
   const box = $('#sso-dialog-body');
+  const foot = $('#sso-dialog-foot');
+  const titleEl = $('#sso-dialog-title');
+  if (dialogTop && dialogTop.modal) {
+    // over a modal one: it waits underneath, kept exactly as it is
+    document.removeEventListener('keydown', dialogTop.onKey);
+    dialogParked.push({ me: dialogTop, body: [...box.childNodes], foot: [...foot.childNodes], dlgCls: dlg.className, backCls: backdrop.className,
+      focus: document.activeElement });
+    dlg.className = 'dialog';
+  } else if (closeDialog) closeDialog();
+  const stacked = dialogParked.length > 0;
+  dlg.classList.toggle('wide', !!wide);
+  dlg.classList.toggle('log', wide === 'log');
+  const own = cls ? String(cls).split(/\s+/).filter(Boolean) : [];
+  own.forEach((c) => dlg.classList.add(c));
+  backdrop.classList.toggle('modal', !!modal || stacked);
+  titleEl.textContent = title;
   box.innerHTML = '';
   if (typeof body === 'string') box.appendChild(el('p', '', body));
   else if (body) box.appendChild(body);
 
-  const foot = $('#sso-dialog-foot');
   foot.innerHTML = '';
   const made = [];
   (buttons || [{ text: t('common.close') }]).forEach((b) => {
@@ -735,30 +754,53 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, on
   if (field) { field.focus(); field.select(); } else if (made[0]) made[0].focus();
 
   let closed = false;
+  const me = { modal: !!modal, title, onKey, close, onclick: null };
   function close() {
     if (closed) return;
+    // closed while it waits underneath (its desk went away): the dialogs over it first — then it is the top one again
+    if (dialogTop !== me && dialogParked.some((p) => p.me === me)) {
+      while (dialogTop && dialogTop !== me && closeDialog) closeDialog();
+    }
     closed = true;
-    backdrop.hidden = true;
-    backdrop.classList.remove('modal');
-    own.forEach((c) => $('#sso-dialog').classList.remove(c));
-    inerted.forEach((x) => { x.inert = false; });
-    closeDialog = null;
     document.removeEventListener('keydown', onKey);
+    inerted.forEach((x) => { x.inert = false; });
+    const below = dialogTop === me ? dialogParked.pop() : null;
+    if (below) {
+      // the one underneath back as it was: content, foot, classes, keys, its click outside, the focus
+      box.replaceChildren(...below.body);
+      foot.replaceChildren(...below.foot);
+      dlg.className = below.dlgCls;
+      backdrop.className = below.backCls;
+      titleEl.textContent = below.me.title;
+      backdrop.onclick = below.me.onclick;
+      document.addEventListener('keydown', below.me.onKey);
+      dialogTop = below.me;
+      closeDialog = below.me.close;
+      if (below.focus && below.focus.isConnected && below.focus.focus) below.focus.focus({ preventScroll: true });
+    } else {
+      backdrop.hidden = true;
+      backdrop.classList.remove('modal');
+      own.forEach((c) => dlg.classList.remove(c));
+      if (dialogTop === me) { dialogTop = null; closeDialog = null; }
+    }
     if (onClose) onClose();
   }
   function onKey(e) {
     if (e.key === 'Escape' && modal) { e.preventDefault(); if (onEscape) onEscape(); return; }
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
     if (e.key === 'Enter' && e.target.matches && e.target.matches('input.input:not([type=search])') && made.length) {
       e.preventDefault();
       made[made.length - 1].click();
     }
   }
   document.addEventListener('keydown', onKey);
-  backdrop.onclick = (e) => { if (e.target === backdrop && !modal) close(); };
+  me.onclick = (e) => { if (e.target === backdrop && !modal) close(); };
+  backdrop.onclick = me.onclick;
   backdrop.onwheel = dialogWheel;
+  dialogTop = me;
   closeDialog = close;
-  return { buttons: made, close, setTitle: (text) => { $('#sso-dialog-title').textContent = text; } };
+  return { buttons: made, close,
+    setTitle: (text) => { me.title = text; if (dialogTop === me) titleEl.textContent = text; } };
 };
 
 /**

@@ -487,6 +487,54 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
     if (opt.verbose) console.log(`  ${r.fails.length ? 'FAIL' : 'ok  '} ${j.route} ${j.theme} ${j.width} (${(r.ms / 1000).toFixed(1)} s)`);
   }
 }));
+// ------------------------------------------------------------------ the dialog stack (2026-10-14)
+// A dialog opened over a modal one (Jack Streamer's wizard → «Take over an earlier install») stacks: Escape, a click outside
+// and its buttons close only it; the wizard comes back as it was — its step, the typed value, the focus, still modal (the
+// page inert); Escape on the wizard then asks (it holds a change) instead of closing.
+async function dialogStack(browser, harness) {
+  const res = { route: 'dialog stack', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const fail = (what) => res.fails.push(what);
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+  try {
+    await page.goto(`${harness.url}#/emby/setup/servers`, { waitUntil: 'load' });
+    await page.waitForSelector('.dialog .jo-wiz[data-section="servers"] .jo-instance input', { timeout: 15000 });
+    const name = page.locator('.dialog .jo-instance input').first();
+    await name.fill('Stacked');
+    const look = () => page.evaluate(() => ({ wiz: !!document.querySelector('.dialog .jo-wiz[data-section="servers"]'),
+      value: (document.querySelector('.dialog .jo-instance input') || {}).value, inert: document.querySelector('#sso-desk').inert,
+      open: !document.querySelector('#sso-dialog-backdrop').hidden, modal: document.querySelector('#sso-dialog-backdrop').classList.contains('modal'),
+      title: document.querySelector('#sso-dialog-title').textContent, focus: document.activeElement && document.activeElement.matches('.dialog .jo-instance input') }));
+    const inner = () => page.evaluate(() => { Office.dialog({ title: 'inner', body: 'over the wizard', buttons: [{ text: 'Cancel' }] }); });
+    for (const [how, end] of [['Escape', () => page.keyboard.press('Escape')], ['its button', () => page.click('#sso-dialog-foot .btn')],
+      ['a click outside', () => page.mouse.click(5, 890)]]) {
+      await name.focus();
+      await inner();
+      await page.waitForTimeout(150);
+      const over = await look();
+      res.tested++;
+      if (over.wiz || over.title !== 'inner' || !over.inert) fail(`${how}: the inner dialog over the wizard is not shown on top (${JSON.stringify(over)})`);
+      await end();
+      await page.waitForTimeout(200);
+      const back = await look();
+      if (!back.open || !back.wiz || back.value !== 'Stacked' || !back.modal || !back.inert || !back.focus) {
+        fail(`${how} closed more than the inner dialog, or the wizard did not come back as it was (${JSON.stringify(back)})`);
+      }
+    }
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    res.tested++;
+    if (!(await page.evaluate(() => !!document.querySelector('.dialog .jo-wiz-confirm')))) fail('Escape on the wizard with a change did not ask «Discard changes?»');
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  for (const e of [...new Set(errors)]) fail(e);
+  await ctx.close();
+  return res;
+}
+if (!opt.only || routes.includes('emby/setup')) results.push(await dialogStack(browser, harness));
 await browser.close();
 await harness.close();
 

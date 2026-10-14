@@ -2363,6 +2363,8 @@ async function importGo(folders, p, err) {
   if (!j.ok) { showError(err, j.error); return false; }
   if (j.state) state = j.state;
   form = null;
+  // taken over from inside the wizard: it goes on with what came over (saved already — nothing to discard)
+  if (wiz) { initForm(); wiz.snap = formKey(); }
   importDone(j.done);
   return true;
 }
@@ -2385,7 +2387,7 @@ function importDone(d) {
     box.appendChild(el('p', 'role', T('import.done_nothing_before')));
   }
   Office.dialog({ title: T('import.done_title'), body: box, wide: true,
-    buttons: [{ text: Office.t('common.close'), kind: '' }], onClose: () => Office.go(`#/${ID}`) });
+    buttons: [{ text: Office.t('common.close'), kind: '' }], onClose: () => { if (wiz) drawWizard(); else Office.go(`#/${ID}`); } });
 }
 
 function input(value, onchange) {
