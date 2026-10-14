@@ -878,5 +878,16 @@
   "wizard.pool_none": "Aún no hay pool: ninguno de los recursos elegidos tiene un pool como almacenamiento principal.",
   "wizard.pool_from": "{pool} — de los ajustes de Unraid de los recursos {shares}",
   "wizard.sum_days": "sin ver en {days}: puede volver",
-  "count.people": {"one": "{n} persona", "other": "{n} personas"}
+  "count.people": {"one": "{n} persona", "other": "{n} personas"},
+  "sim.more": "Más valores",
+  "sim.drag.nm": "Nunca se mueve",
+  "sim.drag.end": "Otros recursos con caché al inicio",
+  "sim.drag.x": "Límite X",
+  "sim.drag.y": "Y (X − desfase)",
+  "sim.drag_hint": "Arrastra los tiradores de la barra (o usa las flechas): nunca se mueve, lo que tienen los otros recursos, X e Y. La parte de Jack Emby sigue las reglas. Solo en el simulador — no se guarda nada.",
+  "sim.back_real": "Volver a los valores reales",
+  "sim.bar.before": "Antes de la ejecución",
+  "sim.bar.after": "Después de la ejecución",
+  "sim.bar.same": "sin cambios",
+  "sim.mark.to_y": "{what} (hasta Y)"
 }

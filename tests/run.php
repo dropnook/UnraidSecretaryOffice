@@ -30485,6 +30485,24 @@ out.other = JSON.stringify(S.summary(S.runScenario('normal', {}, 8))) !== JSON.s
 out.sc = Object.fromEntries(S.SCENARIOS.map((sc) => [sc.id, S.summary(S.runScenario(sc.id, {}, 162))]));
 const tiny = S.runScenario('tiny', { others0: 282, jack0: 28 }, 162);
 const real = S.newSim({ pool: 4000, nm: 500, others0: 200, jack0: 926 }, 162);
+const c = S.fitCfg({ ...S.DEFAULTS, unwatchedDays: 30, nm: 150, others0: 300, jack0: 200 });
+out.drag = {
+  map: [S.barGb(0.25, 1024), S.barGb(-1, 1024), S.barGb(2, 1024), S.gbFrac(256, 1024), S.gbFrac(5000, 1024), S.gbFrac(5, 0)],
+  nm: [S.dragSet(c, 'nm', 203).nm, S.dragSet(c, 'nm', 203).others0, S.dragSet(c, 'nm', 999).nm, S.dragSet(c, 'nm', 999).others0, S.dragSet(c, 'nm', -50).nm],
+  end: [S.dragSet(c, 'end', 604).others0, S.dragSet(c, 'end', 9999).others0, S.dragSet(c, 'end', 10).others0, S.dragSet(c, 'end', 9999).jack0],
+  x: [S.dragSet(c, 'x', 85.4).x, S.dragSet(c, 'x', 85.4).offset, S.dragSet(c, 'x', 120).x, S.dragSet(c, 'x', 10).x, S.dragSet(c, 'x', 10).offset],
+  y: [S.dragSet(c, 'y', 60).offset, S.dragSet(c, 'y', 60).x, S.dragSet(c, 'y', 95).offset, S.dragSet(c, 'y', -3).offset],
+  fit: (({ nm, others0, jack0, x, offset }) => [nm, others0, jack0, x, offset])(S.fitCfg({ ...c, pool: 300, nm: 400, x: 1, offset: 0 })),
+};
+const segCases = [[[300, 200, 0, 1, 500], 10 / 800], [[1, 1, 1000], 10 / 340], [[0, 0, 5], 0.1], [[1, 1, 1], 0.5], [[5, 0, 0.2, 990, 4.8], 10 / 340], [[0, 0], 0.1]];
+out.seg = segCases.map(([v, min]) => { const w = S.segWidths(v, min); return { sum: w.reduce((a, b) => a + b, 0), zeroes: v.every((x, i) => x > 0 || w[i] === 0),
+  min: v.every((x, i) => x <= 0 || w[i] >= Math.min(min, 1 / v.filter((y) => y > 0).length) - 1e-9),
+  order: v.every((x, i) => v.every((y, j) => !(x > y) || w[i] >= w[j] - 1e-9)), w }; });
+const day = S.newSim({}, 162);
+const e0 = day.sides.new.eve;
+S.simDay(day);
+out.eve = { start0: e0.jack === 0 && e0.others > 0, prev: day.sides.new.prevMorn !== null, writes: day.sides.new.eve.others > day.sides.new.prevMorn.others,
+  morn: day.sides.new.morn.used === S.mathOf(day.w, day.sides.new).used };
 const held = S.measure(real.w, real.sides.new).files;
 out.real = { j: real.sides.new.hist[0].jack, old: real.sides.v162.hist[0].jack, biggest: Math.max(...held.map((e) => e.size)),
   want: S.wanted(real.w, real.sides.new).reduce((a, e) => a + e.size, 0), people: new Set(held.map((e) => e.uid)).size, n: real.w.people.length };
@@ -30528,6 +30546,21 @@ JS);
     check('skipper sim: download spike, 1.62.1 — unwatched files go back and come again within 7 days (ping-pong)',
         $sc['spike']['v162']['pingpong'] > 0 && $sc['spike']['v162']['forced'] > 0 && $sc['spike']['v162']['inv']['pingpong'] !== null, json_encode($sc['spike']['v162']));
     check('skipper sim: … the new rules on the same spike: none', $sc['spike']['new']['pingpong'] === 0);
+    $d = $r['drag'];
+    same('skipper sim: the bar\'s place ↔ GB (clamped to the bar)', [256, 0, 1024, 0.25, 1, 0], $d['map']);
+    same('skipper sim: dragging NM — snapped to ~1 % of the pool, the white\'s end stays (others shrink), never past it, never below 0',
+        [200, 250, 450, 0, 0], $d['nm']);
+    same('skipper sim: dragging the white\'s end — what the others hold, snapped, NM + others ≤ pool, never below NM; what Jack starts with fits behind',
+        [450, 874, 0, 0], $d['end']);
+    same('skipper sim: dragging X — 1 % steps, Y stays (the offset follows), at most 100, above Y', [85, 15, 100, 71, 1], $d['x']);
+    same('skipper sim: dragging Y — the offset = X − Y, X stays, at least 1, Y at least 1', [20, 80, 1, 79], $d['y']);
+    same('skipper sim: a setting within the rules (NM ≤ pool, nothing else beyond it, Y < X)', [300, 0, 0, 2, 1], $d['fit']);
+    foreach ($r['seg'] as $i => $x) {
+        check("skipper sim: segment widths case $i — sum 100 % (or nothing), every value > 0 at least the minimum, 0 stays 0, a bigger value never narrower",
+            (abs($x['sum'] - 1) < 1e-9 || $x['sum'] == 0) && $x['zeroes'] && $x['min'] && $x['order'], json_encode($x));
+    }
+    same('skipper sim: the day\'s two bars — day 0 «before» is the start (test values: Jack empty, the first night fills him), then the evening has the day\'s writes, the morning is the state after the night',
+        ['start0' => true, 'prev' => true, 'writes' => true, 'morn' => true], $r['eve']);
     $re = $r['real'];
     check('skipper sim: real data — day 0 holds what Jack the Skipper really holds (926 GB, within one file), under both rule sets',
         $re['j'] >= 926 && $re['j'] < 926 + $re['biggest'] + 0.1 && abs($re['old'] - $re['j']) < 0.01, json_encode($re));
@@ -30549,7 +30582,7 @@ function testSkipperWizard(): void
     same('skipper wizard: every text skipper.js asks for is in his lang files', [], array_values(array_filter(array_unique($m[1]), fn ($k) => !isset($en[$k]))));
     $families = ['sim.f.' => ['pool', 'nm', 'writes', 'watch', 'newEps', 'people', 'x', 'offset', 'k', 'unwatchedDays', 'age'],
         'sim.ev.' => ['spike', 'appdata', 'binge', 'nobody', 'abandon'], 'sim.sc.' => ['normal', 'spike', 'nobody', 'binge', 'appdata', 'films', 'tiny'],
-        'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
+        'sim.inv.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'], 'sim.drag.' => ['nm', 'end', 'x', 'y'], 'sim.bar.' => ['before', 'after', 'same', 'nm', 'others', 'unw', 'wat', 'free'], 'sim.short.' => ['jack', 'others', 'unwatched', 'pingpong', 'limit'],
         'sim.log.' => ['day', 'spill', 'plan', 'back_watched', 'back_stale', 'back_borrowed', 'age', 'goes_x', 'goes_over', 'fetch', 'skip_limit', 'skip_y',
             'pingpong', 'revived', 'fill_over', 'told', 'never', 'round', 'night_writes', 'event', 'warn'], 'sim.who.' => ['jack', 'her']];
     $miss = [];

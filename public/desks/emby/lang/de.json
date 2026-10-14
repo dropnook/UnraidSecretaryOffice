@@ -878,5 +878,16 @@
   "wizard.pool_none": "Noch kein Pool: keiner der gewählten Shares hat einen Pool als Primärspeicher.",
   "wizard.pool_from": "{pool} — aus den Unraid-Share-Einstellungen von {shares}",
   "wizard.sum_days": "{days} nicht geschaut: darf zurück",
-  "count.people": {"one": "{n} Person", "other": "{n} Personen"}
+  "count.people": {"one": "{n} Person", "other": "{n} Personen"},
+  "sim.more": "Weitere Werte",
+  "sim.drag.nm": "Zügelt nie",
+  "sim.drag.end": "Andere Shares mit Cache zu Beginn",
+  "sim.drag.x": "Grenze X",
+  "sim.drag.y": "Y (X − Offset)",
+  "sim.drag_hint": "Zieh die Griffe im Balken (oder nimm die Pfeiltasten): zügelt nie, was die anderen Shares halten, X und Y. Der Teil von Jack the Skipper folgt den Regeln. Nur im Simulator — nichts wird gespeichert.",
+  "sim.back_real": "Zurück auf echte Werte",
+  "sim.bar.before": "Vor dem Lauf",
+  "sim.bar.after": "Nach dem Lauf",
+  "sim.bar.same": "unverändert",
+  "sim.mark.to_y": "{what} (bis Y)"
 }

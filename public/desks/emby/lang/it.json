@@ -878,5 +878,16 @@
   "wizard.pool_none": "Ancora nessun pool: nessuna delle condivisioni scelte ha un pool come archiviazione primaria.",
   "wizard.pool_from": "{pool} — dalle impostazioni di Unraid delle condivisioni {shares}",
   "wizard.sum_days": "non visto da {days}: può tornare",
-  "count.people": {"one": "{n} persona", "other": "{n} persone"}
+  "count.people": {"one": "{n} persona", "other": "{n} persone"},
+  "sim.more": "Altri valori",
+  "sim.drag.nm": "Non si sposta mai",
+  "sim.drag.end": "Altre condivisioni con cache all'inizio",
+  "sim.drag.x": "Limite X",
+  "sim.drag.y": "Y (X − offset)",
+  "sim.drag_hint": "Trascina le maniglie nella barra (o usa i tasti freccia): non si sposta mai, ciò che tengono le altre condivisioni, X e Y. La parte di Jack Emby segue le regole. Solo nel simulatore — nulla viene salvato.",
+  "sim.back_real": "Torna ai valori reali",
+  "sim.bar.before": "Prima dell'esecuzione",
+  "sim.bar.after": "Dopo l'esecuzione",
+  "sim.bar.same": "invariato",
+  "sim.mark.to_y": "{what} (fino a Y)"
 }
