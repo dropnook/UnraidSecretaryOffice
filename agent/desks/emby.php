@@ -38,7 +38,10 @@ const EMBY_POOL_GROUPS  = 5000;    // what lies on the pool, by film/series fold
 const EMBY_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'return_to_origin', 'array_source', 'array_path', 'user_path',
-                       'array_disks_glob', 'create_share_root', 'mover_debug_level'];
+                       'array_disks_glob', 'create_share_root', 'mover_debug_level', 'give_back_unwatched_days'];
+// Jack the Skipper's wizard (2026-10-14): a series or film nobody watched for this many days may go back unwatched — saved in
+// his settings file, read by nothing yet (the pool simulator plays it through; the night run stays as it is)
+const EMBY_UNWATCHED_DAYS = [1, 365, 30];        // min, max, default
 // both ways always rsync (2026-10-10, after Unraid's mover took EmbyCache's films back): EmbyCache keeps its mover
 // path for standalone users, Jack never selects it — not in his setup, not from an old settings file, not in what he hands it
 const EMBY_TOOLS_RSYNC = ['fill_tool' => 'rsync', 'cleanup_tool' => 'rsync'];
@@ -98,6 +101,8 @@ desk('emby', [
         'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState() + ['night' => embyNightNow()]],
         // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (emby-progress.php); while the
         // night run goes, the whole night stops after the file in flight (nightStopAsk(), as on her card)
+        // the setup's pool simulator, real data: the pool measured now — only on the user's click (it may wake the pool)
+        'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embySkipperLevel(embyPoolLook(embyReadSettings(), true))],
         'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()],
     ],
     'jobs'    => [
@@ -637,7 +642,9 @@ function embyPoolUsage(?array $settings): ?array
     // is his for sure — what he holds, how many files waited in his last run for room, what he gave back
     $look = embyPoolLook($settings);
     if ($look !== null) {
-        $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y']];
+        $out['moverelli'] = ['x' => $look['rules']['x'], 'y' => $look['rules']['y'], 'k' => $look['rules']['k'],
+                             'min_age' => embySkipperAge(DATA_DIR . '/moverelli/smart_mover.ini')];
+        $out['level'] = embySkipperLevel($look);         // the setup's pool simulator: the numbers as measured (null: not measured)
         if ($look['rules']['x'] > 0) {
             $out['min_free'] = 100 - $look['rules']['y'];
         }
@@ -677,6 +684,39 @@ function embyPoolLook(?array $settings, bool $wake = false): ?array
         'mnt' => '/mnt', 'jack_list' => EMBY_DATA . '/embycache_exclude.txt', 'asleep' => null];
     $o['names'] ??= array_map(fn ($f) => basename($f, '.cfg'), glob("$o[shares_dir]/*.cfg") ?: []);
     return poolLevelJack($o + ['cache_path' => (string) ($settings['cache_path'] ?? ''), 'wake' => $wake]);
+}
+
+/**
+ * The pool as the setup's simulator needs it (bytes; pure on poolLevelJack()'s answer): size, used, NM, what Jack holds,
+ * the other caching shares (downloads …), their names and when — null when not measured (no ZFS pool, asleep, no limit).
+ */
+function embySkipperLevel(?array $look): ?array
+{
+    $l = $look['level'] ?? null;
+    if (!is_array($l)) {
+        return null;
+    }
+    return ['size' => (int) $l['size'], 'used' => (int) $l['used'], 'nm' => (int) $l['nm'], 'jack' => (int) $l['jack'],
+            'others' => (int) $l['downloads'], 'shares' => array_values((array) ($l['shares'] ?? [])), 'pool' => (string) ($l['pool'] ?? ''),
+            'x' => (int) $l['x'], 'y' => (int) $l['y'], 'k' => (int) $l['k'], 'at' => time()];
+}
+
+/** Ms. Moverelli's age rule (smart_mover.ini [GLOBAL] min_age, days) for the simulator's defaults — null: none set */
+function embySkipperAge(string $ini): ?int
+{
+    if (!is_file($ini)) {
+        return null;
+    }
+    $in = false;
+    foreach (preg_split('/\R/', (string) @file_get_contents($ini, false, null, 0, 1 << 20)) as $line) {
+        $line = trim($line);
+        if (preg_match('/^\[(.*)\]$/', $line, $m)) {
+            $in = trim($m[1]) === 'GLOBAL';
+        } elseif ($in && preg_match('/^min_age\s*=\s*(\d{1,4})$/D', $line, $m)) {
+            return (int) $m[1];
+        }
+    }
+    return null;
 }
 
 /** What EmbyCache is told for a run (dry, real): 100 − Y as his minimum free space, his half as the floor of his give-back */
@@ -889,6 +929,13 @@ function embySave(mixed $in): array
     foreach (EMBY_SETTINGS as $k) {
         if (array_key_exists($k, $in)) {
             $cfg[$k] = $in[$k];
+        }
+    }
+    // the wizard's «not watched for … days»: a whole number in its range, never cast
+    if (array_key_exists('give_back_unwatched_days', $in)) {
+        $d = $in['give_back_unwatched_days'];
+        if (!is_int($d) || $d < EMBY_UNWATCHED_DAYS[0] || $d > EMBY_UNWATCHED_DAYS[1]) {
+            throw new Problem('emby_bad_number', ['field' => 'give_back_unwatched_days']);
         }
     }
     $cfg = embyToolsRsync($cfg);                       // a fill_tool/cleanup_tool the request carries is ignored: always rsync

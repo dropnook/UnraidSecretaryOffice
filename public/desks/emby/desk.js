@@ -44,6 +44,9 @@ let progAsked = 0;            // when the part was last asked for (this browser'
 let progBox = null;           // the panel on the page, redrawn in place
 let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: embyNightNow()) — her card's phases on his page
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
+// the setup's pool simulator lives in skipper.js beside this file (loaded once, when its step is first drawn — like Mr.
+// Restori's drill.js); it says when it is there (Office.skipperLoaded)
+const SELF = document.currentScript && document.currentScript.src;
 
 // ------------------------------------------------------------------ loading
 /** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
@@ -1369,10 +1372,12 @@ async function scheduleDialog(job) {
 // ------------------------------------------------------------------ setup (#/emby/setup)
 /*
  * Everything EmbyCache's own setup asks (embycache_setup.py), plus the
- * choices it leaves to its settings file:
- *   1 servers (one or more Emby instances)   2 libraries and their folders
- *   3 people (and their own budgets)          4 pool and amount
- *   5 more (way back, tools, sources)
+ * choices it leaves to its settings file — as a wizard (2026-10-14, Jack the Skipper): step chips (the row of tiles),
+ * «Back» / «Next» under each step, saving in the summary:
+ *   1 server (the media server, then one or more Emby instances)   2 libraries and their folders
+ *   3 people (and their own budgets)   4 pool and sharing (amount; Ms. Moverelli's limits; «not watched for N days»)
+ *   5 the pool simulator (skipper.js)   6 more (way back, tools, sources)   7 import (once set up)   8 summary and «Save»
+ * Saving writes the same settings as before, plus give_back_unwatched_days (read by nothing yet).
  * The gather has its own small settings (gatherSettingsDialog).
  */
 let form = null;
@@ -1409,9 +1414,12 @@ function initForm() {
       return_to_origin: set.return_to_origin ?? true,
       array_source: set.array_source || 'user0',
       create_share_root: !!set.create_share_root,
+      give_back_unwatched_days: Number.isInteger(set.give_back_unwatched_days) ? set.give_back_unwatched_days : UNWATCHED_DAYS,
     },
   };
 }
+/** «Not watched for … days» when his settings have none (agent: EMBY_UNWATCHED_DAYS) */
+const UNWATCHED_DAYS = 30;
 
 /** Docker path -> host path: from the Emby container's own mounts (longest match), else /data|/media -> /mnt/user */
 function suggestMapping(path) {
@@ -1467,6 +1475,8 @@ function renderSetup() {
     [T('setup.users'), T('setup.help_users')],
     [T('setup.scope'), T('setup.help_scope')],
     [T('setup.more'), T('setup.help_more')],
+    [T('share.title'), T('share.help')],
+    [T('sim.title'), T('sim.help')],
     [T('setup.save'), T('setup.help_save')],
   ]));
   const ph = el('div', 'jo-pagehead');
@@ -1475,19 +1485,13 @@ function renderSetup() {
   root.appendChild(ph);
   if (!state) return;
   if (!form) initForm();
+  loadSkipper();                    // the simulator's math (the sharing words use it too): once per page life
   if (!state.configured) root.appendChild(importSection());     // first thing for someone who ran the tools before (a hint over the row)
   // the row of his setup's steps and under it the step chosen (none: every step in order — the page as before the tiles)
   const sw = setupSwitcher();
   root.appendChild(sw.el);
   sw.render();
-  // the save bar under all (only once a server is connected: before, there is nothing of the form to save)
-  if (connected()) {
-    const save = button(T('setup.save'), '', saveSetup);
-    save.disabled = running();
-    const foot = el('div', 'toolbar');
-    foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
-    root.appendChild(foot);
-  }
+  // «Save» stands in the summary (the wizard's last step) — nothing under the row any more
   focusBack(spot);
 }
 
@@ -1496,9 +1500,9 @@ function renderSetup() {
 // that step alone under the row, nothing chosen = every step in order, the second click = all again; kept as
 // emby.setup.tile, a step's route #/emby/setup/<tile>. The form lives across every drawing (form): a click in a step draws
 // the page anew from it — the typed values stay, the focus comes back to the control clicked (focusSpot()/focusBack()).
-/** [tile id, lang key (the step's title: the tile's label, its place for the search)] in the steps' order */
+/** [tile id, lang key (the step's title: the tile's label, its place for the search)] in the steps' order — the wizard's */
 const SETUP_TILES = [['servers', 'setup.server'], ['libraries', 'setup.libraries'], ['users', 'setup.users'], ['scope', 'setup.scope'],
-  ['more', 'setup.more'], ['import', 'import.title']];
+  ['simulator', 'sim.title'], ['more', 'setup.more'], ['import', 'import.title'], ['summary', 'wizard.summary']];
 const connected = () => !!form && form.instances.some((i) => i.server);
 let setupSw = null;
 /** The setup's row and its steps (core.js's section switcher) — one per page life */
@@ -1509,7 +1513,7 @@ function setupSwitcher() {
     key: 'emby.setup.tile',
     bodyId: 'jo-setup-steps',
     grid: 'stats jo-setup-tiles',
-    default: '',                 // the start: every step (the page as it always was)
+    default: 'servers',          // the wizard starts at its first step (nothing chosen: every step in order)
     tiles: () => setupTileList(),
     wants: (sub) => SETUP_TILES.some(([id]) => id === sub),      // a route before his state is in
   });
@@ -1519,8 +1523,9 @@ function setupSwitcher() {
 /** The tiles for the switcher: setupTileData() as it stands, each with its step as its section (none before his state) */
 function setupTileList() {
   if (!state || !form) return [];
-  return setupTileData().map((d) => ({ id: d.id, key: d.key, place: `setup.tile.${d.id}`,
-    tile: (a) => Office.stat({ label: T(d.key), value: d.value, sub: d.sub.filter(Boolean), alert: d.alert, ...a }), section: () => setupStep(d.id) }));
+  return setupTileData().map((d, i) => ({ id: d.id, key: d.key, place: `setup.tile.${d.id}`,
+    tile: (a) => Office.stat({ label: T('wizard.step', { n: i + 1, name: T(d.key) }), value: d.value, sub: d.sub.filter(Boolean), alert: d.alert, ...a }),
+    section: () => wizardNav(d.id, setupStep(d.id)) }));
 }
 /** One step's section */
 function setupStep(id) {
@@ -1528,8 +1533,25 @@ function setupStep(id) {
   if (id === 'libraries') return setupLibraries();
   if (id === 'users') return setupUsers();
   if (id === 'scope') return setupScope();
+  if (id === 'simulator') return setupSimulator();
   if (id === 'more') return setupMore();
+  if (id === 'summary') return setupSummary();
   return importSection();
+}
+/**
+ * The wizard's «Back» / «Next» under a step while that step is chosen (the whole page — nothing chosen — has none): the
+ * neighbour step picked like a click on its chip
+ */
+function wizardNav(id, s) {
+  const sw = setupSwitcher();
+  if (!s || sw.active() !== id) return s;
+  const ids = setupTileData().map((d) => d.id);
+  const i = ids.indexOf(id);
+  const bar = el('div', 'toolbar jo-wiz-nav');
+  if (i > 0) bar.appendChild(button(T('wizard.back'), 'plain', () => sw.pick(ids[i - 1], 'click')));
+  if (i < ids.length - 1) bar.appendChild(button(T('wizard.next'), '', () => sw.pick(ids[i + 1], 'click')));
+  s.appendChild(bar);
+  return s;
 }
 
 /** The people of all connected servers, each once */
@@ -1561,9 +1583,11 @@ function setupTileData() {
   const pool = String(v.cache_path || '').replace('/mnt/', '') || '–';
   out.push({ id: 'scope', key: 'setup.scope', value: v.budget_mode ? (String(v.cache_budget || '').trim() || '–') : pool,
     sub: [v.budget_mode ? T('setup.tile.budget_line', { pool }) : T('setup.tile.count_line', { n: Number(v.number_episodes) || 0 })], alert: false });
+  out.push({ id: 'simulator', key: 'sim.title', value: T('setup.tile.optional'), sub: [nOf('days', v.give_back_unwatched_days)], alert: false });
   const changed = Object.keys(MORE_DEFAULTS).some((k) => v[k] !== MORE_DEFAULTS[k]);
   out.push({ id: 'more', key: 'setup.more', value: T(changed ? 'setup.tile.changed' : 'setup.tile.default'), sub: [], alert: false });
   if (state.configured) out.push({ id: 'import', key: 'import.title', value: T('setup.tile.optional'), sub: [], alert: false });
+  out.push({ id: 'summary', key: 'wizard.summary', value: T('setup.save'), sub: [on ? '' : T('setup.tile.saved')], alert: false });
   return out;
 }
 
@@ -1591,6 +1615,7 @@ function focusBack(spot) {
 /** 1. servers: address and key of each Emby instance, «Connect» */
 function setupServers() {
   const s1 = section(T('setup.server'), T('setup.server_sub'), { place: 'setup.server' });
+  s1.appendChild(mediaChoice());
   form.instances.forEach((inst, idx) => {
     const box = el('div', 'box jo-instance');
     const f1 = el('div', 'jo-form');
@@ -1630,6 +1655,24 @@ function setupServers() {
   s1.appendChild(bar1);
   if (!connected()) s1.appendChild(el('p', 'callout', T('setup.connect_first')));
   return s1;
+}
+
+/**
+ * The media server: Emby (what he works with), Plex and Jellyfin coming soon (greyed, not choosable). The names are the
+ * products' own (not translated).
+ */
+function mediaChoice() {
+  const box = el('div', 'jo-media');
+  box.appendChild(el('div', 'jo-media-head', T('wizard.media')));
+  const row = el('div', 'jo-media-row');
+  [['Emby', true], ['Plex', false], ['Jellyfin', false]].forEach(([name, works]) => {
+    const card = el('div', 'box jo-media-card' + (works ? ' on' : ' off'));
+    card.setAttribute('aria-disabled', works ? 'false' : 'true');
+    card.append(el('b', '', name), chip(T(works ? 'wizard.media_ok' : 'wizard.soon'), works ? 'ok' : ''));
+    row.appendChild(card);
+  });
+  box.append(row, el('p', 'role', T('wizard.media_sub')));
+  return box;
 }
 
 /** 2. libraries and their folders */
@@ -1754,7 +1797,115 @@ function setupScope() {
     field(T('setup.resume_series'), number(v, 'max_resume_series', 0, 999), T('setup.resume_series_hint')),
     field(T('setup.favorites'), number(v, 'max_favorite_series', 0, 999), T('setup.zero_off')),
     check(T('setup.next_up'), v.use_next_up, (x) => { v.use_next_up = x; }, T('setup.next_up_hint')));
+  s4.appendChild(sharePart());
   return s4;
+}
+
+/**
+ * 4b. Sharing the pool (2026-10-14): Ms. Moverelli's limits as she has them (her setup sets them — shown, not asked here),
+ * the new «not watched for … days», the rule in words — with numbers once the pool is measured (skipper.js's math, the
+ * same as the simulator's)
+ */
+function sharePart() {
+  const v = form.values;
+  const box = el('div', 'box jo-part');
+  box.appendChild(el('div', 'jo-part-head', T('share.title')));
+  const f = el('div', 'jo-form');
+  const pool = state.pool || {};
+  const mo = pool.moverelli;
+  if (mo && mo.x > 0) {
+    const kv = el('dl', 'kv jo-share-kv');
+    const add = (key, value) => kv.append(el('dt', '', T(key)), el('dd', '', value));
+    add('share.x', `${mo.x} %`);
+    add('share.offset', `${mo.x - mo.y} % (Y = ${mo.y} %)`);
+    add('share.k', `${mo.k ?? 50} %`);
+    add('share.age', mo.min_age == null ? '–' : nOf('days', mo.min_age));
+    f.appendChild(kv);
+    const her = el('p', 'role');
+    her.appendChild(link(T('share.her_link'), () => Office.go('#/moverelli/setup')));
+    f.appendChild(her);
+  } else {
+    f.appendChild(el('p', 'callout jo-slice', T(mo ? 'room.own' : 'room.none', { min: pool.min_free ?? '?' })));
+  }
+  f.appendChild(field(T('share.days'), number(v, 'give_back_unwatched_days', 1, 365), T('share.days_hint')));
+  shareWords().forEach((line) => f.appendChild(el('p', 'role jo-slice', line)));
+  box.appendChild(f);
+  return box;
+}
+/** The borrowing rule in words: always the rule, and the numbers when the pool is measured and the simulator's math is here */
+function shareWords() {
+  const v = form.values;
+  const pool = state.pool || {};
+  const mo = pool.moverelli;
+  const out = [T('share.rule_back', { days: nOf('days', v.give_back_unwatched_days) })];
+  if (!mo || !(mo.x > 0)) return out;
+  const lv = pool.level;
+  const m = lv && Office.skipperMath ? Office.skipperMath.skipperPoolMath({ size: lv.size, nm: lv.nm, jack: lv.jack, others: lv.others,
+    x: mo.x, offset: mo.x - mo.y, k: mo.k ?? 50 }) : null;
+  if (!m) {
+    out.unshift(T('share.rule', { y: mo.y }));
+    if (!lv) out.push(T('share.unmeasured'));
+    return out;
+  }
+  out.unshift(T('share.rule_now', { y: mo.y, room: fmt.size(m.room), h: fmt.size(m.half), d: fmt.size(m.halfD),
+    limit: fmt.size(m.jackLimit), held: fmt.size(m.jack), others: fmt.size(m.others) }));
+  return out;
+}
+
+/** 5. the pool simulator (skipper.js, loaded once on first need; until then the wave) */
+function setupSimulator() {
+  if (Office.skipperSim) {
+    return Office.skipperSim.view({ T, el, fmt, nOf, button, section, base: simBase,
+      measure: async () => {
+        const j = await Office.api.post(`${ID}.pool_measure`, {});
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return null; }
+        if (!j.level) { Office.toast(T('sim.unmeasured'), true); return null; }
+        return j.level;
+      } });
+  }
+  loadSkipper();
+  const s = section(T('sim.title'), T('sim.sub'), { place: 'sim.title' });
+  s.appendChild(el('span', 'spin'));
+  return s;
+}
+/** What the simulator starts from: his form's N days, Ms. Moverelli's limits, the pool as measured (bytes) — or less */
+function simBase() {
+  const pool = (state && state.pool) || {};
+  const mo = pool.moverelli || {};
+  return { days: form ? form.values.give_back_unwatched_days : UNWATCHED_DAYS, x: mo.x || 0, y: mo.y || 0, k: mo.k, age: mo.min_age, level: pool.level || null };
+}
+function loadSkipper() {
+  if (Office.skipperSim || !SELF || Office.skipperLoaded) return;
+  Office.skipperLoaded = () => { if (view && page === 'setup') renderSetup(); };
+  const sc = document.createElement('script');
+  sc.src = SELF.replace(/desk\.js(\?[^#]*)?$/, 'skipper.js$1');
+  (document.head || document.body).appendChild(sc);
+}
+
+/** 8. the summary: what saving writes, and «Save» (only once a server is connected: before, there is nothing to save) */
+function setupSummary() {
+  const v = form.values;
+  const s = section(T('wizard.summary'), T('wizard.summary_sub'), { place: 'wizard.summary' });
+  if (!connected()) return notYet(s);
+  const kv = el('dl', 'kv jo-sum');
+  const add = (key, value) => kv.append(el('dt', '', T(key)), el('dd', '', value || '–'));
+  add('setup.server', form.instances.map((i) => (i.server ? `${i.servername} (${i.server.name})` : i.servername)).join(', '));
+  add('setup.libraries', libraryList().filter((l) => form.chosenLibs.has(l.name)).map((l) => l.name).join(', '));
+  const people = everyone().filter((id) => form.chosenUsers.has(id));
+  const names = new Map(form.instances.flatMap((inst) => (inst.users || []).map((u) => [u.id, u.name])));
+  add('setup.users', people.length ? people.map((id) => names.get(id) || id).join(', ') : T('setup.tile.everyone'));
+  add('setup.pool', v.cache_path);
+  add('setup.mode', v.budget_mode ? `${T('setup.mode_budget')} · ${v.cache_budget || '–'}` : `${T('setup.mode_count')} · ${v.number_episodes}`);
+  add('share.days', nOf('days', v.give_back_unwatched_days));
+  const changed = Object.keys(MORE_DEFAULTS).some((k) => v[k] !== MORE_DEFAULTS[k]);
+  add('setup.more', T(changed ? 'setup.tile.changed' : 'setup.tile.default'));
+  s.appendChild(kv);
+  const save = button(T('setup.save'), '', saveSetup);
+  save.disabled = running();
+  const foot = el('div', 'toolbar');
+  foot.append(save, el('span', 'role', T(running() ? 'setup.save_running' : 'setup.save_hint')));
+  s.appendChild(foot);
+  return s;
 }
 
 /** 5. more: the way back and where to read from (both ways always rsync: Unraid's move binary is never Jack's choice) */
@@ -2043,7 +2194,12 @@ async function saveSetup() {
     return_to_origin: v.return_to_origin,
     array_source: v.array_source,
     create_share_root: v.create_share_root,
+    give_back_unwatched_days: Math.round(Number(v.give_back_unwatched_days)),
   };
+  if (!Number.isInteger(settings.give_back_unwatched_days) || settings.give_back_unwatched_days < 1 || settings.give_back_unwatched_days > 365) {
+    Office.toast(Office.errorText({ key: 'emby_bad_number', params: { field: T('share.days') } }, ID), true);
+    return;
+  }
   const j = await act('save', { settings });
   if (!j) return;
   Office.toast(T('setup.saved'));
@@ -2323,14 +2479,15 @@ Office.places(ID, [
     .map(([key, text]) => ({ kind: 'help', key, text })),
   ...['what', 'tools', 'progress', 'origin', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['import.title', 'import.help'], ['setup.key', 'setup.help_key'], ['setup.mapping', 'setup.help_mapping'], ['setup.users', 'setup.help_users'],
-    ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['setup.save', 'setup.help_save']]
+    ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['share.title', 'share.help'], ['sim.title', 'sim.help'], ['setup.save', 'setup.help_save']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm,
+    renderSetup, page: () => page, setupTileData, setupTileList, SETUP_TILES, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary,
+    wizardNav, setupSwitcher,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
     setNight: (n) => { nightNow = n; }, nightGoing };

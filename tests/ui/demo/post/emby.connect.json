@@ -1,0 +1,13 @@
+{
+  "server": {"name": "FamilienServer", "version": "4.9.1.80"},
+  "libraries": [
+    {"name": "Familienfilme", "type": "movies", "locations": ["/familienvideos"]},
+    {"name": "Familienserien", "type": "tvshows", "locations": ["/familienserien"]},
+    {"name": "Hörspiele", "type": "music", "locations": ["/hoerspiele"]}
+  ],
+  "users": [
+    {"id": "u-anna", "name": "Anna", "admin": true},
+    {"id": "u-ben", "name": "Ben", "admin": false},
+    {"id": "u-carla", "name": "Carla", "admin": false}
+  ]
+}

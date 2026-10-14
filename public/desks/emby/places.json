@@ -28,9 +28,12 @@
     "setup.scope",
     "setup.server",
     "setup.users",
+    "share.title",
     "shares",
+    "sim.title",
     "tile.pool",
-    "tools"
+    "tools",
+    "wizard.summary"
   ],
   "texts": [
     "help.dry",
@@ -53,6 +56,8 @@
     "setup.help_more",
     "setup.help_save",
     "setup.help_scope",
-    "setup.help_users"
+    "setup.help_users",
+    "share.help",
+    "sim.help"
   ]
 }
