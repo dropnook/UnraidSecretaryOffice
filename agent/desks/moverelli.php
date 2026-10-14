@@ -1260,6 +1260,11 @@ function moverelliJob(array $args, ?array $h = null): int
     jackWaitEnd($wait, $h['waitdir'], 'moverelli');
     @unlink("$dir/status.json");
     @unlink("$dir/office-stop.json");
+    // inside the night: «Stop after this file» asked while this job started (the night named her the tool at work, then
+    // the line above took her stop file away) — asked again, so the run stops after its first file instead of at its end
+    if ($by === 'night' && is_file("$dir/night-stop.json")) {
+        writeAtomic("$dir/office-stop.json", (string) @file_get_contents("$dir/night-stop.json"), 0600, 0, 0);
+    }
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'HOME' => '/root', 'LANG' => 'C.UTF-8',
             'CUSTOMMOVER_INI' => "$dir/smart_mover.ini", 'CUSTOMMOVER_LOG' => "$dir/smart_mover.log", 'CUSTOMMOVER_LOCK' => "$dir/smartmover.lock",
             'CUSTOMMOVER_STATUS' => "$dir/status.json", 'CUSTOMMOVER_STOP' => "$dir/office-stop.json",

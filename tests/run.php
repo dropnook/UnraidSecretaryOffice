@@ -31803,6 +31803,14 @@ function testMoverelliStop(): void
     foreach (["disk1/Docs/gone.txt.partial", "disk2/Docs/$last.partial", 'disk1/Docs/keep.txt'] as $f) {
         @unlink("$tmp/mnt/$f");
     }
+    // R2 2026-10-15: inside the night a stop asked while her job starts (the job takes her old stop file away) still holds —
+    // the night's stop file asks again: nothing moved, stopped
+    $before = count(glob("$tmp/mnt/cache/Docs/*"));
+    writeAtomic("$dir/night-stop.json", jsonEncode(['time' => time(), 'why' => 'user']), 0600, 0, 0);
+    $exit = moverelliJob(['run', '--night', '--solo'], moverelliHost());
+    @unlink("$dir/night-stop.json");
+    same('night stop at her start: the night\'s stop file holds for her job — stopped (3), nothing of Docs moved', [3, 'stopped', $before],
+        [$exit, (readJson("$dir/status.json") ?? [])['result'] ?? null, count(glob("$tmp/mnt/cache/Docs/*"))]);
     unset($GLOBALS['disksIni']);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('no harder stop (Unraid\'s move catches TERM and finishes its file): no stop_now action, no kill', !str_contains($src, "'stop_now'") && !str_contains($src, 'moverelliKillMove')

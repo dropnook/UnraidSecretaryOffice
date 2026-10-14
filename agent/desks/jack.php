@@ -2610,6 +2610,10 @@ function jackJob(string $tool, array $args): int
     jackWaitEnd($wait, RUN_DIR, $tool);          // the run shows as running now: a second start is refused by that
     @unlink("$dir/status.json");
     @unlink("$dir/office-stop.json");
+    // inside the night: «Stop after this file» asked while this job started (see moverelliJob()) — asked again here
+    if ($by === 'night' && function_exists('nightHost') && is_file(($night = (string) nightHost()['dir']) . '/night-stop.json')) {
+        writeAtomic("$dir/office-stop.json", (string) @file_get_contents("$night/night-stop.json"), 0600, 0, 0);
+    }
 
     $progress = null;                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
