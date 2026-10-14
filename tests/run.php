@@ -32635,7 +32635,13 @@ function testNightRun(): void
         return poolLevelMath(1000 * $G, $used * $G, ($p['j'] + $p['d']) * $G, 80, $p['j'] * $G) + ['pool' => 'cache'];
     };
     $runs = [];
+    // Unraid's bookkeeping: two data disks (4 TB, 1 TB used each — KB), parity and a pool not counted
+    file_put_contents("$tmp/disks.ini", "[\"parity\"]\nname=\"parity\"\ntype=\"Parity\"\nfsSize=\"9\"\nfsUsed=\"9\"\n"
+        . "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsSize=\"4000000000\"\nfsUsed=\"1000000000\"\n"
+        . "[\"disk2\"]\nname=\"disk2\"\ntype=\"Data\"\nfsSize=\"4000000000\"\nfsUsed=\"1000000000\"\n"
+        . "[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsSize=\"7\"\nfsUsed=\"7\"\n");
     $GLOBALS['nightHost'] = [
+        'disks_ini' => "$tmp/disks.ini",
         'jack_on' => fn () => true,
         'level' => fn (array $g, array $hh, bool $wake) => $level(),
         'jack_status' => function () use (&$p, $G) {
@@ -32702,14 +32708,17 @@ function testNightRun(): void
          $n['running'] ?? null, $notified]);
     same('night run 1: inside the night the runs pass its lock (night held, not «busy» for them)', [true, false, true], $inside[0] ?? null);
     $pic = $n['picture'] ?? [];
-    same('night run 1: the picture — X, where she moves to, each phase as it began (before, forecast, planned), the files done by both',
-        [80, ['to' => 'array', 'size' => null, 'used' => null], ['check', 'free', 'recheck', 'fill', 'done'], ['before', 'forecast', 'planned'],
+    same('night run 1: the picture — X, where she moves to (the array\'s data disks from disks.ini), each phase as it began (before, forecast, planned), the files done by both',
+        [80, ['to' => 'array', 'size' => 8000000000 * 1024, 'used' => 2000000000 * 1024], ['check', 'free', 'recheck', 'fill', 'done'], ['before', 'forecast', 'planned'],
          ['jack_back' => 50 * $G, 'others_back' => 60 * $G, 'jack_fetch' => 60 * $G, 'until' => 740 * $G], ['size', 'fixed', 'others', 'jack', 'free'],
          [['Film/a.mkv', 'jack'], ['Docs/old.iso', 'her']]],
         [$pic['x'] ?? null, $pic['dest'] ?? null, array_keys($pic['phases'] ?? []), array_keys($pic['phases']['free'] ?? []), $pic['phases']['free']['planned'] ?? null,
          array_keys($pic['phases']['check']['before'] ?? []), array_slice(array_map(fn ($f) => [$f['name'], $f['who']], $pic['files'] ?? []), 0, 2)]);
     same('night run 1: the check\'s picture — 850 used: fixed 300, others 150, Jack Emby 400, free 150', [300 * $G, 150 * $G, 400 * $G, 150 * $G],
         array_values(array_intersect_key($pic['phases']['check']['before'] ?? [], array_flip(['fixed', 'others', 'jack', 'free']))));
+    same('night picture: the array without a word of its size (stopped, no file, junk) — not measured', [[null, null], [null, null]],
+        [nightArrayLevel("$tmp/none.ini"), (function () use ($tmp) { file_put_contents("$tmp/junk.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsSize=\"\"\nfsUsed=\"x\"\n");
+            return nightArrayLevel("$tmp/junk.ini"); })()]);
     check('night run: the lock — after the night nobody holds it; another start meanwhile is refused (moverelliBusy outside the night)',
         !nightRunning($dir) && !moverelliBusy($dir));
 
@@ -32945,6 +32954,105 @@ JS);
         check("night lang $l: the words there, «after Jack Emby» gone", isset($lang['night.tonight'], $lang['rc.phase.recheck'], $lang['notify.night_missed'], $lang['check.night_schedule'])
             && !isset($lang['schedule.after'], $lang['check.after_idle'], $lang['check.moverelli_before_jack']));
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * Ms. Moverelli's picture of the night run (2026-10-14, the setup simulator's bars living on): the pool before the run,
+ * after it (forecast while it goes, measured once done), where she moves to (not measured → said), segments at least
+ * 10 px summing to the bar, X where it is; the files' way (onto the pool or off it); the box under her card and, after
+ * the run, in her schedule's section. Pure parts under node.
+ */
+function testNightPicture(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('night picture: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('night-picture');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {}, attrs: {},
+  set innerHTML(v) { this.children = []; }, append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; },
+  setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => null, querySelectorAll: () => [] });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({}), scope: () => T, t: T, el: mk, fmt: { size: (b) => Math.round(b / 1073741824) + ' GiB', number: (n, d) => n.toFixed(d), relative: (t) => 'R' + t, cron: (c) => c, time: (t) => t, duration: (s) => s },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, sectionHead: () => mk('h'),
+  runSteps: () => mk('div'), runBar: () => mk('div'), runRate: () => null, nightSteps: () => [], nightCard: () => mk('div', 'card') };
+for (const f of process.argv.slice(2)) (0, eval)(fs.readFileSync(f, 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const all = (n) => (typeof n === 'string' ? [] : [n, ...n.children.flatMap(all)]);
+const G = 1073741824;
+const B = (fixed, others, jack, free) => ({ size: 1000 * G, fixed: fixed * G, others: others * G, jack: jack * G, free: free * G });
+const P = { jack_back: null, others_back: 60 * G, jack_fetch: 60 * G, until: 740 * G };
+const pic = { pool: 'cache', x: 80, dest: { to: 'array', size: 8000 * G, used: 2000 * G },
+  phases: { check: { before: B(300, 150, 400, 150), forecast: B(300, 90, 410, 200), planned: P },
+            free: { before: B(300, 150, 350, 200), forecast: B(300, 80, 410, 210), planned: P } },
+  files: [{ name: 'Docs/old.iso', bytes: 4 * G, from: 'cache', to: '/mnt/disk1', who: 'her' }, { name: 'Film/a.mkv', bytes: 7 * G, from: 'array', to: 'cache', who: 'jack' }] };
+const sum = (b) => b.segs.reduce((a, s) => a + s.w, 0);
+const out = {};
+const w = m.segWidths([1000, 1, 0, 50], 10 / 800);
+out.seg = [Math.round(w.reduce((a, x) => a + x, 0) * 1e9) / 1e9, w[1] === 10 / 800, w[2], w[0] > w[3]];
+const d = m.pictureBars(pic, 400, false);
+out.run = [d.measured, d.x, d.forecast, d.before.segs.map((s) => s.bytes / G), d.after.segs.map((s) => s.bytes / G), Math.round(sum(d.before) * 1e9) / 1e9,
+  Math.round(sum(d.after) * 1e9) / 1e9, d.dest];
+// a small part on a narrow bar keeps its 10 px; the free part is what the size leaves (never a stale «free»)
+const tiny = m.pictureBars({ ...pic, phases: { check: { before: { ...B(300, 1, 400, 999), others: 0.5 * G } } } }, 375, false);
+out.tiny = [tiny.before.segs[1].w >= 10 / 375 - 1e-12, tiny.before.segs[3].bytes / G, Math.round(sum(tiny.before) * 1e9) / 1e9, tiny.after];
+const done = m.pictureBars({ ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } }, 800, true);
+out.done = [done.forecast, done.after.segs.map((s) => s.bytes / G)];
+// nothing measured: no pool numbers (the check's before null), the target without size; no limit: no X
+const none = m.pictureBars({ pool: 'cache', x: 0, dest: { to: 'array', size: null, used: null }, phases: { check: { before: null, forecast: null } }, files: [] }, 800, false);
+out.none = [none.measured, none.x, none.dest];
+out.onto = [m.fileOnto(pic.files[1], 'cache'), m.fileOnto({ who: 'jack', from: 'cache', to: 'array' }, 'cache'), m.fileOnto(pic.files[0], 'cache'),
+  m.fileOnto({ who: 'her', from: '/mnt/disk1', to: 'cache' }, 'cache')];
+// the box: two bars (before, forecast), X, the array with its use, the legend before → after, the last file
+const box = m.nightPicture({ running: true, started: 5, picture: pic });
+out.box = texts(box);
+out.x = all(box).filter((n) => n.cls === 'mo-pic-x').map((n) => n.style.left);
+out.segs = all(box).filter((n) => /mo-seg-/.test(n.cls || '') && n.style.width).map((n) => n.cls.replace('mo-pic-seg ', ''));
+const boxNone = m.nightPicture({ running: false, started: 5, picture: { pool: 'cache', x: 80, dest: { to: 'array', size: null, used: null }, phases: { check: { before: null } }, files: [] } });
+out.boxNone = texts(boxNone);
+out.noPic = m.nightPicture({ running: true });
+const live = m.livePicture({ running: true, started: 9, picture: pic });
+out.live = [live === m.livePicture({ running: true, started: 9, picture: pic }), live !== m.livePicture({ running: true, started: 10, picture: pic })];
+// after the run: the picture in her schedule's section, under the night's row
+m.setState({ configured: true, unraid: { ok: true }, job: {}, schedule: { enabled: true }, history: [], shares: [], mover: { off: true }, settings: { global: {} }, last: null,
+  night: { jack: true, plan: { measured: false }, last: { mode: 'run', started: 100, finished: 200, result: 'ok', round: 1, phase: 'done', running: false,
+    picture: { ...pic, phases: { ...pic.phases, done: { before: B(300, 90, 410, 200) } } } } } });
+out.section = texts(m.scheduleSection());
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", testsNightHelpersJs($tmp), OFFICE_WEB . '/desks/moverelli/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    check('night picture: it runs', $j !== [], $out . $err);
+    same('night picture: widths — sum 1, a small part at least 10 px, nothing stays nothing, order kept', [1, true, 0, true], $j['seg'] ?? null);
+    same('night picture: while it runs — X at 80 %, before = the check\'s pool, after = the latest forecast (free\'s), each bar sums to 1, the array measured',
+        [true, 0.8, true, [300, 150, 400, 150], [300, 80, 410, 210], 1, 1, ['to' => 'array', 'size' => 8000 * (1 << 30), 'used' => 2000 * (1 << 30), 'measured' => true, 'w' => 0.25]],
+        $j['run'] ?? null);
+    same('night picture: a tiny part keeps 10 px on a phone\'s bar, free = what the size leaves, still 1; no forecast — no after bar', [true, 299.5, 1, null], $j['tiny'] ?? null);
+    same('night picture: once done — the pool as measured at the end, no forecast', [false, [300, 90, 410, 200]], $j['done'] ?? null);
+    same('night picture: nothing measured — no bars, no X, the target «not measured»', [false, null, ['to' => 'array', 'size' => null, 'used' => null, 'measured' => false, 'w' => null]],
+        $j['none'] ?? null);
+    same('night picture: the files\' way — Jack Emby from the array onto the pool, his watched off it, hers off it, hers back for a «prefer» share', [true, false, false, true],
+        $j['onto'] ?? null);
+    $box = $j['box'] ?? [];
+    check('night picture: the box — its title, «before», «after (forecast)», X, the array with its use, the legend before → after, the last file in words',
+        in_array('pic.title_run', $box, true) && in_array('pic.before', $box, true) && in_array('pic.forecast', $box, true) && in_array('pic.x {"pct":80}', $box, true)
+        && in_array('pic.array', $box, true) && in_array('pic.dest_used {"used":"2000 GiB","size":"8000 GiB"}', $box, true)
+        && in_array('pic.seg.others pic.change {"before":"150 GiB","after":"80 GiB"}', $box, true)
+        && in_array('pic.last_file {"file":"a.mkv","size":"7 GiB","from":"pic.array","to":"pic.pool_name {\"pool\":\"cache\"}"}', $box, true), json_encode($box));
+    same('night picture: X on both bars, four parts each and the array\'s use (classes with the desk\'s prefix)', [['80.00%', '80.00%'], 9], [$j['x'] ?? null, count($j['segs'] ?? [])]);
+    check('night picture: nothing measured — said, the array «not measured», no bar', in_array('pic.pool_unmeasured', $j['boxNone'] ?? [], true)
+        && in_array('pic.unmeasured', $j['boxNone'] ?? [], true) && !in_array('pic.before', $j['boxNone'] ?? [], true), json_encode($j['boxNone'] ?? null));
+    same('night picture: no picture in night.json (an older agent) — none; the live one fed anew for the same run, a new one for the next', [null, [true, true]],
+        [array_key_exists('noPic', $j) ? $j['noPic'] : 'x', $j['live'] ?? null]);
+    check('night picture: after the run — in her schedule\'s section, measured at the end (no forecast)', in_array('pic.title_last', $j['section'] ?? [], true)
+        && in_array('pic.after', $j['section'] ?? [], true) && !in_array('pic.forecast', $j['section'] ?? [], true), json_encode($j['section'] ?? null));
     hardeningRm($tmp);
 }
 
@@ -34738,7 +34846,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 // ===================================================================== run
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightPicture', 'testNightJackCard', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],

@@ -53,4 +53,33 @@
 /* the run card's foot: the counts left, «Log» and «Stop after this file» right (Jack Emby's live panel) */
 .mo-run-foot{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:6px 14px}
 .mo-run-right{display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-left:auto}
+/* the night's picture (2026-10-14): the pool before and after the run, where she moves to, a file on its slow way */
+.mo-pic{position:relative; display:block; min-height:0; padding:10px 14px 12px; margin:0 0 12px; overflow:hidden}
+.mo-pic-head{font-weight:600; font-size:13px; color:var(--ink); margin:0 0 6px}
+.mo-pic-grid{display:grid; grid-template-columns:minmax(0, 1fr) minmax(140px, 220px); gap:6px 28px; align-items:end}
+.mo-pic-row{margin:0 0 10px}
+.mo-pic-label{font-size:12.5px; color:var(--ink2); margin:0 0 4px; overflow-wrap:anywhere}
+.mo-pic-bar{position:relative; display:flex; height:22px; border:1px solid var(--line2); border-radius:var(--radius); background:var(--surface)}
+.mo-pic-seg{display:block; height:100%}
+.mo-seg-fixed{background:var(--data)}
+.mo-seg-others{background:var(--ink2)}
+.mo-seg-jack{background:var(--accent)}
+.mo-seg-free{background:var(--surface)}
+.mo-seg-used{background:var(--muted)}
+.mo-pic-x{position:absolute; top:-3px; bottom:-3px; border-left:2px solid var(--danger)}
+.mo-pic-x > span{position:absolute; top:-15px; left:3px; font-size:11px; line-height:1; white-space:nowrap; color:var(--danger)}
+.mo-pic-x.flip > span{left:auto; right:3px}
+.mo-pic-row:first-child .mo-pic-bar{margin-top:14px}
+.mo-pic-dest{margin:0 0 10px}
+.mo-pic-sub{margin:4px 0 0; font-size:12px; color:var(--muted)}
+.mo-pic-none{margin:4px 0 8px; font-size:12.5px; color:var(--muted)}
+.mo-pic-legend{display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; color:var(--ink2)}
+.mo-pic-key{display:inline-flex; align-items:center; gap:6px}
+.mo-pic-key .mo-pic-seg{width:10px; height:10px; border-radius:2px; border:1px solid var(--line2)}
+.mo-pic-file{margin:6px 0 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; min-height:1.4em}
+.mo-pic-dot{position:absolute; top:0; left:0; width:12px; height:12px; margin:-6px 0 0 -6px; border-radius:3px; opacity:0; pointer-events:none;
+  background:var(--ink2); box-shadow:0 0 0 2px var(--surface)}
+.mo-pic-dot.mo-seg-jack{background:var(--accent)}
+@media (max-width:640px){ .mo-pic-grid{grid-template-columns:minmax(0, 1fr)} }
+@media (prefers-reduced-motion: reduce){ .mo-pic-dot{display:none} }
 }
