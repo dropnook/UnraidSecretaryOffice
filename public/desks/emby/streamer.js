@@ -123,7 +123,7 @@ function newSide(rules, w) {
   const dl = o != null ? [3, 2, 1].map((d) => ({ day: -d, size: r1(o / 3) })).filter((d) => d.size > 0)
     : [{ day: -2, size: w.cfg.writes }, { day: -1, size: w.cfg.writes }];
   return { rules, pool: new Set(), dl, back: new Map(),
-    up: 0, down: 0, moved: 0, spilled: 0, pingpong: 0, revived: 0, short: 0, warns: 0, warnNow: false, warnWhy: null, fillStopped: false, told: 0, log: [], hist: [], inv: invNew(), fetchedTonight: 0, forced: 0 };
+    up: 0, down: 0, moved: 0, spilled: 0, spilledTaken: 0, pingpong: 0, revived: 0, short: 0, warns: 0, warnNow: false, warnWhy: null, fillStopped: false, told: 0, log: [], hist: [], inv: invNew(), fetchedTonight: 0, forced: 0 };
 }
 
 const stale = (w, s) => w.day - s.lastSeen >= w.cfg.unwatchedDays;
@@ -256,7 +256,14 @@ function writeDay(w, side, size, L) {
   const got = Math.min(size, free);
   if (got > 0) side.dl.push({ day: w.day, size: r1(got) });
   const spilled = r1(size - got);
-  if (spilled > TOL) { side.spilled += spilled; L('spill', { size: spilled }, 'bad'); }
+  if (spilled > TOL) {
+    side.spilled += spilled;
+    // their room taken (the owner, 2026-10-14: red only when the others really lost room promised to them): Jack
+    // Streamer held more than his half when the day's writes found the pool full — else they filled it themselves
+    const half = streamerPoolMath({ size: w.cfg.pool, nm: m.nm, jack: m.jack, others: m.others, x: w.cfg.x, offset: w.cfg.offset, k: w.cfg.k }).half;
+    if (m.jack > half + TOL) side.spilledTaken += spilled;
+    L('spill', { size: spilled }, 'bad');
+  }
   return spilled;
 }
 
@@ -336,17 +343,37 @@ function fill(w, side, cap, L) {
 }
 
 /**
+ * What she moves for Jack Streamer's half (pure, GB): his owed part min(want, H) less what he holds less the free room
+ * up to Y once she has moved `goes` (over Y: plus what stands over it), but the others keep their own half plus what he doesn't want of his — the halves
+ * are floors (the owner, 2026-10-14). after: streamerPoolMath() after tonight's give-backs and the age rule; jack: what
+ * he holds then. When both want more than their half the pool ends at 50/50 (k/100−k) of the room under Y.
+ */
+function halfRoom(after, jack, want, goes) {
+  const owed = Math.min(Math.max(0, +want || 0), after.half);
+  const others = Math.max(0, after.others - (goes || 0));
+  const freeY = after.yb - after.nm - jack - others;          // below 0: the pool stands over Y (the day's air) — that too must go first
+  const floor = after.halfD + Math.max(0, after.half - owed);
+  if (owed - jack <= TOL) return 0;                           // he holds his part already: nothing of theirs for him
+  return Math.max(0, Math.min(owed - jack - freeY, others - floor));
+}
+
+/**
  * The night under the new rules (2026-10-13/14) — one joint run: check → reckon → free (who frees more first) →
  * recheck (≤ 3 rounds) → Jack fills last → tell. Jack gives back what was watched (always, first), unwatched never —
  * except a series or film nobody watched for N days (it is off his list then, like a watched file: back at the next night,
  * the farthest ahead first); while over his limit he fetches nothing. She: the age rule always; from X on the others'
- * oldest go — what they borrowed first, out of their own half too when needed, down to Y (below X nothing of theirs moves).
+ * oldest go — what they borrowed first, out of their own half too when needed, down to Y; below X only when he needs
+ * room inside his half (halfRoom(): the halves are floors — never the others below their own half plus what he doesn't
+ * want). After the night: he holds min(want, his fill limit), the others the rest up to Y — both wanting more than their
+ * half: 50/50 (k/100−k) of the room under Y.
  * PHP target: nightPlan()/nightRun() in agent/lib/nightrun.php; Jack's part EmbyCache's give_back (EMBYCACHE_KEEP_BYTES,
  * a new EMBYCACHE_STALE_DAYS) and fill (a new EMBYCACHE_FILL_MAX_BYTES), hers Smart Mover's fill (CUSTOMMOVER_FILL_MAX_BYTES).
  */
 function streamerNight(w, side, L) {
   const c = w.cfg;
   side.fetchedTonight = 0;
+  side.nightWroteTonight = false;
+  side.othersWant = 0;
   for (let round = 1; round <= NIGHT_ROUNDS_MAX; round++) {
     // check
     const m = mathOf(w, side);
@@ -374,14 +401,24 @@ function streamerNight(w, side, L) {
       goes = Math.max(0, after.others - after.othersLimit);
       if (after.used - goes > after.yb) goes = Math.min(after.others, after.used - after.yb);
     }
+    // … and below X too when Jack Streamer needs room inside his half (the owner, 2026-10-14: the halves are floors):
+    // min(what he wants, H) − what he holds − the free room up to Y, never taking the others below their own half plus
+    // what he doesn't want of his. PHP target: nightPlan() in agent/lib/nightrun.php adds this to her amount (Smart
+    // Mover's CUSTOMMOVER_FILL_MAX_BYTES), from poolLevelMath()'s half/half_d in agent/lib/poollevel.php
+    const forJack = halfRoom(after, jack, m.want, goes);
+    if (round === 1) side.othersWant = after.others;          // what they hold tonight after the age rule: what they want
     const jackFree = sum(watched.map((e) => e.size)) + sum(backStale.map((e) => e.size));
-    if (round === 1) L('plan', { back: r1(jackFree), goes: r1(goes), age: r1(aged), first: jackFree >= goes + aged ? 'jack' : 'her' }, 'skip');
+    if (round === 1) L('plan', { back: r1(jackFree), goes: r1(goes + forJack), age: r1(aged), first: jackFree >= goes + forJack + aged ? 'jack' : 'her' }, 'skip');
     // free: who frees more first
     const his = () => { watched.forEach((e) => giveBack(w, side, e, 'back_watched', L)); backStale.forEach((e) => giveBack(w, side, e, 'back_stale', L)); };
-    const hers = () => { herAge(w, side, L); if (goes > TOL) herOldest(w, side, goes, m.over ? 'goes_x' : 'goes_over', L); };
-    if (jackFree >= goes + aged) { his(); hers(); } else { hers(); his(); }
-    if (round === 1 && c.nightWrites > 0 && w.nightWrites > 0) { L('night_writes', { size: w.nightWrites }, 'skip'); writeDay(w, side, w.nightWrites, L); }
-    if (jackFree + goes + aged <= TOL && round > 1) break;
+    const hers = () => {
+      herAge(w, side, L);
+      if (goes > TOL) herOldest(w, side, goes, m.over ? 'goes_x' : 'goes_over', L);
+      if (forJack > TOL) herOldest(w, side, forJack, 'goes_jack', L);
+    };
+    if (jackFree >= goes + forJack + aged) { his(); hers(); } else { hers(); his(); }
+    if (round === 1 && c.nightWrites > 0 && w.nightWrites > 0) { L('night_writes', { size: w.nightWrites }, 'skip'); writeDay(w, side, w.nightWrites, L); side.nightWroteTonight = true; }
+    if (jackFree + goes + forJack + aged <= TOL && round > 1) break;
   }
   // fill: nothing while a warning stands (the owner, 2026-10-14 — he only frees then: watched and N-day files; it
   // clears once a night ends without its cause) — target: nightRun()'s fill step, skipped while the last night's
@@ -432,17 +469,19 @@ function tell(w, side, L) {
 }
 
 // ---------------------------------------------------------------------- the invariants (after every night)
-const INVARIANTS = ['jack', 'others', 'unwatched', 'pingpong', 'limit'];
+const INVARIANTS = ['jack', 'others', 'halves', 'unwatched', 'pingpong', 'limit'];
 function invNew() { return Object.fromEntries(INVARIANTS.map((k) => [k, { ok: true, first: null, fails: 0, told: null }])); }
 
 /**
- * The five checks of a night:
- *   jack       he holds ≥ min(H, what he wants) (less one file: whole files) — unless held back while the others hold
- *              more than their half (she moves theirs only from X on) — and never more than his fill limit after the night; over it only with files he
+ * The six checks of a night:
+ *   jack       he holds ≥ min(H, what he wants) (less one file: whole files) — she makes room for it below X too; only
+ *              writes during the night can hold him back — and never more than his fill limit after the night; over it only with files he
  *              may not give back (unwatched, watched lately) and nothing fetched
+ *   halves     both want more than their half (he: his queue; they: what they hold after the age rule) → each its half of
+ *              the room under Y (he ± one file; they less only while he holds files he may not give back)
  *   others     the others always keep at least half of their own half plus the air Y…X (what they hold and what is free
  *              up to X together — «nobody takes everything») — or the night warned (tell()) —, and nothing of the day's
- *              writes had to go to the array
+ *              writes had to go to the array while Jack Streamer held more than his half (their own overflow is theirs)
  *   unwatched  nothing unwatched went back unless its series/film was unwatched ≥ N days
  *   pingpong   no file given back and fetched again within 7 days
  *   limit      the pool ≤ X after the night — else «told at once» (the owner, 2026-10-14: expected, e.g. when what never
@@ -459,7 +498,9 @@ function invariants(w, side, before) {
   const r = {};
   // he is simply held back while the others hold more than their half (the owner, 2026-10-14: she moves only from X on;
   // writes during the night can leave them over it after her move too) — his half is owed once she has moved theirs
-  const heldBack = m.others > m.halfD + TOL;
+  // (2026-10-14: no longer while they merely hold more than their half — she now makes room inside his half; only writes
+  // during the night can leave them over it after her move)
+  const heldBack = side.nightWroteTonight && m.others > m.halfD + TOL;
   // … and while a warning stands he fetches nothing at all (his half is owed again once it clears)
   // by budget everything he holds counts against it (files further ahead stay — unwatched never go back)
   const held = budgetOf(w.cfg) != null ? m.jack : heldWanted;
@@ -470,7 +511,15 @@ function invariants(w, side, before) {
   const owed = m.halfD / 2 + m.air;
   const theirs = m.others + Math.max(0, m.xb - m.used);
   if (!m.never) side.short = Math.max(side.short, r1(owed - theirs));
-  r.others = m.never || ((theirs >= owed - TOL || side.warnNow) && side.spilled <= before.spilled + TOL);
+  // a spill breaks it only when Jack Streamer held more than his half then (their room taken), never their own overflow
+  r.others = m.never || ((theirs >= owed - TOL || side.warnNow) && side.spilledTaken <= before.spilledTaken + TOL);
+  // both want more than their half (he: his queue; they: what they held in the evening) → each its half, ± one file
+  const both = m.want > m.half + TOL && side.othersWant > m.halfD + TOL;
+  // (his upper bound, the fill limit, is the «jack» check's)
+  // the others under their half only while he holds more than his with files he may not give back (unwatched, watched
+  // lately — the no-unwatched rule wins; the mirror case: he gives back what he borrowed only as those rules allow)
+  const keeps = m.jack > m.half + TOL && files.every((e) => !e.watched && !stale(w, w.series[e.sid]));
+  r.halves = !both || side.fillStopped || (m.jack >= m.half - biggest - TOL && (m.others >= m.halfD - 0.1 || keeps));    // 0.1: the downloads' blocks are rounded
   r.unwatched = side.forced === before.forced;
   r.pingpong = side.pingpong === before.pingpong;
   const toldNow = side.told > before.told;
@@ -512,7 +561,7 @@ function newSim(cfg, seed) {
     side.prevMorn = null;
     if (!(w.cfg.jack0 > 0)) streamerNight(w, side, logger(w, side));
     side.morn = mathOf(w, side);
-    record(w, side, { spilled: 0, forced: 0, pingpong: 0, told: 0 }, false);
+    record(w, side, { spilled: 0, spilledTaken: 0, forced: 0, pingpong: 0, told: 0 }, false);
   }
   return sim;
 }
@@ -537,7 +586,7 @@ function simDay(sim) {
   growFor(w, budgetOf(w.cfg) || 0);           // by budget: enough unwatched in the world to fill it, every day
   for (const side of Object.values(sim.sides)) {
     const L = logger(w, side);
-    const before = { spilled: side.spilled, forced: side.forced, pingpong: side.pingpong, told: side.told, up: side.up, down: side.down, moved: side.moved };
+    const before = { spilled: side.spilled, spilledTaken: side.spilledTaken, forced: side.forced, pingpong: side.pingpong, told: side.told, up: side.up, down: side.down, moved: side.moved };
     L('day', { day: w.day, writes: d.writes, watched: d.watched.length, fresh: d.fresh.length }, 'day');
     writeDay(w, side, d.writes, L);
     // the day on display has two pictures: the evening (after the day's writes, watching, new episodes) and the morning
@@ -596,6 +645,8 @@ const SCENARIOS = [
   // by budget (the most he wants, in GB): smaller than his half H, and bigger than his fill limit (H + half the others' unused)
   { id: 'budget_small', days: 30, cfg: (c) => ({ budget: Math.max(10, Math.round(halfOf(c) * 0.5)) }) },
   { id: 'budget_big', days: 30, cfg: (c) => ({ budget: Math.round(halfOf(c) * 1.8) }) },
+  // both want more than their half (the owner, 2026-10-14): many downloads kept long, much to watch → 50/50 under Y
+  { id: 'both', days: 30, cfg: { writes: 120, age: 14, people: 8, episodes: 20, films: 0.5, filmMin: 40, filmMax: 80, watch: 3 } },
   { id: 'tiny', days: 30, cfg: { pool: 256, nm: 60, writes: 20, epMin: 1, epMax: 4, filmMin: 8, filmMax: 15 } },
 ];
 /** His half H of a setting (GB) — the budget scenarios are sized by it */
@@ -689,7 +740,7 @@ function segWidths(values, min) {
   return out;
 }
 
-const math = { playTick, budgetCaps, streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
+const math = { halfRoom, playTick, budgetCaps, streamerPoolMath, barGb, gbFrac, dragSet, fitCfg, segWidths, newSim, simDay, simDays, simEvent, runScenario, summary, mathOf, measure, wanted, DEFAULTS, SCENARIOS,
   INVARIANTS, EVENTS: Object.keys(EVENTS), rng, PINGPONG_DAYS };
 if (typeof module !== 'undefined' && module.exports) module.exports = math;       // tests/run.php under node
 if (typeof Office === 'undefined') return;
@@ -1218,7 +1269,7 @@ function picture(h, body) {
   return box;
 }
 
-/** The five checks, both rule sets side by side: green, or red from day n */
+/** The six checks, both rule sets side by side: green, or red from day n */
 function checks(h) {
   const { T, el } = h;
   const t = el('table', 'jo-sim-table');

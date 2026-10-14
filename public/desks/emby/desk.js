@@ -1967,7 +1967,11 @@ function budgetLine() {
   if (sp.over) red(T('setup.users_budget_over', { fixed: gbSize(sp.fixed), total: gbSize(sp.total) }));
   if (sp.low) red(T('setup.users_budget_low', { names: sp.lowNames.join(', '), min }));
   if (sp.short && !sp.over) red(T('setup.users_budget_short', { n: sp.others, rest: gbSize(sp.rest), min, need: gbSize(MIN_PERSON_GB * sp.others) }));
-  if (!sp.bad) box.appendChild(el('p', 'callout jo-slice', T('setup.users_budget_split', { fixed: gbSize(sp.fixed), rest: gbSize(sp.rest), n: sp.others })));
+  // everyone chosen has a budget of their own: EmbyCache's apply_budget shares the rest only among people without one —
+  // nobody gets more than their own budget, the rest stays unused (2026-10-14)
+  if (!sp.bad && !sp.others) box.appendChild(el('p', 'callout jo-slice', sp.rest > 0 ? T('setup.users_budget_all_fixed_rest', { fixed: gbSize(sp.fixed), rest: gbSize(sp.rest) })
+    : T('setup.users_budget_all_fixed', { fixed: gbSize(sp.fixed) })));
+  else if (!sp.bad) box.appendChild(el('p', 'callout jo-slice', T('setup.users_budget_split', { fixed: gbSize(sp.fixed), rest: gbSize(sp.rest), n: sp.others })));
   return box;
 }
 
