@@ -422,7 +422,10 @@ One chat is the **coordinator**, the others **workers** — one per task (not pe
   and report what they did and what is untested. **They never merge into `main`, never run `dev-sync.sh`, never release, never
   start backup runs or apply settings.**
 * **The coordinator** owns `main`, the working copy and the server: reviews, merges, full checklist, `dev-sync.sh`, page check,
-  releases — only the coordinator deploys.
+  releases — only the coordinator deploys. **After every deploy the coordinator clicks the real flows on nostromo itself**
+  (first setup, reset/«von vorn», every step to the bottom also at ~1280×720, Abbrechen/Zurück, dialogs inside dialogs) before
+  telling the owner it is done; worker briefs carry that flow list for their demo page. A worker gets replaced by a fresh one
+  after a few rounds (a long chain gets sloppy).
 * **Shared files** (`core.js`, `office.css`, `src/`, `agent/lib/`, `backup/`, CLAUDE.md) are changed by one chat at a time, as
   the coordinator says; a desk's own folder belongs to the task working on it.
 * Tests that write (`setup.sh --apply`, runs) touch the real Kopia repository and containers even with another `UB_DATA`: only
