@@ -920,5 +920,10 @@
   "sim.pause": "⏸ Pausa",
   "sim.resume": "▶ Seguir",
   "sim.speed": "Velocidad (un día cada …)",
-  "sim.stopped_red": "Parado el día {day}: {checks} se puso en rojo."
+  "sim.stopped_red": "Parado el día {day}: {checks} se puso en rojo.",
+  "reset.button": "Configurar desde cero …",
+  "reset.title": "¿Borrar todo y configurar desde cero?",
+  "reset.text_night": "También desaparecen: los ajustes de «Agrupar carpetas» y sus propias programaciones. Hasta que se guarde la nueva configuración, su parte de la ejecución nocturna no corre.",
+  "reset.go": "Borrar todo y empezar desde cero",
+  "reset.text": {"one": "Se borran todos los ajustes de Jack Emby, sin copia. Su lista se vacía: lo que preparó en el pool ({n} archivo, {size}) la señora Moverelli lo trata después como cualquier otra caché y lo lleva al array según sus reglas.", "other": "Se borran todos los ajustes de Jack Emby, sin copia. Su lista se vacía: lo que preparó en el pool ({n} archivos, {size}) la señora Moverelli lo trata después como cualquier otra caché y lo lleva al array según sus reglas."}
 }

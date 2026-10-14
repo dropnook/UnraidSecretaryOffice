@@ -1616,7 +1616,35 @@ function summaryCard() {
   const title = el('h2', 'jo-wiz-title', T('wizard.summary'));
   Office.place('wizard.summary', title);
   card.append(title, el('p', 'jo-wiz-intro', T('wizard.inline_intro')), setupSummary(true));
+  // quiet, at the bottom: from scratch (his settings aside, a copy kept; the pool and his list stay)
+  const foot = el('div', 'toolbar jo-reset');
+  const again = button(T('reset.button'), 'small plain danger', resetDialog);
+  again.disabled = running();
+  if (running()) foot.appendChild(el('span', 'role', T('errors.emby_running')));        // why it is grey
+  foot.appendChild(again);
+  card.appendChild(foot);
   return card;
+}
+/**
+ * «Set up from scratch …» (the owner: really zero, no copy): what goes and what becomes of the files he placed on the pool
+ * (his list's count and size — ordinary cache for Ms. Moverelli afterwards), then emby.reset and the wizard at step 1
+ */
+function resetDialog() {
+  const c = state.cache || {};
+  const box = el('div');
+  box.appendChild(el('p', '', T('reset.text', { n: Number(c.files) || 0, size: fmt.size(Number(c.bytes) || 0) })));
+  box.appendChild(el('p', '', T('reset.text_night')));
+  Office.dialog({ title: T('reset.title'), body: box, buttons: [
+    { text: Office.t('common.cancel') },
+    { text: T('reset.go'), kind: 'danger', act: async () => {
+      const j = await act('reset');
+      if (!j) return false;
+      form = null;
+      renderSetup();
+      setTimeout(() => openWizard('servers'), 0);      // after this dialog has closed (one dialog at a time)
+      return true;
+    } },
+  ] });
 }
 /** … before: a short intro and «Start the setup» (the wizard at step 1) */
 function introCard() {
@@ -2739,7 +2767,7 @@ Office.places(ID, [
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.emby = { setState: (s) => { state = s; }, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
     historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
-    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, budgetGb, budgetSplit,
+    renderSetup, page: () => page, SETUP_STEPS, setForm: (f) => { form = f; }, initForm, form: () => form, shareWords, setupSummary, summaryData, peopleWords, resetDialog, summaryCard, introCard, budgetGb, budgetSplit,
     stepOf, startStep, openWizard, cancelWizard, wiz: () => wiz, formKey, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,

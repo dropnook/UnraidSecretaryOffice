@@ -920,5 +920,10 @@
   "sim.pause": "⏸ Pausa",
   "sim.resume": "▶ Continua",
   "sim.speed": "Velocità (un giorno ogni …)",
-  "sim.stopped_red": "Fermato al giorno {day}: {checks} è diventato rosso."
+  "sim.stopped_red": "Fermato al giorno {day}: {checks} è diventato rosso.",
+  "reset.button": "Configura da capo …",
+  "reset.title": "Cancellare tutto e configurare da capo?",
+  "reset.text_night": "Spariscono anche: le impostazioni di «Consolida cartelle» e le sue pianificazioni. Finché la nuova configurazione non è salvata, la sua parte dell'esecuzione notturna non gira.",
+  "reset.go": "Cancella tutto e ricomincia da capo",
+  "reset.text": {"one": "Tutte le impostazioni di Jack Emby vengono cancellate, senza copia. Il suo elenco viene svuotato: ciò che ha preparato sul pool ({n} file, {size}) la signora Moverelli lo tratta poi come qualsiasi altra cache e lo porta sull'array secondo le sue regole.", "other": "Tutte le impostazioni di Jack Emby vengono cancellate, senza copia. Il suo elenco viene svuotato: ciò che ha preparato sul pool ({n} file, {size}) la signora Moverelli lo tratta poi come qualsiasi altra cache e lo porta sull'array secondo le sue regole."}
 }

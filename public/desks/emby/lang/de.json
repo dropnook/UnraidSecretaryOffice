@@ -920,5 +920,10 @@
   "sim.pause": "⏸ Pause",
   "sim.resume": "▶ Weiter",
   "sim.speed": "Tempo (ein Tag alle …)",
-  "sim.stopped_red": "Angehalten an Tag {day}: {checks} ist rot geworden."
+  "sim.stopped_red": "Angehalten an Tag {day}: {checks} ist rot geworden.",
+  "reset.button": "Von vorn einrichten …",
+  "reset.title": "Alles löschen und von vorn einrichten?",
+  "reset.text_night": "Ebenso weg: die Einstellungen von «Ordner zusammenführen» und seine eigenen Zeitpläne. Bis die neue Einrichtung gespeichert ist, läuft sein Teil im Nachtlauf nicht.",
+  "reset.go": "Alles löschen und von vorn beginnen",
+  "reset.text": {"one": "Alle Einstellungen von Jack Streamer werden gelöscht, ohne Sicherung. Seine Liste wird geleert: was er auf dem Pool bereitgelegt hat ({n} Datei, {size}), behandelt Frau Moverelli danach wie jeden anderen Cache und bringt es nach ihren Regeln aufs Array.", "other": "Alle Einstellungen von Jack Streamer werden gelöscht, ohne Sicherung. Seine Liste wird geleert: was er auf dem Pool bereitgelegt hat ({n} Dateien, {size}), behandelt Frau Moverelli danach wie jeden anderen Cache und bringt es nach ihren Regeln aufs Array."}
 }

@@ -101,6 +101,8 @@ desk('emby', [
         'progress'       => fn (array $r) => ['ok' => true, 'state' => embyProgressState() + ['night' => embyNightNow()]],
         // «Stop after this file» in that panel: EmbyCache's stop request with why `user` (emby-progress.php); while the
         // night run goes, the whole night stops after the file in flight (nightStopAsk(), as on her card)
+        // «Set up from scratch» (2026-10-14, the owner: really zero — no copy)
+        'reset'          => fn (array $r) => embyReset(),
         // the setup's pool simulator, real data: the pool measured now — only on the user's click (it may wake the pool)
         'pool_measure'   => fn (array $r) => ['ok' => true, 'level' => embyStreamerLevel(embyPoolLook(embyReadSettings(), true))],
         'stop'           => fn (array $r) => ['ok' => true, 'asked' => embyNightNow() !== null ? nightStopAsk() : embyStopAsk(), 'state' => embyScan()],
@@ -954,6 +956,66 @@ function embySave(mixed $in): array
     }
     logLine('Jack Emby: EmbyCache settings saved');
     return ['ok' => true, 'state' => embyScan()];
+}
+
+// ===================================================================== set up from scratch (2026-10-14)
+/*
+ * «Set up from scratch» — really zero (the owner): no copy, no way back. Gone: EmbyCache's settings (server, API key,
+ * libraries, people, amounts, N days), the import's copies (*.before-import-*), his origin (embycache_origin.json),
+ * his runs' state and history (office-run/-history/-output/-stop, the progress, status.json); the gather's settings
+ * and state (gather.json, its ini files, last-real, sizes, status, its office-* files); his own schedules (EmbyCache's,
+ * the gather's — Ms. Moverelli's night run is hers and stays; it leaves him out while he has no settings). His list is
+ * emptied but kept as a file: Ms. Moverelli's ini names it (global_excludes) and Smart Mover stops a real run when a
+ * named list is MISSING — an empty one simply protects nothing. So what he placed on the pool stays where it is and
+ * becomes ordinary cache: she moves it by her rules (the age rule, from X). Kept: the logs (Ms. Protocolli shows
+ * embycache.log and consolidate.log) and the lock files. Never while a run of his (EmbyCache or the gather) goes.
+ */
+const EMBY_RESET_GONE   = ['embycache_settings.json', '.embycache_settings.trial.json', 'embycache_origin.json', 'office-history.json',
+                           'office-run.json', 'office-output.txt', 'office-stop.json', 'emby-progress.json', 'emby-progress-speed.json', 'status.json'];
+const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
+                           'office-run.json', 'office-output.txt', 'office-stop.json'];
+
+/**
+ * «Set up from scratch». $o (the tests): dir, gather (the folders), running (a run of his goes?), schedule (job, null)
+ * — default his and the gather's cron lines off. Answer {ok, state, gone: [file …]}.
+ */
+function embyReset(array $o = []): array
+{
+    $dir = $o['dir'] ?? EMBY_DATA;
+    $gdir = $o['gather'] ?? GATHER_DATA;
+    if (($o['running'] ?? 'embyAnyRunning')()) {
+        throw new Problem('emby_running');
+    }
+    $gone = [];
+    $drop = function (string $f) use (&$gone): void {
+        if ((is_file($f) || is_link($f)) && @unlink($f)) {
+            $gone[] = $f;
+        }
+    };
+    foreach (EMBY_RESET_GONE as $f) {
+        $drop("$dir/$f");
+    }
+    foreach (glob("$dir/*.before-import-*") ?: [] as $f) {
+        $drop($f);
+    }
+    foreach (GATHER_RESET_GONE as $f) {
+        $drop("$gdir/$f");
+    }
+    // his list emptied, the file kept (her ini names it: a missing list stops her real runs, an empty one protects nothing)
+    if (is_dir($dir) && !is_link("$dir/embycache_exclude.txt")) {
+        writeAtomic("$dir/embycache_exclude.txt", '', 0600, 0, 0);
+    }
+    $schedule = $o['schedule'] ?? fn (string $job) => officeJobSetSchedule($job, null);
+    foreach (['embycache', 'gather'] as $job) {
+        try {
+            $schedule($job);
+        } catch (Throwable $e) {
+            logLine("Jack Emby: set up from scratch — the $job schedule not switched off ({$e->getMessage()})");
+        }
+    }
+    logLine('Jack Emby: set up from scratch — settings, gather settings, his list (emptied), origin, runs and schedules gone ('
+        . count($gone) . ' files); what lies on the pool stays as ordinary cache');
+    return ['ok' => true, 'state' => $dir === EMBY_DATA ? embyScan() : null, 'gone' => array_map('basename', $gone)];
 }
 
 /**

@@ -920,5 +920,10 @@
   "sim.pause": "⏸ Pause",
   "sim.resume": "▶ Continuer",
   "sim.speed": "Vitesse (un jour toutes les …)",
-  "sim.stopped_red": "Arrêté le jour {day} : {checks} est passé au rouge."
+  "sim.stopped_red": "Arrêté le jour {day} : {checks} est passé au rouge.",
+  "reset.button": "Reconfigurer depuis le début …",
+  "reset.title": "Tout supprimer et reconfigurer depuis le début ?",
+  "reset.text_night": "Disparaissent aussi : les réglages de «Regrouper les dossiers» et ses propres planifications. Tant que la nouvelle configuration n'est pas enregistrée, sa part de l'exécution de nuit ne tourne pas.",
+  "reset.go": "Tout supprimer et recommencer depuis le début",
+  "reset.text": {"one": "Tous les réglages de Jack Emby sont supprimés, sans copie. Sa liste est vidée : ce qu'il a préparé sur le pool ({n} fichier, {size}), Madame Moverelli le traite ensuite comme tout autre cache et le ramène sur l'array selon ses règles.", "other": "Tous les réglages de Jack Emby sont supprimés, sans copie. Sa liste est vidée : ce qu'il a préparé sur le pool ({n} fichiers, {size}), Madame Moverelli le traite ensuite comme tout autre cache et le ramène sur l'array selon ses règles."}
 }

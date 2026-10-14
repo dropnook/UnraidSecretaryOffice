@@ -920,5 +920,10 @@
   "sim.pause": "⏸ Pause",
   "sim.resume": "▶ Continue",
   "sim.speed": "Speed (a day every …)",
-  "sim.stopped_red": "Stopped on day {day}: {checks} turned red."
+  "sim.stopped_red": "Stopped on day {day}: {checks} turned red.",
+  "reset.button": "Set up from scratch …",
+  "reset.title": "Delete everything and set up from scratch?",
+  "reset.text_night": "Also gone: the settings of «Consolidate folders» and his own schedules. Until the new setup is saved, his part of the night run doesn't run.",
+  "reset.go": "Delete everything and start from scratch",
+  "reset.text": {"one": "All of Jack Emby's settings are deleted, without a copy. His list is emptied: what he laid out on the pool ({n} file, {size}) Ms. Moverelli then treats like any other cache and brings to the array by her rules.", "other": "All of Jack Emby's settings are deleted, without a copy. His list is emptied: what he laid out on the pool ({n} files, {size}) Ms. Moverelli then treats like any other cache and brings to the array by her rules."}
 }
