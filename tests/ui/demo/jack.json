@@ -5,8 +5,31 @@
   {
    "name": "Emby",
    "image": "emby/embyserver:latest",
+   "type": "emby",
    "running": true,
    "url": "http://familienserver.local:8096",
+   "mounts": {
+    "/familienfilme": "/mnt/user/Familienfilme",
+    "/familienserien": "/mnt/user/Familienserien"
+   }
+  },
+  {
+   "name": "Jellyfin",
+   "image": "jellyfin/jellyfin:latest",
+   "type": "jellyfin",
+   "running": true,
+   "url": "http://familienserver.local:8097",
+   "mounts": {
+    "/familienfilme": "/mnt/user/Familienfilme",
+    "/familienserien": "/mnt/user/Familienserien"
+   }
+  },
+  {
+   "name": "Plex",
+   "image": "plexinc/pms-docker:latest",
+   "type": "plex",
+   "running": true,
+   "url": "http://familienserver.local:32400",
    "mounts": {
     "/familienfilme": "/mnt/user/Familienfilme",
     "/familienserien": "/mnt/user/Familienserien"
@@ -14,7 +37,7 @@
   }
  ],
  "versions": {
-  "embycache": "7.3.0 (2026-10-04)",
+  "embycache": "7.4.0 (2026-10-15)",
   "gather": "V11.4"
  },
  "configured": true,
@@ -22,7 +45,28 @@
   "instances": [
    {
     "servername": "FamilienServer",
+    "type": "emby",
     "url": "http://familienserver.local:8096",
+    "has_key": true,
+    "path_mappings": {
+     "/familienfilme": "/mnt/user/Familienfilme",
+     "/familienserien": "/mnt/user/Familienserien"
+    }
+   },
+   {
+    "servername": "Jellyfin",
+    "type": "jellyfin",
+    "url": "http://familienserver.local:8097",
+    "has_key": true,
+    "path_mappings": {
+     "/familienfilme": "/mnt/user/Familienfilme",
+     "/familienserien": "/mnt/user/Familienserien"
+    }
+   },
+   {
+    "servername": "Plex",
+    "type": "plex",
+    "url": "http://familienserver.local:32400",
     "has_key": true,
     "path_mappings": {
      "/familienfilme": "/mnt/user/Familienfilme",
@@ -56,7 +100,6 @@
   "array_path": "/mnt/user0",
   "user_path": "/mnt/user",
   "array_disks_glob": "/mnt/disk[0-9]*",
-  
   "mover_debug_level": 0
  },
  "shares": [
@@ -211,7 +254,21 @@
    "k": 50,
    "min_age": 7
   },
-  "level": {"size": 1100319591920, "used": 655790476784, "nm": 322688122102, "jack": 30064771071, "others": 303037583611, "shares": ["Downloads"], "pool": "cache", "x": 80, "y": 70, "k": 50, "at": 1791900000},
+  "level": {
+   "size": 1100319591920,
+   "used": 655790476784,
+   "nm": 322688122102,
+   "jack": 30064771071,
+   "others": 303037583611,
+   "shares": [
+    "Downloads"
+   ],
+   "pool": "cache",
+   "x": 80,
+   "y": 70,
+   "k": 50,
+   "at": 1791900000
+  },
   "keep": 223767796121,
   "held": 30064771071,
   "back": 0,

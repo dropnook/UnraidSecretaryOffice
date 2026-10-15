@@ -156,8 +156,8 @@ function logsSources(): array
     foreach (array_slice(array_filter($backupLogs, fn ($f) => basename($f) !== 'latest.log'), 0, 30) as $f) {
         $file('backup:' . basename($f), 'office', 'backup_log', $f, basename($f, '.log'));
     }
-    $file('embycache', 'office', 'embycache', DATA_DIR . '/embycache/logs/embycache.log');
-    $file('embycache-run', 'office', 'embycache_run', DATA_DIR . '/embycache/office-output.txt');
+    $file('embycache', 'office', 'embycache', DATA_DIR . '/mediacache/logs/mediacache.log');
+    $file('embycache-run', 'office', 'embycache_run', DATA_DIR . '/mediacache/office-output.txt');
     $file('gather', 'office', 'gather', DATA_DIR . '/gather/consolidate.log');
     // the partner door (agent/partner-door.php, agent/lib/partner.php partnerAppend()): its log, the older part, and what
     // it logged in RAM while the array was stopped

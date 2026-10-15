@@ -61,7 +61,7 @@ function jackMoverHost(): array
         'tuning_dir' => $h['tuning_dir'] ?? JACK_TUNING_DIR,
         'installed'  => $h['installed'] ?? fn (): bool => is_file('/var/log/plugins/' . JACK_TUNING_NAME . '.plg'),
         // his list as other programs get it (the path as set), and the forms that count as his
-        'lists'      => $h['lists'] ?? fn (): array => array_values(array_unique([dataPathUser(JACK_DATA . '/embycache_exclude.txt'), JACK_DATA . '/embycache_exclude.txt'])),
+        'lists'      => $h['lists'] ?? fn (): array => array_values(array_unique([dataPathUser(JACK_DATA . '/mediacache_exclude.txt'), JACK_DATA . '/mediacache_exclude.txt'])),
         'dir'        => $h['dir'] ?? JACK_DATA,
         'shares'     => $h['shares'] ?? fn (): array => ($s = jackReadSettings()) ? array_column(jackShares($s), 'share') : [],
         'hired'      => $h['hired'] ?? fn (): bool => in_array('jack', staffHired($GLOBALS['agentStaffFile'] ?? null), true),

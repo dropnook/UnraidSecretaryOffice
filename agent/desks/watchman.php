@@ -383,10 +383,10 @@ function watchmanPaths(): array
         'engine'     => BACKUP_DATA_DIR,
         // the office's own moving (watchmanFlowOfficeRuns()): Jack Streamer's and the gather's run records, Ms. Moverelli's
         // run record and her night (night.json), Unraid's mover's pid file
-        'office_runs' => ['embycache' => DATA_DIR . '/embycache/office-run.json', 'gather' => DATA_DIR . '/gather/office-run.json',
+        'office_runs' => ['embycache' => DATA_DIR . '/mediacache/office-run.json', 'gather' => DATA_DIR . '/gather/office-run.json',
                           'smartmover' => DATA_DIR . '/moverelli/office-run.json', 'night' => DATA_DIR . '/moverelli/night.json'],
         // … and the shares they move (watchmanFlowMoveShares()): Jack Streamer's mapped shares, the gather's shares
-        'jack_settings'   => DATA_DIR . '/embycache/embycache_settings.json',
+        'jack_settings'   => DATA_DIR . '/mediacache/mediacache_settings.json',
         'gather_settings' => DATA_DIR . '/gather/gather.json',
         'mover_pid'  => '/var/run/mover.pid',
         'backup_sh'  => BACKUP_SCRIPT_DIR . '/backup.sh',              // the offsite repository's count once a day (watchmanKopiaLook())
@@ -5221,7 +5221,7 @@ function watchmanFlowOfficeRuns(array $paths): array
 
 /**
  * The shares each mover moves — only there is what vanishes or is written the mover's (a mass deletion in another share
- * while one works is still told): Jack Streamer's EmbyCache the shares his libraries map (embycache_settings.json, as
+ * while one works is still told): Jack Streamer's EmbyCache the shares his libraries map (mediacache_settings.json, as
  * jackMappedShares() reads them), the gather its chosen shares (gather.json); Smart Mover and Unraid's mover every share
  * set to move between a pool and the array (shares.ini: useCache yes or prefer, a pool named); the night both. Unknown
  * or unreadable: none (nothing excused).
@@ -5288,7 +5288,7 @@ function watchmanFlowMover(array $argv): ?string
     return match (true) {
         (bool) array_intersect($names, ['mover', 'age_mover']), in_array((string) ($argv[0] ?? ''), WATCH_MOVE_BINS, true) => 'mover',
         (bool) array_intersect($names, ['custommover_run.sh'])                                 => 'smartmover',
-        (bool) array_intersect($names, ['embycache_run.py'])                                   => 'embycache',
+        (bool) array_intersect($names, ['mediacache_run.py', 'embycache_run.py'])              => 'embycache',
         (bool) array_intersect($names, ['consolidate_master.sh'])                              => 'gather',
         $names[0] === 'rsync' && in_array('--remove-source-files', $argv, true)               => 'rsync',
         $names[0] === 'rm' && (bool) array_filter($argv, fn ($a) => str_contains((string) $a, '/') && storeroomIn((string) $a)) => 'storeroom',

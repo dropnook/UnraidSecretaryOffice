@@ -5,15 +5,36 @@
   {
    "name": "EmbyServer",
    "image": "emby/embyserver:latest",
+   "type": "emby",
    "running": true,
    "url": "http://192.168.1.111:8096",
+   "mounts": {
+    "/mnt/media": "/mnt/user/media"
+   }
+  },
+  {
+   "name": "Jellyfin",
+   "image": "jellyfin/jellyfin:latest",
+   "type": "jellyfin",
+   "running": true,
+   "url": "http://192.168.1.111:8097",
+   "mounts": {
+    "/mnt/media": "/mnt/user/media"
+   }
+  },
+  {
+   "name": "Plex",
+   "image": "plexinc/pms-docker:latest",
+   "type": "plex",
+   "running": true,
+   "url": "http://192.168.1.111:32400",
    "mounts": {
     "/mnt/media": "/mnt/user/media"
    }
   }
  ],
  "versions": {
-  "embycache": "7.3.0 (2026-10-04)",
+  "embycache": "7.4.0 (2026-10-15)",
   "gather": "V11.4"
  },
  "configured": true,
@@ -21,7 +42,28 @@
   "instances": [
    {
     "servername": "EmbyServer",
+    "type": "emby",
     "url": "http://192.168.1.111:8096",
+    "has_key": true,
+    "path_mappings": {
+     "/mnt/media/Filme": "/mnt/user/media/Filme",
+     "/mnt/media/Serien": "/mnt/user/media/Serien"
+    }
+   },
+   {
+    "servername": "Jellyfin",
+    "type": "jellyfin",
+    "url": "http://192.168.1.111:8097",
+    "has_key": true,
+    "path_mappings": {
+     "/mnt/media/Filme": "/mnt/user/media/Filme",
+     "/mnt/media/Serien": "/mnt/user/media/Serien"
+    }
+   },
+   {
+    "servername": "Plex",
+    "type": "plex",
+    "url": "http://192.168.1.111:32400",
     "has_key": true,
     "path_mappings": {
      "/mnt/media/Filme": "/mnt/user/media/Filme",
@@ -55,7 +97,6 @@
   "array_path": "/mnt/user0",
   "user_path": "/mnt/user",
   "array_disks_glob": "/mnt/disk[0-9]*",
-  
   "mover_debug_level": 0
  },
  "shares": [
@@ -111,7 +152,21 @@
    "k": 50,
    "min_age": 7
   },
-  "level": {"size": 4294967296000, "used": 2040109465600, "nm": 1288490188800, "jack": 41200000000, "others": 710419276800, "shares": ["Downloads"], "pool": "big", "x": 70, "y": 60, "k": 50, "at": 1791551074},
+  "level": {
+   "size": 4294967296000,
+   "used": 2040109465600,
+   "nm": 1288490188800,
+   "jack": 41200000000,
+   "others": 710419276800,
+   "shares": [
+    "Downloads"
+   ],
+   "pool": "big",
+   "x": 70,
+   "y": 60,
+   "k": 50,
+   "at": 1791551074
+  },
   "keep": 644245094400,
   "held": 41200000000,
   "back": 0,
