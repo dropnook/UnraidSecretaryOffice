@@ -295,7 +295,14 @@ function nightPicture(n) {
   let pic = n && n.picture;
   if (!pic || typeof pic !== 'object') return null;
   const box = el('div', 'box mo-pic');
-  const head = el('div', 'mo-pic-head', T(n.running ? 'pic.title_run' : 'pic.title_last'));
+  // its title like the other run cards': the wave at its left while the run goes (no wave once it ended)
+  const head = el('div', 'mo-pic-head');
+  const title = (nn) => {
+    head.innerHTML = '';
+    if (nn.running) head.appendChild(el('span', 'spin'));
+    head.appendChild(el('span', '', T(nn.running ? 'pic.title_run' : 'pic.title_last')));
+  };
+  title(n);
   const grid = el('div', 'mo-pic-grid');
   const rowsBox = el('div', 'mo-pic-rowsBox');
   const side = el('div', 'mo-pic-dest');
@@ -473,7 +480,7 @@ function nightPicture(n) {
     if (!nn || !nn.picture) return;
     n = nn;
     pic = nn.picture;
-    head.textContent = T(n.running ? 'pic.title_run' : 'pic.title_last');
+    title(n);
     draw();
     feed();
     walk();
@@ -656,6 +663,11 @@ const othersOff = () => mover().off && !otherMovers();
 const night = () => (state && state.night) || { jack: false, plan: null, last: null };
 /** A real night run going (her tool or Jack Emby's at work in it) */
 const nightGoing = () => !!(night().last && night().last.running && night().last.mode === 'run');
+/**
+ * The kind of the run going (run | dry | list), null when none: a night's own (its record — her job's file may still be
+ * the last run's while the night checks or Jack Streamer's step goes), else her job's
+ */
+const goingMode = () => (night().last && night().last.running ? night().last.mode || 'run' : running() ? state.job.mode : null);
 /** «cache», «array» in words: the array is named in the page's language */
 const where = (x) => (x === 'array' ? T('array') : x || '–');
 function schedText(sc) {
@@ -847,15 +859,20 @@ function render() {
   ]));
   if (!state) return;
 
-  // hints, no sections: they stay at every click
-  hints().forEach((n) => root.appendChild(n));
+  // the row first (the house rule: tiles right under the head), then the hints, no sections: they stay at every click
   const s = switcher();
   root.appendChild(s.el);
+  underRow(s, hints());
   s.render();
   root.appendChild(footer());
 }
 
-/** What stands over the row: Unraid's mover, other movers, Jack Emby, a run going (the night's too), not set up */
+/** Hints right under the row, over the sections (core.js's switcher redraws only the row and the body) */
+function underRow(s, nodes) {
+  nodes.forEach((n) => s.el.insertBefore(n, s.body));
+}
+
+/** What stands under the row: Unraid's mover, other movers, Jack Emby, a run going (the night's too), not set up */
 function hints() {
   const out = [];
   if (!unraidOk()) out.push(el('p', 'callout warn', T('notice.unraid_old', { version: state.unraid.version || '?', needed: state.unraid.needed })));
@@ -1008,9 +1025,10 @@ function lastRunTile(a) {
   let value = T('last_run_none');
   const sub = [];
   let alert = false;
-  if (realRun() || (running() && state.job.mode === 'dry')) {
+  const going = goingMode();
+  if (going) {
     value = T('output_running');
-    sub.push(T('mode.' + state.job.mode));
+    sub.push(T('mode.' + going));
   } else if (last && last.finished) {
     value = fmt.relative(last.finished);
     sub.push(`${T('mode.' + last.mode)} · ${T('result.' + (last.result || 'failed'))}`);
