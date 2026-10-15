@@ -26,7 +26,7 @@ declare(strict_types=1);
  * POST {"a": "office.supporter_claim", auto?}   the key a tip made, asked of the support page by the agent
  *                                     (agent/lib/supporter.php) — never by the browser
  * POST {"a": "office.lang", "lang": <code>}   the language the page shows, for the notifications (desks.php)
- * POST {"a": "office.report_preview|report_send|reports", …}   «Report a problem or a wish…»: the agent's
+ * POST {"a": "office.report_preview|report_send|report_diag|reports", …}   «Report a problem or a wish…»: the agent's
  *                                     (agent/lib/report.php) — it alone ever sends a report, and only on report_send
  * POST {"a": "office.report_image", "data": <base64>}   one picture for the next preview: checked by its first bytes and
  *                                     size, left in the RAM inbox (apiReportImageStash()) — the answer is its ref
@@ -505,7 +505,7 @@ const API_IMAGES_WAITING = 2 * REPORT_IMG_COUNT_MAX;
 const API_IMAGE_TTL = 900;
 
 /** The office's own actions the agent answers (agent/lib/report.php officeAgentActions()) — no desk, never «not hired» */
-const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports', 'office.supporter_claim'];
+const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.report_diag', 'office.reports', 'office.supporter_claim'];
 
 /** The only actions that may carry secrets (the Consultant's Kopia setup) */
 const OFFICE_SECRET_ACTIONS = ['advisor.kopia_repo'];

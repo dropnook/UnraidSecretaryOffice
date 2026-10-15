@@ -327,7 +327,13 @@ active, `backup/` is left alone.
   `FEEDBACK_URL="http://<host>:<port>"` into `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cfg`
   (scheme, host and port only; read at every send, no restart) and remove the line afterwards. The dialog's other ways:
   `OFFICE_ISSUES_URL` and `OFFICE_FORUM_URL` (`''` = not shown) in `src/bootstrap.php`. Tests: `testReport` (scrubber,
-  label map, a stand-in inbox with `php -S`), `testReportDialog` (node).
+  label map, a stand-in inbox with `php -S`), `testReportDialog` (node). **Unraid's diagnostics** (a tick in the dialog,
+  never pre-ticked or remembered): the preview runs `/usr/local/sbin/diagnostics <zip>` — exactly Tools → Diagnostics
+  with «Anonymize» (never `-a`) — through atd into RAM (`office.report_diag` polled; a sleeping disk refuses without the
+  user's «wake»; Unraid's copy in `/boot/logs` removed); after the report the raw zip goes to `<inbox>/api/diag` (headers
+  X-Office, X-Rid); an older or switched-off inbox answers 404/`off` and the report stands. Unraid's «anonymized» keeps
+  the server's name, local IPs, disk serials and the logs — the dialog says so. Tests: `testReportDiagnostics`,
+  `testReportDialogDiagnostics`.
 * **The package:** `bash plugin/build.sh <office-version>` builds `dist/unraid-secretary-office-<date>.txz` and
   `dist/unraid-secretary-office.plg`; it refuses when `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION`
   (agent/agent.php) don't match the version. The plugin's own version is a date (Unraid compares with `strcmp`).
@@ -528,7 +534,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 * **Reports** (`agent/lib/report.php`): **never a request without the user's click on «Send»**; the send takes only the preview
   kept in RAM; `reportScrub()` over every log line and param (the user's own words never scrubbed); https only; report ID ≠
   supporter ID; the page never gets the private inbox's number or link; pictures redrawn without metadata, tick «nothing private
-  on them» required. `testReport*`.
+  on them» required; Unraid's diagnostics only when ticked, ≤ 10 MB, sent after the report, deleted here at once. `testReport*`.
 * **Characters:** Frau Snapshotini (Italian); Herr Backupsi (nervous, checks three times — never «scatterbrained»); Jack
   Streamer (the intern, only under Frau Moverelli's eye, says so with a grin); Frau Protokolli (reads everything, understands
   nothing); Frau Putzteufel (dust everywhere, never throws away at once, knows every corner); der Teamchef (plain, friendly);
