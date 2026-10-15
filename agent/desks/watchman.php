@@ -381,6 +381,11 @@ function watchmanPaths(): array
         'agent_log'  => AGENT_LOG,
         'snap_record' => DATA_DIR . '/snapshot/deletes.jsonl',     // Ms. Snapshotini's own record (root only)
         'engine'     => BACKUP_DATA_DIR,
+        // the office's own moving (watchmanFlowOfficeRuns()): Jack Streamer's and the gather's run records, Ms. Moverelli's
+        // run record and her night (night.json), Unraid's mover's pid file
+        'office_runs' => ['embycache' => DATA_DIR . '/embycache/office-run.json', 'gather' => DATA_DIR . '/gather/office-run.json',
+                          'smartmover' => DATA_DIR . '/moverelli/office-run.json', 'night' => DATA_DIR . '/moverelli/night.json'],
+        'mover_pid'  => '/var/run/mover.pid',
         'backup_sh'  => BACKUP_SCRIPT_DIR . '/backup.sh',              // the offsite repository's count once a day (watchmanKopiaLook())
         // how secure (watchmanPostureLook())
         'ident'      => '/boot/config/ident.cfg',
@@ -4923,9 +4928,13 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
  *               XFS/btrfs disk or pool the drop of its used space (statfs — a disk, not a share: the
  *               shares with a folder there are named; while its btrfs snapshots changed lately, its
  *               used space says nothing). Not a loss: the office's own work (the engine's lock), what
- *               moves data (watchmanFlowMovers(): the mover, EmbyCache, the gather, rsync
+ *               moves data (watchmanFlowMovers(): the mover, EmbyCache, the gather, Smart Mover, rsync
  *               --remove-source-files, Ms. Dustdevil emptying her storeroom — seen this round or the
- *               last), a dataset renamed into her storeroom, snapshots pruned (they change
+ *               last; watchmanFlowOfficeRuns(): Jack Streamer's, Ms. Moverelli's and their night's
+ *               real runs and Unraid's mover by their own records — at work or ended since the last
+ *               round, so a give-back that deletes on the pool as it ends counts too: moving pool →
+ *               array inside a share is gone from the pool's dataset while the XFS/btrfs array disk
+ *               it went to is counted per disk, never per share), a dataset renamed into her storeroom, snapshots pruned (they change
  *               usedbysnapshots, not referenced). Told while learning: one round over WATCH_GONE_NEW
  *               or WATCH_GONE_PART of the share; with who was connected over SMB, NFS or SSH then —
  *               or nobody: it came from the server itself
@@ -4937,7 +4946,7 @@ function watchmanSchedAdopt(array &$b, string $kind, array $p, array $seen): voi
  * thanks» raises that one's normal (`ack`). While the engine's lock is held (a backup, a check, a
  * restore) the office's own work is kept apart (`o`), never learned, never told: the Kopia container's
  * traffic, what is written into the backup place's share (packages, dumps), during a restore all that
- * is written. What its snapshots do to `written` is no write at all (a new one: counted from there; one
+ * is written; while a mover moves (above) what is written into shares and what vanishes from them. What its snapshots do to `written` is no write at all (a new one: counted from there; one
  * deleted: that round is left out). Media servers stream — that is their job: learned, shown, never told.
  */
 const WATCH_FLOW_LEARN    = 7 * 86400;          // learning time per client, container, share
@@ -4959,6 +4968,7 @@ const WATCH_FLOW_SMB_MAX  = 200;                // SMB users and machines known
 const WATCH_FLOW_TOP      = 8;                  // shares in the metrics
 const WATCH_FLOW_MEDIA    = '/(?:^|[\/_.:-])(?:emby|jellyfin|plex)/i';
 const WATCH_FLOW_OFFICE   = ['backup', 'check', 'dryrun', 'restore'];     // holders of the engine's lock whose traffic is the office's own
+const WATCH_MOVE_BINS     = ['/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];     // Unraid's move program (its mover's, Smart Mover's)
 const WATCH_FLOW_SERVICES = ['smb' => 'SMB', 'nfs' => 'NFS', 'ssh' => 'SSH', 'web' => 'WebGUI'];
 const WATCH_GONE_NEW      = 100 * 1024 ** 3;    // gone, still learning: one round over this (100 GB) …
 const WATCH_GONE_PART     = 0.1;                // … or over this part of the share (and at least WATCH_FLOW_WRITE)
@@ -5063,6 +5073,7 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
             'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
             'disks' => watchmanFlowDisks($paths, $snapDirs), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
+            'runs' => watchmanFlowOfficeRuns($paths),
             'partner' => watchmanFlowPartner($paths, $holder['holder'] ?? null)];
 }
 
@@ -5168,12 +5179,69 @@ function watchmanFlowMovers(string $proc = '/proc'): ?array
     return array_keys($out);
 }
 
+/**
+ * The office's own moving, from the runs' own records (never their log lines): Jack Streamer's EmbyCache (a real run or
+ * bringing everything back) and gather (a real run) by office-run.json, Ms. Moverelli's Smart Mover (a real run) by hers, her
+ * night (a real one) by night.json — each with when it started and ended (null: still at work, its process there), so a
+ * round can tell a run that ended just before it (watchmanFlowCompare()); Unraid's mover by its pid file. Dry runs, reports
+ * and measurements move nothing: left out. A record without an end whose process is gone (cut off) is left out too.
+ * @return list<array{what: string, started: int, finished: ?int}>
+ */
+function watchmanFlowOfficeRuns(array $paths): array
+{
+    $proc = (string) ($paths['proc'] ?? '/proc');
+    $alive = fn (int $pid): bool => $pid > 1 && is_dir("$proc/$pid");
+    $moves = ['embycache' => ['run', 'release'], 'gather' => ['run'], 'smartmover' => ['run'], 'night' => ['run']];
+    $out = [];
+    foreach ((array) ($paths['office_runs'] ?? []) as $what => $file) {
+        $r = readJson((string) $file);
+        if (!is_array($r) || !isset($moves[$what]) || !in_array($r['mode'] ?? null, $moves[$what], true) || !is_int($r['started'] ?? null)) {
+            continue;
+        }
+        if ($what === 'night' && ($r['v'] ?? null) !== 1) {
+            continue;
+        }
+        $end = is_int($r['finished'] ?? null) ? $r['finished'] : null;
+        if ($end === null && !$alive((int) ($r['pid'] ?? 0))) {
+            continue;
+        }
+        $out[] = ['what' => (string) $what, 'started' => $r['started'], 'finished' => $end];
+    }
+    $pid = (int) trim((string) @file_get_contents((string) ($paths['mover_pid'] ?? '/var/run/mover.pid'), false, null, 0, 32));
+    if ($alive($pid)) {
+        $out[] = ['what' => 'mover', 'started' => 0, 'finished' => null];
+    }
+    return $out;
+}
+
+/**
+ * Which office runs moved data between the last round and this one: at work now, or ended at or after the last round's
+ * look (a minute's slack); without a last round only one at work now
+ * @return list<string>
+ */
+function watchmanFlowOfficeMoved(array $runs, ?int $prevTime, int $now): array
+{
+    $out = [];
+    foreach ($runs as $r) {
+        if (!is_array($r) || !is_string($r['what'] ?? null) || (int) ($r['started'] ?? 0) > $now) {
+            continue;
+        }
+        $end = $r['finished'] ?? null;
+        if ($end === null || ($prevTime !== null && (int) $end >= $prevTime - 60)) {
+            $out[$r['what']] = true;
+        }
+    }
+    ksort($out);
+    return array_keys($out);
+}
+
 /** Which kind of mover a process is (its program, or the script an interpreter runs), or null */
 function watchmanFlowMover(array $argv): ?string
 {
     $names = array_map(fn ($a) => basename((string) $a), array_slice($argv, 0, 3));
     return match (true) {
-        (bool) array_intersect($names, ['mover', 'age_mover'])                                  => 'mover',
+        (bool) array_intersect($names, ['mover', 'age_mover']), in_array((string) ($argv[0] ?? ''), WATCH_MOVE_BINS, true) => 'mover',
+        (bool) array_intersect($names, ['custommover_run.sh'])                                 => 'smartmover',
         (bool) array_intersect($names, ['embycache_run.py'])                                   => 'embycache',
         (bool) array_intersect($names, ['consolidate_master.sh'])                              => 'gather',
         $names[0] === 'rsync' && in_array('--remove-source-files', $argv, true)               => 'rsync',
@@ -5800,8 +5868,15 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $flow += ['since' => (int) $bf['since'], 'clients' => [], 'containers' => [], 'shares' => [], 'gone' => [], 'totals' => ['sent' => [], 'written' => []]];
     $office = in_array($look['holder'] ?? null, WATCH_FLOW_OFFICE, true);
     $restore = ($look['holder'] ?? null) === 'restore';
-    $officeShares = array_flip(array_map('strval', (array) ($look['office_shares'] ?? [])));
     $prevTime = $prev === null ? null : (int) $prev['time'];
+    // what moves data: seen in /proc now or at the last round, and the office's own runs at work since the last round (Jack
+    // Streamer, the gather, Ms. Moverelli's Smart Mover and night, Unraid's mover by its pid file) — what vanishes meanwhile
+    // went elsewhere; what the movers write (into a ZFS pool or disk) is no one's pull either: both kept apart, never told
+    $movers = is_array($look['moving'] ?? null) ? array_values(array_map('strval', $look['moving'])) : null;
+    $officeMoved = watchmanFlowOfficeMoved(is_array($look['runs'] ?? null) ? $look['runs'] : [], $prevTime, $now);
+    $moving = array_values(array_unique(array_merge($movers ?? [], array_map('strval', (array) ($prev['moving'] ?? [])), $officeMoved)));
+    $shifting = (bool) array_intersect($moving, ['mover', 'embycache', 'gather', 'smartmover', 'night']);
+    $officeShares = array_flip(array_map('strval', (array) ($look['office_shares'] ?? [])));
     $ack = fn (string $key): int => (int) ($bf['ack'][$key]['bytes'] ?? 0);
     $added = [];
     $next = ['time' => $now, 'conns' => null, 'cts' => null, 'ds' => null, 'smb' => null, 'ref' => null, 'disks' => null, 'moving' => null,
@@ -6027,6 +6102,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                 $flow['totals']['written'][$share] = (int) ($flow['totals']['written'][$share] ?? 0) + $a['d'];
                 $mine = $office && ($restore || isset($officeShares[explode('/', (string) $share, 2)[1]]));      // the engine's packages and dumps, a restore
                 $mine = $mine || ($door && explode('/', (string) $share, 2)[1] === PARTNER_PARENT);           // a partner's copies, received by the door
+                $mine = $mine || $shifting;                                                                   // moved here by a mover, not written anew
                 watchmanFlowAdd($s, $a['d'], $now, $prevTime, $mine, $a['by']);
                 if (!$mine) {
                     $clear = max(WATCH_FLOW_WRITE, (int) ($a['u'] * WATCH_FLOW_PART));
@@ -6042,9 +6118,10 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     }
 
     // gone: what vanished from shares — ZFS per user share, XFS/btrfs per disk
-    $movers = is_array($look['moving'] ?? null) ? array_values(array_map('strval', $look['moving'])) : null;
-    $next['moving'] = $movers;
-    $moving = array_values(array_unique(array_merge($movers ?? [], array_map('strval', (array) ($prev['moving'] ?? [])))));
+    // carried to the next round: what moved by /proc now, and the office's runs at work now (Unraid's mover's pid file is gone
+    // once it ends, before the round after has seen what it moved last)
+    $atWork = array_column(array_filter(is_array($look['runs'] ?? null) ? $look['runs'] : [], fn ($r) => is_array($r) && array_key_exists('finished', $r) && $r['finished'] === null), 'what');
+    $next['moving'] = $movers === null && !$atWork ? null : array_values(array_unique(array_merge($movers ?? [], array_map('strval', $atWork))));
     $expected = $office || $moving;         // the office at work, or something moving data: what vanishes went elsewhere
     $users = [];
     foreach ((array) ($smb['sessions'] ?? []) as $x) {
@@ -6164,7 +6241,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
                     'docker' => is_array($cts), 'host' => array_slice($host, 0, 50),
                     'zfs' => is_array($z) ? ['pools' => array_values((array) $z['pools']), 'asleep' => array_values((array) $z['asleep'])] : null,
                     'disks' => is_array($dk) ? ['disks' => array_keys((array) $dk['disks']), 'asleep' => array_values((array) $dk['asleep'])] : null,
-                    'moving' => $movers,
+                    'moving' => $movers === null && !$officeMoved ? null : array_values(array_unique(array_merge($movers ?? [], $officeMoved))),
                     'office' => $office ? (string) $look['holder'] : null];
     watchmanFlowTidy($bf, $flow, $now);
     return [array_values(array_filter($added)), $flow, $next];

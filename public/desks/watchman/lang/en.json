@@ -621,6 +621,8 @@
   "moving.gather": "the gather (consolidate folders)",
   "moving.rsync": "rsync moving files",
   "moving.storeroom": "Ms. Dustdevil emptying her storeroom",
+  "moving.smartmover": "Ms. Moverelli moving to the array",
+  "moving.night": "Ms. Moverelli and Jack Streamer in their night run",
   "watch.flow_office_now": "the office's backup or restore is running: the offsite upload (Kopia) and what goes into its backup place count as its own work (a restore: all it writes)",
   "watch.grafana": "History in Grafana",
   "watch.grafana_title": "The office's dashboard in Grafana, at this panel — opens in a new tab",

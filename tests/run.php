@@ -13008,6 +13008,77 @@ function testWatchmanFlowGone(): void
     $b2 = ['flow' => $bf];
     watchmanFlowAdopt($b2, array_column($book, null, 'key')['flow_gone:share:Serien'], $t0 + 1700);
     same('gone ack: that much is normal for the share now', 300 * $gb, $b2['flow']['ack']['flow_gone:share:Serien']['bytes'] ?? null);
+
+    // the office's own moving (nostromo 2026-10-15: Jack Streamer gave watched films back pool → array in the joint night run;
+    // the round after it ended said «23 GB gone from Serien»): told by the runs' own records, never their log lines
+    same('gone movers: Unraid\'s move program, Smart Mover', ['mover', 'smartmover', null],
+        array_map('watchmanFlowMover', [['/usr/libexec/unraid/move', '-d', '1'],
+            ['bash', '/usr/local/emhttp/plugins/unraid-secretary-office/smartmover/custommover_run.sh', '--run'], ['/usr/bin/move', 'x']]));
+    $t1 = strtotime('2026-10-15 20:24:53');
+    @mkdir("$tmp/proc/4242", 0700, true);           // a process at work; 4343 gone
+    $runs = ['embycache' => "$tmp/embycache/office-run.json", 'gather' => "$tmp/gather/office-run.json",
+             'smartmover' => "$tmp/moverelli/office-run.json", 'night' => "$tmp/moverelli/night.json"];
+    $rec = function (string $what, ?array $r) use ($runs): void {
+        @mkdir(dirname($runs[$what]), 0700, true);
+        $r === null ? @unlink($runs[$what]) : file_put_contents($runs[$what], json_encode($r));
+    };
+    $rp = ['office_runs' => $runs, 'mover_pid' => "$tmp/mover.pid", 'proc' => "$tmp/proc"];
+    $rec('embycache', ['tool' => 'embycache', 'mode' => 'run', 'by' => 'night', 'started' => $t1 - 400, 'pid' => 4343, 'finished' => $t1 - 120, 'exit' => 0]);
+    $rec('gather', ['tool' => 'gather', 'mode' => 'dry', 'by' => 'office', 'started' => $t1 - 60, 'pid' => 4242]);
+    $rec('smartmover', ['mode' => 'run', 'by' => 'schedule', 'started' => $t1 - 30, 'pid' => 4242]);
+    $rec('night', ['v' => 1, 'mode' => 'run', 'by' => 'schedule', 'started' => $t1 - 900, 'pid' => 4343]);
+    file_put_contents("$tmp/mover.pid", "4242\n");
+    same('office runs: Jack Streamer\'s ended, Ms. Moverelli\'s at work, Unraid\'s mover by its pid — not a dry run, not a night cut off',
+        [['what' => 'embycache', 'started' => $t1 - 400, 'finished' => $t1 - 120], ['what' => 'smartmover', 'started' => $t1 - 30, 'finished' => null],
+         ['what' => 'mover', 'started' => 0, 'finished' => null]], watchmanFlowOfficeRuns($rp));
+    $rec('night', ['v' => 1, 'mode' => 'run', 'by' => 'schedule', 'started' => $t1 - 900, 'pid' => 4343, 'finished' => $t1 - 100]);
+    same('office runs: the night once it ended; none without records', [['night'], []],
+        [array_column(array_filter(watchmanFlowOfficeRuns($rp), fn ($r) => $r['what'] === 'night'), 'what'), watchmanFlowOfficeRuns(['office_runs' => [], 'mover_pid' => "$tmp/none", 'proc' => "$tmp/proc"])]);
+    $ran = [['what' => 'embycache', 'started' => $t1 - 400, 'finished' => $t1 - 120], ['what' => 'night', 'started' => $t1 - 900, 'finished' => $t1 - 2000]];
+    same('office moved: ended since the last round (a minute\'s slack) — not long before it; without a last round only one at work',
+        [['embycache'], ['embycache'], [], [], ['mover']],
+        [watchmanFlowOfficeMoved($ran, $t1 - 300, $t1), watchmanFlowOfficeMoved($ran, $t1 - 170, $t1), watchmanFlowOfficeMoved($ran, $t1 - 30, $t1),
+         watchmanFlowOfficeMoved($ran, null, $t1), watchmanFlowOfficeMoved([['what' => 'mover', 'started' => 0, 'finished' => null]], null, $t1)]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+
+    // rounds: nothing in /proc (each run ended or went between two rounds), only the records say who moved
+    $bf = null;
+    $book = [];
+    $set = ['tank/Serien' => $ds(2000 * $gb), 'tank/Filme' => $ds(2000 * $gb)];
+    $wr = fn (int $r, int $w) => ['w' => $w, 'u' => $r, 's' => 1000, 'r' => $r, 'b' => 0];
+    [, $flow, $cnt] = watchmanFlowCompare($bf, [], null, $look(['zfs' => $zfs($set)]), $book, $t1);
+    $round = function (int $at, array $runs) use (&$bf, &$flow, &$cnt, &$book, &$set, $look, $zfs): array {
+        [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(['zfs' => $zfs($set), 'runs' => $runs]), $book, $at);
+        return $added;
+    };
+    // Jack Streamer's give-back in the night run: 150 GB off the pool, ended two minutes before the round
+    $set['tank/Serien'] = $ds(1850 * $gb);
+    $a1 = $round($t1 + 300, [['what' => 'embycache', 'started' => $t1 + 30, 'finished' => $t1 + 180], ['what' => 'night', 'started' => $t1 + 20, 'finished' => null]]);
+    // his fetch: 150 GB written into the pool (ZFS) — moved, not written anew
+    $set['tank/Serien'] = $wr(2000 * $gb, 150 * $gb);
+    $a2 = $round($t1 + 600, [['what' => 'embycache', 'started' => $t1 + 320, 'finished' => $t1 + 590]]);
+    // Ms. Moverelli's Smart Mover at work: 150 GB of Filme to the array
+    $set['tank/Filme'] = $ds(1850 * $gb);
+    $a3 = $round($t1 + 900, [['what' => 'smartmover', 'started' => $t1 + 700, 'finished' => null]]);
+    // Unraid's mover (its pid file): 150 GB more
+    $set['tank/Filme'] = $ds(1700 * $gb);
+    $a4 = $round($t1 + 1200, [['what' => 'mover', 'started' => 0, 'finished' => null]]);
+    same('office moving: Jack Streamer\'s give-back and fetch, Ms. Moverelli\'s run, Unraid\'s mover — kept apart, never told',
+        [[], [], [], [], [], 150 * $gb, 300 * $gb, 0, 150 * $gb, ['mover']],
+        [$a1, $a2, $a3, $a4, array_values(array_filter($book, 'watchmanOpen')), array_sum($flow['gone']['share:Serien']['o'] ?? []),
+         array_sum($flow['gone']['share:Filme']['o'] ?? []), array_sum($flow['gone']['share:Serien']['h'] ?? []) + array_sum($flow['shares']['tank/Serien']['h'] ?? []),
+         array_sum($flow['shares']['tank/Serien']['o'] ?? []), $flow['can']['moving'] ?? null]);
+    // the mover ended between two rounds (its pid file gone): the round after still counts it as moving
+    $set['tank/Filme'] = $ds(1600 * $gb);
+    $a6 = $round($t1 + 1500, []);
+    same('Unraid\'s mover ended before the round: what it moved since the last one is no loss', [[], 400 * $gb], [$a6, array_sum($flow['gone']['share:Filme']['o'] ?? [])]);
+    $round($t1 + 1800, []);
+    // a real deletion: 150 GB gone from Filme while Jack Streamer's last run ended long before and he only looks (a dry run
+    // isn't in his records' moves) — told
+    $set['tank/Filme'] = $ds(1450 * $gb);
+    $a5 = $round($t1 + 2100, [['what' => 'embycache', 'started' => $t1 + 320, 'finished' => $t1 + 590]]);
+    $fi = array_column(array_filter($book, 'watchmanOpen'), null, 'key')['flow_gone:share:Filme']['p'] ?? [];
+    same('a real deletion between the office\'s runs: still told, from the server', [['flow_gone'], 150 * $gb, 'server'], [$a5, $fi['bytes'] ?? null, $fi['from'] ?? null]);
 }
 
 /**

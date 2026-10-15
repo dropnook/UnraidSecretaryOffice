@@ -621,6 +621,8 @@
   "moving.gather": "il raggruppamento (consolidare cartelle)",
   "moving.rsync": "rsync che sposta file",
   "moving.storeroom": "la signora Spolverina che svuota il suo ripostiglio",
+  "moving.smartmover": "la signora Moverelli che sposta sull'array",
+  "moving.night": "la signora Moverelli e Jack Streamer nell'esecuzione notturna",
   "watch.flow_office_now": "è in corso il backup o un ripristino della segreteria: l'upload fuori sede (Kopia) e ciò che va nel deposito dei backup sono lavoro suo (un ripristino: tutto ciò che scrive)",
   "watch.grafana": "Storico in Grafana",
   "watch.grafana_title": "La dashboard della segreteria in Grafana, su questo pannello — si apre in una nuova scheda",
