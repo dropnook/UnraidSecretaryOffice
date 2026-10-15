@@ -1843,6 +1843,7 @@ function setupApply() {
       saved = null;
       Office.selbar(null);
       Office.go(`#/${ID}`);
+      if (typeof window !== 'undefined') window.scrollTo(0, 0);     // saved: her overview from its top, not left at the bottom where the bar was
       return true;
     } }],
   });

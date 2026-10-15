@@ -103,6 +103,7 @@
 .jo-pools p{margin:0 0 6px}
 .jo-rule{margin:4px 0 0}
 .jo-save{margin-top:14px; align-items:center; flex-wrap:wrap; gap:8px 14px}
+.jo-import-part > .jo-save{margin-bottom:26px}        /* «Save» ends his own parts; the optional import part comes after it */
 .jo-save-why.jo-save-no{color:var(--danger)}
 .jo-budget-note{margin:10px 0}
 .jo-media{margin:4px 0 14px}

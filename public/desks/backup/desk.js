@@ -2492,6 +2492,7 @@ function setupApply() {
         Office.toast(T('setup.applying'));
         Office.busy(`${ID}.setup`, true);
         setupLoad();
+        if (typeof window !== 'undefined') window.scrollTo(0, 0);     // applying: the tab from its top, where «Applying…» stands — not left at the bottom
         return true;
       } },
     ],

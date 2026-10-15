@@ -8511,7 +8511,7 @@ function testSetupTiles(): void
         str_contains($bk, "route: setupRoute(STEP_TILE[key]) } : {})") && str_contains($bk, "route: setupRoute(STEP_TILE[PART[key] || 'setup.general'])")
         && str_contains($em, "...SETUP_TILES.map(([id, key]) => ({ kind: 'step', key, ...SETUP, route: `#/\${ID}/setup/\${id}` })),"));
     check('setup tiles: Jack\'s setup keeps the focus through a drawing (the control clicked gets it back)',
-        str_contains($em, "const spot = focusSpot();") && str_contains($em, "  root.appendChild(saveBar());\n  focusBack(spot);\n}"));
+        str_contains($em, "const spot = focusSpot();") && str_contains($em, "  fillSaveSlot(sw.active());\n  sw.render();\n  focusBack(spot);\n}"));
     foreach (['backup' => ['setup.tile.local', 'setup.tile.offsite', 'setup.tile.no_place', 'setup.tile.on', 'setup.tile.new', 'setup.tile.u_d', 'setup.tile.u_w',
         'setup.tile.u_m', 'setup.tile.u_y', 'setup.tile.ret_offsite', 'setup.tile.changed', 'setup.tile.unchanged', 'setup.tile.settings']] as $desk => $want) {
         foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
@@ -36623,7 +36623,16 @@ function testTilesMediaPages(): void
     check('jack page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup is the office\'s tab with tiles (no wizard)',
         str_contains($jackSrc, "pages: { list: PAGES(), current: page === 'setup' ? 'setup' : '' } }).head;") && substr_count($jackSrc, 'root.appendChild(deskHead());') === 2
         && !str_contains($jackSrc, "T('back')") && !str_contains($jackSrc, "actions.push(button(T('setup_open')")
-        && str_contains($jackSrc, "const sw = setupSwitcher();\n  root.appendChild(sw.el);\n  sw.render();") && !str_contains($jackSrc, 'jo-wiz'));
+        && str_contains($jackSrc, "const sw = setupSwitcher();\n  root.appendChild(sw.el);\n  saveSlot = el('div', 'jo-save-slot');") && !str_contains($jackSrc, 'jo-wiz'));
+    check('jack setup: «Save» right under his own parts (owner 2026-10-15) — the whole page: between them and the optional import part (drawn with it); one part of his own: under it (the slot, set at every pick); the import alone: none',
+        str_contains($jackSrc, "  if (cur ? cur !== 'import' : !withImport) saveSlot.appendChild(saveBar());")
+        && str_contains($jackSrc, "  if (!setupSw || setupSw.active()) return part;\n  const box = el('div', 'jo-import-part');\n  box.append(saveBar(), part);")
+        && str_contains($jackSrc, "onPick: (cur) => fillSaveSlot(cur),") && str_contains($jackSrc, "section: () => (d.id === 'import' ? importStep() : setupStep(d.id))")
+        && substr_count($jackSrc, "saveBar()") === 3);
+    check('setup tabs: after saving the page shows from its top (Jack Streamer\'s, Ms. Moverelli\'s, Mr. Backupsy\'s apply)',
+        str_contains($jackSrc, "renderSetup();\n  if (typeof window !== 'undefined') window.scrollTo(0, 0);")
+        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "Office.go(`#/\${ID}`);\n      if (typeof window !== 'undefined') window.scrollTo(0, 0);")
+        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "setupLoad();\n        if (typeof window !== 'undefined') window.scrollTo(0, 0);"));
     check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page',
         str_contains($jackSrc, "if (plan) sw.mount('plans');") && str_contains($jackSrc, "} else sw.mount(sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
         && str_contains($jackSrc, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($jackSrc, "Office.place(`plan:\${job}`")
