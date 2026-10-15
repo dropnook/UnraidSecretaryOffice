@@ -531,6 +531,6 @@ if (( dry )); then
 fi
 echo "DONE: v$rel ($plg_ver) - ${done_at[*]:-no server}"
 (( no_main )) && echo "$(label "$main") not updated: when no run is active, tools/release.sh $rel --servers-only"
-echo "Next (the release playbook): 24 h quiet except hotfixes; tonight's run on $(label "$main"); note the release in the day's notes."
+echo "Next (the release playbook): tonight's run on $(label "$main"); note the release in the day's notes."
 echo "Log: $log"
 exit 0
