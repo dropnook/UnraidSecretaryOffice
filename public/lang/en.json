@@ -217,7 +217,7 @@
   "office.report_images_checked": "I've looked at the pictures — nothing private on them",
   "office.report_images_note": "The log is cleaned of names, paths and addresses — a picture can't be: what a screenshot shows goes as it is.",
   "office.report_diag": "Also send Unraid's diagnostics (anonymized)",
-  "office.report_diag_hint": "Anonymized by Unraid means: share and user names, passwords, the registration and public internet addresses are hidden — the server's name, local IP addresses, the disks' serial numbers and whatever its logs hold stay in. The makers keep the diagnostics 30 days, then they are deleted.",
+  "office.report_diag_hint": "Anonymized by Unraid means: share and user names, passwords, the registration and public internet addresses are hidden — the server's name, local IP addresses, the disks' serial numbers and whatever its logs hold stay in. The makers keep the diagnostics at most 10 days, only to analyse the error better, then they are deleted.",
   "office.report_diag_wake": "Wake the sleeping disks for it",
   "office.report_part.diagnostics": "Unraid's diagnostics (anonymized)",
   "office.report_diag_running": "Unraid is collecting its diagnostics…",

@@ -217,7 +217,7 @@
   "office.report_images_checked": "Ich habe die Bilder angeschaut — nichts Privates darauf",
   "office.report_images_note": "Das Protokoll wird von Namen, Pfaden und Adressen gereinigt — ein Bild kann das nicht: Was ein Screenshot zeigt, geht so, wie es ist.",
   "office.report_diag": "Unraid-Diagnose mitsenden (anonymisiert)",
-  "office.report_diag_hint": "Anonymisiert heisst bei Unraid: Share- und Benutzernamen, Passwörter, die Registrierung und öffentliche Internet-Adressen werden verborgen — der Name des Servers, lokale IP-Adressen, die Seriennummern der Disks und was in seinen Protokollen steht, bleiben drin. Die Macher behalten die Diagnose 30 Tage, dann wird sie gelöscht.",
+  "office.report_diag_hint": "Anonymisiert heisst bei Unraid: Share- und Benutzernamen, Passwörter, die Registrierung und öffentliche Internet-Adressen werden verborgen — der Name des Servers, lokale IP-Adressen, die Seriennummern der Disks und was in seinen Protokollen steht, bleiben drin. Die Macher behalten die Diagnose höchstens 10 Tage, nur um den Fehler besser zu verstehen, dann wird sie gelöscht.",
   "office.report_diag_wake": "Die schlafenden Disks dafür wecken",
   "office.report_part.diagnostics": "Unraid-Diagnose (anonymisiert)",
   "office.report_diag_running": "Unraid stellt seine Diagnose zusammen…",

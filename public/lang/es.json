@@ -217,7 +217,7 @@
   "office.report_images_checked": "He mirado las imágenes — nada privado en ellas",
   "office.report_images_note": "El registro se limpia de nombres, rutas y direcciones — una imagen no puede limpiarse: lo que muestra una captura va tal cual.",
   "office.report_diag": "Enviar también el diagnóstico de Unraid (anonimizado)",
-  "office.report_diag_hint": "Anonimizado por Unraid significa: se ocultan los nombres de los recursos compartidos y de los usuarios, las contraseñas, el registro y las direcciones de internet públicas — el nombre del servidor, las direcciones IP locales, los números de serie de los discos y lo que contengan sus registros se quedan. Los autores guardan el diagnóstico 30 días; después se borra.",
+  "office.report_diag_hint": "Anonimizado por Unraid significa: se ocultan los nombres de los recursos compartidos y de los usuarios, las contraseñas, el registro y las direcciones de internet públicas — el nombre del servidor, las direcciones IP locales, los números de serie de los discos y lo que contengan sus registros se quedan. Los autores guardan el diagnóstico como máximo 10 días, solo para entender mejor el error; después se borra.",
   "office.report_diag_wake": "Despertar los discos dormidos para ello",
   "office.report_part.diagnostics": "Diagnóstico de Unraid (anonimizado)",
   "office.report_diag_running": "Unraid está reuniendo su diagnóstico…",

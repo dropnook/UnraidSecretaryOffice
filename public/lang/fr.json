@@ -217,7 +217,7 @@
   "office.report_images_checked": "J'ai regardé les images — rien de privé dessus",
   "office.report_images_note": "Le journal est nettoyé des noms, chemins et adresses — une image ne peut pas l'être : ce que montre une capture part tel quel.",
   "office.report_diag": "Joindre aussi les diagnostics d'Unraid (anonymisés)",
-  "office.report_diag_hint": "Anonymisés par Unraid veut dire : les noms des partages et des utilisateurs, les mots de passe, l'enregistrement et les adresses internet publiques sont masqués — le nom du serveur, les adresses IP locales, les numéros de série des disques et ce que contiennent ses journaux restent. Les auteurs gardent les diagnostics 30 jours, puis ils sont supprimés.",
+  "office.report_diag_hint": "Anonymisés par Unraid veut dire : les noms des partages et des utilisateurs, les mots de passe, l'enregistrement et les adresses internet publiques sont masqués — le nom du serveur, les adresses IP locales, les numéros de série des disques et ce que contiennent ses journaux restent. Les auteurs gardent les diagnostics 10 jours au plus, seulement pour mieux comprendre l'erreur, puis ils sont supprimés.",
   "office.report_diag_wake": "Réveiller les disques endormis pour cela",
   "office.report_part.diagnostics": "Diagnostics d'Unraid (anonymisés)",
   "office.report_diag_running": "Unraid rassemble ses diagnostics…",

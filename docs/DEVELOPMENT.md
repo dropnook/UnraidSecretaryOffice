@@ -331,7 +331,8 @@ active, `backup/` is left alone.
   never pre-ticked or remembered): the preview runs `/usr/local/sbin/diagnostics <zip>` — exactly Tools → Diagnostics
   with «Anonymize» (never `-a`) — through atd into RAM (`office.report_diag` polled; a sleeping disk refuses without the
   user's «wake»; Unraid's copy in `/boot/logs` removed); after the report the raw zip goes to `<inbox>/api/diag` (headers
-  X-Office, X-Rid); an older or switched-off inbox answers 404/`off` and the report stands. Unraid's «anonymized» keeps
+  X-Office, X-Rid) — the inbox keeps it at most 10 days behind an unguessable link in the private issue; an older or
+  switched-off inbox answers 404/`off` and the report stands. Unraid's «anonymized» keeps
   the server's name, local IPs, disk serials and the logs — the dialog says so. Tests: `testReportDiagnostics`,
   `testReportDialogDiagnostics`.
 * **The package:** `bash plugin/build.sh <office-version>` builds `dist/unraid-secretary-office-<date>.txz` and

@@ -217,7 +217,7 @@
   "office.report_images_checked": "Ho guardato le immagini — niente di privato",
   "office.report_images_note": "Il log viene ripulito da nomi, percorsi e indirizzi — un'immagine no: quello che mostra uno screenshot va così com'è.",
   "office.report_diag": "Invia anche la diagnostica di Unraid (anonimizzata)",
-  "office.report_diag_hint": "Anonimizzata da Unraid significa: i nomi di condivisioni e utenti, le password, la registrazione e gli indirizzi internet pubblici vengono nascosti — il nome del server, gli indirizzi IP locali, i numeri di serie dei dischi e quello che c'è nei suoi log restano. Gli autori tengono la diagnostica 30 giorni, poi viene cancellata.",
+  "office.report_diag_hint": "Anonimizzata da Unraid significa: i nomi di condivisioni e utenti, le password, la registrazione e gli indirizzi internet pubblici vengono nascosti — il nome del server, gli indirizzi IP locali, i numeri di serie dei dischi e quello che c'è nei suoi log restano. Gli autori tengono la diagnostica al massimo 10 giorni, solo per capire meglio l'errore, poi viene cancellata.",
   "office.report_diag_wake": "Sveglia i dischi addormentati per questo",
   "office.report_part.diagnostics": "Diagnostica di Unraid (anonimizzata)",
   "office.report_diag_running": "Unraid sta raccogliendo la sua diagnostica…",
