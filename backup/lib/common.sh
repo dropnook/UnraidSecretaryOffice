@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.51"
+UB_VERSION="2.52"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -166,7 +166,7 @@ ub_untrusted_refuse() {
     local t="$UB_UNTRUSTED_PATH is not root's own (owner $(stat -c '%U:%G %a' -- "$UB_UNTRUSTED_PATH" 2>/dev/null || echo '?')) - the engine reads nothing from a folder others can write or replace. Check it, then: chown root:root and chmod go-w (the office's Team Lead shows the command)"
     echo "REFUSED: $t" >&2
     logger -t "$UB_NAME" "refused: $t" 2>/dev/null
-    ub_notify "Backup REFUSED" "The backup folder is not root's own: $UB_UNTRUSTED_PATH" "alert" "$t"
+    ub_tell refused alert "$t" "Backup REFUSED" "The backup folder is not root's own: $UB_UNTRUSTED_PATH" "path=$UB_UNTRUSTED_PATH"
     exit 4
 }
 
@@ -218,6 +218,69 @@ ub_notify() {
         UB_NOTIFY_LAST="$(date +%s)"
     fi
     return 0
+}
+
+# --- The notifications in the office's language (2.52): subject and description of what the engine tells come from Mr.
+# Backupsy's language files (desks/backup/lang/<code>.json, keys notify.*), in the language the office was last used in -
+# the copy in RAM the office's agent keeps (/var/run/unraid-secretary-office/notify.lang, {"lang": "de"}; it stays when
+# the agent is away). No copy, no such file, no key: English, and without the language files at all (a copy outside the
+# plugin) the English text the call carries. The long text (the run's report) stays English.
+UB_NOTIFY_LANG_FILE="${UB_NOTIFY_LANG_FILE-$(ub_is_plugin && echo /var/run/unraid-secretary-office/notify.lang)}"
+ub_lang_dir() { # the backup desk's language folder: the plugin's (public/ unpacked at its top) or a checkout's
+    local d
+    for d in "${UB_LANG_DIR:-}" "$UB_DIR/../desks/backup/lang" "$UB_DIR/../public/desks/backup/lang"; do
+        [[ -n "$d" && -f "$d/en.json" ]] && { printf '%s' "$d"; return 0; }
+    done
+    return 1
+}
+ub_notify_lang() { # the office's language for notifications - en when none is known or spoken
+    local f="$UB_NOTIFY_LANG_FILE" l="" d
+    if [[ -n "$f" && -f "$f" && ! -L "$f" ]] && (( $(stat -c %s -- "$f" 2>/dev/null || echo 9999) <= 4096 )); then
+        l="$(jq -r '.lang // "" | strings' -- "$f" 2>/dev/null)"
+    fi
+    d="$(ub_lang_dir)" || d=""
+    [[ "$l" =~ ^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$ && -n "$d" && -f "$d/$l.json" ]] || l="en"
+    printf '%s' "$l"
+}
+# ub_say <key> [name=value ...] - the text in the office's language (else English), {name} filled in, a plural
+# ({"one", "other"}) by n; 1 (nothing printed) when no file has the key
+ub_say() {
+    local key="$1" d l f t="" kv n="" found=1
+    shift
+    d="$(ub_lang_dir)" || return 1
+    for kv in "$@"; do [[ "$kv" == n=* ]] && n="${kv#n=}"; done
+    is_uint "$n" || n=-1
+    l="${UB_SAY_LANG:-$(ub_notify_lang)}"
+    for f in "$d/$l.json" "$d/en.json"; do
+        [[ -f "$f" ]] || continue
+        t="$(jq -r --arg k "$key" --argjson n "$n" '.[$k] | if type == "object" then (if $n == 1 then (.one // .other) else .other end)
+            elif type == "string" then . else empty end | strings' -- "$f" 2>/dev/null)" && [[ -n "$t" ]] && { found=0; break; }
+    done
+    (( found == 0 )) || return 1
+    for kv in "$@"; do t="${t//"{${kv%%=*}}"/"${kv#*=}"}"; done
+    t="${t//⟦/}"; t="${t//⟧/}"                       # an Unraid label as it is written (the texts here carry none)
+    printf '%s' "$t"
+}
+# ub_tell <code> <level> <long text> <English subject> <English description> [name=value ...] - ub_notify with the
+# subject "<his name>: <notify.<code>.subject>" and the description notify.<code> in the office's language; the
+# English pair is what a copy without the language files says
+ub_tell() {
+    local code="$1" level="$2" long="$3" subj="$4" desc="$5" name s t
+    shift 5
+    local UB_SAY_LANG
+    UB_SAY_LANG="$(ub_notify_lang)"
+    name="$(ub_say name)" || name="Mr. Backupsy"
+    s="$(ub_say "notify.$code.subject" "$@")" || s="$subj"
+    t="$(ub_say "notify.$code" "$@")" || t="$desc"
+    ub_notify "$name: $s" "$t" "$level" "$long"
+}
+# ub_counts <errors> <warnings> - «2 errors, 1 warning» in the office's language (errors left out when empty)
+ub_counts() {
+    local e w
+    w="$(ub_say notify.count_warnings "n=$2")" || w="$2 warnings"
+    [[ -n "$1" ]] || { printf '%s' "$w"; return 0; }
+    e="$(ub_say notify.count_errors "n=$1")" || e="$1 errors"
+    printf '%s, %s' "$e" "$w"
 }
 
 is_yes() { [[ "${1,,}" == "yes" || "${1,,}" == "ja" || "$1" == "1" || "${1,,}" == "true" ]]; }
@@ -1773,7 +1836,7 @@ note_write() {
 #     array_stopping and noted them before it finished; a later run's notes would be newer), a warning
 #     after a crash -; «Aborted run not fully repaired» (warning) naming what didn't
 recover_interrupted_run() {
-    local list="" stay="" level="warning" why="An earlier run was aborted" fin f
+    local list="" stay="" level="warning" why="An earlier run was aborted" whyk=why_aborted wt fin f
     local -a back_ct=() back_nc=() back_vm=()     # what came back, for the notification (the helpers add to them)
     if array_stopping && recover_notes; then
         log "The array is being stopped - what an earlier run left stopped stays so (state/stopped, maintenance, vms) until a run after the array start"
@@ -1782,9 +1845,9 @@ recover_interrupted_run() {
     recover_notes || return 0
     if [[ "$(jq -r '"\(.result)|\(.message)"' "$UB_STATE/last-run.json" 2>/dev/null)" == "aborted|array_stopping" ]]; then
         fin="$(jq -r '.finished // 0' "$UB_STATE/last-run.json" 2>/dev/null)"; is_uint "$fin" || fin=0
-        level="normal"; why="The run the array stop ended left things for after the array start"
+        level="normal"; why="The run the array stop ended left things for after the array start"; whyk=why_array_stop
         for f in stopped maintenance vms; do
-            [[ -e "$UB_STATE/$f" ]] && (( $(stat -c %Y "$UB_STATE/$f" 2>/dev/null || echo 0) > fin + 2 )) && { level="warning"; why="An earlier run was aborted"; }
+            [[ -e "$UB_STATE/$f" ]] && (( $(stat -c %Y "$UB_STATE/$f" 2>/dev/null || echo 0) > fin + 2 )) && { level="warning"; why="An earlier run was aborted"; whyk=why_aborted; }
         done
     fi
     if [[ -s "$UB_STATE/vms" ]] && ub_vm_service_off; then
@@ -1812,11 +1875,13 @@ recover_interrupted_run() {
     list="${list% }"
     if [[ -n "$stay" ]]; then
         log "$why - not all of it came back${list:+ (restored: $list)}: $stay"
-        ub_notify "Aborted run not fully repaired" "$why - not all of it is back; what is still noted, the next run tries again." "warning" \
-            "$(recover_report "$why" "$stay")"
+        wt="$(ub_say "notify.$whyk")" || wt="$why"
+        ub_tell recovered_part warning "$(recover_report "$why" "$stay")" "Aborted run not fully repaired" \
+            "$why - not all of it is back; what is still noted, the next run tries again." "why=$wt"
     elif [[ -n "$list" ]]; then
         if [[ "$level" == "warning" ]]; then warn "$why - restored: $list"; else log "$why - restored: $list"; fi
-        ub_notify "Aborted run repaired" "$why - all of it is back." "$level" "$(recover_report "$why" "")"
+        wt="$(ub_say "notify.$whyk")" || wt="$why"
+        ub_tell recovered "$level" "$(recover_report "$why" "")" "Aborted run repaired" "$why - all of it is back." "why=$wt"
     fi
     return 0
 }
@@ -3482,12 +3547,12 @@ new_local_run() {
     status_write
     if (( nfresh > 0 )); then
         if (( nfresh == 1 )); then
-            ub_notify "New folder stays local" "$fresh - new in the share for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal"
+            ub_tell new_folder normal "" "New folder stays local" "$fresh - new in the share for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup." "folder=$fresh"
         else
             # the list one per line in the long text (at most 12; the setup lists them all)
-            ub_notify "$nfresh new folders stay local" "$nfresh new folders in the shares for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup." "normal" \
-                "$(echo "NEW, ONLY LOCAL UNTIL YOU DECIDE"; printf '  %s\n' "${fresh_l[@]:0:12}"
-                   (( nfresh > 12 )) && echo "  $(( nfresh - 12 )) more - Mr. Backupsy's setup lists them all")"
+            ub_tell new_folders normal "$(echo "NEW, ONLY LOCAL UNTIL YOU DECIDE"; printf '  %s\n' "${fresh_l[@]:0:12}"
+                   (( nfresh > 12 )) && echo "  $(( nfresh - 12 )) more - Mr. Backupsy's setup lists them all")" \
+                "$nfresh new folders stay local" "$nfresh new folders in the shares for apps or VMs, of no app or VM or of a new one: only in the local snapshots until you decide in Mr. Backupsy's setup." "n=$nfresh"
         fi
         # Unraid's notify keeps one notification per event and second: the run's own report comes later
         [[ "${UB_NO_NOTIFY:-0}" == "1" ]] || sleep 1
