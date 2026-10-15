@@ -2492,9 +2492,10 @@ async function saveSetup(e) {
   const j = await act('save', { settings });
   if (!j) return;
   Office.toast(T('setup.saved'));
-  // saved: the tab shows his setup as saved now
+  // saved: the tab shows his setup as saved now — from its top, not left at the bottom where «Save» was
   form = null;
   renderSetup();
+  window.scrollTo(0, 0);
 }
 
 // ------------------------------------------------------------------ desk
