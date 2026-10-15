@@ -4220,7 +4220,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.51'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.52'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -4683,7 +4683,7 @@ SH);
     check('vm order: no WARNING line for the VM off after its deadline', !preg_match("/WARNING: VM 'vmlate'/", $l), $l);
     $note = (string) @file_get_contents("$fake/notify.log");
     check('vm order: the notification is a warning, not an alert, and says why the VMs were paused',
-        str_contains($note, '-s Unraid Secretary Office: Backup with warnings') && str_contains($note, '-i warning') && !str_contains($note, '-i alert')
+        str_contains($note, '-s Unraid Secretary Office: Mr. Backupsy: Backup with warnings') && str_contains($note, '-i warning') && !str_contains($note, '-i alert')
         && str_contains($note, 'did not shut down - paused for') && str_contains($note, 'not frozen - paused for'), $note);
     check('vm order: nothing left in state/vms', !file_exists("$data/state/vms"));
 
@@ -5635,6 +5635,141 @@ SH);
  * (a value there already is never added twice) say the same; nothing on stderr. Then the same with SIGPIPE ignored
  * (PHP's way): no «printf: write error: Broken pipe», which made testBackupNewLocal flaky.
  */
+/*
+ * 1.64.1: his old name «Jack Emby» shows nowhere a user sees it - agent.log (Ms. Protocolli, a report's log part), the
+ * night run's lines, the migration's notes, Ms. Moverelli's run log, agent.sh's alert, the dashboard's titles. Comments
+ * and internal names may keep it; his lines from before keep counting as his in a report.
+ */
+function testJackStreamerName(): void
+{
+    $files = [...glob(OFFICE_DIR . '/agent/*.php'), ...glob(OFFICE_DIR . '/agent/desks/*.php'), ...glob(OFFICE_DIR . '/agent/lib/*.php'),
+              ...glob(OFFICE_DIR . '/src/*.php'), ...glob(OFFICE_DIR . '/plugin/scripts/*.sh'), ...glob(OFFICE_DIR . '/plugin/*.page'),
+              ...glob(OFFICE_WEB . '/desks/*/*.js'), ...glob(OFFICE_WEB . '/assets/*.js'), ...glob(OFFICE_WEB . '/lang/*.json'),
+              ...glob(OFFICE_WEB . '/desks/*/lang/*.json'), ...glob(OFFICE_WEB . '/desks/*/*.json'), OFFICE_DIR . '/smartmover/custommover_run.sh',
+              OFFICE_DIR . '/monitoring/grafana-dashboard.json'];
+    $hits = [];
+    foreach ($files as $f) {
+        foreach (explode("\n", (string) file_get_contents($f)) as $i => $line) {
+            if (!str_contains($line, 'Jack Emby') || preg_match('~^\s*(\*|//|/\*|#)~', $line)) {
+                continue;
+            }
+            // a code line's own trailing comment may name him the old way
+            $code = (string) preg_replace('~\s(//|#)\s.*$~', '', $line);
+            if (str_contains($code, 'Jack Emby') && !str_contains($line, "'Jack Emby: '],")) {
+                $hits[] = substr($f, strlen(OFFICE_DIR) + 1) . ':' . ($i + 1);
+            }
+        }
+    }
+    same('jack name: «Jack Emby» in no line a user can see (logs, notes, alerts, texts, the dashboard)', [], $hits);
+    $tmp = hardeningTmp('jackname');
+    file_put_contents("$tmp/agent.log", "2026-10-14 01:00:00  Jack Emby: started embycache (run) via at\n"
+        . "2026-10-15 01:00:00  Jack Streamer: started embycache (run) via at\n2026-10-15 01:00:01  Ms. Moverelli: x\n");
+    same('jack name: a report\'s log part - his lines under both names, nobody else\'s',
+        ['2026-10-14 01:00:00  Jack Emby: started embycache (run) via at', '2026-10-15 01:00:00  Jack Streamer: started embycache (run) via at'],
+        reportLogLines('jack', 40, "$tmp/agent.log"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/*
+ * Engine 2.52: Mr. Backupsy's notifications speak the office's language - the subject «<his name>: …», subject and
+ * description from his language files (notify.*), the language the copy in RAM the agent keeps (notify.lang), English
+ * without it; without the language files at all the English the call carries. A real call path: backup.sh refusing a
+ * folder of nobody's (alert), then ub_tell for a run's end, a skip, a failure with a code, through a stand-in notify.
+ */
+function testBackupNotifyLang(): void
+{
+    $tmp = hardeningTmp('notifylang');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $lib = OFFICE_DIR . '/backup/lib/common.sh';
+    file_put_contents("$tmp/notify", "#!/bin/bash\n{ printf '%s\\n' \"\$@\"; echo ---; } >> $tmp/notified\n");
+    chmod("$tmp/notify", 0755);
+    @mkdir("$tmp/nobody", 0700);
+    chown("$tmp/nobody", 99);
+    // the notifications sent since the last look: [subject, description, level, long text]
+    $sent = function () use ($tmp): array {
+        $all = [];
+        foreach (array_filter(explode("---\n", (string) @file_get_contents("$tmp/notified")), 'trim') as $call) {
+            $a = explode("\n", rtrim($call, "\n"));
+            $arg = fn (string $f) => ($i = array_search($f, $a, true)) === false ? null : ($a[$i + 1] ?? null);
+            $all[] = [$arg('-s'), $arg('-d'), $arg('-i'), $arg('-m'), $arg('-e')];
+        }
+        @unlink("$tmp/notified");
+        return $all;
+    };
+    $lang = function (?string $code) use ($tmp): string {
+        @unlink("$tmp/notify.lang");
+        if ($code !== null) {
+            file_put_contents("$tmp/notify.lang", json_encode(['lang' => $code]));
+        }
+        return "$tmp/notify.lang";
+    };
+    $env = fn (string $l) => ['UB_DATA' => "$tmp/nobody", 'UB_NOTIFY_BIN' => "$tmp/notify", 'UB_NOTIFY_STAMP' => '', 'UB_NOTIFY_LANG_FILE' => $l];
+
+    // the real path: backup.sh refuses the folder - an alert, in German with his German name, then in English
+    @unlink("$tmp/notified");
+    [$e] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env($lang('de')), 30);
+    $n = $sent();
+    same('notify lang: backup.sh refusing, the office in German - exit 4, one alert, «Herr Backupsi: Backup VERWEIGERT», the text German',
+        [4, 1, 'Unraid Secretary Office', 'Unraid Secretary Office: Herr Backupsi: Backup VERWEIGERT', "Der Backup-Ordner gehört nicht root allein: $tmp/nobody", 'alert'],
+        [$e, count($n), $n[0][4] ?? null, $n[0][0] ?? null, $n[0][1] ?? null, $n[0][2] ?? null]);
+    check('notify lang: … the long text stays English', str_contains((string) ($n[0][3] ?? ''), "is not root's own"), json_encode($n));
+    runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env($lang('en')), 30);
+    $n = $sent();
+    same('notify lang: … the office in English - «Mr. Backupsy: Backup REFUSED»',
+        ['Unraid Secretary Office: Mr. Backupsy: Backup REFUSED', "The backup folder is not root's own: $tmp/nobody"], [$n[0][0] ?? null, $n[0][1] ?? null]);
+    foreach (['none' => null, 'unknown' => 'xx', 'bad' => '../de'] as $what => $code) {
+        runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env($lang($code)), 30);
+        same("notify lang: language $what - English", 'Unraid Secretary Office: Mr. Backupsy: Backup REFUSED', $sent()[0][0] ?? null);
+    }
+    symlink("$tmp/de.json", "$tmp/link.lang");
+    file_put_contents("$tmp/de.json", '{"lang":"de"}');
+    runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env("$tmp/link.lang"), 30);
+    same('notify lang: a link as the language file - not read, English', 'Unraid Secretary Office: Mr. Backupsy: Backup REFUSED', $sent()[0][0] ?? null);
+
+    // ub_tell as the run's end, a skip and a failure call it (plurals by n, his message codes reused)
+    $tell = function (string $l, string $code) use ($lib, $tmp, $env, $lang, $sent): array {
+        runEnv(['bash', '-c', 'source "$1" >/dev/null 2>&1; ' . $code, 'sh', $lib], ['UB_DATA' => "$tmp/ub"] + $env($lang($l)), 30);
+        return $sent();
+    };
+    $end = 'ub_tell errors alert "REPORT" "Backup with errors" "x" "counts=$(ub_counts 1 3)" "summary=S"';
+    same('notify lang: the run\'s end, German - plurals by n', ['Unraid Secretary Office: Herr Backupsi: Backup mit Fehlern', '1 Fehler, 3 Warnungen. S', 'alert', 'REPORT'],
+        array_slice($tell('de', $end)[0] ?? [], 0, 4));
+    same('notify lang: … English', ['Unraid Secretary Office: Mr. Backupsy: Backup with errors', '1 error, 3 warnings. S'], array_slice($tell('en', $end)[0] ?? [], 0, 2));
+    same('notify lang: … French, Italian, Spanish', ['1 erreur, 3 avertissements. S', '1 errore, 3 avvisi. S', '1 error, 3 avisos. S'],
+        [$tell('fr', $end)[0][1] ?? null, $tell('it', $end)[0][1] ?? null, $tell('es', $end)[0][1] ?? null]);
+    $skip = 'why="$(ub_say message.skipped_busy_backup)"; ub_tell skipped warning "" "Backup skipped" "x" "when=2026-10-15 03:00" "why=$why"';
+    same('notify lang: a skip - the reason from his message codes, German',
+        ['Unraid Secretary Office: Herr Backupsi: Backup ausgelassen', 'Das Backup von 2026-10-15 03:00 wurde ausgelassen: das Backup davor lief noch. Das nächste Backup sichert wie gewohnt.'],
+        array_slice($tell('de', $skip)[0] ?? [], 0, 2));
+    $vm = 'ub_tell vm_not_started alert "" "VM not started" "x" "vm=Win & {n} 11"';
+    same('notify lang: a name with & and {…} goes in as it is', '«Win & {n} 11» liess sich nach dem Snapshot nicht starten.', $tell('de', $vm)[0][1] ?? null);
+    // without his language files (a copy of the engine alone): the English the call carries, the subject with his English name
+    $bare = 'ub_lang_dir() { return 1; }; ub_tell vm_not_started alert "" "VM not started" "\'v\' could not be started after the snapshot." "vm=v"';
+    same('notify lang: no language files - the call\'s English', ['Unraid Secretary Office: Mr. Backupsy: VM not started', "'v' could not be started after the snapshot."],
+        array_slice($tell('de', $bare)[0] ?? [], 0, 2));
+
+    // every code the engine tells and every notify.* it says is in his five language files, in both parts
+    $src = implode("\n", array_map('file_get_contents', [OFFICE_DIR . '/backup/backup.sh', OFFICE_DIR . '/backup/setup.sh', $lib]));
+    preg_match_all('/^[^#\n]*\bub_tell "?\$?([a-z_]+)/m', $src, $m);
+    $codes = array_diff(array_unique($m[1]), ['code']);
+    $codes = [...$codes, 'array_stop_kopia'];
+    preg_match_all('/\bub_say "?(notify\.[a-z_]+)/', $src, $s);
+    $keys = array_unique([...array_merge(...array_map(fn ($c) => ["notify.$c.subject", "notify.$c"], $codes)), ...$s[1], 'notify.why_aborted', 'notify.why_array_stop']);
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach ($keys as $k) {
+            if (!isset($t[$k])) {
+                $missing[] = "$l $k";
+            }
+        }
+    }
+    check('notify lang: the engine tells at least the run\'s end, skip, failure, refusal (' . count($codes) . ' codes)',
+        !array_diff(['ok', 'warnings', 'errors', 'skipped', 'failed', 'refused', 'drift', 'kopia_incomplete', 'new_folders', 'recovered'], $codes), json_encode($codes));
+    same('notify lang: every notify.* the engine uses is in all five of his language files', [], $missing);
+    check('notify lang: no ub_notify left in the engine but ub_tell\'s own', preg_match_all('/\bub_notify "/', $src) === 1, '');
+}
+
 /**
  * Review 2026-10-15 (R1 F2 / R3-7): the office's data folder lies in appdata, where a writer as nobody could put a folder
  * of its own in its place — and root code read it. Now: the engine (2.49) refuses a folder or settings.ini that isn't
@@ -5683,9 +5818,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.51 everywhere it is named', ['2.51', '2.51', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.51"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.51** –')]);
+    same('data trust: the engine\'s version 2.52 everywhere it is named', ['2.52', '2.52', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.52"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.52** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -6672,7 +6807,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.51', [1, '2.51'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.52', [1, '2.52'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -7280,7 +7415,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.51', [1, '2.51'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.52', [1, '2.52'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -31925,7 +32060,7 @@ function testMoverelliFill(): void
     $st = $run($env + ['CUSTOMMOVER_FILL_UNTIL_BYTES' => '250', 'CUSTOMMOVER_FILL_UNTIL_POOL' => 'cache'], true);
     same('fill room: until 250 bytes — z, y (the oldest) go, the pool at 200, reached; said', [['y', 'z'], ['w', 'x'], true],
         [$on($t, 'disk1'), $on($t, 'cache'), $st['shares'][0]['reached'] ?? null]);
-    check('fill room: … the log says the room', str_contains((string) file_get_contents("$t/log"), '(room for Jack Emby)'), (string) @file_get_contents("$t/log"));
+    check('fill room: … the log says the room', str_contains((string) file_get_contents("$t/log"), '(room for Jack Streamer)'), (string) @file_get_contents("$t/log"));
     [$t, $env] = $tree($four, "min_age=365\nage_stat=mtime\nmove_when_used_above=80", 500, true, ['Docs'], true);
     $st = $run($env + ['CUSTOMMOVER_FILL_UNTIL_BYTES' => '250', 'CUSTOMMOVER_FILL_UNTIL_POOL' => 'other'], true);
     same('fill room: for another pool — this one by percent (80 % ≥ 80: z goes, then 60 %)', ['z'], $on($t, 'disk1'));
@@ -37394,7 +37529,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],

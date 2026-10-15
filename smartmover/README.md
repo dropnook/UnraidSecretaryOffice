@@ -58,7 +58,7 @@
 >   call, the pool re-read after each; a dry run estimates the same from the sizes. The age rule itself stays per
 >   share (`age_stat`). The status (and the live status) carry `recent`: the last 50 files done
 >   `[{name: <share>/<rel>, bytes, from: <pool>, to: array|<pool>}]` (the office's night picture).
-> * `CUSTOMMOVER_FILL_MAX_BYTES` (+ optional `CUSTOMMOVER_FILL_MAX_POOL`, 2026-10-13, the office's night run with Jack Emby):
+> * `CUSTOMMOVER_FILL_MAX_BYTES` (+ optional `CUSTOMMOVER_FILL_MAX_POOL`, 2026-10-13, the office's night run with Jack Streamer):
 >   the fill moves at most this many bytes in this run, on that pool (empty: every pool); `0` = no fill there. With it the
 >   fill starts at/above the *target* (the office already decided that something must go, and how much); a file that would
 >   go past the cap is not started. The age rule is untouched; a dry run counts the same. Unset: as before. Since
@@ -66,9 +66,9 @@
 > * **`age_stat=newest`** (2026-10-14, the office's value; marked «USO «newest»»): a file's age is the **younger** of its
 >   birth time (`stat %W`, else ctime) and its mtime — for the age rule as for the fill: older than `min_age` only when
 >   both are (find by `-mmin`, then the birth/ctime looked at). The office always writes it; `ctime`/`mtime` work as upstream.
-> * `CUSTOMMOVER_FILL_UNTIL_BYTES` (+ `CUSTOMMOVER_FILL_UNTIL_POOL`, 2026-10-14, the office's night run: Jack Emby's GB
+> * `CUSTOMMOVER_FILL_UNTIL_BYTES` (+ `CUSTOMMOVER_FILL_UNTIL_POOL`, 2026-10-14, the office's night run: Jack Streamer's GB
 >   come first): on that pool the fill goes — every share with a trigger, oldest first across the pool — while the pool
->   uses more than this many bytes, so Jack Emby's fetch afterwards ends at X. Unset: by percent, as above.
+>   uses more than this many bytes, so Jack Streamer's fetch afterwards ends at X. Unset: by percent, as above.
 > * **Moved enough** (2026-10-15, marked «USO «moved enough»»): a real fill never moves more than its pool was over when the
 >   fill began — ZFS (and btrfs) show freed space only seconds later, and a snapshot keeps what moved until its retention;
 >   re-reading the pool alone moved every candidate. Once the bytes moved cover it, the pool is re-read for up to

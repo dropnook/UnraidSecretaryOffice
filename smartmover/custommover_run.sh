@@ -118,7 +118,7 @@ FILL_MAX_B="${CUSTOMMOVER_FILL_MAX_BYTES:-}"       # USO: the fill's cap (empty:
 [[ -z "$FILL_MAX_B" || "$FILL_MAX_B" =~ ^[0-9]+$ ]] || FILL_MAX_B=0
 FILL_MAX_POOL="${CUSTOMMOVER_FILL_MAX_POOL:-}"
 FILL_LEFT_B="${FILL_MAX_B:-0}"                     # what the cap still allows
-FILL_UNTIL_B="${CUSTOMMOVER_FILL_UNTIL_BYTES:-}"   # USO: the night's room for Jack Emby — fill until the pool uses at most this (bytes)
+FILL_UNTIL_B="${CUSTOMMOVER_FILL_UNTIL_BYTES:-}"   # USO: the night's room for Jack Streamer — fill until the pool uses at most this (bytes)
 [[ -z "$FILL_UNTIL_B" || "$FILL_UNTIL_B" =~ ^[0-9]+$ ]] || FILL_UNTIL_B=""
 FILL_UNTIL_POOL="${CUSTOMMOVER_FILL_UNTIL_POOL:-}"
 SETTLE_S="${CUSTOMMOVER_SETTLE:-30}"              # USO: the fill's wait for the pool's reading (seconds)
@@ -694,7 +694,7 @@ fill_pool() {  # pool
     if (( ${#go[@]} == 0 )); then log INFO "pool $pool at ${used}% ($POOL_USED_SRC) – below the limit of ${mine[*]}: no fill"; return 0; fi
     if [[ "$cap" == true ]] && (( FILL_LEFT_B <= 0 )); then log INFO "pool $pool: no fill in this run (its cap: $(human "$FILL_MAX_B"))"; return 0; fi
     if [[ "$room" == true ]]; then
-        log INFO "[fill] pool $pool $(human "$used_b") used ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until at most $(human "$ub") (room for Jack Emby)"
+        log INFO "[fill] pool $pool $(human "$used_b") used ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until at most $(human "$ub") (room for Jack Streamer)"
     else
         log INFO "[fill] pool $pool ${used}% ($POOL_USED_SRC) – the oldest first across ${go[*]} (the younger of created and modified) until below ${min}%"
     fi

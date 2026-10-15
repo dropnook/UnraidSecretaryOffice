@@ -258,7 +258,7 @@ function jackMoverLogging(array $h): ?string
  */
 function jackMoverOff(array $r, ?array $h = null, ?callable $log = null): array
 {
-    $log ??= fn (string $text) => logLine("Jack Emby: $text");
+    $log ??= fn (string $text) => logLine("Jack Streamer: $text");
     if (($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
     }

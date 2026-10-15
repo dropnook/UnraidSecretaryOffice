@@ -499,14 +499,14 @@ function jackMakeShareDatasets(array $rows, string $cache, array $mounts, ?calla
         clearstatcache(true, "$cache/$share");
         if ($exit !== 0 || !is_dir("$cache/$share") || is_link("$cache/$share")) {
             $failed[] = $share;
-            logLine("Jack Emby: could not make the dataset $ds/$share for the share's folder on $cache: " . trim((string) $out));
+            logLine("Jack Streamer: could not make the dataset $ds/$share for the share's folder on $cache: " . trim((string) $out));
             continue;
         }
         @chown("$cache/$share", 'nobody');
         @chgrp("$cache/$share", 'users');
         @chmod("$cache/$share", 0777);
         $made[] = $share;
-        logLine("Jack Emby: made the dataset $ds/$share (the share's folder on $cache, as Unraid does)");
+        logLine("Jack Streamer: made the dataset $ds/$share (the share's folder on $cache, as Unraid does)");
     }
     return [$made, $failed];
 }
@@ -825,7 +825,7 @@ function jackPoolEnv(?array $settings): array
     try {
         return jackPoolLook($settings, true)['env'] ?? [];
     } catch (Throwable $e) {
-        logLine("Jack Emby: Ms. Moverelli's limit not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
+        logLine("Jack Streamer: Ms. Moverelli's limit not looked at ({$e->getMessage()}) — EmbyCache keeps its own minimum free space");
         return [];
     }
 }
@@ -1047,7 +1047,7 @@ function jackSave(mixed $in): array
     if ($gather = jackGatherSettings()) {
         jackWriteGatherIni($gather, $cfg);             // follows the pool
     }
-    logLine('Jack Emby: EmbyCache settings saved');
+    logLine('Jack Streamer: EmbyCache settings saved');
     return ['ok' => true, 'state' => jackScan()];
 }
 
@@ -1163,10 +1163,10 @@ function jackReset(array $o = []): array
         try {
             $schedule($job);
         } catch (Throwable $e) {
-            logLine("Jack Emby: set up from scratch — the $job schedule not switched off ({$e->getMessage()})");
+            logLine("Jack Streamer: set up from scratch — the $job schedule not switched off ({$e->getMessage()})");
         }
     }
-    logLine('Jack Emby: set up from scratch — settings, gather settings, his list (emptied), origin, runs and schedules gone ('
+    logLine('Jack Streamer: set up from scratch — settings, gather settings, his list (emptied), origin, runs and schedules gone ('
         . count($gone) . ' files); what lies on the pool stays as ordinary cache');
     return ['ok' => true, 'state' => $dir === JACK_DATA ? jackScan() : null, 'gone' => array_map('basename', $gone)];
 }
@@ -1273,7 +1273,7 @@ function jackGatherSave(mixed $in): array
         throw new Problem('jack_running');
     }
     jackSaveGather(jackGatherCheck($in), jackReadSettings() ?? []);
-    logLine('Jack Emby: gather settings saved');
+    logLine('Jack Streamer: gather settings saved');
     return ['ok' => true, 'state' => jackScan()];
 }
 
@@ -1373,7 +1373,7 @@ function jackGatherIni(array $gather, array $pools, string $log, string $exclude
         $dirs[] = $q("/mnt/user/$share");
     }
     $pools = array_values(array_filter($pools, fn ($p) => preg_match('#^/mnt/[a-z0-9_-]+$#', $p) && !preg_match('#^/mnt/(disk\d+|user0?|disks|remotes|addons)$#', $p)));
-    return "# consolidate.ini - written by the Unraid Secretary Office (Jack Emby), change it there\n"
+    return "# consolidate.ini - written by the Unraid Secretary Office (Jack Streamer), change it there\n"
         . 'BASE_DIRS=(' . implode(' ', $dirs) . ")\n"
         . 'LOGFILE=' . $q($log) . "\n"
         . "ARRAY_PATTERN='/mnt/disk[0-9]*'\n"
@@ -1477,7 +1477,7 @@ function jackImportDo(array $r): array
         throw new Problem('jack_import_blocked');
     }
     $done = jackImportApply($plan['do'], $ctx);
-    logLine('Jack Emby: took over an earlier install (' . implode(', ', array_keys(array_filter($plan['do']))) . ') from '
+    logLine('Jack Streamer: took over an earlier install (' . implode(', ', array_keys(array_filter($plan['do']))) . ') from '
         . implode(', ', array_filter($f)) . ($done['backups'] ? '; copies of his own: .before-import-' . $done['stamp'] : ''));
     return ['ok' => true, 'done' => jackImportScrub($done, $plan['secrets']), 'state' => jackScan()];
 }
@@ -2466,7 +2466,7 @@ function jackRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
                 $j = json_decode((string) @file_get_contents($stopFile, false, null, 0, 65536), true);
                 $why = in_array($j['why'] ?? null, ['mover', 'watching'], true) ? $j['why'] : 'user';
                 $asked = $why === 'watching' && is_array($j['who'] ?? null) ? $j['who'] : null;
-                logLine('Jack Emby: asked to stop (' . $why . ') — the ' . ($watchers ? 'gather stops after the current folder' : 'run stops after the current file'));
+                logLine('Jack Streamer: asked to stop (' . $why . ') — the ' . ($watchers ? 'gather stops after the current folder' : 'run stops after the current file'));
             }
         }
         if ($why === null && time() - $lastMover >= $moverEvery) {
@@ -2479,7 +2479,7 @@ function jackRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
             if ($on) {
                 $why = 'mover';
                 writeAtomic($stopFile, jsonEncode(['time' => time(), 'why' => 'mover']), 0600, 0, 0);
-                logLine('Jack Emby: Unraid\'s mover started — the ' . ($watchers ? 'gather stops after the current folder' : 'run stops after the current file'));
+                logLine('Jack Streamer: Unraid\'s mover started — the ' . ($watchers ? 'gather stops after the current folder' : 'run stops after the current file'));
             }
         }
         if ($watchers && $why === null && time() - $last >= $every) {
@@ -2493,7 +2493,7 @@ function jackRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
                 $why = 'watching';
                 $asked = $w['who'];
                 writeAtomic($stopFile, jsonEncode(['time' => time(), 'who' => $asked, 'why' => 'watching']), 0600, 0, 0);
-                logLine('Jack Emby: someone started watching Emby — the gather stops after the current folder (' . jackWatchersLine($asked) . ')');
+                logLine('Jack Streamer: someone started watching Emby — the gather stops after the current folder (' . jackWatchersLine($asked) . ')');
             }
         }
         if ($tick !== null) {
@@ -2525,13 +2525,13 @@ function jackStart(string $tool, string $mode): array
     }
     jackRunCheck($tool, $mode);
     if ($mode === 'run' && jackMoverRunning()) {
-        logLine("Jack Emby: $tool (run) not started — Unraid's mover is at work");
+        logLine("Jack Streamer: $tool (run) not started — Unraid's mover is at work");
         throw new Problem('jack_mover_running');
     }
     // EmbyCache's real run is the night run with Ms. Moverelli (2026-10-13): frees, rechecks, fetches last — the whole of it
     if ($tool === 'embycache' && $mode === 'run' && function_exists('nightRun') && moverelliHired()) {
         hostLaunch('moverelli', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'moverelli', 'run', '--office']);
-        logLine('Jack Emby: started the night run with Ms. Moverelli via at');
+        logLine('Jack Streamer: started the night run with Ms. Moverelli via at');
         usleep(800000);
         return ['ok' => true, 'state' => jackScan()];
     }
@@ -2539,13 +2539,13 @@ function jackStart(string $tool, string $mode): array
         // asked in the agent's own loop: a short look (an Emby that is slow counts as down here — the job asks again, fully)
         $look = jackWatching(null, fn (string $url, string $key) => jackWatchFetch($url, $key, JACK_WATCH_PAGE));
         if ($p = jackWatchProblem($look)) {
-            logLine("Jack Emby: gather ($mode) not started — " . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
+            logLine("Jack Streamer: gather ($mode) not started — " . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
             throw $p;
         }
     }
     hostLaunch("jack-$tool", [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', $tool, $mode, '--office']);
-    logLine("Jack Emby: started $tool ($mode) via at");
+    logLine("Jack Streamer: started $tool ($mode) via at");
     usleep(800000);
     return ['ok' => true, 'state' => jackScan()];
 }
@@ -2632,7 +2632,7 @@ function jackJob(string $tool, array $args): int
             jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
                 + array_intersect_key($p->params, ['schedule' => 1, 'shares' => 1, 'file' => 1, 'detail' => 1]));
             if (str_starts_with($p->key, 'jack_mover_')) {
-                logLine("Jack Emby: $tool ($mode) not started — the mover could take EmbyCache's files ($p->key); only dry runs go");
+                logLine("Jack Streamer: $tool ($mode) not started — the mover could take EmbyCache's files ($p->key); only dry runs go");
             }
         }
         if ($mode === 'release') {
@@ -2659,7 +2659,7 @@ function jackJob(string $tool, array $args): int
         }
         if (in_array($look['state'], ['down', 'unknown'], true)) {
             $note['emby'] = $look['state'];
-            logLine('Jack Emby: ' . ($look['state'] === 'down' ? "Emby doesn't answer (" . ($look['detail'] ?? '') . ')' : 'no Emby server to ask')
+            logLine('Jack Streamer: ' . ($look['state'] === 'down' ? "Emby doesn't answer (" . ($look['detail'] ?? '') . ')' : 'no Emby server to ask')
                 . ' — the gather goes ahead');
         }
         try {
@@ -2677,7 +2677,7 @@ function jackJob(string $tool, array $args): int
     if ($tool === 'gather' && $mode === 'measure') {
         $look = jackWatching();
         if ($p = jackWatchProblem($look)) {
-            logLine('Jack Emby: measuring not started — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
+            logLine('Jack Streamer: measuring not started — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
             jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
                 + ($p->key === 'jack_watching' ? ['who' => $look['who']] : ['detail' => (string) ($look['detail'] ?? '')]));
@@ -2688,7 +2688,7 @@ function jackJob(string $tool, array $args): int
     if ($tool === 'embycache' && $mode === 'release') {
         $look = jackWatching();
         if ($p = jackLetGoWatchProblem($look)) {
-            logLine('Jack Emby: the films are not brought back — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
+            logLine('Jack Streamer: the films are not brought back — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
             jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => time(), 'finished' => time(), 'result' => 'refused', 'why' => $p->key]
                 + ($look['state'] === 'watching' ? ['who' => $look['who']] : ['detail' => (string) ($look['detail'] ?? '')]));
@@ -2810,7 +2810,7 @@ function jackJob(string $tool, array $args): int
     }
     if ($mode === 'release') {
         $c = (array) ($status['cleanup'] ?? []);
-        logLine('Jack Emby: brought ' . (int) ($c['done'] ?? 0) . ' of ' . (int) ($c['planned'] ?? 0) . ' files back to the array ('
+        logLine('Jack Streamer: brought ' . (int) ($c['done'] ?? 0) . ' of ' . (int) ($c['planned'] ?? 0) . ' files back to the array ('
             . $result . ', ' . (int) ($status['protected'] ?? 0) . ' still on the pool)');
     }
     if ($result === 'stopped') {
@@ -2818,7 +2818,7 @@ function jackJob(string $tool, array $args): int
         if ($note['why'] === 'watching') {
             $note['who'] = $stoppedFor ?? [];
         }
-        logLine('Jack Emby: ' . ($tool === 'gather' ? 'the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders'
+        logLine('Jack Streamer: ' . ($tool === 'gather' ? 'the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders'
             : "EmbyCache ($mode) stopped after the file it was on") . ' — ' . match ($note['why']) {
                 'mover' => "Unraid's mover started", 'user' => 'as asked on his page', default => 'someone watches Emby' });
     }
@@ -2846,20 +2846,20 @@ function jackGateRefused(array $gate, string $tool, string $mode, string $by, in
     $name = $tool === 'gather' ? 'gather' : 'EmbyCache';
     switch ($gate['result']) {
         case 'already':
-            logLine("Jack Emby: a scheduled $tool run already waits — nothing new");
+            logLine("Jack Streamer: a scheduled $tool run already waits — nothing new");
             return 0;
         case 'meanwhile':
-            logLine("Jack Emby: the scheduled $tool run stops waiting — a real run was started from the page meanwhile");
+            logLine("Jack Streamer: the scheduled $tool run stops waiting — a real run was started from the page meanwhile");
             return 0;
         case 'array':
-            logLine("Jack Emby: the scheduled $tool run stops waiting — the array was stopped");
+            logLine("Jack Streamer: the scheduled $tool run stops waiting — the array was stopped");
             return 0;
         case 'off':
-            logLine("Jack Emby: the scheduled $tool run stops waiting — its schedule was switched off");
+            logLine("Jack Streamer: the scheduled $tool run stops waiting — its schedule was switched off");
             return 0;
         case 'skipped':
             $what = ($gate['why'] ?? '') === 'jack_mover_running' ? "Unraid's mover was at work" : 'someone watched Emby';
-            logLine("Jack Emby: the scheduled $tool run is skipped — $what for " . intdiv($gate['waited'], 60) . ' min'
+            logLine("Jack Streamer: the scheduled $tool run is skipped — $what for " . intdiv($gate['waited'], 60) . ' min'
                 . ($who ? ' (' . jackWatchersLine($who) . ')' : ''));
             fwrite(STDERR, "$tool: skipped ({$gate['why']})\n");
             jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $asked, 'finished' => time(), 'result' => 'skipped',
@@ -2867,7 +2867,7 @@ function jackGateRefused(array $gate, string $tool, string $mode, string $by, in
             return 0;
     }
     $why = (string) ($gate['why'] ?? 'jack_watching');
-    logLine("Jack Emby: $name ($mode) not started — " . match ($why) {
+    logLine("Jack Streamer: $name ($mode) not started — " . match ($why) {
         'jack_watching'      => 'someone watches Emby: ' . jackWatchersLine($who),
         'jack_mover_running' => "Unraid's mover is at work",
         default              => "Emby's answer: $why " . ($look['detail'] ?? ''),
@@ -2953,7 +2953,7 @@ function jackNotify(string $tool, string $mode, string $result, array $status, i
         trim($detail . ($release ? '' : ' ' . officeNotifyText('jack', 'notify.see', [], $lang))),
         ($release && $outcome === 'ok') || in_array($outcome, ['stopped_mover', 'stopped_user'], true) ? 'normal' : 'warning', '', $release ? null : officeNotifyLink('#/jack'));
     if ($sent) {
-        logLine("Jack Emby: told Unraid's notifications — $tool ($mode) $outcome");
+        logLine("Jack Streamer: told Unraid's notifications — $tool ($mode) $outcome");
     }
     return $sent;
 }
@@ -3081,7 +3081,7 @@ function jackSetSchedule(string $job, ?string $cron): array
         if ($cron === null && officeJobSchedule('embycache')['enabled']) {
             officeJobSetSchedule('embycache', null);
         }
-        logLine('Jack Emby: the night run with Ms. Moverelli ' . ($cron !== null ? "set to $cron" : 'switched off'));
+        logLine('Jack Streamer: the night run with Ms. Moverelli ' . ($cron !== null ? "set to $cron" : 'switched off'));
         return ['ok' => true, 'live' => $r['live'], 'state' => jackScan()];
     }
     if ($cron !== null) {
@@ -3093,7 +3093,7 @@ function jackSetSchedule(string $job, ?string $cron): array
         }
     }
     $live = officeJobSetSchedule($job, $cron);
-    logLine("Jack Emby: $job schedule " . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
+    logLine("Jack Streamer: $job schedule " . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
     if ($cron !== null) {
         jackLetGoSeen();        // switched on again: his page needn't say any more that the let-go switched it off
     }

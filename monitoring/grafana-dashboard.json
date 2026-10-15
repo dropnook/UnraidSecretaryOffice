@@ -2732,7 +2732,7 @@
     },
     {
       "type": "row",
-      "title": "Ms. Protocolli, Jack Emby, Ms. Dustdevil",
+      "title": "Ms. Protocolli, Jack Streamer, Ms. Dustdevil",
       "id": 37,
       "collapsed": false,
       "panels": [],
@@ -2875,7 +2875,7 @@
     {
       "type": "stat",
       "title": "EmbyCache on the pool",
-      "description": "What EmbyCache keeps on the fast pool right now (as of Jack Emby's last look).",
+      "description": "What EmbyCache keeps on the fast pool right now (as of Jack Streamer's last look).",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
