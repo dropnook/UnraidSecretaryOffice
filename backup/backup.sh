@@ -2442,8 +2442,8 @@ report_drift() {
     now="$(date +%s)"
     if [[ "$fp" != "$last_fp" || "$UB_MODE" == "check" ]] || (( now - last_t >= DRIFT_REMIND_DAYS * 86400 )); then
         lvl="warning"; (( ne > 0 )) && lvl="alert"
-        ub_tell drift "$lvl" "$(drift_report)" "Changed since the setup" \
-            "${ne} errors, ${nw} warnings - the setup on Mr. Backupsy's page shows what changed. Details: $UB_STATE/drift.txt" \
+        ub_tell drift "$lvl" "$(drift_report)" "Backup setup out of date — the server changed" \
+            "Something on the server changed since the backup was set up (${ne} errors, ${nw} warnings). Open Mr. Backupsy's setup to see what, and Apply to bring the backup up to date. Details: $UB_STATE/drift.txt" \
             "counts=$(ub_counts "$ne" "$nw")"
         echo "$fp" >"$UB_STATE/drift.fp"; echo "$now" >"$UB_STATE/drift.ts"
     fi
