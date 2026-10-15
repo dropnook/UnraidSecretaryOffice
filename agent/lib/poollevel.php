@@ -22,11 +22,19 @@ declare(strict_types=1);
  * secondary pool until it is back below X; the age rule always. Jack Emby gives back only what was watched and fetches
  * only up to X (EMBYCACHE_MIN_FREE_PERCENT = 100 − X) and his GB budget. Both in ONE night run (nightrun.php). fixed ≥ X:
  * she can never get below it (pool_never_moves); fixed + jack ≥ X: only Jack Emby's unwatched keeps it over X.
- * Only ZFS pools are measured here (refer per dataset); a sleeping pool is not looked at (null) unless a run wakes it.
+ * ZFS pools are measured exactly (refer per dataset). A btrfs or XFS pool (2026-10-15, poolLevelPlain()): size and used from
+ * statfs as df counts them (Smart Mover's own measure there), M = the allocated bytes of the movable shares' folders on the
+ * pool (du — only in the night run and in a background job at most once an hour; the pages and checks use the last stored
+ * value, kept in her data folder), snapshots none counted (they stay in `fixed`) — `estimated` with its age says so on the
+ * pages. A sleeping pool is not looked at (null) unless a run wakes it.
  */
 
 const POOL_SNAP_HINT = 2;      // % of the pool in the movable shares' snapshots: the Team Lead's hint
 const POOL_LIST_MAX  = 200000; // lines of EmbyCache's list read
+const POOL_DU_AGE    = 3600;   // s a btrfs/xfs pool's stored du counts as fresh; older: the background job measures anew
+const POOL_DU_EVERY  = 3600;   // s between two background jobs for the same pool
+const POOL_DU_TIME   = 60;     // s the background job's du of a pool's movable share folders may take (longer: not stored)
+const POOL_DU_NIGHT  = 600;    // s the night run's du may take
 
 /**
  * The numbers (pure). x: % of the whole pool (0: no limit); jack: Jack Emby's bytes inside the movable shares' datasets
@@ -147,6 +155,191 @@ function poolLevelLook(string $pool, array $shares, string $zfs = 'zfs'): ?array
 }
 
 /**
+ * A pool that isn't ZFS (btrfs, xfs): {fs, size, used} from statfs of its mount as df counts it (used = blocks − free,
+ * size = used + avail — Smart Mover's pool_used_pct() there); null: no btrfs/xfs mounted there (ZFS, or not mounted: the
+ * empty folder lies on the root file system). statfs reads the superblock in memory — no disk woken.
+ */
+function poolLevelStatfs(string $path, string $stat = 'stat'): ?array
+{
+    [$exit, $out] = run([$stat, '-f', '-c', '%T %S %b %f %a', $path], 10);
+    if ($exit !== 0 || !preg_match('/^(btrfs|xfs) (\d{1,12}) (\d{1,20}) (\d{1,20}) (\d{1,20})$/D', trim((string) $out), $m)) {
+        return null;
+    }
+    $used = max(0, (int) $m[3] - (int) $m[4]) * (int) $m[2];
+    $size = $used + (int) $m[5] * (int) $m[2];
+    return $size > 0 ? ['fs' => $m[1], 'size' => $size, 'used' => $used] : null;
+}
+
+/**
+ * The movable shares' folders on a btrfs/xfs pool measured now: {share: allocated bytes} (du -s -B1 -x, nice; a folder
+ * not there: 0), stored in $store (her data folder: it outlives a reboot) with the time — null: a du failed or took
+ * longer than $time s (nothing stored; never a wrong M). Only the night run (POOL_DU_NIGHT) and the background job
+ * (poolLevelDuJob(), POOL_DU_TIME) call it — never a page or a check.
+ */
+function poolLevelFolderBytes(string $root, array $shares, string $store, int $time, string $du = 'du'): ?array
+{
+    $out = $todo = [];
+    foreach ($shares as $s) {
+        $path = $root . $s;
+        if (!is_dir($path) || is_link($path)) {
+            $out[$s] = 0;
+        } else {
+            $todo[$s] = ['nice', '-n', '10', $du, '-s', '-B1', '-x', $path];
+        }
+    }
+    foreach ($todo ? runAll($todo, $time) : [] as $s => [$exit, $text]) {
+        if ($exit !== 0 || !preg_match('/^(\d+)\s/', (string) $text, $m)) {
+            return null;
+        }
+        $out[$s] = (int) $m[1];
+    }
+    ksort($out, SORT_STRING);
+    $saved = poolLevelDuRead($store);
+    // only the folders measured (one made later is not in it: measured again before it counts)
+    $saved['pools'][basename($root)] = ['at' => time(), 'dirs' => array_intersect_key($out, $todo) ?: new stdClass()];
+    poolLevelDuWrite($store, $saved);
+    return $out;
+}
+
+/** The stored du ({pools: {pool: {at, dirs: {share: bytes}}}, asked: {pool: time}}), read tolerantly */
+function poolLevelDuRead(string $store): array
+{
+    $d = readJson($store) ?? [];
+    $d['pools'] = is_array($d['pools'] ?? null) ? $d['pools'] : [];
+    $d['asked'] = is_array($d['asked'] ?? null) ? $d['asked'] : [];
+    return $d;
+}
+
+function poolLevelDuWrite(string $store, array $d): void
+{
+    $d['asked'] = $d['asked'] ?: new stdClass();
+    try {
+        @mkdir(dirname($store), 0700, true);
+        writeAtomic($store, jsonEncode($d));
+    } catch (Throwable) {
+        // not stored: measured again next time
+    }
+}
+
+/**
+ * The last stored du of a pool's movable shares: {bytes: {share: bytes}, at} — null: none yet, or one of $shares (with a
+ * folder on the pool) not in it (a share made movable since). Never in the future.
+ */
+function poolLevelDuStored(string $store, string $pool, string $root, array $shares): ?array
+{
+    $p = poolLevelDuRead($store)['pools'][$pool] ?? null;
+    if (!is_array($p) || !is_int($p['at'] ?? null) || $p['at'] > time() || !is_array($p['dirs'] ?? null)) {
+        return null;
+    }
+    $out = [];
+    foreach ($shares as $s) {
+        $b = $p['dirs'][$s] ?? null;
+        if (is_int($b) && $b >= 0) {
+            $out[$s] = $b;
+        } elseif (!is_dir($root . $s) || is_link($root . $s)) {
+            $out[$s] = 0;
+        } else {
+            return null;
+        }
+    }
+    return ['bytes' => $out, 'at' => $p['at']];
+}
+
+/**
+ * The background job asked for (a page or a check found the stored du missing or older than POOL_DU_AGE): at most once
+ * per POOL_DU_EVERY s per pool — noted in the store before it starts. $launch(pool); true: started now.
+ */
+function poolLevelDuAsk(string $store, string $pool, callable $launch): bool
+{
+    $d = poolLevelDuRead($store);
+    $last = $d['asked'][$pool] ?? null;
+    if (is_int($last) && $last > time() - POOL_DU_EVERY && $last <= time()) {
+        return false;
+    }
+    $d['asked'][$pool] = time();
+    poolLevelDuWrite($store, $d);
+    try {
+        $launch($pool);
+    } catch (Throwable) {
+        return false;
+    }
+    return true;
+}
+
+/** Where the du is stored: her data folder (outlives a reboot) — the tests: $o['du_cache'] */
+function poolLevelDuStore(array $o): string
+{
+    return (string) ($o['du_cache'] ?? (defined('DATA_DIR') ? DATA_DIR : sys_get_temp_dir()) . '/moverelli/pool-du.json');
+}
+
+/**
+ * poolLevelLook() for a btrfs/xfs pool: the same shape (datasets = the movable shares with a folder on the pool — their
+ * bytes are M), snapshots 0 and snap_all null (none counted: they stay in what never moves), `estimated` and `measured_at`
+ * (the du's time) — null: not such a pool, or no du stored yet (`wait`: the background job asked for). $o: mnt, stat, du,
+ * du_cache, measure ('night': du now, else the stored value — older than POOL_DU_AGE or none: the background job via
+ * du_launch(pool)).
+ */
+function poolLevelPlain(string $pool, array $shares, array $o): ?array
+{
+    if (!preg_match('/^[\w.\-]{1,64}$/D', $pool)) {
+        return null;
+    }
+    $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
+    $fs = poolLevelStatfs(rtrim($root, '/'), $o['stat'] ?? 'stat');
+    if ($fs === null) {
+        return null;
+    }
+    $store = poolLevelDuStore($o);
+    if (($o['measure'] ?? null) === 'night') {
+        $bytes = poolLevelFolderBytes($root, $shares, $store, POOL_DU_NIGHT, $o['du'] ?? 'du');
+        $at = time();
+    } else {
+        $stored = poolLevelDuStored($store, $pool, $root, $shares);
+        if ($stored === null || $stored['at'] < time() - POOL_DU_AGE) {
+            poolLevelDuAsk($store, $pool, $o['du_launch'] ?? fn (string $p) => hostLaunch('pool-du', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'pool-du', $p]));
+        }
+        [$bytes, $at] = $stored === null ? [null, null] : [$stored['bytes'], $stored['at']];
+    }
+    if ($bytes === null) {
+        return null;
+    }
+    return ['size' => $fs['size'], 'used' => $fs['used'], 'movable' => array_sum($bytes), 'snapshots' => 0, 'snap_all' => null,
+            'datasets' => array_values(array_filter($shares, fn ($s) => is_dir($root . $s) && !is_link($root . $s))), 'fs' => $fs['fs'], 'estimated' => true,
+            'measured_at' => $at];
+}
+
+/**
+ * A btrfs/xfs pool waiting for its first du (her setup: «not measured yet» — the background job is on its way); false for
+ * ZFS, a pool measured, or not mounted
+ */
+function poolLevelWaiting(string $pool, array $o): bool
+{
+    if (!preg_match('/^[\w.\-]{1,64}$/D', $pool)) {
+        return false;
+    }
+    $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
+    return poolLevelStatfs(rtrim($root, '/'), $o['stat'] ?? 'stat') !== null
+        && poolLevelDuStored(poolLevelDuStore($o), $pool, $root, poolLevelMovable($pool, $o['shares_dir'], $o['names'])) === null;
+}
+
+/**
+ * The background job (php agent.php job pool-du <pool>, via atd): the pool's movable shares' folders measured (at most
+ * POOL_DU_TIME s) and stored — never while the pool sleeps. 0: stored.
+ */
+function poolLevelDuJob(string $pool, array $o): int
+{
+    if (!preg_match('/^[\w.\-]{1,64}$/D', $pool) || poolsBySleep([$pool], $o['asleep'] ?? null)['asleep']) {
+        return 1;
+    }
+    $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
+    if (poolLevelStatfs(rtrim($root, '/'), $o['stat'] ?? 'stat') === null) {
+        return 1;
+    }
+    $bytes = poolLevelFolderBytes($root, poolLevelMovable($pool, $o['shares_dir'], $o['names']), poolLevelDuStore($o), POOL_DU_TIME, $o['du'] ?? 'du');
+    return $bytes === null ? 1 : 0;
+}
+
+/**
  * J: what the entries of EmbyCache's list that lie on this pool take there (a file that is gone: 0) — in the pool's own
  * bytes (2026-10-15: allocated, st_blocks — ZFS counts them after compression, like `refer`; never above the size), and
  * their sizes (logical): [physical, logical]. The ratio converts what waits on the array into pool bytes (nightPlan()).
@@ -191,9 +384,11 @@ function poolLevelFileBytes(int $size, int $blocks): int
 }
 
 /**
- * One pool as it stands: poolLevelMath() with its movable shares and snapshots — or null (no ZFS pool, the pool asleep
- * and not to be woken). $o: x, shares_dir, names (the shares that exist), zfs, mnt, jack_list (EmbyCache's list,
- * null: none), asleep (sleepingDisks()' map, null: asked now), wake (a run is about to wake it anyway).
+ * One pool as it stands: poolLevelMath() with its movable shares and snapshots — or null (neither ZFS nor btrfs/xfs, not
+ * measured, the pool asleep and not to be woken). $o: x, shares_dir, names (the shares that exist), zfs, mnt, jack_list
+ * (EmbyCache's list, null: none), asleep (sleepingDisks()' map, null: asked now), wake (a run is about to wake it anyway),
+ * measure ('night': a btrfs/xfs pool's folders measured now), stat, du, du_cache, du_launch (poolLevelPlain()).
+ * `estimated` and `measured_at`: not ZFS (only there).
  */
 function poolLevel(string $pool, array $o): ?array
 {
@@ -201,7 +396,7 @@ function poolLevel(string $pool, array $o): ?array
         return null;
     }
     $shares = poolLevelMovable($pool, $o['shares_dir'], $o['names']);
-    $look = poolLevelLook($pool, $shares, $o['zfs'] ?? 'zfs');
+    $look = poolLevelLook($pool, $shares, $o['zfs'] ?? 'zfs') ?? poolLevelPlain($pool, $shares, $o);
     if ($look === null) {
         return null;
     }
@@ -211,7 +406,7 @@ function poolLevel(string $pool, array $o): ?array
     // count as never moving — her page says so (inbox #14)
     $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
     $folders = array_values(array_filter(array_diff($shares, $look['datasets']), fn ($s) => is_dir($root . $s) && !is_link($root . $s)));
-    return ['pool' => $pool, 'shares' => $shares, 'folders' => $folders, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
+    return (isset($look['estimated']) ? ['estimated' => true, 'fs' => $look['fs'], 'measured_at' => $look['measured_at']] : []) + ['pool' => $pool, 'shares' => $shares, 'folders' => $folders, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
             'snap_pct' => $look['size'] > 0 ? round($look['snapshots'] * 100 / $look['size'], 1) : 0.0]
          + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jackIn, $jack - $jackIn);
 }
