@@ -372,6 +372,7 @@
   "rc.fill_now": "ora {pct} %",
   "rc.fill_reached": "Obiettivo raggiunto a {pct} % — il resto resta",
   "rc.waiting": "Mi guardo intorno …",
+  "rc.measuring": "Sto misurando il pool {pool} …",
   "last_run_none": "ancora nessuna",
   "notice.foreign_mover": "{name} sposta secondo una sua pianificazione ({when}) — non conosce le mie eccezioni. Spegnilo lì, per favore.",
   "errors.moverelli_foreign_mover": "Esecuzioni vere solo quando {name} non sposta più secondo una sua pianificazione ({when}) — non conosce le mie eccezioni. Spegnilo lì, per favore.",

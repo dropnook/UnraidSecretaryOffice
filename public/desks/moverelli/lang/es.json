@@ -372,6 +372,7 @@
   "rc.fill_now": "ahora {pct} %",
   "rc.fill_reached": "Objetivo alcanzado con {pct} % — el resto se queda",
   "rc.waiting": "Echo un vistazo …",
+  "rc.measuring": "Estoy midiendo el pool {pool} …",
   "last_run_none": "todavía ninguna",
   "notice.foreign_mover": "{name} mueve con su propia programación ({when}) — no conoce mis excepciones. Apágalo allí, por favor.",
   "errors.moverelli_foreign_mover": "Ejecuciones reales solo cuando {name} ya no mueva con su propia programación ({when}) — no conoce mis excepciones. Apágalo allí, por favor.",

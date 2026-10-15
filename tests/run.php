@@ -36001,6 +36001,9 @@ m.setNight(n0);
 m.setJackLive(view);
 const card = m.runCard(null, 1600);
 out.card = texts(card);
+// his give-back: the file in flight goes from the pool to the array (EmbyCache's file phase «back»), his fetch the other way
+m.setJackLive({ ...view, progress: { ...view.progress, phase: 'back', current: { ...view.progress.current, phase: 'back' } } });
+out.ways = [texts(m.runCard(null, 1600)).find((x) => x.startsWith('moverelli:rc.on_way')), texts(card).find((x) => x.startsWith('moverelli:rc.on_way'))];
 m.setJackLive(null);
 out.cardNoPanel = texts(m.runCard(null, 1600));
 // without his desk loaded (his desk.js not there): no panel, the line
@@ -36028,6 +36031,10 @@ JS);
     check('jack in her card (page): her card while his panel shows — no «each file on his page» line, one «Stop after this file»; without the panel the line again',
         !in_array('moverelli:rc.night_jack ', $card, true) && count(array_filter($card, fn ($x) => $x === 'moverelli:stop')) === 1
         && in_array('moverelli:rc.night_jack ', $j['cardNoPanel'] ?? [], true), json_encode([$card, $j['cardNoPanel'] ?? null]));
+    $ways = array_map(fn ($x) => is_string($x) ? json_decode(substr($x, strlen('moverelli:rc.on_way ')), true) : null, $j['ways'] ?? []);
+    same('jack in her card (page): his file in flight — give-back pool → array, fetch array → pool',
+        [['moverelli:pic.pool_name {"pool":"cache"}', 'moverelli:pic.array'], ['moverelli:pic.array', 'moverelli:pic.pool_name {"pool":"cache"}']],
+        array_map(fn ($w) => [$w['from'] ?? null, $w['to'] ?? null], $ways));
     check('jack in her card (page): no «undefined» anywhere', !str_contains(json_encode($j), 'undefined'), (string) $out);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $t = (string) ((readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [])['rc.jack_title'] ?? '');

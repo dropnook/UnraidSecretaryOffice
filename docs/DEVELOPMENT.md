@@ -481,8 +481,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   shares in the form only. Import: an unreadable protecting list blocks it, never silently disappears. **The night run**
   (agent/lib/nightrun.php): he and she = ONE run on ONE schedule (her cron line → `nightRun()`): check → reckon (`nightPlan()`)
   → free (his watched, then her oldest) → recheck (≤ 3 rounds) → fill (him last, only up to X) → tell; one lock `night.lock`;
-  «Stop after this file» stops the night; both pages show `Office.nightCard()`; night.json `picture` = the live graphic's
-  numbers; his refusal never stops her part (reason shown). **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
+  «Stop after this file» stops the night; both pages show `Office.nightCard()` — its highlight follows the work (night.json
+  `phase` + `who`: measure · his give-back · measure again · her part · his fetch, `Office.nightSteps()`), his panel real by the
+  night's word (`jackNightProgress()`); night.json `picture` = the live graphic's numbers; his refusal never stops her part (reason shown). **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
   else. He gives back only what was watched (`EMBYCACHE_WATCHED_ONLY`, never by rank); **his GB come first**: she moves the
   other caching shares' files oldest first across the pool (age = the younger of birth/ctime and mtime, `age_stat=newest`; never
   an excluded file, his list never) until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; pool-only

@@ -372,6 +372,7 @@
   "rc.fill_now": "jetzt {pct} %",
   "rc.fill_reached": "Ziel erreicht bei {pct} % — Rest bleibt",
   "rc.waiting": "Ich schaue mich um …",
+  "rc.measuring": "Ich messe den Pool {pool} …",
   "last_run_none": "noch keiner",
   "notice.foreign_mover": "{name} verschiebt nach eigenem Zeitplan ({when}) — es kennt meine Ausnahmen nicht. Bitte dort ausschalten.",
   "errors.moverelli_foreign_mover": "Echte Läufe erst, wenn {name} nicht mehr nach eigenem Zeitplan verschiebt ({when}) — es kennt meine Ausnahmen nicht. Bitte dort ausschalten.",

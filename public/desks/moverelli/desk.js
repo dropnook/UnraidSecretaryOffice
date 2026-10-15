@@ -191,7 +191,9 @@ function runCard(p, now) {
     card.appendChild(top);
   }
   if (!p) {
-    if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', T('rc.waiting')));
+    // the night between its steps (nobody at work): the pool measured — first, after his give-back, after her part
+    const measuring = !!(nn && !nn.who && ['check', 'recheck'].includes(nn.phase));
+    if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', measuring ? T('rc.measuring', { pool: nightPool(nn) }) : T('rc.waiting')));
   } else {
     const d = runCardData(p, now);
     if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
@@ -215,7 +217,7 @@ function runCard(p, now) {
   if (cur && cur.rel) {
     const pool = nightPool(nn);
     card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: cur.rel, done: cur.done, size: cur.size,
-      from: cur.phase === 'free' ? pool : 'array', to: cur.phase === 'free' ? 'array' : pool })));
+      from: cur.phase === 'back' ? pool : 'array', to: cur.phase === 'back' ? 'array' : pool })));     // EmbyCache's file phase: back | fill
   }
   // the foot: «N errors, N warnings» on the left (as Mr. Backupsy's card); on the right, in Jack Emby's order and style
   // (his live panel): «Log» as a quiet link, «Stop after this file» (Unraid's move finishes the file in flight anyway —

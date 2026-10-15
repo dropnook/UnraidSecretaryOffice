@@ -1015,8 +1015,10 @@ Office.nightSteps = function nightSteps(n, T) {
     return n.phase === 'recheck' || backDone ? 'measure' : 'jack_back';
   })();
   const pos = n.phase === 'done' ? ids.length : ids.indexOf(at);
-  return ids.map((id, i) => ({ id, name: Office.nightStepName(id, n, T) + (id === 'her' && round > 1 ? ' · ' + T('night.rounds', { n: round }) : ''),
-    state: i < pos ? 'done' : i === pos ? 'running' : 'pending' }));
+  return ids.map((id, i) => {
+    const name = Office.nightStepName(id, n, T) + (id === 'her' && round > 1 ? ' · ' + T('night.rounds', { n: round }) : '');
+    return { id, name, full: name, state: i < pos ? 'done' : i === pos ? 'running' : 'pending' };     // full: the tooltip where a phone cuts it
+  });
 };
 /**
  * A night step's name, pure: check, jack_back, measure, her, fill — her part named («Ms. Moverelli makes room») while
