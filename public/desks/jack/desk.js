@@ -495,7 +495,7 @@ function footer() {
   const box = Office.place('tools', el('div', 'jo-foot'));
   const line = el('div', 'row-meta jo-tools');
   const ver = (state.versions.embycache || '?').replace(/\s*\(.*\)$/, '');
-  line.append(el('span', '', `EmbyCache ${ver}`), el('span', '', `${T('gather')} ${state.versions.gather || '?'}`));
+  line.append(el('span', '', `MediaCache ${ver}`), el('span', '', `${T('gather')} ${state.versions.gather || '?'}`));
   if (state.python) line.appendChild(el('span', '', `Python ${state.python}`));
   box.append(line, credit());
   return box;
@@ -1002,7 +1002,7 @@ function historySection() {
   if (state.configured) {
     // the last run's output stays behind a small link beside the log (while a real run goes, the live panel has it)
     const bar = el('div', 'toolbar jo-runs-tools');
-    bar.appendChild(button(T('show_log') + ' · EmbyCache', 'small plain', () => showLog('embycache')));
+    bar.appendChild(button(T('show_log') + ' · MediaCache', 'small plain', () => showLog('embycache')));
     if (state.jobs.embycache.mode && !realRun()) bar.appendChild(link(T('show_output', { mode: T('mode.' + state.jobs.embycache.mode) }), () => showOutput('embycache', false)));
     s.appendChild(bar);
   }
@@ -1419,11 +1419,19 @@ async function scheduleDialog(job) {
  * The gather has its own small settings (gatherSettingsDialog).
  */
 let form = null;
+/** The media servers MediaCache speaks to (1.65.0): their names as they write themselves */
+const SERVER_NAMES = { emby: 'Emby', jellyfin: 'Jellyfin', plex: 'Plex' };
+const serverType = (t) => (SERVER_NAMES[t] ? t : 'emby');
+/** A new server's row: a container found that isn't in the form yet (its kind, name, address), else an empty Emby */
+function newInstance(taken) {
+  const c = (state.emby || []).find((x) => !taken.some((i) => i.url === x.url)) || null;
+  const type = serverType(c && c.type);
+  return { type, servername: c ? c.name : `${SERVER_NAMES[type]}${taken.length + 1}`, url: c ? c.url : 'http://', has_key: false, path_mappings: {} };
+}
 
 function initForm() {
   const set = state.settings || {};
-  const container = state.emby[0] || {};
-  const inst = (set.instances || []).length ? set.instances : [{ servername: container.name || 'Emby', url: container.url || '', has_key: false, path_mappings: {} }];
+  const inst = (set.instances || []).length ? set.instances : [newInstance([])];
   const vu = set.valid_users || [];
   const budgets = {};
   if (!Array.isArray(vu)) for (const [id, o] of Object.entries(vu)) if (o && o.budget) budgets[id] = o.budget;
@@ -1432,7 +1440,7 @@ function initForm() {
       const maps = { ...(i.path_mappings || {}) };
       const skip = new Set(Object.keys(maps).filter((p) => maps[p] === ''));     // '' = deliberately not cached
       skip.forEach((p) => delete maps[p]);
-      return { servername: i.servername, url: i.url, api_key: '', has_key: !!i.has_key, mappings: maps, skip, server: null, libraries: [], users: [] };
+      return { type: serverType(i.type), servername: i.servername, url: i.url, api_key: '', has_key: !!i.has_key, mappings: maps, skip, server: null, libraries: [], users: [] };
     }),
     chosenLibs: new Set(set.libraries || []),
     chosenUsers: new Set(Array.isArray(vu) ? vu : Object.keys(vu)),
@@ -1454,9 +1462,10 @@ function initForm() {
   formStart = formKey();
 }
 
-/** Docker path -> host path: from the Emby container's own mounts (longest match), else /data|/media -> /mnt/user */
-function suggestMapping(path) {
-  const mounts = (state.emby[0] || {}).mounts || {};
+/** Docker path -> host path: from the server's container's own mounts (longest match), else /data|/media -> /mnt/user */
+function suggestMapping(path, inst) {
+  const c = (inst && (state.emby || []).find((x) => x.url === inst.url)) || (state.emby || []).find((x) => x.type === (inst && inst.type)) || state.emby[0] || {};
+  const mounts = c.mounts || {};
   let best = null;
   for (const [dest, src] of Object.entries(mounts)) {
     if ((path === dest || path.startsWith(dest + '/')) && (!best || dest.length > best[0].length)) best = [dest, src];
@@ -1750,13 +1759,17 @@ function setupServers() {
   form.instances.forEach((inst, idx) => {
     const box = el('div', 'box jo-instance');
     const f1 = el('div', 'jo-form');
+    // the kind first: it says how the key goes and which hint helps (Plex: its token)
+    const kind = select(inst, 'type', Object.entries(SERVER_NAMES));
+    kind.addEventListener('change', () => { inst.server = null; renderSetup(); });
     const name = input(inst.servername, (v) => { inst.servername = v; });
     const url = input(inst.url, (v) => { inst.url = v.trim(); });
     const key = input('', (v) => { inst.api_key = v.trim(); });
     key.type = 'password';
     key.autocomplete = 'off';
     key.placeholder = inst.has_key ? T('setup.key_kept') : T('setup.key_placeholder');
-    f1.append(field(T('setup.name'), name), field(T('setup.url'), url, T('setup.url_hint')), field(T('setup.key'), key, T('setup.key_hint')));
+    f1.append(field(T('setup.type'), kind), field(T('setup.name'), name), field(T('setup.url'), url, T('setup.url_hint')),
+      field(T('setup.key'), key, T(inst.type === 'emby' ? 'setup.key_hint' : 'setup.key_hint_' + inst.type)));
     box.appendChild(f1);
     const bar = el('div', 'toolbar');
     const connect = button(T('setup.connect'), inst.server ? 'small plain' : 'small', async () => {
@@ -1766,14 +1779,15 @@ function setupServers() {
       renderSetup();
     });
     bar.appendChild(connect);
-    if (inst.server) bar.appendChild(chip(T('setup.connected', { name: inst.server.name, version: inst.server.version }), 'ok'));
+    if (inst.server) bar.appendChild(chip(T('setup.connected', { name: inst.server.name, type: SERVER_NAMES[inst.type], version: inst.server.version }), 'ok'));
+    if (inst.server && inst.type === 'plex') box.appendChild(el('p', 'role', T('setup.plex_users')));
     if (inst.connectError) box.appendChild(el('p', 'callout danger jo-connect-error', inst.connectError));
     if (form.instances.length > 1) bar.appendChild(button(T('setup.remove_server'), 'small plain', () => { form.instances.splice(idx, 1); renderSetup(); }));
     box.appendChild(bar);
     s1.appendChild(box);
   });
   const add = button(T('setup.add_server'), 'small plain', () => {
-    form.instances.push({ servername: `Emby${form.instances.length + 1}`, url: 'http://', api_key: '', has_key: false, mappings: {}, skip: new Set(), server: null, libraries: [], users: [] });
+    form.instances.push({ ...newInstance(form.instances), api_key: '', mappings: {}, skip: new Set(), server: null, libraries: [], users: [] });
     renderSetup();
   });
   const bar1 = el('div', 'toolbar');
@@ -1808,13 +1822,13 @@ function mediaLogo(name) {
 }
 
 /** What a connection was made with (address and key): «Save» connects again only when these changed */
-const connectKey = (inst) => `${String(inst.url || '').trim()}|${inst.api_key || ''}`;
+const connectKey = (inst) => `${inst.type}|${String(inst.url || '').trim()}|${inst.api_key || ''}`;
 /** A server to connect before saving: an address and a key (typed, or kept on the server), not connected with them yet */
 const needsConnect = (inst) => !!String(inst.url || '').trim().replace(/^https?:\/\/$/, '') && !!(inst.api_key || inst.has_key)
   && (!inst.server || inst.connectedAs !== connectKey(inst));
 /** Connect one server (agent: jack.connect): its libraries and people in the form — or the error said in its box */
 async function connectInst(inst) {
-  const j = await Office.api.post(`${ID}.connect`, { url: inst.url, api_key: inst.api_key });
+  const j = await Office.api.post(`${ID}.connect`, { url: inst.url, api_key: inst.api_key, type: inst.type });
   if (!j || !j.ok) {
     inst.connectError = Office.errorText(j && j.error, ID);
     return false;
@@ -1824,7 +1838,7 @@ async function connectInst(inst) {
   inst.libraries = Array.isArray(j.libraries) ? j.libraries : [];
   inst.users = Array.isArray(j.users) ? j.users : [];
   inst.connectedAs = connectKey(inst);
-  for (const lib of inst.libraries) for (const p of lib.locations || []) if (!inst.mappings[p]) inst.mappings[p] = suggestMapping(p);
+  for (const lib of inst.libraries) for (const p of lib.locations || []) if (!inst.mappings[p]) inst.mappings[p] = suggestMapping(p, inst);
   if (!state.configured && !form.chosenLibs.size) suggestChoice(inst);
   return true;
 }
@@ -1837,7 +1851,7 @@ function mediaChoice() {
   const box = el('div', 'jo-media');
   box.appendChild(el('div', 'jo-media-head', T('setup.media')));
   const row = el('div', 'jo-media-row');
-  [['Emby', true], ['Plex', false], ['Jellyfin', false]].forEach(([name, works]) => {
+  [['Emby', true], ['Jellyfin', true], ['Plex', true]].forEach(([name, works]) => {
     const card = el('div', 'box jo-media-card' + (works ? ' on' : ' off'));
     card.setAttribute('aria-disabled', works ? 'false' : 'true');
     const who = el('span', 'jo-media-name');
@@ -2154,7 +2168,7 @@ const herRules = () => (state && (state.moverelli || (state.pool && state.pool.m
 let formStart = '';
 function formKey() {
   if (!form) return '';
-  return JSON.stringify({ i: form.instances.map((x) => [x.servername, x.url, x.api_key, x.mappings, [...x.skip].sort()]),
+  return JSON.stringify({ i: form.instances.map((x) => [x.type, x.servername, x.url, x.api_key, x.mappings, [...x.skip].sort()]),
     l: [...form.chosenLibs].sort(), u: [...form.chosenUsers].sort(), b: form.budgets, v: form.values });
 }
 const formChanged = () => !!form && formKey() !== formStart;
@@ -2299,7 +2313,7 @@ function importLists(box, part, sameText) {
 
 function importEmbyCache(p) {
   const box = el('div', 'jo-imp');
-  const files = Object.entries(p.found).filter(([, on]) => on).map(([k]) => ({ settings: 'embycache_settings.json', exclude: 'embycache_exclude.txt', origin: 'embycache_origin.json' })[k]);
+  const files = Object.entries(p.found).filter(([, on]) => on).map(([k]) => ({ settings: 'mediacache_settings.json', exclude: 'mediacache_exclude.txt', origin: 'mediacache_origin.json' })[k]);
   box.appendChild(el('p', 'role', files.length ? T('import.found', { files: files.join(', ') }) : T('import.found_none')));
   if (p.blockers.length) box.appendChild(importList(p.blockers.map((b) => [T('import.block.' + b.key, b.params || {}), undefined, 'error'])));
   p.instances.forEach((inst) => {
@@ -2370,7 +2384,7 @@ function importPart(title, folder, body) {
 function importPreview(p, folders) {
   const box = el('div');
   box.appendChild(el('p', '', T('import.preview_bubble')));
-  if (p.embycache) box.appendChild(importPart('EmbyCache', p.embycache.folder, importEmbyCache(p.embycache)));
+  if (p.embycache) box.appendChild(importPart('MediaCache', p.embycache.folder, importEmbyCache(p.embycache)));
   if (p.gather) box.appendChild(importPart(T('gather'), p.gather.folder, importGather(p.gather)));
   if (p.running) box.appendChild(el('p', 'callout warn', T('errors.jack_running')));
   else if (!p.ready) box.appendChild(el('p', 'callout warn', T('errors.jack_import_blocked')));
@@ -2477,7 +2491,7 @@ async function saveSetup(e) {
   // the pool from Unraid's share settings: one, or the one picked among several — never chosen freely
   const cache = derivedPool();
   if (!cache) { Office.toast(T(poolsOfChoice().size > 1 ? 'setup.pools_pick' : 'setup.pool_none'), true); showPart('libraries'); return; }
-  const instances = form.instances.map((inst) => ({ servername: inst.servername, url: inst.url, api_key: inst.api_key, path_mappings: {} }));
+  const instances = form.instances.map((inst) => ({ type: inst.type, servername: inst.servername, url: inst.url, api_key: inst.api_key, path_mappings: {} }));
   // folders of libraries that aren't chosen: deliberately not cached (EmbyCache then skips them quietly)
   for (const lib of libraryList()) {
     if (!form.chosenLibs.has(lib.name)) for (const [i, p] of lib.at) instances[i].path_mappings[p] = '';
@@ -2741,7 +2755,7 @@ Office.desk({
       items.push({ text: T('schedule_title.gather'), act: () => scheduleDialog('gather') });
     }
     if (state && state.configured) {
-      items.push({ text: T('show_log') + ' · EmbyCache', act: () => showLog('embycache') });
+      items.push({ text: T('show_log') + ' · MediaCache', act: () => showLog('embycache') });
       items.push({ text: T('show_log') + ' · ' + T('gather'), act: () => showLog('gather') });
     }
     return items;
@@ -2768,7 +2782,7 @@ Office.placesFrom(ID, (s, part) => {
   const out = [];
   if (s.configured) {
     ((s.settings && s.settings.instances) || []).forEach((i) => {
-      if (i && i.servername) out.push({ text: i.servername, sub: `${T('overview')} · Emby`, anchor: 'overview' });
+      if (i && i.servername) out.push({ text: i.servername, sub: `${T('overview')} · ${SERVER_NAMES[i.type] || SERVER_NAMES.emby}`, anchor: 'overview' });
     });
     (s.shares || []).forEach((x) => out.push({ text: x.share, sub: T('shares'), route: `#/${ID}/shares`, anchor: `share:${x.share}` }));
   }

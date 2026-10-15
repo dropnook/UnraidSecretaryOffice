@@ -1819,20 +1819,21 @@ function jackImportSettings(array $old, array $ctx, ?array $current, array &$pv,
             continue;
         }
         $url = rtrim(is_string($i['url'] ?? null) ? trim($i['url']) : '', '/');
-        $name = mb_substr(trim(is_string($i['servername'] ?? null) ? $i['servername'] : ''), 0, 60) ?: 'Emby' . (count($instances) + 1);
+        $type = jackType($i['type'] ?? null);          // MediaCache's kind (an EmbyCache file has none: emby)
+        $name = mb_substr(trim(is_string($i['servername'] ?? null) ? $i['servername'] : ''), 0, 60) ?: JACK_SERVER_NAMES[$type] . (count($instances) + 1);
         $key = is_string($i['api_key'] ?? null) ? trim($i['api_key']) : '';
         if ($key !== '') {
             $secrets[] = $key;                        // even one that isn't valid never goes to the page
         }
         $state = 'found';
-        if (!preg_match('/^[A-Za-z0-9]{8,128}$/D', $key)) {
+        if (!preg_match(JACK_KEY, $key)) {
             $key = '';
             foreach ((array) ($current['instances'] ?? []) as $c) {
                 if (is_array($c) && rtrim((string) ($c['url'] ?? ''), '/') === $url) {
                     $key = (string) ($c['api_key'] ?? '');
                 }
             }
-            $state = preg_match('/^[A-Za-z0-9]{8,128}$/D', $key) ? 'jack' : 'missing';
+            $state = preg_match(JACK_KEY, $key) ? 'jack' : 'missing';
         }
         $maps = $bad = $show = [];
         // the old global mappings first, the server's own over them (as EmbyCache merges them)
@@ -1847,7 +1848,7 @@ function jackImportSettings(array $old, array $ctx, ?array $current, array &$pv,
             $show[] = ['from' => $from, 'to' => $to, 'there' => $to === '' ? true : jackImportThere($to, $ctx)];
         }
         $okUrl = (bool) preg_match('#^https?://\S+$#D', $url) && strlen($url) <= 500;
-        $pv['instances'][] = ['servername' => $name, 'url' => jackImportMaskUrl(mb_substr($url, 0, 200)), 'key' => $state,
+        $pv['instances'][] = ['servername' => $name, 'type' => $type, 'url' => jackImportMaskUrl(mb_substr($url, 0, 200)), 'key' => $state,
                               'mappings' => $show, 'bad_mappings' => $bad];
         if (!$okUrl) {
             $pv['blockers'][] = ['key' => 'bad_url', 'params' => ['server' => $name]];
@@ -1855,7 +1856,8 @@ function jackImportSettings(array $old, array $ctx, ?array $current, array &$pv,
         if ($state === 'missing') {
             $pv['blockers'][] = ['key' => 'no_key', 'params' => ['server' => $name]];
         }
-        $instances[] = ['servername' => $name, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
+        $instances[] = ['servername' => $name, 'type' => $type, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps]
+            + ($type === 'plex' && is_int($i['days_to_monitor'] ?? null) ? ['days_to_monitor' => $i['days_to_monitor']] : []);
     }
     if (!$instances) {
         $pv['blockers'][] = ['key' => 'no_server'];

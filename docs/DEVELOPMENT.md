@@ -44,7 +44,7 @@ The detailed build notes up to 1.60.0 (every helper and test by name) are in tha
   as children of the agent (`agent.sh stop` ends the agent's whole session). The restore drill plays dumps — also ones
   read back from Kopia into RAM — in throwaway containers without network and writes a certificate
   (`agent/desks/restore-drill.php`; what an interrupted one left, Ms. Dustdevil removes through the drill's sweeper).
-* **Schedules** (the nightly backup, Ms. Snapshotini's plans, EmbyCache, the gather, the Smart Mover) are lines in the plugin's cron file
+* **Schedules** (the nightly backup, Ms. Snapshotini's plans, MediaCache, the gather, the Smart Mover) are lines in the plugin's cron file
   `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`, calling `scripts/job.sh <job>`, which runs
   only while the array is started. `agent-watch.cron` next to it looks at the heartbeat every 5 minutes.
 * **The backup engine** (`backup/`: `backup.sh`, `setup.sh`, `lib/common.sh`, bash) runs on its own from the cron file.
@@ -88,7 +88,7 @@ data/
 ├── unraid-backup/         the backup engine: settings.ini, state/, logs/ (root only)
 ├── partner/               the Team Lead's pairs, tickets, the door's log (root only)
 ├── restore/, restore-drill/   Mr. Restori's journals, the drill's runs, certificates and its record of throwaways
-├── embycache/, gather/    Jack Streamer's tools: their settings, lists and status files
+├── mediacache/, gather/   Jack Streamer's tools: their settings, lists and status files (embycache.before-1.65.0: the old one, kept)
 ├── moverelli/             Ms. Moverelli's Smart Mover: smart_mover.ini, excludes/, its log and status, her runs
 └── advisor/, caretaker/, cleanup/, snapshot/, watchman/   the desks' own folders
 ```
@@ -359,7 +359,7 @@ collector serves them along with its own. What is there: Mr. Backupsy's last run
 downtime, duration, Kopia sources, package sizes), the last one that went well, a run going on, runs skipped because
 the engine was busy; Ms. Snapshotini's snapshots per pool and her plans; the Team Lead's open points; Mr. Restori's
 last drill; the Night Watchman's findings and the data flow (bytes per file service, written per ZFS share, the
-router's lines per sender); Ms. Protocolli's last tour, EmbyCache and Ms. Dustdevil's storeroom — all named `uso_…`.
+router's lines per sender); Ms. Protocolli's last tour, MediaCache and Ms. Dustdevil's storeroom — all named `uso_…`.
 
 [`monitoring/grafana-dashboard.json`](../monitoring/grafana-dashboard.json) is a ready dashboard (Grafana:
 *Dashboards → New → Import*, choose the Prometheus data source); the Consultant provisions it when he installs
@@ -383,7 +383,7 @@ and the plugin's look at the agent write English.
   (normal); a partner office that got nothing or not all of a run — unreachable, its array stopped, a refusal, a
   failed transfer — said in that same run, no nights of grace (part of the run's warning, and in his bubble); a share left out 7 nights in a row because its pool slept (warning, once).
 * **Ms. Snapshotini:** a schedule had problems (warning); a schedule's target is gone — once per target (warning).
-* **Jack Streamer:** a real EmbyCache or gather run failed or had problems (warning) — reports and dry runs stay quiet.
+* **Jack Streamer:** a real MediaCache or gather run failed or had problems (warning) — reports and dry runs stay quiet.
 * **Ms. Moverelli:** a real Smart Mover run failed or had problems (warning); one stopped because Unraid's mover started
   (normal) — lists, dry runs and a stop asked on her page stay quiet.
 * **Mr. Restori:** a drill couldn't prove that everything comes back (warning), once per drill.
@@ -462,7 +462,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   office never makes the share**; place facts warn, never block. Apply sends only what was chosen and lists exactly what
   changes; a plan older than settings.ini is refused; a failed plan shows its errors. **Warns about Kopia autostart, never
   starts Kopia.**
-* **`jack` — Jack Streamer (the intern).** EmbyCache + «Consolidate folders». Settings via EmbyCache's own `save_config()`;
+* **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:
+  step `mediacache` moved data/embycache, the job id stays `embycache`) + «Consolidate folders». Settings via MediaCache's own `save_config()`;
   **the API key never leaves the server. Rsync both ways, always** (`JACK_TOOLS_RSYNC`). **He works only under Ms. Moverelli**
   (desk.json `"needs"`: hired only with/after her, she leaves only after him; real runs only her way, `jackMoverRule()`).
   Unraid's mover schedule is switched off only through Unraid's form via `emcmd` (tests: `OFFICE_EMCMD_BIN`); **he never writes
@@ -476,7 +477,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
   Real runs only while no other mover has a schedule of its own (other scripts' mover calls named, never changed); never beside
-  Unraid's mover or Jack Streamer's runs. While he is hired her ini keeps EmbyCache's list out for his shares; a named list not
+  Unraid's mover or Jack Streamer's runs. While he is hired her ini keeps MediaCache's list out for his shares; a named list not
   yet created refuses a real run (scheduled refusals: one counted line, never notified); her setup proposes his list for all
   shares in the form only. Import: an unreadable protecting list blocks it, never silently disappears. **The night run**
   (agent/lib/nightrun.php): he and she = ONE run on ONE schedule (her cron line → `nightRun()`): check → reckon (`nightPlan()`)
@@ -484,7 +485,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «Stop after this file» stops the night; both pages show `Office.nightCard()` — its highlight follows the work (night.json
   `phase` + `who`: measure · his give-back · measure again · her part · his fetch, `Office.nightSteps()`), his panel real by the
   night's word (`jackNightProgress()`); night.json `picture` = the live graphic's numbers; his refusal never stops her part (reason shown). **The pool** (agent/lib/poollevel.php): **one limit X**, nothing
-  else. He gives back only what was watched (`EMBYCACHE_WATCHED_ONLY`, never by rank); **his GB come first**: she moves the
+  else. He gives back only what was watched (`MEDIACACHE_WATCHED_ONLY`, never by rank); **his GB come first**: she moves the
   other caching shares' files oldest first across the pool (age = the younger of birth/ctime and mtime, `age_stat=newest`; never
   an excluded file, his list never) until his fetch ends at X (`--fill-until` = X − fetch), the age rule always; pool-only
   shares and whatever never moves are never pushed (they and what he keeps reach X → he fetches nothing new). Too big a budget
@@ -547,7 +548,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   carry character, **warnings and errors stay plain**. Reception button via lang key `visit`, else «Visit {name}». Titles small
   in it/es running text, capitalised in fr.
 * **Jack Streamer's id** is `jack` (desks/jack*.php, public/desks/jack/, `#/jack`, `JACK_*`; `#/emby…` leads there, step
-  `jack-id`); EmbyCache, gather, Smart Mover and `EMBYCACHE_*` keep their names. **The desks speak for themselves:** their
+  `jack-id`); MediaCache, gather, Smart Mover and `MEDIACACHE_*` keep their names (the job id `embycache` too). **The desks speak for themselves:** their
   tool names only in the thanks, the import of an earlier install and log titles — never the actor in a UI text.
 
 ### Words
