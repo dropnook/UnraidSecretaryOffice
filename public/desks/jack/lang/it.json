@@ -419,7 +419,7 @@
   "notify.tool.embycache": "Jack Streamer",
   "notify.tool.gather": "Consolida cartelle",
   "notify.subject": "{tool}: esecuzione vera — {result}",
-  "notify.no_status": "È terminata senza risultato (codice di uscita {exit}).",
+  "notify.no_status": "L'esecuzione si è fermata senza dire com'è andata (codice di uscita {exit}).",
   "notify.problems": {"one": "Un problema.", "other": "{n} problemi."},
   "notify.see": "Jack Streamer mostra nella segreteria cosa ha stampato l'esecuzione.",
   "import.title": "Riprendi un'installazione precedente",

@@ -166,7 +166,7 @@ ub_untrusted_refuse() {
     local t="$UB_UNTRUSTED_PATH is not root's own (owner $(stat -c '%U:%G %a' -- "$UB_UNTRUSTED_PATH" 2>/dev/null || echo '?')) - the engine reads nothing from a folder others can write or replace. Check it, then: chown root:root and chmod go-w (the office's Team Lead shows the command)"
     echo "REFUSED: $t" >&2
     logger -t "$UB_NAME" "refused: $t" 2>/dev/null
-    ub_tell refused alert "$t" "Backup REFUSED" "The backup folder is not root's own: $UB_UNTRUSTED_PATH" "path=$UB_UNTRUSTED_PATH"
+    ub_tell refused alert "$t" "Backup not started — its folder isn't safe" "Others than the server's administrator could change the backup's folder or its settings, so no backup runs until that is fixed. The Team Lead shows how in the office ($UB_UNTRUSTED_PATH)." "path=$UB_UNTRUSTED_PATH"
     exit 4
 }
 

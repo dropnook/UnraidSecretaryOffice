@@ -4752,7 +4752,7 @@ SH);
     $note = (string) @file_get_contents("$fake/notify.log");
     check('vm order: a thaw that fails is tried twice, then an alert names the VM; the one that thaws once',
         count(array_keys($names, 'virsh thaw vmpause', true)) === 2 && count(array_keys($names, 'virsh thaw vmshut', true)) === 1
-        && str_contains($note, 'VM not thawed') && str_contains($note, '-i alert') && str_contains($note, 'vmpause') && !str_contains($note, "'vmshut' may still"),
+        && str_contains($note, 'VM still frozen after the backup') && str_contains($note, '-i alert') && str_contains($note, 'vmpause') && !str_contains($note, "'vmshut' may still"),
         json_encode($names) . $note . $out);
 
     // --- stopped twice (2.48, review 2026-10-15): the second SIGTERM comes while the run's way out waits for the VM - it
@@ -5709,22 +5709,22 @@ function testBackupNotifyLang(): void
     @unlink("$tmp/notified");
     [$e] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env($lang('de')), 30);
     $n = $sent();
-    same('notify lang: backup.sh refusing, the office in German - exit 4, one alert, «Herr Backupsi: Backup VERWEIGERT», the text German',
-        [4, 1, 'Unraid Secretary Office', 'Unraid Secretary Office: Herr Backupsi: Backup VERWEIGERT', "Der Backup-Ordner gehört nicht root allein: $tmp/nobody", 'alert'],
+    same('notify lang: backup.sh refusing, the office in German - exit 4, one alert, «Herr Backupsi: Backup nicht gestartet …», the text German',
+        [4, 1, 'Unraid Secretary Office', 'Unraid Secretary Office: Herr Backupsi: Backup nicht gestartet — sein Ordner ist nicht sicher', "Nicht nur der Administrator des Servers könnte den Ordner des Backups oder seine Einstellungen ändern — darum läuft kein Backup, bis das behoben ist. Der Teamchef zeigt im Sekretariat, wie ($tmp/nobody).", 'alert'],
         [$e, count($n), $n[0][4] ?? null, $n[0][0] ?? null, $n[0][1] ?? null, $n[0][2] ?? null]);
     check('notify lang: … the long text stays English', str_contains((string) ($n[0][3] ?? ''), "is not root's own"), json_encode($n));
     runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env($lang('en')), 30);
     $n = $sent();
-    same('notify lang: … the office in English - «Mr. Backupsy: Backup REFUSED»',
-        ['Unraid Secretary Office: Mr. Backupsy: Backup REFUSED', "The backup folder is not root's own: $tmp/nobody"], [$n[0][0] ?? null, $n[0][1] ?? null]);
+    same('notify lang: … the office in English - «Mr. Backupsy: Backup not started …»',
+        ['Unraid Secretary Office: Mr. Backupsy: Backup not started — its folder isn\'t safe', "Others than the server's administrator could change the backup's folder or its settings, so no backup runs until that is fixed. The Team Lead shows how in the office ($tmp/nobody)."], [$n[0][0] ?? null, $n[0][1] ?? null]);
     foreach (['none' => null, 'unknown' => 'xx', 'bad' => '../de'] as $what => $code) {
         runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env($lang($code)), 30);
-        same("notify lang: language $what - English", 'Unraid Secretary Office: Mr. Backupsy: Backup REFUSED', $sent()[0][0] ?? null);
+        same("notify lang: language $what - English", 'Unraid Secretary Office: Mr. Backupsy: Backup not started — its folder isn\'t safe', $sent()[0][0] ?? null);
     }
     symlink("$tmp/de.json", "$tmp/link.lang");
     file_put_contents("$tmp/de.json", '{"lang":"de"}');
     runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--check'], $env("$tmp/link.lang"), 30);
-    same('notify lang: a link as the language file - not read, English', 'Unraid Secretary Office: Mr. Backupsy: Backup REFUSED', $sent()[0][0] ?? null);
+    same('notify lang: a link as the language file - not read, English', 'Unraid Secretary Office: Mr. Backupsy: Backup not started — its folder isn\'t safe', $sent()[0][0] ?? null);
 
     // ub_tell as the run's end, a skip and a failure call it (plurals by n, his message codes reused)
     $tell = function (string $l, string $code) use ($lib, $tmp, $env, $lang, $sent): array {
@@ -5742,7 +5742,7 @@ function testBackupNotifyLang(): void
         ['Unraid Secretary Office: Herr Backupsi: Backup ausgelassen', 'Das Backup von 2026-10-15 03:00 wurde ausgelassen: das Backup davor lief noch. Das nächste Backup sichert wie gewohnt.'],
         array_slice($tell('de', $skip)[0] ?? [], 0, 2));
     $vm = 'ub_tell vm_not_started alert "" "VM not started" "x" "vm=Win & {n} 11"';
-    same('notify lang: a name with & and {…} goes in as it is', '«Win & {n} 11» liess sich nach dem Snapshot nicht starten.', $tell('de', $vm)[0][1] ?? null);
+    same('notify lang: a name with & and {…} goes in as it is; an Unraid label (⟦VMs⟧) as it is written', '«Win & {n} 11» liess sich nach dem Snapshot nicht wieder starten. Starte sie auf der Seite VMs.', $tell('de', $vm)[0][1] ?? null);
     // without his language files (a copy of the engine alone): the English the call carries, the subject with his English name
     $bare = 'ub_lang_dir() { return 1; }; ub_tell vm_not_started alert "" "VM not started" "\'v\' could not be started after the snapshot." "vm=v"';
     same('notify lang: no language files - the call\'s English', ['Unraid Secretary Office: Mr. Backupsy: VM not started', "'v' could not be started after the snapshot."],
@@ -5768,6 +5768,62 @@ function testBackupNotifyLang(): void
         !array_diff(['ok', 'warnings', 'errors', 'skipped', 'failed', 'refused', 'drift', 'kopia_incomplete', 'new_folders', 'recovered'], $codes), json_encode($codes));
     same('notify lang: every notify.* the engine uses is in all five of his language files', [], $missing);
     check('notify lang: no ub_notify left in the engine but ub_tell\'s own', preg_match_all('/\bub_notify "/', $src) === 1, '');
+}
+
+/**
+ * 2026-10-15 (owner): a notification's subject says in plain words what happened for the user — no file names, programs,
+ * daemons, exit codes or «root»; the detail a pro needs goes at the end of the text, in parentheses. And nobody shouts:
+ * no word in capitals («FEHLGESCHLAGEN», «REFUSED») in any notify.* text of any desk, in all five languages.
+ */
+function testNotifyPlain(): void
+{
+    $jargon = '~\b(?:root|atd|holds?|virsh|occ|crontab|cron|daemon|domfsthaw|systemd)\b|/boot|/mnt/|/etc/|\.ini\b|\.sh\b|exit[ -]code|codice di uscita|code de sortie|código de salida~iu';
+    $bad = $loud = [];
+    $subjects = 0;
+    foreach (glob(OFFICE_WEB . '/desks/*/lang/*.json') ?: [] as $file) {
+        $desk = basename(dirname($file, 2));
+        $l = basename($file, '.json');
+        foreach (langFile($file) as $k => $v) {
+            if (!str_starts_with((string) $k, 'notify.')) {
+                continue;
+            }
+            $texts = is_array($v) ? array_values(array_filter($v, 'is_string')) : [(string) $v];
+            // a subject: a key that says so, the watchman's (each of his notify.* but the list's tail and footer), the drill's
+            $subject = str_contains((string) $k, 'subject') || ($desk === 'watchman' && !in_array($k, ['notify.more', 'notify.footer'], true))
+                    || ($desk === 'restore' && $k === 'notify.drill_failed');
+            foreach ($texts as $t) {
+                if ($subject) {
+                    $subjects++;
+                    if (preg_match($jargon, $t, $m)) {
+                        $bad[] = "$desk $l $k: «{$m[0]}» in «$t»";
+                    }
+                }
+                if (preg_match('~\b\p{Lu}{5,}\b~u', preg_replace('~\{[^}]*\}~', '', $t), $m)) {
+                    $loud[] = "$desk $l $k: «{$m[0]}»";
+                }
+            }
+        }
+    }
+    check("notify plain: subjects found ($subjects)", $subjects > 300, (string) $subjects);
+    same('notify plain: no subject names a file, a program, a daemon, an exit code or root', [], $bad);
+    same('notify plain: no notify.* text shouts in capitals', [], $loud);
+    // the engine's English (a copy without the language files) neither
+    $src = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh') . (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    // (on each ub_tell line every plain English string after another argument: its subjects and texts, what is in
+    // parentheses at the end left out — that is where a command may stand)
+    preg_match_all('/^[^#\n]*\bub_tell\b.*$/m', $src, $lines);
+    $said = [];
+    foreach ($lines[0] as $line) {
+        preg_match_all('/" "([A-Z][^"$]*)"/', $line, $m);
+        array_push($said, ...$m[1]);
+    }
+    $engine = array_values(array_filter($said, fn ($t) => preg_match($jargon, preg_replace('~\([^)]*\)~', '', $t)) || preg_match('~\b\p{Lu}{5,}\b~u', $t)));
+    check('notify plain: the engine\'s English found (' . count($said) . ')', count($said) >= 12, json_encode($said));
+    same('notify plain: … and plain too', [], $engine);
+    // Ms. Moverelli's missed limit speaks of X (the second limit Y is gone since 2026-10-14)
+    $mo = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('notify plain: her missed limit is told with {x}, never {y}', str_contains($mo, "'notify.target_missed', ['pool' => \$pool, 'now' => (int) \$s['pool_now'], 'x' =>")
+        && !str_contains(json_encode(langFile(OFFICE_WEB . '/desks/moverelli/lang/en.json')), '{y}'), '');
 }
 
 /**
@@ -32881,8 +32937,8 @@ function testPoolLevel(): void
     $said = (string) @file_get_contents("$tmp/notified");
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
-    check('level notify: the target missed on master — one warning; reached and stopped — nothing', $sent === [1, 0]
-        && str_contains($said, "-i\nwarning") && str_contains($said, 'master is still at 83 % after my run — I couldn\'t get below 70 %.'), json_encode($sent) . $said);
+    check('level notify: the limit X missed on master — one warning, worded with X; reached and stopped — nothing', $sent === [1, 0]
+        && str_contains($said, "-i\nwarning") && str_contains($said, 'After my run the pool master is still at 83 % (limit 70 %).'), json_encode($sent) . $said);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
     check('level run: after a real run she tells a missed target; Smart Mover gets no cake variables and no fill cap from the office (only X, 2026-10-14)',
         str_contains($src, "moverelliTargetNotify(\$status);") && !str_contains($src, 'CUSTOMMOVER_POOL_OFFSET') && !str_contains($src, 'CUSTOMMOVER_FILL_MAX') && !str_contains($src, '--fill-max'));
@@ -37529,7 +37585,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
