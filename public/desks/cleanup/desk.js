@@ -47,6 +47,8 @@ const CANDIDATES = {
 };
 const CLOSED = ['in_use', 'used', 'unknown', 'ok'];  // folded until opened
 const KIND_ICONS = { container: '🐳', template: '📄', stack: '🧩', compose: '🧩', flash: '💾', vm: '🖥️' };
+// her rooms whose datasets go into the storeroom only after the preview (the agent's CL_ZFS_CONFIRM)
+const ZFS_CONFIRM = ['appdata', 'domain'];
 const ITEM_ICONS = { template: '📄', stray: '📄', vmdef: '🖥️', userscript: '📜', stack: '🧩', appdata: '🗃️', domain: '🖥️', iso: '💿', nvram: '🔐', tpm: '🔐', snapshotdb: '🔐', icon: '🖼️', leftover: '📦', partner: '🤝', package: '💾', drill: '🧪', volume: '🗄️', sharecfg: '⚙️' };
 const ROOMS = ['templates', 'stacks', 'appdata', 'vms', 'scripts', 'flash', 'docker', 'icons', 'leftovers', 'partners'];     // where she finds something (not the storeroom)
 const POLL_MS = 3000;
@@ -1735,7 +1737,9 @@ async function parkDialog() {
   const running = sec === 'stacks' ? list.filter((s) => s.containers.length) : [];
   if (running.length) box.appendChild(el('p', 'callout', T('park.down', { names: running.map((s) => s.folder).join(', ') })));
   if (forced.length) box.appendChild(el('p', 'callout warn', T('park.in_use_' + sec, { names: forced.map(label).join(', ') })));
-  if (list.some((e) => e.parts && e.parts.some((p) => p.dataset))) box.appendChild(el('p', 'role', T('park.zfs')));
+  const zfsList = list.filter((e) => ZFS_CONFIRM.includes(e.kind) && e.parts && e.parts.some((p) => p.dataset));
+  if (list.some((e) => e.parts && e.parts.some((p) => p.dataset)) && !zfsList.length) box.appendChild(el('p', 'role', T('park.zfs')));
+  const zfsOk = zfsList.length ? zfsPreview(box, zfsList) : null;
   box.appendChild(el('p', 'role', T('park.where_' + sec)));
   Office.dialog({
     title: T('park.title', { n: list.length }),
@@ -1744,7 +1748,7 @@ async function parkDialog() {
       { text: Office.t('common.cancel') },
       { text: forced.length ? T('park.go_anyway') : T('park.go'), kind: forced.length ? 'danger' : '', act: async () => {
         busy = true;
-        const j = await Office.api.post(`${ID}.park`, { ids: list.map((e) => e.id), force: forced.length > 0 });
+        const j = await Office.api.post(`${ID}.park`, { ids: list.map((e) => e.id), force: forced.length > 0, zfs_ok: !!(zfsOk && zfsOk.checked) });
         busy = false;
         if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return true; }
         selection.clear();
@@ -1754,6 +1758,69 @@ async function parkDialog() {
       } },
     ],
   });
+  if (zfsOk) zfsOk.gate(document.querySelector('#sso-dialog-foot button:last-child'));
+}
+
+/**
+ * Before datasets of appdata or domains go into the storeroom: exactly what zfs rename does with each — its new name,
+ * what it holds, the datasets inside it and every snapshot with whose it is (her look again, read only). The box to
+ * tick comes back; the button waits for it (the agent refuses those datasets without it, too).
+ */
+function zfsPreview(box, list) {
+  const wrap = el('div', 'cl-zfs');
+  wrap.appendChild(el('p', '', T('zp.head', { n: list.length })));
+  const wait = el('p', 'role');
+  wait.append(el('span', 'spin'), document.createTextNode(' ' + T('zp.looking')));
+  wrap.appendChild(wait);
+  box.appendChild(wrap);
+  const l = el('label', 'check');
+  const c = el('input');
+  c.type = 'checkbox';
+  c.disabled = true;
+  l.append(c, el('span', '', T('zp.confirm')));
+  box.appendChild(l);
+  let button = null;
+  c.gate = (b) => { button = b; if (button) button.disabled = !c.checked; };
+  c.onchange = () => { if (button) button.disabled = !c.checked; };
+  Office.api.post(`${ID}.zfs_preview`, { ids: list.map((e) => e.id) }).then((j) => {
+    wait.remove();
+    if (!j.ok) { wrap.appendChild(el('p', 'callout warn', Office.errorText(j.error, ID))); return; }
+    j.plans.forEach((plan) => plan.datasets.forEach((d) => wrap.appendChild(zfsPlanBox(d))));
+    c.disabled = false;
+  });
+  return c;
+}
+
+const ZFS_OWNERS = ['plan', 'backup', 'partner', 'manual'];
+
+function zfsPlanBox(d) {
+  const b = el('div', 'cl-zfs-one');
+  b.appendChild(el('p', 'mono cl-zfs-cmd', `zfs rename ${d.dataset} ${d.to}`));
+  const facts = [];
+  if (d.used !== null) facts.push(d.snaps_bytes ? T('zp.size_snaps', { size: fmt.size(d.used), snaps: fmt.size(d.snaps_bytes) }) : T('zp.size', { size: fmt.size(d.used) }));
+  facts.push(d.count ? T('zp.snaps', { n: d.count }) : T('zp.no_snaps'));
+  if (d.inside.length) facts.push(T('zp.inside', { n: d.inside.length }));
+  b.appendChild(el('p', 'role', facts.join(' · ')));
+  if (d.inside.length) b.appendChild(el('p', 'mono cl-lines', d.inside.join('\n')));
+  const owners = el('div', 'row-meta');
+  ZFS_OWNERS.filter((o) => d.owners[o]).forEach((o) => owners.appendChild(chip(T('zp.owner.' + o) + ' · ' + d.owners[o], o === 'manual' ? 'quiet' : 'accent', T('zp.owner.' + o + '_text'))));
+  if (owners.childNodes.length) b.appendChild(owners);
+  if (d.snapshots.length) {
+    const det = el('details');
+    det.appendChild(el('summary', '', T('zp.list', { n: d.count })));
+    const ul = el('ul', 'cl-zfs-snaps');
+    d.snapshots.forEach((x) => {
+      const li = el('li');
+      li.append(el('span', 'mono', x.name), el('small', '', `${T('zp.owner.' + x.owner)} · ${fmt.size(x.used)}${x.time ? ' · ' + fmt.date(x.time) : ''}`));
+      ul.appendChild(li);
+    });
+    if (d.count > d.snapshots.length) ul.appendChild(el('li', 'role', T('zp.more', { n: d.count - d.snapshots.length })));
+    det.appendChild(ul);
+    b.appendChild(det);
+  }
+  if (d.owners.plan || d.owners.backup) b.appendChild(el('p', 'role', T('zp.retention')));
+  b.appendChild(el('p', 'role', T('zp.time')));
+  return b;
 }
 
 /** Docker's leftovers: volumes into the storeroom first (copied), images, the cache and volumes she can't copy for good */

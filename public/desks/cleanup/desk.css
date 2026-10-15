@@ -10,6 +10,15 @@
 .cl-trash-row .row-meta .mono{overflow-wrap:anywhere}
 .cl-acts{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
 .box > .row.cl-single:first-child{border-top:0}
+.cl-zfs{display:flex; flex-direction:column; gap:8px; margin:8px 0}
+.cl-zfs-one{border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; gap:4px}
+.cl-zfs-one p{margin:0}
+.cl-zfs-cmd{font-size:12px; overflow-wrap:anywhere; user-select:all}
+.cl-zfs-snaps{max-height:220px; overflow:auto; list-style:none; margin:4px 0 0; padding:0; border:1px solid var(--line); border-radius:6px}
+.cl-zfs-snaps li{display:flex; flex-direction:column; gap:1px; padding:5px 8px; border-top:1px solid var(--line)}
+.cl-zfs-snaps li:first-child{border-top:0}
+.cl-zfs-snaps .mono{font-size:12px; overflow-wrap:anywhere}
+.cl-zfs-snaps small{color:var(--muted)}
 /* missing pictures: a small frame in front of the name, the choice in the details */
 .cl-pic{display:inline-flex; align-items:center; justify-content:center; flex:none; width:28px; height:28px; border-radius:6px; overflow:hidden; background:var(--surface2); font-size:14px; line-height:1}
 .cl-pic img{width:100%; height:100%; object-fit:contain; display:block}

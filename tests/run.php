@@ -35682,6 +35682,88 @@ function testTilesMediaPages(): void
  * and the agent refuses them even when a stale page sends `force`. A stack in use («let go») and Mr. Restori's way back
  * keep the warning and «anyway».
  */
+function testCleanupOrphanDatasets(): void
+{
+    // what the office keeps in appdata and domains is never hers to put away, whoever names it (2026-10-15)
+    $settings = ['general' => ['dumps_share' => ['appdata']],
+                 'app|nextcloud' => ['kopia' => ['yes'], 'folder' => ['appdata/nextcloud'], 'partner' => ['0a1b2c3d']],
+                 'app|immich' => ['kopia' => ['yes'], 'folder' => ['appdata/immich']],
+                 'vm|Win11' => ['partner' => ['0a1b2c3d']]];
+    $f = fn (string $n, ?string $ds = null): array => ['name' => $n, 'parts' => [['dataset' => $ds]]];
+    $folders = [$f('old-app', 'tank/appdata/old-app'), $f('nextcloud', 'tank/appdata/nextcloud'), $f('immich'), $f('unraid-backup'),
+                $f('UnraidSecretaryOffice'), $f('uso-data'), $f('copies', 'tank/UnraidSecretaryOffice-partners/0a1b2c3d/app:x')];
+    same('orphan datasets: the office\'s data folder and own names, the backup place, an app sent to a partner and a partner\'s dataset are kept',
+        ['uso-data' => 'office', 'unraid-backup' => 'backup_place', 'nextcloud' => 'partner_held', 'UnraidSecretaryOffice' => 'office', 'copies' => 'partner_held'],
+        clKeepNames('appdata', $folders, $settings, '/mnt/user/appdata/uso-data'));
+    same('orphan datasets: in the office\'s share the backup place is its backup folder; a VM sent to a partner keeps its domains folder',
+        [['backup' => 'backup_place'], ['Win11' => 'partner_held']],
+        [clKeepNames('UnraidSecretaryOffice', [$f('backup'), $f('other')], ['general' => ['dumps_share' => ['UnraidSecretaryOffice']]], '/mnt/user/system/x'),
+         clKeepNames('domains', [$f('Win11', 'tank/domains/Win11'), $f('Old')], $settings, '/mnt/cache/uso')]);
+    same('orphan datasets: nothing set up — nothing kept but the office\'s own names', ['unraid-secretary-office-old' => 'office'],
+        clKeepNames('appdata', [$f('old-app'), $f('unraid-secretary-office-old')], [], '/mnt/user/UnraidSecretaryOffice'));
+    $entries = [['name' => 'old-app', 'why' => null], ['name' => 'nextcloud', 'why' => null], ['name' => 'unraid-backup', 'why' => 'docker_down'], ['name' => 'uso-data', 'why' => 'measure_first']];
+    same('orphan datasets: kept entries carry whose and why (a stopped Docker still says so first)',
+        [[null, null], ['partner_held', 'partner_held'], ['backup_place', 'docker_down'], ['office', 'office']],
+        array_map(fn ($e) => [$e['kept'], $e['why']], clKeep($entries, ['nextcloud' => 'partner_held', 'unraid-backup' => 'backup_place', 'uso-data' => 'office'])));
+    $refused = function (array $e): ?string { try { clParkCheck($e + ['kind' => 'appdata', 'name' => 'x', 'force' => false], true); return null; } catch (Problem $p) { return $p->key; } };
+    same('orphan datasets: kept ones are refused, with force too', ['cleanup_kept_office', 'cleanup_kept_backup_place', 'cleanup_kept_partner_held'],
+        [$refused(['why' => 'office']), $refused(['why' => 'backup_place']), $refused(['why' => 'partner_held'])]);
+
+    // whose a snapshot is, by its name
+    $p = ['uso-backup-', 'unraidbackup-'];
+    same('orphan datasets: snapshot owners — her plans, his runs (exactly the engine\'s shape), a partner\'s copy, anything else manual',
+        ['plan', 'backup', 'backup', 'manual', 'manual', 'partner', 'backup'],
+        [clSnapOwner('tank/appdata/x@uso-plan-daily-20261014-0100', $p), clSnapOwner('tank/appdata/x@uso-backup-20261014-0300', $p),
+         clSnapOwner('tank/appdata/x@unraidbackup-20250101-0300', $p), clSnapOwner('tank/appdata/x@uso-backup-20261014', $p),
+         clSnapOwner('tank/appdata/x@before-update', $p), clSnapOwner('tank/UnraidSecretaryOffice-partners/0a1b2c3d/app:x@uso-backup-20261014-0300', $p),
+         clSnapOwner('tank/appdata/UnraidSecretaryOffice-partners@uso-backup-20261014-0300', $p)]);
+
+    // the preview: exactly what zfs rename does, read only
+    $calls = [];
+    $zfs = function (array $cmd) use (&$calls): array {
+        $calls[] = $cmd;
+        return [0, "tank/appdata/old-app\t5000\t1200\t100\ntank/appdata/old-app@uso-plan-hourly-20261014-0100\t300\t0\t200\n"
+                 . "tank/appdata/old-app/db\t800\t0\t150\ntank/appdata/old-app/db@manual-1\t100\t0\t300\n"
+                 . "tank/appdata/old-app@uso-backup-20261014-0300\t900\t0\t400\ntank/appdata/old-apps\t1\t0\t1\nbad line\n", ''];
+    };
+    $e = ['parts' => [['path' => '/mnt/tank/appdata/old-app', 'dataset' => 'tank/appdata/old-app'], ['path' => '/mnt/disk1/appdata/old-app', 'dataset' => null]]];
+    $plan = clZfsPlan($e, $zfs, $p, '20261015-101010');
+    same('orphan datasets: the preview reads each dataset once, recursively, snapshots by age', [['zfs', 'list', '-Hp', '-r', '-t', 'filesystem,volume,snapshot', '-o', 'name,used,usedbysnapshots,creation', '-s', 'creation', 'tank/appdata/old-app']], $calls);
+    same('orphan datasets: the new name next to the storeroom, size, what goes along — never a neighbour of a similar name',
+        [1, 'tank/appdata/' . CL_TRASH . '-20261015-101010-old-app', 5000, 1200, ['tank/appdata/old-app/db'], 3, ['plan' => 1, 'backup' => 1, 'partner' => 0, 'manual' => 1]],
+        [count($plan), $plan[0]['to'], $plan[0]['used'], $plan[0]['snaps_bytes'], $plan[0]['inside'], $plan[0]['count'], $plan[0]['owners']]);
+    same('orphan datasets: every snapshot with whose it is, the inner datasets\' too', [['tank/appdata/old-app@uso-plan-hourly-20261014-0100', 300, 200, 'plan'], ['tank/appdata/old-app/db@manual-1', 100, 300, 'manual']],
+        array_map(fn ($s) => array_values($s), array_slice($plan[0]['snapshots'], 0, 2)));
+    same('orphan datasets: zfs failing — nothing made up', [null, 0, []],
+        (function () use ($e, $p) { $x = clZfsPlan($e, fn () => [1, '', 'cannot open'], $p, 's')[0]; return [$x['used'], $x['count'], $x['snapshots']]; })());
+
+    // putting a dataset of appdata away needs the page's preview ticked; without it nothing is touched
+    $GLOBALS['clScanStub'] = fn (): array => ['templates' => ['list' => []], 'stacks' => ['list' => [], 'root' => '/nonexistent'], 'scripts' => ['list' => []],
+        'appdata' => ['list' => [['id' => 'appdata:old-app', 'kind' => 'appdata', 'name' => 'old-app', 'why' => null, 'force' => false, 'category' => 'unused',
+                                  'parts' => [['root' => 'tank', 'path' => '/nonexistent/old-app', 'dataset' => 'tank/appdata/old-app', 'zfs' => true, 'bytes' => 1]]]]],
+        'vms' => ['list' => []], 'leftovers' => ['list' => []], 'partners' => ['list' => []], 'backup_running' => false, 'restore_running' => false, 'trash' => ['runs' => []]];
+    $GLOBALS['clZfsStub'] = $zfs;
+    $key = function (callable $f): ?string { try { $f(); return null; } catch (Problem $p) { return $p->key; } };
+    same('orphan datasets: «Into the storeroom» without the ticked preview is refused', 'cleanup_zfs_confirm', $key(fn () => clPark(['appdata:old-app'], false)));
+    $pre = clZfsPreview(['appdata:old-app']);
+    same('orphan datasets: the preview action — one plan per chosen dataset entry', ['appdata:old-app', 'tank/appdata/old-app', 3],
+        [$pre['plans'][0]['id'] ?? null, $pre['plans'][0]['datasets'][0]['dataset'] ?? null, $pre['plans'][0]['datasets'][0]['count'] ?? null]);
+    unset($GLOBALS['clScanStub'], $GLOBALS['clZfsStub']);
+    same('orphan datasets: the page sends zfs_ok as a real boolean (never cast)', 'bad_request', $key(fn () => (function () { boolField(['zfs_ok' => 'yes'], 'zfs_ok'); })()));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('orphan datasets: the park action reads zfs_ok with boolField()', str_contains($src, "array_key_exists('zfs_ok', \$r) && boolField(\$r, 'zfs_ok')"));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    check('orphan datasets: the page asks for the preview and sends the tick', str_contains($js, '.zfs_preview`') && str_contains($js, 'zfs_ok: !!(zfsOk && zfsOk.checked)'));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true);
+    foreach (['why.office', 'why.office_text', 'why.backup_place', 'why.backup_place_text', 'why.partner_held', 'why.partner_held_text', 'errors.cleanup_zfs_confirm',
+              'errors.cleanup_kept_office', 'errors.cleanup_kept_backup_place', 'errors.cleanup_kept_partner_held', 'zp.head', 'zp.confirm', 'zp.time', 'zp.retention'] as $k) {
+        check("orphan datasets: words for $k", isset($en[$k]));
+    }
+    foreach (['plan', 'backup', 'partner', 'manual'] as $o) {
+        check("orphan datasets: words for the owner $o", isset($en["zp.owner.$o"], $en["zp.owner.{$o}_text"]));
+    }
+}
+
 function testCleanupInUseLocked(): void
 {
     $refused = function (array $e, bool $force): ?string {
@@ -36560,7 +36642,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
