@@ -28519,8 +28519,360 @@ ROUTER);
     same('report: the agent answers office.reports', true, handle(json_encode(['action' => 'office.reports']))['ok'] ?? null);
     same('report: … and nothing else of office.*', 'unknown_action', handle(json_encode(['action' => 'office.nonsense']))['error']['key'] ?? null);
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
-    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.reports', 'office.supporter_claim'];")
+    check('report: api.php hands office.report_* to the agent', str_contains($api, "const OFFICE_AGENT_ACTIONS = ['office.report_preview', 'office.report_send', 'office.report_diag', 'office.reports', 'office.supporter_claim'];")
         && str_contains($api, '$office = in_array($action, OFFICE_AGENT_ACTIONS, true);'));
+    hardeningRm($tmp);
+}
+
+/**
+ * Unraid's diagnostics with a report (agent/lib/report.php «Unraid's diagnostics»): only when asked; Unraid's own tool,
+ * anonymized (never -a), through atd; a sleeping disk refuses without «wake»; one run at a time; office.report_diag says
+ * running → ready (size, files) | too_big | failed and tidies Unraid's copy in /boot/logs; «Send» waits while it runs;
+ * the report goes first, then the raw zip to /api/diag with the report ID and rid as headers; an older inbox (404),
+ * the switch off or its cap: the report stands, `diagnostics` says why; the zip is gone after the send, a drop, the TTL.
+ */
+function testReportDiagnostics(): void
+{
+    $tmp = hardeningTmp('reportdiag');
+    foreach (['shares', 'pools', 'partner', 'office', 'run', 'bootlogs', 'root'] as $d) {
+        @mkdir("$tmp/$d", 0700);
+    }
+    file_put_contents("$tmp/var.ini", "regGUID=\"0781-5583-3311-A1B2C3D4E5F6\"\n");
+    file_put_contents("$tmp/unraid-version", "version=\"7.3.3\"\n");
+    file_put_contents("$tmp/diagnostics", "#!/bin/sh\nexit 0\n");
+    chmod("$tmp/diagnostics", 0755);
+    $launched = [];
+    $stopped = [];
+    $logged = [];
+    $ctx = ['var_ini' => "$tmp/var.ini", 'ident' => "$tmp/none.cfg", 'shares_dir' => "$tmp/shares", 'pools_dir' => "$tmp/pools", 'mounts' => [],
+            'passwd' => "$tmp/none", 'partner_dir' => "$tmp/partner", 'jack_settings' => "$tmp/none.json", 'supporter' => "$tmp/none.json",
+            'report_id_file' => "$tmp/office/report-id", 'hostname' => 'tower', 'reports' => "$tmp/office/reports.json", 'run_dir' => "$tmp/run",
+            'hired' => ['caretaker'], 'unraid_version' => "$tmp/unraid-version", 'log' => "$tmp/agent.log", 'inbox' => "$tmp/inbox",
+            'diag_bin' => "$tmp/diagnostics", 'asleep' => ['disk1' => false, 'cache' => false], 'boot_logs' => "$tmp/bootlogs", 'diag_root' => "$tmp/root",
+            'diag_launch' => function (string $bin, string $zip, string $done) use (&$launched): void { $launched[] = [$bin, $zip, $done]; },
+            'diag_stop' => function (string $zip) use (&$stopped): void { $stopped[] = $zip; },
+            'log_lines' => function (string $l) use (&$logged): void { $logged[] = $l; }, 'sleep' => fn (int $s) => null,
+            'url' => 'http://127.0.0.1:9'];      // nothing listens there: a send this test didn't mean never reaches a real inbox
+    $words = ['kind' => 'bug', 'desk' => 'office', 'title' => 'The array won\'t start', 'text' => 'It hangs at mounting, see the diagnostics.'];
+    $ask = $words + ['lang' => 'de'];
+    $now = 1760000100;
+    $refused = function (callable $f): string { try { $f(); return 'ok'; } catch (Problem $p) { return $p->key . (isset($p->params['n']) ? ":{$p->params['n']}" : ''); } };
+    // Unraid's tool as it ends: the zip, its copy in /boot/logs, the exit code
+    $finish = function (array $launch, array $files, int $exit = 0) use ($tmp): void {
+        [, $zip, $done] = $launch;
+        $z = new ZipArchive();
+        $z->open($zip, ZipArchive::CREATE);
+        foreach ($files as $name => $text) {
+            $z->addFromString($name, $text);
+        }
+        $z->close();
+        copy($zip, "$tmp/bootlogs/" . basename($zip));
+        file_put_contents($done, "$exit\n");
+    };
+    $name = 'uso-diagnostics-' . date('Ymd-Hi', $now);
+    $files = ["$name/system/vars.txt" => "regTo => ..\n", "$name/logs/syslog.txt" => "Oct 15 kernel: ok\n", "$name/config/ident.cfg" => "NAME=\"t--r\"\n"];
+
+    // not asked: nothing of it
+    $pv = reportPreview($ask, $ctx + ['now' => $now]);
+    same('report diagnostics: not asked — no part, nothing started', [false, false, []], [isset($pv['diagnostics']), in_array('diagnostics', $pv['ticked'], true), $launched]);
+    same('report diagnostics: … the field read, never cast', ['bad_request', 'bad_request'],
+        [$refused(fn () => reportPreview(['diagnostics' => 'yes'] + $ask, $ctx)), $refused(fn () => reportPreview(['diagnostics' => true, 'diag_wake' => 1] + $ask, $ctx))]);
+    // refused before anything runs
+    same('report diagnostics: Unraid\'s tool missing — report_diag_missing; a disk asleep — report_diag_asleep with how many', ['report_diag_missing', 'report_diag_asleep:2', []],
+        [$refused(fn () => reportPreview(['diagnostics' => true] + $ask, ['diag_bin' => "$tmp/none"] + $ctx)),
+         $refused(fn () => reportPreview(['diagnostics' => true] + $ask, ['asleep' => ['disk1' => true, 'disk2' => true, 'cache' => false]] + $ctx)), $launched]);
+    check('report diagnostics: … a refused preview leaves nothing behind', glob("$tmp/run/*.diag") === [] && count(glob("$tmp/run/*.json") ?: []) === 1);
+    $pvw = reportPreview(['diagnostics' => true, 'diag_wake' => true] + $ask, ['asleep' => ['disk1' => true]] + $ctx + ['now' => $now]);
+    same('report diagnostics: with «wake them» — started, the wake logged', [1, 'running', 'Office: diagnostics for a report wake 1 sleeping disk (the user agreed)'],
+        [count($launched), $pvw['diagnostics']['state'] ?? null, $logged[0] ?? null]);
+    reportDiagAnswer(['token' => $pvw['token'], 'drop' => true], $ctx);
+    $launched = [];
+    $logged = [];
+
+    // started: through the launcher, into RAM, Unraid's name shape; one at a time
+    $pv = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now]);
+    $tok = $pv['token'];
+    $d = "$tmp/run/$tok.diag";
+    same('report diagnostics: asked — running, its part ticked, Unraid\'s tool with the zip in RAM (0700)', ['running', true, "$tmp/diagnostics", "$d/$name.zip", "$d/done", '700'],
+        [$pv['diagnostics']['state'] ?? null, in_array('diagnostics', $pv['ticked'], true), $launched[0][0] ?? null, $launched[0][1] ?? null, $launched[0][2] ?? null, decoct(@fileperms($d) & 0777)]);
+    same('report diagnostics: … another preview while it runs — report_diag_busy', 'report_diag_busy', $refused(fn () => reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 1])));
+    same('report diagnostics: … office.report_diag says running', [true, 'running'], [($a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 2]))['ok'], $a['state']]);
+    same('report diagnostics: … «Send» while it runs — report_diag_running, the preview kept', ['report_diag_running', true],
+        [$refused(fn () => reportSend(['token' => $tok, 'parts' => ['versions', 'diagnostics']] + $words, ['now' => $now + 3] + $ctx)), is_file("$tmp/run/$tok.json")]);
+    same('report diagnostics: … the token\'s shape checked', ['bad_request', 'bad_request'],
+        [$refused(fn () => reportDiagAnswer(['token' => '../x'], $ctx)), $refused(fn () => reportDiagAnswer(['token' => $tok, 'drop' => 'yes'], $ctx))]);
+    $finish($launched[0], $files);
+    $a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 9]);
+    same('report diagnostics: ready — its size, the files (sorted), no hash for the page; Unraid\'s copy in /boot/logs gone',
+        [true, 'ready', filesize("$d/$name.zip"), 3, ["$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
+        [$a['ok'], $a['state'], $a['bytes'] ?? null, $a['count'] ?? null, $a['files'] ?? null, isset($a['sha256']), glob("$tmp/bootlogs/*") ?: []]);
+
+    // the send: the report first, then the zip
+    $port = 0;
+    for ($i = 0; $i < 20 && !$port; $i++) {
+        $try = random_int(20000, 40000);
+        $s = @stream_socket_server("tcp://127.0.0.1:$try");
+        if ($s) {
+            fclose($s);
+            $port = $try;
+        }
+    }
+    file_put_contents("$tmp/router.php", <<<'ROUTER'
+<?php
+$dir = __DIR__;
+$n = (int) @file_get_contents("$dir/count") + 1;
+file_put_contents("$dir/count", (string) $n);
+$uri = $_SERVER['REQUEST_URI'];
+file_put_contents("$dir/request-$n.json", json_encode(['uri' => $uri, 'type' => $_SERVER['CONTENT_TYPE'] ?? '', 'office' => $_SERVER['HTTP_X_OFFICE'] ?? null,
+    'rid' => $_SERVER['HTTP_X_RID'] ?? null, 'ua' => $_SERVER['HTTP_USER_AGENT'] ?? '', 'body' => base64_encode((string) file_get_contents('php://input'))]));
+[$code, $body] = $uri === '/api/diag' ? json_decode((string) file_get_contents("$dir/diag-answer.json"), true)
+    : [200, ['ok' => true, 'number' => 70 + $n, 'url' => 'https://github.com/example/private-inbox/issues/' . (70 + $n)]];
+http_response_code($code);
+header('Content-Type: application/json');
+echo json_encode($body);
+ROUTER);
+    $diagAnswer = fn (int $code, array $body) => file_put_contents("$tmp/diag-answer.json", json_encode([$code, $body]));
+    $diagAnswer(200, ['ok' => true, 'bytes' => 1, 'until' => '2026-11-14T00:00:00Z']);
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-d', 'post_max_size=16M', '-S', "127.0.0.1:$port", "$tmp/router.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
+        usleep(100000);
+    }
+    $sctx = ['url' => "http://127.0.0.1:$port"] + $ctx;
+    $req = fn (int $n): array => json_decode((string) @file_get_contents("$tmp/request-$n.json"), true) ?? [];
+    $count = fn (): int => (int) @file_get_contents("$tmp/count");
+    $zip = (string) file_get_contents("$d/$name.zip");
+    $r = reportSend(['token' => $tok, 'parts' => ['versions', 'diagnostics']] + $words, ['now' => $now + 20] + $sctx);
+    $report = $req(1);
+    $body = json_decode(base64_decode($report['body'] ?? ''), true) ?? [];
+    $up = $req(2);
+    same('report diagnostics: sent — the report first (nothing of the zip in it), then the zip; `diagnostics: sent`',
+        [true, 71, 'sent', 2, '/api/report', false, ['versions'], '/api/diag'],
+        [$r['ok'] ?? false, $r['number'] ?? null, $r['diagnostics'] ?? null, $count(), $report['uri'] ?? null, isset($body['diagnostics']) || str_contains(base64_decode($report['body'] ?? ''), "PK\x03\x04"), $body['parts'] ?? null, $up['uri'] ?? null]);
+    same('report diagnostics: … the zip raw, as previewed; the report ID and the rid as headers (the report\'s own)', ['application/zip', true, $body['report_id'] ?? 'x', $body['rid'] ?? 'x', true],
+        [$up['type'] ?? null, base64_decode($up['body'] ?? '') === $zip, $up['office'] ?? null, $up['rid'] ?? null, str_starts_with($up['ua'] ?? '', 'UnraidSecretaryOffice/')]);
+    same('report diagnostics: … gone from RAM after, the curl config too; logged', [false, [], 'Office: sent a report (#71, bug, office, diagnostics)'],
+        [is_dir($d), glob("$tmp/run/*.curl") ?: [], $logged[0] ?? null]);
+
+    // an older inbox (404, asked twice), the switch off, the cap, a failure: the report stands
+    $cases = [[404, ['ok' => false, 'error' => 'not_found'], 'off', 2], [403, ['ok' => false, 'error' => 'refused', 'why' => 'off', 'field' => 'diagnostics'], 'off', 1],
+              [429, ['ok' => false, 'error' => 'busy', 'why' => 'diagnostics'], 'busy', 1], [502, ['ok' => false, 'error' => 'github'], 'failed', 1]];
+    $got = [];
+    foreach ($cases as [$code, $answer, $want, $asked]) {
+        $diagAnswer($code, $answer);
+        $launched = [];
+        $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 30]);
+        $finish($launched[0], $files);
+        $before = $count();
+        $r = reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 31] + $sctx);
+        $got[] = [$r['ok'] ?? false, $r['diagnostics'] ?? null, $count() - $before - 1, is_dir("$tmp/run/{$p['token']}.diag")];
+    }
+    same('report diagnostics: an older inbox (404, asked once more), switched off, its cap, a failure — the report sent, the zip gone',
+        array_map(fn ($c) => [true, $c[2], $c[3], false], $cases), $got);
+    // unticked in the preview: nothing goes, the zip goes all the same
+    $launched = [];
+    $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 40]);
+    $finish($launched[0], $files);
+    $before = $count();
+    $r = reportSend(['token' => $p['token'], 'parts' => ['versions']] + $words, ['now' => $now + 41] + $sctx);
+    same('report diagnostics: unticked — only the report, no `diagnostics` in the answer, the zip gone', [true, 1, false, false],
+        [$r['ok'] ?? false, $count() - $before, isset($r['diagnostics']), is_dir("$tmp/run/{$p['token']}.diag")]);
+    proc_terminate($server);
+    proc_close($server);
+
+    // too big, failed, swapped
+    $launched = [];
+    $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 50]);
+    $finish($launched[0], ["$name/logs/syslog.txt" => random_bytes(REPORT_DIAG_MAX + 1024)]);
+    $a = reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 51]);
+    same('report diagnostics: more than 10 MB — too_big with its size, the zip deleted at once', ['too_big', true, REPORT_DIAG_MAX, false],
+        [$a['state'], ($a['bytes'] ?? 0) > REPORT_DIAG_MAX, $a['max'] ?? null, is_file($launched[0][1])]);
+    same('report diagnostics: … a send with it ticked — report_stale', 'report_stale', $refused(fn () => reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 52] + $ctx)));
+    $launched = [];
+    $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 60]);
+    $finish($launched[0], $files, 1);
+    same('report diagnostics: Unraid\'s tool failed — failed', 'failed', reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 61])['state']);
+    reportDiagAnswer(['token' => $p['token'], 'drop' => true], $ctx);
+    $launched = [];
+    $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 70]);
+    same('report diagnostics: never done within 10 minutes — failed', 'failed', reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 70 + REPORT_DIAG_WAIT + 1])['state']);
+    reportDiagAnswer(['token' => $p['token'], 'drop' => true], $ctx);
+    $launched = [];
+    $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 80]);
+    $finish($launched[0], $files);
+    reportDiagAnswer(['token' => $p['token']], $ctx + ['now' => $now + 81]);
+    file_put_contents($launched[0][1], 'swapped');
+    same('report diagnostics: the zip changed after the preview — report_stale, gone', ['report_stale', false],
+        [$refused(fn () => reportSend(['token' => $p['token'], 'parts' => ['diagnostics']] + $words, ['now' => $now + 82] + $ctx)), is_dir("$tmp/run/{$p['token']}.diag")]);
+
+    // dropped while running (the dialog closed): stopped by the zip's path, its folder in / and the copy go
+    $launched = [];
+    $stopped = [];
+    $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 90]);
+    $nm = basename($launched[0][1], '.zip');
+    @mkdir("$tmp/root/$nm");
+    file_put_contents("$tmp/root/$nm/half.txt", 'x');
+    file_put_contents("$tmp/bootlogs/$nm.zip", 'x');
+    $a = reportDiagAnswer(['token' => $p['token'], 'drop' => true], $ctx);
+    same('report diagnostics: dropped while running — stopped by its zip\'s path, the half-made folder and any copy gone', [true, 'gone', [$launched[0][1]], false, [], false],
+        [$a['ok'], $a['state'], $stopped, is_dir("$tmp/root/$nm"), glob("$tmp/bootlogs/*") ?: [], is_dir("$tmp/run/{$p['token']}.diag")]);
+    // tidy: a run no preview can send any more
+    $launched = [];
+    $p = reportPreview(['diagnostics' => true] + $ask, $ctx + ['now' => $now + 100]);
+    $finish($launched[0], $files);
+    reportTidy("$tmp/run", $now + 100 + REPORT_TOKEN_TTL + REPORT_DIAG_WAIT + 1, $ctx);
+    same('report diagnostics: tidy — gone after its preview\'s time', false, is_dir("$tmp/run/{$p['token']}.diag"));
+
+    // the answers in one word; the wiring
+    $w = fn (int $code, array $b, int $exit = 0) => reportDiagAnswerOf($exit, json_encode($b) . "\n$code");
+    same('report diagnostics: the inbox\'s answers', ['sent', 'again', 'again', 'off', 'busy', 'busy', 'failed', 'failed', 'failed'],
+        [$w(200, ['ok' => true]), $w(404, ['ok' => false, 'error' => 'not_found']), $w(405, []), $w(403, ['ok' => false, 'error' => 'refused', 'why' => 'off']),
+         $w(429, ['ok' => false, 'error' => 'busy', 'why' => 'diagnostics']), $w(403, ['ok' => false, 'error' => 'closed']), $w(400, ['ok' => false, 'error' => 'refused', 'why' => 'bad']),
+         $w(502, ['ok' => false, 'error' => 'github']), $w(200, ['ok' => true], 7)]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php');
+    check('report diagnostics: Unraid\'s own tool, anonymized — never with -a or --all; through atd',
+        REPORT_DIAG_BIN === '/usr/local/sbin/diagnostics' && !preg_match("/'-a'|'--all'/", $src)
+        && str_contains($src, "hostLaunch('report-diagnostics', ['/bin/sh', '-c', '\"\$0\" \"\$1\"; echo \$? >\"\$2.tmp\" && mv \"\$2.tmp\" \"\$2\"', \$bin, \$zip, \$done]);"));
+    check('report diagnostics: the agent answers office.report_diag, api.php hands it over', isset(officeAgentActions()['report_diag'])
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/src/api.php'), "'office.report_diag'"));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/en.json'), true) ?: [];
+    $missing = array_values(array_filter(['errors.report_diag_asleep', 'errors.report_diag_missing', 'errors.report_diag_busy', 'errors.report_diag_running',
+        'office.report_diag', 'office.report_diag_hint', 'office.report_diag_wake', 'office.report_part.diagnostics', 'office.report_diag_running', 'office.report_diag_ready',
+        'office.report_diag_too_big', 'office.report_diag_failed', 'office.report_diag_sent', 'office.report_diag_not_sent.off', 'office.report_diag_not_sent.busy',
+        'office.report_diag_not_sent.failed'], fn ($k) => !isset($en[$k])));
+    same('report diagnostics: every key the agent and the dialog give exists', [], $missing);
+    hardeningRm($tmp);
+}
+
+/**
+ * The dialog's diagnostics (core.js Office.reportDialog()): one tick in the form, never ticked, never remembered; the
+ * preview asks with `diagnostics: true`; report_diag_asleep brings the «wake them» tick; while Unraid collects, the wave
+ * and «Send» off; office.report_diag asked until ready (size, files), then its part ticked and «Send» on; the send names
+ * the part, the answer's `diagnostics` is said; a preview thrown away or the dialog closed drops them on the server.
+ * The harness (a DOM of plain objects, fetch answered from `answers`) is testReportDialog()'s.
+ */
+function testReportDialogDiagnostics(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('report dialog diagnostics: node is missing here - skipped', true);
+        return;
+    }
+    $src = (string) file_get_contents(__FILE__);
+    $from = strpos($src, "const fs = require('fs');", (int) strpos($src, 'function testReportDialog(): void'));
+    $to = strpos($src, "(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));", (int) $from);
+    if ($from === false || $to === false) {
+        check('report dialog diagnostics: testReportDialog()\'s harness found', false);
+        return;
+    }
+    $tmp = hardeningTmp('reportdlgdiag');
+    file_put_contents("$tmp/t.js", substr($src, $from, $to - $from) . <<<'JS'
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const walk = (n, f, out = []) => { if (n && typeof n === 'object') { if (f(n)) out.push(n); (n.children || []).forEach((c) => walk(c, f, out)); } return out; };
+const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
+const visible = (n) => { for (let x = n; x; x = x.parentNode) if (x.hidden) return false; return true; };
+const body = () => byId['sso-dialog-body'];
+const one = (f) => walk(body(), f)[0];
+const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
+(async () => {
+  await sleep(30);
+  document.body.contains = () => true;         // the dialog is on the page
+  O.agent = { running: true };
+  O.desk({ id: 'snapshot' });
+  O.desk({ id: 'caretaker' });
+  const out = {};
+  let diagState = 'running';
+  const previewAnswer = (b) => ({ ok: true, token: (b.diagnostics ? 'd' : 'p').repeat(32), ttl: 600, ticked: ['versions', ...(b.diagnostics ? ['diagnostics'] : [])], id: '1234abcd',
+    hints: [], hidden: {}, n: 0, left: 25, cap: 25, next: null, closed: false,
+    parts: { versions: { office: '1.44.0' }, unraid: '7.3.3', language: { lang: 'en', browser: 'de' }, team: ['caretaker'], log: '' },
+    ...(b.diagnostics ? { diagnostics: { state: 'running' } } : {}) });
+  answers = {
+    'office.reports': { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: false },
+    'office.report_preview': previewAnswer,
+    'office.report_diag': (b) => (b.drop ? { ok: true, state: 'gone' } : diagState === 'running' ? { ok: true, state: 'running' }
+      : { ok: true, state: 'ready', bytes: 104316, count: 3, files: ['d/config/ident.cfg', 'd/logs/syslog.txt'] }),
+    'office.report_send': { ok: true, number: 41, url: '', left: 24, n: 1, cap: 25, next: null, diagnostics: 'off' },
+  };
+  const fill = () => {
+    const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
+    title.value = 'The array hangs'; title.oninput();
+    const area = one((n) => n.tag === 'textarea');
+    area.value = 'It hangs at mounting the disks.'; area.oninput();
+  };
+  const ticks = () => walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && !n.dataset.part && !n.dataset.check);
+  const part = () => walk(body(), (n) => n.tag === 'input' && n.dataset.part === 'diagnostics')[0] || null;
+  const asked = () => posts.filter((p) => p.a === 'office.report_preview').map((p) => [p.diagnostics === undefined ? null : p.diagnostics, p.diag_wake === undefined ? null : p.diag_wake]);
+  const dlg = O.reportDialog();
+  await sleep(20);
+  const send = dlg.buttons[1];
+  const [diagCb, wakeCb] = ticks();
+  out.form = { n: ticks().length, ticked: diagCb.checked, wakeShown: visible(wakeCb), labels: ticks().map((c) => text(c.parentNode)), hint: text(body()).includes('office.report_diag_hint') };
+  fill();
+  posts.length = 0;
+  await button('office.report_preview').onclick();
+  out.plain = { asked: asked(), row: !!part() };
+  // ticked; disks asleep: refused, the «wake» tick shows
+  answers['office.report_preview'] = (b) => (b.diagnostics && !b.diag_wake ? { ok: false, error: { key: 'report_diag_asleep', params: { n: 2 } } } : previewAnswer(b));
+  diagCb.checked = true; diagCb.onchange();
+  posts.length = 0;
+  await button('office.report_preview').onclick();
+  out.asleep = { asked: asked(), wakeShown: visible(wakeCb), row: !!part(), sendOff: send.disabled };
+  wakeCb.checked = true; wakeCb.onchange();
+  posts.length = 0;
+  await button('office.report_preview').onclick();
+  out.running = { asked: asked(), sendOff: send.disabled, wave: !!one((n) => n.className === 'spin'), rowDisabled: part().disabled, rowTicked: part().checked,
+    draft: JSON.parse(store['office.report.draft'] || '{}') };
+  diagState = 'ready';
+  await sleep(2300);
+  out.ready = { polled: posts.filter((p) => p.a === 'office.report_diag').map((p) => p.token), sendOn: !send.disabled, rowOn: part().checked && !part().disabled,
+    size: text(one((n) => n.className === 'sso-report-diag-shown')).includes('office.report_diag_ready'),
+    files: text(one((n) => n.className === 'sso-report-diag-files')).includes('d/logs/syslog.txt') };
+  posts.length = 0;
+  await send.onclick();
+  await sleep(10);
+  const sent = posts.find((p) => p.a === 'office.report_send') || {};
+  out.sent = { parts: sent.parts, said: walk(one((n) => n.className === 'sso-report-done'), (n) => n.className === 'callout warn').map(text), drops: posts.filter((p) => p.drop).length };
+  dlg.close();
+  await sleep(10);
+  out.sentDrops = posts.filter((p) => p.drop).length;
+  // a new dialog: never ticked, never remembered; closed with diagnostics collecting — dropped
+  const dlg2 = O.reportDialog();
+  await sleep(10);
+  out.again = { ticked: ticks()[0].checked, wakeShown: visible(ticks()[1]), stored: Object.entries(store).filter(([k, v]) => /diag|wake/.test(k + v)).length };
+  fill();
+  ticks()[0].checked = true; ticks()[0].onchange();
+  diagState = 'running';
+  answers['office.report_preview'] = previewAnswer;
+  await button('office.report_preview').onclick();
+  posts.length = 0;
+  dlg2.buttons[0].onclick();
+  await sleep(10);
+  out.closed = posts.filter((p) => p.a === 'office.report_diag').map((p) => [p.token, p.drop]);
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r) || isset($r['error'])) {
+        check('report dialog diagnostics: ran under node', false, $raw);
+        hardeningRm($tmp);
+        return;
+    }
+    $d = str_repeat('d', 32);
+    same('report dialog diagnostics: one tick in the form, not ticked; its hint; «wake» hidden', [2, false, false, ['office.report_diag', 'office.report_diag_wake'], true],
+        [$r['form']['n'], $r['form']['ticked'], $r['form']['wakeShown'], $r['form']['labels'], $r['form']['hint']]);
+    same('report dialog diagnostics: not ticked — the preview doesn\'t ask, no part', [[[null, null]], false], [$r['plain']['asked'], $r['plain']['row']]);
+    same('report dialog diagnostics: ticked, disks asleep — refused, «wake» shows, no preview', [[[true, null]], true, false, true],
+        [$r['asleep']['asked'], $r['asleep']['wakeShown'], $r['asleep']['row'], $r['asleep']['sendOff']]);
+    same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text']],
+        [$r['running']['asked'], $r['running']['sendOff'], $r['running']['wave'], $r['running']['rowDisabled'], $r['running']['rowTicked'], array_keys($r['running']['draft'])]);
+    same('report dialog diagnostics: asked again until ready — then size, files, its part on, «Send» on', [true, true, true, true, true],
+        [in_array($d, $r['ready']['polled'], true), $r['ready']['rowOn'], $r['ready']['sendOn'], $r['ready']['size'], $r['ready']['files']]);
+    same('report dialog diagnostics: «Send» names the part; the inbox didn\'t take them — said; nothing dropped after a send', [['versions', 'diagnostics'], ['office.report_diag_not_sent.off'], 0, 0],
+        [$r['sent']['parts'], $r['sent']['said'], $r['sent']['drops'], $r['sentDrops']]);
+    same('report dialog diagnostics: a new dialog — not ticked, nothing remembered', [false, false, 0], [$r['again']['ticked'], $r['again']['wakeShown'], $r['again']['stored']]);
+    same('report dialog diagnostics: closed while they are collected — dropped on the server', [[$d, true]], $r['closed']);
     hardeningRm($tmp);
 }
 
@@ -28776,7 +29128,7 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
   await button('office.report_preview').onclick();
   const asked = posts[0] || {};
   out.preview = { a: asked.a, kind: asked.kind, desk: asked.desk, title: asked.title, name: asked.name, lang: asked.lang, browser: asked.browser, error: asked.error,
-    sendOn: !send.disabled, parts: walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox').map((c) => [c.dataset.part, c.checked, c.disabled]),
+    sendOn: !send.disabled, parts: walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && !!n.dataset.part).map((c) => [c.dataset.part, c.checked, c.disabled]),
     log: text(one((n) => n.className === 'code sso-report-log')), hidden: text(body()).includes('‹share-1› = Media'), hint: text(body()).includes('office.report_hint.address') };
   title.value = 'Her plan ran three times'; title.oninput();
   out.changed = { sendOff: send.disabled, previewHidden: one((n) => n.className === 'sso-report-preview').hidden };
@@ -29203,7 +29555,7 @@ const one = (f) => walk(body(), f)[0];
   out.asked = posts.map((p) => p.a);
   out.stashed = posts[0] && Buffer.from(posts[0].data || '', 'base64').toString('hex');
   out.refs = posts[1] && posts[1].images;
-  const boxes = walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox');
+  const boxes = walk(body(), (n) => n.tag === 'input' && n.type === 'checkbox' && !!(n.dataset.part || n.dataset.check));     // the preview's (not the form's diagnostics ticks)
   out.parts = boxes.map((c) => c.dataset.part || c.dataset.check);
   out.sendOffWithoutTick = send.disabled;
   const ok = boxes.find((c) => c.dataset.check === 'images');
@@ -37043,9 +37395,9 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
-          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
+          'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
           'strings' => ['testStrings', 'testUnraidWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

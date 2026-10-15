@@ -2146,6 +2146,11 @@ Office.supporterAsk = async function supporterAsk(answer) {
  * names the refs and the agent draws each anew (src/reportimage.php). In the preview each has its own tick, and
  * «Send» needs one more while any is ticked: «I've looked at the pictures — nothing private on them» (the scrubber
  * can't blank a picture). Pictures are never kept in the draft.
+ * Unraid's diagnostics (2026-10-15): one tick in the form, never ticked by default, never remembered. With it the
+ * preview has the agent run Unraid's own anonymized diagnostics; the page asks office.report_diag until they are
+ * ready (size, files) and «Send» waits for them. A sleeping disk: the agent refuses (report_diag_asleep) and a second
+ * tick «wake them» appears. They go after the report (the answer's `diagnostics` says whether); a preview thrown away
+ * or the dialog closed drops them on the server.
  */
 const REPORT_KINDS = ['bug', 'wish', 'question'];
 const REPORT_TITLE_MAX = 100;
@@ -2157,6 +2162,8 @@ const REPORT_IMAGES_MAX = 3;
 const REPORT_IMAGE_PARTS = ['image1', 'image2', 'image3'];
 const REPORT_IMAGE_BYTES = 2 * 1024 * 1024;      // as the browser has it; the agent makes it ≤ 1.5 MB
 const REPORT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const REPORT_DIAG_PART = 'diagnostics';
+const REPORT_DIAG_POLL = 2000;     // ms between asking how far Unraid's diagnostics are
 // «Your reports»: where one stands (agent/lib/report.php reportStatusAnswer()) and the only public issues linked
 const REPORT_STATUS_CHIP = { received: 'quiet', seen: 'accent', done: 'ok' };
 const REPORT_PUBLIC_RE = /^https:\/\/github\.com\/dropnook\/UnraidSecretaryOffice\/issues\/(\d{1,9})$/;
@@ -2291,6 +2298,23 @@ Office.reportDialog = function reportDialog(deskId) {
   picAdd.onclick = () => picInput.click();
   pics.append(picList, picAdd, picInput);
   field(t('office.report_images'), pics, el('small', 'sso-report-pic-hint', t('office.report_images_hint', { n: REPORT_IMAGES_MAX, mb: REPORT_IMAGE_BYTES / 1048576 })));
+  // Unraid's diagnostics: only when ticked here — never ticked by default, never remembered
+  const tick = (label) => {
+    const l = el('label', 'check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    l.append(cb, el('span', '', label));
+    return [l, cb];
+  };
+  const [diagLabel, diagCb] = tick(t('office.report_diag'));
+  const [wakeLabel, wakeCb] = tick(t('office.report_diag_wake'));
+  wakeLabel.classList.add('sso-report-diag-wake');
+  wakeLabel.hidden = true;
+  const diagField = el('div', 'field sso-report-diag');
+  const diagTicks = el('div');                 // not straight in .field: its labels are the field's title (office.css)
+  diagTicks.append(diagLabel, el('small', '', t('office.report_diag_hint')), wakeLabel);
+  diagField.appendChild(diagTicks);
+  form.appendChild(diagField);
   // no name field (2026-10-08): nobody is answered by name — the forum is the place for a conversation (the agent
   // still takes an empty one: report.php reportWords())
   box.appendChild(form);
@@ -2318,16 +2342,24 @@ Office.reportDialog = function reportDialog(deskId) {
   let send = null;
   // a picture ticked: only with the tick «I've looked at the pictures»
   const picsOk = () => !(state.boxes || []).some((b) => REPORT_IMAGE_PARTS.includes(b.dataset.part) && b.checked) || !!(state.imagesOk && state.imagesOk.checked);
-  const sendable = () => !!state.preview && !state.closed && !(state.cap && state.cap.left <= 0) && Office.agent.running && picsOk();
+  const diagBusy = () => !!(state.diag && state.diag.state === 'running');
+  const sendable = () => !!state.preview && !state.closed && !(state.cap && state.cap.left <= 0) && Office.agent.running && picsOk() && !diagBusy();
   const counter = () => {
     const used = utf8Bytes(text.value.trim());
     count.textContent = t('office.report_count', { used, max: REPORT_TEXT_MAX });
     count.className = 'sso-report-count' + (used > REPORT_TEXT_MAX ? ' missing' : '');
   };
+  /** A preview's diagnostics gone on the server (thrown away, the dialog closed) — the agent ends a run still going */
+  function dropDiag() {
+    const p = state.preview;
+    state.diag = null;
+    if (p && p.diagnostics && !state.sent && Office.agent.running) Office.api.post('office.report_diag', { token: p.token, drop: true }).catch(() => {});
+  }
   function changed() {
     keep();
     counter();
     if (state.preview) {
+      dropDiag();
       state.preview = null;          // what was shown isn't what would go any more
       preview.hidden = true;
       preview.innerHTML = '';
@@ -2336,6 +2368,8 @@ Office.reportDialog = function reportDialog(deskId) {
   }
   [title, text].forEach((f) => { f.oninput = changed; });
   desk.onchange = changed;
+  diagCb.onchange = () => { if (!diagCb.checked) { wakeCb.checked = false; wakeLabel.hidden = true; } changed(); };
+  wakeCb.onchange = changed;
   counter();
 
   function paintPics() {
@@ -2530,11 +2564,63 @@ Office.reportDialog = function reportDialog(deskId) {
       preview.appendChild(row);
       state.imagesOk = ok;
     }
+    if (j.diagnostics) {
+      const diagBox = el('div', 'sso-report-diag-shown');
+      const cb = partRow(REPORT_DIAG_PART, diagBox, ticked.has(REPORT_DIAG_PART));
+      cb.onchange = () => { if (send) send.disabled = !sendable(); };
+      boxes.push(cb);
+      state.diag = { state: 'running', box: diagBox, cb };
+      paintDiag();
+      pollDiag(j.token);
+    }
     const id = line(t('office.report_id_value', { id: j.id || '?' }));
     id.appendChild(el('small', '', t('office.report_id_why')));
     partRow('id', id, true, true);
     preview.appendChild(el('p', 'sso-report-where', t('office.report_where')));
     state.boxes = boxes;
+  }
+
+  /** The diagnostics' row: the wave while Unraid collects; then size and files — or why they stay out */
+  function paintDiag() {
+    const d = state.diag;
+    if (!d) return;
+    d.box.innerHTML = '';
+    if (d.state === 'running') {
+      const p = el('div', 'sso-report-value running');      // the wave shows only inside .running
+      p.append(el('span', 'spin'), ' ', t('office.report_diag_running'));
+      d.box.appendChild(p);
+      d.cb.disabled = true;
+    } else if (d.state === 'ready') {
+      d.box.appendChild(el('div', 'sso-report-value', t('office.report_diag_ready', { size: Office.fmt.size(d.bytes), n: d.count })));
+      const files = el('details', 'sso-report-diag-files');
+      files.appendChild(el('summary', '', t('office.report_diag_files')));
+      const names = (d.files || []).join('\n') + (d.count > (d.files || []).length ? `\n${t('office.report_diag_more', { n: d.count - d.files.length })}` : '');
+      files.appendChild(el('pre', 'code sso-report-log', names));
+      d.box.appendChild(files);
+      d.box.appendChild(el('small', '', t('office.report_diag_note')));
+      d.cb.disabled = false;
+    } else {
+      d.box.appendChild(el('p', 'callout warn', d.state === 'too_big'
+        ? t('office.report_diag_too_big', { size: Office.fmt.size(d.bytes || 0), max: Office.fmt.size(d.max || 0) })
+        : t('office.report_diag_failed')));
+      d.cb.checked = false;
+      d.cb.disabled = true;
+    }
+    if (send) send.disabled = !sendable();
+  }
+  /** Asks the agent how far Unraid's diagnostics are, until they aren't running (or this preview is gone) */
+  async function pollDiag(token) {
+    while (state.diag && state.diag.state === 'running' && state.preview && state.preview.token === token && document.body.contains(box)) {
+      await new Promise((r) => { setTimeout(r, REPORT_DIAG_POLL); });
+      if (!state.preview || state.preview.token !== token || !state.diag) return;
+      if (!Office.agent.running) continue;
+      const a = await Office.api.post('office.report_diag', { token });
+      if (!state.preview || state.preview.token !== token || !state.diag) return;
+      if (!a.ok) { state.diag.state = 'failed'; paintDiag(); return; }
+      if (a.state === 'running') continue;
+      Object.assign(state.diag, { state: a.state === 'ready' || a.state === 'too_big' ? a.state : 'failed', bytes: a.bytes, max: a.max, count: a.count, files: a.files });
+      paintDiag();
+    }
   }
 
   show.onclick = async () => {
@@ -2557,9 +2643,15 @@ Office.reportDialog = function reportDialog(deskId) {
         refs.push(u.ref);
       }
       const browser = String((navigator.languages && navigator.languages[0]) || navigator.language || '').slice(0, 2).toLowerCase();
+      dropDiag();                    // a preview shown before: its diagnostics go, a new run starts
       const j = await Office.api.post('office.report_preview', { ...w, lang: Office.lang, browser: /^[a-z]{2}$/.test(browser) ? browser : undefined,
-        error: reportLastError(w.desk), images: refs.length ? refs : undefined });
-      if (!j.ok) { say(reportError(j.error)); return; }
+        error: reportLastError(w.desk), images: refs.length ? refs : undefined,
+        ...(diagCb.checked ? { diagnostics: true, ...(wakeCb.checked ? { diag_wake: true } : {}) } : {}) });
+      if (!j.ok) {
+        if (j.error && j.error.key === 'report_diag_asleep') wakeLabel.hidden = false;
+        say(reportError(j.error));
+        return;
+      }
       state.preview = j;
       takeCap(j);
       paintPreview(j);
@@ -2571,7 +2663,7 @@ Office.reportDialog = function reportDialog(deskId) {
 
   async function doSend() {
     if (!state.preview) return false;
-    const parts = (state.boxes || []).filter((b) => b.checked && !b.disabled && (REPORT_PARTS.includes(b.dataset.part) || REPORT_IMAGE_PARTS.includes(b.dataset.part)))
+    const parts = (state.boxes || []).filter((b) => b.checked && !b.disabled && (REPORT_PARTS.includes(b.dataset.part) || REPORT_IMAGE_PARTS.includes(b.dataset.part) || b.dataset.part === REPORT_DIAG_PART))
       .map((b) => b.dataset.part);
     const withPics = parts.some((p) => REPORT_IMAGE_PARTS.includes(p));
     if (withPics && !picsOk()) { say(t('errors.report_images_unchecked')); return false; }
@@ -2597,6 +2689,8 @@ Office.reportDialog = function reportDialog(deskId) {
     done.hidden = false;
     done.innerHTML = '';
     done.appendChild(el('p', 'sso-report-sent', t('office.report_sent')));     // no number, no link: the inbox is private
+    if (j.diagnostics === 'sent') done.appendChild(el('p', '', t('office.report_diag_sent')));
+    else if (typeof j.diagnostics === 'string') done.appendChild(el('p', 'callout warn', t(`office.report_diag_not_sent.${['off', 'busy'].includes(j.diagnostics) ? j.diagnostics : 'failed'}`)));
     done.appendChild(el('p', 'role', t('office.report_sent_note', { n: typeof j.left === 'number' ? j.left : 0 })));
     send.hidden = true;
     dlg.buttons[0].textContent = t('common.close');
@@ -2622,6 +2716,7 @@ Office.reportDialog = function reportDialog(deskId) {
     ],
     onClose: () => {
       keep();
+      dropDiag();
       state.images.forEach((p) => reportPicDrop(p.url));
       $('#sso-dialog').classList.remove('sso-report-dialog');
       $('#sso-dialog-backdrop').classList.remove('sso-report-backdrop');

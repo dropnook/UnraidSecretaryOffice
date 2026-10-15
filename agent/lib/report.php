@@ -46,6 +46,15 @@ declare(strict_types=1);
  * preview in RAM (RUN_DIR/report/<token>.<n>.img, 0600) until sent or REPORT_TOKEN_TTL is over. Each has its own tick
  * (image1 …); the scrubber can't blank a picture, so a send with one needs `images_checked: true` (the page's required
  * tick «I've looked at the pictures»). They go base64 in the body (`images: [{type, data}]`, `parts` names `images`).
+ *
+ * Unraid's diagnostics (2026-10-15): only when the user ticks «send Unraid's diagnostics (anonymized)» — never ticked
+ * by default, never remembered. The preview (`diagnostics: true`, `diag_wake` after report_diag_asleep) starts Unraid's
+ * own tool exactly as Tools → Diagnostics with «Anonymize» does (REPORT_DIAG_BIN without -a — never the full one)
+ * through atd into RUN_DIR/report/<token>.diag; the page asks office.report_diag {token} until it is ready and shows
+ * its size and files. The scrubber can't go through a zip: it goes as Unraid made it. On «Send», with its part ticked:
+ * the report first (unchanged — an older inbox never sees anything new), then the zip in a request of its own
+ * (reportDiagPost(): POST <inbox>/api/diag); the answer says `diagnostics: sent | off | busy | failed` — the report
+ * stands either way. The zip is gone after the send, the dialog's close (drop) or REPORT_TOKEN_TTL (reportTidy()).
  */
 
 require_once dirname(__DIR__, 2) . '/src/reportimage.php';      // shared with the web side (pure functions)
@@ -70,6 +79,12 @@ const REPORT_BODY_MAX    = 24576;              // the Worker's limit for a reque
 const REPORT_IMG_RAM_MAX = 16 * 1024 * 1024;   // all previews' pictures in RAM together: the oldest go first
 const REPORT_SEND_TIMEOUT = 20;                // seconds for a send …
 const REPORT_SEND_TIMEOUT_IMAGES = 90;         // … and for one with pictures (≤ ~5.5 MB up)
+const REPORT_DIAG_PART   = 'diagnostics';      // the part «Unraid's diagnostics» (only when the user asked for them)
+const REPORT_DIAG_BIN    = '/usr/local/sbin/diagnostics';   // Unraid's own; without -a: anonymized (Tools → Diagnostics)
+const REPORT_DIAG_MAX    = 10 * 1024 * 1024;   // bytes of the zip (the Worker's DIAG_MAX)
+const REPORT_DIAG_WAIT   = 600;                // seconds a collection may take before it counts as failed
+const REPORT_DIAG_FILES  = 500;                // names shown at most
+const REPORT_DIAG_TIMEOUT = 180;               // seconds for its upload (10 MB on a slow line)
 const REPORT_KEEP        = 50;                 // «Your reports»: the newest kept
 const REPORT_STATUS_MAX     = 10;          // «Your reports»: where the newest this many stand is asked (the Worker's batch) …
 const REPORT_STATUS_EVERY   = 3600;        // … each at most once an hour …
@@ -112,6 +127,7 @@ function officeAgentActions(): array
     return [
         'report_preview' => fn (array $r): array => reportPreview($r),
         'report_send'    => fn (array $r): array => reportSend($r),
+        'report_diag'    => fn (array $r): array => reportDiagAnswer($r),
         'reports'        => fn (array $r): array => reportsAnswer(),
         'supporter_claim' => fn (array $r): array => supporterClaim($r),     // lib/supporter.php: the key a tip made
         'jobs'           => fn (array $r): array => ['ok' => true, 'jobs' => officeJobs()],     // lib/jobs.php: the Dashboard tile's running jobs
@@ -663,10 +679,10 @@ function reportLangField(array $r, string $field, bool $known): string
     return $v;
 }
 
-/** The parts the user left ticked: a list of REPORT_PARTS and REPORT_IMAGE_PARTS, each once; anything else bad_request */
+/** The parts the user left ticked: a list of REPORT_PARTS, REPORT_IMAGE_PARTS and REPORT_DIAG_PART, each once; anything else bad_request */
 function reportPartsField(array $r): array
 {
-    $all = array_merge(REPORT_PARTS, REPORT_IMAGE_PARTS);
+    $all = array_merge(REPORT_PARTS, REPORT_IMAGE_PARTS, [REPORT_DIAG_PART]);
     $v = $r['parts'] ?? null;
     if (!is_array($v) || !array_is_list($v) || count($v) > count($all)) {
         throw new Problem('bad_request');
@@ -918,6 +934,8 @@ function reportPreview(array $r, array $ctx = []): array
     $lang = reportLangField($r, 'lang', true);
     $browser = reportLangField($r, 'browser', false);
     $refs = reportImageRefs($r);
+    $diag = ($r['diagnostics'] ?? null) === null ? false : boolField($r, 'diagnostics');
+    $wake = ($r['diag_wake'] ?? null) === null ? false : boolField($r, 'diag_wake');
     $know = $ctx['know'] ?? reportKnow($ctx);
     $seen = [];
 
@@ -951,7 +969,7 @@ function reportPreview(array $r, array $ctx = []): array
     if (!reportRunDirReady($dir)) {
         throw new Problem('office_storage');
     }
-    reportTidy($dir, $now);
+    reportTidy($dir, $now, $ctx);
     $images = reportImagesPrepare($pictures, $dir, $token);
     unset($pictures);
     $kept = ['time' => $now, 'words' => $words, 'rid' => bin2hex(random_bytes(16)), 'report_id' => reportId($ctx), 'parts' => $parts];
@@ -960,9 +978,14 @@ function reportPreview(array $r, array $ctx = []): array
         $ticked = array_merge($ticked, array_slice(REPORT_IMAGE_PARTS, 0, count($images)));
     }
     try {
+        if ($diag) {
+            $kept['diagnostics'] = reportDiagStart($dir, $token, $wake, $now, $ctx);
+            $ticked[] = REPORT_DIAG_PART;
+        }
         writeAtomic("$dir/$token.json", jsonEncode($kept), 0600, 0, 0);
     } catch (Throwable $e) {
         reportImagesDrop($dir, $token);
+        reportDiagDrop($dir, $token, $ctx);
         throw $e;
     }
 
@@ -987,6 +1010,9 @@ function reportPreview(array $r, array $ctx = []): array
         // but for the size); never the bytes — they stay in RAM here
         $answer['images'] = array_map(fn (array $i): array => ['type' => $i['type'], 'width' => $i['width'], 'height' => $i['height'],
             'bytes' => $i['bytes'], 'scaled' => $i['scaled']], $images);
+    }
+    if ($diag) {
+        $answer['diagnostics'] = ['state' => 'running'];     // the page asks office.report_diag until it isn't
     }
     return $answer;
 }
@@ -1166,7 +1192,7 @@ function reportRunDirReady(string $dir): bool
  * Previews older than their time and what a send left go (a sent token's answer stays an hour); pictures as soon as
  * their preview can't be sent any more, and the oldest while all of them together hold more than REPORT_IMG_RAM_MAX
  */
-function reportTidy(string $dir, int $now): void
+function reportTidy(string $dir, int $now, array $ctx = []): void
 {
     foreach (glob("$dir/*.{json,sending,sent,body}", GLOB_BRACE) ?: [] as $f) {
         if (is_file($f) && !is_link($f) && (int) @filemtime($f) < $now - 3600) {
@@ -1185,6 +1211,14 @@ function reportTidy(string $dir, int $now): void
         }
         $pictures[$f] = [$st['mtime'], $st['size']];
     }
+    // diagnostics no preview can send any more (a run still collecting is stopped)
+    foreach (glob("$dir/*.diag", GLOB_ONLYDIR) ?: [] as $d) {
+        $run = readJson("$d/run.json");
+        $started = is_array($run) && is_int($run['started'] ?? null) ? $run['started'] : (int) @filemtime($d);
+        if ($started < $now - REPORT_TOKEN_TTL - REPORT_DIAG_WAIT && preg_match('/^([0-9a-f]{32})\.diag$/D', basename($d), $m)) {
+            reportDiagDrop($dir, $m[1], $ctx);
+        }
+    }
     uasort($pictures, fn ($a, $b) => $a[0] <=> $b[0]);
     $total = array_sum(array_column($pictures, 1));
     foreach ($pictures as $f => [, $size]) {
@@ -1194,6 +1228,242 @@ function reportTidy(string $dir, int $now): void
         @unlink($f);
         $total -= $size;
     }
+}
+
+// ===================================================================== Unraid's diagnostics
+
+/** A preview's diagnostics folder: RUN_DIR/report/<token>.diag (0700) — run.json, the zip, done, list.json */
+function reportDiagDir(string $dir, string $token): string
+{
+    return "$dir/$token.diag";
+}
+
+/**
+ * The preview asked for Unraid's diagnostics: Unraid's own tool, anonymized (no -a), handed to atd (it outlives the
+ * agent and never blocks its loop: ~10 s on a small server, minutes on a large one). Refused before anything runs: the
+ * tool missing (report_diag_missing), another preview's still collecting (report_diag_busy), and — the tool reads every
+ * disk's SMART data — a sleeping disk without the user's «wake them» (report_diag_asleep {n}).
+ */
+function reportDiagStart(string $dir, string $token, bool $wake, int $now, array $ctx = []): array
+{
+    $bin = $ctx['diag_bin'] ?? REPORT_DIAG_BIN;
+    if (!is_file($bin) || !is_executable($bin)) {
+        throw new Problem('report_diag_missing');
+    }
+    $asleep = array_keys(array_filter($ctx['asleep'] ?? sleepingDisks()));
+    if ($asleep && !$wake) {
+        throw new Problem('report_diag_asleep', ['n' => count($asleep)]);
+    }
+    foreach (glob("$dir/*.diag", GLOB_ONLYDIR) ?: [] as $other) {
+        if (reportDiagState($other, $now, $ctx)['state'] === 'running') {
+            throw new Problem('report_diag_busy');
+        }
+    }
+    $d = reportDiagDir($dir, $token);
+    if (file_exists($d) || is_link($d) || !@mkdir($d, 0700)) {
+        throw new Problem('office_storage');
+    }
+    // Unraid takes the zip's name apart (<x>-diagnostics-<date>-<time>) and collects in /<that name> first
+    $name = 'uso-diagnostics-' . date('Ymd-Hi', $now);
+    writeAtomic("$d/run.json", jsonEncode(['started' => $now, 'name' => $name, 'wake' => $wake]), 0600, 0, 0);
+    try {
+        ($ctx['diag_launch'] ?? 'reportDiagLaunch')($bin, "$d/$name.zip", "$d/done");
+    } catch (Throwable $e) {
+        reportDiagDrop($dir, $token, $ctx);
+        throw $e;
+    }
+    if (!$asleep) {
+        return ['woke' => 0];
+    }
+    reportLogLine('Office: diagnostics for a report wake ' . count($asleep) . ' sleeping disk' . (count($asleep) === 1 ? '' : 's') . ' (the user agreed)', $ctx);
+    return ['woke' => count($asleep)];
+}
+
+/** Unraid's tool through atd; its exit code lands in done (via a .tmp and mv: done is whole or absent) */
+function reportDiagLaunch(string $bin, string $zip, string $done): void
+{
+    hostLaunch('report-diagnostics', ['/bin/sh', '-c', '"$0" "$1"; echo $? >"$2.tmp" && mv "$2.tmp" "$2"', $bin, $zip, $done]);
+}
+
+/**
+ * Where a preview's diagnostics stand: running | ready {bytes, count, files (the first REPORT_DIAG_FILES names)} |
+ * too_big {bytes, max} | failed | gone. The first look at a finished run tidies (Unraid's copy in /boot/logs goes —
+ * the office made it, the user never asked for it there), checks the zip and keeps what was shown in list.json: the
+ * send takes exactly that zip (its sha256), nothing collected later.
+ */
+function reportDiagState(string $d, int $now, array $ctx = []): array
+{
+    $run = is_link($d) ? null : readJson("$d/run.json");
+    if (!is_array($run) || !is_int($run['started'] ?? null) || !is_string($run['name'] ?? null)
+        || !preg_match('/^uso-diagnostics-\d{8}-\d{4}$/D', $run['name'])) {
+        return ['state' => 'gone'];
+    }
+    $list = readJson("$d/list.json");
+    if (is_array($list) && in_array($list['state'] ?? null, ['ready', 'too_big', 'failed'], true)) {
+        return $list;
+    }
+    clearstatcache();
+    if (!is_file("$d/done") || is_link("$d/done")) {
+        return $now - $run['started'] > REPORT_DIAG_WAIT ? ['state' => 'failed'] : ['state' => 'running', 'since' => $run['started']];
+    }
+    $exit = trim((string) @file_get_contents("$d/done", false, null, 0, 16));
+    $zip = "$d/{$run['name']}.zip";
+    $boot = ($ctx['boot_logs'] ?? '/boot/logs') . "/{$run['name']}.zip";
+    if (is_file($boot) && !is_link($boot)) {
+        @unlink($boot);
+    }
+    $size = is_file($zip) && !is_link($zip) ? (int) @filesize($zip) : 0;
+    if ($exit !== '0' || $size <= 0) {
+        $state = ['state' => 'failed'];
+    } elseif ($size > REPORT_DIAG_MAX) {
+        $state = ['state' => 'too_big', 'bytes' => $size, 'max' => REPORT_DIAG_MAX];
+    } else {
+        $state = ['state' => 'failed'];
+        $files = reportDiagFiles($zip);
+        if ($files !== null) {
+            sort($files, SORT_STRING);
+            $state = ['state' => 'ready', 'bytes' => $size, 'count' => count($files), 'files' => array_slice($files, 0, REPORT_DIAG_FILES),
+                      'sha256' => (string) hash_file('sha256', $zip)];
+        }
+    }
+    if ($state['state'] !== 'ready') {
+        @unlink($zip);
+    }
+    writeAtomic("$d/list.json", jsonEncode($state), 0600, 0, 0);
+    return $state;
+}
+
+/** The names in a zip (ZipArchive: nothing unpacked), null when it isn't one or holds nothing */
+function reportDiagFiles(string $zip): ?array
+{
+    if (!class_exists('ZipArchive')) {
+        return null;
+    }
+    $z = new ZipArchive();
+    if ($z->open($zip, ZipArchive::RDONLY) !== true) {
+        return null;
+    }
+    $files = [];
+    for ($i = 0; $i < $z->numFiles; $i++) {
+        $n = $z->getNameIndex($i);
+        if (is_string($n) && !str_ends_with($n, '/')) {
+            $files[] = reportNoUnicodeControls(mb_substr(mb_scrub($n, 'UTF-8'), 0, 200));
+        }
+    }
+    $z->close();
+    return $files ?: null;
+}
+
+/**
+ * A preview's diagnostics gone: a run still collecting stopped (Unraid's tool by the zip's path — no other process
+ * names it), its folder in / (left when stopped before zipping), the copy in /boot/logs, the preview's folder.
+ */
+function reportDiagDrop(string $dir, string $token, array $ctx = []): void
+{
+    $d = reportDiagDir($dir, $token);
+    if (is_link($d) || !is_dir($d)) {
+        return;
+    }
+    $run = readJson("$d/run.json");
+    $name = is_array($run) && is_string($run['name'] ?? null) && preg_match('/^uso-diagnostics-\d{8}-\d{4}$/D', $run['name']) ? $run['name'] : null;
+    if ($name !== null) {
+        if (!is_file("$d/done")) {
+            ($ctx['diag_stop'] ?? static fn (string $zip) => run(['pkill', '-f', '--', $zip], 10))("$d/$name.zip");
+            $tmp = ($ctx['diag_root'] ?? '') . "/$name";
+            if (is_dir($tmp) && !is_link($tmp)) {
+                run(['rm', '-rf', '--', $tmp], 60);
+            }
+        }
+        $boot = ($ctx['boot_logs'] ?? '/boot/logs') . "/$name.zip";
+        if (is_file($boot) && !is_link($boot)) {
+            @unlink($boot);
+        }
+    }
+    foreach (scandir($d) ?: [] as $f) {
+        if ($f !== '.' && $f !== '..' && !is_dir("$d/$f")) {
+            @unlink("$d/$f");
+        }
+    }
+    @rmdir($d);
+}
+
+/** office.report_diag {token, drop?}: where a preview's diagnostics stand — or, with drop: true, gone (the dialog closed) */
+function reportDiagAnswer(array $r, array $ctx = []): array
+{
+    $token = optText($r, 'token');
+    if (!preg_match('/^[0-9a-f]{32}$/D', $token)) {
+        throw new Problem('bad_request');
+    }
+    $drop = ($r['drop'] ?? null) === null ? false : boolField($r, 'drop');
+    $dir = reportRunDir($ctx);
+    if ($drop) {
+        reportDiagDrop($dir, $token, $ctx);
+        return ['ok' => true, 'state' => 'gone'];
+    }
+    $state = reportDiagState(reportDiagDir($dir, $token), $ctx['now'] ?? time(), $ctx);
+    unset($state['sha256']);
+    return ['ok' => true] + $state;
+}
+
+/**
+ * The zip to the inbox after the report: POST <inbox>/api/diag, the raw zip (application/zip) from its 0600 file in
+ * RAM, the report ID and the draft's rid as headers in a 0600 curl config (never on the command line) — the Worker
+ * ties it to the issue the rid became. → sent | off (the inbox doesn't take diagnostics: an older Worker, or switched
+ * off) | busy (its cap for the day) | failed. A 404 is asked once more after 2 s (the inbox may not know the rid yet).
+ */
+function reportDiagPost(string $zip, array $kept, array $ctx = []): string
+{
+    $base = $ctx['url'] ?? officeFeedbackUrl();
+    $dir = reportRunDir($ctx);
+    if ($base === '' || !is_file($zip)) {
+        return 'failed';
+    }
+    $file = "$dir/diag." . bin2hex(random_bytes(6)) . '.curl';
+    $old = umask(0177);
+    $h = @fopen($file, 'x');
+    umask($old);
+    $config = 'url = "' . $base . "/api/diag\"\n" . 'header = "X-Office: ' . $kept['report_id'] . "\"\n" . 'header = "X-Rid: ' . $kept['rid'] . "\"\n";
+    if (!$h || @fwrite($h, $config) !== strlen($config) || !fclose($h)) {
+        @unlink($file);
+        return 'failed';
+    }
+    try {
+        for ($try = 1; ; $try++) {
+            [$exit, $out] = hostNet(['curl', '-s', '-S', '-m', (string) REPORT_DIAG_TIMEOUT, '--proto', str_starts_with($base, 'http://') ? '=http' : '=https',
+                '--max-redirs', '0', '--max-filesize', '65536', '-H', 'Content-Type: application/zip', '-H', 'Accept: application/json',
+                '-A', 'UnraidSecretaryOffice/' . AGENT_VERSION, '--data-binary', "@$zip", '-w', '\n%{http_code}', '-K', $file], REPORT_DIAG_TIMEOUT + 10);
+            $why = reportDiagAnswerOf((int) $exit, (string) $out);
+            if ($why !== 'again' || $try >= 2) {
+                return $why === 'again' ? 'off' : $why;
+            }
+            ($ctx['sleep'] ?? 'sleep')(2);
+        }
+    } catch (Throwable) {
+        return 'failed';
+    } finally {
+        @unlink($file);
+    }
+}
+
+/** The Worker's answer to /api/diag in one word (by its `error` and `why`, never its text) */
+function reportDiagAnswerOf(int $exit, string $out): string
+{
+    $cut = strrpos(rtrim($out), "\n");
+    $code = (int) substr(rtrim($out), $cut === false ? 0 : $cut + 1);
+    if ($exit !== 0 || $code === 0) {
+        return 'failed';
+    }
+    $body = json_decode($cut === false ? '' : substr($out, 0, $cut), true, 8);
+    $body = is_array($body) ? $body : [];
+    if ($code >= 200 && $code < 300 && ($body['ok'] ?? null) === true) {
+        return 'sent';
+    }
+    return match (true) {
+        $code === 404 || $code === 405                                   => 'again',      // an older inbox — or the rid not known yet
+        ($body['error'] ?? null) === 'refused' && ($body['why'] ?? null) === 'off' => 'off',
+        ($body['error'] ?? null) === 'busy' || ($body['error'] ?? null) === 'closed' => 'busy',
+        default                                                          => 'failed',
+    };
 }
 
 // ===================================================================== the send
@@ -1254,11 +1524,29 @@ function reportSend(array $r, array $ctx = []): array
         $giveBack();
         throw new Problem('report_stale');
     }
+    // the diagnostics as previewed: ready, the same zip — else the preview is shown again
+    $diagZip = null;
+    if (in_array(REPORT_DIAG_PART, $parts, true)) {
+        $diag = isset($kept['diagnostics']) ? reportDiagState(reportDiagDir($dir, $token), $now, $ctx) : ['state' => 'gone'];
+        $run = readJson(reportDiagDir($dir, $token) . '/run.json');
+        $diagZip = $diag['state'] === 'ready' && is_string($run['name'] ?? null) ? reportDiagDir($dir, $token) . "/{$run['name']}.zip" : null;
+        if ($diag['state'] === 'running') {
+            $giveBack();
+            throw new Problem('report_diag_running');
+        }
+        if ($diagZip === null || is_link($diagZip) || hash_file('sha256', $diagZip) !== ($diag['sha256'] ?? '')) {
+            @unlink("$dir/$token.sending");
+            reportImagesDrop($dir, $token);
+            reportDiagDrop($dir, $token, $ctx);
+            throw new Problem('report_stale');
+        }
+    }
     try {
         $body = reportBody($kept, $parts, fn (int $n): ?string => reportImageKept($dir, $token, $kept, $n));
     } catch (Problem $e) {
         @unlink("$dir/$token.sending");             // a picture isn't what was previewed (or gone): show it again
         reportImagesDrop($dir, $token);
+        reportDiagDrop($dir, $token, $ctx);
         throw $e;
     }
     $pictures = count($body['images'] ?? []);
@@ -1290,13 +1578,18 @@ function reportSend(array $r, array $ctx = []): array
     }
     @unlink("$dir/$token.sending");
     reportImagesDrop($dir, $token);
+    // the report is in; now (only if ticked) the diagnostics — whatever comes of them, the zip goes here
+    $diagSent = $diagZip !== null ? reportDiagPost($diagZip, $kept, $ctx) : null;
+    reportDiagDrop($dir, $token, $ctx);
     $j = reportsRead($ctx);         // anew: written by nobody else, but read as late as possible
     $j['reports'][] = $entry;
     $j['closed_until'] = null;
     reportsWrite($j, $ctx);
     reportLogLine("Office: sent a report (#{$answer['number']}, {$words['kind']}, {$words['desk']}"
-        . ($pictures ? ", $pictures picture" . ($pictures === 1 ? '' : 's') : '') . ')', $ctx);
-    return ['ok' => true, 'number' => $answer['number'], 'url' => $answer['url']] + reportCap($j, $now);
+        . ($pictures ? ", $pictures picture" . ($pictures === 1 ? '' : 's') : '')
+        . ($diagSent === null ? '' : ($diagSent === 'sent' ? ', diagnostics' : ", diagnostics not sent: $diagSent")) . ')', $ctx);
+    return ['ok' => true, 'number' => $answer['number'], 'url' => $answer['url']] + ($diagSent === null ? [] : ['diagnostics' => $diagSent])
+        + reportCap($j, $now);
 }
 
 /**
