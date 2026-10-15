@@ -479,6 +479,7 @@
   "night.tile_age_mixed": "only the age rule",
   "night.tile_age_all": "everything on the pool (no age limit)",
   "setup.level_jack_over": "On {pool}, what never moves and Jack Streamer's {jack} are over {x} % together — what he hasn't watched stays, so the pool stays over the limit. His budget is too big for this pool.",
+  "setup.level_folders": "On {pool} the folder of {shares} is no dataset of its own: I count its files as never moving. Jack Streamer's page says how to fix it.",
   "setup.err_limit": "The limit has to be a whole number from 0 to 100.",
   "notify.night_missed_jack": "After the night run the pool {pool} is still at {now} % (limit {x} %). Only what Jack Streamer hasn't watched yet is over it — his budget is too big for this pool. Make his budget smaller or set the limit higher.",
   "night.back_watched": "Jack Streamer gives back what was watched",

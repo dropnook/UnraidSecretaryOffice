@@ -1876,6 +1876,9 @@ function levelSection(g) {
       const v = levelLines(pool, c, g);
       box.appendChild(el('p', 'mo-level-pool', v.lines.join(' ')));
       if (v.warn) box.appendChild(el('p', 'callout warn', v.warn));
+      // a share's folder on the pool that is no dataset of its own: counted as never moving (Jack Streamer's page says how to fix)
+      const folders = Array.isArray(c.folders) ? c.folders : [];
+      if (folders.length) box.appendChild(el('p', 'callout warn', T('setup.level_folders', { pool, shares: folders.join(', ') })));
     });
   };
   box.redraw();

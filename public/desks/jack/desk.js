@@ -666,7 +666,7 @@ function roomWords() {
 }
 
 /** The shares that don't suit EmbyCache and its pool (or lack their folder on it) */
-const badShares = () => (state.shares || []).filter((x) => !['ok', 'array_only'].includes(x.fit) || x.root === false).length;
+const badShares = () => (state.shares || []).filter((x) => !['ok', 'array_only'].includes(x.fit) || (x.root === false && !x.auto) || x.dataset === false).length;
 /** «Shares»: how many, all suitable or how many need a look (alert); its section: «Shares» */
 function sharesTile(a) {
   const shares = state.shares || [];
@@ -897,7 +897,9 @@ function shareSection() {
     main.appendChild(el('div', 'row-name', x.share));
     const meta = el('div', 'row-meta');
     meta.append(fitChip(x.fit, { share: x.share, pool: pool.replace('/mnt/', ''), primary: x.primary || '–', secondary: x.secondary || T('array') }));
-    if (x.root === false) meta.appendChild(chip(T('root_missing', { pool }), 'danger', T('root_missing_tip', { share: x.share, pool })));
+    if (x.root === false && x.auto) meta.appendChild(chip(T('root_auto', { pool }), 'quiet', T('root_auto_tip', { share: x.share, pool })));
+    else if (x.root === false) meta.appendChild(chip(T('root_missing', { pool }), 'danger', T('root_missing_tip', { share: x.share, pool })));
+    if (x.dataset === false) meta.appendChild(chip(T('root_plain'), 'warn', T('root_plain_tip', { share: x.share, pool })));
     meta.appendChild(el('span', '', T('share_where', { primary: x.use === 'no' ? T('array') : (x.primary || '–'), secondary: x.use === 'no' ? '–' : (x.secondary || T('array')) })));
     if (x.include) meta.appendChild(el('span', '', T('share_disks', { disks: x.include })));
     main.append(meta, sizesLine(x));

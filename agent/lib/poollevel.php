@@ -207,7 +207,11 @@ function poolLevel(string $pool, array $o): ?array
     }
     // his bytes inside the movable datasets (in M) and the rest of them (outside: in what never moves until taken out)
     [$jack, $jackLogical, $jackIn] = poolLevelJackBytes($o['jack_list'] ?? null, $pool, $o['mnt'] ?? '/mnt', $look['datasets']);
-    return ['pool' => $pool, 'shares' => $shares, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
+    // a movable share whose folder on the pool is no dataset of its own (a plain folder in the pool's dataset): its bytes
+    // count as never moving — her page says so (inbox #14)
+    $root = rtrim($o['mnt'] ?? '/mnt', '/') . "/$pool/";
+    $folders = array_values(array_filter(array_diff($shares, $look['datasets']), fn ($s) => is_dir($root . $s) && !is_link($root . $s)));
+    return ['pool' => $pool, 'shares' => $shares, 'folders' => $folders, 'snapshots' => $look['snapshots'], 'snap_all' => $look['snap_all'], 'jack_logical' => $jackLogical,
             'snap_pct' => $look['size'] > 0 ? round($look['snapshots'] * 100 / $look['size'], 1) : 0.0]
          + poolLevelMath($look['size'], $look['used'], $look['movable'], (int) $o['x'], $jackIn, $jack - $jackIn);
 }
