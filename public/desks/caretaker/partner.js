@@ -169,12 +169,16 @@ function card(x) {
   // 1.60.1: an ended partnership's units wait for this pair in Mr. Backupsy's setup (apply_from) - said plainly, with the way
   const from = x.sends ? (x.apply_from || []) : [];
   const toSetup = () => { const go = el('a', 'ct-plink', T('partner.i_send_setup')); go.href = '#/backup/setup'; send.append(' ', go); };
+  // 1.64: without Mr. Backupsy nothing goes — no «open the setup, apply» (the need line below says to hire him); the units
+  // waiting for this pair are named by this pair's own name, never an ended partnership's old one
+  const hired = !ready || ready.backup_hired !== false;
   if (!x.sends) send.append(T('partner.i_send_nothing'));
   else if ((x.send_units || []).length) send.append(unitsText(x.send_units));
+  else if (!hired) send.append(T('partner.i_send_not_yet'));
   else if (!from.length) { send.append(T('partner.i_send_none_yet')); toSetup(); }
-  if (from.length) {
+  if (hired && from.length) {
     if ((x.send_units || []).length) send.append(' · ');
-    send.append(T('partner.i_send_apply', { from: from.map((f) => f.name).join(', '), n: from.reduce((a, f) => a + f.n, 0) }));
+    send.append(T('partner.i_send_apply', { name: x.name, n: from.reduce((a, f) => a + f.n, 0) }));
     toSetup();
   }
   main.appendChild(send);

@@ -1204,6 +1204,7 @@ function partnerWatch(callable $muted, callable $tell, ?int $now = null): array
         $ask = partnerAsk($p);
         $entry = partnerStateEntry($old, $ask, $p);
         [$p, $entry] = partnerUnitsFollow($p, $ask, $entry);
+        $p = partnerNameFollow($p, $ask);
         $entry['tailnet'] = null;
         if (partnerSilent($p, $entry, $now)) {
             if ($tailnet === false) {
@@ -1227,6 +1228,62 @@ function partnerWatch(callable $muted, callable $tell, ?int $now = null): array
         partnerWritePrivate(partnerDir() . '/state.json', $next);
     }
     return $next;
+}
+
+/**
+ * The partner's name as it says it now (its status `name`, 1.64: a server renamed on the other side kept its old name
+ * here for good — the card, the logs and the Apply hint named a server that no longer was). Only a valid name from a
+ * reachable partner's status; pairs.json changed only when it differs. Returns the pair as it stands.
+ */
+function partnerNameFollow(array $p, ?array $ask): array
+{
+    $name = is_array($ask) && ($ask['reachable'] ?? false) && is_array($ask['status'] ?? null) ? ($ask['status']['name'] ?? null) : null;
+    if (!is_string($name) || !preg_match(PARTNER_NAME_RE, $name) || $name === $p['name']) {
+        return $p;
+    }
+    $new = partnerPairUpdate($p['id'], function (array $q) use ($name) {
+        $q['name'] = $name;
+        return $q;
+    });
+    partnerLog("{$p['name']} ({$p['id']}) is called $name now — the pair follows its name");
+    return $new ?? $p;
+}
+
+/**
+ * Step `partner-names` (1.64.0): a pair whose partner said another name in its last status (state.json) takes that name
+ * — the watch keeps it so from now on. pairs.json read only in exactly its shape; the copy before kept beside it.
+ */
+function partnerMigrateNames(string $dir): string
+{
+    $file = "$dir/partner/pairs.json";
+    clearstatcache(true, $file);
+    if (@lstat($file) === false) {
+        return 'no pairs.json — nothing to change';
+    }
+    $raw = partnerReadPrivate($file);
+    $state = partnerReadPrivate("$dir/partner/state.json");
+    if (!is_array($raw) || ($raw['v'] ?? null) !== 1 || !is_array($raw['pairs'] ?? null)) {
+        return 'pairs.json is not this version\'s file (or not root\'s own) — left as it is';
+    }
+    $done = [];
+    $pairs = $raw['pairs'];
+    foreach ($pairs as $i => $p) {
+        $said = is_array($p) && is_string($p['id'] ?? null) ? ($state['pairs'][$p['id']]['status']['name'] ?? null) : null;
+        if (!partnerPairValid($p) || !is_string($said) || !preg_match(PARTNER_NAME_RE, $said) || $said === $p['name']) {
+            continue;
+        }
+        $done[] = "{$p['name']} → $said";
+        $pairs[$i]['name'] = $said;
+    }
+    if (!$done) {
+        return 'every pair carries its partner\'s name already';
+    }
+    $copy = "$file.before-partner-names";
+    if (@lstat($copy) === false && !@copy($file, $copy)) {
+        throw new RuntimeException("could not keep a copy of pairs.json as $copy");
+    }
+    partnerWritePrivate($file, ['v' => 1, 'pairs' => $pairs] + $raw);
+    return 'renamed as the partners call themselves: ' . implode(', ', $done);
 }
 
 // ===================================================================== what I send: the levels decide, an older partner agrees
@@ -1532,7 +1589,9 @@ function partnerPublic(): array
             // data folder (pairs.json, state.json) stays: said at once, never the last «answers» of state.json
             'key_missing' => $p['my_key'] !== null && (!is_file(partnerKeyFile($p['id'])) || !is_file(partnerKnownFile($p['id']))),
             'send_units' => $p['my_key'] !== null ? partnerSendUnits($p['id']) : [],       // the levels in Mr. Backupsy's setup (settings.ini)
-            'apply_from' => $p['my_key'] !== null ? ($apply['from'][$p['id']] ?? []) : [],  // [{name, n}]: an ended partner's units come here at the next Apply
+            // [{name, n}]: an ended partner's units come here at the next Apply — only while Mr. Backupsy is hired (1.64:
+            // a settings.ini left from before named them though nobody could apply); the card names this pair, never the old name
+            'apply_from' => $p['my_key'] !== null && $ready['backup_hired'] ? ($apply['from'][$p['id']] ?? []) : [],
             'offer'      => $e['offer'] ?? null,                 // the last offer to an older partner: time, ok, why, pending
             'status_time' => $e['status_time'] ?? null,          // when they_keep (and its agreed) was said
             'older'      => is_array($status) && is_array($status['agreed'] ?? null) && empty($status['takes_all']),    // up to 1.59: keeps `agreed` only
@@ -1908,6 +1967,7 @@ function partnerAskAndKeep(string $id): ?array
             return $p;
         });
         [, $entry] = partnerUnitsFollow(partnerPair($id) ?? $pair, $ask, $entry);
+        partnerNameFollow(partnerPair($id) ?? $pair, $ask);
     }
     $state['pairs'][$id] = $entry;
     partnerWritePrivate(partnerDir() . '/state.json', $state);

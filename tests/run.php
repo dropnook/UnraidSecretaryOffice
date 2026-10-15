@@ -22358,6 +22358,76 @@ JS);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * 1.64 (USOPartner, 2026-10-15): Mr. Backupsy not hired there, a settings.ini left from before still sends pdata and the
+ * place to an ended pair «USO-Test-Server» (the same server, since paired anew and renamed «Tower») — the Team Lead said
+ * «units of USO-Test-Server wait … apply». The Apply hint only with Mr. Backupsy hired, naming this pair; the pair's name
+ * follows what the partner calls itself (the watch, and the step partner-names for a pairs.json already stale).
+ */
+function testPartnerStaleName(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner stale name: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-stale-name');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $A = partnerTestOffice("$tmp/A");
+    @mkdir("$A[data]/partner", 0700, true);
+    @mkdir("$A[data]/office", 0755, true);
+    $hk = ['SHA256:' . str_repeat('q', 43)];
+    $tower = partnerTestPair('c3553dcc', ['name' => 'Tower', 'address' => '192.168.7.111', 'host_keys' => $hk]);
+    $priv = function (string $f, array $j): void {
+        file_put_contents($f, json_encode($j));
+        chmod($f, 0600);
+    };
+    $priv("$A[data]/partner/pairs.json", ['v' => 1, 'pairs' => [$tower]]);
+    $priv("$A[data]/partner/ended.json", ['v' => 1, 'pairs' => [
+        '26bbb6eb' => ['name' => 'USO-Test-Server', 'address' => '192.168.7.111', 'port' => 22, 'host_keys' => $hk, 'time' => time() - 100]]]);
+    file_put_contents("$A[data]/unraid-backup/settings.ini", "[general]\npartner_place = 26bbb6eb\n[partner \"26bbb6eb\"]\nname = USO-Test-Server\naddress = 192.168.7.111\nport = 22\n"
+        . "[share \"pdata\"]\nmode = snapshot\npartner = 26bbb6eb\n");
+    file_put_contents("$A[data]/office/staff.json", json_encode(['hired' => ['advisor' => 1, 'restore' => 1]]));
+    $card = fn () => partnerTestAs($A, 'return partnerPublic();');
+    $c = $card();
+    same('partner stale name: USOPartner\'s state — Mr. Backupsy not hired: no «apply» hint on the card, the need line asks to hire him',
+        [[], false, 'Tower'], [$c['pairs'][0]['apply_from'] ?? 'missing', $c['ready']['backup_hired'] ?? null, $c['pairs'][0]['name'] ?? null]);
+    file_put_contents("$A[data]/office/staff.json", json_encode(['hired' => ['advisor' => 1, 'restore' => 1, 'backup' => 1]]));
+    $c = $card();
+    same('partner stale name: … Mr. Backupsy hired: the 2 units wait for this pair', 2, array_sum(array_column($c['pairs'][0]['apply_from'] ?? [], 'n')));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/partner.js');
+    check('partner stale name: the card names this pair (x.name), never the ended pair\'s old name, and says nothing of the setup without Mr. Backupsy',
+        str_contains($js, "T('partner.i_send_apply', { name: x.name,") && str_contains($js, "else if (!hired) send.append(T('partner.i_send_not_yet'));") && !str_contains($js, 'from.map((f) => f.name)'));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $ct = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$l.json"), true) ?: [];
+        check("partner stale name: $l — the apply line names {name}, not {from}; «not sent yet» there",
+            str_contains($ct['partner.i_send_apply']['other'] ?? '', '{name}') && !str_contains(json_encode($ct['partner.i_send_apply'] ?? []), '{from}')
+            && is_string($ct['partner.i_send_not_yet'] ?? null));
+    }
+
+    // the partner renamed on its side: its status says the name — the pair follows (the watch and «Ask now»)
+    $ask = ['reachable' => true, 'status' => ['name' => 'Tower2'], 'answer' => ['array' => 'started', 'night' => false, 'v' => '1.64.0'], 'time' => time(), 'why' => null];
+    $r = partnerTestAs($A, 'return partnerNameFollow(partnerPair("c3553dcc"), ' . var_export($ask, true) . ')["name"];');
+    same('partner stale name: renamed on the other side — pairs.json takes the name its status says', ['Tower2', 'Tower2'],
+        [$r, partnerTestAs($A, 'return partnerPair("c3553dcc")["name"];')]);
+    same('partner stale name: … an unreachable partner or a bad name changes nothing', ['Tower2', 'Tower2'], [
+        partnerTestAs($A, 'return partnerNameFollow(partnerPair("c3553dcc"), ["reachable" => false, "status" => ["name" => "Other"]])["name"];'),
+        partnerTestAs($A, 'return partnerNameFollow(partnerPair("c3553dcc"), ["reachable" => true, "status" => ["name" => "bad;name\n"]])["name"];')]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/partner.php');
+    check('partner stale name: the watch and «Ask now» both follow the name', substr_count($src, 'partnerNameFollow(') === 3);
+
+    // the step partner-names: a pairs.json already stale takes the name state.json's last status said
+    $priv("$A[data]/partner/pairs.json", ['v' => 1, 'pairs' => [$tower + [], ['id' => 'f2f2f2f2', 'kind' => 'mirror', 'name' => 'mirrorbox']]]);
+    $priv("$A[data]/partner/state.json", ['pairs' => ['c3553dcc' => ['status' => ['name' => 'USOTower']]], 'time' => time()]);
+    $mig = fn () => partnerTestAs($A, 'return partnerMigrateNames(' . var_export($A['data'], true) . ');');
+    $said = $mig();
+    $now = json_decode((string) file_get_contents("$A[data]/partner/pairs.json"), true);
+    same('partner stale name: migration — the name taken, the entry it doesn\'t know kept, a copy beside', ['USOTower', 'mirror', true],
+        [$now['pairs'][0]['name'] ?? null, $now['pairs'][1]['kind'] ?? null, is_file("$A[data]/partner/pairs.json.before-partner-names")]);
+    same('partner stale name: migration again — nothing to change', 'every pair carries its partner\'s name already', $mig());
+    same('partner stale name: no pairs.json — nothing to change', 'no pairs.json — nothing to change', partnerMigrateNames("$tmp/nowhere"));
+    same('partner stale name: the step is registered for 1.64.0', '1.64.0', array_column(officeMigrateSteps(), 'version', 'id')['partner-names'] ?? null);
+}
+
 function testPartnerUnits(): void
 {
     if (posix_geteuid() !== 0) {
@@ -36186,7 +36256,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
