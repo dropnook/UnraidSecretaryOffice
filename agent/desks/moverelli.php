@@ -899,8 +899,8 @@ function moverelliPoolDu(string $pool): int
 }
 
 /**
- * A real run's fill that ended above its target goes to Unraid's notifications at once (a warning per pool): from Smart
- * Mover's status file — a share with the fill, not reached, not stopped
+ * A real run's fill that ended above her limit X (the share's own, else the global) goes to Unraid's notifications at once
+ * (a warning per pool): from Smart Mover's status file — a share with the fill, not reached, not stopped
  */
 function moverelliTargetNotify(array $status): int
 {
@@ -918,7 +918,7 @@ function moverelliTargetNotify(array $status): int
         }
         $told[$pool] = true;
         if (officeNotify(officeNotifyText('moverelli', 'notify.target_subject', ['pool' => $pool], $lang),
-            officeNotifyText('moverelli', 'notify.target_missed', ['pool' => $pool, 'now' => (int) $s['pool_now'], 'y' => (int) ($s['until'] ?? 0)], $lang),
+            officeNotifyText('moverelli', 'notify.target_missed', ['pool' => $pool, 'now' => (int) $s['pool_now'], 'x' => (int) ($s['until'] ?? 0)], $lang),
             'warning', '', officeNotifyLink('#/moverelli'))) {
             $sent++;
             logLine("Ms. Moverelli: told Unraid's notifications — pool $pool: target not reached");

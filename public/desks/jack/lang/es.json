@@ -419,7 +419,7 @@
   "notify.tool.embycache": "Jack Streamer",
   "notify.tool.gather": "Agrupar carpetas",
   "notify.subject": "{tool}: ejecución real — {result}",
-  "notify.no_status": "Terminó sin resultado (código de salida {exit}).",
+  "notify.no_status": "La ejecución se detuvo sin decir cómo fue (código de salida {exit}).",
   "notify.problems": {"one": "Un problema.", "other": "{n} problemas."},
   "notify.see": "Jack Streamer muestra en la secretaría lo que imprimió la ejecución.",
   "import.title": "Retomar una instalación anterior",

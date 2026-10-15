@@ -391,7 +391,7 @@ die() {
     [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] && array_stopping && { log "  ($*)"; array_stop_abort; }
     err "$*"
     status_finish failed "$*"
-    ub_tell failed alert "Log: $LOG_FILE" "Backup FAILED" "$*" "why=$*"
+    ub_tell failed alert "Log: $LOG_FILE" "Backup failed" "The backup failed - Mr. Backupsy's page in the office says what to do: $*" "why=$*"
     exit 1
 }
 # die_code <code> <text>: like die, but status.json carries the code - the office translates it
@@ -402,7 +402,7 @@ die_code() {
     status_finish failed "$code"
     local why
     why="$(ub_say "message.$code")" || why="$*"
-    ub_tell failed alert "Log: $LOG_FILE" "Backup FAILED" "$*" "why=$why"
+    ub_tell failed alert "Log: $LOG_FILE" "Backup failed" "The backup failed - Mr. Backupsy's page in the office says what to do: $why" "why=$why"
     exit 1
 }
 
@@ -618,9 +618,9 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
             frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" \
                           || { sleep 5; timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE"; } \
                           || { warn "VM '$n': thawing its file systems failed - check the VM"
-                               ub_tell vm_not_thawed alert "" "VM not thawed" "'$n' may still have its file systems frozen after the snapshot: virsh domfsthaw $n" "vm=$n"; } ;;
+                               ub_tell vm_not_thawed alert "" "VM still frozen after the backup" "'$n' may still be frozen after the snapshot and write nothing. Restart it on the VMs page (or in a terminal: virsh domfsthaw $n)." "vm=$n"; } ;;
             paused)   timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE" \
-                          || { warn "VM '$n' could NOT be resumed"; ub_tell vm_not_resumed alert "" "VM not resumed" "'$n' is still paused after the snapshot: virsh resume $n" "vm=$n"; } ;;
+                          || { warn "VM '$n' could NOT be resumed"; ub_tell vm_not_resumed alert "" "VM still paused after the backup" "'$n' is still paused after the snapshot. Resume it on the VMs page (or in a terminal: virsh resume $n)." "vm=$n"; } ;;
             shutdown) st="$(vm_domstate "$n")"
                       if [[ "$st" != "shut off" ]]; then
                           # only when a run stops before vm_hold: it never went down (or not by its deadline)
@@ -628,7 +628,7 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
                           unset "VM_HELD[$n]" "VM_HELD_AT[$n]"; continue
                       fi
                       timeout 60 virsh start "$n" >/dev/null 2>>"$LOG_FILE" \
-                          || { warn "VM '$n' could NOT be started"; ub_tell vm_not_started alert "" "VM not started" "'$n' could not be started after the snapshot." "vm=$n"; } ;;
+                          || { warn "VM '$n' could NOT be started"; ub_tell vm_not_started alert "" "VM not running after the backup" "'$n' could not be started again after the snapshot. Start it on the VMs page." "vm=$n"; } ;;
         esac
         secs=$(( $(date +%s) - ${VM_HELD_AT[$n]:-$(date +%s)} ))
         log "  VM '$n': released ($how, ${secs} s)"
@@ -718,7 +718,7 @@ restore_service() {
                     started+=( "$n" )
                 else
                     warn "Container '$n' would NOT start"
-                    ub_tell app_not_started alert "" "Container not started" "'$n' could not be started after the snapshot." "app=$n"
+                    ub_tell app_not_started alert "" "Container not running after the backup" "'$n' could not be started again after the snapshot. Start it on the Docker page." "app=$n"
                 fi
             done
             unset -n T
@@ -746,7 +746,7 @@ restore_service() {
         else
             nc_log_output "$out"
             warn "Nextcloud '$c': maintenance mode would NOT switch off"
-            ub_tell nc_stuck alert "" "Maintenance mode stuck" "Nextcloud '$c' is still in maintenance mode: occ maintenance:mode --off" "app=$c"
+            ub_tell nc_stuck alert "" "Nextcloud still in maintenance mode" "Nextcloud '$c' is still in maintenance mode after the backup, so nobody can get in. Switch it off in the container's console (occ maintenance:mode --off)." "app=$c"
         fi
     done
 }
@@ -1066,7 +1066,7 @@ nextcloud_maintenance_on() {
         if [[ "$was" == "true" ]]; then
             [[ "$pre" == "abort" ]] && die "Nextcloud '$c' is already in maintenance mode - backup aborted (UB_NC_PREEXISTING=continue forces the run)"
             warn "Nextcloud '$c' was already in maintenance mode - it stays ON afterwards"
-            ub_tell nc_was_on warning "" "Maintenance mode was already on" "Nextcloud '$c' was backed up anyway and stays in maintenance mode." "app=$c"
+            ub_tell nc_was_on warning "" "Nextcloud was already in maintenance mode" "Nextcloud '$c' was backed up anyway and stays in maintenance mode." "app=$c"
             continue
         fi
         # Note it before switching on: if occ sets the mode and only fails
@@ -3817,7 +3817,7 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
         esac
     done
     [[ $KOPIA_FAILED -gt 0 ]] && ub_tell kopia_incomplete warning "Log: $LOG_FILE" "Not everything went offsite" \
-        "$KOPIA_FAILED source(s) not backed up offsite, $KOPIA_DONE done." "n=$KOPIA_FAILED" "done=$KOPIA_DONE"
+        "$KOPIA_FAILED source(s) not backed up offsite, $KOPIA_DONE done. Mr. Backupsy's page shows the details." "n=$KOPIA_FAILED" "done=$KOPIA_DONE"
 fi
 
 # --- Unmounting and cleaning up --------------------------------------------

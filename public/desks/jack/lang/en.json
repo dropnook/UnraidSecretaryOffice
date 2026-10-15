@@ -419,7 +419,7 @@
   "notify.tool.embycache": "Jack Streamer",
   "notify.tool.gather": "Consolidate folders",
   "notify.subject": "{tool}: real run — {result}",
-  "notify.no_status": "It ended without a result (exit code {exit}).",
+  "notify.no_status": "The run stopped without saying how it went (exit code {exit}).",
   "notify.problems": {"one": "One problem.", "other": "{n} problems."},
   "notify.see": "Jack Streamer shows in the office what the run printed.",
   "import.title": "Take over an earlier install",

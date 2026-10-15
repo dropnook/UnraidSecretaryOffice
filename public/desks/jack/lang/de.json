@@ -419,7 +419,7 @@
   "notify.tool.embycache": "Jack Streamer",
   "notify.tool.gather": "Ordner zusammenführen",
   "notify.subject": "{tool}: echter Lauf — {result}",
-  "notify.no_status": "Er endete ohne Ergebnis (Exit-Code {exit}).",
+  "notify.no_status": "Der Lauf hat aufgehört, ohne zu melden, wie er lief (Exit-Code {exit}).",
   "notify.problems": {"one": "Ein Problem.", "other": "{n} Probleme."},
   "notify.see": "Jack Streamer zeigt im Sekretariat, was der Lauf ausgegeben hat.",
   "import.title": "Frühere Installation übernehmen",
