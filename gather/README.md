@@ -1,4 +1,4 @@
-> **In the Unraid Secretary Office** this is Jack Emby's "Consolidate folders": taken from
+> **In the Unraid Secretary Office** this is Jack Streamer's "Consolidate folders": taken from
 > [helmi1987/media-disk-gather-for-unraid](https://github.com/helmi1987/media-disk-gather-for-unraid)
 > (V11.0) and since changed here (V11.5). Jack writes its settings (`data/gather/consolidate.ini`)
 > and runs it — never while EmbyCache runs; the cache only when switched on in his settings

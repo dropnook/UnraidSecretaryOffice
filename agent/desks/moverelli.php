@@ -1512,7 +1512,7 @@ function moverelliSetSchedule(?string $cron, ?array $h = null): array
     $live = officeJobSetSchedule('moverelli', $cron, $h['cron_file'], (bool) $h['cron_apply']);
     if ($cron !== null && officeJobSchedule('embycache', $h['cron_file'])['enabled']) {
         officeJobSetSchedule('embycache', null, $h['cron_file'], (bool) $h['cron_apply']);
-        logLine("Ms. Moverelli: Jack Emby's own EmbyCache schedule switched off — the night run does his part");
+        logLine("Ms. Moverelli: Jack Streamer's own EmbyCache schedule switched off — the night run does his part");
     }
     moverelliDataDir($h['dir']);
     writeAtomic("$h[dir]/office-schedule.json", jsonEncode(['v' => 1, 'set' => time(), 'cron' => $cron]), 0600, 0, 0);

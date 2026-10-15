@@ -490,7 +490,7 @@ function officeMigrateNightRun(string $dir, string $cron = OFFICE_CRON, bool $ap
                 : ((cronNext($hers, $now) ?? PHP_INT_MAX) < (cronNext($his, $now) ?? PHP_INT_MAX) ? $hers : $his);
             $done[] = "two schedules merged into one: the earlier ($time)";
         } else {
-            $done[] = "Jack Emby's time ($his) is the night run's";
+            $done[] = "Jack Streamer's time ($his) is the night run's";
         }
         officeJobSetSchedule('moverelli', $time, $cron, $apply);
         officeJobSetSchedule('embycache', null, $cron, $apply);
@@ -498,10 +498,10 @@ function officeMigrateNightRun(string $dir, string $cron = OFFICE_CRON, bool $ap
     if (is_array($sched) && array_key_exists('after', $sched)) {
         unset($sched['after']);
         if ($his === null && $after) {
-            $done[] = '«right after Jack Emby» without a time of his — no schedule';
+            $done[] = '«right after Jack Streamer» without a time of his — no schedule';
         }
         writeAtomic($file, jsonEncode($sched), 0600, 0, 0);
-        $done[] = '«right after Jack Emby» removed';
+        $done[] = '«right after Jack Streamer» removed';
     }
     return $done ? implode(', ', $done) : 'nothing to change';
 }

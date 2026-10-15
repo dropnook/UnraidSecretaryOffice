@@ -34,7 +34,7 @@ Aufruf:
       --user Benj,Kid   nur diese Benutzer anzeigen (Name oder ID); die Planung läuft immer für alle
       --compact         nur Einträge, keine einzelnen Dateien
   python3 embycache_run.py --run           Scharf
-  python3 embycache_run.py --release       Alles zurück aufs Array (Unraid Secretary Office: Jack Emby wird entlassen):
+  python3 embycache_run.py --release       Alles zurück aufs Array (Unraid Secretary Office: Jack Streamer wird entlassen):
                                            ein Cleanup über die ganze Exclude-Liste auf demselben Weg wie oben (3.),
                                            nichts wird befüllt; was gerade läuft, bleibt auf dem Cache und in der Liste
 

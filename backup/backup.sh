@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.51 - 2026-10-15
+# unraid-backup - backup.sh                       Version 2.52 - 2026-10-15
+#   2.52 The notifications speak the office's language (ub_tell in lib/common.sh): subject «<Mr. Backupsy's name>: …»
+#        and description from his language files (notify.*), the long report stays English
 #   2.51 No change here (the engine's version: setup.sh --orphans / --orphans-delete)
 #   2.50 A unit that goes to a partner office never keeps «0 0 0» local snapshots: settings.ini refused (cfg_validate) -
 #        the partner's incremental send needs one snapshot both sides still have
@@ -389,7 +391,7 @@ die() {
     [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] && array_stopping && { log "  ($*)"; array_stop_abort; }
     err "$*"
     status_finish failed "$*"
-    ub_notify "Backup FAILED" "$*" "alert" "Log: $LOG_FILE"
+    ub_tell failed alert "Log: $LOG_FILE" "Backup FAILED" "$*" "why=$*"
     exit 1
 }
 # die_code <code> <text>: like die, but status.json carries the code - the office translates it
@@ -398,7 +400,9 @@ die_code() {
     [[ "$CLEANUP_ARMED" == "yes" && "$CLEANUP_DONE" != "yes" ]] && array_stopping && { log "  ($*)"; array_stop_abort; }
     err "$*"
     status_finish failed "$code"
-    ub_notify "Backup FAILED" "$*" "alert" "Log: $LOG_FILE"
+    local why
+    why="$(ub_say "message.$code")" || why="$*"
+    ub_tell failed alert "Log: $LOG_FILE" "Backup FAILED" "$*" "why=$why"
     exit 1
 }
 
@@ -614,9 +618,9 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
             frozen)   timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE" \
                           || { sleep 5; timeout 60 virsh domfsthaw "$n" >/dev/null 2>>"$LOG_FILE"; } \
                           || { warn "VM '$n': thawing its file systems failed - check the VM"
-                               ub_notify "VM not thawed" "'$n' may still have its file systems frozen after the snapshot: virsh domfsthaw $n" "alert"; } ;;
+                               ub_tell vm_not_thawed alert "" "VM not thawed" "'$n' may still have its file systems frozen after the snapshot: virsh domfsthaw $n" "vm=$n"; } ;;
             paused)   timeout 30 virsh resume "$n" >/dev/null 2>>"$LOG_FILE" \
-                          || { warn "VM '$n' could NOT be resumed"; ub_notify "VM not resumed" "'$n' is still paused after the snapshot: virsh resume $n" "alert"; } ;;
+                          || { warn "VM '$n' could NOT be resumed"; ub_tell vm_not_resumed alert "" "VM not resumed" "'$n' is still paused after the snapshot: virsh resume $n" "vm=$n"; } ;;
             shutdown) st="$(vm_domstate "$n")"
                       if [[ "$st" != "shut off" ]]; then
                           # only when a run stops before vm_hold: it never went down (or not by its deadline)
@@ -624,7 +628,7 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
                           unset "VM_HELD[$n]" "VM_HELD_AT[$n]"; continue
                       fi
                       timeout 60 virsh start "$n" >/dev/null 2>>"$LOG_FILE" \
-                          || { warn "VM '$n' could NOT be started"; ub_notify "VM not started" "'$n' could not be started after the snapshot." "alert"; } ;;
+                          || { warn "VM '$n' could NOT be started"; ub_tell vm_not_started alert "" "VM not started" "'$n' could not be started after the snapshot." "vm=$n"; } ;;
         esac
         secs=$(( $(date +%s) - ${VM_HELD_AT[$n]:-$(date +%s)} ))
         log "  VM '$n': released ($how, ${secs} s)"
@@ -714,7 +718,7 @@ restore_service() {
                     started+=( "$n" )
                 else
                     warn "Container '$n' would NOT start"
-                    ub_notify "Container not started" "'$n' could not be started after the snapshot." "alert"
+                    ub_tell app_not_started alert "" "Container not started" "'$n' could not be started after the snapshot." "app=$n"
                 fi
             done
             unset -n T
@@ -742,7 +746,7 @@ restore_service() {
         else
             nc_log_output "$out"
             warn "Nextcloud '$c': maintenance mode would NOT switch off"
-            ub_notify "Maintenance mode stuck" "Nextcloud '$c' is still in maintenance mode: occ maintenance:mode --off" "alert"
+            ub_tell nc_stuck alert "" "Maintenance mode stuck" "Nextcloud '$c' is still in maintenance mode: occ maintenance:mode --off" "app=$c"
         fi
     done
 }
@@ -1062,7 +1066,7 @@ nextcloud_maintenance_on() {
         if [[ "$was" == "true" ]]; then
             [[ "$pre" == "abort" ]] && die "Nextcloud '$c' is already in maintenance mode - backup aborted (UB_NC_PREEXISTING=continue forces the run)"
             warn "Nextcloud '$c' was already in maintenance mode - it stays ON afterwards"
-            ub_notify "Maintenance mode was already on" "Nextcloud '$c' was backed up anyway and stays in maintenance mode." "warning"
+            ub_tell nc_was_on warning "" "Maintenance mode was already on" "Nextcloud '$c' was backed up anyway and stays in maintenance mode." "app=$c"
             continue
         fi
         # Note it before switching on: if occ sets the mode and only fails
@@ -2438,9 +2442,9 @@ report_drift() {
     now="$(date +%s)"
     if [[ "$fp" != "$last_fp" || "$UB_MODE" == "check" ]] || (( now - last_t >= DRIFT_REMIND_DAYS * 86400 )); then
         lvl="warning"; (( ne > 0 )) && lvl="alert"
-        ub_notify "settings.ini is out of date" \
-            "${ne} errors, ${nw} warnings - please run setup.sh. Details: $UB_STATE/drift.txt" \
-            "$lvl" "$(drift_report)"
+        ub_tell drift "$lvl" "$(drift_report)" "Changed since the setup" \
+            "${ne} errors, ${nw} warnings - the setup on Mr. Backupsy's page shows what changed. Details: $UB_STATE/drift.txt" \
+            "counts=$(ub_counts "$ne" "$nw")"
         echo "$fp" >"$UB_STATE/drift.fp"; echo "$now" >"$UB_STATE/drift.ts"
     fi
 }
@@ -2563,10 +2567,10 @@ array_stop_report() { # the notification's long text: a headline, then a section
 }
 array_stop_notify() {
     [[ "$ST_MODE" == "backup" ]] || return 0           # a check or dry run is started by hand: its answer is seen there
-    local short
-    if [[ -n "$ST_KOPIA_INTERRUPTED" ]] || (( ${#ST_KOPIA_SKIPPED[@]} > ${#ST_KOPIA_SKIPPED_WHY[@]} && ${#ST_KOPIA_DONE[@]} )); then short="Backup stopped because the array is being stopped - nothing is lost; the next run continues the Kopia upload."
+    local short code=array_stop
+    if [[ -n "$ST_KOPIA_INTERRUPTED" ]] || (( ${#ST_KOPIA_SKIPPED[@]} > ${#ST_KOPIA_SKIPPED_WHY[@]} && ${#ST_KOPIA_DONE[@]} )); then short="Backup stopped because the array is being stopped - nothing is lost; the next run continues the Kopia upload."; code=array_stop_kopia
     else short="Backup stopped because the array is being stopped - nothing is lost; the next run backs up as usual."; fi
-    ub_notify "Backup stopped for the array stop" "$short" "normal" "$(array_stop_report)"
+    ub_tell "$code" normal "$(array_stop_report)" "Backup stopped for the array stop" "$short"
 }
 
 ##############################################################################
@@ -2716,7 +2720,7 @@ on_signal() {
 # terminal), where this answer is seen right away. Exit code 75 (EX_TEMPFAIL: try again later), so a
 # caller can tell "busy" from "failed".
 skip_busy() {
-    local mode="backup" st phase="" current="" since="" why what
+    local mode="backup" st phase="" current="" since="" why what when tw
     [[ "$UB_MODE" == "check" ]] && mode="check"
     [[ "$DRY" == "1" && "$UB_MODE" == "backup" ]] && mode="dryrun"
     ub_holder_read
@@ -2746,8 +2750,11 @@ skip_busy() {
         check)  echo "The check was not started: $why." ;;
         dryrun) echo "The dry run was not started: $why." ;;
     esac
-    [[ "$mode" == "backup" ]] && ub_notify "Backup skipped" \
-        "The run of $(date '+%Y-%m-%d %H:%M') was skipped: $why. The next run backs up as usual." "warning"
+    if [[ "$mode" == "backup" ]]; then
+        when="$(date '+%Y-%m-%d %H:%M')"
+        tw="$(ub_say "message.skipped_busy_$HOLDER_KIND")" || tw="$(ub_say message.skipped_busy_other)" || tw="$why"
+        ub_tell skipped warning "" "Backup skipped" "The run of $when was skipped: $why. The next run backs up as usual." "when=$when" "why=$tw"
+    fi
     exit 75
 }
 
@@ -3809,8 +3816,8 @@ elif [[ "$KOPIA_OK" == "yes" ]]; then
             share) kopia_share_one "$ko_item" ;;
         esac
     done
-    [[ $KOPIA_FAILED -gt 0 ]] && ub_notify "Kopia incomplete" \
-        "$KOPIA_FAILED source(s) not backed up, $KOPIA_DONE ok. Log: $LOG_FILE" "warning"
+    [[ $KOPIA_FAILED -gt 0 ]] && ub_tell kopia_incomplete warning "Log: $LOG_FILE" "Not everything went offsite" \
+        "$KOPIA_FAILED source(s) not backed up offsite, $KOPIA_DONE done." "n=$KOPIA_FAILED" "done=$KOPIA_DONE"
 fi
 
 # --- Unmounting and cleaning up --------------------------------------------
@@ -3990,19 +3997,32 @@ SUMMARY="duration ${TOTAL}s, downtime ${DOWNTIME}s, ${KSUM}, packages ${RUN_SIZE
 NSUMMARY="$(dur_n "$TOTAL"), apps stopped $(dur_n "$DOWNTIME"), ${KSUM}, packages $(human_sp "$ST_DUMP_BYTES")"
 (( ${#ST_PARTNER_PLAN[@]} )) && NSUMMARY+=", partners ${#ST_PARTNER_DONE[@]} sent/${#ST_PARTNER_FAILED[@]} failed/${#ST_PARTNER_SKIPPED[@]} skipped"
 (( ${#ST_ASLEEP_SHARES[@]} )) && NSUMMARY+=", ${#ST_ASLEEP_SHARES[@]} share$( (( ${#ST_ASLEEP_SHARES[@]} == 1 )) || echo s) asleep (left out)"
+# NSUMMARY in the office's language (ub_tell; English without the language files)
+ub_summary() {
+    local k t p
+    if is_yes "$KOPIA_ENABLED"; then k="$(ub_say notify.sum_kopia "done=$KOPIA_DONE" "failed=$KOPIA_FAILED")"; else k="$(ub_say notify.sum_kopia_off)"; fi \
+        || { printf '%s' "$NSUMMARY"; return 0; }
+    t="$(ub_say notify.sum "total=$(dur_n "$TOTAL")" "downtime=$(dur_n "$DOWNTIME")" "kopia=$k" "size=$(human_sp "$ST_DUMP_BYTES")")" \
+        || { printf '%s' "$NSUMMARY"; return 0; }
+    if (( ${#ST_PARTNER_PLAN[@]} )) && p="$(ub_say notify.sum_partners "sent=${#ST_PARTNER_DONE[@]}" "failed=${#ST_PARTNER_FAILED[@]}" "skipped=${#ST_PARTNER_SKIPPED[@]}")"; then t+=", $p"; fi
+    if (( ${#ST_ASLEEP_SHARES[@]} )) && p="$(ub_say notify.sum_asleep "n=${#ST_ASLEEP_SHARES[@]}")"; then t+=", $p"; fi
+    printf '%s' "$t"
+}
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi
 if (( ERRORS > 0 )); then
     log "Backup finished with ${ERRORS} error(s) and ${WARNINGS} warning(s). $SUMMARY"
-    ub_notify "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" "alert" "$(run_report "Backup finished with errors")"
+    ub_tell errors alert "$(run_report "Backup finished with errors")" "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" \
+        "counts=$(ub_counts "$ERRORS" "$WARNINGS")" "summary=$(ub_summary)"
     exit 1
 elif (( WARNINGS > 0 )); then
     log "Backup finished with ${WARNINGS} warning(s). $SUMMARY"
-    ub_notify "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" "warning" "$(run_report "Backup finished with warnings")"
+    ub_tell warnings warning "$(run_report "Backup finished with warnings")" "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" \
+        "counts=$(ub_counts "" "$WARNINGS")" "summary=$(ub_summary)"
 else
     log "Backup successful. $SUMMARY"
-    is_yes "$NOTIFY_SUCCESS" && ub_notify "Backup successful" "$NSUMMARY" "normal" "$(run_report "Backup successful")"
+    is_yes "$NOTIFY_SUCCESS" && ub_tell ok normal "$(run_report "Backup successful")" "Backup successful" "$NSUMMARY" "summary=$(ub_summary)"
 fi
 exit 0
 }

@@ -299,7 +299,7 @@ watch() {
     minutes=$(( (now - since) / 60 ))
     # Unraid's line breaks in the long text are a literal \n (mail, push agents and the archive turn them into lines)
     tell "Agent not running" "The office's agent hasn't checked in for $minutes minutes - the office can't show or do anything." alert \
-        "Scheduled backups, snapshots and Jack Emby's runs still start on their own.\nRestart it in a terminal: bash $DIR/scripts/agent.sh restart\nWhat it said last: $LOG and $data/agent.log"
+        "Scheduled backups, snapshots and Jack Streamer's runs still start on their own.\nRestart it in a terminal: bash $DIR/scripts/agent.sh restart\nWhat it said last: $LOG and $data/agent.log"
     echo "$(date '+%F %T') watch: the agent hasn't checked in for $minutes minutes - Unraid's notifications told" >>"$LOG"
 }
 

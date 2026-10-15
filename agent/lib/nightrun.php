@@ -503,9 +503,9 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
                         'phases' => ['check' => $pic($plan)], 'files' => []],
           'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []);
     nightWrite($dir, $n);
-    logLine("Night run ($mode): " . ($jack ? 'Jack Emby and Ms. Moverelli' : 'Ms. Moverelli alone') . ($plan['measured']
-        ? " — pool $pool at {$plan['used_pct']} %, X {$plan['x']} %: " . ($jack ? 'Jack Emby gives back what was watched, the others about ' : 'about ')
-          . poolLevelSize($plan['others_back']) . ' (and the age rule)' . ($jack ? ', Jack Emby fetches up to ' . poolLevelSize($plan['jack_fetch']) : '')
+    logLine("Night run ($mode): " . ($jack ? 'Jack Streamer and Ms. Moverelli' : 'Ms. Moverelli alone') . ($plan['measured']
+        ? " — pool $pool at {$plan['used_pct']} %, X {$plan['x']} %: " . ($jack ? 'Jack Streamer gives back what was watched, the others about ' : 'about ')
+          . poolLevelSize($plan['others_back']) . ' (and the age rule)' . ($jack ? ', Jack Streamer fetches up to ' . poolLevelSize($plan['jack_fetch']) : '')
         : ''));
     $stopped = fn (): bool => is_file("$dir/night-stop.json");
     // the picture: a phase as it begins (the pool measured anew where the step needs it)
@@ -554,7 +554,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
             // alone — said on both pages with his reason (his record's code), never the whole night refused
             $why = (string) ($last['why'] ?? '');
             $n['jack_out'] = preg_match('/^[a-z][a-z0-9_]{0,63}$/D', $why) ? $why : 'jack_refused';
-            logLine("Night run: Jack Emby not in it tonight ({$n['jack_out']}) — Ms. Moverelli's part alone");
+            logLine("Night run: Jack Streamer not in it tonight ({$n['jack_out']}) — Ms. Moverelli's part alone");
             nightWrite($dir, $n);
             return true;
         }
@@ -624,7 +624,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
                 break;
             }
             $n['round'] = $round;
-            logLine("Night run: round $round — the pool grew meanwhile (" . poolLevelSize($again['need_room']) . ' over the room Jack Emby needs)');
+            logLine("Night run: round $round — the pool grew meanwhile (" . poolLevelSize($again['need_room']) . ' over the room Jack Streamer needs)');
             $go = $step('her', 'free', $room($again));
         }
         // fill: Jack Emby fetches what waits, only up to X — always last
@@ -659,7 +659,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     $n['who'] = null;
     $n['finished'] = time();
     nightWrite($dir, $n);
-    logLine("Night run ($mode): {$n['result']}" . (isset($n['jack_out']) ? " (without Jack Emby: {$n['jack_out']})" : '') . (isset($n['stopped_in']) ? " (in {$n['stopped_in']})" : '') . ($n['round'] > 1 ? ", {$n['round']} rounds" : ''));
+    logLine("Night run ($mode): {$n['result']}" . (isset($n['jack_out']) ? " (without Jack Streamer: {$n['jack_out']})" : '') . (isset($n['stopped_in']) ? " (in {$n['stopped_in']})" : '') . ($n['round'] > 1 ? ", {$n['round']} rounds" : ''));
     return match ($n['result']) { 'stopped' => 3, 'refused' => 1, default => 0 };
 }
 
@@ -673,7 +673,7 @@ function nightMissedTell(array $end, array $h): bool
     $p = ['pool' => (string) $end['pool'], 'now' => (int) floor($end['used_pct']), 'x' => (int) $end['x'], 'nm' => (int) floor($end['nm_pct'])];
     $key = !$end['never'] && $end['jack_over'] ? 'notify.night_missed_jack' : 'notify.night_missed';
     $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_subject', $p, $lang), officeNotifyText('moverelli', $key, $p, $lang));
-    logLine("Night run: pool {$p['pool']} still at {$p['now']} % (limit {$p['x']} %)" . ($key === 'notify.night_missed_jack' ? ' — only Jack Emby\'s unwatched is over it' : '')
+    logLine("Night run: pool {$p['pool']} still at {$p['now']} % (limit {$p['x']} %)" . ($key === 'notify.night_missed_jack' ? ' — only Jack Streamer\'s unwatched is over it' : '')
         . ($ok ? " — told Unraid's notifications" : ''));
     return $ok;
 }
@@ -688,7 +688,7 @@ function nightRoomTell(string $why, array $end, array $h): bool
     $lang = officeNotifyLang();
     $p = ['pool' => (string) $end['pool'], 'x' => (int) $end['x'], 'jack' => poolLevelSize((int) $end['jack'])];
     $ok = ($h['notify'])(officeNotifyText('moverelli', 'notify.night_room_subject', $p, $lang), officeNotifyText('moverelli', "notify.night_$why", $p, $lang));
-    logLine("Night run: pool {$p['pool']} — " . ($why === 'full' ? 'appdata & co. and what Jack Emby keeps fill it up to X: nothing new for him'
-        : 'Jack Emby\'s budget leaves the other shares no room below X') . ($ok ? " — told Unraid's notifications" : ''));
+    logLine("Night run: pool {$p['pool']} — " . ($why === 'full' ? 'appdata & co. and what Jack Streamer keeps fill it up to X: nothing new for him'
+        : 'Jack Streamer\'s budget leaves the other shares no room below X') . ($ok ? " — told Unraid's notifications" : ''));
     return $ok;
 }

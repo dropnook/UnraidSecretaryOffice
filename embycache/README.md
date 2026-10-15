@@ -1,4 +1,4 @@
-> **In the Unraid Secretary Office** this is the EmbyCache Jack Emby looks after:
+> **In the Unraid Secretary Office** this is the EmbyCache Jack Streamer looks after:
 > taken from [helmi1987/embycache-for-unraid](https://github.com/helmi1987/embycache-for-unraid)
 > (7.2.1, 2026-09-19) and since changed here (7.3.0). Jack sets it up, runs and schedules it;
 > its data lives in `data/embycache` (`EMBYCACHE_DIR`). Changes against 7.2.1:

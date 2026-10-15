@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.51 - 2026-10-15
+# unraid-backup - setup.sh                        Version 2.52 - 2026-10-15
+#   2.52 No change here (the engine's version: the notifications in the office's language, lib/common.sh ub_tell)
 #   2.51 --orphans lists the office's own Kopia sources whose share, app or VM is gone (state/kopia-orphans.json: per
 #        source its snapshots, the newest one's size and date); --orphans-delete=<file> deletes those of a JSON list
 #        that are offered right then (kopia snapshot delete --all-snapshots-for-source), nothing else. Behind the lock

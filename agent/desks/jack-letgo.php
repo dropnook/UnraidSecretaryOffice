@@ -173,7 +173,7 @@ function jackLetGo(array $r): array
     // the cron file as it is now: a line that is still there (a failed write) still runs
     $left = array_keys(array_filter(jackLetGoSchedules($h['cron']), fn ($c) => $c !== null));
     $off = array_values(array_diff($off, $left));
-    logLine('Jack Emby: let go — ' . ($off ? 'schedules switched off: ' . implode(', ', $off) : 'no schedule was on')
+    logLine('Jack Streamer: let go — ' . ($off ? 'schedules switched off: ' . implode(', ', $off) : 'no schedule was on')
         . ($left ? ' — still scheduled: ' . implode(', ', $left) : ''));
     $running = ($h['running'])();
     $rel = null;
@@ -199,16 +199,16 @@ function jackLetGoRelease(array $h, ?string $running): array
         }
         $look = ($h['look'])($settings);
         if ($p = jackLetGoWatchProblem($look)) {
-            logLine('Jack Emby: the films are not brought back — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
+            logLine('Jack Streamer: the films are not brought back — ' . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));
             throw $p;
         }
         ($h['launch'])('jack-embycache', [PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'embycache', 'release', '--letgo']);
-        logLine("Jack Emby: bringing {$onPool['files']} files back to the array — started via at");
+        logLine("Jack Streamer: bringing {$onPool['files']} files back to the array — started via at");
         return ['started' => true, 'files' => $onPool['files'], 'bytes' => $onPool['bytes']];
     } catch (Problem $p) {
         if ($p->key !== 'jack_release_watching' && $p->key !== 'jack_watch_key' && $p->key !== 'jack_watch_answer') {
-            logLine("Jack Emby: the films are not brought back ($p->key)");
+            logLine("Jack Streamer: the films are not brought back ($p->key)");
         }
         $error = $p->toArray();
         if ($p->key !== 'jack_letgo_nothing' && $p->key !== 'jack_not_configured') {
@@ -225,7 +225,7 @@ function jackLetGoNoteWrite(string $dir, array $note): void
         jackDataDir($dir);
         writeAtomic("$dir/" . JACK_LETGO_NOTE, jsonEncode($note), 0600, 0, 0);
     } catch (Throwable $e) {
-        logLine('Jack Emby: could not note the let-go: ' . $e->getMessage());
+        logLine('Jack Streamer: could not note the let-go: ' . $e->getMessage());
     }
 }
 
