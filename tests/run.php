@@ -2903,7 +2903,8 @@ function testJackProgress(): void
     check('progress: Jack\'s job sets EMBYCACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
         (bool) preg_match('/if \(\$real\) \{[^}]*jackProgressClear\(\$progress\);\s*\$env\[\'EMBYCACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
         && str_contains($src, 'tick: $progress !== null ? jackProgressTicker($progress) : null')
-        && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => jackProgressState() + ['night' => jackNightNow()]]"));
+        && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => jackProgressNow(jackNightNow())]")
+        && str_contains($src, "return (\$jack ? jackNightProgress(\$night) : jackProgressState()) + ['night' => \$night];"));
     require_once OFFICE_DIR . '/src/desks.php';
     same('progress: his desk.json asks the part «progress» from the agent', ['refresh_after' => 5, 'action' => 'progress'],
         officeDeskParts(json_decode((string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.json'), true)['parts'] ?? null)['progress'] ?? null);
