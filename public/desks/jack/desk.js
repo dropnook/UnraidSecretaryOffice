@@ -373,6 +373,7 @@ function bubbleText() {
 const PAGES = () => [{ id: '', text: Office.t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
 /** Set up (or not known yet — the search's places): the pool and the shares have tiles only then */
 const configured = () => !state || !!state.configured;
+let hintsBox = null;                // the hints under the row (render())
 const sw = Office.sections({
   id: ID,                          // kept as jack.tile, routes #/jack/<tile>
   grid: 'stats jo-tiles',
@@ -459,7 +460,10 @@ function render() {
   if (progBox) hints.push(progBox);
   if (state.configured) hints.push(scopeLine());
   root.appendChild(sw.el);
-  hints.forEach((n) => sw.el.insertBefore(n, sw.body));
+  // one box in the switcher (it lives as long as the page; core.js redraws only the row and the body), filled anew
+  if (!hintsBox) hintsBox = sw.el.insertBefore(el('div', 'jo-hints'), sw.body);
+  hintsBox.innerHTML = '';
+  hints.forEach((n) => hintsBox.appendChild(n));
   sw.render();
   root.appendChild(footer());
 }

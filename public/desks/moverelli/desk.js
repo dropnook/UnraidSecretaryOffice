@@ -867,9 +867,11 @@ function render() {
   root.appendChild(footer());
 }
 
-/** Hints right under the row, over the sections (core.js's switcher redraws only the row and the body) */
+/** Hints right under the row, over the sections: one box in the switcher (it lives as long as the page; core.js redraws only the row and the body), filled anew */
 function underRow(s, nodes) {
-  nodes.forEach((n) => s.el.insertBefore(n, s.body));
+  if (!s.hints) s.hints = s.el.insertBefore(el('div', 'mo-hints'), s.body);
+  s.hints.innerHTML = '';
+  nodes.forEach((n) => s.hints.appendChild(n));
 }
 
 /** What stands under the row: Unraid's mover, other movers, Jack Emby, a run going (the night's too), not set up */

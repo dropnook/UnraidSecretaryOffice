@@ -35935,7 +35935,9 @@ m.setView(view, 'main');
 m.bars();
 m.render();
 out.page = view.children.map((c) => c.cls || c.tag);
-out.underRow = (view.children.find((c) => c.cls === 'sections') || { children: [] }).children.map((c) => c.cls || c.tag);
+const under = () => (view.children.find((c) => c.cls === 'sections') || { children: [] }).children.map((c) => [c.cls, (c.children || []).map((x) => x.cls || x.tag)]);
+m.render();          // a second drawing (every answer of the agent): the hints once, never twice
+out.underRow = under();
 // the kind of the run going, in «Last run» (owner 2026-10-15: a real night run said «dry run»): a night's own record —
 // her job's file still the last dry run's while the night checks or Jack Streamer's step goes; a scheduled night; her job's
 const going = (st) => { m.setState({ ...base, ...st }); return tiles().find(([id]) => id === 'runs')[3]; };
@@ -35986,7 +35988,7 @@ JS);
         [['schedule', 'not_scheduled', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
     same('moverelli tiles: her page — the head with tabs, the help, the row (tiles first, owner 2026-10-15), the footer under all', ['deskhead', 'help', 'sections', 'mo-foot'],
         $o['page'] ?? null);
-    same('moverelli tiles: her hints right under the row, over the sections (they stay at every click)', ['grid', 'mo-mover', 'role mo-hint', 'sections-body'],
+    same('moverelli tiles: her hints right under the row, over the sections (they stay at every click)', [['grid', []], ['mo-hints', ['mo-mover', 'role mo-hint']], ['sections-body', []]],
         $o['underRow'] ?? null);
     same('moverelli tiles: «Last run» names the kind of the run going — a real night with the last dry run\'s job file, a scheduled night, a dry night, a dry run, a list; none once the night ended', [
         ['output_running', ['mode.run']], ['output_running', ['mode.run']], ['output_running', ['mode.dry']], ['output_running', ['mode.dry']], ['output_running', ['mode.list']],
@@ -36595,8 +36597,8 @@ function testTilesMediaPages(): void
     check('jack page: «Recent runs» filtered by the switcher (sw.active(), the note line from sw.note), the result box its first row',
         str_contains($jackSrc, "const only = sw.active() === 'runs' ? 'embycache' : '';") && str_contains($jackSrc, "runsBar.done(fit.length, runs.length, sw.note('runs'));")
         && str_contains($jackSrc, "s.id = 'jo-runs';\n  const rb = resultBox();\n  if (rb) s.appendChild(rb);"));
-    check('jack page: the row first (owner 2026-10-15), then the hints, the live panel and «How I work» under it, over the sections; the tools a footer; Python missing a callout',
-        str_contains($jackSrc, "if (progBox) hints.push(progBox);\n  if (state.configured) hints.push(scopeLine());\n  root.appendChild(sw.el);\n  hints.forEach((n) => sw.el.insertBefore(n, sw.body));\n  sw.render();\n  root.appendChild(footer());")
+    check('jack page: the row first (owner 2026-10-15), then the hints, the live panel and «How I work» under it, over the sections, in one box filled anew; the tools a footer; Python missing a callout',
+        str_contains($jackSrc, "if (progBox) hints.push(progBox);\n  if (state.configured) hints.push(scopeLine());\n  root.appendChild(sw.el);\n  // one box in the switcher (it lives as long as the page; core.js redraws only the row and the body), filled anew\n  if (!hintsBox) hintsBox = sw.el.insertBefore(el('div', 'jo-hints'), sw.body);\n  hintsBox.innerHTML = '';\n  hints.forEach((n) => hintsBox.appendChild(n));\n  sw.render();\n  root.appendChild(footer());")
         && !preg_match('/\n  if \([^\n]*\) root\.appendChild\(el\(\'p\', \'callout/', substr($jackSrc, (int) strpos($jackSrc, '\nfunction render() {'), 3000))
         && str_contains($jackSrc, "Office.place('overview', el('div', 'jo-scope'))") && str_contains($jackSrc, "Office.place('tools', el('div', 'jo-foot'))")
         && !str_contains($jackSrc, "T('tools_sub')") && !str_contains($jackSrc, "T('tools.python_missing')") && str_contains($jackSrc, "T('notice.no_python')"));
