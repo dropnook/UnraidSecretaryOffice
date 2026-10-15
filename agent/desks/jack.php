@@ -60,6 +60,11 @@ const JACK_WATCH_EVERY   = 900;     // a scheduled gather that finds someone wat
 const JACK_WATCH_MAX     = 7200;    // … for up to 2 h, then that night is skipped
 const JACK_WATCH_DURING  = 60;      // during a real gather Emby is asked once a minute; someone watching = stop after the current folder
 const JACK_WATCH_SHOWN   = 10;      // at most this many watchers kept
+// the media servers MediaCache speaks to (1.65.0), each with the port its container listens on
+const JACK_SERVER_PORTS  = ['emby' => 8096, 'jellyfin' => 8096, 'plex' => 32400];
+const JACK_SERVER_NAMES  = ['emby' => 'Emby', 'jellyfin' => 'Jellyfin', 'plex' => 'Plex'];
+// a key or token: Emby/Jellyfin hex, Plex's token letters, digits, - and _ (never a space, a quote or a line break)
+const JACK_KEY = '/^[A-Za-z0-9_-]{8,128}$/D';
 
 require_once dirname(__DIR__) . '/lib/poollevel.php';    // Ms. Moverelli's limit and his half of the pool (shared with her)
 
@@ -85,7 +90,7 @@ desk('jack', [
     'start'   => fn () => jackScan(),
     'actions' => [
         'refresh'      => fn (array $r) => ['ok' => true, 'state' => jackScan()],
-        'connect'      => fn (array $r) => jackConnect(textField($r, 'url'), optText($r, 'api_key')),
+        'connect'      => fn (array $r) => jackConnect(textField($r, 'url'), optText($r, 'api_key'), optText($r, 'type') ?: 'emby'),
         'save'         => fn (array $r) => jackSave($r['settings'] ?? null),
         'gather_save'  => fn (array $r) => jackGatherSave($r['gather'] ?? null),
         'start_run'    => fn (array $r) => jackStart('embycache', textField($r, 'mode')),
@@ -233,12 +238,13 @@ function jackVersions(): array
     ];
 }
 
-/** Emby containers with what the setup needs: address and the folders they see */
+/** Media server containers (Emby, Jellyfin, Plex) with what the setup needs: kind, address and the folders they see */
 function jackContainers(): array
 {
     $found = [];
     foreach (houseContainers() as $c) {
-        if (!jackIsServerImage($c['image'])) {
+        $type = jackServerType($c['image']);
+        if ($type === null) {
             continue;
         }
         $inspect = houseInspect($c['name']) ?? [];
@@ -246,12 +252,16 @@ function jackContainers(): array
         foreach ((array) ($inspect['NetworkSettings']['Networks'] ?? []) as $net) {
             $ip = ($net['IPAddress'] ?? '') ?: $ip;
         }
-        $port = 8096;
-        foreach ((array) ($inspect['HostConfig']['PortBindings']['8096/tcp'] ?? []) as $b) {
+        $inner = JACK_SERVER_PORTS[$type];
+        $port = $inner;
+        foreach ((array) ($inspect['HostConfig']['PortBindings']["$inner/tcp"] ?? []) as $b) {
             if (!empty($b['HostPort'])) {
                 $port = (int) $b['HostPort'];
                 $ip = null;          // published on the host
             }
+        }
+        if (($inspect['HostConfig']['NetworkMode'] ?? '') === 'host') {
+            $ip = null;              // host network (Plex often): the host's address
         }
         $mounts = [];
         foreach ((array) ($inspect['Mounts'] ?? []) as $m) {
@@ -260,7 +270,7 @@ function jackContainers(): array
                 $mounts[$dest] = (string) ($m['Source'] ?? '');
             }
         }
-        $found[] = ['name' => $c['name'], 'image' => $c['image'], 'running' => $c['running'],
+        $found[] = ['name' => $c['name'], 'image' => $c['image'], 'type' => $type, 'running' => $c['running'],
                     'url' => 'http://' . ($ip ?? jackHostIp()) . ':' . $port, 'mounts' => $mounts];
     }
     return $found;
@@ -275,8 +285,24 @@ function jackContainers(): array
  */
 function jackIsServerImage(string $image): bool
 {
+    return jackServerType($image) !== null;
+}
+
+/**
+ * Which media server an image is: emby, jellyfin, plex — or null. The same rule for each: the last part of the image name
+ * without registry and tag (emby/embyserver, linuxserver/emby, jellyfin/jellyfin, lscr.io/linuxserver/jellyfin,
+ * plexinc/pms-docker, linuxserver/plex, binhex/arch-plex …); tools around them (EmbyStat, Jellyseerr, Tautulli, plex-meta-
+ * manager …) are not servers.
+ */
+function jackServerType(string $image): ?string
+{
     $name = strtolower(preg_replace('#[:@].*$#', '', basename(preg_replace('#@.*$#', '', $image))));
-    return (bool) preg_match('/(^|[-_.])emby(server)?($|[-_.])/', $name);
+    return match (true) {
+        (bool) preg_match('/(^|[-_.])emby(server)?($|[-_.])/', $name) => 'emby',
+        (bool) preg_match('/(^|[-_.])jellyfin(-server)?($|[-_.])/', $name) => 'jellyfin',
+        (bool) preg_match('/(^|[-_.])(plex(mediaserver)?|pms-docker)$/', $name) => 'plex',      // at the end: plex-meta-manager is a tool
+        default => null,
+    };
 }
 
 function jackHostIp(): string
@@ -321,7 +347,7 @@ function jackSettingsPublic(array $s): array
     $instances = [];
     foreach ($s['instances'] ?? [] as $i) {
         $instances[] = ['servername' => (string) ($i['servername'] ?? ''), 'url' => (string) ($i['url'] ?? ''),
-                        'has_key' => !empty($i['api_key']), 'path_mappings' => (array) ($i['path_mappings'] ?? [])];
+                        'type' => jackType($i['type'] ?? null), 'has_key' => !empty($i['api_key']), 'path_mappings' => (array) ($i['path_mappings'] ?? [])];
     }
     $out = ['instances' => $instances, 'libraries' => array_values((array) ($s['libraries'] ?? [])),
             'library_types' => (array) ($s['library_types'] ?? []), 'valid_users' => $s['valid_users'] ?? []];
@@ -892,32 +918,75 @@ function jackLastRun(?array $runs = null): ?array
  * have. Without a new key the stored one for this address is used, so the
  * page never needs to know it.
  */
-function jackConnect(string $url, string $key): array
+function jackConnect(string $url, string $key, string $type = 'emby'): array
 {
     $url = rtrim($url, '/');
     if (!preg_match('#^https?://[^\s/]+(:\d+)?(/[^\s]*)?$#D', $url)) {
         throw new Problem('jack_bad_url');
     }
+    if (!isset(JACK_SERVER_PORTS[$type])) {
+        throw new Problem('bad_request');
+    }
     if ($key === '') {
         $key = jackStoredKey($url);
     }
-    if ($key === '' || !preg_match('/^[A-Za-z0-9]{8,128}$/D', $key)) {
+    if ($key === '' || !preg_match(JACK_KEY, $key)) {
         throw new Problem('jack_need_key');
     }
-    $info = jackApi($url, $key, '/System/Info');
+    if ($type === 'plex') {
+        return jackConnectPlex($url, $key);
+    }
+    $info = jackApi($url, $key, '/System/Info', $type);
     $libs = [];
-    foreach ((array) jackApi($url, $key, '/Library/VirtualFolders') as $lib) {
+    foreach ((array) jackApi($url, $key, '/Library/VirtualFolders', $type) as $lib) {
         $locs = array_values(array_filter((array) ($lib['Locations'] ?? []), fn ($l) => !preg_match(JACK_IGNORED, (string) $l)));
         if ($locs) {
             $libs[] = ['name' => (string) ($lib['Name'] ?? ''), 'type' => (string) ($lib['CollectionType'] ?? ''), 'locations' => $locs];
         }
     }
     $users = [];
-    foreach ((array) jackApi($url, $key, '/Users') as $u) {
+    foreach ((array) jackApi($url, $key, '/Users', $type) as $u) {
         $users[] = ['id' => (string) ($u['Id'] ?? ''), 'name' => (string) ($u['Name'] ?? ''), 'admin' => !empty($u['Policy']['IsAdministrator'])];
     }
     return ['ok' => true, 'server' => ['name' => (string) ($info['ServerName'] ?? ''), 'version' => (string) ($info['Version'] ?? '')],
             'libraries' => $libs, 'users' => $users];
+}
+
+/**
+ * Plex: its name and version (/identity, /), its libraries (/library/sections: movie and show sections with their
+ * folders) and its people as MediaCache sees them (PlexApi.users(): the admin by plex.tv's account id — `admin` when plex.tv
+ * can't be asked, an unclaimed server — and those the server is shared with). Plex has no favourites and no separate
+ * «next up» (both in On Deck).
+ */
+function jackConnectPlex(string $url, string $key): array
+{
+    $root = (array) (jackApi($url, $key, '/', 'plex')['MediaContainer'] ?? []);
+    $libs = [];
+    foreach ((array) (jackApi($url, $key, '/library/sections', 'plex')['MediaContainer']['Directory'] ?? []) as $d) {
+        $kind = (string) ($d['type'] ?? '');
+        if (!in_array($kind, ['movie', 'show'], true)) {
+            continue;
+        }
+        $locs = array_values(array_filter(array_map(fn ($l) => (string) ($l['path'] ?? ''), (array) ($d['Location'] ?? [])), fn ($l) => $l !== '' && !preg_match(JACK_IGNORED, $l)));
+        if ($locs) {
+            $libs[] = ['name' => (string) ($d['title'] ?? ''), 'type' => $kind === 'movie' ? 'movies' : 'tvshows', 'locations' => $locs];
+        }
+    }
+    $users = [];
+    try {
+        $acc = (array) jackApi('https://plex.tv', $key, '/api/v2/user', 'plex');
+        $users[] = ['id' => (string) ($acc['id'] ?? 'admin'), 'name' => (string) ($acc['title'] ?? $acc['username'] ?? 'Admin'), 'admin' => true];
+    } catch (Problem $p) {
+        $users[] = ['id' => 'admin', 'name' => 'Admin', 'admin' => true];        // unclaimed or plex.tv not reachable: the admin only
+    }
+    return ['ok' => true, 'server' => ['name' => (string) ($root['friendlyName'] ?? ''), 'version' => (string) ($root['version'] ?? ''), 'type' => 'plex'],
+            'libraries' => $libs, 'users' => $users];
+}
+
+/** A server's kind as stored (MediaCache's default: emby) */
+function jackType(mixed $t): string
+{
+    return is_string($t) && isset(JACK_SERVER_PORTS[strtolower($t)]) ? strtolower($t) : 'emby';
 }
 
 function jackStoredKey(string $url): string
@@ -930,12 +999,22 @@ function jackStoredKey(string $url): string
     return '';
 }
 
-/** One GET to the Emby API, through the host's network; the key goes in a header file, not on a command line */
-function jackApi(string $url, string $key, string $path): mixed
+/** The header that carries a server's key: Emby X-Emby-Token, Jellyfin (10.9+) Authorization, Plex X-Plex-Token */
+function jackKeyHeader(string $type, string $key): string
+{
+    return match ($type) {
+        'jellyfin' => "Authorization: MediaBrowser Token=\"$key\"",
+        'plex'     => "X-Plex-Token: $key",
+        default    => "X-Emby-Token: $key",
+    };
+}
+
+/** One GET to a media server's API, through the host's network; the key goes in a header file, not on a command line (curl never follows a redirect) */
+function jackApi(string $url, string $key, string $path, string $type = 'emby'): mixed
 {
     @mkdir(RUN_DIR, 0700, true);
     $headers = RUN_DIR . '/jack-headers.' . getmypid();
-    file_put_contents($headers, "X-Emby-Token: $key\nAccept: application/json\n");
+    file_put_contents($headers, jackKeyHeader($type, $key) . "\nAccept: application/json\n");
     chmod($headers, 0600);
     try {
         [$exit, $out, $err] = hostNet(['curl', '-s', '-S', '-f', '-m', '15', '-H', "@$headers", $url . $path], 20);
@@ -976,8 +1055,12 @@ function jackSave(mixed $in): array
         }
         $url = rtrim(optText($i, 'url'), '/');
         $key = trim(optText($i, 'api_key')) ?: jackStoredKey($url);
-        if (!preg_match('#^https?://\S+$#D', $url) || !preg_match('/^[A-Za-z0-9]{8,128}$/D', $key)) {
+        if (!preg_match('#^https?://\S+$#D', $url) || !preg_match(JACK_KEY, $key)) {
             throw new Problem('jack_need_key');
+        }
+        $type = optText($i, 'type') ?: 'emby';
+        if (!isset(JACK_SERVER_PORTS[$type])) {
+            throw new Problem('bad_request');
         }
         $maps = [];
         foreach ((array) ($i['path_mappings'] ?? []) as $from => $to) {
@@ -985,8 +1068,11 @@ function jackSave(mixed $in): array
                 $maps[rtrim($from, '/')] = rtrim($to, '/');        // '' = this folder deliberately not cached
             }
         }
-        $name = mb_substr(trim(optText($i, 'servername')), 0, 60) ?: 'Emby' . (count($instances) + 1);
-        $instances[] = ['servername' => $name, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
+        $name = mb_substr(trim(optText($i, 'servername')), 0, 60) ?: JACK_SERVER_NAMES[$type] . (count($instances) + 1);
+        // kept from the stored server at this address: what the setup doesn't show (Plex's days_to_monitor)
+        $old = array_values(array_filter((array) ($cur['instances'] ?? []), fn ($c) => is_array($c) && rtrim((string) ($c['url'] ?? ''), '/') === $url))[0] ?? [];
+        $instances[] = array_diff_key($old, ['api_key' => 1, 'path_mappings' => 1, 'servername' => 1, 'url' => 1, 'type' => 1])
+            + ['servername' => $name, 'type' => $type, 'url' => $url, 'api_key' => $key, 'path_mappings' => $maps];
     }
     if (!$instances) {
         throw new Problem('jack_need_key');
@@ -2148,19 +2234,20 @@ function jackImportBackup(string $dir, array $names, string $stamp): array
  */
 
 /**
- * One GET of <url>/Sessions: HTTP status, body (capped), curl's error number and text.
+ * One GET of who plays what: <url>/Sessions (Emby, Jellyfin), <url>/status/sessions (Plex) — HTTP status, body (capped),
+ * curl's error number and text.
  *
  * @return array{status: int, body: string, errno: int, error: string}
  */
-function jackWatchFetch(string $url, string $key, int $timeout = JACK_WATCH_TIMEOUT): array
+function jackWatchFetch(string $url, string $key, int $timeout = JACK_WATCH_TIMEOUT, string $type = 'emby'): array
 {
     if (!function_exists('curl_init')) {
         return ['status' => 0, 'body' => '', 'errno' => -1, 'error' => 'no curl in PHP'];
     }
     $body = '';
-    $c = curl_init(rtrim($url, '/') . '/Sessions');
+    $c = curl_init(rtrim($url, '/') . ($type === 'plex' ? '/status/sessions' : '/Sessions'));
     curl_setopt_array($c, [
-        CURLOPT_HTTPHEADER     => ["X-Emby-Token: $key", 'Accept: application/json'],
+        CURLOPT_HTTPHEADER     => [jackKeyHeader($type, $key), 'Accept: application/json'],
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_CONNECTTIMEOUT => min(3, $timeout),
         CURLOPT_TIMEOUT        => $timeout,
@@ -2189,7 +2276,7 @@ function jackWatchFetch(string $url, string $key, int $timeout = JACK_WATCH_TIME
  *
  * @param array{status: int, body: string, errno: int, error: string} $r
  */
-function jackWatchJudge(array $r): array
+function jackWatchJudge(array $r, string $type = 'emby'): array
 {
     $status = (int) ($r['status'] ?? 0);
     if ($status === 0) {
@@ -2207,6 +2294,9 @@ function jackWatchJudge(array $r): array
         return ['state' => 'error', 'why' => 'jack_watch_answer', 'detail' => "HTTP $status"];
     }
     $j = json_decode((string) ($r['body'] ?? ''), true);
+    if ($type === 'plex') {
+        return jackWatchJudgePlex($j);
+    }
     if (!is_array($j) || !array_is_list($j)) {
         return ['state' => 'error', 'why' => 'jack_watch_answer', 'detail' => 'no JSON'];
     }
@@ -2226,6 +2316,36 @@ function jackWatchJudge(array $r): array
         $who[] = ['user' => jackWatchText((string) ($s['UserName'] ?? '')), 'title' => $title,
                   'device' => jackWatchText((string) ($s['DeviceName'] ?? '')), 'client' => jackWatchText((string) ($s['Client'] ?? '')),
                   'paused' => !empty($s['PlayState']['IsPaused']), 'seen' => jackWatchSeen($s['LastActivityDate'] ?? null)];
+    }
+    return $who ? ['state' => 'watching', 'who' => array_slice($who, 0, JACK_WATCH_SHOWN)] : ['state' => 'free'];
+}
+
+/**
+ * Plex's /status/sessions: {MediaContainer: {size, Metadata: [{title, grandparentTitle, parentIndex, index, User: {title},
+ * Player: {title, product, state}}]}} — every entry plays (Plex lists nothing else), paused by Player.state. Plex says
+ * no last activity.
+ */
+function jackWatchJudgePlex(mixed $j): array
+{
+    $mc = is_array($j) ? ($j['MediaContainer'] ?? null) : null;
+    if (!is_array($mc) || (isset($mc['Metadata']) && !is_array($mc['Metadata']))) {
+        return ['state' => 'error', 'why' => 'jack_watch_answer', 'detail' => 'no JSON'];
+    }
+    $who = [];
+    foreach ((array) ($mc['Metadata'] ?? []) as $m) {
+        if (!is_array($m)) {
+            continue;
+        }
+        $title = jackWatchText((string) ($m['title'] ?? ''));
+        $series = jackWatchText((string) ($m['grandparentTitle'] ?? ''));
+        if ($series !== '' && ($m['type'] ?? '') === 'episode') {
+            $se = is_int($m['parentIndex'] ?? null) && is_int($m['index'] ?? null) ? sprintf('S%02dE%02d ', $m['parentIndex'], $m['index']) : '';
+            $title = trim("$series – $se$title");
+        }
+        $player = is_array($m['Player'] ?? null) ? $m['Player'] : [];
+        $who[] = ['user' => jackWatchText((string) ($m['User']['title'] ?? '')), 'title' => $title,
+                  'device' => jackWatchText((string) ($player['title'] ?? '')), 'client' => jackWatchText((string) ($player['product'] ?? '')),
+                  'paused' => ($player['state'] ?? '') === 'paused', 'seen' => null];
     }
     return $who ? ['state' => 'watching', 'who' => array_slice($who, 0, JACK_WATCH_SHOWN)] : ['state' => 'free'];
 }
@@ -2274,7 +2394,8 @@ function jackWatching(?array $settings = null, ?callable $fetch = null): array
         if (!preg_match('#^https?://[^\s/]+(:\d+)?(/[^\s]*)?$#D', $url) || $key === '') {
             continue;
         }
-        $seen[] = jackWatchJudge($fetch($url, $key)) + ['url' => $url];
+        $type = jackType($i['type'] ?? null);
+        $seen[] = jackWatchJudge($fetch($url, $key, JACK_WATCH_TIMEOUT, $type), $type) + ['url' => $url];
     }
     $time = time();
     $who = array_merge(...array_map(fn ($s) => $s['who'] ?? [], $seen ?: [[]]));
@@ -2549,7 +2670,7 @@ function jackStart(string $tool, string $mode): array
     }
     if ($tool === 'gather' && in_array($mode, ['run', 'measure'], true)) {      // a measurement reads every disk of the shares: not while someone watches either
         // asked in the agent's own loop: a short look (an Emby that is slow counts as down here — the job asks again, fully)
-        $look = jackWatching(null, fn (string $url, string $key) => jackWatchFetch($url, $key, JACK_WATCH_PAGE));
+        $look = jackWatching(null, fn (string $url, string $key, int $t = 0, string $type = 'emby') => jackWatchFetch($url, $key, JACK_WATCH_PAGE, $type));
         if ($p = jackWatchProblem($look)) {
             logLine("Jack Streamer: gather ($mode) not started — " . ($look['state'] === 'watching' ? 'someone watches Emby: ' . jackWatchersLine($look['who'])
                 : "Emby's answer: " . ($look['why'] ?? '') . ' ' . ($look['detail'] ?? '')));

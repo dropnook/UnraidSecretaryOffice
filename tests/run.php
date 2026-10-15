@@ -811,9 +811,18 @@ function testJack(): void
               'ghcr.io/linuxserver/emby@sha256:abc', 'binhex/arch-emby:latest', 'registry:5000/emby-server:beta'] as $i) {
         check("emby server image: $i", jackIsServerImage($i));
     }
-    foreach (['uping/embystat', 'helmi/embycache', 'jellyfin/jellyfin', 'lscr.io/linuxserver/jellyfin', 'kopia/kopia'] as $i) {
-        check("not an emby server: $i", !jackIsServerImage($i));
+    // 1.65.0: Jellyfin and Plex are media servers too — tools around them are not
+    same('media server images by kind', ['emby', 'jellyfin', 'jellyfin', 'plex', 'plex', 'plex', 'plex'],
+        array_map('jackServerType', ['emby/embyserver', 'jellyfin/jellyfin:10.10', 'lscr.io/linuxserver/jellyfin', 'plexinc/pms-docker:latest',
+                                     'linuxserver/plex', 'binhex/arch-plex', 'ghcr.io/hotio/plex@sha256:abc']));
+    foreach (['uping/embystat', 'helmi/embycache', 'fallenbagel/jellyseerr', 'tautulli/tautulli', 'meisnate12/plex-meta-manager', 'kometateam/kometa', 'kopia/kopia'] as $i) {
+        check("not a media server: $i", !jackIsServerImage($i));
     }
+    same('a server\'s key header by kind (Jellyfin 10.9+: Authorization)', ['X-Emby-Token: k1', 'Authorization: MediaBrowser Token="k1"', 'X-Plex-Token: k1'],
+        [jackKeyHeader('emby', 'k1'), jackKeyHeader('jellyfin', 'k1'), jackKeyHeader('plex', 'k1')]);
+    same('a stored server without a kind is Emby (MediaCache\'s default)', ['emby', 'plex', 'emby'], [jackType(null), jackType('Plex'), jackType('kodi')]);
+    same('Plex\'s token letters are a key; a space or a quote never', [true, true, false, false],
+        array_map(fn ($k) => (bool) preg_match(JACK_KEY, $k), ['abcdef0123456789abcdef0123456789', 'xY-z_12345678AbCdEfGh', 'abc def12345', 'abc"12345678']));
 
     // does a share suit EmbyCache with the pool "maple"?
     foreach ([['ok', ['shareUseCache' => 'yes', 'shareCachePool' => 'maple']],
@@ -898,6 +907,28 @@ function testJackWatch(): void
     check('watch: the last activity stays out of the office\'s log line', !str_contains(jackWatchersLine($w['who']), '2026') && !str_contains(jackWatchersLine($w['who']), (string) gmmktime(21, 37, 12, 10, 6, 2026)));
     same('watch: nobody', 'free', jackWatchJudge($ok($idle))['state']);
     same('watch: no sessions at all', 'free', jackWatchJudge($ok('[]'))['state']);
+    // 1.65.0 Plex: /status/sessions — every entry plays, paused by its player; Jellyfin answers like Emby
+    $plex = json_encode(['MediaContainer' => ['size' => 2, 'Metadata' => [
+        ['type' => 'episode', 'title' => 'Folge eins', 'grandparentTitle' => 'Gartenprojekt', 'parentIndex' => 1, 'index' => 4,
+         'User' => ['title' => 'mia'], 'Player' => ['title' => 'Wohnzimmer', 'product' => 'Plex for LG', 'state' => 'paused']],
+        ['type' => 'movie', 'title' => 'Ferien am See', 'User' => ['title' => 'leo'], 'Player' => ['title' => 'iPad', 'product' => 'Plex for iOS', 'state' => 'playing']]]]]);
+    $wp = jackWatchJudge($ok($plex), 'plex');
+    same('watch plex: who, what, where, paused — no last activity', ['watching', ['user' => 'mia', 'title' => 'Gartenprojekt – S01E04 Folge eins',
+        'device' => 'Wohnzimmer', 'client' => 'Plex for LG', 'paused' => true, 'seen' => null], 'Ferien am See', false],
+        [$wp['state'], $wp['who'][0] ?? null, $wp['who'][1]['title'] ?? null, $wp['who'][1]['paused'] ?? null]);
+    same('watch plex: nobody, or no MediaContainer (an error, never «free»)', ['free', 'free', 'error', 'error'],
+        [jackWatchJudge($ok('{"MediaContainer":{"size":0}}'), 'plex')['state'], jackWatchJudge($ok('{"MediaContainer":{"size":0,"Metadata":[]}}'), 'plex')['state'],
+         jackWatchJudge($ok('[]'), 'plex')['state'], jackWatchJudge($ok('{"MediaContainer":{"Metadata":"x"}}'), 'plex')['state']]);
+    // several servers of different kinds: each asked with its own kind
+    $asked = [];
+    $fetch = function (string $url, string $key, int $t = 0, string $type = 'emby') use (&$asked, $ok, $plex, $idle) {
+        $asked[] = "$type $url";
+        return $ok($type === 'plex' ? $plex : $idle);
+    };
+    $mixed = jackWatching(['instances' => [['url' => 'http://10.0.0.2:8096', 'api_key' => $key], ['url' => 'http://10.0.0.2:8097', 'api_key' => $key, 'type' => 'jellyfin'],
+        ['url' => 'http://10.0.0.2:32400', 'api_key' => 'xY-z_12345678', 'type' => 'plex']]], $fetch);
+    same('watch: Emby, Jellyfin and Plex at once — each by its kind, anyone watching anywhere counts', [['emby http://10.0.0.2:8096', 'jellyfin http://10.0.0.2:8097',
+        'plex http://10.0.0.2:32400'], 'watching', 2], [$asked, $mixed['state'], count($mixed['who'])]);
     foreach ([7 => 'refused', 28 => 'timeout', 6 => 'no such name'] as $errno => $what) {
         same("watch: Emby down ($what) — the run may go", 'down', jackWatchJudge(['status' => 0, 'body' => '', 'errno' => $errno, 'error' => $what])['state']);
     }

@@ -46,7 +46,7 @@ function jackLetGoHost(): array
         'running'  => $h['running'] ?? fn (): ?string => jackLetGoRunning(),
         'waiting'  => $h['waiting'] ?? fn (): bool => jackGatherWaiting() !== null,
         // asked in the agent's own loop: a short look (the job asks again, fully)
-        'look'     => $h['look'] ?? fn (?array $s): array => jackWatching($s, fn (string $url, string $key) => jackWatchFetch($url, $key, JACK_WATCH_PAGE)),
+        'look'     => $h['look'] ?? fn (?array $s): array => jackWatching($s, fn (string $url, string $key, int $t = 0, string $type = 'emby') => jackWatchFetch($url, $key, JACK_WATCH_PAGE, $type)),
         'python'   => $h['python'] ?? fn (): bool => jackPython() !== null,
         'launch'   => $h['launch'] ?? 'hostLaunch',
         // Unraid's own mover schedule «Disabled»? (jack-mover.php) — it stays so after the let-go, the dialog says
