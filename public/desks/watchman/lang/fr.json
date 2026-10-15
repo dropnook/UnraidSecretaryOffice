@@ -621,6 +621,8 @@
   "moving.gather": "le regroupement (consolider les dossiers)",
   "moving.rsync": "rsync qui déplace des fichiers",
   "moving.storeroom": "Madame Plumeau qui vide son débarras",
+  "moving.smartmover": "Madame Moverelli qui déplace vers l'array",
+  "moving.night": "Madame Moverelli et Jack Streamer dans l'exécution de nuit",
   "watch.flow_office_now": "la sauvegarde ou une restauration du secrétariat est en cours : l'envoi hors site (Kopia) et ce qui va dans l'emplacement des sauvegardes sont son propre travail (une restauration : tout ce qu'elle écrit)",
   "watch.grafana": "Historique dans Grafana",
   "watch.grafana_title": "Le tableau de bord du secrétariat dans Grafana, sur ce panneau — s'ouvre dans un nouvel onglet",

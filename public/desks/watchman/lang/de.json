@@ -621,6 +621,8 @@
   "moving.gather": "das Zusammenführen (Ordner konsolidieren)",
   "moving.rsync": "rsync, das Dateien verschiebt",
   "moving.storeroom": "Frau Putzteufel leert ihre Abstellkammer",
+  "moving.smartmover": "Frau Moverelli beim Verschieben aufs Array",
+  "moving.night": "Frau Moverelli und Jack Streamer im Nachtlauf",
   "watch.flow_office_now": "Ein Backup oder eine Rückholung des Sekretariats läuft: Der Upload ausser Haus (Kopia) und was in die Backup-Ablage geht, sind seine eigene Arbeit (eine Rückholung: alles, was sie schreibt)",
   "watch.grafana": "Verlauf in Grafana",
   "watch.grafana_title": "Das Dashboard des Sekretariats in Grafana, bei diesem Panel — öffnet in einem neuen Tab",

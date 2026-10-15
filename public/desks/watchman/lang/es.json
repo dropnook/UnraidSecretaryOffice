@@ -621,6 +621,8 @@
   "moving.gather": "la reunión (consolidar carpetas)",
   "moving.rsync": "rsync moviendo archivos",
   "moving.storeroom": "la señora Plumero vaciando su trastero",
+  "moving.smartmover": "la señora Moverelli moviendo al array",
+  "moving.night": "la señora Moverelli y Jack Streamer en la ejecución nocturna",
   "watch.flow_office_now": "la copia de seguridad o una restauración de la secretaría está en marcha: la subida fuera de casa (Kopia) y lo que va al lugar de las copias son trabajo suyo (una restauración: todo lo que escribe)",
   "watch.grafana": "Historial en Grafana",
   "watch.grafana_title": "El panel de la secretaría en Grafana, en este gráfico — se abre en una pestaña nueva",
