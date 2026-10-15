@@ -122,6 +122,53 @@ async function ack(e, b) {
   Office.toast(T('acked'));
 }
 
+/**
+ * «Acknowledge — this was serious»: closes the entry as a real incident (nothing of it becomes normal), with an optional
+ * one-line note; it goes into his history of serious incidents and the same from the same source is louder for a while
+ */
+function seriousAck(e, b) {
+  const days = seriousDays();
+  const box = el('div');
+  box.appendChild(el('p', 'wm-serious-what', entryName(e)));
+  box.appendChild(el('p', 'role', T('serious_text', { days })));
+  const f = el('div', 'field');
+  const label = el('label', '', T('serious_note'));
+  const note = el('input', 'input');
+  note.type = 'text';
+  note.maxLength = 200;
+  note.placeholder = T('serious_note_ph');
+  note.autocomplete = 'off';
+  note.id = 'wm-serious-note';
+  label.htmlFor = note.id;
+  f.append(label, note);
+  box.appendChild(f);
+  Office.dialog({
+    title: T('serious'),
+    body: box,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('serious'), kind: 'danger', act: async () => {
+      if (!Office.agent.running) return false;
+      const j = await Office.api.post(`${ID}.ack_serious`, { id: e.id, note: note.value.trim() });
+      if (!j.ok) {
+        Office.toast(Office.errorText(j.error, ID), true);
+        if (j.error && j.error.key === 'watch_gone') { await load(true); return true; }
+        return false;
+      }
+      if (j.state) state = j.state;
+      mood();
+      renderKeeping(e.id);
+      Office.toast(T('serious_done'));
+      return true;
+    } }],
+  });
+  if (b) b.blur();
+}
+
+/** How long the same is louder after a serious incident (days; the agent's WATCH_SERIOUS_DAYS) */
+const seriousDays = () => Number(state && state.limits && state.limits.serious_days) || 30;
+
+/** His serious incidents still louder now (they count in «How secure does it stand?») */
+const louderCount = () => ((state && state.incidents) || []).filter((x) => x && x.louder).length;
+
 /** «All n: I know, thanks» on a row that folds several entries: those of it still open, in one request (ack_some) */
 async function ackSome(list, b, key) {
   b.disabled = true;
@@ -213,6 +260,7 @@ function render() {
     [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
     [T('ack'), T('help.ack_text')],
+    [T('help.serious'), T('help.serious_text', { days: seriousDays() })],
     [T('help.normal'), T('help.normal_text')],
     [T('round_now'), T('help.round_text')],
     [T('help.logins'), T('help.logins_text', { burst: lim.burst || 5, minutes: Math.round((lim.window || 600) / 60) })],
@@ -259,6 +307,7 @@ const sw = Office.sections({
     { id: 'book', key: 'tile.book', place: 'tile.book', tile: (a) => bookTile(a), section: 'book' },
     { id: 'open', key: 'stat.open', place: 'stat.open', tile: (a) => openTile(a), section: 'book', filters: T('stat.open') },
     { id: 'posture', key: 'tile.posture', place: 'tile.posture', tile: (a) => postureTile(a), section: () => postureSection() },
+    { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection() },
     { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection() },
   ],
   sections: { book: () => bookSection() },
@@ -295,9 +344,61 @@ function postureTile(a) {
   const tips = (p && p.tips) || [];
   const known = tips.filter((x) => x.known).length;
   const open = tips.length - known;
-  return Office.stat({ label: T('tile.posture'), alert: !!open,
+  const louder = louderCount();      // serious incidents lately: part of how it stands
+  return Office.stat({ label: T('tile.posture'), alert: !!open || !!louder,
     value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
-    sub: known ? T('tile.posture_known', { n: known }) : '', ...a });
+    sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
+}
+
+/** «Serious incidents»: how many he keeps in his history, how many are still louder */
+function incidentsTile(a) {
+  const list = (state && state.incidents) || [];
+  const louder = louderCount();
+  return Office.stat({ label: T('tile.incidents'), alert: !!louder,
+    value: list.length ? T('tile.incidents_n', { n: list.length }) : T('tile.incidents_none'),
+    sub: louder ? T('tile.incidents_louder', { n: louder }) : '', ...a });
+}
+
+/**
+ * His history of serious incidents (newest first): what it was, when it came, when you acknowledged it, your note, until
+ * when the same from the same source is louder and how often it came back since
+ */
+function incidentsSection() {
+  const s = el('section', 'section wm-incidents');
+  s.appendChild(Office.sectionHead(T('incidents.title'), T('incidents.sub', { days: seriousDays() }), { place: 'incidents.title' }));
+  const list = (state && state.incidents) || [];
+  if (!list.length) {
+    s.appendChild(el('p', 'role wm-incidents-none', T('incidents.none')));
+    return s;
+  }
+  const box = el('div', 'box');
+  list.forEach((x) => box.appendChild(incidentRow(x)));
+  s.appendChild(box);
+  return s;
+}
+
+function incidentRow(x) {
+  const r = Office.place(`incident:${x.id}`, el('div', 'row nocheck wm-incident'));
+  r.dataset.id = x.id;
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', entryName(x)));
+  const meta = el('div', 'row-meta');
+  meta.appendChild(x.louder ? chip(T('incidents.louder_until', { date: fmt.date(x.until) }), 'warn', T('incidents.louder_until_title'))
+    : chip(T('incidents.over'), 'quiet', T('incidents.over_title')));
+  meta.appendChild(chip(T('group.' + x.group), '', T('group_title.' + x.group)));
+  const tech = attackLink(x.attack);
+  if (tech) meta.appendChild(tech);
+  if (x.again) meta.appendChild(chip(T('incidents.again', { n: x.again }), 'warn', T('incidents.again_title')));
+  const when = el('span', '', fmt.date(x.last));
+  when.dataset.tip = fmt.relative(x.last);
+  meta.appendChild(when);
+  const acked = el('span', '', T('incidents.acked', { when: fmt.relative(x.at) }));
+  acked.dataset.tip = fmt.date(x.at);
+  meta.appendChild(acked);
+  main.appendChild(meta);
+  if (x.note) main.appendChild(el('div', 'row-detail wm-incident-note', x.note));
+  r.appendChild(main);
+  return r;
 }
 
 /** «Keeping an eye on»: the containers, plugins and shares he watches */
@@ -836,7 +937,9 @@ function entryRow(e, owner) {
     meta.appendChild(chip(T('state.watch'), 'accent', T('state.watch_title')));
   } else {
     name.title = T('details');
-    meta.appendChild(e.open ? chip(T('state.open'), 'warn', T('state.open_title')) : chip(T('state.noted'), 'quiet', T('state.noted_title')));
+    meta.appendChild(e.open ? chip(T('state.open'), 'warn', T('state.open_title'))
+      : e.serious ? chip(T('state.serious'), 'warn', T('state.serious_title')) : chip(T('state.noted'), 'quiet', T('state.noted_title')));
+    if (e.again) meta.appendChild(chip(T('state.again'), 'warn', T('state.again_title')));
     meta.appendChild(chip(T('group.' + e.group), '', T('group_title.' + e.group)));
     const tech = attackLink(e.attack);
     if (tech) meta.appendChild(tech);
@@ -852,12 +955,22 @@ function entryRow(e, owner) {
   main.append(name, meta);
   r.appendChild(main);
   if (e.open) {
+    const acts = el('div', 'wm-entry-acts');
     const b = el('button', 'btn small plain', T('ack'));
     b.type = 'button';
     b.title = T('ack_title');
     b.disabled = !Office.agent.running;
     b.onclick = () => ack(e, b);
-    r.appendChild(b);
+    acts.appendChild(b);
+    if (!watch) {
+      const sb = el('button', 'btn small plain danger wm-serious', T('serious'));
+      sb.type = 'button';
+      sb.title = T('serious_title', { days: seriousDays() });
+      sb.disabled = !Office.agent.running;
+      sb.onclick = () => seriousAck(e, sb);
+      acts.appendChild(sb);
+    }
+    r.appendChild(acts);
   }
   if (watch) return r;
   let box = null;
@@ -1794,6 +1907,7 @@ Office.desk({
     const n = openCount();
     if (state.on_watch) facts.push(n ? T('fact.open', { n }) : T('fact.quiet'));
     if (postureOpen()) facts.push(T('fact.posture', { n: postureOpen() }));
+    if (louderCount()) facts.push(T('tile.posture_incidents', { n: louderCount() }));
     if (state.watch) facts.push(T('fact.known', { ips: T('count.known_addresses', { n: state.watch.ips.length }), plugins: T('count.plugins', { n: state.watch.plugins.length }) }));
     return { bubble: bubbleText(), facts };
   },
@@ -1805,10 +1919,11 @@ Office.places(ID, [
   { kind: 'section', key: 'posture.title', route: `#/${ID}/posture` },
   { kind: 'section', key: 'book.title', route: `#/${ID}/book` },
   { kind: 'section', key: 'watch.title', route: `#/${ID}/watch` },
+  { kind: 'section', key: 'incidents.title', route: `#/${ID}/incidents` },
   ...sw.places(),             // his tiles: the book, «Not noted yet», how secure, what he keeps an eye on
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
-  ...['posture', 'book', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
+  ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
     'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'grafana', 'notify', 'safe']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
@@ -1826,6 +1941,10 @@ Office.placesFrom(ID, (s) => {
   }));
   ((s.posture && s.posture.tips) || []).filter((x) => x && !x.known).forEach((x) => out.push({
     text: T(`posture.${x.id}.title`, postureParams(x)), sub: `${T('posture.title')} · ${T('posture.level_' + x.level)}`, route: `#/${ID}/posture`, anchor: x.id,
+  }));
+  (s.incidents || []).filter((x) => x && typeof x.id === 'string').forEach((x) => out.push({
+    text: entryName(x), sub: `${T('incidents.title')} · ${T('group.' + x.group)}`, route: `#/${ID}/incidents`, anchor: `incident:${x.id}`,
+    words: typeof x.note === 'string' ? x.note : '',
   }));
   const w = s.watch;
   if (!w) return out;

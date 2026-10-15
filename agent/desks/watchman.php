@@ -127,6 +127,9 @@ const WATCH_MAX_RUN      = 240;              // a round that takes longer is sto
 const WATCH_FAIL_BURST   = 5;                // failed logins from one address …
 const WATCH_FAIL_WINDOW  = 600;              // … within 10 minutes: a burst
 const WATCH_NOTIFY_QUIET = 3600;             // per kind at most one notification an hour
+const WATCH_SERIOUS_DAYS = 30;               // a serious incident: the same kind from the same source told louder this long
+const WATCH_INCIDENTS_MAX = 200;             // serious incidents kept in his history
+const WATCH_NOTE_MAX     = 200;              // the one-line note to a serious incident (characters)
 const WATCH_BOOK_MAX     = 500;              // entries in the watch book
 const WATCH_BOOK_DAYS    = 90;               // noted entries stay this long
 const WATCH_FORGET       = 30 * 86400;       // what is gone (a plugin, a container, a share) stays known this long
@@ -331,6 +334,7 @@ desk('watchman', [
         'ack'     => fn (array $r) => watchmanAck(is_array($r['id'] ?? null) ? null : ($r['id'] ?? null)),      // one id; a list is ack_some's
         'ack_all' => fn (array $r) => watchmanAck('*'),
         'ack_some' => fn (array $r) => watchmanAck(idList($r, 'ids')),       // a folded row of his page: «All n: I know, thanks»
+        'ack_serious' => fn (array $r) => watchmanSerious(textField($r, 'id'), optText($r, 'note')),     // «Acknowledge — this was serious»
         'notify_set' => fn (array $r) => watchmanNotifySet($r['on'] ?? null),
         'syslog_set' => fn (array $r) => watchmanSyslogSet($r['on'] ?? null),
         'posture_ack' => fn (array $r) => watchmanPostureAck($r['id'] ?? null, $r['on'] ?? null),
@@ -1424,6 +1428,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
         $old['posture'] = readJson("$dir/posture.json");
         $known = watchmanPostureKnown($old['posture'], $st['posture']['tips']);
+        if (!$fresh) {
+            watchmanSeriousAgain($book, $before, watchmanIncidents($dir), $now);     // after a serious incident: the same again is louder
+        }
         watchmanTidy($b, $st, $now);
         $book = watchmanPrune($book, $now);
         if (!$fresh) {
@@ -7331,6 +7338,110 @@ function watchmanAck(mixed $id, ?string $dir = null, ?int $now = null, bool $pag
 }
 
 /**
+ * «Acknowledge — this was serious»: the entry leaves what is open like «I know, thanks», but nothing of it becomes
+ * normal (an attacker's address never a known one, a pull never the new normal — still there, it is told again) and it
+ * goes into his history of serious incidents (incidents.json: the entry as it was, when, the note). For
+ * WATCH_SERIOUS_DAYS the same kind from the same source (its key) is louder: told at once, even when its kind is quiet
+ * or he would note it by himself, never put aside by the team lead (watchmanSeriousAgain()).
+ */
+function watchmanSerious(string $id, string $note, ?string $dir = null, ?int $now = null, bool $page = true): array
+{
+    if (!preg_match(WATCH_ID, $id)) {
+        throw new Problem('bad_request');
+    }
+    $note = watchmanSeriousNote($note);
+    $dir ??= watchmanDir();
+    $now ??= time();
+    $kind = watchmanLocked($dir, function () use ($dir, $id, $note, $now): string {
+        $d = watchmanLoad($dir);
+        if (!is_array($d['baseline'])) {
+            throw new Problem('watch_gone');
+        }
+        $book = $d['book'];
+        foreach ($book as $i => $e) {
+            if ($e['id'] !== $id || !watchmanOpen($e)) {
+                continue;
+            }
+            $book[$i]['noted'] = $now;
+            $book[$i]['by'] = 'page';
+            $book[$i]['serious'] = $now;
+            $list = watchmanIncidents($dir);
+            $list[] = ['id' => $e['id'], 'kind' => $e['kind'], 'key' => (string) ($e['key'] ?? ''), 'time' => (int) $e['time'],
+                       'last' => (int) $e['last'], 'count' => (int) ($e['count'] ?? 1), 'p' => (array) ($e['p'] ?? []),
+                       'at' => $now, 'until' => $now + WATCH_SERIOUS_DAYS * 86400, 'note' => $note];
+            writeAtomic("$dir/incidents.json", jsonEncode(['v' => 1, 'incidents' => array_slice($list, -WATCH_INCIDENTS_MAX)]));
+            $st = $d['state'];
+            $st['open'] = watchmanOpenCounts($book);
+            watchmanSave($dir, $d, ['book' => $book, 'state' => $st]);
+            return (string) $e['kind'];
+        }
+        throw new Problem('watch_gone');
+    });
+    if (!$page) {
+        return ['ok' => true, 'kind' => $kind];
+    }
+    logLine("Night watchman: a serious incident acknowledged ($kind) — the same from the same source is louder for " . WATCH_SERIOUS_DAYS . ' days');
+    watchmanMirrorKeep($dir);
+    return ['ok' => true, 'state' => watchmanPageState()];
+}
+
+/** The note to a serious incident: one line, no control characters, at most WATCH_NOTE_MAX characters */
+function watchmanSeriousNote(string $note): string
+{
+    if (!mb_check_encoding($note, 'UTF-8')) {
+        throw new Problem('bad_request');
+    }
+    $note = trim((string) preg_replace('/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/u', ' ', $note));
+    return mb_substr((string) preg_replace('/\s+/u', ' ', $note), 0, WATCH_NOTE_MAX);
+}
+
+/**
+ * His history of serious incidents, oldest first — only entries in exactly their shape (a file by hand, a newer
+ * office's: what isn't is left out, never an error)
+ * @return list<array>
+ */
+function watchmanIncidents(string $dir): array
+{
+    $out = [];
+    foreach ((array) (readJson("$dir/incidents.json")['incidents'] ?? []) as $x) {
+        if (is_array($x) && is_string($x['id'] ?? null) && preg_match(WATCH_ID, $x['id']) && is_string($x['kind'] ?? null) && isset(WATCH_KINDS[$x['kind']])
+            && is_string($x['key'] ?? null) && is_int($x['at'] ?? null) && is_int($x['until'] ?? null) && is_int($x['time'] ?? null)
+            && is_array($x['p'] ?? null) && is_string($x['note'] ?? '')) {
+            $out[] = $x + ['last' => $x['time'], 'count' => 1, 'note' => ''];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Louder after a serious incident: an entry new in this round ($before: the ids the round began with) of a kind and
+ * source acknowledged as serious within WATCH_SERIOUS_DAYS is important (told at once, joins chains) and stays open even
+ * when he would note it by himself (`again`: the incident's id). An entry already noted by the page is left alone.
+ */
+function watchmanSeriousAgain(array &$book, array $before, array $incidents, int $now): int
+{
+    $hot = [];
+    foreach ($incidents as $x) {
+        if ($x['until'] > $now) {
+            $hot[$x['kind'] . "\0" . $x['key']] = $x['id'];
+        }
+    }
+    $n = 0;
+    foreach ($book as $i => $e) {
+        $k = $e['kind'] . "\0" . (string) ($e['key'] ?? '');
+        if (isset($before[$e['id']]) || !isset($hot[$k]) || isset($e['again']) || ($e['by'] ?? null) === 'page') {
+            continue;
+        }
+        $book[$i]['again'] = $hot[$k];
+        $book[$i]['important'] = true;
+        $book[$i]['noted'] = null;
+        $book[$i]['by'] = null;
+        $n++;
+    }
+    return $n;
+}
+
+/**
  * What the team lead put aside («I know, thanks» on one of his findings)
  * counts here too: every entry that finding stood for is noted. Only while
  * the finding is still the same (its signature): a newer entry since makes it
@@ -7350,7 +7461,7 @@ function watchmanTeamLeadNotes(array &$b, array &$book, array $seen, int $now, ?
             continue;
         }
         foreach ($book as $i => $e) {
-            if (watchmanOpen($e) && $e['kind'] === $f['id']) {
+            if (watchmanOpen($e) && $e['kind'] === $f['id'] && !isset($e['again'])) {
                 watchmanAdopt($b, $e, $seen, $now);
                 $book[$i]['noted'] = $now;
                 $book[$i]['by'] = 'teamlead';
@@ -7605,7 +7716,8 @@ function watchmanNotifyDue(array &$book, array &$st, int $now, bool $send, ?stri
             }
             continue;
         }
-        if (!$new || $now - (int) ($st['notified'][$kind] ?? 0) < WATCH_NOTIFY_QUIET) {
+        $again = (bool) array_filter($new, fn ($i) => isset($book[$i]['again']));     // the same as a serious incident: never held back an hour
+        if (!$new || (!$again && $now - (int) ($st['notified'][$kind] ?? 0) < WATCH_NOTIFY_QUIET)) {
             continue;
         }
         $sent = $send && watchmanNotifySend($kind, array_map(fn ($i) => $book[$i], $new), $lang ?? officeNotifyLang());
@@ -7917,7 +8029,16 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
                    'open' => watchmanOpen($e), 't' => watchmanText($e),
                    'p' => array_filter((array) ($e['p'] ?? []), fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),
                    'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null,
-                   'night' => !empty($e['night'])];
+                   'night' => !empty($e['night']), 'serious' => isset($e['serious']), 'again' => isset($e['again'])];
+    }
+    // his history of serious incidents, newest first: the entry as it was, the note, until when the same is louder
+    $incidents = [];
+    foreach (array_reverse(watchmanIncidents($dir)) as $x) {
+        $incidents[] = ['id' => $x['id'], 'kind' => $x['kind'], 'group' => WATCH_KINDS[$x['kind']][0], 'attack' => WATCH_ATTACK[$x['kind']] ?? null,
+                        'v' => watchnetEntryVariant($x), 'time' => $x['time'], 'last' => (int) $x['last'], 'count' => (int) $x['count'],
+                        't' => watchmanText($x), 'p' => array_filter($x['p'], fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),
+                        'at' => $x['at'], 'until' => $x['until'], 'louder' => $x['until'] > $now, 'note' => (string) $x['note'],
+                        'again' => count(array_filter($d['book'], fn ($e) => ($e['again'] ?? null) === $x['id']))];
     }
     usort($book, fn ($x, $y) => [$y['last'], $y['time']] <=> [$x['last'], $x['time']]);
     $onWatch = is_array($b) && $since !== null && (int) ($b['hired'] ?? -1) === $since;
@@ -7948,11 +8069,12 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         'notified' => $st['last_notify'] ?? null,
         'notify'   => ['on' => ($st['notify'] ?? true) !== false, 'available' => is_executable(OFFICE_NOTIFY_BIN)],
         'syslog'   => ['on' => !empty($st['siem'])],
+        'incidents' => $incidents,
         'chains'   => array_map(fn ($c) => array_diff_key($c, ['key' => 1]), watchmanChains($d['book'], $now)),
         // the last night shift (the array stopped, or from boot to the array's start): from, until, from which mirror
         'night'    => is_array($st['night'] ?? null) && isset($st['night']['until']) ? array_map(fn ($v) => is_int($v) ? $v : (string) $v, $st['night']) : null,
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
-                       'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
+                       'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS, 'serious_days' => WATCH_SERIOUS_DAYS],
     ];
     if ($write && is_dir(DATA_DIR)) {
         writeAtomic(deskFile('watchman'), jsonEncode($state));

@@ -11682,6 +11682,142 @@ function testWatchmanGone(): void
 }
 
 /**
+ * «Acknowledge — this was serious»: the entry closes, nothing of it becomes normal, it goes into his history of serious
+ * incidents (with a one-line note), and for WATCH_SERIOUS_DAYS the same kind from the same source is louder — told at
+ * once (not held back by the hour's quiet), kept open against the team lead's note and his own noting.
+ */
+function testWatchmanSerious(): void
+{
+    $now = strtotime('2026-10-06 12:00:00');
+    $tmp = sys_get_temp_dir() . '/office-tests-serious-' . getmypid();
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    foreach (['plugins', 'extra', 'ssh/root'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/plugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini",
+              'share_cfg' => "$src/share.cfg", 'etc_passwd' => "$src/passwd"];
+    $line = fn (int $t, string $s) => date('M ', $t) . str_pad(date('j', $t), 2, ' ', STR_PAD_LEFT) . date(' H:i:s', $t) . " Tower $s\n";
+    file_put_contents($paths['syslog'], $line($now - 7200, 'webgui: Successful login user root from 192.168.20.10'));
+    file_put_contents("$src/plugins/ca.plg", "<PLUGIN name=\"ca\" version=\"1\" pluginURL=\"https://raw.githubusercontent.com/unraid/ca/master/ca.plg\">\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp &\n");
+    file_put_contents($paths['passwd'], "root:x:0:0:Console and webGui login account:/root:/bin/bash\n");
+    file_put_contents($paths['shadow'], 'root:$6$aa$bb:20000:0:99999:7:::' . "\n");
+    file_put_contents($paths['sec'], "[\"appdata\"]\nexport=\"e\"\nsecurity=\"private\"\n");
+    file_put_contents($paths['sec_nfs'], '');
+    file_put_contents($paths['share_cfg'], "shareSMBEnabled=\"yes\"\nshareNFSEnabled=\"no\"\n");
+    $containers = ['plex' => ['image' => 'plex', 'tokens' => ['-p 32400:32400/tcp']]];
+    $docker = function () use (&$containers) {
+        return $containers;
+    };
+    $acks = "$tmp/acks.json";
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\nfor a in \"\$@\"; do printf '%s\\x1f' \"\$a\"; done >> " . escapeshellarg($notified) . "\necho >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    $calls = fn () => count(array_filter(explode("\n", (string) @file_get_contents($notified))));
+    $openOf = fn (string $kind) => array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => watchmanOpen($e) && $e['kind'] === $kind));
+
+    watchmanRound($paths, $data, 1000, $now, $docker, true, $acks);
+    // a login from a new address and a new published port (a quiet kind: only in the book)
+    file_put_contents($paths['syslog'], $line($now + 300, 'webgui: Successful login user root from 10.9.8.7'), FILE_APPEND);
+    $containers['plex']['tokens'][] = '-p 8080:80/tcp';
+    watchmanRound($paths, $data, 1000, $now + 600, $docker, true, $acks);
+    $login = $openOf('login_new_ip')[0] ?? null;
+    $ports = $openOf('container_ports')[0] ?? null;
+    same('serious: the login and the port are open, the login told', [true, true, 1], [$login !== null, $ports !== null, $calls()]);
+
+    foreach (['nope', ['x'], 'w' . str_repeat('0', 10) . "\n"] as $bad) {
+        try {
+            watchmanSerious(is_string($bad) ? $bad : 'x', '', $data, $now + 700, false);
+            check('serious: a bad id is refused', false);
+        } catch (Problem $e) {
+            same('serious: a bad id is refused', 'bad_request', $e->key);
+        }
+    }
+    $r = watchmanSerious($login['id'], "  Changed the root password\nand blocked it \x07at the router  ", $data, $now + 700, false);
+    $d = watchmanLoad($data);
+    $e = array_column($d['book'], null, 'id')[$login['id']];
+    same('serious: closed like «I know, thanks», marked serious', [true, false, $now + 700, 'page', $now + 700],
+        [$r['ok'], watchmanOpen($e), $e['noted'], $e['by'], $e['serious'] ?? null]);
+    same('serious: nothing of it becomes normal — the address stays unknown', false, isset($d['baseline']['ips']['10.9.8.7']));
+    $inc = watchmanIncidents($data);
+    same('serious: in his history — what, when, the note as one line, louder for WATCH_SERIOUS_DAYS',
+        [1, $login['id'], 'login_new_ip', 'login_new_ip:10.9.8.7', 'Changed the root password and blocked it at the router', $now + 700 + WATCH_SERIOUS_DAYS * 86400],
+        [count($inc), $inc[0]['id'], $inc[0]['kind'], $inc[0]['key'], $inc[0]['note'], $inc[0]['until']]);
+    try {
+        watchmanSerious($login['id'], '', $data, $now + 701, false);
+        check('serious: twice is refused', false);
+    } catch (Problem $e) {
+        same('serious: twice is refused', 'watch_gone', $e->key);
+    }
+    same('serious: a long note is cut, a broken one refused', WATCH_NOTE_MAX, mb_strlen(watchmanSeriousNote(str_repeat('ä', 900))));
+    try {
+        watchmanSeriousNote("\xff\xfe");
+        check('serious: a note that is no UTF-8 is refused', false);
+    } catch (Problem $e) {
+        same('serious: a note that is no UTF-8 is refused', 'bad_request', $e->key);
+    }
+    watchmanAck($ports['id'], $data, $now + 710, false);
+    same('serious: «I know, thanks» keeps today\'s quieting — the port is normal', true,
+        in_array('-p 8080:80/tcp', watchmanLoad($data)['baseline']['containers']['plex']['tokens'], true));
+
+    // the same address again within the hour's quiet: a new entry, important, told at once
+    file_put_contents($paths['syslog'], $line($now + 800, 'sshd-session[5]: Accepted publickey for root from 10.9.8.7 port 2 ssh2: ED25519 SHA256:x'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $now + 900, $docker, true, $acks);
+    $again = $openOf('login_new_ip')[0] ?? null;
+    same('serious: back from the same source — open, louder, told within the hour', [true, $login['id'], true, 2],
+        [$again !== null, $again['again'] ?? null, $again['important'] ?? null, $calls()]);
+    // another address: nothing louder (the hour's quiet holds as before)
+    file_put_contents($paths['syslog'], $line($now + 1000, 'webgui: Successful login user root from 10.9.8.8'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $now + 1100, $docker, true, $acks);
+    $other = array_values(array_filter($openOf('login_new_ip'), fn ($e) => $e['key'] === 'login_new_ip:10.9.8.8'))[0] ?? null;
+    same('serious: another source is not louder', [true, false, 2], [$other !== null, isset($other['again']), $calls()]);
+    // the team lead's «I know, thanks» on the finding: the other is noted, the louder one stays open
+    $f = array_column(watchmanChecks($data), null, 'id')['login_new_ip'];
+    file_put_contents($acks, json_encode(['acks' => [caretakerAckSig('watchman', $f) => ['desk' => 'watchman', 'id' => 'login_new_ip', 'time' => $now, 'seen' => $now]]]));
+    watchmanRound($paths, $data, 1000, $now + 1400, $docker, true, $acks);
+    same('serious: the team lead never puts the louder one aside', [$again['id']], array_column($openOf('login_new_ip'), 'id'));
+    @unlink($acks);
+
+    // the page: the history, the marks
+    $s = watchmanPageState($data, $now + 1500, false);
+    $byId = array_column($s['book'], null, 'id');
+    same('serious page: entries marked', [true, false, true], [$byId[$login['id']]['serious'], $byId[$login['id']]['again'], $byId[$again['id']]['again']]);
+    same('serious page: the history with the note, louder, came back once', [1, 'login_new_ip', '10.9.8.7', true, 1, 'Changed the root password and blocked it at the router', WATCH_SERIOUS_DAYS],
+        [count($s['incidents']), $s['incidents'][0]['kind'], $s['incidents'][0]['t']['ip'], $s['incidents'][0]['louder'], $s['incidents'][0]['again'],
+         $s['incidents'][0]['note'], $s['limits']['serious_days']]);
+
+    // his own noting: an entry he would note by himself is kept open while louder; the round's old entries untouched
+    $inc = watchmanIncidents($data);
+    $book = [['id' => 'w0000000001', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.9.8.7', 'noted' => $now, 'by' => 'office'],
+             ['id' => 'w0000000002', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.9.8.7', 'noted' => null, 'by' => null],
+             ['id' => 'w0000000003', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.9.8.7', 'noted' => $now, 'by' => 'page']];
+    $b2 = $book;
+    same('serious: noted by himself — open again while louder; what was there before or noted by the page stays', [1, null, true, false, $now],
+        [watchmanSeriousAgain($b2, ['w0000000002' => 0], $inc, $now + 2000), $b2[0]['noted'], $b2[0]['important'], isset($b2[1]['again']), $b2[2]['noted']]);
+    $b3 = $book;
+    same('serious: after WATCH_SERIOUS_DAYS as usual again', [0, $now],
+        [watchmanSeriousAgain($b3, [], $inc, $inc[0]['until'] + 1), $b3[0]['noted']]);
+
+    // his history read only in exactly its shape (a file by hand, an older or newer office's)
+    file_put_contents("$data/incidents.json", json_encode(['v' => 1, 'incidents' => [
+        ['id' => 'bad', 'kind' => 'login_new_ip', 'key' => 'k', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => []],
+        ['id' => 'w0000000009', 'kind' => 'no_such_kind', 'key' => 'k', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => []],
+        ['id' => 'w000000000a', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => '1', 'until' => 2, 'p' => []],
+        'nonsense',
+        ['id' => 'w000000000b', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => ['name' => 'x'], 'more' => 1]]]));
+    same('serious: only incidents in exactly their shape', ['w000000000b'], array_column(watchmanIncidents($data), 'id'));
+    @unlink("$data/incidents.json");
+    same('serious: no history yet — none, and the page says so', [[], []], [watchmanIncidents($data), watchmanPageState($data, $now, false)['incidents']]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * A User Script started «in the background» goes through atd (User Scripts' backgroundScript.sh:
  * echo startBackground.php "/tmp/user.scripts/tmpScripts/<name>/script" | at NOW -M): a plain line in
  * the book, noted by itself — only when the job is exactly that, for a script that exists, with an
@@ -36287,7 +36423,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testSnapPoolSplit', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages'],
           'hardening' => ['testRequestTypes', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportStatus', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim'],
