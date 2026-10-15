@@ -24,6 +24,11 @@ declare(strict_types=1);
  * the night pass (nightInside()). Only she hired (Jack Emby not there): her part alone. No limit (X = 0): her part,
  * then Jack Emby's whole run with his own minimum free space. State: night.json (the last night).
  *
+ * night.json's `phase` and `who` say where the work is (the card's highlight, core.js Office.nightSteps(); 2026-10-15):
+ * `check` (who null) from before the first measure; `free` with who `jack` (his give-back) or `her` (her part); `recheck`
+ * (who null) while the pool is measured anew — after his give-back (with its settle) and after her part; `fill` with who
+ * `jack`; `done`. A stopped night: `stopped_in` (the phase) and `stopped_who` (whose step; additive — older files lack it).
+ *
  * night.json's `picture` — the numbers for the live graphic (bytes; null where not measured):
  *   {pool, x, dest: {to: "array"|<pool>, size, used},                                (the array's from disks.ini, nothing woken)
  *    phases: {check|free|recheck|fill|done: {before: B, forecast: B, planned: P}},   (each phase as it began)
@@ -294,7 +299,7 @@ function nightHost(?array $h = null): array
         'jack_budget' => $n['jack_budget'] ?? fn (): ?int => function_exists('jackReadSettings') && function_exists('jackSizeBytes')
             && is_string((jackReadSettings() ?? [])['cache_budget'] ?? null) && ($b = jackSizeBytes((string) jackReadSettings()['cache_budget'])) > 0 ? $b : null,
         // his live panel's state (jack-progress.php: {real, progress}) — her card shows it while his step runs
-        'jack_progress' => $n['jack_progress'] ?? fn (): array => function_exists('jackProgressState') ? jackProgressState() : [],
+        'jack_progress' => $n['jack_progress'] ?? fn (array $night): array => function_exists('jackNightProgress') ? jackNightProgress($night) : [],
         'notify'      => $n['notify'] ?? fn (string $subject, string $body): bool => officeNotify($subject, $body, 'warning', '', officeNotifyLink('#/moverelli')),
         'rounds'      => $n['rounds'] ?? NIGHT_ROUNDS_MAX,
         // seconds the pool gets after Jack Emby's give-back before it is measured (ZFS shows freed space a txg later)
@@ -488,6 +493,11 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     $real = $mode === 'run';
     $g = (moverelliSettings($dir) ?? moverelliDefaults())['global'];
     $jack = (bool) ($h['jack_on'])();
+    $started = time();
+    // «Measure» on the card while the pool is measured (it may wake the pool: seconds): the night as it begins, the plan
+    // and the picture follow once measured (2026-10-15 — the step highlight sits where the work is)
+    nightWrite($dir, ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => $started, 'phase' => 'check', 'round' => 1, 'who' => null,
+                      'jack' => $jack, 'steps' => [], 'result' => null] + ($waited > 0 ? ['waited' => $waited] : []));
     // the pool measured: Jack Emby's while he takes part, else the pool of her shares (her picture on every night)
     $level = ($h['level'])($g, $h, $real && $jack);
     $plan = nightPlan($level, $jack ? nightWaiting($h) : 0);
@@ -495,7 +505,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
     // his GB budget (his reserved room in the picture) — only while he takes part
     $budget = $jack ? ($h['jack_budget'])() : null;
     $pic = fn (array $p, bool $end = false): array => nightPhasePicture(nightPictureReserve($p, $budget, $end || !$jack || nightWaitKnown($h)));
-    $n = ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => time(), 'phase' => 'check', 'round' => 1, 'who' => null,
+    $n = ['v' => 1, 'mode' => $mode, 'by' => $by, 'pid' => getmypid(), 'started' => $started, 'phase' => 'check', 'round' => 1, 'who' => null,
           'jack' => $jack, 'pool' => $pool, 'plan' => nightWords($plan) + ['used_pct' => $plan['used_pct'], 'x' => $plan['x']],
           'picture' => ['pool' => $pool, 'x' => $plan['x'], 'dest' => $plan['measured'] ? nightDest($pool, $h) : null]
                      // a btrfs/xfs pool: its numbers estimated (poolLevelPlain()) — the picture says so
@@ -519,6 +529,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         if ($stopped()) {
             $n['result'] = 'stopped';
             $n['stopped_in'] = $phase;
+            $n['stopped_who'] = $who;
             return false;
         }
         $n['phase'] = $phase;
@@ -547,6 +558,7 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         if ($exit === 3 || $result === 'stopped' || $stopped()) {
             $n['result'] = 'stopped';
             $n['stopped_in'] = $phase;
+            $n['stopped_who'] = $who;
             return false;
         }
         if ($who === 'jack' && in_array($result, ['refused', 'skipped'], true)) {
@@ -586,6 +598,11 @@ function nightSteps(string $mode, string $by, int $waited, array $h): int
         $go = $step('her', 'free');
     } elseif ($jack && $plan['measured']) {
         $back = $go ? nightJackBack($h, $real) : 0;
+        if ($go && $real) {
+            // the pool measured anew after his give-back (its settle included): «Measure again» on the card, nobody at work
+            $n['phase'] = 'recheck';
+            nightWrite($dir, $n);
+        }
         if ($go) {
             // what was watched, now known: the check's pool split (the picture's «before»)
             $n['picture'] = nightPictureWatched($n['picture'], $back);

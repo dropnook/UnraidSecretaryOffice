@@ -1,0 +1,469 @@
+{
+ "time": 1791672002,
+ "unraid": {
+  "version": "7.3.3",
+  "ok": true,
+  "needed": "7.3.2"
+ },
+ "engine": "V7",
+ "configured": true,
+ "settings": {
+  "global": {
+   "min_age": 30,
+   "age_stat": "ctime",
+   "move_when_used_above": 80,
+   "move_until_used_below": 70,
+   "move_prefer_shares": true,
+   "mover_debug": 0,
+   "max_list": 50,
+   "files": [
+    "/mnt/user/appdata/UnraidSecretaryOffice/data/embycache/embycache_exclude.txt"
+   ],
+   "patterns": [
+    "*.nfo"
+   ]
+  },
+  "shares": {
+   "Familienfilme": {
+    "skip": false,
+    "min_age": 14,
+    "age_stat": null,
+    "move_when_used_above": null,
+    "move_until_used_below": null,
+    "files": [],
+    "patterns": [
+     "Trailers"
+    ]
+   }
+  }
+ },
+ "shares": [
+  {
+   "share": "Familienfilme",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": true,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 14,
+   "age_stat": "ctime",
+   "threshold": 80,
+   "until": 70,
+   "excludes": 3
+  },
+  {
+   "share": "Familienfotos",
+   "use": "no",
+   "primary": "",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  },
+  {
+   "share": "Familienserien",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": 80,
+   "until": 70,
+   "excludes": 2
+  },
+  {
+   "share": "Schule",
+   "use": "yes",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "yes",
+   "from": "cache",
+   "to": "array",
+   "state": "moves",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": 80,
+   "excludes": 2,
+   "until": 70
+  },
+  {
+   "share": "appdata",
+   "use": "only",
+   "primary": "cache",
+   "secondary": "",
+   "own": false,
+   "mode": "none",
+   "from": null,
+   "to": null,
+   "state": "none",
+   "min_age": 30,
+   "age_stat": "ctime",
+   "threshold": null,
+   "excludes": 2
+  }
+ ],
+ "mover": {
+  "off": true,
+  "schedule": null,
+  "running": false
+ },
+ "foreign": {
+  "tuning": {
+   "installed": false,
+   "lines": [],
+   "active": false
+  },
+  "scripts": []
+ },
+ "job": {
+  "mode": "run",
+  "by": "schedule",
+  "started": 1791671522,
+  "pid": 4243,
+  "running": false,
+  "size": 2048
+ },
+ "last": {
+  "mode": "run",
+  "result": "ok",
+  "exit": 0,
+  "started": 1791585902,
+  "finished": 1791586502,
+  "files": 10,
+  "bytes": 27400000000,
+  "moved": 9,
+  "left": 1,
+  "errors": 0,
+  "stop_share": "",
+  "message": "",
+  "shares": [
+   {
+    "share": "Familienfilme",
+    "state": "moved",
+    "files": 3,
+    "bytes": 18000000000,
+    "moved": 3,
+    "left": 0,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "80",
+    "excludes": ""
+   },
+   {
+    "share": "Familienserien",
+    "state": "moved",
+    "files": 7,
+    "bytes": 9400000000,
+    "moved": 6,
+    "left": 1,
+    "direction": "cache -> array",
+    "min_age": "30",
+    "age_stat": "ctime",
+    "threshold": "80",
+    "excludes": ""
+   }
+  ]
+ },
+ "history": [
+  {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791585902,
+   "finished": 1791586502,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "run",
+    "result": "ok",
+    "files": 10,
+    "bytes": 27400000000,
+    "moved": 9,
+    "left": 1,
+    "errors": 0,
+    "stop_share": "",
+    "message": "",
+    "shares": [
+     {
+      "share": "Familienfilme",
+      "state": "moved",
+      "files": 3,
+      "bytes": 18000000000,
+      "moved": 3,
+      "left": 0
+     },
+     {
+      "share": "Familienserien",
+      "state": "moved",
+      "files": 7,
+      "bytes": 9400000000,
+      "moved": 6,
+      "left": 1
+     }
+    ]
+   }
+  },
+  {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791499502,
+   "finished": 1791499502,
+   "result": "refused",
+   "why": "moverelli_schedule",
+   "schedule": "40 3 * * *",
+   "times": 3,
+   "first": 1791326402
+  },
+  {
+   "mode": "dry",
+   "by": "office",
+   "started": 1791240002,
+   "finished": 1791240042,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "dry",
+    "result": "ok",
+    "files": 12,
+    "bytes": 48000000000,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": []
+   }
+  },
+  {
+   "mode": "list",
+   "by": "office",
+   "started": 1791239902,
+   "finished": 1791239903,
+   "exit": 0,
+   "result": "ok",
+   "status": {
+    "mode": "list",
+    "result": "ok",
+    "files": 0,
+    "bytes": 0,
+    "moved": 0,
+    "left": 0,
+    "errors": 0,
+    "shares": [
+     {
+      "share": "a",
+      "state": "list"
+     },
+     {
+      "share": "b",
+      "state": "list"
+     }
+    ]
+   }
+  }
+ ],
+ "schedule": {
+  "script": true,
+  "frequency": "custom",
+  "custom": "15 5 * * *",
+  "enabled": true
+ },
+ "jack": {
+  "busy": false,
+  "list": null,
+  "uncovered": []
+ },
+ "night": {
+  "jack": true,
+  "plan": {
+   "measured": true,
+   "back": 0,
+   "goes": 0,
+   "age": 0,
+   "fill": 12884901888,
+   "wait": 0,
+   "first": "jack"
+  },
+  "last": {
+   "mode": "run",
+   "by": "schedule",
+   "started": 1791671222,
+   "phase": "free",
+   "round": 1,
+   "who": "jack",
+   "jack": true,
+   "pool": "cache",
+   "plan": {
+    "measured": true,
+    "back": 0,
+    "goes": 0,
+    "age": 0,
+    "fill": 12884901888,
+    "wait": 0,
+    "first": "jack"
+   },
+   "steps": [],
+   "result": null,
+   "running": true,
+   "picture": {
+    "pool": "cache",
+    "x": 80,
+    "dest": {
+     "to": "array",
+     "size": 25769803776000,
+     "used": 16320875724800
+    },
+    "phases": {
+     "check": {
+      "before": {
+       "size": 2147483648000,
+       "fixed": 354334801920,
+       "others": 654982512640,
+       "jack": 816043786240,
+       "free": 225485783040,
+       "jack_watched": 150323855360,
+       "jack_reserve": 150323855360,
+       "snapshots": 96636764160
+      },
+      "forecast": {
+       "size": 2147483648000,
+       "fixed": 354334801920,
+       "others": 504658657280,
+       "jack": 762356695040,
+       "free": 429496729600,
+       "jack_watched": 0,
+       "jack_reserve": 204010946560,
+       "snapshots": 96636764160
+      },
+      "planned": {
+       "jack_back": 150323855360,
+       "others_back": 150323855360,
+       "jack_fetch": 96636764160,
+       "until": 1621350154240
+      }
+     },
+     "free": {
+      "before": {
+       "size": 2147483648000,
+       "fixed": 354334801920,
+       "others": 654982512640,
+       "jack": 665719930880,
+       "free": 375809638400,
+       "jack_watched": 0,
+       "jack_reserve": 300647710720,
+       "snapshots": 96636764160
+      },
+      "forecast": {
+       "size": 2147483648000,
+       "fixed": 354334801920,
+       "others": 504658657280,
+       "jack": 762356695040,
+       "free": 429496729600,
+       "jack_watched": 0,
+       "jack_reserve": 204010946560,
+       "snapshots": 96636764160
+      },
+      "planned": {
+       "jack_back": 150323855360,
+       "others_back": 150323855360,
+       "jack_fetch": 96636764160,
+       "until": 1621350154240
+      }
+     }
+    },
+    "files": [
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 01.mkv",
+      "bytes": 1825361100,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 02.mkv",
+      "bytes": 2147483648,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 03.mkv",
+      "bytes": 2469606195,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Familienserien/Die Ritterburg/Staffel 1/Folge 04.mkv",
+      "bytes": 2791728742,
+      "from": "cache",
+      "to": "array",
+      "who": "jack"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4101.mov",
+      "bytes": 858993459,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4102.mov",
+      "bytes": 1073741824,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4103.mov",
+      "bytes": 1288490188,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4104.mov",
+      "bytes": 1503238553,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Fotos-Import/2023/Herbstferien/IMG_4105.mov",
+      "bytes": 1717986918,
+      "from": "cache",
+      "to": "/mnt/disk2",
+      "who": "her"
+     },
+     {
+      "name": "Downloads/Schule/Lernvideos-Mathe.zip",
+      "bytes": 8804682956,
+      "from": "cache",
+      "to": "/mnt/disk1",
+      "who": "her"
+     },
+     {
+      "name": "Familienfilme/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
+      "bytes": 4724464026,
+      "from": "array",
+      "to": "cache",
+      "who": "jack"
+     }
+    ]
+   }
+  }
+ }
+}

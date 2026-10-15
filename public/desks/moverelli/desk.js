@@ -191,7 +191,9 @@ function runCard(p, now) {
     card.appendChild(top);
   }
   if (!p) {
-    if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', T('rc.waiting')));
+    // the night between its steps (nobody at work): the pool measured — first, after his give-back, after her part
+    const measuring = !!(nn && !nn.who && ['check', 'recheck'].includes(nn.phase));
+    if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', measuring ? T('rc.measuring', { pool: nightPool(nn) }) : T('rc.waiting')));
   } else {
     const d = runCardData(p, now);
     if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
@@ -215,7 +217,7 @@ function runCard(p, now) {
   if (cur && cur.rel) {
     const pool = nightPool(nn);
     card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: cur.rel, done: cur.done, size: cur.size,
-      from: cur.phase === 'free' ? pool : 'array', to: cur.phase === 'free' ? 'array' : pool })));
+      from: cur.phase === 'back' ? pool : 'array', to: cur.phase === 'back' ? 'array' : pool })));     // EmbyCache's file phase: back | fill
   }
   // the foot: «N errors, N warnings» on the left (as Mr. Backupsy's card); on the right, in Jack Emby's order and style
   // (his live panel): «Log» as a quiet link, «Stop after this file» (Unraid's move finishes the file in flight anyway —
@@ -1035,7 +1037,7 @@ function lastNightText(l) {
   if (!l || !l.started) return '';
   const when = fmt.relative(l.finished || l.started);
   const how = l.result === 'missed' ? T(l.why === 'jack' ? 'night.last_missed_jack' : 'night.last_missed', { pct: l.end_pct ?? '?' })
-    : l.result === 'stopped' ? T('night.last_stopped', { phase: T('rc.phase.' + (l.stopped_in || 'free')) })
+    : l.result === 'stopped' ? T('night.last_stopped', { phase: Office.nightStoppedName(l, T) })
     : l.result === 'refused' ? T('night.last_refused') : T('night.last_ok');
   return T(l.jack === false || l.jack_out ? 'night.last_mine' : 'night.last', { when, how }) + (Number(l.round) > 1 ? ' · ' + T('night.rounds', { n: Number(l.round) }) : '')
     + (l.mode === 'dry' ? ' · ' + T('mode.dry') : '') + (l.jack_out ? ' · ' + jackOutText(l.jack_out) : '');

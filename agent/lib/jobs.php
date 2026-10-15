@@ -145,5 +145,9 @@ function officeJobsMoverelli(string $dir, ?array $job = null, ?array $night = nu
     return [['desk' => 'moverelli', 'kind' => $nightOn ? 'night' : 'run', 'mode' => $mode,
              'phase' => $nightOn ? (string) ($night['phase'] ?? '') : (string) ($live['phase'] ?? ''),
              'share' => $live !== null && is_string($live['share'] ?? null) ? $live['share'] : null,
-             'moved' => $mode === 'run' ? $moved : null]];
+             'moved' => $mode === 'run' ? $moved : null]
+             // the night: whose step (jack, her, null between) and whether Jack Streamer is in it — the step's name as on her
+             // card (core.js Office.nightSteps(), 2026-10-15)
+             + ($nightOn ? ['who' => in_array($night['who'] ?? null, ['jack', 'her'], true) ? $night['who'] : null,
+                            'with_jack' => !empty($night['jack']) && empty($night['jack_out'])] : [])];
 }

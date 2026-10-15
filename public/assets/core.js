@@ -990,16 +990,55 @@ Office.runBar = function runBar(percent, label) {
   return bar;
 };
 /**
- * The night run's phases (agent/lib/nightrun.php) as a run's steps, pure: Check, Free, (Check again — only once a round
- * more went), Fill (only with Jack Emby) — the one going «running», those before «done». $T: Ms. Moverelli's texts
- * (Office.scope('moverelli') — the night is hers, Jack Emby's page shows it in the same words).
+ * The night run's steps (agent/lib/nightrun.php) as a run's steps, pure — the highlight wanders with the work, like Mr.
+ * Backupsy's run card (2026-10-15, the owner). With Jack Streamer and a limit: Measure · Jack Streamer gives back · Measure
+ * again (the pool after his give-back) · Ms. Moverelli makes room (« · 2 passes» once a round more went) · Jack Streamer
+ * fetches. Without a limit (the plan not measured): Measure · her part · his whole run. She alone (or he out tonight):
+ * Measure · Make room. Where the work is comes from night.json's phase and who, between steps from the steps done (an
+ * older agent's file without its «recheck» after his give-back reads the same). The one going «running», those before
+ * «done». $T: Ms. Moverelli's texts (Office.scope('moverelli') — the night is hers, Jack Streamer's page shows it in the
+ * same words).
  */
 Office.nightSteps = function nightSteps(n, T) {
-  const order = ['check', 'free', 'recheck', 'fill'];
-  const at = order.indexOf(n.phase || 'check');
-  const list = order.filter((ph) => (ph !== 'recheck' || Number(n.round) > 1 || n.phase === 'recheck') && (ph !== 'fill' || n.jack));
-  return list.map((ph) => ({ name: T('rc.phase.' + ph) + (ph === 'recheck' && Number(n.round) > 1 ? ' · ' + T('night.rounds', { n: Number(n.round) }) : ''),
-    state: n.phase === 'done' || order.indexOf(ph) < at ? 'done' : ph === n.phase ? 'running' : 'pending' }));
+  const done = Array.isArray(n.steps) ? n.steps : [];
+  const round = Number(n.round) || 1;
+  const withJack = !!n.jack && !n.jack_out;
+  const joint = withJack && !(n.plan && n.plan.measured === false);
+  const ids = joint ? ['check', 'jack_back', 'measure', 'her', 'fill'] : withJack ? ['check', 'her', 'fill'] : ['check', 'her'];
+  const herDone = done.some((x) => x && x.who === 'her');
+  const backDone = done.some((x) => x && x.who === 'jack' && x.phase === 'free');
+  const at = (() => {
+    if (!n.phase || n.phase === 'check') return 'check';
+    if (n.phase === 'fill' || (n.who === 'jack' && !joint)) return 'fill';
+    if (n.who === 'jack') return 'jack_back';
+    if (n.who === 'her' || !joint || herDone || round > 1) return 'her';      // her part — and the quick measure after it
+    return n.phase === 'recheck' || backDone ? 'measure' : 'jack_back';
+  })();
+  const pos = n.phase === 'done' ? ids.length : ids.indexOf(at);
+  return ids.map((id, i) => {
+    const name = Office.nightStepName(id, n, T) + (id === 'her' && round > 1 ? ' · ' + T('night.rounds', { n: round }) : '');
+    return { id, name, full: name, state: i < pos ? 'done' : i === pos ? 'running' : 'pending' };     // full: the tooltip where a phone cuts it
+  });
+};
+/**
+ * A night step's name, pure: check, jack_back, measure, her, fill — her part named («Ms. Moverelli makes room») while
+ * Jack Streamer is in the night, plain «Make room» when she works alone
+ */
+Office.nightStepName = function nightStepName(id, n, T) {
+  const key = { check: 'check', jack_back: 'jack_back', measure: 'recheck', fill: 'fill' }[id];
+  if (key) return T('rc.phase.' + key);
+  return T(n && n.jack && !n.jack_out ? 'rc.phase.her' : 'rc.phase.free');
+};
+/**
+ * Where a stopped night stopped, as the step's name, pure: night.json `stopped_in` + `stopped_who` (an older file without
+ * who: the phase's own word)
+ */
+Office.nightStoppedName = function nightStoppedName(n, T) {
+  const ph = n.stopped_in || 'free';
+  const who = n.stopped_who;
+  if (who === 'jack') return Office.nightStepName(ph === 'fill' || (n.plan && n.plan.measured === false) ? 'fill' : 'jack_back', n, T);
+  if (who === 'her') return Office.nightStepName('her', n, T);
+  return T('rc.phase.' + ph);
 };
 /**
  * The night run's card — the same on Ms. Moverelli's page and Jack Emby's (2026-10-13): «Joint run», since when and how

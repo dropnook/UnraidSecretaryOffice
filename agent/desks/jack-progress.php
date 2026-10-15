@@ -371,6 +371,22 @@ function jackProgressState(?array $job = null, ?array $paths = null, ?int $now =
 }
 
 /**
+ * His step of the night at work (night.json: a real night, who `jack`, free|fill — the caller looked): his live view by
+ * the night's word, never by his job's marker alone (2026-10-15: the owner saw her card say «Jack Streamer is at work —
+ * each file on his page» for his whole give-back, no panel). A progress file older than this night (a run before that
+ * didn't clear it) is none: «working out what goes where» until EmbyCache writes this run's.
+ */
+function jackNightProgress(array $night, ?array $paths = null, ?int $now = null, ?string $stopFile = null): array
+{
+    $s = jackProgressState(['running' => true, 'mode' => 'run'], $paths, $now, $stopFile);
+    $from = (int) ($s['progress']['started'] ?? 0);
+    if ($from > 0 && $from < (int) ($night['started'] ?? 0)) {
+        $s['progress'] = null;
+    }
+    return $s;
+}
+
+/**
  * «Stop after this file» (his panel; 2026-10-10): only while a real EmbyCache run goes (run, release) — the same
  * stop request the mover guard writes (`office-stop.json`, EMBYCACHE_STOP), why `user`, once; EmbyCache ends after the
  * file it is on (exit 3, result `stopped`), jackRunWatch() takes the why from the file. Already asked: nothing new.
