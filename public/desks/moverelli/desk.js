@@ -90,7 +90,7 @@ function jackPanel(nn) {
   if (!jackAtWork(nn)) return null;
   const box = el('div', 'box jo-prog running mo-jack');
   const head = el('div', 'jo-prog-head');
-  head.append(el('span', 'spin'), el('span', '', T('rc.jack_title')));
+  head.append(el('span', '', T('rc.jack_title')));          // a part of her one card: its wave is the card's
   const open = link(T('rc.night_jack_open'), () => Office.go('#/jack'));
   open.className = 'mo-link mo-jack-open';
   head.appendChild(open);
@@ -212,8 +212,8 @@ function runCard(p, now) {
 // pool) — and the files done wandering slowly between them (night.json `picture`, agent/lib/nightrun.php).
 // Jack Streamer's part in two (the owner, 2026-10-15): not yet watched in his colour, already watched (goes back) in green
 // and his reserved room (owner + helmi1987, 2026-10-15): hatched after his part — his budget's room not yet filled
-// the snapshots apart in black (owner, 2026-10-15; ZFS only — no figure, no part)
-const PIC_SEGS = ['fixed', 'snaps', 'others', 'jack', 'watched', 'reserve', 'free'];
+// the snapshots apart in black (owner, 2026-10-15; ZFS only — no figure, no part), first at the very left (owner, 2026-10-15)
+const PIC_SEGS = ['snaps', 'fixed', 'others', 'jack', 'watched', 'reserve', 'free'];
 const PIC_MIN_PX = 10;            // a segment with something in it is never thinner than this (the owner, 2026-10-14)
 const PIC_ORDER = ['recheck', 'free', 'check'];       // the latest forecast first (a phase as it began)
 
@@ -295,13 +295,9 @@ function nightPicture(n) {
   let pic = n && n.picture;
   if (!pic || typeof pic !== 'object') return null;
   const box = el('div', 'box mo-pic');
-  // its title like the other run cards': the wave at its left while the run goes (no wave once it ended)
+  // its small head: while the run goes a part of her one card (the card's wave at its top), after it a box of its own
   const head = el('div', 'mo-pic-head');
-  const title = (nn) => {
-    head.innerHTML = '';
-    if (nn.running) head.appendChild(el('span', 'spin'));
-    head.appendChild(el('span', '', T(nn.running ? 'pic.title_run' : 'pic.title_last')));
-  };
+  const title = (nn) => { head.textContent = T(nn.running ? 'pic.title_run' : 'pic.title_last'); };
   title(n);
   const grid = el('div', 'mo-pic-grid');
   const rowsBox = el('div', 'mo-pic-rowsBox');
@@ -943,13 +939,17 @@ function hints() {
     out.push(el('p', 'callout warn', T(last.mover_by === 'schedule' ? 'stopped_mover_schedule' : 'stopped_mover')));
   }
   if (realRun()) {
-    out.push(runCard(progress, Date.now() / 1000));
+    // ONE card while the run goes (owner 2026-10-15): the run (steps, progress, buttons), Jack Streamer at work (his step
+    // only), the pool in this run — one wave at its top, the parts below sections inside it (a divider, a small head)
+    const one = el('div', 'card mo-one running');
+    one.appendChild(runCard(progress, Date.now() / 1000));
     // right under it, while Jack Streamer's step runs: his live panel (the same as on his page)
     const jp = jackPanel(nightNow || (nightGoing() ? night().last : null));
-    if (jp) out.push(jp);
+    if (jp) one.appendChild(jp);
     // under the card: the night's picture — the pool before, the forecast after, where she moves to, files on the way
     const pic = livePicture(nightNow || (nightGoing() ? night().last : null));
-    if (pic) out.push(pic);
+    if (pic) one.appendChild(pic);
+    out.push(one);
   } else if (running()) {
     const p = el('p', 'callout', T('notice.running', { mode: T('mode.' + state.job.mode) }) + ' ');
     p.appendChild(button(T('rc.show_log'), 'small plain', () => showOutput(true))).disabled = !Office.agent.running;

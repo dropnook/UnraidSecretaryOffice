@@ -130,4 +130,10 @@
 @keyframes mo-reel{to{transform:rotate(360deg)}}
 @media (max-width:640px){ .mo-pic-grid{grid-template-columns:minmax(0, 1fr)} }
 @media (prefers-reduced-motion: reduce){ .mo-pic-dot{display:none} .mo-wing, .mo-fly-reel{animation:none} }
+/* her one card while a run goes (2026-10-15): the run, Jack Streamer at work, the pool — parts inside it, no own box */
+.mo-one{display:block; min-height:0; padding:12px 14px; margin:0 0 12px}
+.mo-one > .mo-run{border:0; background:none; box-shadow:none; padding:0; margin:0; min-height:0}
+.mo-one > .mo-jack, .mo-one > .mo-pic{border:0; border-top:1px solid var(--line); border-radius:0; background:none; box-shadow:none;
+  padding:10px 0 0; margin:12px 0 0}
+.mo-one > .mo-jack .jo-prog-head, .mo-one > .mo-pic .mo-pic-head{font-size:12px; font-weight:650; color:var(--muted); text-transform:uppercase; letter-spacing:.04em}
 }
