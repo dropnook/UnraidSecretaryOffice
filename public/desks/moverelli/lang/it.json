@@ -479,6 +479,7 @@
   "night.tile_age_mixed": "solo la regola dell'età",
   "night.tile_age_all": "tutto il pool (nessun limite d'età)",
   "setup.level_jack_over": "Su {pool} ciò che non si sposta mai e i {jack} di Jack Streamer insieme superano il {x} % — ciò che non ha guardato resta, quindi il pool resta sopra il limite. Il suo budget è troppo grande per questo pool.",
+  "setup.level_folders": "Su {pool} la cartella di {shares} non è un dataset proprio: conto i suoi file come se non si spostassero mai. Come sistemarlo lo dice la pagina di Jack Streamer.",
   "setup.err_limit": "Il limite deve essere un numero intero da 0 a 100.",
   "notify.night_missed_jack": "Dopo l'esecuzione comune il pool {pool} è ancora al {now} % (limite {x} %). Solo ciò che Jack Streamer non ha ancora guardato resta sopra — il suo budget è troppo grande per questo pool. Riduci il suo budget o alza il limite.",
   "night.back_watched": "Jack Streamer restituisce ciò che è stato guardato",

@@ -393,26 +393,103 @@ function jackShareFit(array $cfg, string $pool): string
     };
 }
 
-function jackShares(array $settings): array
+function jackShares(array $settings, ?array $mounts = null): array
 {
     $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
     $pool = basename($cache);
     $asleep = $cache !== '' && baseAsleep($pool, sleepingDisks());   // the caretaker looks every 30 min: don't wake the pool
+    $mounts ??= mountTable();
+    $zfs = $cache !== '' && jackPoolDataset($cache, $mounts) !== null;
     $out = [];
     foreach (jackMappedShares($settings) as $share) {
         $cfg = jackShareCfg($share);
+        $fit = jackShareFit($cfg, $pool);
+        // EmbyCache won't create it; null = the pool sleeps, not looked
+        $root = $cache === '' ? false : ($asleep ? null : is_dir("$cache/$share"));
         $out[] = [
             'share'     => $share,
             'use'       => (string) ($cfg['shareUseCache'] ?? ''),
             'primary'   => (string) ($cfg['shareCachePool'] ?? ''),
             'secondary' => (string) ($cfg['shareCachePool2'] ?? ''),
             'include'   => (string) ($cfg['shareInclude'] ?? ''),
-            'fit'       => jackShareFit($cfg, $pool),
-            // EmbyCache won't create it (ZFS: a dataset); null = the pool sleeps, not looked
-            'root'      => $cache === '' ? false : ($asleep ? null : is_dir("$cache/$share")),
+            'fit'       => $fit,
+            'root'      => $root,
+            // missing on a ZFS pool that is the share's own: his next real run makes the dataset, as Unraid would (jackMakeShareDatasets())
+            'auto'      => $root === false && $zfs && $fit === 'ok' && jackDatasetName($share),
+            // there, but on ZFS a plain folder inside the pool's own dataset (not the share's dataset): null = not ZFS, not there or not looked
+            'dataset'   => $root === true && $zfs ? jackIsDataset("$cache/$share", $mounts) : null,
         ];
     }
     return $out;
+}
+
+/*
+ * The share's dataset on a ZFS pool (inbox #14, seen on Tower with 7.3.3): Unraid's shfs makes `<pool>/<share>` with a
+ * plain `zfs create` when something is written through /mnt/user and the share has no folder on the pool, and destroys it
+ * again when the mover has emptied it. EmbyCache writes straight to /mnt/<pool>/<share>: a mkdir there would be a plain
+ * folder inside the pool's own dataset — no snapshots, no backup per share, not counted as the share's. So before a real
+ * run fetches anything he makes the missing datasets himself, the way shfs does.
+ */
+/** The ZFS dataset mounted at the pool's folder (/mnt/<pool>) — null: not ZFS */
+function jackPoolDataset(string $cache, array $mounts): ?string
+{
+    foreach ($mounts as $m) {
+        if ($m['mount'] === $cache && $m['fs'] === 'zfs' && preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:\-]*(\/[A-Za-z0-9][A-Za-z0-9_.: \-]*)*$/D', $m['source'])) {
+            return $m['source'];
+        }
+    }
+    return null;
+}
+
+/** A share name ZFS takes as a dataset name as it is (as shfs passes it) */
+function jackDatasetName(string $share): bool
+{
+    return (bool) preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.: \-]{0,200}$/D', $share);
+}
+
+/** Is a ZFS dataset mounted at exactly this folder? */
+function jackIsDataset(string $path, array $mounts): bool
+{
+    foreach ($mounts as $m) {
+        if ($m['mount'] === $path && $m['fs'] === 'zfs') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Before a real run: on a ZFS pool every mapped share that lives there (Cache: yes, this pool first) and has no folder on it
+ * gets its dataset — `zfs create <pool>/<share>` like shfs, owner and rights like Unraid's new share (nobody:users 0777).
+ * Never over something there (a folder, a dataset mounted elsewhere). Returns [made, failed] (share names).
+ */
+function jackMakeShareDatasets(array $rows, string $cache, array $mounts, ?callable $run = null): array
+{
+    $run ??= fn (array $cmd): array => run($cmd, 30);
+    $ds = jackPoolDataset($cache, $mounts);
+    $made = $failed = [];
+    if ($ds === null) {
+        return [$made, $failed];
+    }
+    foreach ($rows as $row) {
+        $share = (string) $row['share'];
+        if (empty($row['auto']) || !jackDatasetName($share) || file_exists("$cache/$share") || is_link("$cache/$share")) {
+            continue;
+        }
+        [$exit, $out] = $run(['zfs', 'create', "$ds/$share"]);
+        clearstatcache(true, "$cache/$share");
+        if ($exit !== 0 || !is_dir("$cache/$share") || is_link("$cache/$share")) {
+            $failed[] = $share;
+            logLine("Jack Emby: could not make the dataset $ds/$share for the share's folder on $cache: " . trim((string) $out));
+            continue;
+        }
+        @chown("$cache/$share", 'nobody');
+        @chgrp("$cache/$share", 'users');
+        @chmod("$cache/$share", 0777);
+        $made[] = $share;
+        logLine("Jack Emby: made the dataset $ds/$share (the share's folder on $cache, as Unraid does)");
+    }
+    return [$made, $failed];
 }
 
 /**
@@ -2639,6 +2716,12 @@ function jackJob(string $tool, array $args): int
         writeAtomic("$dir/office-stop.json", (string) @file_get_contents("$night/night-stop.json"), 0600, 0, 0);
     }
 
+    if ($tool === 'embycache' && $mode === 'run' && !$noFill && ($settings = jackReadSettings())) {
+        // the shares' folders on a ZFS pool as Unraid makes them — never a plain folder (jackMakeShareDatasets())
+        $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
+        $mounts = mountTable();
+        jackMakeShareDatasets(jackShares($settings, $mounts), $cache, $mounts);
+    }
     $progress = null;                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
         $text = $mode === 'measure' ? jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? [])
@@ -3137,9 +3220,11 @@ function jackChecks(): array
         return $out;
     }
     $shares = jackShares($settings);
-    $missing = array_column(array_filter($shares, fn ($s) => $s['root'] === false), 'share');
+    $missing = array_column(array_filter($shares, fn ($s) => $s['root'] === false && !$s['auto']), 'share');
     $unseen = array_filter($shares, fn ($s) => $s['root'] === null);
     $out[] = finding('share_root', 'required', $missing ? false : ($unseen ? null : true), ['shares' => implode(', ', $missing), 'pool' => (string) ($settings['cache_path'] ?? '')], '#/jack');
+    $plain = array_column(array_filter($shares, fn ($s) => $s['dataset'] === false), 'share');
+    $out[] = finding('share_dataset', 'recommended', !$plain, ['shares' => implode(', ', $plain), 'pool' => (string) ($settings['cache_path'] ?? '')], '#/jack');
     $unfit = array_column(array_filter($shares, fn ($s) => !in_array($s['fit'], ['ok', 'array_only'], true)), 'share');
     $out[] = finding('share_fit', 'recommended', !$unfit, ['shares' => implode(', ', $unfit)], '#/jack');
     $out[] = finding('gather_done', 'required', jackGatherReady(), [], '#/jack');

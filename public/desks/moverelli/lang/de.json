@@ -479,6 +479,7 @@
   "night.tile_age_mixed": "nur die Altersregel",
   "night.tile_age_all": "alles vom Pool (keine Altersgrenze)",
   "setup.level_jack_over": "Auf {pool} liegen, was nie zügelt, und Jack Streamers {jack} zusammen über {x} % — Ungeschautes bleibt, also bleibt der Pool über der Grenze. Sein Budget ist zu gross für diesen Pool.",
+  "setup.level_folders": "Auf {pool} ist der Ordner von {shares} kein eigenes Dataset: Seine Dateien zähle ich, als zügelten sie nie. Wie man das behebt, steht bei Jack Streamer.",
   "setup.err_limit": "Die Grenze muss eine ganze Zahl von 0 bis 100 sein.",
   "notify.night_missed_jack": "Nach dem gemeinsamen Lauf steht der Pool {pool} noch bei {now} % (Grenze {x} %). Nur Ungeschautes von Jack Streamer liegt noch drüber — sein Budget ist zu gross für diesen Pool. Sein Budget kleiner oder die Grenze höher setzen.",
   "night.back_watched": "Jack Streamer gibt Geschautes zurück",

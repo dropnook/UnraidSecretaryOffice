@@ -34594,6 +34594,54 @@ JS);
 }
 
 /**
+ * A share's folder on a ZFS pool (inbox #14; on Tower, 7.3.3: shfs makes <pool>/<share> with `zfs create` on a write through
+ * /mnt/user and destroys it when the mover has emptied it; a mkdir straight on the pool is a plain folder in the pool's
+ * dataset). Before a real fill Jack Streamer makes a missing one as a dataset, the way shfs does; a plain folder is named.
+ */
+function testJackShareDataset(): void
+{
+    $tmp = hardeningTmp('jack-share-dataset');
+    @mkdir("$tmp/mnt/maple/Serien", 0700, true);
+    @mkdir("$tmp/mnt/maple/Fotos", 0700, true);
+    $cache = "$tmp/mnt/maple";
+    $mounts = [['mount' => $cache, 'fs' => 'zfs', 'source' => 'maple'], ['mount' => "$cache/Fotos", 'fs' => 'zfs', 'source' => 'maple/Fotos'],
+               ['mount' => "$tmp/mnt/bt", 'fs' => 'btrfs', 'source' => '/dev/sdx1']];
+    same('share dataset: the pool\'s own dataset from the mounts — none on btrfs or a pool not mounted', ['maple', null, null],
+        [jackPoolDataset($cache, $mounts), jackPoolDataset("$tmp/mnt/bt", $mounts), jackPoolDataset("$tmp/mnt/gone", $mounts)]);
+    same('share dataset: a dataset mounted at the share\'s folder, or a plain folder', [true, false], [jackIsDataset("$cache/Fotos", $mounts), jackIsDataset("$cache/Serien", $mounts)]);
+    same('share dataset: names ZFS takes as they are (a space too) — never a path, a dot or a dash first', [true, true, false, false, false, false],
+        array_map('jackDatasetName', ['Filme', 'Home Videos', '../x', '.hidden', '-o', 'Fil/me']));
+
+    $asked = [];
+    $run = function (array $cmd) use (&$asked, $cache): array {
+        $asked[] = implode(' ', $cmd);
+        if ($cmd[2] === 'maple/Filme') {
+            mkdir("$cache/Filme");
+            return [0, ''];
+        }
+        return [1, 'cannot create'];
+    };
+    $rows = [['share' => 'Filme', 'auto' => true], ['share' => 'Serien', 'auto' => true], ['share' => 'Doku', 'auto' => false], ['share' => 'Kaputt', 'auto' => true]];
+    same('share dataset: made like shfs (zfs create <pool>/<share>) — never over a folder there, never a share not his to make; a failure named',
+        [[['Filme'], ['Kaputt']], ['zfs create maple/Filme', 'zfs create maple/Kaputt'], true],
+        [jackMakeShareDatasets($rows, $cache, $mounts, $run), $asked, is_dir("$cache/Filme")]);
+    $asked = [];
+    same('share dataset: not on a pool that is not ZFS — nothing asked', [[[], []], []], [jackMakeShareDatasets($rows, "$tmp/mnt/bt", $mounts, $run), $asked]);
+
+    // his page and the Team Lead: «made at the next run» is no fault; a plain folder is a warning with the way to fix it by hand
+    $js = (string) file_get_contents(dirname(__DIR__) . '/public/desks/jack/desk.js');
+    check('share dataset: his page — «made at the next run» quiet, «not its own dataset» a warning, both counted right',
+        str_contains($js, "(x.root === false && !x.auto) || x.dataset === false") && str_contains($js, "T('root_auto'") && str_contains($js, "T('root_plain'"));
+    $php = (string) file_get_contents(dirname(__DIR__) . '/agent/desks/jack.php');
+    check('share dataset: the check share_dataset (recommended) and share_root without what he makes himself',
+        str_contains($php, "finding('share_dataset', 'recommended'") && str_contains($php, "\$s['root'] === false && !\$s['auto']"));
+    check('share dataset: made only before a real run that fetches', str_contains($php, "\$tool === 'embycache' && \$mode === 'run' && !\$noFill"));
+    $mo = (string) file_get_contents(dirname(__DIR__) . '/public/desks/moverelli/desk.js');
+    check('share dataset: Ms. Moverelli names the folders she counts as never moving', str_contains($mo, "T('setup.level_folders'"));
+    hardeningRm($tmp);
+}
+
+/**
  * Jack Streamer's files outside the movable shares' datasets (a user's report from 1.63.0, 2026-10-15): his media share not
  * movable («no» — or «yes» but its folder on the pool not a dataset of its own, made by his first copy). Before, his bytes
  * were capped at M: «Jack Streamer» only what lay in a movable dataset (11 GB new), his earlier files in «appdata & co.»,
@@ -34637,11 +34685,14 @@ function testPoolJackOutside(): void
     // Filme «yes» but its folder not a dataset of its own (his first copy made it): the same
     file_put_contents("$tmp/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
     same('pool jack outside: his share movable but its folder no dataset — the same numbers', $pick($l), $pick(poolLevel('cache', $o)));
+    same('pool jack outside: her page is told which movable share\'s folder is no dataset of its own (inbox #14)', [['Filme'], ['Downloads', 'Filme', 'Serien']],
+        [poolLevel('cache', $o)['folders'] ?? null, poolLevel('cache', $o)['shares'] ?? null]);
 
     // Filme a dataset of its own (as on a pool Unraid set up): his bytes in M, nothing outside — as before
     file_put_contents("$tmp/zfs", $zfs('cache/Filme\\t' . $old . '\\t1000000\\t' . $old . '\\t0\\ncache/Serien\\t1100\\t1000000\\t1100\\t0\\ncache/Downloads\\t5000\\t1000000\\t5000\\t0\\n'));
     $l = poolLevel('cache', $o);
     same('pool jack outside: his share a movable dataset — all in M, nothing outside, the others the downloads', [$old + $new, 6100 - $new, 0], [$l['jack'], $l['others'], $l['jack_out']]);
+    same('pool jack outside: every movable share a dataset — no folder named', [], $l['folders']);
 
     // the pure math: more of his than M lies outside; never more than what never moves
     $m = poolLevelMath(1000, 900, 100, 70, 150, 0);
@@ -36820,7 +36871,7 @@ function tilesConventionFaults(string $desk, string $file, string $js, ?array $t
 
 // ===================================================================== run
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testCaretakerAcks', 'testAckContent', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackKeyRedirect', 'testJackUpstream', 'testJackProgress', 'testJackReadyShares',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testNightHerPool', 'testNightPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testSetupAsleepKept', 'testSetupGoneApp', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDrill', 'testRestorePartner', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorInstall', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerWatch', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages',
